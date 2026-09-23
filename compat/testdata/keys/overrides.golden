@@ -1,0 +1,129 @@
+problems:
+  no_such_screen: is not a screen this build has; its bindings are ignored
+  list.cursor_up: cannot be left unbound: it is how this screen is worked
+  list.no_such_action: is not an action on this screen
+  list.attach: "j" is already bound to cursor_down
+  list.archive_all: "X" is already bound to archive
+
+resolved:
+[list]
+cursor_up = ["up", "k"]  # move the cursor up (required)
+cursor_down = ["down", "j"]  # move the cursor down (required)
+cursor_top = ["home"]  # jump to the top of the list
+cursor_bottom = ["end"]  # jump to the bottom
+open = ["enter"]  # focus the session, or fold the group (required)
+step_in = ["right"]  # step in: a session's work, then focus it
+step_out = ["left"]  # step out: fold the work, close the group
+last_pane = ["l"]  # focus the session you were on before this one; l again swaps back
+rescind_submission = ["ctrl+z"]  # rescind the latest submission while its turn is active
+jump_attention = ["tab"]  # enter the next session waiting on you
+jump_attention_back = ["shift+tab"]  # enter the one before it
+jump_waiting = ["alt+w"]  # enter the next waiting session
+jump_finished = ["alt+f"]  # enter the next finished session
+jump_errored = ["alt+e"]  # enter the next errored or dead session
+jump_idle = ["alt+i"]  # enter the next idle session
+jump_working = ["alt+k"]  # enter the next working session
+attach = []  # attach: the pane takes the terminal
+reorder_up = ["K", "shift+k", "shift+up"]  # reorder the row up
+reorder_down = ["J", "shift+j", "shift+down"]  # reorder the row down
+preview_scroll_up = ["alt+up"]  # scroll the preview up
+preview_scroll_down = ["alt+down"]  # scroll the preview down
+preview_page_up = ["alt+pgup"]  # scroll the preview a page up
+preview_page_down = ["alt+pgdown"]  # scroll the preview a page down
+preview_top = ["alt+home"]  # scroll the preview to its oldest
+preview_bottom = ["alt+end"]  # scroll the preview back to live
+new_session = ["n"]  # new session: asks which agent, unless settings names one
+new_session_form = ["ctrl+n"]  # new session, asking name, CLI, directory, task
+new_group = ["g"]  # new group
+new_terminal = ["T", "shift+t"]  # new terminal tab
+fork = ["f"]  # fork the session into a new one
+migrate = ["M", "shift+m"]  # migrate it to another CLI
+revive = ["v"]  # revive it, or restart a live one on its own conversation
+revive_all = ["V", "shift+v"]  # revive every dead session
+switch_account = ["a"]  # switch its account: restarts it on its own conversation
+restart = ["R", "shift+r"]  # restart it on an empty context
+archive = ["X"]  # end it and file the row
+archive_all = ["shift+x"]  # end every session listed
+restore = ["u"]  # restore it out of the archive
+dismiss = ["."]  # dismiss: mark it idle, or mute it
+priority = []  # priority: it goes first in triage
+hand_over = ["§"]  # in triage: mute this and enter the next
+quick_prompt = [" ", "space"]  # quick prompt
+rename_from_agent = ["r"]  # rename it after its conversation
+rename = ["alt+r"]  # rename it yourself, and re-pick its tool
+name_sweep = ["N", "shift+n"]  # name sweep over idle adopted panes
+take_over = ["O", "shift+o"]  # take over adopted panes: restart each as a managed session once idle
+move = ["m"]  # move it to a group
+editor = ["o"]  # open its directory in your editor
+show_all_work = ["W", "shift+w"]  # show every pull request and ticket, not the first few
+status_filter = ["w"]  # filter to what needs attention
+triage = ["i"]  # triage this group as one queue
+toggle_conversation = ["f3"]  # show full / shortened conversation
+gate = ["G", "shift+g"]  # gate: drain that queue one session at a time
+empty_groups = ["e"]  # hide / show empty groups
+fold_all = ["F", "shift+f"]  # fold / unfold everything
+archived_view = ["t"]  # archived view
+search = ["/"]  # search the list by name
+clear_search = ["esc"]  # clear the search
+resize_split = ["|"]  # resize the split
+settings = ["s"]  # settings
+toggle_chrome = [","]  # hide / show the key hints along the foot
+toggle_rail = ["\\"]  # hide / show the list beside the pane
+legend_peek = ["?"]  # peek at every available key
+help = ["H", "shift+h"]  # this key map (required)
+quit = ["q"]  # quit (sessions keep running) (required)
+
+[focus]
+leave = ["ctrl+q"]  # back to the manager; in triage, on to the next (required)
+toggle_conversation = ["f3"]  # show full / shortened conversation
+toggle_gate_input = ["f2"]  # gate: switch conversation / terminal
+hand_over = ["§"]  # ctrl+q's one-press alias
+leave_stop = ["ctrl+\\"]  # back to the manager, always stopping there (required)
+rescind_submission = ["ctrl+z"]  # rescind the latest submission while its turn is active
+editor = ["alt+o"]  # open its directory in an editor
+dismiss = ["alt+."]  # dismiss this one and go on to the next
+toggle_chrome = ["alt+,"]  # hide / show the key hints along the foot
+toggle_rail = ["alt+\\"]  # hide / show the list beside the pane
+archive = ["ctrl+x"]  # end it, asking first
+new_session = ["alt+n"]  # new session in this one's group, keeping your place
+copy_session_id = ["alt+y"]  # copy the agent's session id
+last_pane = ["alt+l"]  # back to the previous session; alt+l again swaps back
+leave_at_prompt = ["left"]  # at the prompt's start, back to the manager
+preview_scroll_up = ["alt+up"]  # scroll the pane up
+preview_scroll_down = ["alt+down"]  # scroll the pane down
+preview_page_up = ["alt+pgup"]  # scroll a page up
+preview_page_down = ["alt+pgdown"]  # scroll a page down
+preview_top = ["alt+home"]  # oldest history
+preview_bottom = ["alt+end"]  # back to the live bottom
+
+[name_sweep]
+cancel = ["esc", "n", "q"]  # cancel the sweep (required)
+cursor_up = ["up", "k"]  # move up (required)
+cursor_down = ["down", "j"]  # move down (required)
+page_up = ["pgup", "ctrl+u"]  # a page up
+page_down = ["pgdown", "ctrl+d"]  # a page down
+confirm = ["y", "enter"]  # run the sweep (required)
+
+[restore]
+cancel = ["esc", "n", "q"]  # leave the panes as they are (required)
+more = ["c"]  # choose which ones
+cursor_up = ["up", "k"]  # move up (required)
+cursor_down = ["down", "j"]  # move down (required)
+toggle = [" ", "space"]  # tick / untick the row
+tick_all = ["a"]  # tick every row, or start over
+confirm = ["y", "enter"]  # restore the ticked panes (required)
+
+[welcome]
+close = ["enter", "esc", "q", " ", "space"]  # close the guide (required)
+help = ["H", "?", "shift+h"]  # the key map
+cursor_up = ["up", "k"]  # move up (required)
+cursor_down = ["down", "j"]  # move down (required)
+page_up = ["pgup", "ctrl+u"]  # a page up
+page_down = ["pgdown", "ctrl+d"]  # a page down
+top = ["g", "home"]  # the top
+bottom = ["G", "end"]  # the bottom
+
+[confirm]
+toggle = [" ", "space"]  # answer the tick
+confirm = ["y", "enter"]  # go ahead (required)
+

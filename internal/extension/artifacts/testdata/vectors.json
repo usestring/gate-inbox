@@ -1,0 +1,15 @@
+{
+  "key": "test-key-not-a-real-secret",
+  "link": {
+    "id": "QUJDREVGR0hJSktMTU5PUA",
+    "exp": 1800000000,
+    "token": "eyJpZCI6IlFVSkRSRVZHUjBoSlNrdE1UVTVQVUEiLCJleHAiOjE4MDAwMDAwMDB9.DsOQTCS3PPRiFY8WuN-OU7ygqTn2AoWGetcbcsXBq04"
+  },
+  "request": {
+    "method": "PUT",
+    "path": "/a/QUJDREVGR0hJSktMTU5PUA",
+    "ts": 1700000000,
+    "body": "hello",
+    "header": "v1:1700000000:1k5bHgSzlkxk47YS0i9awJob3UmzwKtu55_VQ5Dq4bo"
+  }
+}

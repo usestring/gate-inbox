@@ -1,0 +1,297 @@
+
+######## claude
+
+== auto-named spawn
+plan.command: claude 'First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
+
+Fix the flaky widget test and report what changed.' --session-id <uuid>
+plan.launch_prompt: "First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): \"$GATE_INBOX_BIN\" rename \"<name>\". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:\n\nFix the flaky widget test and report what changed."
+plan.agent_session_id: "<uuid>"
+plan.model: ""
+plan.account: ""
+launch.command: claude 'First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
+
+Fix the flaky widget test and report what changed.' --session-id <uuid> --mcp-config '<scratch>/home/hooks/gate-inbox-mcp-claude.json' --settings '<scratch>/home/hooks/claude-settings.json'
+launch.env.EXAMPLE_API_KEY=<redacted>
+launch.env.GATE_INBOX_BIN=<scratch>/home/bin/gate-inbox
+launch.env.GATE_INBOX_HOME=<scratch>/home
+launch.env.GATE_INBOX_SESSION_ID=cafe0001
+launch.env.GATE_INBOX_STATUS_FILE=<scratch>/home/hooks/cafe0001.status
+launch.env.HOME=<scratch>/user
+launch.env.OPERATOR_EXPORT=inherited
+launch.env.PATH=<scratch>/bin
+launch.env.TMUX_TMPDIR=<scratch>/tmux
+
+== named spawn
+plan.command: claude 'This session is already named. You can rename it later with "$GATE_INBOX_BIN" rename "<name>" only if the user asks. Do not rename it now. Then do the task:
+
+Fix the flaky widget test and report what changed.' --session-id <uuid>
+plan.launch_prompt: "This session is already named. You can rename it later with \"$GATE_INBOX_BIN\" rename \"<name>\" only if the user asks. Do not rename it now. Then do the task:\n\nFix the flaky widget test and report what changed."
+plan.agent_session_id: "<uuid>"
+plan.model: ""
+plan.account: ""
+launch.command: claude 'This session is already named. You can rename it later with "$GATE_INBOX_BIN" rename "<name>" only if the user asks. Do not rename it now. Then do the task:
+
+Fix the flaky widget test and report what changed.' --session-id <uuid> --mcp-config '<scratch>/home/hooks/gate-inbox-mcp-claude.json' --settings '<scratch>/home/hooks/claude-settings.json'
+launch.env.EXAMPLE_API_KEY=<redacted>
+launch.env.GATE_INBOX_BIN=<scratch>/home/bin/gate-inbox
+launch.env.GATE_INBOX_HOME=<scratch>/home
+launch.env.GATE_INBOX_SESSION_ID=cafe0001
+launch.env.GATE_INBOX_STATUS_FILE=<scratch>/home/hooks/cafe0001.status
+launch.env.HOME=<scratch>/user
+launch.env.OPERATOR_EXPORT=inherited
+launch.env.PATH=<scratch>/bin
+launch.env.TMUX_TMPDIR=<scratch>/tmux
+
+== spawn whose directory could not be opened
+plan.command: claude 'Your working directory for this task is /srv/example/moved. This session was started in a different directory, so change into it first with "cd '\''/srv/example/moved'\''". If it is not there, stop and say so rather than working anywhere else.
+
+First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
+
+Fix the flaky widget test and report what changed.' --session-id <uuid>
+plan.launch_prompt: "Your working directory for this task is /srv/example/moved. This session was started in a different directory, so change into it first with \"cd '/srv/example/moved'\". If it is not there, stop and say so rather than working anywhere else.\n\nFirst, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): \"$GATE_INBOX_BIN\" rename \"<name>\". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:\n\nFix the flaky widget test and report what changed."
+plan.agent_session_id: "<uuid>"
+plan.model: ""
+plan.account: ""
+launch.command: claude 'Your working directory for this task is /srv/example/moved. This session was started in a different directory, so change into it first with "cd '\''/srv/example/moved'\''". If it is not there, stop and say so rather than working anywhere else.
+
+First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
+
+Fix the flaky widget test and report what changed.' --session-id <uuid> --mcp-config '<scratch>/home/hooks/gate-inbox-mcp-claude.json' --settings '<scratch>/home/hooks/claude-settings.json'
+launch.env.EXAMPLE_API_KEY=<redacted>
+launch.env.GATE_INBOX_BIN=<scratch>/home/bin/gate-inbox
+launch.env.GATE_INBOX_HOME=<scratch>/home
+launch.env.GATE_INBOX_SESSION_ID=cafe0001
+launch.env.GATE_INBOX_STATUS_FILE=<scratch>/home/hooks/cafe0001.status
+launch.env.HOME=<scratch>/user
+launch.env.OPERATOR_EXPORT=inherited
+launch.env.PATH=<scratch>/bin
+launch.env.TMUX_TMPDIR=<scratch>/tmux
+
+== spawn on a chosen model
+plan.command: claude 'First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
+
+Fix the flaky widget test and report what changed.' --session-id <uuid> --model 'example-model'
+plan.launch_prompt: "First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): \"$GATE_INBOX_BIN\" rename \"<name>\". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:\n\nFix the flaky widget test and report what changed."
+plan.agent_session_id: "<uuid>"
+plan.model: "example-model"
+plan.account: ""
+launch.command: claude 'First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
+
+Fix the flaky widget test and report what changed.' --session-id <uuid> --model 'example-model' --mcp-config '<scratch>/home/hooks/gate-inbox-mcp-claude.json' --settings '<scratch>/home/hooks/claude-settings.json'
+launch.env.EXAMPLE_API_KEY=<redacted>
+launch.env.GATE_INBOX_BIN=<scratch>/home/bin/gate-inbox
+launch.env.GATE_INBOX_HOME=<scratch>/home
+launch.env.GATE_INBOX_SESSION_ID=cafe0001
+launch.env.GATE_INBOX_STATUS_FILE=<scratch>/home/hooks/cafe0001.status
+launch.env.HOME=<scratch>/user
+launch.env.OPERATOR_EXPORT=inherited
+launch.env.PATH=<scratch>/bin
+launch.env.TMUX_TMPDIR=<scratch>/tmux
+
+== revive without a captured conversation id
+command: claude --continue
+
+== revive with a captured conversation id
+command: claude --resume '<uuid>'
+
+######## codex
+
+== auto-named spawn
+plan.command: codex 'First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
+
+Fix the flaky widget test and report what changed.'
+plan.launch_prompt: "First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): \"$GATE_INBOX_BIN\" rename \"<name>\". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:\n\nFix the flaky widget test and report what changed."
+plan.agent_session_id: ""
+plan.model: ""
+plan.account: ""
+launch.command: codex 'First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
+
+Fix the flaky widget test and report what changed.' -c 'mcp_servers.gate-inbox.command="<scratch>/home/bin/gate-inbox"' -c 'mcp_servers.gate-inbox.args=["mcp"]' -c 'mcp_servers.gate-inbox.env_vars=["GATE_INBOX_SESSION_ID"]'
+launch.env.EXAMPLE_API_KEY=<redacted>
+launch.env.GATE_INBOX_BIN=<scratch>/home/bin/gate-inbox
+launch.env.GATE_INBOX_HOME=<scratch>/home
+launch.env.GATE_INBOX_SESSION_ID=cafe0001
+launch.env.HOME=<scratch>/user
+launch.env.OPERATOR_EXPORT=inherited
+launch.env.PATH=<scratch>/bin
+launch.env.TMUX_TMPDIR=<scratch>/tmux
+
+== named spawn
+plan.command: codex 'This session is already named. You can rename it later with "$GATE_INBOX_BIN" rename "<name>" only if the user asks. Do not rename it now. Then do the task:
+
+Fix the flaky widget test and report what changed.'
+plan.launch_prompt: "This session is already named. You can rename it later with \"$GATE_INBOX_BIN\" rename \"<name>\" only if the user asks. Do not rename it now. Then do the task:\n\nFix the flaky widget test and report what changed."
+plan.agent_session_id: ""
+plan.model: ""
+plan.account: ""
+launch.command: codex 'This session is already named. You can rename it later with "$GATE_INBOX_BIN" rename "<name>" only if the user asks. Do not rename it now. Then do the task:
+
+Fix the flaky widget test and report what changed.' -c 'mcp_servers.gate-inbox.command="<scratch>/home/bin/gate-inbox"' -c 'mcp_servers.gate-inbox.args=["mcp"]' -c 'mcp_servers.gate-inbox.env_vars=["GATE_INBOX_SESSION_ID"]'
+launch.env.EXAMPLE_API_KEY=<redacted>
+launch.env.GATE_INBOX_BIN=<scratch>/home/bin/gate-inbox
+launch.env.GATE_INBOX_HOME=<scratch>/home
+launch.env.GATE_INBOX_SESSION_ID=cafe0001
+launch.env.HOME=<scratch>/user
+launch.env.OPERATOR_EXPORT=inherited
+launch.env.PATH=<scratch>/bin
+launch.env.TMUX_TMPDIR=<scratch>/tmux
+
+== spawn whose directory could not be opened
+plan.command: codex 'Your working directory for this task is /srv/example/moved. This session was started in a different directory, so change into it first with "cd '\''/srv/example/moved'\''". If it is not there, stop and say so rather than working anywhere else.
+
+First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
+
+Fix the flaky widget test and report what changed.'
+plan.launch_prompt: "Your working directory for this task is /srv/example/moved. This session was started in a different directory, so change into it first with \"cd '/srv/example/moved'\". If it is not there, stop and say so rather than working anywhere else.\n\nFirst, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): \"$GATE_INBOX_BIN\" rename \"<name>\". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:\n\nFix the flaky widget test and report what changed."
+plan.agent_session_id: ""
+plan.model: ""
+plan.account: ""
+launch.command: codex 'Your working directory for this task is /srv/example/moved. This session was started in a different directory, so change into it first with "cd '\''/srv/example/moved'\''". If it is not there, stop and say so rather than working anywhere else.
+
+First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
+
+Fix the flaky widget test and report what changed.' -c 'mcp_servers.gate-inbox.command="<scratch>/home/bin/gate-inbox"' -c 'mcp_servers.gate-inbox.args=["mcp"]' -c 'mcp_servers.gate-inbox.env_vars=["GATE_INBOX_SESSION_ID"]'
+launch.env.EXAMPLE_API_KEY=<redacted>
+launch.env.GATE_INBOX_BIN=<scratch>/home/bin/gate-inbox
+launch.env.GATE_INBOX_HOME=<scratch>/home
+launch.env.GATE_INBOX_SESSION_ID=cafe0001
+launch.env.HOME=<scratch>/user
+launch.env.OPERATOR_EXPORT=inherited
+launch.env.PATH=<scratch>/bin
+launch.env.TMUX_TMPDIR=<scratch>/tmux
+
+== spawn on a chosen model
+plan.command: codex 'First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
+
+Fix the flaky widget test and report what changed.' --model 'example-model'
+plan.launch_prompt: "First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): \"$GATE_INBOX_BIN\" rename \"<name>\". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:\n\nFix the flaky widget test and report what changed."
+plan.agent_session_id: ""
+plan.model: "example-model"
+plan.account: ""
+launch.command: codex 'First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
+
+Fix the flaky widget test and report what changed.' --model 'example-model' -c 'mcp_servers.gate-inbox.command="<scratch>/home/bin/gate-inbox"' -c 'mcp_servers.gate-inbox.args=["mcp"]' -c 'mcp_servers.gate-inbox.env_vars=["GATE_INBOX_SESSION_ID"]'
+launch.env.EXAMPLE_API_KEY=<redacted>
+launch.env.GATE_INBOX_BIN=<scratch>/home/bin/gate-inbox
+launch.env.GATE_INBOX_HOME=<scratch>/home
+launch.env.GATE_INBOX_SESSION_ID=cafe0001
+launch.env.HOME=<scratch>/user
+launch.env.OPERATOR_EXPORT=inherited
+launch.env.PATH=<scratch>/bin
+launch.env.TMUX_TMPDIR=<scratch>/tmux
+
+== revive without a captured conversation id
+command: codex resume --last
+
+== revive with a captured conversation id
+command: codex resume '<uuid>'
+
+######## opencode
+
+== auto-named spawn
+plan.command: opencode
+plan.launch_prompt: ""
+plan.pending_inputs[0]: "Fix the flaky widget test and report what changed."
+plan.agent_session_id: ""
+plan.model: ""
+plan.account: ""
+launch.command: opencode --standalone
+launch.env.EXAMPLE_API_KEY=<redacted>
+launch.env.GATE_INBOX_BIN=<scratch>/home/bin/gate-inbox
+launch.env.GATE_INBOX_HOME=<scratch>/home
+launch.env.GATE_INBOX_SESSION_ID=cafe0001
+launch.env.HOME=<scratch>/user
+launch.env.OPENCODE_CONFIG=<scratch>/home/hooks/gate-inbox-mcp-opencode.json
+launch.env.OPERATOR_EXPORT=inherited
+launch.env.PATH=<scratch>/bin
+launch.env.TMUX_TMPDIR=<scratch>/tmux
+
+== named spawn
+plan.command: opencode
+plan.launch_prompt: ""
+plan.pending_inputs[0]: "Fix the flaky widget test and report what changed."
+plan.agent_session_id: ""
+plan.model: ""
+plan.account: ""
+launch.command: opencode --standalone
+launch.env.EXAMPLE_API_KEY=<redacted>
+launch.env.GATE_INBOX_BIN=<scratch>/home/bin/gate-inbox
+launch.env.GATE_INBOX_HOME=<scratch>/home
+launch.env.GATE_INBOX_SESSION_ID=cafe0001
+launch.env.HOME=<scratch>/user
+launch.env.OPENCODE_CONFIG=<scratch>/home/hooks/gate-inbox-mcp-opencode.json
+launch.env.OPERATOR_EXPORT=inherited
+launch.env.PATH=<scratch>/bin
+launch.env.TMUX_TMPDIR=<scratch>/tmux
+
+== spawn whose directory could not be opened
+plan.command: opencode
+plan.launch_prompt: ""
+plan.pending_inputs[0]: "Your working directory for this task is /srv/example/moved. This session was started in a different directory, so change into it first with \"cd '/srv/example/moved'\". If it is not there, stop and say so rather than working anywhere else.\n\nFix the flaky widget test and report what changed."
+plan.agent_session_id: ""
+plan.model: ""
+plan.account: ""
+launch.command: opencode --standalone
+launch.env.EXAMPLE_API_KEY=<redacted>
+launch.env.GATE_INBOX_BIN=<scratch>/home/bin/gate-inbox
+launch.env.GATE_INBOX_HOME=<scratch>/home
+launch.env.GATE_INBOX_SESSION_ID=cafe0001
+launch.env.HOME=<scratch>/user
+launch.env.OPENCODE_CONFIG=<scratch>/home/hooks/gate-inbox-mcp-opencode.json
+launch.env.OPERATOR_EXPORT=inherited
+launch.env.PATH=<scratch>/bin
+launch.env.TMUX_TMPDIR=<scratch>/tmux
+
+== spawn on a chosen model
+plan.command: opencode
+plan.launch_prompt: ""
+plan.pending_inputs[0]: "Fix the flaky widget test and report what changed."
+plan.agent_session_id: ""
+plan.model: "example-model"
+plan.account: ""
+launch.command: opencode --standalone
+launch.env.EXAMPLE_API_KEY=<redacted>
+launch.env.GATE_INBOX_BIN=<scratch>/home/bin/gate-inbox
+launch.env.GATE_INBOX_HOME=<scratch>/home
+launch.env.GATE_INBOX_SESSION_ID=cafe0001
+launch.env.HOME=<scratch>/user
+launch.env.OPENCODE_CONFIG=<scratch>/home/hooks/gate-inbox-mcp-opencode-cafe0001.json
+launch.env.OPERATOR_EXPORT=inherited
+launch.env.PATH=<scratch>/bin
+launch.env.TMUX_TMPDIR=<scratch>/tmux
+
+== revive without a captured conversation id
+command: opencode --continue
+
+== revive with a captured conversation id
+command: opencode --session '<uuid>'
+
+######## terminal: a shell, not launched through a plan
+
+######## claude, launched on a pooled account
+
+== spawn on account ada1
+plan.command: claude 'First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
+
+Fix the flaky widget test and report what changed.' --session-id <uuid>
+plan.launch_prompt: "First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): \"$GATE_INBOX_BIN\" rename \"<name>\". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:\n\nFix the flaky widget test and report what changed."
+plan.agent_session_id: "<uuid>"
+plan.model: ""
+plan.account: "ADA1"
+launch.command: claude 'First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
+
+Fix the flaky widget test and report what changed.' --session-id <uuid> --mcp-config '<scratch>/home/hooks/gate-inbox-mcp-claude.json' --settings '<scratch>/home/hooks/claude-settings.json'
+launch.env.CLAUDE_CODE_OAUTH_TOKEN=<redacted>
+launch.env.EXAMPLE_API_KEY=<redacted>
+launch.env.GATE_INBOX_BIN=<scratch>/home/bin/gate-inbox
+launch.env.GATE_INBOX_HOME=<scratch>/home
+launch.env.GATE_INBOX_SESSION_ID=cafe0001
+launch.env.GATE_INBOX_STATUS_FILE=<scratch>/home/hooks/cafe0001.status
+launch.env.HOME=<scratch>/user
+launch.env.OPERATOR_EXPORT=inherited
+launch.env.PATH=<scratch>/bin
+launch.env.TMUX_TMPDIR=<scratch>/tmux
+
+== secret store calls made
+secrets read EXAMPLE_TOKEN_ADA1

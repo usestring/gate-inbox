@@ -1,0 +1,90 @@
+# Tests this module's CI does not run, and why.
+#
+# tools/testreport reads this file. A test that skips in CI without appearing
+# here fails the job: almost every tmux-driven test in this suite skips itself
+# when tmux is missing rather than failing, so a job that only checked the
+# exit code would be just as green with four tests run as with sixteen
+# hundred. Naming the exceptions is what makes the green mean something.
+#
+# One entry per line: <package> <TestName>, '#' starts a comment. A name
+# ending in '?' may skip rather than must -- for skips that depend on the
+# host rather than on a switch -- and is the only kind that is allowed not to
+# skip. Everything else is expected on every run, and an entry whose test has
+# started running again fails the job too, so this file cannot quietly drift
+# out of date.
+
+# Opt-in probes. Each reports on the machine it runs on rather than asserting
+# anything, so there is nothing for CI to check.
+internal/adopt TestScanThisMachine          # needs ADOPT_PROBE=1
+internal/ui TestZZShot                      # needs GATE_INBOX_SHOT, renders a frame to look at
+internal/sysstat TestRealBoardProcsPhase        # needs PROCS_MEASURE=1 and a live tmux board
+internal/sysstat TestRealBoardProcsAlternatives # needs PROCS_MEASURE=1 and a live tmux board
+internal/sysstat TestRealBoardSamplerCost       # needs PROCS_MEASURE=1 and a live tmux board
+internal/store TestInboxReadCost            # needs INBOX_MEASURE=1
+internal/convo TestRealCorpusRefreshCost    # needs CONVO_MEASURE=1 and a real Claude Code corpus
+internal/search TestRealCorpus              # needs GATE_SEARCH_BENCH_SESSIONS and a real Claude Code corpus
+internal/search TestRealCodexRollout        # needs GATE_SEARCH_BENCH_SESSIONS and a real Codex rollout
+internal/search TestRealOpenCodeParts       # needs GATE_SEARCH_BENCH_SESSIONS and a real opencode database
+internal/search TestRealLayouts             # needs GATE_SEARCH_BENCH_SESSIONS and a real Claude Code corpus
+internal/adopt TestRealBoardSweepCost       # needs SWEEP_MEASURE=1 and a live tmux board
+internal/tmux TestRealBoardCaptureCost      # needs BOARD_MEASURE=1 and a live tmux board
+internal/tmux TestRealBoardChainedCaptureCost # needs BOARD_MEASURE=1 and a live tmux board
+internal/ui TestSoakSessionChurn            # needs GATE_INBOX_SOAK=1, reports goroutines/fds/heap under churn
+internal/ui TestRealBoardWorkE2E            # needs E2E_STATE_DB and a real board's transcripts, GitHub and Linear
+
+# Needs a real agent CLI and a live conversation to sweep.
+internal/ui TestLiveAdoptedPaneRenamesItself  # needs GATE_INBOX_LIVE_SWEEP=1
+
+# Reads the operator's own ~/.claude to prove the process signal separates
+# panes that share a working directory. Reports on the machine it runs on.
+internal/ui TestLiveSmartRenameOnARealPane  # needs GATE_INBOX_LIVE_SMART=1
+
+# Needs a real agent CLI to scroll its own viewport off the live bottom.
+internal/ui TestLiveScrolledPaneKeepsItsStatus  # needs GATE_INBOX_LIVE_SCROLL=1
+
+# Quarantined, not gated: it races the pane's first prompt and fails about
+# four runs in five on main. The comment above it says why no wait fixes it.
+# This is a real coverage gap, not an environment one.
+internal/ui TestPendingInputWaitsForTheLaunchPrompt
+
+# These wait on something a loaded machine may not produce in time -- a tmux
+# control client attaching, a pane accumulating scrollback -- and skip rather
+# than fail when it does not. Conditional, so they are not required to skip;
+# when they do, the job summary says so.
+internal/ui TestFocusWheelScrollsHistory?
+internal/ui TestFocusScrollRecapturesAfterPreviewResize?
+internal/ui TestFocusScrollKeepsDeepHistoryFrame?
+internal/ui TestTypingResumesLiveView?
+internal/ui TestScrollStopsAtHistoryTop?
+internal/ui TestFocusKeepsPaneHeight?
+
+# Splits a fixture at a byte window and skips when the cut lands on a line
+# boundary, so there is nothing to assert about the half-line it drops.
+internal/convo TestParseTailDropsTheLineTheWindowCutInHalf?
+
+# Needs python3 -- Go's runtime forks from its main task, so it cannot build
+# the worker-thread case -- and skips if that run happens to fork from the
+# main thread anyway, which would prove nothing. Conditional either way.
+internal/sysstat TestChildrenOfFindsAChildForkedByAWorkerThread?
+
+# More opt-in probes and live runs, off unless their switch is set.
+internal/tmux TestCaptureRetentionOverThePipe     # needs GATE_INBOX_ARENA_PROBE=1, thousands of captures over minutes
+internal/tmux TestClientDeviceLiveProbe           # needs GATE_INBOX_DEVICE_PROBE_SOCKET, an isolated attached client
+internal/ui TestOpencodeQuestionDialogLeavesFocusE2E # needs GATE_INBOX_E2E_OPENCODE_QUESTION and a working opencode
+
+# Not a test: the child body TestTheRawWalkEntersTheKernelFarLessOften
+# re-execs with SYSSTAT_WALK_PROBE set. That parent runs in CI.
+internal/sysstat TestWalkSyscallProbe
+
+# Real opencode. Both run where it is installed; the launch one needs v2,
+# because mcpreg asks the real binary for its version.
+internal/sessioncmd TestModelsAsksTheInstalledOpencode?             # opencode on PATH
+internal/launch TestEnvironmentWritesOpencodeV2ModelIntoItsConfig?  # opencode v2 on PATH
+
+# Launch a pane under /usr/bin/zsh, which the runner image does not ship.
+internal/launch TestComposeReachesAPaneUnderTheOperatorShell?
+
+# Replay a real long-lived Claude Code transcript the operator supplies through
+# HANDOVER_E2E_TRANSCRIPT; skipped when unset.
+internal/handover TestHandoverE2EFiltersARealLongLivedTranscript?
+internal/handover TestHandoverE2EDeviationCutOnTheRealTranscript?

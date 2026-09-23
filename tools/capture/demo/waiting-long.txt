@@ -1,0 +1,44 @@
+❯ add the capture step to the release checklist
+
+● Reading docs/release.md
+  1. Tag the release branch.
+  2. Run the smoke suite against the tag.
+  3. Draft the notes from the merged titles.
+
+● Reading tools/capture/README.md
+  The harness records the real TUI against canned transcripts, so a
+  recording spends no tokens and reaches no network.
+
+● Searching for the checklist's other capture mentions
+  docs/release.md:12
+  docs/review.md:40
+  tools/capture/README.md:3
+
+● Reading docs/review.md
+  40. A UI change lands with stills and a recording on its pull request.
+
+● The two documents disagree about who attaches the capture. release.md
+  leaves it to the releaser; review.md puts it on the author. The author
+  is the one who has the branch, so the checklist should say the capture
+  is already on the pull request by the time the release is cut.
+
+● Reading git log for the last five release commits
+  8c1c4ce Capture Claude subscription token ingestion as a one-time skill
+  c49eec1 Give the Gate Inbox gate view v1's session controls
+  82a4693 chore(opencode): point the team defaults at muse-spark 1.3
+  3257a4f Deduplicate the Codex skill root
+  c67d9d1 Scan argv only for tools whose status comes from hooks
+
+● None of the five touched the checklist, so the step is new rather than
+  a restoration of one that was dropped.
+
+● Drafting the edit
+
+  docs/release.md
+  + 4. Attach the capture GIF and stills to the PR description.
+
+Do you want to make this edit?
+❯ 1. Yes
+  2. No, tell me what to do differently
+
+Enter to confirm · Esc to cancel

@@ -1,0 +1,50 @@
+
+  ┃                                                                                                                                                             New session - 2026-09-12T01:56:54.
+  ┃  please run the bash command: echo hello-from-probe                                                                                                         052Z
+  ┃  1:56 AM
+  ┃                                                                                                                                                             Context
+                                                                                                                                                                25,276 tokens
+     Thought · 219ms                                                                                                                                            2% used
+                                                                                                                                                                $0.00 spent
+     Running that for you — echoing hello-from-probe.
+                                                                                                                                                                MCP
+  ┃                                                                                                                                                                • gate-inbox Connected
+  ┃  $ echo hello-from-probe                                                                                                                                    • example-web-access Incompatible
+  ┃                                                                                                                                                               auth server: does not support
+  ┃  hello-from-probe                                                                                                                                             dynamic client registration
+  ┃
+                                                                                                                                                                LSP
+     Thought · 4ms                                                                                                                                              LSPs are disabled
+
+     hello-from-probe
+
+     ▣  Build · Muse Spark 1.3 Free · 5.4s
+
+  ┃
+  ┃  use the question tool to ask me which color I like, with 3 options
+  ┃  1:57 AM
+  ┃
+
+     Thought · 163ms
+
+     Love it — pulling up a quick color picker so you can tap your favorite.
+
+     → Asked 1 question
+
+     ▣  Build · Muse Spark 1.3 Free
+
+
+  ┃
+  ┃  Which color do you like?
+  ┃
+  ┃  1. Blue
+  ┃     Calm and cool tone
+  ┃  2. Red
+  ┃     Bold and vibrant tone
+  ┃  3. Green
+  ┃     Fresh and natural tone
+  ┃  4. Type your own answer
+  ┃                                                                                                                                                             /tmp/oc-left-test
+  ┃  ↑↓ select  enter submit  esc dismiss
+  ┃                                                                                                                                                             • OpenCode 1.18.30
+

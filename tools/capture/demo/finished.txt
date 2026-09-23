@@ -1,0 +1,7 @@
+❯ run the unit tests
+
+● go test ./... — ok, 214 passed
+
+✻ Worked for 1m 12s · done 11:31 PM
+
+❯ 

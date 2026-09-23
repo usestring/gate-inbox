@@ -1,0 +1,6 @@
+{"type":"ai-title","sessionId":"conversation","aiTitle":"Inbox conversation"}
+{"type":"user","sessionId":"conversation","message":{"role":"user","content":"Make the inbox easier to read."}}
+{"type":"assistant","sessionId":"conversation","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Internal analysis must stay hidden."},{"type":"text","text":"I will separate your messages from my replies."},{"type":"tool_use","name":"Bash","input":{"command":"go test ./internal/ui"}}]}}
+{"type":"user","sessionId":"conversation","message":{"role":"user","content":[{"type":"tool_result","content":"Internal tool output must stay hidden."}]}}
+{"type":"user","sessionId":"conversation","message":{"role":"user","content":"Keep just the messages to me and from me."}}
+{"type":"assistant","sessionId":"conversation","message":{"role":"assistant","content":[{"type":"text","text":"The message view is ready. Each turn has its own labeled box.\n\nTool activity and internal context are hidden.\nYour inputs and my replies stay in order.\nYou can review the conversation while writing your next reply.\nExpand the messages whenever you need the full detail.\nThe draft stays in place while you switch views."}]}}

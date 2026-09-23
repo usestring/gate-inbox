@@ -1,0 +1,22 @@
+# A config as an older release wrote it: claude's busy_line and its bare
+# "Enter to confirm" waiting rule verbatim, fields newer releases added
+# absent, and the supervisor's deprecated opt-in still set.
+poll_interval = "2s"
+
+[supervisor]
+enabled = true
+
+[tools.claude]
+command = "claude"
+revive_command = "claude --continue"
+status_source = "claude-hooks"
+default_status = "idle"
+activity_cutoff = "(?m)^❯"
+busy_line = '^[✻✳✶✽✢·✦✧+*] (?:Waiting for \d+ background agents? to finish|\S+ for \d.*· \d+ [^·]*still running)'
+rules = [
+  { state = "waiting", pattern = "Enter to confirm" },
+  { state = "working", pattern = "esc to interrupt" },
+]
+
+[tools.codex]
+command = "codex"

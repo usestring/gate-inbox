@@ -1,0 +1,5 @@
+❯ where does the takeover key live?
+
+● internal/ui/takeover.go. It asks once, restarts the idle panes now, and takes the busy ones as they go idle.
+
+❯ 

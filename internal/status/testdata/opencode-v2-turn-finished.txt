@@ -1,0 +1,40 @@
+
+  ┃                                                                                                 New session - 2026-09-15T17:34:03.
+  ┃  Reply with exactly the word HELLO and nothing else.                                            742Z
+  ┃
+                                                                                                    Context
+     HELLO                                                                                          13,293 tokens
+                                                                                                    1% used
+     Build · DeepSeek V4 Pro (New) · 1.7s · 102.6 tok/s                                             $0.01 spent
+
+                                                                                                    MCP
+                                                                                                    • example-web-access         Connected
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · DeepSeek V4 Pro (New) OpenCode Go
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /…/ocprobe    13.3K (1%) · $0.01  ctrl+p commands    /…/ocprobe
+

@@ -1,0 +1,609 @@
+package clipboard
+
+import (
+	"bytes"
+	"encoding/base64"
+	"errors"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+)
+
+func restore() func() {
+	origGOOS, origLook, origRun, origToFile, origWSL, origNative := goos, lookPath, runCmd, runCmdToFile, wslProbe, readNativeImage
+	origEnv, origEmit := getenv, emitSeq
+	return func() {
+		goos, lookPath, runCmd, runCmdToFile, wslProbe, readNativeImage = origGOOS, origLook, origRun, origToFile, origWSL, origNative
+		getenv, emitSeq = origEnv, origEmit
+	}
+}
+
+// headlessLinux is the reported bug's environment: a Linux box with no
+// display server behind a terminal that does have a clipboard.
+func headlessLinux() {
+	goos = "linux"
+	wslProbe = func() bool { return false }
+	getenv = func(string) string { return "" }
+}
+
+func TestSaveImageDarwinPrefersNative(t *testing.T) {
+	defer restore()()
+	goos = "darwin"
+	want := []byte("native-png-bytes")
+	var jxaCalled bool
+	readNativeImage = func() ([]byte, error) {
+		return want, nil
+	}
+	runCmd = func(name string, args ...string) ([]byte, error) {
+		jxaCalled = true
+		return nil, errors.New("jxa should not run")
+	}
+	path, err := SaveImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(path)
+	if jxaCalled {
+		t.Fatal("native path should skip JXA osascript")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(want) {
+		t.Fatalf("got %q", data)
+	}
+}
+
+func TestSaveImageDarwinNativeNoImageSkipsJXA(t *testing.T) {
+	defer restore()()
+	goos = "darwin"
+	var jxaCalled bool
+	readNativeImage = func() ([]byte, error) {
+		return nil, ErrNoImage
+	}
+	runCmd = func(name string, args ...string) ([]byte, error) {
+		jxaCalled = true
+		return nil, nil
+	}
+	if _, err := SaveImage(); !errors.Is(err, ErrNoImage) {
+		t.Fatalf("want ErrNoImage, got %v", err)
+	}
+	if jxaCalled {
+		t.Fatal("empty native clipboard must not fall through to JXA")
+	}
+}
+
+func TestSaveImageDarwinFallsBackToJXAWhenNativeBroken(t *testing.T) {
+	defer restore()()
+	goos = "darwin"
+	want := []byte("jxa-png")
+	readNativeImage = func() ([]byte, error) {
+		return nil, errors.New("purego init failed")
+	}
+	runCmd = func(name string, args ...string) ([]byte, error) {
+		if name != "osascript" {
+			t.Fatalf("expected osascript, got %q", name)
+		}
+		path := args[len(args)-1]
+		if err := os.WriteFile(path, want, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return []byte("7"), nil
+	}
+	path, err := SaveImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(path)
+	data, _ := os.ReadFile(path)
+	if string(data) != string(want) {
+		t.Fatalf("got %q", data)
+	}
+}
+
+func TestSaveImageLinuxWlPasteStreamsToFile(t *testing.T) {
+	defer restore()()
+	goos = "linux"
+	wslProbe = func() bool { return false }
+	readNativeImage = nil
+	want := []byte("wayland-png")
+	lookPath = func(name string) (string, error) {
+		if name == "wl-paste" {
+			return "/usr/bin/wl-paste", nil
+		}
+		return "", errors.New("not found")
+	}
+	var wrote string
+	runCmdToFile = func(outPath string, name string, args ...string) error {
+		if name != "wl-paste" {
+			t.Fatalf("expected wl-paste, got %q", name)
+		}
+		wrote = outPath
+		return os.WriteFile(outPath, want, 0o644)
+	}
+	path, err := SaveImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(path)
+	if wrote != path {
+		t.Fatalf("tool should stream to final path; wrote %q returned %q", wrote, path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string(want) {
+		t.Fatalf("got %q", data)
+	}
+}
+
+func TestSaveImageLinuxXclipFallback(t *testing.T) {
+	defer restore()()
+	goos = "linux"
+	wslProbe = func() bool { return false }
+	readNativeImage = nil
+	lookPath = func(name string) (string, error) {
+		if name == "xclip" {
+			return "/usr/bin/xclip", nil
+		}
+		return "", errors.New("not found")
+	}
+	var used string
+	runCmdToFile = func(outPath string, name string, args ...string) error {
+		used = name
+		return os.WriteFile(outPath, []byte("x11-png"), 0o644)
+	}
+	path, err := SaveImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(path)
+	if used != "xclip" {
+		t.Fatalf("expected xclip, used %q", used)
+	}
+}
+
+func TestSaveImageLinuxNoTool(t *testing.T) {
+	defer restore()()
+	goos = "linux"
+	wslProbe = func() bool { return false }
+	readNativeImage = nil
+	lookPath = func(name string) (string, error) { return "", errors.New("not found") }
+	_, err := SaveImage()
+	if err == nil || errors.Is(err, ErrNoImage) {
+		t.Fatalf("want a missing-tool error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "wl-clipboard") {
+		t.Fatalf("error should name the tools to install, got %v", err)
+	}
+}
+
+func TestSaveImageWSLUsesWindowsClipboard(t *testing.T) {
+	defer restore()()
+	t.Setenv("TMPDIR", t.TempDir())
+	goos = "linux"
+	wslProbe = func() bool { return true }
+	readNativeImage = nil
+	lookPath = func(name string) (string, error) {
+		switch name {
+		case "powershell.exe":
+			return "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe", nil
+		case "wslpath":
+			return "/usr/bin/wslpath", nil
+		default:
+			return "", errors.New("not found")
+		}
+	}
+	var sawPS, sawWslpath bool
+	var psScript string
+	var pastePath string
+	runCmd = func(name string, args ...string) ([]byte, error) {
+		base := filepath.Base(name)
+		if base == "wslpath" || name == "wslpath" {
+			sawWslpath = true
+			pastePath = args[len(args)-1]
+			return []byte(`C:\Users\me\paste.png`), nil
+		}
+		if strings.Contains(base, "powershell") || strings.Contains(name, "powershell") {
+			sawPS = true
+			psScript = args[len(args)-1]
+			if pastePath == "" {
+				t.Fatal("wslpath should run before powershell")
+			}
+			if err := os.WriteFile(pastePath, []byte("win-png"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return nil, nil
+		}
+		t.Fatalf("unexpected command %q %v", name, args)
+		return nil, nil
+	}
+	path, err := SaveImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(path)
+	if !sawPS || !sawWslpath {
+		t.Fatalf("want powershell + wslpath, sawPS=%v sawWslpath=%v", sawPS, sawWslpath)
+	}
+	if !strings.Contains(psScript, "Clipboard]::GetImage") {
+		t.Fatalf("script should read Windows clipboard image, got %q", psScript)
+	}
+	if !strings.Contains(psScript, `C:\Users\me\paste.png`) {
+		t.Fatalf("script should save to wslpath result, got %q", psScript)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "win-png" {
+		t.Fatalf("got %q", data)
+	}
+}
+
+func TestSaveImageWSLFallsBackWhenNativeMisses(t *testing.T) {
+	defer restore()()
+	t.Setenv("TMPDIR", t.TempDir())
+	goos = "linux"
+	wslProbe = func() bool { return true }
+	readNativeImage = nil
+	lookPath = func(name string) (string, error) {
+		switch name {
+		case "wl-paste":
+			return "/usr/bin/wl-paste", nil
+		case "powershell.exe":
+			return "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe", nil
+		case "wslpath":
+			return "/usr/bin/wslpath", nil
+		default:
+			return "", errors.New("not found")
+		}
+	}
+	runCmdToFile = func(outPath string, name string, args ...string) error {
+		return errors.New("no image on wayland")
+	}
+	var pastePath string
+	runCmd = func(name string, args ...string) ([]byte, error) {
+		base := filepath.Base(name)
+		if base == "wslpath" || name == "wslpath" {
+			pastePath = args[len(args)-1]
+			return []byte(`C:\tmp\out.png`), nil
+		}
+		if strings.Contains(base, "powershell") || strings.Contains(name, "powershell") {
+			if pastePath == "" {
+				t.Fatal("wslpath should run before powershell")
+			}
+			if err := os.WriteFile(pastePath, []byte("from-windows"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return nil, nil
+		}
+		return nil, errors.New("unexpected")
+	}
+	path, err := SaveImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(path)
+	data, _ := os.ReadFile(path)
+	if string(data) != "from-windows" {
+		t.Fatalf("want Windows clipboard fallback, got %q", data)
+	}
+}
+
+func TestSaveToTempWritesBytes(t *testing.T) {
+	path, err := SaveToTemp([]byte("payload"), "png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(path)
+	if filepath.Ext(path) != ".png" {
+		t.Fatalf("want .png, got %q", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "payload" {
+		t.Fatalf("got %q", data)
+	}
+}
+
+func writePaste(t *testing.T, name string, age time.Duration) string {
+	t.Helper()
+	path := filepath.Join(pastesDir(), name)
+	if err := os.MkdirAll(pastesDir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().Add(-age)
+	if err := os.Chtimes(path, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestSweepStaleRemovesOldPastesOnly(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	old := writePaste(t, "paste-old.png", 8*24*time.Hour)
+	fresh := writePaste(t, "paste-fresh.png", time.Hour)
+
+	if err := SweepStale(7 * 24 * time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatalf("stale paste should be gone, stat err = %v", err)
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatalf("fresh paste should survive: %v", err)
+	}
+}
+
+func TestSweepStaleLeavesForeignEntries(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	other := writePaste(t, "notes.txt", 30*24*time.Hour)
+	sub := filepath.Join(pastesDir(), "paste-dir")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stamp := time.Now().Add(-30 * 24 * time.Hour)
+	if err := os.Chtimes(sub, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SweepStale(7 * 24 * time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Fatalf("unrelated file should survive: %v", err)
+	}
+	if _, err := os.Stat(sub); err != nil {
+		t.Fatalf("directory should survive: %v", err)
+	}
+}
+
+func TestSweepStaleReportsRemovalFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory permissions")
+	}
+	t.Setenv("TMPDIR", t.TempDir())
+	stale := writePaste(t, "paste-old.png", 8*24*time.Hour)
+	if err := os.Chmod(pastesDir(), 0o500); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(pastesDir(), 0o755)
+
+	err := SweepStale(7 * 24 * time.Hour)
+	if err == nil {
+		t.Fatal("an undeletable paste must surface, not vanish silently")
+	}
+	if !strings.Contains(err.Error(), "paste-old.png") {
+		t.Fatalf("error should name the file, got %v", err)
+	}
+	if _, statErr := os.Stat(stale); statErr != nil {
+		t.Fatalf("file should still be there: %v", statErr)
+	}
+}
+
+func TestSweepStaleWithoutDirectory(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	if err := SweepStale(7 * 24 * time.Hour); err != nil {
+		t.Fatalf("missing pastes dir is not an error: %v", err)
+	}
+}
+
+func TestWriteTextHeadlessUsesOSC52(t *testing.T) {
+	defer restore()()
+	headlessLinux()
+	var emitted string
+	emitSeq = func(seq string) error {
+		emitted = seq
+		return nil
+	}
+	if err := WriteText("hello"); err != nil {
+		t.Fatal(err)
+	}
+	want := "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte("hello")) + "\x07"
+	if emitted != want {
+		t.Fatalf("emitted = %q, want %q", emitted, want)
+	}
+}
+
+// An installed xclip on a headless host is a writer that fails at runtime,
+// so the display check has to come before the lookups.
+func TestWriteTextHeadlessSkipsDisplayTools(t *testing.T) {
+	defer restore()()
+	headlessLinux()
+	lookPath = func(name string) (string, error) { return "/usr/bin/" + name, nil }
+	var emitted bool
+	emitSeq = func(string) error {
+		emitted = true
+		return nil
+	}
+	if err := WriteText("hello"); err != nil {
+		t.Fatal(err)
+	}
+	if !emitted {
+		t.Fatal("xclip on a displayless host should not win over OSC 52")
+	}
+}
+
+// Every non-Linux platform keeps its writer exactly as before the OSC 52
+// fallback existed.
+func TestCopyCommandPlatformWriters(t *testing.T) {
+	defer restore()()
+	lookPath = func(name string) (string, error) { return "", errors.New("not found") }
+	getenv = func(string) string { return "" }
+
+	goos = "darwin"
+	wslProbe = func() bool { return false }
+	if name, _, ok := copyCommand(); !ok || name != "pbcopy" {
+		t.Fatalf("darwin writer = %q %v", name, ok)
+	}
+
+	goos = "windows"
+	if name, _, ok := copyCommand(); !ok || name != "clip" {
+		t.Fatalf("windows writer = %q %v", name, ok)
+	}
+
+	goos = "linux"
+	wslProbe = func() bool { return true }
+	if name, _, ok := copyCommand(); !ok || name != "clip.exe" {
+		t.Fatalf("WSL writer = %q %v", name, ok)
+	}
+}
+
+func TestClipboardTextEncodesWSLClipAsUTF16LE(t *testing.T) {
+	defer restore()()
+	goos = "linux"
+	wslProbe = func() bool { return true }
+
+	got := clipboardText("clip.exe", "A─😀")
+	want := []byte{0x41, 0x00, 0x00, 0x25, 0x3d, 0xd8, 0x00, 0xde}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("WSL clipboard bytes = %x, want %x", got, want)
+	}
+}
+
+func TestClipboardTextLeavesOtherWritersUTF8(t *testing.T) {
+	defer restore()()
+	goos = "linux"
+	wslProbe = func() bool { return false }
+
+	text := "A─😀"
+	if got := clipboardText("xclip", text); !bytes.Equal(got, []byte(text)) {
+		t.Fatalf("Linux clipboard bytes = %x, want UTF-8 %x", got, []byte(text))
+	}
+}
+
+// A desktop Linux box with a display but no tool installed used to get the
+// "install wl-copy, xclip or xsel" error; now the terminal takes the copy.
+func TestWriteTextDisplayWithoutToolsFallsBackToOSC52(t *testing.T) {
+	defer restore()()
+	headlessLinux()
+	getenv = func(name string) string {
+		if name == "WAYLAND_DISPLAY" {
+			return "wayland-0"
+		}
+		return ""
+	}
+	lookPath = func(name string) (string, error) { return "", errors.New("not found") }
+	var emitted bool
+	emitSeq = func(string) error {
+		emitted = true
+		return nil
+	}
+	if err := WriteText("hello"); err != nil {
+		t.Fatal(err)
+	}
+	if !emitted {
+		t.Fatal("a display with no tools should fall back to OSC 52")
+	}
+}
+
+func TestCopyCommandPrefersDisplayTools(t *testing.T) {
+	defer restore()()
+	headlessLinux()
+	getenv = func(name string) string {
+		if name == "DISPLAY" {
+			return ":0"
+		}
+		return ""
+	}
+	lookPath = func(name string) (string, error) {
+		if name == "xclip" {
+			return "/usr/bin/xclip", nil
+		}
+		return "", errors.New("not found")
+	}
+	name, args, ok := copyCommand()
+	if !ok || name != "xclip" || strings.Join(args, " ") != "-selection clipboard" {
+		t.Fatalf("copyCommand() = %q %v %v", name, args, ok)
+	}
+}
+
+// 56244 raw bytes encode to 74992, the largest payload under the cap;
+// one more raw byte encodes to 74996 and crosses it.
+func TestWriteTextOSC52SizeBoundary(t *testing.T) {
+	defer restore()()
+	headlessLinux()
+	var emitted bool
+	emitSeq = func(string) error {
+		emitted = true
+		return nil
+	}
+	if err := WriteText(strings.Repeat("x", 56244)); err != nil {
+		t.Fatalf("largest fitting payload: %v", err)
+	}
+	if !emitted {
+		t.Fatal("largest fitting payload should reach the terminal")
+	}
+
+	emitted = false
+	err := WriteText(strings.Repeat("x", 56245))
+	if err == nil || !strings.Contains(err.Error(), "too large") {
+		t.Fatalf("oversized copy error = %v", err)
+	}
+	if emitted {
+		t.Fatal("an oversized payload must not reach the terminal")
+	}
+}
+
+// A stale SSH DISPLAY selects xclip, which then dies with "Can't open
+// display"; the copy must still land through OSC 52.
+func TestWriteTextNativeFailureFallsBackToOSC52(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("needs a unix shell script as the fake writer")
+	}
+	defer restore()()
+	headlessLinux()
+	getenv = func(name string) string {
+		if name == "DISPLAY" {
+			return "localhost:10.0"
+		}
+		return ""
+	}
+	binDir := t.TempDir()
+	fake := filepath.Join(binDir, "xclip")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho 'Error: Can't open display' >&2\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+	lookPath = func(name string) (string, error) {
+		if name == "xclip" {
+			return fake, nil
+		}
+		return "", errors.New("not found")
+	}
+	var emitted string
+	emitSeq = func(seq string) error {
+		emitted = seq
+		return nil
+	}
+	if err := WriteText("hello"); err != nil {
+		t.Fatal(err)
+	}
+	want := "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte("hello")) + "\x07"
+	if emitted != want {
+		t.Fatalf("emitted = %q, want %q", emitted, want)
+	}
+}
+
+func TestDetectWSLEnv(t *testing.T) {
+	t.Setenv("WSL_DISTRO_NAME", "Ubuntu")
+	if !detectWSL() {
+		t.Fatal("WSL_DISTRO_NAME should mark WSL")
+	}
+	t.Setenv("WSL_DISTRO_NAME", "")
+	t.Setenv("WSL_INTEROP", "/run/WSL/1_interop")
+	if !detectWSL() {
+		t.Fatal("WSL_INTEROP should mark WSL")
+	}
+}

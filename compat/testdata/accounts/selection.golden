@@ -1,0 +1,118 @@
+
+== a tool with no account_env passes the name through
+chosen: "ada1"
+pool usage reads: 0
+secret store calls:
+(none)
+
+== own mode, no account named
+chosen: ""
+pool usage reads: 0
+secret store calls:
+(none)
+
+== own mode, an account named
+chosen: "BOB1"
+pool usage reads: 0
+secret store calls:
+(none)
+
+== smart mode, the login's own account has headroom
+chosen: "ADA1"
+pool usage reads: 0
+secret store calls:
+secrets list
+
+== smart mode, own account spent, pool round robin #1
+chosen: "BOB1"
+pool usage reads: 0
+secret store calls:
+secrets list
+
+== smart mode, own account spent, pool round robin #2
+chosen: "CAT1"
+pool usage reads: 0
+secret store calls:
+secrets list
+
+== smart mode, own account spent, pool round robin #3
+chosen: "BOB1"
+pool usage reads: 0
+secret store calls:
+secrets list
+
+== smart mode, the cache is stale and the pool is read
+chosen: "CAT1"
+pool usage reads: 3
+secret store calls:
+secrets list
+
+== smart mode, every account spent
+chosen: ""
+error: no shared subscription has fresh usable quota; choose own subscription or retry after reset
+pool usage reads: 0
+secret store calls:
+secrets list
+
+== smart mode, an account named
+chosen: "CAT1"
+pool usage reads: 0
+secret store calls:
+(none)
+
+== smart mode, the pool names no borrower
+chosen: ""
+error: no login
+pool usage reads: 0
+secret store calls:
+(none)
+
+== smart mode, a tool whose usage nothing reports
+chosen: ""
+error: smart routing has no usage source for this tool
+pool usage reads: 0
+secret store calls:
+(none)
+
+== smart mode, a build that supplies no pool
+chosen: ""
+error: account sharing is unavailable: no enabled extension supplies an account pool; set routing mode to own subscription in settings
+pool usage reads: 0
+secret store calls:
+(none)
+
+== smart mode with no pool, an account named
+chosen: "BOB1"
+pool usage reads: 0
+secret store calls:
+(none)
+
+== own mode with no pool, no account named
+chosen: ""
+pool usage reads: 0
+secret store calls:
+(none)
+
+== accounts listed for claude
+["ADA1" "BOB1" "CAT1"]
+secret store calls:
+secrets list
+
+== settings left in the store
+account_borrower:cafe0002 = ADA
+account_borrower:cafe0003 = ADA
+account_borrower:cafe0004 = ADA
+account_borrower:cafe0011 = ADA
+account_borrower:cafe0012 = ADA
+account_borrower:cafe0013 = ADA
+account_borrower:cafe0019 = ADA
+account_borrower:cafe0021 = ADA
+account_borrower:cafe0025 = 
+account_borrower:cafe0026 = 
+account_rotation:EXAMPLE_TOKEN_{account} = 3
+account_rotation:EXAMPLE_TOKEN_{account}:own:ADA = 0
+account_routing = own
+account_usage:v2:EXAMPLE_TOKEN_{account}:ADA1 = <timestamped snapshot>
+account_usage:v2:EXAMPLE_TOKEN_{account}:BOB1 = <timestamped snapshot>
+account_usage:v2:EXAMPLE_TOKEN_{account}:CAT1 = <timestamped snapshot>
+name_source_backfill = 1

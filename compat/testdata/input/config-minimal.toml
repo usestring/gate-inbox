@@ -1,0 +1,6 @@
+# A config a first-time user might write by hand: one setting and one tool
+# tweak. Everything else is left to the built-in defaults.
+poll_interval = "3s"
+
+[tools.claude]
+command = "claude --verbose"

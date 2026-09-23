@@ -1,0 +1,9 @@
+{
+  "name": "gate-inbox-artifacts-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "dev": "wrangler dev"
+  }
+}

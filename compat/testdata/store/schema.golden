@@ -1,0 +1,202 @@
+PRAGMA user_version = 0
+PRAGMA application_id = 0
+PRAGMA journal_mode = wal
+
+=== index decisions_session on decisions
+CREATE INDEX decisions_session ON decisions (session_id, at)
+
+=== index file_reservations_holder on file_reservations
+CREATE UNIQUE INDEX file_reservations_holder ON file_reservations (session_id, pattern)
+
+=== index file_reservations_live on file_reservations
+CREATE INDEX file_reservations_live ON file_reservations (expires_at)
+
+=== index forge_prs_age on forge_prs
+CREATE INDEX forge_prs_age ON forge_prs (fetched_at)
+
+=== index forge_tickets_age on forge_tickets
+CREATE INDEX forge_tickets_age ON forge_tickets (fetched_at)
+
+=== index session_inbox_queue on session_inbox
+CREATE INDEX session_inbox_queue ON session_inbox (session_id, delivered_at, id)
+
+=== index session_inbox_sender on session_inbox
+CREATE INDEX session_inbox_sender ON session_inbox (session_id, sender_id, sent_at)
+
+=== index session_inbox_subject on session_inbox
+CREATE INDEX session_inbox_subject ON session_inbox (session_id, sender_id, subject, delivered_at)
+
+=== index task_deps_reverse on task_deps
+CREATE INDEX task_deps_reverse ON task_deps (depends_on_id)
+
+=== index tasks_claimable on tasks
+CREATE INDEX tasks_claimable ON tasks (state, created_at)
+
+=== table charters
+   0 session_id                   TEXT     notnull=0 default=NULL pk=1
+   1 slug                         TEXT     notnull=1 default=NULL pk=0
+   2 charter_path                 TEXT     notnull=1 default=NULL pk=0
+   3 ledger_path                  TEXT     notnull=1 default=NULL pk=0
+   4 state                        TEXT     notnull=1 default='active' pk=0
+   5 created_at                   TEXT     notnull=1 default=NULL pk=0
+   6 compactions                  INTEGER  notnull=1 default=0 pk=0
+   7 ledger_hash                  TEXT     notnull=1 default='' pk=0
+   8 events_since_ledger_change   INTEGER  notnull=1 default=0 pk=0
+   9 charter_hash                 TEXT     notnull=1 default='' pk=0
+  10 subsessions_total            INTEGER  notnull=1 default=0 pk=0
+  11 armed_boundary               TEXT     notnull=1 default='' pk=0
+  index sqlite_autoindex_charters_1 unique=1 origin=pk partial=0 (session_id)
+
+=== table child_archives
+   0 parent_id                    TEXT     notnull=0 default=NULL pk=1
+   1 done                         INTEGER  notnull=1 default=0 pk=0
+  index sqlite_autoindex_child_archives_1 unique=1 origin=pk partial=0 (parent_id)
+
+=== table decisions
+   0 id                           INTEGER  notnull=0 default=NULL pk=1
+   1 session_id                   TEXT     notnull=1 default=NULL pk=0
+   2 at                           TEXT     notnull=1 default=NULL pk=0
+   3 event                        TEXT     notnull=1 default=NULL pk=0
+   4 decision                     TEXT     notnull=1 default=NULL pk=0
+   5 message                      TEXT     notnull=1 default=NULL pk=0
+   6 rationale                    TEXT     notnull=1 default=NULL pk=0
+   7 guard                        TEXT     notnull=1 default='' pk=0
+   8 model                        TEXT     notnull=1 default='' pk=0
+   9 cost_usd                     REAL     notnull=1 default=0 pk=0
+  10 delivered_at                 TEXT     notnull=0 default=NULL pk=0
+  index decisions_session unique=0 origin=c partial=0 (session_id, at)
+
+=== table file_reservations
+   0 id                           TEXT     notnull=0 default=NULL pk=1
+   1 session_id                   TEXT     notnull=1 default=NULL pk=0
+   2 pattern                      TEXT     notnull=1 default=NULL pk=0
+   3 mode                         TEXT     notnull=1 default='exclusive' pk=0
+   4 note                         TEXT     notnull=1 default='' pk=0
+   5 acquired_at                  INTEGER  notnull=1 default=0 pk=0
+   6 expires_at                   INTEGER  notnull=1 default=0 pk=0
+  index file_reservations_holder unique=1 origin=c partial=0 (session_id, pattern)
+  index file_reservations_live unique=0 origin=c partial=0 (expires_at)
+  index sqlite_autoindex_file_reservations_1 unique=1 origin=pk partial=0 (id)
+
+=== table forge_prs
+   0 key                          TEXT     notnull=0 default=NULL pk=1
+   1 repo                         TEXT     notnull=1 default=NULL pk=0
+   2 number                       INTEGER  notnull=1 default=NULL pk=0
+   3 title                        TEXT     notnull=1 default='' pk=0
+   4 state                        TEXT     notnull=1 default='' pk=0
+   5 checks                       TEXT     notnull=1 default='' pk=0
+   6 review                       TEXT     notnull=1 default='' pk=0
+   7 url                          TEXT     notnull=1 default='' pk=0
+   8 mergeable                    INTEGER  notnull=1 default=1 pk=0
+   9 head_ref                     TEXT     notnull=1 default='' pk=0
+  10 failing_checks               INTEGER  notnull=1 default=0 pk=0
+  11 fetched_at                   INTEGER  notnull=1 default=0 pk=0
+  index forge_prs_age unique=0 origin=c partial=0 (fetched_at)
+  index sqlite_autoindex_forge_prs_1 unique=1 origin=pk partial=0 (key)
+
+=== table forge_tickets
+   0 key                          TEXT     notnull=0 default=NULL pk=1
+   1 identifier                   TEXT     notnull=1 default=NULL pk=0
+   2 title                        TEXT     notnull=1 default='' pk=0
+   3 state                        TEXT     notnull=1 default='' pk=0
+   4 state_type                   TEXT     notnull=1 default='' pk=0
+   5 assignee                     TEXT     notnull=1 default='' pk=0
+   6 url                          TEXT     notnull=1 default='' pk=0
+   7 fetched_at                   INTEGER  notnull=1 default=0 pk=0
+  index forge_tickets_age unique=0 origin=c partial=0 (fetched_at)
+  index sqlite_autoindex_forge_tickets_1 unique=1 origin=pk partial=0 (key)
+
+=== table groups
+   0 name                         TEXT     notnull=0 default=NULL pk=1
+   1 sort_order                   INTEGER  notnull=1 default=0 pk=0
+   2 path                         TEXT     notnull=1 default='' pk=0
+   3 archived                     INTEGER  notnull=1 default=0 pk=0
+   4 worktree                     TEXT     notnull=1 default='' pk=0
+   5 priority                     INTEGER  notnull=1 default=0 pk=0
+   6 priority_tier                TEXT     notnull=1 default='' pk=0
+  index sqlite_autoindex_groups_1 unique=1 origin=pk partial=0 (name)
+
+=== table session_inbox
+   0 id                           INTEGER  notnull=0 default=NULL pk=1
+   1 session_id                   TEXT     notnull=1 default=NULL pk=0
+   2 sender_id                    TEXT     notnull=1 default=NULL pk=0
+   3 sender_name                  TEXT     notnull=1 default=NULL pk=0
+   4 body                         TEXT     notnull=1 default=NULL pk=0
+   5 fingerprint                  TEXT     notnull=1 default=NULL pk=0
+   6 sent_at                      INTEGER  notnull=1 default=NULL pk=0
+   7 claimed_at                   INTEGER  notnull=1 default=0 pk=0
+   8 delivered_at                 INTEGER  notnull=1 default=0 pk=0
+   9 read_at                      INTEGER  notnull=1 default=0 pk=0
+  10 dropped_at                   INTEGER  notnull=1 default=0 pk=0
+  11 subject                      TEXT     notnull=1 default='' pk=0
+  12 superseded_by                INTEGER  notnull=1 default=0 pk=0
+  13 interrupt                    INTEGER  notnull=1 default=0 pk=0
+  index session_inbox_queue unique=0 origin=c partial=0 (session_id, delivered_at, id)
+  index session_inbox_sender unique=0 origin=c partial=0 (session_id, sender_id, sent_at)
+  index session_inbox_subject unique=0 origin=c partial=0 (session_id, sender_id, subject, delivered_at)
+
+=== table session_prs
+   0 session_id                   TEXT     notnull=1 default=NULL pk=1
+   1 url                          TEXT     notnull=1 default=NULL pk=2
+   2 first_seen                   INTEGER  notnull=1 default=NULL pk=0
+  index sqlite_autoindex_session_prs_1 unique=1 origin=pk partial=0 (session_id, url)
+
+=== table sessions
+   0 id                           TEXT     notnull=0 default=NULL pk=1
+   1 name                         TEXT     notnull=1 default=NULL pk=0
+   2 tool                         TEXT     notnull=1 default=NULL pk=0
+   3 cwd                          TEXT     notnull=1 default=NULL pk=0
+   4 group_name                   TEXT     notnull=1 default=NULL pk=0
+   5 status                       TEXT     notnull=1 default=NULL pk=0
+   6 archived                     INTEGER  notnull=1 default=0 pk=0
+   7 created_at                   INTEGER  notnull=1 default=NULL pk=0
+   8 last_status_at               INTEGER  notnull=1 default=NULL pk=0
+   9 agent_session_id             TEXT     notnull=1 default='' pk=0
+  10 pending_inputs               TEXT     notnull=1 default='[]' pk=0
+  11 pending_claimed              INTEGER  notnull=1 default=0 pk=0
+  12 launch_prompt                TEXT     notnull=1 default='' pk=0
+  13 model                        TEXT     notnull=1 default='' pk=0
+  14 account                      TEXT     notnull=1 default='' pk=0
+  15 sort_order                   INTEGER  notnull=1 default=0 pk=0
+  16 acked                        INTEGER  notnull=1 default=0 pk=0
+  17 snapshot                     TEXT     notnull=1 default='' pk=0
+  18 worktree_repo                TEXT     notnull=1 default='' pk=0
+  19 worktree_branch              TEXT     notnull=1 default='' pk=0
+  20 agent_launched_at            INTEGER  notnull=1 default=0 pk=0
+  21 retired_agent_session_id     TEXT     notnull=1 default='' pk=0
+  22 parent_id                    TEXT     notnull=1 default='' pk=0
+  23 spawned_by                   TEXT     notnull=1 default='' pk=0
+  24 tmux_socket                  TEXT     notnull=1 default='' pk=0
+  25 tmux_pane_id                 TEXT     notnull=1 default='' pk=0
+  26 name_source                  TEXT     notnull=1 default='user' pk=0
+  27 archived_at                  INTEGER  notnull=1 default=0 pk=0
+  28 priority                     INTEGER  notnull=1 default=0 pk=0
+  29 priority_tier                TEXT     notnull=1 default='' pk=0
+  index sqlite_autoindex_sessions_1 unique=1 origin=pk partial=0 (id)
+
+=== table settings
+   0 key                          TEXT     notnull=0 default=NULL pk=1
+   1 value                        TEXT     notnull=1 default=NULL pk=0
+  index sqlite_autoindex_settings_1 unique=1 origin=pk partial=0 (key)
+
+=== table task_deps
+   0 task_id                      TEXT     notnull=1 default=NULL pk=1
+   1 depends_on_id                TEXT     notnull=1 default=NULL pk=2
+  index sqlite_autoindex_task_deps_1 unique=1 origin=pk partial=0 (task_id, depends_on_id)
+  index task_deps_reverse unique=0 origin=c partial=0 (depends_on_id)
+
+=== table tasks
+   0 id                           TEXT     notnull=0 default=NULL pk=1
+   1 title                        TEXT     notnull=1 default=NULL pk=0
+   2 body                         TEXT     notnull=1 default='' pk=0
+   3 owner_session_id             TEXT     notnull=1 default='' pk=0
+   4 state                        TEXT     notnull=1 default='pending' pk=0
+   5 created_at                   INTEGER  notnull=1 default=0 pk=0
+   6 updated_at                   INTEGER  notnull=1 default=0 pk=0
+  index sqlite_autoindex_tasks_1 unique=1 origin=pk partial=0 (id)
+  index tasks_claimable unique=0 origin=c partial=0 (state, created_at)
+
+=== table work_seen
+   0 key                          TEXT     notnull=0 default=NULL pk=1
+   1 seen_at                      INTEGER  notnull=1 default=NULL pk=0
+  index sqlite_autoindex_work_seen_1 unique=1 origin=pk partial=0 (key)

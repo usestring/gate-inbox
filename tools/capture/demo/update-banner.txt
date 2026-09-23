@@ -1,0 +1,11 @@
+❯ add the capture step to the release checklist
+
+● I'll add it to docs/release.md.
+
+  docs/release.md
+  + 4. Attach the capture GIF and stills to the PR description.
+
+⏺ Interrupted · What should Claude do instead?
+                                              ✔ Update installed · Restart to update
+
+❯ 

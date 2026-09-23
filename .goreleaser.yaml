@@ -1,0 +1,43 @@
+# Modified by Durable Alpha, 2026: changes from the upstream commit named in NOTICE.
+
+version: 2
+
+project_name: gate-inbox
+
+before:
+  hooks:
+    - go mod verify
+
+builds:
+  - id: gate-inbox
+    main: .
+    binary: gate-inbox
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+
+# A tag produces a draft; a maintainer reads it and publishes by hand.
+release:
+  draft: true
+  prerelease: auto

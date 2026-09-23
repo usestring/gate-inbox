@@ -1,0 +1,9 @@
+{"type":"mode","sessionId":"11111111-2222-3333-4444-555555555555","cwd":"/repo/one","timestamp":"2026-08-25T00:00:00.000Z"}
+{"type":"user","sessionId":"11111111-2222-3333-4444-555555555555","cwd":"/repo/one","message":{"role":"user","content":"open the thing"}}
+{"type":"last-prompt","lastPrompt":"open the thing","leafUuid":"a"}
+{"type":"assistant","sessionId":"11111111-2222-3333-4444-555555555555","cwd":"/repo/one","message":{"role":"assistant","content":[{"type":"text","text":"Reading the   handler now\nto see what it does."},{"type":"tool_use","name":"Read","input":{}}]}}
+{"type":"ai-title","aiTitle":"Investigate and reduce disk usage","sessionId":"11111111-2222-3333-4444-555555555555"}
+{"type":"last-prompt","lastPrompt":"open the thing","leafUuid":"a"}
+{"type":"last-prompt","lastPrompt":"now check the other one","leafUuid":"b"}
+{"type":"assistant","sessionId":"11111111-2222-3333-4444-555555555555","message":{"role":"assistant","content":"a bare string body"}}
+{"type":"ai-title","aiTitle":"Investigate and reduce disk usage","sessionId":"11111111-2222-3333-4444-555555555555"}

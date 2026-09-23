@@ -1,0 +1,498 @@
+// Modified by Durable Alpha, 2026: changes from the upstream commit named in NOTICE.
+
+package ui
+
+import (
+	"path/filepath"
+	"strconv"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
+)
+
+type memSettings map[string]string
+
+func (m memSettings) Setting(key string) (string, error) {
+	return m[key], nil
+}
+
+func TestLoadSplitRatio(t *testing.T) {
+	if got := loadSplitRatio(memSettings{}); got != defaultSplitRatio {
+		t.Fatalf("empty setting: got %v want %v", got, defaultSplitRatio)
+	}
+	if got := loadSplitRatio(memSettings{splitRatioSetting: "0.5"}); got != 0.5 {
+		t.Fatalf("stored 0.5: got %v", got)
+	}
+	if got := loadSplitRatio(memSettings{splitRatioSetting: "nope"}); got != defaultSplitRatio {
+		t.Fatalf("garbage should fall back, got %v", got)
+	}
+	if got := loadSplitRatio(memSettings{splitRatioSetting: "1.5"}); got != defaultSplitRatio {
+		t.Fatalf("out of range should fall back, got %v", got)
+	}
+	if got := loadSplitRatio(memSettings{splitRatioSetting: "0"}); got != defaultSplitRatio {
+		t.Fatalf("zero should fall back, got %v", got)
+	}
+}
+
+func TestClampSplitLeft(t *testing.T) {
+	if got := clampSplitLeft(10, 100); got != minSplitSide {
+		t.Fatalf("below min left: got %d want %d", got, minSplitSide)
+	}
+	if got := clampSplitLeft(90, 100); got != 100-minSplitSide {
+		t.Fatalf("below min right: got %d want %d", got, 100-minSplitSide)
+	}
+	if got := clampSplitLeft(40, 100); got != 40 {
+		t.Fatalf("in range: got %d want 40", got)
+	}
+	// Narrow terminal cannot honor both floors; keep both sides visible.
+	if got := clampSplitLeft(0, 50); got != 1 {
+		t.Fatalf("narrow zero: got %d want 1", got)
+	}
+	if got := clampSplitLeft(50, 50); got != 49 {
+		t.Fatalf("narrow full: got %d want 49", got)
+	}
+}
+
+func TestSplitWidthsUsesRatio(t *testing.T) {
+	m := &Model{width: 100, split: splitState{ratio: 0.4}}
+	left, right := m.splitWidths()
+	if left != 40 || right != 60 {
+		t.Fatalf("splitWidths = %d,%d want 40,60", left, right)
+	}
+	// Default ratio when unset, floored by the minimum side.
+	m.split.ratio = 0
+	left, right = m.splitWidths()
+	ratio := defaultSplitRatio
+	wantLeft := clampSplitLeft(int(ratio*100), 100)
+	if left != wantLeft || right != 100-wantLeft {
+		t.Fatalf("default split = %d,%d want %d,%d", left, right, wantLeft, 100-wantLeft)
+	}
+}
+
+func TestSetSplitFromXClampsAndUpdatesRatio(t *testing.T) {
+	m := &Model{width: 100, split: splitState{ratio: defaultSplitRatio}}
+	m.setSplitFromX(50)
+	if m.split.ratio != 0.5 {
+		t.Fatalf("ratio = %v want 0.5", m.split.ratio)
+	}
+	left, _ := m.splitWidths()
+	if left != 50 {
+		t.Fatalf("left = %d want 50", left)
+	}
+	m.setSplitFromX(5)
+	left, right := m.splitWidths()
+	if left != minSplitSide || right != 100-minSplitSide {
+		t.Fatalf("clamped left split = %d,%d", left, right)
+	}
+}
+
+func TestResizeModeKeyArmsDrag(t *testing.T) {
+	m := &Model{mode: modeList, split: splitState{ratio: defaultSplitRatio}, width: 120, height: 40}
+	updated, cmd := m.handleKey(tea.KeyPressMsg{Code: '|', Text: "|"})
+	m = updated.(*Model)
+	if !m.split.resizeMode {
+		t.Fatal("| should enter resize mode")
+	}
+	if cmd != nil {
+		t.Fatal("enter should not toggle mouse reporting")
+	}
+
+	// Other keys are swallowed while armed.
+	updated, cmd = m.handleKey(tea.KeyPressMsg{Code: 'n', Text: "n"})
+	m = updated.(*Model)
+	if m.mode != modeList || !m.split.resizeMode {
+		t.Fatal("resize mode should swallow n")
+	}
+	if cmd != nil {
+		t.Fatal("swallowed key should return no cmd")
+	}
+
+	updated, cmd = m.handleKey(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = updated.(*Model)
+	if m.split.resizeMode {
+		t.Fatal("esc should leave resize mode")
+	}
+	if cmd != nil {
+		t.Fatal("exit should not toggle mouse reporting")
+	}
+}
+
+func TestArrowNudgeAndPipeCommits(t *testing.T) {
+	st, err := store.Open(filepath.Join(tmuxtest.ScratchDir(t), "state.db"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	m := &Model{
+		store:  st,
+		mode:   modeList,
+		width:  100,
+		height: 40,
+		split:  splitState{ratio: 0.34},
+	}
+	updated, _ := m.enterResizeMode()
+	m = updated.(*Model)
+	before, _ := m.splitWidths()
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	m = updated.(*Model)
+	after, _ := m.splitWidths()
+	if after != before+1 {
+		t.Fatalf("right arrow left width = %d want %d", after, before+1)
+	}
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	m = updated.(*Model)
+	if left, _ := m.splitWidths(); left != before {
+		t.Fatalf("left arrow should undo nudge, left=%d want %d", left, before)
+	}
+	// Nudge once more, then | commits.
+	m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	updated, cmd := m.handleKey(tea.KeyPressMsg{Code: '|', Text: "|"})
+	m = updated.(*Model)
+	if m.split.resizeMode {
+		t.Fatal("| should commit and exit resize mode")
+	}
+	if cmd != nil {
+		t.Fatal("commit should not toggle mouse reporting")
+	}
+	raw, err := st.Setting(splitRatioSetting)
+	if err != nil || raw == "" {
+		t.Fatalf("committed ratio missing: %v %q", err, raw)
+	}
+	if left, _ := m.splitWidths(); left != before+1 {
+		t.Fatalf("committed left = %d want %d", left, before+1)
+	}
+}
+
+func TestEnterCommitsResize(t *testing.T) {
+	st, err := store.Open(filepath.Join(tmuxtest.ScratchDir(t), "state.db"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	m := &Model{
+		store:  st,
+		mode:   modeList,
+		width:  100,
+		height: 40,
+		split:  splitState{ratio: 0.34},
+	}
+	updated, _ := m.enterResizeMode()
+	m = updated.(*Model)
+	m.nudgeSplit(8)
+
+	updated, cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updated.(*Model)
+	if m.split.resizeMode || m.split.dragging {
+		t.Fatal("enter should commit and leave resize mode")
+	}
+	if cmd != nil {
+		t.Fatal("enter commit should not return a command")
+	}
+	if got := loadSplitRatio(st); got != 0.42 {
+		t.Fatalf("reloaded ratio = %v want 0.42", got)
+	}
+}
+
+func TestArrowCancelRestoresRatio(t *testing.T) {
+	m := &Model{mode: modeList, width: 100, height: 40, split: splitState{ratio: 0.34}}
+	updated, _ := m.enterResizeMode()
+	m = updated.(*Model)
+	m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyEsc})
+	m = updated.(*Model)
+	if m.split.resizeMode {
+		t.Fatal("esc should exit")
+	}
+	if left, _ := m.splitWidths(); left != 34 {
+		t.Fatalf("esc should restore left=34, got %d", left)
+	}
+}
+
+func TestQuitFromResizePersistsRatio(t *testing.T) {
+	st, err := store.Open(filepath.Join(tmuxtest.ScratchDir(t), "state.db"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	m := &Model{
+		store:  st,
+		mode:   modeList,
+		width:  100,
+		height: 40,
+		split:  splitState{ratio: 0.34},
+	}
+	updated, _ := m.enterResizeMode()
+	m = updated.(*Model)
+	m.nudgeSplit(8)
+
+	updated, cmd := m.handleKey(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	m = updated.(*Model)
+	if m.split.resizeMode || m.split.dragging {
+		t.Fatal("quit should clear resize state")
+	}
+	if cmd == nil {
+		t.Fatal("quit should return a command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("quit command should produce tea.QuitMsg")
+	}
+	if got := loadSplitRatio(st); got != 0.42 {
+		t.Fatalf("reloaded ratio = %v want 0.42", got)
+	}
+}
+
+func TestDragReleasePersistsAndExits(t *testing.T) {
+	st, err := store.Open(filepath.Join(tmuxtest.ScratchDir(t), "state.db"))
+	if err != nil {
+		t.Fatalf("store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	m := &Model{
+		store:  st,
+		mode:   modeList,
+		width:  100,
+		height: 40,
+		split:  splitState{ratio: defaultSplitRatio},
+	}
+	updated, _ := m.enterResizeMode()
+	m = updated.(*Model)
+
+	div := m.dividerX()
+	// Body starts at the header's height; any y inside the body range works.
+	updated, _ = m.handleMouse(tea.MouseClickMsg{X: div, Y: 5, Button: tea.MouseLeft})
+	m = updated.(*Model)
+	if !m.split.dragging {
+		t.Fatal("press on divider should start drag")
+	}
+
+	updated, _ = m.handleMouse(tea.MouseMotionMsg{X: 50, Y: 5, Button: tea.MouseLeft})
+	m = updated.(*Model)
+	if left, _ := m.splitWidths(); left != 50 {
+		t.Fatalf("motion should set left=50, got %d", left)
+	}
+
+	updated, cmd := m.handleMouse(tea.MouseReleaseMsg{X: 50, Y: 5, Button: tea.MouseLeft})
+	m = updated.(*Model)
+	if m.split.dragging || m.split.resizeMode {
+		t.Fatal("release should end drag and exit resize mode")
+	}
+	if cmd != nil {
+		t.Fatal("release should not toggle mouse reporting")
+	}
+
+	raw, err := st.Setting(splitRatioSetting)
+	if err != nil {
+		t.Fatalf("read setting: %v", err)
+	}
+	got, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		t.Fatalf("parse setting %q: %v", raw, err)
+	}
+	if got != 0.5 {
+		t.Fatalf("persisted ratio = %v want 0.5", got)
+	}
+}
+
+// Motion updates the live ratio only; tmux resize happens once on release.
+func TestDragResizesTmuxOnlyOnRelease(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "split-drag", t.TempDir(), "")
+	id := m.sessionRows()[0].ID
+	m.split.ratio = defaultSplitRatio
+	m.resizeNow(t)
+	before := windowWidth(t, id)
+	if before != m.previewPaneWidth() {
+		t.Fatalf("setup width = %d want %d", before, m.previewPaneWidth())
+	}
+
+	// Drift the session away so a real resize is observable.
+	if _, err := tmuxCmd("resize-window", "-t", "gi_"+id, "-x", "100", "-y", "30").CombinedOutput(); err != nil {
+		t.Fatalf("resize-window: %v", err)
+	}
+	if w := windowWidth(t, id); w != 100 {
+		t.Fatalf("drifted width = %d want 100", w)
+	}
+
+	updated, _ := m.enterResizeMode()
+	m = updated.(*Model)
+	div := m.dividerX()
+	y0, _ := m.bodyYRange()
+	updated, _ = m.handleMouse(tea.MouseClickMsg{X: div, Y: y0, Button: tea.MouseLeft})
+	m = updated.(*Model)
+	updated, _ = m.handleMouse(tea.MouseMotionMsg{X: 50, Y: y0, Button: tea.MouseLeft})
+	m = updated.(*Model)
+	if w := windowWidth(t, id); w != 100 {
+		t.Fatalf("motion must not resize tmux, width = %d want 100", w)
+	}
+
+	updated, _ = m.handleMouse(tea.MouseReleaseMsg{X: 50, Y: y0, Button: tea.MouseLeft})
+	m = updated.(*Model)
+	m.settleResize(t)
+	// After exit, grip is gone; measure the committed preview width.
+	wantPreview := m.previewPaneWidth()
+	if wantPreview == 100 {
+		t.Fatal("test setup: preview width should differ from drifted 100")
+	}
+	if w := windowWidth(t, id); w != wantPreview {
+		t.Fatalf("release should resize once to preview width, got %d want %d", w, wantPreview)
+	}
+}
+
+func TestPressOutsideBodyDoesNotDrag(t *testing.T) {
+	m := &Model{
+		mode:   modeList,
+		width:  100,
+		height: 40,
+		split:  splitState{ratio: 0.34, resizeMode: true},
+	}
+	div := m.dividerX()
+	updated, _ := m.handleMouse(tea.MouseClickMsg{X: div, Y: 0, Button: tea.MouseLeft})
+	m = updated.(*Model)
+	if m.split.dragging {
+		t.Fatal("press on header row must not start drag")
+	}
+	y0, y1 := m.bodyYRange()
+	if y0 != m.listChromeRows() {
+		t.Fatalf("body start = %d want %d", y0, m.listChromeRows())
+	}
+	updated, _ = m.handleMouse(tea.MouseClickMsg{X: div, Y: y1, Button: tea.MouseLeft})
+	m = updated.(*Model)
+	if m.split.dragging {
+		t.Fatal("press on exclusive body end must not start drag")
+	}
+}
+
+func TestEnterResizeBlockedWhenSearchingOrQuick(t *testing.T) {
+	m := &Model{mode: modeList, width: 100, height: 40, split: splitState{ratio: defaultSplitRatio}, searching: true}
+	updated, cmd := m.enterResizeMode()
+	m = updated.(*Model)
+	if m.split.resizeMode || cmd != nil {
+		t.Fatal("searching should block resize mode")
+	}
+	m.searching = false
+	m.quick.active = true
+	updated, cmd = m.enterResizeMode()
+	m = updated.(*Model)
+	if m.split.resizeMode || cmd != nil {
+		t.Fatal("quick prompt should block resize mode")
+	}
+}
+
+func TestBodyYRangeMatchesListChrome(t *testing.T) {
+	m := &Model{width: 120, height: 40, split: splitState{ratio: defaultSplitRatio}, mode: modeList}
+	start, end := m.bodyYRange()
+	if start != m.listChromeRows() {
+		t.Fatalf("start = %d want listChromeRows=%d", start, m.listChromeRows())
+	}
+	// No transient status is showing, so its row is not reserved.
+	wantH := m.height - m.listChromeRows() - 1 - lipgloss.Height(m.viewFooter())
+	if wantH < 3 {
+		wantH = 3
+	}
+	if m.listBodyHeight() != wantH {
+		t.Fatalf("listBodyHeight = %d want %d", m.listBodyHeight(), wantH)
+	}
+	if end != m.listChromeRows()+wantH {
+		t.Fatalf("end = %d want %d", end, m.listChromeRows()+wantH)
+	}
+}
+
+func TestDragCancelRestoresRatio(t *testing.T) {
+	m := &Model{
+		mode:   modeList,
+		width:  100,
+		height: 40,
+		split:  splitState{ratio: 0.34},
+	}
+	updated, _ := m.enterResizeMode()
+	m = updated.(*Model)
+	div := m.dividerX()
+	updated, _ = m.handleMouse(tea.MouseClickMsg{X: div, Y: 5, Button: tea.MouseLeft})
+	m = updated.(*Model)
+	updated, _ = m.handleMouse(tea.MouseMotionMsg{X: 55, Y: 5, Button: tea.MouseLeft})
+	m = updated.(*Model)
+	if left, _ := m.splitWidths(); left != 55 {
+		t.Fatalf("pre-cancel left = %d want 55", left)
+	}
+
+	updated, _ = m.exitResizeMode(false)
+	m = updated.(*Model)
+	if m.split.resizeMode || m.split.dragging {
+		t.Fatal("cancel should clear resize state")
+	}
+	if left, _ := m.splitWidths(); left != 34 {
+		t.Fatalf("cancel should restore left=34, got %d", left)
+	}
+}
+
+func TestPressOffDividerDoesNotDrag(t *testing.T) {
+	m := &Model{
+		mode:   modeList,
+		width:  100,
+		height: 40,
+		split:  splitState{ratio: 0.34, resizeMode: true},
+	}
+	updated, _ := m.handleMouse(tea.MouseClickMsg{X: 5, Y: 5, Button: tea.MouseLeft})
+	m = updated.(*Model)
+	if m.split.dragging {
+		t.Fatal("press far from divider should not start drag")
+	}
+}
+
+func TestNewLoadsPersistedSplitRatio(t *testing.T) {
+	m := buildModel(t)
+	if err := m.store.SetSetting(splitRatioSetting, "0.45"); err != nil {
+		t.Fatalf("set setting: %v", err)
+	}
+	loaded := New(m.cfg, m.store, m.tmux, m.poller.engine, m.hooks, "dev")
+	if loaded.split.ratio != 0.45 {
+		t.Fatalf("New splitRatio = %v want 0.45", loaded.split.ratio)
+	}
+}
+
+// Wheel events must be consumed by the app so the host terminal cannot
+// scroll the TUI away, and swallowed in the list: moving the cursor there
+// retargets every keystroke that follows (#110).
+func TestWheelSwallowedInList(t *testing.T) {
+	m := &Model{
+		mode:   modeList,
+		cursor: 0,
+		rows:   []treeRow{{}, {}},
+		width:  80,
+		height: 24,
+	}
+	for _, button := range []tea.MouseButton{tea.MouseWheelDown, tea.MouseWheelUp} {
+		updated, cmd := m.handleMouse(tea.MouseWheelMsg{Button: button})
+		m = updated.(*Model)
+		if m.cursor != 0 {
+			t.Fatalf("wheel moved the list cursor to %d", m.cursor)
+		}
+		if cmd != nil {
+			t.Fatal("wheel in the list scheduled work")
+		}
+	}
+}
+
+func TestWheelSwallowedInResizeMode(t *testing.T) {
+	m := &Model{
+		mode:   modeList,
+		split:  splitState{resizeMode: true},
+		cursor: 0,
+		rows:   []treeRow{{}, {}},
+		width:  80,
+		height: 24,
+	}
+	updated, _ := m.handleMouse(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	m = updated.(*Model)
+	if m.cursor != 0 {
+		t.Fatalf("resize mode should swallow wheel, cursor = %d", m.cursor)
+	}
+}

@@ -1,0 +1,50 @@
+
+  ┃                                                                                                                                                             Echo hello-from-probe command
+  ┃  Run the bash command: echo hello-from-probe                                                                                                                execution
+  ┃  7:44 PM
+  ┃                                                                                                                                                             Context
+                                                                                                                                                                0 tokens
+     $ echo hello-from-probe                                                                                                                                    0% used
+                                                                                                                                                                $0.00 spent
+     ▣  Build · Gemini 2.5 Flash
+                                                                                                                                                                LSP
+                                                                                                                                                                LSPs are disabled
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  △ Permission required
+  ┃    # Shell command
+  ┃
+  ┃  $ echo hello-from-probe
+  ┃
+  ┃                                                                                                                                                             /tmp/claude-1000/ocprobe:main
+  ┃   Allow once   Allow always   Reject                                                                       ctrl+f fullscreen  ⇆ select  enter confirm
+  ┃                                                                                                                                                             • OpenCode 1.18.23
+

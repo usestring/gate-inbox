@@ -1,0 +1,104 @@
+3 tools
+  list_artifacts
+  publish_artifact
+  read_artifact
+
+=== list_artifacts
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "List what this team has published to the artifact store, newest first, with ids, titles and who published each. Call it to find an artifact the user half-remembers, to see what one person has published by passing their email as by, or to check whether the thing you are about to write already exists, before publishing a second copy of it.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "by": {
+        "description": "only artifacts published by this email",
+        "type": "string"
+      },
+      "index_link": {
+        "description": "also return a link to a page listing every artifact with who made it; valid 24 hours and opens everything listed, so share it only inside the team",
+        "type": "boolean"
+      },
+      "limit": {
+        "description": "how many to return, newest first; defaults to 20",
+        "type": "integer"
+      }
+    },
+    "type": "object"
+  },
+  "name": "list_artifacts"
+}
+
+=== publish_artifact
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Publish a document to a URL you can hand to the user or to another agent: a report, a dashboard, a rendered diff, a standalone HTML page. Use it whenever finished work is meant to be looked at by someone other than you, and would otherwise only exist in this terminal or in a file on this machine. The returned link carries its own key, so whoever has it can open that one artifact and nothing else, and it works from any session on any account and any CLI -- which the artifacts built into a single CLI do not, since those belong to the account that made them. A document already written to disk, or a binary one such as a PNG or a PDF, is published by naming it in content_path rather than pasting it into content; the media type follows the extension. Pass artifact_id to revise something already published: the link already shared keeps working and shows the new version. The link is a bearer credential with an expiry, not an identity check, so do not publish anything whose disclosure would matter if the link were forwarded.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "artifact_id": {
+        "description": "id of an artifact to replace in place, keeping links already shared working; omit to publish a new one",
+        "type": "string"
+      },
+      "content": {
+        "description": "the whole document to publish, most often a complete standalone HTML page; for a document already on disk, or a binary one, pass content_path instead",
+        "type": "string"
+      },
+      "content_path": {
+        "description": "absolute path of the file to publish, used instead of content; the server reads it, and the media type is taken from its extension unless content_type says otherwise",
+        "type": "string"
+      },
+      "content_type": {
+        "description": "media type of the document; defaults to text/html for content, and to the extension's type for content_path",
+        "type": "string"
+      },
+      "title": {
+        "description": "short name for the artifact, shown in listings",
+        "type": "string"
+      }
+    },
+    "required": [
+      "title"
+    ],
+    "type": "object"
+  },
+  "name": "publish_artifact"
+}
+
+=== read_artifact
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": true
+  },
+  "description": "Read back an artifact this team published, given the share link you were handed or a bare artifact id. Use it when another session, another agent or the user refers you to an artifact link and you need what is in it rather than a description of it. This is the half that makes artifacts shared rather than merely published: the session that reads need not be the one that wrote, on the same account, or even on the same CLI. Pass save_to to write the bytes to a file instead of returning them, which is how an image, a PDF or a page too big to read inline comes back.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "artifact": {
+        "description": "the share link you were given, or the bare id of an artifact this team published",
+        "type": "string"
+      },
+      "save_to": {
+        "description": "absolute path to write the artifact's bytes to instead of returning them; use it for an image, a PDF or a page too big to read inline",
+        "type": "string"
+      }
+    },
+    "required": [
+      "artifact"
+    ],
+    "type": "object"
+  },
+  "name": "read_artifact"
+}

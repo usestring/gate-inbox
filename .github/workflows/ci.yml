@@ -1,0 +1,135 @@
+# Modified by Durable Alpha, 2026: changes from the upstream commit named in NOTICE.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A pushed-again PR cancels its superseded run instead of spending Actions
+# minutes on a stale commit.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CGO_ENABLED: "0"
+  # Panes draw box-drawing characters and a prompt glyph through tmux. Under
+  # the C locale tmux renders them as replacement characters and the waits
+  # time out.
+  LANG: C.UTF-8
+  LC_ALL: C.UTF-8
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt would change:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: go vet ./...
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: hashFiles('internal/extension/artifacts/worker/package.json') != ''
+      - name: Test artifacts worker
+        if: hashFiles('internal/extension/artifacts/worker/package.json') != ''
+        working-directory: internal/extension/artifacts/worker
+        run: bun test
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install tmux
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes tmux
+      # Nearly every test that drives a pane skips itself when tmux is
+      # missing, so without it the job would pass having run almost none of
+      # the suite. The skip report below is the other half of that guard.
+      - name: Verify tmux and scratch space
+        run: |
+          tmux -V
+          df -h /dev/shm
+      # Tests that launch the claude tool resolve its binary before a fake
+      # launcher takes over, and never run it. A stub that fails when invoked
+      # satisfies the lookup without letting a test that does exec it pass by
+      # accident.
+      - name: Stub the claude CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          printf '#!/bin/sh\necho "stub claude invoked in CI: $*" >&2\nexit 1\n' > "$RUNNER_TEMP/bin/claude"
+          chmod +x "$RUNNER_TEMP/bin/claude"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      # Test servers get their own socket root, kept short because a tmux
+      # socket path is capped near 108 bytes. The sqlite fixtures already go
+      # to /dev/shm through tmuxtest.ScratchDir.
+      #
+      # Both verdicts have to be clean: go test alone would call a suite that
+      # passed by skipping a success, and testreport alone would miss a
+      # failure that never reached the stream.
+      - name: Test
+        run: |
+          go build -o "$RUNNER_TEMP/testreport" ./tools/testreport
+          TMUX_TMPDIR=$(mktemp -d /dev/shm/tmux.XXXX)
+          export TMUX_TMPDIR
+          unset TMUX TMUX_PANE
+          suite=0
+          go test -json -count=1 -timeout 15m ./... > "$RUNNER_TEMP/test.json" || suite=$?
+          report=0
+          "$RUNNER_TEMP/testreport" \
+            -allow ci-allowed-skips.txt \
+            -summary "$GITHUB_STEP_SUMMARY" \
+            < "$RUNNER_TEMP/test.json" || report=$?
+          test "$suite" -eq 0 -a "$report" -eq 0
+      - name: Upload test stream
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: test-json
+          path: ${{ runner.temp }}/test.json
+          retention-days: 7
+
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # The release binary rather than gitleaks-action, which needs a
+      # licence key on organisation repositories.
+      - name: Install gitleaks
+        run: |
+          tarball=gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz
+          curl -sSfL -o "$RUNNER_TEMP/$tarball" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$tarball"
+          echo "$GITLEAKS_SHA256  $RUNNER_TEMP/$tarball" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP" gitleaks
+      # The whole history, not just this change: it is published with the
+      # repository.
+      - name: Scan history
+        run: '"$RUNNER_TEMP/gitleaks" git --no-banner --redact --config .gitleaks.toml .'

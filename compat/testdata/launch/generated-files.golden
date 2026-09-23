@@ -1,0 +1,135 @@
+=== hooks/claude-settings.json
+{
+  "hooks": {
+    "Notification": [
+      {
+        "matcher": "permission_prompt|elicitation_dialog",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf waiting \u003e \"$f\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf working \u003e \"$f\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || { if grep -q '\"tool_name\"[[:space:]]*:[[:space:]]*\"AskUserQuestion\"'; then printf waiting; else printf working; fi \u003e \"$f\"; }"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || rm -f \"$f\"; git rev-parse --git-dir \u003e/dev/null 2\u003e\u00261 \u0026\u0026 { git worktree prune \u003e/dev/null 2\u003e\u00261; git submodule --quiet foreach --recursive 'git worktree prune \u003e/dev/null 2\u003e\u00261 || true' \u003e/dev/null 2\u003e\u00261; }; exit 0"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf idle \u003e \"$f\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf finished \u003e \"$f\""
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "matcher": "rate_limit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf errored \u003e \"$f\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf working \u003e \"$f\""
+          }
+        ]
+      }
+    ]
+  }
+}
+=== hooks/gate-inbox-mcp-claude.json
+{
+  "mcpServers": {
+    "gate-inbox": {
+      "args": [
+        "mcp"
+      ],
+      "command": "<scratch>/home/bin/gate-inbox",
+      "env": {
+        "GATE_INBOX_SESSION_ID": "${GATE_INBOX_SESSION_ID}"
+      }
+    }
+  }
+}
+=== hooks/gate-inbox-mcp-opencode.json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "command": {
+    "rename": {
+      "description": "Name this session after the work it is doing",
+      "template": "Call the \"rename\" tool on the \"gate-inbox\" MCP server with the name, then report in one line what it actually did and stop. Do not resume the previous task in this turn; the operator asked for a name, not for work.\n\nUse the shell only when that tool is not available in this session: run \"$GATE_INBOX_BIN\" rename \"\u003cname\u003e\" once, bare, with no pipe after it so the exit status is the command's own. $GATE_INBOX_BIN is the path this session was launched with, because the manager runs from its own checkout and is not on PATH. If it fails with \"read-only file system\", that is the Bash sandbox refusing the manager's state directory, not the manager: run the same command once more with the sandbox disabled and report that result.\n\nIf $ARGUMENTS is non-empty, that is the name — kebab-case it and use it verbatim, without second-guessing the operator's wording.\n\nOtherwise take the name from this conversation: 2-4 words, kebab-case, describing the broad feature or theme of the whole session, not the subtask in front of you right now. Prefer what the session has been about across its turns to whatever was said in the last one.\n\nReport the result, never your intention: an error from the tool, or a non-zero exit or any error on the command's output, is a rename that did not happen. Never invent a fallback: renaming anything else leaves the manager's own name behind."
+    }
+  },
+  "instructions": [
+    "<scratch>/home/hooks/gate-inbox-opencode-rename-instructions.md"
+  ],
+  "mcp": {
+    "gate-inbox": {
+      "command": [
+        "<scratch>/home/bin/gate-inbox",
+        "mcp"
+      ],
+      "enabled": true,
+      "environment": {
+        "GATE_INBOX_SESSION_ID": "{env:GATE_INBOX_SESSION_ID}"
+      },
+      "type": "local"
+    }
+  }
+}
+=== hooks/gate-inbox-opencode-rename-instructions.md
+# Session naming
+
+This session is managed by Gate Inbox, which lists it under a short name. After you understand what the session is about — not as your first action — name it once by calling the "rename" tool on the "gate-inbox" MCP server with a short 2-4 word kebab-case name for the broad feature or theme of the whole session (not one subtask of a larger feature). If that tool is not available in this session, run "$GATE_INBOX_BIN" rename "<name>" once in the shell instead. Rename only this once, then carry on with what you were doing. Do not rename again later unless the user explicitly asks.
+

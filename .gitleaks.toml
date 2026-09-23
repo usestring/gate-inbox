@@ -1,0 +1,17 @@
+# Secret scan for this repository, run by .github/workflows/ci.yml over the
+# full history. The history goes public with the repository, so a finding
+# anywhere in it matters, not only in the latest tree.
+#
+# Every allowlist entry names one fixture and the value it carries. A new
+# fixture that trips a rule gets its own entry here rather than a wider one.
+
+[extend]
+useDefault = true
+
+# The scrubber's test feeds it an opaque, made-up value under a credential
+# variable name to prove the name alone is enough to redact it.
+[[allowlists]]
+description = "internal/logging redaction test: fake GITHUB_TOKEN value"
+paths = ['''^internal/logging/redact_test\.go$''']
+regexTarget = "match"
+regexes = ['''GITHUB_TOKEN=0123456789abcdef''']

@@ -1,0 +1,72 @@
+      184 +  // go off screen with it.
+      185 +  if got := focusedName(t, m); got != "ask" {
+      186 +    t.Fatalf("a refused ± handed the session over to %q", got)
+      187    }
+      188  }
+      189
+
+  Ran 1 shell command
+
+● Skill(code-comments)
+  ⎿  Successfully loaded skill
+
+● Update(~/repos/worktrees/guard-approve-on-open-dialog-20260909-042312/sample-repo/gate-inbox/internal/ui/approve.go)
+  ⎿  Added 2 lines, removed 5 lines
+      109  //
+      110  // SendText pastes and presses Enter, and a dialog answers both: the paste
+      111  // lands on whatever row the dialog's selection is parked on and the Enter
+      112 -// commits it. Measured on the live board, a ± into an open AskUserQuestion
+      113 -// left the dialog parked on its "Chat about this" row with every arrow, Tab
+      114 -// and Enter after it inert -- the pane repainted an identical frame per key --
+      115 -// so the session sat waiting until somebody found it and pressed esc. Nothing
+      116 -// on the board said why, because the send itself had succeeded.
+      112 +// commits it. The sentence is never read, and the send reports success, so
+      113 +// nothing on the board says why the session is still waiting.
+      114  //
+      115  // TypingHold is the same read the inbox poller takes before it types a queued
+      116  // message in (poller.go), so a key the operator presses and a message another
+
+● Update(~/repos/worktrees/guard-approve-on-open-dialog-20260909-042312/sample-repo/gate-inbox/internal/ui/approve_test.go)
+  ⎿  Added 3 lines, removed 5 lines
+      138    waitForPaneText(t, m, sessID, "Enter to confirm")
+      139  }
+      140
+      141 -// The defect this guard exists for. SendText pastes and presses Enter, so ±
+      142 -// on a session showing a dialog answered the dialog with a row of its own
+      143 -// choosing instead of being read -- on the live board it left an
+      144 -// AskUserQuestion inert to every key until somebody pressed esc. The refusal
+      145 -// has to say so, since a silent no-op reads as the key being broken.
+      141 +// The defect this guard exists for: SendText pastes and presses Enter, so ±
+      142 +// on a session showing a dialog answered the dialog rather than being read.
+      143 +// The refusal has to say so, since a silent no-op reads as a broken key.
+      144  func TestApproveRefusesAPaneShowingADialog(t *testing.T) {
+      145    m := buildModel(t)
+      146    liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+
+  Ran 6 shell commands
+
+● Write(~/repos/worktrees/guard-approve-on-open-dialog-20260909-042312/sample-repo/gate-inbox/tools/capture/scenarios/dialog-refuses-approve.tape)
+  ⎿  Wrote 27 lines to ../worktrees/guard-approve-on-open-dialog-20260909-042312/sample-repo/gate-inbox/tools/capture/scenarios/dialog-refuses-approve.tape
+       1 # ± on a session showing a dialog is refused, and the error bar says why.
+       2 # Record with the default transcripts, whose first seeded tool plays the
+       3 # waiting one -- a permission dialog, which is what the guard reads:
+       4 #
+       5 #   tools/capture/capture.sh --scenario tools/capture/scenarios/dialog-refuses-approve.tape
+       6 #
+       7 # The driver leaves the cursor on the last session it created, so walk up to
+       8 # the first row before pressing the key.
+       9
+      10 Screenshot {{SHOTS}}/01-board.png
+     … +17 lines
+
+● Running 1 shell command · 40s…
+  ⎿  $ cd /home/example/projects/sample-repo; go test ./internal/ui (39s)
+     (ctrl+b ctrl+b (twice) to run in background)
+
+✻ Herding… (27m 40s · ↓ 57.2k tokens)
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  sample-repo | main (!13 ?34) | Opus 5 (1M context) | 24%                                                                                                                                                                                          /rc
+  ⏵⏵ auto mode on (shift+tab to cycle)

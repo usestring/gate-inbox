@@ -1,0 +1,17 @@
+# Modified by Durable Alpha, 2026: changes from the upstream commit named in NOTICE.
+
+# Go build artefacts
+/gate-inbox
+*.exe
+*.test
+*.out
+*.prof
+/dist/
+/bin/
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+/scripts/thirdpartylicences/thirdpartylicences

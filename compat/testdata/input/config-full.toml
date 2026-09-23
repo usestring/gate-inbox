@@ -1,0 +1,64 @@
+# A representative full config: every top-level section set explicitly,
+# an extension switched on against a synthetic endpoint, a built-in tool
+# overridden, a tool of the user's own, and one key no release reads.
+poll_interval = "5s"
+adopt_sockets = ["scratch-a", "scratch-b"]
+tmux_socket = "compat"
+editor = "vi"
+name_sweep_pace = "10s"
+unknown_setting = "ignored by every release"
+
+[log]
+level = "debug"
+file = "/var/tmp/example/gate-inbox.log"
+max_size_mb = 4
+max_backups = 2
+max_total_mb = 16
+no_compress = true
+
+[children]
+auto_archive_after = "1h"
+
+[work]
+settle_after = "48h"
+
+[integrations.github]
+enabled = false
+
+[integrations.linear]
+enabled = true
+
+[supervisor]
+disabled = true
+model = "haiku"
+harness = "claude"
+timeout = "5m"
+
+[extensions.artifacts]
+enabled = true
+base_url = "https://artifacts.example.test"
+key_secret = "EXAMPLE_ARTIFACT_KEY"
+key_command = "printf fake-signing-key"
+identity_command = "printf ada@example.test"
+link_ttl = "24h"
+max_bytes = 1024
+
+[tools.claude]
+command = "claude --dangerously-skip-permissions"
+models = ["sonnet", "opus"]
+account_env = "CLAUDE_CODE_OAUTH_TOKEN"
+account_secret = "EXAMPLE_TOKEN_{account}"
+account_command = "printf fake-token-{secret}"
+accounts_command = "printf 'EXAMPLE_TOKEN_ADA1\nEXAMPLE_TOKEN_BOB1\n'"
+
+[tools.aider]
+command = "aider"
+prompt_flag = "--message"
+model_flag = "--model"
+default_status = "working"
+activity_cutoff = "^> "
+turn_end = "^Tokens: "
+rules = [
+  { state = "waiting", pattern = "\\(Y\\)es/\\(N\\)o" },
+  { state = "errored", pattern = "(?i)^error" },
+]

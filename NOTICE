@@ -1,0 +1,14 @@
+agent-manager
+Copyright 2026 Yoan Wai and the agent-manager contributors
+
+Licensed under the Apache License, Version 2.0.
+
+--------------------------------------------------------------------------------
+
+This distribution contains a modified copy of agent-manager.
+
+Modifications by Durable Alpha, 2026, beginning from upstream commit
+4b7c163400f06d9179c1ae0c6afee0100612c66c. Changes from that commit are
+recorded in this repository's history.
+
+The upstream source is at https://github.com/YoanWai/agent-manager.

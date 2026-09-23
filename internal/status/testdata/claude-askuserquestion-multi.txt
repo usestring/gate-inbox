@@ -1,0 +1,62 @@
+
+ ▐▛███▛█   Claude Code v2.1.263
+▝▜██████▀  Opus 5 (1M context) with high effort · Claude Max
+  ▝▝ ▝▝    ~/repos/sample-repo
+
+
+❯ when sessions have a other subagents spawend and waiting we need to make sure they are assigned status properly rather than just saying idle/working
+
+  Listed 1 directory, ran 2 shell commands
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ go gate v2
+
+  Searched for 4 patterns, listed 2 directories, called gate-inbox, ran 11 shell commands
+
+● Read the status engine and the live board. Today the only subagent signal is Claude's ✻ Waiting for N background agents to finish line, matched by busy_line and folded into working — indistinguishable from a live turn, and
+  lost entirely once that line scrolls out of the visible pane, at which point the row settles to finished → idle even though agents are still running. Two design forks before I build:
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☐ Shape  ☐ Scope  ✔ Submit  →
+
+How should a session that is parked on its subagents present on the board?
+
+❯ 1. New status: delegating       ┌────────────────────────────────────────────────────┐
+  2. Badge on the existing row    │ ◐ site-graph-endpoint      working · claude        │
+  3. Fix the fold-to-idle only    │ ◑ pagination-deriver       delegating (2) · claude │
+                                  │ ○ endpoint-cache-probe     idle · claude           │
+                                  └────────────────────────────────────────────────────┘
+
+                                  Notes: press n to add notes
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Chat about this
+
+Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

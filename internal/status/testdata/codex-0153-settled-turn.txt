@@ -1,0 +1,40 @@
+  384
+  385
+  386
+  387
+  388
+  389
+  390
+  391
+  392
+  393
+  394
+  395
+  396
+  397
+  398
+  399
+  400
+
+• Session renamed to codex-rig-test. To resume this session run codex resume, then select codex-rig-test (01a06eeb-45ef-75a3-b9d7-
+2905cece3210)
+
+
+› Run exactly this shell command and nothing else: nonexistent-binary-xyz --fail
+
+
+• Ran nonexistent-binary-xyz --fail
+  └ zsh:1: command not found: nonexistent-binary-xyz
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+
+› Reply with exactly the word: pineapple
+
+
+• pineapple
+
+
+› Ask Codex to do anything
+
+  gpt-6-astra high · /home/dev/wd

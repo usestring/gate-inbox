@@ -1,0 +1,78 @@
+
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude Code[0m [38;5;246mv2.1.266[39m
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mFable 5.1 with high effort · Claude Max[39m
+[38;5;174m  ▝▝ ▝▝  [39m  [38;5;246m/tmp/claude-1000/-home-user-repos-sample-repo/11111111-2222-3333-4444-555555555555/scratchpad[39m
+
+
+[38;5;239m[48;5;237m❯ [38;5;231mThis session is already named. You can rename it later with "$GATE_INBOX_BIN" rename "<name>" only if the user asks. Do not rename it now. Then do the task:[39m
+
+  [38;5;231mYou are a fixture generator for a TUI test suite. Your only job is to draw interactive dialogs on your own screen so they can be screenshotted. Do not read files, do not write files, do not run any shell commands, do not use any other tool. Right now, immediately as your very first action, ask me a MULTI-SELECT [39m
+  [38;5;231mquestion with your interactive question tool: set multiSelect true, header "Checks", question "Which checks should run before merge?", four options: "Build", "Unit tests", "Lint", "Golden frames", each with a one-line description. Then stop and wait.[39m
+
+[38;5;246m[49m● [39mUser answered Claude's questions:
+[38;5;246m  ⎿  · Which checks should run before merge? → Build[39m
+
+[38;5;231m●[39m The multi-select dialog was drawn and answered. You selected "Build".
+
+  Waiting for the next fixture instruction.
+
+[38;5;246m✻[39m [38;5;246mChurned for 6s · done 3:29 AM[39m
+
+[38;5;239m[48;5;237m❯ [38;5;231mNow ask me a dialog with TWO questions at once in one call of your interactive question tool: question 1 header "Shape", single-select, "Which shape?", options "Circle", "Square", "Triangle"; question 2 header "Checks", multiSelect true, "Which checks should run?", options "Build", "Lint", "Tests". Each option with[39m
+  [38;5;231ma one-line description. Then stop and wait.[39m
+[38;5;246m[49m───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m←  ☒ Shape [38;5;16m[48;5;153m ☐ Checks [39m[49m ✔ Submit  →
+
+[1m[38;5;231mWhich checks should run?[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [ ] [38;5;153mBuild[39m
+  [38;5;246mCompile the project and fail on any build error.[39m
+  [38;5;246m2.[39m [ ] Lint
+  [38;5;246mRun the linter and formatter checks on changed files.[39m
+  [38;5;246m3.[39m [ ] Tests
+  [38;5;246mRun the test suite and require all tests to pass.[39m
+  [38;5;246m4. [39m[ ] [38;5;246mType something[39m
+     [1mSubmit[0m
+[38;5;246m───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  5. Chat about this
+
+[38;5;246mEnter to select · Tab/Arrow keys to navigate · Esc to cancel[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

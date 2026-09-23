@@ -1,0 +1,400 @@
+poll_interval = "2s"
+
+# The shared artifact store. Agents publish HTML, markdown or JSON to a URL
+# and hand the link to you or to each other; the link carries its own key, so
+# whoever has it can open that one artifact and nothing else. An artifact
+# published by a session on one pooled account is readable by a session on
+# another -- and by a CLI that has no artifacts of its own.
+#
+# Off until you turn it on. An extension that is off registers no tools, so
+# an agent here neither sees them nor pays context for them. Turning it off
+# again does not break links already handed out, because the worker serving
+# them does not consult this file.
+#
+# It has no store of its own: base_url and key_command name the worker you
+# deployed and how to read its signing key, and until both are set the tools
+# stay off whatever enabled says.
+#
+# [extensions.artifacts]
+# enabled = true
+# base_url = "https://artifacts.example.com"
+# key_secret = "ARTIFACT_SIGNING_KEY"
+# key_command = "pass show {secret}"
+# identity_command = "git config user.email"   # who is recorded as publishing
+# link_ttl = "720h"         # how long a minted link stays valid; Go durations have
+#                           # no day unit, so this is hours (720h = 30 days)
+# max_bytes = 16777216      # largest artifact this client will send
+
+# The tmux server sessions run on. Unset, they run on tmux's own default
+# server, so "tmux ls" lists them and "tmux attach -t gi_<id>" reaches one.
+# Naming a socket here gives them a server nothing else shares, reachable
+# only as "tmux -L <socket>".
+# tmux_socket = "gate-inbox"
+
+# Sessions another session spawned. A child whose pane has exited is archived
+# as soon as its report to the parent lands; one that never reported is kept
+# this long after it exits, then archived too. A child with a live pane is
+# never swept, whatever it reads as. The parent's badge goes on
+# counting them as "(+N done)".
+# [children]
+# auto_archive_after = "30m"
+
+# The pull requests and tickets sessions are on. One that is over -- merged,
+# closed, completed, cancelled -- stays on the board this long after you first
+# see it that way, then leaves the rail and the counts for good.
+# [work]
+# settle_after = "24h"
+
+# The diagnostic log. It is a file log only -- this program owns the
+# terminal, so nothing is ever printed to the screen. "gate-inbox
+# --log-path" prints where it is written.
+# [log]
+# level = "info"          # off, error, warn, info, debug, trace
+# file = ""               # default: <config dir>/logs/gate-inbox.log
+# max_size_mb = 8         # rotate once the active file reaches this
+# max_backups = 5         # rotated files kept, oldest deleted first
+# max_total_mb = 48       # hard cap on everything this log holds
+# no_compress = false     # rotated files are gzipped by default
+#
+# level = "trace" is the only setting under which captured pane text
+# reaches the log, and secrets are scrubbed even then.
+
+# The editor "o" opens a directory in, arguments allowed: "code -n", or
+# "open -a 'Visual Studio Code'". Quotes group an argument that carries a
+# space; the line is run directly, never through a shell. Left unset,
+# Gate Inbox takes $GATE_INBOX_EDITOR, then the first GUI editor on
+# PATH (code, cursor, windsurf, zed, subl, idea), then $VISUAL or $EDITOR,
+# and last a terminal editor on PATH (nvim, vim, nano, vi). Setting this is
+# how you override that order, not how you switch the editor on.
+# editor = "code"
+
+# Rules are matched top-down against the visible pane text (ANSI stripped);
+# first match wins, except a matching waiting rule outranks a working match.
+# A limit_line match is errored even when a turn-end summary or a limit
+# dialog would otherwise settle the turn.
+# When no rule matches, the newest turn decides:
+# the content region is the text above the last activity_cutoff match
+# (the tool's input box). If the region's last content line — skipping
+# chrome_line matches (blanks, separators, input-box borders) — is a
+# turn_end marker, the turn just ended: finished, or waiting when the
+# line above it carries a question mark. A blocked_line there (e.g. an
+# interrupt banner) also derives waiting. Otherwise default_status
+# applies, and a region whose newest content lines changed since the
+# previous poll counts as working (streaming output often renders without
+# any spinner). Only the newest lines count, so a prompt someone is writing
+# -- which grows the input box and scrolls the oldest rows off the top of
+# the pane -- is not mistaken for output. A turn
+# that closes without any turn_end marker still resolves: when a working
+# region stops changing and nothing matches, its last content line
+# decides finished versus waiting (question mark waits).
+#
+# None of that runs while a scrolled_line match says the tool has parked
+# its own viewport above the live bottom: the visible screen is history
+# then, and a session holds the status it already had until the viewport
+# comes back.
+
+[tools.claude]
+command = "claude"
+# text typed mid-turn is queued and read after the running tool call, so a
+# message need not wait for the turn to end
+type_ahead = true
+# Escape stops a running turn; a second one opens the rewind menu, so
+# Gate Inbox never sends it twice for one message
+interrupt_keys = ["Escape"]
+# claude 2.1.263: --model <model>
+model_flag = "--model"
+# Named subscriptions are off: a session runs on claude's own stored login.
+# To launch on a named account instead, say where its token comes from.
+# claude reads a token from account_env ahead of its own login; {account} is
+# the account name in upper case, and {secret} the name account_secret made.
+#
+# account_env = "CLAUDE_CODE_OAUTH_TOKEN"
+# account_secret = "CLAUDE_OAUTH_TOKEN_{account}"
+# account_command = "pass show claude/{secret}"
+# accounts_command = "pass ls claude"
+# claude has no command that prints these; they are the documented aliases.
+# The 1M-context variants sit beside the bare ones because an explicit --model
+# overrides the operator's settings.json default: picking "opus" for someone
+# who defaults to "opus[1m]" drops that session to the standard window, and
+# nothing says so until it compacts early.
+models = ["sonnet", "sonnet[1m]", "opus", "opus[1m]", "haiku"]
+# revive (v) launches a new session with this id, so it can later resume
+# that exact conversation regardless of what else ran in the directory
+session_id_flag = "--session-id"
+resume_by_id_command = "claude --resume {id}"
+fork_command = "claude --resume {id} --fork-session --session-id {new_id} --name {name}"
+# Resuming a large conversation opens a dialog offering a summary instead,
+# with the summary preselected -- and a fork answered that way keeps a
+# summary rather than the responses it was made for. The manager picks the
+# full-session option itself; the keys move one row down from where the
+# dialog opens and confirm.
+fork_dialog_option = "Resume full session as-is"
+fork_dialog_keys = ["Down", "Enter"]
+# fallback when a session predates id tracking: resumes the last conversation there
+revive_command = "claude --continue"
+# r asks the session to name itself with this instead of guessing from the
+# transcript: /rename is a project command that runs gate-inbox rename
+rename_command = "/rename"
+# hooks report status events directly; the pane rules below stay as fallback
+status_source = "claude-hooks"
+default_status = "idle"
+activity_cutoff = "(?m)^❯"
+turn_end = "^[✻✳✶✽✢·✦✧+*] \\S+ for \\d.*$"
+# Box borders, plus the right-aligned "✔ Update installed · Restart to
+# update" banner claude draws above the composer once a CLI update has been
+# staged. Unmatched it becomes the region's last content line and is not a
+# turn_end marker, so every verdict collapses to default_status with
+# matched=false -- and matched is what a claude-hooks session depends on:
+# only a matched pane verdict talks a stale "working" hook file back down,
+# and inbox delivery never fires while a session reads working.
+#
+# Chrome and not trailing_note on purpose. trailing_note is sticky -- the
+# first match makes settledBelow skip everything after it, so a newer turn
+# streaming below the banner would still read finished -- and only
+# chrome_line is consulted by lastContentIndex, so only chrome_line keeps the
+# banner from masking a blocked_line interrupt above it.
+chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$"
+blocked_line = "Interrupted ·"
+# recap blocks ("※ recap: …") render below the turn-end summary
+trailing_note = "^※"
+# Only background subagents keep a turn busy. While any are pending, Claude
+# replaces the turn-end summary with its own wait line ("✻ Waiting for 2
+# background agents to finish", "✻ Waiting for 1 background agent and 1
+# dynamic workflow to finish") and drops the summary's "still running" tail
+# altogether, so agents never appear in that tail. What the tail does name --
+# shells, monitors, MCP tasks, background tasks ("✻ Worked for 0s · done 4:28
+# AM · 8 shells, 2 monitors still running") -- runs on while the prompt takes
+# input: a monitor can sit armed for hours, and a row pinned at working for it
+# hides a prompt that is ready. Such a turn is finished.
+busy_line = "^[✻✳✶✽✢·✦✧+*] Waiting for \\d+ (?:background agents?|dynamic workflows?)"
+# a usage/rate-limit banner sits above the turn-end summary
+limit_line = "(?m)You've hit your .+limit"
+# claude draws this over the last content row while its own viewport is
+# parked above the live bottom
+scrolled_line = "Jump to bottom \\(ctrl\\+End\\)"
+# The key that affordance names, for the board to press itself rather than ask.
+jump_to_bottom_key = "C-End"
+# A dialog claims Left only where it says so: in the "… to navigate" segment of
+# its own keybinding legend. Reading a loose ← or → anywhere in the pane is what
+# pinned the operator, because a multi-question dialog draws a decorative
+# "←  ☐ Shape  ☐ Scope  ✔ Submit  →" stepper above its options while its legend
+# says "↑/↓ to navigate · n to add notes · Tab to switch questions" -- Tab is what
+# steps between questions, not Left -- and because ordinary prose carries arrows
+# too. So require the arrow wording inside that one segment: "Tab/Arrow keys to
+# navigate" claims Left, "↑/↓ to navigate" leaves it alone, and a permission
+# prompt ("Enter to confirm · Esc to cancel") has no such segment at all.
+arrow_dialog_line = "(?i)\\x{B7} [^\\x{B7}\\n]*(?:Arrow keys|\\x{2190}|\\x{2192})[^\\x{B7}\\n]* to navigate\\b"
+# The question stepper, drawn above the options whenever the dialog has more
+# than one step: "←  ☐ Shape  ☐ Scope  ✔ Submit  →" for three questions, and
+# "←  ☐ Checks  ✔ Submit  →" for a single multi-select one, which has the
+# question and Submit. Where it sits decides Left, because Left IS the stepper:
+# one entry in, Left steps back a question; on the first entry it does nothing
+# (measured live -- the pane comes back byte for byte identical), so only there
+# is it free to leave. A dialog with no stepper falls back to the legend above.
+#
+# The entry glyph carries whether the step has been ANSWERED, so the class
+# needs every state a step is drawn in: an answered question comes back ☒, and
+# a class missing it leaves nothing visible to the left of the live entry, so a
+# later question reads as the first and Left leaves instead of stepping back.
+dialog_step_row = "^[ \\x{A0}]*\\x{2190}[ \\x{A0}].*[ \\x{A0}]\\x{2192}[ \\x{A0}]*$"
+dialog_step_entry = "[\\x{2610}-\\x{2612}\\x{2714}]"
+rules = [
+  # Selection dialogs (trust prompt, permission asks, questions) block on the
+  # user and close with "Enter to confirm" on their keybinding legend. The
+  # phrase alone is not that legend, and this rule leads the list, so a turn
+  # merely PRINTING those words outranks the working spinner below -- a line
+  # like  138    waitForPaneText(t, m, sessID, "Enter to confirm")
+  # scrolling past in a diff read as a dialog. So require the phrase to BE a legend segment:
+  # starting its line (past any indent or box rule) or following a separator,
+  # then ending the line or running into the next segment. That reads
+  # "Enter to confirm \x{B7} Esc to cancel" and "\x{2191}/\x{2193} to select,
+  # Enter to confirm", while quoted source and prose keep their own brackets,
+  # quotes and words around it.
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}\\x{2502}|]*(?:[^\\n]*[,\\x{B7}][ \\x{A0}]*)?Enter to confirm(?:[ \\x{A0}]*[,\\x{B7}][^\\n]*)?[ \\x{A0}\\x{2502}|]*$" },
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*❯[ \\x{A0}]+\\d+\\." },
+  # AskUserQuestion marks only the selected option with ❯, and that marker is
+  # itself an activity_cutoff match, so the two rules above sit above the cutoff
+  # and the dialog reads as idle. Its keybinding legend is the signal instead: a
+  # whole line running from "Enter to select" to "Esc to cancel", middot
+  # separated. How many segments sit between them is the dialog's own business
+  # -- a multi-question one adds "n to add notes" and "Tab to switch questions"
+  # -- so anchor both ends and let the middle be any number of segments.
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Enter to select \\x{B7} (?:[^\\x{B7}\\n]+\\x{B7} )*Esc to cancel[ \\x{A0}]*$" },
+  # The review page a stepper dialog ends on: the answers listed, "Ready to
+  # submit your answers?", then "❯ 1. Submit answers / 2. Cancel" -- and no
+  # legend at all, so the rule above cannot see it, and the marker row is the
+  # activity cutoff so the numbered rule cannot either. The question line sits
+  # above the cutoff and inside the newest turn, which is where rules look.
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Ready to submit your answers\\?[ \\x{A0}]*$" },
+  # spinner row of an active turn, any duration format:
+  # "✳ Drizzling… (6s · thinking)" / "✽ Zigzagging… (3m 18s · ↓ 1.4k tokens)"
+  { state = "working", pattern = "(?m)^[✻✳✶✽✢·✦✧+*] \\S+… \\(" },
+  { state = "working", pattern = "esc to interrupt" },
+  { state = "errored", pattern = "(?im)^\\s*error:" },
+]
+
+[tools.opencode]
+command = "opencode"
+# No model_flag: opencode's TUI has none, so the manager writes the chosen
+# "provider/model" into the generated OPENCODE_CONFIG instead.
+# every provider/model pair this login can reach, one per line
+models_command = "opencode models"
+# opencode mints its own session id; capture it after launch and resume it
+session_store = "opencode"
+resume_by_id_command = "opencode --session {id}"
+# No fork_command: opencode's TUI has no fork flag, so the manager copies the
+# conversation through opencode's API and launches the copy with
+# resume_by_id_command.
+revive_command = "opencode --continue"
+# The opening prompt is typed in once the composer is up, the way a message
+# from another session is, and submitted by the same Enter that follows the
+# manager's own paste. v2's --prompt fills the composer without submitting
+# it, and the poll that pressed Enter for it could not tell the manager's
+# prompt from a line the operator was writing.
+prompt_mode = "send"
+# r asks the session to name itself with this: /rename is a command the
+# manager registers into every opencode session it starts, through the
+# generated OPENCODE_CONFIG (internal/mcpreg), so there is nowhere to install
+# it and nothing that can shadow it.
+rename_command = "/rename"
+# A launch carries no rename directive: the agent is not asked to name itself
+# as its first act, when it has the least context and the name comes out vague.
+# Naming comes from the session.title opencode writes itself (the naming pass
+# ignores its "New session - …" placeholder until the real title lands), on
+# demand with the command above, and silently through the instructions the same
+# generated config carries.
+skip_rename_directive = true
+default_status = "idle"
+activity_cutoff = "(?m)^\\s*╹"
+# opencode draws its composer as a box: "┃" down the left of every row it is
+# typed on, closed underneath by the "╹" the cutoff finds. The cutoff is
+# therefore a row BELOW the caret and cannot recognise the input line, so the
+# composer names itself here. The bar alone is the marker: tmux trims a row's
+# trailing blanks, so an empty composer row is the bar and nothing else, and a
+# marker that demanded the box's padding would miss exactly the empty prompt
+# Left is meant to leave from.
+input_line = "^[ \\x{A0}]*┃"
+# The finished-turn row: "Build · DeepSeek V4 Pro (New) · 4.8s · 66.7 tok/s".
+# The anchor is the duration itself: a digit-led "· 4.8s" / "· 1m 22s", then
+# an optional "· N tok/s". The composer's own model row ("Build auto ·
+# DeepSeek V4 Pro (New) OpenCode Go") has no duration and opens with the ┃
+# bar, so it never reads as a finished turn.
+# Wide panes put v2's sidebar on the same row ("… tok/s      $0.01 spent"), so
+# a tail after two or more spaces is allowed.
+turn_end = "^ *[^ ┃].*· \\d+(?:\\.\\d+)?[hms](?: \\d+[hms])*(?: · [\\d.]+ tok/s)?(?: {2,}.*)?$"
+# Composer rows, and (second branch) v2's sidebar: on a wide pane it lays
+# "Context", "MCP" and the connection list in a column past the transcript,
+# which capture-pane renders as rows of 40+ leading spaces. Those must not
+# count as content below the finished-turn row or the turn never settles.
+chrome_line = "^\\s*(┃.*)?$|^ {40,}\\S.*$"
+limit_line = "(?i)requires more credits|(?:Usage|Free|Go) limit reached"
+# The permission overlay steps its options with the horizontal arrows
+# ("ctrl+f fullscreen  ⇆ select  enter confirm"), so Left belongs to the pane
+# there. A question dialog instead names "↑↓ select" -- "⇆ tab" only where
+# there is something to tab between -- so Left is spare and leaves focus.
+# Keyed on "⇆ select" rather than a bare ⇆ for that reason: the tab segment
+# must not pin the operator in a dialog that is asking them something.
+arrow_dialog_line = "\\x{21C6} select"
+rules = [
+  # a permission ask is an overlay: it replaces the input box, so nothing
+  # below it settles the turn and the still-open turn's spinner row above
+  # it keeps matching working. Both lines are verbatim from captured
+  # overlays (../status/testdata/opencode-permission-*.txt), and both leave
+  # the pane when the ask is answered -- neither lands in the transcript,
+  # so a past ask cannot match again.
+  { state = "waiting", pattern = "\\x{25B3} Permission required" },
+  # its keybinding legend: "ctrl+f fullscreen  ⇆ select  enter confirm"
+  { state = "waiting", pattern = "\\x{21C6} select\\s+enter confirm" },
+  # opencode's other blocking overlay is the prompt an agent raises to ask its
+  # own question: a numbered list of options under the question text, closed by
+  # a legend of its own. It shares no wording with the permission ask above --
+  # nothing says "permission", and its keys are the vertical arrows -- so the
+  # only rule it otherwise trips is the working spinner of the still-open turn
+  # that sits above the overlay.
+  #
+  # The legend is assembled from up to four segments, and the leading two drop
+  # out on their own conditions ("⇆ tab" only with something to tab between,
+  # "↑↓ select" only with something to step through), while the enter verb
+  # is the dialog's own ("submit" for a select, "toggle" for a multi-select,
+  # "confirm" otherwise). Anchor on the two that always render together, the
+  # enter verb and the trailing "esc dismiss", and let the row's head be
+  # whatever the dialog and its box border put there. The gap between them is
+  # drawn spaces however wide the row gets, so it is matched as spaces rather
+  # than \s, which would also join an "enter submit" ending one transcript
+  # line to an "esc dismiss" opening the next.
+  { state = "waiting", pattern = "(?m)^.*\\benter (?:submit|toggle|confirm)[ \\x{A0}]+esc dismiss[ \\x{A0}]*$" },
+  { state = "errored", pattern = "(?i)requires more credits" },
+  { state = "errored", pattern = "(?im)^\\s*error\\b" },
+  # opencode draws no agent row mid-turn; its only spinner is the footer
+  # "⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt" under the composer, which this rule reads because
+  # the match scope takes in a footer that trips a working rule
+  # (status.matchScope).
+  { state = "working", pattern = "esc interrupt" },
+]
+
+[tools.codex]
+command = "codex"
+# codex-cli 0.153.4: -m, --model <MODEL>
+model_flag = "--model"
+# codex repaints a typed character in 27-45ms against Claude Code's 10-25ms,
+# so the default chase gives up mid-repaint and the key waits for a tick
+echo_budget = "90ms"
+# No rename_command on purpose. Codex ships a BUILT-IN /rename ("rename the
+# current thread") which shadows any prompt file of that name, so typing it
+# renamed codex's own thread and never reached the manager: a rename that
+# reported success and left the board's row exactly as it was. Codex 0.153
+# does not offer ~/.codex/prompts/*.md as slash commands at all, so there is
+# no project command to point at instead. Falling through to the prose
+# directive is what actually renames the session.
+# codex mints its own session id; capture it after launch and resume it
+session_store = "codex"
+resume_by_id_command = "codex resume {id}"
+fork_command = "codex fork {id}"
+# fallback: resumes the most recent session in the working directory
+revive_command = "codex resume --last"
+default_status = "idle"
+# The animated composer paints Braille dots above its input row; those redraws
+# are not agent output and must stay outside the activity fingerprint.
+activity_cutoff = "(?m)^(?:[ \\t\\x{2800}-\\x{28ff}]*\\n)*›"
+input_line = "^›"
+# Codex 0.153 separates turns with a full-width horizontal rule, drawn as the
+# next turn opens, and no longer draws the "─ Worked for 12s ─" summary older
+# builds closed a command-running turn with (it drew nothing at all for a
+# conversational one). Both are matched, because a board outlives a codex
+# upgrade and a pane already on screen still carries whichever its build drew.
+#
+# This marker is also what scopes rule matching to the current turn, so a
+# pattern that matches nothing is not a missing nicety: with the summary gone,
+# nothing was ever scoped away and one "■ … error …" line went on deciding the
+# session's status for every later turn. A session resting at its prompt read
+# errored until the pane scrolled clean.
+#
+# A bare rule cannot be told from one codex draws mid-turn between tool output
+# and the final response, so scope can start one message late and miss an error
+# printed above it. That way round is the cheap one: the turn is still live, the
+# \z-anchored working rule below still matches it, and the next poll of a
+# settled turn reads the whole thing.
+turn_end = "(?m)^(?:─+ Worked for [\\dhms. ]+─.*|─{20,}\\s*)$"
+chrome_line = '^\s*─*\s*$|^⚠ (?:The \S+ MCP server is not logged in\. Run \x60codex mcp login \S+\x60\.|MCP startup incomplete \(failed: [^)]+\))$'
+limit_line = "(?m)You've hit your usage limit"
+rules = [
+  # bottom-pane dialogs (command approval, choice prompts, first-run trust)
+  # select a numbered option and block on the user's answer
+  { state = "waiting", pattern = "(?m)^\\s*›\\s+\\d+\\." },
+  { state = "waiting", pattern = "(?m)Press enter to (confirm|continue)\\b" },
+  { state = "waiting", pattern = "(?m)enter to submit answer\\b" },
+  # active status row is the final row above the input box; anchoring its full
+  # shape keeps an answer that quotes "esc to interrupt" from looking active
+  { state = "working", pattern = "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?[ \\t\\n]*\\z" },
+  { state = "errored", pattern = "(?im)^\\s*■.*\\berror\\b" },
+]
+
+# The terminal tab "T" spawns: a shell in the group's directory, listed
+# beside the agents but with nothing running in it. An empty command leaves
+# the pane on $SHELL; set one to open a different shell instead. shell = true
+# is what marks it: the CLI pickers skip it, and the keys that write into a
+# pane refuse it, because a sentence typed at a shell is a command.
+[tools.terminal]
+command = ""
+shell = true
+default_status = "idle"

@@ -1,0 +1,8 @@
+[
+  {"key": "c", "label": "continue", "text": "continue"},
+  {"key": "R", "text": "  review the diff for correctness  "},
+  {"key": "c", "label": "duplicate", "text": "taken twice"},
+  {"key": "ab", "label": "too long", "text": "not a single key"},
+  {"key": "x", "label": "empty", "text": ""},
+  {"key": "§", "label": "progress", "text": "summarise where this stands"}
+]

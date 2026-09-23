@@ -1,0 +1,55 @@
+
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude Code[0m [38;5;246mv2.1.263[39m
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mOpus 5 (1M context) with high effort · Claude Max[39m
+[38;5;174m  ▝▝ ▝▝  [39m  [38;5;246m/tmp/claude-1000/-home-user-repos-sample-repo/11111111-2222-3333-4444-555555555555/scratchpad[39m
+
+
+[38;5;239m[48;5;237m❯ [38;5;231mThis session is already named. You can rename it later with "$GATE_INBOX_BIN" rename "<name>" only if the user asks. Do not rename it now. Then do the task:[39m
+
+  [38;5;231mYou are a fixture generator for a TUI test suite. Your only job is to draw an interactive dialog on your own screen so it can be screenshotted. Do not read files, do not write files, do not run [39m
+  [38;5;231mshell commands, do not use any other tool.[39m
+
+  [38;5;231mImmediately, as your very first action, ask me THREE questions in ONE single call to your interactive question tool, so the dialog draws a question stepper. Question 1: header "Shape", question [39m
+  [38;5;231m"Which shape?", options "Round" and "Square". Question 2: header "Scope", question "Which scope?", options "Narrow" and "Wide". Question 3: header "Colour", question "Which colour?", options [39m
+  [38;5;231m"Green" and "Red". Then stop and wait.[39m
+[38;5;246m[49m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m←  ☒ Shape [38;5;16m[48;5;153m ☐ Scope [39m[49m ☐ Colour  ✔ Submit  →
+
+[1m[38;5;231mWhich scope?[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mNarrow[39m
+     [38;5;246mA narrow scope.[39m
+  [38;5;246m2.[39m Wide
+     [38;5;246mA wide scope.[39m
+  [38;5;246m3. Type something.[39m
+[38;5;246m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  4. Chat about this
+
+[38;5;246mEnter to select · Tab/Arrow keys to navigate · Esc to cancel[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

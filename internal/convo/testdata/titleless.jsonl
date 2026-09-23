@@ -1,0 +1,2 @@
+{"type":"user","sessionId":"99999999-8888-7777-6666-555555555555","cwd":"/repo/two","message":{"role":"user","content":"hello"}}
+{"type":"last-prompt","lastPrompt":"hello","leafUuid":"z"}

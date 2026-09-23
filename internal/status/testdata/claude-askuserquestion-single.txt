@@ -1,0 +1,71 @@
+
+ ▐▛███▛█   Claude Code v2.1.263
+▝▜██████▀  Opus 5 (1M context) with high effort · Claude Max
+  ▝▝ ▝▝    /tmp/claude-1000/-home-user-repos-sample-repo/11111111-2222-3333-4444-555555555555/scratchpad
+
+
+❯ This session is already named. You can rename it later with "$GATE_INBOX_BIN" rename "<name>" only if the user asks. Do not rename it now. Then do the task:
+
+  You are a fixture generator for a TUI test suite. Your only job is to draw interactive dialogs on your own screen so they can be screenshotted. Do not read files, do not write files, do not run any shell commands, do not use any other tool.
+
+  Right now, immediately as your very first action, ask me ONE single-select question using your interactive question tool. Use header "Colour", question "Which colour should the badge use?", and exactly three options: "Green", "Amber", "Red" — each with a one-line description. Then stop and wait.
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Colour
+
+Which colour should the badge use?
+
+❯ 1. Green
+     Signals a healthy, passing, or successful state.
+  2. Amber
+     Signals a warning or a state needing attention.
+  3. Red
+     Signals a failure, error, or critical condition.
+  4. Type something.
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

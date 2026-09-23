@@ -1,0 +1,96 @@
+Usage: gate-inbox [command]
+
+Run the interactive manager when no command is given.
+
+Gate Inbox runs your session beside the user's other agents and terminals.
+Every command acts as the session it runs in, so run them from your own shell.
+
+Agent sessions
+  gate-inbox sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json]
+      list every agent session with its id, CLI, group, directory and status; call it before delegating anything
+  gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--nest] [--json]
+      start another agent CLI on a task of its own, so independent work runs beside you instead of queued behind you
+  gate-inbox send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--json]
+      queue a message for another agent; it is typed in once that agent is at rest, so it never lands on an approval prompt
+  gate-inbox read <session-id> [--since <cursor>] [--json]
+      read what another agent is doing: its status, any question it is holding, its last words, and either its whole screen or only what it has added --since a previous read's cursor
+  gate-inbox send-children "<message>" [--json]
+      queue one message for every session you spawned, for a correction about the work rather than about one worker
+  gate-inbox place <session-id> [--release] [--json]
+      file a session under this one when a spawn of yours landed with no parent, or --release one of your own children back to the top level
+  gate-inbox answer <session-id> "<answer>" [--json]
+      answer a question one of the sessions you spawned has stopped on, a question at a time; send queues a message and a session on a dialog never reads it
+  gate-inbox wait [<session-id>...] [--children] [--until <state>] [--timeout <duration>] [--json]
+      park until a session stops working, instead of reading its screen in a loop; name several or pass --children to park on a whole fan-out and return on the first one to arrive; exits non-zero when none of them did
+  gate-inbox message-status <message-id> [--json]
+      check whether a message you sent is queued, held, delivered, dropped or answered
+  gate-inbox kill <session-id> [--json]
+      stop another agent's process, ending whatever it is doing; its row keeps the last screen
+  gate-inbox revive <session-id> [--json]
+      bring a dead session back on its old row, resuming the conversation it held
+  gate-inbox migrate <session-id> --tool <cli> [--name <name>] [--json]
+      move a session's conversation to another agent CLI: a new session there reads the source's transcript and carries on; the source stays until you archive it
+  gate-inbox archive <session-id> [--restore] [--json]
+      file a finished session out of the active list, ending it if it is still running, or restore it with --restore; a row left archived is deleted for good after 7 days
+  gate-inbox park [--dry-run] [--json]
+      stop every live agent session the manager started and record the set, so the machine can reboot; --dry-run only prints the plan; runs from any shell
+  gate-inbox unpark [--json]
+      bring back every session park stopped, resuming the conversation each held; runs from any shell
+  gate-inbox groups [--json]
+      list the groups sessions and terminals are filed under
+  gate-inbox create-group <path> [--directory <path>] [--json]
+      create a group so a fleet you spawn stays together in the user's list
+  gate-inbox delete-group <path> [--json]
+      remove a group whose work is done; sessions still in it move to the root rather than stopping
+
+Shared task list
+  gate-inbox task <list|create|claim|finish|release|delete>
+      the work list every session in this manager claims from
+  gate-inbox task list [--json]
+      read the work list every session shares: what is pending, who holds what, and what is blocked
+  gate-inbox task create <title> [--body <text>] [--depends-on <id,id>] [--json]
+      put a piece of work on the shared list so any session can pick it up
+  gate-inbox task claim [<task-id>] [--json]
+      take a task before you start it; omit the id to take the oldest pending task nothing is blocking
+  gate-inbox task finish <task-id> [--json]
+      mark a task you claimed as done, which unblocks everything waiting on it
+  gate-inbox task release <task-id> [--json]
+      hand a task you claimed back to the list for another session
+  gate-inbox task delete <task-id>
+      remove a task nobody needs any more
+
+File reservations
+  gate-inbox reserve <path>... [--mode exclusive|shared] [--note <text>] [--ttl <duration>] [--json]
+      declare the files you are about to edit, so another agent in the same checkout finds out before both of you change them
+  gate-inbox release-files [<path>...] [--json]
+      give the leases back once the edits are made; name no path to release everything you hold
+  gate-inbox reservations [--json]
+      see which files the other sessions are working on right now
+
+Managed terminals
+  gate-inbox terminal <list|create|send|read|close>
+      shells the user watches beside the agents, for work they should be able to watch, attach to or take over
+  gate-inbox terminal list [--json]
+      find a running terminal to reuse before opening another one
+  gate-inbox terminal create [--group <path>] [--directory <path>] [--nest=false] [--json]
+      open a terminal for work the user should see, such as SSH into a host; it hangs under this session unless --nest=false
+  gate-inbox terminal send <terminal-id> --command "<text>" | --keys <key,key> [--json]
+      run a command there, or send exact tmux keys such as C-c to control what is running
+  gate-inbox terminal read <terminal-id> [--json]
+      read what that terminal's screen currently shows
+  gate-inbox terminal close <terminal-id>
+      close a terminal opened under this session once its job is done, killing the pane and deleting the row
+
+Your own session
+  gate-inbox rename "<name>"
+      name this session for the broad feature it is about, once, while it still carries a placeholder name
+
+How much this session matters
+  gate-inbox priority <urgent|high|medium|low|none>
+      declare the tier of the work in this session, so triage hands it over ahead of the sessions that matter less
+
+Options:
+  -h, --help     Show this help text
+  -v, --version  Print the installed version
+  --log-path     Print where the diagnostic log is written (alias: logs)
+

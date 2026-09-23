@@ -1,0 +1,41 @@
+{
+  // The shared artifact store. See src/index.ts for what it serves and
+  // README.md for how it is deployed.
+  "name": "gate-inbox-artifacts",
+  "main": "src/index.ts",
+  // No nodejs_compat: everything here is Web Crypto, R2 and fetch. Adding
+  // it would only widen what an artifact's own code could reach.
+  "compatibility_date": "2026-09-01",
+
+  // Artifact bodies. R2 rather than KV because KV is eventually consistent
+  // — an agent that publishes a link and hands it straight to a teammate
+  // would hit a 404 that resolves itself a few seconds later, which is
+  // indistinguishable from a broken feature — and because a 25MB value cap
+  // rules out anything with images embedded.
+  "r2_buckets": [{ "binding": "ARTIFACTS", "bucket_name": "gate-inbox-artifacts" }],
+
+  // The index: who published what, when, and how often it was revised. By
+  // name alone, with no database_id, so this file needs no edit once the
+  // database exists; create it by that name as README.md describes. Its
+  // table comes from migrations/, applied by a human -- see README.md.
+  "d1_databases": [
+    { "binding": "INDEX", "database_name": "gate-inbox-artifacts", "migrations_dir": "migrations" }
+  ],
+
+  // ARTIFACT_SIGNING_KEY is a Worker SECRET, set with `wrangler secret put`
+  // before the first deploy (see README.md), and deliberately absent from
+  // this file: a var is plaintext in the deployment and readable from the
+  // dashboard, and this key is both the publish credential and the thing
+  // every read link is signed with.
+
+  // Serve artifacts from a hostname of their own so their origin shares
+  // nothing with anything else you run. Replace the placeholder with a
+  // hostname in a zone on your account and uncomment; until then the
+  // deploy serves on workers.dev.
+  // "routes": [{ "pattern": "artifacts.example.com", "custom_domain": true }],
+
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 1 }
+  }
+}

@@ -1,0 +1,37 @@
+=== absent
+ctrl+alt+c  "continue" -> "continue"
+ctrl+alt+t  "run tests" -> "run the tests and report what failed"
+ctrl+alt+p  "open a PR" -> "open a pull request for this work"
+alt+§  "progress" -> "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so"
+--- snippets.json as written
+[
+  {
+    "key": "c",
+    "label": "continue",
+    "text": "continue"
+  },
+  {
+    "key": "t",
+    "label": "run tests",
+    "text": "run the tests and report what failed"
+  },
+  {
+    "key": "p",
+    "label": "open a PR",
+    "text": "open a pull request for this work"
+  },
+  {
+    "key": "§",
+    "label": "progress",
+    "text": "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so"
+  }
+]
+
+=== edited
+ctrl+alt+c  "continue" -> "continue"
+ctrl+alt+r  "review the diff for correctness" -> "review the diff for correctness"
+alt+§  "progress" -> "summarise where this stands"
+problem: entry 3 (duplicate): repeats ctrl+alt+c, already bound by entry 1
+problem: entry 4 (too long): key “ab” must be a single letter a-z, § or ±: the terminal sends no distinct code for ctrl+alt+ab
+problem: entry 5 (empty): sends nothing
+

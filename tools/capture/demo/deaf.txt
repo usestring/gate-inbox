@@ -1,0 +1,12 @@
+❯ add the capture step to the release checklist
+
+● I'll add it to docs/release.md.
+
+  docs/release.md
+  + 4. Attach the capture GIF and stills to the PR description.
+
+Do you want to make this edit?
+❯ 1. Yes
+  2. No, tell me what to do differently
+
+Enter to confirm · Esc to cancel

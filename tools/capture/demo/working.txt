@@ -1,0 +1,4 @@
+❯ port the capture harness to vhs
+
+● Reading tools/capture/capture.sh
+● Rendering the board tour

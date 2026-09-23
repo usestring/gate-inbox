@@ -1,0 +1,7 @@
+❯ run another 100 with the unreachable fallback
+
+● Native sampleapp slider solver: 85 of 100 tokens, no browser
+
+✻ Cogitated for 2m 44s · done 8:14 PM · 2 monitors still running
+
+❯ 

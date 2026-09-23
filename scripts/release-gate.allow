@@ -1,0 +1,28 @@
+# Reviewed exceptions to scripts/release-gate.sh.
+#
+# One entry per line: check | path glob | line regex | reason
+# The regex is an extended regex matched case-insensitively against the
+# offending source line; a glob's * also matches '/'. An entry excuses a hit
+# only when its own match covers the term that was hit, so another term on the
+# same line is still reported. Every entry needs a reason a reviewer can
+# check, and an entry that stops matching is reported so it can be deleted.
+# Keep each one as narrow as the hit it excuses. This file ships and is
+# scanned like any other, so an entry names no private term the regex does
+# not already have to.
+
+identifiers | NOTICE | ^Modifications by .+, 2026, beginning from upstream commit$ | Apache-2.0 4(d): the NOTICE attributes our changes truthfully; the release audit says keep it.
+identifiers | * | Modified by .+, 2026: changes from the upstream commit named in NOTICE\. | Apache-2.0 4(b) per-file modification notice, the exact line LICENSES/MODIFIED-FILES.txt requires, and the gate's own copy of it.
+
+# Public product names, excused where a private list forbids them because the
+# same words also appear inside private hosts and projects.
+identifiers | * | \bgcloud\b | Google Cloud's public CLI, which the optional secret backend and its tests shell out to.
+identifiers | * | Secret Manager | Google Cloud's public product name for the optional secret backend.
+identifiers | * | account_usage:mimir-v1: | Store key naming Grafana Mimir, a public product, as the usage source.
+identifiers | * | Mimir's answer | Grafana Mimir, a public product, named in a comment describing its response shape.
+
+# The clean build unsets the private-module variables it checks for; the glob
+# covers this entry too.
+private-modules | scripts/release-gate.* | env -u GOPRIVATE -u GONOPROXY -u GONOSUMDB | the clean build unsets these so a private module cannot resolve.
+
+# The notice script finds an existing notice line by its fixed start.
+identifiers | scripts/modification-notices.sh | ^notice_prefix="Modified by .+, 2026: changes from "$ | the prefix the notice script matches to find and replace a notice line; it names only the Apache 4(b) attribution NOTICE already carries.

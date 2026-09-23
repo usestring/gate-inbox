@@ -1,0 +1,129 @@
+
+$ gate-inbox help
+exit 0
+--- stdout
+(6463 bytes of help text)
+--- left in home: 
+
+$ gate-inbox --help
+exit 0
+--- stdout
+(6463 bytes of help text)
+--- left in home: 
+
+$ gate-inbox -h
+exit 0
+--- stdout
+(6463 bytes of help text)
+--- left in home: 
+
+$ gate-inbox --version
+exit 0
+--- stdout
+gate-inbox compat
+--- left in home: 
+
+$ gate-inbox -v
+exit 0
+--- stdout
+gate-inbox compat
+--- left in home: 
+
+$ gate-inbox --log-path
+exit 0
+--- stdout
+log file:   <scratch>/home/logs/gate-inbox.log
+log level:  info
+rotation:   8 MB per file, 5 kept, 48 MB total, compressed=true
+no log files yet
+--- left in home: config.toml
+
+$ gate-inbox logs
+exit 0
+--- stdout
+log file:   <scratch>/home/logs/gate-inbox.log
+log level:  info
+rotation:   8 MB per file, 5 kept, 48 MB total, compressed=true
+no log files yet
+--- left in home: config.toml
+
+$ gate-inbox bogus
+exit 2
+--- stderr
+gate-inbox: unknown command "bogus"; run `gate-inbox help` for the list
+--- left in home: 
+
+$ gate-inbox Help
+exit 2
+--- stderr
+gate-inbox: unknown command "Help"; run `gate-inbox help` for the list
+--- left in home: 
+
+$ gate-inbox task
+exit 1
+--- stderr
+gate-inbox: usage: gate-inbox task <list|create|claim|finish|release|delete>
+--- left in home: 
+
+$ gate-inbox task bogus
+exit 1
+--- stderr
+gate-inbox: task has no "bogus" command; it takes list, create, claim, finish, release, delete
+--- left in home: 
+
+$ gate-inbox send
+exit 1
+--- stderr
+gate-inbox: usage: gate-inbox send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--json]
+--- left in home: 
+
+$ gate-inbox send cafe0001
+exit 1
+--- stderr
+gate-inbox: usage: gate-inbox send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--json]
+--- left in home: 
+
+$ gate-inbox sessions --no-such-flag
+exit 1
+--- stderr
+gate-inbox: usage: gate-inbox sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json]
+--- left in home: 
+
+$ gate-inbox priority extreme
+exit 1
+--- stderr
+gate-inbox: unknown priority "extreme" (want one of: urgent, high, medium, low, none)
+--- left in home: 
+
+$ gate-inbox rename
+exit 1
+--- stderr
+gate-inbox: usage: gate-inbox rename "<name>"
+--- left in home: 
+
+$ gate-inbox rename compat-name
+exit 1
+--- stderr
+gate-inbox: not inside a Gate Inbox session (GATE_INBOX_SESSION_ID is unset)
+--- left in home: 
+
+$ gate-inbox task list
+exit 1
+--- stderr
+gate-inbox: tmux not found on PATH: exec: "tmux": executable file not found in $PATH
+install tmux with your package manager
+--- left in home: config.toml
+
+$ gate-inbox groups --json
+exit 1
+--- stderr
+gate-inbox: tmux not found on PATH: exec: "tmux": executable file not found in $PATH
+install tmux with your package manager
+--- left in home: config.toml
+
+$ gate-inbox reservations --json
+exit 1
+--- stderr
+gate-inbox: tmux not found on PATH: exec: "tmux": executable file not found in $PATH
+install tmux with your package manager
+--- left in home: config.toml

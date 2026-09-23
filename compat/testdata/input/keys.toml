@@ -1,0 +1,11 @@
+# A hand-edited key file: a rebind, an unbind, an attempt to unbind a
+# required action, a key already taken, and names no release knows.
+[list]
+archive = ["X"]
+priority = []
+cursor_up = []
+attach = ["j"]
+no_such_action = ["z"]
+
+[no_such_screen]
+anything = ["q"]

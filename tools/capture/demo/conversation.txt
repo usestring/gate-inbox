@@ -1,0 +1,10 @@
+╭─ Claude Code ──────────────────────────────────────╮
+│ inbox-conversation                                │
+╰───────────────────────────────────────────────────╯
+❯ Make the inbox easier to read.
+● I will separate your messages from my replies.
+● Bash(go test ./internal/ui)
+  ⎿  ok: internal tool output should not appear in the reading view
+● The message view is ready. Each turn has its own labeled box.
+✻ Worked for 12s
+❯

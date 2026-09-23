@@ -1,0 +1,7 @@
+base_url = "https://artifacts.example.test"
+enabled = true
+identity_command = "printf ada@example.test"
+key_command = "printf fake-signing-key"
+key_secret = "EXAMPLE_ARTIFACT_KEY"
+link_ttl = "24h0m0s"
+max_bytes = 1024

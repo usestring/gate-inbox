@@ -1,0 +1,2629 @@
+30 tools
+  answer_session
+  archive_session
+  close_terminal
+  create_group
+  create_session
+  create_terminal
+  delete_group
+  kill_session
+  list_accounts
+  list_groups
+  list_models
+  list_reservations
+  list_sessions
+  list_terminals
+  message_status
+  migrate_session
+  place_session
+  read_session
+  read_terminal
+  release_files
+  rename
+  reserve_files
+  revive_session
+  send_children
+  send_session
+  send_terminal
+  set_priority
+  switch_account
+  task
+  wait_for_session
+
+=== answer_session
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Answer a question one of your own spawned sessions has stopped on, so the fan-out you started keeps moving instead of waiting on a person who did not set the task. You are told a child has stopped by a message from it; this is how you reply to the dialog itself, which send_session cannot do -- a message is held until the recipient is at rest, and a session on a question never is. Pass the text of the option to pick, or your own words to type instead. It reads Claude Code's AskUserQuestion and Codex's request_user_input, including a dialog asking several questions -- answer that one a question at a time, calling again while standing_questions is above zero. Only the session that spawned it may answer it. A permission prompt, Codex's first-run directory-trust prompt and a multi-select are still a person's to answer, and the refusal says which of them it saw rather than leaving you to guess.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "answer": {
+        "description": "the text of the option to pick, or your own words to type into the dialog instead",
+        "type": "string"
+      },
+      "session_id": {
+        "description": "child session holding the question, as list_sessions or the relayed message names it",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id",
+      "answer"
+    ],
+    "type": "object"
+  },
+  "name": "answer_session",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "answer": {
+        "description": "what was sent back",
+        "type": "string"
+      },
+      "name": {
+        "description": "that session's name",
+        "type": "string"
+      },
+      "question": {
+        "description": "the question as its pane showed it",
+        "type": "string"
+      },
+      "selected": {
+        "description": "option the answer picked; empty when the answer was typed instead",
+        "type": "string"
+      },
+      "session_id": {
+        "description": "child session that was holding the question",
+        "type": "string"
+      },
+      "standing_questions": {
+        "description": "questions still unanswered in the same dialog after this one",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "session_id",
+      "name",
+      "question",
+      "answer"
+    ],
+    "type": "object"
+  }
+}
+
+=== archive_session
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+  },
+  "description": "File a finished session out of the active list, or restore an archived one with archived false. Use it to keep the user's list readable once a session's work is done. This ENDS a running agent: the row and its last screen are kept and revive_session brings it back, but work in progress stops, so read_session first if you are not sure it has finished.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "archived": {
+        "description": "true archives the session out of the active list, false restores it; defaults to true",
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
+      "session_id": {
+        "description": "session id returned by list_sessions",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id"
+    ],
+    "type": "object"
+  },
+  "name": "archive_session",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "account": {
+        "description": "named subscription the session runs on; empty is the CLI's own login",
+        "type": "string"
+      },
+      "archived": {
+        "description": "whether the session is archived out of the active list",
+        "type": "boolean"
+      },
+      "directory": {
+        "description": "session's current working directory, or its launch directory when stopped",
+        "type": "string"
+      },
+      "group": {
+        "description": "group path holding the session; empty is the root",
+        "type": "string"
+      },
+      "id": {
+        "description": "agent session id",
+        "type": "string"
+      },
+      "model": {
+        "description": "model that CLI runs on; empty is the CLI's own default",
+        "type": "string"
+      },
+      "name": {
+        "description": "session name shown in Gate Inbox",
+        "type": "string"
+      },
+      "parent_id": {
+        "description": "session this row is drawn under on the board; empty for a top-level session",
+        "type": "string"
+      },
+      "running": {
+        "description": "whether the session currently has a live tmux pane",
+        "type": "boolean"
+      },
+      "self": {
+        "description": "whether this row is the calling session itself",
+        "type": "boolean"
+      },
+      "spawned_by": {
+        "description": "session that spawned this one, which is the only session that can answer its questions or reach it with send_children; empty for a session nobody spawned",
+        "type": "string"
+      },
+      "status": {
+        "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+        "type": "string"
+      },
+      "tool": {
+        "description": "agent CLI the session runs",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "name",
+      "tool",
+      "group",
+      "directory",
+      "status",
+      "running",
+      "archived",
+      "self"
+    ],
+    "type": "object"
+  }
+}
+
+=== close_terminal
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+  },
+  "description": "Delete a terminal nested under this session once its job is finished: kills the pane and removes the row. Leave it running when you opened it for the user (for example an SSH session they may attach to). Refuses agent sessions, un-nested terminals, and terminals under another session.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "terminal_id": {
+        "description": "terminal id returned by list_terminals or create_terminal",
+        "type": "string"
+      }
+    },
+    "required": [
+      "terminal_id"
+    ],
+    "type": "object"
+  },
+  "name": "close_terminal"
+}
+
+=== create_group
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+  },
+  "description": "Add a heading to the user's list, for work the user asked to file separately, such as another repository or a parked track. Not for a fan-out: every session this one creates is its child and already sits together under it, and a nested session cannot be filed in another group. Call list_groups first so an existing heading is reused. Nest with a slash path such as work/payments, whose parent must already exist.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "directory": {
+        "description": "default working directory sessions created in this group inherit",
+        "type": "string"
+      },
+      "path": {
+        "description": "full group path, slash separated for nesting (e.g. work/payments); every parent except the last segment must already exist",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "type": "object"
+  },
+  "name": "create_group",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "archived": {
+        "description": "whether the group is archived",
+        "type": "boolean"
+      },
+      "directory": {
+        "description": "group's default working directory, inherited by sessions created in it",
+        "type": "string"
+      },
+      "path": {
+        "description": "full group path, slash separated; pass this value as a group argument",
+        "type": "string"
+      },
+      "sessions": {
+        "description": "number of active agent sessions directly in this group",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "path",
+      "archived",
+      "sessions"
+    ],
+    "type": "object"
+  }
+}
+
+=== create_session
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Start another agent CLI in its own Gate Inbox session and hand it a task, so independent work runs beside this conversation instead of queued behind it. The new session is a full CLI process of its own on the user's machine, which the user can watch and type into, and it can run a different CLI than this one. Omit account to use the board's subscription routing automatically, including quota-based overflow in smart mode; a child does not inherit a borrowed account from its parent. Call it without waiting for the user when a task splits into parallel parts, or the user asks for a second agent or an independent opinion. Pass a descriptive name and a prompt stating the whole task, since the new agent cannot see this conversation -- a long brief goes in a file named by prompt_file rather than in the call -- and, for repo work beside other agents, a directory that is its own checkout, made with the repository's own tooling first. The new session is this session's child: the user sees the fan-out as a tree under this session, and the child's questions, rests and finishes are relayed here, which is how they get answered. Leave nest alone for a fan-out and never create a group for one; nest false is a detach, for a standalone session that is not this session's work. Follow it with read_session and send_session; use create_terminal instead for a plain shell.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "account": {
+        "description": "optional pinned subscription from list_accounts; omit to follow the board's routing settings, using own subscription first and quota-based pool overflow in smart mode; a child does not inherit its parent's borrowed account; an explicit account overrides routing and requires a CLI that accepts a token",
+        "type": "string"
+      },
+      "caller_session_id": {
+        "description": "this session's own id from $GATE_INBOX_SESSION_ID in its shell; pass it when that differs from the session this MCP server started as (opencode multiplexes same-cwd conversations through one server)",
+        "type": "string"
+      },
+      "directory": {
+        "description": "existing directory the session works in; defaults to this agent's own directory, or to the selected group's inherited path when group is set",
+        "type": "string"
+      },
+      "group": {
+        "description": "existing group path for a detached session (nest false) to sit in; pass an empty string for the root group; a nested session is always in this agent's group and refuses any other; call list_groups for the existing ones",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "model": {
+        "description": "model that CLI should run on, in whatever names it uses (claude: sonnet, opus, haiku, plus the 1M-context opus[1m] and sonnet[1m]; opencode: provider/model); call list_models for the names a CLI accepts rather than guessing one, since an unknown name is refused by the CLI and the session dies on launch; omit for the CLI's own default",
+        "type": "string"
+      },
+      "name": {
+        "description": "kebab-case name for the new session, 2-4 words naming the work it will do (e.g. payments-retry-fix); leave empty only when the task is unknown, and the new agent will name itself",
+        "type": "string"
+      },
+      "nest": {
+        "description": "omit it: the new session is this session's child, drawn under it, and its questions, rests and finishes are relayed to this session, which is how a fan-out gets steered; false detaches it into a top-level session that reports to nobody, and is only for work that is not this session's, such as a standalone session the user asked for in another group",
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
+      "prompt": {
+        "description": "first task to hand the new agent, written as a full instruction; it starts idle when empty; a long brief goes in a file named by prompt_file instead",
+        "type": "string"
+      },
+      "prompt_file": {
+        "description": "absolute path of a file holding the first task, used instead of prompt when the brief is long; the server reads it, so write the brief once and name it here",
+        "type": "string"
+      },
+      "tool": {
+        "description": "agent CLI to run, such as claude, codex or opencode; defaults to the CLI this session runs; call list_sessions to see which are in use",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "name": "create_session",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "account": {
+        "description": "named subscription the session runs on; empty is the CLI's own login",
+        "type": "string"
+      },
+      "archived": {
+        "description": "whether the session is archived out of the active list",
+        "type": "boolean"
+      },
+      "directory": {
+        "description": "session's current working directory, or its launch directory when stopped",
+        "type": "string"
+      },
+      "group": {
+        "description": "group path holding the session; empty is the root",
+        "type": "string"
+      },
+      "id": {
+        "description": "agent session id",
+        "type": "string"
+      },
+      "model": {
+        "description": "model that CLI runs on; empty is the CLI's own default",
+        "type": "string"
+      },
+      "name": {
+        "description": "session name shown in Gate Inbox",
+        "type": "string"
+      },
+      "parent_id": {
+        "description": "session this row is drawn under on the board; empty for a top-level session",
+        "type": "string"
+      },
+      "running": {
+        "description": "whether the session currently has a live tmux pane",
+        "type": "boolean"
+      },
+      "self": {
+        "description": "whether this row is the calling session itself",
+        "type": "boolean"
+      },
+      "spawned_by": {
+        "description": "session that spawned this one, which is the only session that can answer its questions or reach it with send_children; empty for a session nobody spawned",
+        "type": "string"
+      },
+      "status": {
+        "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+        "type": "string"
+      },
+      "tool": {
+        "description": "agent CLI the session runs",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "name",
+      "tool",
+      "group",
+      "directory",
+      "status",
+      "running",
+      "archived",
+      "self"
+    ],
+    "type": "object"
+  }
+}
+
+=== create_terminal
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+  },
+  "description": "Create a managed terminal for human-visible work such as SSH, not for one-shot local commands or other internal work. It nests under this session unless nest is false, which a group other than this session's needs; a terminal created from a terminal joins it as a sibling under the same agent. The group supplies the inherited directory, and directory set explicitly wins. Then call send_terminal with the returned id; use create_session instead for another agent CLI. Call close_terminal when the job is finished and the terminal is not being left for the user.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "directory": {
+        "description": "existing directory to open; defaults to the selected group's inherited path, then this agent's current directory",
+        "type": "string"
+      },
+      "group": {
+        "description": "existing group path for the new terminal; pass an empty string for the root group; defaults to this agent's group",
+        "type": [
+          "null",
+          "string"
+        ]
+      },
+      "nest": {
+        "description": "when true or omitted, nest under this session, or beside it under the same parent when this session is itself a terminal; false places an un-nested terminal in group",
+        "type": [
+          "null",
+          "boolean"
+        ]
+      }
+    },
+    "type": "object"
+  },
+  "name": "create_terminal",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "directory": {
+        "description": "terminal's current working directory, or its launch directory when stopped",
+        "type": "string"
+      },
+      "group": {
+        "description": "group path holding the terminal; empty is the root",
+        "type": "string"
+      },
+      "id": {
+        "description": "managed terminal session id",
+        "type": "string"
+      },
+      "name": {
+        "description": "terminal name shown in Gate Inbox",
+        "type": "string"
+      },
+      "parent_id": {
+        "description": "id of the parent session when nested; empty when un-nested",
+        "type": "string"
+      },
+      "parent_name": {
+        "description": "name of the parent session when nested; empty when un-nested",
+        "type": "string"
+      },
+      "running": {
+        "description": "whether the terminal currently has a live tmux pane",
+        "type": "boolean"
+      },
+      "status": {
+        "description": "stored Gate Inbox status",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "name",
+      "group",
+      "directory",
+      "status",
+      "running",
+      "parent_id",
+      "parent_name"
+    ],
+    "type": "object"
+  }
+}
+
+=== delete_group
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+  },
+  "description": "Delete a group once the work filed under it is done, so a fleet does not leave a heading behind in the user's list. Groups nested under it go too. Any session still filed there moves to the root group rather than being stopped, so this never ends an agent: kill_session or archive_session those first if that is what you mean.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "path": {
+        "description": "full group path to delete, slash separated; groups nested under it go too",
+        "type": "string"
+      }
+    },
+    "required": [
+      "path"
+    ],
+    "type": "object"
+  },
+  "name": "delete_group",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "moved": {
+        "description": "ids of sessions that were filed under those groups and now sit in the root group",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
+      "removed": {
+        "description": "group paths that no longer exist, the named group and anything nested under it",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      }
+    },
+    "required": [
+      "removed"
+    ],
+    "type": "object"
+  }
+}
+
+=== kill_session
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Stop another agent's process, ending whatever it is doing. The row stays with its last screen and can be brought back with revive_session. Reserve it for a session whose work is finished or has gone wrong, and prefer send_session to redirect an agent that is still useful. Killing interrupts work in progress on the user's machine, so ask first unless the user asked for it.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "session_id": {
+        "description": "session id returned by list_sessions or create_session",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id"
+    ],
+    "type": "object"
+  },
+  "name": "kill_session",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "account": {
+        "description": "named subscription the session runs on; empty is the CLI's own login",
+        "type": "string"
+      },
+      "archived": {
+        "description": "whether the session is archived out of the active list",
+        "type": "boolean"
+      },
+      "directory": {
+        "description": "session's current working directory, or its launch directory when stopped",
+        "type": "string"
+      },
+      "group": {
+        "description": "group path holding the session; empty is the root",
+        "type": "string"
+      },
+      "id": {
+        "description": "agent session id",
+        "type": "string"
+      },
+      "model": {
+        "description": "model that CLI runs on; empty is the CLI's own default",
+        "type": "string"
+      },
+      "name": {
+        "description": "session name shown in Gate Inbox",
+        "type": "string"
+      },
+      "parent_id": {
+        "description": "session this row is drawn under on the board; empty for a top-level session",
+        "type": "string"
+      },
+      "running": {
+        "description": "whether the session currently has a live tmux pane",
+        "type": "boolean"
+      },
+      "self": {
+        "description": "whether this row is the calling session itself",
+        "type": "boolean"
+      },
+      "spawned_by": {
+        "description": "session that spawned this one, which is the only session that can answer its questions or reach it with send_children; empty for a session nobody spawned",
+        "type": "string"
+      },
+      "status": {
+        "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+        "type": "string"
+      },
+      "tool": {
+        "description": "agent CLI the session runs",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "name",
+      "tool",
+      "group",
+      "directory",
+      "status",
+      "running",
+      "archived",
+      "self"
+    ],
+    "type": "object"
+  }
+}
+
+=== list_accounts
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true
+  },
+  "description": "Call before passing an account to create_session or migrate_session, to find the named subscriptions a CLI can be launched on instead of guessing one; omit account to follow the board's routing settings (own subscription first, shared overflow in smart mode). An explicit account stays pinned. The names are the team's pooled accounts, each a long-lived token in Secret Manager; a session launched on one spends that account's usage window rather than the operator's own login, which is how work moves off a person who has hit their limit. Names one CLI's accounts when tool is given, and every configured CLI that can take one when it is omitted; a CLI that cannot says so here rather than at spawn time.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "tool": {
+        "description": "agent CLI to ask, such as claude; omit to list every configured CLI that can run on a named account",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "name": "list_accounts"
+}
+
+=== list_groups
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true
+  },
+  "description": "List the groups sessions and terminals are filed under, with each group's default directory and session count. Call before passing a group to create_session or create_terminal, since a group must already exist.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "type": "object"
+  },
+  "name": "list_groups",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "groups": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "archived": {
+              "description": "whether the group is archived",
+              "type": "boolean"
+            },
+            "directory": {
+              "description": "group's default working directory, inherited by sessions created in it",
+              "type": "string"
+            },
+            "path": {
+              "description": "full group path, slash separated; pass this value as a group argument",
+              "type": "string"
+            },
+            "sessions": {
+              "description": "number of active agent sessions directly in this group",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "path",
+            "archived",
+            "sessions"
+          ],
+          "type": "object"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      }
+    },
+    "required": [
+      "groups"
+    ],
+    "type": "object"
+  }
+}
+
+=== list_models
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true
+  },
+  "description": "Call before passing a model to create_session, to find the names that CLI actually accepts instead of guessing one. Names one CLI's models when tool is given, and every configured CLI that can answer when it is omitted, saying for each where the answer came from: the CLI's own listing command where it has one, otherwise the names written into the config, which may lag. A CLI refuses a model it does not know, so a guessed name is not a worse answer but a session that dies at launch; a CLI with no model flag says so here rather than at spawn time. Long lists are capped and say how many were left out, so pass filter when looking for a family by name.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "filter": {
+        "description": "keep only the model names holding this text, case-insensitively (e.g. \"muse\", \"sonnet\"); omit for the whole list, which is capped and reports how many it left out",
+        "type": "string"
+      },
+      "tool": {
+        "description": "agent CLI to ask, such as claude, codex or opencode; omit to list every configured CLI that can answer",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "name": "list_models"
+}
+
+=== list_reservations
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true
+  },
+  "description": "See which files the other sessions are working on right now. Call it before editing shared code, or when planning who takes which part of a change.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "type": "object"
+  },
+  "name": "list_reservations",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "reservations": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "expires_in": {
+              "description": "time left before the lease lapses on its own",
+              "type": "string"
+            },
+            "holder": {
+              "description": "name of the session holding the lease",
+              "type": "string"
+            },
+            "mine": {
+              "description": "whether the calling session holds it",
+              "type": "boolean"
+            },
+            "mode": {
+              "description": "exclusive (nobody else edits these paths) or shared (others may read or also edit)",
+              "type": "string"
+            },
+            "note": {
+              "description": "what the holder is doing there",
+              "type": "string"
+            },
+            "pattern": {
+              "description": "path or glob the lease covers",
+              "type": "string"
+            },
+            "session_id": {
+              "description": "session holding the lease",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pattern",
+            "mode",
+            "session_id",
+            "holder",
+            "expires_in",
+            "mine"
+          ],
+          "type": "object"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      }
+    },
+    "required": [
+      "reservations"
+    ],
+    "type": "object"
+  }
+}
+
+=== list_sessions
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true
+  },
+  "description": "Call first whenever the work involves another agent: before delegating, before reporting what the fleet is doing, and to find the id of a session to read, prompt, revive, kill or archive. Lists every agent session Gate Inbox knows with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, finished, idle, errored, dead) and which row is this session. These are separate CLI processes running on the user's machine, each with its own context and its own conversation, and any CLI the user configured: Claude Code, Codex, OpenCode and others, not only Claude. They are not this conversation's subagents, they outlive this conversation, and the user watches them all in one list; nothing else this session can call reports them. Reuse a relevant idle session instead of creating another; otherwise call create_session. Ask for what you need rather than the board: parent \"me\" is your own children, status narrows to the states you care about, and archived rows are left out unless you ask for them. An unfiltered board is mostly history and can run to hundreds of kilobytes, so a parent checking on its fan-out should be calling it with parent \"me\".",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "include_archived": {
+        "description": "also list sessions archived out of the active list, which on a long-lived board are most of the table; pass it only when looking for a row to restore with archive_session",
+        "type": "boolean"
+      },
+      "include_text": {
+        "description": "when false, the readable rendering is replaced by a one-line count and the rows come back only in the structured result, which halves the reply; omit or true for both renderings",
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
+      "limit": {
+        "description": "how many rows to return (default 50, maximum 500); the reply says how many matched, so a truncated one is never silent",
+        "type": "integer"
+      },
+      "parent": {
+        "description": "keep only the sessions this one spawned; pass \"me\" for this session's own children, which is the fan-out it is steering; omit for every session whoever spawned it",
+        "type": "string"
+      },
+      "status": {
+        "description": "keep only sessions in these states: starting, working, waiting, finished, idle, errored or dead; omit for every state",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      }
+    },
+    "type": "object"
+  },
+  "name": "list_sessions",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "matched": {
+        "description": "how many sessions matched the filters, before limit",
+        "type": "integer"
+      },
+      "returned": {
+        "description": "how many rows are in sessions",
+        "type": "integer"
+      },
+      "sessions": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "account": {
+              "description": "named subscription the session runs on; empty is the CLI's own login",
+              "type": "string"
+            },
+            "archived": {
+              "description": "whether the session is archived out of the active list",
+              "type": "boolean"
+            },
+            "directory": {
+              "description": "session's current working directory, or its launch directory when stopped",
+              "type": "string"
+            },
+            "group": {
+              "description": "group path holding the session; empty is the root",
+              "type": "string"
+            },
+            "id": {
+              "description": "agent session id",
+              "type": "string"
+            },
+            "model": {
+              "description": "model that CLI runs on; empty is the CLI's own default",
+              "type": "string"
+            },
+            "name": {
+              "description": "session name shown in Gate Inbox",
+              "type": "string"
+            },
+            "parent_id": {
+              "description": "session this row is drawn under on the board; empty for a top-level session",
+              "type": "string"
+            },
+            "running": {
+              "description": "whether the session currently has a live tmux pane",
+              "type": "boolean"
+            },
+            "self": {
+              "description": "whether this row is the calling session itself",
+              "type": "boolean"
+            },
+            "spawned_by": {
+              "description": "session that spawned this one, which is the only session that can answer its questions or reach it with send_children; empty for a session nobody spawned",
+              "type": "string"
+            },
+            "status": {
+              "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+              "type": "string"
+            },
+            "tool": {
+              "description": "agent CLI the session runs",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "tool",
+            "group",
+            "directory",
+            "status",
+            "running",
+            "archived",
+            "self"
+          ],
+          "type": "object"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
+      "truncated": {
+        "description": "true when limit left matching sessions out; narrow parent or status, or raise limit",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "sessions",
+      "matched",
+      "returned",
+      "truncated"
+    ],
+    "type": "object"
+  }
+}
+
+=== list_terminals
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true
+  },
+  "description": "Call before opening a terminal for human-visible work, to find one you can reuse. Lists active managed terminals with ids, names, groups, current directories, statuses, whether their tmux panes are running, and the session each one is nested under. Reuse a relevant running terminal when possible; otherwise call create_terminal. Use the returned id with send_terminal and read_terminal.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "type": "object"
+  },
+  "name": "list_terminals",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "terminals": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "directory": {
+              "description": "terminal's current working directory, or its launch directory when stopped",
+              "type": "string"
+            },
+            "group": {
+              "description": "group path holding the terminal; empty is the root",
+              "type": "string"
+            },
+            "id": {
+              "description": "managed terminal session id",
+              "type": "string"
+            },
+            "name": {
+              "description": "terminal name shown in Gate Inbox",
+              "type": "string"
+            },
+            "parent_id": {
+              "description": "id of the parent session when nested; empty when un-nested",
+              "type": "string"
+            },
+            "parent_name": {
+              "description": "name of the parent session when nested; empty when un-nested",
+              "type": "string"
+            },
+            "running": {
+              "description": "whether the terminal currently has a live tmux pane",
+              "type": "boolean"
+            },
+            "status": {
+              "description": "stored Gate Inbox status",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "group",
+            "directory",
+            "status",
+            "running",
+            "parent_id",
+            "parent_name"
+          ],
+          "type": "object"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      }
+    },
+    "required": [
+      "terminals"
+    ],
+    "type": "object"
+  }
+}
+
+=== message_status
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true
+  },
+  "description": "Check what happened to a message send_session queued: still queued, held, delivered into the agent's prompt, dropped, or answered. Works for a message you sent and for any message sent to a session you spawned, so you can audit what reached your children. Call it when you need to know a handoff landed before you build on it, instead of reading the other agent's screen. Superseded means a later message you sent on the same subject replaced it, and that one is what the agent reads. Held means nothing will type it in as things stand: the recipient's screen is showing a dialog that has to be answered first, or its session is archived or no longer running, and reason says which. Dropped means it never reached the prompt and will not be retried, so send it again.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "message_id": {
+        "description": "message id returned by send_session",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "message_id"
+    ],
+    "type": "object"
+  },
+  "name": "message_status",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "body": {
+        "type": "string"
+      },
+      "delivered_at": {
+        "description": "RFC3339 time the message reached the prompt",
+        "type": "string"
+      },
+      "interrupt": {
+        "description": "sent with interrupt: the recipient's running turn is stopped before it is typed in, unless a dialog is showing",
+        "type": "boolean"
+      },
+      "message_id": {
+        "type": "integer"
+      },
+      "reason": {
+        "description": "why the message is in that state, and what to do about it",
+        "type": "string"
+      },
+      "session_id": {
+        "description": "session the message was addressed to",
+        "type": "string"
+      },
+      "state": {
+        "description": "queued (waiting for the agent to be at rest), superseded (a later message from you on the same subject replaced it), held (nothing will type it in as things stand: the recipient is sitting on a dialog, has a person typing or a draft at its prompt, is archived or not running, and reason says which), delivered (typed into its prompt), dropped (it never reached the prompt and is not retried), or answered (it has since messaged back)",
+        "type": "string"
+      }
+    },
+    "required": [
+      "message_id",
+      "session_id",
+      "body",
+      "state"
+    ],
+    "type": "object"
+  }
+}
+
+=== migrate_session
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Move a session's conversation to a different agent CLI: starts a new session on that CLI in the same group and directory, whose first prompt points at the source's full transcript on disk and tells it to read it and carry on where the source left off. Use it when a session should continue on another CLI, such as after a usage limit on the one it runs, or to move this session itself by passing its own id; the same CLI with another account moves a conversation onto a different subscription. The source is left as it is, so archive it once the new session has taken over; only claude, codex and opencode sessions with a transcript can be moved.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "account": {
+        "description": "named subscription the new session runs on, from list_accounts; defaults to the source's own, then the board's default account, and is how a conversation that hit one account's usage limit continues on another",
+        "type": "string"
+      },
+      "name": {
+        "description": "kebab-case name for the new session; defaults to the source's name with the tool appended",
+        "type": "string"
+      },
+      "session_id": {
+        "description": "session id returned by list_sessions whose conversation moves to another CLI",
+        "type": "string"
+      },
+      "tool": {
+        "description": "agent CLI the conversation moves to, such as claude, codex or opencode; call list_sessions to see which are in use",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id",
+      "tool"
+    ],
+    "type": "object"
+  },
+  "name": "migrate_session",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "account": {
+        "description": "named subscription the session runs on; empty is the CLI's own login",
+        "type": "string"
+      },
+      "archived": {
+        "description": "whether the session is archived out of the active list",
+        "type": "boolean"
+      },
+      "directory": {
+        "description": "session's current working directory, or its launch directory when stopped",
+        "type": "string"
+      },
+      "group": {
+        "description": "group path holding the session; empty is the root",
+        "type": "string"
+      },
+      "id": {
+        "description": "agent session id",
+        "type": "string"
+      },
+      "model": {
+        "description": "model that CLI runs on; empty is the CLI's own default",
+        "type": "string"
+      },
+      "name": {
+        "description": "session name shown in Gate Inbox",
+        "type": "string"
+      },
+      "parent_id": {
+        "description": "session this row is drawn under on the board; empty for a top-level session",
+        "type": "string"
+      },
+      "running": {
+        "description": "whether the session currently has a live tmux pane",
+        "type": "boolean"
+      },
+      "self": {
+        "description": "whether this row is the calling session itself",
+        "type": "boolean"
+      },
+      "spawned_by": {
+        "description": "session that spawned this one, which is the only session that can answer its questions or reach it with send_children; empty for a session nobody spawned",
+        "type": "string"
+      },
+      "status": {
+        "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+        "type": "string"
+      },
+      "tool": {
+        "description": "agent CLI the session runs",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "name",
+      "tool",
+      "group",
+      "directory",
+      "status",
+      "running",
+      "archived",
+      "self"
+    ],
+    "type": "object"
+  }
+}
+
+=== place_session
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "File a session under this one so your fan-out is drawn, and reported, as your fan-out. Use it when a session you spawned came back with no parent_id, which is what a spawn looks like when the manager build serving this session predates nesting: the call succeeded and the row landed as your sibling. You may claim a session nobody owns and release one of your own; another session's child stays its own. Pass release true to take one of your children back to the top level.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "caller_session_id": {
+        "description": "this session's own id from $GATE_INBOX_SESSION_ID in its shell; pass it when that differs from the session this MCP server started as",
+        "type": "string"
+      },
+      "release": {
+        "description": "true takes one of your own children back out to the top level; omit to adopt",
+        "type": "boolean"
+      },
+      "session_id": {
+        "description": "session to file under this one, or to release from it",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id"
+    ],
+    "type": "object"
+  },
+  "name": "place_session",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "account": {
+        "description": "named subscription the session runs on; empty is the CLI's own login",
+        "type": "string"
+      },
+      "archived": {
+        "description": "whether the session is archived out of the active list",
+        "type": "boolean"
+      },
+      "directory": {
+        "description": "session's current working directory, or its launch directory when stopped",
+        "type": "string"
+      },
+      "group": {
+        "description": "group path holding the session; empty is the root",
+        "type": "string"
+      },
+      "id": {
+        "description": "agent session id",
+        "type": "string"
+      },
+      "model": {
+        "description": "model that CLI runs on; empty is the CLI's own default",
+        "type": "string"
+      },
+      "name": {
+        "description": "session name shown in Gate Inbox",
+        "type": "string"
+      },
+      "parent_id": {
+        "description": "session this row is drawn under on the board; empty for a top-level session",
+        "type": "string"
+      },
+      "running": {
+        "description": "whether the session currently has a live tmux pane",
+        "type": "boolean"
+      },
+      "self": {
+        "description": "whether this row is the calling session itself",
+        "type": "boolean"
+      },
+      "spawned_by": {
+        "description": "session that spawned this one, which is the only session that can answer its questions or reach it with send_children; empty for a session nobody spawned",
+        "type": "string"
+      },
+      "status": {
+        "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+        "type": "string"
+      },
+      "tool": {
+        "description": "agent CLI the session runs",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "name",
+      "tool",
+      "group",
+      "directory",
+      "status",
+      "running",
+      "archived",
+      "self"
+    ],
+    "type": "object"
+  }
+}
+
+=== read_session
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true
+  },
+  "description": "Read what another agent is doing: call it after create_session to confirm the agent started on the task, and again to check progress, read an answer, or see why a session is waiting. Every read returns a digest -- the session's status, the question it is holding if any, and the last thing it said -- so check whether a child finished there rather than by reading its prose for a verdict. With no since, output is the plain text visible in that session's pane, which is the current screen rather than its full history, and a stopped session returns the last screen Gate Inbox captured. Pass the cursor a previous read returned as since and output is only what the session has added since then, which is what a repeat read should use: the whole pane again is the same few thousand characters whether the agent worked for a minute or an hour. A session whose transcript cannot be read returns its pane anyway, with degraded saying why.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "session_id": {
+        "description": "session id returned by list_sessions or create_session",
+        "type": "string"
+      },
+      "since": {
+        "description": "cursor from a previous read of this session; returns only what it has added since, instead of the whole pane",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id"
+    ],
+    "type": "object"
+  },
+  "name": "read_session",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "cursor": {
+        "description": "pass back as since on the next read to get only what the session added after this point",
+        "type": "string"
+      },
+      "degraded": {
+        "description": "why a requested delta fell back to the whole pane",
+        "type": "string"
+      },
+      "digest": {
+        "additionalProperties": false,
+        "description": "the session's status, the question it is holding, and its last result",
+        "properties": {
+          "question": {
+            "description": "question the session is waiting on, with its options; empty when nothing is being asked",
+            "type": "string"
+          },
+          "result": {
+            "description": "the session's most recent prose turn, which is the closest thing to its result",
+            "type": "string"
+          },
+          "status": {
+            "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "mode": {
+        "description": "pane when output is the whole visible screen, delta when it is only what was added after the since cursor",
+        "type": "string"
+      },
+      "output": {
+        "description": "the session's output: its whole visible pane, or, when since was passed, only the conversation added after that cursor",
+        "type": "string"
+      },
+      "session": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "description": "named subscription the session runs on; empty is the CLI's own login",
+            "type": "string"
+          },
+          "archived": {
+            "description": "whether the session is archived out of the active list",
+            "type": "boolean"
+          },
+          "directory": {
+            "description": "session's current working directory, or its launch directory when stopped",
+            "type": "string"
+          },
+          "group": {
+            "description": "group path holding the session; empty is the root",
+            "type": "string"
+          },
+          "id": {
+            "description": "agent session id",
+            "type": "string"
+          },
+          "model": {
+            "description": "model that CLI runs on; empty is the CLI's own default",
+            "type": "string"
+          },
+          "name": {
+            "description": "session name shown in Gate Inbox",
+            "type": "string"
+          },
+          "parent_id": {
+            "description": "session this row is drawn under on the board; empty for a top-level session",
+            "type": "string"
+          },
+          "running": {
+            "description": "whether the session currently has a live tmux pane",
+            "type": "boolean"
+          },
+          "self": {
+            "description": "whether this row is the calling session itself",
+            "type": "boolean"
+          },
+          "spawned_by": {
+            "description": "session that spawned this one, which is the only session that can answer its questions or reach it with send_children; empty for a session nobody spawned",
+            "type": "string"
+          },
+          "status": {
+            "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+            "type": "string"
+          },
+          "tool": {
+            "description": "agent CLI the session runs",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "tool",
+          "group",
+          "directory",
+          "status",
+          "running",
+          "archived",
+          "self"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "session",
+      "output",
+      "mode",
+      "digest"
+    ],
+    "type": "object"
+  }
+}
+
+=== read_terminal
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true
+  },
+  "description": "Call immediately after send_terminal to inspect the result, and call again as needed to monitor ongoing work. Returns the plain-text content currently visible in the managed terminal pane. This is the current screen, not the pane's full scrollback history.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "terminal_id": {
+        "description": "terminal id returned by list_terminals or create_terminal",
+        "type": "string"
+      }
+    },
+    "required": [
+      "terminal_id"
+    ],
+    "type": "object"
+  },
+  "name": "read_terminal",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "output": {
+        "description": "plain text currently visible in the terminal pane",
+        "type": "string"
+      },
+      "terminal": {
+        "additionalProperties": false,
+        "properties": {
+          "directory": {
+            "description": "terminal's current working directory, or its launch directory when stopped",
+            "type": "string"
+          },
+          "group": {
+            "description": "group path holding the terminal; empty is the root",
+            "type": "string"
+          },
+          "id": {
+            "description": "managed terminal session id",
+            "type": "string"
+          },
+          "name": {
+            "description": "terminal name shown in Gate Inbox",
+            "type": "string"
+          },
+          "parent_id": {
+            "description": "id of the parent session when nested; empty when un-nested",
+            "type": "string"
+          },
+          "parent_name": {
+            "description": "name of the parent session when nested; empty when un-nested",
+            "type": "string"
+          },
+          "running": {
+            "description": "whether the terminal currently has a live tmux pane",
+            "type": "boolean"
+          },
+          "status": {
+            "description": "stored Gate Inbox status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "group",
+          "directory",
+          "status",
+          "running",
+          "parent_id",
+          "parent_name"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "terminal",
+      "output"
+    ],
+    "type": "object"
+  }
+}
+
+=== release_files
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+  },
+  "description": "Give back the leases you took with reserve_files once the edits are made, so another agent can take those paths. Omit paths to release everything this session holds.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "paths": {
+        "description": "patterns to release; omit to release every lease this session holds",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      }
+    },
+    "type": "object"
+  },
+  "name": "release_files",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "released": {
+        "type": "integer"
+      }
+    },
+    "required": [
+      "released"
+    ],
+    "type": "object"
+  }
+}
+
+=== rename
+{
+  "description": "Rename this session to a short 2-4 word kebab-case name for the broad feature it is about. Call once at the start only when the session still has a placeholder name (e.g. claude-a1b2). If the session already has a real name, leave it unless the user asks to rename. Prefer a broad feature name over a single subtask.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "description": "short 2-4 word kebab-case name for the broad feature of this whole session, not one subtask",
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  },
+  "name": "rename"
+}
+
+=== reserve_files
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+  },
+  "description": "Declare the files you are about to edit, so another agent working the same repo finds out before both of you change them. Call it when several sessions share one checkout and you are starting on a set of files; a session in a checkout of its own does not need it. The lease is advisory: nothing is blocked, and any overlap with a lease another session holds comes back in conflicts, with the holder to message. It lapses on its own, so an agent that dies never holds the repo. Call release_files when you are done.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "mode": {
+        "description": "exclusive (default) means nobody else should edit these paths; shared means others may edit them too",
+        "type": "string"
+      },
+      "note": {
+        "description": "what you are doing there, so a conflicting agent knows what it is up against",
+        "type": "string"
+      },
+      "paths": {
+        "description": "files or globs you are about to edit, such as internal/store/*.go",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
+      "ttl_minutes": {
+        "description": "minutes before the lease lapses on its own, default 30, maximum 240",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "paths"
+    ],
+    "type": "object"
+  },
+  "name": "reserve_files",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "conflicts": {
+        "description": "live leases held by other sessions that overlap what was asked for; these are advisory, so nothing is blocked, but the holders should be messaged before editing",
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "expires_in": {
+              "description": "time left before the lease lapses on its own",
+              "type": "string"
+            },
+            "holder": {
+              "description": "name of the session holding the lease",
+              "type": "string"
+            },
+            "mine": {
+              "description": "whether the calling session holds it",
+              "type": "boolean"
+            },
+            "mode": {
+              "description": "exclusive (nobody else edits these paths) or shared (others may read or also edit)",
+              "type": "string"
+            },
+            "note": {
+              "description": "what the holder is doing there",
+              "type": "string"
+            },
+            "pattern": {
+              "description": "path or glob the lease covers",
+              "type": "string"
+            },
+            "session_id": {
+              "description": "session holding the lease",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pattern",
+            "mode",
+            "session_id",
+            "holder",
+            "expires_in",
+            "mine"
+          ],
+          "type": "object"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
+      "reserved": {
+        "description": "leases this session now holds",
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "expires_in": {
+              "description": "time left before the lease lapses on its own",
+              "type": "string"
+            },
+            "holder": {
+              "description": "name of the session holding the lease",
+              "type": "string"
+            },
+            "mine": {
+              "description": "whether the calling session holds it",
+              "type": "boolean"
+            },
+            "mode": {
+              "description": "exclusive (nobody else edits these paths) or shared (others may read or also edit)",
+              "type": "string"
+            },
+            "note": {
+              "description": "what the holder is doing there",
+              "type": "string"
+            },
+            "pattern": {
+              "description": "path or glob the lease covers",
+              "type": "string"
+            },
+            "session_id": {
+              "description": "session holding the lease",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pattern",
+            "mode",
+            "session_id",
+            "holder",
+            "expires_in",
+            "mine"
+          ],
+          "type": "object"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      }
+    },
+    "required": [
+      "reserved"
+    ],
+    "type": "object"
+  }
+}
+
+=== revive_session
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Bring a dead session back on its old row, resuming the conversation it held where its CLI supports that. Call when list_sessions or send_session reports a session is not running and its work should continue.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "session_id": {
+        "description": "session id returned by list_sessions or create_session",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id"
+    ],
+    "type": "object"
+  },
+  "name": "revive_session",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "account": {
+        "description": "named subscription the session runs on; empty is the CLI's own login",
+        "type": "string"
+      },
+      "archived": {
+        "description": "whether the session is archived out of the active list",
+        "type": "boolean"
+      },
+      "directory": {
+        "description": "session's current working directory, or its launch directory when stopped",
+        "type": "string"
+      },
+      "group": {
+        "description": "group path holding the session; empty is the root",
+        "type": "string"
+      },
+      "id": {
+        "description": "agent session id",
+        "type": "string"
+      },
+      "model": {
+        "description": "model that CLI runs on; empty is the CLI's own default",
+        "type": "string"
+      },
+      "name": {
+        "description": "session name shown in Gate Inbox",
+        "type": "string"
+      },
+      "parent_id": {
+        "description": "session this row is drawn under on the board; empty for a top-level session",
+        "type": "string"
+      },
+      "running": {
+        "description": "whether the session currently has a live tmux pane",
+        "type": "boolean"
+      },
+      "self": {
+        "description": "whether this row is the calling session itself",
+        "type": "boolean"
+      },
+      "spawned_by": {
+        "description": "session that spawned this one, which is the only session that can answer its questions or reach it with send_children; empty for a session nobody spawned",
+        "type": "string"
+      },
+      "status": {
+        "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+        "type": "string"
+      },
+      "tool": {
+        "description": "agent CLI the session runs",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "name",
+      "tool",
+      "group",
+      "directory",
+      "status",
+      "running",
+      "archived",
+      "self"
+    ],
+    "type": "object"
+  }
+}
+
+=== send_children
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Queue one message for every session this one spawned, when the correction is about the work rather than about one worker: the branch moved, the endpoint changed, stop using that field. Sending nine messages by hand means the ninth is written long after the first, and by then the first agents have acted on the old instruction. Use send_session for anything meant for one agent -- this interrupts the whole fan-out, so reach for it only when every child needs to hear it. A child that cannot take the message is reported rather than failing the call, so a full queue on one does not leave the rest uninstructed.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "message": {
+        "description": "the instruction every child should get, in full; each reads it with no other context; or name a file in message_file",
+        "type": "string"
+      },
+      "message_file": {
+        "description": "absolute path of a file holding the instruction, used instead of message",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "name": "send_children",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "deliveries": {
+        "description": "per-child outcome, in board order",
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "message_id": {
+              "description": "queued message id, when it was queued",
+              "type": "integer"
+            },
+            "name": {
+              "description": "that session's name",
+              "type": "string"
+            },
+            "session_id": {
+              "description": "child session the message was addressed to",
+              "type": "string"
+            },
+            "skipped": {
+              "description": "why this child was not sent to; empty when it was queued",
+              "type": "string"
+            }
+          },
+          "required": [
+            "session_id",
+            "name"
+          ],
+          "type": "object"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
+      "manager_awake": {
+        "description": "whether Gate Inbox is running to deliver what was queued",
+        "type": "boolean"
+      },
+      "queued": {
+        "description": "how many children the message was queued for",
+        "type": "integer"
+      },
+      "skipped": {
+        "description": "how many were passed over, with a reason on each",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "queued",
+      "skipped",
+      "manager_awake",
+      "deliveries"
+    ],
+    "type": "object"
+  }
+}
+
+=== send_session
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Queue a message for another agent, to give a session you spawned its next task, answer a question read_session surfaced, or redirect work going the wrong way. The other agent has no view of this conversation, so send a self-contained instruction. The message is not typed in the instant you send it: Gate Inbox holds it until that agent can read it -- at rest, or for Claude Code mid-turn, where it is queued and read after the running tool call -- so it can never land on an approval prompt and answer it. A successful send means queued, not delivered: do not tell anyone the agent has it until message_status says delivered. Two modes. By default (interrupt false) the agent finishes the tool call in hand and then reads the message. With interrupt true, Gate Inbox first stops the agent's running turn (Escape for Claude Code) and types the message in as its next turn: use it when the work in progress is wrong and every further step is waste. Interrupt is refused for a CLI with no safe way to stop a turn, and neither mode ever sends keys while a permission or question dialog is showing: the message is held and the result says so. It arrives labelled as coming from another agent rather than from the user, and cannot approve permissions or change that agent's configuration. Returns a message id for message_status, and says so straight away when nothing will type the message in as things stand -- an agent sitting on a dialog is the usual reason, and answer_session is what clears that. Pass subject to label what the message is about: your next message on the same subject replaces this one if it has not been read yet, so a correction reaches the agent instead of queueing behind what it corrects. Call read_session to see what the agent did with it. Refused rather than delivered: identical text to the same session inside ten minutes, more than five messages a minute per recipient, more than twenty undelivered held by a recipient, or a message over 8000 bytes (point the agent at a file or a task instead). A message already written to disk is sent by naming it in message_file instead of pasting it into message. After a refusal, call message_status on the earlier message rather than sending again.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "interrupt": {
+        "description": "true stops the agent's running turn first (Escape for Claude Code) so this message is its next turn right away; false, the default, lets it finish the step in hand and read the message after. Refused for a CLI with no safe interrupt; never sent while a dialog is showing",
+        "type": "boolean"
+      },
+      "message": {
+        "description": "message typed into that agent's prompt as its next turn; write it as a full instruction, since the other agent does not see this conversation; or name a file in message_file",
+        "type": "string"
+      },
+      "message_file": {
+        "description": "absolute path of a file holding the message, used instead of message; the same size limit applies to what it holds",
+        "type": "string"
+      },
+      "session_id": {
+        "description": "session id returned by list_sessions or create_session",
+        "type": "string"
+      },
+      "subject": {
+        "description": "short label for what this message is about, such as which-branch or stand-down; a later message you send to the same agent under the same label replaces this one if it has not been read yet, so a correction arrives instead of queueing behind what it corrects",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id"
+    ],
+    "type": "object"
+  },
+  "name": "send_session",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "held": {
+        "description": "why nothing will type this message into the recipient as things stand, and what to do about it; empty means it is simply waiting for the agent to be at rest",
+        "type": "string"
+      },
+      "interrupt": {
+        "description": "whether the recipient's running turn is stopped before the message is typed in",
+        "type": "boolean"
+      },
+      "manager_awake": {
+        "description": "whether Gate Inbox is running to deliver it; a message queued while it is closed waits until it opens again",
+        "type": "boolean"
+      },
+      "message_id": {
+        "description": "pass to message_status to see whether it arrived",
+        "type": "integer"
+      },
+      "queue_position": {
+        "description": "this message's place in the recipient's queue; 1 means it is next",
+        "type": "integer"
+      },
+      "superseded": {
+        "description": "how many earlier queued messages from this sender on the same subject this one replaced",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "message_id",
+      "queue_position",
+      "manager_awake"
+    ],
+    "type": "object"
+  }
+}
+
+=== send_terminal
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Call after list_terminals or create_terminal to run or control work in a managed terminal, keeping it visible and separate from the conversation. Provide exactly one of command or keys. A command is pasted and submitted with Enter, so it executes on the user's machine. Keys sends exact tmux key names for interactive control, such as [\"C-c\"] or [\"Up\", \"Enter\"]. Call read_terminal after sending to inspect the result.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "command": {
+        "description": "command text to paste and submit with Enter; provide exactly one of command or keys",
+        "type": "string"
+      },
+      "keys": {
+        "description": "exact tmux key names to send in order, such as C-c, Up, or Enter; provide exactly one of keys or command",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
+      "terminal_id": {
+        "description": "terminal id returned by list_terminals or create_terminal",
+        "type": "string"
+      }
+    },
+    "required": [
+      "terminal_id"
+    ],
+    "type": "object"
+  },
+  "name": "send_terminal",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "sent": {
+        "description": "input kind sent: command or keys",
+        "type": "string"
+      },
+      "terminal_id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "terminal_id",
+      "sent"
+    ],
+    "type": "object"
+  }
+}
+
+=== set_priority
+{
+  "description": "Declare how much the work in this session matters, so the user's triage queue hands it over ahead of the sessions that matter less. Call it when you know something the manager cannot see from outside: the user says this is urgent or can wait, or the task turns out to be a production incident, a release blocker, or a background experiment. Tiers are urgent, high, medium and low, on the same scale as the user's tickets and goals; none clears it. It orders this session within the queue it is already in, so it never puts a session that needs nobody ahead of one waiting on an answer, and the user can always override it.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "tier": {
+        "description": "how much the work in this session matters: urgent, high, medium, low, or none to clear it",
+        "type": "string"
+      }
+    },
+    "required": [
+      "tier"
+    ],
+    "type": "object"
+  },
+  "name": "set_priority"
+}
+
+=== switch_account
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Move a session onto another named subscription, for when the account it runs on has hit its usage limit. Claude contexts over 200,000 input tokens migrate to a fresh same-tool conversation on the chosen account, returning a new session ID and leaving the source intact. Otherwise a live session restarts on its conversation, and a dead one takes the account at its next revive. This restarts a live agent on the user's machine, so use it on a session that is blocked by a limit, not one mid-way through work; it cannot be this session itself.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "account": {
+        "description": "named subscription to move it onto, from list_accounts; empty moves it back to the CLI's own login",
+        "type": "string"
+      },
+      "session_id": {
+        "description": "session id returned by list_sessions or create_session; not this session's own, since the restart would end this call",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id"
+    ],
+    "type": "object"
+  },
+  "name": "switch_account",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "account": {
+        "description": "named subscription the session runs on; empty is the CLI's own login",
+        "type": "string"
+      },
+      "archived": {
+        "description": "whether the session is archived out of the active list",
+        "type": "boolean"
+      },
+      "directory": {
+        "description": "session's current working directory, or its launch directory when stopped",
+        "type": "string"
+      },
+      "group": {
+        "description": "group path holding the session; empty is the root",
+        "type": "string"
+      },
+      "id": {
+        "description": "agent session id",
+        "type": "string"
+      },
+      "model": {
+        "description": "model that CLI runs on; empty is the CLI's own default",
+        "type": "string"
+      },
+      "name": {
+        "description": "session name shown in Gate Inbox",
+        "type": "string"
+      },
+      "parent_id": {
+        "description": "session this row is drawn under on the board; empty for a top-level session",
+        "type": "string"
+      },
+      "running": {
+        "description": "whether the session currently has a live tmux pane",
+        "type": "boolean"
+      },
+      "self": {
+        "description": "whether this row is the calling session itself",
+        "type": "boolean"
+      },
+      "spawned_by": {
+        "description": "session that spawned this one, which is the only session that can answer its questions or reach it with send_children; empty for a session nobody spawned",
+        "type": "string"
+      },
+      "status": {
+        "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+        "type": "string"
+      },
+      "tool": {
+        "description": "agent CLI the session runs",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "name",
+      "tool",
+      "group",
+      "directory",
+      "status",
+      "running",
+      "archived",
+      "self"
+    ],
+    "type": "object"
+  }
+}
+
+=== task
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+  },
+  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task, which is how a worker finds its next job, and a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. release hands a claimed task back for another session. delete removes work that turned out not to be needed.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "action": {
+        "description": "list, create, claim, finish, release or delete",
+        "type": "string"
+      },
+      "body": {
+        "description": "create: full instruction for whoever claims it; it cannot see this conversation; or name a file in body_file",
+        "type": "string"
+      },
+      "body_file": {
+        "description": "create: absolute path of a file holding the instruction, used instead of body",
+        "type": "string"
+      },
+      "depends_on": {
+        "description": "create: ids of tasks that must be done first; a task with unfinished dependencies cannot be claimed",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
+      "task_id": {
+        "description": "task to act on; omit on claim to take the oldest pending task nothing is blocking",
+        "type": "string"
+      },
+      "title": {
+        "description": "create: one-line summary of the work, specific enough that another agent knows what done looks like",
+        "type": "string"
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "type": "object"
+  },
+  "name": "task",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "task": {
+        "additionalProperties": false,
+        "description": "the task acted on",
+        "properties": {
+          "blocked": {
+            "description": "whether unfinished dependencies currently stop this task being claimed",
+            "type": "boolean"
+          },
+          "blocked_by": {
+            "description": "the dependencies that are not done yet; the rest of depends_on are finished and in nobody's way",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "body": {
+            "description": "full instruction for whoever claims it",
+            "type": "string"
+          },
+          "depends_on": {
+            "description": "task ids that must be done before this one can be claimed",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "id": {
+            "description": "task id to claim, finish or release",
+            "type": "string"
+          },
+          "mine": {
+            "description": "whether the calling session holds the claim",
+            "type": "boolean"
+          },
+          "owner": {
+            "description": "session id holding the claim",
+            "type": "string"
+          },
+          "owner_name": {
+            "description": "name of the session holding the claim",
+            "type": "string"
+          },
+          "state": {
+            "description": "pending, in_progress or done",
+            "type": "string"
+          },
+          "title": {
+            "description": "one-line summary of the work",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "state",
+          "blocked",
+          "mine"
+        ],
+        "type": [
+          "null",
+          "object"
+        ]
+      },
+      "tasks": {
+        "description": "the whole shared list, for action list",
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "blocked": {
+              "description": "whether unfinished dependencies currently stop this task being claimed",
+              "type": "boolean"
+            },
+            "blocked_by": {
+              "description": "the dependencies that are not done yet; the rest of depends_on are finished and in nobody's way",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "body": {
+              "description": "full instruction for whoever claims it",
+              "type": "string"
+            },
+            "depends_on": {
+              "description": "task ids that must be done before this one can be claimed",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "id": {
+              "description": "task id to claim, finish or release",
+              "type": "string"
+            },
+            "mine": {
+              "description": "whether the calling session holds the claim",
+              "type": "boolean"
+            },
+            "owner": {
+              "description": "session id holding the claim",
+              "type": "string"
+            },
+            "owner_name": {
+              "description": "name of the session holding the claim",
+              "type": "string"
+            },
+            "state": {
+              "description": "pending, in_progress or done",
+              "type": "string"
+            },
+            "title": {
+              "description": "one-line summary of the work",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "state",
+            "blocked",
+            "mine"
+          ],
+          "type": "object"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      }
+    },
+    "type": "object"
+  }
+}
+
+=== wait_for_session
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false,
+    "readOnlyHint": true
+  },
+  "description": "Park until a session you are waiting on stops working, instead of calling read_session in a loop. Call it after handing an agent a task when your next step depends on its result. For a fan-out pass children true, or several session_ids: one call parks on the whole set and returns the moment any one of them arrives, so never wait on children one at a time. By default it returns once a session reaches any state that means it stopped (finished, waiting, idle, errored or dead); pass until to wait for particular states. A timeout is a normal answer, not a failure: the result carries reached false and the actual state, and outcome says whether it reached, timed_out or died. standing carries every waited-on session with its own outcome, so use that rather than a follow-up list_sessions, then read_session on whichever one moved.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "children": {
+        "description": "park on every session you spawned, which is what a fan-out wants; give this instead of session_id or session_ids, never alongside them",
+        "type": "boolean"
+      },
+      "session_id": {
+        "description": "one session id returned by list_sessions or create_session; for a fan-out use children, or session_ids",
+        "type": "string"
+      },
+      "session_ids": {
+        "description": "several session ids to park on at once; the call ends as soon as any one of them arrives and reports where all of them stand",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
+      "timeout_s": {
+        "description": "seconds to wait before giving up, default 50, maximum 120; your own client may cut the call short before this",
+        "type": "integer"
+      },
+      "until": {
+        "description": "states that end the wait; defaults to every state that means a session stopped working (finished, waiting, idle, errored, dead). Valid values: starting, working, waiting, finished, idle, errored, dead",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      }
+    },
+    "type": "object"
+  },
+  "name": "wait_for_session",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "manager_awake": {
+        "description": "whether Gate Inbox is running; session status only advances while it is, so a wait against a closed manager can only ever observe dead",
+        "type": "boolean"
+      },
+      "outcome": {
+        "description": "reached (one of them arrived at an awaited state), died (one died and none arrived), or timed_out",
+        "type": "string"
+      },
+      "reached": {
+        "description": "true when at least one waited-on session reached one of the awaited states",
+        "type": "boolean"
+      },
+      "session": {
+        "additionalProperties": false,
+        "description": "the session that decided this call: the one that arrived, or died, or the single target that did neither",
+        "properties": {
+          "account": {
+            "description": "named subscription the session runs on; empty is the CLI's own login",
+            "type": "string"
+          },
+          "archived": {
+            "description": "whether the session is archived out of the active list",
+            "type": "boolean"
+          },
+          "directory": {
+            "description": "session's current working directory, or its launch directory when stopped",
+            "type": "string"
+          },
+          "group": {
+            "description": "group path holding the session; empty is the root",
+            "type": "string"
+          },
+          "id": {
+            "description": "agent session id",
+            "type": "string"
+          },
+          "model": {
+            "description": "model that CLI runs on; empty is the CLI's own default",
+            "type": "string"
+          },
+          "name": {
+            "description": "session name shown in Gate Inbox",
+            "type": "string"
+          },
+          "parent_id": {
+            "description": "session this row is drawn under on the board; empty for a top-level session",
+            "type": "string"
+          },
+          "running": {
+            "description": "whether the session currently has a live tmux pane",
+            "type": "boolean"
+          },
+          "self": {
+            "description": "whether this row is the calling session itself",
+            "type": "boolean"
+          },
+          "spawned_by": {
+            "description": "session that spawned this one, which is the only session that can answer its questions or reach it with send_children; empty for a session nobody spawned",
+            "type": "string"
+          },
+          "status": {
+            "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+            "type": "string"
+          },
+          "tool": {
+            "description": "agent CLI the session runs",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "tool",
+          "group",
+          "directory",
+          "status",
+          "running",
+          "archived",
+          "self"
+        ],
+        "type": "object"
+      },
+      "standing": {
+        "description": "where every waited-on session stood when this returned, so a fan-out never needs a follow-up list to find out what it is still waiting for",
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "outcome": {
+              "description": "reached (it arrived at an awaited state), died (its pane is gone and dead was not among them), or timed_out (it had not arrived yet; session.status is what it was doing)",
+              "type": "string"
+            },
+            "session": {
+              "additionalProperties": false,
+              "description": "the waited-on session as it stood when the wait returned",
+              "properties": {
+                "account": {
+                  "description": "named subscription the session runs on; empty is the CLI's own login",
+                  "type": "string"
+                },
+                "archived": {
+                  "description": "whether the session is archived out of the active list",
+                  "type": "boolean"
+                },
+                "directory": {
+                  "description": "session's current working directory, or its launch directory when stopped",
+                  "type": "string"
+                },
+                "group": {
+                  "description": "group path holding the session; empty is the root",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "agent session id",
+                  "type": "string"
+                },
+                "model": {
+                  "description": "model that CLI runs on; empty is the CLI's own default",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "session name shown in Gate Inbox",
+                  "type": "string"
+                },
+                "parent_id": {
+                  "description": "session this row is drawn under on the board; empty for a top-level session",
+                  "type": "string"
+                },
+                "running": {
+                  "description": "whether the session currently has a live tmux pane",
+                  "type": "boolean"
+                },
+                "self": {
+                  "description": "whether this row is the calling session itself",
+                  "type": "boolean"
+                },
+                "spawned_by": {
+                  "description": "session that spawned this one, which is the only session that can answer its questions or reach it with send_children; empty for a session nobody spawned",
+                  "type": "string"
+                },
+                "status": {
+                  "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+                  "type": "string"
+                },
+                "tool": {
+                  "description": "agent CLI the session runs",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "tool",
+                "group",
+                "directory",
+                "status",
+                "running",
+                "archived",
+                "self"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "session",
+            "outcome"
+          ],
+          "type": "object"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
+      "waited": {
+        "description": "how long the wait lasted",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session",
+      "reached",
+      "outcome",
+      "waited",
+      "manager_awake",
+      "standing"
+    ],
+    "type": "object"
+  }
+}

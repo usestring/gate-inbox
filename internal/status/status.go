@@ -1,0 +1,553 @@
+// Modified by Durable Alpha, 2026: changes from the upstream commit named in NOTICE.
+
+package status
+
+import (
+	"strings"
+
+	"github.com/usestring/gate-inbox/internal/config"
+)
+
+const (
+	Working  = "working"
+	Waiting  = "waiting"
+	Finished = "finished"
+	Errored  = "errored"
+	Idle     = "idle"
+	Dead     = "dead"
+	// Starting is the transient state a session shows from launch until its
+	// agent first draws to the pane, so a new row appears immediately instead
+	// of after the next poll.
+	Starting = "starting"
+)
+
+type rule struct {
+	state string
+	re    *matcher
+}
+
+type Engine struct {
+	tools map[string]toolRules
+}
+
+type toolRules struct {
+	defaultStatus  string
+	typeAhead      bool
+	activityCutoff *matcher
+	inputLine      *matcher
+	turnEnd        *matcher
+	chromeLine     *matcher
+	blockedLine    *matcher
+	trailingNote   *matcher
+	arrowDialog    *matcher
+	stepRow        *matcher
+	stepEntry      *matcher
+	busyLine       *matcher
+	limitLine      *matcher
+	scrolledLine   *matcher
+	jumpToBottom   string
+	rules          []rule
+}
+
+func NewEngine(cfg config.Config) (*Engine, error) {
+	engine := &Engine{tools: map[string]toolRules{}}
+	for name, tool := range cfg.Tools {
+		compiled := make([]rule, 0, len(tool.Rules))
+		for _, raw := range tool.Rules {
+			re, err := newMatcher(raw.Pattern)
+			if err != nil {
+				return nil, err
+			}
+			compiled = append(compiled, rule{state: raw.State, re: re})
+		}
+		def := tool.DefaultStatus
+		if def == "" {
+			def = Idle
+		}
+		tr := toolRules{defaultStatus: def, typeAhead: tool.TypeAhead, jumpToBottom: tool.JumpToBottomKey, rules: compiled}
+		optional := []struct {
+			pattern string
+			target  **matcher
+		}{
+			{tool.ActivityCutoff, &tr.activityCutoff},
+			{tool.InputLine, &tr.inputLine},
+			{tool.TurnEnd, &tr.turnEnd},
+			{tool.ChromeLine, &tr.chromeLine},
+			{tool.BlockedLine, &tr.blockedLine},
+			{tool.TrailingNote, &tr.trailingNote},
+			{tool.BusyLine, &tr.busyLine},
+			{tool.LimitLine, &tr.limitLine},
+			{tool.ScrolledLine, &tr.scrolledLine},
+			{tool.ArrowDialogLine, &tr.arrowDialog},
+			{tool.DialogStepRow, &tr.stepRow},
+			{tool.DialogStepEntry, &tr.stepEntry},
+		}
+		for _, opt := range optional {
+			if opt.pattern == "" {
+				continue
+			}
+			re, err := newMatcher(opt.pattern)
+			if err != nil {
+				return nil, err
+			}
+			*opt.target = re
+		}
+		engine.tools[name] = tr
+	}
+	return engine, nil
+}
+
+// Match derives a status and reports whether any signal matched, so the
+// caller can distinguish a real signal from the default fallback. A usage
+// or rate-limit banner is errored even when a turn-end summary or a limit
+// dialog would otherwise settle the turn. Rules then run scoped to the
+// current turn. If the first matching rule is working, a matching waiting
+// rule later in the list overrides it so persisted rule order cannot mask
+// a user prompt. Every other first match returns as configured. When no
+// rule hits, the newest turn in the content region decides finished
+// versus waiting.
+func (e *Engine) Match(tool, pane string) (string, bool) {
+	tr, ok := e.tools[tool]
+	if !ok {
+		return Idle, false
+	}
+	if tr.isLimit(pane) {
+		return Errored, true
+	}
+	if state, ok := tr.matchRules(tr.matchScope(pane)); ok {
+		return state, true
+	}
+	if tr.isBusy(pane) {
+		return Working, true
+	}
+	if state, ok := tr.turnState(pane); ok {
+		return state, true
+	}
+	return tr.defaultStatus, false
+}
+
+func (tr toolRules) matchRules(scope string) (string, bool) {
+	for i, r := range tr.rules {
+		if !r.re.MatchString(scope) {
+			continue
+		}
+		if r.state == Working {
+			for _, later := range tr.rules[i+1:] {
+				if later.state == Waiting && later.re.MatchString(scope) {
+					return Waiting, true
+				}
+			}
+		}
+		return r.state, true
+	}
+	return "", false
+}
+
+// RuleMatch reports what the tool's configured rules see, without the
+// limit, busy and turn-end fallbacks Match layers on top. A modal dialog always
+// trips a rule, while a question left on screen at a resting prompt does
+// not, which is how a caller tells "do not type here" from "waiting for
+// an answer".
+func (e *Engine) RuleMatch(tool, pane string) (string, bool) {
+	tr, ok := e.tools[tool]
+	if !ok {
+		return "", false
+	}
+	return tr.matchRules(tr.matchScope(pane))
+}
+
+// isLimit reports whether the newest turn is sitting on a usage or rate
+// limit. The banner lives above the turn-end summary, so matchScope never
+// sees it, and turnState would settle the quiet turn as finished. A limit
+// dialog can also look like a waiting prompt.
+func (tr toolRules) isLimit(pane string) bool {
+	return len(tr.limitLines(pane)) != 0
+}
+
+func (e *Engine) LimitBanner(tool, pane string) string {
+	tr, ok := e.tools[tool]
+	if !ok || e.ViewportDisplaced(tool, pane) {
+		return ""
+	}
+	return strings.Join(strings.Fields(strings.Join(tr.limitLines(pane), " ")), " ")
+}
+
+func (tr toolRules) limitLines(pane string) []string {
+	if tr.limitLine == nil {
+		return nil
+	}
+	region, ok := tr.activityRegion(pane)
+	if !ok {
+		if tr.limitLine.MatchString(pane) {
+			return []string{pane}
+		}
+		return nil
+	}
+	lines := strings.Split(region, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if !tr.limitLine.MatchString(strings.TrimRight(lines[i], " \t")) {
+			continue
+		}
+		end := i + 1
+		for end < len(lines) {
+			line := lines[end]
+			if strings.TrimSpace(line) == "" || (line[0] != ' ' && line[0] != '\t') {
+				break
+			}
+			end++
+		}
+		if tr.limitIsNewest(lines[end:]) {
+			return lines[i:end]
+		}
+		return nil
+	}
+	return nil
+}
+
+// TypingHold reports why text typed into this pane now would land somewhere
+// it is not read as a message: Working while the tool is mid-turn or has not
+// drawn its input line, and Waiting while its own rules see a dialog, which
+// typed text would answer rather than be read by. An empty string means the
+// pane rests at a prompt that reads what it is handed, which includes a
+// question the agent left on screen: that trips no rule. Only those two rule
+// states hold, since a tool whose rules also classify resting frames (an
+// idle rule for a resumed session) would otherwise never take anything again.
+func (e *Engine) TypingHold(tool, pane string) string {
+	if _, ready := e.ActivityRegion(tool, pane); !ready {
+		return Working
+	}
+	if state, matched := e.RuleMatch(tool, pane); matched && (state == Working || state == Waiting) {
+		return state
+	}
+	return ""
+}
+
+// TypeAhead reports whether the tool queues what is typed into it mid-turn
+// (config.Tool.TypeAhead).
+func (e *Engine) TypeAhead(tool string) bool {
+	return e.tools[tool].typeAhead
+}
+
+// DeliveryHold is TypingHold as a queued message sees it. For a tool that
+// queues what it is handed mid-turn, a working turn no longer holds: the
+// tool reads the text once the running step ends. A pane with no input line
+// drawn still holds, and so does a dialog, which typed text would answer.
+func (e *Engine) DeliveryHold(tool, pane string) string {
+	hold := e.TypingHold(tool, pane)
+	if hold != Working || !e.TypeAhead(tool) {
+		return hold
+	}
+	if _, ready := e.ActivityRegion(tool, pane); !ready {
+		return Working
+	}
+	return ""
+}
+
+// isBusy reports whether the newest turn is still running work that
+// outlives it. Background agents and background shells keep going after
+// the turn that spawned them ends, and the line saying so carries the same
+// shape as a turn-end summary, so turnState would otherwise read the turn
+// as over while the session is still busy. Only a turn that ended below the
+// busy line proves that work drained; transient banners under it say nothing
+// either way. Without turn_end there is no later turn to read, so the line
+// stands until the tool stops drawing it.
+func (tr toolRules) isBusy(pane string) bool {
+	if tr.busyLine == nil {
+		return false
+	}
+	region, ok := tr.activityRegion(pane)
+	if !ok {
+		return false
+	}
+	lines := strings.Split(region, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if !tr.busyLine.MatchString(strings.TrimRight(lines[i], " \t")) {
+			continue
+		}
+		return tr.turnEnd == nil || tr.lastTurnEndIndex(lines) <= i
+	}
+	return false
+}
+
+// matchScope narrows rule matching to the current turn: the text after
+// the newest turn_end marker in the content region. Completed turns can
+// quote spinner lines or dialog text verbatim (any session working on
+// terminal tooling will), and whole-pane matching would read those
+// echoes as live signals. Dialogs that replace the input box match in full.
+// With an input box but no marker, matching stays in the content region so
+// typed input cannot masquerade as a status signal.
+func (tr toolRules) matchScope(pane string) string {
+	if tr.turnEnd == nil {
+		return pane
+	}
+	if tr.activityCutoff == nil {
+		return pane
+	}
+	cutoffs := tr.activityCutoff.FindAllStringIndex(pane, -1)
+	if len(cutoffs) == 0 {
+		return pane
+	}
+	cutoff := cutoffs[len(cutoffs)-1]
+	region := pane[:cutoff[0]]
+	cutoffTail := pane[cutoff[0]:]
+	// A cutoff can include animated rows above the composer; its input line
+	// still belongs to the composer, never to the footer's dialog signals.
+	inputTail := pane[cutoff[1]:]
+	hasWaitingFooter := tr.hasFooter(inputTail, Waiting)
+	// opencode draws its running spinner ("⬝⬝⬝⬝ esc interrupt") in the
+	// footer under the composer, below the cutoff, with no spinner row in the
+	// transcript at all. A working signal there is the tool's own chrome, not
+	// an echo, so the footer joins the scope on that signal too.
+	hasWorkingFooter := tr.hasFooter(inputTail, Working)
+	lines := strings.Split(region, "\n")
+	if lastEnd := tr.lastTurnEndIndex(lines); lastEnd >= 0 {
+		scope := strings.Join(lines[lastEnd+1:], "\n")
+		if hasWaitingFooter || hasWorkingFooter {
+			return scope + cutoffTail
+		}
+		return scope
+	}
+	// Some selection dialogs reuse the prompt marker as their first option.
+	// Keep treating ordinary typed input as outside the match scope, but include
+	// the full pane when a separate waiting signal appears below that marker.
+	// Codex overlays render such a footer; the selected option line alone is
+	// indistinguishable from a numbered draft and must not expand the scope.
+	if hasWaitingFooter {
+		return pane
+	}
+	if hasWorkingFooter {
+		return region + cutoffTail
+	}
+	return region
+}
+
+// hasFooter reports whether a rule of the given state matches the footer:
+// the rows below the cutoff line itself.
+func (tr toolRules) hasFooter(cutoffTail, state string) bool {
+	lineEnd := strings.IndexByte(cutoffTail, '\n')
+	if lineEnd < 0 {
+		return false
+	}
+	footer := cutoffTail[lineEnd+1:]
+	for _, r := range tr.rules {
+		if r.state == state && r.re.MatchString(footer) {
+			return true
+		}
+	}
+	return false
+}
+
+// lastTurnEndIndex finds the newest turn_end marker line, -1 when absent.
+func (tr toolRules) lastTurnEndIndex(lines []string) int {
+	for i := len(lines) - 1; i >= 0; i-- {
+		if tr.turnEnd.MatchString(strings.TrimRight(lines[i], " \t")) {
+			return i
+		}
+	}
+	return -1
+}
+
+// DialogOwnsArrows reports whether the dialog on screen navigates with the
+// horizontal arrows, which it says in its own keybinding legend. It is what
+// decides whether Left still belongs to the pane once a dialog has parked the
+// caret on its selection marker rather than at the head of a prompt.
+//
+// The legend is the signal because a dialog's marker row is the same shape
+// whatever the dialog does with the arrows: "\u276f 1. Yes, proceed" is a
+// permission prompt that ignores Left, and "\u276f 1. [ ] Resume" is a multi-select
+// that steps between questions with it, and nothing in either row says which.
+func (e *Engine) DialogOwnsArrows(tool, pane string) bool {
+	tr, ok := e.tools[tool]
+	if !ok || tr.arrowDialog == nil {
+		return false
+	}
+	return tr.arrowDialog.MatchString(pane)
+}
+
+// ViewportDisplaced reports whether the tool is drawing its own viewport
+// somewhere above the live bottom, which it advertises with a jump-back
+// affordance. The pane is then showing history: the screen has stopped
+// describing the session's present, so nothing read off it -- a rule
+// match, a changed region, a quiet turn -- is evidence about now. Tools
+// with no such affordance configured always report false.
+func (e *Engine) ViewportDisplaced(tool, pane string) bool {
+	tr, ok := e.tools[tool]
+	if !ok || tr.scrolledLine == nil {
+		return false
+	}
+	return tr.scrolledLine.MatchString(pane)
+}
+
+// JumpToBottomKey is the key that brings this tool's parked viewport back to
+// the live bottom, or "" for a tool that has none configured -- which is also
+// every tool with no jump-back affordance to park behind.
+func (e *Engine) JumpToBottomKey(tool string) string {
+	tr, ok := e.tools[tool]
+	if !ok {
+		return ""
+	}
+	return tr.jumpToBottom
+}
+
+// ActivityRegion returns the pane content above the tool's input box
+// (the last activity_cutoff match). Streaming output changes this region
+// between polls even when no status rule matches. ok is false when the
+// tool has no cutoff configured or it does not appear in the pane.
+func (e *Engine) ActivityRegion(tool, pane string) (string, bool) {
+	tr, ok := e.tools[tool]
+	if !ok {
+		return "", false
+	}
+	return tr.activityRegion(pane)
+}
+
+// InputPrefix returns the prompt marker a tool draws at the start of its
+// input line, when row is that line. It prefers input_line and falls back to
+// activity_cutoff. A zero-width match is no marker: a degenerate cutoff like ^
+// would otherwise stamp every row as a prompt.
+//
+// The marker has to be the first thing written on the row, not the first cell
+// of it: Claude indents its trust and permission dialogs by a space, and both
+// gestures that count as answering a session are read through here. So leading
+// blanks are skipped before matching and returned as part of the prefix, which
+// keeps every caret comparison measuring from the same edge it did before. A
+// marker with text ahead of it still fails, which is the case the anchor was
+// there for: a legend quoting one is not a prompt.
+func (e *Engine) InputPrefix(tool, row string) (string, bool) {
+	tr, ok := e.tools[tool]
+	if !ok {
+		return "", false
+	}
+	marker := tr.inputLine
+	if marker == nil {
+		marker = tr.activityCutoff
+	}
+	if marker == nil {
+		return "", false
+	}
+	indent := len(row) - len(strings.TrimLeft(row, " \t\u00a0"))
+	loc := marker.FindStringIndex(row[indent:])
+	if loc == nil || loc[0] != 0 || loc[1] == 0 {
+		return "", false
+	}
+	return row[:indent+loc[1]], true
+}
+
+func (tr toolRules) activityRegion(pane string) (string, bool) {
+	if tr.activityCutoff == nil {
+		return "", false
+	}
+	locs := tr.activityCutoff.FindAllStringIndex(pane, -1)
+	if len(locs) == 0 {
+		return "", false
+	}
+	return pane[:locs[len(locs)-1][0]], true
+}
+
+// turnState inspects the newest turn in the content region. When nothing
+// but chrome (blanks, separators) and trailing notes (recap blocks) sits
+// below the last turn_end marker, the turn just ended: finished, or
+// waiting when the content line above the marker carries a question mark
+// (the agent asked something in plain text). A blocked_line as the last
+// content (e.g. an interrupt banner) also waits on the user. Anchoring on
+// the newest marker means markers from older turns, still visible higher
+// in the pane, can never retrigger.
+func (tr toolRules) turnState(pane string) (string, bool) {
+	if tr.turnEnd == nil {
+		return "", false
+	}
+	region, ok := tr.activityRegion(pane)
+	if !ok {
+		return "", false
+	}
+	lines := strings.Split(region, "\n")
+	last := lastContentIndex(lines, len(lines)-1, tr.chromeLine)
+	if last < 0 {
+		return "", false
+	}
+	if tr.blockedLine != nil && tr.blockedLine.MatchString(lines[last]) {
+		return Waiting, true
+	}
+
+	lastEnd := tr.lastTurnEndIndex(lines)
+	if lastEnd < 0 || !tr.turnIsNewest(lines[lastEnd+1:]) {
+		return "", false
+	}
+	question := lastContentIndex(lines, lastEnd-1, nil)
+	if question >= 0 && strings.Contains(lines[question], "?") {
+		return Waiting, true
+	}
+	return Finished, true
+}
+
+// TurnEndedState infers the resting status of a turn that closed without
+// a turn_end marker: the poller calls it when a region that was working
+// stops changing and no rule matches. A question mark on the last content
+// line means the agent asked something in plain text and waits on the
+// answer; anything else counts as finished.
+func (e *Engine) TurnEndedState(tool, region string) string {
+	tr, ok := e.tools[tool]
+	if !ok {
+		return Finished
+	}
+	lines := strings.Split(region, "\n")
+	last := lastContentIndex(lines, len(lines)-1, tr.chromeLine)
+	if last >= 0 && strings.Contains(lines[last], "?") {
+		return Waiting
+	}
+	return Finished
+}
+
+// turnIsNewest reports whether the lines below a turn_end marker hold no
+// real content: only blanks, chrome, and trailing note blocks. Any other
+// content means a newer turn is already producing output.
+func (tr toolRules) turnIsNewest(after []string) bool {
+	return tr.settledBelow(after, false)
+}
+
+// limitIsNewest is turnIsNewest plus the first turn-end summary below the
+// banner, which closed the limited turn. A second summary is a newer turn.
+func (tr toolRules) limitIsNewest(after []string) bool {
+	return tr.settledBelow(after, true)
+}
+
+func (tr toolRules) settledBelow(after []string, skipTurnEnd bool) bool {
+	inNote := false
+	for _, line := range after {
+		trimmed := strings.TrimRight(line, " \t")
+		if strings.TrimSpace(trimmed) == "" {
+			continue
+		}
+		if tr.chromeLine != nil && tr.chromeLine.MatchString(trimmed) {
+			continue
+		}
+		if skipTurnEnd && tr.turnEnd != nil && tr.turnEnd.MatchString(trimmed) {
+			skipTurnEnd = false
+			continue
+		}
+		if tr.trailingNote != nil && tr.trailingNote.MatchString(strings.TrimLeft(trimmed, " \t")) {
+			inNote = true
+			continue
+		}
+		if inNote {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// lastContentIndex walks upward from start to the nearest line that is
+// neither blank nor chrome (separators, input-box borders).
+func lastContentIndex(lines []string, start int, chrome *matcher) int {
+	for i := start; i >= 0; i-- {
+		if strings.TrimSpace(lines[i]) == "" {
+			continue
+		}
+		if chrome != nil && chrome.MatchString(strings.TrimRight(lines[i], " \t")) {
+			continue
+		}
+		return i
+	}
+	return -1
+}

@@ -1,0 +1,18 @@
+● User answered Claude's questions:
+  ⎿  · Rev 10 crashed only because the demo service account cannot read SAMPLE_SERVICE_API_KEY (code and chart are fine). Fix is change #430: one entry
+     in infrastructure/services/demo.tf. Merging is routine; applying production access is normally human-only, though you overrode that for me earlier today.
+     How do you want it done? → I run merge + apply + re-roll (Recommended)
+
+  Ran 1 shell command
+
+● Go relayed with guardrails: merge #430, plan must be exactly one change / zero destroys (stop otherwise), apply, verify the accessor binding with a read-only IAM check, then
+  retry rev 10 only while idle and roll back again if it crash-loops. DEMO-42 closes and the container cleanup finishes after that. ~20 min; production stays healthy on rev 9
+  throughout.
+
+✻ Baked for 33s · done 4:56 AM
+                                                                                                                                        ✔ Update installed · Restart to update
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  sample-repo | main (!9 ?38) | Opus 5 (1M context) | 43%
+  ⏵⏵ auto mode on (shift+tab to cycle)

@@ -1,0 +1,7 @@
+base_url = ""
+enabled = true
+identity_command = ""
+key_command = ""
+key_secret = ""
+link_ttl = "720h0m0s"
+max_bytes = 16777216

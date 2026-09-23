@@ -1,0 +1,114 @@
+// Modified by Durable Alpha, 2026: changes from the upstream commit named in NOTICE.
+
+package ui
+
+import (
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/sessioncmd"
+	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
+)
+
+// terminalKeyWindow is how long after handling a T another one reads as
+// autorepeat rather than a second request: longer than the pause before a
+// held key starts repeating and than the interval it repeats at. It runs
+// from the end of the spawn, so the quiet gap between two deliberate
+// shells is this window plus the spawn.
+const terminalKeyWindow = 250 * time.Millisecond
+
+// shellTool finds the config block T spawns: the first one declaring
+// shell = true, by name so the pick is the same on every launch. Nothing
+// keys off the block being called "terminal", so a user who already has a
+// [tools.terminal] block of their own keeps it as the agent CLI they wrote.
+func (m *Model) shellTool() (string, config.Tool, bool) {
+	return m.cfg.ShellTool()
+}
+
+// isShell reports whether a session's tool opens a shell rather than an
+// agent. A tool no longer in the config answers false: an unknown block is
+// not something we can claim runs a shell.
+func (m *Model) isShell(toolName string) bool {
+	return m.cfg.Tools[toolName].Shell
+}
+
+// terminalKey spawns a shell unless T arrived inside the burst a held key
+// sends. The window is measured from the end of the previous T's work, not
+// from its arrival: the spawn runs on the update path, so the keystroke a
+// burst queued behind it is only read once it finishes, and an interval
+// measured from arrival would be the spawn's own duration rather than the
+// gap the keyboard produced. Each keystroke pushes the window out, so
+// holding T spawns one shell however long it is held. The other keys that
+// create something open a form first, which absorbs a burst on its own.
+func (m *Model) terminalKey() (tea.Model, tea.Cmd) {
+	if time.Since(m.terminalKeyAt) < terminalKeyWindow {
+		m.terminalKeyAt = time.Now()
+		return m, nil
+	}
+	model, cmd := m.openTerminal()
+	m.terminalKeyAt = time.Now()
+	return model, cmd
+}
+
+// openTerminal spawns a shell tab in the group under the cursor. The block
+// carries no command, and tmux.Create leaves such a pane on the user's
+// shell, so no prompt, rename directive or MCP registration applies to a
+// session there is no agent to send them to.
+func (m *Model) openTerminal() (tea.Model, tea.Cmd) {
+	toolName, tool, ok := m.shellTool()
+	if !ok {
+		m.errBar.text = `no shell configured: add a tool block with shell = true to config.toml`
+		return m, nil
+	}
+	dir, ok := m.rowDir()
+	if !ok {
+		m.errBar.text = "no directory to open a terminal in: " + dir
+		return m, nil
+	}
+	sess := store.Session{
+		ID:     newID(),
+		Tool:   toolName,
+		Cwd:    dir,
+		Group:  m.contextGroup(),
+		Status: status.Starting,
+	}
+	if entry, ok := m.selectedRow(); ok && !entry.isGroup {
+		if m.isShell(entry.sess.Tool) {
+			sess.ParentID = entry.sess.ParentID
+		} else {
+			sess.ParentID = entry.sess.ID
+		}
+		sess.Group = entry.sess.Group
+	}
+	sess.Name = sessioncmd.ShellName(toolName, sess.ParentID, newID()[:4], m.sessions)
+	if err := m.launchNewSession(sess, tool, tool.Command); err != nil {
+		m.errBar.text = err.Error()
+		return m, nil
+	}
+	// Starting sits outside the attention set, so the row the key just made
+	// would be filtered off screen.
+	m.statusFilter = statusFilterAll
+	m.errBar.text = ""
+	return m.landInNewSession(sess.ID)
+}
+
+// rowDir is the directory the cursor points at: a live session's pane
+// directory, which follows wherever its shell or agent moved, falling back
+// to the directory it was created in; for a group, its default path. Both
+// paths are checked, so a directory removed under a running session cannot
+// hand back somewhere that is no longer there.
+func (m *Model) rowDir() (string, bool) {
+	entry, ok := m.selectedRow()
+	if !ok {
+		return "", false
+	}
+	if entry.isGroup {
+		return resolveExistingDir(m.groupPaths[entry.group], m.groupDefaultDir(entry.group))
+	}
+	if path, err := m.tmux.PaneCurrentPath(entry.sess.ID); err == nil && isDir(path) {
+		return path, true
+	}
+	return entry.sess.Cwd, isDir(entry.sess.Cwd)
+}

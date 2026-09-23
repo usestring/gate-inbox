@@ -23,12 +23,12 @@ what the repository and its binaries contain that is licensed by someone else.
 
 | Asset | Version | Licence | Source | Notes |
 |---|---|---|---|---|
-| `docs/brand/mark.svg` | this repository | Apache-2.0; glyph outlines from IBM Plex Mono, OFL-1.1 | this repository | The `gi` tile, redrawn from the upstream project's design (see `NOTICE`). |
-| `docs/brand/wordmark-light.svg` | this repository | as above | this repository | The `gate-inbox` wordmark, outlined IBM Plex Mono SemiBold, redrawn from the upstream design. |
+| `docs/brand/mark.svg` | this repository | Apache-2.0; glyph outlines from JetBrains Mono, OFL-1.1 | this repository | The `❯` prompt mark. |
+| `docs/brand/wordmark-light.svg` | this repository | as above | this repository | The `❯ gate/inbox` wordmark, outlined JetBrains Mono ExtraBold. |
 | `docs/brand/wordmark-dark.svg` | this repository | as above | this repository | As above, dark variant. |
 | `docs/brand/mark-512.png` | this repository | as above | this repository | 512×512 raster of `mark.svg`. |
-| `docs/brand/README.md` | this repository | Apache-2.0 | this repository | Describes the marks and credits the upstream design. |
-| IBM Plex Mono (glyph outlines only) | Plex | OFL-1.1 | https://github.com/IBM/plex | No font file is in the repository or embedded in a binary: the brand SVGs/PNG carry glyphs converted to paths. OFL-1.1 treats documents produced with the font as outside its scope; its text is shipped anyway as `LICENSES/OFL-1.1-IBM-Plex.txt` while the derived marks remain. "Plex" is a Reserved Font Name, so no modified font may carry that name. |
+| `docs/brand/README.md` | this repository | Apache-2.0 | this repository | Describes the marks. |
+| JetBrains Mono (glyph outlines only) | 2.211 | OFL-1.1 | https://github.com/JetBrains/JetBrainsMono | No font file is in the repository or embedded in a binary: the brand SVGs/PNG carry glyphs converted to paths. OFL-1.1 treats documents produced with the font as outside its scope; its text is shipped anyway as `LICENSES/OFL-1.1-JetBrains-Mono.txt` while the derived marks remain. The font declares no Reserved Font Name. |
 | Fonts | — | — | — | None: no `.ttf`/`.otf`/`.woff*` file, no `go:embed`, and no font reference in the worker page or the VHS tapes (`tools/capture` sets only `FontSize`). |
 | Other images and icons | — | — | — | None: the four `docs/brand` files are the only images in the tree. `docs/usage.md` still links upstream's `demo-*.gif` and `screenshot-*.png`, which were not imported; the links are dead, and nothing is shipped. |
 | `internal/*/testdata/*.txt`, `internal/ui/testdata/*` | this repo | Apache-2.0 | this repo | Terminal captures of Claude Code, Codex and opencode screens, used as parser goldens. Short functional UI captures; the third-party text in them is interface chrome. 18 files still contain operator-specific paths or internal PR links. |

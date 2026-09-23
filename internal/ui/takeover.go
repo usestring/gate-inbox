@@ -41,6 +41,12 @@ type takeoverState struct {
 	pending map[string]bool
 }
 
+type adoptScanResult struct {
+	candidates int
+	taken      int
+	rejected   string
+}
+
 // adoptedCandidates is every live adopted agent pane on the board, idle
 // rows first, then in the order the list shows them.
 func (m *Model) adoptedCandidates() []store.Session {
@@ -89,12 +95,25 @@ func (m *Model) maybeOpenTakeoverPrompt() {
 func (m *Model) takeOverAdopted() (tea.Model, tea.Cmd) {
 	candidates := m.adoptedCandidates()
 	if len(candidates) == 0 {
-		m.errBar.text = "no adopted panes to take over: every session on the board is already the manager's"
+		m.errBar.text = takeoverNoCanidatesMessage(m.lastAdoptScan)
 		return m, nil
 	}
 	m.takeover.asked = true
 	m.openTakeoverDialog(candidates)
 	return m, nil
+}
+
+// takeoverNoCanidatesMessage produces a diagnostic message explaining why no candidates
+// were found: either no adoptable tools are configured, candidates were rejected, or
+// nothing was discovered yet.
+func takeoverNoCanidatesMessage(scan adoptScanResult) string {
+	if scan.candidates == 0 {
+		return "no adopted panes to take over: no agents found (run a scan, or check if agents are on a different tmux socket; see docs/configuration.md for adopt_sockets)"
+	}
+	if scan.taken == 0 && scan.rejected != "" {
+		return fmt.Sprintf("no adopted panes to take over: %d found but rejected — %s", scan.candidates, scan.rejected)
+	}
+	return "no adopted panes to take over: every session on the board is already the manager's"
 }
 
 func (m *Model) openTakeoverDialog(candidates []store.Session) {

@@ -221,3 +221,72 @@ func TestTakeoverKeyWithNothingAdoptedSaysSo(t *testing.T) {
 		t.Fatalf("mode = %v status = %q", m.mode, m.errBar.text)
 	}
 }
+
+// End-to-end: a real foreign pane discovered by adoptScan lands on the board
+// as an adopted row, and pressing O then takes it over as a managed session.
+// This is the regression guard that ensures scan → identify → board → O wiring
+// stays intact.
+func TestAdoptionE2E(t *testing.T) {
+	m := buildModel(t)
+
+	// Spin up a real foreign tmux pane running a tool that matches both
+	// adoption signals: the binary name and the prompt marker.
+	socket, pane := uiForeignServer(t, "claude")
+	if socket == "" || pane == "" {
+		t.Skip("uiForeignServer could not create a foreign pane")
+	}
+
+	// First scan without the pane in the store: nothing to know about yet.
+	cmd := m.adoptScan()
+	m.applyCmd(t, cmd)
+
+	// The scan runs and the pane should now be on the board as adopted.
+	// Find it in m.sessions.
+	var adopted *store.Session
+	for i := range m.sessions {
+		if m.sessions[i].TmuxSocket == socket && m.sessions[i].TmuxPaneID == pane {
+			adopted = &m.sessions[i]
+			break
+		}
+	}
+	if adopted == nil {
+		t.Fatalf("adoptScan did not land the foreign pane on the board. Session list: %v", m.sessions)
+	}
+	adoptedID := adopted.ID
+	if adopted.TmuxSocket != socket || adopted.TmuxPaneID != pane {
+		t.Fatalf("adopted row: socket %q pane %q, want %q %q", adopted.TmuxSocket, adopted.TmuxPaneID, socket, pane)
+	}
+
+	// Set the pane to idle so it is immediately takeover-ready.
+	setStatus(t, m, adoptedID, status.Idle)
+
+	// Press O: the dialog should open offering to take over the one idle pane.
+	pressKey(t, m, key("O"))
+	if m.mode != modeConfirmDelete || m.confirm.action != actionTakeover {
+		t.Fatalf("O did not open the takeover dialog: mode %v action %q err %q", m.mode, m.confirm.action, m.errBar.text)
+	}
+
+	// Confirm with y: the pane should be ended and relaunched as managed.
+	pressKey(t, m, key("y"))
+
+	// Verify the foreign pane is gone.
+	if foreignPaneAlive(t, socket, pane) {
+		t.Fatal("the adopted pane is still up after takeover confirmation")
+	}
+
+	// Verify the row is no longer marked adopted.
+	got, err := m.store.Get(adoptedID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.TmuxSocket != "" || got.TmuxPaneID != "" {
+		t.Fatalf("row still adopted: socket %q pane %q", got.TmuxSocket, got.TmuxPaneID)
+	}
+
+	// Verify a managed session came up on that id.
+	if !m.tmux.Exists(adoptedID) {
+		t.Fatal("no managed gi_ session was created for the adopted pane")
+	}
+
+	// The whole chain worked: scan found it, board showed it, O took it over.
+}

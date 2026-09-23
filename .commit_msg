@@ -1,0 +1,34 @@
+Make pane-adoption failures diagnosable, add end-to-end test
+
+The adoption feature (`O` key to take over foreign tmux panes) has several
+silent failure paths that make "I pressed O and nothing happened" indistinguishable
+from "it's working correctly and there's genuinely nothing to adopt":
+
+1. No adoptable tools configured → scan bails with no UI signal.
+2. Scan runs, finds zero candidates → no UI feedback short of reading logs.
+3. Rejected candidates (one signal only, not confident) → silent drop.
+4. `adopt_sockets` config option is undocumented, so panes on non-default
+   tmux sockets are invisible with no hint why.
+
+Fixes:
+
+- Enrich adoptedMsg to carry diagnostic data (candidates seen, rejected summary).
+- Store the last scan result on the Model; use it to build a diagnostic message
+  in takeOverAdopted() explaining WHY no candidates are available instead of
+  a generic message regardless of cause.
+- Document adopt_sockets in configuration.md top-level options.
+- Add a note in usage.md adoption section about socket scanning.
+- Add TestAdoptionE2E: full end-to-end test chain (real foreign pane → scan
+  discovers it → board shows it → O key → confirm → taken over). This closes
+  a regression gap where individual stages are tested in isolation but the
+  wiring between them was not, which is exactly the kind of breakage that would
+  produce "O doesn't work" silently.
+
+Messages now distinguish:
+- "no agents found (run a scan, or check if agents are on a different
+  tmux socket; see docs/configuration.md for adopt_sockets)" → no candidates
+- "no adopted panes to take over: 3 found but rejected — not confident=3" →
+  candidates were rejected due to missing signals
+- The original generic message only when all candidates are actually adopted.
+
+Co-Authored-By: Claude Haiku 4.5 <noreply@anthropic.com>

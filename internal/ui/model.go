@@ -490,6 +490,7 @@ type Model struct {
 	welcome     welcomeState
 	tmuxHint    tmuxHintState
 	takeover    takeoverState
+	lastAdoptScan adoptScanResult
 	// restoreArmed is set by Init, so only a real startup can raise the
 	// restore offer; a Model built directly never asks.
 	restoreArmed bool
@@ -1901,6 +1902,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.adoptScan(), m.adoptTick())
 
 	case adoptedMsg:
+		m.lastAdoptScan = adoptScanResult{candidates: msg.candidates, taken: msg.taken, rejected: msg.rejected}
 		if msg.err != nil {
 			m.errBar.text = "adopting a pane: " + msg.err.Error()
 		}

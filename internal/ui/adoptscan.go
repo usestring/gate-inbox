@@ -35,8 +35,10 @@ type adoptTickMsg struct{}
 
 // adoptedMsg carries what a scan took, so the next frame shows it.
 type adoptedMsg struct {
-	taken int
-	err   error
+	taken      int
+	candidates int
+	rejected   string
+	err        error
 }
 
 func (m *Model) adoptTick() tea.Cmd {
@@ -103,7 +105,7 @@ func (m *Model) adoptScan() tea.Cmd {
 		logging.Info("adopt scan",
 			"sockets", sockets, "candidates", len(candidates), "taken", taken,
 			"rejected", rejectionSummary(run.rejected), "took", time.Since(started).Round(time.Millisecond).String())
-		return adoptedMsg{taken: taken, err: err}
+		return adoptedMsg{taken: taken, candidates: len(candidates), rejected: rejectionSummary(run.rejected), err: err}
 	}
 }
 

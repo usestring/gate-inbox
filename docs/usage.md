@@ -180,6 +180,8 @@ It asks to confirm first, and it works on a live session too: the running agent 
 
 An adopted pane is somebody else's window with an agent in it, and the board refuses to do to it what it does to its own sessions. `O` asks to take every adopted pane over: an idle one is ended in its own window and relaunched under the same row as a `gi_*` session on the conversation it was holding, read off the agent's process; a busy one is left alone and taken on the first poll pass that finds it idle. The dialog says how many go now and how many follow. The same offer is raised once when the manager starts on a board that holds adopted panes.
 
+Adoption scans tmux's default socket plus any you configure in `adopt_sockets` (see [Configuration](configuration.md#top-level-options)). A pane on a named tmux socket (`tmux -L mysock`) is invisible to the scan unless you list it there.
+
 A pane whose conversation cannot be read is left where it is and the status line says so, because relaunching a tool that resumes by id on its continue command would pick the directory's most recent conversation instead.
 
 ## Forking sessions

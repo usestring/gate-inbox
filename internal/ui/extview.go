@@ -40,6 +40,27 @@ type ExtensionView interface {
 	Key(ViewKey) bool
 }
 
+// ViewCloser is an ExtensionView told when the board closes it.
+type ViewCloser interface {
+	Closed(CloseReason)
+}
+
+// CloseReason is why the board closed a view.
+type CloseReason string
+
+const (
+	// CloseDismissed is the screen's close action.
+	CloseDismissed CloseReason = "dismissed"
+	// CloseSubmitted is the view answering true to a submit.
+	CloseSubmitted CloseReason = "submitted"
+	// CloseReturned is the view answering true to any other press.
+	CloseReturned CloseReason = "returned"
+	// CloseHandle is the view's handle closing it.
+	CloseHandle CloseReason = "handle"
+	// CloseReplaced is another view opened over it.
+	CloseReplaced CloseReason = "replaced"
+)
+
 // Span is a run of text in one tone.
 type Span struct {
 	Text string
@@ -127,7 +148,7 @@ func (m *Model) updateExtensionView(msg tea.Msg) bool {
 			return true
 		}
 		if msg.close {
-			m.closeExtensionView()
+			m.closeExtensionView(CloseHandle)
 		}
 	default:
 		return false
@@ -147,6 +168,7 @@ func (m *Model) openExtensionView(msg extensionOpenMsg) {
 		logging.Info("extension view not opened: another screen is up", "extension", msg.owner, "screen", string(msg.screen))
 		return
 	}
+	replaced := m.extView
 	m.extView = openView{id: msg.id, owner: msg.owner, screen: msg.screen, view: msg.view}
 	m.mode = modeExtensionView
 	func() {
@@ -157,18 +179,47 @@ func (m *Model) openExtensionView(msg extensionOpenMsg) {
 		}()
 		m.syncViewFields()
 	}()
+	if replaced.view != nil {
+		m.tellClosed(replaced, CloseReplaced)
+	}
 }
 
-func (m *Model) closeExtensionView() {
+// closeExtensionView puts the list back and then tells the view why it was
+// closed, so a view that opens another from Closed opens it over the list.
+func (m *Model) closeExtensionView(reason CloseReason) {
+	closed := m.extView
+	m.dropExtensionView()
+	m.tellClosed(closed, reason)
+}
+
+func (m *Model) dropExtensionView() {
 	m.extView = openView{}
 	m.mode = modeList
 }
 
-// failView closes a view that panicked, and says so.
+// tellClosed tells a view that implements ViewCloser it was closed. A Closed
+// that panics is reported like a view that panics; the board is already off
+// the view, so there is nothing more to close.
+func (m *Model) tellClosed(closed openView, reason CloseReason) {
+	closer, ok := closed.view.(ViewCloser)
+	if !ok {
+		return
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			logging.Warn("extension view panicked while closing", "extension", closed.owner, "panic", fmt.Sprint(recovered))
+			m.errBar.text = fmt.Sprintf("%s: its view failed as it closed: %v", closed.owner, recovered)
+		}
+	}()
+	closer.Closed(reason)
+}
+
+// failView closes a view that panicked, and says so. The view is not told
+// it was closed: it is broken.
 func (m *Model) failView(recovered any) {
 	owner := m.extView.owner
 	logging.Warn("extension view panicked", "extension", owner, "panic", fmt.Sprint(recovered))
-	m.closeExtensionView()
+	m.dropExtensionView()
 	m.errBar.text = fmt.Sprintf("%s: its view failed and was closed: %v", owner, recovered)
 }
 
@@ -178,7 +229,7 @@ func (m *Model) handleExtensionViewKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 	}
 	action, bound := m.action(m.extView.screen, msg)
 	if bound && action == ActionClose {
-		m.closeExtensionView()
+		m.closeExtensionView(CloseDismissed)
 		return m, nil
 	}
 	if m.extView.fields != nil {
@@ -210,7 +261,11 @@ func (m *Model) tellView(key ViewKey) {
 		return m.extView.view.Key(key)
 	}()
 	if closed && m.mode == modeExtensionView {
-		m.closeExtensionView()
+		reason := CloseReturned
+		if key.Action == string(ActionSubmit) {
+			reason = CloseSubmitted
+		}
+		m.closeExtensionView(reason)
 	}
 }
 

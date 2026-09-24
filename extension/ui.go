@@ -137,6 +137,36 @@ type ViewKey struct {
 // choice either way.
 const ActionSubmit = "submit"
 
+// Closer is a View told when the board closes it, so an extension can put
+// back the view it was opened from: a child view that answers esc by
+// reopening its parent.
+//
+// Closed is called once, on the board's event loop, after the board is back
+// on its list, so a view opened from Closed is opened over the list. It is
+// not called for a view that panicked, nor when the board exits with a view
+// up. A Closed that panics is reported like a view that panics.
+type Closer interface {
+	Closed(reason CloseReason)
+}
+
+// CloseReason is why the board closed a view.
+type CloseReason string
+
+const (
+	// CloseDismissed is the operator pressing the screen's close action.
+	CloseDismissed CloseReason = "dismissed"
+	// CloseSubmitted is the view answering true to ActionSubmit.
+	CloseSubmitted CloseReason = "submitted"
+	// CloseReturned is the view answering true to any other press.
+	CloseReturned CloseReason = "returned"
+	// CloseHandle is ViewHandle.Close.
+	CloseHandle CloseReason = "handle"
+	// CloseReplaced is another view opened while this one was up. The new
+	// view is already on screen when Closed is called, so a view opened from
+	// Closed would replace it in turn.
+	CloseReplaced CloseReason = "replaced"
+)
+
 // Form is a View with fields the operator types into: the board draws them
 // under the view's own lines with its own inputs, and owns the cursor,
 // paste, line breaks in a multi-line field, and focus, which tab and

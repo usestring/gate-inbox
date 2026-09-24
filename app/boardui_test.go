@@ -19,8 +19,9 @@ import (
 // a module importing app and extension only puts a badge on the rows it is
 // told about, a key of its own on the list answers with the row it was
 // pressed on, the view that key opens is drawn, told the keys of its own
-// screen, and closed by the board on esc, and a form's field is typed into
-// on the board and handed back on submit.
+// screen, and closed by the board on esc, a child view it opens is told it
+// was dismissed and puts the parent back, and a form's field is typed into
+// on the board and handed back on submit, which the form is told closed it.
 func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	script, err := exec.LookPath("script")
 	if err != nil {
@@ -101,14 +102,27 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	keys.Write([]byte("n"))
 	viewKeys := filepath.Join(data, "viewkeys.txt")
 	waitForFile(t, viewKeys, "peek_note n\n", exited, &strings.Builder{})
-	// esc is the board's: the view is closed and never told of it, and a
-	// later n lands on the list, where nothing is bound to it.
+
+	// The view opens a child over itself. esc dismisses the child, which is
+	// told so and puts its parent back: the next n reaches the parent.
+	keys.Write([]byte("d"))
+	waitForOutput(t, out, "child of ca11e400", exited, func() {})
+	keys.Write([]byte("\x1b"))
+	closed := filepath.Join(data, "closed.txt")
+	waitForFile(t, closed, "child dismissed\n", exited, &strings.Builder{})
+	time.Sleep(300 * time.Millisecond)
+	keys.Write([]byte("n"))
+	pressedOnParent := "peek_note n\npeek_child d\npeek_note n\n"
+	waitForFile(t, viewKeys, pressedOnParent, exited, &strings.Builder{})
+
+	// esc is the board's: the view is closed and never told of the key, and
+	// a later n lands on the list, where nothing is bound to it.
 	keys.Write([]byte("\x1b"))
 	time.Sleep(300 * time.Millisecond)
 	keys.Write([]byte("n"))
 	time.Sleep(time.Second)
-	if body, _ := os.ReadFile(viewKeys); string(body) != "peek_note n\n" {
-		t.Fatalf("viewkeys.txt = %q, want the one press before esc closed the view", body)
+	if body, _ := os.ReadFile(viewKeys); string(body) != pressedOnParent {
+		t.Fatalf("viewkeys.txt = %q, want only the presses before esc closed the view", body)
 	}
 
 	// A form's field is the board's to type into: the letters land there
@@ -122,6 +136,8 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	keys.Write([]byte("\r"))
 	waitForFile(t, filepath.Join(data, "submitted.txt"), "note from board\n", exited, &strings.Builder{})
+	// The submit closed the form, which was told why.
+	waitForFile(t, closed, "child dismissed\ncompose submitted\n", exited, &strings.Builder{})
 }
 
 func skipWelcome(t *testing.T, path string) {

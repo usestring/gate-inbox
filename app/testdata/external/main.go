@@ -212,7 +212,7 @@ func (n *noop) UI(host extension.UIHost) (extension.UI, error) {
 			if err := os.WriteFile(filepath.Join(dir, "pressed.txt"), []byte(line), 0o600); err != nil {
 				return err
 			}
-			host.Open("peek", &peekView{session: press.SessionID, dir: dir})
+			host.Open("peek", &peekView{session: press.SessionID, dir: dir, host: host})
 			return nil
 		},
 	}, {
@@ -220,6 +220,11 @@ func (n *noop) UI(host extension.UIHost) (extension.UI, error) {
 		Action: "peek_note",
 		Keys:   []string{"n"},
 		Label:  "note the key",
+	}, {
+		Screen: "peek",
+		Action: "peek_child",
+		Keys:   []string{"d"},
+		Label:  "open a child view",
 	}, {
 		Action: "noop_compose",
 		Keys:   []string{"U"},
@@ -263,10 +268,15 @@ func (f *composeForm) Key(key extension.ViewKey) bool {
 	return true
 }
 
-// peekView shows the row it was opened on, and records every key it is
-// told about.
+func (f *composeForm) Closed(reason extension.CloseReason) {
+	recordClosed(f.dir, "compose", reason)
+}
+
+// peekView shows the row it was opened on, records every key it is told
+// about, and opens a child view on peek_child.
 type peekView struct {
 	session, dir string
+	host         extension.UIHost
 }
 
 func (v *peekView) Title() string { return "noop peek" }
@@ -284,7 +294,38 @@ func (v *peekView) Key(key extension.ViewKey) bool {
 		fmt.Fprintf(f, "%s %s\n", key.Action, key.Key)
 		f.Close()
 	}
+	if key.Action == "peek_child" {
+		v.host.Open("peek", &childView{parent: v})
+	}
 	return false
+}
+
+// childView is opened from a peekView, and puts it back when the operator
+// dismisses it.
+type childView struct{ parent *peekView }
+
+func (c *childView) Title() string { return "noop child" }
+
+func (c *childView) Render(width, height int) []extension.Line {
+	return []extension.Line{{{Text: "child of " + c.parent.session}}}
+}
+
+func (c *childView) Key(extension.ViewKey) bool { return false }
+
+func (c *childView) Closed(reason extension.CloseReason) {
+	recordClosed(c.parent.dir, "child", reason)
+	if reason == extension.CloseDismissed {
+		c.parent.host.Open("peek", c.parent)
+	}
+}
+
+// recordClosed appends why a view was closed to closed.txt.
+func recordClosed(dir, view string, reason extension.CloseReason) {
+	f, err := os.OpenFile(filepath.Join(dir, "closed.txt"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err == nil {
+		fmt.Fprintf(f, "%s %s\n", view, reason)
+		f.Close()
+	}
 }
 
 func text(s string) *mcp.CallToolResult {

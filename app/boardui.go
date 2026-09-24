@@ -118,6 +118,14 @@ func (v uiView) Key(key ui.ViewKey) bool {
 		Field: key.Field, Values: key.Values})
 }
 
+// Closed tells an extension's view that implements Closer why the board
+// closed it. The board's reasons are spelled as the extension package's.
+func (v uiView) Closed(reason ui.CloseReason) {
+	if closer, ok := v.view.(extension.Closer); ok {
+		closer.Closed(extension.CloseReason(reason))
+	}
+}
+
 func uiTone(tone extension.Tone) ui.Tone {
 	switch tone {
 	case extension.ToneAccent:

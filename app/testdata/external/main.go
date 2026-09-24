@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/app"
@@ -194,6 +195,25 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			return
 		}
 		record("launched.txt", fmt.Sprintf("%s %s %s", helper.ID, helper.Role, helper.ParentID))
+		// Message the helper, then end it, once its pane has started: the
+		// board's own send and kill, with no session to act as.
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			if _, err := os.Stat(filepath.Join(dir, "env-"+helper.ID+".txt")); err == nil {
+				break
+			}
+		}
+		sent, err := board.Send(ctx, helper.ID, extension.Message{Text: "carry on", Subject: "note"})
+		if err != nil {
+			record("sent.txt", "error: "+err.Error())
+			return
+		}
+		record("sent.txt", fmt.Sprintf("%s queued %d", helper.ID, sent.QueuePosition))
+		killed, err := board.Kill(ctx, helper.ID)
+		if err != nil {
+			record("killed.txt", "error: "+err.Error())
+			return
+		}
+		record("killed.txt", fmt.Sprintf("%s %s %v", killed.ID, killed.Status, killed.Running))
 	}()
 	return func() { record("stopped.txt", fmt.Sprint(ctx.Err() != nil)) }, nil
 }

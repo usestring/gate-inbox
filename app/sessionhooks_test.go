@@ -18,6 +18,7 @@ const envEchoTool = `
 [tools.envecho]
 command = "sh -c 'printf %s \"$NOOP_LAUNCH\" > \"$NOOP_OUT\"; sleep 30' --"
 default_status = "idle"
+activity_cutoff = "(?m)^\\$ "
 `
 
 // An extension compiled outside this module has a say in the sessions a

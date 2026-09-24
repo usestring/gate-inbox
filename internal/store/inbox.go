@@ -27,6 +27,21 @@ import (
 // It is not a session id and cannot collide with one: ids are hex.
 const HumanSenderID = "human"
 
+// extensionSenderPrefix starts the sender id of a message a board extension
+// queued. Like HumanSenderID it cannot collide with a session id, and it
+// gives each extension a rate and dedupe budget of its own.
+const extensionSenderPrefix = "extension/"
+
+// ExtensionSenderID is the sender id a message from extension id is queued
+// under.
+func ExtensionSenderID(id string) string { return extensionSenderPrefix + id }
+
+// ExtensionSender is the extension a message was queued by, if a board
+// extension queued it.
+func ExtensionSender(senderID string) (string, bool) {
+	return strings.CutPrefix(senderID, extensionSenderPrefix)
+}
+
 // InboxMessage is one agent-to-agent message waiting to be typed into a
 // session's prompt. It rides its own table rather than PendingInputs
 // because a launch prompt and a message need different delivery gates,

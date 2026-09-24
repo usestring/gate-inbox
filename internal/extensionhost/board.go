@@ -113,3 +113,33 @@ func (b *Board) LaunchFor(ctx context.Context, id string, req extension.LaunchRe
 	}
 	return info(created), nil
 }
+
+// SendFor queues a message from the extension with id: it is queued under
+// that extension's sender, so no extension can speak as another.
+func (b *Board) SendFor(ctx context.Context, id, target string, msg extension.Message) (extension.Sent, error) {
+	if err := ctx.Err(); err != nil {
+		return extension.Sent{}, err
+	}
+	sent, err := b.cmds.BoardSend(id, target, msg.Text, msg.Subject, msg.Interrupt)
+	if err != nil {
+		return extension.Sent{}, err
+	}
+	return extension.Sent{
+		MessageID:     sent.MessageID,
+		QueuePosition: sent.QueuePosition,
+		Held:          sent.Held,
+		Superseded:    sent.Superseded,
+	}, nil
+}
+
+// Kill ends an agent session's pane on the board's behalf.
+func (b *Board) Kill(ctx context.Context, id string) (extension.SessionInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return extension.SessionInfo{}, err
+	}
+	killed, err := b.cmds.BoardKill(id)
+	if err != nil {
+		return extension.SessionInfo{}, err
+	}
+	return info(killed), nil
+}

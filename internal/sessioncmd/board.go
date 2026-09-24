@@ -8,6 +8,8 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
+	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
 )
 
 // The board's own reads and answers.
@@ -17,10 +19,11 @@ import (
 // that runs beside the board rather than inside a session -- a watcher or
 // scheduler, a view deciding what to badge -- is no session, and has
 // the reach the operator has from the board: any agent session's pane, and
-// its dialog. Only reads and answers are offered that way. Starting and
-// ending sessions stay a session's acts, so that a spawn always has a parent,
-// except for the helpers a board extension launches for itself: see
-// BoardLaunch.
+// its dialog. Reads and answers are offered that way. Starting and ending
+// sessions stay a session's acts, so that a spawn always has a parent, except
+// for what a board extension does for itself: launching its helpers
+// (BoardLaunch), and messaging and ending the sessions it watches (BoardSend,
+// BoardKill), each held to the checks a session's own tool is held to.
 //
 // An answer from here is still held to the dialog's own rules. A permission
 // prompt or a first-run trust dialog is refused exactly as it is to a
@@ -130,4 +133,49 @@ func (s *Sessions) BoardAnswer(targetID, reply string) (answered AnsweredQuestio
 		return AnsweredQuestion{}, err
 	}
 	return runtime.answer(target, reply, "board", "")
+}
+
+// BoardSend queues message for an agent session on behalf of the board
+// extension extensionID, as Send does for a session: the same size limits,
+// no terminals, nothing archived or not running, and no interrupt without a
+// way to stop the turn. The message is queued under the extension's own
+// sender, so its rate and dedupe budget is its own, and it is delivered
+// fenced as the extension's rather than as a person's or another agent's.
+func (s *Sessions) BoardSend(extensionID, targetID, message, subject string, interrupt bool) (result SendResult, err error) {
+	defer start("sessioncmd.board.send", sessionAttr(targetID)).done(&err)
+	if extensionID == "" {
+		return SendResult{}, errors.New("a board message needs the extension sending it")
+	}
+	message, subject, err = checkMessage(message, subject)
+	if err != nil {
+		return SendResult{}, err
+	}
+	runtime, err := s.open()
+	if err != nil {
+		return SendResult{}, err
+	}
+	defer runtime.store.Close()
+	from := sender{id: store.ExtensionSenderID(extensionID), name: extensionID}
+	return runtime.enqueue(from, targetID, message, subject, interrupt)
+}
+
+// BoardKill ends an agent session's pane and leaves its row dead, as Kill
+// does for a session. A terminal is refused, as it is to Kill; the board has
+// no self to spare.
+func (s *Sessions) BoardKill(targetID string) (killed Session, err error) {
+	defer start("sessioncmd.board.kill", sessionAttr(targetID)).done(&err)
+	runtime, err := s.open()
+	if err != nil {
+		return Session{}, err
+	}
+	defer runtime.store.Close()
+	target, err := runtime.agent(targetID)
+	if err != nil {
+		return Session{}, err
+	}
+	if err := s.endSession(runtime, target); err != nil {
+		return Session{}, err
+	}
+	target.Status = status.Dead
+	return runtime.sessionInfo(target, false, false), nil
 }

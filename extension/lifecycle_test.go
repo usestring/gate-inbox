@@ -63,6 +63,13 @@ func (v fakeView) Launch(context.Context, extension.LaunchRequest) (extension.Se
 	return extension.SessionInfo{}, errors.New("no launches here")
 }
 
+func (v fakeView) Send(context.Context, string, extension.Message) (extension.Sent, error) {
+	return extension.Sent{}, errors.New("no sends here")
+}
+func (v fakeView) Kill(context.Context, string) (extension.SessionInfo, error) {
+	return extension.SessionInfo{}, errors.New("no kills here")
+}
+
 func (b *fakeBoard) hostFor(id string) (extension.BoardHost, func()) {
 	return fakeView{board: b, id: id}, func() {
 		*b.log = append(*b.log, "release "+id)

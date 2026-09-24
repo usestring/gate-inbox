@@ -51,6 +51,44 @@ type BoardHost interface {
 	// Spawn policies are asked, with SpawnByExtension, and launch
 	// contributors add their environment, as for any other spawn.
 	Launch(ctx context.Context, req LaunchRequest) (SessionInfo, error)
+	// Send queues a message for an agent session, delivered the way
+	// send_session delivers one: at the session's next prompt, or first
+	// stopping its turn when Interrupt is set. It is held to send_session's
+	// checks -- no terminal, nothing archived or not running, no interrupt
+	// for a tool with no way to stop a turn -- and arrives fenced as this
+	// extension's, never as a person's words or another session's.
+	Send(ctx context.Context, id string, msg Message) (Sent, error)
+	// Kill ends an agent session's pane and leaves its row dead, as
+	// kill_session does: the last screen is kept, and a revive can resume
+	// the conversation. A terminal is refused.
+	Kill(ctx context.Context, id string) (SessionInfo, error)
+}
+
+// Message is what BoardHost.Send queues.
+type Message struct {
+	Text string
+	// Subject labels what the message is about: a later message from this
+	// extension to the same session on the same subject replaces this one
+	// while it is still queued.
+	Subject string
+	// Interrupt stops the session's running turn before the message is
+	// typed in, so it is the next turn rather than read after the step in
+	// hand.
+	Interrupt bool
+}
+
+// Sent is what one BoardHost.Send queued.
+type Sent struct {
+	MessageID int64
+	// QueuePosition counts the messages waiting for the session, this one
+	// included.
+	QueuePosition int
+	// Held says why the message is waiting rather than typed straight in,
+	// or is empty when nothing holds it.
+	Held string
+	// Superseded counts this extension's earlier queued messages on the same
+	// subject that this one replaced.
+	Superseded int
 }
 
 // EventKind classifies a transition by the status it arrived at.

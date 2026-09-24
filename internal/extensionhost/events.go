@@ -122,6 +122,14 @@ func (v *boardView) Launch(ctx context.Context, req extension.LaunchRequest) (ex
 	return v.events.board.LaunchFor(ctx, v.owner, req)
 }
 
+func (v *boardView) Send(ctx context.Context, id string, msg extension.Message) (extension.Sent, error) {
+	return v.events.board.SendFor(ctx, v.owner, id, msg)
+}
+
+func (v *boardView) Kill(ctx context.Context, id string) (extension.SessionInfo, error) {
+	return v.events.board.Kill(ctx, id)
+}
+
 func (v *boardView) OnPass(fn func(extension.Pass)) func() {
 	sub := newSubscription(v.owner, fn, v.events.report, true)
 	return v.add(sub, func() {

@@ -336,6 +336,9 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	if got := waitForFile(t, filepath.Join(data, "env-"+helper+".txt"), "", exited, &out); got != "spawn" {
 		t.Fatalf("the helper's pane saw NOOP_LAUNCH=%q, want the extension's spawn", got)
 	}
+	// The extension messages its helper and then ends it, through the board.
+	waitForFile(t, filepath.Join(data, "sent.txt"), helper+" queued 1\n", exited, &out)
+	waitForFile(t, filepath.Join(data, "killed.txt"), helper+" dead false\n", exited, &out)
 
 	var pid int
 	if _, err := fmt.Sscan(started, &pid); err != nil {

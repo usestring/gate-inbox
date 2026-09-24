@@ -1032,3 +1032,28 @@ func TestInboxEnvelopeDoesNotFenceTheOperatorsOwnWords(t *testing.T) {
 		t.Errorf("a human message carried an escape sequence into the pane: %q", got)
 	}
 }
+
+// A board extension's message is fenced, since it is not the user speaking,
+// but it names no session to reply to: an extension has none.
+func TestInboxEnvelopeFencesAnExtensionWithNoReplyAddress(t *testing.T) {
+	msg := store.InboxMessage{
+		SessionID:  "a1b2c3d4",
+		SenderID:   store.ExtensionSenderID("ext1"),
+		SenderName: "ext1",
+		Body:       "narrow the search to the second region",
+		SentAt:     time.Now(),
+	}
+	got := inboxEnvelope(msg, "claude", true, messageContext{})
+	if !strings.Contains(got, `"ext1" extension`) || !strings.Contains(got, "not from the user") {
+		t.Fatalf("envelope = %q, want it named as the extension's and not the user's", got)
+	}
+	fence := strings.Count(got, "----EXTENSION-MESSAGE-ext1-")
+	if fence != 3 || !strings.Contains(got, "\n"+msg.Body+"\n") {
+		t.Fatalf("envelope = %q, want the body between two fences named in the header", got)
+	}
+	for _, unwanted := range []string{"CROSS-SESSION-MESSAGE", "Reply with", "session_id"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("an extension's message carries %q", unwanted)
+		}
+	}
+}

@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/usestring/gate-inbox/internal/dialog"
+	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
 )
 
 // The pane a session holding an AskUserQuestion shows to the board.
@@ -95,5 +97,86 @@ func TestBoardListHasNoSelf(t *testing.T) {
 	got, err := h.sessions.BoardGet(h.caller.ID)
 	if err != nil || got.Self {
 		t.Fatalf("BoardGet = %+v, %v; want the row, not marked as the board's own", got, err)
+	}
+}
+
+// A board extension's message is queued under the extension, with no
+// session to mark read, and held to the checks send_session is.
+func TestBoardSendQueuesUnderTheExtension(t *testing.T) {
+	h := newSessionHarness(t)
+	child := childShowing(t, h, "", "child106", "orphan", "all done\n")
+	sent, err := h.sessions.BoardSend("ext1", child.ID, "  carry on with step two  ", "step", false)
+	if err != nil {
+		t.Fatalf("BoardSend: %v", err)
+	}
+	if sent.MessageID == 0 || sent.QueuePosition != 1 {
+		t.Fatalf("sent = %+v, want one queued message", sent)
+	}
+	heads, err := h.store.HeadMessages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := heads[child.ID]
+	if head.SenderID != store.ExtensionSenderID("ext1") || head.SenderName != "ext1" || head.Body != "carry on with step two" {
+		t.Fatalf("queued = %+v, want the trimmed text under the extension's sender", head)
+	}
+	again, err := h.sessions.BoardSend("ext1", child.ID, "carry on with step three", "step", false)
+	if err != nil || again.Superseded != 1 {
+		t.Fatalf("second send on the subject = %+v, %v; want it to replace the first", again, err)
+	}
+}
+
+func TestBoardSendKeepsSendSessionsChecks(t *testing.T) {
+	h := newSessionHarness(t)
+	child := childShowing(t, h, "", "child107", "orphan", "all done\n")
+	cases := map[string]func() error{
+		"message is empty": func() error {
+			_, err := h.sessions.BoardSend("ext1", child.ID, " ", "", false)
+			return err
+		},
+		"byte limit": func() error {
+			_, err := h.sessions.BoardSend("ext1", child.ID, strings.Repeat("x", maxMessageBytes+1), "", false)
+			return err
+		},
+		"needs the extension": func() error {
+			_, err := h.sessions.BoardSend("", child.ID, "hello", "", false)
+			return err
+		},
+		"does not exist": func() error {
+			_, err := h.sessions.BoardSend("ext1", "feedf00d", "hello", "", false)
+			return err
+		},
+	}
+	for want, send := range cases {
+		if err := send(); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want %q", err, want)
+		}
+	}
+	if _, err := h.sessions.BoardKill(child.ID); err != nil {
+		t.Fatalf("BoardKill: %v", err)
+	}
+	if _, err := h.sessions.BoardSend("ext1", child.ID, "hello", "", false); err == nil || !strings.Contains(err.Error(), "not running") {
+		t.Fatalf("send to a killed session = %v, want it refused as not running", err)
+	}
+}
+
+// The board kills a session nobody lets it own, the way the operator can;
+// the row stays, dead, with its last screen.
+func TestBoardKillEndsAnySessionAndKeepsItsRow(t *testing.T) {
+	h := newSessionHarness(t)
+	child := childShowing(t, h, "", "child108", "orphan", "last words\n")
+	killed, err := h.sessions.BoardKill(child.ID)
+	if err != nil {
+		t.Fatalf("BoardKill: %v", err)
+	}
+	if killed.Status != status.Dead || killed.Running {
+		t.Fatalf("killed = %+v, want a dead row", killed)
+	}
+	if h.driver.Exists(child.ID) {
+		t.Fatal("the pane outlived the kill")
+	}
+	stored, err := h.store.Get(child.ID)
+	if err != nil || stored.Status != status.Dead {
+		t.Fatalf("stored = %+v, %v; want the row kept, dead", stored, err)
 	}
 }

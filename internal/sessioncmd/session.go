@@ -687,16 +687,9 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 			tracing.Attr{Key: "message.bytes", Value: len(message)},
 			tracing.Attr{Key: "as_human", Value: asHuman})
 	}()
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return SendResult{}, errors.New("message is empty")
-	}
-	if len(message) > maxMessageBytes {
-		return SendResult{}, fmt.Errorf("message is %d bytes, over the %d byte limit; shorten it to the instruction and point the agent at a file or a task for the detail", len(message), maxMessageBytes)
-	}
-	subject = strings.TrimSpace(subject)
-	if len(subject) > maxSubjectBytes {
-		return SendResult{}, fmt.Errorf("subject is %d bytes, over the %d byte limit; it is a label for what the message is about, not the message", len(subject), maxSubjectBytes)
+	message, subject, err = checkMessage(message, subject)
+	if err != nil {
+		return SendResult{}, err
 	}
 	runtime, err := s.open()
 	if err != nil {
@@ -709,31 +702,62 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 			return SendResult{}, err
 		}
 	}
-	target, err := runtime.agent(targetID)
+	from := sender{callerID: caller.ID, id: caller.ID, name: caller.Name}
+	if asHuman {
+		from.id, from.name = store.HumanSenderID, ""
+	}
+	return runtime.enqueue(from, targetID, message, subject, interrupt)
+}
+
+// checkMessage trims a message and its subject and holds both to the size
+// every sender is held to.
+func checkMessage(message, subject string) (string, string, error) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return "", "", errors.New("message is empty")
+	}
+	if len(message) > maxMessageBytes {
+		return "", "", fmt.Errorf("message is %d bytes, over the %d byte limit; shorten it to the instruction and point the agent at a file or a task for the detail", len(message), maxMessageBytes)
+	}
+	subject = strings.TrimSpace(subject)
+	if len(subject) > maxSubjectBytes {
+		return "", "", fmt.Errorf("subject is %d bytes, over the %d byte limit; it is a label for what the message is about, not the message", len(subject), maxSubjectBytes)
+	}
+	return message, subject, nil
+}
+
+// sender is who a queued message is from. callerID is the session sending,
+// empty for a person at a shell or for the board; id and name are what the
+// message is queued under.
+type sender struct {
+	callerID string
+	id, name string
+}
+
+// enqueue queues message for targetID from from, behind the checks every
+// sender's message passes.
+func (r *runtime) enqueue(from sender, targetID, message, subject string, interrupt bool) (SendResult, error) {
+	target, err := r.agent(targetID)
 	if err != nil {
 		return SendResult{}, err
 	}
-	if caller.ID != "" && target.ID == caller.ID {
+	if from.callerID != "" && target.ID == from.callerID {
 		return SendResult{}, errors.New("a session cannot message itself")
 	}
 	// Refused up front rather than queued: without keys the poller has no way
 	// to stop the turn, and a message that silently arrived late would be the
 	// very thing the sender asked to avoid.
-	if interrupt && len(runtime.cfg.Tools[target.Tool].InterruptKeys) == 0 {
+	if interrupt && len(r.cfg.Tools[target.Tool].InterruptKeys) == 0 {
 		return SendResult{}, fmt.Errorf("session %s runs %s, which has no interrupt_keys configured, so there is no safe way to stop its turn; send without interrupt and it is typed in as soon as the session can read it", target.ID, target.Tool)
 	}
 	now := time.Now()
-	if err := runtime.deliverable(target); err != nil {
+	if err := r.deliverable(target); err != nil {
 		return SendResult{}, err
 	}
-	senderID, senderName := caller.ID, caller.Name
-	if asHuman {
-		senderID, senderName = store.HumanSenderID, ""
-	}
-	id, superseded, err := runtime.store.Enqueue(store.InboxMessage{
+	id, superseded, err := r.store.Enqueue(store.InboxMessage{
 		SessionID:   target.ID,
-		SenderID:    senderID,
-		SenderName:  senderName,
+		SenderID:    from.id,
+		SenderName:  from.name,
 		Body:        message,
 		Fingerprint: fingerprint(message),
 		Subject:     subject,
@@ -746,16 +770,16 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 	// Answering is the acknowledgement: whatever this session was sent by
 	// the agent it is now writing to has plainly been read. A person sending
 	// from their own terminal has no inbox of their own to clear.
-	if caller.ID != "" {
-		if err := runtime.store.MarkRead(caller.ID, target.ID, now); err != nil {
+	if from.callerID != "" {
+		if err := r.store.MarkRead(from.callerID, target.ID, now); err != nil {
 			return SendResult{}, err
 		}
 	}
-	queued, err := runtime.store.QueuedCount(target.ID)
+	queued, err := r.store.QueuedCount(target.ID)
 	if err != nil {
 		return SendResult{}, err
 	}
-	awake, err := runtime.managerAwake(now)
+	awake, err := r.managerAwake(now)
 	if err != nil {
 		return SendResult{}, err
 	}
@@ -764,7 +788,7 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 	// and lands when the recipient is at rest -- so it rides the result
 	// rather than an error, and a capture that will not read leaves the
 	// send reported rather than failed.
-	held, heldErr := runtime.heldReason(target.ID)
+	held, heldErr := r.heldReason(target.ID)
 	if heldErr != nil {
 		logging.Info("could not tell a sender why its message is held",
 			"session", target.ID, "message", id, logging.Err(heldErr))

@@ -15,7 +15,7 @@ import (
 // recorded once however often it is ended.
 func TestAnExtensionsSpanReachesTheBoardsTrace(t *testing.T) {
 	read := tracetest.Capture(t)
-	board := &boardView{owner: "runs"}
+	board := &boardView{owner: "batch"}
 	if !board.Tracer().Enabled() {
 		t.Fatal("the tracer says it is off while the board is tracing")
 	}
@@ -24,11 +24,11 @@ func TestAnExtensionsSpanReachesTheBoardsTrace(t *testing.T) {
 	span.End(failure, slog.Duration("waited", 5*time.Millisecond), slog.Any("ids", []string{"a"}))
 	span.End(nil)
 
-	got := tracetest.One(t, read(), "runs.store.read")
+	got := tracetest.One(t, read(), "batch.store.read")
 	if !got.Failed {
 		t.Error("the span did not record its error")
 	}
-	for key, want := range map[string]any{"extension": "runs", "rows": int64(3), "waited": 5.0, "ids": "[a]"} {
+	for key, want := range map[string]any{"extension": "batch", "rows": int64(3), "waited": 5.0, "ids": "[a]"} {
 		if got.Attr(key) != want {
 			t.Errorf("attr %s = %#v, want %#v (all %v)", key, got.Attr(key), want, got.Attrs)
 		}

@@ -2,6 +2,7 @@ package extension
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -62,7 +63,52 @@ type BoardHost interface {
 	// kill_session does: the last screen is kept, and a revive can resume
 	// the conversation. A terminal is refused.
 	Kill(ctx context.Context, id string) (SessionInfo, error)
+	// Command types one of a tool's own commands, such as "/model fast",
+	// into an agent session's input line and submits it, as the operator
+	// would at its prompt. Unlike Send it is neither queued nor fenced: it
+	// is typed now or refused, with ErrNotAtPrompt while the session is
+	// mid-turn, holding a dialog, scrolled into its history, or has a
+	// person typing or a draft at its prompt, and with ErrNoCommandLine for
+	// a tool whose input line the board cannot find. With Confirm set it
+	// then presses Enter on the confirmation the command draws, if it draws
+	// one; see ToolCommand.
+	Command(ctx context.Context, id string, cmd ToolCommand) error
+	// Unpark brings an agent session's viewport back to the live bottom
+	// when its tool has scrolled it into history, by pressing the tool's
+	// jump-back key, and reports whether it was parked. A parked pane shows
+	// the session's past, so nothing read off it describes now; the key
+	// takes effect by the next read. A tool with no jump-back affordance
+	// configured is never parked.
+	Unpark(ctx context.Context, id string) (parked bool, err error)
 }
+
+// ToolCommand is what BoardHost.Command types.
+type ToolCommand struct {
+	// Text is the command: one line, starting with "/".
+	Text string
+	// Confirm, when set, is how the option a command's own confirmation
+	// offers to go ahead begins, such as "Yes, switch to". For a moment
+	// after typing, the board watches the pane for a menu whose selected
+	// row begins with it and presses Enter on that row once. It never
+	// answers a menu whose selected row says anything else, nor a
+	// permission prompt, and it fails with ErrCommandHeld when the pane is
+	// still held as the watch ends. Empty, the command is typed and
+	// nothing is answered.
+	Confirm string
+}
+
+var (
+	// ErrNotAtPrompt is a session that cannot take a command now: it is
+	// mid-turn, on a dialog, scrolled into history, or somebody is typing
+	// at it. It clears on its own, so a later try may succeed.
+	ErrNotAtPrompt = errors.New("the session is not resting at its prompt")
+	// ErrNoCommandLine is a session whose tool declares no input line the
+	// board can recognise, so nothing can tell when a command would land.
+	ErrNoCommandLine = errors.New("the session's tool has no input line the board can find")
+	// ErrCommandHeld is a command whose confirmation, or something else,
+	// was still holding the pane when the watch after typing it ended.
+	ErrCommandHeld = errors.New("the session was still held after the command")
+)
 
 // Message is what BoardHost.Send queues.
 type Message struct {

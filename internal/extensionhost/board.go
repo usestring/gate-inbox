@@ -143,3 +143,20 @@ func (b *Board) Kill(ctx context.Context, id string) (extension.SessionInfo, err
 	}
 	return info(killed), nil
 }
+
+// Command types a tool's own command into an agent session on the board's
+// behalf.
+func (b *Board) Command(ctx context.Context, id string, cmd extension.ToolCommand) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return b.cmds.BoardCommand(ctx, id, cmd.Text, cmd.Confirm)
+}
+
+// Unpark brings a parked viewport back to the live bottom.
+func (b *Board) Unpark(ctx context.Context, id string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return b.cmds.BoardUnpark(id)
+}

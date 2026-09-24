@@ -338,6 +338,8 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	}
 	// The extension messages its helper and then ends it, through the board.
 	waitForFile(t, filepath.Join(data, "sent.txt"), helper+" queued 1\n", exited, &out)
+	waitForFile(t, filepath.Join(data, "command.txt"), helper+" at-prompt false\n", exited, &out)
+	waitForFile(t, filepath.Join(data, "unparked.txt"), helper+" parked false\n", exited, &out)
 	waitForFile(t, filepath.Join(data, "killed.txt"), helper+" dead false\n", exited, &out)
 
 	var pid int

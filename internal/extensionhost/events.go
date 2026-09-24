@@ -130,6 +130,14 @@ func (v *boardView) Kill(ctx context.Context, id string) (extension.SessionInfo,
 	return v.events.board.Kill(ctx, id)
 }
 
+func (v *boardView) Command(ctx context.Context, id string, cmd extension.ToolCommand) error {
+	return v.events.board.Command(ctx, id, cmd)
+}
+
+func (v *boardView) Unpark(ctx context.Context, id string) (bool, error) {
+	return v.events.board.Unpark(ctx, id)
+}
+
 func (v *boardView) OnPass(fn func(extension.Pass)) func() {
 	sub := newSubscription(v.owner, fn, v.events.report, true)
 	return v.add(sub, func() {

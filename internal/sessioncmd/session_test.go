@@ -106,6 +106,15 @@ rules = [{ state = "working", pattern = "Thinking about it" }]
 command = "sleep 30"
 default_status = "idle"
 activity_cutoff = "(?m)^\u276f"
+
+# A tool that parks its viewport above the live bottom and says so, and is
+# brought back by a key its fixture reads as a line.
+[tools.scroller]
+command = "true scroller"
+default_status = "idle"
+activity_cutoff = "(?m)^\u276f"
+scrolled_line = "Jump to bottom"
+jump_to_bottom_key = "Enter"
 `
 
 func newSessionHarness(t *testing.T) *sessionHarness {

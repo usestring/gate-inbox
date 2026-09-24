@@ -208,6 +208,17 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			return
 		}
 		record("sent.txt", fmt.Sprintf("%s queued %d", helper.ID, sent.QueuePosition))
+		// The helper's pane never draws a prompt, so a tool command is
+		// refused as not at one, and its viewport, with no jump-back
+		// affordance configured, is never parked.
+		err = board.Command(ctx, helper.ID, extension.ToolCommand{Text: "/model fast"})
+		record("command.txt", fmt.Sprintf("%s at-prompt %v", helper.ID, !errors.Is(err, extension.ErrNotAtPrompt)))
+		parked, err := board.Unpark(ctx, helper.ID)
+		if err != nil {
+			record("unparked.txt", "error: "+err.Error())
+			return
+		}
+		record("unparked.txt", fmt.Sprintf("%s parked %v", helper.ID, parked))
 		killed, err := board.Kill(ctx, helper.ID)
 		if err != nil {
 			record("killed.txt", "error: "+err.Error())

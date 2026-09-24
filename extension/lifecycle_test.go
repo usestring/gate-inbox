@@ -70,6 +70,13 @@ func (v fakeView) Kill(context.Context, string) (extension.SessionInfo, error) {
 	return extension.SessionInfo{}, errors.New("no kills here")
 }
 
+func (v fakeView) Command(context.Context, string, extension.ToolCommand) error {
+	return errors.New("no commands here")
+}
+func (v fakeView) Unpark(context.Context, string) (bool, error) {
+	return false, errors.New("no unparks here")
+}
+
 func (b *fakeBoard) hostFor(id string) (extension.BoardHost, func()) {
 	return fakeView{board: b, id: id}, func() {
 		*b.log = append(*b.log, "release "+id)

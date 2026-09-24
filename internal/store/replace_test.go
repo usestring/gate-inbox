@@ -106,7 +106,7 @@ func TestReplaceSessionRollsBackAFailedLaunch(t *testing.T) {
 // takes the seat, inbox and leases exactly as an unheld one would have.
 func TestCommitReplacementTakesTheOldSeat(t *testing.T) {
 	st := replaceFixture(t)
-	if err := st.CreateSessionLeaf(Session{ID: "fresh01", Name: "worker", Tool: "t", Cwd: "/", ParentID: "target01", SpawnedBy: "run1", Role: "ext1/worker"}); err != nil {
+	if err := st.CreateSessionLeaf(Session{ID: "fresh01", Name: "worker", Tool: "t", Cwd: "/", ParentID: "target01", SpawnedBy: "par1", Role: "ext1/worker"}); err != nil {
 		t.Fatal(err)
 	}
 	if counts, _ := st.QueuedCounts(); counts["target01"] != 1 {
@@ -121,7 +121,7 @@ func TestCommitReplacementTakesTheOldSeat(t *testing.T) {
 		t.Fatalf("retired %v, moved %+v; want the old pane ended and both moved", retired, moved)
 	}
 	fresh, err := st.Get("fresh01")
-	if err != nil || fresh.ParentID != "run1" || fresh.Group != "work" || fresh.SpawnedBy != "run1" {
+	if err != nil || fresh.ParentID != "par1" || fresh.Group != "work" || fresh.SpawnedBy != "par1" {
 		t.Fatalf("fresh = %+v, %v; want it in the old seat", fresh, err)
 	}
 	if old, _ := st.Get("target01"); old.Status != "dead" {
@@ -136,7 +136,7 @@ func TestCommitReplacementTakesTheOldSeat(t *testing.T) {
 	}
 	var order []string
 	for _, sess := range listed {
-		if sess.ParentID == "run1" {
+		if sess.ParentID == "par1" {
 			order = append(order, sess.ID)
 		}
 	}

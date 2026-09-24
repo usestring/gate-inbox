@@ -533,10 +533,6 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	} else if caller.ParentID != "" {
 		parentID = caller.ParentID
 	}
-	prompt := strings.TrimSpace(opts.Prompt)
-	if strings.HasPrefix(prompt, "-") && tool.PromptFlag == "" {
-		return Session{}, fmt.Errorf(`prompt cannot start with "-" for %s, which takes its prompt as a bare argument and would read it as a flag`, toolName)
-	}
 	name := strings.TrimSpace(opts.Name)
 	autoNamed := name == ""
 	id := uuid.NewString()[:8]
@@ -554,8 +550,29 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		SpawnedBy: caller.ID,
 		Model:     strings.TrimSpace(opts.Model),
 	}
-	// Before an account is chosen or a file written, so a refusal costs
-	// nothing to undo.
+	// Shaped and then put to the policies before an account is chosen or a
+	// file written, so a refusal costs nothing to undo, and a policy is
+	// asked about the session that will actually launch.
+	shape, err := sessionhooks.Shape(sess, extension.LaunchSpawn, "")
+	if err != nil {
+		return Session{}, err
+	}
+	if shape.KeepUnderSpawner && !nest {
+		// Filed exactly where a nested spawn would have been.
+		sess.Group = caller.Group
+		sess.ParentID = caller.ID
+		create = runtime.store.LaunchSession
+		if caller.ParentID != "" {
+			sess.ParentID = caller.ParentID
+			create = func(row store.Session, launch func() error) error {
+				return runtime.store.LaunchSessionBeside(row, caller.ID, launch)
+			}
+		}
+	}
+	prompt := shape.Prefixed(strings.TrimSpace(opts.Prompt))
+	if strings.HasPrefix(prompt, "-") && tool.PromptFlag == "" {
+		return Session{}, fmt.Errorf(`prompt cannot start with "-" for %s, which takes its prompt as a bare argument and would read it as a flag`, toolName)
+	}
 	sessionHooks, err := sessionhooks.CheckSpawn(sess, extension.SpawnBySession)
 	if err != nil {
 		return Session{}, err

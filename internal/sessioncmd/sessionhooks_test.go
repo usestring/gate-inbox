@@ -20,8 +20,10 @@ type launchWatcher struct {
 	refuse      string
 	failMigrate bool
 	env         map[string]string
+	shape       extension.SpawnShape
 
 	mu       sync.Mutex
+	shaped   []extension.Launch
 	asked    []extension.Spawn
 	spawned  []extension.Spawn
 	launches []extension.Launch
@@ -30,6 +32,13 @@ type launchWatcher struct {
 
 func (w *launchWatcher) Descriptor() extension.Descriptor { return extension.Descriptor{ID: "watcher"} }
 func (w *launchWatcher) Configure(extension.Config) error { return nil }
+
+func (w *launchWatcher) ShapeSpawn(_ context.Context, launch extension.Launch) (extension.SpawnShape, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.shaped = append(w.shaped, launch)
+	return w.shape, nil
+}
 
 func (w *launchWatcher) AllowSpawn(_ context.Context, spawn extension.Spawn) error {
 	w.mu.Lock()
@@ -225,4 +234,68 @@ func TestBoardLaunchFilesARoleHelperUnderItsParent(t *testing.T) {
 		t.Fatalf("asked = %+v", watcher.asked)
 	}
 	waitForSessionOutput(t, h.sessions, h.caller.ID, created.ID, "relay this --allowed one tool")
+}
+
+func TestCreateLaunchesTheShapedSpawn(t *testing.T) {
+	h := newSessionHarness(t)
+	watcher := &launchWatcher{shape: extension.SpawnShape{PromptPrefix: "GOAL: ship it", KeepUnderSpawner: true}}
+	useWatcher(t, watcher)
+	detach := false
+
+	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "kept", Prompt: "the sub-task", Nest: &detach})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shaped := watcher.shaped[0]
+	if shaped.Reason != extension.LaunchSpawn || shaped.Session.ID != created.ID || shaped.Session.SpawnedBy != h.caller.ID || shaped.Session.ParentID != "" {
+		t.Fatalf("the shaper was asked %+v, want the detached spawn as asked for", shaped)
+	}
+	if asked := watcher.asked[0]; asked.Session.ParentID != h.caller.ID {
+		t.Fatalf("the policy was asked about parent %q, want the shaped %q", asked.Session.ParentID, h.caller.ID)
+	}
+	if created.ParentID != h.caller.ID || created.Group != h.caller.Group {
+		t.Fatalf("created = %+v, want it kept under %s", created, h.caller.ID)
+	}
+	waitForSessionOutput(t, h.sessions, h.caller.ID, created.ID, "GOAL: ship it")
+	stored, err := h.store.Get(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ParentID != h.caller.ID || !strings.Contains(stored.LaunchPrompt, "GOAL: ship it\n\nthe sub-task") {
+		t.Fatalf("stored parent %q, prompt %q", stored.ParentID, stored.LaunchPrompt)
+	}
+
+	watcher.shape = extension.SpawnShape{}
+	loose, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "loose", Prompt: "elsewhere", Nest: &detach})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loose.ParentID != "" {
+		t.Fatalf("an unshaped detached spawn was filed under %q", loose.ParentID)
+	}
+}
+
+func TestMigrateLaunchesOnTheShapedPrompt(t *testing.T) {
+	h := newSessionHarness(t)
+	source, _ := claudeSource(t, h)
+	watcher := &launchWatcher{shape: extension.SpawnShape{PromptPrefix: "GOAL: carried over"}}
+	useWatcher(t, watcher)
+
+	moved, err := h.sessions.Migrate(h.caller.ID, source.ID, MigrateOptions{Tool: "echoer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shaped := watcher.shaped[0]
+	if shaped.Reason != extension.LaunchMigrate || shaped.From != source.ID || shaped.Session.ID != moved.ID {
+		t.Fatalf("the shaper was asked %+v", shaped)
+	}
+	// The brief is longer than the pane, so the stored prompt is read
+	// rather than the screen.
+	stored, err := h.store.Get(moved.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stored.LaunchPrompt, "GOAL: carried over\n\nYou are taking over") {
+		t.Fatalf("the migrated session launched on %q", stored.LaunchPrompt)
+	}
 }

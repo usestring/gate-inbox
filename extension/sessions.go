@@ -91,6 +91,39 @@ const (
 	LaunchMigrate LaunchReason = "migrate"
 )
 
+// SpawnShaper is implemented by an extension that shapes what an agent's
+// own spawns and migrations start with: a goal the spawning session works
+// to, briefed to every session it fans out to and to the one its
+// conversation moves on to.
+//
+// ShapeSpawn is asked before SpawnPolicy.AllowSpawn, so a policy is asked
+// about the session as shaped, and nothing has been launched or written:
+// it must not write anything either, and an error, or a panic, refuses the
+// launch. It is asked with LaunchSpawn for a session a session spawns --
+// through its tools or its CLI, where Session.SpawnedBy names the caller --
+// and with LaunchMigrate for every migration, where From names the source.
+// The operator's own spawns and BoardHost.Launch write their prompts
+// themselves and are not asked, and neither is a relaunch, which resumes a
+// conversation rather than starting one.
+type SpawnShaper interface {
+	ShapeSpawn(ctx context.Context, launch Launch) (SpawnShape, error)
+}
+
+// SpawnShape is how one SpawnShaper shapes a launch. The zero value leaves
+// it as it was asked for.
+type SpawnShape struct {
+	// PromptPrefix goes ahead of the prompt the session is launched with,
+	// followed by a blank line. Two shapers' prefixes go in registration
+	// order.
+	PromptPrefix string
+	// KeepUnderSpawner files a spawn its caller asked to detach, with nest
+	// false, under the caller anyway, where a nested spawn would have gone:
+	// its questions and rests still reach the session that asked for the
+	// work. It takes the caller's group, whatever group was asked for. It
+	// means nothing for a migration, which always goes beside its source.
+	KeepUnderSpawner bool
+}
+
 // MigrationObserver is implemented by an extension that keeps state keyed by
 // session and has to follow a conversation when it moves to a new session.
 //

@@ -5,11 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // SessionHooks is what a registry's enabled extensions have to say about
-// sessions being launched: the spawn policies, launch contributors and
-// migration observers, each asked in registration order. The host asks it
+// sessions being launched: the spawn shapers, spawn policies, launch
+// contributors and migration observers, each asked in registration order. The host asks it
 // at every launch; extensions never see it.
 //
 // A nil SessionHooks has nothing to say: it allows every spawn and adds no
@@ -18,6 +19,7 @@ type SessionHooks struct {
 	policies     []owned[SpawnPolicy]
 	contributors []owned[LaunchContributor]
 	observers    []owned[MigrationObserver]
+	shapers      []owned[SpawnShaper]
 }
 
 type owned[T any] struct {
@@ -25,8 +27,8 @@ type owned[T any] struct {
 	v  T
 }
 
-// SessionHooks collects the enabled extensions that implement SpawnPolicy,
-// LaunchContributor or MigrationObserver. On a registry nothing has
+// SessionHooks collects the enabled extensions that implement SpawnShaper,
+// SpawnPolicy, LaunchContributor or MigrationObserver. On a registry nothing has
 // configured yet only those are configured, from sections and under
 // configDir, as AccountPool does: a CLI command launching one session has
 // no use for the rest, and must not fail on a section it never reads.
@@ -36,7 +38,8 @@ func (r *Registry) SessionHooks(configDir string, sections map[string]map[string
 		_, policy := ext.(SpawnPolicy)
 		_, contributor := ext.(LaunchContributor)
 		_, observer := ext.(MigrationObserver)
-		if policy || contributor || observer {
+		_, shaper := ext.(SpawnShaper)
+		if policy || contributor || observer || shaper {
 			found = append(found, i)
 		}
 	}
@@ -61,8 +64,51 @@ func (r *Registry) SessionHooks(configDir string, sections map[string]map[string
 		if v, ok := ext.(MigrationObserver); ok {
 			hooks.observers = append(hooks.observers, owned[MigrationObserver]{id, v})
 		}
+		if v, ok := ext.(SpawnShaper); ok {
+			hooks.shapers = append(hooks.shapers, owned[SpawnShaper]{id, v})
+		}
 	}
 	return hooks, nil
+}
+
+// ShapeSpawn asks every shaper, and stops at the first that refuses. The
+// prefixes are joined in registration order, each followed by a blank line,
+// and the launch is kept under its spawner when any shaper asks for it.
+func (h *SessionHooks) ShapeSpawn(ctx context.Context, launch Launch) (SpawnShape, error) {
+	var shape SpawnShape
+	if h == nil {
+		return shape, nil
+	}
+	var prefixes []string
+	for _, s := range h.shapers {
+		var got SpawnShape
+		err := guard(func() error {
+			var err error
+			got, err = s.v.ShapeSpawn(ctx, launch)
+			return err
+		})
+		if err != nil {
+			return SpawnShape{}, fmt.Errorf("extension %q refused the launch: %w", s.id, err)
+		}
+		if prefix := strings.TrimSpace(got.PromptPrefix); prefix != "" {
+			prefixes = append(prefixes, prefix)
+		}
+		shape.KeepUnderSpawner = shape.KeepUnderSpawner || got.KeepUnderSpawner
+	}
+	shape.PromptPrefix = strings.Join(prefixes, "\n\n")
+	return shape, nil
+}
+
+// Prefixed is prompt with the shape's prefix ahead of it.
+func (s SpawnShape) Prefixed(prompt string) string {
+	prefix := strings.TrimSpace(s.PromptPrefix)
+	if prefix == "" {
+		return prompt
+	}
+	if prompt == "" {
+		return prefix
+	}
+	return prefix + "\n\n" + prompt
 }
 
 // AllowSpawn asks every policy, and stops at the first that refuses.

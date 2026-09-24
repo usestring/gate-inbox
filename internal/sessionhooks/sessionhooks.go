@@ -70,6 +70,19 @@ func Info(sess store.Session, running bool) extension.SessionInfo {
 	}
 }
 
+// Shape asks this process's spawn shapers how sess, which is about to be
+// launched for reason, should start. from is the source session of a
+// migration.
+func Shape(sess store.Session, reason extension.LaunchReason, from string) (extension.SpawnShape, error) {
+	hooks, err := Current()
+	if err != nil {
+		return extension.SpawnShape{}, err
+	}
+	ctx, cancel := bounded()
+	defer cancel()
+	return hooks.ShapeSpawn(ctx, extension.Launch{Session: Info(sess, false), Reason: reason, From: from})
+}
+
 // CheckSpawn asks this process's spawn policies about sess, which is about
 // to be launched, and returns the hooks the rest of the launch goes on
 // asking.

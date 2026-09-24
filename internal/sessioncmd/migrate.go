@@ -108,6 +108,12 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 		named = source.Account
 	}
 	id := uuid.NewString()[:8]
+	// Before an account is borrowed, so a refusal leaves nothing behind.
+	shape, err := sessionhooks.Shape(migrate.NewSession(id, name, toolName, source, launch.Plan{Model: source.Model}), extension.LaunchMigrate, source.ID)
+	if err != nil {
+		return Session{}, err
+	}
+	prompt = shape.Prefixed(prompt)
 	var account string
 	if opts.accountOverride != nil {
 		account = *opts.accountOverride

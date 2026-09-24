@@ -67,6 +67,15 @@ func TestExternalBuildHasASayInLaunches(t *testing.T) {
 		t.Fatalf("spawned.txt = %q", got)
 	}
 
+	out, err = run("spawn", "--tool", "envecho", "--name", "detached", "--nest=false", "--prompt", "the sub-task", "--directory", work, "--json")
+	if err != nil {
+		t.Fatalf("spawn detached: %v\n%s", err, out)
+	}
+	detached := storedSession(t, filepath.Join(home, "state.db"), idOf(t, out))
+	if detached.ParentID != "ca11e400" || !strings.Contains(detached.LaunchPrompt, "NOOP GOAL for ca11e400\n\nthe sub-task") {
+		t.Fatalf("the shaped spawn was filed under %q on %q", detached.ParentID, detached.LaunchPrompt)
+	}
+
 	out, err = run("migrate", "0de0c0de", "--tool", "envecho", "--json")
 	if err != nil {
 		t.Fatalf("migrate: %v\n%s", err, out)
@@ -77,6 +86,9 @@ func TestExternalBuildHasASayInLaunches(t *testing.T) {
 	}
 	if got := readEventually(t, filepath.Join(data, "env-"+moved+".txt")); got != "migrate 0de0c0de" {
 		t.Fatalf("the migrated pane saw NOOP_LAUNCH=%q", got)
+	}
+	if prompt := storedSession(t, filepath.Join(home, "state.db"), moved).LaunchPrompt; !strings.Contains(prompt, "NOOP GOAL carried from 0de0c0de\n\n") {
+		t.Fatalf("the migration launched on %q, want the extension's brief", prompt)
 	}
 }
 
@@ -95,6 +107,20 @@ func seedOpenCodeSource(t *testing.T, path, cwd string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func storedSession(t *testing.T, path, id string) store.Session {
+	t.Helper()
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	sess, err := st.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sess
 }
 
 func idOf(t *testing.T, out string) string {

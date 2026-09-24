@@ -7,10 +7,12 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/migrate"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -144,6 +146,13 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 		named = source.Account
 	}
 	id := newID()
+	// Before an account is borrowed, so a refusal leaves nothing behind.
+	shape, err := sessionhooks.Shape(migrate.NewSession(id, name, toolName, source, launch.Plan{Model: source.Model}), extension.LaunchMigrate, source.ID)
+	if err != nil {
+		m.reportLaunchError(err)
+		return m, nil
+	}
+	prompt = shape.Prefixed(prompt)
 	var account string
 	if m.migrate.account != nil {
 		account = *m.migrate.account

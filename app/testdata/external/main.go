@@ -233,6 +233,18 @@ func (n *noop) record(name, line string) {
 	fmt.Fprintln(f, line)
 }
 
+// ShapeSpawn briefs every migration on the goal it carries, and keeps a
+// session named detached under the session that spawned it, briefed too.
+func (n *noop) ShapeSpawn(_ context.Context, launch extension.Launch) (extension.SpawnShape, error) {
+	switch {
+	case launch.Reason == extension.LaunchMigrate:
+		return extension.SpawnShape{PromptPrefix: "NOOP GOAL carried from " + launch.From}, nil
+	case launch.Session.Name == "detached":
+		return extension.SpawnShape{PromptPrefix: "NOOP GOAL for " + launch.Session.SpawnedBy, KeepUnderSpawner: true}, nil
+	}
+	return extension.SpawnShape{}, nil
+}
+
 // AllowSpawn refuses a session named over-budget, the way a budget on a
 // wide spawn would.
 func (n *noop) AllowSpawn(_ context.Context, spawn extension.Spawn) error {

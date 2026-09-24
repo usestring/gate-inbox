@@ -31,9 +31,9 @@ what the repository and its binaries contain that is licensed by someone else.
 | JetBrains Mono (glyph outlines only) | 2.211 | OFL-1.1 | https://github.com/JetBrains/JetBrainsMono | No font file is in the repository or embedded in a binary: the brand SVGs/PNG carry glyphs converted to paths. OFL-1.1 treats documents produced with the font as outside its scope; its text is shipped anyway as `LICENSES/OFL-1.1-JetBrains-Mono.txt` while the derived marks remain. The font declares no Reserved Font Name. |
 | Fonts | — | — | — | None: no `.ttf`/`.otf`/`.woff*` file, no `go:embed`, and no font reference in the worker page or the VHS tapes (`tools/capture` sets only `FontSize`). |
 | Other images and icons | — | — | — | None: the four `docs/brand` files are the only images in the tree. `docs/usage.md` still links upstream's `demo-*.gif` and `screenshot-*.png`, which were not imported; the links are dead, and nothing is shipped. |
-| `internal/*/testdata/*.txt`, `internal/ui/testdata/*` | this repo | Apache-2.0 | this repo | Terminal captures of Claude Code, Codex and opencode screens, used as parser goldens. Short functional UI captures; the third-party text in them is interface chrome. 18 files still contain operator-specific paths or internal PR links. |
+| `internal/*/testdata/*.txt`, `internal/ui/testdata/*` | this repo | Apache-2.0 | this repo | Terminal captures of Claude Code, Codex and opencode screens, used as parser goldens. Short functional UI captures; the third-party text in them is interface chrome. Paths, repositories and PR links in them are placeholders (`/home/user`, `example-org/sample-repo`). |
 | `internal/*/testdata/*.json{,l}`, `extension/artifacts/testdata/vectors.json` | this repo | Apache-2.0 | this repo | Synthetic transcripts, decision payloads and signing vectors. No third-party content found. |
-| `tools/capture/demo/*`, `tools/capture/scenarios/*.tape`, `*.toml` | this repo | Apache-2.0 | this repo | Synthetic demo sessions and VHS scripts. 5 tapes still name internal repositories. |
+| `tools/capture/demo/*`, `tools/capture/scenarios/*.tape`, `*.toml` | this repo | Apache-2.0 | this repo | Synthetic demo sessions and VHS scripts. Repositories and links in them are placeholders. |
 
 ## Go modules
 

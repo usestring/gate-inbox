@@ -4,7 +4,7 @@
  * These vectors were minted by Go (extension/artifacts/token_test.go,
  * TestVectorsAreStable). If the two implementations ever disagree about
  * encoding, field names or the canonical string, this test fails instead of
- * a deploy silently rejecting every link the fleet has handed out.
+ * a deploy silently rejecting every link already handed out.
  */
 import { expect, test, describe } from "bun:test";
 import vectors from "../../testdata/vectors.json";

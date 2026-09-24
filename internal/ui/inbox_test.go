@@ -895,6 +895,51 @@ func TestThePollLoopDeliversQueuedMessagesOldestFirst(t *testing.T) {
 	settledPane(t, m, sess.ID, "rebase on main", "then push the branch")
 }
 
+// A pass captures the panes and then reads the queue, and a send can settle
+// in between. That pass then holds a capture from before the submit and a
+// head that is the message behind it. This builds the interleaving from real
+// sends rather than waiting for a pass to fall into it.
+func TestInboxHoldsTheNextMessageUntilACaptureFollowsTheLastSend(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "ready-tool")
+	queueMessage(t, m, sess.ID, "rebase on main")
+	second := queueMessage(t, m, sess.ID, "then push the branch")
+	settledPane(t, m, sess.ID, "❯")
+
+	deliver := func(capture tmux.Capture) {
+		t.Helper()
+		if err := m.poller.maybeDeliverInbox(sess, queuedHeads(t, m), capture, status.Idle, true); err != nil {
+			t.Fatalf("maybeDeliverInbox: %v", err)
+		}
+		if !m.poller.awaitSends(10 * time.Second) {
+			t.Fatal("a send handed off by the gate was still in flight ten seconds later")
+		}
+	}
+	capture := func() tmux.Capture {
+		t.Helper()
+		return m.tmux.CapturePanes([]string{sess.ID})[sess.ID]
+	}
+
+	beforeFirst := capture()
+	deliver(capture())
+	if queued, _ := m.store.QueuedCount(sess.ID); queued != 1 {
+		t.Fatalf("queued = %d after the first delivery, want 1", queued)
+	}
+	deliver(beforeFirst)
+	if queued, _ := m.store.QueuedCount(sess.ID); queued != 1 {
+		t.Fatal("the next message was typed against a capture from before the last send was submitted")
+	}
+
+	deliver(capture())
+	state, err := m.store.Message(second, "sender01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.DeliveredAt.IsZero() {
+		t.Fatalf("a capture taken after the send still held the message: %+v", state)
+	}
+}
+
 // A stand-in that exits at launch leaves the launch script's shell holding
 // the pane, and a delivered envelope is then run as commands rather than
 // read: the shell's prompt lands in the middle of the text it is echoing,
@@ -986,7 +1031,7 @@ func TestInboxDeliversWhenARuleReportsARestingState(t *testing.T) {
 // would, and reads whatever it cost from where the next pass reads it.
 func deliverInbox(t *testing.T, m *Model, sess store.Session, heads map[string]store.InboxMessage, pane, derived string, agentAlive bool) error {
 	t.Helper()
-	err := m.poller.maybeDeliverInbox(sess, heads, tmux.Capture{Text: pane}, derived, agentAlive)
+	err := m.poller.maybeDeliverInbox(sess, heads, tmux.Capture{Text: pane, At: time.Now()}, derived, agentAlive)
 	if !m.poller.awaitSends(10 * time.Second) {
 		t.Fatal("a send handed off by the pass was still in flight ten seconds later")
 	}

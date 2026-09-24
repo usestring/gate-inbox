@@ -85,6 +85,9 @@ type poller struct {
 	sending  map[string]bool
 	sendsOut int
 	sendErr  error
+	// settledAt is when each session's latest send finished, recorded
+	// before its outcome reaches the store. See settledSince.
+	settledAt map[string]time.Time
 	// operatorInputAt is when the manager last forwarded the operator's own
 	// input -- a mouse report, a keystroke, a paste -- into each session's
 	// pane. It lives under mu rather than runMu because the UI stamps it and
@@ -1304,6 +1307,14 @@ func (p *poller) maybeDeliverInbox(sess store.Session, heads map[string]store.In
 	// query and strip a pane's worth of ANSI per session.
 	msg, queued := heads[sess.ID]
 	if !queued {
+		return nil
+	}
+	// The pass captures the panes before it reads the queue, and a send to
+	// this session can settle between the two. The head it read is then the
+	// message behind one just submitted, while the capture shows the pane
+	// from before that submit: typed now, it lands on a turn the tool has not
+	// drawn yet. It waits for a capture taken after the send.
+	if p.settledSince(sess.ID, capture.At) {
 		return nil
 	}
 	if msg.Interrupt && derived == status.Working && msg.ClaimedAt.IsZero() {

@@ -24,6 +24,7 @@ import (
 type noop struct {
 	greeting string
 	config   extension.Config
+	ui       extension.UIHost
 }
 
 type settings struct {
@@ -186,10 +187,30 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 	board.OnPass(func(p extension.Pass) {
 		for _, s := range p.Sessions {
 			record("passes.txt", s.ID+" "+s.Status)
+			n.ui.Decorate(s.ID, extension.Badge{Text: "noop:" + s.Status, Tone: extension.ToneAccent})
 		}
 	})
 	record("started.txt", fmt.Sprint(os.Getpid(), " ", board.ConfigDir()))
 	return func() { record("stopped.txt", fmt.Sprint(ctx.Err() != nil)) }, nil
+}
+
+// UI adds one key to the list, which records the row it was pressed on,
+// and keeps the host so StartBoard can badge every row it is told about.
+func (n *noop) UI(host extension.UIHost) (extension.UI, error) {
+	n.ui = host
+	return extension.UI{Keys: []extension.KeyBinding{{
+		Action: "noop_mark",
+		Keys:   []string{"Z", "shift+z"},
+		Label:  "record the row",
+		Run: func(ctx context.Context, press extension.Press) error {
+			dir, err := n.config.DataDir()
+			if err != nil {
+				return err
+			}
+			line := fmt.Sprintf("%s %q %v\n", press.SessionID, press.Group, ctx.Err() == nil)
+			return os.WriteFile(filepath.Join(dir, "pressed.txt"), []byte(line), 0o600)
+		},
+	}}}, nil
 }
 
 func text(s string) *mcp.CallToolResult {

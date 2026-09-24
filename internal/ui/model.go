@@ -116,6 +116,12 @@ type Model struct {
 	// a key that does nothing with the explanation in a process nobody sees.
 	keys        *keymap.Map
 	keyProblems []string
+	// extUIs, extKeys, extBridge and extBadges are what the build's
+	// extensions added: see extensions.go.
+	extUIs    []ExtensionUI
+	extKeys   map[keymap.Context]map[keymap.Action]extensionKey
+	extBridge *ExtensionBridge
+	extBadges map[string][]Badge
 
 	// setSnapshots writes pane captures before archive or kill takes the
 	// windows; a seam so snapshot failures can be exercised without a broken
@@ -1615,6 +1621,9 @@ func (m *Model) applyPaneGeom(msg paneGeomMsg) tea.Cmd {
 // exported entry point: it records the press and the branch it took before
 // handing over here.
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.updateExtension(msg) {
+		return m, nil
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		// Resuming from a tmux attach re-sends the current size unchanged; only

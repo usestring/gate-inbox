@@ -254,7 +254,7 @@ type resolvedSection struct {
 // helpCatalog is the key map as this run shows it: the static sections, then
 // the operator's own snippets.
 func (m *Model) helpCatalog() []helpSection {
-	return append(helpSections(), m.snippetHelpSection())
+	return append(append(helpSections(), m.extensionHelpSections()...), m.snippetHelpSection())
 }
 
 // resolvedHelp is the catalog with every binding row asking the key map what

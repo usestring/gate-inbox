@@ -199,7 +199,7 @@ func runBoard(version string, registry *extension.Registry) error {
 	// one the terminal already had, and this first write changes nothing.
 	ui.EnableTerminalPassthrough()
 	ui.SyncTerminalBackground()
-	stopExtensions, err := startExtensions(dir, registry, model)
+	stopExtensions, err := startExtensions(dir, registry, model, program.Send)
 	if err != nil {
 		return err
 	}
@@ -212,16 +212,22 @@ func runBoard(version string, registry *extension.Registry) error {
 	return runErr
 }
 
-// startExtensions starts every BoardProvider the build carries against the
-// board model polls, and returns what stops them again. It runs before the
-// first pass, so no transition goes unseen by a subscriber made at start.
-func startExtensions(dir string, registry *extension.Registry, model *ui.Model) (func(), error) {
+// startExtensions installs every UIProvider's keys and badges on the model,
+// then starts every BoardProvider the build carries against the board model
+// polls, and returns what stops them again. It runs before the first pass, so
+// no transition goes unseen by a subscriber made at start, and a provider can
+// badge a row from its first event.
+func startExtensions(dir string, registry *extension.Registry, model *ui.Model, send func(tea.Msg)) (func(), error) {
 	board := extensionhost.NewBoard(dir, sessioncmd.NewSessions(dir, sessioncmd.MCPVocabulary()))
 	events := extensionhost.NewEvents(board, func(owner string, err error) {
 		logging.Warn("extension board subscriber", "extension", owner, logging.Err(err))
 	})
 	model.ObserveBoard(events)
 	ctx, cancel := context.WithCancel(context.Background())
+	if err := startUI(ctx, registry, model, send); err != nil {
+		cancel()
+		return nil, err
+	}
 	results, stop, err := registry.StartBoard(ctx, events.For)
 	if err != nil {
 		cancel()

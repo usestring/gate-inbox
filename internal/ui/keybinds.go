@@ -45,19 +45,22 @@ func (m *Model) km() *keymap.Map {
 // board that cannot be worked at all.
 func (m *Model) loadKeys() {
 	m.keys, m.keyProblems = defaultKeys(), nil
-	dir := m.configDir()
-	if dir == "" {
+	extra := m.extraBindings()
+	var overrides keymap.Overrides
+	if dir := m.configDir(); dir != "" {
+		if err := keymap.WriteReferenceIfMissing(dir); err != nil {
+			m.keyProblems = append(m.keyProblems, "could not write "+keymap.Path(dir)+": "+err.Error())
+		}
+		loaded, err := keymap.Load(dir)
+		if err != nil {
+			m.keyProblems = append(m.keyProblems, keymap.FileName+" could not be read: "+err.Error())
+		}
+		overrides = loaded
+	}
+	if overrides == nil && len(extra) == 0 {
 		return
 	}
-	if err := keymap.WriteReferenceIfMissing(dir); err != nil {
-		m.keyProblems = append(m.keyProblems, "could not write "+keymap.Path(dir)+": "+err.Error())
-	}
-	overrides, err := keymap.Load(dir)
-	if err != nil {
-		m.keyProblems = append(m.keyProblems, keymap.FileName+" could not be read: "+err.Error())
-		return
-	}
-	resolved, problems := keymap.New(overrides)
+	resolved, problems := keymap.NewWith(overrides, extra)
 	m.keys = resolved
 	for _, problem := range problems {
 		m.keyProblems = append(m.keyProblems, problem.Error())

@@ -1014,6 +1014,14 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 		}
 	}
 
+	// An extension's badges come last, after everything the board says
+	// about the row itself, and take only the room that is left.
+	if m.stackedRows() {
+		meta += m.extensionBadges(sess.ID, width-cellWidth(indent)-cellWidth(meta))
+	} else {
+		head += m.extensionBadges(sess.ID, width-railGutter-cellWidth(head)-2-cellWidth(meta))
+	}
+
 	if m.stackedRows() {
 		return stackedRow(head, indent+meta, width, bg)
 	}

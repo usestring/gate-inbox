@@ -173,6 +173,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if !bound {
 		return m, nil
 	}
+	if ext, ok := m.extKeys[keymap.ContextList][action]; ok {
+		return m, m.runExtensionKey(ext)
+	}
 	switch action {
 	case keymap.Quit:
 		return m, tea.Quit

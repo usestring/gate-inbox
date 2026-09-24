@@ -26,6 +26,7 @@ package keymap
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -84,6 +85,17 @@ type Map struct {
 	// order preserves the catalog's order per context, which is the order
 	// the key map screen reads in.
 	order map[Context][]Action
+	// catalog is Catalog plus the extra bindings this map accepted, and
+	// contexts is Contexts plus the screens those added. extra is kept as
+	// given, so a rebind resolves against the same bindings again.
+	catalog  []Binding
+	contexts []Context
+	extra    []Binding
+	// foreign is every override naming a screen or an action this build
+	// does not have. It is written back unchanged on save, so a rebind made
+	// while an extension is switched off does not cost that extension the
+	// keys the operator gave it.
+	foreign Overrides
 }
 
 // Overrides is the operator's file, as contexts of actions to keys. An empty
@@ -116,37 +128,96 @@ func (p Problem) Error() string {
 // map; every override it could not honour comes back as a problem and leaves
 // that action on its default.
 func New(overrides Overrides) (*Map, []Problem) {
+	return NewWith(overrides, nil)
+}
+
+// NewWith is New over the catalog plus extra bindings: the keys a build's
+// extensions add. An extra binding may join a screen the catalog has or name
+// a screen of its own. It comes after every catalog binding, so where its
+// default key is one a catalog action already holds, the catalog keeps it and
+// the collision is reported. A binding that would redefine an action already
+// on its screen is refused as a whole.
+func NewWith(overrides Overrides, extra []Binding) (*Map, []Problem) {
 	m := &Map{
 		byKey:    map[Context]map[string]Action{},
 		byAction: map[Context]map[Action][]string{},
 		order:    map[Context][]Action{},
+		contexts: append([]Context(nil), Contexts...),
+		extra:    append([]Binding(nil), extra...),
 	}
 	for _, binding := range Catalog {
-		if m.byAction[binding.Context] == nil {
-			m.byAction[binding.Context] = map[Action][]string{}
-			m.byKey[binding.Context] = map[string]Action{}
-		}
-		m.byAction[binding.Context][binding.Action] = append([]string(nil), binding.Keys...)
-		m.order[binding.Context] = append(m.order[binding.Context], binding.Action)
+		m.add(binding)
 	}
-
-	problems := m.apply(overrides)
+	problems := m.addExtra(extra)
+	problems = append(problems, m.apply(overrides)...)
 	m.reindex()
 	return m, problems
 }
+
+func (m *Map) add(binding Binding) {
+	if m.byAction[binding.Context] == nil {
+		m.byAction[binding.Context] = map[Action][]string{}
+		m.byKey[binding.Context] = map[string]Action{}
+	}
+	m.byAction[binding.Context][binding.Action] = append([]string(nil), binding.Keys...)
+	m.order[binding.Context] = append(m.order[binding.Context], binding.Action)
+	m.catalog = append(m.catalog, binding)
+}
+
+// addExtra checks the extra bindings and adds the ones it can. A binding on a
+// catalog screen may not be required: that screen is already workable, and a
+// required extra would be a key no rebind could take away from it.
+func (m *Map) addExtra(extra []Binding) []Problem {
+	var problems []Problem
+	for _, binding := range extra {
+		refuse := func(reason string) {
+			problems = append(problems, Problem{Context: binding.Context, Action: binding.Action, Reason: reason})
+		}
+		switch {
+		case !namePattern.MatchString(string(binding.Context)):
+			refuse("is not a screen name: lower case letters, digits and '_'")
+			continue
+		case !namePattern.MatchString(string(binding.Action)):
+			refuse("is not an action name: lower case letters, digits and '_'")
+			continue
+		case binding.Required && slices.Contains(Contexts, binding.Context):
+			refuse("cannot be required on a screen the board already has")
+			continue
+		}
+		if _, taken := m.byAction[binding.Context][binding.Action]; taken {
+			refuse("is already an action on this screen")
+			continue
+		}
+		keys, bad := validateKeys(binding.Context, binding.Action, binding.Keys)
+		problems = append(problems, bad...)
+		binding.Keys = keys
+		if !slices.Contains(m.contexts, binding.Context) {
+			m.contexts = append(m.contexts, binding.Context)
+		}
+		m.add(binding)
+	}
+	return problems
+}
+
+// namePattern is what a screen or an action added from outside the catalog
+// may be called: the shape every catalog name already has, which keeps it a
+// bare key in the key file.
+var namePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // apply writes the overrides it accepts over the defaults. Contexts are
 // walked in catalog order and actions in theirs, so two runs over the same
 // file report the same problems in the same order.
 func (m *Map) apply(overrides Overrides) []Problem {
 	var problems []Problem
+	m.foreign = Overrides{}
 	for _, ctx := range sortedContexts(overrides) {
-		if !slices.Contains(Contexts, ctx) {
+		if !slices.Contains(m.contexts, ctx) {
 			problems = append(problems, Problem{Context: ctx,
 				Reason: "is not a screen this build has; its bindings are ignored"})
+			m.keepForeign(ctx, overrides[ctx])
 		}
 	}
-	for _, ctx := range Contexts {
+	for _, ctx := range m.contexts {
 		wanted, ok := overrides[ctx]
 		if !ok {
 			continue
@@ -160,6 +231,7 @@ func (m *Map) apply(overrides Overrides) []Problem {
 			if _, known := m.byAction[ctx][action]; !known {
 				problems = append(problems, Problem{Context: ctx, Action: action,
 					Reason: "is not an action on this screen"})
+				m.keepForeign(ctx, map[Action][]string{action: keys})
 				continue
 			}
 			cleaned, bad := validateKeys(ctx, action, keys)
@@ -167,7 +239,7 @@ func (m *Map) apply(overrides Overrides) []Problem {
 				problems = append(problems, bad...)
 				continue
 			}
-			if len(cleaned) == 0 && required(ctx, action) {
+			if len(cleaned) == 0 && m.required(ctx, action) {
 				problems = append(problems, Problem{Context: ctx, Action: action,
 					Reason: "cannot be left unbound: it is how this screen is worked"})
 				continue
@@ -185,7 +257,7 @@ func (m *Map) apply(overrides Overrides) []Problem {
 // does the screen keeps working rather than losing a binding silently.
 func (m *Map) collisions() []Problem {
 	var problems []Problem
-	for _, ctx := range Contexts {
+	for _, ctx := range m.contexts {
 		held := map[string]Action{}
 		for _, action := range m.order[ctx] {
 			kept := m.byAction[ctx][action][:0]
@@ -251,7 +323,13 @@ func (m *Map) Bound(ctx Context, action Action) bool { return len(m.byAction[ctx
 // binding at today's default.
 func (m *Map) Overrides() Overrides {
 	out := Overrides{}
-	for _, binding := range Catalog {
+	for ctx, set := range m.foreign {
+		out[ctx] = map[Action][]string{}
+		for action, keys := range set {
+			out[ctx][action] = append([]string(nil), keys...)
+		}
+	}
+	for _, binding := range m.catalog {
 		current := m.byAction[binding.Context][binding.Action]
 		if sameKeys(current, binding.Keys) {
 			continue
@@ -289,7 +367,7 @@ func (m *Map) Rebind(ctx Context, action Action, keys []string) (*Map, []Problem
 		// without is refused here rather than downstream: the resolve would
 		// restore that action's defaults, both would claim the key, and the
 		// rebind the operator just asked for would quietly not happen.
-		if len(remaining) == 0 && required(ctx, owner) {
+		if len(remaining) == 0 && m.required(ctx, owner) {
 			return m, []Problem{{Context: ctx, Action: action, Key: key,
 				Reason: "is the last key on " + string(owner) + ", which this screen needs"}}
 		}
@@ -297,7 +375,7 @@ func (m *Map) Rebind(ctx Context, action Action, keys []string) (*Map, []Problem
 		displaced = append(displaced, Problem{Context: ctx, Action: owner, Key: key,
 			Reason: "moved to " + string(action)})
 	}
-	rebuilt, problems := New(next)
+	rebuilt, problems := NewWith(next, m.extra)
 	for _, problem := range problems {
 		if problem.Context == ctx && problem.Action == action {
 			return m, problems
@@ -310,7 +388,34 @@ func (m *Map) Rebind(ctx Context, action Action, keys []string) (*Map, []Problem
 func (m *Map) Reset(ctx Context, action Action) (*Map, []Problem) {
 	next := m.Overrides()
 	delete(next[ctx], action)
-	return New(next)
+	return NewWith(next, m.extra)
+}
+
+// Contexts is every screen this map resolves keys for: the catalog's, then
+// the ones its extra bindings added, in the order they were added.
+func (m *Map) Contexts() []Context { return append([]Context(nil), m.contexts...) }
+
+// Bindings is every binding on one screen, in catalog order, each carrying
+// the keys it answers to now rather than its defaults.
+func (m *Map) Bindings(ctx Context) []Binding {
+	var out []Binding
+	for _, binding := range m.catalog {
+		if binding.Context != ctx {
+			continue
+		}
+		binding.Keys = m.Keys(ctx, binding.Action)
+		out = append(out, binding)
+	}
+	return out
+}
+
+func (m *Map) keepForeign(ctx Context, set map[Action][]string) {
+	if m.foreign[ctx] == nil {
+		m.foreign[ctx] = map[Action][]string{}
+	}
+	for action, keys := range set {
+		m.foreign[ctx][action] = append([]string(nil), keys...)
+	}
 }
 
 func without(keys []string, drop string) []string {
@@ -411,8 +516,8 @@ var retired = map[Action]string{
 
 // required reports whether an action is one this screen cannot be worked
 // without, which is what forbids unbinding it.
-func required(ctx Context, action Action) bool {
-	for _, binding := range Catalog {
+func (m *Map) required(ctx Context, action Action) bool {
+	for _, binding := range m.catalog {
 		if binding.Context == ctx && binding.Action == action {
 			return binding.Required
 		}

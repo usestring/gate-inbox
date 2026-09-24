@@ -295,22 +295,28 @@ func (s *Sessions) List(sessionID string, opts ListOptions) (list SessionList, e
 	if err != nil {
 		return SessionList{}, err
 	}
-	opts, err = opts.normalize(caller.ID)
+	return runtime.list(caller.ID, opts)
+}
+
+// list is List once the caller is settled. callerID is empty for the board,
+// which is no session: nothing is marked as the caller's own row.
+func (r *runtime) list(callerID string, opts ListOptions) (SessionList, error) {
+	opts, err := opts.normalize(callerID)
 	if err != nil {
 		return SessionList{}, err
 	}
-	stored, err := runtime.store.ListSessions(opts.IncludeArchived)
+	stored, err := r.store.ListSessions(opts.IncludeArchived)
 	if err != nil {
 		return SessionList{}, err
 	}
-	panes, err := runtime.driver.Panes()
+	panes, err := r.driver.Panes()
 	if err != nil {
 		return SessionList{}, err
 	}
 	sessions := make([]Session, 0)
 	matched := 0
 	for _, sess := range stored {
-		if runtime.cfg.Tools[sess.Tool].Shell {
+		if r.cfg.Tools[sess.Tool].Shell {
 			continue
 		}
 		if !opts.keeps(sess) {
@@ -319,7 +325,7 @@ func (s *Sessions) List(sessionID string, opts ListOptions) (list SessionList, e
 		matched++
 		if len(sessions) < opts.Limit {
 			_, running := panes[sess.ID]
-			sessions = append(sessions, runtime.sessionInfo(sess, running, sess.ID == sessionID))
+			sessions = append(sessions, r.sessionInfo(sess, running, callerID != "" && sess.ID == callerID))
 		}
 	}
 	return SessionList{

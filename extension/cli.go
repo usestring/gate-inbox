@@ -32,7 +32,8 @@ type Command struct {
 	// About is help's one line on what it does.
 	About string
 	// Run is the command, given the arguments after its name and a Host
-	// acting as the session whose shell ran it. The extension has been
+	// acting as the session whose shell ran it, or as nobody when that
+	// shell is the operator's own (see Host). The extension has been
 	// configured from the operator's config by then, so a section it
 	// refuses stops the command before Run. Output goes to os.Stdout and
 	// os.Stderr. Returning flag.ErrHelp says usage was asked for and shown,

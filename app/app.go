@@ -335,7 +335,8 @@ func extensionCommands(extensions []extension.Extension, core map[string]func([]
 
 // runExtensionCommand configures the build's extensions from the operator's
 // config, so a section the owner refuses stops the command, and runs it as
-// the session whose shell it was typed in.
+// the session whose shell it was typed in, or as the operator from a shell
+// that is no session's.
 func runExtensionCommand(ctx context.Context, registry *extension.Registry, entry extensionCommand) func([]string) error {
 	return func(args []string) error {
 		dir, err := config.Dir()
@@ -352,8 +353,11 @@ func runExtensionCommand(ctx context.Context, registry *extension.Registry, entr
 		if toggle, ok := entry.ext.(extension.Enabler); ok && !toggle.Enabled() {
 			return fmt.Errorf("%s is a command of extension %q, which the config switches off", entry.command.Name, entry.owner)
 		}
-		sessionID := envname.Get(hooks.EnvSessionID)
-		host := extensionhost.New(dir, sessionID, sessioncmd.NewSessions(dir, sessioncmd.CLIVocabulary()))
+		cmds := sessioncmd.NewSessions(dir, sessioncmd.CLIVocabulary())
+		host := extensionhost.NewOperator(dir, cmds)
+		if sessionID := envname.Get(hooks.EnvSessionID); sessionID != "" {
+			host = extensionhost.New(dir, sessionID, cmds)
+		}
 		if err := entry.command.Run(ctx, args, host); !errors.Is(err, flag.ErrHelp) {
 			return err
 		}

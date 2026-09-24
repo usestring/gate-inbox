@@ -10,10 +10,18 @@ import "context"
 // A Host acts as one session -- the one SessionContext names -- with that
 // session's permissions: a session cannot kill or archive itself through it
 // any more than through its own tools.
+//
+// A CLI command typed in an operator's shell, which is no session, gets a
+// Host acting as nobody: Caller is empty, Get and List read with the
+// operator's reach, as Board does, and everything else is refused, since
+// a spawn needs a parent and a message a sender.
 type Host interface {
 	// ConfigDir is the operator's config directory, the one config.toml is
 	// read from.
 	ConfigDir() string
+	// Caller is the ID of the session the Host acts as, or empty for an
+	// operator's shell.
+	Caller() string
 	// Sessions reads and acts on the board's agent sessions.
 	Sessions() SessionService
 }

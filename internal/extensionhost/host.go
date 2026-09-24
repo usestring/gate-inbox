@@ -1,7 +1,7 @@
-// Package extensionhost is the board's side of extension.Host: the public
-// session services, answered by the same sessioncmd commands a session's own
-// tools run, and translated into the extension package's value types so no
-// internal type crosses the boundary.
+// Package extensionhost is the board's side of extension.Host and
+// extension.Board: the public session services, answered by the same
+// sessioncmd commands a session's own tools run, and translated into the
+// extension package's value types so no internal type crosses the boundary.
 package extensionhost
 
 import (
@@ -13,30 +13,48 @@ import (
 
 var _ extension.Host = (*Host)(nil)
 
-// Host acts as one session.
+// Host acts as one session, or as an operator's shell.
 type Host struct {
 	configDir string
 	sessions  *sessions
 }
 
-// New is a Host acting as sessionID, running commands through cmds.
+// New is a Host acting as sessionID, running commands through cmds. An
+// empty sessionID is refused by every service, as a session's own tools
+// refuse it.
 func New(configDir, sessionID string, cmds *sessioncmd.Sessions) *Host {
 	return &Host{configDir: configDir, sessions: &sessions{caller: sessionID, cmds: cmds}}
 }
 
+// NewOperator is a Host acting as the operator's shell: no caller, reads
+// with the board's reach, every other act refused.
+func NewOperator(configDir string, cmds *sessioncmd.Sessions) *Host {
+	return &Host{configDir: configDir, sessions: &sessions{operator: true, cmds: cmds}}
+}
+
 func (h *Host) ConfigDir() string                  { return h.configDir }
+func (h *Host) Caller() string                     { return h.sessions.caller }
 func (h *Host) Sessions() extension.SessionService { return h.sessions }
 
 type sessions struct {
 	caller string
-	cmds   *sessioncmd.Sessions
+	// operator reads as the board does rather than as caller, which is
+	// empty, so the acts that need a caller are refused by sessioncmd.
+	operator bool
+	cmds     *sessioncmd.Sessions
 }
 
 func (s *sessions) Get(ctx context.Context, id string) (extension.SessionInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return extension.SessionInfo{}, err
 	}
-	got, err := s.cmds.Get(s.caller, id)
+	var got sessioncmd.Session
+	var err error
+	if s.operator {
+		got, err = s.cmds.BoardGet(id)
+	} else {
+		got, err = s.cmds.Get(s.caller, id)
+	}
 	if err != nil {
 		return extension.SessionInfo{}, err
 	}
@@ -47,15 +65,29 @@ func (s *sessions) List(ctx context.Context, filter extension.SessionFilter) (ex
 	if err := ctx.Err(); err != nil {
 		return extension.SessionList{}, err
 	}
-	list, err := s.cmds.List(s.caller, sessioncmd.ListOptions{
+	var list sessioncmd.SessionList
+	var err error
+	if s.operator {
+		list, err = s.cmds.BoardList(listOptions(filter))
+	} else {
+		list, err = s.cmds.List(s.caller, listOptions(filter))
+	}
+	if err != nil {
+		return extension.SessionList{}, err
+	}
+	return sessionList(list), nil
+}
+
+func listOptions(filter extension.SessionFilter) sessioncmd.ListOptions {
+	return sessioncmd.ListOptions{
 		Parent:          filter.ParentID,
 		Status:          filter.Status,
 		IncludeArchived: filter.IncludeArchived,
 		Limit:           filter.Limit,
-	})
-	if err != nil {
-		return extension.SessionList{}, err
 	}
+}
+
+func sessionList(list sessioncmd.SessionList) extension.SessionList {
 	out := extension.SessionList{
 		Sessions:  make([]extension.SessionInfo, 0, len(list.Sessions)),
 		Matched:   list.Matched,
@@ -64,7 +96,7 @@ func (s *sessions) List(ctx context.Context, filter extension.SessionFilter) (ex
 	for _, sess := range list.Sessions {
 		out.Sessions = append(out.Sessions, info(sess))
 	}
-	return out, nil
+	return out
 }
 
 func (s *sessions) Spawn(ctx context.Context, req extension.SpawnRequest) (extension.SessionInfo, error) {

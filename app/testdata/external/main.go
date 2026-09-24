@@ -55,6 +55,11 @@ type peekArgs struct {
 	ID string `json:"id"`
 }
 
+type boardArgs struct {
+	ID     string `json:"id"`
+	Answer string `json:"answer,omitempty"`
+}
+
 func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionContext) error {
 	err := extension.AddTool(r, &mcp.Tool{
 		Name:        "noop_ping",
@@ -93,6 +98,41 @@ func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionCont
 	if err != nil {
 		return err
 	}
+	// noop_board reads a session's dialog as the board rather than as this
+	// session, through the public parser, and answers it when given words.
+	err = extension.AddTool(r, &mcp.Tool{
+		Name:        "noop_board",
+		Description: "Read a session's dialog as the board, and answer it when given an answer.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args boardArgs) (*mcp.CallToolResult, any, error) {
+		board, err := app.NewBoard()
+		if err != nil {
+			return nil, nil, err
+		}
+		pane, err := board.ReadPane(ctx, args.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if pane.Dialog == nil {
+			return text("no dialog"), nil, nil
+		}
+		parsed, ok := extension.InspectDialog(pane.Text)
+		out := fmt.Sprintf("%s | %s | %s | parsed:%v", pane.Dialog.Kind, pane.Dialog.Prompt,
+			strings.Join(pane.Dialog.Options, ","), ok && parsed.Kind == pane.Dialog.Kind)
+		if args.Answer == "" {
+			return text(out), nil, nil
+		}
+		answered, err := board.Answer(ctx, args.ID, args.Answer)
+		switch {
+		case errors.Is(err, extension.ErrDialogRefused):
+			return text(out + " | refused: " + pane.Dialog.Refusal()), nil, nil
+		case err != nil:
+			return nil, nil, err
+		}
+		return text(out + " | selected: " + answered.Selected), nil, nil
+	})
+	if err != nil {
+		return err
+	}
 	// noop_peek reaches the board only through the Host: it lists the
 	// sessions this one can see, then reads one of them.
 	return extension.AddTool(r, &mcp.Tool{
@@ -121,7 +161,8 @@ func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionCont
 }
 
 // Commands adds noop-echo, which prints its arguments with the configured
-// greeting, so a run shows the extension was configured before it. The
+// greeting, so a run shows the extension was configured before it, and
+// noop-who, which reads the board through the Host it is given. The
 // fixture's clash switch also claims a core command's name, which must stop
 // the executable from starting.
 func (n *noop) Commands() []extension.Command {
@@ -139,6 +180,36 @@ func (n *noop) Commands() []extension.Command {
 				return errors.New("noop-echo needs words")
 			}
 			fmt.Printf("%s: %s (config in %s)\n", n.greeting, strings.Join(args, " "), filepath.Base(host.ConfigDir()))
+			return nil
+		},
+	}, {
+		Group: "Noop fixture",
+		Name:  "noop-who",
+		Usage: "noop-who <id> [message]",
+		About: "print who is asking and what the board holds, then send the message",
+		Run: func(ctx context.Context, args []string, host extension.Host) error {
+			if len(args) == 0 {
+				return errors.New("noop-who needs a session id")
+			}
+			sessions := host.Sessions()
+			list, err := sessions.List(ctx, extension.SessionFilter{})
+			if err != nil {
+				return err
+			}
+			ids := make([]string, 0, len(list.Sessions))
+			for _, info := range list.Sessions {
+				ids = append(ids, info.ID)
+			}
+			got, err := sessions.Get(ctx, args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Printf("caller %q | %s | %s\n", host.Caller(), strings.Join(ids, ","), got.Name)
+			if len(args) > 1 {
+				if err := sessions.Send(ctx, args[0], args[1]); err != nil {
+					fmt.Printf("send refused: %v\n", err)
+				}
+			}
 			return nil
 		},
 	}}

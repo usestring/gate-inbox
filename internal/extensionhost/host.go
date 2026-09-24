@@ -1,7 +1,7 @@
-// Package extensionhost is the board's side of extension.Host: the public
-// session services, answered by the same sessioncmd commands a session's own
-// tools run, and translated into the extension package's value types so no
-// internal type crosses the boundary.
+// Package extensionhost is the board's side of extension.Host and
+// extension.Board: the public session services, answered by the same
+// sessioncmd commands a session's own tools run, and translated into the
+// extension package's value types so no internal type crosses the boundary.
 package extensionhost
 
 import (
@@ -47,15 +47,23 @@ func (s *sessions) List(ctx context.Context, filter extension.SessionFilter) (ex
 	if err := ctx.Err(); err != nil {
 		return extension.SessionList{}, err
 	}
-	list, err := s.cmds.List(s.caller, sessioncmd.ListOptions{
+	list, err := s.cmds.List(s.caller, listOptions(filter))
+	if err != nil {
+		return extension.SessionList{}, err
+	}
+	return sessionList(list), nil
+}
+
+func listOptions(filter extension.SessionFilter) sessioncmd.ListOptions {
+	return sessioncmd.ListOptions{
 		Parent:          filter.ParentID,
 		Status:          filter.Status,
 		IncludeArchived: filter.IncludeArchived,
 		Limit:           filter.Limit,
-	})
-	if err != nil {
-		return extension.SessionList{}, err
 	}
+}
+
+func sessionList(list sessioncmd.SessionList) extension.SessionList {
 	out := extension.SessionList{
 		Sessions:  make([]extension.SessionInfo, 0, len(list.Sessions)),
 		Matched:   list.Matched,
@@ -64,7 +72,7 @@ func (s *sessions) List(ctx context.Context, filter extension.SessionFilter) (ex
 	for _, sess := range list.Sessions {
 		out.Sessions = append(out.Sessions, info(sess))
 	}
-	return out, nil
+	return out
 }
 
 func (s *sessions) Spawn(ctx context.Context, req extension.SpawnRequest) (extension.SessionInfo, error) {

@@ -295,6 +295,10 @@ func normalise(text string) string {
 // answer. The caller escalates rather than pretending it was answered.
 var ErrNotKeyAnswerable = errors.New("dialog: this dialog cannot be answered by a keystroke")
 
+// ErrNoDialog is a pane holding no dialog this can read: somebody answered it
+// first, or the session is resting at its own input line.
+var ErrNoDialog = errors.New("dialog: the pane is not holding a dialog")
+
 // selectKeys is the keys that move the cursor from at to want and choose it.
 // An unknown cursor position returns nothing, because moving blind would
 // answer a question with whatever it landed on.

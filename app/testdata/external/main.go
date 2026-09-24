@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -53,6 +54,11 @@ type peekArgs struct {
 	ID string `json:"id"`
 }
 
+type boardArgs struct {
+	ID     string `json:"id"`
+	Answer string `json:"answer,omitempty"`
+}
+
 func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionContext) error {
 	err := extension.AddTool(r, &mcp.Tool{
 		Name:        "noop_ping",
@@ -87,6 +93,41 @@ func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionCont
 			return nil, nil, err
 		}
 		return text(string(note)), nil, nil
+	})
+	if err != nil {
+		return err
+	}
+	// noop_board reads a session's dialog as the board rather than as this
+	// session, through the public parser, and answers it when given words.
+	err = extension.AddTool(r, &mcp.Tool{
+		Name:        "noop_board",
+		Description: "Read a session's dialog as the board, and answer it when given an answer.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args boardArgs) (*mcp.CallToolResult, any, error) {
+		board, err := app.NewBoard()
+		if err != nil {
+			return nil, nil, err
+		}
+		pane, err := board.ReadPane(ctx, args.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if pane.Dialog == nil {
+			return text("no dialog"), nil, nil
+		}
+		parsed, ok := extension.InspectDialog(pane.Text)
+		out := fmt.Sprintf("%s | %s | %s | parsed:%v", pane.Dialog.Kind, pane.Dialog.Prompt,
+			strings.Join(pane.Dialog.Options, ","), ok && parsed.Kind == pane.Dialog.Kind)
+		if args.Answer == "" {
+			return text(out), nil, nil
+		}
+		answered, err := board.Answer(ctx, args.ID, args.Answer)
+		switch {
+		case errors.Is(err, extension.ErrDialogRefused):
+			return text(out + " | refused: " + pane.Dialog.Refusal()), nil, nil
+		case err != nil:
+			return nil, nil, err
+		}
+		return text(out + " | selected: " + answered.Selected), nil, nil
 	})
 	if err != nil {
 		return err

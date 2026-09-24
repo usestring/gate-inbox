@@ -14,8 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmux"
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 const modulePath = "github.com/usestring/gate-inbox"
@@ -88,7 +91,26 @@ func fixtureHome(t *testing.T, config string) []string {
 	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("poll_interval = \"2s\"\n\n"+config), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return append(os.Environ(), "GATE_INBOX_HOME="+home, "GATE_INBOX_SESSION_ID=fixture-session")
+	return append(isolatedEnv(t), "GATE_INBOX_HOME="+home, "GATE_INBOX_SESSION_ID=fixture-session")
+}
+
+// isolatedEnv is this process's environment without the tmux server the test
+// run was started from. $TMUX names the pane the test was run in, and tmux
+// with no -L or -S follows it to that live server; TMUX_TMPDIR is a scratch
+// directory of the test's own, so no socket name resolves outside it. The
+// directory is a short one: a socket path under t.TempDir() runs past the
+// length a unix socket may have.
+func isolatedEnv(t *testing.T) []string {
+	t.Helper()
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if key == "TMUX" || key == "TMUX_PANE" || key == "TMUX_TMPDIR" {
+			continue
+		}
+		env = append(env, entry)
+	}
+	return append(env, "TMUX_TMPDIR="+tmuxtest.ScratchDir(t))
 }
 
 // TestExternalBuildServesEveryEntryPoint is the acceptance proof for the
@@ -161,6 +183,41 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 			if !strings.Contains(got, want) {
 				t.Fatalf("noop_peek answered %q, want it to contain %q", got, want)
 			}
+		}
+	})
+
+	// The extension reads a pane and answers its dialog as the board, on a
+	// session it has no relationship to, through app.NewBoard and the
+	// public dialog reading alone.
+	t.Run("board reads and answers a dialog", func(t *testing.T) {
+		if _, err := exec.LookPath("tmux"); err != nil {
+			t.Skip("the board reads a tmux pane")
+		}
+		socket := tmuxtest.NewSocket("board")
+		env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n")
+		home := envValue(env, "GATE_INBOX_HOME")
+		tmuxDir := envValue(env, "TMUX_TMPDIR")
+		env = append(env, "GATE_INBOX_SESSION_ID=ca11e400")
+		seedSessions(t, filepath.Join(home, "state.db"))
+		// This process's own tmux calls resolve the socket under the same
+		// scratch directory as the fixture's.
+		t.Setenv("TMUX_TMPDIR", tmuxDir)
+		t.Cleanup(func() { killTestServer(t, tmuxDir, socket) })
+		paintSession(t, filepath.Join(home, "state.db"), socket, "d1a10001", boardAskPane)
+		paintSession(t, filepath.Join(home, "state.db"), socket, "d1a10002", boardPermissionPane)
+
+		session := connectFixture(t, bin, env)
+		read := callText(t, session, "noop_board", map[string]any{"id": "d1a10001"})
+		if want := "AskUserQuestion | Which region should the survey cover? | North only,South only | parsed:true"; read != want {
+			t.Fatalf("noop_board read %q, want %q", read, want)
+		}
+		answered := callText(t, session, "noop_board", map[string]any{"id": "d1a10001", "answer": "South only"})
+		if !strings.HasSuffix(answered, "| selected: South only") {
+			t.Fatalf("noop_board answered %q", answered)
+		}
+		refused := callText(t, session, "noop_board", map[string]any{"id": "d1a10002", "answer": "Yes"})
+		if !strings.Contains(refused, "| refused: a permission prompt") {
+			t.Fatalf("noop_board on a permission prompt answered %q", refused)
 		}
 	})
 
@@ -266,6 +323,72 @@ func seedSessions(t *testing.T, path string) {
 	}
 	if err := st.SetSnapshot("c41d0001", "the child's last screen"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+const boardAskPane = `Which region should the survey cover?
+
+❯ 1. North only
+  2. South only
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+`
+
+const boardPermissionPane = `  Do you want to proceed?
+  ❯ 1. Yes
+    2. No
+
+  Enter to confirm · Esc to cancel
+`
+
+// killTestServer ends the server on a test-owned socket, addressed by its
+// full path under dir so it can never resolve to another server.
+func killTestServer(t *testing.T, dir, socket string) {
+	t.Helper()
+	if !tmuxtest.Owns(socket) {
+		t.Fatalf("refusing to kill the tmux server on %q: not a test socket", socket)
+	}
+	path := filepath.Join(dir, "tmux-"+strconv.Itoa(os.Getuid()), socket)
+	_ = exec.Command("tmux", "-S", path, "kill-server").Run()
+}
+
+// paintSession files an agent session nobody spawned and runs a pane for it
+// on socket, showing pane, and waits for the paint to land.
+func paintSession(t *testing.T, path, socket, id, pane string) {
+	t.Helper()
+	dir := t.TempDir()
+	fixture := filepath.Join(dir, "pane.txt")
+	if err := os.WriteFile(fixture, []byte(pane), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	driver, err := tmux.NewWithSocket(socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := driver.Create(id, dir, "cat "+fixture+"; sleep 60", nil, 80, 24); err != nil {
+		t.Fatalf("create %s: %v", id, err)
+	}
+	t.Cleanup(func() { _ = driver.Kill(id) })
+	lines := strings.Split(strings.TrimSpace(pane), "\n")
+	last := strings.TrimSpace(lines[len(lines)-1])
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		painted, err := driver.CapturePane(id)
+		if err == nil && strings.Contains(ansi.Strip(painted), last) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s never painted:\n%s", id, painted)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.CreateSession(store.Session{ID: id, Name: "painted " + id, Tool: "claude", Status: "waiting", Cwd: dir, CreatedAt: time.Now()}); err != nil {
+		t.Fatalf("seed %s: %v", id, err)
 	}
 }
 

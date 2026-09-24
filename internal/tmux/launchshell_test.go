@@ -14,6 +14,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 // launchshellHelperEnv picks a role when TestLoginProbeLeavesTheCallersTerminalAlone
@@ -139,7 +141,7 @@ func TestLoginProbeLeavesTheCallersTerminalAlone(t *testing.T) {
 	} else {
 		cmd = exec.Command(scriptBin, "-qec", helper, "/dev/null")
 	}
-	cmd.Env = append(os.Environ(), launchshellHelperEnv+"=measure", launchshellFakeEnv+"="+fake)
+	cmd.Env = append(tmuxtest.Environ(), launchshellHelperEnv+"=measure", launchshellFakeEnv+"="+fake)
 	out, err := cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(out), launchshellKeptMarker) {
 		t.Fatalf("probe run under a terminal: %v\n%s", err, out)

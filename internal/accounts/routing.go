@@ -136,6 +136,16 @@ func snapshot(st *store.Store, tool config.Tool, account string) (Snapshot, erro
 }
 
 func Select(st *store.Store, tool config.Tool, named, sessionID string) (chosen string, err error) {
+	return selectAccount(st, tool, named, sessionID, true)
+}
+
+// Preview is the account Select would choose now, without taking a turn of
+// the pool's rotation or recording a borrower.
+func Preview(st *store.Store, tool config.Tool, named string) (string, error) {
+	return selectAccount(st, tool, named, "", false)
+}
+
+func selectAccount(st *store.Store, tool config.Tool, named, sessionID string, commit bool) (chosen string, err error) {
 	if tool.AccountEnv == "" {
 		return named, nil
 	}
@@ -167,7 +177,7 @@ func Select(st *store.Store, tool config.Tool, named, sessionID string) (chosen 
 		if tool.AccountEnv != "CLAUDE_CODE_OAUTH_TOKEN" {
 			return "", errors.New("smart routing has no usage source for this tool")
 		}
-		chosen, reason, err = selectSmart(st, tool, own)
+		chosen, reason, err = selectSmart(st, tool, own, commit)
 		if err != nil {
 			return "", err
 		}
@@ -180,7 +190,11 @@ func Select(st *store.Store, tool config.Tool, named, sessionID string) (chosen 
 	return chosen, nil
 }
 
-func selectSmart(st *store.Store, tool config.Tool, own string) (string, string, error) {
+func selectSmart(st *store.Store, tool config.Tool, own string, commit bool) (string, string, error) {
+	next := st.NextAccount
+	if !commit {
+		next = st.PeekAccount
+	}
 	names, err := members(tool)
 	if err != nil {
 		return "", "pool_unavailable", fmt.Errorf("cannot list shared subscriptions: %w", err)
@@ -221,13 +235,13 @@ func selectSmart(st *store.Store, tool config.Tool, own string) (string, string,
 		}
 	}
 	if len(owned) > 0 {
-		chosen, err := st.NextAccount(tool.AccountSecret+":own:"+own, owned)
+		chosen, err := next(tool.AccountSecret+":own:"+own, owned)
 		return chosen, "own_headroom", err
 	}
 	if len(eligible) == 0 {
 		return "", "pool_exhausted", errors.New("no shared subscription has fresh usable quota; choose own subscription or retry after reset")
 	}
-	chosen, err := st.NextAccount(tool.AccountSecret, eligible)
+	chosen, err := next(tool.AccountSecret, eligible)
 	return chosen, "pool_round_robin", err
 }
 

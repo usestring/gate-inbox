@@ -75,8 +75,22 @@ func TestALenderThatRefusesItsConfigIsNoPool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := registry.AccountPool("", map[string]map[string]any{"pooled": {"nope": 1}}); err == nil {
-		t.Fatal("a lender with an unknown key supplied a pool")
+	_, err = registry.AccountPool("", map[string]map[string]any{"pooled": {"nope": 1}})
+	if err == nil || !strings.Contains(err.Error(), `extension "pooled" is disabled`) || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("a lender with an unknown key: %v; want the reason it is disabled", err)
+	}
+}
+
+// Once the board has configured everything, a lender its section disabled
+// supplies no pool, and asking for one says why.
+func TestAConfiguredRegistryReportsADisabledLender(t *testing.T) {
+	registry, err := extension.NewRegistry([]extension.Extension{&lender{stub{id: "pooled"}}, &stub{id: "plain"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry.Configure("", map[string]map[string]any{"pooled": {"nope": 1}})
+	if pool, err := registry.AccountPool("", nil); pool != nil || err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("pool = %v, %v", pool, err)
 	}
 }
 

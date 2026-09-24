@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -220,7 +221,7 @@ func TestMessageContextIsGatheredFromTheStore(t *testing.T) {
 		t.Helper()
 		id, _, err := m.store.Enqueue(store.InboxMessage{
 			SessionID: to, SenderID: from, SenderName: name, Body: body,
-			Fingerprint: store.Fingerprint(body), SentAt: at,
+			Fingerprint: textfmt.Fingerprint(body), SentAt: at,
 		}, store.DefaultInboxLimits)
 		if err != nil {
 			t.Fatalf("enqueue %q: %v", body, err)
@@ -275,7 +276,7 @@ func TestALiveSenderGetsNoSupersessionClause(t *testing.T) {
 	body := "done"
 	if _, _, err := m.store.Enqueue(store.InboxMessage{
 		SessionID: recipient.ID, SenderID: sender.ID, SenderName: sender.Name,
-		Body: body, Fingerprint: store.Fingerprint(body), SentAt: time.Now(),
+		Body: body, Fingerprint: textfmt.Fingerprint(body), SentAt: time.Now(),
 	}, store.DefaultInboxLimits); err != nil {
 		t.Fatalf("enqueue: %v", err)
 	}

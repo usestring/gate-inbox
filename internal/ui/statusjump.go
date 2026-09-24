@@ -194,7 +194,8 @@ func (m *Model) foldedJumpTarget(jump statusJump, tried map[string]bool) (store.
 			shown[row.sess.ID] = true
 		}
 	}
-	for _, sess := range store.OrderLinkedSessions(m.listedSessions()) {
+	listed := store.OrderLinkedSessions(m.listedSessions())
+	for _, sess := range floatBlocks(listed, m.sessions, floatedRoots(m.sessions)) {
 		if shown[sess.ID] || tried[sess.ID] {
 			continue
 		}

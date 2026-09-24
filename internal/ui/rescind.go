@@ -5,6 +5,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/usestring/gate-inbox/extension"
+
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -16,6 +18,22 @@ type submissionRescind struct {
 	sentAt       time.Time
 	status       string
 	lastStatusAt time.Time
+}
+
+// noteOperator tells the board's observer that the operator handed sess
+// something from the board and it reached the pane. An extension that put a
+// question to the operator learns from it that a person has answered.
+func (m *Model) noteOperator(sess store.Session, via extension.OperatorVia, text string, dialog bool) {
+	if m.poller == nil || m.poller.observer == nil {
+		return
+	}
+	m.poller.observer.Operator(extension.OperatorInput{
+		SessionID: sess.ID,
+		Via:       via,
+		Text:      text,
+		Dialog:    dialog,
+		At:        time.Now(),
+	})
 }
 
 func (m *Model) noteSubmission(sess store.Session) {

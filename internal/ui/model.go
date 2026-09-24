@@ -72,6 +72,7 @@ const (
 	// modeAgentPick holds the one question a new session asks: which agent
 	// starts here. See agentpick.go.
 	modeAgentPick
+	modeExtensionView
 )
 
 type treeRow struct {
@@ -116,6 +117,37 @@ type Model struct {
 	// a key that does nothing with the explanation in a process nobody sees.
 	keys        *keymap.Map
 	keyProblems []string
+	// extUIs, extKeys, extBridge and extBadges are what the build's
+	// extensions added: see extensions.go.
+	extUIs    []ExtensionUI
+	extKeys   map[keymap.Context]map[keymap.Action]extensionKey
+	extBridge *ExtensionBridge
+	extBadges map[string][]Badge
+	// extHeaders, extHidden, extOwned and extFilters are the rows' headers,
+	// the hidden and owned rows, and the list filters: see extrows.go.
+	extHeaders map[string][][]Span
+	extHidden  map[string]bool
+	extOwned   map[string]bool
+	extFilters []*listFilter
+	// extAttention is what the extensions say about where a session stands
+	// in the operator's queue: see extattention.go.
+	extAttention map[string]Attention
+	// extScreens are the view screens the extensions declared keys for, and
+	// extView is the view on screen in modeExtensionView.
+	extScreens map[keymap.Context]bool
+	extView    openView
+
+	// extensionNotes are the build's extensions the operator's config
+	// switched off, and the config sections nothing owns, each with its
+	// reason. The key map leads with them, since an extension that went
+	// quiet is otherwise a feature that vanished with no word as to why.
+	extensionNotes []string
+
+	// openHeld is the session an open key is waiting on a second press
+	// for, after an extension's warning; openHeldText is the status line
+	// that warning was put on the bar as.
+	openHeld     string
+	openHeldText string
 
 	// setSnapshots writes pane captures before archive or kill takes the
 	// windows; a seam so snapshot failures can be exercised without a broken
@@ -530,6 +562,9 @@ type Model struct {
 	// settle timers with an older gen are dropped so key-repeat cannot
 	// queue a second of tmux work after the user stops.
 	previewGen uint64
+	// extensionViews counts the views extensions have opened on the board;
+	// see noteExtensionViewOpened.
+	extensionViews uint64
 	// launched is when this run recorded each session it spawned. A poll
 	// that listed the store before that has nothing to say about the row.
 	launched map[string]time.Time
@@ -1157,6 +1192,21 @@ func (m *Model) persistCollapsed() {
 	}
 }
 
+// ObserveBoard has every poll pass report to observer. It is set before
+// StartPoller, so the first pass is reported too.
+func (m *Model) ObserveBoard(observer BoardObserver) {
+	m.poller.observer = observer
+}
+
+// PinStatuses has every poll pass show a session pins holds at that status,
+// and returns what asks for a pass now, for pins to call when one changes so
+// the board shows it without waiting for the next tick. It is set before
+// StartPoller.
+func (m *Model) PinStatuses(pins StatusPins) (refresh func()) {
+	m.poller.pins = pins
+	return m.poller.requestRefresh
+}
+
 // StartPoller launches the background polling loop. It runs outside the
 // bubbletea event loop so statuses keep updating while the TUI is
 // suspended inside a tmux attach.
@@ -1288,7 +1338,8 @@ func (m *Model) listedSessions() []store.Session {
 
 func (m *Model) computeListedSessions() []store.Session {
 	visible := m.visibleSessions()
-	if !m.statusFilter.active() {
+	extFiltered := m.extensionFiltersOn()
+	if !m.statusFilter.active() && !extFiltered {
 		return visible
 	}
 	heldID := ""
@@ -1301,7 +1352,16 @@ func (m *Model) computeListedSessions() []store.Session {
 			listed = append(listed, sess)
 			continue
 		}
-		if m.statusFilter.matches(sess.Status) || m.attentionViaChild(sess) {
+		if extFiltered && !m.extensionFiltersKeep(sess) {
+			continue
+		}
+		// A session an extension answers for is not waiting on the
+		// operator, whatever its status says; see ownedByExtension.
+		kept := m.statusFilter.matches(sess.Status)
+		if m.statusFilter.active() && m.ownedByExtension(sess.ID) {
+			kept = false
+		}
+		if kept || m.attentionViaChild(sess) {
 			listed = append(listed, sess)
 		}
 	}
@@ -1609,6 +1669,9 @@ func (m *Model) applyPaneGeom(msg paneGeomMsg) tea.Cmd {
 // exported entry point: it records the press and the branch it took before
 // handing over here.
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.updateExtension(msg) {
+		return m, nil
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		// Resuming from a tmux attach re-sends the current size unchanged; only
@@ -2251,6 +2314,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return model, cmd
 
 	case tea.PasteMsg:
+		if m.mode == modeExtensionView {
+			return m, m.pasteIntoView(msg)
+		}
 		if m.quick.active && (m.mode == modeList || m.showsConversation()) {
 			m.quick.input.InsertString(msg.Content)
 			return m, nil
@@ -2605,6 +2671,13 @@ func (m *Model) buildTree() {
 			m.sortGroupSessions(groupSessions)
 		}
 	}
+	// After the sort too: a block a helper floats heads its group whatever
+	// order the rest are in. See rolefloat.go.
+	if roots := floatedRoots(m.sessions); len(roots) > 0 {
+		for group, groupSessions := range sessionsByGroup {
+			sessionsByGroup[group] = floatBlocks(groupSessions, m.sessions, roots)
+		}
+	}
 
 	paths := groupClosure(m.groups, m.sessions)
 	// A scope whose group is gone -- deleted, renamed, or restored from a
@@ -2664,7 +2737,17 @@ func (m *Model) buildTree() {
 
 	// Root is a standing move and spawn target; its sessions stay flat.
 	rows := make([]treeRow, 0, len(m.sessions)+len(paths)+1)
+	// A session an extension hides is left out of the browsing tree with
+	// everything under it. Only there: search, triage and the status filter
+	// were opened to find a session, and a hidden one is still a session
+	// somebody may be looking for.
+	extHides := func(sess store.Session) bool {
+		return honorFolds && !m.triage && query == "" && m.hiddenByExtension(sess.ID)
+	}
 	appendSession := func(sess store.Session, depth int) {
+		if extHides(sess) {
+			return
+		}
 		rows = append(rows, treeRow{sess: sess, depth: depth})
 		rows = append(rows, m.artifactRows(sess, depth+1)...)
 		// Folds are the browsing view's convenience only. The pruned views
@@ -2679,7 +2762,7 @@ func (m *Model) buildTree() {
 		for _, child := range childrenByParent[sess.ID] {
 			// A shell is the session's own terminal, opened with T and
 			// expected on screen; only spawned agents fold away.
-			if hidden && m.foldsAway(child) {
+			if hidden && m.foldsAway(child) || extHides(child) {
 				continue
 			}
 			// Triage draws every child except the ones somebody else is

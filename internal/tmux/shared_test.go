@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 // recordSeparator ends every argument the stub logs, so an argument carrying
@@ -338,7 +340,7 @@ func TestAttachFromInsideTheSameServer(t *testing.T) {
 
 	// The manager sits in some other pane on the same server: the attach
 	// must go through, so tmux's nesting guard has to come off.
-	t.Setenv("TMUX", "/tmp/tmux-1000/"+testSocket+",1,0")
+	t.Setenv("TMUX", tmuxtest.SocketPath(testSocket)+",1,0")
 	t.Setenv("TMUX_PANE", "%99999")
 	if hasTmuxEnv(driver.AttachCommand(id).Env) {
 		t.Error("kept $TMUX, so tmux refuses the attach as nesting")

@@ -80,8 +80,8 @@ func integrationModel(t *testing.T, cfg config.Config) *Model {
 	return m
 }
 
-// A provider switched off, and Linear switched on with no key, cost nothing: no resolver, no gh
-// run, no request, no rail row, and health that reads as off rather than failing.
+// Providers switched off cost nothing: no resolver, no gh run, no request, no rail row, and health
+// that reads as off rather than failing.
 func TestSwitchedOffProvidersReachNothing(t *testing.T) {
 	cases := []struct {
 		name           string
@@ -89,7 +89,7 @@ func TestSwitchedOffProvidersReachNothing(t *testing.T) {
 		key            string
 	}{
 		{"both off", false, false, "key"},
-		{"github off, linear on without a key", false, true, ""},
+		{"both off without a key", false, false, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -133,16 +133,55 @@ func TestSwitchedOnProvidersAreAsked(t *testing.T) {
 	}
 }
 
-// Linear without a key leaves GitHub's rows alone.
-func TestKeylessLinearKeepsGitHubsRows(t *testing.T) {
-	watchOutbound(t, "")
-	m := integrationModel(t, switched(true, true))
+// Linear on without a key still draws its tickets, with no state, beside GitHub's rows. It sends
+// nothing, and its health names the missing key instead of reading as a failure.
+func TestKeylessLinearDrawsTicketsWithoutState(t *testing.T) {
+	out := watchOutbound(t, "")
+	m := integrationModel(t, switched(false, true))
+
+	if m.work.Linear == nil {
+		t.Fatal("no ticket resolver with Linear on and no key")
+	}
+	if out.http.requests != 0 {
+		t.Errorf("%d HTTP requests with no key", out.http.requests)
+	}
+	var tickets int
 	for _, row := range m.workRowsFor("s1") {
-		if row.kind == "TICKET" {
-			t.Errorf("ticket row with Linear keyless: %+v", row)
+		if row.kind != "TICKET" {
+			continue
+		}
+		tickets++
+		if row.label != "ABC-4242" || row.detail != "not looked up" {
+			t.Errorf("ticket row = %+v, want ABC-4242 with no state", row)
 		}
 	}
-	if len(m.workRowsFor("s1")) == 0 {
+	if tickets != 1 {
+		t.Errorf("%d ticket rows with Linear keyless, want 1", tickets)
+	}
+	_, ln := m.work.Health()
+	if !ln.Off || ln.Failed() || !strings.Contains(ln.Reason, "LINEAR_API_KEY is not set") {
+		t.Errorf("linear health = %+v, want off, not failed, naming the missing key", ln)
+	}
+}
+
+// Linear switched off in the config removes its tickets even with a key: no row, no request.
+func TestLinearSwitchedOffDrawsNoTickets(t *testing.T) {
+	out := watchOutbound(t, "key")
+	m := integrationModel(t, switched(true, false))
+
+	if m.work.Linear != nil {
+		t.Error("ticket resolver built with Linear switched off")
+	}
+	if out.http.requests != 0 {
+		t.Errorf("%d HTTP requests with Linear off", out.http.requests)
+	}
+	rows := m.workRowsFor("s1")
+	for _, row := range rows {
+		if row.kind == "TICKET" {
+			t.Errorf("ticket row with Linear off: %+v", row)
+		}
+	}
+	if len(rows) == 0 {
 		t.Error("GitHub's rows went with Linear")
 	}
 }

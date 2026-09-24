@@ -9,7 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 )
 
 // The key map is the one place every binding in the app is written down, so
@@ -46,7 +46,7 @@ func (m *Model) helpKeyColumn() int {
 	width := 0
 	for _, section := range m.resolvedHelp() {
 		for _, row := range section.rows {
-			if w := cellWidth(row.key); w > width {
+			if w := textfmt.Width(row.key); w > width {
 				width = w
 			}
 		}
@@ -126,7 +126,7 @@ func (m *Model) helpBodyLines(sections []resolvedSection, width int, query strin
 			indent := spaces(keyColumn)
 			room := max(width-keyColumn, 1)
 			if row.key == "" && !row.rebindable {
-				for _, line := range wrapDescription(row.text, room) {
+				for _, line := range textfmt.Wrap(row.text, room) {
 					lines = append(lines, indent+subtleStyle.Render(line))
 				}
 				continue
@@ -159,17 +159,17 @@ func (m *Model) helpBodyLines(sections []resolvedSection, width int, query strin
 				style = selectedKeyStyle
 				key = style.Render(padRight(cap, keyColumn))
 			}
-			for i, line := range wrapDescription(text, room) {
+			for i, line := range textfmt.Wrap(text, room) {
 				prefix := key
 				if i > 0 {
 					prefix = indent
 				}
 				body := highlightMatch(line, query, room)
 				if !row.available {
-					body = subtleStyle.Render(cellTruncate(line, max(room, 1), "…"))
+					body = subtleStyle.Render(textfmt.TruncateWidth(line, max(room, 1), "…"))
 				}
 				if selected {
-					body = selectedTextStyle.Render(cellTruncate(line, max(room, 1), "…"))
+					body = selectedTextStyle.Render(textfmt.TruncateWidth(line, max(room, 1), "…"))
 				}
 				lines = append(lines, prefix+body)
 			}
@@ -178,16 +178,10 @@ func (m *Model) helpBodyLines(sections []resolvedSection, width int, query strin
 	return lines, anchors
 }
 
-// wrapDescription breaks a row's description to the column it has, keeping
-// whole words where it can and splitting one that is longer than the column.
-func wrapDescription(text string, width int) []string {
-	return strings.Split(ansi.Wrap(text, max(width, 1), ""), "\n")
-}
-
 // highlightMatch renders a description with the matched run picked out, so
 // a search lands the eye on the word it found instead of on the row.
 func highlightMatch(text, query string, width int) string {
-	text = cellTruncate(text, max(width, 1), "…")
+	text = textfmt.TruncateWidth(text, max(width, 1), "…")
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return mutedStyle.Render(text)
@@ -251,10 +245,35 @@ type resolvedSection struct {
 	rows  []resolvedRow
 }
 
-// helpCatalog is the key map as this run shows it: the static sections, then
-// the operator's own snippets.
+// helpCatalog is the key map as this run shows it: any extension the config
+// switched off, the static sections, then the operator's own snippets.
 func (m *Model) helpCatalog() []helpSection {
-	return append(helpSections(), m.snippetHelpSection())
+	var catalog []helpSection
+	if section, ok := m.extensionHelpSection(); ok {
+		catalog = append(catalog, section)
+	}
+	catalog = append(catalog, helpSections()...)
+	catalog = append(catalog, m.extensionHelpSections()...)
+	return append(catalog, m.snippetHelpSection())
+}
+
+// SetExtensionNotes hands the board what configuring its extensions came
+// to: one line per extension switched off, and per section nothing owns.
+func (m *Model) SetExtensionNotes(notes []string) {
+	m.extensionNotes = notes
+}
+
+// extensionHelpSection is the note the key map opens with when an
+// extension is not serving, or nothing when every one is.
+func (m *Model) extensionHelpSection() (helpSection, bool) {
+	if len(m.extensionNotes) == 0 {
+		return helpSection{}, false
+	}
+	rows := []helpRow{note("Fix the section in config.toml and restart the board; sessions pick it up on their next MCP start.")}
+	for _, text := range m.extensionNotes {
+		rows = append(rows, lit("✕", text))
+	}
+	return helpSection{title: "disabled extensions", rows: rows}, true
 }
 
 // resolvedHelp is the catalog with every binding row asking the key map what
@@ -331,7 +350,7 @@ func (m *Model) viewHelp() string {
 	// override is otherwise a key that does nothing with its explanation in
 	// a process nobody can see.
 	for _, note := range append(append([]string{}, m.help.notes...), m.keyProblems...) {
-		lines = append(lines, subtleStyle.Render(cellTruncate("· "+note, inner, "…")))
+		lines = append(lines, subtleStyle.Render(textfmt.TruncateWidth("· "+note, inner, "…")))
 	}
 
 	return m.cardSized(width, m.helpTitleCap()+" Keys", strings.Join(lines, "\n"), m.helpHint())

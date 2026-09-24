@@ -74,6 +74,21 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleTmuxHintKey(msg)
 	case modeAgentPick:
 		return m.handleAgentPickKey(msg)
+	case modeExtensionView:
+		return m.handleExtensionViewKey(msg)
+	}
+
+	// A pending open waits for the open key again on the same row. esc
+	// only cancels it; any other key drops it and does what it always did.
+	if m.openHeld != "" {
+		if msg.String() == "esc" {
+			m.dropOpenHold()
+			return m, nil
+		}
+		if action, bound := m.action(keymap.ContextList, msg); !bound ||
+			(action != keymap.Open && action != keymap.Attach) {
+			m.dropOpenHold()
+		}
 	}
 
 	if m.searching {
@@ -173,6 +188,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if !bound {
 		return m, nil
 	}
+	if ext, ok := m.extKeys[keymap.ContextList][action]; ok {
+		return m, m.runExtensionKey(ext)
+	}
 	switch action {
 	case keymap.Quit:
 		return m, tea.Quit
@@ -205,6 +223,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		// ↵ on a session is that session's own key -- focus, or attach --
 		// and stays it however many pull requests hang off the row.
+		if m.holdOpen(action) {
+			return m, nil
+		}
 		if m.enterFocuses() {
 			return m.focusSelected()
 		}
@@ -247,6 +268,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case keymap.Attach:
+		if m.holdOpen(action) {
+			return m, nil
+		}
 		if m.enterFocuses() {
 			return m.attachSelected()
 		}

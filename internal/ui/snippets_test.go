@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/snippets"
 	"github.com/usestring/gate-inbox/internal/status"
 )
@@ -440,7 +441,7 @@ func TestQuickBarSuggestionStaysOneLine(t *testing.T) {
 	if strings.Contains(line, "\n") {
 		t.Fatalf("the suggestion line wrapped:\n%s", line)
 	}
-	if got := cellWidth(ansi.Strip(line)); got > 80 {
+	if got := textfmt.Width(ansi.Strip(line)); got > 80 {
 		t.Fatalf("suggestion line is %d cells wide, want at most 80", got)
 	}
 }

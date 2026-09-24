@@ -10,7 +10,7 @@
 ● Skill(code-comments)
   ⎿  Successfully loaded skill
 
-● Update(~/repos/worktrees/guard-approve-on-open-dialog-20260909-042312/sample-repo/gate-inbox/internal/ui/approve.go)
+● Update(~/repos/sample-repo/gate-inbox/internal/ui/approve.go)
   ⎿  Added 2 lines, removed 5 lines
       109  //
       110  // SendText pastes and presses Enter, and a dialog answers both: the paste
@@ -26,7 +26,7 @@
       115  // TypingHold is the same read the inbox poller takes before it types a queued
       116  // message in (poller.go), so a key the operator presses and a message another
 
-● Update(~/repos/worktrees/guard-approve-on-open-dialog-20260909-042312/sample-repo/gate-inbox/internal/ui/approve_test.go)
+● Update(~/repos/sample-repo/gate-inbox/internal/ui/approve_test.go)
   ⎿  Added 3 lines, removed 5 lines
       138    waitForPaneText(t, m, sessID, "Enter to confirm")
       139  }
@@ -45,8 +45,8 @@
 
   Ran 6 shell commands
 
-● Write(~/repos/worktrees/guard-approve-on-open-dialog-20260909-042312/sample-repo/gate-inbox/tools/capture/scenarios/dialog-refuses-approve.tape)
-  ⎿  Wrote 27 lines to ../worktrees/guard-approve-on-open-dialog-20260909-042312/sample-repo/gate-inbox/tools/capture/scenarios/dialog-refuses-approve.tape
+● Write(~/repos/sample-repo/gate-inbox/tools/capture/scenarios/dialog-refuses-approve.tape)
+  ⎿  Wrote 27 lines to ../sample-repo/gate-inbox/tools/capture/scenarios/dialog-refuses-approve.tape
        1 # ± on a session showing a dialog is refused, and the error bar says why.
        2 # Record with the default transcripts, whose first seeded tool plays the
        3 # waiting one -- a permission dialog, which is what the guard reads:

@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shirou/gopsutil/v4/process"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -37,7 +38,7 @@ func TestParkStopsEveryAgentAndUnparkBringsExactlyThoseBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create earlier: %v", err)
 	}
-	if _, err := h.sessions.Kill(h.caller.ID, earlier.ID); err != nil {
+	if _, err := h.sessions.Kill(h.caller.ID, earlier.ID, extension.KillByCLI); err != nil {
 		t.Fatalf("Kill earlier: %v", err)
 	}
 

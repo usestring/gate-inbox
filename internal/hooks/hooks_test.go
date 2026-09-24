@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 func TestEnsureSettingsWritesValidHookJSON(t *testing.T) {
@@ -245,7 +246,7 @@ func TestPreToolUseCommandReportsTheQuestionDialog(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			file := filepath.Join(t.TempDir(), "session.status")
 			cmd := exec.Command("sh", "-c", preToolUseCommand())
-			cmd.Env = append(os.Environ(), EnvStatusFile+"="+file)
+			cmd.Env = append(tmuxtest.Environ(), EnvStatusFile+"="+file)
 			cmd.Stdin = strings.NewReader(tc.payload)
 			if err := cmd.Run(); err != nil {
 				t.Fatalf("hook command failed: %v", err)
@@ -265,7 +266,7 @@ func TestPreToolUseCommandReportsTheQuestionDialog(t *testing.T) {
 // one does.
 func TestPreToolUseCommandNoOpsWithoutAStatusFile(t *testing.T) {
 	cmd := exec.Command("sh", "-c", preToolUseCommand())
-	cmd.Env = append(os.Environ(), EnvStatusFile+"=")
+	cmd.Env = append(tmuxtest.Environ(), EnvStatusFile+"=")
 	cmd.Stdin = strings.NewReader(`{"tool_name":"AskUserQuestion"}`)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("hook command failed outside a managed session: %v", err)
@@ -323,7 +324,7 @@ func TestSessionEndPrunesWorktrees(t *testing.T) {
 func TestStatusCommandWritesTheExportedStatusFile(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "status")
 	cmd := exec.Command("sh", "-c", statusCommand(status.Working))
-	cmd.Env = append(os.Environ(), EnvStatusFile+"="+file)
+	cmd.Env = append(tmuxtest.Environ(), EnvStatusFile+"="+file)
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("hook command: %v", err)
 	}

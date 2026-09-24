@@ -66,7 +66,7 @@ func fleetTicket(i int) string { return fmt.Sprintf("ABC-13%04d", 5000+i) }
 
 func fleetHasWork(i int) bool { return i%3 == 0 }
 
-// fleetSessions ages every row in whole hours. relTime reads the wall clock
+// fleetSessions ages every row in whole hours. relSince reads the wall clock
 // with no seam to freeze, so only offsets whose answer cannot drift between
 // two runs let one fixture back both the benchmarks and a golden frame.
 func fleetSessions(n int) []store.Session {

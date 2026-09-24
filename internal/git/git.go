@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/usestring/gate-inbox/extension/gitroot"
 	"github.com/usestring/gate-inbox/internal/deps"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
@@ -73,35 +74,14 @@ func (d *Driver) RepoRoot(dir string) (string, error) {
 	return top, nil
 }
 
-// SuperprojectRoot is the outermost working tree containing dir: the
-// superproject when dir is inside a submodule, and the repository root
-// otherwise. A linked worktree is its own superproject, not the checkout it
-// was created from.
-//
-// It exists because a repository's own boundary is not where a person keeps
-// things. Work spanning a submodule is done from the superproject, and the
-// files that belong to the task as a whole -- notes, plans, a brief
-// -- sit at its root, above the submodule the editing happens in.
+// SuperprojectRoot is gitroot.Superproject on this driver's git.
 func (d *Driver) SuperprojectRoot(dir string) (string, error) {
-	// The flag prints nothing and succeeds when dir is not in a submodule,
-	// which is why an empty result ends the walk rather than erroring. It
-	// names the immediate parent, so nested submodules take a hop each; the
-	// bound is there because this is a loop over an answer git gives us.
-	current := dir
-	for range maxSubmoduleDepth {
-		super, err := d.run(current, "rev-parse", "--show-superproject-working-tree")
-		if err != nil || super == "" {
-			break
-		}
-		current = super
+	root, err := gitroot.Superproject(dir, d.run)
+	if err != nil {
+		return "", fmt.Errorf("not inside a git repository: %s", dir)
 	}
-	return d.RepoRoot(current)
+	return root, nil
 }
-
-// maxSubmoduleDepth bounds the walk out of nested submodules. Two is the
-// deepest nesting in use; the rest is headroom, and the bound is what keeps a
-// surprising git answer from becoming a loop.
-const maxSubmoduleDepth = 8
 
 func (d *Driver) IsRepoRoot(dir string) bool {
 	top, err := d.run(dir, "rev-parse", "--show-toplevel")

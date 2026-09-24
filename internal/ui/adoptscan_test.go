@@ -327,7 +327,7 @@ func TestManagedHostingSessionIsHiddenWithoutDeletingIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TMUX", "/tmp/tmux-1000/"+m.tmux.SocketName()+",1234,0")
+	t.Setenv("TMUX", tmuxtest.SocketPath(m.tmux.SocketName())+",1234,0")
 	t.Setenv("TMUX_PANE", strings.TrimSpace(string(out)))
 	m.ownPane, m.ownSocket = tmux.OwnPane()
 	m.seedFromStore()
@@ -344,7 +344,7 @@ func TestManagedHostingSessionIsHiddenWithoutDeletingIt(t *testing.T) {
 	if _, err := m.store.Get(self.ID); err != nil {
 		t.Fatalf("hosting agent was deleted: %v", err)
 	}
-	for _, env := range []string{"", "/tmp/tmux-1000/other-server,1234,0"} {
+	for _, env := range []string{"", tmuxtest.SocketPath("other-server") + ",1234,0"} {
 		t.Setenv("TMUX", env)
 		rows, err := m.poller.listSessions(false)
 		if err != nil || len(rows) != 2 {

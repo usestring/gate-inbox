@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/extension/all"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
@@ -198,7 +199,7 @@ func (f *fakeSessionCommands) Migrate(_ string, id string, opts sessioncmd.Migra
 	return f.created, f.err
 }
 
-func (f *fakeSessionCommands) Kill(_ string, id string) (sessioncmd.Session, error) {
+func (f *fakeSessionCommands) Kill(_ string, id string, _ extension.KillSource) (sessioncmd.Session, error) {
 	f.killedID = id
 	return f.created, f.err
 }

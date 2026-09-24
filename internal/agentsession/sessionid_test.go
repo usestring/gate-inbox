@@ -8,32 +8,6 @@ import (
 	"time"
 )
 
-func TestSessionIDPatternAcceptsTheShapesStoresUse(t *testing.T) {
-	for _, id := range []string{
-		"019a4b0e-39e1-7261-b801-e64f2d0e97bd",
-		"4b53d997-3d0b-4d89-a5d0-39573e4588f1",
-		"ses_8QbCd3Ef",
-		"ours-uuid",
-	} {
-		if !sessionIDPattern.MatchString(id) {
-			t.Errorf("a real id was refused: %q", id)
-		}
-	}
-	for _, id := range []string{
-		"",
-		"abc; touch pwned",
-		`abc'; touch pwned; echo '`,
-		"abc$(touch pwned)",
-		"abc\ntouch pwned",
-		"../../etc/passwd",
-		"-rf",
-	} {
-		if sessionIDPattern.MatchString(id) {
-			t.Errorf("an id that is not a plain token was accepted: %q", id)
-		}
-	}
-}
-
 // A rollout is a file any process can write, so an id spelling a command
 // must be left alone. The conversation we really launched still has to
 // bind, or one planted file would end id capture for that directory.

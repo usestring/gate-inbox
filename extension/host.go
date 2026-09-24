@@ -1,6 +1,10 @@
 package extension
 
-import "context"
+import (
+	"context"
+	"log/slog"
+	"time"
+)
 
 // Host is what the board lends an extension to act with: where it keeps its
 // files and the sessions it runs. It is a set of narrow services over
@@ -10,12 +14,35 @@ import "context"
 // A Host acts as one session -- the one SessionContext names -- with that
 // session's permissions: a session cannot kill or archive itself through it
 // any more than through its own tools.
+//
+// A CLI command typed in an operator's shell, which is no session, gets a
+// Host acting as nobody: Caller is empty, Get and List read with the
+// operator's reach, as Board does, and everything else is refused, since
+// a spawn needs a parent and a message a sender.
 type Host interface {
 	// ConfigDir is the operator's config directory, the one config.toml is
 	// read from.
 	ConfigDir() string
+	// Caller is the ID of the session the Host acts as, or empty for an
+	// operator's shell.
+	Caller() string
 	// Sessions reads and acts on the board's agent sessions.
 	Sessions() SessionService
+	// Tools are the CLIs the config declares, sorted by name, read afresh
+	// on each call.
+	Tools(ctx context.Context) ([]ToolInfo, error)
+	// PlanReplace is BoardHost.PlanReplace for code that runs outside the
+	// board, such as a CLI command: what the board would launch if this
+	// extension replaced session id, with nothing done. It is the board's
+	// plan rather than the caller's, so it is answered from any shell.
+	PlanReplace(ctx context.Context, id string, req LaunchRequest) (LaunchPlan, error)
+	// Logger writes into the board's own log, each line tagged with the
+	// extension's id and scrubbed of credentials like the board's lines.
+	// It writes nowhere where the process keeps no log.
+	Logger() *slog.Logger
+	// Tracer opens spans in the board's trace, scoped to the extension.
+	// Its spans go nowhere where the process is not tracing.
+	Tracer() Tracer
 }
 
 // SessionService is the board's agent sessions, as the calling session's
@@ -34,7 +61,11 @@ type SessionService interface {
 	// Send queues text for a session, delivered the way send_session
 	// delivers it: at the session's next prompt, not into a busy turn.
 	Send(ctx context.Context, id, text string) error
-	// Kill ends a session's pane and leaves its row dead.
+	// Kill ends a session's pane and leaves its row dead. It ends a
+	// terminal the same way when it is nested under an agent session the
+	// caller could kill, or under the caller itself, so whoever ends a
+	// session's work can end the shells it opened. A terminal nested under
+	// no session, or under one that is gone, is refused.
 	Kill(ctx context.Context, id string) error
 	// Archive ends a session if it is running and files it out of the
 	// active list.
@@ -44,6 +75,13 @@ type SessionService interface {
 	// conversation added after it, where the session's transcript can be
 	// read.
 	Read(ctx context.Context, id, since string) (Screen, error)
+	// Transcript is where a session's conversation can be read, as
+	// Board.Transcript finds it; the calling session reaches every agent
+	// session's, as its migrate tool does.
+	Transcript(ctx context.Context, id string) (Transcript, error)
+	// Handover writes the filtered copy of a session's transcript, as
+	// Board.Handover does.
+	Handover(ctx context.Context, id string, opts HandoverOptions) (Handover, error)
 }
 
 // SessionInfo is one agent session as it stood when it was read.
@@ -67,27 +105,75 @@ type SessionInfo struct {
 	// made by a session that is itself a child.
 	ParentID  string
 	SpawnedBy string
+	// Role is "<extension id>/<role>" for a session an extension launched
+	// with a role through BoardHost.Launch, and empty for every other.
+	Role string
+	// AgentSessionID is the agent CLI's own id for the conversation the
+	// session runs (a Claude Code session UUID, a Codex rollout id). It is
+	// empty until the board has captured it, and changes when the session
+	// starts a new conversation on the same row, so it is the key for state
+	// kept about one conversation rather than one row.
+	AgentSessionID string
+	// Terminal marks a shell rather than an agent, which only a List with
+	// IncludeTerminals returns. Kill takes one; every other call that
+	// names a session refuses it.
+	Terminal bool
+	// CreatedAt is when the board first recorded the session. A restart, a
+	// revive or a move to another tool keeps it.
+	CreatedAt time.Time
+	// ArchivedAt is when the session was last archived. It is zero for a
+	// session that is not archived, and for one archived by a board too old
+	// to have recorded when.
+	ArchivedAt time.Time
+	// ReplacedBy is the id of the session that took this one's seat through
+	// a committed replacement, and empty for a session no replacement
+	// retired. It is written with the swap itself, so it survives the
+	// successor's row being deleted later: an extension recovering from a
+	// crash can tell a committed swap from an aborted one by it alone.
+	ReplacedBy string
 }
 
 // SessionFilter narrows List. The zero value is every unarchived session,
 // up to the host's default limit.
 type SessionFilter struct {
-	// ParentID keeps only the sessions drawn under that one.
+	// ParentID keeps only the sessions drawn under that one, in the order
+	// they were created rather than the board's.
 	ParentID string
 	// Status keeps only sessions in these states; empty keeps every state.
 	Status []string
 	// IncludeArchived reads archived sessions too, which is slower.
 	IncludeArchived bool
-	// Limit caps the rows returned; zero takes the host's default.
+	// IncludeTerminals lists terminals beside the agent sessions, marked
+	// Terminal, so whoever ends a session's work can end the shells it
+	// opened too. ParentID and Status narrow them as they do agents.
+	IncludeTerminals bool
+	// Limit caps the rows returned; zero takes the host's default, and
+	// the host refuses more than it will return in one page.
 	Limit int
+	// After is a list's Cursor: only the sessions after that page are
+	// returned. A cursor holds a place in the order rather than a count,
+	// so a session archived or started between two pages neither skips nor
+	// repeats a row. It is opaque, and good only for a List with the same
+	// filter.
+	//
+	// With ParentID set, the order is creation order, which nothing
+	// changes, so paging reads every session exactly once. Without it the
+	// order is the board's, which a reorder, a group move or a replacement
+	// taking its predecessor's seat changes: a session moved across the
+	// cursor between two pages is skipped or read twice.
+	After string
 }
 
-// SessionList is what List found. Matched counts before Limit, so a caller
-// can tell a short board from a truncated one.
+// SessionList is what List found. Matched counts before After and Limit,
+// so a caller can tell a short board from a truncated one.
 type SessionList struct {
-	Sessions  []SessionInfo
-	Matched   int
+	Sessions []SessionInfo
+	Matched  int
+	// Truncated is whether matching sessions follow this page.
 	Truncated bool
+	// Cursor is passed as After to read the page after this one, and
+	// empty when this page is the last.
+	Cursor string
 }
 
 // SpawnRequest is a session to launch. Tool is required; everything else

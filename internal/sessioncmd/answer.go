@@ -55,8 +55,7 @@ type AnsweredQuestion struct {
 func (s *Sessions) Answer(sessionID, targetID, reply string) (AnsweredQuestion, error) {
 	reply = strings.TrimSpace(reply)
 	if reply == "" {
-		return AnsweredQuestion{}, errors.New(
-			"answer is empty; give the text of the option to pick, or the words to type instead")
+		return AnsweredQuestion{}, errEmptyAnswer
 	}
 	runtime, err := s.open()
 	if err != nil {
@@ -71,7 +70,16 @@ func (s *Sessions) Answer(sessionID, targetID, reply string) (AnsweredQuestion, 
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
-	pane, err := runtime.driver.CapturePane(target.ID)
+	return runtime.answer(target, reply, "parent", caller.ID)
+}
+
+var errEmptyAnswer = errors.New(
+	"answer is empty; give the text of the option to pick, or the words to type instead")
+
+// answer keys or types reply into the dialog target's pane is holding, once
+// the caller has settled who may. by and byID name who answered, in the log.
+func (r *runtime) answer(target store.Session, reply, by, byID string) (AnsweredQuestion, error) {
+	pane, err := r.driver.CapturePane(target.ID)
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
@@ -90,12 +98,12 @@ func (s *Sessions) Answer(sessionID, targetID, reply string) (AnsweredQuestion, 
 		// is resting at its own input line having ended a turn on a question in
 		// prose -- which takes words, not keystrokes. Saying which shapes are
 		// read at all is what stops a caller retrying this one forever.
-		return AnsweredQuestion{}, fmt.Errorf(
+		return AnsweredQuestion{}, wrapped(dialog.ErrNoDialog, fmt.Sprintf(
 			"session %s is not on a dialog this can read: no numbered options under a legend it "+
 				"knows (Claude Code's AskUserQuestion or permission prompt; Codex's command "+
 				"approval, first-run trust or request_user_input). It may already have been "+
 				"answered, or be resting at its own input line. Use %s to send it words instead",
-			target.ID, runtime.words.Send)
+			target.ID, r.words.Send))
 	}
 	chosen := held.Choose(reply)
 	keys, err := dialog.AnswerKeys(held, reply)
@@ -103,8 +111,8 @@ func (s *Sessions) Answer(sessionID, targetID, reply string) (AnsweredQuestion, 
 		// Named rather than described. Two of these four want a person on the
 		// board and two want this caller to look again in a moment, and one
 		// sentence covering all of them told a manager neither.
-		return AnsweredQuestion{}, fmt.Errorf(
-			"session %s is on %s", target.ID, held.Refusal())
+		return AnsweredQuestion{}, wrapped(err, fmt.Sprintf(
+			"session %s is on %s", target.ID, held.Refusal()))
 	}
 	if err != nil {
 		return AnsweredQuestion{}, err
@@ -123,20 +131,32 @@ func (s *Sessions) Answer(sessionID, targetID, reply string) (AnsweredQuestion, 
 	// are nobody's option.
 	if len(keys) > 0 {
 		answered.Selected = held.Options[chosen-1]
-		logging.Info("parent answered a child's question by selection",
-			"parent", caller.ID, "session", target.ID, "option", answered.Selected)
-		if err := runtime.driver.SendKeys(target.ID, keys...); err != nil {
+		logging.Info(by+" answered a child's question by selection",
+			by, byID, "session", target.ID, "option", answered.Selected)
+		if err := r.driver.SendKeys(target.ID, keys...); err != nil {
 			return AnsweredQuestion{}, err
 		}
 		return answered, nil
 	}
-	logging.Info("parent answered a child's question by typing",
-		"parent", caller.ID, "session", target.ID)
-	if err := runtime.driver.SendText(target.ID, reply); err != nil {
+	logging.Info(by+" answered a child's question by typing",
+		by, byID, "session", target.ID)
+	if err := r.driver.SendText(target.ID, reply); err != nil {
 		return AnsweredQuestion{}, err
 	}
 	return answered, nil
 }
+
+// wrapped is err under a message of its own, so the words a caller reads
+// stay the ones written for it and errors.Is still finds the sentinel.
+func wrapped(err error, message string) error { return messageError{message, err} }
+
+type messageError struct {
+	message string
+	err     error
+}
+
+func (e messageError) Error() string { return e.message }
+func (e messageError) Unwrap() error { return e.err }
 
 // child resolves a session the caller is entitled to act on the screen of:
 // one it spawned, at whatever depth the board files it. The refusal names who

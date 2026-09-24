@@ -16,6 +16,7 @@ docs/upstream/AGENTS.md
 docs/upstream/DESIGN.md
 docs/upstream/PRODUCT.md
 docs/usage.md
+extension/artifacts/artifacts.go
 go.mod
 internal/agentsession/capture.go
 internal/agentsession/capture_test.go
@@ -40,7 +41,6 @@ internal/config/install.go
 internal/config/install_test.go
 internal/deps/deps.go
 internal/deps/deps_test.go
-internal/extension/artifacts/artifacts.go
 internal/git/git.go
 internal/git/git_test.go
 internal/hooks/hooks.go
@@ -85,6 +85,7 @@ internal/sysstat/sysstat.go
 internal/sysstat/sysstat_test.go
 internal/systheme/systheme.go
 internal/systheme/systheme_test.go
+internal/termseq/termseq.go
 internal/tmux/asyncsubmit_test.go
 internal/tmux/control.go
 internal/tmux/control_test.go

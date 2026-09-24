@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/app"
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 var binary struct {
@@ -26,11 +27,13 @@ var binary struct {
 }
 
 func TestMain(m *testing.M) {
-	code := m.Run()
-	if binary.dir != "" {
-		os.RemoveAll(binary.dir)
-	}
-	os.Exit(code)
+	os.Exit(tmuxtest.Run(func() int {
+		code := m.Run()
+		if binary.dir != "" {
+			os.RemoveAll(binary.dir)
+		}
+		return code
+	}))
 }
 
 // buildBinary builds this module's executable once per run, stamped with

@@ -4,8 +4,9 @@ package forge
 type Providers struct {
 	GitHub bool
 	Linear bool
-	// LinearAPIKey is the key Linear is read with. Linear switched on with no key is off: there
-	// is nothing it could be asked, so it is unconfigured rather than failing.
+	// LinearAPIKey is the key Linear is read with. Linear switched on with no key is still built:
+	// its tickets are drawn without state, and its health says the key is missing, but it sends
+	// nothing.
 	LinearAPIKey string
 }
 
@@ -20,7 +21,7 @@ func NewResolvers(p Providers) (PRResolver, TicketResolver) {
 	if p.GitHub {
 		prs = NewGitHub()
 	}
-	if p.Linear && p.LinearAPIKey != "" {
+	if p.Linear {
 		linear := NewLinear()
 		linear.APIKey = p.LinearAPIKey
 		tickets = linear

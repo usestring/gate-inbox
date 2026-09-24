@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/usestring/gate-inbox/internal/decline"
+	"github.com/usestring/gate-inbox/extension/decline"
 )
 
 // A Claude Code transcript, filtered for handover.

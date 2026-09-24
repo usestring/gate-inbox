@@ -13,12 +13,14 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/adopt"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -515,7 +517,15 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 		return config.Tool{}, err
 	}
 	base := launch.WithPrompt(tool, revive, prompt)
-	command, env, err := launch.Environment(hooks.NewManager(s.configDir), target.Tool, tool, base, target.ID, target.Model, target.Account)
+	sessionHooks, err := sessionhooks.Current()
+	if err != nil {
+		return config.Tool{}, err
+	}
+	contributed, err := sessionhooks.Env(sessionHooks, target, extension.LaunchRelaunch, "", nil)
+	if err != nil {
+		return config.Tool{}, err
+	}
+	command, env, err := launch.Environment(hooks.NewManager(s.configDir), target.Tool, tool, base, target.ID, target.Model, target.Account, contributed)
 	if err != nil {
 		return config.Tool{}, err
 	}

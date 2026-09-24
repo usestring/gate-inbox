@@ -57,6 +57,12 @@ func (m *Model) parentOwns(child store.Session, now time.Time, live map[string]b
 	if spawner == "" {
 		return false
 	}
+	// An extension saying the child needs a person is an escalation past
+	// its parent, not a question for it: folding it away would hide the
+	// child and leave the parent queued at its own tier. See Attention.
+	if m.extAttention[child.ID].NeedsPerson {
+		return false
+	}
 	parent, ok := m.sessionByID(spawner)
 	if !ok || parent.Archived || parent.Status == status.Dead {
 		return false
@@ -68,8 +74,9 @@ func (m *Model) parentOwns(child store.Session, now time.Time, live map[string]b
 		return false
 	}
 	// A parent blocked on its own question answers nothing until somebody
-	// answers that one, so its children are the operator's after all.
-	if requiresInput(parent.Status) {
+	// answers that one, so its children are the operator's after all --
+	// unless an extension is answering the parent's.
+	if m.needsPerson(parent) {
 		return false
 	}
 	if !m.answerableWait[child.ID] {

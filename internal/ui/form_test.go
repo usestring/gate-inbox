@@ -225,7 +225,7 @@ func TestFormPromptComposesWithSettings(t *testing.T) {
 	m := buildModel(t)
 	tool := m.cfg.Tools["claude-hooked"]
 
-	command, _, err := m.buildLaunch("claude", tool, launch.WithPrompt(tool, tool.Command, "fix the bug"), "prompt01", "", "")
+	command, _, err := m.buildLaunch("claude", tool, launch.WithPrompt(tool, tool.Command, "fix the bug"), "prompt01", "", "", nil)
 	if err != nil {
 		t.Fatalf("buildLaunch: %v", err)
 	}
@@ -760,7 +760,7 @@ func sessionHasPendingInput(t *testing.T, m *Model, id, want string) bool {
 func TestBuildLaunchCarriesSessionID(t *testing.T) {
 	m := buildModel(t)
 	plain := m.cfg.Tools["claude"]
-	_, env, err := m.buildLaunch("plain", plain, plain.Command, "abcd1234", "", "")
+	_, env, err := m.buildLaunch("plain", plain, plain.Command, "abcd1234", "", "", nil)
 	if err != nil {
 		t.Fatalf("buildLaunch: %v", err)
 	}
@@ -769,7 +769,7 @@ func TestBuildLaunchCarriesSessionID(t *testing.T) {
 	}
 
 	hooked := m.cfg.Tools["claude-hooked"]
-	_, env, err = m.buildLaunch("hooked", hooked, hooked.Command, "abcd1234", "", "")
+	_, env, err = m.buildLaunch("hooked", hooked, hooked.Command, "abcd1234", "", "", nil)
 	if err != nil {
 		t.Fatalf("buildLaunch hooked: %v", err)
 	}

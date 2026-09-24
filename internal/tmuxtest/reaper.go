@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/internal/tmuxguard"
 )
 
 // socketPrefix is the one literal every socket this module's tests create
@@ -253,23 +254,49 @@ func ReapSocket(socket string) int {
 // fail against a server that is perfectly alive. Age is the property those
 // cases do not share -- a stray is left over from an earlier run, not opened
 // seconds ago -- so nothing this run or its siblings just built is a candidate.
+//
+// Every run now has a TMUX_TMPDIR of its own, so the same -L name means a
+// different server in each: liveness is asked of the socket path the client
+// itself resolved, read from its environment. A client whose environment
+// cannot be read is left alone -- the safe failure is to collect nothing.
 func ReapStrays() int {
-	bySocket := map[string][]Client{}
+	byPath := map[string][]Client{}
 	for _, c := range Clients() {
 		if c.Age < strayAge {
 			continue
 		}
-		bySocket[c.Socket] = append(bySocket[c.Socket], c)
+		path, ok := clientSocketPath(c)
+		if !ok {
+			continue
+		}
+		byPath[path] = append(byPath[path], c)
 	}
 	killed := 0
-	for socket, clients := range bySocket {
-		if ServerAlive(socket) {
+	for path, clients := range byPath {
+		if serverAliveAt(path) {
 			continue
 		}
 		killed += kill(clients)
 	}
 	sweepDeadSocketFiles()
 	return killed
+}
+
+// clientSocketPath is the socket a client's -L name resolved to, from the
+// TMUX_TMPDIR in its own environment. Only /proc can answer that; without it
+// there is no answer and the caller leaves the client alone.
+func clientSocketPath(c Client) (string, bool) {
+	raw, err := os.ReadFile(fmt.Sprintf("/proc/%d/environ", c.PID))
+	if err != nil {
+		return "", false
+	}
+	tmpdir := "/tmp"
+	for _, kv := range strings.Split(string(raw), "\x00") {
+		if value, ok := strings.CutPrefix(kv, "TMUX_TMPDIR="); ok && value != "" {
+			tmpdir = value
+		}
+	}
+	return filepath.Join(tmpdir, fmt.Sprintf("tmux-%d", os.Getuid()), c.Socket), true
 }
 
 // strayAge is how long a client must have been running before the stray sweep
@@ -292,8 +319,12 @@ const staleSocketAge = time.Hour
 // It is the file half of the same leak, and it is bounded the same way: a name
 // Owns refuses is never touched, a socket whose server still answers is left
 // alone, and a file younger than staleSocketAge is left for its owner.
+//
+// Tests no longer start servers there -- each run has a private TMUX_TMPDIR,
+// removed when it ends -- so this only heals the files earlier revisions left
+// in tmux's default directory. Each is probed by its full path with -S.
 func sweepDeadSocketFiles() {
-	dir := filepath.Join(os.TempDir(), fmt.Sprintf("tmux-%d", os.Getuid()))
+	dir := tmuxguard.DefaultSocketDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
@@ -307,10 +338,11 @@ func sweepDeadSocketFiles() {
 		if err != nil || time.Since(info.ModTime()) < staleSocketAge {
 			continue
 		}
-		if ServerAlive(socket) {
+		path := filepath.Join(dir, socket)
+		if serverAliveAt(path) {
 			continue
 		}
-		_ = os.Remove(filepath.Join(dir, socket))
+		_ = os.Remove(path)
 	}
 }
 
@@ -322,6 +354,15 @@ func ServerAlive(socket string) bool {
 		return false
 	}
 	return exec.Command("tmux", "-L", socket, "list-sessions").Run() == nil
+}
+
+// serverAliveAt is ServerAlive for a full socket path, with the same refusal:
+// a path whose file name Owns does not accept is never probed.
+func serverAliveAt(path string) bool {
+	if !Owns(filepath.Base(path)) {
+		return false
+	}
+	return exec.Command("tmux", "-S", path, "list-sessions").Run() == nil
 }
 
 // KillServer tears down the server on a socket this module owns. Every raw
@@ -351,7 +392,8 @@ func AwaitClientsOn(socket string, want int, within time.Duration) int {
 	}
 }
 
-// ClearInheritedTmuxEnv unsets the variables that point code at the tmux pane
+// ClearInheritedTmuxEnv re-asserts the isolation this package's init set up
+// (see isolate.go). It unsets the variables that point code at the tmux pane
 // the test binary is itself running in.
 //
 // The manager finds its own pane through TMUX_PANE and TMUX, and several
@@ -366,8 +408,7 @@ func AwaitClientsOn(socket string, want int, within time.Duration) int {
 // Called from TestMain so it is a property of the package rather than a habit
 // somebody has to remember.
 func ClearInheritedTmuxEnv() {
-	os.Unsetenv("TMUX_PANE")
-	os.Unsetenv("TMUX")
+	isolate()
 }
 
 // Guard is the teardown a tmux-driving package's TestMain wraps its run in: it
@@ -378,15 +419,15 @@ func ClearInheritedTmuxEnv() {
 // point: the leak came back once already because the sweep was a sequence of
 // steps each package had to remember to repeat.
 func Guard(socket string, run func() int) int {
-	ClearInheritedTmuxEnv()
-	ReapStrays()
-	KillServer(socket)
-	code := run()
-	KillServer(socket)
-	// The server is down; anything still holding this socket is a client
-	// that outlived it, which is precisely what kill-server cannot collect.
-	ReapSocket(socket)
-	return code
+	return Run(func() int {
+		KillServer(socket)
+		code := run()
+		KillServer(socket)
+		// The server is down; anything still holding this socket is a client
+		// that outlived it, which is precisely what kill-server cannot collect.
+		ReapSocket(socket)
+		return code
+	})
 }
 
 // AssertNoLeak is the per-package guard test's body: it runs work that drives

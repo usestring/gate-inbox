@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 // The whole point of the raw reader is a number that no benchmark reports:
@@ -55,7 +57,7 @@ func tracedSyscalls(t *testing.T, strace, mode string, root, passes int) int {
 	cmd := exec.Command(strace, "-f", "-c",
 		"-e", "trace=openat,read,close,fstat,statx,newfstatat,fcntl,epoll_ctl,getdents64",
 		os.Args[0], "-test.run=^TestWalkSyscallProbe$", "-test.count=1")
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(tmuxtest.Environ(),
 		probeModeEnv+"="+mode,
 		probeRootEnv+"="+strconv.Itoa(root),
 		probePassesEnv+"="+strconv.Itoa(passes))

@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 )
 
 // Nothing has ever told a first-time operator what this program is. The list
@@ -83,7 +84,7 @@ func welcomeKeyColumn() int {
 	width := 0
 	for _, section := range welcomeSections() {
 		for _, row := range section.rows {
-			if w := cellWidth(row[0]); w > width {
+			if w := textfmt.Width(row[0]); w > width {
 				width = w
 			}
 		}
@@ -105,7 +106,7 @@ func welcomeBodyLines(inner int) []string {
 		if i > 0 {
 			lines = append(lines, "")
 		}
-		for _, line := range wrapDescription(paragraph, inner) {
+		for _, line := range textfmt.Wrap(paragraph, inner) {
 			lines = append(lines, subtleStyle.Render(line))
 		}
 	}
@@ -118,7 +119,7 @@ func welcomeBodyLines(inner int) []string {
 	lines = append(lines, "")
 	lines = append(lines, welcomeChoices(column, inner)...)
 	lines = append(lines, "")
-	for _, line := range wrapDescription("? is the complete, current key map, on every screen. The settings screen brings this card back.", inner) {
+	for _, line := range textfmt.Wrap("? is the complete, current key map, on every screen. The settings screen brings this card back.", inner) {
 		lines = append(lines, subtleStyle.Render(line))
 	}
 	return lines
@@ -131,7 +132,7 @@ func welcomeRow(marker, key string, style fastStyle, description string, column,
 	indent := spaces(column + 2)
 	room := max(inner-column-2, 1)
 	var lines []string
-	for i, line := range wrapDescription(description, room) {
+	for i, line := range textfmt.Wrap(description, room) {
 		prefix := indent
 		if i == 0 {
 			prefix = marker + padRight(key, column)

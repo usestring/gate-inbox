@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -76,7 +77,15 @@ func Save(dir string, overrides Overrides) error {
 func Encode(overrides Overrides) string {
 	var b strings.Builder
 	b.WriteString(header)
-	for _, ctx := range Contexts {
+	// The catalog's screens first, in its order, then any other screen the
+	// overrides name, an extension's, in name order.
+	contexts := append([]Context(nil), Contexts...)
+	for _, ctx := range sortedContexts(overrides) {
+		if !slices.Contains(contexts, ctx) {
+			contexts = append(contexts, ctx)
+		}
+	}
+	for _, ctx := range contexts {
 		set := overrides[ctx]
 		if len(set) == 0 {
 			continue

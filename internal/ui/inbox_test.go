@@ -719,6 +719,15 @@ func pollUntilQueued(t *testing.T, m *Model, sessionID string, want int) {
 				queued, want, inboxStall(t, m, sessionID))
 		}
 		m.applyCmd(t, m.refreshCmd())
+		// A pass hands its paste off and the message leaves the queue when
+		// that send settles, off the pass. Left to land whenever it does, a
+		// settle can fall between the count above and the next pass, which
+		// then types the message behind it: two leave the queue between
+		// reads, and a caller waiting for one still queued never sees it.
+		// Settling here makes the count move only on a pass this loop ran.
+		if !m.poller.awaitSends(time.Until(deadline)) {
+			t.Fatalf("a send was still out at the deadline, want %d queued\n%s", want, inboxStall(t, m, sessionID))
+		}
 		time.Sleep(20 * time.Millisecond)
 	}
 }
@@ -895,6 +904,51 @@ func TestThePollLoopDeliversQueuedMessagesOldestFirst(t *testing.T) {
 	settledPane(t, m, sess.ID, "rebase on main", "then push the branch")
 }
 
+// A pass captures the panes and then reads the queue, and a send can settle
+// in between. That pass then holds a capture from before the submit and a
+// head that is the message behind it. This builds the interleaving from real
+// sends rather than waiting for a pass to fall into it.
+func TestInboxHoldsTheNextMessageUntilACaptureFollowsTheLastSend(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "ready-tool")
+	queueMessage(t, m, sess.ID, "rebase on main")
+	second := queueMessage(t, m, sess.ID, "then push the branch")
+	settledPane(t, m, sess.ID, "❯")
+
+	deliver := func(capture tmux.Capture) {
+		t.Helper()
+		if err := m.poller.maybeDeliverInbox(sess, queuedHeads(t, m), capture, status.Idle, true); err != nil {
+			t.Fatalf("maybeDeliverInbox: %v", err)
+		}
+		if !m.poller.awaitSends(10 * time.Second) {
+			t.Fatal("a send handed off by the gate was still in flight ten seconds later")
+		}
+	}
+	capture := func() tmux.Capture {
+		t.Helper()
+		return m.tmux.CapturePanes([]string{sess.ID})[sess.ID]
+	}
+
+	beforeFirst := capture()
+	deliver(capture())
+	if queued, _ := m.store.QueuedCount(sess.ID); queued != 1 {
+		t.Fatalf("queued = %d after the first delivery, want 1", queued)
+	}
+	deliver(beforeFirst)
+	if queued, _ := m.store.QueuedCount(sess.ID); queued != 1 {
+		t.Fatal("the next message was typed against a capture from before the last send was submitted")
+	}
+
+	deliver(capture())
+	state, err := m.store.Message(second, "sender01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.DeliveredAt.IsZero() {
+		t.Fatalf("a capture taken after the send still held the message: %+v", state)
+	}
+}
+
 // A stand-in that exits at launch leaves the launch script's shell holding
 // the pane, and a delivered envelope is then run as commands rather than
 // read: the shell's prompt lands in the middle of the text it is echoing,
@@ -986,7 +1040,7 @@ func TestInboxDeliversWhenARuleReportsARestingState(t *testing.T) {
 // would, and reads whatever it cost from where the next pass reads it.
 func deliverInbox(t *testing.T, m *Model, sess store.Session, heads map[string]store.InboxMessage, pane, derived string, agentAlive bool) error {
 	t.Helper()
-	err := m.poller.maybeDeliverInbox(sess, heads, tmux.Capture{Text: pane}, derived, agentAlive)
+	err := m.poller.maybeDeliverInbox(sess, heads, tmux.Capture{Text: pane, At: time.Now()}, derived, agentAlive)
 	if !m.poller.awaitSends(10 * time.Second) {
 		t.Fatal("a send handed off by the pass was still in flight ten seconds later")
 	}
@@ -1030,5 +1084,71 @@ func TestInboxEnvelopeDoesNotFenceTheOperatorsOwnWords(t *testing.T) {
 	msg.Body = "before\x1b[31mafter"
 	if got := inboxEnvelope(msg, "claude", false, messageContext{}); strings.Contains(got, "\x1b") {
 		t.Errorf("a human message carried an escape sequence into the pane: %q", got)
+	}
+}
+
+// A message an extension queued in the operator's voice reaches the pane as
+// exactly the text the operator's own send does, while the same extension's
+// ordinary message is still fenced.
+func TestInboxEnvelopeDeliversAnOperatorVoicedMessageUnfenced(t *testing.T) {
+	body := "narrow the search to the second region"
+	human := store.InboxMessage{SessionID: "a1b2c3d4", SenderID: store.HumanSenderID, Body: body, SentAt: time.Now()}
+	voiced := human
+	voiced.SenderID, voiced.SenderName = store.OperatorVoicedSenderID("ext1"), "ext1"
+	for _, taught := range []bool{true, false} {
+		got := inboxEnvelope(voiced, "claude", taught, messageContext{})
+		if want := inboxEnvelope(human, "claude", taught, messageContext{}); got != want || got != body {
+			t.Fatalf("operator-voiced envelope = %q, want the operator's own %q", got, want)
+		}
+	}
+	fenced := voiced
+	fenced.SenderID = store.ExtensionSenderID("ext1")
+	if got := inboxEnvelope(fenced, "claude", true, messageContext{}); !strings.Contains(got, "----EXTENSION-MESSAGE-ext1-") {
+		t.Fatalf("plain extension envelope = %q, want it still fenced", got)
+	}
+	if _, ok := store.ExtensionSender(voiced.SenderID); ok {
+		t.Fatalf("%q reads as a fenced extension sender", voiced.SenderID)
+	}
+	if !store.SpeaksAsOperator(voiced.SenderID) || store.SpeaksAsOperator(fenced.SenderID) || store.SpeaksAsOperator("a1b2c3d4") {
+		t.Fatal("SpeaksAsOperator must hold for the operator's voice only")
+	}
+}
+
+// The operator's words relayed by a helper arrive unfenced too: they are the
+// operator's answer, only carried by another session.
+func TestInboxEnvelopeDoesNotFenceTheOperatorsRelayedWords(t *testing.T) {
+	msg := store.InboxMessage{
+		SessionID: "a1b2c3d4",
+		SenderID:  store.RelayedHumanSenderID,
+		Body:      "use the second draft",
+		SentAt:    time.Now(),
+	}
+	if got := inboxEnvelope(msg, "claude", true, messageContext{}); got != msg.Body {
+		t.Fatalf("envelope = %q, want the body verbatim", got)
+	}
+}
+
+// A board extension's message is fenced, since it is not the user speaking,
+// but it names no session to reply to: an extension has none.
+func TestInboxEnvelopeFencesAnExtensionWithNoReplyAddress(t *testing.T) {
+	msg := store.InboxMessage{
+		SessionID:  "a1b2c3d4",
+		SenderID:   store.ExtensionSenderID("ext1"),
+		SenderName: "ext1",
+		Body:       "narrow the search to the second region",
+		SentAt:     time.Now(),
+	}
+	got := inboxEnvelope(msg, "claude", true, messageContext{})
+	if !strings.Contains(got, `"ext1" extension`) || !strings.Contains(got, "not from the user") {
+		t.Fatalf("envelope = %q, want it named as the extension's and not the user's", got)
+	}
+	fence := strings.Count(got, "----EXTENSION-MESSAGE-ext1-")
+	if fence != 3 || !strings.Contains(got, "\n"+msg.Body+"\n") {
+		t.Fatalf("envelope = %q, want the body between two fences named in the header", got)
+	}
+	for _, unwanted := range []string{"CROSS-SESSION-MESSAGE", "Reply with", "session_id"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("an extension's message carries %q", unwanted)
+		}
 	}
 }

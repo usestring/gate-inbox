@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -156,7 +157,7 @@ func contextWords(msg store.InboxMessage, ctx messageContext) string {
 	case ctx.SenderEnded && ctx.Successor.ID != "":
 		parts = append(parts, fmt.Sprintf(
 			"That session has ended since writing this and %q (session %s) holds its work now, so reply there and read this as a record rather than a live report.",
-			oneLine(ctx.Successor.Name), ctx.Successor.ID))
+			textfmt.OneLine(ctx.Successor.Name), ctx.Successor.ID))
 	case ctx.SenderEnded:
 		parts = append(parts, "That session has ended since writing this, so a reply cannot reach it; read this as a record rather than a live report.")
 	}

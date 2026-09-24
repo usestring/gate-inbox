@@ -10,8 +10,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/extension/artifacts"
 	"github.com/usestring/gate-inbox/internal/extension/all"
-	"github.com/usestring/gate-inbox/internal/extension/artifacts"
 	"github.com/usestring/gate-inbox/internal/mcpserver"
 )
 

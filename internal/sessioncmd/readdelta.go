@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -117,7 +118,7 @@ func renderDelta(delta convo.Delta) string {
 		out = append(out, "> "+prompt)
 	}
 	out = append(out, delta.Turns...)
-	return dialog.Truncate(strings.Join(out, "\n\n"), dialog.MaxTurnBytes)
+	return textfmt.Tail(strings.Join(out, "\n\n"), dialog.MaxTurnBytes)
 }
 
 // digest is the structured block: the status the pane reads as now, the
@@ -141,7 +142,7 @@ func (r *runtime) digest(target store.Session, pane string, running bool, delta 
 			block.Question = formatQuestion(held)
 		}
 	}
-	block.Result = dialog.Truncate(delta.LastTurn(), dialog.MaxTurnBytes)
+	block.Result = textfmt.Tail(delta.LastTurn(), dialog.MaxTurnBytes)
 	return block
 }
 

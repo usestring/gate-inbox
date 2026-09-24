@@ -183,7 +183,8 @@ func Defaults() []Snippet {
 }
 
 // Load reads the snippets file, writing the defaults first when it does not
-// exist yet.
+// exist yet, and merges the distribution's entries under it: see
+// UseDistribution.
 //
 // A file that exists but will not parse returns an error and NO snippets rather
 // than silently substituting the defaults: the user edited that file on
@@ -192,13 +193,17 @@ func Defaults() []Snippet {
 // see Set.
 func Load(dir string) (Set, error) {
 	path := Path(dir)
+	supplied := currentDistribution()
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		defaults := Defaults()
+		defaults := firstRun(supplied)
 		if encoded, err := json.MarshalIndent(defaults, "", "  "); err == nil {
 			_ = os.WriteFile(path, append(encoded, '\n'), 0o644)
 		}
-		return Set{Snippets: defaults}, nil
+		if len(supplied) == 0 {
+			return Set{Snippets: defaults}, nil
+		}
+		return validate(underlay(defaults, supplied)), nil
 	}
 	if err != nil {
 		return Set{}, err
@@ -207,7 +212,7 @@ func Load(dir string) (Set, error) {
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return Set{}, fmt.Errorf("%s: %w", path, err)
 	}
-	return validate(parsed), nil
+	return validate(underlay(parsed, supplied)), nil
 }
 
 // validate keeps the entries that can bind and says why the rest cannot.

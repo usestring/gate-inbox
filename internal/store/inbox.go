@@ -3,9 +3,7 @@
 package store
 
 import (
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
@@ -26,6 +24,55 @@ import (
 //
 // It is not a session id and cannot collide with one: ids are hex.
 const HumanSenderID = "human"
+
+// RelayedHumanSenderID marks the operator's words forwarded on their behalf
+// by an extension, which already recorded them when it forwarded them. It is delivered as the operator's own
+// words, like HumanSenderID, but its delivery is not reported to board
+// extensions as the operator's input a second time: a stale relayed line
+// must not answer a question raised after it was sent.
+const RelayedHumanSenderID = "human/relayed"
+
+// FromOperator reports whether a message sent as senderID is the operator's
+// own words, typed at a shell or relayed, and so delivered unfenced.
+func FromOperator(senderID string) bool {
+	return senderID == HumanSenderID || senderID == RelayedHumanSenderID
+}
+
+// extensionSenderPrefix starts the sender id of a message a board extension
+// queued. Like HumanSenderID it cannot collide with a session id, and it
+// gives each extension a rate and dedupe budget of its own.
+const extensionSenderPrefix = "extension/"
+
+// ExtensionSenderID is the sender id a message from extension id is queued
+// under.
+func ExtensionSenderID(id string) string { return extensionSenderPrefix + id }
+
+// ExtensionSender is the extension a message was queued by, if a board
+// extension queued it.
+func ExtensionSender(senderID string) (string, bool) {
+	return strings.CutPrefix(senderID, extensionSenderPrefix)
+}
+
+// operatorVoicedPrefix starts the sender id of a message a board extension
+// queued in the operator's own voice. It is delivered as HumanSenderID's are,
+// with no fence, but queued under a sender of its own: the extension keeps its
+// own rate and dedupe budget, and a subject it labels can only ever retire its
+// own earlier message, never one the operator typed.
+const operatorVoicedPrefix = HumanSenderID + "/"
+
+// OperatorVoicedSenderID is the sender id a message extension id queues as
+// the operator's own words is queued under.
+func OperatorVoicedSenderID(id string) string {
+	return operatorVoicedPrefix + extensionSenderPrefix + id
+}
+
+// SpeaksAsOperator reports whether a message from senderID is delivered as
+// the operator's own words: typed by the operator or relayed for them (see
+// FromOperator), or queued in the operator's voice by a compiled-in
+// extension.
+func SpeaksAsOperator(senderID string) bool {
+	return FromOperator(senderID) || strings.HasPrefix(senderID, operatorVoicedPrefix)
+}
 
 // InboxMessage is one agent-to-agent message waiting to be typed into a
 // session's prompt. It rides its own table rather than PendingInputs
@@ -305,10 +352,22 @@ func (s *Store) ClaimMessage(id int64, at time.Time) (bool, error) {
 }
 
 func (s *Store) MarkDelivered(id int64, at time.Time) error {
-	_, err := s.db.Exec(
+	_, err := s.MarkDeliveredFirst(id, at)
+	return err
+}
+
+// MarkDeliveredFirst records a delivery and reports whether this call is
+// the one that recorded it: false for a message already marked delivered,
+// so whatever follows a delivery happens once however often it is marked.
+func (s *Store) MarkDeliveredFirst(id int64, at time.Time) (bool, error) {
+	res, err := s.db.Exec(
 		`UPDATE session_inbox SET delivered_at = ? WHERE id = ? AND delivered_at = 0`,
 		encodeTime(at), id)
-	return err
+	if err != nil {
+		return false, err
+	}
+	affected, err := res.RowsAffected()
+	return affected == 1, err
 }
 
 // MarkDropped retires a message that never reached the pane. It leaves the
@@ -348,6 +407,25 @@ func (s *Store) MarkDropped(id int64, at time.Time) error {
 		`UPDATE session_inbox SET delivered_at = ?, dropped_at = ? WHERE id = ? AND delivered_at = 0`,
 		stamp, stamp, id)
 	return err
+}
+
+// Withdraw drops what one sender still has queued for a session: every
+// such message, or with a subject only the ones on it, and reports how many
+// that was. A claimed message is left alone, as supersession leaves it: its
+// paste is already on the way to the pane. A withdrawn message reads as
+// dropped, never as delivered.
+func (s *Store) Withdraw(sessionID, senderID, subject string, at time.Time) (int, error) {
+	stamp := encodeTime(at)
+	res, err := s.db.Exec(`
+UPDATE session_inbox SET delivered_at = ?, dropped_at = ?
+ WHERE session_id = ? AND sender_id = ? AND (? = '' OR subject = ?)
+   AND delivered_at = 0 AND claimed_at = 0`,
+		stamp, stamp, sessionID, senderID, subject, subject)
+	if err != nil {
+		return 0, err
+	}
+	dropped, err := res.RowsAffected()
+	return int(dropped), err
 }
 
 // MarkRead acks every message a session received from one sender. A reply
@@ -491,17 +569,61 @@ SELECT id, sender_id, sender_name, body, sent_at, delivered_at
 	return out, rows.Err()
 }
 
+// InboxFilter narrows Inbox.
+type InboxFilter struct {
+	// SenderID keeps one sender's messages; empty keeps every sender's.
+	SenderID string
+	// Pending keeps only undelivered messages when true, only delivered ones
+	// when false, and both when nil.
+	Pending *bool
+	Limit   int
+}
+
+// Inbox is what a session has been sent, newest first. Dropped messages,
+// superseded ones among them, never reached the session and are left out;
+// delivered ones last until PruneInbox sweeps them.
+func (s *Store) Inbox(sessionID string, filter InboxFilter) ([]InboxMessage, error) {
+	if sessionID == "" || filter.Limit <= 0 {
+		return nil, nil
+	}
+	query := `
+SELECT id, sender_id, sender_name, body, subject, sent_at, delivered_at
+  FROM session_inbox
+ WHERE session_id = ? AND dropped_at = 0 AND superseded_by = 0`
+	args := []any{sessionID}
+	if filter.SenderID != "" {
+		query += ` AND sender_id = ?`
+		args = append(args, filter.SenderID)
+	}
+	if filter.Pending != nil {
+		if *filter.Pending {
+			query += ` AND delivered_at = 0`
+		} else {
+			query += ` AND delivered_at != 0`
+		}
+	}
+	query += ` ORDER BY sent_at DESC, id DESC LIMIT ?`
+	args = append(args, filter.Limit)
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []InboxMessage
+	for rows.Next() {
+		msg := InboxMessage{SessionID: sessionID}
+		var sentAt, deliveredAt int64
+		if err := rows.Scan(&msg.ID, &msg.SenderID, &msg.SenderName, &msg.Body, &msg.Subject,
+			&sentAt, &deliveredAt); err != nil {
+			return nil, err
+		}
+		msg.SentAt, msg.DeliveredAt = decodeTime(sentAt), decodeTime(deliveredAt)
+		out = append(out, msg)
+	}
+	return out, rows.Err()
+}
+
 // ChildRestSubject labels the board's own notice that a child has come to
 // rest, so a child that stops, is restarted and stops again leaves its
 // parent one current notice rather than a queue of stale ones.
 func ChildRestSubject(childID string) string { return "child-rest:" + childID }
-
-// Fingerprint is what the dedupe window compares: the message with its
-// whitespace collapsed, hashed, so a retry that only re-wraps its text is
-// recognised as the same message. It lives here because it is part of what
-// Enqueue means by a duplicate, and every sender has to compute it the same
-// way for that to hold.
-func Fingerprint(message string) string {
-	sum := sha256.Sum256([]byte(strings.Join(strings.Fields(message), " ")))
-	return hex.EncodeToString(sum[:])
-}

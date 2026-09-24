@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/tracetest"
 )
 
@@ -113,7 +114,7 @@ func TestAKillIsRecordedAgainstTheSessionItEnded(t *testing.T) {
 	}
 
 	spans := tracetest.Capture(t)
-	if _, err := h.sessions.Kill(h.caller.ID, target.ID); err != nil {
+	if _, err := h.sessions.Kill(h.caller.ID, target.ID, extension.KillByCLI); err != nil {
 		t.Fatalf("Kill: %v", err)
 	}
 	recorded := spans()

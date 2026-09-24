@@ -13,6 +13,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/git"
@@ -20,6 +22,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/migrate"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -49,6 +52,21 @@ type Session struct {
 	// its spawner, under their shared root, and answered by its spawner.
 	ParentID  string `json:"parent_id,omitempty" jsonschema:"session this row is drawn under on the board; empty for a top-level session"`
 	SpawnedBy string `json:"spawned_by,omitempty" jsonschema:"session that spawned this one, which is the only session that can answer its questions or reach it with send_children; empty for a session nobody spawned"`
+	// Role is the extension's, and reaches extensions only: no tool's output
+	// carries it, so it costs a session's context nothing.
+	Role string `json:"-"`
+	// AgentSessionID reaches extensions only, as the key their state about
+	// one conversation is kept under; no tool's output carries it.
+	AgentSessionID string `json:"-"`
+	// Terminal marks a shell row, which only a list asked for terminals
+	// returns; like Role, it reaches extensions only.
+	Terminal bool `json:"-"`
+	// CreatedAt and ArchivedAt are for the Go callers that read a Session,
+	// the extension host among them; the tools' JSON leaves them out.
+	CreatedAt  time.Time `json:"-"`
+	ArchivedAt time.Time `json:"-"`
+	// ReplacedBy reaches extensions only, as Role does.
+	ReplacedBy string `json:"-"`
 }
 
 type SessionScreen struct {
@@ -142,6 +160,20 @@ func (r *runtime) agent(id string) (store.Session, error) {
 	return sess, nil
 }
 
+// killable resolves what an extension's kill may end: an agent session, or
+// a terminal that reaches allows.
+func (r *runtime) killable(id string, reaches func(terminal store.Session) error) (store.Session, error) {
+	sess, err := r.store.Get(strings.TrimSpace(id))
+	if err != nil || !r.cfg.Tools[sess.Tool].Shell {
+		return r.agent(id)
+	}
+	terminal, err := r.terminal(id)
+	if err != nil {
+		return store.Session{}, err
+	}
+	return terminal, reaches(terminal)
+}
+
 // deliverable refuses a target the manager would never type into.
 //
 // Archived is tested before running because it is the more useful answer of
@@ -183,6 +215,13 @@ func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 		Self:      self,
 		ParentID:  sess.ParentID,
 		SpawnedBy: store.SpawnerOf(sess),
+		Role:      sess.Role,
+
+		AgentSessionID: sess.AgentSessionID,
+		Terminal:       r.cfg.Tools[sess.Tool].Shell,
+		CreatedAt:      sess.CreatedAt,
+		ArchivedAt:     sess.ArchivedAt,
+		ReplacedBy:     sess.ReplacedBy,
 	}
 }
 
@@ -217,9 +256,23 @@ type ListOptions struct {
 	// on a long-lived board they are most of the table -- so only a caller
 	// looking for a row to restore should ask.
 	IncludeArchived bool
+	// IncludeTerminals reads shell rows beside the agent sessions. No tool
+	// asks for them: an extension ending a tree of sessions does, so the
+	// terminals its workers opened end with them.
+	IncludeTerminals bool
 	// Limit caps the rows returned, after filtering. Zero takes
 	// DefaultSessionLimit and anything over MaxSessionLimit is refused.
 	Limit int
+	// After is a Cursor from an earlier list: only the rows after it are
+	// returned, which is how a caller reads a board wider than
+	// MaxSessionLimit. A cursor holds a place in the order rather than a
+	// count, so a row archived or started between two pages shifts
+	// neither. With Parent set, rows come in creation order, whose key never
+	// moves, so every row is read once. Without it they come in board order,
+	// which a reorder or a group move changes: a row moved across the
+	// cursor mid-scan is skipped or read twice.
+	After string
+	after *store.ListKey
 }
 
 // SessionList carries the rows plus what the limit hid, because a manager
@@ -231,6 +284,9 @@ type SessionList struct {
 	// Truncated is stated rather than left to matched > returned, so a
 	// caller reading the structured payload does not have to derive it.
 	Truncated bool `json:"truncated" jsonschema:"true when limit left matching sessions out; narrow parent or status, or raise limit"`
+	// Cursor is passed back as After to read the rows after this page;
+	// empty when none follow.
+	Cursor string `json:"-"`
 }
 
 func (o ListOptions) normalize(callerID string) (ListOptions, error) {
@@ -257,6 +313,16 @@ func (o ListOptions) normalize(callerID string) (ListOptions, error) {
 		o.Limit = DefaultSessionLimit
 	case o.Limit < 0 || o.Limit > MaxSessionLimit:
 		return ListOptions{}, fmt.Errorf("limit %d is out of range; ask for between 1 and %d", o.Limit, MaxSessionLimit)
+	}
+	if o.After != "" {
+		after, err := store.ParseListKey(o.After)
+		if err != nil {
+			return ListOptions{}, err
+		}
+		if after.Creation != (o.Parent != "") {
+			return ListOptions{}, errors.New("cursor is from a list with a different parent filter")
+		}
+		o.after = &after
 	}
 	return o, nil
 }
@@ -295,39 +361,63 @@ func (s *Sessions) List(sessionID string, opts ListOptions) (list SessionList, e
 	if err != nil {
 		return SessionList{}, err
 	}
-	opts, err = opts.normalize(caller.ID)
+	return runtime.list(caller.ID, opts)
+}
+
+// list is List once the caller is settled. callerID is empty for the board,
+// which is no session: nothing is marked as the caller's own row.
+func (r *runtime) list(callerID string, opts ListOptions) (SessionList, error) {
+	opts, err := opts.normalize(callerID)
 	if err != nil {
 		return SessionList{}, err
 	}
-	stored, err := runtime.store.ListSessions(opts.IncludeArchived)
+	stored, err := r.store.ListSessions(opts.IncludeArchived)
 	if err != nil {
 		return SessionList{}, err
 	}
-	panes, err := runtime.driver.Panes()
+	panes, err := r.driver.Panes()
 	if err != nil {
 		return SessionList{}, err
 	}
 	sessions := make([]Session, 0)
 	matched := 0
-	for _, sess := range stored {
-		if runtime.cfg.Tools[sess.Tool].Shell {
+	more := false
+	var last store.ListKey
+	var keys []store.ListKey
+	if opts.Parent != "" {
+		stored, keys = store.ByCreation(stored)
+	} else {
+		keys = store.ListKeys(stored)
+	}
+	for i, sess := range stored {
+		if r.cfg.Tools[sess.Tool].Shell && !opts.IncludeTerminals {
 			continue
 		}
 		if !opts.keeps(sess) {
 			continue
 		}
 		matched++
-		if len(sessions) < opts.Limit {
-			_, running := panes[sess.ID]
-			sessions = append(sessions, runtime.sessionInfo(sess, running, sess.ID == sessionID))
+		if opts.after != nil && !keys[i].After(*opts.after) {
+			continue
 		}
+		if len(sessions) == opts.Limit {
+			more = true
+			continue
+		}
+		_, running := panes[sess.ID]
+		sessions = append(sessions, r.sessionInfo(sess, running, callerID != "" && sess.ID == callerID))
+		last = keys[i]
 	}
-	return SessionList{
+	list := SessionList{
 		Sessions:  sessions,
 		Matched:   matched,
 		Returned:  len(sessions),
-		Truncated: matched > len(sessions),
-	}, nil
+		Truncated: more,
+	}
+	if more {
+		list.Cursor = last.String()
+	}
+	return list, nil
 }
 
 func (s *Sessions) Groups(sessionID string) ([]Group, error) {
@@ -521,15 +611,49 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	} else if caller.ParentID != "" {
 		parentID = caller.ParentID
 	}
-	prompt := strings.TrimSpace(opts.Prompt)
-	if strings.HasPrefix(prompt, "-") && tool.PromptFlag == "" {
-		return Session{}, fmt.Errorf(`prompt cannot start with "-" for %s, which takes its prompt as a bare argument and would read it as a flag`, toolName)
-	}
 	name := strings.TrimSpace(opts.Name)
 	autoNamed := name == ""
 	id := uuid.NewString()[:8]
 	if autoNamed {
 		name = toolName + "-" + id[:4]
+	}
+	sess := store.Session{
+		ID:        id,
+		Name:      name,
+		Tool:      toolName,
+		Cwd:       dir,
+		Group:     group,
+		Status:    status.Starting,
+		ParentID:  parentID,
+		SpawnedBy: caller.ID,
+		Model:     strings.TrimSpace(opts.Model),
+	}
+	// Shaped and then put to the policies before an account is chosen or a
+	// file written, so a refusal costs nothing to undo, and a policy is
+	// asked about the session that will actually launch.
+	shape, err := sessionhooks.Shape(sess, extension.LaunchSpawn, "")
+	if err != nil {
+		return Session{}, err
+	}
+	if shape.KeepUnderSpawner && !nest {
+		// Filed exactly where a nested spawn would have been.
+		sess.Group = caller.Group
+		sess.ParentID = caller.ID
+		create = runtime.store.LaunchSession
+		if caller.ParentID != "" {
+			sess.ParentID = caller.ParentID
+			create = func(row store.Session, launch func() error) error {
+				return runtime.store.LaunchSessionBeside(row, caller.ID, launch)
+			}
+		}
+	}
+	prompt := shape.Shaped(strings.TrimSpace(opts.Prompt))
+	if strings.HasPrefix(prompt, "-") && tool.PromptFlag == "" {
+		return Session{}, fmt.Errorf(`prompt cannot start with "-" for %s, which takes its prompt as a bare argument and would read it as a flag`, toolName)
+	}
+	sessionHooks, err := sessionhooks.CheckSpawn(sess, extension.SpawnBySession)
+	if err != nil {
+		return Session{}, err
 	}
 
 	account, err := runtime.accountOr(opts.Account, tool, id)
@@ -548,25 +672,19 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if err != nil {
 		return Session{}, err
 	}
-	manager := hooks.NewManager(s.configDir)
-	command, env, err := launch.Environment(manager, toolName, tool, plan.Command, id, plan.Model, plan.Account)
+	sess.AgentSessionID = plan.AgentSessionID
+	sess.PendingInputs = plan.PendingInputs
+	sess.LaunchPrompt = plan.LaunchPrompt
+	sess.Model = plan.Model
+	sess.Account = plan.Account
+	contributed, err := sessionhooks.Env(sessionHooks, sess, extension.LaunchSpawn, "", nil)
 	if err != nil {
 		return Session{}, err
 	}
-	sess := store.Session{
-		ID:             id,
-		Name:           name,
-		Tool:           toolName,
-		Cwd:            dir,
-		Group:          group,
-		Status:         status.Starting,
-		AgentSessionID: plan.AgentSessionID,
-		PendingInputs:  plan.PendingInputs,
-		LaunchPrompt:   plan.LaunchPrompt,
-		ParentID:       parentID,
-		SpawnedBy:      caller.ID,
-		Model:          plan.Model,
-		Account:        plan.Account,
+	manager := hooks.NewManager(s.configDir)
+	command, env, err := launch.Environment(manager, toolName, tool, plan.Command, id, plan.Model, plan.Account, contributed)
+	if err != nil {
+		return Session{}, err
 	}
 	launched := false
 	if err := create(sess, func() error {
@@ -580,6 +698,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		return Session{}, err
 	}
 	accounts.RecordLaunch(runtime.store, sess.ID, sess.Tool, sess.Account)
+	sessionhooks.Spawned(sessionHooks, sess, extension.SpawnBySession)
 	logging.Info("session created by an agent",
 		"caller", caller.ID, "callerTool", caller.Tool,
 		"session", sess.ID, "parent", sess.ParentID,
@@ -617,12 +736,27 @@ type SendResult struct {
 	// that this one replaced in the queue.
 	Superseded int  `json:"superseded,omitempty" jsonschema:"how many earlier queued messages from this sender on the same subject this one replaced"`
 	Interrupt  bool `json:"interrupt,omitempty" jsonschema:"whether the recipient's running turn is stopped before the message is typed in"`
+	// Relayed is a send the sender's role relays as the operator's words.
+	// With no MessageID, the extension that launched the sender took it and
+	// nothing was queued.
+	Relayed bool `json:"relayed,omitempty" jsonschema:"whether this was relayed as the operator's words; with no message_id, nothing was queued and there is nothing to track"`
+	// Handled is what the build's extensions made of an operator's send,
+	// told in the sending process so the sender learns it with no board
+	// running. The message is queued and delivered all the same.
+	Handled []extension.OperatorSendResult `json:"handled,omitempty" jsonschema:"what the build's extensions made of an operator's send, each under its extension's id; the message is queued and delivered either way"`
 }
 
 // maxMessageBytes bounds one message. An instruction to another agent is
 // prose; the queue and rate caps count messages, and this is what keeps one
 // of them from being a file paste that fills the recipient's prompt.
 const maxMessageBytes = 8000
+
+// maxBoardMessageBytes bounds one message from a board extension. An
+// extension is no agent writing prose, and what it hands a session -- what
+// a board extension gathered for a session to act on -- has to arrive whole,
+// where a pointer to a file would be a second step the agent may not take.
+// It is extension.MaxMessageBytes.
+const maxBoardMessageBytes = extension.MaxMessageBytes
 
 // maxSubjectBytes bounds the supersession key. It names what a message is
 // about so a later one can replace it; a sender that puts the message in it
@@ -663,16 +797,9 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 			tracing.Attr{Key: "message.bytes", Value: len(message)},
 			tracing.Attr{Key: "as_human", Value: asHuman})
 	}()
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return SendResult{}, errors.New("message is empty")
-	}
-	if len(message) > maxMessageBytes {
-		return SendResult{}, fmt.Errorf("message is %d bytes, over the %d byte limit; shorten it to the instruction and point the agent at a file or a task for the detail", len(message), maxMessageBytes)
-	}
-	subject = strings.TrimSpace(subject)
-	if len(subject) > maxSubjectBytes {
-		return SendResult{}, fmt.Errorf("subject is %d bytes, over the %d byte limit; it is a label for what the message is about, not the message", len(subject), maxSubjectBytes)
+	message, subject, err = checkMessage(message, subject, maxMessageBytes)
+	if err != nil {
+		return SendResult{}, err
 	}
 	runtime, err := s.open()
 	if err != nil {
@@ -685,33 +812,113 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 			return SendResult{}, err
 		}
 	}
-	target, err := runtime.agent(targetID)
+	from := sender{callerID: caller.ID, id: caller.ID, name: caller.Name}
+	// A helper an extension launched to speak for the operator -- one
+	// holding a question for them, say -- writing to the session it was
+	// filed under. What it sends is the operator's answer, not its own
+	// words, so it goes as the operator's, once the extension has vetted
+	// it; an answer that was for the extension alone queues nothing. The
+	// target is resolved here behind the checks enqueue runs, so a send
+	// refused there is refused before the extension sees it. Such a helper
+	// claiming the operator's words outright is relayed the same way: its
+	// flag does not get it past the extension's vetting.
+	isRelay := false
+	if sessionhooks.Role(caller.Role).RelayToParent {
+		target, err := runtime.addressee(from, targetID, interrupt)
+		if err != nil {
+			return SendResult{}, err
+		}
+		var spec extension.RoleSpec
+		if spec, isRelay = relayed(caller, target); isRelay {
+			deliver, err := s.relay(runtime, spec, caller, target, message)
+			if err != nil {
+				return SendResult{}, err
+			}
+			if deliver == "" {
+				return SendResult{Relayed: true}, nil
+			}
+			message, asHuman = deliver, true
+		}
+	}
+	switch {
+	case isRelay:
+		from.id, from.name = store.RelayedHumanSenderID, ""
+	case asHuman:
+		from.id, from.name = store.HumanSenderID, ""
+	}
+	result, err = runtime.enqueue(from, targetID, message, subject, interrupt)
 	if err != nil {
 		return SendResult{}, err
 	}
-	if caller.ID != "" && target.ID == caller.ID {
-		return SendResult{}, errors.New("a session cannot message itself")
+	result.Relayed = isRelay
+	if !asHuman || isRelay {
+		return result, nil
 	}
-	// Refused up front rather than queued: without keys the poller has no way
-	// to stop the turn, and a message that silently arrived late would be the
-	// very thing the sender asked to avoid.
-	if interrupt && len(runtime.cfg.Tools[target.Tool].InterruptKeys) == 0 {
-		return SendResult{}, fmt.Errorf("session %s runs %s, which has no interrupt_keys configured, so there is no safe way to stop its turn; send without interrupt and it is typed in as soon as the session can read it", target.ID, target.Tool)
+	// The extensions hear the operator's line here, where the sender is
+	// still waiting, as well as from a running board once it is typed in:
+	// this is the half that works with no board, and the only one that can
+	// answer the sender.
+	target, err := runtime.agent(targetID)
+	if err != nil {
+		logging.Info("could not tell the extensions of an operator's send",
+			"session", targetID, "message", result.MessageID, logging.Err(err))
+		return result, nil
 	}
-	now := time.Now()
-	if err := runtime.deliverable(target); err != nil {
+	result.Handled = sessionhooks.OperatorSent(target, result.MessageID, message, subject, interrupt, time.Now())
+	return result, nil
+}
+
+// checkMessage trims a message and its subject and holds the message to
+// limit bytes, and the subject to the size every sender is held to.
+func checkMessage(message, subject string, limit int) (string, string, error) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return "", "", errors.New("message is empty")
+	}
+	if len(message) > limit {
+		return "", "", tooLarge(fmt.Sprintf("message is %d bytes, over the %d byte limit; shorten it to the instruction and point the agent at a file or a task for the detail", len(message), limit))
+	}
+	subject = strings.TrimSpace(subject)
+	if len(subject) > maxSubjectBytes {
+		return "", "", fmt.Errorf("subject is %d bytes, over the %d byte limit; it is a label for what the message is about, not the message", len(subject), maxSubjectBytes)
+	}
+	return message, subject, nil
+}
+
+// tooLarge is a message over its sender's limit. It reads as its own text,
+// which a session's tool call shows as it always has, and is
+// extension.ErrMessageTooLarge to a caller that asks.
+type tooLarge string
+
+func (e tooLarge) Error() string { return string(e) }
+
+func (e tooLarge) Is(target error) bool { return target == extension.ErrMessageTooLarge }
+
+// sender is who a queued message is from. callerID is the session sending,
+// empty for a person at a shell or for the board; id and name are what the
+// message is queued under.
+type sender struct {
+	callerID string
+	id, name string
+}
+
+// enqueue queues message for targetID from from, behind the checks every
+// sender's message passes.
+func (r *runtime) enqueue(from sender, targetID, message, subject string, interrupt bool) (SendResult, error) {
+	target, err := r.addressee(from, targetID, interrupt)
+	if err != nil {
 		return SendResult{}, err
 	}
-	senderID, senderName := caller.ID, caller.Name
-	if asHuman {
-		senderID, senderName = store.HumanSenderID, ""
+	now := time.Now()
+	if err := r.deliverable(target); err != nil {
+		return SendResult{}, err
 	}
-	id, superseded, err := runtime.store.Enqueue(store.InboxMessage{
+	id, superseded, err := r.store.Enqueue(store.InboxMessage{
 		SessionID:   target.ID,
-		SenderID:    senderID,
-		SenderName:  senderName,
+		SenderID:    from.id,
+		SenderName:  from.name,
 		Body:        message,
-		Fingerprint: fingerprint(message),
+		Fingerprint: textfmt.Fingerprint(message),
 		Subject:     subject,
 		Interrupt:   interrupt,
 		SentAt:      now,
@@ -722,16 +929,16 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 	// Answering is the acknowledgement: whatever this session was sent by
 	// the agent it is now writing to has plainly been read. A person sending
 	// from their own terminal has no inbox of their own to clear.
-	if caller.ID != "" {
-		if err := runtime.store.MarkRead(caller.ID, target.ID, now); err != nil {
+	if from.callerID != "" {
+		if err := r.store.MarkRead(from.callerID, target.ID, now); err != nil {
 			return SendResult{}, err
 		}
 	}
-	queued, err := runtime.store.QueuedCount(target.ID)
+	queued, err := r.store.QueuedCount(target.ID)
 	if err != nil {
 		return SendResult{}, err
 	}
-	awake, err := runtime.managerAwake(now)
+	awake, err := r.managerAwake(now)
 	if err != nil {
 		return SendResult{}, err
 	}
@@ -740,7 +947,7 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 	// and lands when the recipient is at rest -- so it rides the result
 	// rather than an error, and a capture that will not read leaves the
 	// send reported rather than failed.
-	held, heldErr := runtime.heldReason(target.ID)
+	held, heldErr := r.heldReason(target.ID)
 	if heldErr != nil {
 		logging.Info("could not tell a sender why its message is held",
 			"session", target.ID, "message", id, logging.Err(heldErr))
@@ -753,6 +960,25 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 		Superseded:    superseded,
 		Interrupt:     interrupt,
 	}, nil
+}
+
+// addressee resolves targetID for a message from from, refusing the sends
+// no sender may make whatever the message says.
+func (r *runtime) addressee(from sender, targetID string, interrupt bool) (store.Session, error) {
+	target, err := r.agent(targetID)
+	if err != nil {
+		return store.Session{}, err
+	}
+	if from.callerID != "" && target.ID == from.callerID {
+		return store.Session{}, errors.New("a session cannot message itself")
+	}
+	// Refused up front rather than queued: without keys the poller has no way
+	// to stop the turn, and a message that silently arrived late would be the
+	// very thing the sender asked to avoid.
+	if interrupt && len(r.cfg.Tools[target.Tool].InterruptKeys) == 0 {
+		return store.Session{}, fmt.Errorf("session %s runs %s, which has no interrupt_keys configured, so there is no safe way to stop its turn; send without interrupt and it is typed in as soon as the session can read it", target.ID, target.Tool)
+	}
+	return target, nil
 }
 
 // MessageStatus reports what happened to a message this session sent, or one
@@ -891,10 +1117,6 @@ func (r *runtime) managerAwake(now time.Time) (bool, error) {
 	return now.Sub(time.Unix(0, stamp)) < max(3*r.cfg.PollInterval.Duration, store.PollerHeartbeatStale), nil
 }
 
-// fingerprint is store.Fingerprint under the name this package's callers
-// already use; the rule itself belongs beside the dedupe window it feeds.
-func fingerprint(message string) string { return store.Fingerprint(message) }
-
 // Read is what another session is doing, in one of two shapes.
 //
 // With no cursor it is what it always was: the pane, whole, plus the digest
@@ -980,8 +1202,25 @@ func (s *Sessions) Get(sessionID, targetID string) (got Session, err error) {
 
 // Kill stops a session's pane and leaves its row dead, keeping the last
 // screen so the manager can still show it and a revive can resume the
-// conversation it held.
-func (s *Sessions) Kill(sessionID, targetID string) (killed Session, err error) {
+// conversation it held. via is the path the kill came through; once the
+// pane is gone the build's kill observers hear of it, here in the killing
+// process.
+func (s *Sessions) Kill(sessionID, targetID string, via extension.KillSource) (Session, error) {
+	return s.kill(sessionID, targetID, false, via)
+}
+
+// KillOrEndTerminal is Kill that also ends a terminal nested under an agent
+// session: the caller's own, or one it could kill, which Kill allows for any
+// agent but itself. The terminal's row is left dead as Kill leaves an
+// agent's. It is for an extension ending a tree of sessions, terminals among
+// them, from whichever session asked; kill_session keeps refusing
+// terminals, whose tool is close_terminal. A terminal's end is not told
+// to the kill observers, which hear of agent sessions.
+func (s *Sessions) KillOrEndTerminal(sessionID, targetID string, via extension.KillSource) (Session, error) {
+	return s.kill(sessionID, targetID, true, via)
+}
+
+func (s *Sessions) kill(sessionID, targetID string, terminals bool, via extension.KillSource) (killed Session, err error) {
 	defer start("sessioncmd.kill", sessionAttr(targetID)).done(&err)
 	runtime, err := s.open()
 	if err != nil {
@@ -991,7 +1230,12 @@ func (s *Sessions) Kill(sessionID, targetID string) (killed Session, err error) 
 	if _, err := runtime.caller(sessionID); err != nil {
 		return Session{}, err
 	}
-	target, err := runtime.agent(targetID)
+	var target store.Session
+	if terminals {
+		target, err = runtime.killable(targetID, runtime.nestedUnderAgent)
+	} else {
+		target, err = runtime.agent(targetID)
+	}
 	if err != nil {
 		return Session{}, err
 	}
@@ -1002,6 +1246,9 @@ func (s *Sessions) Kill(sessionID, targetID string) (killed Session, err error) 
 		return Session{}, err
 	}
 	target.Status = status.Dead
+	if !runtime.cfg.Tools[target.Tool].Shell {
+		sessionhooks.Killed(target, via, sessionID)
+	}
 	return runtime.sessionInfo(target, false, false), nil
 }
 
@@ -1067,6 +1314,12 @@ func (s *Sessions) Archive(sessionID, targetID string, archived bool) (filed Ses
 	if target.ID == sessionID && archived {
 		return Session{}, errors.New("a session cannot archive itself")
 	}
+	return s.file(runtime, target, archived)
+}
+
+// file archives or restores target, ending it first when an archive finds it
+// running.
+func (s *Sessions) file(runtime *runtime, target store.Session, archived bool) (Session, error) {
 	running := runtime.driver.Exists(target.ID)
 	if archived && running {
 		// endSessionWith is what kill and park share: it snapshots the screen,

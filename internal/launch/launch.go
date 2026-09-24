@@ -20,6 +20,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/tmux"
+	"github.com/usestring/gate-inbox/internal/tooldrivers"
 )
 
 // RenameDirective asks the agent, as the first line of its first prompt,
@@ -370,8 +371,18 @@ func ReviveCommand(toolName string, tool config.Tool, agentSessionID, model stri
 // account is the named subscription the session runs on, empty for the
 // CLI's own login. Its token is read here, at launch, and exported into the
 // session through the tool's AccountEnv.
-func Environment(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string) (string, map[string]string, error) {
+//
+// contributed is what the build's extensions add for this launch. It
+// overrides what the session would inherit, and an empty value withholds an
+// inherited one; a name this function sets itself is refused rather than
+// overridden.
+func Environment(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string) (string, map[string]string, error) {
 	if err := config.CheckInstalled(baseCommand); err != nil {
+		return "", nil, err
+	}
+	// Refused before anything is removed or written: a style nothing
+	// implements is a config mistake, not a launch half made.
+	if err := tooldrivers.CheckTool(toolName, tool); err != nil {
 		return "", nil, err
 	}
 	if err := manager.RemoveName(id); err != nil {
@@ -385,7 +396,7 @@ func Environment(manager *hooks.Manager, toolName string, tool config.Tool, base
 			return "", nil, err
 		}
 	}
-	return compose(manager, toolName, tool, baseCommand, id, model, account, true)
+	return compose(manager, toolName, tool, baseCommand, id, model, account, contributed, true)
 }
 
 // parentEnvBlocklist are per-process values a launched session must never
@@ -431,6 +442,25 @@ func inheritParentEnv(env map[string]string) {
 	}
 }
 
+// checkContributed refuses an extension's variable that the launch sets
+// itself or must never carry. Refused rather than overridden either way: an
+// extension that thinks it sets the session's id or its account token is
+// wrong about what it is doing, and a launch that quietly ignored it would
+// leave it wrong.
+func checkContributed(tool config.Tool, contributed map[string]string) error {
+	for key := range contributed {
+		reserved := key == hooks.EnvSessionID || key == hooks.EnvExecutable || key == config.HomeEnv ||
+			parentEnvBlocklist[key] || tool.AccountEnv != "" && key == tool.AccountEnv
+		if reserved {
+			return fmt.Errorf("an extension set %s, which the launch sets itself", key)
+		}
+		if !validEnvName(key) {
+			return fmt.Errorf("an extension set %q, which is not an environment variable name", key)
+		}
+	}
+	return nil
+}
+
 func validEnvName(key string) bool {
 	if key == "" {
 		return false
@@ -453,19 +483,26 @@ func validEnvName(key string) bool {
 // thing it exists to avoid. It also has to work where those paths do not:
 // a stale claude-settings.json behind a sandbox deny rule is precisely when
 // somebody wants to read the plan rather than run it.
-func Compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string) (string, map[string]string, error) {
-	return compose(manager, toolName, tool, baseCommand, id, model, account, false)
+func Compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string) (string, map[string]string, error) {
+	return compose(manager, toolName, tool, baseCommand, id, model, account, contributed, false)
 }
 
 // resolveAccount reads an account's token, replaced in tests so a launch
 // plan never reaches a real secret store.
 var resolveAccount = accounts.Resolve
 
-func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, write bool) (string, map[string]string, error) {
+func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string, write bool) (string, map[string]string, error) {
 	if err := config.CheckInstalled(baseCommand); err != nil {
 		return "", nil, err
 	}
-	account, err := WithAccount(tool, account)
+	if err := checkContributed(tool, contributed); err != nil {
+		return "", nil, err
+	}
+	style, err := mcpreg.Resolve(toolName, tool.MCP)
+	if err != nil {
+		return "", nil, err
+	}
+	account, err = WithAccount(tool, account)
 	if err != nil {
 		return "", nil, err
 	}
@@ -474,6 +511,9 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	// name cannot reach the subcommands at all.
 	env := map[string]string{hooks.EnvSessionID: id, hooks.EnvExecutable: Executable()}
 	inheritParentEnv(env)
+	for key, value := range contributed {
+		env[key] = value
+	}
 	// A relocated board has to reach the worker too: anything the session
 	// runs that resolves the config dir falls back to the default when the
 	// variable is unset. Passed only when it is actually
@@ -501,7 +541,7 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	if write {
 		register = mcpreg.Apply
 	}
-	command, err := register(mcpreg.Style(toolName, tool.MCP), Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model))
+	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model))
 	if err != nil {
 		return "", nil, err
 	}

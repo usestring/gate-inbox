@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"strconv"
 	"strings"
 )
@@ -102,29 +103,29 @@ func buildLegendBar(sections []legendSection, width, maxRows int) string {
 			title = legendTitleStyle.Render(section.title)
 		}
 		head := indent + padRight(title, legendTitleColumn)
-		line, lineWidth, started := head, cellWidth(head), false
+		line, lineWidth, started := head, textfmt.Width(head), false
 		cut := false
 		for _, pair := range section.pairs {
 			part, gap := keyCap(pair[0], pair[1]), spaces(legendGap)
 			if section.quiet {
 				part, gap = keyCapQuiet(pair[0], pair[1]), sep
 			}
-			partWidth := cellWidth(part) + cellWidth(gap)
+			partWidth := textfmt.Width(part) + textfmt.Width(gap)
 			// The row that cannot wrap further keeps room for the cut
 			// marker, so the marker never lands past the terminal edge.
 			avail := width
 			if len(out) >= maxRows-1 {
-				avail = width - 1 - cellWidth(more)
+				avail = width - 1 - textfmt.Width(more)
 			}
 			switch {
 			case !started:
-				line, lineWidth, started = line+part, lineWidth+cellWidth(part), true
+				line, lineWidth, started = line+part, lineWidth+textfmt.Width(part), true
 			case lineWidth+partWidth <= avail:
 				line += gap + part
 				lineWidth += partWidth
 			case len(out) < maxRows-1:
 				out = append(out, line)
-				line, lineWidth = cont+part, cellWidth(cont)+cellWidth(part)
+				line, lineWidth = cont+part, textfmt.Width(cont)+textfmt.Width(part)
 			default:
 				cut = true
 			}
@@ -149,7 +150,7 @@ func legendInline(pairs [][2]string, width int) string {
 	lineWidth := 0
 	for _, pair := range pairs {
 		part := keyCap(pair[0], pair[1])
-		partWidth := cellWidth(part)
+		partWidth := textfmt.Width(part)
 		if len(parts) > 0 && lineWidth+legendGap+partWidth > width {
 			lines = append(lines, strings.Join(parts, gap))
 			parts, lineWidth = nil, 0

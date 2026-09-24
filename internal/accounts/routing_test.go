@@ -98,6 +98,13 @@ func TestSmartRoutingOwnFirstThenPersistentRoundRobin(t *testing.T) {
 	ownerUsed = 100
 	st.SetSetting("account_usage:v2:SUB_{account}:OWNER", "")
 	for i, want := range []string{"B", "C", "B", "C"} {
+		// A preview names the account the next Select takes, and takes
+		// no turn itself.
+		for range 2 {
+			if got, err := Preview(st, tool, ""); err != nil || got != want {
+				t.Fatalf("preview of turn %d: %q %v", i, got, err)
+			}
+		}
 		got, err := Select(st, tool, "", fmt.Sprint(i))
 		if err != nil || got != want {
 			t.Fatalf("turn %d: %q %v", i, got, err)
@@ -130,7 +137,7 @@ func TestResetTimeChangesPoolPreference(t *testing.T) {
 		}
 		return u, nil
 	}
-	got, _, err := selectSmart(st, config.Tool{AccountSecret: "SUB_{account}", AccountsCommand: "list"}, "OWNER")
+	got, _, err := selectSmart(st, config.Tool{AccountSecret: "SUB_{account}", AccountsCommand: "list"}, "OWNER", true)
 	if err != nil || got != "SOON" {
 		t.Fatalf("%q %v", got, err)
 	}
@@ -212,7 +219,7 @@ func TestExpiredCacheIsRefetchedAndFailureNeverBorrows(t *testing.T) {
 		t.Fatal(err)
 	}
 	st.SetSetting("account_usage:v2:SUB_{account}:OWNER", string(data))
-	if got, _, err := selectSmart(st, tool, "OWNER"); err == nil || got != "" {
+	if got, _, err := selectSmart(st, tool, "OWNER", true); err == nil || got != "" {
 		t.Fatalf("borrowed %q: %v", got, err)
 	}
 }

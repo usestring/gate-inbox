@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -166,6 +167,7 @@ func (m *Model) submitQuick() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.noteSubmission(entry.sess)
+	m.noteOperator(entry.sess, extension.OperatorPrompt, text, false)
 	// The prompt is delivered: clear the input before anything else can
 	// fail, so a retry cannot send it twice.
 	m.clearQuickAfterSend()

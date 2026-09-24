@@ -105,8 +105,9 @@ func (t Ticket) Done() bool { return t.StateType == "completed" || t.StateType =
 type Health struct {
 	OK bool
 	// Off is a source the operator has not turned on: disabled in the config, or Linear with no
-	// LINEAR_API_KEY. Nothing is asked of it, so it can neither succeed nor fail, and Reason says
-	// why it is off rather than what went wrong.
+	// LINEAR_API_KEY, whose references are still drawn without state. Nothing is asked of it,
+	// so it can neither succeed nor fail, and Reason says why it is off rather than what went
+	// wrong.
 	Off bool
 	// Reason is why not, in the operator's terms — an unauthenticated gh, a 401 from Linear.
 	Reason string

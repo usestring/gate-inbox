@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/forge"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -495,7 +496,7 @@ func TestAnUnfoldedRailRowLinksItsPullRequestAndTicket(t *testing.T) {
 	if want := "\x1b]8;;https://linear.app/example/issue/ABC-135518\x1b\\"; !strings.Contains(ticket, want) {
 		t.Errorf("a ticket row carries no link to itself: %q", ticket)
 	}
-	if got, want := cellWidth(pr), cellWidth(ansi.Strip(pr)); got != want {
+	if got, want := textfmt.Width(pr), textfmt.Width(ansi.Strip(pr)); got != want {
 		t.Errorf("a linked rail row measures %d cells against %d bare: the link is taking width", got, want)
 	}
 }

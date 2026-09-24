@@ -91,7 +91,7 @@ func measureRetention(t *testing.T, env []string, rows int) (perCapture float64,
 		t.Fatal(err)
 	}
 	defer driver.Kill(id)
-	defer driver.run("kill-server")
+	defer tmuxOn(driver.SocketName(), "kill-server").Run()
 
 	control, err := driver.OpenPollControl(socket)
 	if err != nil {

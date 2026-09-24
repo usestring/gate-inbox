@@ -11,6 +11,8 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/extension/cmdline"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
@@ -47,7 +49,7 @@ type sessionCommands interface {
 	Answer(sessionID, targetID, reply string) (sessioncmd.AnsweredQuestion, error)
 	Wait(ctx context.Context, sessionID string, opts sessioncmd.WaitOptions) (sessioncmd.WaitResult, error)
 	MessageStatus(sessionID string, messageID int64) (sessioncmd.MessageState, error)
-	Kill(sessionID, targetID string) (sessioncmd.Session, error)
+	Kill(sessionID, targetID string, via extension.KillSource) (sessioncmd.Session, error)
 	Revive(sessionID, targetID string) (sessioncmd.Session, error)
 	Migrate(sessionID, targetID string, opts sessioncmd.MigrateOptions) (sessioncmd.Session, error)
 	Archive(sessionID, targetID string, archived bool) (sessioncmd.Session, error)
@@ -89,13 +91,13 @@ func sessionSection() section {
 }
 
 func runSessions(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageSessions)
+	set := cmdline.NewFlagSet(usageSessions)
 	var states stringList
 	parent := set.String("parent", "", `keep only the sessions one spawned; "`+sessioncmd.SelfParent+`" is this session's own children`)
 	set.Var(&states, "status", "state to keep, repeatable or comma separated: starting, working, waiting, finished, idle, errored or dead")
 	includeArchived := set.Bool("include-archived", false, "also list rows archived out of the active list, which on an old board are most of them")
 	limit := set.Int("limit", sessioncmd.DefaultSessionLimit, fmt.Sprintf("how many rows to print, at most %d; the last line says what was left out", sessioncmd.MaxSessionLimit))
-	asJSON := jsonFlag(set)
+	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
 		return err
 	}
@@ -108,11 +110,11 @@ func runSessions(out io.Writer, sessions sessionCommands, args []string, session
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, list, sessioncmd.FormatSessionList(list))
+	return cmdline.Emit(out, *asJSON, list, sessioncmd.FormatSessionList(list))
 }
 
 func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageSpawn)
+	set := cmdline.NewFlagSet(usageSpawn)
 	name := set.String("name", "", "kebab-case name naming the work it will do; the new agent names itself when this is empty")
 	prompt := set.String("prompt", "", "first task to hand it, written as a full instruction, since it cannot see your conversation")
 	tool := set.String("tool", "", "agent CLI to run; defaults to the CLI this session runs")
@@ -121,7 +123,7 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 	group := set.String("group", "", "existing group path for a detached (--nest=false) session; a nested one is always in yours")
 	directory := set.String("directory", "", "existing directory it works in; defaults to yours, or to the group's inherited path")
 	nest := set.Bool("nest", true, "file it under this session, where its questions and rests reach you; --nest=false detaches it, for work that is not yours")
-	asJSON := jsonFlag(set)
+	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
 		return err
 	}
@@ -147,7 +149,7 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, created, "created "+sessioncmd.FormatSession(created))
+	return cmdline.Emit(out, *asJSON, created, "created "+sessioncmd.FormatSession(created))
 }
 
 // agentEnv is set by Claude Code inside the shell it runs tool calls in, and
@@ -158,14 +160,14 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 const agentEnv = "CLAUDECODE"
 
 func runSend(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageSend)
+	set := cmdline.NewFlagSet(usageSend)
 	subject := set.String("subject", "",
 		"label for what this message is about; your next message to the same session under the same label replaces this one while it is still unread")
 	interrupt := set.Bool("interrupt", false,
 		"stop the session's running turn first so this is its next turn; refused for a CLI with no interrupt_keys, and never sent over a dialog")
 	asHuman := set.Bool("as-human", false,
 		"deliver as your own words rather than fenced as a message from another agent; for a person at a terminal, and refused from an agent's shell")
-	asJSON := jsonFlag(set)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 2, 2)
 	if err != nil {
 		return err
@@ -182,12 +184,12 @@ func runSend(out io.Writer, sessions sessionCommands, args []string, sessionID s
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, result, sessioncmd.FormatSendResult(result, operands[0]))
+	return cmdline.Emit(out, *asJSON, result, sessioncmd.FormatSendResult(result, operands[0]))
 }
 
 func runSendChildren(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageSendChildren)
-	asJSON := jsonFlag(set)
+	set := cmdline.NewFlagSet(usageSendChildren)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
@@ -196,13 +198,13 @@ func runSendChildren(out io.Writer, sessions sessionCommands, args []string, ses
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, sent, sessioncmd.FormatChildSend(sent))
+	return cmdline.Emit(out, *asJSON, sent, sessioncmd.FormatChildSend(sent))
 }
 
 func runPlace(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usagePlace)
+	set := cmdline.NewFlagSet(usagePlace)
 	release := set.Bool("release", false, "take one of this session's own children back out to the top level")
-	asJSON := jsonFlag(set)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
@@ -215,12 +217,12 @@ func runPlace(out io.Writer, sessions sessionCommands, args []string, sessionID 
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, placed, sessioncmd.FormatPlacement(placed))
+	return cmdline.Emit(out, *asJSON, placed, sessioncmd.FormatPlacement(placed))
 }
 
 func runAnswer(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageAnswer)
-	asJSON := jsonFlag(set)
+	set := cmdline.NewFlagSet(usageAnswer)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 2, 2)
 	if err != nil {
 		return err
@@ -229,13 +231,13 @@ func runAnswer(out io.Writer, sessions sessionCommands, args []string, sessionID
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, answered, sessioncmd.FormatAnswer(answered))
+	return cmdline.Emit(out, *asJSON, answered, sessioncmd.FormatAnswer(answered))
 }
 
 func runRead(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageRead)
+	set := cmdline.NewFlagSet(usageRead)
 	since := set.String("since", "", "cursor from a previous read of this session; returns only what it has added since, instead of the whole pane")
-	asJSON := jsonFlag(set)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
@@ -244,19 +246,19 @@ func runRead(out io.Writer, sessions sessionCommands, args []string, sessionID s
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, screen, sessioncmd.FormatSessionScreen(screen))
+	return cmdline.Emit(out, *asJSON, screen, sessioncmd.FormatSessionScreen(screen))
 }
 
 // runWait exits non-zero when no waited-on session reached an awaited state,
 // so `gate-inbox wait <id> && next-step` reads the outcome the way a shell
 // caller expects. The result still goes out first, JSON included.
 func runWait(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageWait)
+	set := cmdline.NewFlagSet(usageWait)
 	var until stringList
 	set.Var(&until, "until", "state that ends the wait, repeatable or comma separated; defaults to every state meaning the session stopped working")
 	children := set.Bool("children", false, "park on every session you spawned instead of naming ids; the first to arrive ends the wait and the result carries the whole set")
 	timeout := set.Duration("timeout", 0, "how long to wait before giving up, default "+sessioncmd.DefaultWaitTimeout.String()+", maximum "+sessioncmd.MaxWaitTimeout.String())
-	asJSON := jsonFlag(set)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 0, anyNumber)
 	if err != nil {
 		return err
@@ -278,18 +280,18 @@ func runWait(out io.Writer, sessions sessionCommands, args []string, sessionID s
 	human := sessioncmd.FormatWaitResult(result)
 	if !result.Reached {
 		if *asJSON {
-			if err := writeJSON(out, result); err != nil {
+			if err := cmdline.WriteJSON(out, result); err != nil {
 				return err
 			}
 		}
 		return errors.New(human)
 	}
-	return emit(out, *asJSON, result, human)
+	return cmdline.Emit(out, *asJSON, result, human)
 }
 
 func runMessageStatus(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageMessageStatus)
-	asJSON := jsonFlag(set)
+	set := cmdline.NewFlagSet(usageMessageStatus)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
@@ -302,26 +304,26 @@ func runMessageStatus(out io.Writer, sessions sessionCommands, args []string, se
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, state, sessioncmd.FormatMessageState(state))
+	return cmdline.Emit(out, *asJSON, state, sessioncmd.FormatMessageState(state))
 }
 
 func runKill(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageKill)
-	asJSON := jsonFlag(set)
+	set := cmdline.NewFlagSet(usageKill)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
 	}
-	killed, err := sessions.Kill(sessionID, operands[0])
+	killed, err := sessions.Kill(sessionID, operands[0], extension.KillByCLI)
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, killed, "killed "+sessioncmd.FormatSession(killed))
+	return cmdline.Emit(out, *asJSON, killed, "killed "+sessioncmd.FormatSession(killed))
 }
 
 func runRevive(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageRevive)
-	asJSON := jsonFlag(set)
+	set := cmdline.NewFlagSet(usageRevive)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
@@ -330,15 +332,15 @@ func runRevive(out io.Writer, sessions sessionCommands, args []string, sessionID
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, revived, "revived "+sessioncmd.FormatSession(revived))
+	return cmdline.Emit(out, *asJSON, revived, "revived "+sessioncmd.FormatSession(revived))
 }
 
 func runMigrate(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageMigrate)
+	set := cmdline.NewFlagSet(usageMigrate)
 	tool := set.String("tool", "", "agent CLI the conversation moves to")
 	name := set.String("name", "", "name for the new session; defaults to the source's name with the tool appended")
 	account := set.String("account", "", "named subscription the new session runs on; defaults to the source's own, then the board's default")
-	asJSON := jsonFlag(set)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
@@ -347,13 +349,13 @@ func runMigrate(out io.Writer, sessions sessionCommands, args []string, sessionI
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, migrated, "migrated "+operands[0]+" to "+sessioncmd.FormatSession(migrated))
+	return cmdline.Emit(out, *asJSON, migrated, "migrated "+operands[0]+" to "+sessioncmd.FormatSession(migrated))
 }
 
 func runArchive(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageArchive)
+	set := cmdline.NewFlagSet(usageArchive)
 	restore := set.Bool("restore", false, "put an archived session back on the active list")
-	asJSON := jsonFlag(set)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
@@ -362,13 +364,13 @@ func runArchive(out io.Writer, sessions sessionCommands, args []string, sessionI
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, updated, sessioncmd.FormatArchiveState(updated))
+	return cmdline.Emit(out, *asJSON, updated, sessioncmd.FormatArchiveState(updated))
 }
 
 func runPark(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usagePark)
+	set := cmdline.NewFlagSet(usagePark)
 	dryRun := set.Bool("dry-run", false, "print what park would stop and leave, without stopping anything or recording the set")
-	asJSON := jsonFlag(set)
+	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
 		return err
 	}
@@ -376,12 +378,12 @@ func runPark(out io.Writer, sessions sessionCommands, args []string, sessionID s
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, result, sessioncmd.FormatParkResult(result))
+	return cmdline.Emit(out, *asJSON, result, sessioncmd.FormatParkResult(result))
 }
 
 func runUnpark(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageUnpark)
-	asJSON := jsonFlag(set)
+	set := cmdline.NewFlagSet(usageUnpark)
+	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
 		return err
 	}
@@ -389,12 +391,12 @@ func runUnpark(out io.Writer, sessions sessionCommands, args []string, sessionID
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, result, sessioncmd.FormatUnparkResult(result))
+	return cmdline.Emit(out, *asJSON, result, sessioncmd.FormatUnparkResult(result))
 }
 
 func runGroups(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageGroups)
-	asJSON := jsonFlag(set)
+	set := cmdline.NewFlagSet(usageGroups)
+	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
 		return err
 	}
@@ -402,13 +404,13 @@ func runGroups(out io.Writer, sessions sessionCommands, args []string, sessionID
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, listed, sessioncmd.FormatGroupList(listed))
+	return cmdline.Emit(out, *asJSON, listed, sessioncmd.FormatGroupList(listed))
 }
 
 func runCreateGroup(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageCreateGroup)
+	set := cmdline.NewFlagSet(usageCreateGroup)
 	directory := set.String("directory", "", "default working directory sessions created in this group inherit")
-	asJSON := jsonFlag(set)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
@@ -417,12 +419,12 @@ func runCreateGroup(out io.Writer, sessions sessionCommands, args []string, sess
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, created, "created group "+created.Path)
+	return cmdline.Emit(out, *asJSON, created, "created group "+created.Path)
 }
 
 func runDeleteGroup(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageDeleteGroup)
-	asJSON := jsonFlag(set)
+	set := cmdline.NewFlagSet(usageDeleteGroup)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
@@ -431,5 +433,5 @@ func runDeleteGroup(out io.Writer, sessions sessionCommands, args []string, sess
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, removal, sessioncmd.FormatGroupRemoval(removal))
+	return cmdline.Emit(out, *asJSON, removal, sessioncmd.FormatGroupRemoval(removal))
 }

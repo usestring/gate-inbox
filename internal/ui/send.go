@@ -3,6 +3,8 @@ package ui
 import (
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/usestring/gate-inbox/extension"
+
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -46,6 +48,7 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string) bool {
 		return false
 	}
 	m.noteSubmission(sess)
+	m.noteOperator(sess, extension.OperatorSnippet, text, false)
 	// The agent has been given something to do, so the operator wants the
 	// alert it raises when it is done with it.
 	if err := m.store.SetAcked(sess.ID, false); err != nil {

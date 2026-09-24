@@ -9,13 +9,12 @@ package sessioncmd
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 
+	"github.com/usestring/gate-inbox/extension/cmdline"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/priority"
 )
@@ -34,27 +33,9 @@ func validSession(sessionID string) error {
 
 func writeMailbox(path, content string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return refusedWrite(err)
+		return cmdline.StateWriteError(err)
 	}
-	return refusedWrite(os.WriteFile(path, []byte(content), 0o644))
-}
-
-// refusedWrite names the usual reason a session cannot write the manager's
-// state directory. Claude Code runs a session's shell commands in a sandbox
-// whose writable set does not include the config directory, so the CLI
-// subcommand fails with "read-only file system" while the manager's MCP
-// server, a child of the agent rather than of its shell, writes the same
-// file without trouble. The bare error reads as the manager refusing, so
-// the message has to say which door is open.
-func refusedWrite(err error) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, syscall.EROFS) || errors.Is(err, fs.ErrPermission) {
-		return fmt.Errorf("%w (a sandboxed shell cannot write the manager's state directory: "+
-			"use the Gate Inbox MCP tool instead, or run this command outside the sandbox)", err)
-	}
-	return err
+	return cmdline.StateWriteError(os.WriteFile(path, []byte(content), 0o644))
 }
 
 // Rename records a session's self-chosen name for the running manager to

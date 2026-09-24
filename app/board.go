@@ -3,6 +3,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -15,14 +16,17 @@ import (
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/debugserver"
+	"github.com/usestring/gate-inbox/internal/extensionhost"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/managerbuild"
+	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/singleton"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
+	"github.com/usestring/gate-inbox/internal/tooldrivers"
 	"github.com/usestring/gate-inbox/internal/tracing"
 	"github.com/usestring/gate-inbox/internal/ui"
 )
@@ -49,14 +53,18 @@ func runBoard(version string, registry *extension.Registry) error {
 	if err != nil {
 		return err
 	}
-	// Refused here, before the singleton lock, so a config the build's
-	// extensions reject leaves a running board where it is rather than
-	// evicting it for a board that cannot start.
 	dir, err := config.Dir()
 	if err != nil {
 		return err
 	}
-	if err := registry.Configure(dir, cfg.Extensions); err != nil {
+	// A section an extension refuses switches that extension off and
+	// nothing else: the board starts, logs it below, and says so in the
+	// key map, rather than refusing to start over one optional feature.
+	extensionReport := registry.Configure(dir, cfg.Extensions)
+	// Refused, unlike an extension's section: a tool block naming an mcp
+	// or session_store style this build does not have would launch
+	// sessions without the board's tools.
+	if err := tooldrivers.CheckTools(cfg.Tools); err != nil {
 		return err
 	}
 
@@ -66,6 +74,12 @@ func runBoard(version string, registry *extension.Registry) error {
 	logger := openLog(cfg)
 	defer logger.Close()
 	logging.SetDefault(logger)
+	for _, disabled := range extensionReport.Disabled {
+		logging.Warn("extension disabled by its config", "extension", disabled.ID, "error", disabled.Err)
+	}
+	if len(extensionReport.Unknown) > 0 {
+		logging.Warn("config sections no extension owns", "sections", extensionReport.Unknown, "extensions", registry.IDs())
+	}
 
 	// Opened before the TUI takes the terminal, so a bad address is still
 	// something the operator can read. Unset -- the default -- binds nothing.
@@ -182,6 +196,7 @@ func runBoard(version string, registry *extension.Registry) error {
 		"editor", cfg.Editor)
 
 	model := ui.New(cfg, st, driver, engine, hooks.NewManager(dir), version)
+	model.SetExtensionNotes(extensionReport.Notes())
 	// Mouse reporting claims the wheel for the app, so a notch neither
 	// scrolls the host's scrollback out from under the manager nor arrives
 	// as an arrow key that walks the session cursor. Alternate scroll is
@@ -196,12 +211,66 @@ func runBoard(version string, registry *extension.Registry) error {
 	// one the terminal already had, and this first write changes nothing.
 	ui.EnableTerminalPassthrough()
 	ui.SyncTerminalBackground()
+	stopExtensions, err := startExtensions(dir, registry, model, program.Send)
+	if err != nil {
+		return err
+	}
 	model.StartPoller(program.Send)
 	_, runErr := program.Run()
+	stopExtensions()
 	ui.ResetTerminalBackground()
 	logging.Info("shutdown", logging.Err(runErr),
 		"droppedLogLines", logger.Dropped(), "droppedTraces", tracing.Dropped())
 	return runErr
+}
+
+// startExtensions installs every UIProvider's keys and badges on the model,
+// then starts every BoardProvider the build carries against the board model
+// polls, and returns what stops them again. It runs before the first pass, so
+// no transition goes unseen by a subscriber made at start, and a provider can
+// badge a row from its first event.
+func startExtensions(dir string, registry *extension.Registry, model *ui.Model, send func(tea.Msg)) (func(), error) {
+	cmds := sessioncmd.NewSessions(dir, sessioncmd.MCPVocabulary())
+	// A board killed mid-hold ran no extension stop, so its holds are still
+	// on record with nothing left to settle them. Aborted before any
+	// extension starts, so none can mistake one for its own.
+	aborted, err := cmds.AbortOrphanedHolds()
+	if err != nil {
+		logging.Warn("could not abort every replacement an earlier board held", logging.Err(err))
+	}
+	if aborted > 0 {
+		logging.Info("aborted replacements an earlier board held", "count", aborted)
+	}
+	board := extensionhost.NewBoard(dir, cmds)
+	events := extensionhost.NewEvents(board, func(owner string, err error) {
+		logging.Warn("extension board subscriber", "extension", owner, logging.Err(err))
+	})
+	model.ObserveBoard(events)
+	events.OnPinChange(model.PinStatuses(events))
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := startUI(ctx, registry, model, send); err != nil {
+		cancel()
+		return nil, err
+	}
+	results, stop, err := registry.StartBoard(ctx, events.For)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	for _, result := range results {
+		if result.Err != nil {
+			logging.Warn("extension did not start on the board",
+				"extension", result.ID, "version", result.Version, logging.Err(result.Err))
+			continue
+		}
+		logging.Info("extension started on the board", "extension", result.ID, "version", result.Version)
+	}
+	return func() {
+		cancel()
+		if err := stop(); err != nil {
+			logging.Warn("extension did not stop cleanly", logging.Err(err))
+		}
+	}, nil
 }
 
 // exitHangup is the conventional status for a process ending on SIGHUP,

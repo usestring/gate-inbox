@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -389,13 +390,13 @@ func (m *Model) restoreRow(i int, sess store.Session, inner int) string {
 // restoreRowLine is the shared name-and-directory rendering both the summary
 // listing and the picker use, so a session reads the same way on either.
 func restoreRowLine(prefix string, nameStyle fastStyle, sess store.Session, resumesExactly bool, inner int) string {
-	name := padRight(nameStyle.Render(cellTruncate(sess.Name, restoreNameColumn-1, "…")), restoreNameColumn)
+	name := padRight(nameStyle.Render(textfmt.TruncateWidth(sess.Name, restoreNameColumn-1, "…")), restoreNameColumn)
 	note := sess.Cwd
 	if !resumesExactly {
 		note = "no conversation id · " + note
 	}
 	if room := inner - restoreNameColumn - 6; room > 8 {
-		note = cellTruncate(note, room, "…")
+		note = textfmt.TruncateWidth(note, room, "…")
 	}
 	return prefix + name + subtleStyle.Render(note)
 }

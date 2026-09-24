@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -192,6 +193,9 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 	// A line in the board's own log, with a credential-shaped value the
 	// board must scrub before it reaches the file.
 	board.Logger().Info("noop on the board", "note", "key sk-"+strings.Repeat("x", 24))
+	// A span in the board's own trace, which goes wherever the board's
+	// tracing does.
+	board.Tracer().Start("start", slog.Int("sessions", 1)).End(nil)
 	record("started.txt", fmt.Sprint(os.Getpid(), " ", board.ConfigDir()))
 	return func() { record("stopped.txt", fmt.Sprint(ctx.Err() != nil)) }, nil
 }

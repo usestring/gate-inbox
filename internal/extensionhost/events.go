@@ -114,6 +114,8 @@ func (v *boardView) Logger() *slog.Logger {
 	return logging.Slog().With("extension", v.owner)
 }
 
+func (v *boardView) Tracer() extension.Tracer { return tracer{scope: v.owner} }
+
 func (v *boardView) Subscribe(fn func(extension.StatusEvent)) func() {
 	sub := newSubscription(v.owner, fn, v.events.report, false)
 	return v.add(sub, func() {

@@ -61,6 +61,7 @@ func (v fakeView) Subscribe(func(extension.StatusEvent)) func() {
 }
 func (v fakeView) OnPass(func(extension.Pass)) func() { return func() {} }
 func (v fakeView) Logger() *slog.Logger               { return slog.New(slog.DiscardHandler) }
+func (v fakeView) Tracer() extension.Tracer           { return nil }
 
 func (b *fakeBoard) hostFor(id string) (extension.BoardHost, func()) {
 	return fakeView{board: b, id: id}, func() {

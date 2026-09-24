@@ -49,6 +49,8 @@ type BoardHost interface {
 	// Logger writes into the board's own log, each line tagged with the
 	// extension's id and scrubbed of credentials like the board's lines.
 	Logger() *slog.Logger
+	// Tracer opens spans in the board's trace, scoped to the extension.
+	Tracer() Tracer
 }
 
 // EventKind classifies a transition by the status it arrived at.

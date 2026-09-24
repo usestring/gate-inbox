@@ -34,6 +34,10 @@ func (h *Host) Sessions() extension.SessionService { return h.sessions }
 // id.
 func (h *Host) Logger() *slog.Logger { return logging.Slog() }
 
+// Tracer is the board's tracing unscoped, which the registry scopes to each
+// extension as it does the log.
+func (h *Host) Tracer() extension.Tracer { return tracer{} }
+
 type sessions struct {
 	caller string
 	cmds   *sessioncmd.Sessions

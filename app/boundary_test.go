@@ -296,7 +296,9 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n")
 	home := envValue(env, "GATE_INBOX_HOME")
 	logFile := filepath.Join(home, "board.log")
-	env = append(env, "GATE_INBOX_LOG_FILE="+logFile, "GATE_INBOX_LOG_LEVEL=info")
+	traceFile := filepath.Join(home, "spans.jsonl")
+	env = append(env, "GATE_INBOX_LOG_FILE="+logFile, "GATE_INBOX_LOG_LEVEL=info",
+		"GATE_INBOX_TRACES=file:"+traceFile, "GATE_INBOX_TRACE_SAMPLE=1")
 	// The board starts its own server under the scratch TMUX_TMPDIR, and it
 	// is taken down there by path.
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })
@@ -355,6 +357,11 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	logged, _ := os.ReadFile(logFile)
 	if !strings.Contains(string(logged), `msg="noop on the board" extension=noop note="key [redacted]"`) {
 		t.Fatalf("the extension's line is not in the board log, tagged and scrubbed:\n%s", logged)
+	}
+	// Its span is in the board's trace, named under its id.
+	traced, _ := os.ReadFile(traceFile)
+	if !strings.Contains(string(traced), `"name":"noop.start"`) || !strings.Contains(string(traced), `"key":"extension","value":{"stringValue":"noop"}`) {
+		t.Fatalf("the extension's span is not in the board's trace, named and tagged with its id:\n%s", traced)
 	}
 }
 

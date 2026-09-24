@@ -3,6 +3,7 @@ package extension_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -284,5 +285,54 @@ func TestRegisterMCPTagsEachExtensionsLogWithItsID(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 	if len(lines) != 2 || !strings.HasSuffix(lines[0], "msg=registered extension=first") || !strings.HasSuffix(lines[1], "msg=registered extension=second") {
 		t.Fatalf("want one line per extension, each tagged with its id:\n%s", out.String())
+	}
+}
+
+// spanHost is a Host whose Tracer writes each ended span to a buffer.
+type spanHost struct {
+	extension.Host
+	out *strings.Builder
+}
+
+func (h spanHost) Logger() *slog.Logger     { return slog.New(slog.DiscardHandler) }
+func (h spanHost) Tracer() extension.Tracer { return bufferTracer{h.out} }
+
+type bufferTracer struct{ out *strings.Builder }
+
+func (t bufferTracer) Enabled() bool { return true }
+func (t bufferTracer) Start(name string, attrs ...slog.Attr) extension.TraceSpan {
+	return bufferSpan{out: t.out, name: name, attrs: attrs}
+}
+
+type bufferSpan struct {
+	out   *strings.Builder
+	name  string
+	attrs []slog.Attr
+}
+
+func (s bufferSpan) End(_ error, attrs ...slog.Attr) {
+	fmt.Fprintln(s.out, s.name, append(s.attrs, attrs...))
+}
+
+// tracer opens and ends one span through the Host it is lent.
+type tracer struct{ stub }
+
+func (tr *tracer) RegisterMCP(_ *extension.Registrar, session extension.SessionContext) error {
+	session.Host.Tracer().Start("store.read", slog.Int("rows", 3)).End(nil)
+	return nil
+}
+
+// Every extension of a session shares its Host, and each one's spans are
+// named under and tagged with its own id.
+func TestRegisterMCPScopesEachExtensionsSpansToItsID(t *testing.T) {
+	var out strings.Builder
+	session := extension.SessionContext{SessionID: "s", Host: spanHost{out: &out}}
+	registry := mustRegistry(t, &tracer{stub{id: "first"}}, &tracer{stub{id: "second"}})
+	if _, err := registry.RegisterMCP(newServer(), session, nil); err != nil {
+		t.Fatal(err)
+	}
+	want := "first.store.read [extension=first rows=3]\nsecond.store.read [extension=second rows=3]\n"
+	if out.String() != want {
+		t.Fatalf("spans =\n%s\nwant\n%s", out.String(), want)
 	}
 }

@@ -210,20 +210,22 @@ func registerOne(provider MCPProvider, registrar *Registrar, session SessionCont
 }
 
 // scopedSession is session as the extension with id is lent it: the same
-// Host, with its log lines tagged with id.
+// Host, with its log lines and spans tagged with id.
 func scopedSession(session SessionContext, id string) SessionContext {
 	if session.Host != nil {
-		session.Host = scopedHost{Host: session.Host, logger: session.Host.Logger().With("extension", id)}
+		session.Host = scopedHost{Host: session.Host, id: id, logger: session.Host.Logger().With("extension", id)}
 	}
 	return session
 }
 
 type scopedHost struct {
 	Host
+	id     string
 	logger *slog.Logger
 }
 
 func (h scopedHost) Logger() *slog.Logger { return h.logger }
+func (h scopedHost) Tracer() Tracer       { return scopedTracer{Tracer: h.Host.Tracer(), id: h.id} }
 
 func enabled(ext Extension) bool {
 	if toggle, ok := ext.(Enabler); ok {

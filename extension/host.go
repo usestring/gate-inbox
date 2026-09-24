@@ -23,6 +23,9 @@ type Host interface {
 	// extension's id and scrubbed of credentials like the board's lines.
 	// It writes nowhere where the process keeps no log.
 	Logger() *slog.Logger
+	// Tracer opens spans in the board's trace, scoped to the extension.
+	// Its spans go nowhere where the process is not tracing.
+	Tracer() Tracer
 }
 
 // SessionService is the board's agent sessions, as the calling session's

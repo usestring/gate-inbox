@@ -30,19 +30,19 @@ func TestAnExtensionRanksASessionBetweenWaitingAndErrored(t *testing.T) {
 	if got := order(); got != "ask,err,run" {
 		t.Fatalf("triage order = %s before any claim, want the working session last", got)
 	}
-	bridge.Attention("runs", "run", Attention{NeedsPerson: true, Rank: AttentionBlocked})
+	bridge.Attention("batch", "run", Attention{NeedsPerson: true, Rank: AttentionBlocked})
 	m.Update(extensionBadgesMsg{})
 	if got := order(); got != "ask,run,err" {
 		t.Fatalf("triage order = %s, want the blocked session between waiting and errored", got)
 	}
 	// A rank alone reorders within the bucket its status puts it in; only
 	// NeedsPerson moves a working session in front of the resting ones.
-	bridge.Attention("runs", "run", Attention{Rank: AttentionBlocked})
+	bridge.Attention("batch", "run", Attention{Rank: AttentionBlocked})
 	m.Update(extensionBadgesMsg{})
 	if got := order(); got != "ask,err,run" {
 		t.Fatalf("triage order = %s, want a ranked session that needs nobody after the ones that do", got)
 	}
-	bridge.Attention("runs", "run", Attention{})
+	bridge.Attention("batch", "run", Attention{})
 	m.Update(extensionBadgesMsg{})
 	if len(m.extAttention) != 0 {
 		t.Fatalf("a cleared claim is still held: %v", m.extAttention)
@@ -67,7 +67,7 @@ func TestAWorkingSessionThatNeedsAPersonStaysOnTheQueue(t *testing.T) {
 	if got := listed(); strings.Contains(got, "c1") {
 		t.Fatalf("attention lists %s before any claim, want the working c1 left out", got)
 	}
-	bridge.Own("runs", "c1", true)
+	bridge.Own("batch", "c1", true)
 	bridge.Attention("other", "c1", Attention{NeedsPerson: true})
 	m.Update(extensionBadgesMsg{})
 	c1, _ := m.sessionByID("c1")
@@ -93,13 +93,13 @@ func TestAWorkingSessionThatNeedsAPersonStaysOnTheQueue(t *testing.T) {
 // other's standing.
 func TestTheMostUrgentClaimOnASessionWins(t *testing.T) {
 	m, bridge := rowMarksModel(t)
-	bridge.Attention("runs", "c1", Attention{NeedsPerson: true, Rank: AttentionErrored})
+	bridge.Attention("batch", "c1", Attention{NeedsPerson: true, Rank: AttentionErrored})
 	bridge.Attention("other", "c1", Attention{Rank: AttentionBlocked})
 	m.Update(extensionBadgesMsg{})
 	if got := m.extAttention["c1"]; got != (Attention{NeedsPerson: true, Rank: AttentionBlocked}) {
 		t.Fatalf("merged claim = %+v, want needs a person at the blocked rank", got)
 	}
-	bridge.Attention("runs", "c1", Attention{})
+	bridge.Attention("batch", "c1", Attention{})
 	m.Update(extensionBadgesMsg{})
 	if got := m.extAttention["c1"]; got != (Attention{Rank: AttentionBlocked}) {
 		t.Fatalf("claim after one cleared = %+v, want the other's standing", got)

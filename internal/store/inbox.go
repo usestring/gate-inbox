@@ -365,6 +365,25 @@ func (s *Store) MarkDropped(id int64, at time.Time) error {
 	return err
 }
 
+// Withdraw drops what one sender still has queued for a session: every
+// such message, or with a subject only the ones on it, and reports how many
+// that was. A claimed message is left alone, as supersession leaves it: its
+// paste is already on the way to the pane. A withdrawn message reads as
+// dropped, never as delivered.
+func (s *Store) Withdraw(sessionID, senderID, subject string, at time.Time) (int, error) {
+	stamp := encodeTime(at)
+	res, err := s.db.Exec(`
+UPDATE session_inbox SET delivered_at = ?, dropped_at = ?
+ WHERE session_id = ? AND sender_id = ? AND (? = '' OR subject = ?)
+   AND delivered_at = 0 AND claimed_at = 0`,
+		stamp, stamp, sessionID, senderID, subject, subject)
+	if err != nil {
+		return 0, err
+	}
+	dropped, err := res.RowsAffected()
+	return int(dropped), err
+}
+
 // MarkRead acks every message a session received from one sender. A reply
 // is the ack: the recipient answering proves it read them. A dropped
 // message was never in front of it to read.

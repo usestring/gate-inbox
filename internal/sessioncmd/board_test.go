@@ -180,3 +180,32 @@ func TestBoardKillEndsAnySessionAndKeepsItsRow(t *testing.T) {
 		t.Fatalf("stored = %+v, %v; want the row kept, dead", stored, err)
 	}
 }
+
+// A board extension takes back what it queued, and only that.
+func TestBoardWithdrawDropsOnlyTheExtensionsMessages(t *testing.T) {
+	h := newSessionHarness(t)
+	child := childShowing(t, h, "", "child109", "orphan", "all done\n")
+	if _, err := h.sessions.BoardSend("ext1", child.ID, "carry on", "continue", false); err != nil {
+		t.Fatalf("BoardSend: %v", err)
+	}
+	if _, err := h.sessions.BoardSend("audit", child.ID, "check the logs", "continue", false); err != nil {
+		t.Fatalf("BoardSend: %v", err)
+	}
+	dropped, err := h.sessions.BoardWithdraw("ext1", child.ID, "")
+	if err != nil || dropped != 1 {
+		t.Fatalf("BoardWithdraw = %d, %v; want the one message ext1 queued", dropped, err)
+	}
+	heads, err := h.store.HeadMessages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if head := heads[child.ID]; head.SenderID != store.ExtensionSenderID("audit") {
+		t.Fatalf("queued = %+v, want the other extension's message kept", head)
+	}
+	if _, err := h.sessions.BoardWithdraw("", child.ID, ""); err == nil {
+		t.Fatal("a withdrawal with no extension was accepted")
+	}
+	if _, err := h.sessions.BoardWithdraw("ext1", "feedf00d", ""); err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("withdraw from a missing session = %v, want it refused", err)
+	}
+}

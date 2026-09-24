@@ -3,6 +3,7 @@ package sessioncmd
 import (
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 
@@ -157,6 +158,27 @@ func (s *Sessions) BoardSend(extensionID, targetID, message, subject string, int
 	defer runtime.store.Close()
 	from := sender{id: store.ExtensionSenderID(extensionID), name: extensionID}
 	return runtime.enqueue(from, targetID, message, subject, interrupt)
+}
+
+// BoardWithdraw drops what the board extension extensionID still has
+// queued for an agent session: all of it, or with a subject only the
+// messages on it. Only the extension's own sender is touched, so it can
+// never take back what a session or the operator sent.
+func (s *Sessions) BoardWithdraw(extensionID, targetID, subject string) (dropped int, err error) {
+	defer start("sessioncmd.board.withdraw", sessionAttr(targetID)).done(&err)
+	if extensionID == "" {
+		return 0, errors.New("withdrawing needs the extension that sent the messages")
+	}
+	runtime, err := s.open()
+	if err != nil {
+		return 0, err
+	}
+	defer runtime.store.Close()
+	target, err := runtime.agent(targetID)
+	if err != nil {
+		return 0, err
+	}
+	return runtime.store.Withdraw(target.ID, store.ExtensionSenderID(extensionID), strings.TrimSpace(subject), time.Now())
 }
 
 // BoardKill ends an agent session's pane and leaves its row dead, as Kill

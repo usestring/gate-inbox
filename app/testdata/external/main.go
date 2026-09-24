@@ -208,6 +208,18 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			return
 		}
 		record("sent.txt", fmt.Sprintf("%s queued %d", helper.ID, sent.QueuePosition))
+		// A second message queues behind the first, so it is still waiting
+		// when the extension takes it back.
+		if _, err := board.Send(ctx, helper.ID, extension.Message{Text: "and then this", Subject: "later"}); err != nil {
+			record("withdrew.txt", "error: "+err.Error())
+			return
+		}
+		withdrew, err := board.Withdraw(ctx, helper.ID, "later")
+		if err != nil {
+			record("withdrew.txt", "error: "+err.Error())
+			return
+		}
+		record("withdrew.txt", fmt.Sprintf("%s withdrew %d", helper.ID, withdrew))
 		killed, err := board.Kill(ctx, helper.ID)
 		if err != nil {
 			record("killed.txt", "error: "+err.Error())

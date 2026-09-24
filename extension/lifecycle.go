@@ -58,6 +58,12 @@ type BoardHost interface {
 	// for a tool with no way to stop a turn -- and arrives fenced as this
 	// extension's, never as a person's words or another session's.
 	Send(ctx context.Context, id string, msg Message) (Sent, error)
+	// Withdraw drops this extension's messages to an agent session that
+	// are still queued: all of them, or with a subject only the ones on it.
+	// It reports how many it dropped; one whose paste has already begun is
+	// past taking back and is not counted. Nothing another sender queued is
+	// touched.
+	Withdraw(ctx context.Context, id, subject string) (int, error)
 	// Kill ends an agent session's pane and leaves its row dead, as
 	// kill_session does: the last screen is kept, and a revive can resume
 	// the conversation. A terminal is refused.

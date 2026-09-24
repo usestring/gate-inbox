@@ -69,6 +69,9 @@ func (v fakeView) Send(context.Context, string, extension.Message) (extension.Se
 func (v fakeView) Kill(context.Context, string) (extension.SessionInfo, error) {
 	return extension.SessionInfo{}, errors.New("no kills here")
 }
+func (v fakeView) Withdraw(context.Context, string, string) (int, error) {
+	return 0, errors.New("no withdrawals here")
+}
 
 func (b *fakeBoard) hostFor(id string) (extension.BoardHost, func()) {
 	return fakeView{board: b, id: id}, func() {

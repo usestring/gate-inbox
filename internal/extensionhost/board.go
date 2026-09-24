@@ -132,6 +132,15 @@ func (b *Board) SendFor(ctx context.Context, id, target string, msg extension.Me
 	}, nil
 }
 
+// WithdrawFor drops what the extension with id still has queued for
+// target; another sender's messages are out of its reach.
+func (b *Board) WithdrawFor(ctx context.Context, id, target, subject string) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return b.cmds.BoardWithdraw(id, target, subject)
+}
+
 // Kill ends an agent session's pane on the board's behalf.
 func (b *Board) Kill(ctx context.Context, id string) (extension.SessionInfo, error) {
 	if err := ctx.Err(); err != nil {

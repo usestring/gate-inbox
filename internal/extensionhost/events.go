@@ -126,6 +126,10 @@ func (v *boardView) Send(ctx context.Context, id string, msg extension.Message) 
 	return v.events.board.SendFor(ctx, v.owner, id, msg)
 }
 
+func (v *boardView) Withdraw(ctx context.Context, id, subject string) (int, error) {
+	return v.events.board.WithdrawFor(ctx, v.owner, id, subject)
+}
+
 func (v *boardView) Kill(ctx context.Context, id string) (extension.SessionInfo, error) {
 	return v.events.board.Kill(ctx, id)
 }

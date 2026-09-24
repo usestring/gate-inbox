@@ -16,6 +16,9 @@ type Host interface {
 	ConfigDir() string
 	// Sessions reads and acts on the board's agent sessions.
 	Sessions() SessionService
+	// Tools are the CLIs the config declares, sorted by name, read afresh
+	// on each call.
+	Tools(ctx context.Context) ([]ToolInfo, error)
 }
 
 // SessionService is the board's agent sessions, as the calling session's

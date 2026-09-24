@@ -221,6 +221,25 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		}
 	})
 
+	// The extension reads the configured CLIs, as the board and as the
+	// session, without importing the config package.
+	t.Run("tools", func(t *testing.T) {
+		env := fixtureHome(t, "[tools.pinger]\ncommand = \"cat\"\nmodel_flag = \"--model\"\nmodels = [\"small\", \"large\"]\n\n[tools.term]\ncommand = \"sh\"\nshell = true\n")
+		got := callText(t, connectFixture(t, bin, env), "noop_tools", map[string]any{})
+		for _, want := range []string{
+			"pinger shell:false model:true hooks:false [small,large]",
+			"term shell:true model:false hooks:false []",
+			"claude shell:false",
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("noop_tools answered\n%s\nwant a line holding %q", got, want)
+			}
+		}
+		if !strings.Contains(got, "hooks:true") {
+			t.Fatalf("no shipped tool reports status through hooks:\n%s", got)
+		}
+	})
+
 	// Two sessions' MCP servers are two processes: what one writes to the
 	// extension's data directory, the other reads back, and it lands under
 	// the config directory rather than in the board's own store.

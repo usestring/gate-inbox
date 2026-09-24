@@ -132,6 +132,40 @@ func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionCont
 	if err != nil {
 		return err
 	}
+	// noop_tools lists the configured CLIs as the board and as this
+	// session's Host, which must agree.
+	err = extension.AddTool(r, &mcp.Tool{
+		Name:        "noop_tools",
+		Description: "List the configured CLIs.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, _ pingArgs) (*mcp.CallToolResult, any, error) {
+		board, err := app.NewBoard()
+		if err != nil {
+			return nil, nil, err
+		}
+		fromBoard, err := board.Tools(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		fromHost, err := session.Host.Tools(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		render := func(tools []extension.ToolInfo) string {
+			lines := make([]string, 0, len(tools))
+			for _, tool := range tools {
+				lines = append(lines, fmt.Sprintf("%s shell:%v model:%v hooks:%v [%s]", tool.Name,
+					tool.Shell, tool.TakesModel, tool.HookStatus, strings.Join(tool.Models, ",")))
+			}
+			return strings.Join(lines, "\n")
+		}
+		if a, b := render(fromBoard), render(fromHost); a != b {
+			return nil, nil, fmt.Errorf("the board and the host disagree:\n%s\n--\n%s", a, b)
+		}
+		return text(render(fromBoard)), nil, nil
+	})
+	if err != nil {
+		return err
+	}
 	// noop_peek reaches the board only through the Host: it lists the
 	// sessions this one can see, then reads one of them.
 	return extension.AddTool(r, &mcp.Tool{

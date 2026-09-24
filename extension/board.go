@@ -30,6 +30,9 @@ type Board interface {
 	// ErrNoDialog when the pane holds no dialog, and ErrDialogRefused when
 	// the dialog is guarded or no keystroke can answer it.
 	Answer(ctx context.Context, id, answer string) (Answered, error)
+	// Tools are the CLIs the config declares, sorted by name, read afresh
+	// on each call, so a launch can be checked before it is attempted.
+	Tools(ctx context.Context) ([]ToolInfo, error)
 }
 
 // Pane is one ReadPane of a session.

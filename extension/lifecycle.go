@@ -45,6 +45,13 @@ type BoardHost interface {
 	// pass is handed only the newest one when it is done: a pass is a
 	// level, and a stale one says nothing the newest does not.
 	OnPass(fn func(Pass)) (unsubscribe func())
+	// PinStatus sets the status the board reads for one of the extension's
+	// own sessions: one whose role is this extension's and whose RoleSpec
+	// has PinnedStatus. It writes the session's status file and its row, so
+	// the board shows it at once rather than on the next pass. status is
+	// one of working, waiting, finished, idle or errored; "" releases the
+	// pin, removing the file so the board reads the pane again.
+	PinStatus(ctx context.Context, id, status string) error
 	// Launch starts an agent session for the extension, as the operator
 	// would from the board rather than as any session's spawn: a helper
 	// filed under the session it works for, tagged with the role it plays.

@@ -1033,6 +1033,20 @@ func TestInboxEnvelopeDoesNotFenceTheOperatorsOwnWords(t *testing.T) {
 	}
 }
 
+// The operator's words relayed by a helper arrive unfenced too: they are the
+// operator's answer, only carried by another session.
+func TestInboxEnvelopeDoesNotFenceTheOperatorsRelayedWords(t *testing.T) {
+	msg := store.InboxMessage{
+		SessionID: "a1b2c3d4",
+		SenderID:  store.RelayedHumanSenderID,
+		Body:      "use the second proxy",
+		SentAt:    time.Now(),
+	}
+	if got := inboxEnvelope(msg, "claude", true, messageContext{}); got != msg.Body {
+		t.Fatalf("envelope = %q, want the body verbatim", got)
+	}
+}
+
 // A board extension's message is fenced, since it is not the user speaking,
 // but it names no session to reply to: an extension has none.
 func TestInboxEnvelopeFencesAnExtensionWithNoReplyAddress(t *testing.T) {

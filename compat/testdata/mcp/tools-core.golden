@@ -2002,6 +2002,10 @@
         "description": "this message's place in the recipient's queue; 1 means it is next",
         "type": "integer"
       },
+      "relayed": {
+        "description": "whether this was relayed as the operator's words; with no message_id, nothing was queued and there is nothing to track",
+        "type": "boolean"
+      },
       "superseded": {
         "description": "how many earlier queued messages from this sender on the same subject this one replaced",
         "type": "integer"

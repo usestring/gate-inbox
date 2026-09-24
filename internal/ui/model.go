@@ -2611,6 +2611,13 @@ func (m *Model) buildTree() {
 			m.sortGroupSessions(groupSessions)
 		}
 	}
+	// After the sort too: a block a helper floats heads its group whatever
+	// order the rest are in. See rolefloat.go.
+	if roots := floatedRoots(m.sessions); len(roots) > 0 {
+		for group, groupSessions := range sessionsByGroup {
+			sessionsByGroup[group] = floatBlocks(groupSessions, m.sessions, roots)
+		}
+	}
 
 	paths := groupClosure(m.groups, m.sessions)
 	// A scope whose group is gone -- deleted, renamed, or restored from a

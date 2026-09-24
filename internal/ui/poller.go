@@ -27,6 +27,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/sysstat"
@@ -383,6 +384,11 @@ func argvScanRoots(sessions []store.Session, panes map[string]int, statusSources
 //     of every pass on a kernel without /proc child lists.
 func hooklessTree(sess store.Session, statusSource string, agentAlive bool, stat sysstat.ProcStat) bool {
 	if statusSource != hooks.StatusSourceClaude {
+		return false
+	}
+	// A pinned status is written by the extension, not the pane's hooks, so
+	// a pane with no hooks has lost nothing.
+	if sessionhooks.Role(sess.Role).PinnedStatus {
 		return false
 	}
 	// The pair is empty for a session the manager created, which is what
@@ -1582,7 +1588,7 @@ func inboxEnvelope(msg store.InboxMessage, mcpStyle string, taught bool, ctx mes
 	// gets no envelope at all -- the same text the TUI's own send types into
 	// the pane. Fencing it told the worker its user was another agent, which
 	// is exactly the thing the fence exists to deny.
-	if msg.SenderID == store.HumanSenderID {
+	if store.FromOperator(msg.SenderID) {
 		return sanitizeBody(msg.Body)
 	}
 	if extensionID, ok := store.ExtensionSender(msg.SenderID); ok {
@@ -1626,7 +1632,7 @@ func (p *poller) envelope(sess store.Session, msg store.InboxMessage) string {
 	// reads towards a header nothing prints.
 	var ctx messageContext
 	_, fromExtension := store.ExtensionSender(msg.SenderID)
-	if msg.SenderID != store.HumanSenderID && !fromExtension {
+	if !store.FromOperator(msg.SenderID) && !fromExtension {
 		ctx = p.messageContext(sess, msg, time.Now())
 	}
 	return inboxEnvelope(msg, style, taught, ctx)
@@ -1931,12 +1937,24 @@ func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAli
 		regionHash = activityFingerprint(region)
 		paneHashes[sess.ID] = regionHash
 	}
-	if p.statusSources[sess.Tool] == hooks.StatusSourceClaude {
+	// A role that pins its status reports out of band whatever its tool:
+	// its pane cannot say it is holding something for the operator -- a
+	// helper on a CLI with no hooks asks in prose and stops, which looks
+	// exactly like a turn that ended -- so the extension that knows writes
+	// the file, and this reads it.
+	pinned := sessionhooks.Role(sess.Role).PinnedStatus
+	if p.statusSources[sess.Tool] == hooks.StatusSourceClaude || pinned {
 		if !agentAlive {
 			// The agent died without its SessionEnd cleanup hook
 			// (crash, SIGKILL); a stale file must not mask the pane.
-			if err := p.hooks.Remove(sess.ID); err != nil {
-				return "", err
+			// A pin is the extension's rather than the agent's, and a
+			// pass can land between a launch and its agent starting,
+			// so it is read past rather than deleted: it counts again
+			// once the agent runs, and goes when the session ends.
+			if !pinned {
+				if err := p.hooks.Remove(sess.ID); err != nil {
+					return "", err
+				}
 			}
 		} else if !p.hookless[sess.ID] {
 			// The file is the tier-1 source only while something is still

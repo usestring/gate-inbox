@@ -89,6 +89,11 @@ func (s *Sessions) SendChildren(sessionID, message string) (ChildSend, error) {
 		// an inbox, so it is not part of the fan-out this is instructing.
 		case runtime.cfg.Tools[child.Tool].Shell:
 			delivery.Skipped = "a terminal, not an agent"
+		// Nor is a helper an extension launched under the caller for a role
+		// that asks to be left out: it works for the extension, not for the
+		// task the caller is instructing.
+		case skipsSendChildren(child) != "":
+			delivery.Skipped = skipsSendChildren(child)
 		default:
 			if err := runtime.deliverable(child); err != nil {
 				delivery.Skipped = err.Error()

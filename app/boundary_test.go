@@ -18,6 +18,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
@@ -335,6 +336,19 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	waitForFile(t, filepath.Join(data, "spawned.txt"), helper+" extension noop/helper\n", exited, &out)
 	if got := waitForFile(t, filepath.Join(data, "env-"+helper+".txt"), "", exited, &out); got != "spawn" {
 		t.Fatalf("the helper's pane saw NOOP_LAUNCH=%q, want the extension's spawn", got)
+	}
+	// Its helper's status is the extension's to pin, and the pin is the
+	// status file the board reads; a session it did not launch is refused.
+	if got := waitForFile(t, filepath.Join(data, "pinned.txt"), "", exited, &out); got != "pinned; refused the child\n" {
+		t.Fatalf("pinned.txt = %q", got)
+	}
+	if got, ok := hooks.NewManager(home).Read(helper); !ok || got != "waiting" {
+		t.Fatalf("the helper's status file = %q, %v; want the pin", got, ok)
+	}
+	// Ending the helper removes that file, so the extension waits for this
+	// before it messages and kills the helper.
+	if err := os.WriteFile(filepath.Join(data, "pin-read.txt"), nil, 0o600); err != nil {
+		t.Fatal(err)
 	}
 	// The extension messages its helper and then ends it, through the board.
 	waitForFile(t, filepath.Join(data, "sent.txt"), helper+" queued 1\n", exited, &out)

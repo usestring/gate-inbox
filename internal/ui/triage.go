@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/priority"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -412,9 +413,11 @@ func (m *Model) nextTriageInput(leftID string, tried map[string]bool) (int, bool
 
 func isIdle(st string) bool { return st == status.Idle }
 
-// isSubagent is a session spawned under another one.
+// isSubagent is a session spawned under another one. A helper whose role
+// keeps it on screen is not: it is there for the operator rather than for
+// its parent, so the drain hands it over like a top-level session.
 func isSubagent(sess store.Session) bool {
-	return sess.ParentID != ""
+	return sess.ParentID != "" && !sessionhooks.Role(sess.Role).OnScreen
 }
 
 // enterTriageHead starts the queue at its head: the session that has been

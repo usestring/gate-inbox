@@ -70,6 +70,34 @@ func Info(sess store.Session, running bool) extension.SessionInfo {
 	}
 }
 
+// Role is how the board treats a session with role: the zero spec, an
+// ordinary child, for the empty role and for one no extension declares. A
+// build whose hooks will not resolve treats every role as ordinary and says
+// so in the log: a question asked for every drawn row has nowhere better to
+// put the error, and every launch, which resolves the same hooks, reports
+// it where it can be acted on.
+func Role(role string) extension.RoleSpec {
+	if role == "" {
+		return extension.RoleSpec{}
+	}
+	hooks, err := Current()
+	if err != nil {
+		logging.Warn("could not read the extensions' roles", "role", role, "err", err)
+		return extension.RoleSpec{}
+	}
+	spec, _ := hooks.Role(role)
+	return spec
+}
+
+// Relay puts from's send of text to to, the session it is filed under,
+// through the extension that owns from's role, and returns what to queue as
+// the operator's words.
+func Relay(hooks *extension.SessionHooks, from, to store.Session, fromRunning, toRunning bool, text string) (string, error) {
+	ctx, cancel := bounded()
+	defer cancel()
+	return hooks.Relay(ctx, extension.Relay{From: Info(from, fromRunning), To: Info(to, toRunning), Text: text})
+}
+
 // CheckSpawn asks this process's spawn policies about sess, which is about
 // to be launched, and returns the hooks the rest of the launch goes on
 // asking.

@@ -114,6 +114,16 @@ func (b *Board) LaunchFor(ctx context.Context, id string, req extension.LaunchRe
 	return info(created), nil
 }
 
+// PinStatusFor pins the status of a session the extension with id launched
+// for one of its roles; a session of another extension's is refused, so no
+// extension can hold another's sessions still.
+func (b *Board) PinStatusFor(ctx context.Context, id, sessionID, status string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return b.cmds.BoardPinStatus(id, sessionID, status)
+}
+
 // SendFor queues a message from the extension with id: it is queued under
 // that extension's sender, so no extension can speak as another.
 func (b *Board) SendFor(ctx context.Context, id, target string, msg extension.Message) (extension.Sent, error) {

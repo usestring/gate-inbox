@@ -641,6 +641,10 @@ type SendResult struct {
 	// that this one replaced in the queue.
 	Superseded int  `json:"superseded,omitempty" jsonschema:"how many earlier queued messages from this sender on the same subject this one replaced"`
 	Interrupt  bool `json:"interrupt,omitempty" jsonschema:"whether the recipient's running turn is stopped before the message is typed in"`
+	// Relayed is a send the sender's role relays as the operator's words.
+	// With no MessageID, the extension that launched the sender took it and
+	// nothing was queued.
+	Relayed bool `json:"relayed,omitempty" jsonschema:"whether this was relayed as the operator's words; with no message_id, nothing was queued and there is nothing to track"`
 }
 
 // maxMessageBytes bounds one message. An instruction to another agent is
@@ -703,10 +707,45 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 		}
 	}
 	from := sender{callerID: caller.ID, id: caller.ID, name: caller.Name}
-	if asHuman {
+	// A helper an extension launched to speak for the operator -- one
+	// holding a question for them, say -- writing to the session it was
+	// filed under. What it sends is the operator's answer, not its own
+	// words, so it goes as the operator's, once the extension has vetted
+	// it; an answer that was for the extension alone queues nothing. The
+	// target is resolved here behind the checks enqueue runs, so a send
+	// refused there is refused before the extension sees it. Such a helper
+	// claiming the operator's words outright is relayed the same way: its
+	// flag does not get it past the extension's vetting.
+	isRelay := false
+	if sessionhooks.Role(caller.Role).RelayToParent {
+		target, err := runtime.addressee(from, targetID, interrupt)
+		if err != nil {
+			return SendResult{}, err
+		}
+		var spec extension.RoleSpec
+		if spec, isRelay = relayed(caller, target); isRelay {
+			deliver, err := s.relay(runtime, spec, caller, target, message)
+			if err != nil {
+				return SendResult{}, err
+			}
+			if deliver == "" {
+				return SendResult{Relayed: true}, nil
+			}
+			message, asHuman = deliver, true
+		}
+	}
+	switch {
+	case isRelay:
+		from.id, from.name = store.RelayedHumanSenderID, ""
+	case asHuman:
 		from.id, from.name = store.HumanSenderID, ""
 	}
-	return runtime.enqueue(from, targetID, message, subject, interrupt)
+	result, err = runtime.enqueue(from, targetID, message, subject, interrupt)
+	if err != nil {
+		return SendResult{}, err
+	}
+	result.Relayed = isRelay
+	return result, nil
 }
 
 // checkMessage trims a message and its subject and holds both to the size
@@ -737,18 +776,9 @@ type sender struct {
 // enqueue queues message for targetID from from, behind the checks every
 // sender's message passes.
 func (r *runtime) enqueue(from sender, targetID, message, subject string, interrupt bool) (SendResult, error) {
-	target, err := r.agent(targetID)
+	target, err := r.addressee(from, targetID, interrupt)
 	if err != nil {
 		return SendResult{}, err
-	}
-	if from.callerID != "" && target.ID == from.callerID {
-		return SendResult{}, errors.New("a session cannot message itself")
-	}
-	// Refused up front rather than queued: without keys the poller has no way
-	// to stop the turn, and a message that silently arrived late would be the
-	// very thing the sender asked to avoid.
-	if interrupt && len(r.cfg.Tools[target.Tool].InterruptKeys) == 0 {
-		return SendResult{}, fmt.Errorf("session %s runs %s, which has no interrupt_keys configured, so there is no safe way to stop its turn; send without interrupt and it is typed in as soon as the session can read it", target.ID, target.Tool)
 	}
 	now := time.Now()
 	if err := r.deliverable(target); err != nil {
@@ -801,6 +831,25 @@ func (r *runtime) enqueue(from sender, targetID, message, subject string, interr
 		Superseded:    superseded,
 		Interrupt:     interrupt,
 	}, nil
+}
+
+// addressee resolves targetID for a message from from, refusing the sends
+// no sender may make whatever the message says.
+func (r *runtime) addressee(from sender, targetID string, interrupt bool) (store.Session, error) {
+	target, err := r.agent(targetID)
+	if err != nil {
+		return store.Session{}, err
+	}
+	if from.callerID != "" && target.ID == from.callerID {
+		return store.Session{}, errors.New("a session cannot message itself")
+	}
+	// Refused up front rather than queued: without keys the poller has no way
+	// to stop the turn, and a message that silently arrived late would be the
+	// very thing the sender asked to avoid.
+	if interrupt && len(r.cfg.Tools[target.Tool].InterruptKeys) == 0 {
+		return store.Session{}, fmt.Errorf("session %s runs %s, which has no interrupt_keys configured, so there is no safe way to stop its turn; send without interrupt and it is typed in as soon as the session can read it", target.ID, target.Tool)
+	}
+	return target, nil
 }
 
 // MessageStatus reports what happened to a message this session sent, or one

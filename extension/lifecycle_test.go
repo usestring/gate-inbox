@@ -62,6 +62,9 @@ func (v fakeView) OnPass(func(extension.Pass)) func() { return func() {} }
 func (v fakeView) Launch(context.Context, extension.LaunchRequest) (extension.SessionInfo, error) {
 	return extension.SessionInfo{}, errors.New("no launches here")
 }
+func (v fakeView) PinStatus(context.Context, string, string) error {
+	return errors.New("no pins here")
+}
 
 func (v fakeView) Send(context.Context, string, extension.Message) (extension.Sent, error) {
 	return extension.Sent{}, errors.New("no sends here")

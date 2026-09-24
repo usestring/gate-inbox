@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -59,6 +60,10 @@ func (p *poller) relayChildRest(sess store.Session, newStatus string) error {
 	// The spawner hears, not the row's parent: see relayChildQuestion.
 	spawner := store.SpawnerOf(sess)
 	if !atRest || spawner == "" || sess.Archived {
+		return nil
+	}
+	// Nor a silent role's rest: see relayChildQuestion.
+	if sessionhooks.Role(sess.Role).Silent {
 		return nil
 	}
 	// A session's own terminal is a child row too, and closing one is not an

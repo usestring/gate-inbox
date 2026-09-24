@@ -195,6 +195,22 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			return
 		}
 		record("launched.txt", fmt.Sprintf("%s %s %s", helper.ID, helper.Role, helper.ParentID))
+		// Its helper's status is noop's to pin; the child's is not.
+		pinned := "pinned"
+		if err := board.PinStatus(ctx, helper.ID, "waiting"); err != nil {
+			pinned = "error: " + err.Error()
+		}
+		if err := board.PinStatus(ctx, "c41d0001", "waiting"); err != nil {
+			pinned += "; refused the child"
+		}
+		record("pinned.txt", pinned)
+		// Ending the helper removes its status file, so the test reads the
+		// pin first and says so before the helper is messaged and killed.
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			if _, err := os.Stat(filepath.Join(dir, "pin-read.txt")); err == nil {
+				break
+			}
+		}
 		// Message the helper, then end it, once its pane has started: the
 		// board's own send and kill, with no session to act as.
 		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
@@ -262,6 +278,26 @@ func (n *noop) LaunchEnv(_ context.Context, launch extension.Launch) (map[string
 func (n *noop) Migrated(_ context.Context, migration extension.Migration) error {
 	n.record("migrated.txt", migration.From.ID+">"+migration.To.ID)
 	return nil
+}
+
+// Roles makes its helper a session the board keeps in view and speaks for
+// the operator through: left out of its parent's send-children, its sends
+// to its parent relayed as the operator's, its status pinned by noop.
+func (n *noop) Roles() []extension.RoleSpec {
+	return []extension.RoleSpec{{
+		Name: "helper", OnScreen: true, FloatParent: true,
+		SkipSendChildren: true, RelayToParent: true, PinnedStatus: true,
+	}}
+}
+
+// Relay keeps a relay addressed to noop itself, and marks the rest as the
+// operator's answer.
+func (n *noop) Relay(_ context.Context, relay extension.Relay) (string, error) {
+	n.record("relayed.txt", fmt.Sprintf("%s>%s %s", relay.From.ID, relay.To.ID, relay.Text))
+	if relay.Text == "for noop" {
+		return "", nil
+	}
+	return "the operator says: " + relay.Text, nil
 }
 
 func text(s string) *mcp.CallToolResult {

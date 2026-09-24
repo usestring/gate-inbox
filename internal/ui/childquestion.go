@@ -7,6 +7,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -50,6 +51,11 @@ func (p *poller) relayChildQuestion(sess store.Session, newStatus, pane string) 
 	// had not assigned the work and could not answer them either.
 	spawner := store.SpawnerOf(sess)
 	if newStatus != status.Waiting || spawner == "" || sess.Archived {
+		return nil
+	}
+	// A helper whose role is silent is watched by the extension that
+	// launched it; the session it works for hearing of it too is noise.
+	if sessionhooks.Role(sess.Role).Silent {
 		return nil
 	}
 	parent, err := p.store.Get(spawner)

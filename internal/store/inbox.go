@@ -27,6 +27,20 @@ import (
 // It is not a session id and cannot collide with one: ids are hex.
 const HumanSenderID = "human"
 
+// RelayedHumanSenderID marks the operator's words relayed by a session an
+// extension launched to speak for them, which that extension already
+// recorded when the relay was sent. It is delivered as the operator's own
+// words, like HumanSenderID, but its delivery is not reported to board
+// extensions as the operator's input a second time: a stale relayed line
+// must not answer a question raised after it was sent.
+const RelayedHumanSenderID = "human/relayed"
+
+// FromOperator reports whether a message sent as senderID is the operator's
+// own words, typed at a shell or relayed, and so delivered unfenced.
+func FromOperator(senderID string) bool {
+	return senderID == HumanSenderID || senderID == RelayedHumanSenderID
+}
+
 // extensionSenderPrefix starts the sender id of a message a board extension
 // queued. Like HumanSenderID it cannot collide with a session id, and it
 // gives each extension a rate and dedupe budget of its own.

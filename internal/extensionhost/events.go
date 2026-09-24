@@ -122,6 +122,10 @@ func (v *boardView) Launch(ctx context.Context, req extension.LaunchRequest) (ex
 	return v.events.board.LaunchFor(ctx, v.owner, req)
 }
 
+func (v *boardView) PinStatus(ctx context.Context, id, status string) error {
+	return v.events.board.PinStatusFor(ctx, v.owner, id, status)
+}
+
 func (v *boardView) Send(ctx context.Context, id string, msg extension.Message) (extension.Sent, error) {
 	return v.events.board.SendFor(ctx, v.owner, id, msg)
 }

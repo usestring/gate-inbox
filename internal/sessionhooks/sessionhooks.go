@@ -7,6 +7,7 @@ package sessionhooks
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -19,9 +20,25 @@ import (
 const Timeout = 30 * time.Second
 
 var (
-	mu      sync.Mutex
-	resolve = func() (*extension.SessionHooks, error) { return nil, nil }
+	mu       sync.Mutex
+	resolve  = func() (*extension.SessionHooks, error) { return nil, nil }
+	sessions = extension.SessionReader(unread{})
 )
+
+// errUnread is a process that was never told how to read its board.
+var errUnread = errors.New("this process has no board to read sessions from")
+
+// unread is the reader of a process nothing has given one: every read
+// fails, so a policy counting on one refuses rather than counting nothing.
+type unread struct{}
+
+func (unread) Get(context.Context, string) (extension.SessionInfo, error) {
+	return extension.SessionInfo{}, errUnread
+}
+
+func (unread) List(context.Context, extension.SessionFilter) (extension.SessionList, error) {
+	return extension.SessionList{}, errUnread
+}
 
 // Use sets how this process finds its hooks: resolve is called at each
 // launch, and returns nil when the build has none. It returns a func
@@ -36,6 +53,26 @@ func Use(fn func() (*extension.SessionHooks, error)) (restore func()) {
 		defer mu.Unlock()
 		resolve = previous
 	}
+}
+
+// UseSessions sets what a spawn policy reads the board through in this
+// process. It returns a func restoring the previous reader, for tests.
+func UseSessions(r extension.SessionReader) (restore func()) {
+	mu.Lock()
+	defer mu.Unlock()
+	previous := sessions
+	sessions = r
+	return func() {
+		mu.Lock()
+		defer mu.Unlock()
+		sessions = previous
+	}
+}
+
+func reader() extension.SessionReader {
+	mu.Lock()
+	defer mu.Unlock()
+	return sessions
 }
 
 // Current is this process's hooks. A nil result with no error has nothing to
@@ -80,7 +117,7 @@ func CheckSpawn(sess store.Session, by extension.SpawnSource) (*extension.Sessio
 	}
 	ctx, cancel := bounded()
 	defer cancel()
-	if err := hooks.AllowSpawn(ctx, extension.Spawn{Session: Info(sess, false), By: by}); err != nil {
+	if err := hooks.AllowSpawn(ctx, extension.Spawn{Session: Info(sess, false), By: by, Sessions: reader()}); err != nil {
 		return nil, err
 	}
 	return hooks, nil
@@ -91,7 +128,7 @@ func CheckSpawn(sess store.Session, by extension.SpawnSource) (*extension.Sessio
 func Spawned(hooks *extension.SessionHooks, sess store.Session, by extension.SpawnSource) {
 	ctx, cancel := bounded()
 	defer cancel()
-	if err := hooks.Spawned(ctx, extension.Spawn{Session: Info(sess, true), By: by}); err != nil {
+	if err := hooks.Spawned(ctx, extension.Spawn{Session: Info(sess, true), By: by, Sessions: reader()}); err != nil {
 		logging.Warn("an extension failed to hear of a spawn", "session", sess.ID, "err", err)
 	}
 }

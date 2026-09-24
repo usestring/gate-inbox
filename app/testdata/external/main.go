@@ -234,10 +234,26 @@ func (n *noop) record(name, line string) {
 }
 
 // AllowSpawn refuses a session named over-budget, the way a budget on a
-// wide spawn would.
-func (n *noop) AllowSpawn(_ context.Context, spawn extension.Spawn) error {
-	if spawn.Session.Name == "over-budget" {
+// wide spawn would, and one named one-too-many while its parent has a
+// live child already, counted on the board before the spawn.
+func (n *noop) AllowSpawn(ctx context.Context, spawn extension.Spawn) error {
+	switch spawn.Session.Name {
+	case "over-budget":
 		return errors.New("this goal's budget is spent")
+	case "one-too-many":
+		list, err := spawn.Sessions.List(ctx, extension.SessionFilter{ParentID: spawn.Session.ParentID})
+		if err != nil {
+			return err
+		}
+		var live []string
+		for _, child := range list.Sessions {
+			if child.Running {
+				live = append(live, child.Name)
+			}
+		}
+		if len(live) > 0 {
+			return fmt.Errorf("%s already has live children: %s", spawn.Session.ParentID, strings.Join(live, ", "))
+		}
 	}
 	return nil
 }

@@ -19,7 +19,8 @@ import "context"
 //
 // Both are asked in whichever process launches the session: the board for
 // the operator's own, a session's CLI or MCP server for an agent's. An
-// extension that keeps count across them keeps it in its DataDir.
+// extension that keeps count across them keeps it in its DataDir, or counts
+// what Spawn.Sessions reads.
 // Terminals and relaunches of an existing row are not spawns, and neither
 // is a migration, which MigrationObserver hears about instead.
 type SpawnPolicy interface {
@@ -35,6 +36,23 @@ type Spawn struct {
 	Session SessionInfo
 	// By is who asked for it.
 	By SpawnSource
+	// Sessions reads the board from whichever process is launching, with
+	// the operator's reach: a cap on how many live children one session may
+	// have counts them here before the spawn rather than after. Asked in
+	// AllowSpawn it reads the board as it stood before this spawn, which is
+	// not on it yet; asked in Spawned it is. It opens the board's state for
+	// each call, so a policy asks it only when it has something to count.
+	Sessions SessionReader
+}
+
+// SessionReader reads the board's agent sessions without acting on any of
+// them. Every value it returns is a copy.
+type SessionReader interface {
+	// Get is one agent session, without reading its pane.
+	Get(ctx context.Context, id string) (SessionInfo, error)
+	// List is the agent sessions filter keeps, in the order the board
+	// lists them.
+	List(ctx context.Context, filter SessionFilter) (SessionList, error)
 }
 
 // SpawnSource is who asked for a spawn.

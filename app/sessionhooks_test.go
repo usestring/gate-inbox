@@ -23,8 +23,8 @@ activity_cutoff = "(?m)^\\$ "
 
 // An extension compiled outside this module has a say in the sessions a
 // session launches through the CLI: it refuses one spawn, adds its own
-// environment to the next, and follows a migration to the session that
-// carries it on.
+// environment to the next, refuses a third by counting the board, and
+// follows a migration to the session that carries it on.
 func TestExternalBuildHasASayInLaunches(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("a spawn launches a tmux pane")
@@ -65,6 +65,14 @@ func TestExternalBuildHasASayInLaunches(t *testing.T) {
 	}
 	if got := readEventually(t, filepath.Join(data, "spawned.txt")); got != spawned+" session \n" {
 		t.Fatalf("spawned.txt = %q", got)
+	}
+
+	// The policy counts the caller's live children on the board, from the
+	// CLI process, before anything is launched: the seeded child is dead,
+	// and the one just spawned is live.
+	out, err = run("spawn", "--tool", "envecho", "--name", "one-too-many", "--directory", work)
+	if err == nil || !strings.Contains(out, `extension "noop" refused the spawn: ca11e400 already has live children: within-budget`) {
+		t.Fatalf("a spawn over the live-children cap: %v\n%s", err, out)
 	}
 
 	out, err = run("migrate", "0de0c0de", "--tool", "envecho", "--json")

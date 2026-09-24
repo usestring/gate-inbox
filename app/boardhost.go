@@ -1,6 +1,9 @@
 package app
 
 import (
+	"context"
+	"sync"
+
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/extensionhost"
@@ -18,4 +21,34 @@ func NewBoard() (extension.Board, error) {
 		return nil, err
 	}
 	return extensionhost.NewBoard(dir, sessioncmd.NewSessions(dir, sessioncmd.MCPVocabulary())), nil
+}
+
+// spawnReader is what a spawn policy reads the board through, in whichever
+// process is launching. The board is found at the first read rather than at
+// startup, so a command that never spawns never looks for it.
+type spawnReader struct {
+	once  sync.Once
+	board extension.Board
+	err   error
+}
+
+func (r *spawnReader) open() (extension.Board, error) {
+	r.once.Do(func() { r.board, r.err = NewBoard() })
+	return r.board, r.err
+}
+
+func (r *spawnReader) Get(ctx context.Context, id string) (extension.SessionInfo, error) {
+	board, err := r.open()
+	if err != nil {
+		return extension.SessionInfo{}, err
+	}
+	return board.Get(ctx, id)
+}
+
+func (r *spawnReader) List(ctx context.Context, filter extension.SessionFilter) (extension.SessionList, error) {
+	board, err := r.open()
+	if err != nil {
+		return extension.SessionList{}, err
+	}
+	return board.List(ctx, filter)
 }

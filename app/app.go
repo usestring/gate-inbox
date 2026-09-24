@@ -95,6 +95,7 @@ func Run(ctx context.Context, args []string, opts Options) error {
 	}
 	accounts.UsePool(poolOf(registry))
 	sessionhooks.Use(sessionHooksOf(registry))
+	sessionhooks.UseSessions(&spawnReader{})
 
 	if len(args) == 0 {
 		return runBoard(version, registry)

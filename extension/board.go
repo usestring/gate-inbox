@@ -19,11 +19,7 @@ import (
 type Board interface {
 	// ConfigDir is the operator's config directory.
 	ConfigDir() string
-	// Get is one agent session, without reading its pane.
-	Get(ctx context.Context, id string) (SessionInfo, error)
-	// List is the agent sessions filter keeps, in the order the board
-	// lists them.
-	List(ctx context.Context, filter SessionFilter) (SessionList, error)
+	SessionReader
 	// ReadPane is what a session's pane is showing and the dialog it holds.
 	ReadPane(ctx context.Context, id string) (Pane, error)
 	// Answer picks the option answer names in the dialog a session is

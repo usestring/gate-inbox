@@ -84,10 +84,10 @@ func TestAnOrdinaryRoleFoldsLikeAnyChild(t *testing.T) {
 
 func TestAnOnScreenHelperIsNoSubagent(t *testing.T) {
 	useRoleSpecs(t, extension.RoleSpec{Name: "reviewer", OnScreen: true}, extension.RoleSpec{Name: "linter"})
-	if isSubagent(store.Session{ParentID: "run", Role: "board/reviewer"}) {
+	if isSubagent(store.Session{ParentID: "par", Role: "board/reviewer"}) {
 		t.Fatal("an on-screen helper read as a subagent")
 	}
-	if !isSubagent(store.Session{ParentID: "run", Role: "board/linter"}) {
+	if !isSubagent(store.Session{ParentID: "par", Role: "board/linter"}) {
 		t.Fatal("an ordinary role's child is still a subagent")
 	}
 }

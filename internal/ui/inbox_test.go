@@ -1039,7 +1039,7 @@ func TestInboxEnvelopeDoesNotFenceTheOperatorsRelayedWords(t *testing.T) {
 	msg := store.InboxMessage{
 		SessionID: "a1b2c3d4",
 		SenderID:  store.RelayedHumanSenderID,
-		Body:      "use the second proxy",
+		Body:      "use the second draft",
 		SentAt:    time.Now(),
 	}
 	if got := inboxEnvelope(msg, "claude", true, messageContext{}); got != msg.Body {

@@ -45,6 +45,10 @@ func (n *noop) Configure(cfg extension.Config) error {
 	return nil
 }
 
+type scrubArgs struct {
+	Text string `json:"text"`
+}
+
 type noteArgs struct {
 	Write string `json:"write,omitempty"`
 }
@@ -59,6 +63,16 @@ func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionCont
 		Description: "Answer with the configured greeting and this session's id.",
 	}, func(context.Context, *mcp.CallToolRequest, pingArgs) (*mcp.CallToolResult, any, error) {
 		return text(n.greeting + " from " + session.SessionID), nil, nil
+	})
+	if err != nil {
+		return err
+	}
+	// noop_scrub redacts text as the board's log would.
+	err = extension.AddTool(r, &mcp.Tool{
+		Name:        "noop_scrub",
+		Description: "Answer with the text, credentials redacted.",
+	}, func(_ context.Context, _ *mcp.CallToolRequest, args scrubArgs) (*mcp.CallToolResult, any, error) {
+		return text(extension.Scrub(args.Text)), nil, nil
 	})
 	if err != nil {
 		return err

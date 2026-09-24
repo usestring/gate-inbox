@@ -133,6 +133,16 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		}
 	})
 
+	// The extension redacts text with the board's own scrubber.
+	t.Run("mcp scrub", func(t *testing.T) {
+		session := connectFixture(t, bin, fixtureHome(t, ""))
+		key := "sk-" + strings.Repeat("x", 24)
+		got := callText(t, session, "noop_scrub", map[string]any{"text": "export KEY=" + key + " and go"})
+		if got != "export KEY=[redacted] and go" {
+			t.Fatalf("noop_scrub answered %q", got)
+		}
+	})
+
 	// The extension reads the board through Host alone: two rows seeded
 	// into the store the MCP face opens, listed and then read back by a
 	// tool compiled outside this module.

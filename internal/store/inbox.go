@@ -27,6 +27,20 @@ import (
 // It is not a session id and cannot collide with one: ids are hex.
 const HumanSenderID = "human"
 
+// RelayedHumanSenderID marks the operator's words relayed by a session an
+// extension launched to speak for them, which that extension already
+// recorded when the relay was sent. It is delivered as the operator's own
+// words, like HumanSenderID, but its delivery is not reported to board
+// extensions as the operator's input a second time: a stale relayed line
+// must not answer a question raised after it was sent.
+const RelayedHumanSenderID = "human/relayed"
+
+// FromOperator reports whether a message sent as senderID is the operator's
+// own words, typed at a shell or relayed, and so delivered unfenced.
+func FromOperator(senderID string) bool {
+	return senderID == HumanSenderID || senderID == RelayedHumanSenderID
+}
+
 // extensionSenderPrefix starts the sender id of a message a board extension
 // queued. Like HumanSenderID it cannot collide with a session id, and it
 // gives each extension a rate and dedupe budget of its own.
@@ -320,10 +334,22 @@ func (s *Store) ClaimMessage(id int64, at time.Time) (bool, error) {
 }
 
 func (s *Store) MarkDelivered(id int64, at time.Time) error {
-	_, err := s.db.Exec(
+	_, err := s.MarkDeliveredFirst(id, at)
+	return err
+}
+
+// MarkDeliveredFirst records a delivery and reports whether this call is
+// the one that recorded it: false for a message already marked delivered,
+// so whatever follows a delivery happens once however often it is marked.
+func (s *Store) MarkDeliveredFirst(id int64, at time.Time) (bool, error) {
+	res, err := s.db.Exec(
 		`UPDATE session_inbox SET delivered_at = ? WHERE id = ? AND delivered_at = 0`,
 		encodeTime(at), id)
-	return err
+	if err != nil {
+		return false, err
+	}
+	affected, err := res.RowsAffected()
+	return affected == 1, err
 }
 
 // MarkDropped retires a message that never reached the pane. It leaves the

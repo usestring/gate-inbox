@@ -64,8 +64,9 @@ type BoardHost interface {
 	Kill(ctx context.Context, id string) (SessionInfo, error)
 	// OnOperator calls fn with everything the operator hands a session from
 	// the board, until unsubscribe is called: a line sent from the prompt
-	// bar, a snippet, a line or a dialog choice entered in a focused pane.
-	// It is how an extension that put a question to the operator learns
+	// bar, a snippet, a line or a dialog choice entered in a focused pane,
+	// and a line the operator sent from a shell with `send --as-human`,
+	// once the board has typed it in. It is how an extension that put a question to the operator learns
 	// that a person has answered. Only input that reached the pane is
 	// reported; one the board refused, or that tmux failed to deliver, is
 	// not. Delivery is Subscribe's: in order, on the subscription's own
@@ -98,6 +99,11 @@ const (
 	// OperatorPane is a key typed into a focused pane that submitted its
 	// line or chose an option in its dialog.
 	OperatorPane OperatorVia = "pane"
+	// OperatorCLI is a line the operator sent from a shell with
+	// `send --as-human`. It is reported by the board once it has typed the
+	// line into the pane, exactly once per message, and never for a message
+	// an agent or an extension sent.
+	OperatorCLI OperatorVia = "cli"
 )
 
 // Message is what BoardHost.Send queues.

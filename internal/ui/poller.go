@@ -1400,7 +1400,25 @@ func (p *poller) maybeDeliverInbox(sess store.Session, heads map[string]store.In
 				fmt.Errorf("dropped a message to %s from %s: %w", sess.Name, msg.SenderName, err),
 				p.store.MarkDropped(msg.ID, time.Now()))
 		}
-		return p.store.MarkDelivered(msg.ID, time.Now())
+		at := time.Now()
+		first, err := p.store.MarkDeliveredFirst(msg.ID, at)
+		if err != nil {
+			return err
+		}
+		// The operator's own words, sent from a shell, reach the board's
+		// extensions here: once, on the delivery that recorded them. A
+		// relayed line is not reported: the relaying extension recorded it
+		// at send, and reporting it again at delivery would let it answer
+		// whatever was asked in between.
+		if first && msg.SenderID == store.HumanSenderID && p.observer != nil {
+			p.observer.Operator(extension.OperatorInput{
+				SessionID: sess.ID,
+				Via:       extension.OperatorCLI,
+				Text:      msg.Body,
+				At:        at,
+			})
+		}
+		return nil
 	})
 	return nil
 }
@@ -1586,7 +1604,7 @@ func inboxEnvelope(msg store.InboxMessage, mcpStyle string, taught bool, ctx mes
 	// gets no envelope at all -- the same text the TUI's own send types into
 	// the pane. Fencing it told the worker its user was another agent, which
 	// is exactly the thing the fence exists to deny.
-	if msg.SenderID == store.HumanSenderID {
+	if store.FromOperator(msg.SenderID) {
 		return sanitizeBody(msg.Body)
 	}
 	if extensionID, ok := store.ExtensionSender(msg.SenderID); ok {
@@ -1630,7 +1648,7 @@ func (p *poller) envelope(sess store.Session, msg store.InboxMessage) string {
 	// reads towards a header nothing prints.
 	var ctx messageContext
 	_, fromExtension := store.ExtensionSender(msg.SenderID)
-	if msg.SenderID != store.HumanSenderID && !fromExtension {
+	if !store.FromOperator(msg.SenderID) && !fromExtension {
 		ctx = p.messageContext(sess, msg, time.Now())
 	}
 	return inboxEnvelope(msg, style, taught, ctx)

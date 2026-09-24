@@ -78,7 +78,7 @@ func TestBoardReplaceRefusalsLeaveTheOldSessionAlone(t *testing.T) {
 			_, err := h.sessions.BoardReplace("theirs01", "ext1/", BoardLaunchOptions{})
 			return err
 		},
-		"over this goal's budget": func() error {
+		"over the spawn budget": func() error {
 			_, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{Name: "over-budget"})
 			return err
 		},

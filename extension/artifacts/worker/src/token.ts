@@ -1,5 +1,5 @@
 /**
- * The verifying half of internal/extension/artifacts/token.go.
+ * The verifying half of extension/artifacts/token.go.
  *
  * Two implementations of one format is a liability, so the wire format is
  * kept deliberately dull -- base64url, SHA-256, newline-joined canonical
@@ -125,7 +125,7 @@ export async function verifyRequest(
 }
 
 /**
- * Mint a read link's key, exactly as the Go client's MintLink does. The
+ * Mint a read link's key, exactly as the Go client's mintLink does. The
  * index page uses it to hand out a working link per artifact. Same claim
  * order, same encoding, no whitespace: a Worker-minted key for the same
  * artifact and expiry is byte-identical to a Go-minted one, and the

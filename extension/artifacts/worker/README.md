@@ -123,7 +123,7 @@ liability, so a change to either side that breaks the other fails a test
 rather than a deploy: regenerate with
 
 ```bash
-UPDATE_VECTORS=1 go test ./internal/extension/artifacts/ -run TestVectorsAreStable
+UPDATE_VECTORS=1 go test ./extension/artifacts/ -run TestVectorsAreStable
 ```
 
 and expect `TestVectorsAreStable` to fail loudly if the format moved, because

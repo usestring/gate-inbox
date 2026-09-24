@@ -227,7 +227,7 @@ func TestListFormatsEmptyAndPopulated(t *testing.T) {
 	if got := formatList(nil); !strings.Contains(got, "no artifacts") {
 		t.Fatalf("empty list reads as %q", got)
 	}
-	got := formatList([]Meta{{ID: "abc", Title: "First", Email: "alice@example.test", PublishedAt: "2026-09-17T00:00:00Z"}})
+	got := formatList([]artifactMeta{{ID: "abc", Title: "First", Email: "alice@example.test", PublishedAt: "2026-09-17T00:00:00Z"}})
 	for _, want := range []string{"abc", "First", "by alice@example.test"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("list reads as %q, missing %q", got, want)
@@ -238,17 +238,17 @@ func TestListFormatsEmptyAndPopulated(t *testing.T) {
 // An artifact whose publisher could not be read says so, rather than
 // printing a blank that reads like a formatting bug.
 func TestListNamesAnUnknownPublisher(t *testing.T) {
-	if got := formatList([]Meta{{ID: "abc", Title: "First"}}); !strings.Contains(got, "by unknown publisher") {
+	if got := formatList([]artifactMeta{{ID: "abc", Title: "First"}}); !strings.Contains(got, "by unknown publisher") {
 		t.Fatalf("list reads as %q", got)
 	}
 }
 
 func TestListShowsWhoLastChangedARevisedArtifact(t *testing.T) {
-	got := formatList([]Meta{{ID: "abc", Title: "Report", Email: "maker@example.test", UpdatedBy: "fixer@example.test", Revisions: 3}})
+	got := formatList([]artifactMeta{{ID: "abc", Title: "Report", Email: "maker@example.test", UpdatedBy: "fixer@example.test", Revisions: 3}})
 	if !strings.Contains(got, "by maker@example.test") || !strings.Contains(got, "3 versions, last by fixer@example.test") {
 		t.Fatalf("list reads as %q", got)
 	}
-	if got := formatList([]Meta{{ID: "abc", Title: "Once", Email: "maker@example.test", Revisions: 1}}); strings.Contains(got, "versions") {
+	if got := formatList([]artifactMeta{{ID: "abc", Title: "Once", Email: "maker@example.test", Revisions: 1}}); strings.Contains(got, "versions") {
 		t.Fatalf("an unrevised artifact reads as %q", got)
 	}
 }

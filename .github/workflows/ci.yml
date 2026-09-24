@@ -46,10 +46,10 @@ jobs:
       - name: Vet
         run: go vet ./...
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        if: hashFiles('internal/extension/artifacts/worker/package.json') != ''
+        if: hashFiles('extension/artifacts/worker/package.json') != ''
       - name: Test artifacts worker
-        if: hashFiles('internal/extension/artifacts/worker/package.json') != ''
-        working-directory: internal/extension/artifacts/worker
+        if: hashFiles('extension/artifacts/worker/package.json') != ''
+        working-directory: extension/artifacts/worker
         run: bun test
 
   test:

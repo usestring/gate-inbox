@@ -1,7 +1,7 @@
 /**
  * The cross-language half of the token contract.
  *
- * These vectors were minted by Go (internal/extension/artifacts/token_test.go,
+ * These vectors were minted by Go (extension/artifacts/token_test.go,
  * TestVectorsAreStable). If the two implementations ever disagree about
  * encoding, field names or the canonical string, this test fails instead of
  * a deploy silently rejecting every link the fleet has handed out.

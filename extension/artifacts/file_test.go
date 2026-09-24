@@ -93,7 +93,7 @@ func TestSaveWritesTheBytesWhereAsked(t *testing.T) {
 	if _, err := save("chart.png", nil); err == nil || !strings.Contains(err.Error(), "absolute") {
 		t.Fatalf("relative save: err = %v", err)
 	}
-	out := formatSaved(Meta{Title: "Chart", ContentType: "image/png", Bytes: 5}, saved)
+	out := formatSaved(artifactMeta{Title: "Chart", ContentType: "image/png", Bytes: 5}, saved)
 	if !strings.Contains(out, "saved to "+saved) || strings.Contains(out, "bytes\n\nbytes") {
 		t.Fatalf("saved report = %q", out)
 	}

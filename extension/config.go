@@ -7,6 +7,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -84,5 +85,20 @@ func (c Config) Decode(v any) error {
 		slices.Sort(keys)
 		return fmt.Errorf("unknown key(s): %s", strings.Join(keys, ", "))
 	}
+	return nil
+}
+
+// Duration is a time.Duration a section writes as a Go duration string,
+// such as "90s" or "720h".
+type Duration struct {
+	time.Duration
+}
+
+func (d *Duration) UnmarshalText(text []byte) error {
+	parsed, err := time.ParseDuration(string(text))
+	if err != nil {
+		return err
+	}
+	d.Duration = parsed
 	return nil
 }

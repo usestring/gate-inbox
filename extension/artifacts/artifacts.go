@@ -5,7 +5,7 @@
 //
 // It exists because the artifacts built into one CLI belong to the account
 // that published them, and this board deliberately rotates work across a
-// pool of accounts (see internal/accounts). An artifact published by a
+// pool of accounts (see extension.AccountPoolProvider). An artifact published by a
 // session on one account is therefore unreadable from a session on the
 // next, which is the opposite of what an artifact is for. These tools
 // publish to a store the whole team shares instead, and every session gets
@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -30,7 +31,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/extension"
-	"github.com/usestring/gate-inbox/internal/config"
 )
 
 // Name is the extension's config key and its name on the board.
@@ -173,7 +173,7 @@ const (
 	defaultMaxBytes = 16 << 20
 )
 
-// Settings configures the shared artifact store: HTML and other documents
+// storeSettings configures the shared artifact store: HTML and other documents
 // an agent publishes to a URL a teammate can open. It is the
 // [extensions.artifacts] section of the operator's config.
 //
@@ -181,7 +181,7 @@ const (
 // every session is context every agent pays whether or not it publishes,
 // and a store that is not deployed yet should surface to nobody; the
 // operator who wants it says so once, here.
-type Settings struct {
+type storeSettings struct {
 	// Enabled turns the extension on. Absent means off, so a config
 	// written before this section existed keeps the tool list it had.
 	Enabled bool `toml:"enabled"`
@@ -211,14 +211,14 @@ type Settings struct {
 	// LinkTTL is how long a minted read link stays valid. Links are bearer
 	// credentials -- whoever holds one is in -- so they expire rather than
 	// accumulate. Unset, thirty days.
-	LinkTTL config.Duration `toml:"link_ttl"`
+	LinkTTL extension.Duration `toml:"link_ttl"`
 	// MaxBytes caps one artifact's body. Unset, 16 MiB, matching what a
 	// hosted artifact is allowed to be elsewhere; the worker enforces its
 	// own cap regardless of what a client believes.
 	MaxBytes int64 `toml:"max_bytes"`
 }
 
-func (s *Settings) applyDefaults() {
+func (s *storeSettings) applyDefaults() {
 	s.BaseURL = strings.TrimRight(s.BaseURL, "/")
 	if s.LinkTTL.Duration <= 0 {
 		s.LinkTTL.Duration = defaultLinkTTL
@@ -230,7 +230,7 @@ func (s *Settings) applyDefaults() {
 
 // Extension is the artifact store as the registry sees it.
 type Extension struct {
-	settings Settings
+	settings storeSettings
 }
 
 // New returns the extension, unconfigured. The client is built per
@@ -245,7 +245,7 @@ func (*Extension) Descriptor() extension.Descriptor {
 // reads nothing but the section: the signing key is fetched when a tool is
 // called, never here.
 func (e *Extension) Configure(cfg extension.Config) error {
-	var settings Settings
+	var settings storeSettings
 	if err := cfg.Decode(&settings); err != nil {
 		return err
 	}
@@ -275,7 +275,8 @@ func (e *Extension) Enabled() bool {
 	if strings.TrimSpace(settings.KeyCommand) == "" {
 		return false
 	}
-	return config.CheckInstalled(settings.KeyCommand) == nil
+	_, err := exec.LookPath(strings.Fields(settings.KeyCommand)[0])
+	return err == nil
 }
 
 func (e *Extension) RegisterMCP(r *extension.Registrar, ctx extension.SessionContext) error {
@@ -362,7 +363,7 @@ func (e *Extension) RegisterMCP(r *extension.Registrar, ctx extension.SessionCon
 	return nil
 }
 
-func publish(ctx context.Context, client *Client, by publisher, args publishArgs) (string, error) {
+func publish(ctx context.Context, client *storeClient, by publisher, args publishArgs) (string, error) {
 	if strings.TrimSpace(args.Title) == "" {
 		return "", fmt.Errorf("an artifact needs a title")
 	}
@@ -376,14 +377,14 @@ func publish(ctx context.Context, client *Client, by publisher, args publishArgs
 
 	id := strings.TrimSpace(args.ArtifactID)
 	if id == "" {
-		fresh, err := NewID()
+		fresh, err := newID()
 		if err != nil {
 			return "", err
 		}
 		id = fresh
 	}
 
-	link, err := client.Publish(ctx, id, content, Meta{
+	link, err := client.Publish(ctx, id, content, artifactMeta{
 		Title:       args.Title,
 		ContentType: contentType,
 		Email:       by.email,
@@ -401,15 +402,15 @@ func allowedTypes() []string {
 	return slices.Sorted(maps.Keys(contentTypes))
 }
 
-func formatRead(meta Meta, body []byte) string {
+func formatRead(meta artifactMeta, body []byte) string {
 	return fmt.Sprintf("%s\n\n%s", readHeader(meta), body)
 }
 
-func formatSaved(meta Meta, path string) string {
+func formatSaved(meta artifactMeta, path string) string {
 	return fmt.Sprintf("%s\nsaved to %s", readHeader(meta), path)
 }
 
-func readHeader(meta Meta) string {
+func readHeader(meta artifactMeta) string {
 	header := meta.Title
 	if header == "" {
 		header = meta.ID
@@ -434,7 +435,7 @@ func save(to string, data []byte) (string, error) {
 	return path, nil
 }
 
-func formatList(listed []Meta) string {
+func formatList(listed []artifactMeta) string {
 	if len(listed) == 0 {
 		return "no artifacts published yet"
 	}

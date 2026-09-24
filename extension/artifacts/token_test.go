@@ -44,11 +44,11 @@ const vectorPath = "testdata/vectors.json"
 // byte. A diff here means every link already handed out is about to stop
 // verifying.
 func TestVectorsAreStable(t *testing.T) {
-	token, err := MintLink(testKey, testID, testExp)
+	token, err := mintLink(testKey, testID, testExp)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
-	header := SignRequest(testKey, http.MethodPut, "/a/"+testID, testAt, []byte("hello"))
+	header := signRequest(testKey, http.MethodPut, "/a/"+testID, testAt, []byte("hello"))
 
 	var want vectors
 	want.Key = string(testKey)
@@ -87,11 +87,11 @@ func TestVectorsAreStable(t *testing.T) {
 }
 
 func TestLinkRoundTrips(t *testing.T) {
-	token, err := MintLink(testKey, testID, testExp)
+	token, err := mintLink(testKey, testID, testExp)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
-	if err := VerifyLink(testKey, token, testID, testExp.Add(-time.Hour)); err != nil {
+	if err := verifyLink(testKey, token, testID, testExp.Add(-time.Hour)); err != nil {
 		t.Fatalf("verify: %v", err)
 	}
 }
@@ -99,17 +99,17 @@ func TestLinkRoundTrips(t *testing.T) {
 // A link scoped to one artifact must not open another. Without this check
 // a link to anything is a link to everything.
 func TestLinkIsScopedToOneArtifact(t *testing.T) {
-	token, err := MintLink(testKey, testID, testExp)
+	token, err := mintLink(testKey, testID, testExp)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
-	if err := VerifyLink(testKey, token, "some-other-artifact", testExp.Add(-time.Hour)); err == nil {
+	if err := verifyLink(testKey, token, "some-other-artifact", testExp.Add(-time.Hour)); err == nil {
 		t.Fatal("a link for one artifact opened another")
 	}
 }
 
 func TestLinkRejections(t *testing.T) {
-	token, err := MintLink(testKey, testID, testExp)
+	token, err := mintLink(testKey, testID, testExp)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestLinkRejections(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			if err := VerifyLink(tc.key, tc.token, testID, tc.now); err == nil {
+			if err := verifyLink(tc.key, tc.token, testID, tc.now); err == nil {
 				t.Fatal("accepted a link it should have refused")
 			}
 		})
@@ -136,8 +136,8 @@ func TestLinkRejections(t *testing.T) {
 // Every rejection reads the same, so a caller cannot learn whether a link
 // was forged or merely stale.
 func TestRejectionsDoNotSayWhy(t *testing.T) {
-	expired := VerifyLink(testKey, mustMint(t), testID, testExp.Add(time.Second))
-	forged := VerifyLink([]byte("another-key"), mustMint(t), testID, testExp.Add(-time.Hour))
+	expired := verifyLink(testKey, mustMint(t), testID, testExp.Add(time.Second))
+	forged := verifyLink([]byte("another-key"), mustMint(t), testID, testExp.Add(-time.Hour))
 	if expired.Error() != forged.Error() {
 		t.Fatalf("rejections differ: %q vs %q", expired, forged)
 	}
@@ -146,12 +146,12 @@ func TestRejectionsDoNotSayWhy(t *testing.T) {
 // The signature has to cover the body, or a captured header republishes
 // anything under the same id.
 func TestRequestSignatureCoversBodyMethodAndPath(t *testing.T) {
-	base := SignRequest(testKey, http.MethodPut, "/a/"+testID, testAt, []byte("hello"))
+	base := signRequest(testKey, http.MethodPut, "/a/"+testID, testAt, []byte("hello"))
 	cases := map[string]string{
-		"different body":   SignRequest(testKey, http.MethodPut, "/a/"+testID, testAt, []byte("goodbye")),
-		"different path":   SignRequest(testKey, http.MethodPut, "/a/other", testAt, []byte("hello")),
-		"different method": SignRequest(testKey, http.MethodGet, "/a/"+testID, testAt, []byte("hello")),
-		"different time":   SignRequest(testKey, http.MethodPut, "/a/"+testID, testAt.Add(time.Second), []byte("hello")),
+		"different body":   signRequest(testKey, http.MethodPut, "/a/"+testID, testAt, []byte("goodbye")),
+		"different path":   signRequest(testKey, http.MethodPut, "/a/other", testAt, []byte("hello")),
+		"different method": signRequest(testKey, http.MethodGet, "/a/"+testID, testAt, []byte("hello")),
+		"different time":   signRequest(testKey, http.MethodPut, "/a/"+testID, testAt.Add(time.Second), []byte("hello")),
 	}
 	for name, other := range cases {
 		if other == base {
@@ -162,7 +162,7 @@ func TestRequestSignatureCoversBodyMethodAndPath(t *testing.T) {
 
 func mustMint(t *testing.T) string {
 	t.Helper()
-	token, err := MintLink(testKey, testID, testExp)
+	token, err := mintLink(testKey, testID, testExp)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}

@@ -1,6 +1,6 @@
 // A build of the board from outside this module, carrying one extension of
-// its own. It imports the public app and extension packages and nothing
-// under internal/: the go tool refuses an internal import across modules,
+// its own beside the public artifacts one. It imports the public app and
+// extension packages and nothing under internal/: the go tool refuses an internal import across modules,
 // so this building at all is the proof that the public packages are enough.
 // app's boundary test builds it as its own module and drives each of the
 // executable's three faces.
@@ -16,6 +16,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/app"
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/extension/artifacts"
 )
 
 // noop does nothing but answer a ping, with its configured greeting and the
@@ -124,7 +125,7 @@ func text(s string) *mcp.CallToolResult {
 
 func main() {
 	err := app.Run(context.Background(), os.Args[1:], app.Options{
-		Extensions: []extension.Extension{&noop{}},
+		Extensions: []extension.Extension{&noop{}, artifacts.New()},
 		BuildInfo:  app.BuildInfo{Version: "0.0.0-fixture"},
 	})
 	if err != nil {

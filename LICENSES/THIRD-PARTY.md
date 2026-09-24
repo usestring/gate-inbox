@@ -11,7 +11,7 @@ what the repository and its binaries contain that is licensed by someone else.
   files of every linked module are copied verbatim under `LICENSES/third_party/<module>/`; MIT,
   BSD and Apache-2.0 all require that text to travel with a binary distribution. Run
   `scripts/third-party-licences.sh --check` to confirm the committed copy is current.
-- **JavaScript/npm**: none. `internal/extension/artifacts/worker/package.json` declares no
+- **JavaScript/npm**: none. `extension/artifacts/worker/package.json` declares no
   `dependencies` or `devDependencies` and there is no lockfile; its tests import only `bun:test`
   and Node built-ins. `wrangler` is invoked as an external CLI at deploy time and nothing from it is
   vendored or shipped.
@@ -32,7 +32,7 @@ what the repository and its binaries contain that is licensed by someone else.
 | Fonts | — | — | — | None: no `.ttf`/`.otf`/`.woff*` file, no `go:embed`, and no font reference in the worker page or the VHS tapes (`tools/capture` sets only `FontSize`). |
 | Other images and icons | — | — | — | None: the four `docs/brand` files are the only images in the tree. `docs/usage.md` still links upstream's `demo-*.gif` and `screenshot-*.png`, which were not imported; the links are dead, and nothing is shipped. |
 | `internal/*/testdata/*.txt`, `internal/ui/testdata/*` | this repo | Apache-2.0 | this repo | Terminal captures of Claude Code, Codex and opencode screens, used as parser goldens. Short functional UI captures; the third-party text in them is interface chrome. 18 files still contain operator-specific paths or internal PR links. |
-| `internal/*/testdata/*.json{,l}`, `internal/extension/artifacts/testdata/vectors.json` | this repo | Apache-2.0 | this repo | Synthetic transcripts, decision payloads and signing vectors. No third-party content found. |
+| `internal/*/testdata/*.json{,l}`, `extension/artifacts/testdata/vectors.json` | this repo | Apache-2.0 | this repo | Synthetic transcripts, decision payloads and signing vectors. No third-party content found. |
 | `tools/capture/demo/*`, `tools/capture/scenarios/*.tape`, `*.toml` | this repo | Apache-2.0 | this repo | Synthetic demo sessions and VHS scripts. 5 tapes still name internal repositories. |
 
 ## Go modules

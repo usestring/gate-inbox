@@ -12,12 +12,12 @@ import (
 	"time"
 )
 
-// AuthHeader carries a signed publish or list request. Read links travel in
+// authHeader carries a signed publish or list request. Read links travel in
 // the URL instead, because the URL is the thing being shared.
-const AuthHeader = "X-Artifact-Auth"
+const authHeader = "X-Artifact-Auth"
 
-// LinkParam is the query parameter a read link's key travels in.
-const LinkParam = "k"
+// linkParam is the query parameter a read link's key travels in.
+const linkParam = "k"
 
 // authSkew is how far a signed request's timestamp may be from the worker's
 // clock. It bounds replay without requiring the two to be in step; a
@@ -50,13 +50,13 @@ func mac(key, message []byte) []byte {
 	return h.Sum(nil)
 }
 
-// MintLink returns the key for one artifact, valid until exp.
+// mintLink returns the key for one artifact, valid until exp.
 //
 // The signature covers the encoded payload rather than the claims struct,
 // so the worker verifies the exact bytes it received and never has to
 // re-encode JSON to check them. Field order, spacing and Go's map
 // iteration therefore cannot break verification.
-func MintLink(key []byte, id string, exp time.Time) (string, error) {
+func mintLink(key []byte, id string, exp time.Time) (string, error) {
 	if len(key) == 0 {
 		return "", fmt.Errorf("no signing key")
 	}
@@ -71,7 +71,7 @@ func MintLink(key []byte, id string, exp time.Time) (string, error) {
 	return payload + "." + b64(mac(key, []byte(payload))), nil
 }
 
-// VerifyLink is the Go side of what the worker does per request. Nothing on
+// verifyLink is the Go side of what the worker does per request. Nothing on
 // the publish path needs it; it exists so the two implementations are
 // checked against each other by test rather than by deployment.
 //
@@ -79,7 +79,7 @@ func MintLink(key []byte, id string, exp time.Time) (string, error) {
 // expired rather than forged tells an attacker which half to work on, and
 // the holder of a bad link can do nothing with either answer but ask for
 // another one.
-func VerifyLink(key []byte, token, id string, now time.Time) error {
+func verifyLink(key []byte, token, id string, now time.Time) error {
 	bad := fmt.Errorf("invalid or expired link")
 	payload, signature, found := strings.Cut(token, ".")
 	if !found {
@@ -106,12 +106,12 @@ func VerifyLink(key []byte, token, id string, now time.Time) error {
 	return nil
 }
 
-// SignRequest authenticates a publish or list call.
+// signRequest authenticates a publish or list call.
 //
 // The signature covers the method, the path, the timestamp and a digest of
 // the body, so a captured header cannot be replayed against a different
 // artifact, a different verb, or the same artifact with different content.
-func SignRequest(key []byte, method, path string, at time.Time, body []byte) string {
+func signRequest(key []byte, method, path string, at time.Time, body []byte) string {
 	digest := sha256.Sum256(body)
 	stamp := strconv.FormatInt(at.Unix(), 10)
 	canonical := strings.Join([]string{method, path, stamp, hex.EncodeToString(digest[:])}, "\n")

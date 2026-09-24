@@ -21,7 +21,7 @@ import (
 const modulePath = "github.com/usestring/gate-inbox"
 
 // fixtureSource is a main in a module of its own that registers one no-op
-// extension through the public packages.
+// extension and the artifacts one through the public packages.
 var fixtureSource = filepath.Join("testdata", "external", "main.go")
 
 // TestFixtureImportsOnlyThePublicPackages states the boundary in the
@@ -32,7 +32,7 @@ func TestFixtureImportsOnlyThePublicPackages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse fixture: %v", err)
 	}
-	public := map[string]bool{modulePath + "/app": true, modulePath + "/extension": true}
+	public := map[string]bool{modulePath + "/app": true, modulePath + "/extension": true, modulePath + "/extension/artifacts": true}
 	for _, spec := range file.Imports {
 		path, _ := strconv.Unquote(spec.Path.Value)
 		if strings.Contains(path, "/internal/") || strings.HasSuffix(path, "/internal") {
@@ -183,6 +183,18 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		}
 	})
 
+	// The artifacts section is owned once the build registers the public
+	// extension, so a config naming it starts, and enabling it serves the
+	// artifact tools beside the fixture's own.
+	t.Run("mcp artifacts", func(t *testing.T) {
+		session := connectFixture(t, bin, fixtureHome(t, "[extensions.artifacts]\nenabled = true\n"+
+			"base_url = \"https://artifacts.example.test\"\nkey_command = \"sh\"\n"))
+		names := listTools(t, session)
+		if !names["publish_artifact"] || !names["noop_ping"] || !names["rename"] {
+			t.Fatalf("want the artifact tools beside the fixture's and the host's; got %v", names)
+		}
+	})
+
 	t.Run("mcp keeps the host's tools when an extension's config is refused", func(t *testing.T) {
 		session := connectFixture(t, bin, fixtureHome(t, "[extensions.noop]\ngreeting = \"hi\"\nbogus = 1\n"))
 		names := listTools(t, session)
@@ -202,7 +214,7 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		}
 		for name, tc := range map[string]struct{ config, want string }{
 			"unknown key":     {"[extensions.noop]\nbogus = 1\n", "[extensions.noop]: unknown key(s): bogus"},
-			"unowned section": {"[extensions.stranger]\nx = 1\n", "no extension in this build owns: stranger (this build has: noop)"},
+			"unowned section": {"[extensions.stranger]\nx = 1\n", "no extension in this build owns: stranger (this build has: noop, artifacts)"},
 		} {
 			t.Run(name, func(t *testing.T) {
 				// util-linux and BSD script(1) take the command differently.

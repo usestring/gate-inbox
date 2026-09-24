@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-func testClient(t *testing.T, handler http.Handler) (*Client, *httptest.Server) {
+func testClient(t *testing.T, handler http.Handler) (*storeClient, *httptest.Server) {
 	t.Helper()
 	stubCommand(t, func(string) (string, error) { return string(testKey), nil })
 	server := httptest.NewServer(handler)
@@ -32,7 +32,7 @@ func TestPublishSignsTheRequestItSends(t *testing.T) {
 		w.Write([]byte(`{}`))
 	}))
 
-	link, err := client.Publish(context.Background(), testID, []byte("<p>hi</p>"), Meta{Title: "Hi", ContentType: "text/html"})
+	link, err := client.Publish(context.Background(), testID, []byte("<p>hi</p>"), artifactMeta{Title: "Hi", ContentType: "text/html"})
 	if err != nil {
 		t.Fatalf("publish: %v", err)
 	}
@@ -40,11 +40,11 @@ func TestPublishSignsTheRequestItSends(t *testing.T) {
 	if seen.Method != http.MethodPut || seen.URL.Path != "/a/"+testID {
 		t.Fatalf("sent %s %s", seen.Method, seen.URL.Path)
 	}
-	want := SignRequest(testKey, http.MethodPut, "/a/"+testID, testAt, body)
-	if got := seen.Header.Get(AuthHeader); got != want {
+	want := signRequest(testKey, http.MethodPut, "/a/"+testID, testAt, body)
+	if got := seen.Header.Get(authHeader); got != want {
 		t.Fatalf("auth header %q, want %q", got, want)
 	}
-	if !strings.HasPrefix(link, "/") && !strings.Contains(link, "?"+LinkParam+"=") {
+	if !strings.HasPrefix(link, "/") && !strings.Contains(link, "?"+linkParam+"=") {
 		t.Fatalf("link carries no key: %s", link)
 	}
 }
@@ -60,7 +60,7 @@ func TestPublishCarriesMetadataThroughAnEncodedHeader(t *testing.T) {
 	}))
 
 	title := "Q3 résumé\nand a second line"
-	if _, err := client.Publish(context.Background(), testID, []byte("x"), Meta{Title: title, ContentType: "text/plain"}); err != nil {
+	if _, err := client.Publish(context.Background(), testID, []byte("x"), artifactMeta{Title: title, ContentType: "text/plain"}); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 	decoded, err := decodeMeta(header)
@@ -76,7 +76,7 @@ func TestPublishRefusesAnOversizedArtifact(t *testing.T) {
 	client, _ := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("an oversized artifact reached the network")
 	}))
-	_, err := client.Publish(context.Background(), testID, make([]byte, 2048), Meta{ContentType: "text/plain"})
+	_, err := client.Publish(context.Background(), testID, make([]byte, 2048), artifactMeta{ContentType: "text/plain"})
 	if err == nil {
 		t.Fatal("published something over the limit")
 	}
@@ -86,7 +86,7 @@ func TestPublishReportsWhatTheStoreSaid(t *testing.T) {
 	client, _ := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not authorized to publish", http.StatusUnauthorized)
 	}))
-	_, err := client.Publish(context.Background(), testID, []byte("x"), Meta{ContentType: "text/plain"})
+	_, err := client.Publish(context.Background(), testID, []byte("x"), artifactMeta{ContentType: "text/plain"})
 	if err == nil || !strings.Contains(err.Error(), "not authorized to publish") {
 		t.Fatalf("error lost the cause: %v", err)
 	}
@@ -95,16 +95,16 @@ func TestPublishReportsWhatTheStoreSaid(t *testing.T) {
 func TestFetchTakesAShareLinkAsGiven(t *testing.T) {
 	var seenQuery string
 	client, server := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		seenQuery = r.URL.Query().Get(LinkParam)
+		seenQuery = r.URL.Query().Get(linkParam)
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte("<p>hi</p>"))
 	}))
 
-	token, err := MintLink(testKey, testID, testAt.Add(time.Hour))
+	token, err := mintLink(testKey, testID, testAt.Add(time.Hour))
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
-	link := server.URL + "/a/" + testID + "?" + LinkParam + "=" + token
+	link := server.URL + "/a/" + testID + "?" + linkParam + "=" + token
 
 	body, meta, err := client.Fetch(context.Background(), link)
 	if err != nil {
@@ -123,14 +123,14 @@ func TestFetchTakesAShareLinkAsGiven(t *testing.T) {
 func TestFetchMintsAKeyForABareID(t *testing.T) {
 	var seenQuery string
 	client, _ := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		seenQuery = r.URL.Query().Get(LinkParam)
+		seenQuery = r.URL.Query().Get(linkParam)
 		w.Write([]byte("body"))
 	}))
 
 	if _, _, err := client.Fetch(context.Background(), testID); err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
-	if err := VerifyLink(testKey, seenQuery, testID, testAt); err != nil {
+	if err := verifyLink(testKey, seenQuery, testID, testAt); err != nil {
 		t.Fatalf("minted key does not verify: %v", err)
 	}
 }
@@ -147,10 +147,10 @@ func TestFetchRefusesNonsense(t *testing.T) {
 func TestListSignsThePathWithoutItsQuery(t *testing.T) {
 	var header, by string
 	client, _ := testClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		header = r.Header.Get(AuthHeader)
+		header = r.Header.Get(authHeader)
 		by = r.URL.Query().Get("by")
 		json.NewEncoder(w).Encode(map[string]any{
-			"artifacts": []Meta{{ID: "one", Title: "First", Email: "alice@example.test"}},
+			"artifacts": []artifactMeta{{ID: "one", Title: "First", Email: "alice@example.test"}},
 		})
 	}))
 
@@ -166,7 +166,7 @@ func TestListSignsThePathWithoutItsQuery(t *testing.T) {
 	}
 	// The filter narrows what comes back; it is not part of what is
 	// authorized, so it stays out of the signature.
-	if want := SignRequest(testKey, http.MethodGet, "/a", testAt, nil); header != want {
+	if want := signRequest(testKey, http.MethodGet, "/a", testAt, nil); header != want {
 		t.Fatalf("signed %q, want %q", header, want)
 	}
 }
@@ -176,7 +176,7 @@ func TestListSignsThePathWithoutItsQuery(t *testing.T) {
 func TestCallsFailClearlyWithoutAKey(t *testing.T) {
 	stubCommand(t, func(string) (string, error) { return "", errors.New("no credentials") })
 	client := newClient("https://example.test", newKeySource("read {secret}", "ARTIFACT_KEY"), time.Hour, 1024)
-	_, err := client.Publish(context.Background(), testID, []byte("x"), Meta{ContentType: "text/plain"})
+	_, err := client.Publish(context.Background(), testID, []byte("x"), artifactMeta{ContentType: "text/plain"})
 	if err == nil || !strings.Contains(err.Error(), "ARTIFACT_KEY") {
 		t.Fatalf("error does not name the secret: %v", err)
 	}
@@ -197,7 +197,7 @@ func TestLinkIsBuiltFromTheConfiguredBase(t *testing.T) {
 	if parsed.Host != "artifacts.example.test" || parsed.Path != "/a/"+testID {
 		t.Fatalf("link is %s", link)
 	}
-	if err := VerifyLink(testKey, parsed.Query().Get(LinkParam), testID, testAt); err != nil {
+	if err := verifyLink(testKey, parsed.Query().Get(linkParam), testID, testAt); err != nil {
 		t.Fatalf("link key does not verify: %v", err)
 	}
 }
@@ -248,14 +248,14 @@ func TestIndexLinkIsScopedToThePageAndShortLived(t *testing.T) {
 	if parsed.Path != "/" {
 		t.Fatalf("index link points at %q", parsed.Path)
 	}
-	key := parsed.Query().Get(LinkParam)
-	if err := VerifyLink(testKey, key, indexScope, testAt.Add(23*time.Hour)); err != nil {
+	key := parsed.Query().Get(linkParam)
+	if err := verifyLink(testKey, key, indexScope, testAt.Add(23*time.Hour)); err != nil {
 		t.Fatalf("index key does not open the index: %v", err)
 	}
-	if err := VerifyLink(testKey, key, indexScope, testAt.Add(25*time.Hour)); err == nil {
+	if err := verifyLink(testKey, key, indexScope, testAt.Add(25*time.Hour)); err == nil {
 		t.Fatal("index key outlived a day")
 	}
-	if err := VerifyLink(testKey, key, testID, testAt); err == nil {
+	if err := verifyLink(testKey, key, testID, testAt); err == nil {
 		t.Fatal("index key opened an artifact")
 	}
 }

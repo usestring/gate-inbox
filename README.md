@@ -154,7 +154,7 @@ enabled = false
 **Artifacts.** An extension that lets agents publish a report or an HTML page and hand back a link
 that opens from any session, whichever CLI it runs. It is off until you enable it, and the store
 behind it is a Cloudflare Worker you deploy yourself; see
-[`internal/extension/artifacts/worker/README.md`](internal/extension/artifacts/worker/README.md).
+[`extension/artifacts/worker/README.md`](extension/artifacts/worker/README.md).
 
 ```toml
 [extensions.artifacts]
@@ -162,7 +162,9 @@ enabled = true
 ```
 
 Extensions are Go code compiled into the binary against the public `extension` package; the `app`
-package runs the board with whichever extensions a build carries.
+package runs the board with whichever extensions a build carries. A build of your own lists its
+extensions in `app.Options`, and carries the artifacts one by listing `artifacts.New()` from
+`extension/artifacts`.
 
 ## Development
 

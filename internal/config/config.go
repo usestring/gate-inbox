@@ -12,6 +12,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/logging"
 )
 
@@ -298,18 +299,7 @@ type Config struct {
 	Tools      map[string]Tool           `toml:"tools"`
 }
 
-type Duration struct {
-	time.Duration
-}
-
-func (d *Duration) UnmarshalText(text []byte) error {
-	parsed, err := time.ParseDuration(string(text))
-	if err != nil {
-		return err
-	}
-	d.Duration = parsed
-	return nil
-}
+type Duration = extension.Duration
 
 // HomeEnv moves everything this program keeps -- its config and its sqlite --
 // somewhere else.

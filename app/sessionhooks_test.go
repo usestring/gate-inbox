@@ -48,7 +48,7 @@ func TestExternalBuildHasASayInLaunches(t *testing.T) {
 	}
 
 	out, err := run("spawn", "--tool", "envecho", "--name", "over-budget", "--directory", work)
-	if err == nil || !strings.Contains(out, `extension "noop" refused the spawn: this goal's budget is spent`) {
+	if err == nil || !strings.Contains(out, `extension "noop" refused the spawn: the spawn budget is spent`) {
 		t.Fatalf("an over-budget spawn: %v\n%s", err, out)
 	}
 	if _, err := os.Stat(filepath.Join(data, "spawned.txt")); err == nil {

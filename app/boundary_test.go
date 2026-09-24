@@ -221,6 +221,54 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		}
 	})
 
+	// The extension finds a session's conversation and writes its handover
+	// copy as the board, through app.NewBoard alone.
+	t.Run("board reads a conversation", func(t *testing.T) {
+		if _, err := exec.LookPath("tmux"); err != nil {
+			t.Skip("the board commands open a tmux driver")
+		}
+		claudeHome := t.TempDir()
+		env := append(fixtureHome(t, ""), "CLAUDE_CONFIG_DIR="+claudeHome, "GATE_INBOX_SESSION_ID=ca11e400")
+		home := envValue(env, "GATE_INBOX_HOME")
+		seedSessions(t, filepath.Join(home, "state.db"))
+		st, err := store.Open(filepath.Join(home, "state.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = st.CreateSession(store.Session{ID: "c0a70001", Name: "talker", Tool: "claude", Status: "idle",
+			AgentSessionID: "conv-5678", Cwd: t.TempDir(), CreatedAt: time.Now()})
+		st.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		transcript := filepath.Join(claudeHome, "projects", "any-project", "conv-5678.jsonl")
+		if err := os.MkdirAll(filepath.Dir(transcript), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		records := `{"type":"user","message":{"role":"user","content":"before the compaction"}}` + "\n" +
+			`{"type":"system","subtype":"compact_boundary","content":"Conversation compacted"}` + "\n" +
+			`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"still on course"}]}}` + "\n" +
+			`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"drifted"}]}}` + "\n"
+		if err := os.WriteFile(transcript, []byte(records), 0o644); err != nil {
+			t.Fatal(err)
+		}
+
+		session := connectFixture(t, bin, env)
+		if got, want := callText(t, session, "noop_convo", map[string]any{"id": "c0a70001"}),
+			"conv-5678 | claude conv-5678.jsonl | conv-5678.jsonl.handover.jsonl cut:false filtered:true"; got != want {
+			t.Fatalf("noop_convo answered %q, want %q", got, want)
+		}
+		if got := callText(t, session, "noop_convo", map[string]any{"id": "c0a70001", "until": "still on course"}); !strings.HasSuffix(got, "cut:true filtered:true") {
+			t.Fatalf("noop_convo with a quote answered %q", got)
+		}
+		// The same reads through the calling session's Host, where a
+		// session's MCP tools and CLI verbs have no Board.
+		if got, want := callText(t, session, "noop_convo", map[string]any{"id": "c0a70001", "as_session": true}),
+			"conv-5678 | claude conv-5678.jsonl | conv-5678.jsonl.handover.jsonl cut:false filtered:true"; got != want {
+			t.Fatalf("noop_convo as the session answered %q, want %q", got, want)
+		}
+	})
+
 	// Two sessions' MCP servers are two processes: what one writes to the
 	// extension's data directory, the other reads back, and it lands under
 	// the config directory rather than in the board's own store.

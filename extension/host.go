@@ -44,6 +44,13 @@ type SessionService interface {
 	// conversation added after it, where the session's transcript can be
 	// read.
 	Read(ctx context.Context, id, since string) (Screen, error)
+	// Transcript is where a session's conversation can be read, as
+	// Board.Transcript finds it; the calling session reaches every agent
+	// session's, as its migrate tool does.
+	Transcript(ctx context.Context, id string) (Transcript, error)
+	// Handover writes the filtered copy of a session's transcript, as
+	// Board.Handover does.
+	Handover(ctx context.Context, id string, opts HandoverOptions) (Handover, error)
 }
 
 // SessionInfo is one agent session as it stood when it was read.
@@ -67,6 +74,12 @@ type SessionInfo struct {
 	// made by a session that is itself a child.
 	ParentID  string
 	SpawnedBy string
+	// AgentSessionID is the agent CLI's own id for the conversation the
+	// session runs (a Claude Code session UUID, a Codex rollout id). It is
+	// empty until the board has captured it, and changes when the session
+	// starts a new conversation on the same row, so it is the key for state
+	// kept about one conversation rather than one row.
+	AgentSessionID string
 }
 
 // SessionFilter narrows List. The zero value is every unarchived session,

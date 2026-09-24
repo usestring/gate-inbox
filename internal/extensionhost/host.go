@@ -124,6 +124,20 @@ func (s *sessions) Archive(ctx context.Context, id string) error {
 	return err
 }
 
+func (s *sessions) Transcript(ctx context.Context, id string) (extension.Transcript, error) {
+	if err := ctx.Err(); err != nil {
+		return extension.Transcript{}, err
+	}
+	return transcriptOf(s.cmds.Transcript(s.caller, id))
+}
+
+func (s *sessions) Handover(ctx context.Context, id string, opts extension.HandoverOptions) (extension.Handover, error) {
+	if err := ctx.Err(); err != nil {
+		return extension.Handover{}, err
+	}
+	return handoverOf(s.cmds.Handover(s.caller, id, handoverOptions(opts)))
+}
+
 func (s *sessions) Read(ctx context.Context, id, since string) (extension.Screen, error) {
 	if err := ctx.Err(); err != nil {
 		return extension.Screen{}, err
@@ -161,5 +175,7 @@ func info(sess sessioncmd.Session) extension.SessionInfo {
 		Archived:  sess.Archived,
 		ParentID:  sess.ParentID,
 		SpawnedBy: sess.SpawnedBy,
+
+		AgentSessionID: sess.AgentSessionID,
 	}
 }

@@ -54,6 +54,20 @@ type peekArgs struct {
 	ID string `json:"id"`
 }
 
+type convoArgs struct {
+	ID        string `json:"id"`
+	Until     string `json:"until,omitempty"`
+	AsSession bool   `json:"as_session,omitempty"`
+}
+
+// conversations is what Board and a session's SessionService share for
+// reading a conversation.
+type conversations interface {
+	Get(ctx context.Context, id string) (extension.SessionInfo, error)
+	Transcript(ctx context.Context, id string) (extension.Transcript, error)
+	Handover(ctx context.Context, id string, opts extension.HandoverOptions) (extension.Handover, error)
+}
+
 type boardArgs struct {
 	ID     string `json:"id"`
 	Answer string `json:"answer,omitempty"`
@@ -128,6 +142,38 @@ func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionCont
 			return nil, nil, err
 		}
 		return text(out + " | selected: " + answered.Selected), nil, nil
+	})
+	if err != nil {
+		return err
+	}
+	// noop_convo finds a session's conversation, as the board or as this
+	// session, and writes the handover copy of it, cut where the quote says
+	// when given one.
+	err = extension.AddTool(r, &mcp.Tool{
+		Name:        "noop_convo",
+		Description: "Locate a session's conversation and write its handover copy.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args convoArgs) (*mcp.CallToolResult, any, error) {
+		var board conversations = session.Host.Sessions()
+		if !args.AsSession {
+			var err error
+			if board, err = app.NewBoard(); err != nil {
+				return nil, nil, err
+			}
+		}
+		info, err := board.Get(ctx, args.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		transcript, err := board.Transcript(ctx, args.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		copied, err := board.Handover(ctx, args.ID, extension.HandoverOptions{Until: args.Until})
+		if err != nil {
+			return nil, nil, err
+		}
+		return text(fmt.Sprintf("%s | %s %s | %s cut:%v filtered:%v", info.AgentSessionID,
+			transcript.Kind, filepath.Base(transcript.Path), filepath.Base(copied.Path), copied.Cut, copied.Filtered)), nil, nil
 	})
 	if err != nil {
 		return err

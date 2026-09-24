@@ -30,6 +30,14 @@ type Board interface {
 	// ErrNoDialog when the pane holds no dialog, and ErrDialogRefused when
 	// the dialog is guarded or no keystroke can answer it.
 	Answer(ctx context.Context, id, answer string) (Answered, error)
+	// Transcript is where a session's conversation can be read. It fails
+	// for a session whose conversation id has not been captured yet, and
+	// for a tool whose conversations the board cannot locate.
+	Transcript(ctx context.Context, id string) (Transcript, error)
+	// Handover writes a copy of a session's transcript filtered for a
+	// replacement agent to read, the copy a migration hands over. It fails
+	// for a Transcript with no Path.
+	Handover(ctx context.Context, id string, opts HandoverOptions) (Handover, error)
 }
 
 // Pane is one ReadPane of a session.

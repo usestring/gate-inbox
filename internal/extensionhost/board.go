@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/migrate"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
@@ -78,4 +79,36 @@ func (b *Board) Answer(ctx context.Context, id, answer string) (extension.Answer
 		Selected: got.Selected,
 		Standing: got.Standing,
 	}, nil
+}
+
+func (b *Board) Transcript(ctx context.Context, id string) (extension.Transcript, error) {
+	if err := ctx.Err(); err != nil {
+		return extension.Transcript{}, err
+	}
+	return transcriptOf(b.cmds.BoardTranscript(id))
+}
+
+func (b *Board) Handover(ctx context.Context, id string, opts extension.HandoverOptions) (extension.Handover, error) {
+	if err := ctx.Err(); err != nil {
+		return extension.Handover{}, err
+	}
+	return handoverOf(b.cmds.BoardHandover(id, handoverOptions(opts)))
+}
+
+func transcriptOf(got migrate.Transcript, err error) (extension.Transcript, error) {
+	if err != nil {
+		return extension.Transcript{}, err
+	}
+	return extension.Transcript{Kind: got.Kind, Path: got.Path, Command: got.Command}, nil
+}
+
+func handoverOptions(opts extension.HandoverOptions) sessioncmd.BoardHandoverOptions {
+	return sessioncmd.BoardHandoverOptions{Until: opts.Until, Dest: opts.Dest}
+}
+
+func handoverOf(got sessioncmd.HandoverCopy, err error) (extension.Handover, error) {
+	if err != nil {
+		return extension.Handover{}, err
+	}
+	return extension.Handover{Path: got.Path, Note: got.Note, Cut: got.Cut, Filtered: got.Filtered}, nil
 }

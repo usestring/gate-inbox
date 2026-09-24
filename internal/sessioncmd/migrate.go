@@ -155,14 +155,8 @@ func (s *Sessions) filterForHandover(transcript migrate.Transcript) (migrate.Tra
 		return transcript, "", nil
 	}
 	dst := transcript.Path + ".handover.jsonl"
-	var stats handover.Stats
-	var err error
-	switch transcript.Kind {
-	case "claude":
-		stats, err = handover.Claude(transcript.Path, dst, handover.DefaultOptions())
-	case "codex":
-		stats, err = handover.Codex(transcript.Path, dst, handover.DefaultOptions())
-	default:
+	stats, filtered, err := filterTranscript(transcript, dst, handover.DefaultOptions())
+	if !filtered {
 		return transcript, "", nil
 	}
 	if err != nil {
@@ -173,4 +167,19 @@ func (s *Sessions) filterForHandover(transcript migrate.Transcript) (migrate.Tra
 	}
 	transcript.Path = dst
 	return transcript, stats.Note(), nil
+}
+
+// filterTranscript writes the handover filter's copy of transcript to dst.
+// filtered is false for a layout the filter cannot read, and then nothing is
+// written.
+func filterTranscript(transcript migrate.Transcript, dst string, opts handover.Options) (stats handover.Stats, filtered bool, err error) {
+	switch transcript.Kind {
+	case "claude":
+		stats, err = handover.Claude(transcript.Path, dst, opts)
+	case "codex":
+		stats, err = handover.Codex(transcript.Path, dst, opts)
+	default:
+		return handover.Stats{}, false, nil
+	}
+	return stats, true, err
 }

@@ -49,6 +49,9 @@ type Session struct {
 	// its spawner, under their shared root, and answered by its spawner.
 	ParentID  string `json:"parent_id,omitempty" jsonschema:"session this row is drawn under on the board; empty for a top-level session"`
 	SpawnedBy string `json:"spawned_by,omitempty" jsonschema:"session that spawned this one, which is the only session that can answer its questions or reach it with send_children; empty for a session nobody spawned"`
+	// AgentSessionID reaches extensions only, as the key their state about
+	// one conversation is kept under; no tool's output carries it.
+	AgentSessionID string `json:"-"`
 }
 
 type SessionScreen struct {
@@ -183,6 +186,8 @@ func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 		Self:      self,
 		ParentID:  sess.ParentID,
 		SpawnedBy: store.SpawnerOf(sess),
+
+		AgentSessionID: sess.AgentSessionID,
 	}
 }
 

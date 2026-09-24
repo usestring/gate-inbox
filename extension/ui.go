@@ -196,7 +196,9 @@ type Attention struct {
 	// to what is waiting stop on it, and its children's questions are the
 	// operator's again. It holds even while the session is owned: a claim
 	// that somebody is needed is an escalation, and an ownership never
-	// hides one.
+	// hides one. Nor does a parent: the session is never folded into the
+	// session that spawned it, and that parent sorts in triage at this
+	// session's place when it is ahead of its own.
 	NeedsPerson bool
 	// Rank is where the session sorts in triage, in place of its status's
 	// place. Sessions that need a person still sort ahead of those that do

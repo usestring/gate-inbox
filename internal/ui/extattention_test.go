@@ -105,3 +105,38 @@ func TestTheMostUrgentClaimOnASessionWins(t *testing.T) {
 		t.Fatalf("claim after one cleared = %+v, want the other's standing", got)
 	}
 }
+
+// A parent is lifted to the tier of a child an extension says needs a
+// person, and the child is drawn under it -- even when the child sits on a
+// dialog its live parent could answer, which would otherwise fold it into
+// the parent and leave the parent queued at its own working tier.
+func TestAParentIsLiftedToItsFlaggedChildsTier(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		child      string
+		answerable bool
+	}{
+		{"a working child", status.Working, false},
+		{"a child on a dialog its parent could answer", status.Waiting, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, bridge := rowMarksModel(t)
+			m.sessions = []store.Session{
+				childSess("p1", "worker", "research", "", status.Working, time.Hour),
+				childSess("c1", "probe", "research", "p1", tc.child, time.Minute),
+				childSess("e1", "broken", "research", "", status.Errored, 3*time.Hour),
+			}
+			m.answerableWait = map[string]bool{"c1": tc.answerable}
+			m.triage = true
+			m.rebuildRows()
+			before := joined(rowIDs(m))
+
+			bridge.Attention("runs", "c1", Attention{NeedsPerson: true, Rank: AttentionBlocked})
+			m.Update(extensionBadgesMsg{})
+			m.rebuildRows()
+			if got := joined(rowIDs(m)); got != "p1,c1,e1" {
+				t.Fatalf("triage rows = %s (before the claim %s), want the parent lifted ahead of the errored session with its child under it", got, before)
+			}
+		})
+	}
+}

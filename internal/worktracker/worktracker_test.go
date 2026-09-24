@@ -334,7 +334,7 @@ func git(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(tmuxtest.Environ(),
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_CONFIG_SYSTEM=/dev/null",
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
@@ -374,7 +374,7 @@ func superproject(t *testing.T) (super, sub string) {
 
 	cmd := exec.Command("git", "-c", "protocol.file.allow=always", "submodule", "add", "-q", inner, "component-a")
 	cmd.Dir = outer
-	cmd.Env = append(os.Environ(),
+	cmd.Env = append(tmuxtest.Environ(),
 		"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
 		"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.com",
 		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.com",

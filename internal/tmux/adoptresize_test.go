@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 // paneSize is the adopted pane's own dimensions, read off the server that
@@ -106,7 +108,7 @@ func TestResizeLeavesTheManagersOwnPaneAlone(t *testing.T) {
 	adopt(t, driver, id, socket, panes[0])
 	// What tmux sets for a process running inside that very pane.
 	t.Setenv("TMUX_PANE", panes[0])
-	t.Setenv("TMUX", "/tmp/tmux-1000/"+socket+",1234,0")
+	t.Setenv("TMUX", tmuxtest.SocketPath(socket)+",1234,0")
 
 	wantWidth, wantHeight := paneSize(t, socket, panes[0])
 	if err := driver.Resize(id, 132, 60); err != nil {

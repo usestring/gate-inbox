@@ -1,3 +1,5 @@
+// Modified by Durable Alpha, 2026: changes from the upstream commit named in NOTICE.
+
 // Package termseq writes control sequences to whatever terminal is actually
 // drawing this process, tunnelling them past a hosting tmux when there is one.
 package termseq
@@ -7,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/usestring/gate-inbox/internal/tmuxguard"
 )
 
 // Out is the stream the sequences go to; tests point it elsewhere.
@@ -41,5 +45,6 @@ func EnablePassthrough() {
 	if !inTmux() {
 		return
 	}
+	tmuxguard.Enforce(nil)
 	_ = exec.Command("tmux", "set-option", "-p", "allow-passthrough", "on").Run()
 }

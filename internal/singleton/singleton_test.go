@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 // TestMain doubles as the incumbent: run with SINGLETON_HOLD set it takes the
@@ -17,7 +19,7 @@ import (
 func TestMain(m *testing.M) {
 	dir := os.Getenv("SINGLETON_HOLD")
 	if dir == "" {
-		os.Exit(m.Run())
+		tmuxtest.Main(m)
 	}
 	if _, _, err := Acquire(dir); err != nil {
 		os.Stderr.WriteString(err.Error())
@@ -36,7 +38,7 @@ func TestMain(m *testing.M) {
 func startHolder(t *testing.T, dir string, ignoreTerm bool) *exec.Cmd {
 	t.Helper()
 	cmd := exec.Command(os.Args[0], "-test.run=XXX_NONE")
-	cmd.Env = append(os.Environ(), "SINGLETON_HOLD="+dir)
+	cmd.Env = append(tmuxtest.Environ(), "SINGLETON_HOLD="+dir)
 	if ignoreTerm {
 		cmd.Env = append(cmd.Env, "SINGLETON_IGNORE_TERM=1")
 	}

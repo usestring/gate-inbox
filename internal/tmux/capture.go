@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/tmuxguard"
 )
 
 // captureTimeout bounds one server's whole capture batch. The pass runs on
@@ -188,6 +189,7 @@ func (d *Driver) captureScrollbackByExec(socket, pane string, lines int) (string
 	}
 	args = append(args, "-t", pane)
 	full := append([]string{"-L", socket}, args...)
+	tmuxguard.Enforce(full)
 	countExec(full)
 	out, err := exec.Command(d.bin, full...).Output()
 	if err != nil {

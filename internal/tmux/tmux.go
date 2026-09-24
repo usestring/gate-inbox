@@ -19,6 +19,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/deps"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/tmuxguard"
 )
 
 const prefix = "gi_"
@@ -226,6 +227,9 @@ func NewWithSocket(socket string) (*Driver, error) {
 		return nil, fmt.Errorf("tmux not found on PATH: %w\n%s", err, deps.Hint("tmux"))
 	}
 	socket = resolveSocket(socket)
+	if err := tmuxguard.Err([]string{"-L", socket}); err != nil {
+		return nil, err
+	}
 	return &Driver{bin: bin, socket: socket, owned: OwnsSocket(socket)}, nil
 }
 
@@ -1134,6 +1138,7 @@ func (d *Driver) AttachCommand(id string) *exec.Cmd {
 		args = append(args, ";", "if-shell", "-F", "-t", "="+session,
 			"#{==:#{session_attached},1}", selects)
 	}
+	tmuxguard.Enforce([]string{"-L", target.Socket})
 	cmd := exec.Command(d.bin, append([]string{"-L", target.Socket}, args...)...)
 	nested := d.runningInside(target)
 	if !nested {

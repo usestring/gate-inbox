@@ -18,16 +18,12 @@ import (
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
-// TestMain clears the TMUX/TMUX_PANE this process inherited from whatever real
-// tmux the developer is running in -- several driver paths act on what they
-// find there, and the pane they would find is the operator's own, on tmux's
-// default server -- and sweeps control clients that earlier runs left behind
-// on sockets whose servers are already gone. kill-server cannot collect those,
-// which is why they accumulate.
+// TestMain runs the package under tmuxtest.Run: the TMUX/TMUX_PANE this
+// process inherited are cleared -- several driver paths act on what they find
+// there, and the pane they would find is the operator's own -- TMUX_TMPDIR is
+// private, and control clients earlier runs left on dead servers are swept.
 func TestMain(m *testing.M) {
-	tmuxtest.ClearInheritedTmuxEnv()
-	tmuxtest.ReapStrays()
-	os.Exit(m.Run())
+	os.Exit(tmuxtest.Run(m.Run))
 }
 
 func TestPromptInjectsDirectiveOnlyForAutoNamedWithPrompt(t *testing.T) {

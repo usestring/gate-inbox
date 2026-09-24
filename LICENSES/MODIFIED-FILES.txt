@@ -85,6 +85,7 @@ internal/sysstat/sysstat.go
 internal/sysstat/sysstat_test.go
 internal/systheme/systheme.go
 internal/systheme/systheme_test.go
+internal/termseq/termseq.go
 internal/tmux/asyncsubmit_test.go
 internal/tmux/control.go
 internal/tmux/control_test.go

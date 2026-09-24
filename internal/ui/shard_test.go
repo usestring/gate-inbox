@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 // This package is ~1500 tests that spend their time blocked on tmux round
@@ -158,7 +160,7 @@ func runSharded(m *testing.M) int {
 				shardArgs = append(shardArgs, "-test.testlogfile="+shardLogs[i])
 			}
 			cmd := exec.Command(os.Args[0], shardArgs...)
-			cmd.Env = append(os.Environ(), shardChildEnv+"=1")
+			cmd.Env = append(tmuxtest.Environ(), shardChildEnv+"=1")
 			cmd.Stdout, cmd.Stderr = &out, &out
 			runErr := cmd.Run()
 
@@ -221,7 +223,7 @@ func runSharded(m *testing.M) int {
 // listing sees exactly what a shard's -test.run will match against.
 func listTests() ([]string, error) {
 	cmd := exec.Command(os.Args[0], "-test.list=^Test")
-	cmd.Env = append(os.Environ(), shardChildEnv+"=1")
+	cmd.Env = append(tmuxtest.Environ(), shardChildEnv+"=1")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err

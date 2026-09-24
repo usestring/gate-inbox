@@ -16,6 +16,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 const modulePath = "github.com/usestring/gate-inbox"
@@ -74,7 +75,7 @@ func buildFixture(t *testing.T) string {
 	bin := filepath.Join(dir, "fixture")
 	build := exec.Command("go", "build", "-buildvcs=false", "-o", bin, ".")
 	build.Dir = dir
-	build.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=-mod=mod", "CGO_ENABLED=0")
+	build.Env = append(tmuxtest.Environ(), "GOWORK=off", "GOFLAGS=-mod=mod", "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("the fixture module does not build against the public packages: %v\n%s", err, out)
 	}
@@ -88,7 +89,7 @@ func fixtureHome(t *testing.T, config string) []string {
 	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("poll_interval = \"2s\"\n\n"+config), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return append(os.Environ(), "GATE_INBOX_HOME="+home, "GATE_INBOX_SESSION_ID=fixture-session")
+	return append(tmuxtest.Environ(), "GATE_INBOX_HOME="+home, "GATE_INBOX_SESSION_ID=fixture-session")
 }
 
 // TestExternalBuildServesEveryEntryPoint is the acceptance proof for the

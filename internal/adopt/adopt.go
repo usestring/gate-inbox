@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/tmuxguard"
 )
 
 // Candidate is one pane on some tmux server, before anything is known about
@@ -270,6 +271,7 @@ func Capture(socket, paneID string) (string, error) {
 // on purpose, which without a line here leaves an empty scan unexplained.
 func tmuxOutput(socket string, args ...string) ([]byte, error) {
 	start := time.Now()
+	tmuxguard.Enforce(tmuxArgs(socket, args...))
 	out, err := exec.Command("tmux", tmuxArgs(socket, args...)...).Output()
 	if err != nil {
 		if logging.Enabled(logging.LevelWarn) {

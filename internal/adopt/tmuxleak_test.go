@@ -7,16 +7,12 @@ import (
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
-// TestMain clears the TMUX/TMUX_PANE this process inherited from whatever real
-// tmux the developer is running in. A scan reads whatever server it is pointed
-// at, and the pane those variables name is the operator's own on tmux's
-// default server -- the one server no test here may touch. It also sweeps
-// control clients earlier runs left on sockets whose servers are gone, which
-// is what kill-server cannot collect.
+// TestMain runs the package under tmuxtest.Run: the TMUX/TMUX_PANE this
+// process inherited are cleared and TMUX_TMPDIR is private, so a scan cannot
+// reach the operator's own server, and control clients earlier runs left on
+// dead servers are swept, which is what kill-server cannot collect.
 func TestMain(m *testing.M) {
-	tmuxtest.ClearInheritedTmuxEnv()
-	tmuxtest.ReapStrays()
-	os.Exit(m.Run())
+	os.Exit(tmuxtest.Run(m.Run))
 }
 
 // TestAPaneServerRunsOnASocketTheReaperOwns is this package's share of the

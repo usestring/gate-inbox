@@ -23,18 +23,13 @@ import (
 // so two concurrent tests sharing an ID delete each other's.
 func TestMain(m *testing.M) {
 	os.Setenv("SHELL", "/bin/sh")
-	// Clears the inherited TMUX/TMUX_PANE, which would otherwise point
-	// Resize, PrepareAttach and the visibility read at the operator's own
-	// pane on tmux's default server: the one server no test here may touch.
-	// TestNoInheritedTmuxEnvironment keeps that half honest.
-	tmuxtest.ClearInheritedTmuxEnv()
-	// Each harness here builds its own socket and tears it down itself, so
-	// there is no package server to guard -- but a run that panicked or timed
-	// out left control clients behind on sockets whose servers are gone, and
-	// kill-server cannot collect those. Sweeping at the start is what heals a
-	// box that already accumulated them.
-	tmuxtest.ReapStrays()
-	os.Exit(m.Run())
+	// tmuxtest.Run keeps the inherited TMUX/TMUX_PANE -- which would
+	// otherwise point Resize, PrepareAttach and the visibility read at the
+	// operator's own pane -- out of the run, gives it a private TMUX_TMPDIR,
+	// sweeps control clients earlier runs left on dead servers, and tears
+	// down whatever this run started. TestNoInheritedTmuxEnvironment keeps
+	// the environment half honest.
+	os.Exit(tmuxtest.Run(m.Run))
 }
 
 // serverAlreadyGone reports the two ways kill-server can find nothing left to

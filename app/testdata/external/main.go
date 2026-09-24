@@ -8,7 +8,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -208,9 +210,21 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			return
 		}
 		record("sent.txt", fmt.Sprintf("%s queued %d", helper.ID, sent.QueuePosition))
+		// Plan the replacement first, on a tool that writes out what its
+		// pane was started with, and note the board on either side of the
+		// plan, which must not move it.
+		again := extension.LaunchRequest{Tool: "envdump", Prompt: "again", Args: []string{"--one word"}}
+		before := boardState(ctx, board)
+		plan, err := board.PlanReplace(ctx, helper.ID, again)
+		if err != nil {
+			record("replaced.txt", "error: "+err.Error())
+			return
+		}
+		planned, _ := json.Marshal(map[string]any{"plan": plan, "before": before, "after": boardState(ctx, board)})
+		_ = os.WriteFile(filepath.Join(dir, "plan.json"), planned, 0o600)
 		// Start the helper over in its own seat: the replacement is filed
 		// where it was, and the old one is left dead.
-		fresh, err := board.Replace(ctx, helper.ID, extension.LaunchRequest{Prompt: "again", Args: []string{"--one word"}})
+		fresh, err := board.Replace(ctx, helper.ID, again)
 		if err != nil {
 			record("replaced.txt", "error: "+err.Error())
 			return
@@ -238,6 +252,20 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 
 // record appends line to a file in the data directory, which is how this
 // extension reports to the test driving it from another process.
+// boardState is every session's id and whether it runs, in order: what a
+// launch or a kill would change, and a poll pass would not.
+func boardState(ctx context.Context, board extension.Board) []string {
+	list, err := board.List(ctx, extension.SessionFilter{IncludeArchived: true})
+	if err != nil {
+		return []string{"error: " + err.Error()}
+	}
+	var out []string
+	for _, s := range list.Sessions {
+		out = append(out, fmt.Sprintf("%s %v", s.ID, s.Running))
+	}
+	return out
+}
+
 func (n *noop) record(name, line string) {
 	dir, err := n.config.DataDir()
 	if err != nil {
@@ -280,6 +308,51 @@ func (n *noop) LaunchEnv(_ context.Context, launch extension.Launch) (map[string
 func (n *noop) Migrated(_ context.Context, migration extension.Migration) error {
 	n.record("migrated.txt", migration.From.ID+">"+migration.To.ID)
 	return nil
+}
+
+// Commands adds noop-echo, which prints its arguments with the configured
+// greeting, so a run shows the extension was configured before it. The
+// fixture's clash switch also claims a core command's name, which must stop
+// the executable from starting.
+func (n *noop) Commands() []extension.Command {
+	commands := []extension.Command{{
+		Group: "Noop fixture",
+		Name:  "noop-echo",
+		Usage: "noop-echo <words...>",
+		About: "print the words after the configured greeting",
+		Run: func(_ context.Context, args []string, host extension.Host) error {
+			if len(args) == 1 && args[0] == "-h" {
+				fmt.Println("usage: gate-inbox noop-echo <words...>")
+				return flag.ErrHelp
+			}
+			if len(args) == 0 {
+				return errors.New("noop-echo needs words")
+			}
+			fmt.Printf("%s: %s (config in %s)\n", n.greeting, strings.Join(args, " "), filepath.Base(host.ConfigDir()))
+			return nil
+		},
+	}, {
+		Group: "Noop fixture",
+		Name:  "noop-plan",
+		Usage: "noop-plan <id>",
+		About: "print what replacing a session would launch, without launching it",
+		Run: func(ctx context.Context, args []string, host extension.Host) error {
+			if len(args) != 1 {
+				return errors.New("noop-plan needs a session id")
+			}
+			plan, err := host.PlanReplace(ctx, args[0], extension.LaunchRequest{Tool: "envecho", Prompt: "again"})
+			if err != nil {
+				return err
+			}
+			fmt.Printf("new id %v | carried %v | prompt %v\n", plan.SessionID != args[0],
+				plan.Env["GATE_INBOX_SESSION_ID"] == plan.SessionID, strings.Contains(plan.Command, "again"))
+			return nil
+		},
+	}}
+	if os.Getenv("NOOP_FIXTURE_CLASH") != "" {
+		commands = append(commands, extension.Command{Name: "task", Run: func(context.Context, []string, extension.Host) error { return nil }})
+	}
+	return commands
 }
 
 func text(s string) *mcp.CallToolResult {

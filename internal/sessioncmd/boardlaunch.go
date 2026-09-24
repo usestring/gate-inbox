@@ -100,7 +100,7 @@ func (s *Sessions) BoardLaunch(opts BoardLaunchOptions) (created Session, err er
 		NameSource: store.SourceUser,
 		Role:       opts.Role,
 	}
-	prepared, err := s.prepareBoardLaunch(runtime, sess, tool, opts.Prompt, opts.Args, "")
+	prepared, err := s.prepareBoardLaunch(runtime, sess, tool, opts.Prompt, opts.Args, "", false)
 	if err != nil {
 		return Session{}, err
 	}
@@ -138,12 +138,21 @@ type boardLaunch struct {
 // prepareBoardLaunch asks the spawn policies about sess, picks its account
 // and assembles its pane: the part BoardLaunch and BoardReplace share. from
 // is the session a replacement stands in for, and empty for a launch.
-func (s *Sessions) prepareBoardLaunch(runtime *runtime, sess store.Session, tool config.Tool, prompt string, args []string, from string) (boardLaunch, error) {
+//
+// rehearse composes the same pane without its side effects: the account is
+// previewed rather than taken from the pool's rotation, and no hook file or
+// tool registration is written.
+func (s *Sessions) prepareBoardLaunch(runtime *runtime, sess store.Session, tool config.Tool, prompt string, args []string, from string, rehearse bool) (boardLaunch, error) {
 	sessionHooks, err := sessionhooks.CheckSpawn(sess, extension.SpawnByExtension)
 	if err != nil {
 		return boardLaunch{}, err
 	}
-	account, err := runtime.accountOr(sess.Account, tool, sess.ID)
+	var account string
+	if rehearse {
+		account, err = accounts.Preview(runtime.store, tool, sess.Account)
+	} else {
+		account, err = runtime.accountOr(sess.Account, tool, sess.ID)
+	}
 	if err != nil {
 		return boardLaunch{}, err
 	}
@@ -167,7 +176,11 @@ func (s *Sessions) prepareBoardLaunch(runtime *runtime, sess store.Session, tool
 	if err != nil {
 		return boardLaunch{}, err
 	}
-	command, env, err := launch.Environment(hooks.NewManager(s.configDir), sess.Tool, tool, plan.Command, sess.ID, plan.Model, plan.Account, contributed)
+	environment := launch.Environment
+	if rehearse {
+		environment = launch.Compose
+	}
+	command, env, err := environment(hooks.NewManager(s.configDir), sess.Tool, tool, plan.Command, sess.ID, plan.Model, plan.Account, contributed)
 	if err != nil {
 		return boardLaunch{}, err
 	}

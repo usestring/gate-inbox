@@ -16,6 +16,11 @@ type Host interface {
 	ConfigDir() string
 	// Sessions reads and acts on the board's agent sessions.
 	Sessions() SessionService
+	// PlanReplace is BoardHost.PlanReplace for code that runs outside the
+	// board, such as a CLI command: what the board would launch if this
+	// extension replaced session id, with nothing done. It is the board's
+	// plan rather than the caller's, so it is answered from any shell.
+	PlanReplace(ctx context.Context, id string, req LaunchRequest) (LaunchPlan, error)
 }
 
 // SessionService is the board's agent sessions, as the calling session's

@@ -6,6 +6,7 @@ package extensionhost
 
 import (
 	"context"
+	"errors"
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
@@ -13,10 +14,13 @@ import (
 
 var _ extension.Host = (*Host)(nil)
 
-// Host acts as one session.
+// Host acts as one session, for one extension once ForExtension names it.
 type Host struct {
 	configDir string
 	sessions  *sessions
+	// owner is the extension the Host is lent to, whose ID a board plan
+	// carries; empty until ForExtension.
+	owner string
 }
 
 // New is a Host acting as sessionID, running commands through cmds.
@@ -26,6 +30,20 @@ func New(configDir, sessionID string, cmds *sessioncmd.Sessions) *Host {
 
 func (h *Host) ConfigDir() string                  { return h.configDir }
 func (h *Host) Sessions() extension.SessionService { return h.sessions }
+
+// ForExtension is h lent to the extension with id.
+func (h *Host) ForExtension(id string) extension.Host {
+	lent := *h
+	lent.owner = id
+	return &lent
+}
+
+func (h *Host) PlanReplace(ctx context.Context, id string, req extension.LaunchRequest) (extension.LaunchPlan, error) {
+	if h.owner == "" {
+		return extension.LaunchPlan{}, errors.New("this Host is lent to no extension, so there is no role to plan a replacement as")
+	}
+	return NewBoard(h.configDir, h.sessions.cmds).PlanReplaceFor(ctx, h.owner, id, req)
+}
 
 type sessions struct {
 	caller string

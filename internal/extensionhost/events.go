@@ -134,6 +134,10 @@ func (v *boardView) Replace(ctx context.Context, id string, req extension.Launch
 	return v.events.board.ReplaceFor(ctx, v.owner, id, req)
 }
 
+func (v *boardView) PlanReplace(ctx context.Context, id string, req extension.LaunchRequest) (extension.LaunchPlan, error) {
+	return v.events.board.PlanReplaceFor(ctx, v.owner, id, req)
+}
+
 func (v *boardView) OnPass(fn func(extension.Pass)) func() {
 	sub := newSubscription(v.owner, fn, v.events.report, true)
 	return v.add(sub, func() {

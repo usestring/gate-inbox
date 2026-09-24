@@ -73,6 +73,10 @@ func (v fakeView) Replace(context.Context, string, extension.LaunchRequest) (ext
 	return extension.SessionInfo{}, errors.New("no replacements here")
 }
 
+func (v fakeView) PlanReplace(context.Context, string, extension.LaunchRequest) (extension.LaunchPlan, error) {
+	return extension.LaunchPlan{}, errors.New("no replacements here")
+}
+
 func (b *fakeBoard) hostFor(id string) (extension.BoardHost, func()) {
 	return fakeView{board: b, id: id}, func() {
 		*b.log = append(*b.log, "release "+id)

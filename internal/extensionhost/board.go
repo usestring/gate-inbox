@@ -161,14 +161,43 @@ func (b *Board) ReplaceFor(ctx context.Context, id, target string, req extension
 	if err := ctx.Err(); err != nil {
 		return extension.SessionInfo{}, err
 	}
-	if req.ParentID != "" || req.Group != "" {
-		return extension.SessionInfo{}, errors.New("a replacement takes the old session's place; leave ParentID and Group empty, or Launch a new session instead")
-	}
-	role, err := qualifiedRole(id, req.Role)
+	opts, err := replaceOptions(id, req)
 	if err != nil {
 		return extension.SessionInfo{}, err
 	}
-	created, err := b.cmds.BoardReplace(target, id+"/", sessioncmd.BoardLaunchOptions{
+	created, err := b.cmds.BoardReplace(target, id+"/", opts)
+	if err != nil {
+		return extension.SessionInfo{}, err
+	}
+	return info(created), nil
+}
+
+// PlanReplaceFor is what ReplaceFor would launch, with nothing done.
+func (b *Board) PlanReplaceFor(ctx context.Context, id, target string, req extension.LaunchRequest) (extension.LaunchPlan, error) {
+	if err := ctx.Err(); err != nil {
+		return extension.LaunchPlan{}, err
+	}
+	opts, err := replaceOptions(id, req)
+	if err != nil {
+		return extension.LaunchPlan{}, err
+	}
+	plan, err := b.cmds.BoardPlanReplace(target, id+"/", opts)
+	if err != nil {
+		return extension.LaunchPlan{}, err
+	}
+	return extension.LaunchPlan{SessionID: plan.SessionID, Command: plan.Command, Env: plan.Env}, nil
+}
+
+// replaceOptions is req as the extension with id asks for a replacement.
+func replaceOptions(id string, req extension.LaunchRequest) (sessioncmd.BoardLaunchOptions, error) {
+	if req.ParentID != "" || req.Group != "" {
+		return sessioncmd.BoardLaunchOptions{}, errors.New("a replacement takes the old session's place; leave ParentID and Group empty, or Launch a new session instead")
+	}
+	role, err := qualifiedRole(id, req.Role)
+	if err != nil {
+		return sessioncmd.BoardLaunchOptions{}, err
+	}
+	return sessioncmd.BoardLaunchOptions{
 		Tool:      req.Tool,
 		Name:      req.Name,
 		Prompt:    req.Prompt,
@@ -176,9 +205,5 @@ func (b *Board) ReplaceFor(ctx context.Context, id, target string, req extension
 		Model:     req.Model,
 		Role:      role,
 		Args:      req.Args,
-	})
-	if err != nil {
-		return extension.SessionInfo{}, err
-	}
-	return info(created), nil
+	}, nil
 }

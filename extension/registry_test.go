@@ -254,3 +254,37 @@ func TestConfigureHandsEachExtensionItsDataDir(t *testing.T) {
 		t.Fatal("a Config with no data directory handed one out")
 	}
 }
+
+// scopedHost is a Host that can be lent to one extension, as the board's is.
+type scopedHost struct {
+	extension.Host
+	owner string
+}
+
+func (h scopedHost) ForExtension(id string) extension.Host { return scopedHost{owner: id} }
+
+type hostTaker struct {
+	stub
+	got extension.Host
+}
+
+func (h *hostTaker) RegisterMCP(_ *extension.Registrar, session extension.SessionContext) error {
+	h.got = session.Host
+	return nil
+}
+
+// Each extension is handed the host lent to it by its own ID, so what the
+// host does for it carries that ID; a host that cannot be lent is handed
+// over as it is.
+func TestRegisterMCPLendsEachExtensionItsOwnHost(t *testing.T) {
+	first, second := &hostTaker{stub: stub{id: "first"}}, &hostTaker{stub: stub{id: "second"}}
+	if _, err := mustRegistry(t, first, second).RegisterMCP(newServer(), extension.SessionContext{Host: scopedHost{}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if first.got.(scopedHost).owner != "first" || second.got.(scopedHost).owner != "second" {
+		t.Fatalf("hosts lent to %+v and %+v", first.got, second.got)
+	}
+	if _, err := mustRegistry(t, first).RegisterMCP(newServer(), extension.SessionContext{}, nil); err != nil || first.got != nil {
+		t.Fatalf("a nil host was lent as %+v (%v)", first.got, err)
+	}
+}

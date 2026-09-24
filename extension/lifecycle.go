@@ -80,6 +80,15 @@ type BoardHost interface {
 	// naming the old session. A terminal is refused, and so is a session
 	// wearing another extension's role.
 	Replace(ctx context.Context, id string, req LaunchRequest) (SessionInfo, error)
+	// PlanReplace is what Replace would launch for the same arguments,
+	// composed by the same code and refused for the same reasons, with
+	// nothing done: no row filed, no pane started or ended, nothing moved,
+	// no turn of an account pool taken. Spawn policies and launch
+	// contributors are asked, since what they answer is part of the plan.
+	// The plan's SessionID is its own; a Replace that follows mints another,
+	// and that id, wherever the command and environment carry it, is the
+	// only difference between the two.
+	PlanReplace(ctx context.Context, id string, req LaunchRequest) (LaunchPlan, error)
 }
 
 // Message is what BoardHost.Send queues.

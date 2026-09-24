@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"go/parser"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -295,7 +297,7 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	}
 	bin := buildFixture(t)
 	socket := tmuxtest.NewSocket("lifecycle")
-	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+envEchoTool)
+	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+envEchoTool+envDumpTool)
 	home := envValue(env, "GATE_INBOX_HOME")
 	// The board starts its own server under the scratch TMUX_TMPDIR, and it
 	// is taken down there by path.
@@ -347,6 +349,7 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	if got := waitForFile(t, filepath.Join(data, "env-"+fresh+".txt"), "", exited, &out); got != "replace "+helper {
 		t.Fatalf("the replacement's pane saw NOOP_LAUNCH=%q, want a replace from the helper", got)
 	}
+	checkPlanWasLaunched(t, home, data, helper, fresh)
 	waitForFile(t, filepath.Join(data, "killed.txt"), fresh+" dead false\n", exited, &out)
 
 	var pid int
@@ -362,6 +365,114 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	events, _ := os.ReadFile(filepath.Join(data, "events.txt"))
 	if strings.Count(string(events), "working>dead") != 1 {
 		t.Fatalf("the transition was reported more than once:\n%s", events)
+	}
+}
+
+// envDumpTool writes out, NUL-separated, the environment and the arguments
+// its pane was started with, before the launch reason envecho writes.
+const envDumpTool = `
+[tools.envdump]
+command = "sh -c 'env -0 > \"$NOOP_OUT.env\"; printf \"%s\\0\" \"$0\" \"$@\" > \"$NOOP_OUT.argv\"; printf %s \"$NOOP_LAUNCH\" > \"$NOOP_OUT\"; exec sleep 30' --"
+default_status = "idle"
+activity_cutoff = "(?m)^\\$ "
+`
+
+// checkPlanWasLaunched holds the plan the extension read before replacing
+// helper against the pane that replaced it as fresh: running the planned
+// command gives the pane's arguments, every planned variable is in the
+// pane's environment with the planned value, and the id minted for the
+// plan is the only difference. Reading the plan moved nothing on the board
+// and filed nothing of its own.
+func checkPlanWasLaunched(t *testing.T, home, data, helper, fresh string) {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join(data, "plan.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var planned struct {
+		Plan struct {
+			SessionID string
+			Command   string
+			Env       map[string]string
+		}
+		Before, After []string
+	}
+	if err := json.Unmarshal(body, &planned); err != nil {
+		t.Fatalf("plan.json: %v\n%s", err, body)
+	}
+	plan := planned.Plan
+	if plan.SessionID == "" || plan.SessionID == fresh || plan.SessionID == helper {
+		t.Fatalf("plan id %q, want one of its own (helper %s, replacement %s)", plan.SessionID, helper, fresh)
+	}
+	if !slices.Equal(planned.Before, planned.After) || !slices.Contains(planned.After, helper+" true") {
+		t.Fatalf("the board moved while the plan was read:\nbefore %v\nafter  %v", planned.Before, planned.After)
+	}
+	st, err := store.Open(filepath.Join(home, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.Get(plan.SessionID); err == nil {
+		t.Fatalf("the plan filed a row for %s", plan.SessionID)
+	}
+	if borrower, _ := st.Setting("account_borrower:" + plan.SessionID); borrower != "" {
+		t.Fatalf("the plan recorded a borrower for %s", plan.SessionID)
+	}
+	asLaunched := func(s string) string { return strings.ReplaceAll(s, plan.SessionID, fresh) }
+	fields := func(path string) []string {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Split(strings.TrimSuffix(string(body), "\x00"), "\x00")
+	}
+
+	launched := map[string]string{}
+	for _, entry := range fields(filepath.Join(data, "env-"+fresh+".txt.env")) {
+		key, value, _ := strings.Cut(entry, "=")
+		launched[key] = value
+	}
+	for key, value := range plan.Env {
+		// The pane's shell sets _ to the command it last ran, whatever it
+		// was started with.
+		if key == "_" {
+			continue
+		}
+		got, set := launched[key]
+		if want := asLaunched(value); got != want || !set && want != "" {
+			t.Errorf("the pane's %s = %q (set %v), the plan's %q", key, got, set, want)
+		}
+	}
+
+	// The planned command, run by hand with the planned environment, writes
+	// its arguments where the plan's own id sends them.
+	rehearsal := exec.Command("sh", "-c", plan.Command)
+	for key, value := range plan.Env {
+		rehearsal.Env = append(rehearsal.Env, key+"="+value)
+	}
+	if err := rehearsal.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		rehearsal.Process.Kill()
+		rehearsal.Wait()
+	})
+	written := filepath.Join(data, "env-"+plan.SessionID+".txt")
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(25 * time.Millisecond) {
+		if _, err := os.Stat(written); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the planned command never ran: %q", plan.Command)
+		}
+	}
+	want := fields(filepath.Join(data, "env-"+fresh+".txt.argv"))
+	got := fields(written + ".argv")
+	for i := range got {
+		got[i] = asLaunched(got[i])
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("the planned command's arguments are %q, the pane's %q", got, want)
 	}
 }
 
@@ -391,6 +502,97 @@ func waitForFile(t *testing.T, path, want string, exited <-chan struct{}, out *s
 	body, _ := holds()
 	t.Fatalf("%s holds %q, want %q; board output:\n%s", filepath.Base(path), body, want, out.String())
 	return ""
+}
+
+// An extension compiled outside this module adds a CLI command: it runs
+// from the built binary after its config is read, is listed in help under
+// its own heading, and a name the core already answers to stops every face.
+func TestExternalBuildRunsExtensionCommands(t *testing.T) {
+	bin := buildFixture(t)
+	run := func(t *testing.T, env []string, args ...string) (string, int) {
+		t.Helper()
+		cmd := exec.Command(bin, args...)
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return string(out), exit.ExitCode()
+		}
+		if err != nil {
+			t.Fatalf("run %v: %v", args, err)
+		}
+		return string(out), 0
+	}
+
+	t.Run("runs configured", func(t *testing.T) {
+		env := fixtureHome(t, "[extensions.noop]\ngreeting = \"hi\"\n")
+		out, code := run(t, env, "noop-echo", "a", "b")
+		want := "hi: a b (config in " + filepath.Base(envValue(env, "GATE_INBOX_HOME")) + ")\n"
+		if code != 0 || out != want {
+			t.Fatalf("noop-echo exited %d with %q, want %q", code, out, want)
+		}
+	})
+
+	t.Run("its own usage and errors", func(t *testing.T) {
+		env := fixtureHome(t, "")
+		if out, code := run(t, env, "noop-echo", "-h"); code != 0 || !strings.Contains(out, "usage: gate-inbox noop-echo") {
+			t.Fatalf("noop-echo -h exited %d with %q", code, out)
+		}
+		if out, code := run(t, env, "noop-echo"); code != 1 || !strings.Contains(out, "noop-echo needs words") {
+			t.Fatalf("noop-echo with no words exited %d with %q", code, out)
+		}
+	})
+
+	t.Run("refused config stops it", func(t *testing.T) {
+		out, code := run(t, fixtureHome(t, "[extensions.noop]\nbogus = 1\n"), "noop-echo", "a")
+		if code != 1 || !strings.Contains(out, "[extensions.noop]: unknown key(s): bogus") || strings.Contains(out, "a (config") {
+			t.Fatalf("noop-echo under a refused config exited %d with %q", code, out)
+		}
+	})
+
+	t.Run("help", func(t *testing.T) {
+		out, code := run(t, fixtureHome(t, ""), "help")
+		section := "\nNoop fixture\n  gate-inbox noop-echo <words...>\n      print the words after the configured greeting\n"
+		if code != 0 || !strings.Contains(out, section) {
+			t.Fatalf("help exited %d without the extension's section:\n%s", code, out)
+		}
+		if strings.Index(out, section) > strings.Index(out, "\nOptions:") {
+			t.Fatalf("the extension's section is not listed before the options:\n%s", out)
+		}
+	})
+
+	// The Host a command is given plans a replacement as the board would
+	// launch it for this extension, and launches nothing.
+	t.Run("plans a replacement", func(t *testing.T) {
+		if _, err := exec.LookPath("tmux"); err != nil {
+			t.Skip("the session services open a tmux driver")
+		}
+		env := fixtureHome(t, "tmux_socket = \""+tmuxtest.NewSocket("plan")+"\"\n"+envEchoTool)
+		state := filepath.Join(envValue(env, "GATE_INBOX_HOME"), "state.db")
+		seedSessions(t, state)
+		out, code := run(t, append(env, "GATE_INBOX_SESSION_ID=ca11e400"), "noop-plan", "c41d0001")
+		if want := "new id true | carried true | prompt true\n"; code != 0 || out != want {
+			t.Fatalf("noop-plan exited %d with %q, want %q", code, out, want)
+		}
+		st, err := store.Open(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		if rows, _ := st.ListSessions(true); len(rows) != 2 {
+			t.Fatalf("the board holds %d rows after a plan, want the 2 it was seeded with", len(rows))
+		}
+	})
+
+	t.Run("a clash with a core command stops every face", func(t *testing.T) {
+		env := append(fixtureHome(t, ""), "NOOP_FIXTURE_CLASH=1")
+		for _, args := range [][]string{{"--version"}, {"noop-echo", "a"}, {"help"}} {
+			out, code := run(t, env, args...)
+			if code != 1 || !strings.Contains(out, `extension "noop": command "task" is already a command of the core`) {
+				t.Fatalf("%v with a clashing command exited %d with %q", args, code, out)
+			}
+		}
+	})
 }
 
 func connectFixture(t *testing.T, bin string, env []string) *mcp.ClientSession {

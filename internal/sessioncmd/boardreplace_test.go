@@ -103,3 +103,56 @@ func TestBoardReplaceRefusalsLeaveTheOldSessionAlone(t *testing.T) {
 		t.Fatalf("listed %d rows, want only the caller, the old session and the other extension's", len(listed))
 	}
 }
+
+// A plan of a replacement asks what the replacement would ask and files,
+// starts, moves and takes nothing, and refuses what the replacement would.
+func TestBoardPlanReplaceChangesNothing(t *testing.T) {
+	h := newSessionHarness(t)
+	watcher := &launchWatcher{env: map[string]string{"PLANNED": "yes"}}
+	useWatcher(t, watcher)
+	old := childShowing(t, h, h.caller.ID, "child203", "worker", "working\n")
+	if _, err := h.sessions.BoardSend("ext1", old.ID, "still queued", "", false); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.CreateSession(store.Session{ID: "theirs02", Name: "theirs", Tool: "echoer", Cwd: old.Cwd, Role: "other/helper"}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := h.store.ListSessions(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := h.sessions.BoardPlanReplace(old.ID, "ext1/", BoardLaunchOptions{Prompt: "start over", Args: []string{"--one word"}})
+	if err != nil {
+		t.Fatalf("BoardPlanReplace: %v", err)
+	}
+	if plan.SessionID == "" || plan.SessionID == old.ID || plan.Env["GATE_INBOX_SESSION_ID"] != plan.SessionID || plan.Env["PLANNED"] != "yes" {
+		t.Fatalf("plan = %+v, want a new id carried in its environment with the contributor's", plan)
+	}
+	if !strings.Contains(plan.Command, "start over") || !strings.Contains(plan.Command, "'--one word'") {
+		t.Fatalf("plan command = %q, want the prompt and the quoted argument", plan.Command)
+	}
+	if launch := watcher.launches[len(watcher.launches)-1]; launch.Reason != extension.LaunchReplace || launch.From != old.ID {
+		t.Fatalf("launch = %+v, want the contributor told of a replacement", launch)
+	}
+	after, err := h.store.ListSessions(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) || h.driver.Exists(plan.SessionID) || !h.driver.Exists(old.ID) {
+		t.Fatalf("rows %d -> %d, planned pane %v, old pane %v: want nothing started or ended",
+			len(before), len(after), h.driver.Exists(plan.SessionID), h.driver.Exists(old.ID))
+	}
+	if counts, _ := h.store.QueuedCounts(); counts[old.ID] != 1 {
+		t.Fatalf("queued = %v, want the old session's message left where it was", counts)
+	}
+	if borrower, _ := h.store.Setting("account_borrower:" + plan.SessionID); borrower != "" {
+		t.Fatalf("a plan recorded a borrower %q", borrower)
+	}
+	if len(watcher.spawned) != 0 {
+		t.Fatalf("spawned = %+v, want no spawn reported for a plan", watcher.spawned)
+	}
+	if _, err := h.sessions.BoardPlanReplace("theirs02", "ext1/", BoardLaunchOptions{}); err == nil || !strings.Contains(err.Error(), "another extension's role") {
+		t.Fatalf("plan of another extension's session: %v", err)
+	}
+}

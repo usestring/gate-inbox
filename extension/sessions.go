@@ -115,6 +115,18 @@ type Migration struct {
 // LaunchRequest is a session an extension starts from the board, through
 // BoardHost.Launch. Tool is required; everything else takes the board's
 // defaults.
+// LaunchPlan is what a launch would start, read without starting it: the
+// id the new session would have, and its pane's command line and
+// environment exactly as the pane would be given them. Env is the whole
+// environment the launch sets, inherited values included, so it can hold
+// secrets such as an account's token: it is for comparing and inspecting,
+// not for printing whole.
+type LaunchPlan struct {
+	SessionID string
+	Command   string
+	Env       map[string]string
+}
+
 type LaunchRequest struct {
 	Tool   string
 	Name   string

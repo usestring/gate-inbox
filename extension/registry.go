@@ -184,7 +184,11 @@ func (r *Registry) RegisterMCP(server *mcp.Server, session SessionContext, reser
 			continue
 		}
 		registrar := &Registrar{server: server, owner: r.ids[i], owners: owners}
-		err := registerOne(provider, registrar, session)
+		own := session
+		if scoped, ok := session.Host.(extensionScoped); ok {
+			own.Host = scoped.ForExtension(r.ids[i])
+		}
+		err := registerOne(provider, registrar, own)
 		if err != nil {
 			server.RemoveTools(registrar.added...)
 			for _, name := range registrar.added {
@@ -200,6 +204,12 @@ func (r *Registry) RegisterMCP(server *mcp.Server, session SessionContext, reser
 		})
 	}
 	return results, nil
+}
+
+// extensionScoped is a Host that can act for one extension: the host's own,
+// which lends each extension a copy whose board plans carry its ID.
+type extensionScoped interface {
+	ForExtension(id string) Host
 }
 
 // registerOne turns a panic into an error. The SDK panics on a tool whose

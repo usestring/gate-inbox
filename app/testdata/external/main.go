@@ -7,11 +7,14 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/app"
@@ -53,6 +56,11 @@ type peekArgs struct {
 	ID string `json:"id"`
 }
 
+type captureArgs struct {
+	Directory string `json:"directory"`
+	Claimed   string `json:"claimed,omitempty"`
+}
+
 func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionContext) error {
 	err := extension.AddTool(r, &mcp.Tool{
 		Name:        "noop_ping",
@@ -91,6 +99,24 @@ func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionCont
 	if err != nil {
 		return err
 	}
+	// noop_capture runs the echo driver's id capture, which the board
+	// otherwise only reaches from its poller, so a test can drive it.
+	err = extension.AddTool(r, &mcp.Tool{
+		Name:        "noop_capture",
+		Description: "Capture the echo conversation launched in a directory.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args captureArgs) (*mcp.CallToolResult, any, error) {
+		id, err := echoDriver{}.CaptureSession(ctx, extension.CaptureRequest{
+			Directory: args.Directory,
+			Claimed:   func(id string) bool { return id == args.Claimed },
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return text("captured " + id), nil, nil
+	})
+	if err != nil {
+		return err
+	}
 	// noop_peek reaches the board only through the Host: it lists the
 	// sessions this one can see, then reads one of them.
 	return extension.AddTool(r, &mcp.Tool{
@@ -125,7 +151,8 @@ func (n *noop) ToolDrivers() []extension.ToolDriver {
 }
 
 // echoDriver registers the MCP server by leaving a note of what it was
-// handed, and hands a conversation over by a path of its own making.
+// handed, captures a conversation id with the core's exported checks, and
+// hands a conversation over by a path of its own making.
 type echoDriver struct {
 	extension.UnsupportedToolDriver
 }
@@ -143,6 +170,53 @@ func (echoDriver) RegisterMCP(_ context.Context, req extension.MCPRequest) (exte
 		}
 	}
 	return extension.MCPLaunch{Env: map[string]string{"ECHO_MCP_SERVER": req.ServerName}}, nil
+}
+
+// echoRecord is the first line of an echo conversation file.
+type echoRecord struct {
+	ID      string    `json:"id"`
+	Cwd     string    `json:"cwd"`
+	Created time.Time `json:"created"`
+}
+
+// CaptureSession reads the conversation files echo keeps in the session's
+// directory, with the core's own checks: an id not shaped like one is left
+// alone, a directory is compared through its symlinks, and the earliest
+// conversation left over is this session's.
+func (echoDriver) CaptureSession(_ context.Context, req extension.CaptureRequest) (string, error) {
+	paths, err := filepath.Glob(filepath.Join(req.Directory, "*.echo.jsonl"))
+	if err != nil {
+		return "", err
+	}
+	var cands []extension.SessionCandidate
+	for _, path := range paths {
+		rec, ok := readEchoRecord(path)
+		if !ok || !extension.ValidSessionID(rec.ID) || !extension.SamePath(rec.Cwd, req.Directory) {
+			continue
+		}
+		if rec.Created.Before(req.LaunchedAt) || req.Claimed(rec.ID) {
+			continue
+		}
+		cands = append(cands, extension.SessionCandidate{ID: rec.ID, Created: rec.Created})
+	}
+	return extension.EarliestSession(cands), nil
+}
+
+func readEchoRecord(path string) (echoRecord, bool) {
+	file, err := os.Open(path)
+	if err != nil {
+		return echoRecord{}, false
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	if !scanner.Scan() {
+		return echoRecord{}, false
+	}
+	var rec echoRecord
+	if err := json.Unmarshal(scanner.Bytes(), &rec); err != nil {
+		return echoRecord{}, false
+	}
+	return rec, true
 }
 
 func (echoDriver) MigrateTranscript(_ context.Context, req extension.TranscriptRequest) (extension.Transcript, error) {

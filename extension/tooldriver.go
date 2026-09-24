@@ -47,7 +47,8 @@ type ToolDriver interface {
 	// session launched in req.Directory at or after req.LaunchedAt, skipping
 	// every id req.Claimed reports as another session's. An empty id with no
 	// error means no confident match yet; the board asks again on its next
-	// poll.
+	// poll. ValidSessionID, SamePath and EarliestSession are the checks the
+	// built-in stores capture with, so a driver need not write its own.
 	CaptureSession(ctx context.Context, req CaptureRequest) (string, error)
 	// SessionFile is the file on disk holding conversation id, for a
 	// fork_command that loads a conversation from a file ({session_file}).

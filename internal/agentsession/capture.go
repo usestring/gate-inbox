@@ -46,16 +46,6 @@ const opencodeCLITimeout = 15 * time.Second
 // block and lets us stop before the transcript.
 const opencodeExportHeadBytes = 64 * 1024
 
-// resolvePath canonicalizes a directory so a session launched via a
-// symlinked path (macOS /tmp -> /private/tmp) still matches the store
-// entry, which records the resolved path. Unresolvable paths compare raw.
-func resolvePath(p string) string {
-	if resolved, err := filepath.EvalSymlinks(p); err == nil {
-		return resolved
-	}
-	return p
-}
-
 // Capture returns the conversation id a tool wrote for a session launched
 // in cwd at or after launchedAt. sessionStore selects the on-disk format
 // ("codex" or "opencode"). claimed holds ids already
@@ -90,7 +80,7 @@ func captureDriver(sessionStore, cwd string, launchedAt time.Time, claimed map[s
 		LaunchedAt: launchedAt,
 		Claimed:    func(id string) bool { return claimed[id] },
 	})
-	if err != nil || id == "" || claimed[id] || !sessionIDPattern.MatchString(id) {
+	if err != nil || id == "" || claimed[id] || !extension.ValidSessionID(id) {
 		return "", false
 	}
 	return id, true
@@ -147,13 +137,6 @@ var runOpencodeHead = func(cwd string, args ...string) ([]byte, error) {
 }
 
 var opencodeIDPattern = regexp.MustCompile(`ses_[A-Za-z0-9]+`)
-
-// sessionIDPattern is the shape a conversation id has in every store we
-// read: a UUID from codex and opencode's ses_ token.
-// The id arrives from a file or database the agent CLI owns rather than
-// from us, and it goes on to name a session and reach a command line, so
-// one shaped like anything else is left where it was found.
-var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 // opencodeListIDs returns session ids newest-first from `opencode session
 // list` run in cwd. A package variable so tests substitute canned output.
@@ -260,26 +243,11 @@ func extractInfoObject(out []byte) ([]byte, bool) {
 	return nil, false
 }
 
-// candidate is a store entry that could be the session's conversation,
-// ranked by write time so the earliest one created after launch wins.
-type candidate struct {
-	id      string
-	modTime time.Time
-}
-
-// pickEarliest returns the id of the oldest candidate, i.e. the first
-// conversation written after the session launched.
-func pickEarliest(cands []candidate) (string, bool) {
-	if len(cands) == 0 {
-		return "", false
-	}
-	best := cands[0]
-	for _, c := range cands[1:] {
-		if c.modTime.Before(best.modTime) {
-			best = c
-		}
-	}
-	return best.id, true
+// pickEarliest is extension.EarliestSession in Capture's ok form, so the
+// built-in stores and a driver's capture choose among candidates alike.
+func pickEarliest(cands []extension.SessionCandidate) (string, bool) {
+	id := extension.EarliestSession(cands)
+	return id, id != ""
 }
 
 // captureCodex scans rollout-*.jsonl files, each whose first line is a
@@ -290,8 +258,7 @@ func captureCodex(root, cwd string, launchedAt time.Time, claimed map[string]boo
 		return "", false
 	}
 	cutoff := launchedAt.Add(-clockSlack)
-	wantCwd := resolvePath(cwd)
-	var cands []candidate
+	var cands []extension.SessionCandidate
 	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
@@ -305,10 +272,10 @@ func captureCodex(root, cwd string, launchedAt time.Time, claimed map[string]boo
 			return nil
 		}
 		id, metaCwd, ok := codexMeta(path)
-		if !ok || resolvePath(metaCwd) != wantCwd || claimed[id] {
+		if !ok || !extension.SamePath(metaCwd, cwd) || claimed[id] {
 			return nil
 		}
-		cands = append(cands, candidate{id: id, modTime: info.ModTime()})
+		cands = append(cands, extension.SessionCandidate{ID: id, Created: info.ModTime()})
 		return nil
 	})
 	return pickEarliest(cands)
@@ -336,7 +303,7 @@ func codexMeta(path string) (id, cwd string, ok bool) {
 	if err := json.Unmarshal(scanner.Bytes(), &line); err != nil {
 		return "", "", false
 	}
-	if line.Type != "session_meta" || !sessionIDPattern.MatchString(line.Payload.SessionID) {
+	if line.Type != "session_meta" || !extension.ValidSessionID(line.Payload.SessionID) {
 		return "", "", false
 	}
 	return line.Payload.SessionID, line.Payload.Cwd, true
@@ -353,8 +320,7 @@ func captureOpencode(cwd string, launchedAt time.Time, claimed map[string]bool) 
 		return "", false
 	}
 	cutoff := launchedAt.Add(-clockSlack)
-	wantCwd := resolvePath(cwd)
-	var cands []candidate
+	var cands []extension.SessionCandidate
 	for i, id := range ids {
 		if i >= opencodeScanLimit {
 			break
@@ -363,10 +329,10 @@ func captureOpencode(cwd string, launchedAt time.Time, claimed map[string]bool) 
 			continue
 		}
 		dir, created, ok := opencodeSessionMeta(cwd, id)
-		if !ok || resolvePath(dir) != wantCwd || created.Before(cutoff) {
+		if !ok || !extension.SamePath(dir, cwd) || created.Before(cutoff) {
 			continue
 		}
-		cands = append(cands, candidate{id: id, modTime: created})
+		cands = append(cands, extension.SessionCandidate{ID: id, Created: created})
 	}
 	return pickEarliest(cands)
 }

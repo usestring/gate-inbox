@@ -186,6 +186,58 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		}
 	})
 
+	// The fixture's driver captures an id with the session-file helpers
+	// extension exports, so a module outside this one needs no copy of the
+	// core's own. Each conversation file below is one those helpers must
+	// get right: an id that is not a plain token, a directory that only
+	// matches through a symlink, a conversation another session claimed,
+	// one from another directory, and a tie that goes to the first listed.
+	t.Run("tool driver capture", func(t *testing.T) {
+		root := t.TempDir()
+		work := filepath.Join(root, "work")
+		elsewhere := filepath.Join(root, "elsewhere")
+		for _, dir := range []string{work, elsewhere} {
+			if err := os.Mkdir(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		link := filepath.Join(root, "link")
+		if err := os.Symlink(work, link); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		resolved, err := filepath.EvalSymlinks(work)
+		if err != nil {
+			t.Fatal(err)
+		}
+		launch := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+		for name, rec := range map[string]struct {
+			id, cwd string
+			at      time.Duration
+		}{
+			"a-planted": {"abc; touch pwned", resolved, 0},
+			"b-claimed": {"conv-claimed", resolved, 1},
+			"c-foreign": {"conv-foreign", elsewhere, 1},
+			"d-ours":    {"conv-ours", resolved, 2},
+			"e-tied":    {"conv-tied", resolved, 2},
+			"f-later":   {"conv-later", resolved, 3},
+		} {
+			line, err := json.Marshal(map[string]any{"id": rec.id, "cwd": rec.cwd, "created": launch.Add(rec.at * time.Second)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(work, name+".echo.jsonl"), append(line, '\n'), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		session := connectFixture(t, bin, fixtureHome(t, ""))
+		if got := callText(t, session, "noop_capture", map[string]any{"directory": link, "claimed": "conv-claimed"}); got != "captured conv-ours" {
+			t.Fatalf("the driver's capture through the exported helpers answered %q, want the earliest unclaimed conversation in the linked directory", got)
+		}
+		if got := callText(t, session, "noop_capture", map[string]any{"directory": elsewhere}); got != "captured " {
+			t.Fatalf("a directory with no conversation files captured %q", got)
+		}
+	})
+
 	// A CLI the core has no code for, taught by the fixture's driver: a
 	// migration off an "echo" session finds its transcript through the
 	// driver, and the new session's launch registers the MCP server

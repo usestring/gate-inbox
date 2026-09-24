@@ -115,12 +115,18 @@ func (b *Board) LaunchFor(ctx context.Context, id string, req extension.LaunchRe
 }
 
 // SendFor queues a message from the extension with id: it is queued under
-// that extension's sender, so no extension can speak as another.
+// that extension's sender, so no extension can speak as another. With
+// AsOperator it is delivered as the operator's own words, still queued under
+// a sender of that extension's own.
 func (b *Board) SendFor(ctx context.Context, id, target string, msg extension.Message) (extension.Sent, error) {
 	if err := ctx.Err(); err != nil {
 		return extension.Sent{}, err
 	}
-	sent, err := b.cmds.BoardSend(id, target, msg.Text, msg.Subject, msg.Interrupt)
+	send := b.cmds.BoardSend
+	if msg.AsOperator {
+		send = b.cmds.BoardSendAsOperator
+	}
+	sent, err := send(id, target, msg.Text, msg.Subject, msg.Interrupt)
 	if err != nil {
 		return extension.Sent{}, err
 	}

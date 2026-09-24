@@ -1581,8 +1581,9 @@ func inboxEnvelope(msg store.InboxMessage, mcpStyle string, taught bool, ctx mes
 	// A message the operator typed at a shell is the operator speaking, and
 	// gets no envelope at all -- the same text the TUI's own send types into
 	// the pane. Fencing it told the worker its user was another agent, which
-	// is exactly the thing the fence exists to deny.
-	if msg.SenderID == store.HumanSenderID {
+	// is exactly the thing the fence exists to deny. A message an extension
+	// queued in the operator's voice is delivered the same way.
+	if store.SpeaksAsOperator(msg.SenderID) {
 		return sanitizeBody(msg.Body)
 	}
 	if extensionID, ok := store.ExtensionSender(msg.SenderID); ok {
@@ -1626,7 +1627,7 @@ func (p *poller) envelope(sess store.Session, msg store.InboxMessage) string {
 	// reads towards a header nothing prints.
 	var ctx messageContext
 	_, fromExtension := store.ExtensionSender(msg.SenderID)
-	if msg.SenderID != store.HumanSenderID && !fromExtension {
+	if !store.SpeaksAsOperator(msg.SenderID) && !fromExtension {
 		ctx = p.messageContext(sess, msg, time.Now())
 	}
 	return inboxEnvelope(msg, style, taught, ctx)

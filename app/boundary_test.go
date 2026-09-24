@@ -338,6 +338,9 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	}
 	// The extension messages its helper and then ends it, through the board.
 	waitForFile(t, filepath.Join(data, "sent.txt"), helper+" queued 1\n", exited, &out)
+	// It speaks as the operator too, which the matching subject does not let
+	// replace its fenced message.
+	waitForFile(t, filepath.Join(data, "voiced.txt"), helper+" voiced true superseded 0\n", exited, &out)
 	waitForFile(t, filepath.Join(data, "killed.txt"), helper+" dead false\n", exited, &out)
 
 	var pid int

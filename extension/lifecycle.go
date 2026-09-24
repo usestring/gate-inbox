@@ -56,7 +56,8 @@ type BoardHost interface {
 	// stopping its turn when Interrupt is set. It is held to send_session's
 	// checks -- no terminal, nothing archived or not running, no interrupt
 	// for a tool with no way to stop a turn -- and arrives fenced as this
-	// extension's, never as a person's words or another session's.
+	// extension's, never as another session's. Only a Message with
+	// AsOperator set arrives as a person's words.
 	Send(ctx context.Context, id string, msg Message) (Sent, error)
 	// Kill ends an agent session's pane and leaves its row dead, as
 	// kill_session does: the last screen is kept, and a revive can resume
@@ -75,6 +76,21 @@ type Message struct {
 	// typed in, so it is the next turn rather than read after the step in
 	// hand.
 	Interrupt bool
+	// AsOperator delivers Text as the operator's own words: typed into the
+	// session's prompt with no fence, exactly as the operator's own send
+	// from the board or a shell arrives, so the session reads it as its user
+	// speaking.
+	//
+	// This is for trusted, compiled-in extensions only: an extension can
+	// speak as the operator. Nothing asks the operator first -- there is no
+	// per-press token -- so every extension compiled into the build can use
+	// it, and building one in is the trust decision.
+	//
+	// The message is still queued under this extension's own sender, with
+	// its own rate and dedupe budget, and Subject supersedes only this
+	// extension's earlier operator-voiced messages: never one the operator
+	// typed, and never this extension's fenced ones.
+	AsOperator bool
 }
 
 // Sent is what one BoardHost.Send queued.

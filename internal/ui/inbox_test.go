@@ -1033,6 +1033,33 @@ func TestInboxEnvelopeDoesNotFenceTheOperatorsOwnWords(t *testing.T) {
 	}
 }
 
+// A message an extension queued in the operator's voice reaches the pane as
+// exactly the text the operator's own send does, while the same extension's
+// ordinary message is still fenced.
+func TestInboxEnvelopeDeliversAnOperatorVoicedMessageUnfenced(t *testing.T) {
+	body := "narrow the search to the second region"
+	human := store.InboxMessage{SessionID: "a1b2c3d4", SenderID: store.HumanSenderID, Body: body, SentAt: time.Now()}
+	voiced := human
+	voiced.SenderID, voiced.SenderName = store.OperatorVoicedSenderID("ext1"), "ext1"
+	for _, taught := range []bool{true, false} {
+		got := inboxEnvelope(voiced, "claude", taught, messageContext{})
+		if want := inboxEnvelope(human, "claude", taught, messageContext{}); got != want || got != body {
+			t.Fatalf("operator-voiced envelope = %q, want the operator's own %q", got, want)
+		}
+	}
+	fenced := voiced
+	fenced.SenderID = store.ExtensionSenderID("ext1")
+	if got := inboxEnvelope(fenced, "claude", true, messageContext{}); !strings.Contains(got, "----EXTENSION-MESSAGE-ext1-") {
+		t.Fatalf("plain extension envelope = %q, want it still fenced", got)
+	}
+	if _, ok := store.ExtensionSender(voiced.SenderID); ok {
+		t.Fatalf("%q reads as a fenced extension sender", voiced.SenderID)
+	}
+	if !store.SpeaksAsOperator(voiced.SenderID) || store.SpeaksAsOperator(fenced.SenderID) || store.SpeaksAsOperator("a1b2c3d4") {
+		t.Fatal("SpeaksAsOperator must hold for the operator's voice only")
+	}
+}
+
 // A board extension's message is fenced, since it is not the user speaking,
 // but it names no session to reply to: an extension has none.
 func TestInboxEnvelopeFencesAnExtensionWithNoReplyAddress(t *testing.T) {

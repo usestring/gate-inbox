@@ -10,6 +10,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
 // The board's own reads and answers.
@@ -141,8 +142,23 @@ func (s *Sessions) BoardAnswer(targetID, reply string) (answered AnsweredQuestio
 // way to stop the turn. The message is queued under the extension's own
 // sender, so its rate and dedupe budget is its own, and it is delivered
 // fenced as the extension's rather than as a person's or another agent's.
-func (s *Sessions) BoardSend(extensionID, targetID, message, subject string, interrupt bool) (result SendResult, err error) {
-	defer start("sessioncmd.board.send", sessionAttr(targetID)).done(&err)
+func (s *Sessions) BoardSend(extensionID, targetID, message, subject string, interrupt bool) (SendResult, error) {
+	return s.boardSend(extensionID, targetID, message, subject, false, interrupt)
+}
+
+// BoardSendAsOperator queues message as BoardSend does, but delivered as the
+// operator's own words, with no fence: the text SendAsHuman queues. Nothing
+// checks that the operator asked for it, so only a trusted, compiled-in
+// extension reaches it. It is queued under a sender of the extension's own,
+// store.OperatorVoicedSenderID, so its subject supersedes only this
+// extension's earlier operator-voiced messages, never the operator's.
+func (s *Sessions) BoardSendAsOperator(extensionID, targetID, message, subject string, interrupt bool) (SendResult, error) {
+	return s.boardSend(extensionID, targetID, message, subject, true, interrupt)
+}
+
+func (s *Sessions) boardSend(extensionID, targetID, message, subject string, asOperator, interrupt bool) (result SendResult, err error) {
+	op := start("sessioncmd.board.send", sessionAttr(targetID))
+	defer func() { op.done(&err, tracing.Attr{Key: "as_operator", Value: asOperator}) }()
 	if extensionID == "" {
 		return SendResult{}, errors.New("a board message needs the extension sending it")
 	}
@@ -156,6 +172,9 @@ func (s *Sessions) BoardSend(extensionID, targetID, message, subject string, int
 	}
 	defer runtime.store.Close()
 	from := sender{id: store.ExtensionSenderID(extensionID), name: extensionID}
+	if asOperator {
+		from.id = store.OperatorVoicedSenderID(extensionID)
+	}
 	return runtime.enqueue(from, targetID, message, subject, interrupt)
 }
 

@@ -42,6 +42,26 @@ func ExtensionSender(senderID string) (string, bool) {
 	return strings.CutPrefix(senderID, extensionSenderPrefix)
 }
 
+// operatorVoicedPrefix starts the sender id of a message a board extension
+// queued in the operator's own voice. It is delivered as HumanSenderID's are,
+// with no fence, but queued under a sender of its own: the extension keeps its
+// own rate and dedupe budget, and a subject it labels can only ever retire its
+// own earlier message, never one the operator typed.
+const operatorVoicedPrefix = HumanSenderID + "/"
+
+// OperatorVoicedSenderID is the sender id a message extension id queues as
+// the operator's own words is queued under.
+func OperatorVoicedSenderID(id string) string {
+	return operatorVoicedPrefix + extensionSenderPrefix + id
+}
+
+// SpeaksAsOperator reports whether a message from senderID is delivered as
+// the operator's own words: typed by the operator, or queued in the
+// operator's voice by a compiled-in extension.
+func SpeaksAsOperator(senderID string) bool {
+	return senderID == HumanSenderID || strings.HasPrefix(senderID, operatorVoicedPrefix)
+}
+
 // InboxMessage is one agent-to-agent message waiting to be typed into a
 // session's prompt. It rides its own table rather than PendingInputs
 // because a launch prompt and a message need different delivery gates,

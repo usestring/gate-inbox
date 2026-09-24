@@ -126,6 +126,40 @@ func TestBoardSendQueuesUnderTheExtension(t *testing.T) {
 	}
 }
 
+// An extension speaking as the operator is queued under a voice of its own:
+// delivered as the operator's words, but its subject never retires what the
+// operator typed, nor the extension's own fenced message.
+func TestBoardSendAsOperatorKeepsItsOwnSender(t *testing.T) {
+	h := newSessionHarness(t)
+	child := childShowing(t, h, "", "child107", "orphan", "all done\n")
+	if _, err := h.sessions.SendAsHuman("", child.ID, "the operator's own words", "step", false); err != nil {
+		t.Fatalf("SendAsHuman: %v", err)
+	}
+	voiced, err := h.sessions.BoardSendAsOperator("ext1", child.ID, "  carry on with step two  ", "step", false)
+	if err != nil || voiced.Superseded != 0 || voiced.QueuePosition != 2 {
+		t.Fatalf("BoardSendAsOperator = %+v, %v; want it queued behind the operator's message, replacing nothing", voiced, err)
+	}
+	again, err := h.sessions.BoardSendAsOperator("ext1", child.ID, "carry on with step three", "step", false)
+	if err != nil || again.Superseded != 1 || again.QueuePosition != 2 {
+		t.Fatalf("second operator-voiced send = %+v, %v; want it to replace only the extension's first", again, err)
+	}
+	fenced, err := h.sessions.BoardSend("ext1", child.ID, "and report back", "step", false)
+	if err != nil || fenced.Superseded != 0 || fenced.QueuePosition != 3 {
+		t.Fatalf("fenced send on the subject = %+v, %v; want it beside the operator-voiced one", fenced, err)
+	}
+	head, ok, err := h.store.HeadMessage(child.ID)
+	if err != nil || !ok || head.SenderID != store.HumanSenderID || head.Body != "the operator's own words" {
+		t.Fatalf("head = %+v, %v, %v; want the operator's own message still first", head, ok, err)
+	}
+	voicedRow, err := h.store.Message(again.MessageID, store.OperatorVoicedSenderID("ext1"))
+	if err != nil {
+		t.Fatalf("the operator-voiced row is not under the extension's operator voice: %v", err)
+	}
+	if voicedRow.Body != "carry on with step three" || voicedRow.SenderName != "ext1" {
+		t.Fatalf("operator-voiced row = %+v, want the trimmed text, named for the extension", voicedRow)
+	}
+}
+
 func TestBoardSendKeepsSendSessionsChecks(t *testing.T) {
 	h := newSessionHarness(t)
 	child := childShowing(t, h, "", "child107", "orphan", "all done\n")

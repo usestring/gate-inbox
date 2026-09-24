@@ -208,6 +208,14 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			return
 		}
 		record("sent.txt", fmt.Sprintf("%s queued %d", helper.ID, sent.QueuePosition))
+		// The same words in the operator's own voice: queued under a voice of
+		// the extension's own, so the matching subject replaces nothing.
+		voiced, err := board.Send(ctx, helper.ID, extension.Message{Text: "carry on", Subject: "note", AsOperator: true})
+		if err != nil {
+			record("voiced.txt", "error: "+err.Error())
+			return
+		}
+		record("voiced.txt", fmt.Sprintf("%s voiced %v superseded %d", helper.ID, voiced.MessageID > sent.MessageID, voiced.Superseded))
 		killed, err := board.Kill(ctx, helper.ID)
 		if err != nil {
 			record("killed.txt", "error: "+err.Error())

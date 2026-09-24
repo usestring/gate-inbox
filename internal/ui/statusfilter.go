@@ -61,7 +61,8 @@ func (f statusFilter) matches(st string) bool {
 }
 
 // attentionViaChild is the half of the attention filter that a status cannot
-// answer: a parent whose child is waiting on a person.
+// answer: a session an extension says needs a person, and a parent whose
+// child is waiting on one.
 //
 // It is not a nicety. A child is drawn under its parent, so a
 // parent dropped by the filter takes its children off the list with it -- and
@@ -71,7 +72,7 @@ func (m *Model) attentionViaChild(sess store.Session) bool {
 	if m.statusFilter != statusFilterAttention {
 		return false
 	}
-	return m.hasChildNeedingSomebody(sess.ID)
+	return m.extAttention[sess.ID].NeedsPerson || m.hasChildNeedingSomebody(sess.ID)
 }
 
 // hasChildNeedingSomebody reports a child of this session that a person has

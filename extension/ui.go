@@ -117,8 +117,19 @@ type UIHost interface {
 	// owned session is left out of the triage queue, the attention filter
 	// and the jumps to what is waiting on the operator, and its children's
 	// questions stay folded in triage as if it were working, since it will
-	// answer them once the extension has answered it.
+	// answer them once the extension has answered it. A session any
+	// extension says needs a person, through Attention, is on the queue
+	// even while it is owned.
 	Own(sessionID string, owned bool)
+	// Attention replaces this extension's claim on where a session stands
+	// in the operator's queue, for what its status cannot say: a session
+	// blocked on the operator while its pane says it is working, or one
+	// that should sort ahead of or behind its status in triage. The zero
+	// Attention clears the claim. Where several extensions claim one
+	// session, it needs a person if any says so, and the most urgent rank
+	// wins. Like Decorate, it may be called from any goroutine and never
+	// blocks on the board.
+	Attention(sessionID string, attention Attention)
 	// Notify puts one line on the board's status bar.
 	Notify(text string)
 	// Open shows view on screen, a screen this extension declared keys for.
@@ -176,6 +187,39 @@ type ViewHandle interface {
 	// Close closes the view.
 	Close()
 }
+
+// Attention is an extension's claim on a session's place in the operator's
+// queue.
+type Attention struct {
+	// NeedsPerson puts the session on the operator's queue whatever its
+	// status: triage hands it over, the attention filter keeps it, the jumps
+	// to what is waiting stop on it, and its children's questions are the
+	// operator's again. It holds even while the session is owned: a claim
+	// that somebody is needed is an escalation, and an ownership never
+	// hides one.
+	NeedsPerson bool
+	// Rank is where the session sorts in triage, in place of its status's
+	// place. Sessions that need a person still sort ahead of those that do
+	// not, whatever their rank.
+	Rank AttentionRank
+}
+
+// AttentionRank is a place in triage's order, named by the status that holds
+// it. The zero value leaves the session's status to decide.
+type AttentionRank int
+
+const (
+	RankByStatus AttentionRank = iota
+	RankWaiting
+	// RankBlocked sorts after the sessions waiting on a question and before
+	// the errored ones. No status holds it: it is for a session blocked on
+	// a decision about its work rather than on one question in front of the
+	// operator, which is handed over once the live questions are.
+	RankBlocked
+	RankErrored
+	RankFinished
+	RankIdle
+)
 
 // Badge is a short mark on a session's row. Rows are narrow, so a badge that
 // does not fit is drawn as Short instead, and one that fits in neither is left

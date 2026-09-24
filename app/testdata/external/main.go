@@ -190,6 +190,10 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			n.ui.Decorate(s.ID, extension.Badge{Text: "noop:" + s.Status, Tone: extension.ToneAccent})
 			n.ui.Group(s.ID, extension.Line{{Text: "noop head ", Tone: extension.ToneAccent, Bold: true}, {Text: s.ID}})
 			n.ui.Own(s.ID, s.Status == "working")
+			if s.ID == "c41d0001" {
+				// Dead as its pane is, the child is blocked on the operator.
+				n.ui.Attention(s.ID, extension.Attention{NeedsPerson: true, Rank: extension.RankBlocked})
+			}
 		}
 	})
 	record("started.txt", fmt.Sprint(os.Getpid(), " ", board.ConfigDir()))

@@ -129,6 +129,9 @@ type Model struct {
 	extHidden  map[string]bool
 	extOwned   map[string]bool
 	extFilters []*listFilter
+	// extAttention is what the extensions say about where a session stands
+	// in the operator's queue: see extattention.go.
+	extAttention map[string]Attention
 	// extScreens are the view screens the extensions declared keys for, and
 	// extView is the view on screen in modeExtensionView.
 	extScreens map[keymap.Context]bool

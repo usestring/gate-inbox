@@ -90,21 +90,24 @@ type ExtensionBridge struct {
 	headers map[string]map[string][]Span
 	hidden  map[string]map[string]bool
 	owned   map[string]map[string]bool
-	send    func(tea.Msg)
-	pending bool
-	dirty   bool
-	views   int
+	// attention is each owner's claims on the queue: see extattention.go.
+	attention map[string]map[string]Attention
+	send      func(tea.Msg)
+	pending   bool
+	dirty     bool
+	views     int
 }
 
 // NewExtensionBridge makes the bridge. owners fixes the order badges are
 // drawn in: the order the build lists its extensions.
 func NewExtensionBridge(owners []string) *ExtensionBridge {
 	return &ExtensionBridge{
-		owners:  append([]string(nil), owners...),
-		badges:  map[string]map[string][]Badge{},
-		headers: map[string]map[string][]Span{},
-		hidden:  map[string]map[string]bool{},
-		owned:   map[string]map[string]bool{},
+		owners:    append([]string(nil), owners...),
+		badges:    map[string]map[string][]Badge{},
+		headers:   map[string]map[string][]Span{},
+		hidden:    map[string]map[string]bool{},
+		owned:     map[string]map[string]bool{},
+		attention: map[string]map[string]Attention{},
 	}
 }
 
@@ -165,6 +168,8 @@ type rowMarks struct {
 	headers map[string][][]Span
 	hidden  map[string]bool
 	owned   map[string]bool
+	// attention is every owner's claims merged: see Attention.merge.
+	attention map[string]Attention
 }
 
 // snapshot is every session's marks, owners in build order.
@@ -173,10 +178,11 @@ func (b *ExtensionBridge) snapshot() rowMarks {
 	defer b.mu.Unlock()
 	b.pending, b.dirty = false, false
 	out := rowMarks{
-		badges:  map[string][]Badge{},
-		headers: map[string][][]Span{},
-		hidden:  map[string]bool{},
-		owned:   map[string]bool{},
+		badges:    map[string][]Badge{},
+		headers:   map[string][][]Span{},
+		hidden:    map[string]bool{},
+		owned:     map[string]bool{},
+		attention: map[string]Attention{},
 	}
 	for _, owner := range b.owners {
 		for sessionID, badges := range b.badges[owner] {
@@ -190,6 +196,9 @@ func (b *ExtensionBridge) snapshot() rowMarks {
 		}
 		for sessionID := range b.owned[owner] {
 			out.owned[sessionID] = true
+		}
+		for sessionID, claim := range b.attention[owner] {
+			out.attention[sessionID] = out.attention[sessionID].merge(claim)
 		}
 	}
 	return out

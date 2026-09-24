@@ -81,6 +81,28 @@ func (h uiHost) Hide(sessionID string, hidden bool) { h.bridge.Hide(h.id, sessio
 
 func (h uiHost) Own(sessionID string, owned bool) { h.bridge.Own(h.id, sessionID, owned) }
 
+func (h uiHost) Attention(sessionID string, attention extension.Attention) {
+	h.bridge.Attention(h.id, sessionID, ui.Attention{NeedsPerson: attention.NeedsPerson, Rank: uiRank(attention.Rank)})
+}
+
+// uiRank is a rank as the board orders it. One it does not know leaves the
+// status to decide.
+func uiRank(rank extension.AttentionRank) ui.AttentionRank {
+	switch rank {
+	case extension.RankWaiting:
+		return ui.AttentionWaiting
+	case extension.RankBlocked:
+		return ui.AttentionBlocked
+	case extension.RankErrored:
+		return ui.AttentionErrored
+	case extension.RankFinished:
+		return ui.AttentionFinished
+	case extension.RankIdle:
+		return ui.AttentionIdle
+	}
+	return ui.AttentionByStatus
+}
+
 func uiFilters(filters []extension.Filter) []ui.ExtensionFilter {
 	out := make([]ui.ExtensionFilter, 0, len(filters))
 	for _, filter := range filters {

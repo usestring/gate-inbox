@@ -19,8 +19,9 @@ import (
 // a module importing app and extension only puts a badge and a header on the
 // rows it is told about, a key of its own on the list answers with the row it
 // was pressed on, the view that key opens is drawn, told the keys of its own
-// screen, and closed by the board on esc, and a filter of its own narrows the
-// list under a badge in the header.
+// screen, and closed by the board on esc, a filter of its own narrows the
+// list under a badge in the header, and a session it says needs a person is
+// kept by the attention filter whatever its status.
 func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	script, err := exec.LookPath("script")
 	if err != nil {
@@ -120,6 +121,21 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	keys.Write([]byte("Y"))
 	waitForOutput(t, out, "ROOTS", exited, func() {})
+
+	// The child's pane is dead and the extension hid it from the tree, but
+	// the extension says it needs a person: with the roots filter lifted,
+	// the attention filter draws it, header and all.
+	keys.Write([]byte("Y"))
+	time.Sleep(300 * time.Millisecond)
+	drawn := len(out.String())
+	keys.Write([]byte("w"))
+	deadline = time.Now().Add(20 * time.Second)
+	for !strings.Contains(ansi.Strip(out.String()[drawn:]), "noop head c41d0001") {
+		if time.Now().After(deadline) {
+			t.Fatalf("the attention filter never drew the child the extension flagged:\n%s", ansi.Strip(out.String()[drawn:]))
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }
 
 func skipWelcome(t *testing.T, path string) {

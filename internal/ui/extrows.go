@@ -96,14 +96,16 @@ func setMark(marks map[string]map[string]bool, owner, sessionID string, on bool)
 }
 
 // applyRowMarks takes a snapshot of what the extensions set. Hidden and owned
-// rows change which rows the tree holds, so a change to either rebuilds it;
-// badges and headers only change how rows paint.
+// rows and claims on the queue change which rows the tree holds and in what
+// order, so a change to any of them rebuilds it; badges and headers only
+// change how rows paint.
 func (m *Model) applyRowMarks(marks rowMarks) {
 	m.extBadges, m.extHeaders = marks.badges, marks.headers
-	if maps.Equal(m.extHidden, marks.hidden) && maps.Equal(m.extOwned, marks.owned) {
+	if maps.Equal(m.extHidden, marks.hidden) && maps.Equal(m.extOwned, marks.owned) &&
+		maps.Equal(m.extAttention, marks.attention) {
 		return
 	}
-	m.extHidden, m.extOwned = marks.hidden, marks.owned
+	m.extHidden, m.extOwned, m.extAttention = marks.hidden, marks.owned, marks.attention
 	m.rebuildRows()
 }
 

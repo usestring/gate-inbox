@@ -15,8 +15,14 @@ import (
 // this second, while an error has already happened and blocks no turn;
 // working sits below every resting status because the one thing triage must
 // never do is walk somebody into a session that is mid-turn.
+//
+// triageBlocked sits between waiting and errored. No status reaches it: it is
+// the tier an extension ranks a session at when it is blocked on a decision
+// about a whole piece of work rather than on one question in front of
+// somebody, so the sessions asking a live question are handed over first.
 var triageTiers = []string{
 	status.Waiting,
+	triageBlocked,
 	status.Errored,
 	status.Finished,
 	status.Idle,
@@ -34,8 +40,16 @@ func triageRank(st string) int {
 	return len(triageTiers)
 }
 
-// triageRankOf is a session's tier.
-func triageRankOf(sess store.Session) int {
+const triageBlocked = "blocked"
+
+// triageRankOf is a session's tier, which an extension can override. The
+// rank it gives replaces the row's own status rather than being weighed
+// against it: the extension is saying what the queue is about, whatever the
+// pane happens to be showing.
+func (m *Model) triageRankOf(sess store.Session) int {
+	if tier := m.extAttention[sess.ID].Rank.tier(); tier != "" {
+		return triageRank(tier)
+	}
 	return triageRank(sess.Status)
 }
 
@@ -58,7 +72,14 @@ func requiresInput(st string) bool {
 // something else is deciding is not waiting on the operator, and a queue
 // that hands it over anyway puts them in a pane they were meant to stay out
 // of. See ownedByExtension.
+//
+// Plus the sessions an extension says need a person whatever their status,
+// owned or not: that claim is an escalation, and an ownership must never
+// hide one. See Attention.
 func (m *Model) needsPerson(sess store.Session) bool {
+	if m.extAttention[sess.ID].NeedsPerson {
+		return true
+	}
 	return requiresInput(sess.Status) && !m.ownedByExtension(sess.ID)
 }
 
@@ -73,12 +94,13 @@ func (m *Model) needsPerson(sess store.Session) bool {
 //
 // The rail paints this, the mute keys read it and the walk above filters on
 // it, so all three say the same thing about a row. A session an extension
-// answers for is off it whatever its pane says.
+// answers for is off it whatever its pane says, and one an extension says
+// needs a person is on it whatever its pane says.
 func (m *Model) triageWalkable(sess store.Session) bool {
-	if m.ownedByExtension(sess.ID) {
-		return false
+	if m.needsPerson(sess) {
+		return true
 	}
-	return requiresInput(sess.Status) || sess.Status == status.Idle
+	return sess.Status == status.Idle && !m.ownedByExtension(sess.ID)
 }
 
 // triageLess sorts by whether a person is needed, then the priority tier,
@@ -125,7 +147,7 @@ func (k triageKey) before(o triageKey) bool {
 // triageKeyOf reads one session's key. Zero sorts first in each field, so a
 // session that needs a person and is urgent is {0, 0, tier}.
 func (m *Model) triageKeyOf(sess store.Session) triageKey {
-	key := triageKey{needs: 1, priority: m.tierOf(sess).Rank(), tier: triageRankOf(sess)}
+	key := triageKey{needs: 1, priority: m.tierOf(sess).Rank(), tier: m.triageRankOf(sess)}
 	if m.needsPerson(sess) {
 		key.needs = 0
 	}

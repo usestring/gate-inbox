@@ -320,7 +320,7 @@ func TestEnvironmentCarriesSessionIDAndHooks(t *testing.T) {
 	t.Setenv(hooks.EnvStatusFile, "/parent/session.status")
 
 	plain := config.Tool{Command: "cat"}
-	command, env, err := Environment(manager, "plain", plain, plain.Command, "abcd1234", "", "")
+	command, env, err := Environment(manager, "plain", plain, plain.Command, "abcd1234", "", "", nil)
 	if err != nil {
 		t.Fatalf("Environment: %v", err)
 	}
@@ -335,7 +335,7 @@ func TestEnvironmentCarriesSessionIDAndHooks(t *testing.T) {
 	}
 
 	hooked := config.Tool{Command: "cat", StatusSource: hooks.StatusSourceClaude, MCP: "claude"}
-	command, env, err = Environment(manager, "hooked", hooked, hooked.Command, "abcd1234", "", "")
+	command, env, err = Environment(manager, "hooked", hooked, hooked.Command, "abcd1234", "", "", nil)
 	if err != nil {
 		t.Fatalf("Environment hooked: %v", err)
 	}
@@ -388,7 +388,7 @@ func TestAdoptedRenameDirectiveIsOneLineAndSaysWhoIsAsking(t *testing.T) {
 func TestEnvironmentCarriesTheManagersOwnPath(t *testing.T) {
 	manager := hooks.NewManager(t.TempDir())
 	tool := config.Tool{Command: "cat"}
-	_, env, err := Environment(manager, "plain", tool, tool.Command, "abcd1234", "", "")
+	_, env, err := Environment(manager, "plain", tool, tool.Command, "abcd1234", "", "", nil)
 	if err != nil {
 		t.Fatalf("Environment: %v", err)
 	}
@@ -415,7 +415,7 @@ func TestEnvironmentCarriesARelocatedHomeAndInventsNoDefault(t *testing.T) {
 	tool := config.Tool{Command: "cat"}
 	home := t.TempDir()
 	t.Setenv(config.HomeEnv, home)
-	_, env, err := Environment(manager, "plain", tool, tool.Command, "abcd1234", "", "")
+	_, env, err := Environment(manager, "plain", tool, tool.Command, "abcd1234", "", "", nil)
 	if err != nil {
 		t.Fatalf("Environment: %v", err)
 	}
@@ -423,7 +423,7 @@ func TestEnvironmentCarriesARelocatedHomeAndInventsNoDefault(t *testing.T) {
 		t.Errorf("%s = %q, want %q", config.HomeEnv, env[config.HomeEnv], home)
 	}
 	t.Setenv(config.HomeEnv, "")
-	_, def, err := Environment(manager, "plain", tool, tool.Command, "abcd1234", "", "")
+	_, def, err := Environment(manager, "plain", tool, tool.Command, "abcd1234", "", "", nil)
 	if err != nil {
 		t.Fatalf("Environment: %v", err)
 	}
@@ -534,7 +534,7 @@ func TestEnvironmentWritesOpencodeV2ModelIntoItsConfig(t *testing.T) {
 	}
 	manager := hooks.NewManager(t.TempDir())
 	tool := config.Tool{Command: "opencode", MCP: "opencode"}
-	command, env, err := Environment(manager, "opencode", tool, "opencode", "abcd1234", "anthropic/claude-sonnet-5", "")
+	command, env, err := Environment(manager, "opencode", tool, "opencode", "abcd1234", "anthropic/claude-sonnet-5", "", nil)
 	if err != nil {
 		t.Fatalf("Environment: %v", err)
 	}
@@ -643,7 +643,7 @@ func TestEnvironmentInheritsTheParentShellEnv(t *testing.T) {
 	manager := hooks.NewManager(t.TempDir())
 	tool := config.Tool{Command: "cat"}
 	t.Setenv("GATE_INBOX_TEST_PARENT_MARKER", "from-the-operator-shell")
-	_, env, err := Environment(manager, "plain", tool, tool.Command, "abcd1234", "", "")
+	_, env, err := Environment(manager, "plain", tool, tool.Command, "abcd1234", "", "", nil)
 	if err != nil {
 		t.Fatalf("Environment: %v", err)
 	}
@@ -667,7 +667,7 @@ func TestEnvironmentSkipsPerProcessParentVars(t *testing.T) {
 	} {
 		t.Setenv(key, value)
 	}
-	_, env, err := Environment(manager, "plain", tool, tool.Command, "abcd1234", "", "")
+	_, env, err := Environment(manager, "plain", tool, tool.Command, "abcd1234", "", "", nil)
 	if err != nil {
 		t.Fatalf("Environment: %v", err)
 	}
@@ -694,7 +694,7 @@ func TestEnvironmentSkipsTheClaudeChildStamp(t *testing.T) {
 	for key, value := range stamp {
 		t.Setenv(key, value)
 	}
-	_, env, err := Environment(manager, "plain", tool, tool.Command, "abcd1234", "", "")
+	_, env, err := Environment(manager, "plain", tool, tool.Command, "abcd1234", "", "", nil)
 	if err != nil {
 		t.Fatalf("Environment: %v", err)
 	}
@@ -711,7 +711,7 @@ func TestEnvironmentExplicitKeysWinOverParentEnv(t *testing.T) {
 	manager := hooks.NewManager(t.TempDir())
 	tool := config.Tool{Command: "cat"}
 	t.Setenv(hooks.EnvSessionID, "outer-session")
-	_, env, err := Environment(manager, "plain", tool, tool.Command, "abcd1234", "", "")
+	_, env, err := Environment(manager, "plain", tool, tool.Command, "abcd1234", "", "", nil)
 	if err != nil {
 		t.Fatalf("Environment: %v", err)
 	}
@@ -754,7 +754,7 @@ func TestComposeReachesAPaneUnderTheOperatorShell(t *testing.T) {
 	base := "printenv GATE_INBOX_E2E_PARENT_MARKER > " + tmux.ShellQuote(marker) +
 		"; printenv TMUX_PANE > " + tmux.ShellQuote(blocked)
 	tool := config.Tool{Command: base}
-	command, env, err := Compose(manager, "plain", tool, base, "e2eshellenv", "", "")
+	command, env, err := Compose(manager, "plain", tool, base, "e2eshellenv", "", "", nil)
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
@@ -815,7 +815,7 @@ func TestEnvironmentExportsTheAccountsToken(t *testing.T) {
 		asked = account
 		return "sk-ant-oat01-bob", nil
 	})
-	_, env, err := Environment(manager, "claude", accountTool, accountTool.Command, "abcd1234", "", "alice1")
+	_, env, err := Environment(manager, "claude", accountTool, accountTool.Command, "abcd1234", "", "alice1", nil)
 	if err != nil {
 		t.Fatalf("Environment: %v", err)
 	}
@@ -823,7 +823,7 @@ func TestEnvironmentExportsTheAccountsToken(t *testing.T) {
 		t.Errorf("resolved %q, env token %q", asked, env["GATE_INBOX_TEST_OAUTH_TOKEN"])
 	}
 	asked = ""
-	_, env, err = Environment(manager, "claude", accountTool, accountTool.Command, "abcd1234", "", "")
+	_, env, err = Environment(manager, "claude", accountTool, accountTool.Command, "abcd1234", "", "", nil)
 	if err != nil {
 		t.Fatalf("Environment: %v", err)
 	}
@@ -844,7 +844,7 @@ func TestAccountRefusesRatherThanLaunchingOnTheDefaultLogin(t *testing.T) {
 	}
 	manager := hooks.NewManager(t.TempDir())
 	stubAccount(t, func(config.Tool, string) (string, error) { return "", errors.New("secret not found") })
-	if _, _, err := Environment(manager, "claude", accountTool, accountTool.Command, "abcd1234", "", "NOBODY1"); err == nil || !strings.Contains(err.Error(), "secret not found") {
+	if _, _, err := Environment(manager, "claude", accountTool, accountTool.Command, "abcd1234", "", "NOBODY1", nil); err == nil || !strings.Contains(err.Error(), "secret not found") {
 		t.Errorf("err = %v, want the resolver's refusal", err)
 	}
 }

@@ -59,6 +59,9 @@ func (v fakeView) Subscribe(func(extension.StatusEvent)) func() {
 	return func() {}
 }
 func (v fakeView) OnPass(func(extension.Pass)) func() { return func() {} }
+func (v fakeView) Launch(context.Context, extension.LaunchRequest) (extension.SessionInfo, error) {
+	return extension.SessionInfo{}, errors.New("no launches here")
+}
 
 func (b *fakeBoard) hostFor(id string) (extension.BoardHost, func()) {
 	return fakeView{board: b, id: id}, func() {

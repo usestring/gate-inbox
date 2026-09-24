@@ -67,6 +67,9 @@ type SessionInfo struct {
 	// made by a session that is itself a child.
 	ParentID  string
 	SpawnedBy string
+	// Role is "<extension id>/<role>" for a session an extension launched
+	// with a role through BoardHost.Launch, and empty for every other.
+	Role string
 }
 
 // SessionFilter narrows List. The zero value is every unarchived session,

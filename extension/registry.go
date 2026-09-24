@@ -109,17 +109,7 @@ func (r *Registry) AccountPool(configDir string, sections map[string]map[string]
 		}
 	}
 	if !r.configured {
-		var errs []error
-		for _, i := range found {
-			cfg := NewConfig(sections[r.ids[i]])
-			if configDir != "" {
-				cfg = cfg.WithDataDir(DataDir(configDir, r.ids[i]))
-			}
-			if err := r.extensions[i].Configure(cfg); err != nil {
-				errs = append(errs, fmt.Errorf("[extensions.%s]: %w", r.ids[i], err))
-			}
-		}
-		if err := errors.Join(errs...); err != nil {
+		if err := r.configureOnly(configDir, sections, found); err != nil {
 			return nil, err
 		}
 	}
@@ -139,6 +129,22 @@ func (r *Registry) AccountPool(configDir string, sections map[string]map[string]
 		return nil, fmt.Errorf("more than one extension supplies an account pool: %s", strings.Join(owners, ", "))
 	}
 	return pool, nil
+}
+
+// configureOnly configures the extensions at indices, for a process that
+// asks one capability of a registry it has not configured whole.
+func (r *Registry) configureOnly(configDir string, sections map[string]map[string]any, indices []int) error {
+	var errs []error
+	for _, i := range indices {
+		cfg := NewConfig(sections[r.ids[i]])
+		if configDir != "" {
+			cfg = cfg.WithDataDir(DataDir(configDir, r.ids[i]))
+		}
+		if err := r.extensions[i].Configure(cfg); err != nil {
+			errs = append(errs, fmt.Errorf("[extensions.%s]: %w", r.ids[i], err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // DataDir is where the extension with id keeps its state under a config

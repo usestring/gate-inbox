@@ -1,6 +1,7 @@
 package extensionhost
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -18,7 +19,7 @@ const maxQueued = 4096
 // to it, and it fans what it is told out to the extensions' subscriptions,
 // each on a goroutine of its own so the pass never waits on an extension.
 type Events struct {
-	board extension.Board
+	board *Board
 	// report is told about a subscriber that panicked or fell behind, by
 	// the ID of the extension that owns it.
 	report func(owner string, err error)
@@ -29,8 +30,8 @@ type Events struct {
 }
 
 // NewEvents fans the poll pass out beside board, which every BoardHost it
-// lends reads and answers through. report may be nil.
-func NewEvents(board extension.Board, report func(owner string, err error)) *Events {
+// lends reads, answers and launches through. report may be nil.
+func NewEvents(board *Board, report func(owner string, err error)) *Events {
 	if report == nil {
 		report = func(string, error) {}
 	}
@@ -115,6 +116,10 @@ func (v *boardView) Subscribe(fn func(extension.StatusEvent)) func() {
 		v.events.events = append(v.events.events[:len(v.events.events):len(v.events.events)], sub)
 		v.events.mu.Unlock()
 	})
+}
+
+func (v *boardView) Launch(ctx context.Context, req extension.LaunchRequest) (extension.SessionInfo, error) {
+	return v.events.board.LaunchFor(ctx, v.owner, req)
 }
 
 func (v *boardView) OnPass(fn func(extension.Pass)) func() {

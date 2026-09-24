@@ -2,6 +2,8 @@ package extensionhost
 
 import (
 	"context"
+	"fmt"
+	"regexp"
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
@@ -78,4 +80,36 @@ func (b *Board) Answer(ctx context.Context, id, answer string) (extension.Answer
 		Selected: got.Selected,
 		Standing: got.Standing,
 	}, nil
+}
+
+var rolePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+
+// LaunchFor starts a session for the extension with id: its role is
+// recorded under that id, so no extension can wear another's.
+func (b *Board) LaunchFor(ctx context.Context, id string, req extension.LaunchRequest) (extension.SessionInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return extension.SessionInfo{}, err
+	}
+	role := ""
+	if req.Role != "" {
+		if !rolePattern.MatchString(req.Role) {
+			return extension.SessionInfo{}, fmt.Errorf("role %q must be lower case, start with a letter, and hold only letters, digits, '-' and '_'", req.Role)
+		}
+		role = id + "/" + req.Role
+	}
+	created, err := b.cmds.BoardLaunch(sessioncmd.BoardLaunchOptions{
+		Tool:      req.Tool,
+		Name:      req.Name,
+		Prompt:    req.Prompt,
+		Directory: req.Directory,
+		Model:     req.Model,
+		ParentID:  req.ParentID,
+		Group:     req.Group,
+		Role:      role,
+		Args:      req.Args,
+	})
+	if err != nil {
+		return extension.SessionInfo{}, err
+	}
+	return info(created), nil
 }

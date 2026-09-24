@@ -18,7 +18,9 @@ import (
 // scheduler, a view deciding what to badge -- is no session, and has
 // the reach the operator has from the board: any agent session's pane, and
 // its dialog. Only reads and answers are offered that way. Starting and
-// ending sessions stay a session's acts, so that a spawn always has a parent.
+// ending sessions stay a session's acts, so that a spawn always has a parent,
+// except for the helpers a board extension launches for itself: see
+// BoardLaunch.
 //
 // An answer from here is still held to the dialog's own rules. A permission
 // prompt or a first-run trust dialog is refused exactly as it is to a

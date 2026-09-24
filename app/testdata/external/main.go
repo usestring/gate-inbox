@@ -167,14 +167,7 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 	if err != nil {
 		return nil, err
 	}
-	record := func(name, line string) {
-		f, err := os.OpenFile(filepath.Join(dir, name), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
-			return
-		}
-		defer f.Close()
-		fmt.Fprintln(f, line)
-	}
+	record := n.record
 	board.Subscribe(func(extension.StatusEvent) { panic("a subscriber that always fails") })
 	board.Subscribe(func(e extension.StatusEvent) {
 		name := "unreadable"
@@ -189,7 +182,66 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 		}
 	})
 	record("started.txt", fmt.Sprint(os.Getpid(), " ", board.ConfigDir()))
+	// A helper of its own, launched from the board under the dead child,
+	// with a role and an argument after its prompt.
+	go func() {
+		helper, err := board.Launch(ctx, extension.LaunchRequest{
+			Tool: "envecho", Name: "helper", Prompt: "help", ParentID: "c41d0001",
+			Directory: dir, Role: "helper", Args: []string{"--one word"},
+		})
+		if err != nil {
+			record("launched.txt", "error: "+err.Error())
+			return
+		}
+		record("launched.txt", fmt.Sprintf("%s %s %s", helper.ID, helper.Role, helper.ParentID))
+	}()
 	return func() { record("stopped.txt", fmt.Sprint(ctx.Err() != nil)) }, nil
+}
+
+// record appends line to a file in the data directory, which is how this
+// extension reports to the test driving it from another process.
+func (n *noop) record(name, line string) {
+	dir, err := n.config.DataDir()
+	if err != nil {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(dir, name), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintln(f, line)
+}
+
+// AllowSpawn refuses a session named over-budget, the way a budget on a
+// wide spawn would.
+func (n *noop) AllowSpawn(_ context.Context, spawn extension.Spawn) error {
+	if spawn.Session.Name == "over-budget" {
+		return errors.New("this goal's budget is spent")
+	}
+	return nil
+}
+
+func (n *noop) Spawned(_ context.Context, spawn extension.Spawn) {
+	n.record("spawned.txt", fmt.Sprintf("%s %s %s", spawn.Session.ID, spawn.By, spawn.Session.Role))
+}
+
+// LaunchEnv tells every launch why it happened and where to say so; the
+// tool the test launches writes the one into the other.
+func (n *noop) LaunchEnv(_ context.Context, launch extension.Launch) (map[string]string, error) {
+	dir, err := n.config.DataDir()
+	if err != nil {
+		return nil, err
+	}
+	return map[string]string{
+		"NOOP_LAUNCH": strings.TrimSpace(string(launch.Reason) + " " + launch.From),
+		"NOOP_OUT":    filepath.Join(dir, "env-"+launch.Session.ID+".txt"),
+	}, nil
+}
+
+func (n *noop) Migrated(_ context.Context, migration extension.Migration) error {
+	n.record("migrated.txt", migration.From.ID+">"+migration.To.ID)
+	return nil
 }
 
 func text(s string) *mcp.CallToolResult {

@@ -282,7 +282,9 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 // The board lends a BoardProvider its poll passes: an extension compiled
 // outside this module is started with the board, told of a status change
 // the first pass stores even though another of its subscribers panics on
-// it, and stopped when the board quits.
+// it, and stopped when the board quits. It also launches a helper of its own
+// from the board, with a role, which its own spawn policy and launch
+// environment see like any other spawn.
 func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	script, err := exec.LookPath("script")
 	if err != nil {
@@ -293,7 +295,7 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	}
 	bin := buildFixture(t)
 	socket := tmuxtest.NewSocket("lifecycle")
-	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n")
+	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+envEchoTool)
 	home := envValue(env, "GATE_INBOX_HOME")
 	// The board starts its own server under the scratch TMUX_TMPDIR, and it
 	// is taken down there by path.
@@ -328,6 +330,12 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	// names the session by reading it back through the Board it was lent.
 	waitForFile(t, filepath.Join(data, "events.txt"), "ca11e400 working>dead \"\" the caller\n", exited, &out)
 	waitForFile(t, filepath.Join(data, "passes.txt"), "c41d0001 dead", exited, &out)
+	launched := waitForFile(t, filepath.Join(data, "launched.txt"), " noop/helper c41d0001\n", exited, &out)
+	helper, _, _ := strings.Cut(launched, " ")
+	waitForFile(t, filepath.Join(data, "spawned.txt"), helper+" extension noop/helper\n", exited, &out)
+	if got := waitForFile(t, filepath.Join(data, "env-"+helper+".txt"), "", exited, &out); got != "spawn" {
+		t.Fatalf("the helper's pane saw NOOP_LAUNCH=%q, want the extension's spawn", got)
+	}
 
 	var pid int
 	if _, err := fmt.Sscan(started, &pid); err != nil {

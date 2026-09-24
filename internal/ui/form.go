@@ -727,8 +727,8 @@ func (m *Model) spawnSessionAs(toolName, model, name, dir, group, prompt string,
 	return id, nil
 }
 
-func (m *Model) buildLaunch(toolName string, tool config.Tool, baseCommand, id, model, account string) (string, map[string]string, error) {
-	return launch.Environment(m.hooks, toolName, tool, baseCommand, id, model, account)
+func (m *Model) buildLaunch(toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string) (string, map[string]string, error) {
+	return launch.Environment(m.hooks, toolName, tool, baseCommand, id, model, account, contributed)
 }
 
 func (m *Model) openGroupForm() {

@@ -32,6 +32,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpserver"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
@@ -93,6 +94,7 @@ func Run(ctx context.Context, args []string, opts Options) error {
 		return err
 	}
 	accounts.UsePool(poolOf(registry))
+	sessionhooks.Use(sessionHooksOf(registry))
 
 	if len(args) == 0 {
 		return runBoard(version, registry)
@@ -141,6 +143,26 @@ func poolOf(registry *extension.Registry) func() (extension.AccountPool, error) 
 			return nil, err
 		}
 		return registry.AccountPool(dir, cfg.Extensions)
+	})
+}
+
+// sessionHooksOf finds the build's spawn policies, launch contributors and
+// migration observers the first time a launch asks, configuring only those
+// when nothing has configured the rest, as poolOf does.
+func sessionHooksOf(registry *extension.Registry) func() (*extension.SessionHooks, error) {
+	return sync.OnceValues(func() (*extension.SessionHooks, error) {
+		if registry.Configured() {
+			return registry.SessionHooks("", nil)
+		}
+		dir, err := config.Dir()
+		if err != nil {
+			return nil, err
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return nil, err
+		}
+		return registry.SessionHooks(dir, cfg.Extensions)
 	})
 }
 

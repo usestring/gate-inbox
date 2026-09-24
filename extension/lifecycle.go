@@ -28,8 +28,8 @@ type BoardProvider interface {
 }
 
 // BoardHost is what the board lends a BoardProvider: the Board, with the
-// operator's reach over reads and answers, and what the board observes while
-// it polls. Every callback is delivered on
+// operator's reach over reads and answers, sessions of its own to launch,
+// and what the board observes while it polls. Every callback is delivered on
 // a goroutine of the subscription's own, in the order the board observed
 // them, never on the poll loop: a subscriber that is slow delays only its
 // own later deliveries, and one that panics is logged and kept.
@@ -45,6 +45,12 @@ type BoardHost interface {
 	// pass is handed only the newest one when it is done: a pass is a
 	// level, and a stale one says nothing the newest does not.
 	OnPass(fn func(Pass)) (unsubscribe func())
+	// Launch starts an agent session for the extension, as the operator
+	// would from the board rather than as any session's spawn: a helper
+	// filed under the session it works for, tagged with the role it plays.
+	// Spawn policies are asked, with SpawnByExtension, and launch
+	// contributors add their environment, as for any other spawn.
+	Launch(ctx context.Context, req LaunchRequest) (SessionInfo, error)
 }
 
 // EventKind classifies a transition by the status it arrived at.

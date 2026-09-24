@@ -7,11 +7,13 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/handover"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/migrate"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
@@ -120,11 +122,19 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	if err != nil {
 		return Session{}, err
 	}
-	command, env, err := launch.Environment(hooks.NewManager(s.configDir), toolName, tool, plan.Command, id, plan.Model, plan.Account)
+	sess := migrate.NewSession(id, name, toolName, source, plan)
+	sessionHooks, err := sessionhooks.Current()
 	if err != nil {
 		return Session{}, err
 	}
-	sess := migrate.NewSession(id, name, toolName, source, plan)
+	contributed, err := sessionhooks.Env(sessionHooks, sess, extension.LaunchMigrate, source.ID)
+	if err != nil {
+		return Session{}, err
+	}
+	command, env, err := launch.Environment(hooks.NewManager(s.configDir), toolName, tool, plan.Command, id, plan.Model, plan.Account, contributed)
+	if err != nil {
+		return Session{}, err
+	}
 	launched := false
 	if err := runtime.store.LaunchSessionBeside(sess, source.ID, func() error {
 		err := runtime.driver.Create(sess.ID, sess.Cwd, command, env, 0, 0)
@@ -134,6 +144,15 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 		if launched {
 			_ = runtime.driver.Kill(sess.ID)
 		}
+		return Session{}, err
+	}
+	// An extension that keeps state for the source has to carry it across
+	// before the migration counts as done; one that cannot undoes it, so
+	// the operator is never left with a new session its extensions do not
+	// know about.
+	if err := sessionhooks.Migrated(sessionHooks, source, sess, runtime.driver.Exists(source.ID)); err != nil {
+		_ = runtime.driver.Kill(sess.ID)
+		_ = runtime.store.Delete(sess.ID)
 		return Session{}, err
 	}
 	accounts.RecordLaunch(runtime.store, sess.ID, sess.Tool, sess.Account)

@@ -11,10 +11,12 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/adopt"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/launch"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -330,7 +332,15 @@ func (m *Model) launchOnHeldConversation(sess store.Session) error {
 // the launch has actually taken. A launch that fails leaves the row exactly
 // as it was, still pointing at the conversation it can be revived on.
 func (m *Model) relaunchSession(sess store.Session, tool config.Tool, baseCommand, newStatus string, bindConversation func() error) error {
-	command, env, err := m.buildLaunch(sess.Tool, tool, baseCommand, sess.ID, sess.Model, sess.Account)
+	sessionHooks, err := sessionhooks.Current()
+	if err != nil {
+		return err
+	}
+	contributed, err := sessionhooks.Env(sessionHooks, sess, extension.LaunchRelaunch, "")
+	if err != nil {
+		return err
+	}
+	command, env, err := m.buildLaunch(sess.Tool, tool, baseCommand, sess.ID, sess.Model, sess.Account, contributed)
 	if err != nil {
 		return err
 	}

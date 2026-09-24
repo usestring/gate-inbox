@@ -161,5 +161,6 @@ func info(sess sessioncmd.Session) extension.SessionInfo {
 		Archived:  sess.Archived,
 		ParentID:  sess.ParentID,
 		SpawnedBy: sess.SpawnedBy,
+		Role:      sess.Role,
 	}
 }

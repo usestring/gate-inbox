@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/git"
@@ -20,6 +21,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/migrate"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -49,6 +51,9 @@ type Session struct {
 	// its spawner, under their shared root, and answered by its spawner.
 	ParentID  string `json:"parent_id,omitempty" jsonschema:"session this row is drawn under on the board; empty for a top-level session"`
 	SpawnedBy string `json:"spawned_by,omitempty" jsonschema:"session that spawned this one, which is the only session that can answer its questions or reach it with send_children; empty for a session nobody spawned"`
+	// Role is the extension's, and reaches extensions only: no tool's output
+	// carries it, so it costs a session's context nothing.
+	Role string `json:"-"`
 }
 
 type SessionScreen struct {
@@ -183,6 +188,7 @@ func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 		Self:      self,
 		ParentID:  sess.ParentID,
 		SpawnedBy: store.SpawnerOf(sess),
+		Role:      sess.Role,
 	}
 }
 
@@ -537,6 +543,23 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if autoNamed {
 		name = toolName + "-" + id[:4]
 	}
+	sess := store.Session{
+		ID:        id,
+		Name:      name,
+		Tool:      toolName,
+		Cwd:       dir,
+		Group:     group,
+		Status:    status.Starting,
+		ParentID:  parentID,
+		SpawnedBy: caller.ID,
+		Model:     strings.TrimSpace(opts.Model),
+	}
+	// Before an account is chosen or a file written, so a refusal costs
+	// nothing to undo.
+	sessionHooks, err := sessionhooks.CheckSpawn(sess, extension.SpawnBySession)
+	if err != nil {
+		return Session{}, err
+	}
 
 	account, err := runtime.accountOr(opts.Account, tool, id)
 	if err != nil {
@@ -554,25 +577,19 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if err != nil {
 		return Session{}, err
 	}
-	manager := hooks.NewManager(s.configDir)
-	command, env, err := launch.Environment(manager, toolName, tool, plan.Command, id, plan.Model, plan.Account)
+	sess.AgentSessionID = plan.AgentSessionID
+	sess.PendingInputs = plan.PendingInputs
+	sess.LaunchPrompt = plan.LaunchPrompt
+	sess.Model = plan.Model
+	sess.Account = plan.Account
+	contributed, err := sessionhooks.Env(sessionHooks, sess, extension.LaunchSpawn, "")
 	if err != nil {
 		return Session{}, err
 	}
-	sess := store.Session{
-		ID:             id,
-		Name:           name,
-		Tool:           toolName,
-		Cwd:            dir,
-		Group:          group,
-		Status:         status.Starting,
-		AgentSessionID: plan.AgentSessionID,
-		PendingInputs:  plan.PendingInputs,
-		LaunchPrompt:   plan.LaunchPrompt,
-		ParentID:       parentID,
-		SpawnedBy:      caller.ID,
-		Model:          plan.Model,
-		Account:        plan.Account,
+	manager := hooks.NewManager(s.configDir)
+	command, env, err := launch.Environment(manager, toolName, tool, plan.Command, id, plan.Model, plan.Account, contributed)
+	if err != nil {
+		return Session{}, err
 	}
 	launched := false
 	if err := create(sess, func() error {
@@ -586,6 +603,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		return Session{}, err
 	}
 	accounts.RecordLaunch(runtime.store, sess.ID, sess.Tool, sess.Account)
+	sessionhooks.Spawned(sessionHooks, sess, extension.SpawnBySession)
 	logging.Info("session created by an agent",
 		"caller", caller.ID, "callerTool", caller.Tool,
 		"session", sess.ID, "parent", sess.ParentID,

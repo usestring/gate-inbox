@@ -11,7 +11,8 @@ import (
 // badge. Host acts as the session its MCP server serves, with that
 // session's reach; Board has the operator's reach from the board, over
 // reads and answers only. Starting and ending sessions stay a session's
-// acts, through Host.
+// acts, through Host; the one exception is BoardHost.Launch, which starts
+// a board extension's own helpers.
 //
 // An answer through Board is held to the dialog's own rules: a guarded
 // dialog is refused here as it is to a session.

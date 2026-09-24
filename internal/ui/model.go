@@ -72,6 +72,7 @@ const (
 	// modeAgentPick holds the one question a new session asks: which agent
 	// starts here. See agentpick.go.
 	modeAgentPick
+	modeExtensionView
 )
 
 type treeRow struct {
@@ -122,6 +123,10 @@ type Model struct {
 	extKeys   map[keymap.Context]map[keymap.Action]extensionKey
 	extBridge *ExtensionBridge
 	extBadges map[string][]Badge
+	// extScreens are the view screens the extensions declared keys for, and
+	// extView is the view on screen in modeExtensionView.
+	extScreens map[keymap.Context]bool
+	extView    openView
 
 	// setSnapshots writes pane captures before archive or kill takes the
 	// windows; a seam so snapshot failures can be exercised without a broken

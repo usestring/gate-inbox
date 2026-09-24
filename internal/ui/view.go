@@ -111,6 +111,8 @@ func (m *Model) paint() (string, bool) {
 		frame = m.viewTmuxHint()
 	case modeAgentPick:
 		frame = m.viewAgentPick()
+	case modeExtensionView:
+		frame = m.viewExtension()
 	default:
 		frame = m.viewListFrame()
 	}

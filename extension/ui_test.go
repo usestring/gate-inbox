@@ -33,8 +33,9 @@ func (s *uiStub) UI(host extension.UIHost) (extension.UI, error) {
 
 type fakeUIHost struct{ id string }
 
-func (fakeUIHost) Decorate(string, ...extension.Badge) {}
-func (fakeUIHost) Notify(string)                       {}
+func (fakeUIHost) Decorate(string, ...extension.Badge)              {}
+func (fakeUIHost) Notify(string)                                    {}
+func (fakeUIHost) Open(string, extension.View) extension.ViewHandle { return nil }
 
 func TestStartUIAsksEnabledProvidersInOrder(t *testing.T) {
 	first, second := &uiStub{id: "first"}, &uiStub{id: "second"}

@@ -17,8 +17,9 @@ import (
 
 // TestExternalBuildAddsKeysAndBadgesToTheBoard is the proof for the UI seam:
 // a module importing app and extension only puts a badge on the rows it is
-// told about, and a key of its own on the list answers with the row it was
-// pressed on.
+// told about, a key of its own on the list answers with the row it was
+// pressed on, and the view that key opens is drawn, told the keys of its own
+// screen, and closed by the board on esc.
 func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	script, err := exec.LookPath("script")
 	if err != nil {
@@ -77,7 +78,7 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 			if got := string(body); got != "ca11e400 \"\" true\n" {
 				t.Fatalf("pressed.txt = %q, want the caller's row with the board's context live", got)
 			}
-			return
+			break
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("the extension's key never ran; board output:\n%s", ansi.Strip(out.String()))
@@ -90,6 +91,23 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 			t.Fatalf("the board exited:\n%s", ansi.Strip(out.String()))
 		case <-time.After(350 * time.Millisecond):
 		}
+	}
+
+	waitForOutput(t, out, "row ca11e400", exited, func() {})
+	if !strings.Contains(ansi.Strip(out.String()), "noop peek") {
+		t.Fatalf("the view's title was not drawn:\n%s", ansi.Strip(out.String()))
+	}
+	keys.Write([]byte("n"))
+	viewKeys := filepath.Join(data, "viewkeys.txt")
+	waitForFile(t, viewKeys, "peek_note n\n", exited, &strings.Builder{})
+	// esc is the board's: the view is closed and never told of it, and a
+	// later n lands on the list, where nothing is bound to it.
+	keys.Write([]byte("\x1b"))
+	time.Sleep(300 * time.Millisecond)
+	keys.Write([]byte("n"))
+	time.Sleep(time.Second)
+	if body, _ := os.ReadFile(viewKeys); string(body) != "peek_note n\n" {
+		t.Fatalf("viewkeys.txt = %q, want the one press before esc closed the view", body)
 	}
 }
 

@@ -37,13 +37,9 @@ func startUI(ctx context.Context, registry *extension.Registry, model *ui.Model,
 func uiKeys(ctx context.Context, owner string, bindings []extension.KeyBinding) []ui.ExtensionKey {
 	keys := make([]ui.ExtensionKey, 0, len(bindings))
 	for _, binding := range bindings {
-		if binding.Screen != "" && binding.Screen != extension.ScreenList {
-			logging.Warn("extension key names a screen the board does not have",
-				"extension", owner, "screen", binding.Screen, "action", binding.Action)
-			continue
-		}
 		run := binding.Run
 		keys = append(keys, ui.ExtensionKey{
+			Screen: binding.Screen,
 			Action: binding.Action,
 			Keys:   binding.Keys,
 			Label:  binding.Label,
@@ -73,6 +69,32 @@ func (h uiHost) Decorate(sessionID string, badges ...extension.Badge) {
 }
 
 func (h uiHost) Notify(text string) { h.bridge.Notify(h.id, text) }
+
+func (h uiHost) Open(screen string, view extension.View) extension.ViewHandle {
+	return h.bridge.Open(h.id, screen, uiView{view})
+}
+
+// uiView is an extension's view as the board draws it.
+type uiView struct{ view extension.View }
+
+func (v uiView) Title() string { return v.view.Title() }
+
+func (v uiView) Render(width, height int) [][]ui.Span {
+	lines := v.view.Render(width, height)
+	out := make([][]ui.Span, 0, len(lines))
+	for _, line := range lines {
+		row := make([]ui.Span, 0, len(line))
+		for _, span := range line {
+			row = append(row, ui.Span{Text: span.Text, Tone: uiTone(span.Tone), Bold: span.Bold})
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+func (v uiView) Key(key ui.ViewKey) bool {
+	return v.view.Key(extension.ViewKey{Action: key.Action, Key: key.Key, Text: key.Text})
+}
 
 func uiTone(tone extension.Tone) ui.Tone {
 	switch tone {

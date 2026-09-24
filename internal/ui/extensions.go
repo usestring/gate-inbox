@@ -1,7 +1,7 @@
 package ui
 
 // What a build's extensions add to the board's screens: keys on the list,
-// and badges on a session's row.
+// badges on a session's row, and screens of their own (see extview.go).
 //
 // Nothing here hands an extension the model. A key is an action name the
 // key map resolves like any other, and pressing it runs the extension's
@@ -12,6 +12,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -30,13 +31,17 @@ type ExtensionUI struct {
 	Keys  []ExtensionKey
 }
 
-// ExtensionKey is one action an extension adds to the list.
+// ExtensionKey is one action an extension adds to a screen.
 type ExtensionKey struct {
+	// Screen is the list when empty, or the name of a screen the extension
+	// opens views on. The board's other screens take no extension keys.
+	Screen string
 	Action string
 	Keys   []string
 	Label  string
-	// Run answers the key. It is called off the event loop; an error it
-	// returns is put on the status bar.
+	// Run answers the key on the list. It is called off the event loop; an
+	// error it returns is put on the status bar. On a view's screen the view
+	// answers instead, and Run is not called.
 	Run func(Press) error
 }
 
@@ -77,6 +82,7 @@ type ExtensionBridge struct {
 	badges  map[string]map[string][]Badge
 	send    func(tea.Msg)
 	pending bool
+	views   int
 }
 
 // NewExtensionBridge makes the bridge. owners fixes the order badges are
@@ -127,12 +133,7 @@ func (b *ExtensionBridge) Decorate(owner, sessionID string, badges []Badge) {
 
 // Notify puts a line from owner on the status bar.
 func (b *ExtensionBridge) Notify(owner, text string) {
-	b.mu.Lock()
-	send := b.send
-	b.mu.Unlock()
-	if send != nil {
-		go send(extensionNoticeMsg{owner: owner, text: badgeText(text)})
-	}
+	b.post(extensionNoticeMsg{owner: owner, text: badgeText(text)})
 }
 
 // snapshot is every session's badges, owners in build order.
@@ -152,12 +153,18 @@ func (b *ExtensionBridge) snapshot() map[string][]Badge {
 // badgeText is text an extension handed over, made safe to put in a row: one
 // line, and nothing a terminal would read as a command.
 func badgeText(text string) string {
-	return strings.TrimSpace(strings.Map(func(r rune) rune {
+	return strings.TrimSpace(cleanText(text))
+}
+
+// cleanText is text with every control character taken out, tabs included,
+// so what an extension writes can move the cursor nowhere.
+func cleanText(text string) string {
+	return strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
 			return -1
 		}
 		return r
-	}, text))
+	}, text)
 }
 
 type extensionBadgesMsg struct{}
@@ -176,40 +183,100 @@ type extensionKey struct {
 }
 
 // InstallExtensions gives the model the extensions' keys and the bridge their
-// badges arrive on, and resolves the key map again with those keys in it. It
-// is called before the program runs.
+// badges and views arrive on, and resolves the key map again with those keys
+// in it. It is called before the program runs.
+//
+// A key naming one of the board's own screens other than the list is left
+// out: those screens answer every key themselves. Every other screen named is
+// a view screen, and one no extension gives a close action gets close on esc.
 func (m *Model) InstallExtensions(uis []ExtensionUI, bridge *ExtensionBridge) {
-	m.extUIs = uis
 	m.extBridge = bridge
+	m.extUIs = nil
+	for _, ui := range uis {
+		kept := ExtensionUI{Owner: ui.Owner}
+		for _, key := range ui.Keys {
+			screen := keymap.Context(key.Screen)
+			if screen != "" && screen != keymap.ContextList && slices.Contains(keymap.Contexts, screen) {
+				logging.Warn("extension key names one of the board's own screens",
+					"extension", ui.Owner, "screen", key.Screen, "action", key.Action)
+				continue
+			}
+			kept.Keys = append(kept.Keys, key)
+		}
+		m.extUIs = append(m.extUIs, kept)
+	}
+	m.extScreens = map[keymap.Context]bool{}
+	for _, screen := range viewScreens(m.extUIs) {
+		m.extScreens[screen] = true
+		if !m.declaresClose(screen) {
+			for i := range m.extUIs {
+				if m.hasScreen(i, screen) {
+					m.extUIs[i].Keys = append(m.extUIs[i].Keys, ExtensionKey{
+						Screen: string(screen), Action: string(ActionClose), Keys: []string{"esc"}, Label: "close"})
+					break
+				}
+			}
+		}
+	}
 	m.extKeys = map[keymap.Context]map[keymap.Action]extensionKey{}
 	m.loadKeys()
-	for _, ui := range uis {
+	for _, ui := range m.extUIs {
 		for _, key := range ui.Keys {
-			action := keymap.Action(key.Action)
-			if !m.ownsAction(keymap.ContextList, action) {
+			ctx, action := keyScreen(key), keymap.Action(key.Action)
+			if !m.ownsAction(ctx, action) {
 				continue
 			}
-			if m.extKeys[keymap.ContextList] == nil {
-				m.extKeys[keymap.ContextList] = map[keymap.Action]extensionKey{}
+			if m.extKeys[ctx] == nil {
+				m.extKeys[ctx] = map[keymap.Action]extensionKey{}
 			}
-			if _, taken := m.extKeys[keymap.ContextList][action]; taken {
+			if _, taken := m.extKeys[ctx][action]; taken {
 				continue
 			}
-			m.extKeys[keymap.ContextList][action] = extensionKey{owner: ui.Owner, key: key}
+			m.extKeys[ctx][action] = extensionKey{owner: ui.Owner, key: key}
 		}
 	}
 }
 
-// extraBindings is every extension key as the key map takes it.
+func (m *Model) declaresClose(screen keymap.Context) bool {
+	for _, ui := range m.extUIs {
+		for _, key := range ui.Keys {
+			if keyScreen(key) == screen && keymap.Action(key.Action) == ActionClose {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (m *Model) hasScreen(i int, screen keymap.Context) bool {
+	for _, key := range m.extUIs[i].Keys {
+		if keyScreen(key) == screen {
+			return true
+		}
+	}
+	return false
+}
+
+func keyScreen(key ExtensionKey) keymap.Context {
+	if key.Screen == "" {
+		return keymap.ContextList
+	}
+	return keymap.Context(key.Screen)
+}
+
+// extraBindings is every extension key as the key map takes it. A view
+// screen's close is required: it is the way off that screen.
 func (m *Model) extraBindings() []keymap.Binding {
 	var out []keymap.Binding
 	for _, ui := range m.extUIs {
 		for _, key := range ui.Keys {
+			ctx := keyScreen(key)
 			out = append(out, keymap.Binding{
-				Context: keymap.ContextList,
-				Action:  keymap.Action(key.Action),
-				Keys:    key.Keys,
-				Label:   key.Label,
+				Context:  ctx,
+				Action:   keymap.Action(key.Action),
+				Keys:     key.Keys,
+				Label:    key.Label,
+				Required: ctx != keymap.ContextList && keymap.Action(key.Action) == ActionClose,
 			})
 		}
 	}
@@ -259,6 +326,9 @@ func (m *Model) runExtensionKey(ext extensionKey) tea.Cmd {
 }
 
 func (m *Model) updateExtension(msg tea.Msg) bool {
+	if m.updateExtensionView(msg) {
+		return true
+	}
 	switch msg := msg.(type) {
 	case extensionBadgesMsg:
 		if m.extBridge != nil {
@@ -279,20 +349,37 @@ func (m *Model) updateExtension(msg tea.Msg) bool {
 	return true
 }
 
-// extensionHelpSections is one key map section per extension with keys on
-// the list, titled with its id.
+// extensionHelpSections is one key map section per extension and screen:
+// its keys on the list titled with its id, and each of its view screens'
+// keys titled with the id and the screen.
 func (m *Model) extensionHelpSections() []helpSection {
 	var out []helpSection
 	for _, ui := range m.extUIs {
-		var rows []helpRow
+		screens := []keymap.Context{keymap.ContextList}
 		for _, key := range ui.Keys {
-			action := keymap.Action(key.Action)
-			if ext, ok := m.extKeys[keymap.ContextList][action]; ok && ext.owner == ui.Owner {
-				rows = append(rows, listRow(action, key.Label))
+			if ctx := keyScreen(key); !slices.Contains(screens, ctx) {
+				screens = append(screens, ctx)
 			}
 		}
-		if len(rows) > 0 {
-			out = append(out, helpSection{title: ui.Owner, rows: rows})
+		for _, ctx := range screens {
+			var rows []helpRow
+			for _, key := range ui.Keys {
+				action := keymap.Action(key.Action)
+				if keyScreen(key) != ctx {
+					continue
+				}
+				if ext, ok := m.extKeys[ctx][action]; ok && ext.owner == ui.Owner {
+					rows = append(rows, bound(ctx, action, key.Label))
+				}
+			}
+			if len(rows) == 0 {
+				continue
+			}
+			title := ui.Owner
+			if ctx != keymap.ContextList {
+				title += " · " + string(ctx)
+			}
+			out = append(out, helpSection{title: title, rows: rows})
 		}
 	}
 	return out

@@ -74,6 +74,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleTmuxHintKey(msg)
 	case modeAgentPick:
 		return m.handleAgentPickKey(msg)
+	case modeExtensionView:
+		return m.handleExtensionViewKey(msg)
 	}
 
 	if m.searching {

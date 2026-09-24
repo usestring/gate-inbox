@@ -194,8 +194,9 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 	return func() { record("stopped.txt", fmt.Sprint(ctx.Err() != nil)) }, nil
 }
 
-// UI adds one key to the list, which records the row it was pressed on,
-// and keeps the host so StartBoard can badge every row it is told about.
+// UI adds one key to the list, which records the row it was pressed on and
+// opens a view of it, and one key on that view's screen. It keeps the host
+// so StartBoard can badge every row it is told about.
 func (n *noop) UI(host extension.UIHost) (extension.UI, error) {
 	n.ui = host
 	return extension.UI{Keys: []extension.KeyBinding{{
@@ -208,9 +209,42 @@ func (n *noop) UI(host extension.UIHost) (extension.UI, error) {
 				return err
 			}
 			line := fmt.Sprintf("%s %q %v\n", press.SessionID, press.Group, ctx.Err() == nil)
-			return os.WriteFile(filepath.Join(dir, "pressed.txt"), []byte(line), 0o600)
+			if err := os.WriteFile(filepath.Join(dir, "pressed.txt"), []byte(line), 0o600); err != nil {
+				return err
+			}
+			host.Open("peek", &peekView{session: press.SessionID, dir: dir})
+			return nil
 		},
+	}, {
+		Screen: "peek",
+		Action: "peek_note",
+		Keys:   []string{"n"},
+		Label:  "note the key",
 	}}}, nil
+}
+
+// peekView shows the row it was opened on, and records every key it is
+// told about.
+type peekView struct {
+	session, dir string
+}
+
+func (v *peekView) Title() string { return "noop peek" }
+
+func (v *peekView) Render(width, height int) []extension.Line {
+	return []extension.Line{{
+		{Text: "row ", Bold: true},
+		{Text: v.session, Tone: extension.ToneAccent},
+	}}
+}
+
+func (v *peekView) Key(key extension.ViewKey) bool {
+	f, err := os.OpenFile(filepath.Join(v.dir, "viewkeys.txt"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err == nil {
+		fmt.Fprintf(f, "%s %s\n", key.Action, key.Key)
+		f.Close()
+	}
+	return false
 }
 
 func text(s string) *mcp.CallToolResult {

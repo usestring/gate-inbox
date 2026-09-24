@@ -7,7 +7,7 @@ import (
 )
 
 // UIProvider is an extension that adds to the interactive board's screens:
-// keys on the session list, and badges on a session's row.
+// keys on the session list, badges on a session's row, and views of its own.
 //
 // The contract is deliberately narrow. The board never hands an extension its
 // model, its renderer or its event loop: a key is a named action the
@@ -32,7 +32,17 @@ type UI struct {
 // when it is left empty.
 const ScreenList = "list"
 
+// ActionClose is the action that closes a view. The board answers it itself
+// on every view screen, and a screen whose bindings name no close gets one on
+// esc, so no view is a screen with no way off it.
+const ActionClose = "close"
+
 // KeyBinding is one action an extension adds to a screen.
+//
+// Screen is the list when empty. Any other name, other than one of the
+// board's own screens, is a screen of the extension's own: its bindings are
+// the keys a View opened on it is told about, under a table of that name in
+// the operator's key file.
 //
 // Action is the name the operator's key file writes it under, beside the
 // board's own actions for that screen: lower case letters, digits and '_',
@@ -46,9 +56,11 @@ type KeyBinding struct {
 	Keys   []string
 	// Label is what the key map screen says the key does.
 	Label string
-	// Run answers the key. It is called off the board's event loop with the
-	// row the cursor was on; ctx ends when the board exits. An error is put
-	// on the board's status bar, prefixed with the extension's id.
+	// Run answers the key on the list. It is called off the board's event
+	// loop with the row the cursor was on; ctx ends when the board exits. An
+	// error is put on the board's status bar, prefixed with the extension's
+	// id. On a view's screen the view answers the key, and Run is not
+	// called.
 	Run func(ctx context.Context, press Press) error
 }
 
@@ -68,6 +80,60 @@ type UIHost interface {
 	Decorate(sessionID string, badges ...Badge)
 	// Notify puts one line on the board's status bar.
 	Notify(text string)
+	// Open shows view on screen, a screen this extension declared keys for.
+	// It is shown only if the board is still on its list, or on another
+	// view, when the request reaches it: a press whose load took a while
+	// must not take the screen from an operator who has moved on.
+	Open(screen string, view View) ViewHandle
+}
+
+// View is a screen of an extension's own, drawn as a card over the list. The
+// board draws the frame, the title and the key hints from the screen's
+// bindings; the view supplies the body.
+//
+// Every method is called on the board's event loop and must return
+// promptly: a view loads off the loop and calls Refresh on its handle. A
+// view that panics is closed and the panic reported.
+type View interface {
+	Title() string
+	// Render is the body at width cells by height rows. Rows past height
+	// are not drawn, each row is cut to width, and control characters are
+	// removed.
+	Render(width, height int) []Line
+	// Key is a press the board did not answer itself. Returning true closes
+	// the view.
+	Key(key ViewKey) (close bool)
+}
+
+// Line is one row of a view: runs of text, each in a tone.
+type Line []Span
+
+// Span is text in one tone, which the board draws in its theme's colour for
+// that meaning; ToneMuted is the ordinary text colour.
+type Span struct {
+	Text string
+	Tone Tone
+	Bold bool
+}
+
+// ViewKey is a press, as a view is told it.
+type ViewKey struct {
+	// Action is what the press stands for on the view's screen, or "" when
+	// nothing there is bound to it.
+	Action string
+	// Key is the press's name, spelled the way the key file spells keys.
+	Key string
+	// Text is what the press types, for a view with a field of its own.
+	Text string
+}
+
+// ViewHandle is an opened view. Both methods may be called from any
+// goroutine, and do nothing once the view is no longer on screen.
+type ViewHandle interface {
+	// Refresh asks the board to draw the view again.
+	Refresh()
+	// Close closes the view.
+	Close()
 }
 
 // Badge is a short mark on a session's row. Rows are narrow, so a badge that

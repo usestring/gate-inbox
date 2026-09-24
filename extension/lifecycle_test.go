@@ -58,7 +58,8 @@ func (v fakeView) Subscribe(func(extension.StatusEvent)) func() {
 	v.board.live[v.id]++
 	return func() {}
 }
-func (v fakeView) OnPass(func(extension.Pass)) func() { return func() {} }
+func (v fakeView) OnPass(func(extension.Pass)) func()              { return func() {} }
+func (v fakeView) OnOperator(func(extension.OperatorInput)) func() { return func() {} }
 func (v fakeView) Launch(context.Context, extension.LaunchRequest) (extension.SessionInfo, error) {
 	return extension.SessionInfo{}, errors.New("no launches here")
 }

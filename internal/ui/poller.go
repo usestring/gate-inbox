@@ -16,6 +16,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/agentsession"
 	"github.com/usestring/gate-inbox/internal/band"
 	"github.com/usestring/gate-inbox/internal/codexq"
@@ -150,9 +151,12 @@ type poller struct {
 // BoardObserver is told what the poll pass observes: each status change
 // once it is stored, and every pass once it is done. It is called on the
 // poll loop with runMu held, so it must hand the work off rather than do it.
+// It is also told what the operator hands a session from the board, on the
+// update loop, which it must not hold up either.
 type BoardObserver interface {
 	Transition(id, from, to string, at time.Time)
 	Pass(at time.Time, sessions []store.Session)
+	Operator(input extension.OperatorInput)
 }
 
 type transition struct{ id, from, to string }

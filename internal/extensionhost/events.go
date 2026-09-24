@@ -24,9 +24,10 @@ type Events struct {
 	// the ID of the extension that owns it.
 	report func(owner string, err error)
 
-	mu     sync.Mutex
-	events []*subscription[extension.StatusEvent]
-	passes []*subscription[extension.Pass]
+	mu        sync.Mutex
+	events    []*subscription[extension.StatusEvent]
+	passes    []*subscription[extension.Pass]
+	operators []*subscription[extension.OperatorInput]
 }
 
 // NewEvents fans the poll pass out beside board, which every BoardHost it
@@ -80,11 +81,23 @@ func (b *Events) Pass(at time.Time, sessions []store.Session) {
 	}
 }
 
+// Operator is the operator having handed a session input from the board.
+// It is called on the board's update loop, so it only queues.
+func (b *Events) Operator(input extension.OperatorInput) {
+	b.mu.Lock()
+	subs := b.operators
+	b.mu.Unlock()
+	for _, sub := range subs {
+		sub.push(input)
+	}
+}
+
 func (b *Events) remove(sub any) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.events = without(b.events, sub)
 	b.passes = without(b.passes, sub)
+	b.operators = without(b.operators, sub)
 }
 
 // without copies rather than filtering in place: Transition and Pass range
@@ -128,6 +141,15 @@ func (v *boardView) Send(ctx context.Context, id string, msg extension.Message) 
 
 func (v *boardView) Kill(ctx context.Context, id string) (extension.SessionInfo, error) {
 	return v.events.board.Kill(ctx, id)
+}
+
+func (v *boardView) OnOperator(fn func(extension.OperatorInput)) func() {
+	sub := newSubscription(v.owner, fn, v.events.report, false)
+	return v.add(sub, func() {
+		v.events.mu.Lock()
+		v.events.operators = append(v.events.operators[:len(v.events.operators):len(v.events.operators)], sub)
+		v.events.mu.Unlock()
+	})
 }
 
 func (v *boardView) OnPass(fn func(extension.Pass)) func() {
@@ -247,7 +269,7 @@ func (s *subscription[T]) run() {
 			s.dropped = 0
 			s.mu.Unlock()
 			if dropped > 0 {
-				s.report(s.owner, fmt.Errorf("a status subscriber fell behind; %d event(s) dropped", dropped))
+				s.report(s.owner, fmt.Errorf("a board subscriber fell behind; %d event(s) dropped", dropped))
 			}
 			s.call(value)
 		}

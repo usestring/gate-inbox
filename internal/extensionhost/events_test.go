@@ -216,3 +216,46 @@ func TestBoardDropsTheOldestEventsOfAStuckSubscriber(t *testing.T) {
 		t.Fatal("the dropped events were not reported")
 	}
 }
+
+// The operator's input reaches every extension that asked for it, in order,
+// and stops at unsubscribe; a panicking subscriber is reported and kept.
+func TestBoardDeliversOperatorInputInOrder(t *testing.T) {
+	var mu sync.Mutex
+	var reported []string
+	board := NewEvents(NewBoard("", nil), func(owner string, err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		reported = append(reported, owner+": "+err.Error())
+	})
+	host, release := board.For("ext")
+	defer release()
+	host.OnOperator(func(extension.OperatorInput) { panic("boom") })
+	var got []extension.OperatorInput
+	done := make(chan struct{})
+	unsubscribe := host.OnOperator(func(in extension.OperatorInput) {
+		got = append(got, in)
+		if len(got) == 2 {
+			close(done)
+		}
+	})
+	at := time.Unix(100, 0)
+	first := extension.OperatorInput{SessionID: "a", Via: extension.OperatorPrompt, Text: "go on", At: at}
+	second := extension.OperatorInput{SessionID: "a", Via: extension.OperatorPane, Dialog: true, At: at}
+	board.Operator(first)
+	board.Operator(second)
+	within(t, "two inputs", done)
+	if got[0] != first || got[1] != second {
+		t.Fatalf("got %+v, want %+v then %+v", got, first, second)
+	}
+	unsubscribe()
+	board.Operator(first)
+	time.Sleep(50 * time.Millisecond)
+	if len(got) != 2 {
+		t.Fatalf("an unsubscribed callback was still called: %+v", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(reported) == 0 || !strings.Contains(reported[0], "ext: a board subscriber panicked") {
+		t.Fatalf("reported = %v, want the panic reported against its extension", reported)
+	}
+}

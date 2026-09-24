@@ -182,6 +182,11 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			record("passes.txt", s.ID+" "+s.Status)
 		}
 	})
+	// What the operator hands a session from the board, which is how an
+	// extension that asked the operator something learns they answered.
+	board.OnOperator(func(in extension.OperatorInput) {
+		record("operator.txt", fmt.Sprintf("%s %s %v %q", in.SessionID, in.Via, in.Dialog, in.Text))
+	})
 	record("started.txt", fmt.Sprint(os.Getpid(), " ", board.ConfigDir()))
 	// A helper of its own, launched from the board under the dead child,
 	// with a role and an argument after its prompt.

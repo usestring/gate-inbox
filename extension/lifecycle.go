@@ -62,7 +62,43 @@ type BoardHost interface {
 	// kill_session does: the last screen is kept, and a revive can resume
 	// the conversation. A terminal is refused.
 	Kill(ctx context.Context, id string) (SessionInfo, error)
+	// OnOperator calls fn with everything the operator hands a session from
+	// the board, until unsubscribe is called: a line sent from the prompt
+	// bar, a snippet, a line or a dialog choice entered in a focused pane.
+	// It is how an extension that put a question to the operator learns
+	// that a person has answered. Only input that reached the pane is
+	// reported; one the board refused, or that tmux failed to deliver, is
+	// not. Delivery is Subscribe's: in order, on the subscription's own
+	// goroutine.
+	OnOperator(fn func(OperatorInput)) (unsubscribe func())
 }
+
+// OperatorInput is one thing the operator handed a session from the board.
+type OperatorInput struct {
+	SessionID string
+	Via       OperatorVia
+	// Text is the line sent. It is empty for input typed into a focused
+	// pane, where the board passes keystrokes on and never holds the line.
+	Text string
+	// Dialog is set when the input answered a dialog the pane was holding,
+	// rather than a line at the session's prompt.
+	Dialog bool
+	At     time.Time
+}
+
+// OperatorVia is where on the board the operator's input came from.
+type OperatorVia string
+
+const (
+	// OperatorPrompt is the board's prompt bar, or the reply composer the
+	// gate opens, sending a line the operator wrote.
+	OperatorPrompt OperatorVia = "prompt"
+	// OperatorSnippet is one of the operator's snippets, sent with its key.
+	OperatorSnippet OperatorVia = "snippet"
+	// OperatorPane is a key typed into a focused pane that submitted its
+	// line or chose an option in its dialog.
+	OperatorPane OperatorVia = "pane"
+)
 
 // Message is what BoardHost.Send queues.
 type Message struct {

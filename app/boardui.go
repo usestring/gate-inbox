@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/notify"
 	"github.com/usestring/gate-inbox/internal/ui"
 )
 
@@ -69,6 +70,24 @@ func (h uiHost) Decorate(sessionID string, badges ...extension.Badge) {
 }
 
 func (h uiHost) Notify(text string) { h.bridge.Notify(h.id, text) }
+
+func (h uiHost) Alert(alert extension.Alert) {
+	if !notify.Post(notify.Note{Subject: alert.Title, Body: alert.Body, Kind: alertKind(alert.Tone)}) {
+		logging.Warn("extension alert dropped: too many in flight", "extension", h.id)
+	}
+}
+
+func alertKind(tone extension.Tone) notify.Kind {
+	switch tone {
+	case extension.ToneWarn:
+		return notify.Waiting
+	case extension.ToneGood:
+		return notify.Finished
+	case extension.ToneBad:
+		return notify.Errored
+	}
+	return notify.Plain
+}
 
 func (h uiHost) Open(screen string, view extension.View) extension.ViewHandle {
 	return h.bridge.Open(h.id, screen, uiView{view})

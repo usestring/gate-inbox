@@ -18,8 +18,8 @@ import (
 // TestExternalBuildAddsKeysAndBadgesToTheBoard is the proof for the UI seam:
 // a module importing app and extension only puts a badge on the rows it is
 // told about, a key of its own on the list answers with the row it was
-// pressed on, and the view that key opens is drawn, told the keys of its own
-// screen, and closed by the board on esc.
+// pressed on and raises a desktop alert, and the view that key opens is
+// drawn, told the keys of its own screen, and closed by the board on esc.
 func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	script, err := exec.LookPath("script")
 	if err != nil {
@@ -36,6 +36,8 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	seedSessions(t, filepath.Join(home, "state.db"))
 	skipWelcome(t, filepath.Join(home, "state.db"))
 	data := filepath.Join(home, "extensions", "noop")
+	alerts := filepath.Join(home, "alerts.txt")
+	env = stubNotifiers(t, env, alerts)
 
 	// script(1)'s terminal has no size until one is set, and a board with
 	// no columns draws no rows to badge.
@@ -93,6 +95,12 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 		}
 	}
 
+	// The key's alert reached the system notifier as one line, the row it
+	// named as its subject.
+	if body := waitForFile(t, alerts, "marked by noop", exited, &strings.Builder{}); !strings.Contains(body, "ca11e400") {
+		t.Fatalf("alerts.txt = %q, want the key's alert with its row", body)
+	}
+
 	waitForOutput(t, out, "row ca11e400", exited, func() {})
 	if !strings.Contains(ansi.Strip(out.String()), "noop peek") {
 		t.Fatalf("the view's title was not drawn:\n%s", ansi.Strip(out.String()))
@@ -109,6 +117,32 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	if body, _ := os.ReadFile(viewKeys); string(body) != "peek_note n\n" {
 		t.Fatalf("viewkeys.txt = %q, want the one press before esc closed the view", body)
 	}
+}
+
+// stubNotifiers puts a notify-send and an osascript first on the board's
+// PATH that write their arguments to record, one call a line, and takes out
+// the markers that would send an alert to the terminal instead.
+func stubNotifiers(t *testing.T, env []string, record string) []string {
+	t.Helper()
+	bin := t.TempDir()
+	stub := "#!/bin/sh\necho \"$*\" >> '" + record + "'\n"
+	for _, name := range []string{"notify-send", "osascript"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(stub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := make([]string, 0, len(env)+2)
+	for _, entry := range env {
+		key, value, _ := strings.Cut(entry, "=")
+		switch key {
+		case "TERM_PROGRAM", "CMUX_WORKSPACE_ID", "TERM":
+			continue
+		case "PATH":
+			entry = "PATH=" + bin + string(os.PathListSeparator) + value
+		}
+		out = append(out, entry)
+	}
+	return append(out, "TERM=xterm-256color")
 }
 
 func skipWelcome(t *testing.T, path string) {

@@ -80,6 +80,11 @@ type UIHost interface {
 	Decorate(sessionID string, badges ...Badge)
 	// Notify puts one line on the board's status bar.
 	Notify(text string)
+	// Alert raises a desktop notification, for what the operator should
+	// hear about while looking elsewhere. It returns at once: delivery runs
+	// in the background, one alert at a time, and a burst that outruns it
+	// is dropped rather than queued without end.
+	Alert(alert Alert)
 	// Open shows view on screen, a screen this extension declared keys for.
 	// It is shown only if the board is still on its list, or on another
 	// view, when the request reaches it: a press whose load took a while
@@ -134,6 +139,20 @@ type ViewHandle interface {
 	Refresh()
 	// Close closes the view.
 	Close()
+}
+
+// Alert is a desktop notification. The board sends it by the best path the
+// operator's terminal and system offer, falling back to the terminal bell.
+// Control characters are removed from both fields, and each is squashed to
+// one line.
+type Alert struct {
+	// Title names what the alert is about, such as a session's name. It is
+	// shown as the notification's subtitle, under the board's own name.
+	Title string
+	Body  string
+	// Tone picks the sound and urgency: ToneWarn for something waiting on
+	// the operator, ToneGood for something finished, ToneBad for a failure.
+	Tone Tone
 }
 
 // Badge is a short mark on a session's row. Rows are narrow, so a badge that

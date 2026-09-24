@@ -212,6 +212,7 @@ func (n *noop) UI(host extension.UIHost) (extension.UI, error) {
 			if err := os.WriteFile(filepath.Join(dir, "pressed.txt"), []byte(line), 0o600); err != nil {
 				return err
 			}
+			host.Alert(extension.Alert{Title: press.SessionID, Body: "marked\nby noop", Tone: extension.ToneWarn})
 			host.Open("peek", &peekView{session: press.SessionID, dir: dir})
 			return nil
 		},

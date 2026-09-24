@@ -35,6 +35,7 @@ type fakeUIHost struct{ id string }
 
 func (fakeUIHost) Decorate(string, ...extension.Badge)              {}
 func (fakeUIHost) Notify(string)                                    {}
+func (fakeUIHost) Alert(extension.Alert)                            {}
 func (fakeUIHost) Open(string, extension.View) extension.ViewHandle { return nil }
 
 func TestStartUIAsksEnabledProvidersInOrder(t *testing.T) {

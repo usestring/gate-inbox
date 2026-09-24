@@ -719,6 +719,15 @@ func pollUntilQueued(t *testing.T, m *Model, sessionID string, want int) {
 				queued, want, inboxStall(t, m, sessionID))
 		}
 		m.applyCmd(t, m.refreshCmd())
+		// A pass hands its paste off and the message leaves the queue when
+		// that send settles, off the pass. Left to land whenever it does, a
+		// settle can fall between the count above and the next pass, which
+		// then types the message behind it: two leave the queue between
+		// reads, and a caller waiting for one still queued never sees it.
+		// Settling here makes the count move only on a pass this loop ran.
+		if !m.poller.awaitSends(time.Until(deadline)) {
+			t.Fatalf("a send was still out at the deadline, want %d queued\n%s", want, inboxStall(t, m, sessionID))
+		}
 		time.Sleep(20 * time.Millisecond)
 	}
 }

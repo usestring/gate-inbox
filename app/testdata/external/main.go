@@ -159,6 +159,39 @@ func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionCont
 	})
 }
 
+// StartBoard records what the board tells it in the data directory: every
+// status event, every pass, and its own stop. The first subscriber panics on
+// every event, which the board has to survive for the second to be told.
+func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(), error) {
+	dir, err := n.config.DataDir()
+	if err != nil {
+		return nil, err
+	}
+	record := func(name, line string) {
+		f, err := os.OpenFile(filepath.Join(dir, name), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			return
+		}
+		defer f.Close()
+		fmt.Fprintln(f, line)
+	}
+	board.Subscribe(func(extension.StatusEvent) { panic("a subscriber that always fails") })
+	board.Subscribe(func(e extension.StatusEvent) {
+		name := "unreadable"
+		if info, err := board.Get(ctx, e.SessionID); err == nil {
+			name = info.Name
+		}
+		record("events.txt", fmt.Sprintf("%s %s>%s %q %s", e.SessionID, e.From, e.To, e.Kind, name))
+	})
+	board.OnPass(func(p extension.Pass) {
+		for _, s := range p.Sessions {
+			record("passes.txt", s.ID+" "+s.Status)
+		}
+	})
+	record("started.txt", fmt.Sprint(os.Getpid(), " ", board.ConfigDir()))
+	return func() { record("stopped.txt", fmt.Sprint(ctx.Err() != nil)) }, nil
+}
+
 func text(s string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: s}}}
 }

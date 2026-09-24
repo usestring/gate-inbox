@@ -143,7 +143,19 @@ type poller struct {
 	// the same "over this window" idea as the computer gauge.
 	prevTreeCPU map[int]float64
 	prevTreeAt  time.Time
+	// observer is told what each pass stored; nil tells nobody.
+	observer BoardObserver
 }
+
+// BoardObserver is told what the poll pass observes: each status change
+// once it is stored, and every pass once it is done. It is called on the
+// poll loop with runMu held, so it must hand the work off rather than do it.
+type BoardObserver interface {
+	Transition(id, from, to string, at time.Time)
+	Pass(at time.Time, sessions []store.Session)
+}
+
+type transition struct{ id, from, to string }
 
 // passStat is one poll pass as the log reports it. Capture failures are
 // counted per tmux server because that is the unit that fails: one
@@ -725,12 +737,22 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 	// which is before anything derives that session's status from it.
 	p.hookless = make(map[string]bool, len(p.hookless))
 	var rowState []store.DerivedState
+	// moved is the status transitions rowState carries, told to the
+	// observer only once the write that stores them has landed: a pass that
+	// errors drops both, and the next pass derives the same move again.
+	var moved []transition
 	flushRowState := func() error {
 		if len(rowState) == 0 {
 			return nil
 		}
 		err := p.store.ApplyDerivedStates(now, rowState)
 		rowState = rowState[:0]
+		if err == nil && p.observer != nil {
+			for _, t := range moved {
+				p.observer.Transition(t.id, t.from, t.to, now)
+			}
+		}
+		moved = moved[:0]
 		return err
 	}
 	for i, sess := range sessions {
@@ -883,6 +905,7 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 		if newStatus != sess.Status {
 			step = time.Now()
 			rowState = append(rowState, store.DerivedState{ID: sess.ID, Status: newStatus})
+			moved = append(moved, transition{id: sess.ID, from: sess.Status, to: newStatus})
 			// The relays below read this session's parent back out of the
 			// store, and that row may be one this pass has already moved on
 			// paper. A child has the queue flushed before they run, so a
@@ -996,6 +1019,9 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 		msg.snapOK = true
 	}
 	phases.sample = lap(&mark)
+	if p.observer != nil {
+		p.observer.Pass(now, sessions)
+	}
 	return msg
 }
 

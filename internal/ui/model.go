@@ -1157,6 +1157,12 @@ func (m *Model) persistCollapsed() {
 	}
 }
 
+// ObserveBoard has every poll pass report to observer. It is set before
+// StartPoller, so the first pass is reported too.
+func (m *Model) ObserveBoard(observer BoardObserver) {
+	m.poller.observer = observer
+}
+
 // StartPoller launches the background polling loop. It runs outside the
 // bubbletea event loop so statuses keep updating while the TUI is
 // suspended inside a tmux attach.

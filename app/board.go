@@ -3,6 +3,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -15,10 +16,12 @@ import (
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/debugserver"
+	"github.com/usestring/gate-inbox/internal/extensionhost"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/managerbuild"
+	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/singleton"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -196,12 +199,48 @@ func runBoard(version string, registry *extension.Registry) error {
 	// one the terminal already had, and this first write changes nothing.
 	ui.EnableTerminalPassthrough()
 	ui.SyncTerminalBackground()
+	stopExtensions, err := startExtensions(dir, registry, model)
+	if err != nil {
+		return err
+	}
 	model.StartPoller(program.Send)
 	_, runErr := program.Run()
+	stopExtensions()
 	ui.ResetTerminalBackground()
 	logging.Info("shutdown", logging.Err(runErr),
 		"droppedLogLines", logger.Dropped(), "droppedTraces", tracing.Dropped())
 	return runErr
+}
+
+// startExtensions starts every BoardProvider the build carries against the
+// board model polls, and returns what stops them again. It runs before the
+// first pass, so no transition goes unseen by a subscriber made at start.
+func startExtensions(dir string, registry *extension.Registry, model *ui.Model) (func(), error) {
+	board := extensionhost.NewBoard(dir, sessioncmd.NewSessions(dir, sessioncmd.MCPVocabulary()))
+	events := extensionhost.NewEvents(board, func(owner string, err error) {
+		logging.Warn("extension board subscriber", "extension", owner, logging.Err(err))
+	})
+	model.ObserveBoard(events)
+	ctx, cancel := context.WithCancel(context.Background())
+	results, stop, err := registry.StartBoard(ctx, events.For)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	for _, result := range results {
+		if result.Err != nil {
+			logging.Warn("extension did not start on the board",
+				"extension", result.ID, "version", result.Version, logging.Err(result.Err))
+			continue
+		}
+		logging.Info("extension started on the board", "extension", result.ID, "version", result.Version)
+	}
+	return func() {
+		cancel()
+		if err := stop(); err != nil {
+			logging.Warn("extension did not stop cleanly", logging.Err(err))
+		}
+	}, nil
 }
 
 // exitHangup is the conventional status for a process ending on SIGHUP,

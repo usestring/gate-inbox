@@ -1,6 +1,7 @@
 package extension
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -243,5 +244,80 @@ func AddTool[In, Out any](r *Registrar, tool *mcp.Tool, handler mcp.ToolHandlerF
 	mcp.AddTool(r.server, tool, handler)
 	r.owners[tool.Name] = "extension " + r.owner
 	r.added = append(r.added, tool.Name)
+	return nil
+}
+
+// BoardResult is what one extension's board start came to.
+type BoardResult struct {
+	ID      string
+	Version string
+	Err     error
+}
+
+// StartBoard asks every enabled BoardProvider, in order, to start. hostFor
+// gives each one its own view of the board, and a release that takes back
+// everything that view subscribed; a provider that fails or panics is
+// released at once, and the rest carry on. The result reports each provider
+// asked.
+//
+// stop stops every provider that started, in reverse order, and then
+// releases it. A panicking stop is reported in the error rather than ending
+// the others'.
+func (r *Registry) StartBoard(ctx context.Context, hostFor func(id string) (BoardHost, func())) (results []BoardResult, stop func() error, err error) {
+	if !r.configured {
+		return nil, nil, errors.New("extensions must be configured before the board starts them")
+	}
+	type started struct {
+		id      string
+		stop    func()
+		release func()
+	}
+	var running []started
+	for i, ext := range r.extensions {
+		provider, ok := ext.(BoardProvider)
+		if !ok || !enabled(ext) {
+			continue
+		}
+		host, release := hostFor(r.ids[i])
+		stopOne, err := startOne(ctx, provider, host)
+		if err != nil {
+			release()
+		} else {
+			running = append(running, started{id: r.ids[i], stop: stopOne, release: release})
+		}
+		results = append(results, BoardResult{ID: r.ids[i], Version: ext.Descriptor().Version, Err: err})
+	}
+	stop = func() error {
+		var errs []error
+		for i := len(running) - 1; i >= 0; i-- {
+			if err := stopOne(running[i].stop); err != nil {
+				errs = append(errs, fmt.Errorf("extension %q: %w", running[i].id, err))
+			}
+			running[i].release()
+		}
+		return errors.Join(errs...)
+	}
+	return results, stop, nil
+}
+
+func startOne(ctx context.Context, provider BoardProvider, host BoardHost) (stop func(), err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			stop, err = nil, fmt.Errorf("panicked while starting: %v", recovered)
+		}
+	}()
+	return provider.StartBoard(ctx, host)
+}
+
+func stopOne(stop func()) (err error) {
+	if stop == nil {
+		return nil
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("panicked while stopping: %v", recovered)
+		}
+	}()
+	stop()
 	return nil
 }

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"go/parser"
 	"go/token"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -275,6 +277,100 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 			})
 		}
 	})
+}
+
+// The board lends a BoardProvider its poll passes: an extension compiled
+// outside this module is started with the board, told of a status change
+// the first pass stores even though another of its subscribers panics on
+// it, and stopped when the board quits.
+func TestExternalBuildRunsOnTheBoard(t *testing.T) {
+	script, err := exec.LookPath("script")
+	if err != nil {
+		t.Skip("script(1) is needed to give the board a terminal")
+	}
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("the board polls a tmux server")
+	}
+	bin := buildFixture(t)
+	socket := tmuxtest.NewSocket("lifecycle")
+	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n")
+	home := envValue(env, "GATE_INBOX_HOME")
+	// The board starts its own server under the scratch TMUX_TMPDIR, and it
+	// is taken down there by path.
+	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })
+	seedSessions(t, filepath.Join(home, "state.db"))
+	data := filepath.Join(home, "extensions", "noop")
+
+	board := exec.Command(script, "-qec", bin, "/dev/null")
+	if runtime.GOOS != "linux" {
+		board = exec.Command(script, "-q", "/dev/null", bin)
+	}
+	board.Env = env
+	var out strings.Builder
+	board.Stdout, board.Stderr = &out, &out
+	if err := board.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// exited is closed once the board is gone, so every reader sees it.
+	exited := make(chan struct{})
+	go func() {
+		board.Wait()
+		close(exited)
+	}()
+	t.Cleanup(func() {
+		board.Process.Kill()
+		<-exited
+	})
+
+	started := waitForFile(t, filepath.Join(data, "started.txt"), "", exited, &out)
+	// The caller seeded as working has no pane, so the first pass stores it
+	// dead; the child was dead already and does not move. The subscriber
+	// names the session by reading it back through the Board it was lent.
+	waitForFile(t, filepath.Join(data, "events.txt"), "ca11e400 working>dead \"\" the caller\n", exited, &out)
+	waitForFile(t, filepath.Join(data, "passes.txt"), "c41d0001 dead", exited, &out)
+
+	var pid int
+	if _, err := fmt.Sscan(started, &pid); err != nil {
+		t.Fatalf("started.txt = %q: %v", started, err)
+	}
+	if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
+		t.Fatalf("signal the board: %v", err)
+	}
+	if got := waitForFile(t, filepath.Join(data, "stopped.txt"), "", exited, &out); got != "true\n" {
+		t.Fatalf("stopped.txt = %q, want the stop called after the board's context was cancelled", got)
+	}
+	events, _ := os.ReadFile(filepath.Join(data, "events.txt"))
+	if strings.Count(string(events), "working>dead") != 1 {
+		t.Fatalf("the transition was reported more than once:\n%s", events)
+	}
+}
+
+// waitForFile waits for path to exist and hold want, and returns what it
+// holds. It fails early if the board exits without writing it, and reads
+// once more after the exit: the board writes and exits between two polls.
+func waitForFile(t *testing.T, path, want string, exited <-chan struct{}, out *strings.Builder) string {
+	t.Helper()
+	holds := func() (string, bool) {
+		body, err := os.ReadFile(path)
+		return string(body), err == nil && len(body) > 0 && strings.Contains(string(body), want)
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if body, ok := holds(); ok {
+			return body
+		}
+		select {
+		case <-exited:
+			if body, ok := holds(); ok {
+				return body
+			}
+			t.Fatalf("the board exited before %s held %q:\n%s", filepath.Base(path), want, out.String())
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	body, _ := holds()
+	t.Fatalf("%s holds %q, want %q; board output:\n%s", filepath.Base(path), body, want, out.String())
+	return ""
 }
 
 func connectFixture(t *testing.T, bin string, env []string) *mcp.ClientSession {

@@ -8,6 +8,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -116,6 +118,34 @@ func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionCont
 		}
 		return text(fmt.Sprintf("%s | %s %s | %s", strings.Join(ids, ","), got.Name, screen.Mode, screen.Output)), nil, nil
 	})
+}
+
+// Commands adds noop-echo, which prints its arguments with the configured
+// greeting, so a run shows the extension was configured before it. The
+// fixture's clash switch also claims a core command's name, which must stop
+// the executable from starting.
+func (n *noop) Commands() []extension.Command {
+	commands := []extension.Command{{
+		Group: "Noop fixture",
+		Name:  "noop-echo",
+		Usage: "noop-echo <words...>",
+		About: "print the words after the configured greeting",
+		Run: func(_ context.Context, args []string, host extension.Host) error {
+			if len(args) == 1 && args[0] == "-h" {
+				fmt.Println("usage: gate-inbox noop-echo <words...>")
+				return flag.ErrHelp
+			}
+			if len(args) == 0 {
+				return errors.New("noop-echo needs words")
+			}
+			fmt.Printf("%s: %s (config in %s)\n", n.greeting, strings.Join(args, " "), filepath.Base(host.ConfigDir()))
+			return nil
+		},
+	}}
+	if os.Getenv("NOOP_FIXTURE_CLASH") != "" {
+		commands = append(commands, extension.Command{Name: "task", Run: func(context.Context, []string, extension.Host) error { return nil }})
+	}
+	return commands
 }
 
 func text(s string) *mcp.CallToolResult {

@@ -17,11 +17,15 @@ package app
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime/debug"
+	"slices"
+	"strconv"
 	"sync"
 
 	"github.com/usestring/gate-inbox/extension"
@@ -29,9 +33,11 @@ import (
 	"github.com/usestring/gate-inbox/internal/cli"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/envname"
+	"github.com/usestring/gate-inbox/internal/extensionhost"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpserver"
+	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
@@ -93,20 +99,28 @@ func Run(ctx context.Context, args []string, opts Options) error {
 		return err
 	}
 	accounts.UsePool(poolOf(registry))
+	table := subcommands(ctx, version, opts.Extensions)
+	extra, err := extensionCommands(opts.Extensions, table)
+	if err != nil {
+		return err
+	}
+	for _, entry := range extra {
+		table[entry.command.Name] = runExtensionCommand(ctx, registry, entry)
+	}
 
 	if len(args) == 0 {
 		return runBoard(version, registry)
 	}
 	switch args[0] {
 	case "help", "--help", "-h":
-		return printHelp(os.Stdout)
+		return printHelp(os.Stdout, extra)
 	case "--version", "-v":
 		fmt.Println(Name, version)
 		return nil
 	case "--log-path", "logs":
 		return printLogPath(os.Stdout)
 	}
-	command, ok := subcommands(ctx, version, opts.Extensions)[args[0]]
+	command, ok := table[args[0]]
 	if !ok {
 		// An unknown verb is a mistyped command, never a request for the
 		// board: falling through to the board from a session's shell
@@ -148,8 +162,25 @@ func unknownCommand(arg string) error {
 	return fmt.Errorf("%w %q; run `%s help` for the list", ErrUnknownCommand, arg, Name)
 }
 
-func printHelp(w io.Writer) error {
-	_, err := fmt.Fprintln(w, cli.Help())
+func printHelp(w io.Writer, extra []extensionCommand) error {
+	var sections []cli.HelpSection
+	for _, entry := range extra {
+		title := entry.command.Group
+		if title == "" {
+			title = entry.owner
+		}
+		i := slices.IndexFunc(sections, func(s cli.HelpSection) bool { return s.Title == title })
+		if i < 0 {
+			sections = append(sections, cli.HelpSection{Title: title})
+			i = len(sections) - 1
+		}
+		usage := entry.command.Usage
+		if usage == "" {
+			usage = entry.command.Name
+		}
+		sections[i].Commands = append(sections[i].Commands, cli.HelpEntry{Usage: usage, About: entry.command.About})
+	}
+	_, err := fmt.Fprintln(w, cli.Help(sections...))
 	return err
 }
 
@@ -246,5 +277,86 @@ func withConfigDir(command func(args []string, sessionID, configDir string) erro
 			return err
 		}
 		return command(args, envname.Get(hooks.EnvSessionID), dir)
+	}
+}
+
+// extensionCommand is one command an extension adds, with the ID of the
+// extension that owns it.
+type extensionCommand struct {
+	owner   string
+	ext     extension.Extension
+	command extension.Command
+}
+
+var commandName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
+// reservedWords are answered before the command table is read, so no
+// command may take them.
+var reservedWords = []string{"help", "logs"}
+
+// extensionCommands collects every CLIProvider's commands, in registration
+// order, and refuses a name that is malformed or already answered by core,
+// which is taken, or by an earlier extension.
+func extensionCommands(extensions []extension.Extension, core map[string]func([]string) error) ([]extensionCommand, error) {
+	owners := map[string]string{}
+	for name := range core {
+		owners[name] = "the core"
+	}
+	for _, word := range reservedWords {
+		owners[word] = "the core"
+	}
+	var out []extensionCommand
+	var errs []error
+	for _, ext := range extensions {
+		provider, ok := ext.(extension.CLIProvider)
+		if !ok {
+			continue
+		}
+		id := ext.Descriptor().ID
+		for _, command := range provider.Commands() {
+			switch owner, taken := owners[command.Name]; {
+			case !commandName.MatchString(command.Name):
+				errs = append(errs, fmt.Errorf("extension %q: command name %q must be lower case, start with a letter, and hold only letters, digits and '-'", id, command.Name))
+			case command.Run == nil:
+				errs = append(errs, fmt.Errorf("extension %q: command %q has no Run", id, command.Name))
+			case taken:
+				errs = append(errs, fmt.Errorf("extension %q: command %q is already a command of %s", id, command.Name, owner))
+			default:
+				owners[command.Name] = "extension " + strconv.Quote(id)
+				out = append(out, extensionCommand{owner: id, ext: ext, command: command})
+			}
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// runExtensionCommand configures the build's extensions from the operator's
+// config, so a section the owner refuses stops the command, and runs it as
+// the session whose shell it was typed in.
+func runExtensionCommand(ctx context.Context, registry *extension.Registry, entry extensionCommand) func([]string) error {
+	return func(args []string) error {
+		dir, err := config.Dir()
+		if err != nil {
+			return err
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		if err := registry.Configure(dir, cfg.Extensions); err != nil {
+			return err
+		}
+		if toggle, ok := entry.ext.(extension.Enabler); ok && !toggle.Enabled() {
+			return fmt.Errorf("%s is a command of extension %q, which the config switches off", entry.command.Name, entry.owner)
+		}
+		sessionID := envname.Get(hooks.EnvSessionID)
+		host := extensionhost.New(dir, sessionID, sessioncmd.NewSessions(dir, sessioncmd.CLIVocabulary()))
+		if err := entry.command.Run(ctx, args, host); !errors.Is(err, flag.ErrHelp) {
+			return err
+		}
+		return nil
 	}
 }

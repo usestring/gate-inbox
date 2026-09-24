@@ -220,6 +220,74 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 	})
 }
 
+// An extension compiled outside this module adds a CLI command: it runs
+// from the built binary after its config is read, is listed in help under
+// its own heading, and a name the core already answers to stops every face.
+func TestExternalBuildRunsExtensionCommands(t *testing.T) {
+	bin := buildFixture(t)
+	run := func(t *testing.T, env []string, args ...string) (string, int) {
+		t.Helper()
+		cmd := exec.Command(bin, args...)
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return string(out), exit.ExitCode()
+		}
+		if err != nil {
+			t.Fatalf("run %v: %v", args, err)
+		}
+		return string(out), 0
+	}
+
+	t.Run("runs configured", func(t *testing.T) {
+		env := fixtureHome(t, "[extensions.noop]\ngreeting = \"hi\"\n")
+		out, code := run(t, env, "noop-echo", "a", "b")
+		want := "hi: a b (config in " + filepath.Base(envValue(env, "GATE_INBOX_HOME")) + ")\n"
+		if code != 0 || out != want {
+			t.Fatalf("noop-echo exited %d with %q, want %q", code, out, want)
+		}
+	})
+
+	t.Run("its own usage and errors", func(t *testing.T) {
+		env := fixtureHome(t, "")
+		if out, code := run(t, env, "noop-echo", "-h"); code != 0 || !strings.Contains(out, "usage: gate-inbox noop-echo") {
+			t.Fatalf("noop-echo -h exited %d with %q", code, out)
+		}
+		if out, code := run(t, env, "noop-echo"); code != 1 || !strings.Contains(out, "noop-echo needs words") {
+			t.Fatalf("noop-echo with no words exited %d with %q", code, out)
+		}
+	})
+
+	t.Run("refused config stops it", func(t *testing.T) {
+		out, code := run(t, fixtureHome(t, "[extensions.noop]\nbogus = 1\n"), "noop-echo", "a")
+		if code != 1 || !strings.Contains(out, "[extensions.noop]: unknown key(s): bogus") || strings.Contains(out, "a (config") {
+			t.Fatalf("noop-echo under a refused config exited %d with %q", code, out)
+		}
+	})
+
+	t.Run("help", func(t *testing.T) {
+		out, code := run(t, fixtureHome(t, ""), "help")
+		section := "\nNoop fixture\n  gate-inbox noop-echo <words...>\n      print the words after the configured greeting\n"
+		if code != 0 || !strings.Contains(out, section) {
+			t.Fatalf("help exited %d without the extension's section:\n%s", code, out)
+		}
+		if strings.Index(out, section) > strings.Index(out, "\nOptions:") {
+			t.Fatalf("the extension's section is not listed before the options:\n%s", out)
+		}
+	})
+
+	t.Run("a clash with a core command stops every face", func(t *testing.T) {
+		env := append(fixtureHome(t, ""), "NOOP_FIXTURE_CLASH=1")
+		for _, args := range [][]string{{"--version"}, {"noop-echo", "a"}, {"help"}} {
+			out, code := run(t, env, args...)
+			if code != 1 || !strings.Contains(out, `extension "noop": command "task" is already a command of the core`) {
+				t.Fatalf("%v with a clashing command exited %d with %q", args, code, out)
+			}
+		}
+	})
+}
+
 func connectFixture(t *testing.T, bin string, env []string) *mcp.ClientSession {
 	t.Helper()
 	server := exec.Command(bin, "mcp")

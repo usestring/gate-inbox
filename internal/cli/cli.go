@@ -60,7 +60,23 @@ func Commands() map[string]Command {
 	return table
 }
 
-func Help() string {
+// HelpSection is a heading and the commands listed under it, for commands
+// this package does not define: an extension's.
+type HelpSection struct {
+	Title    string
+	Commands []HelpEntry
+}
+
+// HelpEntry is one command's synopsis, after the program name, and its line
+// on what it does.
+type HelpEntry struct {
+	Usage string
+	About string
+}
+
+// Help is the executable's help text, with extra listed after the core's
+// own sections.
+func Help(extra ...HelpSection) string {
 	var help strings.Builder
 	help.WriteString("Usage: gate-inbox [command]\n\n")
 	help.WriteString("Run the interactive manager when no command is given.\n\n")
@@ -69,6 +85,13 @@ func Help() string {
 	for _, section := range sections() {
 		help.WriteString("\n" + section.title + "\n")
 		help.WriteString(usageLines(section.commands))
+	}
+	for _, section := range extra {
+		help.WriteString("\n" + section.Title + "\n")
+		for _, entry := range section.Commands {
+			help.WriteString("  gate-inbox " + entry.Usage + "\n")
+			help.WriteString("      " + entry.About + "\n")
+		}
 	}
 	help.WriteString("\nOptions:\n")
 	help.WriteString("  -h, --help     Show this help text\n")

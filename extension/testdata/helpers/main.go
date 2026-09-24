@@ -1,6 +1,6 @@
 // Command helpers is a module of its own that uses the extension helper
-// packages the way a private extension does: through their public paths,
-// with nothing under internal/. It runs the group its argument names and
+// packages the way an out-of-tree extension does: through their public
+// paths, with nothing under internal/. It runs the group its argument names and
 // prints what each helper answered, one line per call.
 package main
 

@@ -45,7 +45,7 @@ func (w *launchWatcher) AllowSpawn(_ context.Context, spawn extension.Spawn) err
 	defer w.mu.Unlock()
 	w.asked = append(w.asked, spawn)
 	if w.refuse != "" && spawn.Session.Name == w.refuse {
-		return errors.New("over this goal's budget")
+		return errors.New("over the spawn budget")
 	}
 	return nil
 }
@@ -94,7 +94,7 @@ func useWatcher(t *testing.T, w *launchWatcher) {
 // envEchoTool prints the one variable the watcher contributes, then waits.
 const envEchoTool = `
 [tools.envecho]
-command = "sh -c 'echo contributed=$P6_WATCHER_MARK; sleep 30' --"
+command = "sh -c 'echo contributed=$WATCHER_MARK; sleep 30' --"
 default_status = "idle"
 `
 
@@ -121,7 +121,7 @@ func TestCreateAsksTheSpawnPolicyBeforeLaunching(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "too-many", Prompt: "go"})
-	if err == nil || !strings.Contains(err.Error(), "over this goal's budget") {
+	if err == nil || !strings.Contains(err.Error(), "over the spawn budget") {
 		t.Fatalf("Create = %v, want the policy's refusal", err)
 	}
 	after, err := h.store.ListSessions(true)
@@ -154,7 +154,7 @@ func TestCreateAsksTheSpawnPolicyBeforeLaunching(t *testing.T) {
 func TestLaunchesCarryTheContributedEnvironment(t *testing.T) {
 	h := newSessionHarness(t)
 	addEnvEchoTool(t, h)
-	watcher := &launchWatcher{env: map[string]string{"P6_WATCHER_MARK": "from-the-extension"}}
+	watcher := &launchWatcher{env: map[string]string{"WATCHER_MARK": "from-the-extension"}}
 	useWatcher(t, watcher)
 
 	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Tool: "envecho", Name: "env"})

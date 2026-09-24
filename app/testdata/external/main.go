@@ -249,7 +249,7 @@ func (n *noop) ShapeSpawn(_ context.Context, launch extension.Launch) (extension
 // wide spawn would.
 func (n *noop) AllowSpawn(_ context.Context, spawn extension.Spawn) error {
 	if spawn.Session.Name == "over-budget" {
-		return errors.New("this goal's budget is spent")
+		return errors.New("the spawn budget is spent")
 	}
 	return nil
 }

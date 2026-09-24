@@ -150,16 +150,18 @@ func (s *sessions) Read(ctx context.Context, id, since string) (extension.Screen
 
 func info(sess sessioncmd.Session) extension.SessionInfo {
 	return extension.SessionInfo{
-		ID:        sess.ID,
-		Name:      sess.Name,
-		Tool:      sess.Tool,
-		Model:     sess.Model,
-		Group:     sess.Group,
-		Directory: sess.Directory,
-		Status:    sess.Status,
-		Running:   sess.Running,
-		Archived:  sess.Archived,
-		ParentID:  sess.ParentID,
-		SpawnedBy: sess.SpawnedBy,
+		ID:         sess.ID,
+		Name:       sess.Name,
+		Tool:       sess.Tool,
+		Model:      sess.Model,
+		Group:      sess.Group,
+		Directory:  sess.Directory,
+		Status:     sess.Status,
+		Running:    sess.Running,
+		Archived:   sess.Archived,
+		ParentID:   sess.ParentID,
+		SpawnedBy:  sess.SpawnedBy,
+		CreatedAt:  sess.CreatedAt,
+		ArchivedAt: sess.ArchivedAt,
 	}
 }

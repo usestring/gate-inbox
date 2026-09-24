@@ -49,6 +49,10 @@ type Session struct {
 	// its spawner, under their shared root, and answered by its spawner.
 	ParentID  string `json:"parent_id,omitempty" jsonschema:"session this row is drawn under on the board; empty for a top-level session"`
 	SpawnedBy string `json:"spawned_by,omitempty" jsonschema:"session that spawned this one, which is the only session that can answer its questions or reach it with send_children; empty for a session nobody spawned"`
+	// CreatedAt and ArchivedAt are for the Go callers that read a Session,
+	// the extension host among them; the tools' JSON leaves them out.
+	CreatedAt  time.Time `json:"-"`
+	ArchivedAt time.Time `json:"-"`
 }
 
 type SessionScreen struct {
@@ -170,19 +174,21 @@ func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 		}
 	}
 	return Session{
-		ID:        sess.ID,
-		Name:      sess.Name,
-		Tool:      sess.Tool,
-		Model:     sess.Model,
-		Account:   sess.Account,
-		Group:     sess.Group,
-		Directory: dir,
-		Status:    sess.Status,
-		Running:   running,
-		Archived:  sess.Archived,
-		Self:      self,
-		ParentID:  sess.ParentID,
-		SpawnedBy: store.SpawnerOf(sess),
+		ID:         sess.ID,
+		Name:       sess.Name,
+		Tool:       sess.Tool,
+		Model:      sess.Model,
+		Account:    sess.Account,
+		Group:      sess.Group,
+		Directory:  dir,
+		Status:     sess.Status,
+		Running:    running,
+		Archived:   sess.Archived,
+		Self:       self,
+		ParentID:   sess.ParentID,
+		SpawnedBy:  store.SpawnerOf(sess),
+		CreatedAt:  sess.CreatedAt,
+		ArchivedAt: sess.ArchivedAt,
 	}
 }
 

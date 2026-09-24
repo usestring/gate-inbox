@@ -133,6 +133,25 @@ func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionCont
 	if err != nil {
 		return err
 	}
+	// noop_stamps reads when a session was created and archived, as Unix
+	// nanoseconds, with 0 for a time the board has none of.
+	err = extension.AddTool(r, &mcp.Tool{
+		Name:        "noop_stamps",
+		Description: "Say when a session was created and archived.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args peekArgs) (*mcp.CallToolResult, any, error) {
+		got, err := session.Host.Sessions().Get(ctx, args.ID)
+		if err != nil {
+			return nil, nil, err
+		}
+		archived := int64(0)
+		if !got.ArchivedAt.IsZero() {
+			archived = got.ArchivedAt.UnixNano()
+		}
+		return text(fmt.Sprintf("%d %d", got.CreatedAt.UnixNano(), archived)), nil, nil
+	})
+	if err != nil {
+		return err
+	}
 	// noop_peek reaches the board only through the Host: it lists the
 	// sessions this one can see, then reads one of them.
 	return extension.AddTool(r, &mcp.Tool{

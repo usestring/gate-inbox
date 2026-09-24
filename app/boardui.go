@@ -97,17 +97,19 @@ func uiFilters(filters []extension.Filter) []ui.ExtensionFilter {
 // sessionInfo is a row's session as an extension reads it.
 func sessionInfo(sess store.Session) extension.SessionInfo {
 	return extension.SessionInfo{
-		ID:        sess.ID,
-		Name:      sess.Name,
-		Tool:      sess.Tool,
-		Model:     sess.Model,
-		Group:     sess.Group,
-		Directory: sess.Cwd,
-		Status:    sess.Status,
-		Running:   sess.Status != status.Dead && !sess.Archived,
-		Archived:  sess.Archived,
-		ParentID:  sess.ParentID,
-		SpawnedBy: store.SpawnerOf(sess),
+		ID:         sess.ID,
+		Name:       sess.Name,
+		Tool:       sess.Tool,
+		Model:      sess.Model,
+		Group:      sess.Group,
+		Directory:  sess.Cwd,
+		Status:     sess.Status,
+		Running:    sess.Status != status.Dead && !sess.Archived,
+		Archived:   sess.Archived,
+		ParentID:   sess.ParentID,
+		SpawnedBy:  store.SpawnerOf(sess),
+		CreatedAt:  sess.CreatedAt,
+		ArchivedAt: sess.ArchivedAt,
 	}
 }
 

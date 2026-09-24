@@ -186,6 +186,52 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 				t.Fatalf("noop_peek answered %q, want it to contain %q", got, want)
 			}
 		}
+
+		// When a session was created and archived, read through Host as the
+		// store holds them: an unarchived row has no archive time.
+		st, err := store.Open(filepath.Join(home, "state.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		created := time.Now().Add(-time.Hour)
+		if err := st.CreateSession(store.Session{ID: "a4c41fe0", Name: "filed", Tool: "claude",
+			Status: "dead", CreatedAt: created}); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SetArchived("a4c41fe0", true); err != nil {
+			t.Fatal(err)
+		}
+		stored := map[string]store.Session{}
+		for _, id := range []string{"c41d0001", "a4c41fe0"} {
+			sess, err := st.Get(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stored[id] = sess
+		}
+		st.Close()
+		if stored["a4c41fe0"].ArchivedAt.IsZero() {
+			t.Fatal("the store kept no archive time for the archived row")
+		}
+		for id, sess := range stored {
+			result, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+				Name: "noop_stamps", Arguments: map[string]any{"id": id},
+			})
+			if err != nil {
+				t.Fatalf("call noop_stamps: %v", err)
+			}
+			got := result.Content[0].(*mcp.TextContent).Text
+			archived := int64(0)
+			if !sess.ArchivedAt.IsZero() {
+				archived = sess.ArchivedAt.UnixNano()
+			}
+			if want := fmt.Sprintf("%d %d", sess.CreatedAt.UnixNano(), archived); got != want {
+				t.Fatalf("noop_stamps %s answered %q, want %q", id, got, want)
+			}
+		}
+		if got := stored["a4c41fe0"].CreatedAt.UnixNano(); got != created.UnixNano() {
+			t.Fatalf("the archived row was created at %d, want %d", got, created.UnixNano())
+		}
 	})
 
 	// The extension reads a pane and answers its dialog as the board, on a

@@ -1,6 +1,9 @@
 package extension
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // Host is what the board lends an extension to act with: where it keeps its
 // files and the sessions it runs. It is a set of narrow services over
@@ -67,6 +70,13 @@ type SessionInfo struct {
 	// made by a session that is itself a child.
 	ParentID  string
 	SpawnedBy string
+	// CreatedAt is when the board first recorded the session. A restart, a
+	// revive or a move to another tool keeps it.
+	CreatedAt time.Time
+	// ArchivedAt is when the session was last archived. It is zero for a
+	// session that is not archived, and for one archived by a board too old
+	// to have recorded when.
+	ArchivedAt time.Time
 }
 
 // SessionFilter narrows List. The zero value is every unarchived session,

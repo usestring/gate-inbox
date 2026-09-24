@@ -27,9 +27,8 @@ import (
 // It is not a session id and cannot collide with one: ids are hex.
 const HumanSenderID = "human"
 
-// RelayedHumanSenderID marks the operator's words relayed by a session an
-// extension launched to speak for them, which that extension already
-// recorded when the relay was sent. It is delivered as the operator's own
+// RelayedHumanSenderID marks the operator's words forwarded on their behalf
+// by an extension, which already recorded them when it forwarded them. It is delivered as the operator's own
 // words, like HumanSenderID, but its delivery is not reported to board
 // extensions as the operator's input a second time: a stale relayed line
 // must not answer a question raised after it was sent.

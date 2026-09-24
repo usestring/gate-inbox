@@ -109,14 +109,14 @@ func TestSessionHooksTellEveryPolicyOfASpawnEvenAfterOnePanics(t *testing.T) {
 func TestSessionHooksMergeLaunchEnvAndRefuseAClash(t *testing.T) {
 	var log []string
 	hooks := sessionHooks(t,
-		&launcher{id: "ext1", env: map[string]string{"GOAL_FILE": "/ext1/a.md", "INHERITED": ""}, log: &log},
-		&launcher{id: "traces", env: map[string]string{"TRACE_TAG": "run-7"}, log: &log},
+		&launcher{id: "ext1", env: map[string]string{"STATE_FILE": "/ext1/a.json", "INHERITED": ""}, log: &log},
+		&launcher{id: "traces", env: map[string]string{"TRACE_TAG": "t-7"}, log: &log},
 	)
 	env, err := hooks.LaunchEnv(context.Background(), extension.Launch{Reason: extension.LaunchSpawn})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if env["GOAL_FILE"] != "/ext1/a.md" || env["TRACE_TAG"] != "run-7" || len(env) != 3 {
+	if env["STATE_FILE"] != "/ext1/a.json" || env["TRACE_TAG"] != "t-7" || len(env) != 3 {
 		t.Fatalf("env = %v", env)
 	}
 	if value, set := env["INHERITED"]; !set || value != "" {

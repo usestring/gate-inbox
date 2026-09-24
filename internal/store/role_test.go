@@ -11,10 +11,10 @@ func TestRoleIsStoredWithTheRowAndReadBackEverywhere(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	if err := st.CreateSession(Session{ID: "run1", Name: "run", Tool: "t", Cwd: "/"}); err != nil {
+	if err := st.CreateSession(Session{ID: "par1", Name: "parent", Tool: "t", Cwd: "/"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.LaunchSessionLeaf(Session{ID: "help1", Name: "helper", Tool: "t", Cwd: "/", ParentID: "run1", Role: "ext1/reviewer"}, func() error { return nil }); err != nil {
+	if err := st.LaunchSessionLeaf(Session{ID: "help1", Name: "helper", Tool: "t", Cwd: "/", ParentID: "par1", Role: "ext1/reviewer"}, func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	got, err := st.Get("help1")
@@ -29,7 +29,7 @@ func TestRoleIsStoredWithTheRowAndReadBackEverywhere(t *testing.T) {
 	for _, sess := range listed {
 		roles[sess.ID] = sess.Role
 	}
-	if roles["help1"] != "ext1/reviewer" || roles["run1"] != "" {
+	if roles["help1"] != "ext1/reviewer" || roles["par1"] != "" {
 		t.Fatalf("listed roles = %v", roles)
 	}
 }

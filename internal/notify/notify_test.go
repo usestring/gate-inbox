@@ -293,7 +293,7 @@ func body(kind Kind) string {
 // A note with a body and no subject is the body alone, and one with only a
 // subject is sent as its body, so neither leaves a dangling separator.
 func TestSendWithoutSubjectOrBody(t *testing.T) {
-	for _, note := range []Note{{Body: "run finished"}, {Subject: "run finished"}} {
+	for _, note := range []Note{{Body: "build finished"}, {Subject: "build finished"}} {
 		t.Run(note.Body+"|"+note.Subject, func(t *testing.T) {
 			defer restore()()
 			goos = "linux"
@@ -301,7 +301,7 @@ func TestSendWithoutSubjectOrBody(t *testing.T) {
 			rec := &cmdRecorder{known: map[string]bool{"notify-send": true}}
 			rec.install()
 			Send(note)
-			if len(rec.called) != 1 || rec.called[0][len(rec.called[0])-1] != "run finished" {
+			if len(rec.called) != 1 || rec.called[0][len(rec.called[0])-1] != "build finished" {
 				t.Fatalf("Send(%+v) ran %v", note, rec.called)
 			}
 			if !slices.Contains(rec.called[0], "--category=x-gate-inbox.notice") {

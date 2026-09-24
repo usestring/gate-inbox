@@ -220,6 +220,16 @@ type ListOptions struct {
 	// Limit caps the rows returned, after filtering. Zero takes
 	// DefaultSessionLimit and anything over MaxSessionLimit is refused.
 	Limit int
+	// After is a Cursor from an earlier list: only the rows after it are
+	// returned, which is how a caller reads a board wider than
+	// MaxSessionLimit. A cursor holds a place in the order rather than a
+	// count, so a row archived or started between two pages shifts
+	// neither. With Parent set, rows come in creation order, whose key never
+	// moves, so every row is read once. Without it they come in board order,
+	// which a reorder or a group move changes: a row moved across the
+	// cursor mid-scan is skipped or read twice.
+	After string
+	after *store.ListKey
 }
 
 // SessionList carries the rows plus what the limit hid, because a manager
@@ -231,6 +241,9 @@ type SessionList struct {
 	// Truncated is stated rather than left to matched > returned, so a
 	// caller reading the structured payload does not have to derive it.
 	Truncated bool `json:"truncated" jsonschema:"true when limit left matching sessions out; narrow parent or status, or raise limit"`
+	// Cursor is passed back as After to read the rows after this page;
+	// empty when none follow.
+	Cursor string `json:"-"`
 }
 
 func (o ListOptions) normalize(callerID string) (ListOptions, error) {
@@ -257,6 +270,16 @@ func (o ListOptions) normalize(callerID string) (ListOptions, error) {
 		o.Limit = DefaultSessionLimit
 	case o.Limit < 0 || o.Limit > MaxSessionLimit:
 		return ListOptions{}, fmt.Errorf("limit %d is out of range; ask for between 1 and %d", o.Limit, MaxSessionLimit)
+	}
+	if o.After != "" {
+		after, err := store.ParseListKey(o.After)
+		if err != nil {
+			return ListOptions{}, err
+		}
+		if after.Creation != (o.Parent != "") {
+			return ListOptions{}, errors.New("cursor is from a list with a different parent filter")
+		}
+		o.after = &after
 	}
 	return o, nil
 }
@@ -315,7 +338,15 @@ func (r *runtime) list(callerID string, opts ListOptions) (SessionList, error) {
 	}
 	sessions := make([]Session, 0)
 	matched := 0
-	for _, sess := range stored {
+	more := false
+	var last store.ListKey
+	var keys []store.ListKey
+	if opts.Parent != "" {
+		stored, keys = store.ByCreation(stored)
+	} else {
+		keys = store.ListKeys(stored)
+	}
+	for i, sess := range stored {
 		if r.cfg.Tools[sess.Tool].Shell {
 			continue
 		}
@@ -323,17 +354,27 @@ func (r *runtime) list(callerID string, opts ListOptions) (SessionList, error) {
 			continue
 		}
 		matched++
-		if len(sessions) < opts.Limit {
-			_, running := panes[sess.ID]
-			sessions = append(sessions, r.sessionInfo(sess, running, callerID != "" && sess.ID == callerID))
+		if opts.after != nil && !keys[i].After(*opts.after) {
+			continue
 		}
+		if len(sessions) == opts.Limit {
+			more = true
+			continue
+		}
+		_, running := panes[sess.ID]
+		sessions = append(sessions, r.sessionInfo(sess, running, callerID != "" && sess.ID == callerID))
+		last = keys[i]
 	}
-	return SessionList{
+	list := SessionList{
 		Sessions:  sessions,
 		Matched:   matched,
 		Returned:  len(sessions),
-		Truncated: matched > len(sessions),
-	}, nil
+		Truncated: more,
+	}
+	if more {
+		list.Cursor = last.String()
+	}
+	return list, nil
 }
 
 func (s *Sessions) Groups(sessionID string) ([]Group, error) {

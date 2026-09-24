@@ -179,7 +179,7 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		if result.IsError {
 			t.Fatalf("noop_peek failed: %s", got)
 		}
-		for _, want := range []string{"ca11e400,c41d0001", "the child pane | the child's last screen"} {
+		for _, want := range []string{"ca11e400,c41d0001 in 2 pages", "the child pane | the child's last screen"} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("noop_peek answered %q, want it to contain %q", got, want)
 			}

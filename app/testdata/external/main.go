@@ -133,19 +133,28 @@ func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionCont
 		return err
 	}
 	// noop_peek reaches the board only through the Host: it lists the
-	// sessions this one can see, then reads one of them.
+	// sessions this one can see a page of one at a time, then reads one of
+	// them.
 	return extension.AddTool(r, &mcp.Tool{
 		Name:        "noop_peek",
 		Description: "List the board's sessions, then read one.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args peekArgs) (*mcp.CallToolResult, any, error) {
 		sessions := session.Host.Sessions()
-		list, err := sessions.List(ctx, extension.SessionFilter{})
-		if err != nil {
-			return nil, nil, err
-		}
-		ids := make([]string, 0, len(list.Sessions))
-		for _, info := range list.Sessions {
-			ids = append(ids, info.ID)
+		var ids []string
+		pages := 0
+		for filter := (extension.SessionFilter{Limit: 1}); ; {
+			list, err := sessions.List(ctx, filter)
+			if err != nil {
+				return nil, nil, err
+			}
+			pages++
+			for _, info := range list.Sessions {
+				ids = append(ids, info.ID)
+			}
+			if list.Cursor == "" {
+				break
+			}
+			filter.After = list.Cursor
 		}
 		got, err := sessions.Get(ctx, args.ID)
 		if err != nil {
@@ -155,7 +164,7 @@ func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionCont
 		if err != nil {
 			return nil, nil, err
 		}
-		return text(fmt.Sprintf("%s | %s %s | %s", strings.Join(ids, ","), got.Name, screen.Mode, screen.Output)), nil, nil
+		return text(fmt.Sprintf("%s in %d pages | %s %s | %s", strings.Join(ids, ","), pages, got.Name, screen.Mode, screen.Output)), nil, nil
 	})
 }
 

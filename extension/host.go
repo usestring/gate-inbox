@@ -72,22 +72,40 @@ type SessionInfo struct {
 // SessionFilter narrows List. The zero value is every unarchived session,
 // up to the host's default limit.
 type SessionFilter struct {
-	// ParentID keeps only the sessions drawn under that one.
+	// ParentID keeps only the sessions drawn under that one, in the order
+	// they were created rather than the board's.
 	ParentID string
 	// Status keeps only sessions in these states; empty keeps every state.
 	Status []string
 	// IncludeArchived reads archived sessions too, which is slower.
 	IncludeArchived bool
-	// Limit caps the rows returned; zero takes the host's default.
+	// Limit caps the rows returned; zero takes the host's default, and
+	// the host refuses more than it will return in one page.
 	Limit int
+	// After is a list's Cursor: only the sessions after that page are
+	// returned. A cursor holds a place in the order rather than a count,
+	// so a session archived or started between two pages neither skips nor
+	// repeats a row. It is opaque, and good only for a List with the same
+	// filter.
+	//
+	// With ParentID set, the order is creation order, which nothing
+	// changes, so paging reads every session exactly once. Without it the
+	// order is the board's, which a reorder, a group move or a replacement
+	// taking its predecessor's seat changes: a session moved across the
+	// cursor between two pages is skipped or read twice.
+	After string
 }
 
-// SessionList is what List found. Matched counts before Limit, so a caller
-// can tell a short board from a truncated one.
+// SessionList is what List found. Matched counts before After and Limit,
+// so a caller can tell a short board from a truncated one.
 type SessionList struct {
-	Sessions  []SessionInfo
-	Matched   int
+	Sessions []SessionInfo
+	Matched  int
+	// Truncated is whether matching sessions follow this page.
 	Truncated bool
+	// Cursor is passed as After to read the page after this one, and
+	// empty when this page is the last.
+	Cursor string
 }
 
 // SpawnRequest is a session to launch. Tool is required; everything else

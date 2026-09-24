@@ -110,6 +110,9 @@ type Session struct {
 	// doing and how much it matters are the two keys triage sorts on, in
 	// that order.
 	Priority priority.Tier
+
+	// position is where ListSessions' query ordered the row; see ListKeys.
+	position rowKey
 }
 
 // LaunchTime is when the agent now in the pane started: the last restart
@@ -712,12 +715,12 @@ func (s *Store) ListSessions(includeArchived bool) ([]Session, error) {
 }
 
 func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
-	query := `SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, ` + spawnerColumnOf("sessions") + `, launch_prompt, model, account, name_source, priority_tier, ` + migrationColumn + `, ` + migrationOpeningColumn + `
+	query := `SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, ` + spawnerColumnOf("sessions") + `, launch_prompt, model, account, name_source, priority_tier, ` + migrationColumn + `, ` + migrationOpeningColumn + `, sort_order, rowid
 	          FROM sessions`
 	if !includeArchived {
 		query += ` WHERE archived = 0`
 	}
-	query += ` ORDER BY group_name, sort_order, created_at`
+	query += ` ORDER BY group_name, sort_order, created_at, rowid`
 	rows, err := s.db.Query(query)
 	if err != nil {
 		return nil, err
@@ -735,9 +738,10 @@ func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
 			&sess.Group, &sess.Status, &archived, &archivedAt, &acked, &created, &lastStatus,
 			&sess.AgentSessionID,
 			&sess.TmuxSocket, &sess.TmuxPaneID,
-			&agentLaunched, &sess.RetiredAgentSessionID, &pendingInputs, &pendingClaimed, &sess.ParentID, &sess.SpawnedBy, &sess.LaunchPrompt, &sess.Model, &sess.Account, &sess.NameSource, &tier, &sess.MigrationID, &migrationOpening); err != nil {
+			&agentLaunched, &sess.RetiredAgentSessionID, &pendingInputs, &pendingClaimed, &sess.ParentID, &sess.SpawnedBy, &sess.LaunchPrompt, &sess.Model, &sess.Account, &sess.NameSource, &tier, &sess.MigrationID, &migrationOpening, &sess.position.SortOrder, &sess.position.RowID); err != nil {
 			return nil, err
 		}
+		sess.position.Group, sess.position.Created = sess.Group, created
 		sess.Priority = priority.Tier(tier)
 		if err := json.Unmarshal([]byte(migrationOpening), &sess.MigrationOpening); err != nil {
 			return nil, fmt.Errorf("decode migration opening: %w", err)

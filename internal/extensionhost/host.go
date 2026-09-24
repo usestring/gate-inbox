@@ -60,6 +60,7 @@ func listOptions(filter extension.SessionFilter) sessioncmd.ListOptions {
 		Status:          filter.Status,
 		IncludeArchived: filter.IncludeArchived,
 		Limit:           filter.Limit,
+		After:           filter.After,
 	}
 }
 
@@ -68,6 +69,7 @@ func sessionList(list sessioncmd.SessionList) extension.SessionList {
 		Sessions:  make([]extension.SessionInfo, 0, len(list.Sessions)),
 		Matched:   list.Matched,
 		Truncated: list.Truncated,
+		Cursor:    list.Cursor,
 	}
 	for _, sess := range list.Sessions {
 		out.Sessions = append(out.Sessions, info(sess))

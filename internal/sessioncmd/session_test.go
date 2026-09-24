@@ -1335,6 +1335,19 @@ func TestSessionsListNarrowsToWhatTheCallerAskedFor(t *testing.T) {
 	if text := FormatSessionList(capped); !strings.Contains(text, "2 of 4") {
 		t.Fatalf("the rendering hides the truncation: %q", text)
 	}
+	// A cursor reads the rows after it, in the same order, so pages of two
+	// cover the list once; only the last says nothing follows.
+	second, err := h.sessions.List(h.caller.ID, ListOptions{Limit: 2, After: capped.Cursor})
+	if err != nil {
+		t.Fatalf("List second page: %v", err)
+	}
+	if second.Matched != 4 || second.Truncated || second.Cursor != "" || len(second.Sessions) != 2 ||
+		second.Sessions[0].ID != all.Sessions[2].ID || second.Sessions[1].ID != all.Sessions[3].ID {
+		t.Fatalf("second page = %+v, want rows 3 and 4 of %+v", second, all.Sessions)
+	}
+	if _, err := h.sessions.List(h.caller.ID, ListOptions{After: "not-a-cursor"}); err == nil {
+		t.Fatal("a cursor no list returned was accepted")
+	}
 
 	idle, err := h.sessions.List(h.caller.ID, ListOptions{Status: []string{status.Idle}})
 	if err != nil {
@@ -1408,5 +1421,126 @@ func TestInterruptIsRefusedWithoutInterruptKeysAndRecordedWithThem(t *testing.T)
 	}
 	if plainState, err := h.sessions.MessageStatus(h.caller.ID, plainSend.MessageID); err != nil || plainState.Interrupt {
 		t.Fatalf("a plain send was recorded as interrupting: %+v, %v", plainState, err)
+	}
+}
+
+// A page resumes after the last row it returned, not after a count of rows:
+// a row archived on an earlier page and one started between two reads
+// neither skip a row nor repeat one.
+func TestSessionsListPagesStayExactWhileTheBoardChanges(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	for _, name := range []string{"one", "two", "three", "four", "five"} {
+		if _, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: name}); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+	before, err := h.sessions.List(h.caller.ID, ListOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := h.sessions.List(h.caller.ID, ListOptions{Limit: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Sessions) != 2 || first.Cursor == "" {
+		t.Fatalf("first page = %+v, want two rows and a cursor", first)
+	}
+	// The row the cursor was taken from goes, and a new one arrives.
+	gone := first.Sessions[1]
+	if _, err := h.sessions.Archive(h.caller.ID, gone.ID, true); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	added, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "six"})
+	if err != nil {
+		t.Fatalf("create six: %v", err)
+	}
+
+	seen := map[string]int{}
+	for _, sess := range first.Sessions {
+		seen[sess.ID]++
+	}
+	for cursor := first.Cursor; cursor != ""; {
+		page, err := h.sessions.List(h.caller.ID, ListOptions{Limit: 2, After: cursor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, sess := range page.Sessions {
+			seen[sess.ID]++
+		}
+		cursor = page.Cursor
+	}
+	for _, sess := range before.Sessions {
+		if seen[sess.ID] != 1 {
+			t.Fatalf("%s (%s) was read %d times across the pages, want once: %v", sess.ID, sess.Name, seen[sess.ID], seen)
+		}
+	}
+	if seen[added.ID] != 1 {
+		t.Fatalf("the session started between pages was read %d times, want once: %v", seen[added.ID], seen)
+	}
+}
+
+// A parent-filtered list pages in creation order, so a child moved across
+// the cursor between pages -- one not yet read to the top, one read to the
+// bottom -- is still read exactly once. The board's order would skip the
+// first and repeat the second.
+func TestSessionsListByParentPagesStayExactWhileChildrenMove(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	var kids []string
+	for _, name := range []string{"one", "two", "three", "four", "five", "six"} {
+		kid, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: name})
+		if err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		kids = append(kids, kid.ID)
+	}
+	first, err := h.sessions.List(h.caller.ID, ListOptions{Parent: SelfParent, Limit: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.Sessions) != 3 || first.Cursor == "" {
+		t.Fatalf("first page = %+v, want three rows and a cursor", first)
+	}
+	for i, sess := range first.Sessions {
+		if sess.ID != kids[i] {
+			t.Fatalf("row %d = %s, want %s: a parent filter lists in creation order", i, sess.ID, kids[i])
+		}
+	}
+	for _, move := range []struct {
+		id    string
+		delta int
+	}{{kids[5], -1}, {kids[0], 1}} {
+		for {
+			moved, err := h.store.ReorderSession(move.id, move.delta, false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !moved {
+				break
+			}
+		}
+	}
+	seen := map[string]int{}
+	for _, sess := range first.Sessions {
+		seen[sess.ID]++
+	}
+	for cursor := first.Cursor; cursor != ""; {
+		page, err := h.sessions.List(h.caller.ID, ListOptions{Parent: SelfParent, Limit: 3, After: cursor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, sess := range page.Sessions {
+			seen[sess.ID]++
+		}
+		cursor = page.Cursor
+	}
+	for _, id := range kids {
+		if seen[id] != 1 {
+			t.Fatalf("%s was read %d times across the pages, want once: %v", id, seen[id], seen)
+		}
+	}
+	if _, err := h.sessions.List(h.caller.ID, ListOptions{After: first.Cursor}); err == nil {
+		t.Fatal("a parent-filtered cursor was accepted by an unfiltered list")
 	}
 }

@@ -242,7 +242,7 @@ type ListOptions struct {
 	// looking for a row to restore should ask.
 	IncludeArchived bool
 	// IncludeTerminals reads shell rows beside the agent sessions. No tool
-	// asks for them: an extension ending a goal's sessions does, so the
+	// asks for them: an extension ending a tree of sessions does, so the
 	// terminals its workers opened end with them.
 	IncludeTerminals bool
 	// Limit caps the rows returned, after filtering. Zero takes
@@ -1058,7 +1058,7 @@ func (s *Sessions) Kill(sessionID, targetID string) (Session, error) {
 // KillOrEndTerminal is Kill that also ends a terminal nested under an agent
 // session: the caller's own, or one it could kill, which Kill allows for any
 // agent but itself. The terminal's row is left dead as Kill leaves an
-// agent's. It is for an extension ending a goal's sessions, terminals among
+// agent's. It is for an extension ending a tree of sessions, terminals among
 // them, from whichever session asked; kill_session keeps refusing
 // terminals, whose tool is close_terminal.
 func (s *Sessions) KillOrEndTerminal(sessionID, targetID string) (Session, error) {

@@ -2,8 +2,8 @@
 //
 // A test process inherits TMUX from whatever pane `go test` was typed into,
 // and tmux honours TMUX ahead of TMUX_TMPDIR: a bare `tmux kill-server` in a
-// test cleanup, run from an agent's pane, killed the operator's live server
-// twice on 2026-09-23. internal/tmuxtest isolates every test binary that can
+// test cleanup, run from a pane with TMUX set, kills the server behind that
+// pane. internal/tmuxtest isolates every test binary that can
 // reach tmux, and this package is the backstop inside the code that runs tmux:
 // in a test binary, a command whose socket resolves into a live socket
 // directory panics instead of running.

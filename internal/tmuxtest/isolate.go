@@ -16,11 +16,11 @@ import (
 // package isolates the process before any TestMain or test runs.
 //
 // A test process inherits TMUX from the pane `go test` was typed into, and
-// tmux honours TMUX ahead of TMUX_TMPDIR. On 2026-09-23 a bare
-// `tmux kill-server` in a test cleanup, run from an agent's pane, took the
-// operator's live server down twice; other tests created and killed sessions
-// there, and a real board ran against it through children that inherited the
-// environment. So before anything else runs:
+// tmux honours TMUX ahead of TMUX_TMPDIR. A bare `tmux kill-server` in a
+// test cleanup would take down the caller's live server, other tests would
+// create and kill sessions there, and a real board would run against it
+// through children that inherit the environment. So before anything else
+// runs:
 //
 //   - TMUX and TMUX_PANE are unset, so nothing can follow them to a live pane;
 //   - TMUX_TMPDIR is a fresh directory of this run's own, so every -L socket

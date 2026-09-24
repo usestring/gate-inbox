@@ -16,8 +16,7 @@ import (
 
 // The tests below read the module's test code rather than run it: they keep
 // the isolation in isolate.go from being bypassed by the next test somebody
-// writes. Each rule is one way a test reached the operator's live tmux server
-// on 2026-09-23.
+// writes. Each rule closes one way a test could reach a live tmux server.
 
 // socketBound are the helpers that put -L <test socket> in front of whatever
 // they are given, so a kill-server passed to one of them is aimed at a test
@@ -145,7 +144,7 @@ func TestNoKillWithoutAnExplicitSocket(t *testing.T) {
 	}
 }
 
-// TestUnboundKillsAreFound plants the incident's own cleanup, and the shapes
+// TestUnboundKillsAreFound plants a bare kill-server cleanup, and the shapes
 // around it, to prove the rule above fires rather than passing on everything.
 func TestUnboundKillsAreFound(t *testing.T) {
 	// Spelled KILL so this literal is not itself a finding.

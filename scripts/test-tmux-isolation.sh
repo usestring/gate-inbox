@@ -2,9 +2,9 @@
 # Prove the test suite cannot touch a live tmux server, whatever environment
 # it inherits.
 #
-# On 2026-09-23 a test cleanup ran a bare `tmux kill-server` with TMUX
-# inherited from an agent's pane, and tmux, which honours TMUX ahead of
-# TMUX_TMPDIR, killed the operator's live server twice. This script recreates
+# A test cleanup that runs a bare `tmux kill-server` with TMUX inherited from
+# the caller's pane kills the caller's live server, because tmux honours TMUX
+# ahead of TMUX_TMPDIR. This script recreates
 # that environment around a sentinel server nobody else uses:
 #
 #   1. start a sentinel server on a private socket, with one session;

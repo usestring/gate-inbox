@@ -450,7 +450,7 @@ func TestPasteDeliversALargeMessageWhole(t *testing.T) {
 	id := "bigpaste" + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "")
 	marker := filepath.Join(t.TempDir(), "pane-input")
 
-	text := strings.Repeat("an event the manager has to read\n", (64<<10)/33+1)
+	text := strings.Repeat("a line the extension has to send\n", (64<<10)/33+1)
 	want := "\x1b[200~" + strings.ReplaceAll(text, "\n", "\r") + "\x1b[201~"
 	command := "stty raw -echo; printf '\\033[?2004h'; head -c " +
 		strconv.Itoa(len(want)) + " > " + ShellQuote(marker)

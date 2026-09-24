@@ -14,9 +14,9 @@ import (
 	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
-// runView is a view that records the keys it is told and draws what it is
+// stubView is a view that records the keys it is told and draws what it is
 // given.
-type runView struct {
+type stubView struct {
 	lines       [][]Span
 	keys        []ViewKey
 	closeOn     string
@@ -24,16 +24,16 @@ type runView struct {
 	panicKey    bool
 }
 
-func (v *runView) Title() string { return "Task: \x1b[2Jwidgets" }
+func (v *stubView) Title() string { return "Item: \x1b[2Jwidgets" }
 
-func (v *runView) Render(width, height int) [][]Span {
+func (v *stubView) Render(width, height int) [][]Span {
 	if v.panicRender {
 		panic("render broke")
 	}
 	return v.lines
 }
 
-func (v *runView) Key(key ViewKey) bool {
+func (v *stubView) Key(key ViewKey) bool {
 	if v.panicKey {
 		panic("key broke")
 	}
@@ -41,19 +41,19 @@ func (v *runView) Key(key ViewKey) bool {
 	return key.Action != "" && key.Action == v.closeOn
 }
 
-// viewModel is a list with one extension that declares a task screen, and the
+// viewModel is a list with one extension that declares a detail screen, and the
 // bridge its messages arrive on.
 func viewModel(t *testing.T, keys ...ExtensionKey) (*Model, *ExtensionBridge, chan tea.Msg) {
 	t.Helper()
 	m := childModel(t)
 	if len(keys) == 0 {
 		keys = []ExtensionKey{
-			{Screen: "task", Action: "nudge", Keys: []string{"r"}, Label: "nudge it"},
-			{Screen: "task", Action: "end_task", Keys: []string{"x"}, Label: "end the task"},
+			{Screen: "detail", Action: "refresh", Keys: []string{"r"}, Label: "refresh it"},
+			{Screen: "detail", Action: "done", Keys: []string{"x"}, Label: "mark it done"},
 		}
 	}
-	bridge := NewExtensionBridge([]string{"cards"})
-	m.InstallExtensions([]ExtensionUI{{Owner: "cards", Keys: keys}}, bridge)
+	bridge := NewExtensionBridge([]string{"items"})
+	m.InstallExtensions([]ExtensionUI{{Owner: "items", Keys: keys}}, bridge)
 	sent := make(chan tea.Msg, 16)
 	bridge.Attach(func(msg tea.Msg) { sent <- msg })
 	return m, bridge, sent
@@ -81,17 +81,17 @@ func viewKey(t *testing.T, m *Model, k tea.KeyPressMsg) {
 // action it stands for there.
 func TestAnExtensionViewDrawsAndIsToldItsKeys(t *testing.T) {
 	m, bridge, sent := viewModel(t)
-	view := &runView{lines: [][]Span{
-		{{Text: "goal ", Bold: true}, {Text: "widgets\tall\x1b[31m regions", Tone: ToneAccent}},
+	view := &stubView{lines: [][]Span{
+		{{Text: "name ", Bold: true}, {Text: "widgets\tall\x1b[31m regions", Tone: ToneAccent}},
 		{{Text: "3/5 done", Tone: ToneGood}},
-	}, closeOn: "end_task"}
-	bridge.Open("cards", "task", view)
+	}, closeOn: "done"}
+	bridge.Open("items", "detail", view)
 	deliver(t, m, sent)
 	if m.mode != modeExtensionView {
 		t.Fatalf("mode = %s", m.mode)
 	}
 	frame := ansi.Strip(m.viewExtension())
-	for _, want := range []string{"Task: [2Jwidgets", "goal widgetsall[31m regions", "3/5 done", "nudge it", "end the task", "close"} {
+	for _, want := range []string{"Item: [2Jwidgets", "name widgetsall[31m regions", "3/5 done", "refresh it", "mark it done", "close"} {
 		if !strings.Contains(frame, want) {
 			t.Errorf("frame lacks %q:\n%s", want, frame)
 		}
@@ -102,7 +102,7 @@ func TestAnExtensionViewDrawsAndIsToldItsKeys(t *testing.T) {
 
 	viewKey(t, m, key("r"))
 	viewKey(t, m, key("é"))
-	if len(view.keys) != 2 || view.keys[0].Action != "nudge" || view.keys[1].Action != "" || view.keys[1].Text != "é" {
+	if len(view.keys) != 2 || view.keys[0].Action != "refresh" || view.keys[1].Action != "" || view.keys[1].Text != "é" {
 		t.Fatalf("keys = %+v", view.keys)
 	}
 	viewKey(t, m, key("x"))
@@ -115,25 +115,25 @@ func TestAnExtensionViewDrawsAndIsToldItsKeys(t *testing.T) {
 // and the board answers close itself, before the view sees it.
 func TestAViewScreenAlwaysHasAClose(t *testing.T) {
 	m, bridge, sent := viewModel(t)
-	view := &runView{}
-	bridge.Open("cards", "task", view)
+	view := &stubView{}
+	bridge.Open("items", "detail", view)
 	deliver(t, m, sent)
 	viewKey(t, m, key("esc"))
 	if m.mode != modeList || len(view.keys) != 0 {
 		t.Fatalf("esc: mode %s, view told %+v", m.mode, view.keys)
 	}
-	if _, problems := m.km().Rebind("task", ActionClose, nil); len(problems) == 0 {
-		t.Fatal("the task screen's close could be unbound")
+	if _, problems := m.km().Rebind("detail", ActionClose, nil); len(problems) == 0 {
+		t.Fatal("the detail screen's close could be unbound")
 	}
 
-	m, bridge, sent = viewModel(t, ExtensionKey{Screen: "task", Action: "close", Keys: []string{"q"}, Label: "back"})
-	bridge.Open("cards", "task", &runView{})
+	m, bridge, sent = viewModel(t, ExtensionKey{Screen: "detail", Action: "close", Keys: []string{"q"}, Label: "back"})
+	bridge.Open("items", "detail", &stubView{})
 	deliver(t, m, sent)
 	viewKey(t, m, key("q"))
 	if m.mode != modeList {
 		t.Fatal("the extension's own close did not close the view")
 	}
-	if action, ok := m.km().Action("task", "esc"); ok {
+	if action, ok := m.km().Action("detail", "esc"); ok {
 		t.Fatalf("esc is bound to %s although the extension named its own close", action)
 	}
 }
@@ -142,26 +142,26 @@ func TestAViewScreenAlwaysHasAClose(t *testing.T) {
 // the key map lists the screen's keys under the extension and the screen.
 func TestTheKeyFileReachesAViewScreen(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, keymap.FileName), []byte("[task]\nnudge = [\"s\"]\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, keymap.FileName), []byte("[detail]\nrefresh = [\"s\"]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	m := childModel(t)
 	m.hooks = hooks.NewManager(dir)
-	bridge := NewExtensionBridge([]string{"cards"})
-	m.InstallExtensions([]ExtensionUI{{Owner: "cards", Keys: []ExtensionKey{
-		{Screen: "task", Action: "nudge", Keys: []string{"r"}, Label: "nudge it"},
+	bridge := NewExtensionBridge([]string{"items"})
+	m.InstallExtensions([]ExtensionUI{{Owner: "items", Keys: []ExtensionKey{
+		{Screen: "detail", Action: "refresh", Keys: []string{"r"}, Label: "refresh it"},
 	}}}, bridge)
 	if len(m.keyProblems) != 0 {
 		t.Fatalf("problems: %v", m.keyProblems)
 	}
-	if action, _ := m.km().Action("task", "s"); action != "nudge" {
-		t.Fatalf("s on task answers %q", action)
+	if action, _ := m.km().Action("detail", "s"); action != "refresh" {
+		t.Fatalf("s on detail answers %q", action)
 	}
 	var titles []string
 	for _, section := range m.resolvedHelp() {
 		titles = append(titles, section.title)
 	}
-	if !strings.Contains(strings.Join(titles, "|"), "cards · task") {
+	if !strings.Contains(strings.Join(titles, "|"), "items · detail") {
 		t.Fatalf("sections: %v", titles)
 	}
 }
@@ -172,16 +172,16 @@ func TestTheKeyFileReachesAViewScreen(t *testing.T) {
 func TestAViewOpensOnlyWhereItCannotTakeTheScreenAway(t *testing.T) {
 	m, bridge, sent := viewModel(t)
 	m.mode = modeHelp
-	bridge.Open("cards", "task", &runView{})
+	bridge.Open("items", "detail", &stubView{})
 	deliver(t, m, sent)
 	if m.mode != modeHelp {
 		t.Fatalf("mode = %s, want the help screen left up", m.mode)
 	}
 
 	m.mode = modeList
-	stale := bridge.Open("cards", "task", &runView{})
+	stale := bridge.Open("items", "detail", &stubView{})
 	deliver(t, m, sent)
-	current := bridge.Open("cards", "task", &runView{})
+	current := bridge.Open("items", "detail", &stubView{})
 	deliver(t, m, sent)
 	stale.Close()
 	deliver(t, m, sent)
@@ -196,7 +196,7 @@ func TestAViewOpensOnlyWhereItCannotTakeTheScreenAway(t *testing.T) {
 		t.Fatal("the handle did not close its view")
 	}
 
-	bridge.Open("cards", "elsewhere", &runView{})
+	bridge.Open("items", "elsewhere", &stubView{})
 	deliver(t, m, sent)
 	if m.mode != modeList || !strings.Contains(m.errBar.text, "elsewhere") {
 		t.Fatalf("an undeclared screen: mode %s, bar %q", m.mode, m.errBar.text)
@@ -205,19 +205,19 @@ func TestAViewOpensOnlyWhereItCannotTakeTheScreenAway(t *testing.T) {
 
 // A view that panics is closed and reported, and the board goes on.
 func TestAPanickingViewIsClosed(t *testing.T) {
-	for name, view := range map[string]*runView{
+	for name, view := range map[string]*stubView{
 		"render": {panicRender: true},
 		"key":    {panicKey: true},
 	} {
 		m, bridge, sent := viewModel(t)
-		bridge.Open("cards", "task", view)
+		bridge.Open("items", "detail", view)
 		deliver(t, m, sent)
 		if name == "render" {
 			m.viewExtension()
 		} else {
 			viewKey(t, m, key("r"))
 		}
-		if m.mode != modeList || !strings.Contains(m.errBar.text, "cards: its view failed") {
+		if m.mode != modeList || !strings.Contains(m.errBar.text, "items: its view failed") {
 			t.Errorf("%s: mode %s, bar %q", name, m.mode, m.errBar.text)
 		}
 	}

@@ -131,7 +131,7 @@ func TestAParentIsLiftedToItsFlaggedChildsTier(t *testing.T) {
 			m.rebuildRows()
 			before := joined(rowIDs(m))
 
-			bridge.Attention("runs", "c1", Attention{NeedsPerson: true, Rank: AttentionBlocked})
+			bridge.Attention("batch", "c1", Attention{NeedsPerson: true, Rank: AttentionBlocked})
 			m.Update(extensionBadgesMsg{})
 			m.rebuildRows()
 			if got := joined(rowIDs(m)); got != "p1,c1,e1" {

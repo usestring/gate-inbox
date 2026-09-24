@@ -8,9 +8,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// formView is a runView with fields.
+// formView is a stubView with fields.
 type formView struct {
-	runView
+	stubView
 	fields []ViewField
 }
 
@@ -24,13 +24,13 @@ var (
 	rightKey    = tea.KeyPressMsg{Code: tea.KeyRight}
 )
 
-func formFixture() *formView {
+func sampleForm() *formView {
 	return &formView{
-		runView: runView{lines: [][]Span{{{Text: "a card for the job"}}}},
+		stubView: stubView{lines: [][]Span{{{Text: "a sample form"}}}},
 		fields: []ViewField{
 			{ID: "title", Label: "title", Value: "topic"},
-			{ID: "goal", Label: "goal", Multiline: true, Placeholder: "done when"},
-			{ID: "backend", Label: "backend", Choices: []string{"full", "fast"}, Value: "fast"},
+			{ID: "notes", Label: "notes", Multiline: true, Placeholder: "anything else"},
+			{ID: "color", Label: "color", Choices: []string{"red", "blue"}, Value: "blue"},
 		},
 	}
 }
@@ -41,20 +41,20 @@ func formFixture() *formView {
 // and submit hands every value back with the field that had the keyboard.
 func TestAFormsFieldsAreTypedIntoByTheBoard(t *testing.T) {
 	m, bridge, sent := viewModel(t)
-	view := formFixture()
-	bridge.Open("cards", "task", view)
+	view := sampleForm()
+	bridge.Open("items", "detail", view)
 	deliver(t, m, sent)
 	if m.extView.fields == nil {
 		t.Fatal("the form's fields were not read when it opened")
 	}
 
-	// r is the screen's nudge key, but a field with the keyboard takes it
+	// r is the screen's refresh key, but a field with the keyboard takes it
 	// as a letter.
-	typeInto(t, m, " run")
+	typeInto(t, m, " rest")
 	m.handleKey(tabKey)
-	typeInto(t, m, "every")
+	typeInto(t, m, "line one")
 	m.handleKey(key("enter"))
-	m.Update(tea.PasteMsg{Content: "region\nby friday"})
+	m.Update(tea.PasteMsg{Content: "line two\nline three"})
 	m.handleKey(tabKey)
 	m.handleKey(leftKey)
 	if len(view.keys) != 0 {
@@ -66,8 +66,8 @@ func TestAFormsFieldsAreTypedIntoByTheBoard(t *testing.T) {
 		t.Fatalf("keys = %+v, want the one submit", view.keys)
 	}
 	got := view.keys[0]
-	want := map[string]string{"title": "topic run", "goal": "every\nregion\nby friday", "backend": "full"}
-	if got.Action != string(ActionSubmit) || got.Field != "backend" || len(got.Values) != len(want) {
+	want := map[string]string{"title": "topic rest", "notes": "line one\nline two\nline three", "color": "red"}
+	if got.Action != string(ActionSubmit) || got.Field != "color" || len(got.Values) != len(want) {
 		t.Fatalf("submit = %+v", got)
 	}
 	for id, value := range want {
@@ -87,8 +87,8 @@ func TestAFormsFieldsAreTypedIntoByTheBoard(t *testing.T) {
 	m.handleKey(shiftTabKey)
 	m.handleKey(rightKey)
 	m.handleKey(key("r"))
-	if last := view.keys[len(view.keys)-1]; last.Action != "nudge" || last.Values["backend"] != "fast" {
-		t.Fatalf("keys = %+v, want nudge told with the choice moved back", view.keys)
+	if last := view.keys[len(view.keys)-1]; last.Action != "refresh" || last.Values["color"] != "blue" {
+		t.Fatalf("keys = %+v, want refresh told with the choice moved back", view.keys)
 	}
 }
 
@@ -97,34 +97,34 @@ func TestAFormsFieldsAreTypedIntoByTheBoard(t *testing.T) {
 // the keyboard stays on the field it was on.
 func TestAFormsFieldsFollowTheView(t *testing.T) {
 	m, bridge, sent := viewModel(t)
-	view := formFixture()
-	bridge.Open("cards", "task", view)
+	view := sampleForm()
+	bridge.Open("items", "detail", view)
 	deliver(t, m, sent)
 	m.handleKey(tabKey)
 	typeInto(t, m, "draft")
 	m.viewExtension()
-	if got := m.extView.fields.values()["goal"]; got != "draft" {
-		t.Fatalf("goal = %q after a redraw, want the typing kept", got)
+	if got := m.extView.fields.values()["notes"]; got != "draft" {
+		t.Fatalf("notes = %q after a redraw, want the typing kept", got)
 	}
 
 	view.fields = []ViewField{
-		{ID: "goal", Label: "goal", Multiline: true, Value: "loaded\x1b[2J goal"},
+		{ID: "notes", Label: "notes", Multiline: true, Value: "loaded\x1b[2J notes"},
 		{ID: "title", Label: "title", Value: "topic"},
 	}
 	m.viewExtension()
 	values := m.extView.fields.values()
-	if values["goal"] != "loaded[2J goal" || values["title"] != "topic" || len(values) != 2 {
-		t.Fatalf("values = %v, want the offered goal (cleaned) and no backend", values)
+	if values["notes"] != "loaded[2J notes" || values["title"] != "topic" || len(values) != 2 {
+		t.Fatalf("values = %v, want the offered notes (cleaned) and no color", values)
 	}
-	if m.extView.fields.order[m.extView.fields.focus] != "goal" {
+	if m.extView.fields.order[m.extView.fields.focus] != "notes" {
 		t.Fatal("the keyboard left the field it was on when the fields were reordered")
 	}
 
 	// A field that changes kind starts over as the new kind.
-	view.fields = []ViewField{{ID: "goal", Label: "goal", Choices: []string{"one", "two"}, Value: "two"}}
+	view.fields = []ViewField{{ID: "notes", Label: "notes", Choices: []string{"one", "two"}, Value: "two"}}
 	m.viewExtension()
-	if got := m.extView.fields.values()["goal"]; got != "two" {
-		t.Fatalf("goal = %q after it became a choice", got)
+	if got := m.extView.fields.values()["notes"]; got != "two" {
+		t.Fatalf("notes = %q after it became a choice", got)
 	}
 
 	view.fields = nil
@@ -133,7 +133,7 @@ func TestAFormsFieldsFollowTheView(t *testing.T) {
 		t.Fatal("a form with no fields left kept its inputs")
 	}
 	m.handleKey(key("r"))
-	if last := view.keys[len(view.keys)-1]; last.Action != "nudge" || last.Values != nil {
+	if last := view.keys[len(view.keys)-1]; last.Action != "refresh" || last.Values != nil {
 		t.Fatalf("keys = %+v, want a plain view's press", view.keys)
 	}
 }
@@ -143,16 +143,16 @@ func TestAFormsFieldsFollowTheView(t *testing.T) {
 // focused field in view.
 func TestAFormIsDrawnUnderTheViewsLines(t *testing.T) {
 	m, bridge, sent := viewModel(t)
-	view := formFixture()
-	bridge.Open("cards", "task", view)
+	view := sampleForm()
+	bridge.Open("items", "detail", view)
 	deliver(t, m, sent)
 	frame := ansi.Strip(m.viewExtension())
-	for _, want := range []string{"a card for the job", "title", "topic", "goal", "done when", "backend", "fast", "next field", "ctrl+s", "submit", "nudge it"} {
+	for _, want := range []string{"a sample form", "title", "topic", "notes", "anything else", "color", "blue", "next field", "ctrl+s", "submit", "refresh it"} {
 		if !strings.Contains(frame, want) {
 			t.Errorf("frame lacks %q:\n%s", want, frame)
 		}
 	}
-	if strings.Index(frame, "a card for the job") > strings.Index(frame, "backend") {
+	if strings.Index(frame, "a sample form") > strings.Index(frame, "color") {
 		t.Fatalf("the fields were drawn above the view's lines:\n%s", frame)
 	}
 
@@ -169,7 +169,7 @@ func TestAFormIsDrawnUnderTheViewsLines(t *testing.T) {
 	if !strings.Contains(frame, "the last one") || !strings.Contains(frame, "at the bottom") {
 		t.Fatalf("the focused field at the end of a long form is off the card:\n%s", frame)
 	}
-	if !strings.Contains(frame, "a card for the job") {
+	if !strings.Contains(frame, "a sample form") {
 		t.Fatalf("a long form pushed the view's own lines off the card:\n%s", frame)
 	}
 }
@@ -178,10 +178,10 @@ func TestAFormIsDrawnUnderTheViewsLines(t *testing.T) {
 // key the field takes.
 func TestAScreensSubmitKeyReplacesCtrlS(t *testing.T) {
 	m, bridge, sent := viewModel(t,
-		ExtensionKey{Screen: "task", Action: string(ActionSubmit), Keys: []string{"ctrl+d"}, Label: "save it"},
+		ExtensionKey{Screen: "detail", Action: string(ActionSubmit), Keys: []string{"ctrl+d"}, Label: "save it"},
 	)
-	view := formFixture()
-	bridge.Open("cards", "task", view)
+	view := sampleForm()
+	bridge.Open("items", "detail", view)
 	deliver(t, m, sent)
 	m.handleKey(tabKey)
 	m.handleKey(ctrlSKey)

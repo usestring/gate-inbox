@@ -10,9 +10,9 @@ func replaceFixture(t *testing.T) *Store {
 	t.Helper()
 	st := newTestStore(t)
 	for _, sess := range []Session{
-		{ID: "run1", Name: "run", Tool: "t", Cwd: "/", Group: "work"},
-		{ID: "target01", Name: "worker", Tool: "t", Cwd: "/", ParentID: "run1", Role: "ext1/worker"},
-		{ID: "after01", Name: "sibling", Tool: "t", Cwd: "/", ParentID: "run1"},
+		{ID: "par1", Name: "parent", Tool: "t", Cwd: "/", Group: "work"},
+		{ID: "target01", Name: "worker", Tool: "t", Cwd: "/", ParentID: "par1", Role: "ext1/worker"},
+		{ID: "after01", Name: "sibling", Tool: "t", Cwd: "/", ParentID: "par1"},
 	} {
 		if err := st.CreateSession(sess); err != nil {
 			t.Fatal(err)
@@ -44,7 +44,7 @@ func TestReplaceSessionTakesTheOldSeat(t *testing.T) {
 		t.Fatalf("moved = %+v, want the one message and the one lease", moved)
 	}
 	fresh, err := st.Get("fresh01")
-	if err != nil || fresh.ParentID != "run1" || fresh.Group != "work" || fresh.Role != "ext1/worker" {
+	if err != nil || fresh.ParentID != "par1" || fresh.Group != "work" || fresh.Role != "ext1/worker" {
 		t.Fatalf("fresh = %+v, %v; want it under the old parent, in its group", fresh, err)
 	}
 	old, err := st.Get("target01")
@@ -67,7 +67,7 @@ func TestReplaceSessionTakesTheOldSeat(t *testing.T) {
 	}
 	var order []string
 	for _, sess := range listed {
-		if sess.ParentID == "run1" {
+		if sess.ParentID == "par1" {
 			order = append(order, sess.ID)
 		}
 	}

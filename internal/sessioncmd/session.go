@@ -54,6 +54,9 @@ type Session struct {
 	// Role is the extension's, and reaches extensions only: no tool's output
 	// carries it, so it costs a session's context nothing.
 	Role string `json:"-"`
+	// Terminal marks a shell row, which only a list asked for terminals
+	// returns; like Role, it reaches extensions only.
+	Terminal bool `json:"-"`
 }
 
 type SessionScreen struct {
@@ -147,6 +150,20 @@ func (r *runtime) agent(id string) (store.Session, error) {
 	return sess, nil
 }
 
+// killable resolves what an extension's kill may end: an agent session, or
+// a terminal that reaches allows.
+func (r *runtime) killable(id string, reaches func(terminal store.Session) error) (store.Session, error) {
+	sess, err := r.store.Get(strings.TrimSpace(id))
+	if err != nil || !r.cfg.Tools[sess.Tool].Shell {
+		return r.agent(id)
+	}
+	terminal, err := r.terminal(id)
+	if err != nil {
+		return store.Session{}, err
+	}
+	return terminal, reaches(terminal)
+}
+
 // deliverable refuses a target the manager would never type into.
 //
 // Archived is tested before running because it is the more useful answer of
@@ -189,6 +206,7 @@ func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 		ParentID:  sess.ParentID,
 		SpawnedBy: store.SpawnerOf(sess),
 		Role:      sess.Role,
+		Terminal:  r.cfg.Tools[sess.Tool].Shell,
 	}
 }
 
@@ -223,6 +241,10 @@ type ListOptions struct {
 	// on a long-lived board they are most of the table -- so only a caller
 	// looking for a row to restore should ask.
 	IncludeArchived bool
+	// IncludeTerminals reads shell rows beside the agent sessions. No tool
+	// asks for them: an extension ending a goal's sessions does, so the
+	// terminals its workers opened end with them.
+	IncludeTerminals bool
 	// Limit caps the rows returned, after filtering. Zero takes
 	// DefaultSessionLimit and anything over MaxSessionLimit is refused.
 	Limit int
@@ -322,7 +344,7 @@ func (r *runtime) list(callerID string, opts ListOptions) (SessionList, error) {
 	sessions := make([]Session, 0)
 	matched := 0
 	for _, sess := range stored {
-		if r.cfg.Tools[sess.Tool].Shell {
+		if r.cfg.Tools[sess.Tool].Shell && !opts.IncludeTerminals {
 			continue
 		}
 		if !opts.keeps(sess) {
@@ -1029,7 +1051,21 @@ func (s *Sessions) Get(sessionID, targetID string) (got Session, err error) {
 // Kill stops a session's pane and leaves its row dead, keeping the last
 // screen so the manager can still show it and a revive can resume the
 // conversation it held.
-func (s *Sessions) Kill(sessionID, targetID string) (killed Session, err error) {
+func (s *Sessions) Kill(sessionID, targetID string) (Session, error) {
+	return s.kill(sessionID, targetID, false)
+}
+
+// KillOrEndTerminal is Kill that also ends a terminal nested under an agent
+// session: the caller's own, or one it could kill, which Kill allows for any
+// agent but itself. The terminal's row is left dead as Kill leaves an
+// agent's. It is for an extension ending a goal's sessions, terminals among
+// them, from whichever session asked; kill_session keeps refusing
+// terminals, whose tool is close_terminal.
+func (s *Sessions) KillOrEndTerminal(sessionID, targetID string) (Session, error) {
+	return s.kill(sessionID, targetID, true)
+}
+
+func (s *Sessions) kill(sessionID, targetID string, terminals bool) (killed Session, err error) {
 	defer start("sessioncmd.kill", sessionAttr(targetID)).done(&err)
 	runtime, err := s.open()
 	if err != nil {
@@ -1039,7 +1075,12 @@ func (s *Sessions) Kill(sessionID, targetID string) (killed Session, err error) 
 	if _, err := runtime.caller(sessionID); err != nil {
 		return Session{}, err
 	}
-	target, err := runtime.agent(targetID)
+	var target store.Session
+	if terminals {
+		target, err = runtime.killable(targetID, runtime.nestedUnderAgent)
+	} else {
+		target, err = runtime.agent(targetID)
+	}
 	if err != nil {
 		return Session{}, err
 	}

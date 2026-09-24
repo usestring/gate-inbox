@@ -132,7 +132,8 @@ func (b *Board) SendFor(ctx context.Context, id, target string, msg extension.Me
 	}, nil
 }
 
-// Kill ends an agent session's pane on the board's behalf.
+// Kill ends an agent session's pane, or a terminal nested under one, on the
+// board's behalf.
 func (b *Board) Kill(ctx context.Context, id string) (extension.SessionInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return extension.SessionInfo{}, err

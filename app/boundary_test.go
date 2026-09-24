@@ -188,6 +188,73 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		}
 	})
 
+	// The extension lists the terminal nested under its own session and
+	// ends it through the Host. From a session outside that tree it ends a
+	// terminal under a session it could kill, and is refused one whose
+	// session is gone.
+	t.Run("mcp host ends a nested terminal", func(t *testing.T) {
+		if _, err := exec.LookPath("tmux"); err != nil {
+			t.Skip("ending a terminal ends a tmux pane")
+		}
+		socket := tmuxtest.NewSocket("endterm")
+		env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+shellTool)
+		home := envValue(env, "GATE_INBOX_HOME")
+		tmuxDir := envValue(env, "TMUX_TMPDIR")
+		env = append(env, "GATE_INBOX_SESSION_ID=ca11e400")
+		state := filepath.Join(home, "state.db")
+		seedSessions(t, state)
+		t.Setenv("TMUX_TMPDIR", tmuxDir)
+		t.Cleanup(func() { killTestServer(t, tmuxDir, socket) })
+		mine := paintTerminal(t, state, socket, "7e770001", "ca11e400")
+		theirs := paintTerminal(t, state, socket, "7e770002", "c41d0001")
+
+		session := connectFixture(t, bin, env)
+		ended := callText(t, session, "noop_end", map[string]any{"id": "7e770001"})
+		if want := "c41d0001 terminal=false,7e770001 terminal=true | ended 7e770001"; ended != want {
+			t.Fatalf("noop_end answered %q, want %q", ended, want)
+		}
+		if mine.Exists("7e770001") {
+			t.Fatal("the nested terminal's pane outlived the kill")
+		}
+
+		// A session outside the tree, as the operator's own would be.
+		st, err := store.Open(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []string{"0a75de01", "0a75de02"} {
+			if err := st.CreateSession(store.Session{ID: id, Name: "outsider " + id, Tool: "claude", Status: "idle", CreatedAt: time.Now()}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		st.Close()
+		// A terminal whose session then goes, leaving it nested under none.
+		gone := paintTerminal(t, state, socket, "7e770004", "0a75de02")
+		st, err = store.Open(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.Delete("0a75de02"); err != nil {
+			t.Fatal(err)
+		}
+		st.Close()
+		outsider := connectFixture(t, bin, append(env, "GATE_INBOX_SESSION_ID=0a75de01"))
+		ended = callText(t, outsider, "noop_end", map[string]any{"id": "7e770002", "parent": "c41d0001"})
+		if want := "7e770002 terminal=true | ended 7e770002"; ended != want {
+			t.Fatalf("noop_end from outside answered %q, want %q", ended, want)
+		}
+		if theirs.Exists("7e770002") {
+			t.Fatal("the terminal under a killable session outlived the kill")
+		}
+		refused := callText(t, outsider, "noop_end", map[string]any{"id": "7e770004", "parent": "0a75de02"})
+		if !strings.Contains(refused, "| refused: terminal 7e770004 is nested under no agent session") {
+			t.Fatalf("noop_end on an orphaned terminal answered %q", refused)
+		}
+		if !gone.Exists("7e770004") {
+			t.Fatal("the orphaned terminal was ended")
+		}
+	})
+
 	// The extension reads a pane and answers its dialog as the board, on a
 	// session it has no relationship to, through app.NewBoard and the
 	// public dialog reading alone.
@@ -295,13 +362,17 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	}
 	bin := buildFixture(t)
 	socket := tmuxtest.NewSocket("lifecycle")
-	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+envEchoTool)
+	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+envEchoTool+shellTool)
 	home := envValue(env, "GATE_INBOX_HOME")
 	// The board starts its own server under the scratch TMUX_TMPDIR, and it
 	// is taken down there by path.
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })
 	seedSessions(t, filepath.Join(home, "state.db"))
 	data := filepath.Join(home, "extensions", "noop")
+	// The operator's own terminal, nested under nobody, which the extension
+	// must not be able to end.
+	t.Setenv("TMUX_TMPDIR", envValue(env, "TMUX_TMPDIR"))
+	operators := paintTerminal(t, filepath.Join(home, "state.db"), socket, "0be7a001", "")
 
 	board := exec.Command(script, "-qec", bin, "/dev/null")
 	if runtime.GOOS != "linux" {
@@ -336,8 +407,14 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	if got := waitForFile(t, filepath.Join(data, "env-"+helper+".txt"), "", exited, &out); got != "spawn" {
 		t.Fatalf("the helper's pane saw NOOP_LAUNCH=%q, want the extension's spawn", got)
 	}
-	// The extension messages its helper and then ends it, through the board.
+	// The extension messages its helper and then ends it, through the board,
+	// the terminal opened under it first.
 	waitForFile(t, filepath.Join(data, "sent.txt"), helper+" queued 1\n", exited, &out)
+	nested := paintTerminal(t, filepath.Join(home, "state.db"), socket, "7e770003", helper)
+	waitForFile(t, filepath.Join(data, "terminals.txt"), "7e770003 listed true\n7e770003 ended dead false\n0be7a001 refused\n", exited, &out)
+	if nested.Exists("7e770003") || !operators.Exists("0be7a001") {
+		t.Fatal("want the nested terminal's pane ended and the operator's kept")
+	}
 	waitForFile(t, filepath.Join(data, "killed.txt"), helper+" dead false\n", exited, &out)
 
 	var pid int
@@ -497,6 +574,41 @@ func paintSession(t *testing.T, path, socket, id, pane string) {
 	if err := st.CreateSession(store.Session{ID: id, Name: "painted " + id, Tool: "claude", Status: "waiting", Cwd: dir, CreatedAt: time.Now()}); err != nil {
 		t.Fatalf("seed %s: %v", id, err)
 	}
+}
+
+// shellTool is a terminal tool for config.toml.
+const shellTool = `
+[tools.shell]
+command = ""
+shell = true
+default_status = "idle"
+`
+
+// paintTerminal files a terminal nested under parent, or under nobody when
+// parent is empty, and runs a shell-less pane for it on socket.
+func paintTerminal(t *testing.T, path, socket, id, parent string) *tmux.Driver {
+	t.Helper()
+	driver, err := tmux.NewWithSocket(socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := driver.Create(id, dir, "sleep 60", nil, 80, 24); err != nil {
+		t.Fatalf("create %s: %v", id, err)
+	}
+	t.Cleanup(func() { _ = driver.Kill(id) })
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	sess := store.Session{ID: id, Name: "sh " + id, Tool: "shell", Status: "idle", Cwd: dir, ParentID: parent, CreatedAt: time.Now()}
+	// Filed as a leaf, as create_terminal files one, so it may hang under
+	// a session that is itself a child.
+	if err := st.LaunchSessionLeaf(sess, func() error { return nil }); err != nil {
+		t.Fatalf("seed %s: %v", id, err)
+	}
+	return driver
 }
 
 // envValue is the last value env gives key, which is the one a child

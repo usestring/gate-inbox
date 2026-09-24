@@ -145,10 +145,16 @@ func (r *runtime) nestedTerminal(sessionID, terminalID string) (store.Session, e
 	if err != nil {
 		return store.Session{}, err
 	}
-	if terminal.ParentID != caller.ID {
-		return store.Session{}, fmt.Errorf("terminal %s is not nested under this session", terminal.ID)
+	return terminal, nestedUnder(terminal, caller.ID)
+}
+
+// nestedUnder is the reach every terminal tool holds a session to: only a
+// terminal nested directly under it.
+func nestedUnder(terminal store.Session, callerID string) error {
+	if terminal.ParentID != callerID {
+		return fmt.Errorf("terminal %s is not nested under this session", terminal.ID)
 	}
-	return terminal, nil
+	return nil
 }
 
 func (r *runtime) info(sess store.Session, running bool) (Terminal, error) {

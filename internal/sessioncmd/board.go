@@ -1,7 +1,9 @@
 package sessioncmd
 
 import (
+	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -23,11 +25,31 @@ import (
 // sessions stay a session's acts, so that a spawn always has a parent, except
 // for what a board extension does for itself: launching its helpers
 // (BoardLaunch), and messaging and ending the sessions it watches (BoardSend,
-// BoardKill), each held to the checks a session's own tool is held to.
+// BoardKill, which ends their terminals too), each held to the checks a
+// session's own tool is held to.
 //
 // An answer from here is still held to the dialog's own rules. A permission
 // prompt or a first-run trust dialog is refused exactly as it is to a
 // parent: the board lending its reach to code is not a person answering.
+
+// nestedUnderAgent allows a terminal whose parent is an agent session still
+// on the board: one its parent could close, and ended with its parent.
+func (r *runtime) nestedUnderAgent(terminal store.Session) error {
+	refused := fmt.Errorf("terminal %s is nested under no agent session, so it is not a session's to end", terminal.ID)
+	if terminal.ParentID == "" {
+		return refused
+	}
+	parent, err := r.store.Get(terminal.ParentID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return refused
+	case err != nil:
+		return err
+	case r.cfg.Tools[parent.Tool].Shell:
+		return refused
+	}
+	return nil
+}
 
 // errBoardHasNoSelf refuses SelfParent, which names the caller, from the
 // board, which is no session.
@@ -160,8 +182,10 @@ func (s *Sessions) BoardSend(extensionID, targetID, message, subject string, int
 }
 
 // BoardKill ends an agent session's pane and leaves its row dead, as Kill
-// does for a session. A terminal is refused, as it is to Kill; the board has
-// no self to spare.
+// does for a session; the board has no self to spare. It ends a terminal the
+// same way when some session could close it -- one nested under an agent --
+// so the board reaches every terminal a session does and none besides: the
+// operator's own shells, nested under nobody, are left alone.
 func (s *Sessions) BoardKill(targetID string) (killed Session, err error) {
 	defer start("sessioncmd.board.kill", sessionAttr(targetID)).done(&err)
 	runtime, err := s.open()
@@ -169,7 +193,7 @@ func (s *Sessions) BoardKill(targetID string) (killed Session, err error) {
 		return Session{}, err
 	}
 	defer runtime.store.Close()
-	target, err := runtime.agent(targetID)
+	target, err := runtime.killable(targetID, runtime.nestedUnderAgent)
 	if err != nil {
 		return Session{}, err
 	}

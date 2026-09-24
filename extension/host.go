@@ -34,7 +34,11 @@ type SessionService interface {
 	// Send queues text for a session, delivered the way send_session
 	// delivers it: at the session's next prompt, not into a busy turn.
 	Send(ctx context.Context, id, text string) error
-	// Kill ends a session's pane and leaves its row dead.
+	// Kill ends a session's pane and leaves its row dead. It ends a
+	// terminal the same way when it is nested under an agent session the
+	// caller could kill, or under the caller itself, so whoever ends a
+	// session's work can end the shells it opened. A terminal nested under
+	// no session, or under one that is gone, is refused.
 	Kill(ctx context.Context, id string) error
 	// Archive ends a session if it is running and files it out of the
 	// active list.
@@ -70,6 +74,10 @@ type SessionInfo struct {
 	// Role is "<extension id>/<role>" for a session an extension launched
 	// with a role through BoardHost.Launch, and empty for every other.
 	Role string
+	// Terminal marks a shell rather than an agent, which only a List with
+	// IncludeTerminals returns. Kill takes one; every other call that
+	// names a session refuses it.
+	Terminal bool
 }
 
 // SessionFilter narrows List. The zero value is every unarchived session,
@@ -81,6 +89,10 @@ type SessionFilter struct {
 	Status []string
 	// IncludeArchived reads archived sessions too, which is slower.
 	IncludeArchived bool
+	// IncludeTerminals lists terminals beside the agent sessions, marked
+	// Terminal, so whoever ends a session's work can end the shells it
+	// opened too. ParentID and Status narrow them as they do agents.
+	IncludeTerminals bool
 	// Limit caps the rows returned; zero takes the host's default.
 	Limit int
 }

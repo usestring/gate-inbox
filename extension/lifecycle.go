@@ -60,7 +60,9 @@ type BoardHost interface {
 	Send(ctx context.Context, id string, msg Message) (Sent, error)
 	// Kill ends an agent session's pane and leaves its row dead, as
 	// kill_session does: the last screen is kept, and a revive can resume
-	// the conversation. A terminal is refused.
+	// the conversation. It ends a terminal the same way when some session
+	// could close it -- one nested under an agent session -- and refuses
+	// the operator's own terminals, nested under none.
 	Kill(ctx context.Context, id string) (SessionInfo, error)
 }
 

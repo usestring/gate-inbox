@@ -56,10 +56,11 @@ func (s *sessions) List(ctx context.Context, filter extension.SessionFilter) (ex
 
 func listOptions(filter extension.SessionFilter) sessioncmd.ListOptions {
 	return sessioncmd.ListOptions{
-		Parent:          filter.ParentID,
-		Status:          filter.Status,
-		IncludeArchived: filter.IncludeArchived,
-		Limit:           filter.Limit,
+		Parent:           filter.ParentID,
+		Status:           filter.Status,
+		IncludeArchived:  filter.IncludeArchived,
+		IncludeTerminals: filter.IncludeTerminals,
+		Limit:            filter.Limit,
 	}
 }
 
@@ -112,7 +113,7 @@ func (s *sessions) Kill(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	_, err := s.cmds.Kill(s.caller, id)
+	_, err := s.cmds.KillOrEndTerminal(s.caller, id)
 	return err
 }
 
@@ -162,5 +163,6 @@ func info(sess sessioncmd.Session) extension.SessionInfo {
 		ParentID:  sess.ParentID,
 		SpawnedBy: sess.SpawnedBy,
 		Role:      sess.Role,
+		Terminal:  sess.Terminal,
 	}
 }

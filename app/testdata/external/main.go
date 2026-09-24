@@ -55,6 +55,11 @@ type peekArgs struct {
 	ID string `json:"id"`
 }
 
+type endArgs struct {
+	ID     string `json:"id"`
+	Parent string `json:"parent,omitempty"`
+}
+
 type boardArgs struct {
 	ID     string `json:"id"`
 	Answer string `json:"answer,omitempty"`
@@ -129,6 +134,33 @@ func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionCont
 			return nil, nil, err
 		}
 		return text(out + " | selected: " + answered.Selected), nil, nil
+	})
+	if err != nil {
+		return err
+	}
+	// noop_end lists this session's children, terminals included, then
+	// ends one of them through the Host.
+	err = extension.AddTool(r, &mcp.Tool{
+		Name:        "noop_end",
+		Description: "List a session's children and terminals, this one's by default, then end one.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args endArgs) (*mcp.CallToolResult, any, error) {
+		sessions := session.Host.Sessions()
+		parent := args.Parent
+		if parent == "" {
+			parent = "me"
+		}
+		list, err := sessions.List(ctx, extension.SessionFilter{ParentID: parent, IncludeTerminals: true})
+		if err != nil {
+			return nil, nil, err
+		}
+		rows := make([]string, 0, len(list.Sessions))
+		for _, info := range list.Sessions {
+			rows = append(rows, fmt.Sprintf("%s terminal=%v", info.ID, info.Terminal))
+		}
+		if err := sessions.Kill(ctx, args.ID); err != nil {
+			return text(strings.Join(rows, ",") + " | refused: " + err.Error()), nil, nil
+		}
+		return text(strings.Join(rows, ",") + " | ended " + args.ID), nil, nil
 	})
 	if err != nil {
 		return err
@@ -208,6 +240,9 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			return
 		}
 		record("sent.txt", fmt.Sprintf("%s queued %d", helper.ID, sent.QueuePosition))
+		// Children first: the terminal the test opens under the helper, then
+		// the operator's own terminal, which is out of the board's reach.
+		endTerminals(ctx, board, helper.ID, record)
 		killed, err := board.Kill(ctx, helper.ID)
 		if err != nil {
 			record("killed.txt", "error: "+err.Error())
@@ -216,6 +251,41 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 		record("killed.txt", fmt.Sprintf("%s %s %v", killed.ID, killed.Status, killed.Running))
 	}()
 	return func() { record("stopped.txt", fmt.Sprint(ctx.Err() != nil)) }, nil
+}
+
+// endTerminals waits for a terminal to be nested under parent, ends it, and
+// then tries the operator's own terminal the test filed under nobody.
+func endTerminals(ctx context.Context, board extension.BoardHost, parent string, record func(name, line string)) {
+	filter := extension.SessionFilter{ParentID: parent, IncludeTerminals: true}
+	var shell extension.SessionInfo
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline) && shell.ID == ""; time.Sleep(50 * time.Millisecond) {
+		list, err := board.List(ctx, filter)
+		if err != nil {
+			record("terminals.txt", "error: "+err.Error())
+			return
+		}
+		for _, info := range list.Sessions {
+			if info.Terminal {
+				shell = info
+			}
+		}
+	}
+	if shell.ID == "" {
+		record("terminals.txt", "no terminal under "+parent)
+		return
+	}
+	record("terminals.txt", fmt.Sprintf("%s listed %v", shell.ID, shell.Running))
+	ended, err := board.Kill(ctx, shell.ID)
+	if err != nil {
+		record("terminals.txt", "error: "+err.Error())
+		return
+	}
+	record("terminals.txt", fmt.Sprintf("%s ended %s %v", ended.ID, ended.Status, ended.Running))
+	if _, err := board.Kill(ctx, "0be7a001"); err != nil {
+		record("terminals.txt", "0be7a001 refused")
+	} else {
+		record("terminals.txt", "0be7a001 ended")
+	}
 }
 
 // record appends line to a file in the data directory, which is how this

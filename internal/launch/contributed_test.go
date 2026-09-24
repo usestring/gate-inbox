@@ -14,17 +14,17 @@ import (
 func TestComposeLetsContributedEnvOverrideAndWithholdInheritedVars(t *testing.T) {
 	manager := hooks.NewManager(t.TempDir())
 	tool := config.Tool{Command: "cat"}
-	t.Setenv("GATE_INBOX_TEST_GOAL", "the-parents-goal")
+	t.Setenv("GATE_INBOX_TEST_MARK", "the-parents-mark")
 	t.Setenv("GATE_INBOX_TEST_LEAK", "the-parents-secret")
 	_, env, err := Compose(manager, "plain", tool, tool.Command, "abcd1234", "", "", map[string]string{
-		"GATE_INBOX_TEST_GOAL": "this-sessions-goal",
+		"GATE_INBOX_TEST_MARK": "this-sessions-mark",
 		"GATE_INBOX_TEST_LEAK": "",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if env["GATE_INBOX_TEST_GOAL"] != "this-sessions-goal" {
-		t.Fatalf("contributed value lost to the inherited one: %v", env["GATE_INBOX_TEST_GOAL"])
+	if env["GATE_INBOX_TEST_MARK"] != "this-sessions-mark" {
+		t.Fatalf("contributed value lost to the inherited one: %v", env["GATE_INBOX_TEST_MARK"])
 	}
 	if value, set := env["GATE_INBOX_TEST_LEAK"]; !set || value != "" {
 		t.Fatalf("an empty contribution must withhold the inherited value, got %q (set %v)", value, set)

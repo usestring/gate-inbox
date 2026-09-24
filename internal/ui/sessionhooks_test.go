@@ -35,7 +35,7 @@ func (w *boardWatcher) ShapeSpawn(_ context.Context, launch extension.Launch) (e
 }
 func (w *boardWatcher) AllowSpawn(_ context.Context, spawn extension.Spawn) error {
 	if spawn.Session.Name == "over-budget" {
-		return errors.New("over this goal's budget")
+		return errors.New("over the spawn budget")
 	}
 	return nil
 }
@@ -84,7 +84,7 @@ func TestOperatorSpawnIsPutToTheSpawnPolicy(t *testing.T) {
 
 	refused := row("over-budget")
 	err := m.launchNewSession(refused, m.cfg.Tools["plain"], "cat")
-	if err == nil || !strings.Contains(err.Error(), "over this goal's budget") {
+	if err == nil || !strings.Contains(err.Error(), "over the spawn budget") {
 		t.Fatalf("launchNewSession = %v, want the policy's refusal", err)
 	}
 	if _, err := m.store.Get(refused.ID); err == nil {
@@ -114,7 +114,7 @@ func TestOperatorSpawnIsPutToTheSpawnPolicy(t *testing.T) {
 func TestBoardMigrationLaunchesOnTheShapedPrompt(t *testing.T) {
 	m := buildModel(t)
 	source, _ := seedMigrateSource(t, m)
-	watcher := &boardWatcher{prefix: "GOAL: carried over", suffix: "REPORT: to the goal"}
+	watcher := &boardWatcher{prefix: "BRIEF: carried over", suffix: "REPORT: when done"}
 	useBoardWatcher(t, watcher)
 	m.cfg.Tools["claude"] = config.Tool{Command: "cat", DefaultStatus: status.Idle}
 
@@ -131,7 +131,7 @@ func TestBoardMigrationLaunchesOnTheShapedPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(moved.LaunchPrompt, "GOAL: carried over\n\nYou are taking over") || !strings.HasSuffix(moved.LaunchPrompt, "\n\nREPORT: to the goal") {
+	if !strings.Contains(moved.LaunchPrompt, "BRIEF: carried over\n\nYou are taking over") || !strings.HasSuffix(moved.LaunchPrompt, "\n\nREPORT: when done") {
 		t.Fatalf("the migrated session launched on %q", moved.LaunchPrompt)
 	}
 }

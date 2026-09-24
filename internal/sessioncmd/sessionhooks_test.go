@@ -45,7 +45,7 @@ func (w *launchWatcher) AllowSpawn(_ context.Context, spawn extension.Spawn) err
 	defer w.mu.Unlock()
 	w.asked = append(w.asked, spawn)
 	if w.refuse != "" && spawn.Session.Name == w.refuse {
-		return errors.New("over this goal's budget")
+		return errors.New("over the spawn budget")
 	}
 	return nil
 }
@@ -94,7 +94,7 @@ func useWatcher(t *testing.T, w *launchWatcher) {
 // envEchoTool prints the one variable the watcher contributes, then waits.
 const envEchoTool = `
 [tools.envecho]
-command = "sh -c 'echo contributed=$P6_WATCHER_MARK; sleep 30' --"
+command = "sh -c 'echo contributed=$WATCHER_MARK; sleep 30' --"
 default_status = "idle"
 `
 
@@ -121,7 +121,7 @@ func TestCreateAsksTheSpawnPolicyBeforeLaunching(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "too-many", Prompt: "go"})
-	if err == nil || !strings.Contains(err.Error(), "over this goal's budget") {
+	if err == nil || !strings.Contains(err.Error(), "over the spawn budget") {
 		t.Fatalf("Create = %v, want the policy's refusal", err)
 	}
 	after, err := h.store.ListSessions(true)
@@ -154,7 +154,7 @@ func TestCreateAsksTheSpawnPolicyBeforeLaunching(t *testing.T) {
 func TestLaunchesCarryTheContributedEnvironment(t *testing.T) {
 	h := newSessionHarness(t)
 	addEnvEchoTool(t, h)
-	watcher := &launchWatcher{env: map[string]string{"P6_WATCHER_MARK": "from-the-extension"}}
+	watcher := &launchWatcher{env: map[string]string{"WATCHER_MARK": "from-the-extension"}}
 	useWatcher(t, watcher)
 
 	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Tool: "envecho", Name: "env"})
@@ -278,7 +278,7 @@ func TestCreateLaunchesTheShapedSpawn(t *testing.T) {
 func TestMigrateLaunchesOnTheShapedPrompt(t *testing.T) {
 	h := newSessionHarness(t)
 	source, _ := claudeSource(t, h)
-	watcher := &launchWatcher{shape: extension.SpawnShape{PromptPrefix: "GOAL: carried over", PromptSuffix: "REPORT: to the goal"}}
+	watcher := &launchWatcher{shape: extension.SpawnShape{PromptPrefix: "BRIEF: carried over", PromptSuffix: "REPORT: when done"}}
 	useWatcher(t, watcher)
 
 	moved, err := h.sessions.Migrate(h.caller.ID, source.ID, MigrateOptions{Tool: "echoer"})
@@ -295,7 +295,7 @@ func TestMigrateLaunchesOnTheShapedPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stored.LaunchPrompt, "GOAL: carried over\n\nYou are taking over") || !strings.HasSuffix(stored.LaunchPrompt, "\n\nREPORT: to the goal") {
+	if !strings.Contains(stored.LaunchPrompt, "BRIEF: carried over\n\nYou are taking over") || !strings.HasSuffix(stored.LaunchPrompt, "\n\nREPORT: when done") {
 		t.Fatalf("the migrated session launched on %q", stored.LaunchPrompt)
 	}
 }

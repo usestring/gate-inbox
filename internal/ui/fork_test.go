@@ -18,7 +18,7 @@ import (
 )
 
 func TestExpandForkCommandQuotesPlaceholders(t *testing.T) {
-	got := expandForkCommand("tool --fork {id} --new {new_id} --name {name}", "source", "new", "Sam's fork")
+	got := expandForkCommand("tool --fork {id} --new {new_id} --name {name}", "source", "", "new", "Sam's fork")
 	want := "tool --fork 'source' --new 'new' --name 'Sam'\\''s fork'"
 	if got != want {
 		t.Fatalf("fork command = %q, want %q", got, want)

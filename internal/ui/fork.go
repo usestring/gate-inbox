@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/agentsession"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/search"
@@ -104,7 +105,15 @@ func (m *Model) submitFork() (tea.Model, tea.Cmd) {
 	if strings.Contains(tool.ForkCommand, "{new_id}") {
 		agentID = uuid.NewString()
 	}
-	baseCommand := expandForkCommand(tool.ForkCommand, source.AgentSessionID, agentID, name)
+	sessionFile := ""
+	if strings.Contains(tool.ForkCommand, "{session_file}") {
+		sessionFile, err = forkSessionFile(tool.SessionStore, source.AgentSessionID)
+		if err != nil {
+			m.errBar.text = err.Error()
+			return m, nil
+		}
+	}
+	baseCommand := expandForkCommand(tool.ForkCommand, source.AgentSessionID, sessionFile, agentID, name)
 	if tool.SessionStore == search.ToolOpenCode {
 		// opencode's TUI has no fork flag, so the manager copies the
 		// conversation through opencode's API and resumes the copy.
@@ -166,8 +175,8 @@ func validateForkSource(toolName string, tool config.Tool, source store.Session)
 	if tool.ForkCommand == "" {
 		return fmt.Errorf("tool %s has no fork_command", toolName)
 	}
-	if !strings.Contains(tool.ForkCommand, "{id}") {
-		return fmt.Errorf("tool %s fork_command must reference the source via {id}", toolName)
+	if !strings.Contains(tool.ForkCommand, "{id}") && !strings.Contains(tool.ForkCommand, "{session_file}") {
+		return fmt.Errorf("tool %s fork_command must reference the source via {id} or {session_file}", toolName)
 	}
 	if source.AgentSessionID == "" {
 		return fmt.Errorf("%s has no captured conversation id", source.Name)
@@ -175,9 +184,14 @@ func validateForkSource(toolName string, tool config.Tool, source store.Session)
 	return nil
 }
 
-func expandForkCommand(template, sourceID, newID, name string) string {
+// forkSessionFile locates a source conversation's file for {session_file}.
+// A variable so tests stand in for a driver.
+var forkSessionFile = agentsession.SessionFile
+
+func expandForkCommand(template, sourceID, sessionFile, newID, name string) string {
 	return strings.NewReplacer(
 		"{id}", tmux.ShellQuote(sourceID),
+		"{session_file}", tmux.ShellQuote(sessionFile),
 		"{new_id}", tmux.ShellQuote(newID),
 		"{name}", tmux.ShellQuote(name),
 	).Replace(template)

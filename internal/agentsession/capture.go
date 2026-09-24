@@ -12,6 +12,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -19,6 +21,9 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/tooldrivers"
 )
 
 // clockSlack absorbs small differences between the manager's launch clock
@@ -63,9 +68,32 @@ func Capture(sessionStore, cwd string, launchedAt time.Time, claimed map[string]
 		return captureCodex(codexRoot(), cwd, launchedAt, claimed)
 	case "opencode":
 		return captureOpencode(cwd, launchedAt, claimed)
+	case "":
+		return "", false
 	default:
+		return captureDriver(sessionStore, cwd, launchedAt, claimed)
+	}
+}
+
+// captureDriver asks the extension driver named by sessionStore. A store no
+// driver answers is refused at startup and at launch, so here it simply
+// captures nothing.
+func captureDriver(sessionStore, cwd string, launchedAt time.Time, claimed map[string]bool) (string, bool) {
+	driver, ok, err := tooldrivers.Lookup(sessionStore)
+	if err != nil || !ok {
 		return "", false
 	}
+	ctx, cancel := tooldrivers.Context()
+	defer cancel()
+	id, err := driver.CaptureSession(ctx, extension.CaptureRequest{
+		Directory:  cwd,
+		LaunchedAt: launchedAt,
+		Claimed:    func(id string) bool { return claimed[id] },
+	})
+	if err != nil || id == "" || claimed[id] || !sessionIDPattern.MatchString(id) {
+		return "", false
+	}
+	return id, true
 }
 
 func codexRoot() string {
@@ -341,4 +369,30 @@ func captureOpencode(cwd string, launchedAt time.Time, claimed map[string]bool) 
 		cands = append(cands, candidate{id: id, modTime: created})
 	}
 	return pickEarliest(cands)
+}
+
+// SessionFile is the file on disk holding a conversation, for a fork_command
+// that loads one from a file ({session_file}). Only an extension driver
+// named by sessionStore knows one; the built-in stores fork by id.
+func SessionFile(sessionStore, id string) (string, error) {
+	driver, ok, err := tooldrivers.Lookup(sessionStore)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("session_store %q keeps no conversation in a file a fork can load; {session_file} needs an extension driver's store", sessionStore)
+	}
+	ctx, cancel := tooldrivers.Context()
+	defer cancel()
+	path, err := driver.SessionFile(ctx, id)
+	if errors.Is(err, errors.ErrUnsupported) {
+		return "", fmt.Errorf("the %s driver keeps no conversation in a file a fork can load", sessionStore)
+	}
+	if err != nil {
+		return "", fmt.Errorf("locating conversation %s's file: %w", id, err)
+	}
+	if path == "" {
+		return "", fmt.Errorf("the %s driver found no file for conversation %s", sessionStore, id)
+	}
+	return path, nil
 }

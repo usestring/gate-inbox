@@ -32,6 +32,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpserver"
+	"github.com/usestring/gate-inbox/internal/tooldrivers"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
@@ -93,6 +94,7 @@ func Run(ctx context.Context, args []string, opts Options) error {
 		return err
 	}
 	accounts.UsePool(poolOf(registry))
+	tooldrivers.Use(driversOf(registry))
 
 	if len(args) == 0 {
 		return runBoard(version, registry)
@@ -141,6 +143,25 @@ func poolOf(registry *extension.Registry) func() (extension.AccountPool, error) 
 			return nil, err
 		}
 		return registry.AccountPool(dir, cfg.Extensions)
+	})
+}
+
+// driversOf finds the build's tool drivers the first time a tool block
+// names a style the core does not implement, configuring as poolOf does.
+func driversOf(registry *extension.Registry) func() (map[string]extension.ToolDriver, error) {
+	return sync.OnceValues(func() (map[string]extension.ToolDriver, error) {
+		if registry.Configured() {
+			return registry.ToolDrivers("", nil, tooldrivers.Builtin)
+		}
+		dir, err := config.Dir()
+		if err != nil {
+			return nil, err
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return nil, err
+		}
+		return registry.ToolDrivers(dir, cfg.Extensions, tooldrivers.Builtin)
 	})
 }
 

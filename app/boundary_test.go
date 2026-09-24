@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"go/parser"
 	"go/token"
@@ -81,14 +82,16 @@ func buildFixture(t *testing.T) string {
 	return bin
 }
 
-// fixtureHome is a scratch GATE_INBOX_HOME holding config.
+// fixtureHome is a scratch GATE_INBOX_HOME holding config, in an environment
+// with no way back to the tmux server the test itself may be running in: no
+// TMUX or TMUX_PANE, and a TMUX_TMPDIR of its own.
 func fixtureHome(t *testing.T, config string) []string {
 	t.Helper()
 	home := t.TempDir()
 	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("poll_interval = \"2s\"\n\n"+config), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return append(os.Environ(), "GATE_INBOX_HOME="+home, "GATE_INBOX_SESSION_ID=fixture-session")
+	return append(withoutTmux(os.Environ()), "TMUX_TMPDIR="+t.TempDir(), "GATE_INBOX_HOME="+home, "GATE_INBOX_SESSION_ID=fixture-session")
 }
 
 // TestExternalBuildServesEveryEntryPoint is the acceptance proof for the
@@ -183,6 +186,70 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		}
 	})
 
+	// A CLI the core has no code for, taught by the fixture's driver: a
+	// migration off an "echo" session finds its transcript through the
+	// driver, and the new session's launch registers the MCP server
+	// through it.
+	t.Run("tool driver", func(t *testing.T) {
+		if _, err := exec.LookPath("tmux"); err != nil {
+			t.Skip("a migration launches a tmux session")
+		}
+		// The launch runs on a named server under the fixture's own
+		// TMUX_TMPDIR, which the cleanup ends by its full socket path.
+		const echoTool = "tmux_socket = \"gitest-driver\"\n\n[tools.echo]\ncommand = \"sleep 60\"\nprompt_mode = \"send\"\nsession_store = \"echo\"\n"
+		env := append(fixtureHome(t, echoTool), "GATE_INBOX_SESSION_ID=ca11e400")
+		home := envValue(env, "GATE_INBOX_HOME")
+		socket := filepath.Join(envValue(env, "TMUX_TMPDIR"), "tmux-"+strconv.Itoa(os.Getuid()), "gitest-driver")
+		t.Cleanup(func() {
+			kill := exec.Command("tmux", "-S", socket, "kill-server")
+			kill.Env = env
+			_ = kill.Run()
+		})
+		work := t.TempDir()
+		seedEchoSessions(t, filepath.Join(home, "state.db"), work)
+
+		migrate := exec.Command(bin, "migrate", "--tool", "echo", "--json", "ec400001")
+		migrate.Env = env
+		out, err := migrate.CombinedOutput()
+		if err != nil {
+			t.Fatalf("migrate: %v\n%s", err, out)
+		}
+		var moved struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(out, &moved); err != nil || moved.ID == "" {
+			t.Fatalf("migrate answered %q: %v", out, err)
+		}
+		note, err := os.ReadFile(filepath.Join(home, "hooks", "echo-mcp-"+moved.ID))
+		if err != nil {
+			t.Fatalf("the driver registered no MCP server for the new session: %v", err)
+		}
+		if want := "gate-inbox "; !strings.HasPrefix(string(note), want) || !strings.HasSuffix(string(note), " mcp GATE_INBOX_SESSION_ID="+moved.ID) {
+			t.Fatalf("the driver was handed %q", note)
+		}
+		st, err := store.Open(filepath.Join(home, "state.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer st.Close()
+		row, err := st.Get(moved.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		transcript := filepath.Join(work, "conv-1.echo.jsonl")
+		if prompt := strings.Join(row.PendingInputs, "\n"); !strings.Contains(prompt, transcript) || !strings.Contains(prompt, "One echo record per line.") {
+			t.Fatalf("the new session was not pointed at the driver's transcript:\n%s", prompt)
+		}
+
+		refused := exec.Command(bin, "migrate", "--tool", "echo", "ec400001")
+		refused.Env = append(fixtureHome(t, echoTool+"mcp = \"nope\"\n"), "GATE_INBOX_SESSION_ID=ca11e400")
+		seedEchoSessions(t, filepath.Join(envValue(refused.Env, "GATE_INBOX_HOME"), "state.db"), work)
+		out, err = refused.CombinedOutput()
+		if err == nil || !strings.Contains(string(out), `mcp = "nope" is not a style this build has (built in: claude, codex, opencode, none; from extensions: echo)`) {
+			t.Fatalf("a style nothing implements was not refused: %v\n%s", err, out)
+		}
+	})
+
 	t.Run("mcp keeps the host's tools when an extension's config is refused", func(t *testing.T) {
 		session := connectFixture(t, bin, fixtureHome(t, "[extensions.noop]\ngreeting = \"hi\"\nbogus = 1\n"))
 		names := listTools(t, session)
@@ -203,6 +270,7 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		for name, tc := range map[string]struct{ config, want string }{
 			"unknown key":     {"[extensions.noop]\nbogus = 1\n", "[extensions.noop]: unknown key(s): bogus"},
 			"unowned section": {"[extensions.stranger]\nx = 1\n", "no extension in this build owns: stranger (this build has: noop)"},
+			"unknown style":   {"[tools.claude]\nmcp = \"nope\"\n", `tool claude: mcp = "nope" is not a style this build has`},
 		} {
 			t.Run(name, func(t *testing.T) {
 				// util-linux and BSD script(1) take the command differently.
@@ -269,6 +337,26 @@ func seedSessions(t *testing.T, path string) {
 	}
 }
 
+// seedEchoSessions writes the calling session and an echo session with a
+// captured conversation in dir into the state database at path.
+func seedEchoSessions(t *testing.T, path, dir string) {
+	t.Helper()
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now()
+	for _, sess := range []store.Session{
+		{ID: "ca11e400", Name: "the caller", Tool: "claude", Status: "working", CreatedAt: now},
+		{ID: "ec400001", Name: "the echo", Tool: "echo", Cwd: dir, Status: "idle", AgentSessionID: "conv-1", CreatedAt: now},
+	} {
+		if err := st.CreateSession(sess); err != nil {
+			t.Fatalf("seed %s: %v", sess.ID, err)
+		}
+	}
+}
+
 // envValue is the last value env gives key, which is the one a child
 // process sees.
 func envValue(env []string, key string) string {
@@ -293,4 +381,17 @@ func callText(t *testing.T, session *mcp.ClientSession, name string, args map[st
 		t.Fatalf("%s failed: %s", name, text)
 	}
 	return text
+}
+
+// withoutTmux is env with the variables that tie a process to the tmux
+// server it was started in removed.
+func withoutTmux(env []string) []string {
+	kept := env[:0:0]
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "TMUX=") || strings.HasPrefix(entry, "TMUX_PANE=") {
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	return kept
 }

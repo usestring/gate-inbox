@@ -20,6 +20,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/tmux"
+	"github.com/usestring/gate-inbox/internal/tooldrivers"
 )
 
 // RenameDirective asks the agent, as the first line of its first prompt,
@@ -374,6 +375,11 @@ func Environment(manager *hooks.Manager, toolName string, tool config.Tool, base
 	if err := config.CheckInstalled(baseCommand); err != nil {
 		return "", nil, err
 	}
+	// Refused before anything is removed or written: a style nothing
+	// implements is a config mistake, not a launch half made.
+	if err := tooldrivers.CheckTool(toolName, tool); err != nil {
+		return "", nil, err
+	}
 	if err := manager.RemoveName(id); err != nil {
 		return "", nil, err
 	}
@@ -465,7 +471,11 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	if err := config.CheckInstalled(baseCommand); err != nil {
 		return "", nil, err
 	}
-	account, err := WithAccount(tool, account)
+	style, err := mcpreg.Resolve(toolName, tool.MCP)
+	if err != nil {
+		return "", nil, err
+	}
+	account, err = WithAccount(tool, account)
 	if err != nil {
 		return "", nil, err
 	}
@@ -501,7 +511,7 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	if write {
 		register = mcpreg.Apply
 	}
-	command, err := register(mcpreg.Style(toolName, tool.MCP), Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model))
+	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model))
 	if err != nil {
 		return "", nil, err
 	}

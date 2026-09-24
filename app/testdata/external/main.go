@@ -118,6 +118,37 @@ func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionCont
 	})
 }
 
+// ToolDrivers teaches the board one agent CLI, styled "echo", that the core
+// has no code for.
+func (n *noop) ToolDrivers() []extension.ToolDriver {
+	return []extension.ToolDriver{echoDriver{}}
+}
+
+// echoDriver registers the MCP server by leaving a note of what it was
+// handed, and hands a conversation over by a path of its own making.
+type echoDriver struct {
+	extension.UnsupportedToolDriver
+}
+
+func (echoDriver) Style() string { return "echo" }
+
+func (echoDriver) RegisterMCP(_ context.Context, req extension.MCPRequest) (extension.MCPLaunch, error) {
+	if !req.DryRun {
+		if err := os.MkdirAll(req.HooksDir, 0o755); err != nil {
+			return extension.MCPLaunch{}, err
+		}
+		note := fmt.Sprintf("%s %s mcp %s=%s", req.ServerName, req.Executable, req.SessionIDEnv, req.SessionID)
+		if err := os.WriteFile(filepath.Join(req.HooksDir, "echo-mcp-"+req.SessionID), []byte(note), 0o644); err != nil {
+			return extension.MCPLaunch{}, err
+		}
+	}
+	return extension.MCPLaunch{Env: map[string]string{"ECHO_MCP_SERVER": req.ServerName}}, nil
+}
+
+func (echoDriver) MigrateTranscript(_ context.Context, req extension.TranscriptRequest) (extension.Transcript, error) {
+	return extension.Transcript{Path: filepath.Join(req.Directory, req.ID+".echo.jsonl"), Format: "One echo record per line."}, nil
+}
+
 func text(s string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: s}}}
 }

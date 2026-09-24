@@ -23,6 +23,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
+	"github.com/usestring/gate-inbox/internal/tooldrivers"
 	"github.com/usestring/gate-inbox/internal/tracing"
 	"github.com/usestring/gate-inbox/internal/ui"
 )
@@ -57,6 +58,12 @@ func runBoard(version string, registry *extension.Registry) error {
 		return err
 	}
 	if err := registry.Configure(dir, cfg.Extensions); err != nil {
+		return err
+	}
+	// Refused for the same reason: a tool block naming an mcp or
+	// session_store style this build does not have would launch sessions
+	// without the board's tools.
+	if err := tooldrivers.CheckTools(cfg.Tools); err != nil {
 		return err
 	}
 

@@ -101,26 +101,12 @@ func (r *Registry) Configured() bool {
 // configDir: a CLI command routing one launch has no use for the rest.
 // Two enabled providers are refused rather than one silently winning.
 func (r *Registry) AccountPool(configDir string, sections map[string]map[string]any) (AccountPool, error) {
-	var found []int
-	for i, ext := range r.extensions {
-		if _, ok := ext.(AccountPoolProvider); ok {
-			found = append(found, i)
-		}
-	}
-	if !r.configured {
-		var errs []error
-		for _, i := range found {
-			cfg := NewConfig(sections[r.ids[i]])
-			if configDir != "" {
-				cfg = cfg.WithDataDir(DataDir(configDir, r.ids[i]))
-			}
-			if err := r.extensions[i].Configure(cfg); err != nil {
-				errs = append(errs, fmt.Errorf("[extensions.%s]: %w", r.ids[i], err))
-			}
-		}
-		if err := errors.Join(errs...); err != nil {
-			return nil, err
-		}
+	found := r.providers(func(ext Extension) bool {
+		_, ok := ext.(AccountPoolProvider)
+		return ok
+	})
+	if err := r.configureOnly(found, configDir, sections); err != nil {
+		return nil, err
 	}
 	var pool AccountPool
 	var owners []string
@@ -138,6 +124,84 @@ func (r *Registry) AccountPool(configDir string, sections map[string]map[string]
 		return nil, fmt.Errorf("more than one extension supplies an account pool: %s", strings.Join(owners, ", "))
 	}
 	return pool, nil
+}
+
+// ToolDrivers are the drivers every enabled ToolDriverProvider supplies,
+// keyed by style. As with AccountPool, a registry nothing has configured yet
+// configures only the providers. reserved names the styles the host
+// implements itself; a driver can take none of them, nor a style another
+// driver took first.
+func (r *Registry) ToolDrivers(configDir string, sections map[string]map[string]any, reserved []string) (map[string]ToolDriver, error) {
+	found := r.providers(func(ext Extension) bool {
+		_, ok := ext.(ToolDriverProvider)
+		return ok
+	})
+	if err := r.configureOnly(found, configDir, sections); err != nil {
+		return nil, err
+	}
+	drivers := map[string]ToolDriver{}
+	owners := map[string]string{}
+	for _, style := range reserved {
+		owners[style] = "the host"
+	}
+	var errs []error
+	for _, i := range found {
+		if !enabled(r.extensions[i]) {
+			continue
+		}
+		for _, driver := range r.extensions[i].(ToolDriverProvider).ToolDrivers() {
+			if v := reflect.ValueOf(driver); driver == nil || (v.Kind() == reflect.Pointer && v.IsNil()) {
+				errs = append(errs, fmt.Errorf("extension %q supplied a nil tool driver", r.ids[i]))
+				continue
+			}
+			style := driver.Style()
+			if !idPattern.MatchString(style) {
+				errs = append(errs, fmt.Errorf("extension %q supplied a tool driver styled %q, which must be lower case, start with a letter, and hold only letters, digits, '-' and '_'", r.ids[i], style))
+				continue
+			}
+			if owner, taken := owners[style]; taken {
+				errs = append(errs, fmt.Errorf("extension %q supplied a tool driver styled %q, which %s already provides", r.ids[i], style, owner))
+				continue
+			}
+			owners[style] = "extension " + r.ids[i]
+			drivers[style] = driver
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+	return drivers, nil
+}
+
+// providers are the indexes of the extensions is keeps.
+func (r *Registry) providers(is func(Extension) bool) []int {
+	var found []int
+	for i, ext := range r.extensions {
+		if is(ext) {
+			found = append(found, i)
+		}
+	}
+	return found
+}
+
+// configureOnly configures the extensions at found, from sections and under
+// configDir, when the registry as a whole has not been: a CLI command asking
+// for one capability has no use for the rest.
+func (r *Registry) configureOnly(found []int, configDir string, sections map[string]map[string]any) error {
+	if r.configured {
+		return nil
+	}
+	var errs []error
+	for _, i := range found {
+		cfg := NewConfig(sections[r.ids[i]])
+		if configDir != "" {
+			cfg = cfg.WithDataDir(DataDir(configDir, r.ids[i]))
+		}
+		if err := r.extensions[i].Configure(cfg); err != nil {
+			errs = append(errs, fmt.Errorf("[extensions.%s]: %w", r.ids[i], err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // DataDir is where the extension with id keeps its state under a config

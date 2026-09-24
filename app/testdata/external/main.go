@@ -239,7 +239,7 @@ func (n *noop) record(name, line string) {
 func (n *noop) AllowSpawn(ctx context.Context, spawn extension.Spawn) error {
 	switch spawn.Session.Name {
 	case "over-budget":
-		return errors.New("this goal's budget is spent")
+		return errors.New("the spawn budget is spent")
 	case "one-too-many":
 		list, err := spawn.Sessions.List(ctx, extension.SessionFilter{ParentID: spawn.Session.ParentID})
 		if err != nil {

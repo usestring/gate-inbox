@@ -3,8 +3,8 @@ package extension
 import "context"
 
 // SpawnPolicy is implemented by an extension that has a say in which new
-// agent sessions start: a budget on how many sessions one goal may fan out
-// to, a rule about which CLIs a group may run.
+// agent sessions start: a budget on how far one session's spawns may fan
+// out, a rule about which CLIs a group may run.
 //
 // AllowSpawn is asked before anything is launched, so a refusal costs
 // nothing to undo. Its error is the refusal, and it goes back to whoever
@@ -70,8 +70,8 @@ const (
 
 // LaunchContributor is implemented by an extension that puts variables in
 // the environment an agent session is launched with: where a hook the
-// session runs finds the extension's state, which goal the session is
-// working for.
+// session runs finds the extension's state, which task the session is
+// working on.
 //
 // LaunchEnv is asked at every launch of an agent's pane -- a spawn, a
 // relaunch of a dead row, a migration -- and at a dry run that only shows

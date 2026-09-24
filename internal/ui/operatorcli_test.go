@@ -76,7 +76,7 @@ func TestARelayedOperatorLineIsDeliveredButNotReportedAgain(t *testing.T) {
 	sess := spawnedSession(t, m, "claude-hooked")
 	observer := &recordingObserver{}
 	m.ObserveBoard(observer)
-	relayed := queueFrom(t, m, sess.ID, store.RelayedHumanSenderID, "use the second proxy")
+	relayed := queueFrom(t, m, sess.ID, store.RelayedHumanSenderID, "use the second draft")
 	queueFrom(t, m, sess.ID, store.HumanSenderID, "yes, ship it")
 
 	for attempt := 0; attempt < 20; attempt++ {
@@ -98,7 +98,7 @@ func TestARelayedOperatorLineIsDeliveredButNotReportedAgain(t *testing.T) {
 	if len(got) != 1 || got[0].Via != extension.OperatorCLI || got[0].Text != "yes, ship it" {
 		t.Fatalf("reported %+v, want only the shell send, once", got)
 	}
-	if env := inboxEnvelope(store.InboxMessage{SenderID: store.RelayedHumanSenderID, Body: "use the second proxy"}, "", true, messageContext{}); env != "use the second proxy" {
+	if env := inboxEnvelope(store.InboxMessage{SenderID: store.RelayedHumanSenderID, Body: "use the second draft"}, "", true, messageContext{}); env != "use the second draft" {
 		t.Fatalf("relayed line typed as %q, want the operator's words unfenced", env)
 	}
 }

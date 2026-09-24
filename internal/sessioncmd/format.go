@@ -357,20 +357,6 @@ func FormatUnparkResult(result UnparkResult) string {
 	return strings.Join(lines, "\n")
 }
 
-// firstLine keeps a decision's message to one bounded line, since a manager's
-// message is a paragraph and this is a list.
-func firstLine(text string) string {
-	text = strings.TrimSpace(text)
-	if i := strings.IndexByte(text, '\n'); i >= 0 {
-		text = text[:i]
-	}
-	const limit = 100
-	if runes := []rune(text); len(runes) > limit {
-		text = string(runes[:limit]) + "..."
-	}
-	return text
-}
-
 // FormatAnswer says what the answer did, in one line: the option it landed
 // on, or that it was typed. A caller that picked an option nobody offered
 // gets to see that its words went in as words.

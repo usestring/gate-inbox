@@ -8,22 +8,26 @@ package cli
 
 import (
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"slices"
 	"strings"
+
+	"github.com/usestring/gate-inbox/extension/cmdline"
 )
 
 type Command func(args []string, sessionID, configDir string) error
 
 // ErrUsageShown reports that -h already printed the usage, so the caller
-// exits without an error line.
-var ErrUsageShown = errors.New("usage shown")
+// exits without an error line. It is flag.ErrHelp, which cmdline returns and
+// an extension's command returns too.
+var ErrUsageShown = flag.ErrHelp
 
-const anyNumber = -1
+const anyNumber = cmdline.AnyNumber
+
+// program opens every usage line.
+const program = "gate-inbox"
 
 type command struct {
 	name  string
@@ -80,8 +84,7 @@ func Help() string {
 func usageLines(commands []command) string {
 	var lines strings.Builder
 	for _, command := range commands {
-		lines.WriteString("  gate-inbox " + command.usage + "\n")
-		lines.WriteString("      " + command.about + "\n")
+		lines.WriteString(cmdline.UsageLines(program, []cmdline.Verb{{Usage: command.usage, About: command.about}}))
 		lines.WriteString(usageLines(command.verbs))
 	}
 	return lines.String()
@@ -109,20 +112,18 @@ func verbNames(verbs []command) []string {
 }
 
 func dispatch(out io.Writer, group string, verbs []command, args []string, sessionID, configDir string) error {
-	names := verbNames(verbs)
-	if len(args) == 0 {
-		return fmt.Errorf("usage: gate-inbox %s <%s>", group, strings.Join(names, "|"))
-	}
-	if args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
-		fmt.Fprint(out, usageLines(verbs))
-		return ErrUsageShown
-	}
+	bound := make([]cmdline.Verb, 0, len(verbs))
 	for _, verb := range verbs {
-		if verb.name == args[0] {
-			return verb.run(args[1:], sessionID, configDir)
-		}
+		bound = append(bound, cmdline.Verb{
+			Name:  verb.name,
+			Usage: verb.usage,
+			About: verb.about,
+			Run: func(args []string) error {
+				return verb.run(args, sessionID, configDir)
+			},
+		})
 	}
-	return fmt.Errorf("%s has no %q command; it takes %s", group, args[0], strings.Join(names, ", "))
+	return cmdline.Dispatch(out, program, group, bound, args)
 }
 
 // bind hands a subcommand the layer it drives, which tests replace with a
@@ -152,64 +153,11 @@ func jsonFlag(set *flag.FlagSet) *bool {
 }
 
 func usageError(usage string) error {
-	return fmt.Errorf("usage: gate-inbox %s", usage)
+	return fmt.Errorf("usage: %s %s", program, usage)
 }
 
 func parseCommand(out io.Writer, set *flag.FlagSet, args []string, min, max int) ([]string, error) {
-	operands, err := parseInterspersed(set, args)
-	if errors.Is(err, flag.ErrHelp) {
-		fmt.Fprintln(out, "usage: gate-inbox "+set.Name())
-		set.SetOutput(out)
-		set.PrintDefaults()
-		return nil, ErrUsageShown
-	}
-	if err != nil {
-		return nil, fmt.Errorf("%w; usage: gate-inbox %s", err, set.Name())
-	}
-	if len(operands) < min || (max != anyNumber && len(operands) > max) {
-		return nil, usageError(set.Name())
-	}
-	return operands, nil
-}
-
-// parseInterspersed reads flags wherever they sit, since these commands lead
-// with their operands and flag.Parse stops at the first one. Anything the
-// set has no flag for is an operand, so a message or a title may start with
-// a dash the way agent prose often does.
-func parseInterspersed(set *flag.FlagSet, args []string) ([]string, error) {
-	var literal []string
-	if separator := slices.Index(args, "--"); separator >= 0 {
-		literal = args[separator+1:]
-		args = args[:separator]
-	}
-	operands := make([]string, 0, len(args)+len(literal))
-	for len(args) > 0 {
-		if !namesFlag(set, args[0]) {
-			operands = append(operands, args[0])
-			args = args[1:]
-			continue
-		}
-		if err := set.Parse(args); err != nil {
-			return nil, err
-		}
-		args = set.Args()
-	}
-	return append(operands, literal...), nil
-}
-
-// -h counts wherever it appears: the flag package answers it itself rather
-// than declaring it.
-func namesFlag(set *flag.FlagSet, token string) bool {
-	if token == "-h" || token == "--help" {
-		return true
-	}
-	name, dashed := strings.CutPrefix(token, "-")
-	if !dashed {
-		return false
-	}
-	name = strings.TrimPrefix(name, "-")
-	name, _, _ = strings.Cut(name, "=")
-	return set.Lookup(name) != nil
+	return cmdline.Parse(out, program, set, args, min, max)
 }
 
 type stringList []string

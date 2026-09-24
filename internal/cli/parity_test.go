@@ -371,7 +371,7 @@ func TestBothFrontsTakeEverySendArgument(t *testing.T) {
 		}
 		// Run the real subcommand with the flag, at a session id nothing
 		// holds: what comes back has to be about that id. A flag the set
-		// does not define is read as a third operand -- parseInterspersed
+		// does not define is read as a third operand -- cmdline.Interspersed
 		// makes anything it has no flag for one, so the message would come
 		// back as a usage error rather than as an unknown flag.
 		flag := []string{"--" + name, "x"}

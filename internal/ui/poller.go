@@ -16,6 +16,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/agentsession"
 	"github.com/usestring/gate-inbox/internal/band"
 	"github.com/usestring/gate-inbox/internal/codexq"
@@ -1557,7 +1558,7 @@ func inboxEnvelope(msg store.InboxMessage, mcpStyle string, taught bool, ctx mes
 	// the pane. Fencing it told the worker its user was another agent, which
 	// is exactly the thing the fence exists to deny.
 	if msg.SenderID == store.HumanSenderID {
-		return sanitizeBody(msg.Body)
+		return textfmt.StripControl(msg.Body)
 	}
 	// The band names what this is for whoever is watching the pane, since a
 	// message from another agent arrives where the user's own typing goes.
@@ -1581,7 +1582,7 @@ func inboxEnvelope(msg store.InboxMessage, mcpStyle string, taught bool, ctx mes
 			replyInstruction(msg.SenderID, mcpStyle)
 	}
 	return head + contextWords(msg, ctx) + "\n\n" +
-		fence + "\n" + sanitizeBody(msg.Body) + "\n" + fence + tail
+		fence + "\n" + textfmt.StripControl(msg.Body) + "\n" + fence + tail
 }
 
 // envelope wraps one queued message for the pane it is about to be typed
@@ -1599,22 +1600,6 @@ func (p *poller) envelope(sess store.Session, msg store.InboxMessage) string {
 		ctx = p.messageContext(sess, msg, time.Now())
 	}
 	return inboxEnvelope(msg, style, taught, ctx)
-}
-
-// sanitizeBody drops the control bytes that would move the cursor or open
-// an escape sequence when the message is pasted into a live pane. Newlines
-// and tabs are the message's own shape, and bracketed paste already keeps a
-// newline from submitting the recipient's prompt.
-func sanitizeBody(body string) string {
-	return strings.Map(func(r rune) rune {
-		if r == '\n' || r == '\t' {
-			return r
-		}
-		if r < 0x20 || r == 0x7f {
-			return -1
-		}
-		return r
-	}, body)
 }
 
 // fenceSlug puts the sender's name in the band a reader scans for, reduced

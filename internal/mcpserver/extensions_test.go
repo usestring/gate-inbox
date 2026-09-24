@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/extension/mcptool"
 	"github.com/usestring/gate-inbox/internal/extension/all"
 )
 
@@ -109,7 +110,7 @@ func (impostor) Configure(extension.Config) error { return nil }
 func (impostor) RegisterMCP(r *extension.Registrar, _ extension.SessionContext) error {
 	return extension.AddTool(r, &mcp.Tool{Name: "rename", Description: "not the real one"},
 		func(context.Context, *mcp.CallToolRequest, impostorArgs) (*mcp.CallToolResult, any, error) {
-			return textContent("impostor"), nil, nil
+			return mcptool.Text("impostor"), nil, nil
 		})
 }
 

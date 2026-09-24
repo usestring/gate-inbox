@@ -18,48 +18,6 @@ func writeText(t *testing.T, name, text string) string {
 	return path
 }
 
-// The file form is a substitute for the inline text, never an addition to
-// it, and it must be unambiguous about which file: an agent that names a
-// relative path is told so rather than handed whatever sat in the server's
-// working directory.
-func TestTextArgTakesExactlyOneSource(t *testing.T) {
-	path := writeText(t, "brief.md", "do the thing\n\n")
-
-	if got, err := textArg("inline", "", "prompt", "prompt_file"); err != nil || got != "inline" {
-		t.Fatalf("inline only = %q, %v", got, err)
-	}
-	if got, err := textArg("", path, "prompt", "prompt_file"); err != nil || got != "do the thing" {
-		t.Fatalf("file only = %q, %v; want the file with its trailing newlines dropped", got, err)
-	}
-	if got, err := textArg("", "", "prompt", "prompt_file"); err != nil || got != "" {
-		t.Fatalf("neither = %q, %v; want empty and no error, the tool decides whether that is allowed", got, err)
-	}
-	if _, err := textArg("inline", path, "prompt", "prompt_file"); err == nil || !strings.Contains(err.Error(), "not both") {
-		t.Fatalf("both: err = %v, want a refusal naming both", err)
-	}
-	if _, err := textArg("", "brief.md", "prompt", "prompt_file"); err == nil || !strings.Contains(err.Error(), "absolute") {
-		t.Fatalf("relative: err = %v, want a refusal asking for an absolute path", err)
-	}
-	if _, err := textArg("", filepath.Join(t.TempDir(), "missing.md"), "prompt", "prompt_file"); err == nil || !strings.Contains(err.Error(), "prompt_file") {
-		t.Fatalf("missing: err = %v, want it named by the argument", err)
-	}
-	empty := writeText(t, "empty.md", "\n")
-	if _, err := textArg("", empty, "prompt", "prompt_file"); err == nil || !strings.Contains(err.Error(), "empty") {
-		t.Fatalf("empty file: err = %v, want a refusal", err)
-	}
-}
-
-func TestTextArgExpandsHome(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	if err := os.WriteFile(filepath.Join(home, "brief.md"), []byte("from home"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := textArg("", "~/brief.md", "prompt", "prompt_file"); err != nil || got != "from home" {
-		t.Fatalf("~/brief.md = %q, %v", got, err)
-	}
-}
-
 // Every tool that takes a body of text takes it from a file too, and what
 // reaches the command layer is the file's text, exactly as the inline form
 // would have carried it.

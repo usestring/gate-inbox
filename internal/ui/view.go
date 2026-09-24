@@ -12,6 +12,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
@@ -876,26 +877,10 @@ func displayGroup(path string) string {
 	return path
 }
 
-// relSince is relTime worded as a moment in the past, for columns that
+// relSince is t's age worded as a moment in the past, for columns that
 // answer "when did this last happen" rather than "how long has this run".
 func relSince(t time.Time) string {
-	return relTime(t) + " ago"
-}
-
-func relTime(t time.Time) string {
-	d := time.Since(t)
-	switch {
-	case d < time.Minute:
-		// Five-second steps: a column of ages that ticks every second is
-		// motion the eye chases for no information.
-		return fmt.Sprintf("%ds", int(d.Seconds()/5)*5)
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh", int(d.Hours()))
-	default:
-		return fmt.Sprintf("%dd", int(d.Hours()/24))
-	}
+	return textfmt.Age(time.Since(t)) + " ago"
 }
 
 func humanBytes(b uint64) string {

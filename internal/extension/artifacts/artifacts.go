@@ -30,6 +30,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/extension/mcptool"
 	"github.com/usestring/gate-inbox/internal/config"
 )
 
@@ -297,13 +298,13 @@ func (e *Extension) RegisterMCP(r *extension.Registrar, ctx extension.SessionCon
 			"A document already written to disk, or a binary one such as a PNG or a PDF, is published by naming it in content_path rather than pasting it into content; the media type follows the extension. " +
 			"Pass artifact_id to revise something already published: the link already shared keeps working and shows the new version. " +
 			"The link is a bearer credential with an expiry, not an identity check, so do not publish anything whose disclosure would matter if the link were forwarded.",
-		Annotations: toolAnnotations(false, false, true),
+		Annotations: mcptool.Annotations(false, false, true),
 	}, func(callCtx context.Context, _ *mcp.CallToolRequest, args publishArgs) (*mcp.CallToolResult, any, error) {
 		link, err := publish(callCtx, client, publisher{email: identity.get(), session: session}, args)
 		if err != nil {
 			return nil, nil, err
 		}
-		return textContent(link), nil, nil
+		return mcptool.Text(link), nil, nil
 	}); err != nil {
 		return err
 	}
@@ -314,7 +315,7 @@ func (e *Extension) RegisterMCP(r *extension.Registrar, ctx extension.SessionCon
 			"Use it when another session, another agent or the user refers you to an artifact link and you need what is in it rather than a description of it. " +
 			"This is the half that makes artifacts shared rather than merely published: the session that reads need not be the one that wrote, on the same account, or even on the same CLI. " +
 			"Pass save_to to write the bytes to a file instead of returning them, which is how an image, a PDF or a page too big to read inline comes back.",
-		Annotations: toolAnnotations(true, false, true),
+		Annotations: mcptool.Annotations(true, false, true),
 	}, func(callCtx context.Context, _ *mcp.CallToolRequest, args readArgs) (*mcp.CallToolResult, any, error) {
 		data, meta, err := client.Fetch(callCtx, args.Artifact)
 		if err != nil {
@@ -325,9 +326,9 @@ func (e *Extension) RegisterMCP(r *extension.Registrar, ctx extension.SessionCon
 			if err != nil {
 				return nil, nil, err
 			}
-			return textContent(formatSaved(meta, saved)), meta, nil
+			return mcptool.Text(formatSaved(meta, saved)), meta, nil
 		}
-		return textContent(formatRead(meta, data)), meta, nil
+		return mcptool.Text(formatRead(meta, data)), meta, nil
 	}); err != nil {
 		return err
 	}
@@ -336,7 +337,7 @@ func (e *Extension) RegisterMCP(r *extension.Registrar, ctx extension.SessionCon
 		Name: "list_artifacts",
 		Description: "List what this team has published to the artifact store, newest first, with ids, titles and who published each. " +
 			"Call it to find an artifact the user half-remembers, to see what one person has published by passing their email as by, or to check whether the thing you are about to write already exists, before publishing a second copy of it.",
-		Annotations: toolAnnotations(true, false, true),
+		Annotations: mcptool.Annotations(true, false, true),
 	}, func(callCtx context.Context, _ *mcp.CallToolRequest, args listArgs) (*mcp.CallToolResult, any, error) {
 		limit := args.Limit
 		if limit <= 0 {
@@ -354,7 +355,7 @@ func (e *Extension) RegisterMCP(r *extension.Registrar, ctx extension.SessionCon
 			}
 			out += "\n\nBrowse all, valid 24h (opens every artifact listed; keep it inside the team):\n" + link
 		}
-		return textContent(out), listed, nil
+		return mcptool.Text(out), listed, nil
 	}); err != nil {
 		return err
 	}
@@ -458,19 +459,4 @@ func orUnknown(email string) string {
 		return "unknown publisher"
 	}
 	return email
-}
-
-// toolAnnotations mirrors the MCP server's own helper. It is four lines and
-// unexported there, and an artifact tool declaring its own hints is a
-// smaller cost than widening that package's surface for extensions.
-func toolAnnotations(readOnly, destructive, openWorld bool) *mcp.ToolAnnotations {
-	return &mcp.ToolAnnotations{
-		ReadOnlyHint:    readOnly,
-		DestructiveHint: &destructive,
-		OpenWorldHint:   &openWorld,
-	}
-}
-
-func textContent(message string) *mcp.CallToolResult {
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: message}}}
 }

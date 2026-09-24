@@ -2,6 +2,7 @@ package extension
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -55,14 +56,25 @@ type BoardHost interface {
 	// send_session delivers one: at the session's next prompt, or first
 	// stopping its turn when Interrupt is set. It is held to send_session's
 	// checks -- no terminal, nothing archived or not running, no interrupt
-	// for a tool with no way to stop a turn -- and arrives fenced as this
-	// extension's, never as a person's words or another session's.
+	// for a tool with no way to stop a turn -- but its text may run to
+	// MaxMessageBytes, and one longer fails with ErrMessageTooLarge. It
+	// arrives fenced as this extension's, never as a person's words or
+	// another session's.
 	Send(ctx context.Context, id string, msg Message) (Sent, error)
 	// Kill ends an agent session's pane and leaves its row dead, as
 	// kill_session does: the last screen is kept, and a revive can resume
 	// the conversation. A terminal is refused.
 	Kill(ctx context.Context, id string) (SessionInfo, error)
 }
+
+// MaxMessageBytes bounds Message.Text, once trimmed. It is well over what a
+// session may send another, so what an extension gathered for an agent can
+// go inline rather than in a file the agent has to be told to read.
+const MaxMessageBytes = 64 << 10
+
+// ErrMessageTooLarge is a message over MaxMessageBytes, refused by
+// BoardHost.Send before anything is queued.
+var ErrMessageTooLarge = errors.New("message is over the size limit")
 
 // Message is what BoardHost.Send queues.
 type Message struct {

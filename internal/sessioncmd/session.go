@@ -648,6 +648,13 @@ type SendResult struct {
 // of them from being a file paste that fills the recipient's prompt.
 const maxMessageBytes = 8000
 
+// maxBoardMessageBytes bounds one message from a board extension. An
+// extension is no agent writing prose, and what it hands a session -- what
+// a board extension gathered for a session to act on -- has to arrive whole,
+// where a pointer to a file would be a second step the agent may not take.
+// It is extension.MaxMessageBytes.
+const maxBoardMessageBytes = extension.MaxMessageBytes
+
 // maxSubjectBytes bounds the supersession key. It names what a message is
 // about so a later one can replace it; a sender that puts the message in it
 // supersedes nothing, since no second send would ever match.
@@ -687,7 +694,7 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 			tracing.Attr{Key: "message.bytes", Value: len(message)},
 			tracing.Attr{Key: "as_human", Value: asHuman})
 	}()
-	message, subject, err = checkMessage(message, subject)
+	message, subject, err = checkMessage(message, subject, maxMessageBytes)
 	if err != nil {
 		return SendResult{}, err
 	}
@@ -709,15 +716,15 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 	return runtime.enqueue(from, targetID, message, subject, interrupt)
 }
 
-// checkMessage trims a message and its subject and holds both to the size
-// every sender is held to.
-func checkMessage(message, subject string) (string, string, error) {
+// checkMessage trims a message and its subject and holds the message to
+// limit bytes, and the subject to the size every sender is held to.
+func checkMessage(message, subject string, limit int) (string, string, error) {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return "", "", errors.New("message is empty")
 	}
-	if len(message) > maxMessageBytes {
-		return "", "", fmt.Errorf("message is %d bytes, over the %d byte limit; shorten it to the instruction and point the agent at a file or a task for the detail", len(message), maxMessageBytes)
+	if len(message) > limit {
+		return "", "", tooLarge(fmt.Sprintf("message is %d bytes, over the %d byte limit; shorten it to the instruction and point the agent at a file or a task for the detail", len(message), limit))
 	}
 	subject = strings.TrimSpace(subject)
 	if len(subject) > maxSubjectBytes {
@@ -725,6 +732,15 @@ func checkMessage(message, subject string) (string, string, error) {
 	}
 	return message, subject, nil
 }
+
+// tooLarge is a message over its sender's limit. It reads as its own text,
+// which a session's tool call shows as it always has, and is
+// extension.ErrMessageTooLarge to a caller that asks.
+type tooLarge string
+
+func (e tooLarge) Error() string { return string(e) }
+
+func (e tooLarge) Is(target error) bool { return target == extension.ErrMessageTooLarge }
 
 // sender is who a queued message is from. callerID is the session sending,
 // empty for a person at a shell or for the board; id and name are what the

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -135,7 +136,7 @@ func TestBoardSendKeepsSendSessionsChecks(t *testing.T) {
 			return err
 		},
 		"byte limit": func() error {
-			_, err := h.sessions.BoardSend("ext1", child.ID, strings.Repeat("x", maxMessageBytes+1), "", false)
+			_, err := h.sessions.BoardSend("ext1", child.ID, strings.Repeat("x", maxBoardMessageBytes+1), "", false)
 			return err
 		},
 		"needs the extension": func() error {
@@ -178,5 +179,35 @@ func TestBoardKillEndsAnySessionAndKeepsItsRow(t *testing.T) {
 	stored, err := h.store.Get(child.ID)
 	if err != nil || stored.Status != status.Dead {
 		t.Fatalf("stored = %+v, %v; want the row kept, dead", stored, err)
+	}
+}
+
+// A board extension may send what it gathered inline, up to its own limit,
+// and one byte over is refused as too large, as a session's over its
+// smaller limit is.
+func TestBoardSendTakesAMessageUpToTheExtensionsLimit(t *testing.T) {
+	h := newSessionHarness(t)
+	child := childShowing(t, h, "", "child111", "orphan", "all done\n")
+	full := strings.Repeat("event line\n", maxBoardMessageBytes/11) + strings.Repeat("x", maxBoardMessageBytes%11)
+	if len(full) != maxBoardMessageBytes {
+		t.Fatalf("fixture is %d bytes, want %d", len(full), maxBoardMessageBytes)
+	}
+	if _, err := h.sessions.BoardSend("ext1", child.ID, full, "events", false); err != nil {
+		t.Fatalf("BoardSend at the limit: %v", err)
+	}
+	heads, err := h.store.HeadMessages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := heads[child.ID].Body; got != full {
+		t.Fatalf("queued %d bytes, want the whole %d", len(got), len(full))
+	}
+	_, err = h.sessions.BoardSend("ext1", child.ID, full+"y", "events", false)
+	if !errors.Is(err, extension.ErrMessageTooLarge) {
+		t.Fatalf("BoardSend over the limit = %v, want ErrMessageTooLarge", err)
+	}
+	_, err = h.sessions.Send(h.caller.ID, child.ID, strings.Repeat("x", maxMessageBytes+1), "", false)
+	if !errors.Is(err, extension.ErrMessageTooLarge) || !strings.Contains(err.Error(), "point the agent at a file") {
+		t.Fatalf("a session's send over its limit = %v, want it refused as too large, in its own words", err)
 	}
 }

@@ -136,8 +136,8 @@ func (s *Sessions) BoardAnswer(targetID, reply string) (answered AnsweredQuestio
 }
 
 // BoardSend queues message for an agent session on behalf of the board
-// extension extensionID, as Send does for a session: the same size limits,
-// no terminals, nothing archived or not running, and no interrupt without a
+// extension extensionID, as Send does for a session: the same checks, but
+// the larger limit maxBoardMessageBytes on the message, no terminals, nothing archived or not running, and no interrupt without a
 // way to stop the turn. The message is queued under the extension's own
 // sender, so its rate and dedupe budget is its own, and it is delivered
 // fenced as the extension's rather than as a person's or another agent's.
@@ -146,7 +146,7 @@ func (s *Sessions) BoardSend(extensionID, targetID, message, subject string, int
 	if extensionID == "" {
 		return SendResult{}, errors.New("a board message needs the extension sending it")
 	}
-	message, subject, err = checkMessage(message, subject)
+	message, subject, err = checkMessage(message, subject, maxBoardMessageBytes)
 	if err != nil {
 		return SendResult{}, err
 	}

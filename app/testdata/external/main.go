@@ -208,6 +208,15 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			return
 		}
 		record("sent.txt", fmt.Sprintf("%s queued %d", helper.ID, sent.QueuePosition))
+		// What an extension gathers for an agent goes inline up to the
+		// extension's limit, and one byte over is refused before it queues.
+		full := strings.Repeat("e", extension.MaxMessageBytes)
+		if _, err := board.Send(ctx, helper.ID, extension.Message{Text: full, Subject: "events"}); err != nil {
+			record("large.txt", "error: "+err.Error())
+			return
+		}
+		_, err = board.Send(ctx, helper.ID, extension.Message{Text: full + "e", Subject: "events"})
+		record("large.txt", fmt.Sprintf("%s full queued, over too large %v", helper.ID, errors.Is(err, extension.ErrMessageTooLarge)))
 		killed, err := board.Kill(ctx, helper.ID)
 		if err != nil {
 			record("killed.txt", "error: "+err.Error())

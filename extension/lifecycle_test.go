@@ -65,6 +65,9 @@ func (v fakeView) Launch(context.Context, extension.LaunchRequest) (extension.Se
 func (v fakeView) PinStatus(context.Context, string, string) error {
 	return errors.New("no pins here")
 }
+func (v fakeView) Supervise(context.Context, string, bool) error {
+	return errors.New("no supervision here")
+}
 
 func (v fakeView) Send(context.Context, string, extension.Message) (extension.Sent, error) {
 	return extension.Sent{}, errors.New("no sends here")

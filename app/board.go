@@ -221,6 +221,7 @@ func startExtensions(dir string, registry *extension.Registry, model *ui.Model) 
 		logging.Warn("extension board subscriber", "extension", owner, logging.Err(err))
 	})
 	model.ObserveBoard(events)
+	events.OnPinChange(model.PinStatuses(events))
 	ctx, cancel := context.WithCancel(context.Background())
 	results, stop, err := registry.StartBoard(ctx, events.For)
 	if err != nil {

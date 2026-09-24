@@ -27,6 +27,11 @@ type Events struct {
 	mu     sync.Mutex
 	events []*subscription[extension.StatusEvent]
 	passes []*subscription[extension.Pass]
+	// supervising maps each supervised session to the extension holding it,
+	// and pins the status that extension has pinned it at. See supervise.go.
+	supervising map[string]string
+	pins        map[string]string
+	refresh     func()
 }
 
 // NewEvents fans the poll pass out beside board, which every BoardHost it
@@ -122,10 +127,6 @@ func (v *boardView) Launch(ctx context.Context, req extension.LaunchRequest) (ex
 	return v.events.board.LaunchFor(ctx, v.owner, req)
 }
 
-func (v *boardView) PinStatus(ctx context.Context, id, status string) error {
-	return v.events.board.PinStatusFor(ctx, v.owner, id, status)
-}
-
 func (v *boardView) Send(ctx context.Context, id string, msg extension.Message) (extension.Sent, error) {
 	return v.events.board.SendFor(ctx, v.owner, id, msg)
 }
@@ -175,6 +176,7 @@ func (v *boardView) release() {
 	for _, unsubscribe := range subs {
 		unsubscribe()
 	}
+	v.events.dropSupervision(v.owner)
 }
 
 // subscription is one callback and the goroutine that calls it. latest

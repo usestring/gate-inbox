@@ -183,6 +183,30 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 		}
 	})
 	record("started.txt", fmt.Sprint(os.Getpid(), " ", board.ConfigDir()))
+	// A worker of no role, supervised: its status is noop's to pin only
+	// once it claims it, and the pin is what the board's passes then show.
+	go func() {
+		worker, err := board.Launch(ctx, extension.LaunchRequest{
+			Tool: "envecho", Name: "supervised", Prompt: "work", ParentID: "c41d0001", Directory: dir,
+		})
+		if err != nil {
+			record("supervised.txt", "error: "+err.Error())
+			return
+		}
+		supervised := worker.ID
+		if err := board.PinStatus(ctx, worker.ID, "waiting"); err != nil {
+			supervised += " refused unclaimed"
+		}
+		if err := board.Supervise(ctx, worker.ID, true); err != nil {
+			record("supervised.txt", "error: "+err.Error())
+			return
+		}
+		if err := board.PinStatus(ctx, worker.ID, "waiting"); err != nil {
+			record("supervised.txt", "error: "+err.Error())
+			return
+		}
+		record("supervised.txt", supervised+" pinned")
+	}()
 	// A helper of its own, launched from the board under the dead child,
 	// with a role and an argument after its prompt.
 	go func() {

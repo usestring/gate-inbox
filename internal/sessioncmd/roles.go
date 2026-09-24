@@ -69,17 +69,26 @@ func (s *Sessions) releasePin(r *runtime, id string) error {
 	return r.store.UpdateStatus(id, status.Working)
 }
 
+// PinnableStatus trims state and checks it is a status an extension may pin
+// a session at: working, waiting, finished, idle or errored, or "" for none.
+func PinnableStatus(state string) (string, error) {
+	state = strings.TrimSpace(state)
+	switch state {
+	case "", status.Working, status.Waiting, status.Finished, status.Idle, status.Errored:
+		return state, nil
+	}
+	return "", fmt.Errorf("%q is not a status to pin; pin one of working, waiting, finished, idle or errored, or \"\" to release", state)
+}
+
 // BoardPinStatus sets the status the board reads for a session an
 // extension launched: owner is that extension's ID, and the session's role
 // must be one of owner's whose spec pins its status. state "" releases the
 // pin.
 func (s *Sessions) BoardPinStatus(owner, targetID, state string) (err error) {
 	defer start("sessioncmd.board.pin_status", sessionAttr(targetID)).done(&err)
-	state = strings.TrimSpace(state)
-	switch state {
-	case "", status.Working, status.Waiting, status.Finished, status.Idle, status.Errored:
-	default:
-		return fmt.Errorf("%q is not a status to pin; pin one of working, waiting, finished, idle or errored, or \"\" to release", state)
+	state, err = PinnableStatus(state)
+	if err != nil {
+		return err
 	}
 	runtime, err := s.open()
 	if err != nil {
@@ -91,7 +100,7 @@ func (s *Sessions) BoardPinStatus(owner, targetID, state string) (err error) {
 		return err
 	}
 	if owner == "" || !strings.HasPrefix(target.Role, owner+"/") {
-		return fmt.Errorf("session %s was not launched by extension %q for a role of its own, so its status is not the extension's to pin", target.ID, owner)
+		return fmt.Errorf("session %s was not launched by extension %q for a role of its own, and the extension does not supervise it, so its status is not the extension's to pin", target.ID, owner)
 	}
 	if !sessionhooks.Role(target.Role).PinnedStatus {
 		return fmt.Errorf("role %q does not pin its status; declare it with PinnedStatus", target.Role)

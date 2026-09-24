@@ -75,3 +75,56 @@ func TestPollPassReportsStoredTransitionsToTheObserver(t *testing.T) {
 		t.Fatalf("last pass = %+v, want the session waiting", last)
 	}
 }
+
+type fixedPins map[string]string
+
+func (p fixedPins) PinnedStatus(id string) (string, bool) {
+	state, ok := p[id]
+	return state, ok
+}
+
+// A pinned status outranks what the session's hooks report, is stored as a
+// transition like any other, and lets go when the pin does.
+func TestPollPassShowsAPinnedStatusOverTheHooks(t *testing.T) {
+	m := buildModel(t)
+	m.openForm()
+	m.form.name.SetValue("supervised")
+	m.form.dir.SetValue(t.TempDir())
+	m.form.toolIndex = toolIndexOf(t, m, "claude-hooked")
+	pickGroup(t, m, "")
+	_, cmd := m.submitForm()
+	m.applyCmd(t, cmd)
+	m.leaveFocusForFixture(t)
+	sess := m.sessionRows()[0]
+	if err := m.store.UpdateStatus(sess.ID, status.Working); err != nil {
+		t.Fatal(err)
+	}
+	observer := &recordingObserver{}
+	m.ObserveBoard(observer)
+	pins := fixedPins{sess.ID: status.Waiting}
+	if refresh := m.PinStatuses(pins); refresh == nil {
+		t.Fatal("PinStatuses returned no refresh")
+	}
+
+	writeHookStatus(t, m, sess.ID, status.Finished)
+	if msg, failed := m.poller.refreshOnce().(errMsg); failed {
+		t.Fatalf("pass: %v", msg.err)
+	}
+	delete(pins, sess.ID)
+	if msg, failed := m.poller.refreshOnce().(errMsg); failed {
+		t.Fatalf("pass: %v", msg.err)
+	}
+
+	want := []recordedMove{
+		{sess.ID, status.Working, status.Waiting},
+		{sess.ID, status.Waiting, status.Finished},
+	}
+	if len(observer.moves) != len(want) {
+		t.Fatalf("moves = %v, want %v", observer.moves, want)
+	}
+	for i := range want {
+		if observer.moves[i] != want[i] {
+			t.Fatalf("moves = %v, want %v", observer.moves, want)
+		}
+	}
+}

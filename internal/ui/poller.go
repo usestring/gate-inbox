@@ -146,6 +146,9 @@ type poller struct {
 	prevTreeAt  time.Time
 	// observer is told what each pass stored; nil tells nobody.
 	observer BoardObserver
+	// pins holds the statuses board extensions pinned the sessions they
+	// supervise at; nil holds none.
+	pins StatusPins
 }
 
 // BoardObserver is told what the poll pass observes: each status change
@@ -154,6 +157,13 @@ type poller struct {
 type BoardObserver interface {
 	Transition(id, from, to string, at time.Time)
 	Pass(at time.Time, sessions []store.Session)
+}
+
+// StatusPins is the statuses board extensions hold the sessions they
+// supervise at, over what those sessions' panes and hooks report. It is
+// asked on the poll loop with runMu held, so it must answer from memory.
+type StatusPins interface {
+	PinnedStatus(id string) (string, bool)
 }
 
 type transition struct{ id, from, to string }
@@ -424,6 +434,13 @@ func (p *poller) setInput(includeArchived bool, selectedID string) {
 	p.includeArchived = includeArchived
 	p.selectedID = selectedID
 	p.mu.Unlock()
+}
+
+func (p *poller) pinnedStatus(id string) (string, bool) {
+	if p.pins == nil {
+		return "", false
+	}
+	return p.pins.PinnedStatus(id)
 }
 
 func (p *poller) requestRefresh() {
@@ -889,6 +906,14 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 				if sess.Status == status.Starting && !paneBooted(pane) &&
 					time.Since(sess.LaunchTime()) < startingGrace {
 					newStatus = status.Starting
+				}
+				// A pin outranks the pane, the hooks and the launch hold: a
+				// worker stopped to wait on the operator looks, on most CLIs'
+				// panes, exactly like one whose turn ended, and only the
+				// extension supervising it knows otherwise. It holds only while
+				// the agent runs, so a pin never hides a dead one.
+				if pinned, ok := p.pinnedStatus(sess.ID); ok && agentAlive {
+					newStatus = pinned
 				}
 				// Any real transition re-arms the finished alert.
 				if sess.Acked && newStatus != status.Idle && newStatus != status.Finished {

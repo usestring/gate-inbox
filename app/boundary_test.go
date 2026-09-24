@@ -350,6 +350,14 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(data, "pin-read.txt"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// A worker it launched with no role is refused a pin until the
+	// extension supervises it; then the board's passes hold it waiting,
+	// and the subscriber is told as of any transition.
+	supervised := waitForFile(t, filepath.Join(data, "supervised.txt"), "", exited, &out)
+	if _, rest, _ := strings.Cut(strings.TrimSpace(supervised), " "); rest != "refused unclaimed pinned" {
+		t.Fatalf("supervised.txt = %q", supervised)
+	}
+	waitForFile(t, filepath.Join(data, "events.txt"), ">waiting \"ask\" supervised\n", exited, &out)
 	// The extension messages its helper and then ends it, through the board.
 	waitForFile(t, filepath.Join(data, "sent.txt"), helper+" queued 1\n", exited, &out)
 	waitForFile(t, filepath.Join(data, "killed.txt"), helper+" dead false\n", exited, &out)

@@ -1163,6 +1163,15 @@ func (m *Model) ObserveBoard(observer BoardObserver) {
 	m.poller.observer = observer
 }
 
+// PinStatuses has every poll pass show a session pins holds at that status,
+// and returns what asks for a pass now, for pins to call when one changes so
+// the board shows it without waiting for the next tick. It is set before
+// StartPoller.
+func (m *Model) PinStatuses(pins StatusPins) (refresh func()) {
+	m.poller.pins = pins
+	return m.poller.requestRefresh
+}
+
 // StartPoller launches the background polling loop. It runs outside the
 // bubbletea event loop so statuses keep updating while the TUI is
 // suspended inside a tmux attach.

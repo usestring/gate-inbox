@@ -47,11 +47,26 @@ type BoardHost interface {
 	OnPass(fn func(Pass)) (unsubscribe func())
 	// PinStatus sets the status the board reads for one of the extension's
 	// own sessions: one whose role is this extension's and whose RoleSpec
-	// has PinnedStatus. It writes the session's status file and its row, so
-	// the board shows it at once rather than on the next pass. status is
-	// one of working, waiting, finished, idle or errored; "" releases the
-	// pin, removing the file so the board reads the pane again.
+	// has PinnedStatus, or one it supervises. For a role's session it
+	// writes the session's status file and its row, so the board shows it
+	// at once rather than on the next pass. A supervised session's pin is
+	// held by the board instead, over whatever the session's pane and hooks
+	// report, and a pass is asked for at once to store it, so subscribers
+	// are told of it as of any other transition; it holds only while the
+	// session's agent runs. status is one of working, waiting, finished,
+	// idle or errored; "" releases the pin, so the board reads the session
+	// again.
 	PinStatus(ctx context.Context, id, status string) error
+	// Supervise claims an agent session for the extension to watch over,
+	// or, with on false, lets it go and releases its pin. What a claim
+	// grants is PinStatus: a worker the extension has stopped to put a
+	// question to the operator reads as waiting, though on most CLIs its
+	// pane shows only a turn that ended. A session another extension
+	// launched for a role, or one another extension supervises, is
+	// refused. A claim lasts until it is let go or the extension stops; it
+	// is the board's, not the store's, so a board that starts again holds
+	// none until StartBoard claims again.
+	Supervise(ctx context.Context, id string, on bool) error
 	// Launch starts an agent session for the extension, as the operator
 	// would from the board rather than as any session's spawn: a helper
 	// filed under the session it works for, tagged with the role it plays.

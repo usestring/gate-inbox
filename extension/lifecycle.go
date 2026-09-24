@@ -62,6 +62,11 @@ type BoardHost interface {
 	// kill_session does: the last screen is kept, and a revive can resume
 	// the conversation. A terminal is refused.
 	Kill(ctx context.Context, id string) (SessionInfo, error)
+	// Archive files one of this extension's own helpers -- a session it
+	// launched with a role -- out of the active list, ending it first if it
+	// is running, as archive_session does. Every other session is refused:
+	// what the operator or a session started is theirs to file away.
+	Archive(ctx context.Context, id string) error
 }
 
 // Message is what BoardHost.Send queues.

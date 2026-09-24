@@ -180,3 +180,37 @@ func TestBoardKillEndsAnySessionAndKeepsItsRow(t *testing.T) {
 		t.Fatalf("stored = %+v, %v; want the row kept, dead", stored, err)
 	}
 }
+
+// A board extension files away the helpers it launched, and nothing else.
+func TestBoardArchiveFilesOnlyTheExtensionsHelpers(t *testing.T) {
+	h := newSessionHarness(t)
+	helper, err := h.sessions.BoardLaunch(BoardLaunchOptions{
+		Tool: "echoer", Name: "helper", Prompt: "wait here", ParentID: h.caller.ID, Role: "ext1/helper",
+	})
+	if err != nil {
+		t.Fatalf("BoardLaunch: %v", err)
+	}
+	t.Cleanup(func() { _ = h.driver.Kill(helper.ID) })
+	child := childShowing(t, h, "", "child110", "orphan", "all done\n")
+
+	if _, err := h.sessions.BoardArchive("audit", helper.ID); err == nil || !strings.Contains(err.Error(), "not the extension's to archive") {
+		t.Fatalf("another extension archiving the helper = %v, want it refused", err)
+	}
+	if _, err := h.sessions.BoardArchive("ext1", child.ID); err == nil || !strings.Contains(err.Error(), "not the extension's to archive") {
+		t.Fatalf("archiving a session with no role = %v, want it refused", err)
+	}
+	filed, err := h.sessions.BoardArchive("ext1", helper.ID)
+	if err != nil {
+		t.Fatalf("BoardArchive: %v", err)
+	}
+	if !filed.Archived || filed.Running || filed.Status != status.Dead {
+		t.Fatalf("filed = %+v, want the helper ended and archived", filed)
+	}
+	if h.driver.Exists(helper.ID) {
+		t.Fatal("the helper's pane outlived the archive")
+	}
+	stored, err := h.store.Get(child.ID)
+	if err != nil || stored.Archived {
+		t.Fatalf("the refused session = %+v, %v; want it left unarchived", stored, err)
+	}
+}

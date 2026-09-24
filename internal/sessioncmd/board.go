@@ -2,6 +2,7 @@ package sessioncmd
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -178,4 +179,28 @@ func (s *Sessions) BoardKill(targetID string) (killed Session, err error) {
 	}
 	target.Status = status.Dead
 	return runtime.sessionInfo(target, false, false), nil
+}
+
+// BoardArchive files one of the board extension extensionID's own helpers
+// away, ending it first if it is running, as Archive does for a session. A
+// helper is a session the extension launched with a role of its own; every
+// other session is somebody else's to archive, and is refused.
+func (s *Sessions) BoardArchive(extensionID, targetID string) (filed Session, err error) {
+	defer start("sessioncmd.board.archive", sessionAttr(targetID)).done(&err)
+	if extensionID == "" {
+		return Session{}, errors.New("a board archive needs the extension archiving")
+	}
+	runtime, err := s.open()
+	if err != nil {
+		return Session{}, err
+	}
+	defer runtime.store.Close()
+	target, err := runtime.agent(targetID)
+	if err != nil {
+		return Session{}, err
+	}
+	if !strings.HasPrefix(target.Role, extensionID+"/") {
+		return Session{}, fmt.Errorf("session %s was not launched by extension %q for a role of its own, so it is not the extension's to archive", target.ID, extensionID)
+	}
+	return s.file(runtime, target, true)
 }

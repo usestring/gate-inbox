@@ -143,3 +143,13 @@ func (b *Board) Kill(ctx context.Context, id string) (extension.SessionInfo, err
 	}
 	return info(killed), nil
 }
+
+// ArchiveFor archives a helper the extension with id launched; a session
+// of anyone else's is refused, so no extension can file another's away.
+func (b *Board) ArchiveFor(ctx context.Context, id, sessionID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	_, err := b.cmds.BoardArchive(id, sessionID)
+	return err
+}

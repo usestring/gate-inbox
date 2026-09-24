@@ -126,6 +126,10 @@ func (v *boardView) Send(ctx context.Context, id string, msg extension.Message) 
 	return v.events.board.SendFor(ctx, v.owner, id, msg)
 }
 
+func (v *boardView) Archive(ctx context.Context, id string) error {
+	return v.events.board.ArchiveFor(ctx, v.owner, id)
+}
+
 func (v *boardView) Kill(ctx context.Context, id string) (extension.SessionInfo, error) {
 	return v.events.board.Kill(ctx, id)
 }

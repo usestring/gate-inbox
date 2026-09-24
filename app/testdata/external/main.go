@@ -214,6 +214,22 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			return
 		}
 		record("killed.txt", fmt.Sprintf("%s %s %v", killed.ID, killed.Status, killed.Running))
+		// Its helper done with, the extension files it away; the dead child it
+		// was launched under is not the extension's to file.
+		if err := board.Archive(ctx, "c41d0001"); err == nil {
+			record("archived.txt", "error: archived a session with no role of its own")
+			return
+		}
+		if err := board.Archive(ctx, helper.ID); err != nil {
+			record("archived.txt", "error: "+err.Error())
+			return
+		}
+		archived, err := board.Get(ctx, helper.ID)
+		if err != nil {
+			record("archived.txt", "error: "+err.Error())
+			return
+		}
+		record("archived.txt", fmt.Sprintf("%s archived %v", archived.ID, archived.Archived))
 	}()
 	return func() { record("stopped.txt", fmt.Sprint(ctx.Err() != nil)) }, nil
 }

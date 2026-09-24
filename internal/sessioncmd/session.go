@@ -1115,6 +1115,12 @@ func (s *Sessions) Archive(sessionID, targetID string, archived bool) (filed Ses
 	if target.ID == sessionID && archived {
 		return Session{}, errors.New("a session cannot archive itself")
 	}
+	return s.file(runtime, target, archived)
+}
+
+// file archives or restores target, ending it first when an archive finds it
+// running.
+func (s *Sessions) file(runtime *runtime, target store.Session, archived bool) (Session, error) {
 	running := runtime.driver.Exists(target.ID)
 	if archived && running {
 		// endSessionWith is what kill and park share: it snapshots the screen,

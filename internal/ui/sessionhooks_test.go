@@ -113,7 +113,7 @@ func TestOperatorSpawnIsPutToTheSpawnPolicy(t *testing.T) {
 func TestBoardMigrationLaunchesOnTheShapedPrompt(t *testing.T) {
 	m := buildModel(t)
 	source, _ := seedMigrateSource(t, m)
-	watcher := &boardWatcher{prefix: "GOAL: carried over"}
+	watcher := &boardWatcher{prefix: "BRIEF: carried over"}
 	useBoardWatcher(t, watcher)
 	m.cfg.Tools["claude"] = config.Tool{Command: "cat", DefaultStatus: status.Idle}
 
@@ -130,7 +130,7 @@ func TestBoardMigrationLaunchesOnTheShapedPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(moved.LaunchPrompt, "GOAL: carried over\n\nYou are taking over") {
+	if !strings.Contains(moved.LaunchPrompt, "BRIEF: carried over\n\nYou are taking over") {
 		t.Fatalf("the migrated session launched on %q", moved.LaunchPrompt)
 	}
 }

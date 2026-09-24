@@ -278,7 +278,7 @@ func TestCreateLaunchesTheShapedSpawn(t *testing.T) {
 func TestMigrateLaunchesOnTheShapedPrompt(t *testing.T) {
 	h := newSessionHarness(t)
 	source, _ := claudeSource(t, h)
-	watcher := &launchWatcher{shape: extension.SpawnShape{PromptPrefix: "GOAL: carried over"}}
+	watcher := &launchWatcher{shape: extension.SpawnShape{PromptPrefix: "BRIEF: carried over"}}
 	useWatcher(t, watcher)
 
 	moved, err := h.sessions.Migrate(h.caller.ID, source.ID, MigrateOptions{Tool: "echoer"})
@@ -295,7 +295,7 @@ func TestMigrateLaunchesOnTheShapedPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stored.LaunchPrompt, "GOAL: carried over\n\nYou are taking over") {
+	if !strings.Contains(stored.LaunchPrompt, "BRIEF: carried over\n\nYou are taking over") {
 		t.Fatalf("the migrated session launched on %q", stored.LaunchPrompt)
 	}
 }

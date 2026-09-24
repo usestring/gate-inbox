@@ -275,8 +275,8 @@ func rowColumns(lead, meta string, width int) string {
 		return lead
 	}
 	const gap = 2
-	leadWidth := cellWidth(lead)
-	metaWidth := cellWidth(meta)
+	leadWidth := textfmt.Width(lead)
+	metaWidth := textfmt.Width(meta)
 	if width < 1 || leadWidth+gap+metaWidth > width {
 		return lead + spaces(gap) + meta
 	}
@@ -301,7 +301,7 @@ func (m *Model) renameRowInput(entry treeRow, width int) string {
 // accent tick, the label, then a hairline out to the edge.
 func divider(label string, width int) string {
 	head := sectionStyle.Render("▍"+label) + " "
-	dashes := width - cellWidth(label) - 2
+	dashes := width - textfmt.Width(label) - 2
 	if dashes < 0 {
 		dashes = 0
 	}
@@ -412,10 +412,10 @@ func previewLine(line string, width int) string {
 		}
 		return r
 	}, line)
-	w := cellWidth(line)
+	w := textfmt.Width(line)
 	if w > width {
-		line = cellTruncate(line, width, "")
-		w = cellWidth(line)
+		line = textfmt.TruncateWidth(line, width, "")
+		w = textfmt.Width(line)
 	}
 	// Reset before padding so an open background from the agent does not
 	// paint the rest of the column.
@@ -449,7 +449,7 @@ func expandPaneTabs(line string, width int) string {
 			column += pad
 		}
 		out.WriteString(segment)
-		column += cellWidth(segment)
+		column += textfmt.Width(segment)
 	}
 	return out.String()
 }

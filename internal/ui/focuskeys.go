@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -218,7 +219,7 @@ func (m *Model) caretAtInputStart(sessID, tool string) bool {
 	if !ok {
 		return false
 	}
-	if textBeforeCaret(m.engine, tool, row, caretX) || caretX < cellWidth(prefix) {
+	if textBeforeCaret(m.engine, tool, row, caretX) || caretX < textfmt.Width(prefix) {
 		return false
 	}
 	return m.composerAboveIsBlank(tool, rows, y)
@@ -312,7 +313,7 @@ func (m *Model) selectionDialogUp(sessID, tool string) bool {
 		return false
 	}
 	prefix, ok := m.engine.InputPrefix(tool, row)
-	if !ok || caretX >= cellWidth(prefix) {
+	if !ok || caretX >= textfmt.Width(prefix) {
 		return false
 	}
 	pane := strings.Join(m.paneTextLines(), "\n")
@@ -409,7 +410,7 @@ func textBeforeCaret(engine *status.Engine, tool, row string, caretX int) bool {
 	if !ok {
 		return false
 	}
-	return status.TextBetweenCells(row, cellWidth(prefix), caretX)
+	return status.TextBetweenCells(row, textfmt.Width(prefix), caretX)
 }
 
 // leaveFocus returns to the list. Mouse reporting stays on: handing it back

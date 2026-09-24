@@ -86,3 +86,19 @@ func TestStateWriteErrorNamesTheSandbox(t *testing.T) {
 		}
 	}
 }
+
+func TestEmitPrintsJSONOrTheSentence(t *testing.T) {
+	set := cmdline.NewFlagSet("show <id>")
+	asJSON := cmdline.JSONFlag(set)
+	if _, err := cmdline.Parse(io.Discard, "prog", set, []string{"x", "--json"}, 1, 1); err != nil || !*asJSON {
+		t.Fatalf("--json: %v %v", err, *asJSON)
+	}
+	var out bytes.Buffer
+	if err := cmdline.Emit(&out, true, map[string]int{"n": 1}, "one"); err != nil || out.String() != "{\n  \"n\": 1\n}\n" {
+		t.Fatalf("json = %q, %v", out.String(), err)
+	}
+	out.Reset()
+	if err := cmdline.Emit(&out, false, map[string]int{"n": 1}, "one"); err != nil || out.String() != "one\n" {
+		t.Fatalf("human = %q, %v", out.String(), err)
+	}
+}

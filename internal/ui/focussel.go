@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/clipboard"
 )
 
@@ -308,7 +309,7 @@ func (m *Model) expandSelection() {
 	switch m.sel.granule {
 	case selectLine:
 		m.sel.anchorCol = 0
-		m.sel.headCol = cellWidth(line)
+		m.sel.headCol = textfmt.Width(line)
 	case selectWord:
 		start, end := wordBounds(line, m.sel.anchorCol)
 		m.sel.anchorCol, m.sel.headCol = start, end
@@ -456,7 +457,7 @@ func (m *Model) selectionText() string {
 	var out []string
 	for row := startRow; row <= endRow && row < len(lines); row++ {
 		line := lines[row]
-		start, end, ok := m.selectionSpan(row, cellWidth(line))
+		start, end, ok := m.selectionSpan(row, textfmt.Width(line))
 		if !ok {
 			out = append(out, "")
 			continue
@@ -497,14 +498,14 @@ func (m *Model) renderPaneRow(row int, raw string, width int) string {
 	if !m.sel.active {
 		return m.withCursor(row, raw, []rune(line), width)
 	}
-	start, end, ok := m.selectionSpan(row, cellWidth(line))
+	start, end, ok := m.selectionSpan(row, textfmt.Width(line))
 	if !ok {
 		return m.withCursor(row, raw, []rune(line), width)
 	}
 	startByte, endByte := graphemeRangeAtColumns(line, start, end)
 	selected := line[startByte:endByte]
-	before := cellTruncate(clean, cellWidth(line[:startByte]), "")
-	after := ansi.TruncateLeft(clean, cellWidth(line[:endByte]), "")
+	before := textfmt.TruncateWidth(clean, textfmt.Width(line[:startByte]), "")
+	after := ansi.TruncateLeft(clean, textfmt.Width(line[:endByte]), "")
 	painted := before + selectionStyle().Render(selected) + after
 	return previewLine(painted, width)
 }
@@ -520,14 +521,14 @@ func (m *Model) withCursor(row int, raw string, line []rune, width int) string {
 		return previewLine(raw, width)
 	}
 	clean := previewDangerSeqs.ReplaceAllString(raw, "")
-	lineWidth := cellWidth(clean)
+	lineWidth := textfmt.Width(clean)
 	if cursorCol >= lineWidth {
 		// The caret sits on padding the row does not have, which is where
 		// a prompt leaves it; pad up to it and light the cell there.
 		pad := spaces(cursorCol - lineWidth)
 		return previewLine(clean+pad+cursorStyle().Render(" "), width)
 	}
-	head := cellTruncate(clean, cursorCol, "")
+	head := textfmt.TruncateWidth(clean, cursorCol, "")
 	tail := ansi.TruncateLeft(clean, cursorCol+1, "")
 	index := runeAtColumn(line, cursorCol)
 	cell := " "
@@ -543,7 +544,7 @@ func (m *Model) withCursor(row int, raw string, line []rune, width int) string {
 func runeAtColumn(line []rune, column int) int {
 	cell := 0
 	for i, r := range line {
-		next := cell + cellWidth(string(r))
+		next := cell + textfmt.Width(string(r))
 		if column < next {
 			return i
 		}

@@ -75,3 +75,21 @@ func TestSuperprojectUsesTheCallersRunner(t *testing.T) {
 		t.Fatalf("got %q, %v after %q", got, err, calls)
 	}
 }
+
+func TestWithinCountsTheRootItself(t *testing.T) {
+	for _, c := range []struct {
+		dir, root string
+		want      bool
+	}{
+		{"/w/repo", "/w/repo", true},
+		{"/w/repo/sub/dir", "/w/repo", true},
+		{"/w/repo-other", "/w/repo", false},
+		{"/w", "/w/repo", false},
+		{"/w/repo/../elsewhere", "/w/repo", false},
+		{"/w/repo/..x", "/w/repo", true},
+	} {
+		if got := gitroot.Within(c.dir, c.root); got != c.want {
+			t.Errorf("Within(%q, %q) = %v, want %v", c.dir, c.root, got, c.want)
+		}
+	}
+}

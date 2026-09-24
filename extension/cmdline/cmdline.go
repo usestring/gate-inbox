@@ -5,6 +5,7 @@
 package cmdline
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -57,6 +58,39 @@ func UsageLines(program string, verbs []Verb) string {
 		lines.WriteString("      " + verb.About + "\n")
 	}
 	return lines.String()
+}
+
+// NewFlagSet is a set for one verb, named by its usage line so -h, an unknown
+// flag and a miscounted operand all print the same words through Parse. It
+// writes nothing itself; Parse prints what the caller should see.
+func NewFlagSet(usage string) *flag.FlagSet {
+	set := flag.NewFlagSet(usage, flag.ContinueOnError)
+	set.SetOutput(io.Discard)
+	return set
+}
+
+// JSONFlag declares --json, which asks for the raw record instead of a
+// sentence.
+func JSONFlag(set *flag.FlagSet) *bool {
+	return set.Bool("json", false, "print the raw result as JSON instead of a sentence")
+}
+
+// Emit prints value as indented JSON when asJSON is set, and the human
+// sentence otherwise.
+func Emit(out io.Writer, asJSON bool, value any, human string) error {
+	if asJSON {
+		return WriteJSON(out, value)
+	}
+	_, err := fmt.Fprintln(out, human)
+	return err
+}
+
+// WriteJSON prints value as JSON indented by two spaces, with a trailing
+// newline.
+func WriteJSON(out io.Writer, value any) error {
+	encoder := json.NewEncoder(out)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(value)
 }
 
 // Parse reads set's flags wherever they sit in args and returns the

@@ -12,6 +12,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/extension/gitroot"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -440,22 +441,13 @@ func (r *runtime) createTarget(caller store.Session, requestedGroup *string, dir
 // directory to work in, but no longer hands them an untrusted one to start in.
 func launchDirectory(callerCwd, requested string) string {
 	caller := strings.TrimSpace(callerCwd)
-	if caller == "" || requested == "" || nestedWithin(requested, caller) {
+	if caller == "" || requested == "" || gitroot.Within(requested, caller) {
 		return requested
 	}
 	if _, err := resolveTerminalDirectory(caller); err != nil {
 		return requested
 	}
 	return caller
-}
-
-// nestedWithin counts root itself as within, which filepath.Rel reports as ".".
-func nestedWithin(dir, root string) bool {
-	rel, err := filepath.Rel(root, dir)
-	if err != nil {
-		return false
-	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 func resolveTerminalDirectory(raw string) (string, error) {

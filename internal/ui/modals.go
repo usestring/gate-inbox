@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 )
 
 func (m *Model) cardWidth() int {
@@ -394,7 +395,7 @@ func (m *Model) viewSettings() string {
 			labelStyle = annotationStyle
 		}
 		// Truncate a column short so a cut label keeps a gap before the value.
-		return marker + padRight(labelStyle.Render(cellTruncate(name, labelColumn-1, "…")), labelColumn)
+		return marker + padRight(labelStyle.Render(textfmt.TruncateWidth(name, labelColumn-1, "…")), labelColumn)
 	}
 	row := func(field int, name, value string) string {
 		return lead(field, name) + subtleStyle.Render("◂ ") + valueStyle.Render(value) + subtleStyle.Render(" ▸")

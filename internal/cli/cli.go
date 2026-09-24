@@ -7,7 +7,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -140,18 +139,6 @@ func configCommand(run func(out io.Writer, args []string, sessionID, configDir s
 	}
 }
 
-// The set's name carries its usage line, so -h, an unknown flag and a
-// miscounted operand all print the same words.
-func newFlagSet(usage string) *flag.FlagSet {
-	set := flag.NewFlagSet(usage, flag.ContinueOnError)
-	set.SetOutput(io.Discard)
-	return set
-}
-
-func jsonFlag(set *flag.FlagSet) *bool {
-	return set.Bool("json", false, "print the raw result as JSON instead of a sentence")
-}
-
 func usageError(usage string) error {
 	return fmt.Errorf("usage: %s %s", program, usage)
 }
@@ -169,18 +156,4 @@ func (list *stringList) String() string {
 func (list *stringList) Set(value string) error {
 	*list = append(*list, strings.Split(value, ",")...)
 	return nil
-}
-
-func emit(out io.Writer, asJSON bool, value any, human string) error {
-	if asJSON {
-		return writeJSON(out, value)
-	}
-	_, err := fmt.Fprintln(out, human)
-	return err
-}
-
-func writeJSON(out io.Writer, value any) error {
-	encoder := json.NewEncoder(out)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(value)
 }

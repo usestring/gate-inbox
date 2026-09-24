@@ -13,6 +13,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/git"
@@ -711,7 +712,7 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 		SenderID:    senderID,
 		SenderName:  senderName,
 		Body:        message,
-		Fingerprint: fingerprint(message),
+		Fingerprint: textfmt.Fingerprint(message),
 		Subject:     subject,
 		Interrupt:   interrupt,
 		SentAt:      now,
@@ -890,10 +891,6 @@ func (r *runtime) managerAwake(now time.Time) (bool, error) {
 	}
 	return now.Sub(time.Unix(0, stamp)) < max(3*r.cfg.PollInterval.Duration, store.PollerHeartbeatStale), nil
 }
-
-// fingerprint is store.Fingerprint under the name this package's callers
-// already use; the rule itself belongs beside the dedupe window it feeds.
-func fingerprint(message string) string { return store.Fingerprint(message) }
 
 // Read is what another session is doing, in one of two shapes.
 //

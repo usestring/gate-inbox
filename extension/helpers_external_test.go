@@ -76,10 +76,16 @@ func TestHelpersBuildInAnotherModule(t *testing.T) {
 			"first=\"one\"\n" +
 			"strip=\"ab\\n\"\n" +
 			"age=1h\n" +
-			"decline=true\n",
-		"cmdline": "dispatch=[\"ab12\" \"true\"] err=<nil>\n" +
+			"decline=true\n" +
+			"oneline=\"a b\"\n" +
+			"wrap=[\"two\" \"word\" \"s\"]\n" +
+			"fingerprint=true\n" +
+			"width=4 cut=\"abc…\"\n",
+		"cmdline": "{\n  \"armed\": \"ab12\"\n}\n" +
+			"dispatch=[\"ab12\" \"true\"] err=<nil>\n" +
 			"state=<nil>\n",
-		"gitroot": "root=/r err=<nil>\n",
+		"gitroot": "root=/r err=<nil>\n" +
+			"within=true outside=false\n",
 	} {
 		t.Run(group, func(t *testing.T) {
 			run := exec.Command(bin, group)

@@ -5,7 +5,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -41,19 +40,26 @@ func main() {
 			fmt.Printf("strip=%q\n", textfmt.StripControl("a\x1bb\n"))
 			fmt.Printf("age=%s\n", textfmt.Age(90*time.Minute))
 			fmt.Printf("decline=%v\n", decline.LooksLike("I can't help with that."))
+			fmt.Printf("oneline=%q\n", textfmt.OneLine(" a\n b "))
+			fmt.Printf("wrap=%q\n", textfmt.Wrap("two words", 4))
+			fmt.Printf("fingerprint=%v\n", textfmt.Fingerprint("a  b") == textfmt.Fingerprint("a\nb"))
+			fmt.Printf("width=%d cut=%q\n", textfmt.Width("\x1b[1m日本\x1b[0m"), textfmt.TruncateWidth("abcdef", 4, "…"))
 			return nil
 		},
 		"cmdline": func() error {
 			var got []string
 			verbs := []cmdline.Verb{{Name: "arm", Usage: "grp arm <id>", About: "arm it", Run: func(args []string) error {
-				set := flag.NewFlagSet("grp arm <id>", flag.ContinueOnError)
-				set.SetOutput(io.Discard)
+				set := cmdline.NewFlagSet("grp arm <id>")
 				quiet := set.Bool("quiet", false, "say less")
+				asJSON := cmdline.JSONFlag(set)
 				operands, err := cmdline.Parse(io.Discard, "prog", set, args, 1, 1)
 				got = append(operands, fmt.Sprint(*quiet))
-				return err
+				if err != nil {
+					return err
+				}
+				return cmdline.Emit(os.Stdout, *asJSON, map[string]string{"armed": operands[0]}, "armed")
 			}}}
-			err := cmdline.Dispatch(io.Discard, "prog", "grp", verbs, []string{"arm", "ab12", "--quiet"})
+			err := cmdline.Dispatch(io.Discard, "prog", "grp", verbs, []string{"arm", "ab12", "--quiet", "--json"})
 			fmt.Printf("dispatch=%q err=%v\n", got, err)
 			fmt.Printf("state=%v\n", cmdline.StateWriteError(nil))
 			return nil
@@ -69,6 +75,7 @@ func main() {
 				return "", nil
 			})
 			fmt.Printf("root=%s err=%v\n", root, err)
+			fmt.Printf("within=%v outside=%v\n", gitroot.Within("/r/sub/x", "/r"), gitroot.Within("/rx", "/r"))
 			return nil
 		},
 	}

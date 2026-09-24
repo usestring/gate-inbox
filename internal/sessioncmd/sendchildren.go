@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -70,7 +71,7 @@ func (s *Sessions) SendChildren(sessionID, message string) (ChildSend, error) {
 		return ChildSend{}, err
 	}
 	now := time.Now()
-	stamp := fingerprint(message)
+	stamp := textfmt.Fingerprint(message)
 	result := ChildSend{}
 	for _, child := range sessions {
 		// spawned_by, not parent_id: a caller that is itself a child has its

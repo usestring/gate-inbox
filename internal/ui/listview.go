@@ -10,6 +10,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/clipboard"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/keymap"
@@ -144,30 +145,30 @@ func (m *Model) searchFieldLine(width int) string {
 	if !m.searching {
 		caret, hint = "", keyCapQuiet("esc", "clear")
 	}
-	chrome := railInset + cellWidth(glyph) + cellWidth(caret)
+	chrome := railInset + textfmt.Width(glyph) + textfmt.Width(caret)
 
 	if m.search == "" {
 		field := glyph + subtleStyle.Render("fuzzy session search") + caret
-		if gap := width - railInset - cellWidth(field) - cellWidth(hint) - 1; gap >= 2 {
+		if gap := width - railInset - textfmt.Width(field) - textfmt.Width(hint) - 1; gap >= 2 {
 			return indent + field + spaces(gap) + hint
 		}
 		return indent + field
 	}
 	// A query longer than the rail keeps its end: that is where the caret is
 	// and where the next keystroke lands.
-	room := width - chrome - cellWidth(hint) - 2
+	room := width - chrome - textfmt.Width(hint) - 2
 	if room < 8 {
 		hint, room = "", width-chrome
 	}
 	query := m.search
-	if cellWidth(query) > room {
+	if textfmt.Width(query) > room {
 		query = "…" + string([]rune(query)[len([]rune(query))-max(room-1, 1):])
 	}
 	field := glyph + valueStyle.Render(query) + caret
 	if hint == "" {
 		return indent + field
 	}
-	gap := width - railInset - cellWidth(field) - cellWidth(hint) - 1
+	gap := width - railInset - textfmt.Width(field) - textfmt.Width(hint) - 1
 	return indent + field + spaces(max(gap, 1)) + hint
 }
 
@@ -356,7 +357,7 @@ func (m *Model) promptLines(width int) []string {
 			}
 			wrapped = wrapped[:budget]
 			last := wrapped[len(wrapped)-1]
-			wrapped[len(wrapped)-1] = cellTruncate(last, max(cellWidth(last)-1, 1), "…")
+			wrapped[len(wrapped)-1] = textfmt.TruncateWidth(last, max(textfmt.Width(last)-1, 1), "…")
 		}
 		for j, line := range wrapped {
 			lead := "  "
@@ -425,7 +426,7 @@ func (m *Model) sessionDetailLines(width int) []string {
 	factRoom := max(room-railFactLabelWidth, 1)
 	usage := ""
 	if m.procFor == sess.ID && m.proc.OK {
-		usage = cellTruncate(
+		usage = textfmt.TruncateWidth(
 			labelStyle.Render("cpu ")+valueStyle.Render(fmt.Sprintf("%.1f%%", m.proc.CPUPercent))+
 				subtleStyle.Render(" · ")+labelStyle.Render("ram ")+valueStyle.Render(fmt.Sprintf("%.1f%%", m.proc.RamPercent))+
 				subtleStyle.Render(" · ")+valueStyle.Render(humanBytes(m.proc.RSS)),
@@ -433,10 +434,10 @@ func (m *Model) sessionDetailLines(width int) []string {
 	}
 	lines := []string{
 		pad + subtleStyle.Render("session"),
-		pad + cellTruncate(head, room, "…"),
-		pad + cellTruncate(state, room, "…"),
-		railFact(pad, "group", lipgloss.NewStyle().Foreground(colorAccent2).Render(cellTruncate(displayGroup(sess.Group), factRoom, "…"))),
-		railFact(pad, "started", subtleStyle.Render(cellTruncate(relSince(sess.CreatedAt), factRoom, "…"))),
+		pad + textfmt.TruncateWidth(head, room, "…"),
+		pad + textfmt.TruncateWidth(state, room, "…"),
+		railFact(pad, "group", lipgloss.NewStyle().Foreground(colorAccent2).Render(textfmt.TruncateWidth(displayGroup(sess.Group), factRoom, "…"))),
+		railFact(pad, "started", subtleStyle.Render(textfmt.TruncateWidth(relSince(sess.CreatedAt), factRoom, "…"))),
 		railFact(pad, "dir", mutedStyle.Render(truncateTail(sess.Cwd, factRoom))),
 	}
 	if usage != "" {
@@ -457,7 +458,7 @@ func (m *Model) groupDetailLines(group, pad string, room int) []string {
 	title := lipgloss.NewStyle().Foreground(colorAccent2).Bold(true).Render(displayGroup(group))
 	lines := []string{
 		pad + subtleStyle.Render("group"),
-		pad + cellTruncate(title+"  "+chipStyle.Render(countLabel), room, "…"),
+		pad + textfmt.TruncateWidth(title+"  "+chipStyle.Render(countLabel), room, "…"),
 	}
 	path := m.groupPaths[group]
 	suffix := ""
@@ -465,7 +466,7 @@ func (m *Model) groupDetailLines(group, pad string, room int) []string {
 		path = m.groupDefaultDir(group)
 		suffix = " " + subtleStyle.Render("inherited")
 	}
-	dir := mutedStyle.Render(truncateTail(path, max(room-railFactLabelWidth-cellWidth(suffix), 1))) + suffix
+	dir := mutedStyle.Render(truncateTail(path, max(room-railFactLabelWidth-textfmt.Width(suffix), 1))) + suffix
 	lines = append(lines, railFact(pad, "dir", dir))
 	if breakdown := m.groupStatusBreakdown(group); breakdown != "" {
 		lines = append(lines, railFact(pad, "state", trimmedValue(breakdown)(max(room-railFactLabelWidth, 1))))
@@ -511,7 +512,7 @@ func (m *Model) filterBadgeLines() []string {
 			label, key, out = "GATE", "G", "stop the gate"
 		}
 		if m.triageScope != "" {
-			label += " " + strings.ToUpper(cellTruncate(baseName(m.triageScope), 12, "…"))
+			label += " " + strings.ToUpper(textfmt.TruncateWidth(baseName(m.triageScope), 12, "…"))
 		}
 		badge(label, key, out)
 	}
@@ -701,9 +702,9 @@ func centerLine(s string, width int) string {
 	if width <= 0 {
 		return s
 	}
-	w := cellWidth(s)
+	w := textfmt.Width(s)
 	if w >= width {
-		return cellTruncate(s, width, "…")
+		return textfmt.TruncateWidth(s, width, "…")
 	}
 	left := (width - w) / 2
 	return spaces(left) + s
@@ -817,7 +818,7 @@ func (m *Model) renderTreeRowContent(entry treeRow, selected bool, width, index 
 	trail := m.treeGuideTrail(index)
 
 	if m.renamingRow(entry) {
-		line := pad + guides + m.renameRowInput(entry, width-railGutter-cellWidth(guides))
+		line := pad + guides + m.renameRowInput(entry, width-railGutter-textfmt.Width(guides))
 		row := paint(line, width, selectedHex())
 		if m.stackedRows() {
 			row += "\n" + paint(pad+trail, width, selectedHex())
@@ -909,7 +910,7 @@ func (m *Model) displayName(sess store.Session) string {
 // would name every image-first spawn the same thing, so the pictures drop
 // out of the preview and the words stay.
 func promptPreview(prompt string) string {
-	return cellTruncate(promptPlain(prompt), placeholderPromptWidth, "…")
+	return textfmt.TruncateWidth(promptPlain(prompt), placeholderPromptWidth, "…")
 }
 
 func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad, guides, trail, bg string) string {
@@ -992,9 +993,9 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	// where the long names are, and on a forty-column rail moving the badge
 	// up there cost the row its count for no alignment gained. So it stays on
 	// the meta line and follows the age instead of interrupting it.
-	childRoom := width - cellWidth(indent) - cellWidth(meta)
+	childRoom := width - textfmt.Width(indent) - textfmt.Width(meta)
 	if !m.stackedRows() {
-		childRoom = width - railGutter - cellWidth(head) - 2 - cellWidth(meta)
+		childRoom = width - railGutter - textfmt.Width(head) - 2 - textfmt.Width(meta)
 	}
 	child := m.childBadge(sess.ID, childRoom)
 
@@ -1008,9 +1009,9 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 
 	if !m.railWorkExpanded(sess.ID) {
 		if m.stackedRows() {
-			meta += m.workBadge(sess.ID, width-cellWidth(indent)-cellWidth(meta))
+			meta += m.workBadge(sess.ID, width-textfmt.Width(indent)-textfmt.Width(meta))
 		} else {
-			head += m.workBadge(sess.ID, width-railGutter-cellWidth(head)-2-cellWidth(meta))
+			head += m.workBadge(sess.ID, width-railGutter-textfmt.Width(head)-2-textfmt.Width(meta))
 		}
 	}
 
@@ -1033,31 +1034,31 @@ func (m *Model) renderArtifactEntry(entry treeRow, selected bool, width int, pad
 		nameStyle = selectedLabelStyle
 		metaText = mutedText
 	}
-	room := width - railGutter - cellWidth(guides) - 2 - cellWidth(art.detail) - 2
+	room := width - railGutter - textfmt.Width(guides) - 2 - textfmt.Width(art.detail) - 2
 	label := art.label
-	if cellWidth(label) > room {
+	if textfmt.Width(label) > room {
 		label = art.short
 	}
 	// The child a rolled-up row came from gives way before the number does:
 	// the number names the artifact, and the child is only where it came from.
 	detail := art.detail
 	if art.from != "" {
-		spare := room - cellWidth(label) - cellWidth(childMark)
+		spare := room - textfmt.Width(label) - textfmt.Width(childMark)
 		if spare < minChildName && label != art.short {
 			label = art.short
-			spare = room - cellWidth(label) - cellWidth(childMark)
+			spare = room - textfmt.Width(label) - textfmt.Width(childMark)
 		}
 		if spare >= minChildName {
-			tag := childMark + cellTruncate(art.from, spare, "…")
+			tag := childMark + textfmt.TruncateWidth(art.from, spare, "…")
 			detail += tag
-			room -= cellWidth(tag)
+			room -= textfmt.Width(tag)
 		}
 	}
 	// Unlike the work card, the link is not gated on width: a narrow rail has
 	// already swapped the label for its short form, and the number is still
 	// the thing to click.
 	head := pad + guides + tinted(art.stateHint).Render(art.glyph) +
-		" " + hyperlink(art.url, nameStyle.Render(cellTruncate(label, max(room, 1), "…")))
+		" " + hyperlink(art.url, nameStyle.Render(textfmt.TruncateWidth(label, max(room, 1), "…")))
 	return paint(rowColumns(head, metaText(detail), width-railGutter), width, bg)
 }
 
@@ -1232,7 +1233,7 @@ func (m *Model) computerBrief(width int) string {
 		return labelStyle.Render(label+" ") + valueStyle.Render(fmt.Sprintf("%.0f%%", percent))
 	}
 	line := reading("cpu", snap.CPUPercent, snap.CPUOK) + sep + reading("mem", snap.MemPercent, snap.MemOK)
-	if disk := reading("disk", snap.DiskPercent, snap.DiskOK); cellWidth(line)+cellWidth(sep)+cellWidth(disk)+railInset <= width {
+	if disk := reading("disk", snap.DiskPercent, snap.DiskOK); textfmt.Width(line)+textfmt.Width(sep)+textfmt.Width(disk)+railInset <= width {
 		line += sep + disk
 	}
 	return spaces(railInset) + line
@@ -1434,7 +1435,7 @@ const detailLabelWidth = 7
 // trimmedValue is a rail fact value cut to the columns it gets, for readings
 // that grow with the fleet rather than with the terminal.
 func trimmedValue(value string) func(int) string {
-	return func(room int) string { return cellTruncate(value, room, "…") }
+	return func(room int) string { return textfmt.TruncateWidth(value, room, "…") }
 }
 
 // fitColumns lays the richest pair of readings that fits: rights are tried
@@ -1443,7 +1444,7 @@ func trimmedValue(value string) func(int) string {
 func fitColumns(lefts, rights []string, width int) string {
 	for _, right := range rights {
 		for _, left := range lefts {
-			if cellWidth(left)+cellWidth(right)+2 <= width {
+			if textfmt.Width(left)+textfmt.Width(right)+2 <= width {
 				return rowColumns(left, right, width)
 			}
 		}
@@ -1452,11 +1453,11 @@ func fitColumns(lefts, rights []string, width int) string {
 	// reading that still leaves it something readable.
 	last := lefts[len(lefts)-1]
 	for _, right := range rights {
-		if room := width - cellWidth(right) - 2; room >= 8 {
-			return rowColumns(cellTruncate(last, room, "…"), right, width)
+		if room := width - textfmt.Width(right) - 2; room >= 8 {
+			return rowColumns(textfmt.TruncateWidth(last, room, "…"), right, width)
 		}
 	}
-	return rowColumns(cellTruncate(last, max(width, 1), "…"), "", width)
+	return rowColumns(textfmt.TruncateWidth(last, max(width, 1), "…"), "", width)
 }
 
 // rosterToolColumn is the column a roster's tool names start at, so the
@@ -1504,13 +1505,13 @@ func (m *Model) viewGroupAgents(group string, width, height int) string {
 	// "who is in this group".
 	nameWidth, toolWidth, stateWidth := rosterToolColumn, 0, 0
 	for _, row := range rows {
-		if w := cellWidth(row.name) + 2; w > nameWidth {
+		if w := textfmt.Width(row.name) + 2; w > nameWidth {
 			nameWidth = w
 		}
-		if w := cellWidth(row.tool); w > toolWidth {
+		if w := textfmt.Width(row.tool); w > toolWidth {
 			toolWidth = w
 		}
-		if w := cellWidth(row.state); w > stateWidth {
+		if w := textfmt.Width(row.state); w > stateWidth {
 			stateWidth = w
 		}
 	}
@@ -1537,7 +1538,7 @@ func (m *Model) viewGroupAgents(group string, width, height int) string {
 	for _, row := range rows {
 		// A name trimmed to the column exactly would touch the tool beside
 		// it, so the trim leaves the column's last cell as the gap.
-		line := padRight(cellTruncate(row.name, max(nameWidth-1, 1), "…"), nameWidth)
+		line := padRight(textfmt.TruncateWidth(row.name, max(nameWidth-1, 1), "…"), nameWidth)
 		if showTool {
 			line += row.tool
 		}

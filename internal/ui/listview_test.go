@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -993,8 +994,8 @@ func TestSelectedRowBoxFitsRail(t *testing.T) {
 				t.Fatalf("width %d row %d: content row is not framed: %q", width, i, mid)
 			}
 			for _, line := range lines {
-				if cellWidth(line) != width {
-					t.Fatalf("width %d row %d: box line is %d cells: %q", width, i, cellWidth(line), ansi.Strip(line))
+				if textfmt.Width(line) != width {
+					t.Fatalf("width %d row %d: box line is %d cells: %q", width, i, textfmt.Width(line), ansi.Strip(line))
 				}
 			}
 			plain := ansi.Strip(m.renderTreeRowContent(entry, false, width, i, panelHex()))

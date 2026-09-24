@@ -4,6 +4,7 @@ package store
 
 import (
 	"errors"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"testing"
 	"time"
 )
@@ -126,7 +127,7 @@ func TestAReplacementIsNotRefusedByTheQueueItClears(t *testing.T) {
 	// a queue it can only clear one message of.
 	for i := range limits.QueueCap - 1 {
 		msg := message("filler "+string(rune('a'+i)), now.Add(time.Duration(i)*time.Millisecond))
-		msg.Fingerprint = Fingerprint(msg.Body)
+		msg.Fingerprint = textfmt.Fingerprint(msg.Body)
 		if _, _, err := st.Enqueue(msg, limits); err != nil {
 			t.Fatalf("filling the queue at %d: %v", i, err)
 		}

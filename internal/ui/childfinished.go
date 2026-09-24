@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -84,7 +85,7 @@ func (p *poller) relayChildRest(sess store.Session, newStatus string) error {
 		SenderID:    sess.ID,
 		SenderName:  sess.Name,
 		Body:        body,
-		Fingerprint: store.Fingerprint(body),
+		Fingerprint: textfmt.Fingerprint(body),
 		Subject:     store.ChildRestSubject(sess.ID),
 		SentAt:      time.Now(),
 	}, store.DefaultInboxLimits)

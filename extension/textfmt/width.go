@@ -1,14 +1,16 @@
-package ui
+package textfmt
 
 import (
 	"strings"
+	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/ansi/parser"
 )
 
-// cellWidth is ansi.StringWidth with the ASCII case lifted out of the
+// Width is the cells s takes in a terminal: ansi.StringWidth with the ASCII case lifted out of the
 // grapheme segmenter. StringWidth runs its transition table over the bytes and
 // hands every printable one to a fresh grapheme iterator, which at a hundred
 // characters a row and fifty rows a frame was a third of the frame's CPU. A
@@ -27,7 +29,7 @@ import (
 // time and print none of. A painted row is more sequence than text, so it is
 // measured in one hop instead. Every other byte takes the original path
 // unchanged.
-func cellWidth(s string) int {
+func Width(s string) int {
 	if s == "" {
 		return 0
 	}
@@ -69,7 +71,12 @@ func cellWidth(s string) int {
 // segmenter the first time that rune is seen. The rail's tree guides, status
 // marks and block glyphs are a couple of dozen runes repeated down every
 // column of every frame, and each one was costing a fresh grapheme iterator.
-var loneRuneCells = map[rune]int{}
+// It is a sync.Map because Width is called from any goroutine, and after the
+// first frame nearly every access is a read of a rune already stored.
+var (
+	loneRuneCells     sync.Map // rune -> int
+	loneRuneCellsSize atomic.Int32
+)
 
 // loneRuneCellsMax bounds the map. A captured pane can put any script on
 // screen, and this is the one memo here whose key comes from outside the
@@ -84,15 +91,17 @@ func loneRuneWidth(s string) (width, size int, ok bool) {
 	if r == utf8.RuneError || size >= len(s) || s[size] >= 0x80 {
 		return 0, 0, false
 	}
-	if w, seen := loneRuneCells[r]; seen {
-		return w, size, true
+	if w, seen := loneRuneCells.Load(r); seen {
+		return w.(int), size, true
 	}
 	cluster, w := ansi.FirstGraphemeCluster(s, ansi.GraphemeWidth)
 	if len(cluster) != size {
 		return 0, 0, false
 	}
-	if len(loneRuneCells) < loneRuneCellsMax {
-		loneRuneCells[r] = w
+	if loneRuneCellsSize.Load() < loneRuneCellsMax {
+		if _, loaded := loneRuneCells.LoadOrStore(r, w); !loaded {
+			loneRuneCellsSize.Add(1)
+		}
 	}
 	return w, size, true
 }
@@ -123,10 +132,10 @@ func csiLength(s string) (size int, ok bool) {
 	return i + 1, true
 }
 
-// cellTruncate is ansi.Truncate with the measurement its callers have already
+// TruncateWidth cuts s to length cells, tail included: ansi.Truncate with the measurement its callers have already
 // paid taken off. ansi.Truncate opens by running StringWidth over the whole
 // string to learn whether it has anything to do, which was half its time and
-// which paint and plain have just done via cellWidth.
+// which a caller painting a row has usually just done via Width.
 //
 // A row that is printable ASCII wrapped in SGR is then also cut here rather
 // than by the segmenter: for that alphabet a printable byte is one cell, and
@@ -136,14 +145,14 @@ func csiLength(s string) (size int, ok bool) {
 // back to ansi.Truncate whole, so the general answer is still the general
 // one. Rail rows mostly take that path, because a tree guide is not ASCII;
 // what they keep is the measurement.
-func cellTruncate(s string, length int, tail string) string {
-	if cellWidth(s) <= length {
+func TruncateWidth(s string, length int, tail string) string {
+	if Width(s) <= length {
 		return s
 	}
 	if !asciiRow(s) {
 		return ansi.Truncate(s, length, tail)
 	}
-	length -= cellWidth(tail)
+	length -= Width(tail)
 	if length < 0 {
 		return ""
 	}
@@ -176,7 +185,7 @@ func cellTruncate(s string, length int, tail string) string {
 }
 
 // asciiRow reports whether s is printable ASCII and complete CSI sequences and
-// nothing else, which is the alphabet cellTruncate can cut on its own. It is
+// nothing else, which is the alphabet TruncateWidth can cut on its own. It is
 // asked before anything is built so a row that has to go back to ansi.Truncate
 // does not pay for a buffer first.
 func asciiRow(s string) bool {

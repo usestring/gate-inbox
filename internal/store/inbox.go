@@ -3,11 +3,8 @@
 package store
 
 import (
-	"crypto/sha256"
 	"database/sql"
-	"encoding/hex"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/tracing"
@@ -495,13 +492,3 @@ SELECT id, sender_id, sender_name, body, sent_at, delivered_at
 // rest, so a child that stops, is restarted and stops again leaves its
 // parent one current notice rather than a queue of stale ones.
 func ChildRestSubject(childID string) string { return "child-rest:" + childID }
-
-// Fingerprint is what the dedupe window compares: the message with its
-// whitespace collapsed, hashed, so a retry that only re-wraps its text is
-// recognised as the same message. It lives here because it is part of what
-// Enqueue means by a duplicate, and every sender has to compute it the same
-// way for that to hold.
-func Fingerprint(message string) string {
-	sum := sha256.Sum256([]byte(strings.Join(strings.Fields(message), " ")))
-	return hex.EncodeToString(sum[:])
-}

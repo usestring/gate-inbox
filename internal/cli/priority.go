@@ -3,6 +3,7 @@ package cli
 import (
 	"io"
 
+	"github.com/usestring/gate-inbox/extension/cmdline"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
@@ -18,7 +19,7 @@ func prioritySection() section {
 }
 
 func runPriority(out io.Writer, args []string, sessionID, configDir string) error {
-	set := newFlagSet(usagePriority)
+	set := cmdline.NewFlagSet(usagePriority)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err

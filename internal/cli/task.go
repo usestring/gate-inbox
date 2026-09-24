@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/usestring/gate-inbox/extension/cmdline"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
@@ -47,8 +48,8 @@ func taskSection() section {
 }
 
 func runTaskList(out io.Writer, tasks taskCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageTaskList)
-	asJSON := jsonFlag(set)
+	set := cmdline.NewFlagSet(usageTaskList)
+	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
 		return err
 	}
@@ -56,15 +57,15 @@ func runTaskList(out io.Writer, tasks taskCommands, args []string, sessionID str
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, listed, sessioncmd.FormatTaskList(listed))
+	return cmdline.Emit(out, *asJSON, listed, sessioncmd.FormatTaskList(listed))
 }
 
 func runTaskCreate(out io.Writer, tasks taskCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageTaskCreate)
+	set := cmdline.NewFlagSet(usageTaskCreate)
 	body := set.String("body", "", "full instruction for whoever claims it; it cannot see your conversation")
 	var dependsOn stringList
 	set.Var(&dependsOn, "depends-on", "ids of tasks that must be done first, repeatable or comma separated")
-	asJSON := jsonFlag(set)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
@@ -73,12 +74,12 @@ func runTaskCreate(out io.Writer, tasks taskCommands, args []string, sessionID s
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, created, "created "+sessioncmd.FormatTask(created))
+	return cmdline.Emit(out, *asJSON, created, "created "+sessioncmd.FormatTask(created))
 }
 
 func runTaskClaim(out io.Writer, tasks taskCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageTaskClaim)
-	asJSON := jsonFlag(set)
+	set := cmdline.NewFlagSet(usageTaskClaim)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 0, 1)
 	if err != nil {
 		return err
@@ -91,12 +92,12 @@ func runTaskClaim(out io.Writer, tasks taskCommands, args []string, sessionID st
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, claimed, "claimed "+sessioncmd.FormatTask(claimed))
+	return cmdline.Emit(out, *asJSON, claimed, "claimed "+sessioncmd.FormatTask(claimed))
 }
 
 func runTaskFinish(out io.Writer, tasks taskCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageTaskFinish)
-	asJSON := jsonFlag(set)
+	set := cmdline.NewFlagSet(usageTaskFinish)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
@@ -105,12 +106,12 @@ func runTaskFinish(out io.Writer, tasks taskCommands, args []string, sessionID s
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, finished, "finished "+sessioncmd.FormatTask(finished))
+	return cmdline.Emit(out, *asJSON, finished, "finished "+sessioncmd.FormatTask(finished))
 }
 
 func runTaskRelease(out io.Writer, tasks taskCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageTaskRelease)
-	asJSON := jsonFlag(set)
+	set := cmdline.NewFlagSet(usageTaskRelease)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
@@ -119,11 +120,11 @@ func runTaskRelease(out io.Writer, tasks taskCommands, args []string, sessionID 
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, released, "released "+sessioncmd.FormatTask(released))
+	return cmdline.Emit(out, *asJSON, released, "released "+sessioncmd.FormatTask(released))
 }
 
 func runTaskDelete(out io.Writer, tasks taskCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageTaskDelete)
+	set := cmdline.NewFlagSet(usageTaskDelete)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err

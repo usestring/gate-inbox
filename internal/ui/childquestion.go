@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -70,7 +71,7 @@ func (p *poller) relayChildQuestion(sess store.Session, newStatus, pane string) 
 		SenderID:    sess.ID,
 		SenderName:  sess.Name,
 		Body:        body,
-		Fingerprint: store.Fingerprint(body),
+		Fingerprint: textfmt.Fingerprint(body),
 		SentAt:      time.Now(),
 	}, store.DefaultInboxLimits)
 	if err != nil {

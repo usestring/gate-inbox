@@ -70,7 +70,7 @@ func browserCommands(goos, browser, target string) []*exec.Cmd {
 // hyperlink marks text as an OSC 8 link to url. A terminal that understands
 // the sequence opens it on a click; every other one shows the label alone.
 //
-// It costs no cells -- cellWidth measures the sequence as nothing -- so a
+// It costs no cells -- textfmt.Width measures the sequence as nothing -- so a
 // linked label still lines up with an unlinked one beside it. A URL carrying
 // an escape, a bell or a line break would end the sequence early and paint its
 // own tail into the row, so it goes unlinked rather than trusted.

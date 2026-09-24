@@ -13,6 +13,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/forge"
 	"github.com/usestring/gate-inbox/internal/keymap"
@@ -310,7 +311,7 @@ func workCounts(rows []workRow, room int) string {
 		if rung.marked {
 			text = mark + text
 		}
-		if cellWidth(text) <= room {
+		if textfmt.Width(text) <= room {
 			return text
 		}
 	}

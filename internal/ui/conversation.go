@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -145,11 +146,11 @@ func (c *conversationView) wrapped(width int) []string {
 			}
 			return r
 		}, ansi.Strip(message.Text))
-		heading := cellTruncate(" "+label+" ", max(1, width-2), "")
-		c.lines = append(c.lines, style.Render("╭"+heading+strings.Repeat("─", max(0, width-2-cellWidth(heading)))+"╮"))
+		heading := textfmt.TruncateWidth(" "+label+" ", max(1, width-2), "")
+		c.lines = append(c.lines, style.Render("╭"+heading+strings.Repeat("─", max(0, width-2-textfmt.Width(heading)))+"╮"))
 		messageLines := strings.Split(ansi.Hardwrap(ansi.Wrap(text, inner, ""), inner, true), "\n")
 		if c.compact && len(messageLines) > 4 {
-			messageLines = append(messageLines[:4:4], cellTruncate(fmt.Sprintf("… %d more lines", len(messageLines)-4), inner, "…"))
+			messageLines = append(messageLines[:4:4], textfmt.TruncateWidth(fmt.Sprintf("… %d more lines", len(messageLines)-4), inner, "…"))
 		}
 		for _, line := range messageLines {
 			c.lines = append(c.lines, style.Render("│")+" "+padRight(valueStyle.Render(line), inner)+" "+style.Render("│"))
@@ -185,7 +186,7 @@ func (m *Model) conversationRows(width, height int) []string {
 		if c.key == m.conversationIdentity(sess) && c.err != nil {
 			text = "Conversation unavailable: " + c.err.Error()
 		}
-		return []string{mutedStyle.Render(cellTruncate(text, width, "…"))}
+		return []string{mutedStyle.Render(textfmt.TruncateWidth(text, width, "…"))}
 	}
 	c.offset = min(c.offset, max(0, len(rows)-height))
 	end := len(rows) - c.offset

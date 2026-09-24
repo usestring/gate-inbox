@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 )
 
 const (
@@ -32,7 +33,7 @@ func (m *Model) statusToast() []string {
 	if leftWidth, rightWidth := m.splitWidths(); rightWidth > 0 {
 		column = m.width - leftWidth - 2
 	}
-	width := cellWidth(text) + toastChromeX
+	width := textfmt.Width(text) + toastChromeX
 	for _, limit := range []int{toastMaxWidth, column - toastMargin} {
 		if width > limit {
 			width = limit
@@ -76,10 +77,10 @@ func (m *Model) overlayTopRight(frame string, box []string, top int) string {
 // spliceAtColumn overpaints a run of cells inside a styled row, keeping the
 // escape state on both sides of the patch intact.
 func spliceAtColumn(row, patch string, left int) string {
-	head := cellTruncate(row, left, "")
-	if pad := left - cellWidth(head); pad > 0 {
+	head := textfmt.TruncateWidth(row, left, "")
+	if pad := left - textfmt.Width(head); pad > 0 {
 		head += spaces(pad)
 	}
-	tail := ansi.TruncateLeft(row, left+cellWidth(patch), "")
+	tail := ansi.TruncateLeft(row, left+textfmt.Width(patch), "")
 	return head + patch + tail
 }

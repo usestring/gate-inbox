@@ -5,9 +5,13 @@
 package textfmt
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Tail keeps the last max bytes of text, which is the end of a turn --
@@ -90,4 +94,25 @@ func Age(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
+}
+
+// OneLine collapses every run of whitespace, newlines included, to one space,
+// so text someone else chose cannot break the line it is set in.
+func OneLine(text string) string {
+	return strings.Join(strings.Fields(text), " ")
+}
+
+// Wrap breaks text to width cells, keeping whole words where it can and
+// splitting one that is longer than the width. A width under one is one.
+func Wrap(text string, width int) []string {
+	return strings.Split(ansi.Wrap(text, max(width, 1), ""), "\n")
+}
+
+// Fingerprint is a message's identity for deduplication: its text with the
+// whitespace collapsed, hashed, so a retry that only re-wraps the text is
+// recognised as the same message. Every sender has to compute it the same
+// way for a duplicate to be seen as one.
+func Fingerprint(message string) string {
+	sum := sha256.Sum256([]byte(OneLine(message)))
+	return hex.EncodeToString(sum[:])
 }

@@ -1,10 +1,12 @@
-// Package gitroot finds the outermost working tree a directory belongs to,
-// walking out of nested submodules.
+// Package gitroot answers where a directory sits: the outermost working tree
+// it belongs to, walking out of nested submodules, and whether it lies inside
+// a given root.
 package gitroot
 
 import (
 	"context"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -61,4 +63,15 @@ func execGit(dir string, args ...string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// Within reports whether dir is root or lies beneath it, by path alone:
+// neither is resolved against the filesystem, so a symlink counts where it
+// sits, not where it points.
+func Within(dir, root string) bool {
+	rel, err := filepath.Rel(root, dir)
+	if err != nil {
+		return false
+	}
+	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

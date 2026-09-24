@@ -56,3 +56,34 @@ func TestAgeIsOneCoarseUnit(t *testing.T) {
 		}
 	}
 }
+
+func TestOneLineCollapsesWhitespace(t *testing.T) {
+	if got := textfmt.OneLine("  a\n\tb   c \r\n"); got != "a b c" {
+		t.Fatalf("OneLine = %q", got)
+	}
+}
+
+func TestWrapKeepsWordsAndSplitsLongOnes(t *testing.T) {
+	got := textfmt.Wrap("keep whole words abcdefghij", 5)
+	for _, line := range got {
+		if textfmt.Width(line) > 5 {
+			t.Fatalf("a line wider than 5: %q", got)
+		}
+	}
+	if got[0] != "keep" || strings.Join(got, "") != "keepwholewordsabcdefghij" {
+		t.Fatalf("Wrap = %q", got)
+	}
+	if got := textfmt.Wrap("ab", 0); len(got) != 2 {
+		t.Fatalf("width 0 wraps at one cell: %q", got)
+	}
+}
+
+func TestFingerprintIgnoresRewrapping(t *testing.T) {
+	a := textfmt.Fingerprint("the branch\nmoved to  main")
+	if a != textfmt.Fingerprint(" the branch moved to main\n") || len(a) != 64 {
+		t.Fatalf("a re-wrapped message fingerprints differently: %s", a)
+	}
+	if a == textfmt.Fingerprint("the branch moved to dev") {
+		t.Fatal("different messages share a fingerprint")
+	}
+}

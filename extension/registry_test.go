@@ -3,6 +3,7 @@ package extension_test
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -252,5 +253,36 @@ func TestConfigureHandsEachExtensionItsDataDir(t *testing.T) {
 	}
 	if _, err := extension.NewConfig(nil).DataDir(); err == nil {
 		t.Fatal("a Config with no data directory handed one out")
+	}
+}
+
+// logHost is a Host whose log is a buffer.
+type logHost struct {
+	extension.Host
+	out *strings.Builder
+}
+
+func (h logHost) Logger() *slog.Logger { return slog.New(slog.NewTextHandler(h.out, nil)) }
+
+// logger logs one line through the Host it is lent.
+type logger struct{ stub }
+
+func (l *logger) RegisterMCP(_ *extension.Registrar, session extension.SessionContext) error {
+	session.Host.Logger().Info("registered")
+	return nil
+}
+
+// Every extension of a session shares its Host, and each one's lines are
+// tagged with its own id.
+func TestRegisterMCPTagsEachExtensionsLogWithItsID(t *testing.T) {
+	var out strings.Builder
+	session := extension.SessionContext{SessionID: "s", Host: logHost{out: &out}}
+	registry := mustRegistry(t, &logger{stub{id: "first"}}, &logger{stub{id: "second"}})
+	if _, err := registry.RegisterMCP(newServer(), session, nil); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != 2 || !strings.HasSuffix(lines[0], "msg=registered extension=first") || !strings.HasSuffix(lines[1], "msg=registered extension=second") {
+		t.Fatalf("want one line per extension, each tagged with its id:\n%s", out.String())
 	}
 }

@@ -138,6 +138,7 @@ func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionCont
 		Name:        "noop_peek",
 		Description: "List the board's sessions, then read one.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args peekArgs) (*mcp.CallToolResult, any, error) {
+		session.Host.Logger().Debug("noop_peek", "id", args.ID)
 		sessions := session.Host.Sessions()
 		list, err := sessions.List(ctx, extension.SessionFilter{})
 		if err != nil {
@@ -188,6 +189,9 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			record("passes.txt", s.ID+" "+s.Status)
 		}
 	})
+	// A line in the board's own log, with a credential-shaped value the
+	// board must scrub before it reaches the file.
+	board.Logger().Info("noop on the board", "note", "key sk-"+strings.Repeat("x", 24))
 	record("started.txt", fmt.Sprint(os.Getpid(), " ", board.ConfigDir()))
 	return func() { record("stopped.txt", fmt.Sprint(ctx.Err() != nil)) }, nil
 }

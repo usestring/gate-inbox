@@ -6,8 +6,10 @@ package extensionhost
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
@@ -26,6 +28,11 @@ func New(configDir, sessionID string, cmds *sessioncmd.Sessions) *Host {
 
 func (h *Host) ConfigDir() string                  { return h.configDir }
 func (h *Host) Sessions() extension.SessionService { return h.sessions }
+
+// Logger is the process log unscoped: one Host is shared by every
+// extension of a session, and the registry tags each one's lines with its
+// id.
+func (h *Host) Logger() *slog.Logger { return logging.Slog() }
 
 type sessions struct {
 	caller string

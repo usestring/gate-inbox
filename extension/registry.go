@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -178,7 +179,7 @@ func (r *Registry) RegisterMCP(server *mcp.Server, session SessionContext, reser
 			continue
 		}
 		registrar := &Registrar{server: server, owner: r.ids[i], owners: owners}
-		err := registerOne(provider, registrar, session)
+		err := registerOne(provider, registrar, scopedSession(session, r.ids[i]))
 		if err != nil {
 			server.RemoveTools(registrar.added...)
 			for _, name := range registrar.added {
@@ -207,6 +208,22 @@ func registerOne(provider MCPProvider, registrar *Registrar, session SessionCont
 	}()
 	return provider.RegisterMCP(registrar, session)
 }
+
+// scopedSession is session as the extension with id is lent it: the same
+// Host, with its log lines tagged with id.
+func scopedSession(session SessionContext, id string) SessionContext {
+	if session.Host != nil {
+		session.Host = scopedHost{Host: session.Host, logger: session.Host.Logger().With("extension", id)}
+	}
+	return session
+}
+
+type scopedHost struct {
+	Host
+	logger *slog.Logger
+}
+
+func (h scopedHost) Logger() *slog.Logger { return h.logger }
 
 func enabled(ext Extension) bool {
 	if toggle, ok := ext.(Enabler); ok {

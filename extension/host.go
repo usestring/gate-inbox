@@ -1,6 +1,9 @@
 package extension
 
-import "context"
+import (
+	"context"
+	"log/slog"
+)
 
 // Host is what the board lends an extension to act with: where it keeps its
 // files and the sessions it runs. It is a set of narrow services over
@@ -16,6 +19,10 @@ type Host interface {
 	ConfigDir() string
 	// Sessions reads and acts on the board's agent sessions.
 	Sessions() SessionService
+	// Logger writes into the board's own log, each line tagged with the
+	// extension's id and scrubbed of credentials like the board's lines.
+	// It writes nowhere where the process keeps no log.
+	Logger() *slog.Logger
 }
 
 // SessionService is the board's agent sessions, as the calling session's

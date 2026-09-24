@@ -2,10 +2,12 @@ package extensionhost
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -106,6 +108,10 @@ type boardView struct {
 	mu       sync.Mutex
 	subs     []func()
 	released bool
+}
+
+func (v *boardView) Logger() *slog.Logger {
+	return logging.Slog().With("extension", v.owner)
 }
 
 func (v *boardView) Subscribe(fn func(extension.StatusEvent)) func() {

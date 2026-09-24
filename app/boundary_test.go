@@ -295,6 +295,8 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	socket := tmuxtest.NewSocket("lifecycle")
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n")
 	home := envValue(env, "GATE_INBOX_HOME")
+	logFile := filepath.Join(home, "board.log")
+	env = append(env, "GATE_INBOX_LOG_FILE="+logFile, "GATE_INBOX_LOG_LEVEL=info")
 	// The board starts its own server under the scratch TMUX_TMPDIR, and it
 	// is taken down there by path.
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })
@@ -342,6 +344,17 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	events, _ := os.ReadFile(filepath.Join(data, "events.txt"))
 	if strings.Count(string(events), "working>dead") != 1 {
 		t.Fatalf("the transition was reported more than once:\n%s", events)
+	}
+	// The extension's line is in the board's own log, tagged with its id
+	// and scrubbed, once the board has exited and flushed it.
+	select {
+	case <-exited:
+	case <-time.After(20 * time.Second):
+		t.Fatalf("the board did not exit after SIGTERM:\n%s", out.String())
+	}
+	logged, _ := os.ReadFile(logFile)
+	if !strings.Contains(string(logged), `msg="noop on the board" extension=noop note="key [redacted]"`) {
+		t.Fatalf("the extension's line is not in the board log, tagged and scrubbed:\n%s", logged)
 	}
 }
 

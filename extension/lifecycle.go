@@ -2,6 +2,7 @@ package extension
 
 import (
 	"context"
+	"log/slog"
 	"time"
 )
 
@@ -45,6 +46,9 @@ type BoardHost interface {
 	// pass is handed only the newest one when it is done: a pass is a
 	// level, and a stale one says nothing the newest does not.
 	OnPass(fn func(Pass)) (unsubscribe func())
+	// Logger writes into the board's own log, each line tagged with the
+	// extension's id and scrubbed of credentials like the board's lines.
+	Logger() *slog.Logger
 }
 
 // EventKind classifies a transition by the status it arrived at.

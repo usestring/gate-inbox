@@ -126,6 +126,10 @@ func main() {
 	err := app.Run(context.Background(), os.Args[1:], app.Options{
 		Extensions: []extension.Extension{&noop{}},
 		BuildInfo:  app.BuildInfo{Version: "0.0.0-fixture"},
+		// A snippet this build supplies under every operator's own file.
+		SnippetDefaults: []app.Snippet{
+			{Key: "r", Label: "review the diff", Text: "review the diff for mistakes"},
+		},
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "fixture:", err)

@@ -24,22 +24,27 @@ const modulePath = "github.com/usestring/gate-inbox"
 // extension through the public packages.
 var fixtureSource = filepath.Join("testdata", "external", "main.go")
 
+// badSnippetSource is a build whose snippet defaults cannot bind.
+var badSnippetSource = filepath.Join("testdata", "badsnippet", "main.go")
+
 // TestFixtureImportsOnlyThePublicPackages states the boundary in the
-// fixture's own source, so a failure names the import rather than leaving
+// fixtures' own source, so a failure names the import rather than leaving
 // it to a compiler error about internal packages.
 func TestFixtureImportsOnlyThePublicPackages(t *testing.T) {
-	file, err := parser.ParseFile(token.NewFileSet(), fixtureSource, nil, parser.ImportsOnly)
-	if err != nil {
-		t.Fatalf("parse fixture: %v", err)
-	}
-	public := map[string]bool{modulePath + "/app": true, modulePath + "/extension": true}
-	for _, spec := range file.Imports {
-		path, _ := strconv.Unquote(spec.Path.Value)
-		if strings.Contains(path, "/internal/") || strings.HasSuffix(path, "/internal") {
-			t.Errorf("the fixture imports %s", path)
+	for _, source := range []string{fixtureSource, badSnippetSource} {
+		file, err := parser.ParseFile(token.NewFileSet(), source, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("parse fixture: %v", err)
 		}
-		if strings.HasPrefix(path, modulePath) && !public[path] {
-			t.Errorf("the fixture imports %s, which is not a public package", path)
+		public := map[string]bool{modulePath + "/app": true, modulePath + "/extension": true}
+		for _, spec := range file.Imports {
+			path, _ := strconv.Unquote(spec.Path.Value)
+			if strings.Contains(path, "/internal/") || strings.HasSuffix(path, "/internal") {
+				t.Errorf("%s imports %s", source, path)
+			}
+			if strings.HasPrefix(path, modulePath) && !public[path] {
+				t.Errorf("%s imports %s, which is not a public package", source, path)
+			}
 		}
 	}
 }
@@ -50,12 +55,18 @@ func TestFixtureImportsOnlyThePublicPackages(t *testing.T) {
 // nothing under internal/.
 func buildFixture(t *testing.T) string {
 	t.Helper()
+	return buildModule(t, fixtureSource)
+}
+
+// buildModule builds the main at sourcePath as a module of its own.
+func buildModule(t *testing.T, sourcePath string) string {
+	t.Helper()
 	root, err := filepath.Abs("..")
 	if err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	source, err := os.ReadFile(fixtureSource)
+	source, err := os.ReadFile(sourcePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,6 +229,30 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 			})
 		}
 	})
+}
+
+// TestExternalBuildSnippetDefaultsReachRun proves a module outside this one
+// hands its snippets to the board through app.Options alone. The main
+// fixture carries a valid entry and its faces run above; this build carries
+// one that could never bind, and Run refuses it before any face does.
+func TestExternalBuildSnippetDefaultsReachRun(t *testing.T) {
+	bin := buildModule(t, badSnippetSource)
+	env := fixtureHome(t, "")
+	version := exec.Command(bin, "--version")
+	version.Env = env
+	out, err := version.CombinedOutput()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Fatalf("--version with a snippet default that cannot bind: %v\n%s", err, out)
+	}
+	for _, want := range []string{"snippet defaults", "key “1” must be a single letter"} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("the refusal does not say %q:\n%s", want, out)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(envValue(env, "GATE_INBOX_HOME"), "snippets.json")); !os.IsNotExist(err) {
+		t.Fatalf("a refused build touched snippets.json: %v", err)
+	}
 }
 
 func connectFixture(t *testing.T, bin string, env []string) *mcp.ClientSession {

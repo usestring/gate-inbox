@@ -43,6 +43,13 @@ type Options struct {
 	Extensions []extension.Extension
 	// BuildInfo describes the executable.
 	BuildInfo BuildInfo
+	// SnippetDefaults are snippets.json entries this build supplies, merged
+	// by key under the operator's own file every time it is loaded. An
+	// entry the operator's file has for the same key wins, so binding that
+	// key to something else is how an operator replaces one. They are never
+	// written into the file, and a first run leaves their keys out of the
+	// starting set it writes. Run refuses an entry that could not bind.
+	SnippetDefaults []Snippet
 }
 
 // Name is the command this program is run as.
@@ -83,6 +90,10 @@ func Run(ctx context.Context, args []string, opts Options) error {
 	// from a version somebody shipped.
 	if version != devVersion {
 		tracing.Release = version
+	}
+
+	if err := useSnippetDefaults(opts.SnippetDefaults); err != nil {
+		return err
 	}
 
 	// A build whose extension set is malformed -- two with one ID, one with

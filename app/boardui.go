@@ -6,6 +6,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/ui"
 )
 
@@ -27,7 +29,8 @@ func startUI(ctx context.Context, registry *extension.Registry, model *ui.Model,
 				"version", result.Version, logging.Err(result.Err))
 			continue
 		}
-		uis = append(uis, ui.ExtensionUI{Owner: result.ID, Keys: uiKeys(ctx, result.ID, result.UI.Keys)})
+		uis = append(uis, ui.ExtensionUI{Owner: result.ID, Keys: uiKeys(ctx, result.ID, result.UI.Keys),
+			Filters: uiFilters(result.UI.Filters)})
 	}
 	model.InstallExtensions(uis, bridge)
 	bridge.Attach(send)
@@ -70,6 +73,44 @@ func (h uiHost) Decorate(sessionID string, badges ...extension.Badge) {
 
 func (h uiHost) Notify(text string) { h.bridge.Notify(h.id, text) }
 
+func (h uiHost) Group(sessionID string, header extension.Line) {
+	h.bridge.Group(h.id, sessionID, uiLine(header))
+}
+
+func (h uiHost) Hide(sessionID string, hidden bool) { h.bridge.Hide(h.id, sessionID, hidden) }
+
+func (h uiHost) Own(sessionID string, owned bool) { h.bridge.Own(h.id, sessionID, owned) }
+
+func uiFilters(filters []extension.Filter) []ui.ExtensionFilter {
+	out := make([]ui.ExtensionFilter, 0, len(filters))
+	for _, filter := range filters {
+		keep := filter.Keep
+		listed := ui.ExtensionFilter{Action: filter.Action, Keys: filter.Keys, Label: filter.Label, Badge: filter.Badge}
+		if keep != nil {
+			listed.Keep = func(sess store.Session) bool { return keep(sessionInfo(sess)) }
+		}
+		out = append(out, listed)
+	}
+	return out
+}
+
+// sessionInfo is a row's session as an extension reads it.
+func sessionInfo(sess store.Session) extension.SessionInfo {
+	return extension.SessionInfo{
+		ID:        sess.ID,
+		Name:      sess.Name,
+		Tool:      sess.Tool,
+		Model:     sess.Model,
+		Group:     sess.Group,
+		Directory: sess.Cwd,
+		Status:    sess.Status,
+		Running:   sess.Status != status.Dead && !sess.Archived,
+		Archived:  sess.Archived,
+		ParentID:  sess.ParentID,
+		SpawnedBy: store.SpawnerOf(sess),
+	}
+}
+
 func (h uiHost) Open(screen string, view extension.View) extension.ViewHandle {
 	return h.bridge.Open(h.id, screen, uiView{view})
 }
@@ -83,13 +124,17 @@ func (v uiView) Render(width, height int) [][]ui.Span {
 	lines := v.view.Render(width, height)
 	out := make([][]ui.Span, 0, len(lines))
 	for _, line := range lines {
-		row := make([]ui.Span, 0, len(line))
-		for _, span := range line {
-			row = append(row, ui.Span{Text: span.Text, Tone: uiTone(span.Tone), Bold: span.Bold})
-		}
-		out = append(out, row)
+		out = append(out, uiLine(line))
 	}
 	return out
+}
+
+func uiLine(line extension.Line) []ui.Span {
+	row := make([]ui.Span, 0, len(line))
+	for _, span := range line {
+		row = append(row, ui.Span{Text: span.Text, Tone: uiTone(span.Tone), Bold: span.Bold})
+	}
+	return row
 }
 
 func (v uiView) Key(key ui.ViewKey) bool {

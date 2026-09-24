@@ -123,6 +123,12 @@ type Model struct {
 	extKeys   map[keymap.Context]map[keymap.Action]extensionKey
 	extBridge *ExtensionBridge
 	extBadges map[string][]Badge
+	// extHeaders, extHidden, extOwned and extFilters are the rows' headers,
+	// the hidden and owned rows, and the list filters: see extrows.go.
+	extHeaders map[string][][]Span
+	extHidden  map[string]bool
+	extOwned   map[string]bool
+	extFilters []*listFilter
 	// extScreens are the view screens the extensions declared keys for, and
 	// extView is the view on screen in modeExtensionView.
 	extScreens map[keymap.Context]bool
@@ -1305,7 +1311,8 @@ func (m *Model) listedSessions() []store.Session {
 
 func (m *Model) computeListedSessions() []store.Session {
 	visible := m.visibleSessions()
-	if !m.statusFilter.active() {
+	extFiltered := m.extensionFiltersOn()
+	if !m.statusFilter.active() && !extFiltered {
 		return visible
 	}
 	heldID := ""
@@ -1318,7 +1325,16 @@ func (m *Model) computeListedSessions() []store.Session {
 			listed = append(listed, sess)
 			continue
 		}
-		if m.statusFilter.matches(sess.Status) || m.attentionViaChild(sess) {
+		if extFiltered && !m.extensionFiltersKeep(sess) {
+			continue
+		}
+		// A session an extension answers for is not waiting on the
+		// operator, whatever its status says; see ownedByExtension.
+		kept := m.statusFilter.matches(sess.Status)
+		if m.statusFilter.active() && m.ownedByExtension(sess.ID) {
+			kept = false
+		}
+		if kept || m.attentionViaChild(sess) {
 			listed = append(listed, sess)
 		}
 	}
@@ -2684,7 +2700,17 @@ func (m *Model) buildTree() {
 
 	// Root is a standing move and spawn target; its sessions stay flat.
 	rows := make([]treeRow, 0, len(m.sessions)+len(paths)+1)
+	// A session an extension hides is left out of the browsing tree with
+	// everything under it. Only there: search, triage and the status filter
+	// were opened to find a session, and a hidden one is still a session
+	// somebody may be looking for.
+	extHides := func(sess store.Session) bool {
+		return honorFolds && !m.triage && query == "" && m.hiddenByExtension(sess.ID)
+	}
 	appendSession := func(sess store.Session, depth int) {
+		if extHides(sess) {
+			return
+		}
 		rows = append(rows, treeRow{sess: sess, depth: depth})
 		rows = append(rows, m.artifactRows(sess, depth+1)...)
 		// Folds are the browsing view's convenience only. The pruned views
@@ -2699,7 +2725,7 @@ func (m *Model) buildTree() {
 		for _, child := range childrenByParent[sess.ID] {
 			// A shell is the session's own terminal, opened with T and
 			// expected on screen; only spawned agents fold away.
-			if hidden && m.foldsAway(child) {
+			if hidden && m.foldsAway(child) || extHides(child) {
 				continue
 			}
 			// Triage draws every child except the ones somebody else is

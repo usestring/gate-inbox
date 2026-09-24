@@ -53,8 +53,13 @@ func requiresInput(st string) bool {
 // needsPerson is whether a session is on the operator's queue: the statuses
 // requiresInput names. A method on the model so the status jumps can take it
 // beside the walks that read more than a status.
+//
+// Minus the sessions an extension answers for: a session whose questions
+// something else is deciding is not waiting on the operator, and a queue
+// that hands it over anyway puts them in a pane they were meant to stay out
+// of. See ownedByExtension.
 func (m *Model) needsPerson(sess store.Session) bool {
-	return requiresInput(sess.Status)
+	return requiresInput(sess.Status) && !m.ownedByExtension(sess.ID)
 }
 
 // triageWalkable is what a drain will hand over at all: the sessions that
@@ -67,8 +72,12 @@ func (m *Model) needsPerson(sess store.Session) bool {
 // and a dead pane cannot be entered.
 //
 // The rail paints this, the mute keys read it and the walk above filters on
-// it, so all three say the same thing about a row.
+// it, so all three say the same thing about a row. A session an extension
+// answers for is off it whatever its pane says.
 func (m *Model) triageWalkable(sess store.Session) bool {
+	if m.ownedByExtension(sess.ID) {
+		return false
+	}
 	return requiresInput(sess.Status) || sess.Status == status.Idle
 }
 

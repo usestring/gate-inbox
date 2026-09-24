@@ -25,7 +25,30 @@ type UIProvider interface {
 
 // UI is what an extension adds to the board's screens.
 type UI struct {
-	Keys []KeyBinding
+	Keys    []KeyBinding
+	Filters []Filter
+}
+
+// Filter is a narrowing of the session list, toggled by a key on the list
+// like the board's own filters. While it is on, the list shows only the
+// sessions Keep keeps, and its header says so beside the key that lifts it.
+// Several filters that are on narrow together. Whether a filter is on is
+// kept between runs of the board.
+//
+// Action, Keys and Label are a list key's, and follow KeyBinding's rules.
+type Filter struct {
+	Action string
+	Keys   []string
+	Label  string
+	// Badge is the short word the list's header shows while the filter is
+	// on; Label stands in when it is empty.
+	Badge string
+	// Keep is asked of every session each time the list is built while the
+	// filter is on, on the board's event loop, so it must answer from what
+	// the extension already holds and never wait. A Keep that panics keeps
+	// every session. A child is drawn under its parent, so a filter that
+	// keeps a child should keep the parent too.
+	Keep func(SessionInfo) bool
 }
 
 // ScreenList is the board's session list, the screen KeyBinding.Screen names
@@ -78,6 +101,24 @@ type UIHost interface {
 	// with no badges, it clears them. It may be called from any goroutine,
 	// and never blocks on the board.
 	Decorate(sessionID string, badges ...Badge)
+	// Group replaces this extension's header over a session's row: one line
+	// drawn above the row, at its depth in the tree, that says what the row
+	// belongs to. It is part of the row's entry rather than a row of its
+	// own, so a key pressed there is pressed on the session. Called with an
+	// empty line, it clears the header. Headers from several extensions
+	// stack in build order. Like Decorate, Group, Hide and Own may be called
+	// from any goroutine and never block on the board.
+	Group(sessionID string, header Line)
+	// Hide sets whether the session is left out of the browsing tree, with
+	// everything drawn under it. Search, triage and the status filters
+	// still show it: they were opened to find a session.
+	Hide(sessionID string, hidden bool)
+	// Own sets whether this extension answers the session's questions. An
+	// owned session is left out of the triage queue, the attention filter
+	// and the jumps to what is waiting on the operator, and its children's
+	// questions stay folded in triage as if it were working, since it will
+	// answer them once the extension has answered it.
+	Own(sessionID string, owned bool)
 	// Notify puts one line on the board's status bar.
 	Notify(text string)
 	// Open shows view on screen, a screen this extension declared keys for.

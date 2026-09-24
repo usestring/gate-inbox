@@ -68,8 +68,9 @@ func (m *Model) parentOwns(child store.Session, now time.Time, live map[string]b
 		return false
 	}
 	// A parent blocked on its own question answers nothing until somebody
-	// answers that one, so its children are the operator's after all.
-	if requiresInput(parent.Status) {
+	// answers that one, so its children are the operator's after all --
+	// unless an extension is answering the parent's.
+	if m.needsPerson(parent) {
 		return false
 	}
 	if !m.answerableWait[child.ID] {

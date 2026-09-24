@@ -16,10 +16,11 @@ import (
 )
 
 // TestExternalBuildAddsKeysAndBadgesToTheBoard is the proof for the UI seam:
-// a module importing app and extension only puts a badge on the rows it is
-// told about, a key of its own on the list answers with the row it was
-// pressed on, and the view that key opens is drawn, told the keys of its own
-// screen, and closed by the board on esc.
+// a module importing app and extension only puts a badge and a header on the
+// rows it is told about, a key of its own on the list answers with the row it
+// was pressed on, the view that key opens is drawn, told the keys of its own
+// screen, and closed by the board on esc, and a filter of its own narrows the
+// list under a badge in the header.
 func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	script, err := exec.LookPath("script")
 	if err != nil {
@@ -68,6 +69,8 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	// A fresh board asks about the seeded sessions' missing panes first;
 	// esc answers that it should leave them, and uncovers the list.
 	waitForOutput(t, out, "noop:dead", exited, func() { keys.Write([]byte("\x1b")) })
+	// The header the extension set over a row is drawn with it.
+	waitForOutput(t, out, "noop head ca11e400", exited, func() {})
 
 	// The press is repeated until it lands: a prompt the board raises at
 	// start can hold the first one, and esc puts any of them away.
@@ -109,6 +112,14 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	if body, _ := os.ReadFile(viewKeys); string(body) != "peek_note n\n" {
 		t.Fatalf("viewkeys.txt = %q, want the one press before esc closed the view", body)
 	}
+
+	// The extension's filter is a key on the list, and the header names it
+	// while it is on. The n above opened the new-session form; esc puts it
+	// away first.
+	keys.Write([]byte("\x1b"))
+	time.Sleep(300 * time.Millisecond)
+	keys.Write([]byte("Y"))
+	waitForOutput(t, out, "ROOTS", exited, func() {})
 }
 
 func skipWelcome(t *testing.T, path string) {

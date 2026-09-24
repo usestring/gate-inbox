@@ -528,6 +528,7 @@ func (m *Model) filterBadgeLines() []string {
 	if m.statusFilter.active() {
 		badge(strings.ToUpper(m.statusFilter.label()), "w", "show all")
 	}
+	m.extensionFilterBadges(badge)
 	if m.hideEmptyGroups {
 		badge("HIDE EMPTY", "e", "show empty")
 	}
@@ -561,8 +562,12 @@ func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentL
 		return lines
 	}
 	heights := make([]int, len(rows))
+	// An extension's header over a session is a line of the entry, drawn
+	// outside its box, so the window keeps it with the row it heads.
+	headers := make([][]string, len(rows))
 	for i := range heights {
-		heights[i] = m.entryHeight(rows[i])
+		headers[i] = m.extensionHeaderLines(rows[i], width, offset+i)
+		heights[i] = m.entryHeight(rows[i]) + len(headers[i])
 		if offset+i == m.cursor && height >= heights[i]+2 && width >= 4 {
 			heights[i] += 2
 		}
@@ -578,6 +583,9 @@ func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentL
 		tone := panelHex()
 		if m.renamingRow(entry) {
 			tone = selectedHex()
+		}
+		for _, line := range headers[i] {
+			lines = append(lines, contentLine{text: line, tone: panelHex()})
 		}
 		for _, line := range splitLines(render(entry, selected, offset+i, tone)) {
 			lines = append(lines, contentLine{text: line, tone: tone})

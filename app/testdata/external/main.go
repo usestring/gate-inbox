@@ -188,6 +188,8 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 		for _, s := range p.Sessions {
 			record("passes.txt", s.ID+" "+s.Status)
 			n.ui.Decorate(s.ID, extension.Badge{Text: "noop:" + s.Status, Tone: extension.ToneAccent})
+			n.ui.Group(s.ID, extension.Line{{Text: "noop head ", Tone: extension.ToneAccent, Bold: true}, {Text: s.ID}})
+			n.ui.Own(s.ID, s.Status == "working")
 		}
 	})
 	record("started.txt", fmt.Sprint(os.Getpid(), " ", board.ConfigDir()))
@@ -212,6 +214,7 @@ func (n *noop) UI(host extension.UIHost) (extension.UI, error) {
 			if err := os.WriteFile(filepath.Join(dir, "pressed.txt"), []byte(line), 0o600); err != nil {
 				return err
 			}
+			host.Hide("c41d0001", true)
 			host.Open("peek", &peekView{session: press.SessionID, dir: dir})
 			return nil
 		},
@@ -220,6 +223,12 @@ func (n *noop) UI(host extension.UIHost) (extension.UI, error) {
 		Action: "peek_note",
 		Keys:   []string{"n"},
 		Label:  "note the key",
+	}}, Filters: []extension.Filter{{
+		Action: "noop_roots",
+		Keys:   []string{"Y"},
+		Label:  "only sessions with no parent",
+		Badge:  "roots",
+		Keep:   func(s extension.SessionInfo) bool { return s.ParentID == "" },
 	}}}, nil
 }
 

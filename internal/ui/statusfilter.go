@@ -84,7 +84,7 @@ func (m *Model) hasChildNeedingSomebody(parentID string) bool {
 		if sess.ParentID != parentID || sess.Archived {
 			continue
 		}
-		if requiresInput(sess.Status) {
+		if m.needsPerson(sess) {
 			return true
 		}
 	}

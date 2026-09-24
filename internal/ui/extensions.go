@@ -27,8 +27,9 @@ import (
 type ExtensionUI struct {
 	// Owner is the extension's id. It titles the extension's section of the
 	// key map and prefixes anything its keys report.
-	Owner string
-	Keys  []ExtensionKey
+	Owner   string
+	Keys    []ExtensionKey
+	Filters []ExtensionFilter
 }
 
 // ExtensionKey is one action an extension adds to a screen.
@@ -43,6 +44,10 @@ type ExtensionKey struct {
 	// error it returns is put on the status bar. On a view's screen the view
 	// answers instead, and Run is not called.
 	Run func(Press) error
+
+	// filter is the list filter this key toggles, for a key made from one
+	// of the ExtensionUI's Filters.
+	filter *listFilter
 }
 
 // Press is the row a key was pressed on.
@@ -77,18 +82,30 @@ type Badge struct {
 // push it on, to the event loop. Badges set before the program runs are held
 // and delivered once Attach is called.
 type ExtensionBridge struct {
-	mu      sync.Mutex
-	owners  []string
-	badges  map[string]map[string][]Badge
+	mu     sync.Mutex
+	owners []string
+	badges map[string]map[string][]Badge
+	// headers, hidden and owned are what each owner has set on rows: see
+	// extrows.go.
+	headers map[string]map[string][]Span
+	hidden  map[string]map[string]bool
+	owned   map[string]map[string]bool
 	send    func(tea.Msg)
 	pending bool
+	dirty   bool
 	views   int
 }
 
 // NewExtensionBridge makes the bridge. owners fixes the order badges are
 // drawn in: the order the build lists its extensions.
 func NewExtensionBridge(owners []string) *ExtensionBridge {
-	return &ExtensionBridge{owners: append([]string(nil), owners...), badges: map[string]map[string][]Badge{}}
+	return &ExtensionBridge{
+		owners:  append([]string(nil), owners...),
+		badges:  map[string]map[string][]Badge{},
+		headers: map[string]map[string][]Span{},
+		hidden:  map[string]map[string]bool{},
+		owned:   map[string]map[string]bool{},
+	}
 }
 
 // Attach starts delivering to the program, flushing whatever was set before.
@@ -96,9 +113,19 @@ func (b *ExtensionBridge) Attach(send func(tea.Msg)) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.send = send
-	if len(b.badges) > 0 && !b.pending {
+	if b.dirty {
+		b.changedLocked()
+	}
+}
+
+// changedLocked tells the loop the rows changed. One message in flight at a
+// time: a burst of changes is one repaint, read in full when the loop gets
+// to it.
+func (b *ExtensionBridge) changedLocked() {
+	b.dirty = true
+	if b.send != nil && !b.pending {
 		b.pending = true
-		go send(extensionBadgesMsg{})
+		go b.send(extensionBadgesMsg{})
 	}
 }
 
@@ -123,12 +150,7 @@ func (b *ExtensionBridge) Decorate(owner, sessionID string, badges []Badge) {
 		}
 		b.badges[owner][sessionID] = clean
 	}
-	// One message in flight at a time: a burst of badges is one repaint,
-	// read in full when the loop gets to it.
-	if b.send != nil && !b.pending {
-		b.pending = true
-		go b.send(extensionBadgesMsg{})
-	}
+	b.changedLocked()
 }
 
 // Notify puts a line from owner on the status bar.
@@ -136,15 +158,38 @@ func (b *ExtensionBridge) Notify(owner, text string) {
 	b.post(extensionNoticeMsg{owner: owner, text: badgeText(text)})
 }
 
-// snapshot is every session's badges, owners in build order.
-func (b *ExtensionBridge) snapshot() map[string][]Badge {
+// rowMarks is everything the extensions have set on rows, merged across
+// owners in build order.
+type rowMarks struct {
+	badges  map[string][]Badge
+	headers map[string][][]Span
+	hidden  map[string]bool
+	owned   map[string]bool
+}
+
+// snapshot is every session's marks, owners in build order.
+func (b *ExtensionBridge) snapshot() rowMarks {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.pending = false
-	out := map[string][]Badge{}
+	b.pending, b.dirty = false, false
+	out := rowMarks{
+		badges:  map[string][]Badge{},
+		headers: map[string][][]Span{},
+		hidden:  map[string]bool{},
+		owned:   map[string]bool{},
+	}
 	for _, owner := range b.owners {
 		for sessionID, badges := range b.badges[owner] {
-			out[sessionID] = append(out[sessionID], badges...)
+			out.badges[sessionID] = append(out.badges[sessionID], badges...)
+		}
+		for sessionID, header := range b.headers[owner] {
+			out.headers[sessionID] = append(out.headers[sessionID], header)
+		}
+		for sessionID := range b.hidden[owner] {
+			out.hidden[sessionID] = true
+		}
+		for sessionID := range b.owned[owner] {
+			out.owned[sessionID] = true
 		}
 	}
 	return out
@@ -192,9 +237,16 @@ type extensionKey struct {
 func (m *Model) InstallExtensions(uis []ExtensionUI, bridge *ExtensionBridge) {
 	m.extBridge = bridge
 	m.extUIs = nil
+	m.extFilters = nil
 	for _, ui := range uis {
 		kept := ExtensionUI{Owner: ui.Owner}
-		for _, key := range ui.Keys {
+		keys := append([]ExtensionKey(nil), ui.Keys...)
+		for _, filter := range ui.Filters {
+			listed := m.newListFilter(ui.Owner, filter)
+			m.extFilters = append(m.extFilters, listed)
+			keys = append(keys, ExtensionKey{Action: filter.Action, Keys: filter.Keys, Label: filter.Label, filter: listed})
+		}
+		for _, key := range keys {
 			screen := keymap.Context(key.Screen)
 			if screen != "" && screen != keymap.ContextList && slices.Contains(keymap.Contexts, screen) {
 				logging.Warn("extension key names one of the board's own screens",
@@ -302,6 +354,9 @@ func (m *Model) ownsAction(ctx keymap.Context, action keymap.Action) bool {
 // runExtensionKey answers an extension's key off the event loop, with the row
 // the cursor is on.
 func (m *Model) runExtensionKey(ext extensionKey) tea.Cmd {
+	if ext.key.filter != nil {
+		return m.toggleListFilter(ext.key.filter)
+	}
 	var press Press
 	if entry, ok := m.cursorRow(); ok {
 		if entry.isGroup {
@@ -332,7 +387,7 @@ func (m *Model) updateExtension(msg tea.Msg) bool {
 	switch msg := msg.(type) {
 	case extensionBadgesMsg:
 		if m.extBridge != nil {
-			m.extBadges = m.extBridge.snapshot()
+			m.applyRowMarks(m.extBridge.snapshot())
 		}
 	case extensionNoticeMsg:
 		if msg.text != "" {

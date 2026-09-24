@@ -187,7 +187,19 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 	board.OnPass(func(p extension.Pass) {
 		for _, s := range p.Sessions {
 			record("passes.txt", s.ID+" "+s.Status)
-			n.ui.Decorate(s.ID, extension.Badge{Text: "noop:" + s.Status, Tone: extension.ToneAccent})
+			mark := extension.Span{Text: "◈", Tone: extension.ToneAccent}
+			rungs := []extension.Line{
+				{mark, {Text: " 2c · 3/h · 12m"}},
+				{mark, {Text: " 2c · 3/h"}},
+				{mark},
+			}
+			widths := make([]string, 0, len(rungs))
+			for _, rung := range rungs {
+				widths = append(widths, fmt.Sprint(rung.Width()))
+			}
+			record("rungs.txt", strings.Join(widths, " "))
+			n.ui.Decorate(s.ID, extension.Badge{Text: "noop:" + s.Status, Tone: extension.ToneAccent},
+				extension.Badge{Rungs: rungs})
 		}
 	})
 	record("started.txt", fmt.Sprint(os.Getpid(), " ", board.ConfigDir()))

@@ -63,7 +63,11 @@ type uiHost struct {
 func (h uiHost) Decorate(sessionID string, badges ...extension.Badge) {
 	out := make([]ui.Badge, 0, len(badges))
 	for _, badge := range badges {
-		out = append(out, ui.Badge{Text: badge.Text, Short: badge.Short, Tone: uiTone(badge.Tone)})
+		rungs := make([][]ui.Span, 0, len(badge.Rungs))
+		for _, rung := range badge.Rungs {
+			rungs = append(rungs, uiLine(rung))
+		}
+		out = append(out, ui.Badge{Rungs: rungs, Text: badge.Text, Short: badge.Short, Tone: uiTone(badge.Tone)})
 	}
 	h.bridge.Decorate(h.id, sessionID, out)
 }
@@ -83,13 +87,17 @@ func (v uiView) Render(width, height int) [][]ui.Span {
 	lines := v.view.Render(width, height)
 	out := make([][]ui.Span, 0, len(lines))
 	for _, line := range lines {
-		row := make([]ui.Span, 0, len(line))
-		for _, span := range line {
-			row = append(row, ui.Span{Text: span.Text, Tone: uiTone(span.Tone), Bold: span.Bold})
-		}
-		out = append(out, row)
+		out = append(out, uiLine(line))
 	}
 	return out
+}
+
+func uiLine(line extension.Line) []ui.Span {
+	row := make([]ui.Span, 0, len(line))
+	for _, span := range line {
+		row = append(row, ui.Span{Text: span.Text, Tone: uiTone(span.Tone), Bold: span.Bold})
+	}
+	return row
 }
 
 func (v uiView) Key(key ui.ViewKey) bool {

@@ -12,12 +12,15 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 	"slices"
 	"strings"
 	"sync"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -66,11 +69,17 @@ const (
 
 // Badge is one mark an extension puts on a session's row.
 type Badge struct {
-	Text string
-	// Short stands in for Text where the row has no room for it. A badge
-	// with neither room nor a Short is left off rather than cut.
+	// Rungs are the badge's renditions, widest first: the row draws the
+	// first that fits, and leaves the badge off rather than cut one that
+	// does not. Each span keeps its own tone.
+	Rungs [][]Span
+	// Text, Short and Tone are the shorthand for a badge of one tone: when
+	// Rungs is empty, its rungs are Text and then Short, both in Tone.
+	Text  string
 	Short string
 	Tone  Tone
+	// widths is each rung's width, measured once when the badge is set.
+	widths []int
 }
 
 // ExtensionBridge carries what extensions push, from whatever goroutine they
@@ -107,11 +116,9 @@ func (b *ExtensionBridge) Attach(send func(tea.Msg)) {
 func (b *ExtensionBridge) Decorate(owner, sessionID string, badges []Badge) {
 	clean := make([]Badge, 0, len(badges))
 	for _, badge := range badges {
-		badge.Text, badge.Short = badgeText(badge.Text), badgeText(badge.Short)
-		if badge.Text == "" {
-			continue
+		if rungs := badgeRungs(badge); len(rungs) > 0 {
+			clean = append(clean, Badge{Rungs: rungs, widths: rungWidths(rungs)})
 		}
-		clean = append(clean, badge)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -145,6 +152,50 @@ func (b *ExtensionBridge) snapshot() map[string][]Badge {
 	for _, owner := range b.owners {
 		for sessionID, badges := range b.badges[owner] {
 			out[sessionID] = append(out[sessionID], badges...)
+		}
+	}
+	return out
+}
+
+// badgeRungs is a badge's renditions made safe to put in a row, the
+// shorthand spelled out as rungs. A shorthand badge with no Text has none,
+// and neither has a rung that cleans down to nothing.
+func badgeRungs(badge Badge) [][]Span {
+	rungs := badge.Rungs
+	if len(rungs) == 0 {
+		if badge.Text == "" {
+			return nil
+		}
+		rungs = [][]Span{{{Text: badge.Text, Tone: badge.Tone}}}
+		if badge.Short != "" {
+			rungs = append(rungs, []Span{{Text: badge.Short, Tone: badge.Tone}})
+		}
+	}
+	out := make([][]Span, 0, len(rungs))
+	for _, rung := range rungs {
+		clean := make([]Span, 0, len(rung))
+		for _, span := range rung {
+			if span.Text = cleanText(span.Text); span.Text != "" {
+				clean = append(clean, span)
+			}
+		}
+		// Only the rung's ends are trimmed: the spaces between its spans
+		// are the extension's.
+		for len(clean) > 0 {
+			if clean[0].Text = strings.TrimLeft(clean[0].Text, " "); clean[0].Text != "" {
+				break
+			}
+			clean = clean[1:]
+		}
+		for len(clean) > 0 {
+			last := &clean[len(clean)-1]
+			if last.Text = strings.TrimRight(last.Text, " "); last.Text != "" {
+				break
+			}
+			clean = clean[:len(clean)-1]
+		}
+		if len(clean) > 0 {
+			out = append(out, clean)
 		}
 	}
 	return out
@@ -386,9 +437,9 @@ func (m *Model) extensionHelpSections() []helpSection {
 }
 
 // extensionBadges is the row's extension badges that fit in room cells, each
-// led by a space. A badge that does not fit falls back to its short form, and
-// the first that fits in neither ends the run, so the badges that are drawn
-// are always the first ones in order.
+// led by a space. Each badge is drawn as its widest rung that fits, and the
+// first with no rung that fits ends the run, so the badges that are drawn are
+// always the first ones in order.
 func (m *Model) extensionBadges(sessionID string, room int) string {
 	badges := m.extBadges[sessionID]
 	if len(badges) == 0 {
@@ -396,17 +447,55 @@ func (m *Model) extensionBadges(sessionID string, room int) string {
 	}
 	var b strings.Builder
 	for _, badge := range badges {
-		text := badge.Text
-		if cellWidth(text)+1 > room {
-			text = badge.Short
+		fit := -1
+		for i := range badge.Rungs {
+			if badge.widths[i]+1 <= room {
+				fit = i
+				break
+			}
 		}
-		if text == "" || cellWidth(text)+1 > room {
+		if fit < 0 {
 			break
 		}
-		room -= cellWidth(text) + 1
-		b.WriteString(" " + badgeTone(badge.Tone, text))
+		room -= badge.widths[fit] + 1
+		b.WriteString(" ")
+		for _, span := range badge.Rungs[fit] {
+			if span.Bold {
+				b.WriteString(lipgloss.NewStyle().Foreground(badgeColor(span.Tone)).Bold(true).Render(span.Text))
+				continue
+			}
+			b.WriteString(badgeTone(span.Tone, span.Text))
+		}
 	}
 	return b.String()
+}
+
+// rungWidths is each rung's width as the extension API measures a Line, so
+// an extension sizing its rungs and the row fitting them agree.
+func rungWidths(rungs [][]Span) []int {
+	out := make([]int, len(rungs))
+	for i, rung := range rungs {
+		line := make(extension.Line, len(rung))
+		for j, span := range rung {
+			line[j].Text = span.Text
+		}
+		out[i] = line.Width()
+	}
+	return out
+}
+
+func badgeColor(tone Tone) color.Color {
+	switch tone {
+	case ToneAccent:
+		return colorAccent
+	case ToneGood:
+		return statusColor(status.Finished)
+	case ToneWarn:
+		return statusColor(status.Waiting)
+	case ToneBad:
+		return statusColor(status.Errored)
+	}
+	return colorSubtle
 }
 
 func badgeTone(tone Tone, text string) string {
@@ -415,12 +504,8 @@ func badgeTone(tone Tone, text string) string {
 	switch tone {
 	case ToneAccent:
 		return accentStyle.Render(text)
-	case ToneGood:
-		return tinted(statusColor(status.Finished)).Render(text)
-	case ToneWarn:
-		return tinted(statusColor(status.Waiting)).Render(text)
-	case ToneBad:
-		return tinted(statusColor(status.Errored)).Render(text)
+	case ToneMuted:
+		return subtleStyle.Render(text)
 	}
-	return subtleStyle.Render(text)
+	return tinted(badgeColor(tone)).Render(text)
 }

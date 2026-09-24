@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // UIProvider is an extension that adds to the interactive board's screens:
@@ -108,6 +111,25 @@ type View interface {
 // Line is one row of a view: runs of text, each in a tone.
 type Line []Span
 
+// Width is the cells the board takes to draw l, its control characters
+// removed: the measure a badge's rung is fitted to its row by.
+func (l Line) Width() int {
+	width := 0
+	for _, span := range l {
+		width += ansi.StringWidth(strings.Map(dropControl, span.Text))
+	}
+	return width
+}
+
+// dropControl removes the characters the board strips from an extension's
+// text before drawing it.
+func dropControl(r rune) rune {
+	if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
+		return -1
+	}
+	return r
+}
+
 // Span is text in one tone, which the board draws in its theme's colour for
 // that meaning; ToneMuted is the ordinary text colour.
 type Span struct {
@@ -136,11 +158,19 @@ type ViewHandle interface {
 	Close()
 }
 
-// Badge is a short mark on a session's row. Rows are narrow, so a badge that
-// does not fit is drawn as Short instead, and one that fits in neither is left
-// off rather than cut; the badges drawn are always the first ones in order.
-// Control characters are removed from both.
+// Badge is a short mark on a session's row. Rows are narrow, so a badge
+// offers renditions of itself, widest first, and the row draws the first one
+// that fits; a badge none of whose renditions fits is left off rather than
+// cut, and the badges drawn are always the first ones in order. Control
+// characters are removed from every span.
 type Badge struct {
+	// Rungs are the renditions, widest first, each a line of toned spans:
+	// "◈ 2c · 3/h · 12m", then "◈ 2c · 3/h", then "◈". A span's Bold is
+	// drawn. When Rungs is set, Text, Short and Tone are ignored.
+	Rungs []Line
+	// Text, Short and Tone are the shorthand for a badge in one tone: with
+	// no Rungs, the renditions are Text and then Short, both in Tone. A
+	// badge with neither Rungs nor Text is not drawn.
 	Text  string
 	Short string
 	Tone  Tone

@@ -16,10 +16,11 @@ import (
 )
 
 // TestExternalBuildAddsKeysAndBadgesToTheBoard is the proof for the UI seam:
-// a module importing app and extension only puts a badge on the rows it is
-// told about, a key of its own on the list answers with the row it was
-// pressed on, and the view that key opens is drawn, told the keys of its own
-// screen, and closed by the board on esc.
+// a module importing app and extension only puts badges on the rows it is
+// told about, one of them as rungs that narrow with the row, a key of its own
+// on the list answers with the row it was pressed on, and the view that key
+// opens is drawn, told the keys of its own screen, and closed by the board on
+// esc.
 func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	script, err := exec.LookPath("script")
 	if err != nil {
@@ -68,6 +69,12 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	// A fresh board asks about the seeded sessions' missing panes first;
 	// esc answers that it should leave them, and uncovers the list.
 	waitForOutput(t, out, "noop:dead", exited, func() { keys.Write([]byte("\x1b")) })
+	// A badge of rungs is drawn after the badge before it, as the widest
+	// rung the row has room for beside the preview: its mark and numbers.
+	waitForOutput(t, out, "noop:dead ◈ 2c · 3/h", exited, func() {})
+	// The widths it measured its rungs by, through Line.Width, are the
+	// widths the row fitted them to.
+	waitForFile(t, filepath.Join(data, "rungs.txt"), "16 10 1\n", exited, &strings.Builder{})
 
 	// The press is repeated until it lands: a prompt the board raises at
 	// start can hold the first one, and esc puts any of them away.

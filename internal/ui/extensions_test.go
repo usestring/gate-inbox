@@ -2,8 +2,10 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -153,5 +155,93 @@ func TestExtensionBadgesDrawOnTheRow(t *testing.T) {
 	m.Update(extensionBadgesMsg{})
 	if strings.Contains(row(200), "later") {
 		t.Fatal("cleared badges are still drawn")
+	}
+}
+
+// A badge with rungs is drawn as the widest one the row has room for, in its
+// spans' own tones, and is left off once even the narrowest does not fit.
+func TestExtensionBadgeRungsNarrowWithTheRow(t *testing.T) {
+	m := childModel(t)
+	bridge := NewExtensionBridge([]string{"sup"})
+	m.InstallExtensions(nil, bridge)
+	bridge.Attach(func(tea.Msg) {})
+	mark := Span{Text: "◈", Tone: ToneAccent, Bold: true}
+	bridge.Decorate("sup", "s9", []Badge{{
+		Rungs: [][]Span{
+			{mark, {Text: " 2c · 3/h · 12m\x1b[31m"}},
+			{mark, {Text: " 2c · 3/h"}},
+			{{Text: " \n"}, mark, {Text: "  "}},
+			{{Text: "\x07"}},
+		},
+		// Ignored: the rungs are set.
+		Text: "shorthand", Tone: ToneBad,
+	}})
+	m.Update(extensionBadgesMsg{})
+
+	row := func(width int) (plain, styled string) {
+		m.width = width
+		m.rebuildRows()
+		for i, entry := range m.rows {
+			if entry.isSession() && entry.sess.ID == "s9" {
+				styled = m.renderTreeRow(entry, false, width, i, panelHex())
+				return ansi.Strip(styled), styled
+			}
+		}
+		t.Fatal("no row for s9")
+		return "", ""
+	}
+	wide, styled := row(200)
+	if !strings.Contains(wide, " ◈ 2c · 3/h · 12m[31m") || strings.Contains(wide, "shorthand") {
+		t.Fatalf("wide row = %q, want the widest rung, cleaned, and not the shorthand", wide)
+	}
+	if !strings.Contains(styled, "\x1b[1;"+strings.TrimPrefix(accentStyle.pfx, "\x1b[")+"◈") {
+		t.Fatalf("the mark is not drawn bold in the accent: %q", styled)
+	}
+	if !strings.Contains(styled, subtleStyle.pfx+" 2c · 3/h · 12m[31m") {
+		t.Fatalf("the numbers are not drawn muted: %q", styled)
+	}
+
+	// Walk the row narrower: every width draws a rung or nothing, the
+	// rungs step down in order, and the one that cleaned to nothing is
+	// never drawn.
+	seen := map[string]bool{}
+	last := 0
+	for width := 200; width >= 20; width-- {
+		plain, _ := row(width)
+		rung := 3
+		switch {
+		case strings.Contains(plain, "◈ 2c · 3/h · 12m"):
+			rung = 0
+		case strings.Contains(plain, "◈ 2c · 3/h"):
+			rung = 1
+		case strings.Contains(plain, "◈"):
+			rung = 2
+		}
+		if rung < last {
+			t.Fatalf("%d columns went back to a wider rung: %q", width, plain)
+		}
+		last = rung
+		seen[fmt.Sprint(rung)] = true
+	}
+	for _, rung := range []string{"0", "1", "2", "3"} {
+		if !seen[rung] {
+			t.Fatalf("no width drew rung %s (3 is none); saw %v", rung, seen)
+		}
+	}
+}
+
+// The shorthand is two rungs of one tone, and a badge whose only rungs clean
+// to nothing is dropped like a badge with no Text.
+func TestExtensionBadgeShorthandIsTwoRungs(t *testing.T) {
+	got := badgeRungs(Badge{Text: " run 3/5\n", Short: "3/5", Tone: ToneWarn})
+	want := [][]Span{{{Text: "run 3/5", Tone: ToneWarn}}, {{Text: "3/5", Tone: ToneWarn}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("rungs = %+v, want %+v", got, want)
+	}
+	if got := badgeRungs(Badge{Short: "3/5"}); got != nil {
+		t.Fatalf("a badge with only a Short = %+v, want none", got)
+	}
+	if got := badgeRungs(Badge{Rungs: [][]Span{{{Text: "\x1b"}}, {{Text: "  "}}}}); len(got) != 0 {
+		t.Fatalf("rungs that clean to nothing = %+v, want none", got)
 	}
 }

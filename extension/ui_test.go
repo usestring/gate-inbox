@@ -90,3 +90,22 @@ func TestStartUIRefusesAnUnconfiguredRegistry(t *testing.T) {
 		t.Fatal("an unconfigured registry was asked for its UI")
 	}
 }
+
+// TestLineWidthCountsCellsAsTheBoardDrawsThem measures what the board draws:
+// a wide rune is two cells, and control characters, which the board strips,
+// are none.
+func TestLineWidthCountsCellsAsTheBoardDrawsThem(t *testing.T) {
+	for _, tc := range []struct {
+		line extension.Line
+		want int
+	}{
+		{nil, 0},
+		{extension.Line{{Text: "◈"}, {Text: " 2c · 3/h"}}, 10},
+		{extension.Line{{Text: "日本"}, {Text: "ab", Bold: true}}, 6},
+		{extension.Line{{Text: "a\x1b[31mb\x07"}}, 6},
+	} {
+		if got := tc.line.Width(); got != tc.want {
+			t.Errorf("%v.Width() = %d, want %d", tc.line, got, tc.want)
+		}
+	}
+}

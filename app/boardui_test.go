@@ -18,8 +18,9 @@ import (
 // TestExternalBuildAddsKeysAndBadgesToTheBoard is the proof for the UI seam:
 // a module importing app and extension only puts a badge on the rows it is
 // told about, a key of its own on the list answers with the row it was
-// pressed on, and the view that key opens is drawn, told the keys of its own
-// screen, and closed by the board on esc.
+// pressed on, the view that key opens is drawn, told the keys of its own
+// screen, and closed by the board on esc, and a form's field is typed into
+// on the board and handed back on submit.
 func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	script, err := exec.LookPath("script")
 	if err != nil {
@@ -109,6 +110,18 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	if body, _ := os.ReadFile(viewKeys); string(body) != "peek_note n\n" {
 		t.Fatalf("viewkeys.txt = %q, want the one press before esc closed the view", body)
 	}
+
+	// A form's field is the board's to type into: the letters land there
+	// rather than on the view, and enter hands the view the value. The n
+	// above opened the new-session form; esc puts it away first.
+	keys.Write([]byte("\x1b"))
+	time.Sleep(300 * time.Millisecond)
+	keys.Write([]byte("U"))
+	waitForOutput(t, out, "write a note", exited, func() {})
+	keys.Write([]byte(" board"))
+	time.Sleep(300 * time.Millisecond)
+	keys.Write([]byte("\r"))
+	waitForFile(t, filepath.Join(data, "submitted.txt"), "note from board\n", exited, &strings.Builder{})
 }
 
 func skipWelcome(t *testing.T, path string) {

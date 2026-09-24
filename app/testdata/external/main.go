@@ -220,7 +220,47 @@ func (n *noop) UI(host extension.UIHost) (extension.UI, error) {
 		Action: "peek_note",
 		Keys:   []string{"n"},
 		Label:  "note the key",
+	}, {
+		Action: "noop_compose",
+		Keys:   []string{"U"},
+		Label:  "compose a note",
+		Run: func(context.Context, extension.Press) error {
+			dir, err := n.config.DataDir()
+			if err != nil {
+				return err
+			}
+			host.Open("compose", &composeForm{dir: dir})
+			return nil
+		},
+	}, {
+		Screen: "compose",
+		Action: "compose_clear",
+		Keys:   []string{"ctrl+l"},
+		Label:  "clear the note",
 	}}}, nil
+}
+
+// composeForm is a view with one field, which records what it is submitted
+// with and closes.
+type composeForm struct{ dir string }
+
+func (f *composeForm) Title() string { return "noop compose" }
+
+func (f *composeForm) Render(width, height int) []extension.Line {
+	return []extension.Line{{{Text: "write a note"}}}
+}
+
+func (f *composeForm) Fields() []extension.Field {
+	return []extension.Field{{ID: "note", Label: "note", Value: "from"}}
+}
+
+func (f *composeForm) Key(key extension.ViewKey) bool {
+	if key.Action != extension.ActionSubmit {
+		return false
+	}
+	line := key.Field + " " + key.Values["note"] + "\n"
+	_ = os.WriteFile(filepath.Join(f.dir, "submitted.txt"), []byte(line), 0o600)
+	return true
 }
 
 // peekView shows the row it was opened on, and records every key it is

@@ -125,6 +125,54 @@ type ViewKey struct {
 	Key string
 	// Text is what the press types, for a view with a field of its own.
 	Text string
+	// Field is the field that had the keyboard, and Values every field's
+	// value by ID, for a Form; both are empty for a view without fields.
+	Field  string
+	Values map[string]string
+}
+
+// ActionSubmit is the action a Form is told when the operator submits it:
+// ViewKey.Values holds what every field says. A screen that binds no submit
+// key submits on ctrl+s, and enter submits from a one-line field or a
+// choice either way.
+const ActionSubmit = "submit"
+
+// Form is a View with fields the operator types into: the board draws them
+// under the view's own lines with its own inputs, and owns the cursor,
+// paste, line breaks in a multi-line field, and focus, which tab and
+// shift+tab move. While a field that is typed into has the keyboard, it
+// takes every key but tab, shift+tab, submit, the screen's close, and keys
+// the screen binds with ctrl or alt held, which go to Key as usual.
+type Form interface {
+	View
+	// Fields is called on the board's event loop each time the view is
+	// drawn, so a form can add, drop or relabel fields as it loads.
+	Fields() []Field
+}
+
+// Field is one field on a Form.
+type Field struct {
+	// ID names the field in ViewKey.Values. Fields are matched by ID from
+	// one call of Fields to the next, which keeps what the operator typed.
+	ID    string
+	Label string
+	// Value is what the field holds when the board first sees it, and what
+	// it is set to again whenever Fields offers a different Value than it
+	// last did: a form that loads a value off the loop puts it here and
+	// calls Refresh. Otherwise the operator's typing stands.
+	Value       string
+	Placeholder string
+	// Multiline makes the field a box that takes line breaks, Height rows
+	// tall (three when zero); enter there is a new line.
+	Multiline bool
+	Height    int
+	// Limit is the most characters the field takes; zero is the board's
+	// default.
+	Limit int
+	// Choices makes the field a picker over these values, moved with left
+	// and right, instead of one that is typed into. Value picks the one
+	// shown first.
+	Choices []string
 }
 
 // ViewHandle is an opened view. Both methods may be called from any

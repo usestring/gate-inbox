@@ -71,7 +71,28 @@ func (h uiHost) Decorate(sessionID string, badges ...extension.Badge) {
 func (h uiHost) Notify(text string) { h.bridge.Notify(h.id, text) }
 
 func (h uiHost) Open(screen string, view extension.View) extension.ViewHandle {
+	if form, ok := view.(extension.Form); ok {
+		return h.bridge.Open(h.id, screen, uiForm{uiView{view}, form})
+	}
 	return h.bridge.Open(h.id, screen, uiView{view})
+}
+
+// uiForm is an extension's form as the board draws it.
+type uiForm struct {
+	uiView
+	form extension.Form
+}
+
+func (f uiForm) Fields() []ui.ViewField {
+	fields := f.form.Fields()
+	out := make([]ui.ViewField, 0, len(fields))
+	for _, field := range fields {
+		out = append(out, ui.ViewField{
+			ID: field.ID, Label: field.Label, Value: field.Value, Placeholder: field.Placeholder,
+			Multiline: field.Multiline, Height: field.Height, Limit: field.Limit, Choices: field.Choices,
+		})
+	}
+	return out
 }
 
 // uiView is an extension's view as the board draws it.
@@ -93,7 +114,8 @@ func (v uiView) Render(width, height int) [][]ui.Span {
 }
 
 func (v uiView) Key(key ui.ViewKey) bool {
-	return v.view.Key(extension.ViewKey{Action: key.Action, Key: key.Key, Text: key.Text})
+	return v.view.Key(extension.ViewKey{Action: key.Action, Key: key.Key, Text: key.Text,
+		Field: key.Field, Values: key.Values})
 }
 
 func uiTone(tone extension.Tone) ui.Tone {

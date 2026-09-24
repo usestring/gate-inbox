@@ -2271,6 +2271,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return model, cmd
 
 	case tea.PasteMsg:
+		if m.mode == modeExtensionView {
+			return m, m.pasteIntoView(msg)
+		}
 		if m.quick.active && (m.mode == modeList || m.showsConversation()) {
 			m.quick.input.InsertString(msg.Content)
 			return m, nil

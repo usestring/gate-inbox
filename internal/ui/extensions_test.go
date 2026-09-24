@@ -162,11 +162,11 @@ func TestExtensionBadgesDrawOnTheRow(t *testing.T) {
 // spans' own tones, and is left off once even the narrowest does not fit.
 func TestExtensionBadgeRungsNarrowWithTheRow(t *testing.T) {
 	m := childModel(t)
-	bridge := NewExtensionBridge([]string{"sup"})
+	bridge := NewExtensionBridge([]string{"ext"})
 	m.InstallExtensions(nil, bridge)
 	bridge.Attach(func(tea.Msg) {})
 	mark := Span{Text: "◈", Tone: ToneAccent, Bold: true}
-	bridge.Decorate("sup", "s9", []Badge{{
+	bridge.Decorate("ext", "s9", []Badge{{
 		Rungs: [][]Span{
 			{mark, {Text: " 2c · 3/h · 12m\x1b[31m"}},
 			{mark, {Text: " 2c · 3/h"}},
@@ -233,8 +233,8 @@ func TestExtensionBadgeRungsNarrowWithTheRow(t *testing.T) {
 // The shorthand is two rungs of one tone, and a badge whose only rungs clean
 // to nothing is dropped like a badge with no Text.
 func TestExtensionBadgeShorthandIsTwoRungs(t *testing.T) {
-	got := badgeRungs(Badge{Text: " run 3/5\n", Short: "3/5", Tone: ToneWarn})
-	want := [][]Span{{{Text: "run 3/5", Tone: ToneWarn}}, {{Text: "3/5", Tone: ToneWarn}}}
+	got := badgeRungs(Badge{Text: " set 3/5\n", Short: "3/5", Tone: ToneWarn})
+	want := [][]Span{{{Text: "set 3/5", Tone: ToneWarn}}, {{Text: "3/5", Tone: ToneWarn}}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("rungs = %+v, want %+v", got, want)
 	}

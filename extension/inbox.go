@@ -6,9 +6,8 @@ import "time"
 // a shell rather than a session.
 const SenderOperator = "operator"
 
-// SenderRelayed is QueuedMessage.From for the operator's words that a
-// session launched to speak for them relayed to the session it was filed
-// under: the operator's answer, carried by a helper rather than typed at a
+// SenderRelayed is QueuedMessage.From for the operator's words forwarded to
+// the session on their behalf by an extension, rather than typed at a
 // shell.
 const SenderRelayed = "operator/relayed"
 

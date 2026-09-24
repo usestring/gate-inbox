@@ -237,7 +237,7 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		now := time.Now()
 		for i, msg := range []store.InboxMessage{
 			{SenderID: "c41d0001", Body: "done: the survey", SentAt: now.Add(-time.Minute)},
-			{SenderID: store.RelayedHumanSenderID, Body: "use the second proxy", SentAt: now.Add(-30 * time.Second)},
+			{SenderID: store.RelayedHumanSenderID, Body: "use the second draft", SentAt: now.Add(-30 * time.Second)},
 			{SenderID: store.HumanSenderID, Body: "and the totals", SentAt: now},
 		} {
 			msg.SessionID, msg.SenderName, msg.Fingerprint = "ca11e400", msg.SenderID, store.Fingerprint(msg.Body)
@@ -254,7 +254,7 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 
 		session := connectFixture(t, bin, env)
 		if got, want := callText(t, session, "noop_inbox", map[string]any{"id": "ca11e400"}),
-			"operator:and the totals:true | operator/relayed:use the second proxy:true | c41d0001:done: the survey:false"; got != want {
+			"operator:and the totals:true | operator/relayed:use the second draft:true | c41d0001:done: the survey:false"; got != want {
 			t.Fatalf("noop_inbox answered %q, want %q", got, want)
 		}
 		if got, want := callText(t, session, "noop_inbox", map[string]any{"id": "ca11e400", "from": "operator", "pending": true}),
@@ -264,7 +264,7 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		// A relayed line is the operator's words but not typed at a shell,
 		// and is asked for and named as such.
 		if got, want := callText(t, session, "noop_inbox", map[string]any{"id": "ca11e400", "from": "operator/relayed"}),
-			"operator/relayed:use the second proxy:true"; got != want {
+			"operator/relayed:use the second draft:true"; got != want {
 			t.Fatalf("noop_inbox relayed answered %q, want %q", got, want)
 		}
 	})

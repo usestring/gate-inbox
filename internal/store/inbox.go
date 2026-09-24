@@ -27,6 +27,14 @@ import (
 // It is not a session id and cannot collide with one: ids are hex.
 const HumanSenderID = "human"
 
+// RelayedHumanSenderID marks the operator's words relayed by a session an
+// extension launched to speak for them, which that extension already
+// recorded when the relay was sent. It is delivered as the operator's own
+// words, like HumanSenderID, but its delivery is not reported to board
+// extensions as the operator's input a second time: a stale relayed line
+// must not answer a question raised after it was sent.
+const RelayedHumanSenderID = "human/relayed"
+
 // InboxMessage is one agent-to-agent message waiting to be typed into a
 // session's prompt. It rides its own table rather than PendingInputs
 // because a launch prompt and a message need different delivery gates,
@@ -482,6 +490,60 @@ SELECT id, sender_id, sender_name, body, sent_at, delivered_at
 		msg := InboxMessage{SessionID: sessionID}
 		var sentAt, deliveredAt int64
 		if err := rows.Scan(&msg.ID, &msg.SenderID, &msg.SenderName, &msg.Body,
+			&sentAt, &deliveredAt); err != nil {
+			return nil, err
+		}
+		msg.SentAt, msg.DeliveredAt = decodeTime(sentAt), decodeTime(deliveredAt)
+		out = append(out, msg)
+	}
+	return out, rows.Err()
+}
+
+// InboxFilter narrows Inbox.
+type InboxFilter struct {
+	// SenderID keeps one sender's messages; empty keeps every sender's.
+	SenderID string
+	// Pending keeps only undelivered messages when true, only delivered ones
+	// when false, and both when nil.
+	Pending *bool
+	Limit   int
+}
+
+// Inbox is what a session has been sent, newest first. Dropped messages,
+// superseded ones among them, never reached the session and are left out;
+// delivered ones last until PruneInbox sweeps them.
+func (s *Store) Inbox(sessionID string, filter InboxFilter) ([]InboxMessage, error) {
+	if sessionID == "" || filter.Limit <= 0 {
+		return nil, nil
+	}
+	query := `
+SELECT id, sender_id, sender_name, body, subject, sent_at, delivered_at
+  FROM session_inbox
+ WHERE session_id = ? AND dropped_at = 0 AND superseded_by = 0`
+	args := []any{sessionID}
+	if filter.SenderID != "" {
+		query += ` AND sender_id = ?`
+		args = append(args, filter.SenderID)
+	}
+	if filter.Pending != nil {
+		if *filter.Pending {
+			query += ` AND delivered_at = 0`
+		} else {
+			query += ` AND delivered_at != 0`
+		}
+	}
+	query += ` ORDER BY sent_at DESC, id DESC LIMIT ?`
+	args = append(args, filter.Limit)
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []InboxMessage
+	for rows.Next() {
+		msg := InboxMessage{SessionID: sessionID}
+		var sentAt, deliveredAt int64
+		if err := rows.Scan(&msg.ID, &msg.SenderID, &msg.SenderName, &msg.Body, &msg.Subject,
 			&sentAt, &deliveredAt); err != nil {
 			return nil, err
 		}

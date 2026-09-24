@@ -221,6 +221,54 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		}
 	})
 
+	// The extension reads a session's inbox as the board, through
+	// app.NewBoard alone.
+	t.Run("board reads an inbox", func(t *testing.T) {
+		if _, err := exec.LookPath("tmux"); err != nil {
+			t.Skip("the board commands open a tmux driver")
+		}
+		env := fixtureHome(t, "")
+		home := envValue(env, "GATE_INBOX_HOME")
+		seedSessions(t, filepath.Join(home, "state.db"))
+		st, err := store.Open(filepath.Join(home, "state.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		now := time.Now()
+		for i, msg := range []store.InboxMessage{
+			{SenderID: "c41d0001", Body: "done: the survey", SentAt: now.Add(-time.Minute)},
+			{SenderID: store.RelayedHumanSenderID, Body: "use the second proxy", SentAt: now.Add(-30 * time.Second)},
+			{SenderID: store.HumanSenderID, Body: "and the totals", SentAt: now},
+		} {
+			msg.SessionID, msg.SenderName, msg.Fingerprint = "ca11e400", msg.SenderID, store.Fingerprint(msg.Body)
+			id, _, err := st.Enqueue(msg, store.DefaultInboxLimits)
+			if err == nil && i == 0 {
+				err = st.MarkDelivered(id, now)
+			}
+			if err != nil {
+				st.Close()
+				t.Fatal(err)
+			}
+		}
+		st.Close()
+
+		session := connectFixture(t, bin, env)
+		if got, want := callText(t, session, "noop_inbox", map[string]any{"id": "ca11e400"}),
+			"operator:and the totals:true | operator/relayed:use the second proxy:true | c41d0001:done: the survey:false"; got != want {
+			t.Fatalf("noop_inbox answered %q, want %q", got, want)
+		}
+		if got, want := callText(t, session, "noop_inbox", map[string]any{"id": "ca11e400", "from": "operator", "pending": true}),
+			"operator:and the totals:true"; got != want {
+			t.Fatalf("noop_inbox filtered answered %q, want %q", got, want)
+		}
+		// A relayed line is the operator's words but not typed at a shell,
+		// and is asked for and named as such.
+		if got, want := callText(t, session, "noop_inbox", map[string]any{"id": "ca11e400", "from": "operator/relayed"}),
+			"operator/relayed:use the second proxy:true"; got != want {
+			t.Fatalf("noop_inbox relayed answered %q, want %q", got, want)
+		}
+	})
+
 	// Two sessions' MCP servers are two processes: what one writes to the
 	// extension's data directory, the other reads back, and it lands under
 	// the config directory rather than in the board's own store.

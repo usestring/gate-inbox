@@ -30,6 +30,11 @@ type Board interface {
 	// ErrNoDialog when the pane holds no dialog, and ErrDialogRefused when
 	// the dialog is guarded or no keystroke can answer it.
 	Answer(ctx context.Context, id, answer string) (Answered, error)
+	// Messages is what a session has been sent, newest first, as filter
+	// keeps it. A message dropped before it was delivered, or replaced by a
+	// later one on its subject, is left out; delivered messages are kept
+	// only for the board's retention window.
+	Messages(ctx context.Context, id string, filter MessageFilter) ([]QueuedMessage, error)
 }
 
 // Pane is one ReadPane of a session.

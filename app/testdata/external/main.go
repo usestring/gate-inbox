@@ -54,6 +54,12 @@ type peekArgs struct {
 	ID string `json:"id"`
 }
 
+type inboxArgs struct {
+	ID      string `json:"id"`
+	From    string `json:"from,omitempty"`
+	Pending bool   `json:"pending,omitempty"`
+}
+
 type boardArgs struct {
 	ID     string `json:"id"`
 	Answer string `json:"answer,omitempty"`
@@ -128,6 +134,32 @@ func (n *noop) RegisterMCP(r *extension.Registrar, session extension.SessionCont
 			return nil, nil, err
 		}
 		return text(out + " | selected: " + answered.Selected), nil, nil
+	})
+	if err != nil {
+		return err
+	}
+	// noop_inbox reads what a session has been sent, as the board.
+	err = extension.AddTool(r, &mcp.Tool{
+		Name:        "noop_inbox",
+		Description: "List what a session has been sent, as the board.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, args inboxArgs) (*mcp.CallToolResult, any, error) {
+		board, err := app.NewBoard()
+		if err != nil {
+			return nil, nil, err
+		}
+		filter := extension.MessageFilter{From: args.From}
+		if args.Pending {
+			filter.Pending = &args.Pending
+		}
+		got, err := board.Messages(ctx, args.ID, filter)
+		if err != nil {
+			return nil, nil, err
+		}
+		lines := make([]string, 0, len(got))
+		for _, msg := range got {
+			lines = append(lines, fmt.Sprintf("%s:%s:%v", msg.From, msg.Text, msg.DeliveredAt.IsZero()))
+		}
+		return text(strings.Join(lines, " | ")), nil, nil
 	})
 	if err != nil {
 		return err

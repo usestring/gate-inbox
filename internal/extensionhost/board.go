@@ -5,6 +5,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
+	"github.com/usestring/gate-inbox/internal/store"
 )
 
 var _ extension.Board = (*Board)(nil)
@@ -78,4 +79,40 @@ func (b *Board) Answer(ctx context.Context, id, answer string) (extension.Answer
 		Selected: got.Selected,
 		Standing: got.Standing,
 	}, nil
+}
+
+func (b *Board) Messages(ctx context.Context, id string, filter extension.MessageFilter) ([]extension.QueuedMessage, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	from := filter.From
+	switch from {
+	case extension.SenderOperator:
+		from = store.HumanSenderID
+	case extension.SenderRelayed:
+		from = store.RelayedHumanSenderID
+	}
+	got, err := b.cmds.BoardMessages(id, store.InboxFilter{SenderID: from, Pending: filter.Pending, Limit: filter.Limit})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]extension.QueuedMessage, 0, len(got))
+	for _, msg := range got {
+		sender := msg.SenderID
+		switch sender {
+		case store.HumanSenderID, "":
+			sender = extension.SenderOperator
+		case store.RelayedHumanSenderID:
+			sender = extension.SenderRelayed
+		}
+		out = append(out, extension.QueuedMessage{
+			ID:          msg.ID,
+			From:        sender,
+			Subject:     msg.Subject,
+			Text:        msg.Body,
+			QueuedAt:    msg.SentAt,
+			DeliveredAt: msg.DeliveredAt,
+		})
+	}
+	return out, nil
 }

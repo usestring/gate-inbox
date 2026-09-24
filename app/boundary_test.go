@@ -336,9 +336,18 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	if got := waitForFile(t, filepath.Join(data, "env-"+helper+".txt"), "", exited, &out); got != "spawn" {
 		t.Fatalf("the helper's pane saw NOOP_LAUNCH=%q, want the extension's spawn", got)
 	}
-	// The extension messages its helper and then ends it, through the board.
+	// The extension messages its helper, replaces it in its own seat, and
+	// ends the replacement, through the board.
 	waitForFile(t, filepath.Join(data, "sent.txt"), helper+" queued 1\n", exited, &out)
-	waitForFile(t, filepath.Join(data, "killed.txt"), helper+" dead false\n", exited, &out)
+	replaced := waitForFile(t, filepath.Join(data, "replaced.txt"), " helper noop/helper c41d0001 dead\n", exited, &out)
+	fresh, _, _ := strings.Cut(replaced, " ")
+	if fresh == helper || strings.HasPrefix(fresh, "error") {
+		t.Fatalf("replaced.txt = %q, want a new session in the helper's seat", replaced)
+	}
+	if got := waitForFile(t, filepath.Join(data, "env-"+fresh+".txt"), "", exited, &out); got != "replace "+helper {
+		t.Fatalf("the replacement's pane saw NOOP_LAUNCH=%q, want a replace from the helper", got)
+	}
+	waitForFile(t, filepath.Join(data, "killed.txt"), fresh+" dead false\n", exited, &out)
 
 	var pid int
 	if _, err := fmt.Sscan(started, &pid); err != nil {

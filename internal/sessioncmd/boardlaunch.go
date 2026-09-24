@@ -8,6 +8,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
@@ -99,41 +100,18 @@ func (s *Sessions) BoardLaunch(opts BoardLaunchOptions) (created Session, err er
 		NameSource: store.SourceUser,
 		Role:       opts.Role,
 	}
-	sessionHooks, err := sessionhooks.CheckSpawn(sess, extension.SpawnByExtension)
+	prepared, err := s.prepareBoardLaunch(runtime, sess, tool, opts.Prompt, opts.Args, "")
 	if err != nil {
 		return Session{}, err
 	}
-	account, err := runtime.accountOr("", tool, id)
-	if err != nil {
-		return Session{}, err
-	}
-	plan, err := launch.Assemble(toolName, tool, strings.TrimSpace(opts.Prompt), "", false, sess.Model, account)
-	if err != nil {
-		return Session{}, err
-	}
-	for _, arg := range opts.Args {
-		plan.Command += " " + tmux.ShellQuote(arg)
-	}
-	sess.AgentSessionID = plan.AgentSessionID
-	sess.PendingInputs = plan.PendingInputs
-	sess.LaunchPrompt = plan.LaunchPrompt
-	sess.Model = plan.Model
-	sess.Account = plan.Account
-	contributed, err := sessionhooks.Env(sessionHooks, sess, extension.LaunchSpawn, "")
-	if err != nil {
-		return Session{}, err
-	}
-	command, env, err := launch.Environment(hooks.NewManager(s.configDir), toolName, tool, plan.Command, id, plan.Model, plan.Account, contributed)
-	if err != nil {
-		return Session{}, err
-	}
+	sess = prepared.sess
 	create := runtime.store.LaunchSession
 	if sess.ParentID != "" {
 		create = runtime.store.LaunchSessionLeaf
 	}
 	launched := false
 	if err := create(sess, func() error {
-		err := runtime.driver.Create(sess.ID, sess.Cwd, command, env, 0, 0)
+		err := runtime.driver.Create(sess.ID, sess.Cwd, prepared.command, prepared.env, 0, 0)
 		launched = err == nil
 		return err
 	}); err != nil {
@@ -143,7 +121,55 @@ func (s *Sessions) BoardLaunch(opts BoardLaunchOptions) (created Session, err er
 		return Session{}, err
 	}
 	accounts.RecordLaunch(runtime.store, sess.ID, sess.Tool, sess.Account)
-	sessionhooks.Spawned(sessionHooks, sess, extension.SpawnByExtension)
+	sessionhooks.Spawned(prepared.hooks, sess, extension.SpawnByExtension)
 	_ = runtime.driver.SetLabel(sess.ID, sessionLabel(sess.Group, sess.Name))
 	return runtime.sessionInfo(sess, true, false), nil
+}
+
+// boardLaunch is a board extension's session made ready to start: the row
+// as it will be filed, and the pane's command and environment.
+type boardLaunch struct {
+	sess    store.Session
+	command string
+	env     map[string]string
+	hooks   *extension.SessionHooks
+}
+
+// prepareBoardLaunch asks the spawn policies about sess, picks its account
+// and assembles its pane: the part BoardLaunch and BoardReplace share. from
+// is the session a replacement stands in for, and empty for a launch.
+func (s *Sessions) prepareBoardLaunch(runtime *runtime, sess store.Session, tool config.Tool, prompt string, args []string, from string) (boardLaunch, error) {
+	sessionHooks, err := sessionhooks.CheckSpawn(sess, extension.SpawnByExtension)
+	if err != nil {
+		return boardLaunch{}, err
+	}
+	account, err := runtime.accountOr(sess.Account, tool, sess.ID)
+	if err != nil {
+		return boardLaunch{}, err
+	}
+	plan, err := launch.Assemble(sess.Tool, tool, strings.TrimSpace(prompt), "", false, sess.Model, account)
+	if err != nil {
+		return boardLaunch{}, err
+	}
+	for _, arg := range args {
+		plan.Command += " " + tmux.ShellQuote(arg)
+	}
+	sess.AgentSessionID = plan.AgentSessionID
+	sess.PendingInputs = plan.PendingInputs
+	sess.LaunchPrompt = plan.LaunchPrompt
+	sess.Model = plan.Model
+	sess.Account = plan.Account
+	reason := extension.LaunchSpawn
+	if from != "" {
+		reason = extension.LaunchReplace
+	}
+	contributed, err := sessionhooks.Env(sessionHooks, sess, reason, from)
+	if err != nil {
+		return boardLaunch{}, err
+	}
+	command, env, err := launch.Environment(hooks.NewManager(s.configDir), sess.Tool, tool, plan.Command, sess.ID, plan.Model, plan.Account, contributed)
+	if err != nil {
+		return boardLaunch{}, err
+	}
+	return boardLaunch{sess: sess, command: command, env: env, hooks: sessionHooks}, nil
 }

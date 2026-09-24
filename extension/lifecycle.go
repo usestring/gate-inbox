@@ -62,6 +62,24 @@ type BoardHost interface {
 	// kill_session does: the last screen is kept, and a revive can resume
 	// the conversation. A terminal is refused.
 	Kill(ctx context.Context, id string) (SessionInfo, error)
+	// Replace starts a fresh agent session in an existing one's place and
+	// ends the old one: a restart that throws a conversation away but keeps
+	// the work it was doing. The new session takes the old one's parent,
+	// group and place in the list, and its name and role unless req names
+	// its own; it gets the messages still queued for the old one and the
+	// file reservations it held. The old one is left dead with its last
+	// screen kept, as Kill leaves it, so a revive can still resume it.
+	//
+	// From the board it is one step: no poll pass sees the two running side
+	// by side, and a failure at any point leaves the old session as it was.
+	//
+	// req.Tool, Directory and Model default to the old session's; ParentID
+	// and Group must be empty, since the place is the old one's; Role, when
+	// set, is qualified as for Launch. Spawn policies are asked, with
+	// SpawnByExtension, and launch contributors see LaunchReplace with From
+	// naming the old session. A terminal is refused, and so is a session
+	// wearing another extension's role.
+	Replace(ctx context.Context, id string, req LaunchRequest) (SessionInfo, error)
 }
 
 // Message is what BoardHost.Send queues.

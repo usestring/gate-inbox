@@ -73,8 +73,8 @@ type Launch struct {
 	// Session is the row the pane is launched for.
 	Session SessionInfo
 	Reason  LaunchReason
-	// From is the session a migration moves the conversation from; empty
-	// for every other reason.
+	// From is the session a migration moves the conversation from, or the
+	// one a replacement stands in for; empty for every other reason.
 	From string
 }
 
@@ -89,6 +89,9 @@ const (
 	LaunchRelaunch LaunchReason = "relaunch"
 	// LaunchMigrate is a new session carrying on another's conversation.
 	LaunchMigrate LaunchReason = "migrate"
+	// LaunchReplace is a new session a board extension starts in another's
+	// place, through BoardHost.Replace.
+	LaunchReplace LaunchReason = "replace"
 )
 
 // MigrationObserver is implemented by an extension that keeps state keyed by

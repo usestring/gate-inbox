@@ -195,8 +195,8 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			return
 		}
 		record("launched.txt", fmt.Sprintf("%s %s %s", helper.ID, helper.Role, helper.ParentID))
-		// Message the helper, then end it, once its pane has started: the
-		// board's own send and kill, with no session to act as.
+		// Message the helper, replace it, then end the replacement, once each
+		// pane has started: the board's own acts, with no session to act as.
 		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 			if _, err := os.Stat(filepath.Join(dir, "env-"+helper.ID+".txt")); err == nil {
 				break
@@ -208,7 +208,25 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			return
 		}
 		record("sent.txt", fmt.Sprintf("%s queued %d", helper.ID, sent.QueuePosition))
-		killed, err := board.Kill(ctx, helper.ID)
+		// Start the helper over in its own seat: the replacement is filed
+		// where it was, and the old one is left dead.
+		fresh, err := board.Replace(ctx, helper.ID, extension.LaunchRequest{Prompt: "again", Args: []string{"--one word"}})
+		if err != nil {
+			record("replaced.txt", "error: "+err.Error())
+			return
+		}
+		retired, err := board.Get(ctx, helper.ID)
+		if err != nil {
+			record("replaced.txt", "error: "+err.Error())
+			return
+		}
+		record("replaced.txt", fmt.Sprintf("%s %s %s %s %s", fresh.ID, fresh.Name, fresh.Role, fresh.ParentID, retired.Status))
+		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+			if _, err := os.Stat(filepath.Join(dir, "env-"+fresh.ID+".txt")); err == nil {
+				break
+			}
+		}
+		killed, err := board.Kill(ctx, fresh.ID)
 		if err != nil {
 			record("killed.txt", "error: "+err.Error())
 			return

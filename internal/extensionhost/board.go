@@ -2,6 +2,7 @@ package extensionhost
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 
@@ -90,12 +91,9 @@ func (b *Board) LaunchFor(ctx context.Context, id string, req extension.LaunchRe
 	if err := ctx.Err(); err != nil {
 		return extension.SessionInfo{}, err
 	}
-	role := ""
-	if req.Role != "" {
-		if !rolePattern.MatchString(req.Role) {
-			return extension.SessionInfo{}, fmt.Errorf("role %q must be lower case, start with a letter, and hold only letters, digits, '-' and '_'", req.Role)
-		}
-		role = id + "/" + req.Role
+	role, err := qualifiedRole(id, req.Role)
+	if err != nil {
+		return extension.SessionInfo{}, err
 	}
 	created, err := b.cmds.BoardLaunch(sessioncmd.BoardLaunchOptions{
 		Tool:      req.Tool,
@@ -142,4 +140,45 @@ func (b *Board) Kill(ctx context.Context, id string) (extension.SessionInfo, err
 		return extension.SessionInfo{}, err
 	}
 	return info(killed), nil
+}
+
+// qualifiedRole records role under the extension with id, so no extension
+// can wear another's.
+func qualifiedRole(id, role string) (string, error) {
+	if role == "" {
+		return "", nil
+	}
+	if !rolePattern.MatchString(role) {
+		return "", fmt.Errorf("role %q must be lower case, start with a letter, and hold only letters, digits, '-' and '_'", role)
+	}
+	return id + "/" + role, nil
+}
+
+// ReplaceFor starts a session in target's place for the extension with id.
+// A role it names is qualified as LaunchFor qualifies one; a session wearing
+// another extension's role is that extension's to replace.
+func (b *Board) ReplaceFor(ctx context.Context, id, target string, req extension.LaunchRequest) (extension.SessionInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return extension.SessionInfo{}, err
+	}
+	if req.ParentID != "" || req.Group != "" {
+		return extension.SessionInfo{}, errors.New("a replacement takes the old session's place; leave ParentID and Group empty, or Launch a new session instead")
+	}
+	role, err := qualifiedRole(id, req.Role)
+	if err != nil {
+		return extension.SessionInfo{}, err
+	}
+	created, err := b.cmds.BoardReplace(target, id+"/", sessioncmd.BoardLaunchOptions{
+		Tool:      req.Tool,
+		Name:      req.Name,
+		Prompt:    req.Prompt,
+		Directory: req.Directory,
+		Model:     req.Model,
+		Role:      role,
+		Args:      req.Args,
+	})
+	if err != nil {
+		return extension.SessionInfo{}, err
+	}
+	return info(created), nil
 }

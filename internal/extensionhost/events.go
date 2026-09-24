@@ -130,6 +130,10 @@ func (v *boardView) Kill(ctx context.Context, id string) (extension.SessionInfo,
 	return v.events.board.Kill(ctx, id)
 }
 
+func (v *boardView) Replace(ctx context.Context, id string, req extension.LaunchRequest) (extension.SessionInfo, error) {
+	return v.events.board.ReplaceFor(ctx, v.owner, id, req)
+}
+
 func (v *boardView) OnPass(fn func(extension.Pass)) func() {
 	sub := newSubscription(v.owner, fn, v.events.report, true)
 	return v.add(sub, func() {

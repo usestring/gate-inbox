@@ -22,8 +22,9 @@ import (
 // its dialog. Reads and answers are offered that way. Starting and ending
 // sessions stay a session's acts, so that a spawn always has a parent, except
 // for what a board extension does for itself: launching its helpers
-// (BoardLaunch), and messaging and ending the sessions it watches (BoardSend,
-// BoardKill), each held to the checks a session's own tool is held to.
+// (BoardLaunch), messaging and ending the sessions it watches (BoardSend,
+// BoardKill), and starting one over in its own seat (BoardReplace), each
+// held to the checks a session's own tool is held to.
 //
 // An answer from here is still held to the dialog's own rules. A permission
 // prompt or a first-run trust dialog is refused exactly as it is to a

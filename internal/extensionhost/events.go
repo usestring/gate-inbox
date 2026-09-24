@@ -2,6 +2,7 @@ package extensionhost
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -130,8 +131,37 @@ func (v *boardView) Kill(ctx context.Context, id string) (extension.SessionInfo,
 	return v.events.board.Kill(ctx, id)
 }
 
-func (v *boardView) Replace(ctx context.Context, id string, req extension.LaunchRequest) (extension.SessionInfo, error) {
-	return v.events.board.ReplaceFor(ctx, v.owner, id, req)
+func (v *boardView) Replace(ctx context.Context, id string, req extension.LaunchRequest, opts ...extension.ReplaceOptions) (extension.SessionInfo, extension.ReplaceHandle, error) {
+	if len(opts) > 1 {
+		return extension.SessionInfo{}, nil, errors.New("Replace takes at most one ReplaceOptions")
+	}
+	hold := len(opts) == 1 && opts[0].Hold
+	created, handle, err := v.events.board.ReplaceFor(ctx, v.owner, id, req, hold)
+	if err != nil || !hold {
+		return created, handle, err
+	}
+	// Held for as long as the extension runs: one it leaves unsettled is
+	// aborted when it stops, so the old session is never left waiting on
+	// an extension that is gone.
+	abort := func() {
+		if handle.Settled() {
+			return
+		}
+		if err := handle.Abort(context.Background()); err != nil {
+			v.events.report(v.owner, fmt.Errorf("could not abort a held replacement of %s: %w", id, err))
+		}
+	}
+	v.mu.Lock()
+	released := v.released
+	if !released {
+		v.subs = append(v.subs, abort)
+	}
+	v.mu.Unlock()
+	if released {
+		abort()
+		return extension.SessionInfo{}, nil, errors.New("the extension stopped while the replacement launched; it was aborted")
+	}
+	return created, handle, nil
 }
 
 func (v *boardView) OnPass(fn func(extension.Pass)) func() {

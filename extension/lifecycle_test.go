@@ -69,8 +69,8 @@ func (v fakeView) Send(context.Context, string, extension.Message) (extension.Se
 func (v fakeView) Kill(context.Context, string) (extension.SessionInfo, error) {
 	return extension.SessionInfo{}, errors.New("no kills here")
 }
-func (v fakeView) Replace(context.Context, string, extension.LaunchRequest) (extension.SessionInfo, error) {
-	return extension.SessionInfo{}, errors.New("no replacements here")
+func (v fakeView) Replace(context.Context, string, extension.LaunchRequest, ...extension.ReplaceOptions) (extension.SessionInfo, extension.ReplaceHandle, error) {
+	return extension.SessionInfo{}, nil, errors.New("no replacements here")
 }
 
 func (b *fakeBoard) hostFor(id string) (extension.BoardHost, func()) {

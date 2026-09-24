@@ -70,6 +70,12 @@ type SessionInfo struct {
 	// Role is "<extension id>/<role>" for a session an extension launched
 	// with a role through BoardHost.Launch, and empty for every other.
 	Role string
+	// ReplacedBy is the id of the session that took this one's seat through
+	// a committed replacement, and empty for a session no replacement
+	// retired. It is written with the swap itself, so it survives the
+	// successor's row being deleted later: an extension recovering from a
+	// crash can tell a committed swap from an aborted one by it alone.
+	ReplacedBy string
 }
 
 // SessionFilter narrows List. The zero value is every unarchived session,

@@ -183,6 +183,13 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 		}
 	})
 	record("started.txt", fmt.Sprint(os.Getpid(), " ", board.ConfigDir()))
+	switch os.Getenv("NOOP_SCENARIO") {
+	case "quiet":
+		return func() { record("stopped.txt", fmt.Sprint(ctx.Err() != nil)) }, nil
+	case "orphan-hold":
+		go n.orphanHold(ctx, board, dir)
+		return func() { record("stopped.txt", fmt.Sprint(ctx.Err() != nil)) }, nil
+	}
 	// A helper of its own, launched from the board under the dead child,
 	// with a role and an argument after its prompt.
 	go func() {
@@ -208,10 +215,56 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			return
 		}
 		record("sent.txt", fmt.Sprintf("%s queued %d", helper.ID, sent.QueuePosition))
-		// Start the helper over in its own seat: the replacement is filed
-		// where it was, and the old one is left dead.
-		fresh, err := board.Replace(ctx, helper.ID, extension.LaunchRequest{Prompt: "again", Args: []string{"--one word"}})
+		// A held replacement taken back: the trial is its own row under the
+		// helper while it runs, and aborting it leaves the helper as it was.
+		trial, abandon, err := board.Replace(ctx, helper.ID, extension.LaunchRequest{Name: "trial", Prompt: "try"}, extension.ReplaceOptions{Hold: true})
 		if err != nil {
+			record("aborted.txt", "error: "+err.Error())
+			return
+		}
+		// Killed during the hold, the trial can no longer be committed:
+		// the helper is not given up for a session that is not running.
+		waitFor(filepath.Join(dir, "env-"+trial.ID+".txt"))
+		if _, err := board.Kill(ctx, trial.ID); err != nil {
+			record("aborted.txt", "error: "+err.Error())
+			return
+		}
+		refused := errors.Is(abandon.Commit(ctx), extension.ErrReplacementNotRunning)
+		if err := abandon.Abort(ctx); err != nil {
+			record("aborted.txt", "error: "+err.Error())
+			return
+		}
+		_, gone := board.Get(ctx, trial.ID)
+		kept, err := board.Get(ctx, helper.ID)
+		if err != nil {
+			record("aborted.txt", "error: "+err.Error())
+			return
+		}
+		record("aborted.txt", fmt.Sprintf("%s held-under %s | refused %v | gone %v | replaced-by %q | old %s %v", trial.ID, trial.ParentID, refused, gone != nil, kept.ReplacedBy, kept.Status, kept.Running))
+		// The test reads the helper's inbox before the next replacement
+		// takes it.
+		waitFor(filepath.Join(dir, "go-commit"))
+		// Start the helper over in its own seat, held until the fresh one
+		// is seen to run, then committed: filed where the helper was, and
+		// the helper left dead.
+		fresh, swap, err := board.Replace(ctx, helper.ID, extension.LaunchRequest{Prompt: "again", Args: []string{"--one word"}}, extension.ReplaceOptions{Hold: true})
+		if err != nil {
+			record("replaced.txt", "error: "+err.Error())
+			return
+		}
+		waitFor(filepath.Join(dir, "env-"+fresh.ID+".txt"))
+		during, err := board.Get(ctx, helper.ID)
+		if err != nil {
+			record("replaced.txt", "error: "+err.Error())
+			return
+		}
+		record("held.txt", fmt.Sprintf("%s held-under %s | old running %v", fresh.ID, fresh.ParentID, during.Running))
+		if err := swap.Commit(ctx); err != nil {
+			record("replaced.txt", "error: "+err.Error())
+			return
+		}
+		record("settled.txt", fmt.Sprintf("commit again %v | abort after %v", swap.Commit(ctx), errors.Is(swap.Abort(ctx), extension.ErrReplaceSettled)))
+		if fresh, err = board.Get(ctx, fresh.ID); err != nil {
 			record("replaced.txt", "error: "+err.Error())
 			return
 		}
@@ -220,7 +273,7 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			record("replaced.txt", "error: "+err.Error())
 			return
 		}
-		record("replaced.txt", fmt.Sprintf("%s %s %s %s %s", fresh.ID, fresh.Name, fresh.Role, fresh.ParentID, retired.Status))
+		record("replaced.txt", fmt.Sprintf("%s %s %s %s %s replaced-by %s", fresh.ID, fresh.Name, fresh.Role, fresh.ParentID, retired.Status, retired.ReplacedBy))
 		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 			if _, err := os.Stat(filepath.Join(dir, "env-"+fresh.ID+".txt")); err == nil {
 				break
@@ -232,8 +285,45 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			return
 		}
 		record("killed.txt", fmt.Sprintf("%s %s %v", killed.ID, killed.Status, killed.Running))
+		// A hold the extension never settles: the board aborts it when it
+		// stops the extension.
+		pending, _, err := board.Replace(ctx, fresh.ID, extension.LaunchRequest{Name: "pending", Prompt: "wait"}, extension.ReplaceOptions{Hold: true})
+		if err != nil {
+			record("pending.txt", "error: "+err.Error())
+			return
+		}
+		record("pending.txt", fmt.Sprintf("%s held-under %s", pending.ID, pending.ParentID))
 	}()
 	return func() { record("stopped.txt", fmt.Sprint(ctx.Err() != nil)) }, nil
+}
+
+// orphanHold launches a helper and holds a replacement of it that it
+// never settles, for a test that kills the board mid-hold.
+func (n *noop) orphanHold(ctx context.Context, board extension.BoardHost, dir string) {
+	helper, err := board.Launch(ctx, extension.LaunchRequest{
+		Tool: "envecho", Name: "helper", Prompt: "help", ParentID: "c41d0001", Directory: dir, Role: "helper",
+	})
+	if err != nil {
+		n.record("orphan.txt", "error: "+err.Error())
+		return
+	}
+	waitFor(filepath.Join(dir, "env-"+helper.ID+".txt"))
+	fresh, _, err := board.Replace(ctx, helper.ID, extension.LaunchRequest{Name: "orphan", Prompt: "wait"}, extension.ReplaceOptions{Hold: true})
+	if err != nil {
+		n.record("orphan.txt", "error: "+err.Error())
+		return
+	}
+	waitFor(filepath.Join(dir, "env-"+fresh.ID+".txt"))
+	n.record("orphan.txt", fmt.Sprintf("%s held-under %s", fresh.ID, fresh.ParentID))
+}
+
+// waitFor gives path up to ten seconds to appear.
+func waitFor(path string) {
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+	}
 }
 
 // record appends line to a file in the data directory, which is how this

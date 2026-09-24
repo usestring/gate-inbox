@@ -1,6 +1,9 @@
 package sessioncmd
 
 import (
+	"database/sql"
+	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -28,7 +31,7 @@ func TestBoardReplaceTakesTheOldSessionsPlace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	fresh, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{Prompt: "start over"})
+	fresh, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{Prompt: "start over"}, false)
 	if err != nil {
 		t.Fatalf("BoardReplace: %v", err)
 	}
@@ -71,19 +74,19 @@ func TestBoardReplaceRefusalsLeaveTheOldSessionAlone(t *testing.T) {
 	}
 	cases := map[string]func() error{
 		"cannot be filed elsewhere": func() error {
-			_, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{ParentID: h.caller.ID})
+			_, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{ParentID: h.caller.ID}, false)
 			return err
 		},
 		"another extension's role": func() error {
-			_, err := h.sessions.BoardReplace("theirs01", "ext1/", BoardLaunchOptions{})
+			_, err := h.sessions.BoardReplace("theirs01", "ext1/", BoardLaunchOptions{}, false)
 			return err
 		},
 		"over this goal's budget": func() error {
-			_, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{Name: "over-budget"})
+			_, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{Name: "over-budget"}, false)
 			return err
 		},
 		"is not configured": func() error {
-			_, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{Tool: "nonesuch"})
+			_, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{Tool: "nonesuch"}, false)
 			return err
 		},
 	}
@@ -101,5 +104,248 @@ func TestBoardReplaceRefusalsLeaveTheOldSessionAlone(t *testing.T) {
 	}
 	if len(listed) != 3 {
 		t.Fatalf("listed %d rows, want only the caller, the old session and the other extension's", len(listed))
+	}
+}
+
+// A held replacement runs as a leaf under the old session, which keeps its
+// pane and inbox; the commit then makes the same swap an unheld replace makes.
+func TestBoardReplaceHeldThenCommitted(t *testing.T) {
+	h := newSessionHarness(t)
+	useWatcher(t, &launchWatcher{})
+	old := childShowing(t, h, h.caller.ID, "child203", "worker", "lost the thread\n")
+	if _, err := h.sessions.BoardSend("ext1", old.ID, "a report", "", false); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{Prompt: "start over"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh.ParentID != old.ID || fresh.Name != "worker" {
+		t.Fatalf("fresh = %+v, want it held under %s", fresh, old.ID)
+	}
+	if !h.driver.Exists(old.ID) || !h.driver.Exists(fresh.ID) {
+		t.Fatal("both panes should run during the hold")
+	}
+	if counts, _ := h.store.QueuedCounts(); counts[old.ID] != 1 {
+		t.Fatalf("queued = %v, want the report still the old session's", counts)
+	}
+
+	committed, err := h.sessions.BoardCommitReplace(old.ID, fresh.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if committed.ID != fresh.ID || committed.ParentID != h.caller.ID || committed.Group != old.Group {
+		t.Fatalf("committed = %+v, want the old seat", committed)
+	}
+	if h.driver.Exists(old.ID) || !h.driver.Exists(fresh.ID) {
+		t.Fatal("the commit should end the old pane and keep the fresh one")
+	}
+	if snap, _ := h.store.Snapshot(old.ID); !strings.Contains(snap, "lost the thread") {
+		t.Fatalf("snapshot = %q, want the old pane's last screen", snap)
+	}
+	if retired, err := h.store.Get(old.ID); err != nil || retired.ReplacedBy != fresh.ID {
+		t.Fatalf("old = %+v, %v; want it marked replaced by %s", retired, err, fresh.ID)
+	}
+	if counts, _ := h.store.QueuedCounts(); counts[fresh.ID] != 1 || counts[old.ID] != 0 {
+		t.Fatalf("queued = %v, want the report forwarded at the commit", counts)
+	}
+	if err := h.sessions.BoardAbortReplace(old.ID, fresh.ID); !errors.Is(err, store.ErrNotHeld) {
+		t.Fatalf("abort after the commit = %v, want ErrNotHeld", err)
+	}
+	if !h.driver.Exists(fresh.ID) {
+		t.Fatal("an abort after the commit ended the session in the seat")
+	}
+}
+
+// An aborted hold leaves nothing but the old session, as it was.
+func TestBoardReplaceHeldThenAborted(t *testing.T) {
+	h := newSessionHarness(t)
+	useWatcher(t, &launchWatcher{})
+	old := childShowing(t, h, h.caller.ID, "child204", "worker", "working\n")
+	if _, err := h.sessions.BoardSend("ext1", old.ID, "a report", "", false); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.sessions.BoardAbortReplace(old.ID, fresh.ID); err != nil {
+		t.Fatal(err)
+	}
+	if h.driver.Exists(fresh.ID) {
+		t.Fatal("the aborted replacement's pane still runs")
+	}
+	if _, err := h.store.Get(fresh.ID); err == nil {
+		t.Fatal("the aborted replacement's row was kept")
+	}
+	if !h.driver.Exists(old.ID) {
+		t.Fatal("the abort ended the old pane")
+	}
+	stored, err := h.store.Get(old.ID)
+	if err != nil || stored.Status == status.Dead || stored.ParentID != h.caller.ID || stored.ReplacedBy != "" {
+		t.Fatalf("old = %+v, %v; want it untouched", stored, err)
+	}
+	if counts, _ := h.store.QueuedCounts(); counts[old.ID] != 1 {
+		t.Fatalf("queued = %v, want the report still the old session's", counts)
+	}
+	if _, err := h.sessions.BoardCommitReplace(old.ID, fresh.ID); err == nil {
+		t.Fatal("a commit after the abort succeeded")
+	}
+}
+
+// A commit the store took is reported as one even when the fresh row
+// cannot be read back afterwards: an error there would read as a refused
+// commit while the fresh session already holds the seat.
+func TestBoardCommitReplaceSucceedsWhenTheReadBackFails(t *testing.T) {
+	h := newSessionHarness(t)
+	useWatcher(t, &launchWatcher{})
+	old := childShowing(t, h, h.caller.ID, "child205", "worker", "working\n")
+	fresh, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A row the commit moves but cannot decode, so only the read after it fails.
+	db, err := sql.Open("sqlite", filepath.Join(h.sessions.configDir, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE sessions SET pending_inputs = 'not json' WHERE id = ?`, fresh.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.store.Get(fresh.ID); err == nil {
+		t.Fatal("the fresh row still reads back; the test would not reach the failing read")
+	}
+
+	committed, err := h.sessions.BoardCommitReplace(old.ID, fresh.ID)
+	if err != nil {
+		t.Fatalf("commit = %v, want success once the swap is committed", err)
+	}
+	if committed.ID != fresh.ID || committed.ParentID != h.caller.ID || committed.Group != old.Group {
+		t.Fatalf("committed = %+v, want the old seat", committed)
+	}
+	if h.driver.Exists(old.ID) || !h.driver.Exists(fresh.ID) {
+		t.Fatal("the commit should end the old pane and keep the fresh one")
+	}
+	if retired, err := h.store.Get(old.ID); err != nil || retired.Status != status.Dead || retired.ReplacedBy != fresh.ID {
+		t.Fatalf("old = %+v, %v; want it dead and marked replaced by %s", retired, err, fresh.ID)
+	}
+	if err := h.sessions.BoardAbortReplace(old.ID, fresh.ID); err == nil {
+		t.Fatal("an abort after the commit succeeded")
+	}
+}
+
+// A commit after the fresh session was killed during the hold is refused,
+// and the old session keeps running in its seat.
+func TestBoardCommitReplaceRefusesAKilledReplacement(t *testing.T) {
+	h := newSessionHarness(t)
+	useWatcher(t, &launchWatcher{})
+	old := childShowing(t, h, h.caller.ID, "child301", "worker", "working\n")
+	fresh, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.sessions.BoardKill(fresh.ID); err != nil {
+		t.Fatalf("BoardKill fresh: %v", err)
+	}
+	if _, err := h.sessions.BoardCommitReplace(old.ID, fresh.ID); !errors.Is(err, extension.ErrReplacementNotRunning) {
+		t.Fatalf("commit of a killed replacement = %v, want ErrReplacementNotRunning", err)
+	}
+	stored, err := h.store.Get(old.ID)
+	if !h.driver.Exists(old.ID) || err != nil || stored.Status == status.Dead || stored.ParentID != h.caller.ID {
+		t.Fatalf("old = %+v, %v, pane %v; want it running in its seat", stored, err, h.driver.Exists(old.ID))
+	}
+	// The hold is still the extension's to abort.
+	if err := h.sessions.BoardAbortReplace(old.ID, fresh.ID); err != nil {
+		t.Fatalf("abort after the refused commit: %v", err)
+	}
+}
+
+// A commit after the fresh session's pane ended on its own -- the agent
+// crashed, and no pass has marked the row dead yet -- is refused too.
+func TestBoardCommitReplaceRefusesAReplacementWhosePaneDied(t *testing.T) {
+	h := newSessionHarness(t)
+	useWatcher(t, &launchWatcher{})
+	old := childShowing(t, h, h.caller.ID, "child302", "worker", "working\n")
+	fresh, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = h.driver.Kill(fresh.ID)
+	if _, err := h.sessions.BoardCommitReplace(old.ID, fresh.ID); !errors.Is(err, extension.ErrReplacementNotRunning) {
+		t.Fatalf("commit with the fresh pane gone = %v, want ErrReplacementNotRunning", err)
+	}
+	if !h.driver.Exists(old.ID) {
+		t.Fatal("the old worker's pane ended for a replacement whose pane is gone")
+	}
+	if stored, _ := h.store.Get(old.ID); stored.Status == status.Dead {
+		t.Fatal("the old worker was retired for a replacement whose pane is gone")
+	}
+}
+
+// Holds a killed board never settled are aborted at the next start: the
+// fresh pane is ended and its row deleted, the old session is untouched,
+// and a record whose fresh session never got a row is dropped too.
+func TestAbortOrphanedHoldsEndsTheFreshSessionsOnly(t *testing.T) {
+	h := newSessionHarness(t)
+	useWatcher(t, &launchWatcher{})
+	old := childShowing(t, h, h.caller.ID, "child303", "worker", "working\n")
+	fresh, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.RecordHold(store.HeldReplacement{FreshID: "norow001", OldID: old.ID, Owner: "ext1"}); err != nil {
+		t.Fatal(err)
+	}
+	holds, err := h.store.HeldReplacements()
+	if err != nil || len(holds) != 2 || holds[0].FreshID != fresh.ID || holds[0].Owner != "ext1" {
+		t.Fatalf("holds = %+v, %v; want the held replacement recorded with its extension", holds, err)
+	}
+
+	aborted, err := h.sessions.AbortOrphanedHolds()
+	if err != nil || aborted != 2 {
+		t.Fatalf("AbortOrphanedHolds = %d, %v; want both aborted", aborted, err)
+	}
+	if h.driver.Exists(fresh.ID) {
+		t.Fatal("the orphaned replacement's pane still runs")
+	}
+	if _, err := h.store.Get(fresh.ID); err == nil {
+		t.Fatal("the orphaned replacement's row was kept")
+	}
+	stored, err := h.store.Get(old.ID)
+	if !h.driver.Exists(old.ID) || err != nil || stored.Status == status.Dead || stored.ParentID != h.caller.ID {
+		t.Fatalf("old = %+v, %v; want it untouched", stored, err)
+	}
+	if holds, err := h.store.HeldReplacements(); err != nil || len(holds) != 0 {
+		t.Fatalf("holds = %+v, %v; want none left", holds, err)
+	}
+}
+
+// Committing or aborting a hold clears its record, so a later start
+// aborts nothing.
+func TestSettledHoldsLeaveNoRecord(t *testing.T) {
+	h := newSessionHarness(t)
+	useWatcher(t, &launchWatcher{})
+	old := childShowing(t, h, h.caller.ID, "child304", "worker", "working\n")
+	trial, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.sessions.BoardAbortReplace(old.ID, trial.ID); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := h.sessions.BoardReplace(old.ID, "ext1/", BoardLaunchOptions{}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.sessions.BoardCommitReplace(old.ID, fresh.ID); err != nil {
+		t.Fatal(err)
+	}
+	if aborted, err := h.sessions.AbortOrphanedHolds(); err != nil || aborted != 0 {
+		t.Fatalf("AbortOrphanedHolds = %d, %v; want nothing left to abort", aborted, err)
+	}
+	if !h.driver.Exists(fresh.ID) {
+		t.Fatal("the committed replacement's pane was ended")
 	}
 }

@@ -123,3 +123,17 @@ func readEventually(t *testing.T, path string) string {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+func queuedCounts(t *testing.T, path string) map[string]int {
+	t.Helper()
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	counts, err := st.QueuedCounts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return counts
+}

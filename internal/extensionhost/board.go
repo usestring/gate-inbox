@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sync"
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
@@ -156,17 +157,18 @@ func qualifiedRole(id, role string) (string, error) {
 
 // ReplaceFor starts a session in target's place for the extension with id.
 // A role it names is qualified as LaunchFor qualifies one; a session wearing
-// another extension's role is that extension's to replace.
-func (b *Board) ReplaceFor(ctx context.Context, id, target string, req extension.LaunchRequest) (extension.SessionInfo, error) {
+// another extension's role is that extension's to replace. With hold, the
+// returned handle is still to be settled; without, it is already committed.
+func (b *Board) ReplaceFor(ctx context.Context, id, target string, req extension.LaunchRequest, hold bool) (extension.SessionInfo, *ReplaceHandle, error) {
 	if err := ctx.Err(); err != nil {
-		return extension.SessionInfo{}, err
+		return extension.SessionInfo{}, nil, err
 	}
 	if req.ParentID != "" || req.Group != "" {
-		return extension.SessionInfo{}, errors.New("a replacement takes the old session's place; leave ParentID and Group empty, or Launch a new session instead")
+		return extension.SessionInfo{}, nil, errors.New("a replacement takes the old session's place; leave ParentID and Group empty, or Launch a new session instead")
 	}
 	role, err := qualifiedRole(id, req.Role)
 	if err != nil {
-		return extension.SessionInfo{}, err
+		return extension.SessionInfo{}, nil, err
 	}
 	created, err := b.cmds.BoardReplace(target, id+"/", sessioncmd.BoardLaunchOptions{
 		Tool:      req.Tool,
@@ -176,9 +178,73 @@ func (b *Board) ReplaceFor(ctx context.Context, id, target string, req extension
 		Model:     req.Model,
 		Role:      role,
 		Args:      req.Args,
-	})
+	}, hold)
 	if err != nil {
-		return extension.SessionInfo{}, err
+		return extension.SessionInfo{}, nil, err
 	}
-	return info(created), nil
+	handle := &ReplaceHandle{cmds: b.cmds, target: target, fresh: created.ID}
+	if !hold {
+		handle.state = replaceCommitted
+	}
+	return info(created), handle, nil
+}
+
+type replaceState int
+
+const (
+	replaceHeld replaceState = iota
+	replaceCommitted
+	replaceAborted
+)
+
+// ReplaceHandle is the board's extension.ReplaceHandle: one replacement,
+// held until Commit or Abort settles it.
+type ReplaceHandle struct {
+	cmds          *sessioncmd.Sessions
+	target, fresh string
+
+	mu    sync.Mutex
+	state replaceState
+}
+
+func (h *ReplaceHandle) Commit(ctx context.Context) error {
+	return h.settle(ctx, replaceCommitted, func() error {
+		_, err := h.cmds.BoardCommitReplace(h.target, h.fresh)
+		return err
+	})
+}
+
+func (h *ReplaceHandle) Abort(ctx context.Context) error {
+	return h.settle(ctx, replaceAborted, func() error {
+		return h.cmds.BoardAbortReplace(h.target, h.fresh)
+	})
+}
+
+// Settled reports whether the handle has been committed or aborted.
+func (h *ReplaceHandle) Settled() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.state != replaceHeld
+}
+
+// settle runs act once, under the lock, so a Commit and an Abort racing
+// each other settle the handle one way only.
+func (h *ReplaceHandle) settle(ctx context.Context, to replaceState, act func() error) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	switch h.state {
+	case to:
+		return nil
+	case replaceHeld:
+	default:
+		return fmt.Errorf("session %s in %s's place: %w", h.fresh, h.target, extension.ErrReplaceSettled)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := act(); err != nil {
+		return err
+	}
+	h.state = to
+	return nil
 }

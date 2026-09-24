@@ -336,18 +336,39 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	if got := waitForFile(t, filepath.Join(data, "env-"+helper+".txt"), "", exited, &out); got != "spawn" {
 		t.Fatalf("the helper's pane saw NOOP_LAUNCH=%q, want the extension's spawn", got)
 	}
-	// The extension messages its helper, replaces it in its own seat, and
-	// ends the replacement, through the board.
+	// The extension messages its helper, tries a held replacement and takes it
+	// back, replaces it in its own seat through a hold it commits, and ends
+	// the replacement, through the board.
 	waitForFile(t, filepath.Join(data, "sent.txt"), helper+" queued 1\n", exited, &out)
-	replaced := waitForFile(t, filepath.Join(data, "replaced.txt"), " helper noop/helper c41d0001 dead\n", exited, &out)
+	aborted := waitForFile(t, filepath.Join(data, "aborted.txt"), " held-under "+helper+" | refused true | gone true | replaced-by \"\" | old ", exited, &out)
+	if !strings.HasSuffix(aborted, " true\n") {
+		t.Fatalf("aborted.txt = %q, want the helper still running after the abort", aborted)
+	}
+	if counts := queuedCounts(t, filepath.Join(home, "state.db")); counts[helper] != 1 {
+		t.Fatalf("queued = %v, want the helper's message still its own after the abort", counts)
+	}
+	if err := os.WriteFile(filepath.Join(data, "go-commit"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	held := waitForFile(t, filepath.Join(data, "held.txt"), " held-under "+helper+" | old running true\n", exited, &out)
+	waitForFile(t, filepath.Join(data, "settled.txt"), "commit again <nil> | abort after true\n", exited, &out)
+	replaced := waitForFile(t, filepath.Join(data, "replaced.txt"), " helper noop/helper c41d0001 dead replaced-by ", exited, &out)
 	fresh, _, _ := strings.Cut(replaced, " ")
-	if fresh == helper || strings.HasPrefix(fresh, "error") {
-		t.Fatalf("replaced.txt = %q, want a new session in the helper's seat", replaced)
+	if fresh == helper || strings.HasPrefix(fresh, "error") || !strings.HasPrefix(held, fresh+" ") {
+		t.Fatalf("replaced.txt = %q after held.txt = %q, want the held session in the helper's seat", replaced, held)
+	}
+	if !strings.HasSuffix(replaced, " replaced-by "+fresh+"\n") {
+		t.Fatalf("replaced.txt = %q, want the retired helper to name %s as what replaced it", replaced, fresh)
+	}
+	if counts := queuedCounts(t, filepath.Join(home, "state.db")); counts[fresh] != 1 || counts[helper] != 0 {
+		t.Fatalf("queued = %v, want the helper's message forwarded at the commit", counts)
 	}
 	if got := waitForFile(t, filepath.Join(data, "env-"+fresh+".txt"), "", exited, &out); got != "replace "+helper {
 		t.Fatalf("the replacement's pane saw NOOP_LAUNCH=%q, want a replace from the helper", got)
 	}
 	waitForFile(t, filepath.Join(data, "killed.txt"), fresh+" dead false\n", exited, &out)
+	pendingLine := waitForFile(t, filepath.Join(data, "pending.txt"), " held-under "+fresh+"\n", exited, &out)
+	pending, _, _ := strings.Cut(pendingLine, " ")
 
 	var pid int
 	if _, err := fmt.Sscan(started, &pid); err != nil {
@@ -358,6 +379,20 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	}
 	if got := waitForFile(t, filepath.Join(data, "stopped.txt"), "", exited, &out); got != "true\n" {
 		t.Fatalf("stopped.txt = %q, want the stop called after the board's context was cancelled", got)
+	}
+	// The hold the extension left open was aborted as it stopped: the
+	// pending session is gone, and the seat it waited on is as it was.
+	<-exited
+	st, err := store.Open(filepath.Join(home, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if _, err := st.Get(pending); err == nil {
+		t.Fatalf("the unsettled replacement %s outlived the extension that held it", pending)
+	}
+	if seat, err := st.Get(fresh); err != nil || seat.ParentID != "c41d0001" || seat.Status != "dead" {
+		t.Fatalf("the seat the abort left = %+v, %v; want it untouched", seat, err)
 	}
 	events, _ := os.ReadFile(filepath.Join(data, "events.txt"))
 	if strings.Count(string(events), "working>dead") != 1 {

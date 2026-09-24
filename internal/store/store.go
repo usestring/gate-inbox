@@ -88,6 +88,10 @@ type Session struct {
 	// play a part of its own, and empty for every other. It is set when the
 	// row is created and never changes.
 	Role string
+	// ReplacedBy is the session that took this one's seat through a
+	// replacement, set in the same write that retires this one, and empty
+	// for a session nothing replaced.
+	ReplacedBy string
 	// MigrationID joins migrated sessions; on creation it names the source session.
 	MigrationID      string
 	MigrationOpening []string
@@ -446,6 +450,16 @@ CREATE TABLE IF NOT EXISTS settings (
 		`CREATE INDEX IF NOT EXISTS forge_prs_age ON forge_prs (fetched_at)`,
 		`CREATE INDEX IF NOT EXISTS forge_tickets_age ON forge_tickets (fetched_at)`,
 		`ALTER TABLE sessions ADD COLUMN role TEXT NOT NULL DEFAULT ''`,
+		// A replacement an extension holds, recorded before its pane starts
+		// so a board killed mid-hold leaves something the next start can
+		// abort. See RecordHold.
+		`CREATE TABLE IF NOT EXISTS replace_holds (
+			fresh_id   TEXT PRIMARY KEY,
+			old_id     TEXT NOT NULL,
+			owner      TEXT NOT NULL,
+			created_at INTEGER NOT NULL
+		)`,
+		`ALTER TABLE sessions ADD COLUMN replaced_by TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {
@@ -717,7 +731,7 @@ func (s *Store) ListSessions(includeArchived bool) ([]Session, error) {
 }
 
 func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
-	query := `SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, ` + spawnerColumnOf("sessions") + `, launch_prompt, model, account, name_source, priority_tier, role, ` + migrationColumn + `, ` + migrationOpeningColumn + `
+	query := `SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, ` + spawnerColumnOf("sessions") + `, launch_prompt, model, account, name_source, priority_tier, role, replaced_by, ` + migrationColumn + `, ` + migrationOpeningColumn + `
 	          FROM sessions`
 	if !includeArchived {
 		query += ` WHERE archived = 0`
@@ -740,7 +754,7 @@ func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
 			&sess.Group, &sess.Status, &archived, &archivedAt, &acked, &created, &lastStatus,
 			&sess.AgentSessionID,
 			&sess.TmuxSocket, &sess.TmuxPaneID,
-			&agentLaunched, &sess.RetiredAgentSessionID, &pendingInputs, &pendingClaimed, &sess.ParentID, &sess.SpawnedBy, &sess.LaunchPrompt, &sess.Model, &sess.Account, &sess.NameSource, &tier, &sess.Role, &sess.MigrationID, &migrationOpening); err != nil {
+			&agentLaunched, &sess.RetiredAgentSessionID, &pendingInputs, &pendingClaimed, &sess.ParentID, &sess.SpawnedBy, &sess.LaunchPrompt, &sess.Model, &sess.Account, &sess.NameSource, &tier, &sess.Role, &sess.ReplacedBy, &sess.MigrationID, &migrationOpening); err != nil {
 			return nil, err
 		}
 		sess.Priority = priority.Tier(tier)
@@ -769,12 +783,12 @@ func (s *Store) Get(id string) (Session, error) {
 	var created, lastStatus, agentLaunched, archivedAt int64
 	var pendingInputs, migrationOpening string
 	err := s.db.QueryRow(
-		`SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, `+spawnerColumnOf("sessions")+`, launch_prompt, model, account, name_source, priority_tier, role, `+migrationColumn+`, `+migrationOpeningColumn+`
+		`SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, `+spawnerColumnOf("sessions")+`, launch_prompt, model, account, name_source, priority_tier, role, replaced_by, `+migrationColumn+`, `+migrationOpeningColumn+`
 		 FROM sessions WHERE id = ?`, id,
 	).Scan(&sess.ID, &sess.Name, &sess.Tool, &sess.Cwd, &sess.Group,
 		&sess.Status, &archived, &archivedAt, &acked, &created, &lastStatus, &sess.AgentSessionID,
 		&sess.TmuxSocket, &sess.TmuxPaneID,
-		&agentLaunched, &sess.RetiredAgentSessionID, &pendingInputs, &pendingClaimed, &sess.ParentID, &sess.SpawnedBy, &sess.LaunchPrompt, &sess.Model, &sess.Account, &sess.NameSource, &tier, &sess.Role, &sess.MigrationID, &migrationOpening)
+		&agentLaunched, &sess.RetiredAgentSessionID, &pendingInputs, &pendingClaimed, &sess.ParentID, &sess.SpawnedBy, &sess.LaunchPrompt, &sess.Model, &sess.Account, &sess.NameSource, &tier, &sess.Role, &sess.ReplacedBy, &sess.MigrationID, &migrationOpening)
 	if err != nil {
 		return Session{}, err
 	}
@@ -1447,6 +1461,9 @@ func (s *Store) deleteSession(id string) error {
 		return err
 	}
 	if err := unlinkRetiredRoles(tx, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM replace_holds WHERE fresh_id = ?`, id); err != nil {
 		return err
 	}
 	res, err := tx.Exec(`DELETE FROM sessions WHERE id = ?`, id)

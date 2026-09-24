@@ -54,6 +54,8 @@ type Session struct {
 	// Role is the extension's, and reaches extensions only: no tool's output
 	// carries it, so it costs a session's context nothing.
 	Role string `json:"-"`
+	// ReplacedBy reaches extensions only, as Role does.
+	ReplacedBy string `json:"-"`
 }
 
 type SessionScreen struct {
@@ -175,20 +177,21 @@ func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 		}
 	}
 	return Session{
-		ID:        sess.ID,
-		Name:      sess.Name,
-		Tool:      sess.Tool,
-		Model:     sess.Model,
-		Account:   sess.Account,
-		Group:     sess.Group,
-		Directory: dir,
-		Status:    sess.Status,
-		Running:   running,
-		Archived:  sess.Archived,
-		Self:      self,
-		ParentID:  sess.ParentID,
-		SpawnedBy: store.SpawnerOf(sess),
-		Role:      sess.Role,
+		ID:         sess.ID,
+		Name:       sess.Name,
+		Tool:       sess.Tool,
+		Model:      sess.Model,
+		Account:    sess.Account,
+		Group:      sess.Group,
+		Directory:  dir,
+		Status:     sess.Status,
+		Running:    running,
+		Archived:   sess.Archived,
+		Self:       self,
+		ParentID:   sess.ParentID,
+		SpawnedBy:  store.SpawnerOf(sess),
+		Role:       sess.Role,
+		ReplacedBy: sess.ReplacedBy,
 	}
 }
 

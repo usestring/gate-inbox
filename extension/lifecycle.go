@@ -2,6 +2,7 @@ package extension
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -70,17 +71,70 @@ type BoardHost interface {
 	// file reservations it held. The old one is left dead with its last
 	// screen kept, as Kill leaves it, so a revive can still resume it.
 	//
-	// From the board it is one step: no poll pass sees the two running side
-	// by side, and a failure at any point leaves the old session as it was.
+	// Called with no options it is one step: no poll pass sees the two
+	// running side by side, a failure at any point leaves the old session
+	// as it was, and the handle it returns is already committed. With
+	// ReplaceOptions{Hold: true} the fresh session launches while the old
+	// one keeps running, and the swap waits for the handle: see
+	// ReplaceHandle.
 	//
 	// req.Tool, Directory and Model default to the old session's; ParentID
 	// and Group must be empty, since the place is the old one's; Role, when
 	// set, is qualified as for Launch. Spawn policies are asked, with
 	// SpawnByExtension, and launch contributors see LaunchReplace with From
 	// naming the old session. A terminal is refused, and so is a session
-	// wearing another extension's role.
-	Replace(ctx context.Context, id string, req LaunchRequest) (SessionInfo, error)
+	// wearing another extension's role. At most one ReplaceOptions may be
+	// passed.
+	Replace(ctx context.Context, id string, req LaunchRequest, opts ...ReplaceOptions) (SessionInfo, ReplaceHandle, error)
 }
+
+// ReplaceOptions changes how BoardHost.Replace swaps one session for
+// another. The zero value is the one-step swap.
+type ReplaceOptions struct {
+	// Hold launches the fresh session without retiring the old one, so the
+	// extension can check that the fresh one took -- that it bound to its
+	// work, answered, came up at all -- before the old one is given up.
+	Hold bool
+}
+
+// ReplaceHandle settles a replacement BoardHost.Replace held.
+//
+// During the hold the fresh session is its own row, filed as a leaf under
+// the session it will replace and wearing its role: two rows for two
+// running sessions, never two in one seat. The old session keeps its seat,
+// its queued messages, its file reservations and its pane, and whatever is
+// sent to it meanwhile is still its own until the commit forwards it.
+//
+// Commit makes the swap exactly as an unheld Replace would have made it:
+// the fresh session moves into the old one's seat, takes the messages still
+// queued for it and its file reservations, and the old one is left dead
+// with its last screen. It fails, and leaves both sessions as they were,
+// when the fresh one was archived or deleted meanwhile, or the old one was
+// archived; and with ErrReplacementNotRunning when the fresh one was killed
+// or its pane ended. A failed Commit leaves the handle held, to Abort.
+//
+// Abort ends the fresh session and deletes its row, as a launch that
+// failed leaves nothing behind, and does not touch the old one. A handle
+// the extension leaves unsettled is aborted when the extension stops,
+// whether the board is exiting or the extension failed. A hold still
+// unsettled when the board is killed outright is aborted the same way when
+// the board next starts, before any extension does.
+//
+// Repeating the call that settled a handle does nothing and returns nil;
+// the other call after it returns ErrReplaceSettled.
+type ReplaceHandle interface {
+	Commit(ctx context.Context) error
+	Abort(ctx context.Context) error
+}
+
+// ErrReplaceSettled is a ReplaceHandle asked to commit after it was aborted,
+// or to abort after it was committed.
+var ErrReplaceSettled = errors.New("the replacement was already settled the other way")
+
+// ErrReplacementNotRunning is a ReplaceHandle's Commit refused because the
+// fresh session is dead or its pane is gone: the old session is not given
+// up for it.
+var ErrReplacementNotRunning = errors.New("the fresh session is no longer running")
 
 // Message is what BoardHost.Send queues.
 type Message struct {

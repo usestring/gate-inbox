@@ -216,7 +216,18 @@ func runBoard(version string, registry *extension.Registry) error {
 // board model polls, and returns what stops them again. It runs before the
 // first pass, so no transition goes unseen by a subscriber made at start.
 func startExtensions(dir string, registry *extension.Registry, model *ui.Model) (func(), error) {
-	board := extensionhost.NewBoard(dir, sessioncmd.NewSessions(dir, sessioncmd.MCPVocabulary()))
+	cmds := sessioncmd.NewSessions(dir, sessioncmd.MCPVocabulary())
+	// A board killed mid-hold ran no extension stop, so its holds are still
+	// on record with nothing left to settle them. Aborted before any
+	// extension starts, so none can mistake one for its own.
+	aborted, err := cmds.AbortOrphanedHolds()
+	if err != nil {
+		logging.Warn("could not abort every replacement an earlier board held", logging.Err(err))
+	}
+	if aborted > 0 {
+		logging.Info("aborted replacements an earlier board held", "count", aborted)
+	}
+	board := extensionhost.NewBoard(dir, cmds)
 	events := extensionhost.NewEvents(board, func(owner string, err error) {
 		logging.Warn("extension board subscriber", "extension", owner, logging.Err(err))
 	})

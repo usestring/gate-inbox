@@ -11,7 +11,7 @@ import (
 // scrubbed and levelled like the package's own lines, carrying its With
 // attributes and groups.
 func TestSlogWritesThroughTheDefaultOpenedLater(t *testing.T) {
-	early := Slog().With("extension", "demo").WithGroup("job")
+	early := Slog().With("extension", "demo").WithGroup("grp")
 
 	path := filepath.Join(t.TempDir(), "gate-inbox.log")
 	logger, err := Open(Options{Path: path, Level: LevelInfo, MaxSizeMB: 1, MaxBackups: 1, MaxTotalMB: 4})
@@ -31,7 +31,7 @@ func TestSlogWritesThroughTheDefaultOpenedLater(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := string(raw)
-	if !strings.Contains(body, "msg=ran extension=demo job.note=") {
+	if !strings.Contains(body, "msg=ran extension=demo grp.note=") {
 		t.Fatalf("want the line with its attributes and group:\n%s", body)
 	}
 	if strings.Contains(body, "below the level") {

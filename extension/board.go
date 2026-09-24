@@ -44,6 +44,12 @@ type Pane struct {
 	// Dialog is the dialog the live pane is holding, guarded ones
 	// included, or nil.
 	Dialog *Dialog
+	// AtPrompt is a live session resting at its input line with nothing
+	// written there and nobody typing: the state BoardHost.Command needs
+	// to type. It is false on a dialog, while the pane is scrolled into
+	// its history, for a stored screen, and for a tool whose input line
+	// the board cannot find.
+	AtPrompt bool
 }
 
 // Answered is what one Answer did.

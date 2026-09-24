@@ -74,9 +74,6 @@ func (s *Sessions) BoardCommand(ctx context.Context, targetID, text, confirm str
 	if err := runtime.running(target); err != nil {
 		return err
 	}
-	if runtime.cfg.Tools[target.Tool].ActivityCutoff == "" {
-		return fmt.Errorf("session %s: tool %q declares no activity_cutoff: %w", target.ID, target.Tool, extension.ErrNoCommandLine)
-	}
 	engine, err := status.NewEngine(runtime.cfg)
 	if err != nil {
 		return err
@@ -86,17 +83,8 @@ func (s *Sessions) BoardCommand(ctx context.Context, targetID, text, confirm str
 		return err
 	}
 	clean := ansi.Strip(pane)
-	if engine.ViewportDisplaced(target.Tool, clean) {
-		return fmt.Errorf("session %s is scrolled into its history; Unpark it first: %w", target.ID, extension.ErrNotAtPrompt)
-	}
-	if hold := engine.TypingHold(target.Tool, clean); hold != "" {
-		return fmt.Errorf("session %s is %s: %w", target.ID, hold, extension.ErrNotAtPrompt)
-	}
-	if at, err := runtime.driver.SessionInputAt(target.ID); err == nil && !at.IsZero() && time.Since(at) < status.OperatorQuiet {
-		return fmt.Errorf("someone is typing in session %s: %w", target.ID, extension.ErrNotAtPrompt)
-	}
-	if x, y, err := runtime.driver.Cursor(target.ID); err == nil && engine.DraftInComposer(target.Tool, clean, x, y) {
-		return fmt.Errorf("someone has text written at session %s's prompt: %w", target.ID, extension.ErrNotAtPrompt)
+	if err := runtime.promptHold(engine, target, clean); err != nil {
+		return err
 	}
 	before := confirmRows(clean, confirm)
 	if err := runtime.driver.SendText(target.ID, text); err != nil {
@@ -106,6 +94,29 @@ func (s *Sessions) BoardCommand(ctx context.Context, targetID, text, confirm str
 		return nil
 	}
 	return runtime.confirm(ctx, engine, target, confirm, before)
+}
+
+// promptHold is why a running session cannot be typed a command now,
+// wrapping extension.ErrNoCommandLine or extension.ErrNotAtPrompt, or nil
+// when it rests at its prompt with nothing written there and nobody typing.
+// clean is its live pane with the escapes stripped.
+func (r *runtime) promptHold(engine *status.Engine, target store.Session, clean string) error {
+	if r.cfg.Tools[target.Tool].ActivityCutoff == "" {
+		return fmt.Errorf("session %s: tool %q declares no activity_cutoff: %w", target.ID, target.Tool, extension.ErrNoCommandLine)
+	}
+	if engine.ViewportDisplaced(target.Tool, clean) {
+		return fmt.Errorf("session %s is scrolled into its history; Unpark it first: %w", target.ID, extension.ErrNotAtPrompt)
+	}
+	if hold := engine.TypingHold(target.Tool, clean); hold != "" {
+		return fmt.Errorf("session %s is %s: %w", target.ID, hold, extension.ErrNotAtPrompt)
+	}
+	if at, err := r.driver.SessionInputAt(target.ID); err == nil && !at.IsZero() && time.Since(at) < status.OperatorQuiet {
+		return fmt.Errorf("someone is typing in session %s: %w", target.ID, extension.ErrNotAtPrompt)
+	}
+	if x, y, err := r.driver.Cursor(target.ID); err == nil && engine.DraftInComposer(target.Tool, clean, x, y) {
+		return fmt.Errorf("someone has text written at session %s's prompt: %w", target.ID, extension.ErrNotAtPrompt)
+	}
+	return nil
 }
 
 // confirm watches the pane after a command for its own confirmation and

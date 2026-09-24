@@ -47,6 +47,9 @@ type BoardPane struct {
 	// question on it can no longer be answered.
 	Dialog    dialog.Dialog
 	HasDialog bool
+	// AtPrompt is a live session resting at its prompt with nothing
+	// written there and nobody typing: one BoardCommand would type into.
+	AtPrompt bool
 }
 
 // BoardGet is one agent session, as Get reports it, without a caller.
@@ -102,7 +105,8 @@ func (s *Sessions) BoardRead(targetID string) (read BoardPane, err error) {
 	if err != nil {
 		return BoardPane{}, err
 	}
-	pane = strings.TrimRight(ansi.Strip(pane), "\r\n")
+	clean := ansi.Strip(pane)
+	pane = strings.TrimRight(clean, "\r\n")
 	read = BoardPane{
 		Session: runtime.sessionInfo(target, live, false),
 		Text:    pane,
@@ -111,6 +115,11 @@ func (s *Sessions) BoardRead(targetID string) (read BoardPane, err error) {
 	read.Session.Status = runtime.digest(target, pane, live, convo.Delta{}).Status
 	if live {
 		read.Dialog, read.HasDialog = dialog.Inspect(pane)
+		engine, err := status.NewEngine(runtime.cfg)
+		if err != nil {
+			return BoardPane{}, err
+		}
+		read.AtPrompt = runtime.promptHold(engine, target, clean) == nil
 	}
 	return read, nil
 }

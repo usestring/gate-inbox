@@ -211,8 +211,14 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 		// The helper's pane never draws a prompt, so a tool command is
 		// refused as not at one, and its viewport, with no jump-back
 		// affordance configured, is never parked.
+		// ReadPane says so first: AtPrompt is the reading Command acts on.
+		pane, err := board.ReadPane(ctx, helper.ID)
+		if err != nil {
+			record("command.txt", "error: "+err.Error())
+			return
+		}
 		err = board.Command(ctx, helper.ID, extension.ToolCommand{Text: "/model fast"})
-		record("command.txt", fmt.Sprintf("%s at-prompt %v", helper.ID, !errors.Is(err, extension.ErrNotAtPrompt)))
+		record("command.txt", fmt.Sprintf("%s at-prompt %v read %v", helper.ID, !errors.Is(err, extension.ErrNotAtPrompt), pane.AtPrompt))
 		parked, err := board.Unpark(ctx, helper.ID)
 		if err != nil {
 			record("unparked.txt", "error: "+err.Error())

@@ -55,7 +55,7 @@ func (b *Board) ReadPane(ctx context.Context, id string) (extension.Pane, error)
 	if err != nil {
 		return extension.Pane{}, err
 	}
-	pane := extension.Pane{Session: info(read.Session), Text: read.Text, Live: read.Live}
+	pane := extension.Pane{Session: info(read.Session), Text: read.Text, Live: read.Live, AtPrompt: read.AtPrompt}
 	// Read again through the public parser rather than converted field by
 	// field, so the two can never disagree about the same screen.
 	if read.HasDialog {

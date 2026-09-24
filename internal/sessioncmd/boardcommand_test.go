@@ -149,6 +149,44 @@ func TestBoardCommandRefusals(t *testing.T) {
 	}
 }
 
+// BoardRead's AtPrompt is the reading BoardCommand refuses on: true exactly
+// where a command would be typed.
+func TestBoardReadAtPromptIsWhereACommandWouldBeTyped(t *testing.T) {
+	h := newSessionHarness(t)
+	resting := paneRunning(t, h, "cmd00030", "echoer", promptThenEcho, "❯")
+	dialogPane := paneRunning(t, h, "cmd00031", "dialog",
+		`printf 'Do you want to proceed?\n  1. Yes\n  2. No\nEnter to confirm\n❯ '; sleep 60`, "Enter to confirm")
+	blind := paneRunning(t, h, "cmd00032", "blind", promptThenEcho, "❯")
+	parked := paneRunning(t, h, "cmd00033", "scroller",
+		`printf 'history\nJump to bottom\n❯ '; sleep 60`, "Jump to bottom")
+	for _, tc := range []struct {
+		name, id string
+		want     bool
+	}{
+		{"resting", resting.ID, true},
+		{"on a dialog", dialogPane.ID, false},
+		{"no input line", blind.ID, false},
+		{"parked", parked.ID, false},
+	} {
+		read, err := h.sessions.BoardRead(tc.id)
+		if err != nil {
+			t.Fatalf("%s: BoardRead: %v", tc.name, err)
+		}
+		if read.AtPrompt != tc.want {
+			t.Errorf("%s: AtPrompt = %v, want %v", tc.name, read.AtPrompt, tc.want)
+		}
+		if got := h.sessions.BoardCommand(context.Background(), tc.id, "/model fast", "") == nil; tc.name != "resting" && got {
+			t.Errorf("%s: BoardCommand typed where AtPrompt is false", tc.name)
+		}
+	}
+	if err := h.driver.Kill(resting.ID); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
+	if read, err := h.sessions.BoardRead(resting.ID); err != nil || read.Live || read.AtPrompt {
+		t.Fatalf("a dead session: %+v, %v; want a stored screen, not at its prompt", read, err)
+	}
+}
+
 func TestBoardUnparkPressesTheJumpBackKey(t *testing.T) {
 	h := newSessionHarness(t)
 	sess := paneRunning(t, h, "cmd00020", "scroller",

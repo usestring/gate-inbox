@@ -238,7 +238,7 @@ func TestBoardLaunchFilesARoleHelperUnderItsParent(t *testing.T) {
 
 func TestCreateLaunchesTheShapedSpawn(t *testing.T) {
 	h := newSessionHarness(t)
-	watcher := &launchWatcher{shape: extension.SpawnShape{PromptPrefix: "GOAL: ship it", KeepUnderSpawner: true}}
+	watcher := &launchWatcher{shape: extension.SpawnShape{PromptPrefix: "GOAL: ship it", PromptSuffix: "REPORT: when done", KeepUnderSpawner: true}}
 	useWatcher(t, watcher)
 	detach := false
 
@@ -261,7 +261,7 @@ func TestCreateLaunchesTheShapedSpawn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.ParentID != h.caller.ID || !strings.Contains(stored.LaunchPrompt, "GOAL: ship it\n\nthe sub-task") {
+	if stored.ParentID != h.caller.ID || !strings.Contains(stored.LaunchPrompt, "GOAL: ship it\n\nthe sub-task\n\nREPORT: when done") {
 		t.Fatalf("stored parent %q, prompt %q", stored.ParentID, stored.LaunchPrompt)
 	}
 
@@ -278,7 +278,7 @@ func TestCreateLaunchesTheShapedSpawn(t *testing.T) {
 func TestMigrateLaunchesOnTheShapedPrompt(t *testing.T) {
 	h := newSessionHarness(t)
 	source, _ := claudeSource(t, h)
-	watcher := &launchWatcher{shape: extension.SpawnShape{PromptPrefix: "GOAL: carried over"}}
+	watcher := &launchWatcher{shape: extension.SpawnShape{PromptPrefix: "GOAL: carried over", PromptSuffix: "REPORT: to the goal"}}
 	useWatcher(t, watcher)
 
 	moved, err := h.sessions.Migrate(h.caller.ID, source.ID, MigrateOptions{Tool: "echoer"})
@@ -295,7 +295,7 @@ func TestMigrateLaunchesOnTheShapedPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(stored.LaunchPrompt, "GOAL: carried over\n\nYou are taking over") {
+	if !strings.Contains(stored.LaunchPrompt, "GOAL: carried over\n\nYou are taking over") || !strings.HasSuffix(stored.LaunchPrompt, "\n\nREPORT: to the goal") {
 		t.Fatalf("the migrated session launched on %q", stored.LaunchPrompt)
 	}
 }

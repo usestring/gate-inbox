@@ -113,7 +113,7 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	if err != nil {
 		return Session{}, err
 	}
-	prompt = shape.Prefixed(prompt)
+	prompt = shape.Shaped(prompt)
 	var account string
 	if opts.accountOverride != nil {
 		account = *opts.accountOverride

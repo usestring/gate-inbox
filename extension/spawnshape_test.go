@@ -30,9 +30,9 @@ func (s *shaper) ShapeSpawn(_ context.Context, launch extension.Launch) (extensi
 }
 
 func TestSessionHooksJoinEveryShapersPrefixInOrder(t *testing.T) {
-	goal := &shaper{id: "goal", shape: extension.SpawnShape{PromptPrefix: "  Work to the goal.\n"}}
+	goal := &shaper{id: "goal", shape: extension.SpawnShape{PromptPrefix: "  Work to the goal.\n", PromptSuffix: "Report when done.\n"}}
 	blank := &shaper{id: "blank"}
-	keep := &shaper{id: "keep", shape: extension.SpawnShape{PromptPrefix: "Report to your spawner.", KeepUnderSpawner: true}}
+	keep := &shaper{id: "keep", shape: extension.SpawnShape{PromptPrefix: "Report to your spawner.", PromptSuffix: " Stop at the gate.", KeepUnderSpawner: true}}
 	hooks := sessionHooks(t, goal, blank, &stub{id: "tools-only"}, keep)
 
 	launch := extension.Launch{Session: extension.SessionInfo{ID: "abcd1234"}, Reason: extension.LaunchMigrate, From: "0ld5e551"}
@@ -54,6 +54,12 @@ func TestSessionHooksJoinEveryShapersPrefixInOrder(t *testing.T) {
 	}
 	if got := shape.Prefixed("do the thing"); got != want+"\n\ndo the thing" {
 		t.Fatalf("Prefixed = %q", got)
+	}
+	if wantSuffix := "Report when done.\n\nStop at the gate."; shape.PromptSuffix != wantSuffix {
+		t.Fatalf("PromptSuffix = %q, want %q", shape.PromptSuffix, wantSuffix)
+	}
+	if got := shape.Shaped("do the thing"); got != want+"\n\ndo the thing\n\n"+shape.PromptSuffix {
+		t.Fatalf("Shaped = %q", got)
 	}
 }
 
@@ -85,5 +91,14 @@ func TestAnEmptyShapeLeavesThePromptAlone(t *testing.T) {
 	}
 	if got := (extension.SpawnShape{PromptPrefix: "brief"}).Prefixed(""); got != "brief" {
 		t.Fatalf("Prefixed with no prompt = %q", got)
+	}
+	if got := shape.Shaped("as asked"); got != "as asked" {
+		t.Fatalf("Shaped = %q", got)
+	}
+	if got := (extension.SpawnShape{PromptSuffix: " after "}).Shaped(""); got != "after" {
+		t.Fatalf("Shaped with no prompt = %q", got)
+	}
+	if got := (extension.SpawnShape{PromptSuffix: "after"}).Shaped("the task"); got != "the task\n\nafter" {
+		t.Fatalf("Shaped with a suffix only = %q", got)
 	}
 }

@@ -116,6 +116,11 @@ type SpawnShape struct {
 	// followed by a blank line. Two shapers' prefixes go in registration
 	// order.
 	PromptPrefix string
+	// PromptSuffix goes after the prompt the session is launched with,
+	// behind a blank line: a block the session reads once it has the task,
+	// such as how to report back. Two shapers' suffixes go in registration
+	// order.
+	PromptSuffix string
 	// KeepUnderSpawner files a spawn its caller asked to detach, with nest
 	// false, under the caller anyway, where a nested spawn would have gone:
 	// its questions and rests still reach the session that asked for the

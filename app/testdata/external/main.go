@@ -234,13 +234,14 @@ func (n *noop) record(name, line string) {
 }
 
 // ShapeSpawn briefs every migration on the goal it carries, and keeps a
-// session named detached under the session that spawned it, briefed too.
+// session named detached under the session that spawned it, briefed too and
+// told after its task how to report.
 func (n *noop) ShapeSpawn(_ context.Context, launch extension.Launch) (extension.SpawnShape, error) {
 	switch {
 	case launch.Reason == extension.LaunchMigrate:
 		return extension.SpawnShape{PromptPrefix: "NOOP GOAL carried from " + launch.From}, nil
 	case launch.Session.Name == "detached":
-		return extension.SpawnShape{PromptPrefix: "NOOP GOAL for " + launch.Session.SpawnedBy, KeepUnderSpawner: true}, nil
+		return extension.SpawnShape{PromptPrefix: "NOOP GOAL for " + launch.Session.SpawnedBy, PromptSuffix: "NOOP REPORT to " + launch.Session.SpawnedBy, KeepUnderSpawner: true}, nil
 	}
 	return extension.SpawnShape{}, nil
 }

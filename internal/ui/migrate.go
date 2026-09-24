@@ -152,7 +152,7 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 		m.reportLaunchError(err)
 		return m, nil
 	}
-	prompt = shape.Prefixed(prompt)
+	prompt = shape.Shaped(prompt)
 	var account string
 	if m.migrate.account != nil {
 		account = *m.migrate.account

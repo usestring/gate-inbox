@@ -72,14 +72,15 @@ func (r *Registry) SessionHooks(configDir string, sections map[string]map[string
 }
 
 // ShapeSpawn asks every shaper, and stops at the first that refuses. The
-// prefixes are joined in registration order, each followed by a blank line,
-// and the launch is kept under its spawner when any shaper asks for it.
+// prefixes and the suffixes are each joined in registration order, a blank
+// line apart, and the launch is kept under its spawner when any shaper asks
+// for it.
 func (h *SessionHooks) ShapeSpawn(ctx context.Context, launch Launch) (SpawnShape, error) {
 	var shape SpawnShape
 	if h == nil {
 		return shape, nil
 	}
-	var prefixes []string
+	var prefixes, suffixes []string
 	for _, s := range h.shapers {
 		var got SpawnShape
 		err := guard(func() error {
@@ -93,10 +94,28 @@ func (h *SessionHooks) ShapeSpawn(ctx context.Context, launch Launch) (SpawnShap
 		if prefix := strings.TrimSpace(got.PromptPrefix); prefix != "" {
 			prefixes = append(prefixes, prefix)
 		}
+		if suffix := strings.TrimSpace(got.PromptSuffix); suffix != "" {
+			suffixes = append(suffixes, suffix)
+		}
 		shape.KeepUnderSpawner = shape.KeepUnderSpawner || got.KeepUnderSpawner
 	}
 	shape.PromptPrefix = strings.Join(prefixes, "\n\n")
+	shape.PromptSuffix = strings.Join(suffixes, "\n\n")
 	return shape, nil
+}
+
+// Shaped is prompt with the shape's prefix ahead of it and its suffix after
+// it, each a blank line away.
+func (s SpawnShape) Shaped(prompt string) string {
+	prompt = s.Prefixed(prompt)
+	suffix := strings.TrimSpace(s.PromptSuffix)
+	if suffix == "" {
+		return prompt
+	}
+	if prompt == "" {
+		return suffix
+	}
+	return prompt + "\n\n" + suffix
 }
 
 // Prefixed is prompt with the shape's prefix ahead of it.

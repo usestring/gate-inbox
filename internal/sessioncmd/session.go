@@ -569,7 +569,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 			}
 		}
 	}
-	prompt := shape.Prefixed(strings.TrimSpace(opts.Prompt))
+	prompt := shape.Shaped(strings.TrimSpace(opts.Prompt))
 	if strings.HasPrefix(prompt, "-") && tool.PromptFlag == "" {
 		return Session{}, fmt.Errorf(`prompt cannot start with "-" for %s, which takes its prompt as a bare argument and would read it as a flag`, toolName)
 	}

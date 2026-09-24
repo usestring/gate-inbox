@@ -72,7 +72,7 @@ func TestExternalBuildHasASayInLaunches(t *testing.T) {
 		t.Fatalf("spawn detached: %v\n%s", err, out)
 	}
 	detached := storedSession(t, filepath.Join(home, "state.db"), idOf(t, out))
-	if detached.ParentID != "ca11e400" || !strings.Contains(detached.LaunchPrompt, "NOOP GOAL for ca11e400\n\nthe sub-task") {
+	if detached.ParentID != "ca11e400" || !strings.Contains(detached.LaunchPrompt, "NOOP GOAL for ca11e400\n\nthe sub-task\n\nNOOP REPORT to ca11e400") {
 		t.Fatalf("the shaped spawn was filed under %q on %q", detached.ParentID, detached.LaunchPrompt)
 	}
 

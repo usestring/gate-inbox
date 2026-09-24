@@ -20,6 +20,7 @@ import (
 type boardWatcher struct {
 	failMigrate bool
 	prefix      string
+	suffix      string
 	shaped      []extension.Launch
 	spawned     []extension.Spawn
 	launches    []extension.Launch
@@ -30,7 +31,7 @@ func (w *boardWatcher) Descriptor() extension.Descriptor { return extension.Desc
 func (w *boardWatcher) Configure(extension.Config) error { return nil }
 func (w *boardWatcher) ShapeSpawn(_ context.Context, launch extension.Launch) (extension.SpawnShape, error) {
 	w.shaped = append(w.shaped, launch)
-	return extension.SpawnShape{PromptPrefix: w.prefix}, nil
+	return extension.SpawnShape{PromptPrefix: w.prefix, PromptSuffix: w.suffix}, nil
 }
 func (w *boardWatcher) AllowSpawn(_ context.Context, spawn extension.Spawn) error {
 	if spawn.Session.Name == "over-budget" {
@@ -113,7 +114,7 @@ func TestOperatorSpawnIsPutToTheSpawnPolicy(t *testing.T) {
 func TestBoardMigrationLaunchesOnTheShapedPrompt(t *testing.T) {
 	m := buildModel(t)
 	source, _ := seedMigrateSource(t, m)
-	watcher := &boardWatcher{prefix: "GOAL: carried over"}
+	watcher := &boardWatcher{prefix: "GOAL: carried over", suffix: "REPORT: to the goal"}
 	useBoardWatcher(t, watcher)
 	m.cfg.Tools["claude"] = config.Tool{Command: "cat", DefaultStatus: status.Idle}
 
@@ -130,7 +131,7 @@ func TestBoardMigrationLaunchesOnTheShapedPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(moved.LaunchPrompt, "GOAL: carried over\n\nYou are taking over") {
+	if !strings.Contains(moved.LaunchPrompt, "GOAL: carried over\n\nYou are taking over") || !strings.HasSuffix(moved.LaunchPrompt, "\n\nREPORT: to the goal") {
 		t.Fatalf("the migrated session launched on %q", moved.LaunchPrompt)
 	}
 }

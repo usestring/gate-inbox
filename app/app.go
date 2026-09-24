@@ -22,6 +22,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/usestring/gate-inbox/extension"
@@ -43,6 +45,15 @@ type Options struct {
 	Extensions []extension.Extension
 	// BuildInfo describes the executable.
 	BuildInfo BuildInfo
+	// ConfigDefaults is config.toml text laid under the operator's own file
+	// on every load: a key the file defines wins, even defined empty; a key
+	// only these define comes from here; anything still unset takes the
+	// built-in default. Tables merge key by key, and any other value, an
+	// array included, is replaced whole. It is how a distribution fills in
+	// what DistributionSupplied lists without rewriting anybody's file. Run
+	// refuses text that does not parse or names a key the board does not
+	// read.
+	ConfigDefaults string
 }
 
 // Name is the command this program is run as.
@@ -86,10 +97,17 @@ func Run(ctx context.Context, args []string, opts Options) error {
 	}
 
 	// A build whose extension set is malformed -- two with one ID, one with
-	// no ID -- is broken whichever face is asked, and says so before any of
-	// them does anything.
+	// no ID -- or whose defaults configure an extension it does not carry is
+	// broken whichever face is asked, and says so before any of them does
+	// anything.
 	registry, err := extension.NewRegistry(opts.Extensions)
 	if err != nil {
+		return err
+	}
+	if _, err := config.UseDefaults(opts.ConfigDefaults); err != nil {
+		return err
+	}
+	if err := defaultsOwnedBy(registry); err != nil {
 		return err
 	}
 	accounts.UsePool(poolOf(registry))
@@ -142,6 +160,29 @@ func poolOf(registry *extension.Registry) func() (extension.AccountPool, error) 
 		}
 		return registry.AccountPool(dir, cfg.Extensions)
 	})
+}
+
+// defaultsOwnedBy refuses defaults with an [extensions.<id>] section no
+// extension in registry owns. An operator's file with one is refused when a
+// face configures its extensions; the defaults ship with the build, so the
+// same mistake there is refused up front, on every face.
+func defaultsOwnedBy(registry *extension.Registry) error {
+	ids := registry.IDs()
+	var unowned []string
+	for _, id := range config.DefaultExtensionSections() {
+		if !slices.Contains(ids, id) {
+			unowned = append(unowned, id)
+		}
+	}
+	if len(unowned) == 0 {
+		return nil
+	}
+	have := strings.Join(ids, ", ")
+	if have == "" {
+		have = "none"
+	}
+	return fmt.Errorf("config defaults: [extensions] has section(s) no extension in this build owns: %s (this build has: %s)",
+		strings.Join(unowned, ", "), have)
 }
 
 func unknownCommand(arg string) error {

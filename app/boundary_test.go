@@ -88,7 +88,24 @@ func fixtureHome(t *testing.T, config string) []string {
 	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("poll_interval = \"2s\"\n\n"+config), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return append(os.Environ(), "GATE_INBOX_HOME="+home, "GATE_INBOX_SESSION_ID=fixture-session")
+	return append(isolatedEnv(t), "GATE_INBOX_HOME="+home, "GATE_INBOX_SESSION_ID=fixture-session")
+}
+
+// isolatedEnv is this process's environment with no way back to the tmux
+// server the test runs under: TMUX and TMUX_PANE are dropped, so a child's
+// bare tmux call cannot reach the live server, and TMUX_TMPDIR points at a
+// scratch directory.
+func isolatedEnv(t *testing.T) []string {
+	t.Helper()
+	var env []string
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if key == "TMUX" || key == "TMUX_PANE" || key == "TMUX_TMPDIR" {
+			continue
+		}
+		env = append(env, entry)
+	}
+	return append(env, "TMUX_TMPDIR="+t.TempDir())
 }
 
 // TestExternalBuildServesEveryEntryPoint is the acceptance proof for the
@@ -130,6 +147,60 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		// Its own config section, and the session it was registered for.
 		if text != "hi from fixture-session" {
 			t.Fatalf("noop_ping answered %q", text)
+		}
+	})
+
+	// The build's config defaults lie under the operator's file: with no
+	// file of its own, the extension's greeting and claude's named-account
+	// settings both come from the distribution. The "mcp" case above,
+	// whose file sets the greeting, is the operator winning.
+	t.Run("mcp config defaults", func(t *testing.T) {
+		home := t.TempDir()
+		env := append(isolatedEnv(t), "GATE_INBOX_HOME="+home, "GATE_INBOX_SESSION_ID=fixture-session")
+		session := connectFixture(t, bin, env)
+		if got := callText(t, session, "noop_ping", map[string]any{}); got != "distribution greeting from fixture-session" {
+			t.Fatalf("noop_ping answered %q", got)
+		}
+		got := callText(t, session, "list_accounts", map[string]any{"tool": "claude"})
+		if !strings.Contains(got, "alice1\nbob2") {
+			t.Fatalf("list_accounts answered %q, want the accounts the defaults' accounts_command lists", got)
+		}
+		written, err := os.ReadFile(filepath.Join(home, "config.toml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(written), "FIXTURE_") || strings.Contains(string(written), "distribution greeting") {
+			t.Fatal("the first-run config.toml carries the distribution's defaults")
+		}
+	})
+
+	// Defaults are part of the build, so a section in them that no
+	// extension of the build owns is a broken build: every face refuses it
+	// before it starts, the MCP face included, rather than serving a session
+	// with the build's extensions silently dropped.
+	t.Run("defaults naming an unowned section stop every face", func(t *testing.T) {
+		const want = "config defaults: [extensions] has section(s) no extension in this build owns: stranger (this build has: noop)"
+		faces := map[string]*exec.Cmd{
+			"cli": exec.Command(bin, "--version"),
+			"mcp": exec.Command(bin, "mcp"),
+		}
+		if script, err := exec.LookPath("script"); err == nil {
+			faces["tui"] = exec.Command(script, "-qec", bin, "/dev/null")
+			if runtime.GOOS != "linux" {
+				faces["tui"] = exec.Command(script, "-q", "/dev/null", bin)
+			}
+		}
+		for name, face := range faces {
+			t.Run(name, func(t *testing.T) {
+				face.Env = append(fixtureHome(t, ""), "FIXTURE_EXTRA_DEFAULTS=\n[extensions.stranger]\nx = 1\n")
+				out, err := face.CombinedOutput()
+				if err == nil && name != "tui" {
+					t.Fatalf("started despite the unowned section:\n%s", out)
+				}
+				if !strings.Contains(string(out), want) {
+					t.Fatalf("want %q:\n%s", want, out)
+				}
+			})
 		}
 	})
 

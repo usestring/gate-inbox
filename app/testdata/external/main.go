@@ -122,10 +122,41 @@ func text(s string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: s}}}
 }
 
+// configDefaults is what this build's operators start from: the named
+// account settings the core leaves for a distribution to bring, and the
+// extension's greeting. An operator's own config.toml overrides any of it.
+const configDefaults = `
+[tools.claude]
+account_env = "FIXTURE_TOKEN"
+account_secret = "FIXTURE_{account}"
+accounts_command = "echo FIXTURE_alice1; echo FIXTURE_bob2"
+
+[extensions.noop]
+greeting = "distribution greeting"
+`
+
+// supplied are the keys configDefaults fills in. Each has to be one the
+// core leaves to a distribution, so a key it renames fails this build at
+// start rather than quietly supplying nothing.
+var supplied = []string{"tools.claude.account_env", "tools.claude.account_secret", "tools.claude.accounts_command"}
+
 func main() {
+	listed := map[string]bool{}
+	for _, s := range app.DistributionSupplied() {
+		listed[s.Key] = true
+	}
+	for _, key := range supplied {
+		if !listed[key] {
+			fmt.Fprintln(os.Stderr, "fixture: the core no longer leaves", key, "to a distribution")
+			os.Exit(1)
+		}
+	}
 	err := app.Run(context.Background(), os.Args[1:], app.Options{
 		Extensions: []extension.Extension{&noop{}},
 		BuildInfo:  app.BuildInfo{Version: "0.0.0-fixture"},
+		// FIXTURE_EXTRA_DEFAULTS stands in for a build whose defaults are
+		// wrong, without a second fixture module.
+		ConfigDefaults: configDefaults + os.Getenv("FIXTURE_EXTRA_DEFAULTS"),
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "fixture:", err)

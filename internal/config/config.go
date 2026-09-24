@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-
-	"github.com/usestring/gate-inbox/internal/logging"
 )
 
 // defaultNameSweepPace paces the bulk rename sweep. Slow enough that a
@@ -592,19 +590,6 @@ func withRuleFor(sample string, user, def []Rule) []Rule {
 		return append(out, user[at:]...)
 	}
 	return user
-}
-
-func decodeInto(path string, cfg *Config) error {
-	meta, err := toml.DecodeFile(path, cfg)
-	if err != nil {
-		return err
-	}
-	for _, section := range retiredSections {
-		if meta.IsDefined(section) {
-			logging.Warn("config section is no longer read; it is ignored", "path", path, "section", section)
-		}
-	}
-	return nil
 }
 
 // retiredSections are sections an older build read and this one does not. A

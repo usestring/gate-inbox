@@ -246,7 +246,7 @@ func (n *noop) record(name, line string) {
 // wide spawn would.
 func (n *noop) AllowSpawn(_ context.Context, spawn extension.Spawn) error {
 	if spawn.Session.Name == "over-budget" {
-		return errors.New("this goal's budget is spent")
+		return errors.New("the spawn budget is spent")
 	}
 	return nil
 }

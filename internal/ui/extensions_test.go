@@ -34,12 +34,12 @@ func pressExtensionKey(t *testing.T, m *Model, k string) {
 func TestAnExtensionKeyRunsWithTheSelectedRow(t *testing.T) {
 	m := childModel(t)
 	var got []Press
-	m.InstallExtensions([]ExtensionUI{{Owner: "cards", Keys: []ExtensionKey{
-		{Action: "open_card", Keys: []string{"c"}, Label: "open the card",
+	m.InstallExtensions([]ExtensionUI{{Owner: "items", Keys: []ExtensionKey{
+		{Action: "open_item", Keys: []string{"c"}, Label: "open the item",
 			Run: func(p Press) error { got = append(got, p); return nil }},
 		{Action: "grab_quit", Keys: []string{"q"}, Label: "wants quit's key",
 			Run: func(Press) error { t.Error("an extension took quit's key"); return nil }},
-	}}}, NewExtensionBridge([]string{"cards"}))
+	}}}, NewExtensionBridge([]string{"items"}))
 
 	m.selectSessionRow(t, "unrelated")
 	pressExtensionKey(t, m, "c")
@@ -61,18 +61,18 @@ func TestAnExtensionKeyRunsWithTheSelectedRow(t *testing.T) {
 // and one that panics costs its own press rather than the board.
 func TestAFailingExtensionKeyIsReportedNotFatal(t *testing.T) {
 	m := childModel(t)
-	m.InstallExtensions([]ExtensionUI{{Owner: "cards", Keys: []ExtensionKey{
-		{Action: "fails", Keys: []string{"c"}, Run: func(Press) error { return errors.New("no card here") }},
+	m.InstallExtensions([]ExtensionUI{{Owner: "items", Keys: []ExtensionKey{
+		{Action: "fails", Keys: []string{"c"}, Run: func(Press) error { return errors.New("no item here") }},
 		{Action: "panics", Keys: []string{"C"}, Run: func(Press) error { panic("broken") }},
-	}}}, NewExtensionBridge([]string{"cards"}))
+	}}}, NewExtensionBridge([]string{"items"}))
 	m.selectSessionRow(t, "worker")
 
 	pressExtensionKey(t, m, "c")
-	if m.errBar.text != "cards: no card here" {
+	if m.errBar.text != "items: no item here" {
 		t.Fatalf("status bar = %q", m.errBar.text)
 	}
 	pressExtensionKey(t, m, "C")
-	if !strings.HasPrefix(m.errBar.text, "cards: panicked") {
+	if !strings.HasPrefix(m.errBar.text, "items: panicked") {
 		t.Fatalf("status bar = %q", m.errBar.text)
 	}
 }
@@ -81,15 +81,15 @@ func TestAFailingExtensionKeyIsReportedNotFatal(t *testing.T) {
 // key map screen lists it under the extension's name.
 func TestTheKeyFileAndTheKeyMapReachExtensionKeys(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, keymap.FileName), []byte("[list]\nopen_card = [\"C\"]\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, keymap.FileName), []byte("[list]\nopen_item = [\"C\"]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	m := childModel(t)
 	m.hooks = hooks.NewManager(dir)
 	var pressed int
-	m.InstallExtensions([]ExtensionUI{{Owner: "cards", Keys: []ExtensionKey{
-		{Action: "open_card", Keys: []string{"c"}, Label: "open the card", Run: func(Press) error { pressed++; return nil }},
-	}}}, NewExtensionBridge([]string{"cards"}))
+	m.InstallExtensions([]ExtensionUI{{Owner: "items", Keys: []ExtensionKey{
+		{Action: "open_item", Keys: []string{"c"}, Label: "open the item", Run: func(Press) error { pressed++; return nil }},
+	}}}, NewExtensionBridge([]string{"items"}))
 	if len(m.keyProblems) != 0 {
 		t.Fatalf("problems: %v", m.keyProblems)
 	}
@@ -100,11 +100,11 @@ func TestTheKeyFileAndTheKeyMapReachExtensionKeys(t *testing.T) {
 	}
 	var section *resolvedSection
 	for _, s := range m.resolvedHelp() {
-		if s.title == "cards" {
+		if s.title == "items" {
 			section = &s
 		}
 	}
-	if section == nil || len(section.rows) != 1 || section.rows[0].key != "C" || section.rows[0].text != "open the card" {
+	if section == nil || len(section.rows) != 1 || section.rows[0].key != "C" || section.rows[0].text != "open the item" {
 		t.Fatalf("key map section: %+v", section)
 	}
 }
@@ -120,7 +120,7 @@ func TestExtensionBadgesDrawOnTheRow(t *testing.T) {
 	bridge.Attach(func(tea.Msg) {})
 
 	bridge.Decorate("second", "s9", []Badge{{Text: "later", Tone: ToneBad}})
-	bridge.Decorate("first", "s9", []Badge{{Text: "run 3/5 \x1b[31m·\n12m", Short: "3/5", Tone: ToneAccent}})
+	bridge.Decorate("first", "s9", []Badge{{Text: "set 3/5 \x1b[31m·\n12m", Short: "3/5", Tone: ToneAccent}})
 	m.Update(extensionBadgesMsg{})
 
 	row := func(width int) string {
@@ -135,7 +135,7 @@ func TestExtensionBadgesDrawOnTheRow(t *testing.T) {
 		return ""
 	}
 	wide := row(200)
-	if !strings.Contains(wide, "run 3/5 [31m·12m later") {
+	if !strings.Contains(wide, "set 3/5 [31m·12m later") {
 		t.Fatalf("wide row = %q, want both badges in build order with the escape removed", wide)
 	}
 	for _, width := range []int{60, 50, 45, 40} {
@@ -144,7 +144,7 @@ func TestExtensionBadgesDrawOnTheRow(t *testing.T) {
 			t.Fatalf("%d columns: %q draws the second badge without the first", width, narrow)
 		}
 	}
-	if narrow := row(40); strings.Contains(narrow, "run 3/5") {
+	if narrow := row(40); strings.Contains(narrow, "set 3/5") {
 		t.Fatalf("40 columns kept the long form: %q", narrow)
 	}
 

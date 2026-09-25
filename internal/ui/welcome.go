@@ -3,8 +3,11 @@
 package ui
 
 import (
-	"github.com/usestring/gate-inbox/internal/keymap"
+	"fmt"
 	"strings"
+
+	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/keymap"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -18,11 +21,10 @@ import (
 // card is the introduction, shown once, on a store that has never held a
 // session -- so an install already in use is never interrupted by it.
 //
-// It offers a guided walkthrough as well as the reading, because a tour that
-// drives the real board teaches the keys better than a list of them does.
-// The walkthrough is not built yet, so the option says so rather than being
-// hidden: an operator who wants one should find out that it is coming, and
-// leaving the row out would make the card look complete when it is not.
+// It is also the first-run checklist: which agent CLIs this machine has, the
+// five keys the whole workflow is built from, whether agents are already
+// running in tmux (the reopen card that follows asks what to do with them),
+// and n to start a first session straight from the card.
 
 // welcomeSeenSetting marks the introduction as spent. It is set when the card
 // is raised rather than when it is dismissed: a first run that quits out of
@@ -50,6 +52,18 @@ func welcomeIntro() []string {
 		"Each session is your own installed CLI in its own tmux session: your login, your config, " +
 			"your MCP servers, and sessions that outlive this program.",
 	}
+}
+
+// welcomeFiveKeys is the whole workflow in five keys, ahead of the fuller
+// sections for when the operator wants more.
+func welcomeFiveKeys() welcomeSection {
+	return welcomeSection{title: "the five keys that matter", rows: [][2]string{
+		{"n", "start a session: pick the agent CLI, then type its task"},
+		{"↵", "focus the session under the cursor; keys go to the agent"},
+		{"ctrl+q", "back to this list from inside a session"},
+		{"i", "triage: every session waiting on you, longest-waiting first"},
+		{"? / H", "? peeks at the keys for this row; H is the full key map"},
+	}}
 }
 
 func welcomeSections() []welcomeSection {
@@ -82,7 +96,7 @@ func welcomeSections() []welcomeSection {
 // row added later cannot render clipped against its own description.
 func welcomeKeyColumn() int {
 	width := 0
-	for _, section := range welcomeSections() {
+	for _, section := range append(welcomeSections(), welcomeFiveKeys()) {
 		for _, row := range section.rows {
 			if w := textfmt.Width(row[0]); w > width {
 				width = w
@@ -96,21 +110,32 @@ func welcomeKeyColumn() int {
 // scrolls. The choices sit at the end, after the reading they follow from.
 // Everything wraps rather than truncating: on a narrow card the half that
 // would be cut is the half that says what a key does.
-func welcomeBodyLines(inner int) []string {
+func (m *Model) welcomeBodyLines(inner int) []string {
 	column := welcomeKeyColumn()
 	if room := inner / 3; column > room {
 		column = max(room, 4)
 	}
-	lines := make([]string, 0, 48)
+	lines := make([]string, 0, 64)
+	wrap := func(text string, style fastStyle) {
+		for _, line := range textfmt.Wrap(text, inner) {
+			lines = append(lines, style.Render(line))
+		}
+	}
 	for i, paragraph := range welcomeIntro() {
 		if i > 0 {
 			lines = append(lines, "")
 		}
-		for _, line := range textfmt.Wrap(paragraph, inner) {
-			lines = append(lines, subtleStyle.Render(line))
-		}
+		wrap(paragraph, subtleStyle)
 	}
-	for _, section := range welcomeSections() {
+	lines = append(lines, "", sectionStyle.Render("your agent CLIs"))
+	for _, row := range m.welcomeCLIRows() {
+		lines = append(lines, welcomeRow("  ", row.mark, valueStyle, row.text, column, inner)...)
+	}
+	lines = append(lines, "", sectionStyle.Render("agents already running"))
+	for _, line := range textfmt.Wrap(m.welcomeRunningLine(), max(inner-2, 8)) {
+		lines = append(lines, "  "+valueStyle.Render(line))
+	}
+	for _, section := range append([]welcomeSection{welcomeFiveKeys()}, welcomeSections()...) {
 		lines = append(lines, "", sectionStyle.Render(section.title))
 		for _, row := range section.rows {
 			lines = append(lines, welcomeRow("  ", keyStyle.Render(row[0]), valueStyle, row[1], column, inner)...)
@@ -119,10 +144,68 @@ func welcomeBodyLines(inner int) []string {
 	lines = append(lines, "")
 	lines = append(lines, welcomeChoices(column, inner)...)
 	lines = append(lines, "")
-	for _, line := range textfmt.Wrap("? is the complete, current key map, on every screen. The settings screen brings this card back.", inner) {
-		lines = append(lines, subtleStyle.Render(line))
-	}
+	wrap("This card shows once. H then w brings it back, and so does settings → welcome guide. "+
+		"The README's \"Stop using it\" section covers quitting, parking every agent and uninstalling.", subtleStyle)
 	return lines
+}
+
+// welcomeCLIRow is one configured agent CLI and whether it can start.
+type welcomeCLIRow struct {
+	mark string
+	text string
+}
+
+// welcomeCLIRows checks each configured agent CLI against PATH, since a CLI
+// the board lists but cannot find is the first thing a new install trips on.
+func (m *Model) welcomeCLIRows() []welcomeCLIRow {
+	names := sortedToolNames(m.cfg)
+	if len(names) == 0 {
+		return []welcomeCLIRow{{mark: errStyle.Render("✗"), text: "no agent CLI is configured; add a [tools.<name>] block to config.toml"}}
+	}
+	hidden := map[string]bool{}
+	if m.store != nil {
+		hidden = m.hiddenTools()
+	}
+	var rows []welcomeCLIRow
+	installed := 0
+	for _, name := range names {
+		tool := m.cfg.Tools[name]
+		switch err := config.CheckInstalled(tool.Command); {
+		case err != nil:
+			rows = append(rows, welcomeCLIRow{mark: mutedStyle.Render("·"), text: name + " — not found on PATH"})
+		case hidden[name]:
+			installed++
+			rows = append(rows, welcomeCLIRow{mark: mutedStyle.Render("·"), text: name + " — installed, hidden in settings → CLIs"})
+		default:
+			installed++
+			rows = append(rows, welcomeCLIRow{mark: keyStyle.Render("✓"), text: name + " — ready"})
+		}
+	}
+	if installed == 0 {
+		rows = append(rows, welcomeCLIRow{mark: errStyle.Render("✗"),
+			text: "none is installed: install Claude Code, Codex or OpenCode, then start the board again"})
+	}
+	return rows
+}
+
+// welcomeRunningLine says whether agents were already running in tmux. The
+// adopt scan runs alongside the card, so the line reads as looking until it
+// has answered.
+func (m *Model) welcomeRunningLine() string {
+	if !m.adoptFirstDone && m.store != nil && m.tmux != nil {
+		return "looking for agents already running in tmux…"
+	}
+	n := len(m.outsidePaneCandidates(true))
+	undecided := len(m.outsidePaneCandidates(false))
+	them := plural(n, "it", "them")
+	switch {
+	case n == 0:
+		return "none found in tmux. Agents you start by hand later show up on the board as well."
+	case undecided > 0 && m.outsidePanesMode() == reopenAsk:
+		return fmt.Sprintf("%d found in tmux and put on the board as-is. After this card the board asks whether to keep %s, relaunch %s into the board, or leave %s out.",
+			n, them, them, them)
+	}
+	return fmt.Sprintf("%d found in tmux and shown on the board as-is. O relaunches %s into the board or leaves %s out.", n, them, them)
 }
 
 // welcomeRow lays one key against its description, the description wrapping
@@ -142,14 +225,12 @@ func welcomeRow(marker, key string, style fastStyle, description string, column,
 	return lines
 }
 
-// welcomeChoices is the pair of answers the card ends on. The walkthrough is
-// drawn dimmed and labelled rather than omitted, so what it will be is clear
-// and what it is today is not overstated.
+// welcomeChoices is the pair of answers the card ends on.
 func welcomeChoices(column, inner int) []string {
 	pick := lipgloss.NewStyle().Foreground(colorAccent).Render("❯ ")
 	return append(
 		welcomeRow(pick, keyStyle.Render("↵"), valueStyle, "get started", column, inner),
-		welcomeRow("  ", subtleStyle.Render("t"), mutedStyle, "take the guided walkthrough — not built yet", column, inner)...)
+		welcomeRow("  ", keyStyle.Render("n"), valueStyle, "start your first session now", column, inner)...)
 }
 
 // welcomeIsFirstRun reports a store that has never held a session. An install
@@ -208,7 +289,7 @@ func (m *Model) welcomeHint() [][2]string {
 	return [][2]string{
 		{m.navCap(keymap.ContextWelcome), "scroll"},
 		{m.cap(keymap.ContextWelcome, keymap.Close), "get started"},
-		{"t", "walkthrough"},
+		{"n", "first session"},
 		{m.cap(keymap.ContextWelcome, keymap.Help), "keys"},
 	}
 }
@@ -225,7 +306,7 @@ func (m *Model) welcomeBodyRoom() int {
 }
 
 func (m *Model) welcomeScrollLimit() int {
-	return max(len(welcomeBodyLines(cardInnerWidth(helpCardWidth(m.width))))-m.welcomeBodyRoom(), 0)
+	return max(len(m.welcomeBodyLines(cardInnerWidth(helpCardWidth(m.width))))-m.welcomeBodyRoom(), 0)
 }
 
 func (m *Model) scrollWelcome(delta int) {
@@ -237,7 +318,7 @@ func (m *Model) welcomePage() int { return max(m.welcomeBodyRoom()-1, 1) }
 func (m *Model) viewWelcome() string {
 	width := helpCardWidth(m.width)
 	inner := cardInnerWidth(width)
-	body := fitBody(welcomeBodyLines(inner), m.welcomeBodyRoom(), m.welcome.scroll)
+	body := fitBody(m.welcomeBodyLines(inner), m.welcomeBodyRoom(), m.welcome.scroll)
 	return m.cardSized(width, "◆ Welcome to Gate Inbox", strings.Join(body, "\n"), m.welcomeHint())
 }
 
@@ -245,12 +326,13 @@ func (m *Model) handleWelcomeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+c" {
 		return m, tea.Quit
 	}
-	if msg.String() == "t" {
-		// Refusing in place rather than closing: the card is what explains
-		// the alternative, so leaving it would take the answer away with it.
-		m.errBar.text = "the guided walkthrough is not built yet — " +
-			m.cap(keymap.ContextWelcome, keymap.Help) + " opens the full key map"
-		return m, nil
+	if msg.String() == "n" {
+		// The shortest way from a first run to a first agent: the card
+		// closes and the list's own n takes over, agent picker and all.
+		m.errBar.text = ""
+		m.closeWelcome()
+		model, cmd := m.startNewSession()
+		return model, tea.Batch(cmd, m.startStartupTick())
 	}
 	action, bound := m.action(keymap.ContextWelcome, msg)
 	if !bound {

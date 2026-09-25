@@ -24,7 +24,7 @@ func railWorkModel(t *testing.T) *Model {
 	return railModel(t,
 		railSession("db-migrations", "", "opencode", status.Waiting, "", 3*time.Minute),
 		railSession("add-rate-limiting", "backend", "claude", status.Working,
-			"finish PR #838 for ABC-135518", 41*time.Second),
+			"finish PR #838 for ABC-100001", 41*time.Second),
 		railSession("flaky-e2e", "backend", "claude", status.Errored, "", 22*time.Minute),
 	)
 }
@@ -61,9 +61,9 @@ func railModel(t *testing.T, sessions ...store.Session) *Model {
 				},
 			}, health: forge.Health{OK: true}},
 			fakeTickets{tickets: map[string]forge.Ticket{
-				"ticket:ABC-135518": {
-					Identifier: "ABC-135518", State: "In Review", StateType: "started",
-					URL: "https://linear.app/example/issue/ABC-135518",
+				"ticket:ABC-100001": {
+					Identifier: "ABC-100001", State: "In Review", StateType: "started",
+					URL: "https://linear.app/example/issue/ABC-100001",
 				},
 			}, health: forge.Health{OK: true}},
 		),
@@ -166,7 +166,7 @@ func TestUnfoldingASessionListsItsWork(t *testing.T) {
 	if strings.Contains(rail, "claude · "+statusGlyph(status.Waiting)) {
 		t.Fatalf("the badge is still on the meta line:\n%s", rail)
 	}
-	for _, want := range []string{"#838", "ABC-135518", "In Review"} {
+	for _, want := range []string{"#838", "ABC-100001", "In Review"} {
 		if !strings.Contains(rail, want) {
 			t.Fatalf("rail is missing %q:\n%s", want, rail)
 		}
@@ -278,7 +278,7 @@ func TestArtifactRowRefusesTheSessionKeys(t *testing.T) {
 	}
 	sess := live[0]
 	for i := range m.sessions {
-		m.sessions[i].LaunchPrompt = "finish PR #838 for ABC-135518"
+		m.sessions[i].LaunchPrompt = "finish PR #838 for ABC-100001"
 	}
 	m.work = worktracker.New(
 		fakeGit{remote: "git@github.com:example-org/sample-repo.git"},
@@ -286,7 +286,7 @@ func TestArtifactRowRefusesTheSessionKeys(t *testing.T) {
 			"pr:example-org/sample-repo#838": {Repo: "example-org/sample-repo", Number: 838, State: forge.PROpen},
 		}, health: forge.Health{OK: true}},
 		fakeTickets{tickets: map[string]forge.Ticket{
-			"ticket:ABC-135518": {Identifier: "ABC-135518", State: "In Review", StateType: "started"},
+			"ticket:ABC-100001": {Identifier: "ABC-100001", State: "In Review", StateType: "started"},
 		}, health: forge.Health{OK: true}},
 	)
 	m.runWork(t)
@@ -388,7 +388,7 @@ func railFoldModel(t *testing.T, onWork bool) *Model {
 	t.Helper()
 	prompt := ""
 	if onWork {
-		prompt = "finish PR #838 for ABC-135518"
+		prompt = "finish PR #838 for ABC-100001"
 	}
 	return railModel(t,
 		railSession("db-migrations", "backend", "opencode", status.Waiting, "", 3*time.Minute),
@@ -492,8 +492,8 @@ func TestAnUnfoldedRailRowLinksItsPullRequestAndTicket(t *testing.T) {
 	if !strings.Contains(pr, "\x1b]8;;\x1b\\") {
 		t.Errorf("a linked row never closes its link, so the state joins it: %q", pr)
 	}
-	ticket := railRawLine(t, m, 80, "ABC-135518")
-	if want := "\x1b]8;;https://linear.app/example/issue/ABC-135518\x1b\\"; !strings.Contains(ticket, want) {
+	ticket := railRawLine(t, m, 80, "ABC-100001")
+	if want := "\x1b]8;;https://linear.app/example/issue/ABC-100001\x1b\\"; !strings.Contains(ticket, want) {
 		t.Errorf("a ticket row carries no link to itself: %q", ticket)
 	}
 	if got, want := textfmt.Width(pr), textfmt.Width(ansi.Strip(pr)); got != want {

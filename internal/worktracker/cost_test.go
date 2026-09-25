@@ -107,7 +107,7 @@ func branchTicket(t *testing.T, refs []workspec.Ref) string {
 func TestTheTwoSourcesAreAskedAtTheSameTime(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	f := &meetingForge{ghAsked: make(chan struct{}), linAsked: make(chan struct{})}
-	tr := New(fakeGit{branch: "alice/abc-133756-slug", remote: "git@github.com:example-org/sample-repo.git"}, f, f)
+	tr := New(fakeGit{branch: "alice/abc-100002-slug", remote: "git@github.com:example-org/sample-repo.git"}, f, f)
 	tr.Now = func() time.Time { return now }
 	// A ticket off the branch and a pull request the session opened, so both
 	// sources have something to be asked about.

@@ -4,9 +4,9 @@ import "testing"
 
 func TestLinearBranchNamesItsTicket(t *testing.T) {
 	for _, branch := range []string{
-		"alice/abc-133756-expose-the-observed-failure-value",
-		"carol/ABC-134809-quota-failure",
-		"feature/abc-120313-grafana",
+		"alice/abc-100002-a-sample-branch-name",
+		"carol/ABC-100006-sample-branch",
+		"feature/abc-100010-sample",
 	} {
 		ref, ok := TicketFromBranch(branch)
 		if !ok {
@@ -33,12 +33,12 @@ func TestTicketIdentifiersAreUppercasedFromTheBranch(t *testing.T) {
 	// Git branches are conventionally lowercase and Linear's own format writes the key that
 	// way; the ticket it names is not lowercase, and the API will not match it if we ask in
 	// the branch's casing.
-	ref, ok := TicketFromBranch("alice/abc-133756-slug")
+	ref, ok := TicketFromBranch("alice/abc-100002-slug")
 	if !ok {
 		t.Fatal("no ticket found")
 	}
-	if ref.Identifier != "ABC-133756" {
-		t.Errorf("identifier = %q, want ABC-133756", ref.Identifier)
+	if ref.Identifier != "ABC-100002" {
+		t.Errorf("identifier = %q, want ABC-100002", ref.Identifier)
 	}
 }
 
@@ -89,11 +89,11 @@ func TestABareNumberIsNotAPullRequest(t *testing.T) {
 }
 
 func TestTicketsAreFoundInProse(t *testing.T) {
-	refs := ScanText("this is the ABC-133756 follow-up, not ABC-134809", "", FromText)
+	refs := ScanText("this is the ABC-100002 follow-up, not ABC-100006", "", FromText)
 	if len(refs) != 2 {
 		t.Fatalf("found %d refs, want 2: %+v", len(refs), refs)
 	}
-	if refs[0].Identifier != "ABC-133756" || refs[1].Identifier != "ABC-134809" {
+	if refs[0].Identifier != "ABC-100002" || refs[1].Identifier != "ABC-100006" {
 		t.Errorf("got %q and %q", refs[0].Identifier, refs[1].Identifier)
 	}
 }
@@ -140,13 +140,13 @@ func TestIncompleteReferencesAreDroppedRatherThanDrawn(t *testing.T) {
 func TestTheBranchLeadsAndAMentionTrails(t *testing.T) {
 	in := []Ref{
 		{Kind: KindTicket, Identifier: "ABC-999999", Provenance: FromText},
-		{Kind: KindTicket, Identifier: "ABC-133756", Provenance: FromBranch},
+		{Kind: KindTicket, Identifier: "ABC-100002", Provenance: FromBranch},
 		{Kind: KindPR, Repo: "example-org/sample-repo", Number: 1, Provenance: FromText},
 		{Kind: KindPR, Repo: "example-org/sample-repo", Number: 7394, Provenance: FromCreation},
 	}
 	got := ByEvidence(in)
 
-	want := []string{"ticket:ABC-133756", "pr:example-org/sample-repo#7394", "ticket:ABC-999999", "pr:example-org/sample-repo#1"}
+	want := []string{"ticket:ABC-100002", "pr:example-org/sample-repo#7394", "ticket:ABC-999999", "pr:example-org/sample-repo#1"}
 	for i, key := range want {
 		if got[i].Key() != key {
 			t.Errorf("position %d = %q, want %q", i, got[i].Key(), key)
@@ -198,7 +198,7 @@ func TestPruneInferred(t *testing.T) {
 	stated := func(repo string, n int, how Provenance) Ref {
 		return Ref{Kind: KindPR, Repo: repo, Number: n, Provenance: how}
 	}
-	ticket := Ref{Kind: KindTicket, Identifier: "ABC-135518", Provenance: FromText}
+	ticket := Ref{Kind: KindTicket, Identifier: "ABC-100001", Provenance: FromText}
 
 	for _, c := range []struct {
 		name string
@@ -225,7 +225,7 @@ func TestPruneInferred(t *testing.T) {
 	}, {
 		name: "tickets are never pruned",
 		in:   []Ref{ticket, bare(39), stated("example-org/component-a", 39, FromCreation)},
-		want: []string{"ticket:ABC-135518", "pr:example-org/component-a#39"},
+		want: []string{"ticket:ABC-100001", "pr:example-org/component-a#39"},
 	}, {
 		name: "a guess the stated reference agrees with collapses to one row",
 		in:   []Ref{bare(39), stated("example-org/sample-repo", 39, FromCreation)},

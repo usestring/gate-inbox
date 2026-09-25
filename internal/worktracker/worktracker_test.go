@@ -68,7 +68,7 @@ func tracker(t *testing.T, git Git, f *fakeForge, now *time.Time) *Tracker {
 func TestTheBranchIsTheStrongestEvidence(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	f := &fakeForge{health: forge.Health{OK: true}}
-	tr := tracker(t, fakeGit{branch: "alice/abc-133756-slug", remote: "git@github.com:example-org/sample-repo.git"}, f, &now)
+	tr := tracker(t, fakeGit{branch: "alice/abc-100002-slug", remote: "git@github.com:example-org/sample-repo.git"}, f, &now)
 
 	refs := tr.Discover(Session{ID: "s", Dir: "/repo", Text: "also mentions ABC-999999 in passing"})
 
@@ -78,12 +78,12 @@ func TestTheBranchIsTheStrongestEvidence(t *testing.T) {
 			ticket = ref
 		}
 	}
-	if ticket.Identifier != "ABC-133756" {
-		t.Fatalf("branch ticket = %+v, want ABC-133756 from the branch", ticket)
+	if ticket.Identifier != "ABC-100002" {
+		t.Fatalf("branch ticket = %+v, want ABC-100002 from the branch", ticket)
 	}
 
-	if lead := workspec.ByEvidence(refs)[0]; lead.Identifier != "ABC-133756" {
-		t.Errorf("strongest reference = %+v, want the branch's ABC-133756", lead)
+	if lead := workspec.ByEvidence(refs)[0]; lead.Identifier != "ABC-100002" {
+		t.Errorf("strongest reference = %+v, want the branch's ABC-100002", lead)
 	}
 }
 
@@ -486,14 +486,14 @@ func TestAnUnplaceableBareMentionIsDropped(t *testing.T) {
 	f := &fakeForge{health: forge.Health{OK: true}}
 	tr := tracker(t, NewGit(), f, &now)
 
-	refs := tr.Discover(Session{ID: "s", Dir: super, Text: "see PR #39 for the fix, part of ABC-135518"})
+	refs := tr.Discover(Session{ID: "s", Dir: super, Text: "see PR #39 for the fix, part of ABC-100001"})
 
 	for _, ref := range refs {
 		if ref.Kind == workspec.KindPR {
 			t.Errorf("kept %s#%d, want the bare mention dropped", ref.Repo, ref.Number)
 		}
 	}
-	if len(refs) != 1 || refs[0].Identifier != "ABC-135518" {
+	if len(refs) != 1 || refs[0].Identifier != "ABC-100001" {
 		t.Errorf("refs = %+v, want just the ticket -- dropping a pull request must not drop tickets", refs)
 	}
 }
@@ -504,7 +504,7 @@ func TestAnUnplaceableBareMentionIsDropped(t *testing.T) {
 func TestAPullRequestTheSessionOpenedLendsItsBranchTicket(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	f := &fakeForge{health: forge.Health{OK: true}, prs: map[string]forge.PR{
-		"pr:example-org/component-b#1392": {Repo: "example-org/component-b", Number: 1392, HeadRef: "alice/abc-137108-sampleapp-derive"},
+		"pr:example-org/component-b#1392": {Repo: "example-org/component-b", Number: 1392, HeadRef: "alice/abc-100005-sample-branch"},
 		"pr:example-org/component-b#1339": {Repo: "example-org/component-b", Number: 1339, HeadRef: "feat/no-ticket-here"},
 	}}
 	tr := tracker(t, fakeGit{}, f, &now)
@@ -519,12 +519,12 @@ func TestAPullRequestTheSessionOpenedLendsItsBranchTicket(t *testing.T) {
 			tickets = append(tickets, ref)
 		}
 	}
-	if len(tickets) != 1 || tickets[0].Identifier != "ABC-137108" || tickets[0].Provenance != workspec.FromBranch {
-		t.Fatalf("tickets = %+v, want one ABC-137108 from the branch of the pull request the session opened", tickets)
+	if len(tickets) != 1 || tickets[0].Identifier != "ABC-100005" || tickets[0].Provenance != workspec.FromBranch {
+		t.Fatalf("tickets = %+v, want one ABC-100005 from the branch of the pull request the session opened", tickets)
 	}
 	// The mentioned pull request's branch is not evidence of anything: the session did not push it.
 	for _, ref := range tr.For("s").Refs {
-		if ref.Kind == workspec.KindTicket && ref.Identifier != "ABC-137108" {
+		if ref.Kind == workspec.KindTicket && ref.Identifier != "ABC-100005" {
 			t.Errorf("unexpected ticket %+v", ref)
 		}
 	}
@@ -620,7 +620,7 @@ func TestOneSourceStandingDownDoesNotSilenceTheOther(t *testing.T) {
 	}
 	tr := tracker(t, fakeGit{remote: "git@github.com:example-org/sample-repo.git"}, f, &now)
 
-	session := Session{ID: "s", Dir: "/repo", Text: "PR #7394 for ABC-133756", Live: true}
+	session := Session{ID: "s", Dir: "/repo", Text: "PR #7394 for ABC-100002", Live: true}
 	tr.Discover(session)
 	tr.Refresh([]Session{session})
 

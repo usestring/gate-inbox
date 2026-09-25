@@ -8,7 +8,7 @@ Enter
 Sleep 1s
 Type "https://github.com/example-org/sample-repo/pull/1579"
 Enter
-Type "ABC-135518"
+Type "ABC-100001"
 Enter
 Sleep 1s
 Ctrl+q

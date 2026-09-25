@@ -48,7 +48,7 @@ func (l *Linear) now() time.Time {
 // byTeamNumbers asks for a whole team's worth of tickets in one request.
 //
 // Linear filters issues by team key and number, not by the human-readable identifier, so an
-// "ABC-133756" is split back into its parts to ask. Batched by team for the same reason the GitHub
+// "ABC-100002" is split back into its parts to ask. Batched by team for the same reason the GitHub
 // side batches by repository: this runs on a ticker against however many tickets the fleet has
 // open, and one round-trip per ticket would be absurd.
 const byTeamNumbers = `query($key: String!, $numbers: [Float!], $first: Int!) {
@@ -75,7 +75,7 @@ type teamNumber struct {
 	number     float64
 }
 
-// splitIdentifier takes "ABC-133756" apart into the team key and number Linear filters on.
+// splitIdentifier takes "ABC-100002" apart into the team key and number Linear filters on.
 func splitIdentifier(identifier string) (string, float64, bool) {
 	key, digits, found := strings.Cut(identifier, "-")
 	if !found || key == "" {

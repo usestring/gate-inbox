@@ -48,7 +48,7 @@ func TestASettledArtifactLeavesTheBoardADayAfterItWasSeen(t *testing.T) {
 	if labels := m.workLabels("s2"); len(labels) != 0 {
 		t.Fatalf("sample-repo-11's merged pull request is still on it: %v", labels)
 	}
-	if labels := m.workLabels("s1"); len(labels) != 1 || !strings.HasPrefix(labels[0], "ABC-133683") {
+	if labels := m.workLabels("s1"); len(labels) != 1 || !strings.HasPrefix(labels[0], "ABC-100003") {
 		t.Fatalf("sample-repo-5 should keep only its started ticket: %v", labels)
 	}
 	if m.workLabels("s3")[0] != "example-org/sample-repo#700 (open ✕ · changes requested)" {

@@ -312,7 +312,7 @@ func countModel(t *testing.T, prs, tickets int) *Model {
 	}
 	forgeTickets := map[string]forge.Ticket{}
 	for i := 0; i < tickets; i++ {
-		id := fmt.Sprintf("ABC-1355%02d", i)
+		id := fmt.Sprintf("ABC-1004%02d", i)
 		refs = append(refs, id)
 		forgeTickets["ticket:"+id] = forge.Ticket{
 			Identifier: id, State: "In Review", StateType: "started",

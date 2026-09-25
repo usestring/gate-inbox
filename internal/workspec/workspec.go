@@ -45,7 +45,7 @@ type Ref struct {
 	Repo string
 	// Number is the pull request number, 0 for a ticket.
 	Number int
-	// Identifier is the ticket key, e.g. "ABC-133756". Empty for a pull request.
+	// Identifier is the ticket key, e.g. "ABC-100002". Empty for a pull request.
 	Identifier string
 	Provenance Provenance
 	// Inferred marks a pull request whose repository nobody stated: the text said "PR #39"

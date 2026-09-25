@@ -76,7 +76,7 @@ func goldenCases() []goldenCase {
 		}},
 		{"n=87/200x50/searching", func(t testing.TB) *Model {
 			m := fleetModel(t, 87, 200, 50)
-			m.searching, m.search = true, "gate"
+			m.searching, m.search = true, "large"
 			m.rebuildRows()
 			return m
 		}},

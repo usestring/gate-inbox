@@ -21,7 +21,7 @@ func twinSessions(t *testing.T) *Model {
 	t.Helper()
 	m := railModel(t,
 		railSession("has-work-here", "", "claude", status.Working,
-			"finish PR #838 for ABC-135518", 4*time.Hour),
+			"finish PR #838 for ABC-100001", 4*time.Hour),
 		railSession("no-work-here", "", "claude", status.Working, "", 4*time.Hour),
 	)
 	// The row under the cursor opens its work by itself, and an open row
@@ -129,9 +129,9 @@ func TestComfortableRowsKeepTheBadgeAfterTheAge(t *testing.T) {
 // name long enough to fill the row wears no badge rather than being cut back
 // to make one fit. The fold arrow is still there saying there is work.
 func TestALongNameKeepsItsRowFromTheBadge(t *testing.T) {
-	long := "abc-135518-gate-inbox-rail-row-badge-alignment-and-width"
+	long := "abc-100001-a-long-sample-branch-name-for-the-rail-badge"
 	m := railModel(t,
-		railSession(long, "", "claude", status.Working, "finish PR #838 for ABC-135518", 4*time.Hour),
+		railSession(long, "", "claude", status.Working, "finish PR #838 for ABC-100001", 4*time.Hour),
 		railSession("elsewhere", "", "claude", status.Working, "", 4*time.Hour),
 	)
 	m.selectSessionRow(t, "elsewhere")

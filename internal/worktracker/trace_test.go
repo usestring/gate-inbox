@@ -53,11 +53,11 @@ func TestEveryGitForkIsItsOwnSpan(t *testing.T) {
 func TestDiscoveryReportsTheSessionWithoutItsText(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	f := &fakeForge{health: forge.Health{OK: true}}
-	tr := tracker(t, fakeGit{branch: "alice/abc-133756-slug", remote: "git@github.com:example-org/sample-repo.git"}, f, &now)
+	tr := tracker(t, fakeGit{branch: "alice/abc-100002-slug", remote: "git@github.com:example-org/sample-repo.git"}, f, &now)
 
 	secret := "the operator typed this into the pane"
 	spans := tracetest.Capture(t)
-	tr.Discover(Session{ID: "sess1", Dir: "/repo", Live: true, Text: secret + " and ABC-133756"})
+	tr.Discover(Session{ID: "sess1", Dir: "/repo", Live: true, Text: secret + " and ABC-100002"})
 	recorded := spans()
 
 	span := tracetest.One(t, recorded, "worktracker.discover")
@@ -88,9 +88,9 @@ func TestARefreshCarriesItsSourcesAsChildren(t *testing.T) {
 	f := &fakeForge{
 		health:  forge.Health{OK: true},
 		prs:     map[string]forge.PR{"example-org/sample-repo#1": {Repo: "example-org/sample-repo", Number: 1}},
-		tickets: map[string]forge.Ticket{"ABC-133756": {Identifier: "ABC-133756"}},
+		tickets: map[string]forge.Ticket{"ABC-100002": {Identifier: "ABC-100002"}},
 	}
-	tr := tracker(t, fakeGit{branch: "alice/abc-133756-slug"}, f, &now)
+	tr := tracker(t, fakeGit{branch: "alice/abc-100002-slug"}, f, &now)
 	sessions := []Session{{ID: "sess1", Dir: "/repo", Live: true, Text: "https://github.com/example-org/sample-repo/pull/1"}}
 	tr.Discover(sessions[0])
 

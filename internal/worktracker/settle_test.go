@@ -53,7 +53,7 @@ func (f *fakeSeen) ForgetWorkSeen(keys []string) error {
 
 const (
 	mergedKey = "pr:example-org/sample-repo#838"
-	doneKey   = "ticket:ABC-133756"
+	doneKey   = "ticket:ABC-100002"
 )
 
 // settledBoard is one session on a merged pull request, a done ticket and an
@@ -67,10 +67,10 @@ func settledBoard(t *testing.T, now *time.Time) (*Tracker, *fakeForge, []Session
 			"pr:example-org/sample-repo#839": {Repo: "example-org/sample-repo", Number: 839, State: forge.PROpen},
 		},
 		tickets: map[string]forge.Ticket{
-			doneKey: {Identifier: "ABC-133756", StateType: "completed"},
+			doneKey: {Identifier: "ABC-100002", StateType: "completed"},
 		},
 	}
-	tr := tracker(t, fakeGit{branch: "abc-133756-fork", remote: "git@github.com:example-org/sample-repo.git"}, f, now)
+	tr := tracker(t, fakeGit{branch: "abc-100002-fork", remote: "git@github.com:example-org/sample-repo.git"}, f, now)
 	sessions := []Session{{ID: "s", Dir: "/repo", Text: "PR #838 and PR #839", Live: true}}
 	tr.Discover(sessions[0])
 	tr.Refresh(sessions)
@@ -173,7 +173,7 @@ func TestSightingsAreStoredAndPrunedWithTheTracker(t *testing.T) {
 	}
 
 	now = now.Add(2 * DefaultSettleAfter)
-	again := tracker(t, fakeGit{branch: "abc-133756-fork", remote: "git@github.com:example-org/sample-repo.git"}, f, &now).WithSeen(store)
+	again := tracker(t, fakeGit{branch: "abc-100002-fork", remote: "git@github.com:example-org/sample-repo.git"}, f, &now).WithSeen(store)
 	again.Discover(sessions[0])
 	again.Refresh(sessions)
 	if r := retired(again); !r[mergedKey] || !r[doneKey] {

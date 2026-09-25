@@ -4,9 +4,9 @@
 
 Enter
 Sleep 1s
-Type "ABC-135518"
+Type "ABC-100001"
 Enter
-Type "ABC-141768"
+Type "ABC-100007"
 Enter
 Type "https://github.com/example-org/sample-repo/pull/1978"
 Enter

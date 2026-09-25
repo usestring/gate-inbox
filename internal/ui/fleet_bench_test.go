@@ -54,7 +54,7 @@ var fleetTools = []string{"claude", "codex", "grok", "opencode", "claude", "zsh"
 // the work a name column actually does.
 func fleetName(i int) string {
 	if i%4 == 0 {
-		return fmt.Sprintf("abc-13%04d-gate-inbox-render-performance-at-fleet-scale-%d", 5000+i, i)
+		return fmt.Sprintf("abc-%d-sample-branch-names-for-a-large-sample-board-%d", 100300+i, i)
 	}
 	return fmt.Sprintf("session-%02d", i)
 }
@@ -62,7 +62,7 @@ func fleetName(i int) string {
 // fleetPR and fleetTicket are the artifacts a session carries. Every third
 // session is on something, which is roughly this machine's share.
 func fleetPR(i int) int        { return 7000 + i }
-func fleetTicket(i int) string { return fmt.Sprintf("ABC-13%04d", 5000+i) }
+func fleetTicket(i int) string { return fmt.Sprintf("ABC-%d", 100300+i) }
 
 func fleetHasWork(i int) bool { return i%3 == 0 }
 

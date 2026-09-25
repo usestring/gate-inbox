@@ -31,7 +31,7 @@ func TestGitHubOffAsksNothingAndDrawsNothing(t *testing.T) {
 	linear := &fakeForge{health: forge.Health{OK: true}, tickets: map[string]forge.Ticket{
 		"ticket:ABC-4242": {Identifier: "ABC-4242", State: "In Progress", StateType: "started"},
 	}}
-	tr := New(fakeGit{branch: "abc-133756-slug", remote: "git@github.com:example-org/sample-repo.git"}, nil, linear)
+	tr := New(fakeGit{branch: "abc-100002-slug", remote: "git@github.com:example-org/sample-repo.git"}, nil, linear)
 	tr.Now = func() time.Time { return now }
 
 	session := Session{ID: "s", Dir: "/repo", Text: bothKinds, Live: true}
@@ -67,7 +67,7 @@ func TestLinearOffAsksNothingAndDrawsNothing(t *testing.T) {
 	github := &fakeForge{health: forge.Health{OK: true}, prs: map[string]forge.PR{
 		"pr:example-org/sample-repo#7394": {Repo: "example-org/sample-repo", Number: 7394, State: forge.PROpen, HeadRef: "abc-5151-fix"},
 	}}
-	tr := New(fakeGit{branch: "abc-133756-slug", remote: "git@github.com:example-org/sample-repo.git"}, github, nil)
+	tr := New(fakeGit{branch: "abc-100002-slug", remote: "git@github.com:example-org/sample-repo.git"}, github, nil)
 	tr.Now = func() time.Time { return now }
 
 	session := Session{ID: "s", Dir: "/repo", Text: bothKinds, Live: true}
@@ -153,7 +153,7 @@ func TestKeylessLinearKeepsTicketsWithoutState(t *testing.T) {
 	transport := &refusingTransport{}
 	linear := &forge.Linear{Endpoint: "https://example.invalid", HTTP: &http.Client{Transport: transport}}
 	github := &fakeForge{health: forge.Health{OK: true}}
-	tr := New(fakeGit{branch: "abc-133756-slug", remote: "git@github.com:example-org/sample-repo.git"}, github, linear)
+	tr := New(fakeGit{branch: "abc-100002-slug", remote: "git@github.com:example-org/sample-repo.git"}, github, linear)
 	tr.Now = func() time.Time { return now }
 
 	session := Session{ID: "s", Dir: "/repo", Text: bothKinds, Live: true}

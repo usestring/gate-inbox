@@ -50,7 +50,7 @@ func trackedModel(t *testing.T, prs fakePRs, tickets fakeTickets) *Model {
 	m := &Model{
 		width:  100,
 		height: 30,
-		work:   worktracker.New(fakeGit{branch: "abc-135518-fork", remote: "git@github.com:example-org/sample-repo.git"}, prs, tickets),
+		work:   worktracker.New(fakeGit{branch: "abc-100001-fork", remote: "git@github.com:example-org/sample-repo.git"}, prs, tickets),
 		sessions: []store.Session{{
 			ID: "s1", Name: "fork-work", Tool: "claude", Status: status.Waiting,
 			Cwd: "/repo", LaunchPrompt: "see PR #838 for the fork",
@@ -95,7 +95,7 @@ func TestWorkBadgeCountsEveryArtifact(t *testing.T) {
 			},
 		}, health: forge.Health{OK: true}},
 		fakeTickets{tickets: map[string]forge.Ticket{
-			"ticket:ABC-135518": {Identifier: "ABC-135518", State: "In Review", StateType: "started"},
+			"ticket:ABC-100001": {Identifier: "ABC-100001", State: "In Review", StateType: "started"},
 		}, health: forge.Health{OK: true}},
 	)
 
@@ -109,7 +109,7 @@ func TestWorkBadgeCountsEveryArtifact(t *testing.T) {
 	if len(labels) != 2 {
 		t.Fatalf("tree rows = %v, want the pull request and the ticket", labels)
 	}
-	for _, want := range []string{"example-org/sample-repo#838", "ABC-135518"} {
+	for _, want := range []string{"example-org/sample-repo#838", "ABC-100001"} {
 		if !strings.Contains(strings.Join(labels, " "), want) {
 			t.Errorf("tree rows %v are missing %q", labels, want)
 		}
@@ -124,7 +124,7 @@ func TestABadgeTooNarrowForEveryMarkCountsTheRest(t *testing.T) {
 			"pr:example-org/sample-repo#838": {Repo: "example-org/sample-repo", Number: 838, State: forge.PROpen, Mergeable: true},
 		}, health: forge.Health{OK: true}},
 		fakeTickets{tickets: map[string]forge.Ticket{
-			"ticket:ABC-135518": {Identifier: "ABC-135518", State: "In Review", StateType: "started"},
+			"ticket:ABC-100001": {Identifier: "ABC-100001", State: "In Review", StateType: "started"},
 		}, health: forge.Health{OK: true}},
 	)
 
@@ -199,7 +199,7 @@ func TestSessionRowCarriesTheWorkBadge(t *testing.T) {
 			},
 		}, health: forge.Health{OK: true}},
 		fakeTickets{tickets: map[string]forge.Ticket{
-			"ticket:ABC-135518": {Identifier: "ABC-135518", State: "In Review", StateType: "started"},
+			"ticket:ABC-100001": {Identifier: "ABC-100001", State: "In Review", StateType: "started"},
 		}, health: forge.Health{OK: true}},
 	)
 
@@ -268,7 +268,7 @@ func workFakes() (fakePRs, fakeTickets) {
 			},
 		}, health: forge.Health{OK: true}},
 		fakeTickets{tickets: map[string]forge.Ticket{
-			"ticket:ABC-135518": {Identifier: "ABC-135518", State: "In Review", StateType: "started"},
+			"ticket:ABC-100001": {Identifier: "ABC-100001", State: "In Review", StateType: "started"},
 		}, health: forge.Health{OK: true}}
 }
 
@@ -278,16 +278,16 @@ func workFakes() (fakePRs, fakeTickets) {
 func TestWorkFindsReferencesOnAnAdoptedPane(t *testing.T) {
 	prs, tickets := workFakes()
 	m, socket, pane := adoptedShowing(t,
-		`printf 'opened https://github.com/example-org/sample-repo/pull/838 for ABC-135518\n'; sleep 300`,
+		`printf 'opened https://github.com/example-org/sample-repo/pull/838 for ABC-100001\n'; sleep 300`,
 		prs, tickets)
 	foreignPaneContains(t, socket, pane, func(out string) bool {
-		return strings.Contains(out, "ABC-135518")
+		return strings.Contains(out, "ABC-100001")
 	})
 
 	m.runWork(t)
 
 	labels := strings.Join(m.workLabels(adoptedWorkID), " ")
-	for _, want := range []string{"#838", "ABC-135518"} {
+	for _, want := range []string{"#838", "ABC-100001"} {
 		if !strings.Contains(labels, want) {
 			t.Errorf("tree rows %q are missing %q", labels, want)
 		}
@@ -300,10 +300,10 @@ func TestWorkFindsReferencesOnAnAdoptedPane(t *testing.T) {
 func TestWorkStripsAnsiFromTheCapturedPane(t *testing.T) {
 	prs, tickets := workFakes()
 	m, socket, pane := adoptedShowing(t,
-		`printf 'opened https://github.com/example-org/sample-repo/pull/\033[31m838 for ABC-\033[32m135518\033[0m\n'; sleep 300`,
+		`printf 'opened https://github.com/example-org/sample-repo/pull/\033[31m838 for ABC-\033[32m100001\033[0m\n'; sleep 300`,
 		prs, tickets)
 	foreignPaneContains(t, socket, pane, func(out string) bool {
-		return strings.Contains(out, "ABC-135518")
+		return strings.Contains(out, "ABC-100001")
 	})
 
 	raw, err := m.tmux.CapturePane(adoptedWorkID)
@@ -312,7 +312,7 @@ func TestWorkStripsAnsiFromTheCapturedPane(t *testing.T) {
 	}
 	// Without this the test would pass on a capture that never split the
 	// references, which proves nothing about stripping.
-	for _, ref := range []string{"pull/838", "ABC-135518"} {
+	for _, ref := range []string{"pull/838", "ABC-100001"} {
 		if strings.Contains(raw, ref) {
 			t.Fatalf("colour did not split %q, so this test is vacuous: %q", ref, raw)
 		}
@@ -321,7 +321,7 @@ func TestWorkStripsAnsiFromTheCapturedPane(t *testing.T) {
 	m.runWork(t)
 
 	labels := strings.Join(m.workLabels(adoptedWorkID), " ")
-	for _, want := range []string{"#838", "ABC-135518"} {
+	for _, want := range []string{"#838", "ABC-100001"} {
 		if !strings.Contains(labels, want) {
 			t.Errorf("tree rows %q are missing %q", labels, want)
 		}
@@ -334,15 +334,15 @@ func TestWorkStripsAnsiFromTheCapturedPane(t *testing.T) {
 func TestWorkDoesNotCaptureADeadSession(t *testing.T) {
 	prs, tickets := workFakes()
 	m, socket, pane := adoptedShowing(t,
-		`printf 'opened https://github.com/example-org/sample-repo/pull/838 for ABC-135518\n'; sleep 300`,
+		`printf 'opened https://github.com/example-org/sample-repo/pull/838 for ABC-100001\n'; sleep 300`,
 		prs, tickets)
 	foreignPaneContains(t, socket, pane, func(out string) bool {
-		return strings.Contains(out, "ABC-135518")
+		return strings.Contains(out, "ABC-100001")
 	})
 
 	// The pane really is readable, so an empty badge below is the live gate
 	// and not a fixture that never showed anything.
-	if text := workText(m.tmux, nil, nil, adoptedWorkID, "", true); !strings.Contains(text, "ABC-135518") {
+	if text := workText(m.tmux, nil, nil, adoptedWorkID, "", true); !strings.Contains(text, "ABC-100001") {
 		t.Fatalf("a live read of the same pane found nothing: %q", text)
 	}
 
@@ -380,9 +380,9 @@ func workTreeModel(t *testing.T) *Model {
 		},
 	}, health: forge.Health{OK: true}}
 	tickets := fakeTickets{tickets: map[string]forge.Ticket{
-		"ticket:ABC-133683": {
-			Identifier: "ABC-133683", State: "In Progress", StateType: "started",
-			URL: "https://linear.app/example/issue/ABC-133683",
+		"ticket:ABC-100003": {
+			Identifier: "ABC-100003", State: "In Progress", StateType: "started",
+			URL: "https://linear.app/example/issue/ABC-100003",
 		},
 	}, health: forge.Health{OK: true}}
 
@@ -391,7 +391,7 @@ func workTreeModel(t *testing.T) *Model {
 		work: worktracker.New(fakeGit{}, prs, tickets),
 		sessions: []store.Session{
 			{ID: "s1", Name: "sample-repo-5", Tool: "claude", Status: status.Waiting, Cwd: "/repo",
-				LaunchPrompt: "opened https://github.com/example-org/sample-repo/pull/333 for ABC-133683"},
+				LaunchPrompt: "opened https://github.com/example-org/sample-repo/pull/333 for ABC-100003"},
 			{ID: "s2", Name: "sample-repo-11", Tool: "claude", Status: status.Idle, Cwd: "/repo",
 				LaunchPrompt: "https://github.com/example-org/sample-repo/pull/892"},
 			{ID: "s3", Name: "sample-repo-21", Tool: "codex", Status: status.Working, Cwd: "/repo",
@@ -457,7 +457,7 @@ func writeJSONLines(t *testing.T, path string, lines ...string) {
 
 // A child's work rolls up onto its parent, tagged with the child that produced
 // it, so a folded parent still says what came out of its subtree. Every
-// session here is on the branch's ABC-135518, which the parent already carries
+// session here is on the branch's ABC-100001, which the parent already carries
 // as its own and so does not repeat, and the archived child's work stays put
 // away while its own live child's does not.
 func TestChildWorkRollsUpOntoTheParent(t *testing.T) {
@@ -480,7 +480,7 @@ func TestChildWorkRollsUpOntoTheParent(t *testing.T) {
 	}
 	m := &Model{
 		width: 100, height: 30,
-		work: worktracker.New(fakeGit{branch: "abc-135518-fork", remote: "git@github.com:example-org/sample-repo.git"}, prs, tickets),
+		work: worktracker.New(fakeGit{branch: "abc-100001-fork", remote: "git@github.com:example-org/sample-repo.git"}, prs, tickets),
 		sessions: []store.Session{
 			session("p", "planner", "", "plan the fork", false),
 			session("c", "builder", "p", "see PR #838", false),
@@ -500,7 +500,7 @@ func TestChildWorkRollsUpOntoTheParent(t *testing.T) {
 	}
 	parent := from("p")
 	want := map[string]string{
-		"ABC-135518":                  "",
+		"ABC-100001":                  "",
 		"example-org/sample-repo#838": "builder",
 		"example-org/sample-repo#900": "fixer",
 		"example-org/sample-repo#902": "rescuer",
@@ -543,7 +543,7 @@ func TestRolledUpRowDropsTheChildBeforeTheNumber(t *testing.T) {
 
 // A pull request is what the operator acts on and a ticket is the trail, so a
 // pull request sorts above a ticket even when the ticket has the stronger
-// evidence: this session's branch names ABC-135518, and only its prompt names
+// evidence: this session's branch names ABC-100001, and only its prompt names
 // the pull request.
 func TestPullRequestsSortAboveTickets(t *testing.T) {
 	prs, tickets := workFakes()

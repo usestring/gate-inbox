@@ -112,7 +112,7 @@ type Work struct {
 	// Looked marks the references a source has already answered for.
 	//
 	// Resolving to nothing is a real answer, and a common one: workspec's
-	// ticket pattern matches "CVE-2024" as readily as "ABC-135518". So a
+	// ticket pattern matches "CVE-2024" as readily as "ABC-100001". So a
 	// reference that is neither resolved nor looked at is one nobody has
 	// asked about yet, which is a different thing entirely from one the
 	// source says does not exist -- the same distinction Health draws for the

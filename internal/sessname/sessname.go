@@ -124,7 +124,7 @@ func content(title string) ([]string, string) {
 //
 // Inner hyphens, dots, slashes and underscores survive as hyphens, because the
 // tokens they hold together are the most distinctive things a title has:
-// abc-135518, x-gw-auth, api.example.com. A parenthetical is dropped whole --
+// abc-100001, x-gw-auth, api.example.com. A parenthetical is dropped whole --
 // opencode ends every subagent title with "(@general subagent)", which would
 // otherwise be the three words every one of them shares.
 func tokenize(title string) []string {

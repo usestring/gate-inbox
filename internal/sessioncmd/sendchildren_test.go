@@ -46,7 +46,7 @@ func TestSendChildrenQueuesForEveryChildAtOnce(t *testing.T) {
 	stranger := childRow(t, h, store.Session{ID: "other001", Name: "another-agent"}, false)
 	childRow(t, h, store.Session{ID: "theirs01", Name: "their-child", ParentID: stranger.ID}, true)
 
-	sent, err := h.sessions.SendChildren(h.caller.ID, "the branch moved to abc-139490-see-and-fix-the-tree")
+	sent, err := h.sessions.SendChildren(h.caller.ID, "the branch moved to abc-100009-sample-branch")
 	if err != nil {
 		t.Fatalf("SendChildren: %v", err)
 	}

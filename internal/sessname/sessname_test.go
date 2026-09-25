@@ -15,7 +15,7 @@ func TestCompressKeepsTheDistinctiveNouns(t *testing.T) {
 		{"Port event parser to sample organization", "event-parser-sample"},
 		{"Fix media login with identity proxy", "media-login-identity"},
 		{"Go gate inbox v2", "go-gate-inbox"},
-		{"Review Linear issue ABC-129619", "linear-abc-129619"},
+		{"Review Linear issue ABC-100008", "linear-abc-100008"},
 		{"realm hygiene fixes bundle (@general subagent)", "realm-hygiene-fixes"},
 		{"Improving protocol verifier implementation", "improving-protocol-verifier"},
 	}

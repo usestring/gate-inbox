@@ -30,9 +30,9 @@ func TestResolvedStateSurvivesAReopen(t *testing.T) {
 			HeadRef: "abc-1-fix", FailingChecks: 2, FetchedAt: at,
 		}},
 		[]StoredTicket{{
-			Key: "ticket:ABC-139158", Identifier: "ABC-139158", Title: "Quota",
+			Key: "ticket:ABC-100004", Identifier: "ABC-100004", Title: "Quota",
 			State: "In Review", StateType: "started", Assignee: "maintainer",
-			URL: "https://example.invalid/ABC-139158", FetchedAt: at,
+			URL: "https://example.invalid/ABC-100004", FetchedAt: at,
 		}})
 	if err != nil {
 		t.Fatalf("save: %v", err)
@@ -55,7 +55,7 @@ func TestResolvedStateSurvivesAReopen(t *testing.T) {
 		t.Errorf("pr round-tripped as %+v", got)
 	}
 	ticket := tickets[0]
-	if ticket.Identifier != "ABC-139158" || ticket.State != "In Review" || ticket.StateType != "started" ||
+	if ticket.Identifier != "ABC-100004" || ticket.State != "In Review" || ticket.StateType != "started" ||
 		ticket.Assignee != "maintainer" || !ticket.FetchedAt.Equal(at) {
 		t.Errorf("ticket round-tripped as %+v", ticket)
 	}

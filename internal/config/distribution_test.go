@@ -54,8 +54,8 @@ func TestTheCoreShipsNoSuppliedToolSetting(t *testing.T) {
 }
 
 // The first-run config is text an operator reads, so it must not name a
-// company's store, project or credential even in a comment.
-func TestTheWrittenDefaultNamesNoCompanyEstate(t *testing.T) {
+// distribution's store, project or credential even in a comment.
+func TestTheWrittenDefaultNamesNoDistributionStore(t *testing.T) {
 	for _, marker := range []string{"gcloud", "--project=", "secrets versions access"} {
 		if strings.Contains(defaultConfig, marker) {
 			t.Errorf("the default config names %q", marker)

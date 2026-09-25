@@ -19,7 +19,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 rev=HEAD
 allowlist="$script_dir/release-gate.allow"
-# Every term that must not ship -- operator names, company identifiers,
+# Every term that must not ship -- operator names, organisation identifiers,
 # private module and repository names, internal hosts -- and that for the same
 # reason cannot be written into the tree, the gate included. One extended
 # regex per line, tagged with the check it feeds (see usage).
@@ -232,12 +232,12 @@ while IFS= read -r mod; do
 	done < <(grep -nE '=>[[:space:]]*(\.{1,2}/|/)' "$tree/$mod" || true)
 done < <(cd "$tree" && find . -name go.mod -not -path './.git/*')
 
-# --- 3. company identifiers --------------------------------------------------
+# --- 3. organisation identifiers ---------------------------------------------
 
-# Company names, internal systems, secret and ticket names: the list's
+# Organisation names, their systems, secret and ticket names: the list's
 # identifier: lines. Nothing here is generic enough to write down.
 if [ -n "${private[identifier]}" ]; then
-	scan identifiers "company identifier" -i "${private[identifier]}"
+	scan identifiers "organisation identifier" -i "${private[identifier]}"
 fi
 
 # --- 4. operator paths, hosts and names --------------------------------------
@@ -437,7 +437,7 @@ titles=(
 	"0 archive and gate config"
 	"1 secrets (tree + history)"
 	"2 private modules and repositories"
-	"3 company identifiers"
+	"3 organisation identifiers"
 	"4 operator paths, hosts and names"
 	"5 licence files"
 	"6 per-file modification notices"

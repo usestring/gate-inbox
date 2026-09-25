@@ -20,7 +20,7 @@ type Supplied struct {
 // DistributionSupplied lists every such setting. It is the one place to
 // read what a distribution has to bring, and the list the core's tests hold
 // empty: a value that turns up in a default for one of these keys is a
-// company default back in the core.
+// distribution's own default back in the core.
 var DistributionSupplied = []Supplied{
 	{Key: "tools.claude.account_env", Without: "sessions run on claude's own stored login; asking for a named account is refused"},
 	{Key: "tools.claude.account_secret", Without: "no named account can be launched or listed"},

@@ -2,7 +2,7 @@
 ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  Accessing workspace:
 
- /tmp/claude-1000/-home-user-repos-sample-repo/11111111-2222-3333-4444-555555555555/scratchpad
+ /tmp/scratch-dir/-home-user-repos-sample-repo/11111111-2222-3333-4444-555555555555/scratchpad
 
  Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or work from your team). If not, take a moment to review what's in this folder first.
 

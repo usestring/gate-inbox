@@ -11,9 +11,9 @@
 // them held a literal in the first place.
 //
 // Contexts, not one flat map. The same letter means different things
-// depending on what is on screen -- r renames on the list and steers in a run
-// view -- so a binding belongs to the screen that answers it, and a rebind in
-// one leaves the others alone.
+// depending on what is on screen -- a switches the account on the list and
+// ticks every row in the restore offer -- so a binding belongs to the screen
+// that answers it, and a rebind in one leaves the others alone.
 //
 // What is deliberately NOT here: the keys that make typing work. Enter, esc,
 // backspace, tab and the arrows inside a text field are the shape of a form

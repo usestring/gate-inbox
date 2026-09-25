@@ -124,8 +124,12 @@ func TestHandoverE2EFiltersARealLongLivedTranscript(t *testing.T) {
 func TestHandoverE2EDeviationCutOnTheRealTranscript(t *testing.T) {
 	src := e2eTranscript(t)
 	// A mid-run turn that was still on course, quoted the way the manager
-	// quotes one: verbatim words from the record.
-	snippet := "for the escalate ui etc lets move this so it showws up as a supervisor session"
+	// quotes one: verbatim words from the record. Both quotes come from the
+	// transcript itself, so they are supplied beside it.
+	snippet := os.Getenv("HANDOVER_E2E_KEEP")
+	if snippet == "" {
+		t.Skip("HANDOVER_E2E_KEEP is not set")
+	}
 	cut, found, err := DeviationCut("claude", src, snippet)
 	if err != nil {
 		t.Fatal(err)
@@ -148,13 +152,13 @@ func TestHandoverE2EDeviationCutOnTheRealTranscript(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "showws up as a supervisor session") {
+	if !strings.Contains(string(body), snippet) {
 		t.Fatal("the last on-course turn did not survive its own deviation point")
 	}
 	// Everything the operator asked for after the deviation point is gone
 	// from the rewind copy -- including the last instruction, which is the
 	// drift this rewind would have removed.
-	if strings.Contains(string(body), "we need to impl the filtering behaviour") {
+	if drop := os.Getenv("HANDOVER_E2E_DROP"); drop != "" && strings.Contains(string(body), drop) {
 		t.Fatal("post-deviation records survived the rewind")
 	}
 	if stats.Kept >= stats.Kept+stats.Dropped && stats.Kept > cut {

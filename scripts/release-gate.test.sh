@@ -146,7 +146,7 @@ out="$test_root/dirty.out"
 expect "$out" "old.txt:1: gitleaks github-pat (in history)"
 expect "$out" "deps.md:1: private reference 'acme-private'"
 expect "$out" "sub/release-gate.allow:1: private reference 'acme-private'"
-expect "$out" "ops.md:1: company identifier 'acme-kube'"
+expect "$out" "ops.md:1: organisation identifier 'acme-kube'"
 expect "$out" "testdata/golden.txt:1: operator home '$home_root/opsuser'"
 expect "$out" "testdata/golden.txt:2: operator name 'opsname'"
 expect "$out" "testdata/golden.txt:3: internal host 'buildbox-7'"
@@ -176,11 +176,11 @@ if grep -qF "clone.md:" "$out"; then
 fi
 # An entry for a tool name excuses that term alone, never the private host
 # beside it.
-expect "$out" "mixed.md:1: company identifier 'acme.example'"
+expect "$out" "mixed.md:1: organisation identifier 'acme.example'"
 if grep -qF "long.md:" "$out"; then
 	fail "an allowlisted term past character 300 was still reported"
 fi
-if grep -qF "mixed.md:1: company identifier 'acmectl'" "$out"; then
+if grep -qF "mixed.md:1: organisation identifier 'acmectl'" "$out"; then
 	fail "the acmectl entry did not excuse acmectl"
 fi
 

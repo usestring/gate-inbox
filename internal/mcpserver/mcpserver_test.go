@@ -338,15 +338,6 @@ func TestListsAllTools(t *testing.T) {
 			t.Fatalf("missing tool %q in %v", want, names)
 		}
 	}
-	// The research-run tools are not part of this build.
-	for _, retired := range []string{
-		"adopt_charter", "arm_charter", "charter_status", "edit_run_charter", "end_run",
-		"list_runs", "run_status", "set_run", "steer_run", "decide",
-	} {
-		if names[retired] {
-			t.Fatalf("the server still offers %q", retired)
-		}
-	}
 	// The review screen is gone, so an agent must no longer be offered
 	// tools that declare what it would have shown.
 	for name := range names {

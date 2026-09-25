@@ -45,21 +45,25 @@ func setStatus(t *testing.T, m *Model, id, state string) {
 	}
 }
 
-// The startup offer: once, on a refresh that finds adopted panes, naming the
-// idle ones it would restart now.
-func TestTakeoverIsOfferedOnceAtStartup(t *testing.T) {
+// The startup offer is the reopen card: once, on a refresh that finds a pane
+// started outside the board, with adopting as-is as the answer it starts on.
+// Leaving it as it is keeps the pane and settles it, so the next start does
+// not ask about it again.
+func TestOutsidePanesAreOfferedOnceAtStartupOnTheReopenCard(t *testing.T) {
 	m := buildModel(t)
 	adoptForeignPane(t, m, "borrowed", "borrowed", status.Idle)
-	m.takeover.offer = true
+	m.restoreArmed = true
+	m.adoptFirstDone = true
 
 	m.applyCmd(t, nil)
-	if m.mode != modeConfirmDelete || m.confirm.action != actionTakeover {
-		t.Fatalf("after the first refresh mode = %v action = %q, want the takeover dialog", m.mode, m.confirm.action)
+	if m.mode != modeRestorePrompt || len(m.restore.panes) != 1 {
+		t.Fatalf("after the first refresh mode = %v panes = %d, want the reopen card", m.mode, len(m.restore.panes))
 	}
 	out := ansi.Strip(m.frame())
-	for _, want := range []string{"Take over adopted panes", "restart 1 idle adopted session", "take over", "cancel"} {
+	for _, want := range []string{"Panes started outside the board", "1 agent pane was started outside the board",
+		"[adopt as-is]", "misses:", "MCP tools", "flags and model", "never ask"} {
 		if !strings.Contains(out, want) {
-			t.Fatalf("dialog missing %q:\n%s", want, out)
+			t.Fatalf("card missing %q:\n%s", want, out)
 		}
 	}
 
@@ -69,15 +73,24 @@ func TestTakeoverIsOfferedOnceAtStartup(t *testing.T) {
 	}
 	m.applyCmd(t, nil)
 	if m.mode != modeList {
-		t.Fatalf("a declined offer was raised again on the next refresh")
+		t.Fatalf("a dismissed card was raised again on the next refresh")
 	}
 	if got, _ := m.store.Get("borrowed"); got.TmuxPaneID == "" {
-		t.Fatal("declining the offer promoted the row")
+		t.Fatal("dismissing the card promoted the row")
+	}
+	if decided := loadPaneDecisions(m.store); decided["borrowed"] != paneAdopt {
+		t.Fatalf("dismissing should settle the pane as kept, ledger = %v", decided)
+	}
+	// The next start: the answered pane is not asked about again.
+	m.restoreAsked = false
+	m.applyCmd(t, nil)
+	if m.mode != modeList {
+		t.Fatalf("an answered pane was offered again on the next start, mode = %v", m.mode)
 	}
 }
 
 // A model built without Init never asks: a test board, or a headless one.
-func TestTakeoverIsNotOfferedUnlessArmed(t *testing.T) {
+func TestOutsidePanesAreNotOfferedUnlessArmed(t *testing.T) {
 	m := buildModel(t)
 	adoptForeignPane(t, m, "borrowed", "borrowed", status.Idle)
 	m.applyCmd(t, nil)
@@ -94,8 +107,8 @@ func TestTakeoverRestartsAnIdlePaneAsAManagedSession(t *testing.T) {
 	m.applyCmd(t, nil)
 
 	pressKey(t, m, key("O"))
-	if m.mode != modeConfirmDelete || m.confirm.action != actionTakeover {
-		t.Fatalf("O did not open the dialog: mode = %v, err = %q", m.mode, m.errBar.text)
+	if m.mode != modeRestorePrompt || m.restore.paneDefault != paneRelaunch {
+		t.Fatalf("O did not open the card on relaunch: mode = %v, err = %q", m.mode, m.errBar.text)
 	}
 	pressKey(t, m, key("y"))
 
@@ -136,8 +149,8 @@ func TestTakeoverWaitsForABusyPaneToGoIdle(t *testing.T) {
 
 	pressKey(t, m, key("O"))
 	out := ansi.Strip(m.frame())
-	if !strings.Contains(out, "take over 1 adopted pane as it goes idle?") {
-		t.Fatalf("a dialog over only busy panes should say it waits:\n%s", out)
+	if !strings.Contains(out, "[relaunch into the board]") || !strings.Contains(out, "once it is idle") {
+		t.Fatalf("the card should say relaunching waits for idle:\n%s", out)
 	}
 	pressKey(t, m, key("y"))
 	if !foreignPaneAlive(t, socket, pane) {
@@ -168,19 +181,6 @@ func TestTakeoverWaitsForABusyPaneToGoIdle(t *testing.T) {
 	}
 	if !m.tmux.Exists("busy") {
 		t.Fatal("no managed session came up for the pane that went idle")
-	}
-}
-
-// The dialog over a mixed board says both halves: what goes now and what
-// follows.
-func TestTakeoverLabelNamesNowAndLater(t *testing.T) {
-	label := takeoverLabel([]store.Session{
-		{ID: "a", Status: status.Idle}, {ID: "b", Status: status.Idle}, {ID: "c", Status: status.Working},
-	})
-	for _, want := range []string{"restart 2 idle adopted sessions as managed ones now?", "1 busy one follows on its own as it goes idle."} {
-		if !strings.Contains(label, want) {
-			t.Fatalf("label %q missing %q", label, want)
-		}
 	}
 }
 

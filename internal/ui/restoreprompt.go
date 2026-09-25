@@ -43,6 +43,15 @@ type restorePromptState struct {
 	// ends is why each dead row the offer considered is dead, including the
 	// ones it left out for having been ended on purpose.
 	ends endLedger
+	// panes are the agent panes started outside the board that the card
+	// asks about (reopenpanes.go). paneDefault is the summary's answer for
+	// all of them; paneChoice is the picker's answer per pane, by id.
+	panes       []store.Session
+	paneDefault string
+	paneChoice  map[string]string
+	// notices are what the stored defaults did quietly on the way in, said
+	// once the card closes.
+	notices []string
 }
 
 // restoreCandidates matches reviveMany's own filter, so the count the prompt
@@ -63,8 +72,11 @@ func (m *Model) classifyRestore(ev endEvidence) []store.Session {
 			continue
 		}
 		class := classifyEnd(sess, ev)
+		if live, running := m.supersededBy(sess); running {
+			class = endClass{endSuperseded, "its conversation is running in " + live.Name}
+		}
 		m.restore.ends[sess.ID] = class
-		if class.verdict == endByOperator || m.restoreSettled(sess) {
+		if class.verdict == endByOperator || class.verdict == endSuperseded || m.restoreSettled(sess) {
 			continue
 		}
 		out = append(out, sess)
@@ -133,9 +145,72 @@ func (m *Model) resumesExactly(sess store.Session) bool {
 	return known && sess.AgentSessionID != "" && tool.ResumeByIDCommand != ""
 }
 
-// maybeOpenRestorePrompt raises the prompt on the first refresh that could
-// see real statuses. Before the first poll every row reads dead, so asking at
-// Init would offer to restore a fleet that is already running.
+// reopenSettleLimit is how many passes the reopen card waits for the rows the
+// first adopt scan created to show on the board before asking without them.
+const reopenSettleLimit = 5
+
+// adoptScanSettled reports whether the panes found at start are on the board,
+// which is when the card can ask about them. A board that cannot scan has
+// nothing to wait for.
+func (m *Model) adoptScanSettled() bool {
+	if m.store == nil || m.tmux == nil {
+		return true
+	}
+	if m.adoptFirstDone {
+		shown := make(map[string]bool, len(m.sessions))
+		for _, sess := range m.sessions {
+			shown[sess.ID] = true
+		}
+		missing := false
+		for _, id := range m.adoptFirstIDs {
+			if !shown[id] {
+				missing = true
+			}
+		}
+		if !missing {
+			return true
+		}
+	}
+	m.adoptSettleWaits++
+	return m.adoptSettleWaits > reopenSettleLimit
+}
+
+// noteAdopted records what an adopt scan took. The first scan's rows are what
+// the reopen card waits for; a later scan's are panes started while the board
+// was up, which get the stored answer quietly or a one-line pointer to O.
+func (m *Model) noteAdopted(msg adoptedMsg) {
+	if !m.adoptFirstDone {
+		m.adoptFirstDone = true
+		m.adoptFirstIDs = msg.ids
+		return
+	}
+	if len(msg.ids) == 0 {
+		return
+	}
+	n := len(msg.ids)
+	switch m.outsidePanesMode() {
+	case reopenAsk:
+		m.reportDone(fmt.Sprintf("%d agent %s started outside the board added as-is; O to relaunch or leave %s out",
+			n, plural(n, "pane", "panes"), plural(n, "it", "them")))
+	case paneRelaunch:
+		if m.takeover.pending == nil {
+			m.takeover.pending = map[string]bool{}
+		}
+		for _, id := range msg.ids {
+			m.takeover.pending[id] = true
+		}
+		m.reportDone(fmt.Sprintf("%d outside %s will relaunch into the board once idle (settings: outside panes)",
+			n, plural(n, "pane", "panes")))
+	}
+}
+
+// maybeOpenRestorePrompt raises the reopen card on the first refresh that
+// could see real statuses, once the panes found at start are on the board.
+// Before the first poll every row reads dead, so asking at Init would offer to
+// restore a fleet that is already running.
+//
+// Each half first consults its setting. "ask" puts it on the card; the others
+// apply the stored answer quietly and leave one line saying so.
 func (m *Model) maybeOpenRestorePrompt() {
 	// Armed by Init alone. A session that dies while the manager is up is
 	// ordinary attrition the V key already covers; taking the screen for it
@@ -143,15 +218,55 @@ func (m *Model) maybeOpenRestorePrompt() {
 	if !m.restoreArmed || m.restoreAsked || m.mode != modeList {
 		return
 	}
+	if !m.adoptScanSettled() {
+		return
+	}
 	m.restoreAsked = true
 	m.loadRestoreDecided()
 	m.restoreEvidence = m.loadEndEvidence()
 	candidates := m.restoreCandidates()
 	ends := m.restore.ends
-	if len(candidates) == 0 {
+	var notices []string
+
+	switch m.reopenSessionsMode() {
+	case reopenResume:
+		var died []store.Session
+		for _, sess := range candidates {
+			if ends[sess.ID].verdict == endDied {
+				died = append(died, sess)
+			}
+		}
+		if len(died) > 0 {
+			m.reviveMany(died, "")
+			notices = append(notices, fmt.Sprintf("resumed %d %s that died (settings: on reopen)",
+				len(died), plural(len(died), "session", "sessions")))
+		}
+		if unclear := len(candidates) - len(died); unclear > 0 {
+			notices = append(notices, fmt.Sprintf("%d with an unclear end left for V", unclear))
+		}
+		candidates = nil
+	case reopenNever:
+		if len(candidates) > 0 {
+			notices = append(notices, fmt.Sprintf("%d %s stopped while the board was closed; V revives (settings: on reopen)",
+				len(candidates), plural(len(candidates), "session", "sessions")))
+		}
+		candidates = nil
+	}
+
+	panes := m.outsidePaneCandidates(false)
+	if mode := m.outsidePanesMode(); mode != reopenAsk && len(panes) > 0 {
+		outcome := paneOutcome(m.applyPaneChoices(panes, func(store.Session) string { return mode }))
+		notices = append(notices, outcome+" (settings: outside panes)")
+		panes = nil
+	}
+
+	if len(candidates) == 0 && len(panes) == 0 {
+		if len(notices) > 0 {
+			m.reportDone(strings.Join(notices, "; "))
+		}
 		return
 	}
-	m.restore = restorePromptState{candidates: candidates, ends: ends}
+	m.restore = restorePromptState{candidates: candidates, ends: ends, panes: panes, paneDefault: paneAdopt, notices: notices}
 	m.mode = modeRestorePrompt
 }
 
@@ -185,37 +300,128 @@ func (m *Model) restoreChosenCount() int {
 	return n
 }
 
-// openRestorePicker moves to the per-session list with everything ticked, so
-// the operator subtracts the few they do not want rather than reselecting a
-// fleet one row at a time.
+// openRestorePicker moves to the per-item list with every session ticked and
+// every pane on the summary's answer, so the operator changes the few they
+// want different rather than answering a fleet one row at a time.
 func (m *Model) openRestorePicker() {
 	m.restore.picking = true
 	m.restore.chosen = make(map[string]bool, len(m.restore.candidates))
 	for _, sess := range m.restore.candidates {
 		m.restore.chosen[sess.ID] = true
 	}
+	m.restore.paneChoice = make(map[string]string, len(m.restore.panes))
+	for _, sess := range m.restore.panes {
+		m.restore.paneChoice[sess.ID] = m.restore.paneDefault
+	}
 }
 
-// closeRestorePrompt is the one way out of the prompt, so it is where the
-// answer is recorded: dismissing is as much a decision as restoring.
+// restorePaneChoice is the answer for one pane: the picker's when it is open,
+// the summary's otherwise.
+func (m *Model) restorePaneChoice(sess store.Session) string {
+	if m.restore.picking {
+		if choice, ok := m.restore.paneChoice[sess.ID]; ok {
+			return choice
+		}
+	}
+	if m.restore.paneDefault == "" {
+		return paneAdopt
+	}
+	return m.restore.paneDefault
+}
+
+// closeRestorePrompt is the one way out of the card, so it is where the
+// answer is recorded: dismissing is as much a decision as restoring. Panes
+// dismissed are kept as they are, and remembered as answered.
 func (m *Model) closeRestorePrompt() {
+	m.reportRestoreNotices(m.finishRestorePrompt(func(store.Session) string { return paneAdopt }))
+}
+
+// reportRestoreNotices says what the card and the stored defaults did, after
+// whatever went wrong on the way when something did.
+func (m *Model) reportRestoreNotices(notices []string) {
+	if len(notices) == 0 {
+		return
+	}
+	if m.errBar.text != "" && !m.errBar.worked() {
+		// A warning stays a warning, with the card's outcome after it: the
+		// "won't ask again" line must not be lost to a degraded revive.
+		m.errBar.text += "; " + strings.Join(notices, "; ")
+		return
+	}
+	if m.errBar.text != "" {
+		notices = append([]string{m.errBar.text}, notices...)
+	}
+	m.reportDone(strings.Join(notices, "; "))
+}
+
+// finishRestorePrompt records the session answer, applies the pane answers
+// and returns to the list, handing back what the card has to report.
+func (m *Model) finishRestorePrompt(choice func(store.Session) string) []string {
 	m.rememberRestoreDecisions()
+	panes, notices := m.restore.panes, m.restore.notices
 	m.restore = restorePromptState{}
 	m.restoreEvidence = endEvidence{}
 	m.mode = modeList
+	if outcome := paneOutcome(m.applyPaneChoices(panes, choice)); outcome != "" {
+		notices = append(notices, outcome)
+	}
+	return notices
 }
 
-// commitRestore hands the ticked rows to the same bulk revive the V key uses,
-// so one broken session names itself and the rest still come back.
+// commitRestore hands the ticked sessions to the same bulk revive the V key
+// uses, so one broken session names itself and the rest still come back, and
+// carries out each pane's answer.
 func (m *Model) commitRestore() (tea.Model, tea.Cmd) {
 	chosen := m.restoreChosen()
-	m.closeRestorePrompt()
-	if len(chosen) == 0 {
-		// Enter on an empty picker otherwise reads as a dropped keystroke.
-		m.errBar.text = "nothing selected; no panes restored"
+	offered := len(m.restore.candidates) > 0
+	answers := make(map[string]string, len(m.restore.panes))
+	for _, sess := range m.restore.panes {
+		answers[sess.ID] = m.restorePaneChoice(sess)
+	}
+	notices := m.finishRestorePrompt(func(sess store.Session) string { return answers[sess.ID] })
+	if !offered {
+		m.reportRestoreNotices(notices)
 		return m, nil
 	}
-	return m.reviveMany(chosen, "no dead sessions to restore")
+	if len(chosen) == 0 {
+		// Enter on an empty picker otherwise reads as a dropped keystroke.
+		m.errBar.text = "nothing selected; no sessions resumed"
+		return m, nil
+	}
+	model, cmd := m.reviveMany(chosen, "no dead sessions to restore")
+	m.reportRestoreNotices(notices)
+	return model, cmd
+}
+
+// neverAskAgain applies the card's answer and stores it as the default, so
+// the next start does the same without asking. The settings screen is where
+// it is turned back to asking, and the notice says so.
+func (m *Model) neverAskAgain() (tea.Model, tea.Cmd) {
+	var saved []string
+	if len(m.restore.candidates) > 0 {
+		mode := reopenNever
+		if m.restoreChosenCount() > 0 {
+			mode = reopenResume
+		}
+		if m.store != nil {
+			if err := m.store.SetSetting(reopenSessionsSetting, mode); err != nil {
+				m.errBar.text = err.Error()
+			}
+		}
+		saved = append(saved, "on reopen: "+reopenSessionsLabel(mode))
+	}
+	if len(m.restore.panes) > 0 {
+		mode := m.restore.paneDefault
+		if m.store != nil {
+			if err := m.store.SetSetting(outsidePanesSetting, mode); err != nil {
+				m.errBar.text = err.Error()
+			}
+		}
+		saved = append(saved, "outside panes: "+outsidePanesLabel(mode))
+	}
+	m.restore.notices = append(m.restore.notices,
+		"won't ask again ("+strings.Join(saved, ", ")+"); change it in settings (s)")
+	return m.commitRestore()
 }
 
 func (m *Model) handleRestorePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -226,14 +432,15 @@ func (m *Model) handleRestorePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if !bound {
 		return m, nil
 	}
+	rows := len(m.restore.candidates) + len(m.restore.panes)
 	switch action {
 	case keymap.Cancel:
-		// From the picker, esc steps back to the count rather than out of the
-		// prompt: losing a set of ticks to one keystroke would be the wrong
-		// thing to make easy.
+		// From the picker, esc steps back to the summary rather than out of
+		// the card: losing a set of ticks to one keystroke would be the
+		// wrong thing to make easy.
 		if m.restore.picking {
 			m.restore.picking = false
-			m.restore.chosen = nil
+			m.restore.chosen, m.restore.paneChoice = nil, nil
 			m.restore.cursor, m.restore.scroll = 0, 0
 			return m, nil
 		}
@@ -248,19 +455,36 @@ func (m *Model) handleRestorePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.restore.picking {
 			m.restore.cursor = max(m.restore.cursor-1, 0)
 			m.followRestoreCursor()
+		} else {
+			m.restore.scroll = max(m.restore.scroll-1, 0)
 		}
 		return m, nil
 	case keymap.CursorDown:
 		if m.restore.picking {
-			m.restore.cursor = min(m.restore.cursor+1, len(m.restore.candidates)-1)
+			m.restore.cursor = min(m.restore.cursor+1, rows-1)
 			m.followRestoreCursor()
+		} else {
+			// The summary is read, not picked from: the arrows scroll it,
+			// since what a kept pane misses runs past a short terminal.
+			limit := len(m.restoreBody(cardInnerWidth(helpCardWidth(m.width)))) - m.restoreBodyRoom()
+			m.restore.scroll = min(m.restore.scroll+1, max(limit, 0))
 		}
 		return m, nil
-	case keymap.Toggle:
-		if m.restore.picking {
-			if sess, ok := m.restoreRowUnderCursor(); ok {
-				m.restore.chosen[sess.ID] = !m.restore.chosen[sess.ID]
+	case keymap.Toggle, keymap.NextChoice, keymap.PrevChoice:
+		step := 1
+		if action == keymap.PrevChoice {
+			step = -1
+		}
+		if !m.restore.picking {
+			if action != keymap.Toggle && len(m.restore.panes) > 0 {
+				m.restore.paneDefault = nextPaneChoice(m.restore.paneDefault, step)
 			}
+			return m, nil
+		}
+		if sess, ok := m.restoreRowUnderCursor(); ok {
+			m.restore.chosen[sess.ID] = !m.restore.chosen[sess.ID]
+		} else if pane, ok := m.restorePaneUnderCursor(); ok {
+			m.restore.paneChoice[pane.ID] = nextPaneChoice(m.restorePaneChoice(pane), step)
 		}
 		return m, nil
 	case keymap.TickAll:
@@ -273,6 +497,8 @@ func (m *Model) handleRestorePromptKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case keymap.NeverAsk:
+		return m.neverAskAgain()
 	case keymap.Confirm:
 		return m.commitRestore()
 	}
@@ -286,15 +512,30 @@ func (m *Model) restoreRowUnderCursor() (store.Session, bool) {
 	return m.restore.candidates[m.restore.cursor], true
 }
 
+// restorePaneUnderCursor is the pane row under the cursor; the picker lists
+// the panes after the sessions.
+func (m *Model) restorePaneUnderCursor() (store.Session, bool) {
+	i := m.restore.cursor - len(m.restore.candidates)
+	if i < 0 || i >= len(m.restore.panes) {
+		return store.Session{}, false
+	}
+	return m.restore.panes[i], true
+}
+
 // followRestoreCursor keeps the cursor on screen in a fleet longer than the
-// card, which is the case this prompt exists for.
+// card, which is the case this prompt exists for. The picker draws a heading
+// above the panes, so a pane row sits one line further down than its index.
 func (m *Model) followRestoreCursor() {
 	room := m.restoreBodyRoom()
-	if m.restore.cursor < m.restore.scroll {
-		m.restore.scroll = m.restore.cursor
+	line := m.restore.cursor
+	if len(m.restore.candidates) > 0 && m.restore.cursor >= len(m.restore.candidates) {
+		line += 2
 	}
-	if m.restore.cursor >= m.restore.scroll+room {
-		m.restore.scroll = m.restore.cursor - room + 1
+	if line < m.restore.scroll {
+		m.restore.scroll = line
+	}
+	if line >= m.restore.scroll+room {
+		m.restore.scroll = line - room + 1
 	}
 	m.restore.scroll = max(m.restore.scroll, 0)
 }
@@ -310,16 +551,30 @@ func (m *Model) restoreBodyRoom() int {
 
 func (m *Model) restoreHint() [][2]string {
 	if m.restore.picking {
-		return [][2]string{{"↑↓", "move"}, {"space", "toggle"}, {"a", "all/none"}, {"↵", "restore"}, {"esc", "back"}}
+		hint := [][2]string{{"↑↓", "move"}}
+		if len(m.restore.candidates) > 0 {
+			hint = append(hint, [2]string{"space", "tick"}, [2]string{"a", "all/none"})
+		}
+		if len(m.restore.panes) > 0 {
+			hint = append(hint, [2]string{"←→", "pane answer"})
+		}
+		return append(hint, [2]string{"↵", "apply"}, [2]string{"N", "never ask"}, [2]string{"esc", "back"})
 	}
-	return [][2]string{{"↵/y", "restore all"}, {"c", "choose"}, {"esc", "dismiss"}}
+	hint := [][2]string{{"↵/y", "apply"}, {"↑↓", "scroll"}}
+	if len(m.restore.panes) > 0 {
+		hint = append(hint, [2]string{"←→", "pane answer"})
+	}
+	return append(hint, [2]string{"c", "choose"}, [2]string{"N", "never ask"}, [2]string{"esc", "leave as is"})
 }
 
 func (m *Model) restoreTitle() string {
-	if m.restore.picking {
-		return fmt.Sprintf("◆ Restore panes — %d of %d", m.restoreChosenCount(), len(m.restore.candidates))
+	switch {
+	case len(m.restore.candidates) == 0:
+		return "◆ Panes started outside the board"
+	case m.restore.picking && len(m.restore.panes) == 0:
+		return fmt.Sprintf("◆ Welcome back — %d of %d", m.restoreChosenCount(), len(m.restore.candidates))
 	}
-	return "◆ Restore panes"
+	return "◆ Welcome back"
 }
 
 func (m *Model) viewRestorePrompt() string {
@@ -334,10 +589,56 @@ func (m *Model) viewRestorePrompt() string {
 // where the whole set is visible.
 const restoreListLimit = 10
 
-// restoreBody lists the sessions on the summary screen and states the
-// degraded split on both: the names say what is being offered, and the split
-// is the reason to open the picker at all.
+// restoreBody is the card: the board's own sessions that stopped, then the
+// panes started outside it, then how to stop being asked.
 func (m *Model) restoreBody(inner int) []string {
+	if m.restore.picking {
+		return m.restorePickerBody(inner)
+	}
+	var lines []string
+	if len(m.restore.candidates) > 0 {
+		lines = append(lines, m.sessionsBody(inner)...)
+	}
+	if len(m.restore.panes) > 0 {
+		if len(lines) > 0 {
+			lines = append(lines, "", sectionStyle.Render("outside the board"), "")
+		}
+		lines = append(lines, m.panesBody(inner)...)
+	}
+	lines = append(lines, "")
+	for _, line := range textfmt.Wrap("N applies this answer and stops asking; settings (s) has \"on reopen\" and \"outside panes\" to ask again.", inner) {
+		lines = append(lines, subtleStyle.Render(line))
+	}
+	return lines
+}
+
+// restorePickerBody lists every session, ticked or not, then every pane with
+// its answer.
+func (m *Model) restorePickerBody(inner int) []string {
+	lines := make([]string, 0, len(m.restore.candidates)+len(m.restore.panes)+2)
+	for i, sess := range m.restore.candidates {
+		lines = append(lines, m.restoreRow(i, sess, inner))
+	}
+	if len(m.restore.panes) == 0 {
+		return lines
+	}
+	if len(m.restore.candidates) > 0 {
+		lines = append(lines, "", sectionStyle.Render("outside the board"))
+	}
+	for i, sess := range m.restore.panes {
+		cursor := "  "
+		if len(m.restore.candidates)+i == m.restore.cursor {
+			cursor = "▸ "
+		}
+		lines = append(lines, paneRowLine(cursor+"  ", valueStyle, sess, m.restorePaneChoice(sess), inner))
+	}
+	return lines
+}
+
+// sessionsBody is the summary of the board's own sessions that stopped
+// without the operator ending them, and the split that is the reason to open
+// the picker at all.
+func (m *Model) sessionsBody(inner int) []string {
 	total := len(m.restore.candidates)
 	exact := 0
 	for _, sess := range m.restore.candidates {
@@ -345,38 +646,38 @@ func (m *Model) restoreBody(inner int) []string {
 			exact++
 		}
 	}
-	if !m.restore.picking {
-		lines := []string{
-			fmt.Sprintf("%d %s without you ending %s.", total, plural(total, "session stopped", "sessions stopped"), plural(total, "it", "them")),
-			subtleStyle.Render("Their panes are gone; their conversations are not."),
-			"",
-		}
-		lines = append(lines, m.restoreSummaryList(inner)...)
-		lines = append(lines, "", sectionHead("died", m.restoreVerdictCount(endDied), colorAccent))
-		if unknown := m.restoreVerdictCount(endUnknown); unknown > 0 {
-			lines = append(lines,
-				sectionHead("unclear", unknown, colorWaiting),
-				"  "+subtleStyle.Render("no record says how these ended; check before bringing them back"))
-		}
-		lines = append(lines, sectionHead("resume exactly", exact, colorAccent))
-		if degraded := total - exact; degraded > 0 {
-			lines = append(lines,
-				sectionHead("no conversation id", degraded, colorWaiting),
-				"  "+subtleStyle.Render("these resume the directory's most recent conversation instead"))
-		}
-		if ended := m.restore.ends.count(endByOperator); ended > 0 {
-			lines = append(lines, "")
-			for _, line := range textfmt.Wrap(fmt.Sprintf(
-				"%d more you ended yourself %s not offered: killed, archived, parked, quit with /exit, or closed in tmux.",
-				ended, plural(ended, "is", "are")), inner) {
-				lines = append(lines, subtleStyle.Render(line))
-			}
-		}
-		return lines
+	lines := []string{
+		fmt.Sprintf("%d %s without you ending %s.", total, plural(total, "session stopped", "sessions stopped"), plural(total, "it", "them")),
+		subtleStyle.Render("Their panes are gone; their conversations are not. ↵ resumes them."),
+		"",
 	}
-	lines := make([]string, 0, total)
-	for i, sess := range m.restore.candidates {
-		lines = append(lines, m.restoreRow(i, sess, inner))
+	lines = append(lines, m.restoreSummaryList(inner)...)
+	lines = append(lines, "", sectionHead("died", m.restoreVerdictCount(endDied), colorAccent))
+	if unknown := m.restoreVerdictCount(endUnknown); unknown > 0 {
+		lines = append(lines,
+			sectionHead("unclear", unknown, colorWaiting),
+			"  "+subtleStyle.Render("no record says how these ended; check before bringing them back"))
+	}
+	lines = append(lines, sectionHead("resume exactly", exact, colorAccent))
+	if degraded := total - exact; degraded > 0 {
+		lines = append(lines,
+			sectionHead("no conversation id", degraded, colorWaiting),
+			"  "+subtleStyle.Render("these resume the directory's most recent conversation instead"))
+	}
+	if ended := m.restore.ends.count(endByOperator); ended > 0 {
+		lines = append(lines, "")
+		for _, line := range textfmt.Wrap(fmt.Sprintf(
+			"%d more you ended yourself %s not offered: killed, archived, parked, quit with /exit, or closed in tmux.",
+			ended, plural(ended, "is", "are")), inner) {
+			lines = append(lines, subtleStyle.Render(line))
+		}
+	}
+	if running := m.restore.ends.count(endSuperseded); running > 0 {
+		for _, line := range textfmt.Wrap(fmt.Sprintf(
+			"%d more %s not offered: %s conversation is already running in another pane on the board.",
+			running, plural(running, "is", "are"), plural(running, "its", "each one's")), inner) {
+			lines = append(lines, subtleStyle.Render(line))
+		}
 	}
 	return lines
 }

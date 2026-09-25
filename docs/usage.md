@@ -156,7 +156,7 @@ Gate Inbox does not create git worktrees. A session that should edit a checkout 
 
 The id arrives one of two ways: tools with a `session_id_flag` launch under an id the manager mints, and tools that mint their own are read back by a `session_store` capturer (`codex`, `opencode`). Without an id, revive falls back to `revive_command` (`claude --continue`), which resumes the working directory's most recent conversation, and the manager says so in the status line, since sessions sharing a directory would otherwise land on the wrong one. On a group row `v` revives every dead session under it, and `V` revives every dead session in view; both revive what they can and name the first failure rather than stopping.
 
-A start that finds panes gone offers back the sessions that stopped without you ending them, before you have to notice the dead rows: `enter` restores every one of them, `c` opens a picker to take part of it, and `esc` leaves them alone. Whichever you answer, those rows are settled: the next start does not ask about them again, and `v` and `V` are still there for the ones you left. A session you revive by hand and lose again is a new loss, and that one is offered.
+A start that finds panes gone offers back the sessions that stopped without you ending them, on the reopen card, before you have to notice the dead rows: `enter` restores every one of them, `c` opens a picker to take part of it, and `esc` leaves them alone. Whichever you answer, those rows are settled: the next start does not ask about them again, and `v` and `V` are still there for the ones you left. A session you revive by hand and lose again is a new loss, and that one is offered.
 
 Only a session that died is offered, never one you ended. The board tells them apart from what it records as it happens:
 
@@ -184,11 +184,33 @@ A running session with a dead child under it keeps the older meaning: that press
 
 It asks to confirm first, and it works on a live session too: the running agent ends, then the fresh one launches. The conversation it was on is retired rather than resumed: the manager mints a new id for tools that take one (`session_id_flag`) and captures the new one for tools that mint their own (`session_store`). The retired conversation is left on disk untouched, and the row stops pointing at it, so a later `v` resumes the conversation the restart started rather than the context it dropped. The row changes hands only once the new agent is up, so a launch that cannot start (a tool gone from `PATH`, a directory that moved) leaves the session on the conversation it had, still there for `v`.
 
-## Taking over adopted panes
+## Panes started outside the board
 
-An adopted pane is somebody else's window with an agent in it, and the board refuses to do to it what it does to its own sessions. `O` asks to take every adopted pane over: an idle one is ended in its own window and relaunched under the same row as a `gi_*` session on the conversation it was holding, read off the agent's process; a busy one is left alone and taken on the first poll pass that finds it idle. The dialog says how many go now and how many follow. The same offer is raised once when the manager starts on a board that holds adopted panes.
+An agent you start by hand in tmux (plain `claude`, `codex` or `opencode` in any pane) is found by the board's scan, at start and every 45 seconds, and shown on the board as-is: an *adopted* pane. It is somebody else's window with an agent in it, so the board refuses to do to it what it does to its own sessions. Kept as-is, a pane keeps running where it is but misses:
 
-A pane whose conversation cannot be read is left where it is and the status line says so, because relaunching a tool that resumes by id on its continue command would pick the directory's most recent conversation instead.
+- the board's MCP tools inside the agent: spawning, messaging, tasks;
+- reach from other sessions and the CLI: `send`, `read`, `answer`, `wait` and `kill` treat it as not running;
+- guaranteed hook status (Claude Code): questions and permission prompts are read off the screen instead;
+- the board's launch environment: the `GATE_INBOX_*` variables, extension settings, a fresh account token;
+- a known conversation unless Claude Code names it in its session file: fork, migrate, resume, restart, account switch and revive need one;
+- the back-to-board keys and the pane's title and colours.
+
+Relaunching it into the board fixes all of that. The pane is ended once it is idle, and the same conversation is resumed as a `gi_*` session on the board's tmux server; a busy pane is taken on the first pass that finds it idle. The flags and `--model` it was started with are not kept, and its environment becomes the board's. A pane whose conversation cannot be read is left where it is and the status line says so, because relaunching a tool that resumes by id on its continue command would pick the directory's most recent conversation instead.
+
+The reopen card asks once per start about panes you have not answered for: `←`/`→` picks **adopt as-is**, **relaunch into the board** or **ignore** (take it off the board without touching the pane, and never take it again), `c` answers per pane, and `esc` keeps them as they are. An answered pane is not asked about again. `O` opens the same card over every adopted pane, starting on relaunch. A pane found while the board is up is added as-is with a one-line pointer to `O`.
+
+If a pane runs the same conversation as a dead row on the board (you resumed a board session by hand), the dead row is never offered back and `v` refuses it: reviving it would start a second agent on one conversation.
+
+### Never asking again
+
+`N` on the reopen card applies the answer on screen and makes it the default. Settings (`s`) holds both defaults and is where the questions are turned back on:
+
+| Setting | Values |
+|---|---|
+| on reopen | ask; always resume the ones that died (an unclear one is left for `V`); never offer |
+| outside panes | ask; always adopt as-is; always relaunch into the board; ignore them (the scan takes no outside pane) |
+
+Whatever a default does on the way in is said in one line on the status bar.
 
 ## Forking sessions
 

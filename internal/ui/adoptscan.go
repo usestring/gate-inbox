@@ -36,7 +36,10 @@ type adoptTickMsg struct{}
 // adoptedMsg carries what a scan took, so the next frame shows it.
 type adoptedMsg struct {
 	taken int
-	err   error
+	// ids are the rows the scan created, so the reopen card can wait until
+	// the board shows them before it asks about them.
+	ids []string
+	err error
 }
 
 func (m *Model) adoptTick() tea.Cmd {
@@ -57,10 +60,12 @@ func (m *Model) adoptStart() tea.Cmd {
 // data race: commands run on their own goroutine while Update writes.
 func (m *Model) adoptScan() tea.Cmd {
 	if m.store == nil || m.tmux == nil {
+		m.adoptFirstDone = true
 		return nil
 	}
 	tools := m.adoptTools()
 	if len(tools) == 0 {
+		m.adoptFirstDone = true
 		return nil
 	}
 	run := &adoptRun{
@@ -73,6 +78,11 @@ func (m *Model) adoptScan() tea.Cmd {
 		stor:     m.store,
 		driver:   m.tmux,
 		rejected: map[string]int{},
+		// The operator's own answers: panes they left off the board, and
+		// whether outside panes are wanted at all. Orphaned sessions of
+		// the manager's own are recovered either way.
+		ignored:     loadPaneDecisions(m.store).ignoredPaneKeys(),
+		skipForeign: m.outsidePanesMode() == paneIgnore,
 	}
 	for _, sess := range m.sessions {
 		if key := adoptKey(sess.TmuxSocket, sess.TmuxPaneID); key != "" {
@@ -98,12 +108,42 @@ func (m *Model) adoptScan() tea.Cmd {
 			return adoptedMsg{err: err}
 		}
 		run.onBoard = onBoardSessions(rows)
+		run.pruneIgnored(candidates)
+		run.claude = convo.LiveClaudeSessions(convo.ClaudeHome())
 
 		taken, err := run.take(candidates, adopt.NewProcTable())
 		logging.Info("adopt scan",
 			"sockets", sockets, "candidates", len(candidates), "taken", taken,
 			"rejected", rejectionSummary(run.rejected), "took", time.Since(started).Round(time.Millisecond).String())
-		return adoptedMsg{taken: taken, err: err}
+		return adoptedMsg{taken: taken, ids: run.takenIDs, err: err}
+	}
+}
+
+// pruneIgnored drops "leave this pane out" answers for panes that no longer
+// exist, so the ledger does not grow with every pane ever closed. Only a
+// complete listing can prove a pane gone; a scan that reached no server
+// proves nothing and prunes nothing.
+func (r *adoptRun) pruneIgnored(candidates []adopt.Candidate) {
+	if len(r.ignored) == 0 || len(candidates) == 0 {
+		return
+	}
+	live := make(map[string]bool, len(candidates))
+	for _, candidate := range candidates {
+		live[paneDecisionKey(candidate.Socket, candidate.PaneID, int(candidate.PID))] = true
+	}
+	decided := loadPaneDecisions(r.stor)
+	changed := false
+	for key := range r.ignored {
+		if !live[key] {
+			delete(decided, key)
+			changed = true
+		}
+	}
+	if !changed {
+		return
+	}
+	if err := savePaneDecisions(r.stor, decided); err != nil {
+		logging.Info("pruning outside pane answers failed", logging.Err(err))
 	}
 }
 
@@ -137,6 +177,19 @@ type adoptRun struct {
 	stor     *store.Store
 	driver   *tmux.Driver
 	rejected map[string]int
+	// ignored is the panes the operator left off the board, by
+	// paneDecisionKey. skipForeign refuses every pane the manager did not
+	// start, which is the "ignore them" setting.
+	ignored     map[string]bool
+	skipForeign bool
+	// takenIDs are the rows take created.
+	takenIDs []string
+	// claude is Claude Code's live-session sidecars, read once per scan.
+	// A sidecar names the conversation a process is running, which is an
+	// identity rather than a resemblance, so a row created from it carries
+	// the conversation id -- and a dead row on that same conversation is
+	// known to be superseded rather than lost (see supersededBy).
+	claude []convo.ClaudeSession
 }
 
 func (r *adoptRun) reject(candidate adopt.Candidate, why string, extra ...any) {
@@ -164,6 +217,16 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 		if ok, why := adoptable(candidate, r.self, r.known, r.onBoard); !ok {
 			r.reject(candidate, why)
 			continue
+		}
+		if !tmux.Managed(candidate.Session) {
+			if r.skipForeign {
+				r.reject(candidate, "outside panes are set to be ignored")
+				continue
+			}
+			if r.ignored[paneDecisionKey(candidate.Socket, candidate.PaneID, int(candidate.PID))] {
+				r.reject(candidate, "left off the board by the operator")
+				continue
+			}
 		}
 		pane, err := adopt.Capture(candidate.Socket, candidate.PaneID)
 		if err != nil {
@@ -198,8 +261,12 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 			// twice.
 			r.onBoard[candidate.Session] = true
 		}
+		conversation := ""
+		if session, found := convo.ClaudeSessionInTree(r.claude, procs.PIDs(candidate.PID)); found {
+			conversation = session.SessionID
+		}
 		accepted = append(accepted, adoptCandidate{
-			id: id, recovered: recovered, candidate: candidate, tool: match.Tool, pane: pane,
+			id: id, recovered: recovered, candidate: candidate, tool: match.Tool, pane: pane, conversation: conversation,
 		})
 	}
 
@@ -218,14 +285,15 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 			name, source = adoptName(candidate.Cwd, candidate.Session, r.names), store.SourceDerived
 		}
 		sess := store.Session{
-			ID:         entry.id,
-			Name:       name,
-			NameSource: source,
-			Tool:       entry.tool,
-			Cwd:        candidate.Cwd,
-			Status:     status.Idle,
-			TmuxSocket: candidate.Socket,
-			TmuxPaneID: candidate.PaneID,
+			ID:             entry.id,
+			Name:           name,
+			NameSource:     source,
+			Tool:           entry.tool,
+			Cwd:            candidate.Cwd,
+			Status:         status.Idle,
+			TmuxSocket:     candidate.Socket,
+			TmuxPaneID:     candidate.PaneID,
+			AgentSessionID: entry.conversation,
 		}
 		if err := r.stor.CreateSession(sess); err != nil {
 			if entry.recovered {
@@ -248,6 +316,7 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 			return taken, err
 		}
 		r.names[sess.Name] = true
+		r.takenIDs = append(r.takenIDs, sess.ID)
 		taken++
 		logging.Info("adopt took a pane",
 			"session", sess.ID, "name", sess.Name, "tool", sess.Tool,
@@ -290,6 +359,9 @@ type adoptCandidate struct {
 	// against what the conversations said, so re-capturing would be a second
 	// tmux round trip per pane for text this scan is still holding.
 	pane string
+	// conversation is the id the pane's process is running, when a sidecar
+	// names it; empty otherwise.
+	conversation string
 }
 
 // adoptNames gives each accepted pane the name its own conversation carries,

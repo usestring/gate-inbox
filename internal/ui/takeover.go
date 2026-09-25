@@ -23,19 +23,13 @@ import (
 // up, one pane at a time and only when the pane is idle, so no turn is lost
 // to it.
 //
-// It is offered once per run, on the first pass that can see the board, and
-// on O at any time: the idle panes go now, the busy ones follow on their
-// own as each goes idle. The set is fixed when the operator says yes. A pane
-// adopted after that is not taken behind their back; it is offered again on
-// the next O or the next start.
+// The offer is the reopen card's panes section (reopenpanes.go): once per
+// start for panes nobody has answered for, and on O at any time for every
+// adopted pane. The idle panes go at once, the busy ones follow on their own
+// as each goes idle. The set is fixed when the operator answers; a pane
+// adopted after that is not taken behind their back.
 
 type takeoverState struct {
-	// offer is set by Init, so only a real startup raises the prompt; a
-	// Model built directly never asks.
-	offer bool
-	// asked marks the startup offer as spent, so a declined one is not
-	// raised again on every later refresh.
-	asked bool
 	// pending is the set the operator agreed to and the background pass is
 	// still owed: adopted rows that were busy when the answer came, by id.
 	pending map[string]bool
@@ -68,80 +62,19 @@ func takeoverReady(sess store.Session) bool {
 	return sess.Status == status.Idle
 }
 
-// maybeOpenTakeoverPrompt raises the offer on the first refresh that finds
-// adopted panes while the list is showing. It waits behind the restore
-// prompt rather than stacking on it: a pass that opened that one leaves the
-// mode, and the next pass asks this.
-func (m *Model) maybeOpenTakeoverPrompt() {
-	if !m.takeover.offer || m.takeover.asked || m.mode != modeList {
-		return
-	}
-	candidates := m.adoptedCandidates()
-	if len(candidates) == 0 {
-		return
-	}
-	m.takeover.asked = true
-	m.openTakeoverDialog(candidates)
-}
-
-// takeOverAdopted is the O key: the same offer, whenever the operator wants
-// it, over whatever adopted panes the board holds now.
+// takeOverAdopted is the O key: the reopen card's panes section over every
+// adopted pane the board holds now, answered for or not, with relaunching
+// as the answer it starts on, since that is what the key is for.
 func (m *Model) takeOverAdopted() (tea.Model, tea.Cmd) {
-	candidates := m.adoptedCandidates()
+	candidates := m.outsidePaneCandidates(true)
 	if len(candidates) == 0 {
 		m.errBar.text = "no adopted panes to take over: every session on the board is already the manager's"
 		return m, nil
 	}
-	m.takeover.asked = true
-	m.openTakeoverDialog(candidates)
-	return m, nil
-}
-
-func (m *Model) openTakeoverDialog(candidates []store.Session) {
-	m.confirm = confirmTarget{
-		action:   actionTakeover,
-		sessions: candidates,
-		label:    takeoverLabel(candidates),
-	}
 	m.errBar.text = ""
-	m.mode = modeConfirmDelete
-}
-
-// takeoverLabel is the question and its consequence. The count the operator
-// is saying yes to is what happens NOW; the busy ones are named so the yes
-// is understood to cover them too, later.
-func takeoverLabel(candidates []store.Session) string {
-	idle, busy := 0, 0
-	for _, sess := range candidates {
-		if takeoverReady(sess) {
-			idle++
-		} else {
-			busy++
-		}
-	}
-	var b strings.Builder
-	if idle == 0 {
-		fmt.Fprintf(&b, "take over %s as %s idle? ", adoptedPanes(busy), plural(busy, "it goes", "they go"))
-	} else {
-		fmt.Fprintf(&b, "restart %d idle adopted %s now? ", idle, plural(idle, "session as a managed one", "sessions as managed ones"))
-	}
-	b.WriteString("each pane is ended and its conversation resumed as a gi_ session the manager owns, so every board action works on it.")
-	if idle > 0 && busy > 0 {
-		fmt.Fprintf(&b, " %d busy %s on %s own as %s idle.", busy, plural(busy, "one follows", "ones follow"), plural(busy, "its", "their"), plural(busy, "it goes", "they go"))
-	}
-	return b.String()
-}
-
-// confirmTakeover is the yes: the idle candidates go now, the rest are
-// owed to the background pass.
-func (m *Model) confirmTakeover() {
-	if m.takeover.pending == nil {
-		m.takeover.pending = map[string]bool{}
-	}
-	for _, sess := range m.confirm.sessions {
-		m.takeover.pending[sess.ID] = true
-	}
-	m.reportTakeover(m.takeoverPass())
+	m.restore = restorePromptState{panes: candidates, paneDefault: paneRelaunch}
+	m.mode = modeRestorePrompt
+	return m, nil
 }
 
 // takeoverResult is what one pass did: rows moved, rows still owed, and

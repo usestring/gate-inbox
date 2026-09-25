@@ -110,6 +110,8 @@ func helpSections() []helpSection {
 			listRow(keymap.LegendPeek, "peek at every key available for this row"),
 			listRow(keymap.Help, "this key map — and where a binding is changed"),
 			listRow(keymap.Quit, "quit (sessions keep running)"),
+			note("to stop them: gate-inbox park, and unpark to bring them back"),
+			note("to leave for good: the README's \"Stop using it\" section"),
 			lit("ctrl+c", "quit, from any screen; the one key that cannot be rebound"),
 		}},
 		{title: "session under the cursor", rows: []helpRow{

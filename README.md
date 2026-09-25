@@ -24,6 +24,37 @@ It is a thin layer over the CLIs you already have. Each session launches your in
 so your login, config files, MCP servers and every feature the tool ships carry over unchanged.
 Gate Inbox reads the panes; it does not sit between you and the model.
 
+## Your first 5 minutes
+
+1. **Install.** You need tmux 3.1+, git and at least one agent CLI (Claude Code, Codex or
+   OpenCode). Then run `go install github.com/usestring/gate-inbox@latest`, or see
+   [Install](#install) below.
+2. **Start it.** Run `gate-inbox`, inside tmux or outside it. The welcome card lists which of your
+   agent CLIs are ready, the five keys that matter, and any agents you already have running in
+   tmux. `n` on the card starts your first session.
+3. **Agents you already had.** Anything you started by hand in tmux shows up on the board as-is.
+   The next card asks whether to keep each one that way, relaunch it into the board, or leave it
+   out, and it lists what a pane kept as-is misses ([below](#kept-as-is-or-relaunched)). `N` makes
+   that answer the default and stops the question; settings (`s`) turns it back on.
+4. **The loop.** `n` starts an agent, `enter` focuses it, `ctrl+q` comes back to the list, `i`
+   walks everything waiting on you, and `H` shows every key.
+5. **Leaving and coming back.** `q` quits and the agents keep running. When you start it again,
+   the board offers back only the sessions that *died* (a reboot, tmux restarting, a crash),
+   never the ones you ended yourself. [Stop using it](#stop-using-it) covers stopping for good.
+
+### Kept as-is or relaunched?
+
+| An agent pane you started by hand, kept as-is... | Relaunched into the board, it... |
+|---|---|
+| keeps running where it is, in its own window | is ended once idle and resumed on the same conversation as a board session |
+| has none of the board's MCP tools (spawn, message, tasks) | gets them |
+| can't be reached by other sessions or the CLI (`send`, `read`, `answer`, `wait`, `kill`) | can be |
+| gets no guaranteed hook status: questions and permission prompts are read off the screen | reports status through Claude Code's hooks |
+| lacks the `GATE_INBOX_*` environment, extension settings and a fresh account token | gets all three |
+| can't be forked, migrated, restarted or revived without a conversation id | can, on its own conversation |
+| doesn't get the back-to-board keys or the pane's title and colours | gets them |
+| keeps the flags and `--model` it was started with | is started from your config, so it doesn't keep them |
+
 ## Install
 
 Gate Inbox runs on Linux and macOS, and on Windows inside WSL2. It needs **tmux 3.1+** and **git**
@@ -189,6 +220,50 @@ session model, tmux passthrough and TUI began. [`NOTICE`](NOTICE) names that pro
 and the commit this fork started from. [`LICENSES/MODIFIED-FILES.txt`](LICENSES/MODIFIED-FILES.txt)
 lists the files changed since, and [`LICENSES/THIRD-PARTY.md`](LICENSES/THIRD-PARTY.md) covers
 third-party licences.
+
+## Stop using it
+
+**Quit.** `q` quits the board. Its agents keep running in tmux as `gi_<id>` sessions and are
+picked back up next time.
+
+**Stop every agent.** `gate-inbox park` ends every live agent the board started and records the
+set. It runs from any shell, and `--dry-run` prints the plan first. `gate-inbox unpark` brings
+the same sessions back on their conversations. A single one: `gate-inbox kill <id>`, with the id
+from `gate-inbox sessions`.
+
+**Carry on in the plain CLI.** In a focused session, `alt+y` copies the agent's own conversation
+id. From that session's working directory:
+
+| CLI | Resume |
+|---|---|
+| Claude Code | `claude --resume <id>` |
+| Codex | `codex resume <id>` |
+| OpenCode | `opencode --session <id>` |
+
+Without an id, `claude --continue`, `codex resume --last` and `opencode --continue` pick up the
+directory's most recent conversation.
+
+**Uninstall.**
+
+1. `gate-inbox park`, then quit the board with `q`.
+2. Remove the binary: `rm "$(command -v gate-inbox)"`.
+3. Remove the config and state directory. That's `$GATE_INBOX_HOME` if you set it, otherwise
+   `~/.config/gate-inbox` on Linux (`$XDG_CONFIG_HOME/gate-inbox` if that's set) and
+   `~/Library/Application Support/gate-inbox` on macOS. It holds `config.toml`, `state.db`, the
+   log, key bindings, snippets, hook and MCP registration files, and a copy of the binary under
+   `bin/`.
+4. Remove the launch scripts and pasted images it left in your temp directory:
+   `rm -f "${TMPDIR:-/tmp}"/gi-launch-*.sh` and `rm -rf "${TMPDIR:-/tmp}/gate-inbox-pastes"`.
+5. Undo the tmux key bindings it added (`ctrl+q`, `ctrl+\` and `alt+o`, which act only inside
+   `gi_*` sessions): `tmux unbind-key -n C-q \; unbind-key -n 'C-\' \; unbind-key -n M-o`, or
+   restart tmux. If the board didn't exit cleanly, `tmux kill-session -t gi_poll-anchor` removes
+   its helper session. If you gave it a private tmux socket, `tmux -L <name> kill-server` does
+   all of this at once.
+
+Gate Inbox writes nothing to your agent CLIs' own configuration. It hands each session its MCP
+server and hooks on the command line. The one exception is `migrate`, which leaves a
+`*.handover.jsonl` file next to the transcript it moved, under `~/.claude/projects` or
+`~/.codex/sessions`.
 
 ## Credits
 

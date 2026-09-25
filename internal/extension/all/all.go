@@ -4,12 +4,13 @@
 // free of its tenants: the interface cannot import the things that
 // implement it, and registering through init() would make the set depend on
 // which files happened to be linked in. Adding an extension is one line
-// here; a build outside this module lists its own in app.Options instead.
+// here; a build outside this module lists its own in app.Options instead,
+// and may list the public ones, such as artifacts.New(), beside them.
 package all
 
 import (
 	"github.com/usestring/gate-inbox/extension"
-	"github.com/usestring/gate-inbox/internal/extension/artifacts"
+	"github.com/usestring/gate-inbox/extension/artifacts"
 )
 
 // Extensions returns every extension, in the order their tools should be

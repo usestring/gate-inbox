@@ -16,6 +16,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/extension/mcptool"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/extensionhost"
 	"github.com/usestring/gate-inbox/internal/logging"
@@ -254,7 +255,7 @@ type sessionCommands interface {
 	Revive(sessionID, targetID string) (sessioncmd.Session, error)
 	SwitchAccount(sessionID, targetID, account string) (sessioncmd.Session, error)
 	Migrate(sessionID, targetID string, opts sessioncmd.MigrateOptions) (sessioncmd.Session, error)
-	Kill(sessionID, targetID string) (sessioncmd.Session, error)
+	Kill(sessionID, targetID string, via extension.KillSource) (sessioncmd.Session, error)
 	Archive(sessionID, targetID string, archived bool) (sessioncmd.Session, error)
 	Tasks(sessionID string) ([]sessioncmd.Task, error)
 	CreateTask(sessionID, title, body string, dependsOn []string) (sessioncmd.Task, error)
@@ -302,40 +303,65 @@ Everything here acts on the user's machine: create_session and create_terminal s
 func NewServer(configDir, sessionID, version string, extensions []extension.Extension) *mcp.Server {
 	words := sessioncmd.MCPVocabulary()
 	sessions := sessioncmd.NewSessions(configDir, words)
-	server := newServer(configDir, sessionID, version, sessioncmd.NewTerminals(configDir, words), sessions)
-	registerExtensions(server, configDir, extension.SessionContext{
+	registry, notes := configureExtensions(configDir, extensions)
+	server := buildServer(configDir, sessionID, version, sessioncmd.NewTerminals(configDir, words), sessions,
+		withExtensionNotes(serverInstructions, notes))
+	registerExtensions(server, registry, extension.SessionContext{
 		SessionID: sessionID,
 		Host:      extensionhost.New(configDir, sessionID, sessions),
-	}, extensions)
+	})
 	return server
 }
 
-// registerExtensions adds the optional features the operator has switched
-// on. It runs here rather than inside newServer so that the manager's own
-// tools are testable without a config directory on disk, and after them so
-// that an extension can never displace one: the registry refuses a tool
-// name already taken.
+// configureExtensions configures the build's extensions against the
+// operator's config, and returns the registry to register from with what
+// the agent should be told about the ones that are not serving. It runs
+// before the server exists because instructions are fixed when it is made.
 //
-// Nothing here is fatal. An extension that cannot register leaves the
-// session without its tools, which is the same outcome as having it
-// switched off; failing the whole server would cost the session every
-// manager tool as well, over a feature it may not use.
-func registerExtensions(server *mcp.Server, configDir string, session extension.SessionContext, extensions []extension.Extension) {
+// Nothing here is fatal. An extension whose section is refused is left out
+// alone, and the rest register; failing the whole server would cost the
+// session every manager tool as well, over a feature it may not use.
+func configureExtensions(configDir string, extensions []extension.Extension) (*extension.Registry, []string) {
 	if len(extensions) == 0 {
-		return
+		return nil, nil
 	}
 	registry, err := extension.NewRegistry(extensions)
 	if err != nil {
 		logging.Info("extensions not loaded", "error", err)
-		return
+		return nil, []string{"none loaded: " + err.Error()}
 	}
 	cfg, err := config.LoadDir(configDir)
 	if err != nil {
 		logging.Info("extensions not loaded", "error", err)
-		return
+		return nil, []string{"none loaded: " + err.Error()}
 	}
-	if err := registry.Configure(configDir, cfg.Extensions); err != nil {
-		logging.Info("extensions not loaded", "error", err)
+	report := registry.Configure(configDir, cfg.Extensions)
+	for _, disabled := range report.Disabled {
+		logging.Warn("extension disabled by its config", "extension", disabled.ID, "error", disabled.Err)
+	}
+	if len(report.Unknown) > 0 {
+		logging.Warn("config sections no extension owns", "sections", report.Unknown, "extensions", registry.IDs())
+	}
+	return registry, report.Notes()
+}
+
+// withExtensionNotes is instructions with a closing paragraph naming the
+// extensions that are not serving and why, so an agent asked for one of
+// their features can say why it has no tool for it instead of guessing.
+func withExtensionNotes(instructions string, notes []string) string {
+	if len(notes) == 0 {
+		return instructions
+	}
+	return instructions + "\n\nExtension status. Some of this build's extensions are not serving tools in this session; " +
+		"if the user asks for their features, tell them why:\n- " + strings.Join(notes, "\n- ")
+}
+
+// registerExtensions adds the tools of the extensions configured above. It
+// runs after the manager's own tools so that an extension can never
+// displace one: the registry refuses a tool name already taken. An
+// extension that fails here leaves the session without its tools only.
+func registerExtensions(server *mcp.Server, registry *extension.Registry, session extension.SessionContext) {
+	if registry == nil {
 		return
 	}
 	reserved, err := registeredToolNames(server)
@@ -385,9 +411,13 @@ func registeredToolNames(server *mcp.Server) ([]string, error) {
 }
 
 func newServer(configDir, sessionID, version string, terminals terminalCommands, sessions sessionCommands) *mcp.Server {
+	return buildServer(configDir, sessionID, version, terminals, sessions, serverInstructions)
+}
+
+func buildServer(configDir, sessionID, version string, terminals terminalCommands, sessions sessionCommands, instructions string) *mcp.Server {
 	server := mcp.NewServer(
 		&mcp.Implementation{Name: mcpreg.ServerName, Version: version},
-		&mcp.ServerOptions{Instructions: serverInstructions},
+		&mcp.ServerOptions{Instructions: instructions},
 	)
 	server.AddReceivingMiddleware(traceTools(sessionID))
 
@@ -420,7 +450,7 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 			"Reuse a relevant idle session instead of creating another; otherwise call create_session. " +
 			"Ask for what you need rather than the board: parent \"me\" is your own children, status narrows to the states you care about, and archived rows are left out unless you ask for them. " +
 			"An unfiltered board is mostly history and can run to hundreds of kilobytes, so a parent checking on its fan-out should be calling it with parent \"me\".",
-		Annotations: toolAnnotations(true, false, false),
+		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args listSessionsArgs) (*mcp.CallToolResult, sessioncmd.SessionList, error) {
 		list, err := sessions.List(sessionID, sessioncmd.ListOptions{
 			Parent:          args.Parent,
@@ -438,9 +468,9 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		// Content is backfilled with the structured payload re-encoded,
 		// which would cost more than the prose it replaced.
 		if args.IncludeText != nil && !*args.IncludeText {
-			return textContent(fmt.Sprintf("%s%d of %d matching sessions, in the structured result", notice, list.Returned, list.Matched)), list, nil
+			return mcptool.Text(fmt.Sprintf("%s%d of %d matching sessions, in the structured result", notice, list.Returned, list.Matched)), list, nil
 		}
-		return textContent(notice + sessioncmd.FormatSessionList(list)), list, nil
+		return mcptool.Text(notice + sessioncmd.FormatSessionList(list)), list, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -449,7 +479,7 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 			"Names one CLI's models when tool is given, and every configured CLI that can answer when it is omitted, saying for each where the answer came from: the CLI's own listing command where it has one, otherwise the names written into the config, which may lag. " +
 			"A CLI refuses a model it does not know, so a guessed name is not a worse answer but a session that dies at launch; a CLI with no model flag says so here rather than at spawn time. " +
 			"Long lists are capped and say how many were left out, so pass filter when looking for a family by name.",
-		Annotations: toolAnnotations(true, false, false),
+		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args listModelsArgs) (*mcp.CallToolResult, any, error) {
 		return textResult(sessioncmd.Models(configDir, args.Tool, args.Filter))
 	})
@@ -459,7 +489,7 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		Description: "Call before passing an account to create_session or migrate_session, to find the named subscriptions a CLI can be launched on instead of guessing one; omit account to follow the board's routing settings (own subscription first, shared overflow in smart mode). An explicit account stays pinned. " +
 			"The names are the team's pooled accounts, each a long-lived token in Secret Manager; a session launched on one spends that account's usage window rather than the operator's own login, which is how work moves off a person who has hit their limit. " +
 			"Names one CLI's accounts when tool is given, and every configured CLI that can take one when it is omitted; a CLI that cannot says so here rather than at spawn time.",
-		Annotations: toolAnnotations(true, false, false),
+		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args listAccountsArgs) (*mcp.CallToolResult, any, error) {
 		return textResult(sessioncmd.Accounts(configDir, args.Tool))
 	})
@@ -469,13 +499,13 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		Description: "Move a session onto another named subscription, for when the account it runs on has hit its usage limit. " +
 			"Claude contexts over 200,000 input tokens migrate to a fresh same-tool conversation on the chosen account, returning a new session ID and leaving the source intact. Otherwise a live session restarts on its conversation, and a dead one takes the account at its next revive. " +
 			"This restarts a live agent on the user's machine, so use it on a session that is blocked by a limit, not one mid-way through work; it cannot be this session itself.",
-		Annotations: toolAnnotations(false, false, true),
+		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args switchAccountArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
 		switched, err := sessions.SwitchAccount(sessionID, args.SessionID, args.Account)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
-		return textContent("switched " + sessioncmd.FormatSession(switched)), switched, nil
+		return mcptool.Text("switched " + sessioncmd.FormatSession(switched)), switched, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -487,12 +517,12 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 			"Pass a descriptive name and a prompt stating the whole task, since the new agent cannot see this conversation -- a long brief goes in a file named by prompt_file rather than in the call -- and, for repo work beside other agents, a directory that is its own checkout, made with the repository's own tooling first. " +
 			"The new session is this session's child: the user sees the fan-out as a tree under this session, and the child's questions, rests and finishes are relayed here, which is how they get answered. Leave nest alone for a fan-out and never create a group for one; nest false is a detach, for a standalone session that is not this session's work. " +
 			"Follow it with read_session and send_session; use create_terminal instead for a plain shell.",
-		Annotations: toolAnnotations(false, false, true),
+		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args createSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
 		// Through the installed manager when this server is too old to file
 		// the row under its caller; see createSession.
 		callerID := effectiveCaller(sessionID, args.CallerSessionID)
-		prompt, err := textArg(args.Prompt, args.PromptFile, "prompt", "prompt_file")
+		prompt, err := mcptool.TextArg(args.Prompt, args.PromptFile, "prompt", "prompt_file")
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
@@ -509,7 +539,7 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
-		return textContent("created " + sessioncmd.FormatSession(created)), created, nil
+		return mcptool.Text("created " + sessioncmd.FormatSession(created)), created, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -518,9 +548,9 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 			"Sending nine messages by hand means the ninth is written long after the first, and by then the first agents have acted on the old instruction. " +
 			"Use send_session for anything meant for one agent -- this interrupts the whole fan-out, so reach for it only when every child needs to hear it. " +
 			"A child that cannot take the message is reported rather than failing the call, so a full queue on one does not leave the rest uninstructed.",
-		Annotations: toolAnnotations(false, false, true),
+		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args sendChildrenArgs) (*mcp.CallToolResult, sessioncmd.ChildSend, error) {
-		message, err := requiredTextArg(args.Message, args.MessageFile, "message", "message_file")
+		message, err := mcptool.RequiredTextArg(args.Message, args.MessageFile, "message", "message_file")
 		if err != nil {
 			return nil, sessioncmd.ChildSend{}, err
 		}
@@ -528,7 +558,7 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		if err != nil {
 			return nil, sessioncmd.ChildSend{}, err
 		}
-		return textContent(sessioncmd.FormatChildSend(sent)), sent, nil
+		return mcptool.Text(sessioncmd.FormatChildSend(sent)), sent, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -537,7 +567,7 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 			"Use it when a session you spawned came back with no parent_id, which is what a spawn looks like when the manager build serving this session predates nesting: the call succeeded and the row landed as your sibling. " +
 			"You may claim a session nobody owns and release one of your own; another session's child stays its own. " +
 			"Pass release true to take one of your children back to the top level.",
-		Annotations: toolAnnotations(false, false, true),
+		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args placeSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
 		place := sessions.AdoptSession
 		if args.Release {
@@ -547,7 +577,7 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
-		return textContent(sessioncmd.FormatPlacement(placed)), placed, nil
+		return mcptool.Text(sessioncmd.FormatPlacement(placed)), placed, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -557,13 +587,13 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 			"Pass the text of the option to pick, or your own words to type instead. " +
 			"It reads Claude Code's AskUserQuestion and Codex's request_user_input, including a dialog asking several questions -- answer that one a question at a time, calling again while standing_questions is above zero. " +
 			"Only the session that spawned it may answer it. A permission prompt, Codex's first-run directory-trust prompt and a multi-select are still a person's to answer, and the refusal says which of them it saw rather than leaving you to guess.",
-		Annotations: toolAnnotations(false, false, true),
+		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args answerSessionArgs) (*mcp.CallToolResult, sessioncmd.AnsweredQuestion, error) {
 		answered, err := sessions.Answer(sessionID, args.SessionID, args.Answer)
 		if err != nil {
 			return nil, sessioncmd.AnsweredQuestion{}, err
 		}
-		return textContent(sessioncmd.FormatAnswer(answered)), answered, nil
+		return mcptool.Text(sessioncmd.FormatAnswer(answered)), answered, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -573,13 +603,13 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 			"With no since, output is the plain text visible in that session's pane, which is the current screen rather than its full history, and a stopped session returns the last screen Gate Inbox captured. " +
 			"Pass the cursor a previous read returned as since and output is only what the session has added since then, which is what a repeat read should use: the whole pane again is the same few thousand characters whether the agent worked for a minute or an hour. " +
 			"A session whose transcript cannot be read returns its pane anyway, with degraded saying why.",
-		Annotations: toolAnnotations(true, false, false),
+		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args readSessionArgs) (*mcp.CallToolResult, sessioncmd.SessionScreen, error) {
 		screen, err := sessions.Read(sessionID, args.SessionID, args.Since)
 		if err != nil {
 			return nil, sessioncmd.SessionScreen{}, err
 		}
-		return textContent(sessioncmd.FormatSessionScreen(screen)), screen, nil
+		return mcptool.Text(sessioncmd.FormatSessionScreen(screen)), screen, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -597,9 +627,9 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 			"Refused rather than delivered: identical text to the same session inside ten minutes, more than five messages a minute per recipient, more than twenty undelivered held by a recipient, or a message over 8000 bytes (point the agent at a file or a task instead). " +
 			"A message already written to disk is sent by naming it in message_file instead of pasting it into message. " +
 			"After a refusal, call message_status on the earlier message rather than sending again.",
-		Annotations: toolAnnotations(false, false, true),
+		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args sendSessionArgs) (*mcp.CallToolResult, sessioncmd.SendResult, error) {
-		message, err := requiredTextArg(args.Message, args.MessageFile, "message", "message_file")
+		message, err := mcptool.RequiredTextArg(args.Message, args.MessageFile, "message", "message_file")
 		if err != nil {
 			return nil, sessioncmd.SendResult{}, err
 		}
@@ -607,7 +637,7 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		if err != nil {
 			return nil, sessioncmd.SendResult{}, err
 		}
-		return textContent(sessioncmd.FormatSendResult(result, args.SessionID)), result, nil
+		return mcptool.Text(sessioncmd.FormatSendResult(result, args.SessionID)), result, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -618,13 +648,13 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 			"Superseded means a later message you sent on the same subject replaced it, and that one is what the agent reads. " +
 			"Held means nothing will type it in as things stand: the recipient's screen is showing a dialog that has to be answered first, or its session is archived or no longer running, and reason says which. " +
 			"Dropped means it never reached the prompt and will not be retried, so send it again.",
-		Annotations: toolAnnotations(true, false, false),
+		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args messageStatusArgs) (*mcp.CallToolResult, sessioncmd.MessageState, error) {
 		state, err := sessions.MessageStatus(sessionID, args.MessageID)
 		if err != nil {
 			return nil, sessioncmd.MessageState{}, err
 		}
-		return textContent(sessioncmd.FormatMessageState(state)), state, nil
+		return mcptool.Text(sessioncmd.FormatMessageState(state)), state, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -635,7 +665,7 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 			"By default it returns once a session reaches any state that means it stopped (finished, waiting, idle, errored or dead); pass until to wait for particular states. " +
 			"A timeout is a normal answer, not a failure: the result carries reached false and the actual state, and outcome says whether it reached, timed_out or died. " +
 			"standing carries every waited-on session with its own outcome, so use that rather than a follow-up list_sessions, then read_session on whichever one moved.",
-		Annotations: toolAnnotations(true, false, false),
+		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args waitSessionArgs) (*mcp.CallToolResult, sessioncmd.WaitResult, error) {
 		ids := args.SessionIDs
 		if strings.TrimSpace(args.SessionID) != "" {
@@ -650,20 +680,20 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		if err != nil {
 			return nil, sessioncmd.WaitResult{}, err
 		}
-		return textContent(sessioncmd.FormatWaitResult(result)), result, nil
+		return mcptool.Text(sessioncmd.FormatWaitResult(result)), result, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "revive_session",
 		Description: "Bring a dead session back on its old row, resuming the conversation it held where its CLI supports that. " +
 			"Call when list_sessions or send_session reports a session is not running and its work should continue.",
-		Annotations: toolAnnotations(false, false, true),
+		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args sessionTargetArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
 		revived, err := sessions.Revive(sessionID, args.SessionID)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
-		return textContent("revived " + sessioncmd.FormatSession(revived)), revived, nil
+		return mcptool.Text("revived " + sessioncmd.FormatSession(revived)), revived, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -671,13 +701,13 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		Description: "Move a session's conversation to a different agent CLI: starts a new session on that CLI in the same group and directory, whose first prompt points at the source's full transcript on disk and tells it to read it and carry on where the source left off. " +
 			"Use it when a session should continue on another CLI, such as after a usage limit on the one it runs, or to move this session itself by passing its own id; the same CLI with another account moves a conversation onto a different subscription. " +
 			"The source is left as it is, so archive it once the new session has taken over; only claude, codex and opencode sessions with a transcript can be moved.",
-		Annotations: toolAnnotations(false, false, true),
+		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args migrateSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
 		created, err := sessions.Migrate(sessionID, args.SessionID, sessioncmd.MigrateOptions{Tool: args.Tool, Name: args.Name, Account: args.Account})
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
-		return textContent("migrated " + args.SessionID + " to " + sessioncmd.FormatSession(created)), created, nil
+		return mcptool.Text("migrated " + args.SessionID + " to " + sessioncmd.FormatSession(created)), created, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -685,20 +715,20 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		Description: "Stop another agent's process, ending whatever it is doing. The row stays with its last screen and can be brought back with revive_session. " +
 			"Reserve it for a session whose work is finished or has gone wrong, and prefer send_session to redirect an agent that is still useful. " +
 			"Killing interrupts work in progress on the user's machine, so ask first unless the user asked for it.",
-		Annotations: toolAnnotations(false, true, true),
+		Annotations: mcptool.Annotations(false, true, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args sessionTargetArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
-		killed, err := sessions.Kill(sessionID, args.SessionID)
+		killed, err := sessions.Kill(sessionID, args.SessionID, extension.KillByMCP)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
-		return textContent("killed " + sessioncmd.FormatSession(killed)), killed, nil
+		return mcptool.Text("killed " + sessioncmd.FormatSession(killed)), killed, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "archive_session",
 		Description: "File a finished session out of the active list, or restore an archived one with archived false. " +
 			"Use it to keep the user's list readable once a session's work is done. This ENDS a running agent: the row and its last screen are kept and revive_session brings it back, but work in progress stops, so read_session first if you are not sure it has finished.",
-		Annotations: toolAnnotations(false, false, false),
+		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args archiveSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
 		archived := true
 		if args.Archived != nil {
@@ -708,7 +738,7 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
-		return textContent(sessioncmd.FormatArchiveState(updated)), updated, nil
+		return mcptool.Text(sessioncmd.FormatArchiveState(updated)), updated, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -719,7 +749,7 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 			"claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task, which is how a worker finds its next job, and a task another session holds is refused with the holder named. " +
 			"finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. " +
 			"release hands a claimed task back for another session. delete removes work that turned out not to be needed.",
-		Annotations: toolAnnotations(false, false, false),
+		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args taskArgs) (*mcp.CallToolResult, taskOutput, error) {
 		switch args.Action {
 		case "list":
@@ -727,9 +757,9 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
-			return textContent(sessioncmd.FormatTaskList(listed)), taskOutput{Tasks: listed}, nil
+			return mcptool.Text(sessioncmd.FormatTaskList(listed)), taskOutput{Tasks: listed}, nil
 		case "create":
-			body, err := textArg(args.Body, args.BodyFile, "body", "body_file")
+			body, err := mcptool.TextArg(args.Body, args.BodyFile, "body", "body_file")
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
@@ -737,30 +767,30 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
-			return textContent("created " + sessioncmd.FormatTask(created)), taskOutput{Task: &created}, nil
+			return mcptool.Text("created " + sessioncmd.FormatTask(created)), taskOutput{Task: &created}, nil
 		case "claim":
 			claimed, err := sessions.ClaimTask(sessionID, args.TaskID)
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
-			return textContent("claimed " + sessioncmd.FormatTask(claimed)), taskOutput{Task: &claimed}, nil
+			return mcptool.Text("claimed " + sessioncmd.FormatTask(claimed)), taskOutput{Task: &claimed}, nil
 		case "finish":
 			finished, err := sessions.FinishTask(sessionID, args.TaskID)
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
-			return textContent("finished " + sessioncmd.FormatTask(finished)), taskOutput{Task: &finished}, nil
+			return mcptool.Text("finished " + sessioncmd.FormatTask(finished)), taskOutput{Task: &finished}, nil
 		case "release":
 			released, err := sessions.ReleaseTask(sessionID, args.TaskID)
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
-			return textContent("released " + sessioncmd.FormatTask(released)), taskOutput{Task: &released}, nil
+			return mcptool.Text("released " + sessioncmd.FormatTask(released)), taskOutput{Task: &released}, nil
 		case "delete":
 			if err := sessions.DeleteTask(sessionID, args.TaskID); err != nil {
 				return nil, taskOutput{}, err
 			}
-			return textContent("deleted task " + args.TaskID), taskOutput{}, nil
+			return mcptool.Text("deleted task " + args.TaskID), taskOutput{}, nil
 		default:
 			return nil, taskOutput{}, fmt.Errorf("unknown action %q (list, create, claim, finish, release, delete)", args.Action)
 		}
@@ -772,52 +802,52 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 			"Call it when several sessions share one checkout and you are starting on a set of files; a session in a checkout of its own does not need it. " +
 			"The lease is advisory: nothing is blocked, and any overlap with a lease another session holds comes back in conflicts, with the holder to message. " +
 			"It lapses on its own, so an agent that dies never holds the repo. Call release_files when you are done.",
-		Annotations: toolAnnotations(false, false, false),
+		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args reserveFilesArgs) (*mcp.CallToolResult, sessioncmd.ReserveResult, error) {
 		result, err := sessions.Reserve(sessionID, args.Paths, args.Mode, args.Note, time.Duration(args.TTLM)*time.Minute)
 		if err != nil {
 			return nil, sessioncmd.ReserveResult{}, err
 		}
-		return textContent(sessioncmd.FormatReserveResult(result)), result, nil
+		return mcptool.Text(sessioncmd.FormatReserveResult(result)), result, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "release_files",
 		Description: "Give back the leases you took with reserve_files once the edits are made, so another agent can take those paths. " +
 			"Omit paths to release everything this session holds.",
-		Annotations: toolAnnotations(false, false, false),
+		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args releaseFilesArgs) (*mcp.CallToolResult, releaseFilesOutput, error) {
 		released, err := sessions.ReleaseFiles(sessionID, args.Paths)
 		if err != nil {
 			return nil, releaseFilesOutput{}, err
 		}
-		return textContent(sessioncmd.FormatReleased(released)), releaseFilesOutput{Released: released}, nil
+		return mcptool.Text(sessioncmd.FormatReleased(released)), releaseFilesOutput{Released: released}, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "list_reservations",
 		Description: "See which files the other sessions are working on right now. " +
 			"Call it before editing shared code, or when planning who takes which part of a change.",
-		Annotations: toolAnnotations(true, false, false),
+		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args listReservationsArgs) (*mcp.CallToolResult, listReservationsOutput, error) {
 		listed, err := sessions.Reservations(sessionID)
 		if err != nil {
 			return nil, listReservationsOutput{}, err
 		}
-		return textContent(sessioncmd.FormatReservations(listed)), listReservationsOutput{Reservations: listed}, nil
+		return mcptool.Text(sessioncmd.FormatReservations(listed)), listReservationsOutput{Reservations: listed}, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "list_groups",
 		Description: "List the groups sessions and terminals are filed under, with each group's default directory and session count. " +
 			"Call before passing a group to create_session or create_terminal, since a group must already exist.",
-		Annotations: toolAnnotations(true, false, false),
+		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args listGroupsArgs) (*mcp.CallToolResult, listGroupsOutput, error) {
 		listed, err := sessions.Groups(sessionID)
 		if err != nil {
 			return nil, listGroupsOutput{}, err
 		}
-		return textContent(sessioncmd.FormatGroupList(listed)), listGroupsOutput{Groups: listed}, nil
+		return mcptool.Text(sessioncmd.FormatGroupList(listed)), listGroupsOutput{Groups: listed}, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -825,13 +855,13 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		Description: "Add a heading to the user's list, for work the user asked to file separately, such as another repository or a parked track. " +
 			"Not for a fan-out: every session this one creates is its child and already sits together under it, and a nested session cannot be filed in another group. Call list_groups first so an existing heading is reused. " +
 			"Nest with a slash path such as work/payments, whose parent must already exist.",
-		Annotations: toolAnnotations(false, false, false),
+		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args createGroupArgs) (*mcp.CallToolResult, sessioncmd.Group, error) {
 		created, err := sessions.CreateGroup(sessionID, args.Path, args.Directory)
 		if err != nil {
 			return nil, sessioncmd.Group{}, err
 		}
-		return textContent("created group " + created.Path), created, nil
+		return mcptool.Text("created group " + created.Path), created, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -839,13 +869,13 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		Description: "Delete a group once the work filed under it is done, so a fleet does not leave a heading behind in the user's list. " +
 			"Groups nested under it go too. Any session still filed there moves to the root group rather than being stopped, " +
 			"so this never ends an agent: kill_session or archive_session those first if that is what you mean.",
-		Annotations: toolAnnotations(false, true, false),
+		Annotations: mcptool.Annotations(false, true, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args deleteGroupArgs) (*mcp.CallToolResult, sessioncmd.GroupRemoval, error) {
 		removal, err := sessions.DeleteGroup(sessionID, args.Path)
 		if err != nil {
 			return nil, sessioncmd.GroupRemoval{}, err
 		}
-		return textContent(sessioncmd.FormatGroupRemoval(removal)), removal, nil
+		return mcptool.Text(sessioncmd.FormatGroupRemoval(removal)), removal, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -853,14 +883,14 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		Description: "Call before opening a terminal for human-visible work, to find one you can reuse. " +
 			"Lists active managed terminals with ids, names, groups, current directories, statuses, whether their tmux panes are running, and the session each one is nested under. " +
 			"Reuse a relevant running terminal when possible; otherwise call create_terminal. Use the returned id with send_terminal and read_terminal.",
-		Annotations: toolAnnotations(true, false, false),
+		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args listTerminalsArgs) (*mcp.CallToolResult, listTerminalsOutput, error) {
 		listed, err := terminals.List(sessionID)
 		if err != nil {
 			return nil, listTerminalsOutput{}, err
 		}
 		output := listTerminalsOutput{Terminals: listed}
-		return textContent(sessioncmd.FormatTerminalList(listed)), output, nil
+		return mcptool.Text(sessioncmd.FormatTerminalList(listed)), output, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -868,7 +898,7 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		Description: "Create a managed terminal for human-visible work such as SSH, not for one-shot local commands or other internal work. " +
 			"It nests under this session unless nest is false, which a group other than this session's needs; a terminal created from a terminal joins it as a sibling under the same agent. The group supplies the inherited directory, and directory set explicitly wins. " +
 			"Then call send_terminal with the returned id; use create_session instead for another agent CLI. Call close_terminal when the job is finished and the terminal is not being left for the user.",
-		Annotations: toolAnnotations(false, false, false),
+		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args createTerminalArgs) (*mcp.CallToolResult, sessioncmd.Terminal, error) {
 		created, err := terminals.Create(sessionID, sessioncmd.CreateTerminalOptions{
 			Group:     args.Group,
@@ -878,7 +908,7 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		if err != nil {
 			return nil, sessioncmd.Terminal{}, err
 		}
-		return textContent("created " + sessioncmd.FormatTerminal(created)), created, nil
+		return mcptool.Text("created " + sessioncmd.FormatTerminal(created)), created, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -886,26 +916,26 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		Description: "Call after list_terminals or create_terminal to run or control work in a managed terminal, keeping it visible and separate from the conversation. Provide exactly one of command or keys. " +
 			"A command is pasted and submitted with Enter, so it executes on the user's machine. " +
 			"Keys sends exact tmux key names for interactive control, such as [\"C-c\"] or [\"Up\", \"Enter\"]. Call read_terminal after sending to inspect the result.",
-		Annotations: toolAnnotations(false, true, true),
+		Annotations: mcptool.Annotations(false, true, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args sendTerminalArgs) (*mcp.CallToolResult, sessioncmd.TerminalInput, error) {
 		sent, err := terminals.Send(sessionID, args.TerminalID, args.Command, args.Keys)
 		if err != nil {
 			return nil, sessioncmd.TerminalInput{}, err
 		}
-		return textContent(sessioncmd.FormatTerminalInput(sent)), sent, nil
+		return mcptool.Text(sessioncmd.FormatTerminalInput(sent)), sent, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "read_terminal",
 		Description: "Call immediately after send_terminal to inspect the result, and call again as needed to monitor ongoing work. " +
 			"Returns the plain-text content currently visible in the managed terminal pane. This is the current screen, not the pane's full scrollback history.",
-		Annotations: toolAnnotations(true, false, false),
+		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args readTerminalArgs) (*mcp.CallToolResult, sessioncmd.TerminalScreen, error) {
 		screen, err := terminals.Read(sessionID, args.TerminalID)
 		if err != nil {
 			return nil, sessioncmd.TerminalScreen{}, err
 		}
-		return textContent(sessioncmd.FormatTerminalScreen(screen)), screen, nil
+		return mcptool.Text(sessioncmd.FormatTerminalScreen(screen)), screen, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -913,28 +943,15 @@ func newServer(configDir, sessionID, version string, terminals terminalCommands,
 		Description: "Delete a terminal nested under this session once its job is finished: kills the pane and removes the row. " +
 			"Leave it running when you opened it for the user (for example an SSH session they may attach to). " +
 			"Refuses agent sessions, un-nested terminals, and terminals under another session.",
-		Annotations: toolAnnotations(false, true, false),
+		Annotations: mcptool.Annotations(false, true, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args closeTerminalArgs) (*mcp.CallToolResult, any, error) {
 		if err := terminals.Close(sessionID, args.TerminalID); err != nil {
 			return nil, nil, err
 		}
-		return textContent("closed terminal " + args.TerminalID), nil, nil
+		return mcptool.Text("closed terminal " + args.TerminalID), nil, nil
 	})
 
 	return server
-}
-
-func toolAnnotations(readOnly, destructive, openWorld bool) *mcp.ToolAnnotations {
-	return &mcp.ToolAnnotations{
-		ReadOnlyHint:    readOnly,
-		DestructiveHint: &destructive,
-		IdempotentHint:  readOnly,
-		OpenWorldHint:   &openWorld,
-	}
-}
-
-func textContent(message string) *mcp.CallToolResult {
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: message}}}
 }
 
 func textResult(message string, err error) (*mcp.CallToolResult, any, error) {

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
@@ -120,7 +121,7 @@ func (f *fakeSessions) MessageStatus(sessionID string, messageID int64) (session
 	return sessioncmd.MessageState{MessageID: messageID, SessionID: "beef", State: "delivered"}, f.failWith
 }
 
-func (f *fakeSessions) Kill(sessionID, targetID string) (sessioncmd.Session, error) {
+func (f *fakeSessions) Kill(sessionID, targetID string, _ extension.KillSource) (sessioncmd.Session, error) {
 	f.callerID, f.targetID = sessionID, targetID
 	return f.session, f.failWith
 }

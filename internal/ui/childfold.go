@@ -6,6 +6,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -93,9 +94,12 @@ func (m *Model) hasChildren(sessID string) bool {
 }
 
 // foldsAway reports whether a child is one the fold may take off screen. A
-// shell is not: it is on screen because it was put there deliberately.
+// shell is not: it is on screen because it was put there deliberately. Nor
+// is a helper whose role keeps it on screen: an extension launched it to be
+// looked at, typically holding a question for the operator, and a fold
+// would hide it behind a badge that does not say so.
 func (m *Model) foldsAway(child store.Session) bool {
-	return !m.isShell(child.Tool)
+	return !m.isShell(child.Tool) && !sessionhooks.Role(child.Role).OnScreen
 }
 
 // childStatusOrder is the order a badge reads in: what is running, then what

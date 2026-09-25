@@ -311,7 +311,7 @@ The server's MCP initialization instructions teach agents to use these tools wit
 
 Every one of these tools acts on the user's machine. Agents should treat `send_terminal` with the same care as typing into an attached shell, and treat `create_session` and `kill_session` as what they are: starting a real agent process that spends tokens, and interrupting one that may be mid-task. Inspect the target returned by `list_sessions` or `list_terminals` first, and read the result before continuing.
 
-Registration is per tool. Claude gets a generated `--mcp-config` file. Codex gets `-c mcp_servers...` overrides. OpenCode gets an `OPENCODE_CONFIG` merge file. A custom tool registers nothing unless its `mcp` names one of those three styles. A spawn whose CLI is not on PATH is refused the same way, with the vendor's portable installer for a built-in agent, or the package manager on this machine for anything else.
+Registration is per tool. Claude gets a generated `--mcp-config` file. Codex gets `-c mcp_servers...` overrides. OpenCode gets an `OPENCODE_CONFIG` merge file. A custom tool registers nothing unless its `mcp` names one of those three styles or a tool driver an extension in this build supplies; a style that is neither is refused rather than launched without the server. A spawn whose CLI is not on PATH is refused the same way, with the vendor's portable installer for a built-in agent, or the package manager on this machine for anything else.
 
 A tool without an MCP client reaches the same workspace through the subcommands: `gate-inbox --help` lists them, from `sessions`, `spawn`, `send` and `wait` to the shared task list, file reservations and terminals.
 

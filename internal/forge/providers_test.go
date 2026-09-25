@@ -3,6 +3,7 @@ package forge
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/usestring/gate-inbox/internal/workspec"
@@ -17,7 +18,7 @@ func TestNewResolversBuildsOnlyWhatIsOn(t *testing.T) {
 		{"both on", Providers{GitHub: true, Linear: true, LinearAPIKey: "k"}, true, true},
 		{"github off", Providers{Linear: true, LinearAPIKey: "k"}, false, true},
 		{"linear off", Providers{GitHub: true, LinearAPIKey: "k"}, true, false},
-		{"linear on without a key", Providers{GitHub: true, Linear: true}, true, false},
+		{"linear on without a key", Providers{GitHub: true, Linear: true}, true, true},
 		{"both off", Providers{}, false, false},
 	}
 	for _, c := range cases {
@@ -40,7 +41,7 @@ func (c *countingTransport) RoundTrip(*http.Request) (*http.Response, error) {
 	return nil, errors.New("no network in tests")
 }
 
-// A Linear with no key sends nothing and says it is off, not that it failed.
+// A Linear with no key sends nothing, says it is off rather than failed, and says why.
 func TestLinearWithoutAKeyIsOffNotFailed(t *testing.T) {
 	transport := &countingTransport{}
 	l := &Linear{Endpoint: "https://example.invalid", HTTP: &http.Client{Transport: transport}}
@@ -52,5 +53,22 @@ func TestLinearWithoutAKeyIsOffNotFailed(t *testing.T) {
 	}
 	if !health.Off || health.Failed() {
 		t.Errorf("health = %+v, want off and not failed", health)
+	}
+	if !strings.Contains(health.Reason, "LINEAR_API_KEY is not set") {
+		t.Errorf("reason = %q, want it to name the missing key", health.Reason)
+	}
+}
+
+// Built with Linear on and no key, the resolver is there and keeps the empty key rather than
+// picking one up from the environment later.
+func TestNewResolversKeepsAKeylessLinear(t *testing.T) {
+	t.Setenv("LINEAR_API_KEY", "from-env")
+	_, tickets := NewResolvers(Providers{Linear: true})
+	linear, ok := tickets.(*Linear)
+	if !ok {
+		t.Fatalf("ticket resolver = %T, want *Linear", tickets)
+	}
+	if linear.APIKey != "" {
+		t.Errorf("key = %q, want the empty key it was given", linear.APIKey)
 	}
 }

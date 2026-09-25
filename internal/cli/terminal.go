@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/usestring/gate-inbox/extension/cmdline"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
@@ -45,8 +46,8 @@ func terminalSection() section {
 }
 
 func runTerminalList(out io.Writer, terminals terminalCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageTerminalList)
-	asJSON := jsonFlag(set)
+	set := cmdline.NewFlagSet(usageTerminalList)
+	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
 		return err
 	}
@@ -54,15 +55,15 @@ func runTerminalList(out io.Writer, terminals terminalCommands, args []string, s
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, listed, sessioncmd.FormatTerminalList(listed))
+	return cmdline.Emit(out, *asJSON, listed, sessioncmd.FormatTerminalList(listed))
 }
 
 func runTerminalCreate(out io.Writer, terminals terminalCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageTerminalCreate)
+	set := cmdline.NewFlagSet(usageTerminalCreate)
 	group := set.String("group", "", "existing group path to open it in; pass an empty string for the root group")
 	directory := set.String("directory", "", "existing directory to open; defaults to yours, or to the group's inherited path")
 	nest := set.Bool("nest", true, "hang the terminal under this session; pass --nest=false to leave it loose or to open it in another group")
-	asJSON := jsonFlag(set)
+	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
 		return err
 	}
@@ -78,15 +79,15 @@ func runTerminalCreate(out io.Writer, terminals terminalCommands, args []string,
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, created, "created "+sessioncmd.FormatTerminal(created))
+	return cmdline.Emit(out, *asJSON, created, "created "+sessioncmd.FormatTerminal(created))
 }
 
 func runTerminalSend(out io.Writer, terminals terminalCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageTerminalSend)
+	set := cmdline.NewFlagSet(usageTerminalSend)
 	text := set.String("command", "", "command text to paste and submit with Enter, which executes on the user's machine")
 	var keys stringList
 	set.Var(&keys, "keys", "exact tmux key names to send in order, repeatable or comma separated, such as C-c or Up,Enter")
-	asJSON := jsonFlag(set)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
@@ -95,12 +96,12 @@ func runTerminalSend(out io.Writer, terminals terminalCommands, args []string, s
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, sent, sessioncmd.FormatTerminalInput(sent))
+	return cmdline.Emit(out, *asJSON, sent, sessioncmd.FormatTerminalInput(sent))
 }
 
 func runTerminalRead(out io.Writer, terminals terminalCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageTerminalRead)
-	asJSON := jsonFlag(set)
+	set := cmdline.NewFlagSet(usageTerminalRead)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
@@ -109,11 +110,11 @@ func runTerminalRead(out io.Writer, terminals terminalCommands, args []string, s
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, screen, sessioncmd.FormatTerminalScreen(screen))
+	return cmdline.Emit(out, *asJSON, screen, sessioncmd.FormatTerminalScreen(screen))
 }
 
 func runTerminalClose(out io.Writer, terminals terminalCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageTerminalClose)
+	set := cmdline.NewFlagSet(usageTerminalClose)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err

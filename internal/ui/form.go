@@ -5,6 +5,7 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -12,9 +13,11 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/launch"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -76,6 +79,65 @@ type form struct {
 	groups     []groupOption
 	groupIndex int
 	focus      int
+	// extra is the fields the extensions add, drawn after the form's own and
+	// focused as fieldCount+i.
+	extra []extraField
+}
+
+// extraField is one field an extension added to the form, and the option
+// it is set to.
+type extraField struct {
+	field  extension.FormField
+	choice int
+}
+
+func (f extraField) value() string { return f.field.Options[f.choice] }
+
+// fieldTotal is how many fields the form moves through: its own, then the
+// extensions'.
+func (f form) fieldTotal() int { return fieldCount + len(f.extra) }
+
+// focusedExtra is the extension field under the cursor, if it is on one.
+func (f *form) focusedExtra() (*extraField, bool) {
+	i := f.focus - fieldCount
+	if i < 0 || i >= len(f.extra) {
+		return nil, false
+	}
+	return &f.extra[i], true
+}
+
+// extraFields builds the extensions' fields at their defaults.
+func extraFields(fields []extension.FormField) []extraField {
+	extra := make([]extraField, 0, len(fields))
+	for _, field := range fields {
+		extra = append(extra, extraField{field: field, choice: max(0, slices.Index(field.Options, field.Default))})
+	}
+	return extra
+}
+
+// formValues is what the extensions' fields are set to, keyed as the
+// extensions' hooks key them; nil when there are none.
+func (f form) formValues() map[string]string {
+	if len(f.extra) == 0 {
+		return nil
+	}
+	values := make(map[string]string, len(f.extra))
+	for _, e := range f.extra {
+		values[e.field.Key] = e.value()
+	}
+	return values
+}
+
+// cycleExtra steps the focused extension field through its options,
+// wrapping at the ends; a toggle's two options make that a flip.
+func (m *Model) cycleExtra(delta int) bool {
+	e, ok := m.form.focusedExtra()
+	if !ok {
+		return false
+	}
+	n := len(e.field.Options)
+	e.choice = (e.choice + delta + n) % n
+	return true
 }
 
 type groupForm struct {
@@ -303,6 +365,7 @@ func (m *Model) openForm() {
 		toolIndex:  toolIndex,
 		model:      textField("default", 60),
 		focus:      fieldTool,
+		extra:      extraFields(sessionhooks.FormFields()),
 	}
 	m.errBar.text = ""
 	m.syncFormFieldWidths()
@@ -422,6 +485,9 @@ func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.moveGroupCursor(-1)
 			return m, nil
 		}
+		if m.cycleExtra(-1) {
+			return m, nil
+		}
 	case "right":
 		if m.form.focus == fieldDir && m.pathSugg.browsing {
 			m.descendPath()
@@ -433,6 +499,13 @@ func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.form.focus == fieldGroup {
 			m.moveGroupCursor(1)
+			return m, nil
+		}
+		if m.cycleExtra(1) {
+			return m, nil
+		}
+	case "space":
+		if m.cycleExtra(1) {
 			return m, nil
 		}
 	case "enter":
@@ -486,7 +559,8 @@ func (m *Model) moveGroupCursor(delta int) {
 
 func (m *Model) formFocus(delta int) {
 	m.pathSugg.reset()
-	m.form.focus = (m.form.focus + delta + fieldCount) % fieldCount
+	total := m.form.fieldTotal()
+	m.form.focus = (m.form.focus + delta + total) % total
 	m.form.name.Blur()
 	m.form.dir.Blur()
 	m.form.prompt.input.Blur()
@@ -646,7 +720,8 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	id, err := m.spawnSessionAs(toolName, m.formModel(), name, dir, group, prompt, autoNamed, store.SourceUser)
+	values := m.form.formValues()
+	id, err := m.spawnSessionWith(toolName, m.formModel(), name, dir, group, prompt, autoNamed, store.SourceUser, values)
 	if err != nil {
 		m.reportLaunchError(err)
 		// A spawn the hint dialog refused takes the form off screen with it,
@@ -664,8 +739,50 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 	// refuses -- a row filtered off the tree, a pane already gone -- leaves
 	// the operator, and it must not be the form.
 	m.mode = modeList
+	// The extensions hear of it before the board focuses the new pane, so
+	// one that opens a view of its own on the session gets there first,
+	// and the board leaves the operator in that view instead.
+	if m.formSpawned(id, values) {
+		m.rebuildRows()
+		m.focusSession(id)
+		return m, m.refreshCmd()
+	}
 	return m.landInNewSession(id)
 }
+
+// formSpawned tells the extensions that id was spawned from the form with
+// values, and reports whether one of them opened a view of its own while
+// it was told.
+func (m *Model) formSpawned(id string, values map[string]string) bool {
+	if len(values) == 0 {
+		return false
+	}
+	for _, sess := range m.sessions {
+		if sess.ID == id {
+			before := m.extensionViewsOpened()
+			sessionhooks.FormSpawned(sess, values)
+			return m.extensionViewsOpened() != before
+		}
+	}
+	return false
+}
+
+// extensionViewsOpened counts the views extensions have opened: those noted
+// through noteExtensionViewOpened, and every UIHost.Open the bridge took,
+// counted when it was called rather than when the view reaches the board.
+func (m *Model) extensionViewsOpened() uint64 {
+	n := m.extensionViews
+	if m.extBridge != nil {
+		n += uint64(m.extBridge.opened())
+	}
+	return n
+}
+
+// noteExtensionViewOpened records that an extension opened a view of its
+// own on the board. Whatever lets an extension open a view calls it, so a
+// spawn from the form knows to leave the operator in that view rather than
+// focus the new pane over it.
+func (m *Model) noteExtensionViewOpened() { m.extensionViews++ }
 
 // spawnSession creates the tmux session and its store record for both
 // the New Session form and quick spawn. autoNamed marks sessions whose
@@ -685,6 +802,12 @@ func (m *Model) spawnSession(toolName, name, dir, group, prompt string, autoName
 func (m *Model) formModel() string { return strings.TrimSpace(m.form.model.Value()) }
 
 func (m *Model) spawnSessionAs(toolName, model, name, dir, group, prompt string, autoNamed bool, nameSource string) (string, error) {
+	return m.spawnSessionWith(toolName, model, name, dir, group, prompt, autoNamed, nameSource, nil)
+}
+
+// spawnSessionWith is spawnSessionAs carrying the values of the extensions'
+// form fields, which only the new-session form has.
+func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt string, autoNamed bool, nameSource string, form map[string]string) (string, error) {
 	tool := m.cfg.Tools[toolName]
 	id := newID()
 	account, err := accounts.Select(m.store, tool, "", id)
@@ -695,7 +818,7 @@ func (m *Model) spawnSessionAs(toolName, model, name, dir, group, prompt string,
 	if err != nil {
 		return "", err
 	}
-	if err := m.launchNewSession(store.Session{
+	if err := m.launchNewSessionWith(store.Session{
 		ID:         id,
 		Name:       name,
 		Tool:       toolName,
@@ -710,7 +833,7 @@ func (m *Model) spawnSessionAs(toolName, model, name, dir, group, prompt string,
 		AgentSessionID: plan.AgentSessionID,
 		PendingInputs:  plan.PendingInputs,
 		LaunchPrompt:   plan.LaunchPrompt,
-	}, tool, plan.Command); err != nil {
+	}, tool, plan.Command, form); err != nil {
 		return "", err
 	}
 	// The CLI is remembered once the launch has actually happened, so a
@@ -727,8 +850,8 @@ func (m *Model) spawnSessionAs(toolName, model, name, dir, group, prompt string,
 	return id, nil
 }
 
-func (m *Model) buildLaunch(toolName string, tool config.Tool, baseCommand, id, model, account string) (string, map[string]string, error) {
-	return launch.Environment(m.hooks, toolName, tool, baseCommand, id, model, account)
+func (m *Model) buildLaunch(toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string) (string, map[string]string, error) {
+	return launch.Environment(m.hooks, toolName, tool, baseCommand, id, model, account, contributed)
 }
 
 func (m *Model) openGroupForm() {

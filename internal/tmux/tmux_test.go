@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -439,6 +440,39 @@ func TestPasteDeliversWithoutSubmitting(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	if got, _ := os.ReadFile(marker); string(got) != want {
 		t.Fatalf("pane received extra input after the paste: %q", got)
+	}
+}
+
+// A board extension's message runs to 64 KiB; a paste that size has to
+// arrive whole, where send-keys would have stopped at around a kilobyte.
+func TestPasteDeliversALargeMessageWhole(t *testing.T) {
+	driver := requireTmux(t)
+	id := "bigpaste" + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "")
+	marker := filepath.Join(t.TempDir(), "pane-input")
+
+	text := strings.Repeat("a line the extension has to send\n", (64<<10)/33+1)
+	want := "\x1b[200~" + strings.ReplaceAll(text, "\n", "\r") + "\x1b[201~"
+	command := "stty raw -echo; printf '\\033[?2004h'; head -c " +
+		strconv.Itoa(len(want)) + " > " + ShellQuote(marker)
+	if err := driver.Create(id, "/tmp", command, nil, 0, 0); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { driver.Kill(id) })
+
+	time.Sleep(100 * time.Millisecond)
+	if err := driver.Paste(id, text); err != nil {
+		t.Fatalf("Paste: %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if got, err := os.ReadFile(marker); err == nil && len(got) == len(want) {
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	got, _ := os.ReadFile(marker)
+	if string(got) != want {
+		t.Fatalf("pane read %d bytes of a %d byte paste", len(got), len(want))
 	}
 }
 

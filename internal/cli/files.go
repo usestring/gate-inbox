@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/usestring/gate-inbox/extension/cmdline"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
@@ -43,11 +44,11 @@ type releasedCount struct {
 }
 
 func runReserve(out io.Writer, files fileCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageReserve)
+	set := cmdline.NewFlagSet(usageReserve)
 	mode := set.String("mode", "", "exclusive (default) means nobody else should edit these paths; shared means others may too")
 	note := set.String("note", "", "what you are doing there, so a conflicting agent knows what it is up against")
 	ttl := set.Duration("ttl", 0, "how long the lease lasts before it lapses, default "+sessioncmd.DefaultReservationTTL.String()+", maximum "+sessioncmd.MaxReservationTTL.String())
-	asJSON := jsonFlag(set)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, anyNumber)
 	if err != nil {
 		return err
@@ -59,12 +60,12 @@ func runReserve(out io.Writer, files fileCommands, args []string, sessionID stri
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, result, sessioncmd.FormatReserveResult(result))
+	return cmdline.Emit(out, *asJSON, result, sessioncmd.FormatReserveResult(result))
 }
 
 func runReleaseFiles(out io.Writer, files fileCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageReleaseFiles)
-	asJSON := jsonFlag(set)
+	set := cmdline.NewFlagSet(usageReleaseFiles)
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 0, anyNumber)
 	if err != nil {
 		return err
@@ -76,12 +77,12 @@ func runReleaseFiles(out io.Writer, files fileCommands, args []string, sessionID
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, releasedCount{Released: released}, sessioncmd.FormatReleased(released))
+	return cmdline.Emit(out, *asJSON, releasedCount{Released: released}, sessioncmd.FormatReleased(released))
 }
 
 func runReservations(out io.Writer, files fileCommands, args []string, sessionID string) error {
-	set := newFlagSet(usageReservations)
-	asJSON := jsonFlag(set)
+	set := cmdline.NewFlagSet(usageReservations)
+	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
 		return err
 	}
@@ -89,7 +90,7 @@ func runReservations(out io.Writer, files fileCommands, args []string, sessionID
 	if err != nil {
 		return err
 	}
-	return emit(out, *asJSON, listed, sessioncmd.FormatReservations(listed))
+	return cmdline.Emit(out, *asJSON, listed, sessioncmd.FormatReservations(listed))
 }
 
 // A lease is taken on whatever string it is handed, so a mistyped flag the

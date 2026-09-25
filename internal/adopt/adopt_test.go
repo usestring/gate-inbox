@@ -250,14 +250,14 @@ func TestScanningAServerThatIsNotThereIsEmpty(t *testing.T) {
 // child's cmdline three thousand times on a development host caught it 378 times.
 func waitForExec(t *testing.T, pid int, want string) {
 	t.Helper()
+	if _, err := os.Stat("/proc/self"); err != nil {
+		// No /proc to read: this platform cannot show the window either.
+		return
+	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		raw, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
 		if err == nil && strings.Contains(string(raw), want) {
-			return
-		}
-		if err != nil && !os.IsNotExist(err) {
-			// No /proc to read: this platform cannot show the window either.
 			return
 		}
 		time.Sleep(2 * time.Millisecond)

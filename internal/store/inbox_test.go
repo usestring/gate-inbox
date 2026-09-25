@@ -249,3 +249,44 @@ func TestMarkDroppedRetiresTheMessageForGood(t *testing.T) {
 		t.Fatalf("an ack reached a dropped message: %+v err %v", state, err)
 	}
 }
+
+// Withdrawing takes back only what the one sender still has queued, on the
+// subject asked for, and leaves a claimed message to its paste.
+func TestWithdrawDropsOnlyTheSendersQueuedMessages(t *testing.T) {
+	st := newTestStore(t)
+	now := time.Now()
+	send := func(sender, subject, body string) int64 {
+		t.Helper()
+		msg := message(body, now)
+		msg.SenderID, msg.Subject = sender, subject
+		id, _, err := st.Enqueue(msg, DefaultInboxLimits)
+		if err != nil {
+			t.Fatalf("Enqueue %q: %v", body, err)
+		}
+		return id
+	}
+	send("extension/ext1", "continue", "carry on")
+	send("extension/ext1", "note", "remember the tests")
+	claimed := send("extension/ext1", "continue-later", "and then this")
+	other := send("sender01", "continue", "from a session")
+	if ok, err := st.ClaimMessage(claimed, now); err != nil || !ok {
+		t.Fatalf("ClaimMessage: %v, %v", ok, err)
+	}
+
+	dropped, err := st.Withdraw("target01", "extension/ext1", "continue", now)
+	if err != nil || dropped != 1 {
+		t.Fatalf("Withdraw on a subject = %d, %v; want the one message on it", dropped, err)
+	}
+	dropped, err = st.Withdraw("target01", "extension/ext1", "", now)
+	if err != nil || dropped != 1 {
+		t.Fatalf("Withdraw of everything = %d, %v; want the note, not the claimed one", dropped, err)
+	}
+	queued, err := st.QueuedCount("target01")
+	if err != nil || queued != 2 {
+		t.Fatalf("queued = %d, %v; want the claimed message and the session's", queued, err)
+	}
+	kept, err := st.Message(other, "sender01")
+	if err != nil || !kept.DroppedAt.IsZero() || !kept.DeliveredAt.IsZero() {
+		t.Fatalf("another sender's message = %+v, %v; want it still queued", kept, err)
+	}
+}

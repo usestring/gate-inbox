@@ -3,6 +3,7 @@ package ui
 import (
 	"testing"
 
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/forge"
 	"github.com/usestring/gate-inbox/internal/status"
 )
@@ -68,12 +69,12 @@ func TestDeadSharesTheErroredMark(t *testing.T) {
 // happened to be doing, which is worse than any mark it could gain.
 func TestEmojiMarksShareOneWidthAndAreDistinct(t *testing.T) {
 	marks := emojiMarks(emojiGlyphs)
-	want := cellWidth(marks[0])
+	want := textfmt.Width(marks[0])
 	if want < 1 {
 		t.Fatalf("the first emoji mark %q measures %d cells", marks[0], want)
 	}
 	for _, mark := range marks {
-		if got := cellWidth(mark); got != want {
+		if got := textfmt.Width(mark); got != want {
 			t.Errorf("mark %q is %d cells wide, but the set is %d", mark, got, want)
 		}
 	}
@@ -131,7 +132,7 @@ func TestARowMeasuresItsMarkUnderEitherSet(t *testing.T) {
 		withGlyphs(t, set, func() {
 			m := fleetModel(t, 12, 120, 40)
 			for i, line := range splitLines(m.frame()) {
-				if got := cellWidth(line); got != 120 {
+				if got := textfmt.Width(line); got != 120 {
 					t.Fatalf("%s: frame line %d is %d cells, want 120", set, i, got)
 				}
 			}

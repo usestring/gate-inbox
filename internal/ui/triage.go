@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/priority"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -15,8 +16,14 @@ import (
 // this second, while an error has already happened and blocks no turn;
 // working sits below every resting status because the one thing triage must
 // never do is walk somebody into a session that is mid-turn.
+//
+// triageBlocked sits between waiting and errored. No status reaches it: it is
+// the tier an extension ranks a session at when it is blocked on a decision
+// about a whole piece of work rather than on one question in front of
+// somebody, so the sessions asking a live question are handed over first.
 var triageTiers = []string{
 	status.Waiting,
+	triageBlocked,
 	status.Errored,
 	status.Finished,
 	status.Idle,
@@ -34,8 +41,16 @@ func triageRank(st string) int {
 	return len(triageTiers)
 }
 
-// triageRankOf is a session's tier.
-func triageRankOf(sess store.Session) int {
+const triageBlocked = "blocked"
+
+// triageRankOf is a session's tier, which an extension can override. The
+// rank it gives replaces the row's own status rather than being weighed
+// against it: the extension is saying what the queue is about, whatever the
+// pane happens to be showing.
+func (m *Model) triageRankOf(sess store.Session) int {
+	if tier := m.extAttention[sess.ID].Rank.tier(); tier != "" {
+		return triageRank(tier)
+	}
 	return triageRank(sess.Status)
 }
 
@@ -53,8 +68,20 @@ func requiresInput(st string) bool {
 // needsPerson is whether a session is on the operator's queue: the statuses
 // requiresInput names. A method on the model so the status jumps can take it
 // beside the walks that read more than a status.
+//
+// Minus the sessions an extension answers for: a session whose questions
+// something else is deciding is not waiting on the operator, and a queue
+// that hands it over anyway puts them in a pane they were meant to stay out
+// of. See ownedByExtension.
+//
+// Plus the sessions an extension says need a person whatever their status,
+// owned or not: that claim is an escalation, and an ownership must never
+// hide one. See Attention.
 func (m *Model) needsPerson(sess store.Session) bool {
-	return requiresInput(sess.Status)
+	if m.extAttention[sess.ID].NeedsPerson {
+		return true
+	}
+	return requiresInput(sess.Status) && !m.ownedByExtension(sess.ID)
 }
 
 // triageWalkable is what a drain will hand over at all: the sessions that
@@ -67,9 +94,14 @@ func (m *Model) needsPerson(sess store.Session) bool {
 // and a dead pane cannot be entered.
 //
 // The rail paints this, the mute keys read it and the walk above filters on
-// it, so all three say the same thing about a row.
+// it, so all three say the same thing about a row. A session an extension
+// answers for is off it whatever its pane says, and one an extension says
+// needs a person is on it whatever its pane says.
 func (m *Model) triageWalkable(sess store.Session) bool {
-	return requiresInput(sess.Status) || sess.Status == status.Idle
+	if m.needsPerson(sess) {
+		return true
+	}
+	return sess.Status == status.Idle && !m.ownedByExtension(sess.ID)
 }
 
 // triageLess sorts by whether a person is needed, then the priority tier,
@@ -116,7 +148,7 @@ func (k triageKey) before(o triageKey) bool {
 // triageKeyOf reads one session's key. Zero sorts first in each field, so a
 // session that needs a person and is urgent is {0, 0, tier}.
 func (m *Model) triageKeyOf(sess store.Session) triageKey {
-	key := triageKey{needs: 1, priority: m.tierOf(sess).Rank(), tier: triageRankOf(sess)}
+	key := triageKey{needs: 1, priority: m.tierOf(sess).Rank(), tier: m.triageRankOf(sess)}
 	if m.needsPerson(sess) {
 		key.needs = 0
 	}
@@ -412,9 +444,11 @@ func (m *Model) nextTriageInput(leftID string, tried map[string]bool) (int, bool
 
 func isIdle(st string) bool { return st == status.Idle }
 
-// isSubagent is a session spawned under another one.
+// isSubagent is a session spawned under another one. A helper whose role
+// keeps it on screen is not: it is there for the operator rather than for
+// its parent, so the drain hands it over like a top-level session.
 func isSubagent(sess store.Session) bool {
-	return sess.ParentID != ""
+	return sess.ParentID != "" && !sessionhooks.Role(sess.Role).OnScreen
 }
 
 // enterTriageHead starts the queue at its head: the session that has been

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/tmuxguard"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
@@ -18,6 +19,7 @@ import (
 // "it did nothing" report needs.
 
 func (d *Driver) combined(full []string) ([]byte, error) {
+	tmuxguard.Enforce(full)
 	start := time.Now()
 	countExec(full)
 	out, err := exec.Command(d.bin, full...).CombinedOutput()
@@ -41,6 +43,7 @@ var ErrTimeout = errors.New("tmux call timed out")
 // "signal: killed" the kill itself produces, because a killed tmux prints
 // nothing and several readers in this package take nothing for an answer.
 func (d *Driver) combinedWithin(ctx context.Context, full []string) ([]byte, error) {
+	tmuxguard.Enforce(full)
 	start := time.Now()
 	countExec(full)
 	cmd := exec.CommandContext(ctx, d.bin, full...)
@@ -64,6 +67,7 @@ func (d *Driver) combinedWithin(ctx context.Context, full []string) ([]byte, err
 const killGrace = 100 * time.Millisecond
 
 func (d *Driver) output(full []string) ([]byte, error) {
+	tmuxguard.Enforce(full)
 	start := time.Now()
 	countExec(full)
 	out, err := exec.Command(d.bin, full...).Output()
@@ -82,6 +86,7 @@ func stderrOf(err error) []byte {
 }
 
 func (d *Driver) silent(full []string) error {
+	tmuxguard.Enforce(full)
 	start := time.Now()
 	err := exec.Command(d.bin, full...).Run()
 	logTmux(full, start, err, nil)

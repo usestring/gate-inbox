@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -183,7 +184,7 @@ func TestAChildRestLostToAFullQueueIsReported(t *testing.T) {
 			SenderID:    fmt.Sprintf("other%03d", i),
 			SenderName:  "another-child",
 			Body:        body,
-			Fingerprint: store.Fingerprint(body),
+			Fingerprint: textfmt.Fingerprint(body),
 			SentAt:      time.Now(),
 		}, store.DefaultInboxLimits); err != nil {
 			t.Fatalf("filling the parent's queue at %d: %v", i, err)

@@ -20,7 +20,7 @@ import (
 
 func TestPrintHelpDoesNotRequireATerminal(t *testing.T) {
 	var out bytes.Buffer
-	if err := printHelp(&out); err != nil {
+	if err := printHelp(&out, nil); err != nil {
 		t.Fatalf("printHelp: %v", err)
 	}
 	for _, want := range []string{
@@ -42,7 +42,7 @@ func (failingHelpWriter) Write([]byte) (int, error) {
 }
 
 func TestPrintHelpReturnsWriteError(t *testing.T) {
-	if err := printHelp(failingHelpWriter{}); err == nil {
+	if err := printHelp(failingHelpWriter{}, nil); err == nil {
 		t.Fatal("printHelp succeeded after the writer failed")
 	}
 }

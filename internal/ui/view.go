@@ -12,6 +12,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
@@ -111,6 +112,8 @@ func (m *Model) paint() (string, bool) {
 		frame = m.viewTmuxHint()
 	case modeAgentPick:
 		frame = m.viewAgentPick()
+	case modeExtensionView:
+		frame = m.viewExtension()
 	default:
 		frame = m.viewListFrame()
 	}
@@ -274,8 +277,8 @@ func rowColumns(lead, meta string, width int) string {
 		return lead
 	}
 	const gap = 2
-	leadWidth := cellWidth(lead)
-	metaWidth := cellWidth(meta)
+	leadWidth := textfmt.Width(lead)
+	metaWidth := textfmt.Width(meta)
 	if width < 1 || leadWidth+gap+metaWidth > width {
 		return lead + spaces(gap) + meta
 	}
@@ -300,7 +303,7 @@ func (m *Model) renameRowInput(entry treeRow, width int) string {
 // accent tick, the label, then a hairline out to the edge.
 func divider(label string, width int) string {
 	head := sectionStyle.Render("▍"+label) + " "
-	dashes := width - cellWidth(label) - 2
+	dashes := width - textfmt.Width(label) - 2
 	if dashes < 0 {
 		dashes = 0
 	}
@@ -411,10 +414,10 @@ func previewLine(line string, width int) string {
 		}
 		return r
 	}, line)
-	w := cellWidth(line)
+	w := textfmt.Width(line)
 	if w > width {
-		line = cellTruncate(line, width, "")
-		w = cellWidth(line)
+		line = textfmt.TruncateWidth(line, width, "")
+		w = textfmt.Width(line)
 	}
 	// Reset before padding so an open background from the agent does not
 	// paint the rest of the column.
@@ -448,7 +451,7 @@ func expandPaneTabs(line string, width int) string {
 			column += pad
 		}
 		out.WriteString(segment)
-		column += cellWidth(segment)
+		column += textfmt.Width(segment)
 	}
 	return out.String()
 }
@@ -876,26 +879,10 @@ func displayGroup(path string) string {
 	return path
 }
 
-// relSince is relTime worded as a moment in the past, for columns that
+// relSince is t's age worded as a moment in the past, for columns that
 // answer "when did this last happen" rather than "how long has this run".
 func relSince(t time.Time) string {
-	return relTime(t) + " ago"
-}
-
-func relTime(t time.Time) string {
-	d := time.Since(t)
-	switch {
-	case d < time.Minute:
-		// Five-second steps: a column of ages that ticks every second is
-		// motion the eye chases for no information.
-		return fmt.Sprintf("%ds", int(d.Seconds()/5)*5)
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh", int(d.Hours()))
-	default:
-		return fmt.Sprintf("%dd", int(d.Hours()/24))
-	}
+	return textfmt.Age(time.Since(t)) + " ago"
 }
 
 func humanBytes(b uint64) string {

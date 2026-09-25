@@ -12,7 +12,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/extension"
 )
 
 // defaultNameSweepPace paces the bulk rename sweep. Slow enough that a
@@ -252,7 +252,8 @@ type Integrations struct {
 }
 
 // Integration is one provider's switch. Linear also needs LINEAR_API_KEY in
-// the environment; without it Linear is off whatever this says.
+// the environment to read ticket state; without it ticket rows are still drawn,
+// with no state, and only switching it off here removes them.
 type Integration struct {
 	// Enabled is a pointer so that absent means on: a config written before
 	// this section existed keeps the providers it had.
@@ -298,18 +299,7 @@ type Config struct {
 	Tools      map[string]Tool           `toml:"tools"`
 }
 
-type Duration struct {
-	time.Duration
-}
-
-func (d *Duration) UnmarshalText(text []byte) error {
-	parsed, err := time.ParseDuration(string(text))
-	if err != nil {
-		return err
-	}
-	d.Duration = parsed
-	return nil
-}
+type Duration = extension.Duration
 
 // HomeEnv moves everything this program keeps -- its config and its sqlite --
 // somewhere else.
@@ -592,19 +582,6 @@ func withRuleFor(sample string, user, def []Rule) []Rule {
 		return append(out, user[at:]...)
 	}
 	return user
-}
-
-func decodeInto(path string, cfg *Config) error {
-	meta, err := toml.DecodeFile(path, cfg)
-	if err != nil {
-		return err
-	}
-	for _, section := range retiredSections {
-		if meta.IsDefined(section) {
-			logging.Warn("config section is no longer read; it is ignored", "path", path, "section", section)
-		}
-	}
-	return nil
 }
 
 // retiredSections are sections an older build read and this one does not. A

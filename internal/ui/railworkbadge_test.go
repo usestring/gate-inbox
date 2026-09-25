@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/status"
 )
 
@@ -68,7 +69,7 @@ func metaColumn(t *testing.T, row string) int {
 	if at < 0 {
 		t.Fatalf("the meta run is not intact:\n%q", row)
 	}
-	return cellWidth(row[:at])
+	return textfmt.Width(row[:at])
 }
 
 // The badge used to be spliced between the state and the age, which moved

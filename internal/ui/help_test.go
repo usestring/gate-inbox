@@ -343,3 +343,27 @@ func TestHelpHighlightSurvivesAnAwkwardQuery(t *testing.T) {
 		}
 	}
 }
+
+// An extension the config switched off leads the key map, with its reason,
+// and a board with none to report shows no such section.
+func TestHelpReportsDisabledExtensions(t *testing.T) {
+	m := helpModel()
+	m.height = 60
+	if strings.Contains(ansi.Strip(m.viewHelp()), "disabled extensions") {
+		t.Fatal("the key map reports disabled extensions when there are none")
+	}
+	m.SetExtensionNotes([]string{"ext1 disabled: [extensions.ext1]: unknown key(s): bogus"})
+	if first := m.resolvedHelp()[0].title; first != "disabled extensions" {
+		t.Fatalf("the key map opens with %q", first)
+	}
+	screen := ansi.Strip(m.viewHelp())
+	for _, want := range []string{"disabled extensions", "ext1 disabled: [extensions.ext1]: unknown key(s): bogus"} {
+		if !strings.Contains(screen, want) {
+			t.Fatalf("the key map does not show %q:\n%s", want, screen)
+		}
+	}
+	m.help.query = "ext1"
+	if kept := matchHelp(m.resolvedHelp(), m.help.query); len(kept) == 0 || kept[0].title != "disabled extensions" {
+		t.Fatalf("a search for the extension does not find its note: %+v", kept)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/usestring/gate-inbox/extension/cmdline"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
@@ -22,7 +23,7 @@ func renameSection() section {
 }
 
 func runRename(out io.Writer, args []string, sessionID, configDir string) error {
-	set := newFlagSet(usageRename)
+	set := cmdline.NewFlagSet(usageRename)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err

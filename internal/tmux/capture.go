@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/tmuxguard"
 )
 
 // captureTimeout bounds one server's whole capture batch. The pass runs on
@@ -30,6 +31,9 @@ type Capture struct {
 	Text  string
 	Err   error
 	State CaptureState
+	// At is when the read was asked for, so the pane it shows is no older
+	// than this.
+	At time.Time
 }
 
 // CaptureState is what tmux said about a pane inside the capture's own
@@ -163,9 +167,10 @@ func (d *Driver) CaptureScrollback(socket string, paneIDs []string, lines int) m
 		if len(batch) > captureChainMax {
 			batch = batch[:captureChainMax]
 		}
+		asked := time.Now()
 		texts, _, err := d.chainCapture(socket, batch, false, window...)
 		for i, text := range texts {
-			out[batch[i]] = Capture{Text: text}
+			out[batch[i]] = Capture{Text: text, At: asked}
 		}
 		if len(texts) == len(batch) {
 			remaining = remaining[len(batch):]
@@ -188,6 +193,7 @@ func (d *Driver) captureScrollbackByExec(socket, pane string, lines int) (string
 	}
 	args = append(args, "-t", pane)
 	full := append([]string{"-L", socket}, args...)
+	tmuxguard.Enforce(full)
 	countExec(full)
 	out, err := exec.Command(d.bin, full...).Output()
 	if err != nil {
@@ -204,9 +210,10 @@ func (d *Driver) captureServer(socket string, ids []string, out map[string]Captu
 		if len(batch) > captureChainMax {
 			batch = batch[:captureChainMax]
 		}
+		asked := time.Now()
 		texts, states, err := d.captureChain(socket, batch)
 		for i, text := range texts {
-			out[batch[i]] = Capture{Text: text, State: states[i]}
+			out[batch[i]] = Capture{Text: text, State: states[i], At: asked}
 		}
 		if len(texts) == len(batch) {
 			remaining = remaining[len(batch):]

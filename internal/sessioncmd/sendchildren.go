@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -70,7 +71,7 @@ func (s *Sessions) SendChildren(sessionID, message string) (ChildSend, error) {
 		return ChildSend{}, err
 	}
 	now := time.Now()
-	stamp := fingerprint(message)
+	stamp := textfmt.Fingerprint(message)
 	result := ChildSend{}
 	for _, child := range sessions {
 		// spawned_by, not parent_id: a caller that is itself a child has its
@@ -89,6 +90,11 @@ func (s *Sessions) SendChildren(sessionID, message string) (ChildSend, error) {
 		// an inbox, so it is not part of the fan-out this is instructing.
 		case runtime.cfg.Tools[child.Tool].Shell:
 			delivery.Skipped = "a terminal, not an agent"
+		// Nor is a helper an extension launched under the caller for a role
+		// that asks to be left out: it works for the extension, not for the
+		// task the caller is instructing.
+		case skipsSendChildren(child) != "":
+			delivery.Skipped = skipsSendChildren(child)
 		default:
 			if err := runtime.deliverable(child); err != nil {
 				delivery.Skipped = err.Error()

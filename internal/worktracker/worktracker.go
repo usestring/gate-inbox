@@ -1251,7 +1251,7 @@ func (t *Tracker) Health() (github, linear forge.Health) {
 		github = forge.Health{Off: true, Reason: "GitHub is switched off"}
 	}
 	if t.Linear == nil {
-		linear = forge.Health{Off: true, Reason: "Linear is switched off or LINEAR_API_KEY is not set"}
+		linear = forge.Health{Off: true, Reason: "Linear is switched off"}
 	}
 	return github, linear
 }

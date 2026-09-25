@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/deps"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/tmuxguard"
 )
 
 const prefix = "gi_"
@@ -225,6 +227,9 @@ func NewWithSocket(socket string) (*Driver, error) {
 		return nil, fmt.Errorf("tmux not found on PATH: %w\n%s", err, deps.Hint("tmux"))
 	}
 	socket = resolveSocket(socket)
+	if err := tmuxguard.Err([]string{"-L", socket}); err != nil {
+		return nil, err
+	}
 	return &Driver{bin: bin, socket: socket, owned: OwnsSocket(socket)}, nil
 }
 
@@ -534,7 +539,7 @@ func (d *Driver) Create(id, cwd, command string, env map[string]string, width, h
 	var scriptPath string
 	if command != "" {
 		var err error
-		scriptPath, err = writeLaunchScript(id, env, command, colorFgBg, shell)
+		scriptPath, err = writeLaunchScript(d.launchScriptPath(id), env, command, colorFgBg, shell)
 		if err != nil {
 			d.paneThemePush.Unlock()
 			return err
@@ -563,8 +568,14 @@ func ShellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-func launchScriptPath(id string) string {
-	return filepath.Join(os.TempDir(), "gi-launch-"+id+".sh")
+// launchScriptPath names the socket as well as the session: two servers can
+// hold sessions with the same id (a test run beside the live inbox, or the
+// concurrent shards of one test run), and a shared path let one server's
+// Kill delete the script another's pane was about to run.
+func (d *Driver) launchScriptPath(id string) string {
+	h := fnv.New32a()
+	h.Write([]byte(d.socket))
+	return filepath.Join(os.TempDir(), fmt.Sprintf("gi-launch-%08x-%s.sh", h.Sum32(), id))
 }
 
 // writeLaunchScript writes the script a pane runs. The body stays POSIX: the
@@ -576,8 +587,7 @@ func launchScriptPath(id string) string {
 // including API keys, in the process listing for anyone on the box to read,
 // while the script file itself is owner-only. The exports also reach the
 // shell the pane drops to once the agent exits, not just the agent process.
-func writeLaunchScript(id string, env map[string]string, command, colorFgBg string, shell launchShell) (string, error) {
-	path := launchScriptPath(id)
+func writeLaunchScript(path string, env map[string]string, command, colorFgBg string, shell launchShell) (string, error) {
 	keys := make([]string, 0, len(env))
 	for key := range env {
 		keys = append(keys, key)
@@ -1128,6 +1138,7 @@ func (d *Driver) AttachCommand(id string) *exec.Cmd {
 		args = append(args, ";", "if-shell", "-F", "-t", "="+session,
 			"#{==:#{session_attached},1}", selects)
 	}
+	tmuxguard.Enforce([]string{"-L", target.Socket})
 	cmd := exec.Command(d.bin, append([]string{"-L", target.Socket}, args...)...)
 	nested := d.runningInside(target)
 	if !nested {
@@ -1215,11 +1226,11 @@ func (d *Driver) Kill(id string) error {
 	// dead window already pinned and never record the new one.
 	d.forgetPin(id)
 	if !d.Exists(id) {
-		os.Remove(launchScriptPath(id))
+		os.Remove(d.launchScriptPath(id))
 		return nil
 	}
 	_, err := d.run("kill-session", "-t", sessionName(id))
-	os.Remove(launchScriptPath(id))
+	os.Remove(d.launchScriptPath(id))
 	return err
 }
 

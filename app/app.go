@@ -17,11 +17,16 @@ package app
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime/debug"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/usestring/gate-inbox/extension"
@@ -29,9 +34,13 @@ import (
 	"github.com/usestring/gate-inbox/internal/cli"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/envname"
+	"github.com/usestring/gate-inbox/internal/extensionhost"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpserver"
+	"github.com/usestring/gate-inbox/internal/sessioncmd"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
+	"github.com/usestring/gate-inbox/internal/tooldrivers"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
@@ -43,6 +52,22 @@ type Options struct {
 	Extensions []extension.Extension
 	// BuildInfo describes the executable.
 	BuildInfo BuildInfo
+	// ConfigDefaults is config.toml text laid under the operator's own file
+	// on every load: a key the file defines wins, even defined empty; a key
+	// only these define comes from here; anything still unset takes the
+	// built-in default. Tables merge key by key, and any other value, an
+	// array included, is replaced whole. It is how a distribution fills in
+	// what DistributionSupplied lists without rewriting anybody's file. Run
+	// refuses text that does not parse or names a key the board does not
+	// read.
+	ConfigDefaults string
+	// SnippetDefaults are snippets.json entries this build supplies, merged
+	// by key under the operator's own file every time it is loaded. An
+	// entry the operator's file has for the same key wins, so binding that
+	// key to something else is how an operator replaces one. They are never
+	// written into the file, and a first run leaves their keys out of the
+	// starting set it writes. Run refuses an entry that could not bind.
+	SnippetDefaults []Snippet
 }
 
 // Name is the command this program is run as.
@@ -85,28 +110,50 @@ func Run(ctx context.Context, args []string, opts Options) error {
 		tracing.Release = version
 	}
 
+	if err := useSnippetDefaults(opts.SnippetDefaults); err != nil {
+		return err
+	}
+
 	// A build whose extension set is malformed -- two with one ID, one with
-	// no ID -- is broken whichever face is asked, and says so before any of
-	// them does anything.
+	// no ID -- or whose defaults configure an extension it does not carry is
+	// broken whichever face is asked, and says so before any of them does
+	// anything.
 	registry, err := extension.NewRegistry(opts.Extensions)
 	if err != nil {
 		return err
 	}
+	if _, err := config.UseDefaults(opts.ConfigDefaults); err != nil {
+		return err
+	}
+	if err := defaultsOwnedBy(registry); err != nil {
+		return err
+	}
 	accounts.UsePool(poolOf(registry))
+	sessionhooks.Use(sessionHooksOf(registry))
+	sessionhooks.UseSessions(&spawnReader{})
+	table := subcommands(ctx, version, opts.Extensions)
+	extra, err := extensionCommands(opts.Extensions, table)
+	if err != nil {
+		return err
+	}
+	for _, entry := range extra {
+		table[entry.command.Name] = runExtensionCommand(ctx, registry, entry)
+	}
+	tooldrivers.Use(driversOf(registry))
 
 	if len(args) == 0 {
 		return runBoard(version, registry)
 	}
 	switch args[0] {
 	case "help", "--help", "-h":
-		return printHelp(os.Stdout)
+		return printHelp(os.Stdout, extra)
 	case "--version", "-v":
 		fmt.Println(Name, version)
 		return nil
 	case "--log-path", "logs":
 		return printLogPath(os.Stdout)
 	}
-	command, ok := subcommands(ctx, version, opts.Extensions)[args[0]]
+	command, ok := table[args[0]]
 	if !ok {
 		// An unknown verb is a mistyped command, never a request for the
 		// board: falling through to the board from a session's shell
@@ -144,12 +191,91 @@ func poolOf(registry *extension.Registry) func() (extension.AccountPool, error) 
 	})
 }
 
+// sessionHooksOf finds the build's spawn policies, launch contributors and
+// migration observers the first time a launch asks, configuring only those
+// when nothing has configured the rest, as poolOf does.
+func sessionHooksOf(registry *extension.Registry) func() (*extension.SessionHooks, error) {
+	return sync.OnceValues(func() (*extension.SessionHooks, error) {
+		if registry.Configured() {
+			return registry.SessionHooks("", nil)
+		}
+		dir, err := config.Dir()
+		if err != nil {
+			return nil, err
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return nil, err
+		}
+		return registry.SessionHooks(dir, cfg.Extensions)
+	})
+}
+
+// defaultsOwnedBy refuses defaults with an [extensions.<id>] section no
+// extension in registry owns. An operator's file with one is refused when a
+// face configures its extensions; the defaults ship with the build, so the
+// same mistake there is refused up front, on every face.
+func defaultsOwnedBy(registry *extension.Registry) error {
+	ids := registry.IDs()
+	var unowned []string
+	for _, id := range config.DefaultExtensionSections() {
+		if !slices.Contains(ids, id) {
+			unowned = append(unowned, id)
+		}
+	}
+	if len(unowned) == 0 {
+		return nil
+	}
+	have := strings.Join(ids, ", ")
+	if have == "" {
+		have = "none"
+	}
+	return fmt.Errorf("config defaults: [extensions] has section(s) no extension in this build owns: %s (this build has: %s)",
+		strings.Join(unowned, ", "), have)
+}
+
+// driversOf finds the build's tool drivers the first time a tool block
+// names a style the core does not implement, configuring as poolOf does.
+func driversOf(registry *extension.Registry) func() (map[string]extension.ToolDriver, error) {
+	return sync.OnceValues(func() (map[string]extension.ToolDriver, error) {
+		if registry.Configured() {
+			return registry.ToolDrivers("", nil, tooldrivers.Builtin)
+		}
+		dir, err := config.Dir()
+		if err != nil {
+			return nil, err
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return nil, err
+		}
+		return registry.ToolDrivers(dir, cfg.Extensions, tooldrivers.Builtin)
+	})
+}
+
 func unknownCommand(arg string) error {
 	return fmt.Errorf("%w %q; run `%s help` for the list", ErrUnknownCommand, arg, Name)
 }
 
-func printHelp(w io.Writer) error {
-	_, err := fmt.Fprintln(w, cli.Help())
+func printHelp(w io.Writer, extra []extensionCommand) error {
+	var sections []cli.HelpSection
+	for _, entry := range extra {
+		title := entry.command.Group
+		if title == "" {
+			title = entry.owner
+		}
+		i := slices.IndexFunc(sections, func(s cli.HelpSection) bool { return s.Title == title })
+		if i < 0 {
+			sections = append(sections, cli.HelpSection{Title: title})
+			i = len(sections) - 1
+		}
+		usage := entry.command.Usage
+		if usage == "" {
+			usage = entry.command.Name
+		}
+		sections[i].Commands = append(sections[i].Commands, cli.HelpEntry{Usage: usage, About: entry.command.About})
+	}
+	_, err := fmt.Fprintln(w, cli.Help(sections...))
 	return err
 }
 
@@ -246,5 +372,92 @@ func withConfigDir(command func(args []string, sessionID, configDir string) erro
 			return err
 		}
 		return command(args, envname.Get(hooks.EnvSessionID), dir)
+	}
+}
+
+// extensionCommand is one command an extension adds, with the ID of the
+// extension that owns it.
+type extensionCommand struct {
+	owner   string
+	ext     extension.Extension
+	command extension.Command
+}
+
+var commandName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
+// reservedWords are answered before the command table is read, so no
+// command may take them.
+var reservedWords = []string{"help", "logs"}
+
+// extensionCommands collects every CLIProvider's commands, in registration
+// order, and refuses a name that is malformed or already answered by core,
+// which is taken, or by an earlier extension.
+func extensionCommands(extensions []extension.Extension, core map[string]func([]string) error) ([]extensionCommand, error) {
+	owners := map[string]string{}
+	for name := range core {
+		owners[name] = "the core"
+	}
+	for _, word := range reservedWords {
+		owners[word] = "the core"
+	}
+	var out []extensionCommand
+	var errs []error
+	for _, ext := range extensions {
+		provider, ok := ext.(extension.CLIProvider)
+		if !ok {
+			continue
+		}
+		id := ext.Descriptor().ID
+		for _, command := range provider.Commands() {
+			switch owner, taken := owners[command.Name]; {
+			case !commandName.MatchString(command.Name):
+				errs = append(errs, fmt.Errorf("extension %q: command name %q must be lower case, start with a letter, and hold only letters, digits and '-'", id, command.Name))
+			case command.Run == nil:
+				errs = append(errs, fmt.Errorf("extension %q: command %q has no Run", id, command.Name))
+			case taken:
+				errs = append(errs, fmt.Errorf("extension %q: command %q is already a command of %s", id, command.Name, owner))
+			default:
+				owners[command.Name] = "extension " + strconv.Quote(id)
+				out = append(out, extensionCommand{owner: id, ext: ext, command: command})
+			}
+		}
+	}
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// runExtensionCommand configures the build's extensions from the operator's
+// config, so a section the owner refuses stops the command, and runs it as
+// the session whose shell it was typed in, or as the operator from a shell
+// that is no session's.
+func runExtensionCommand(ctx context.Context, registry *extension.Registry, entry extensionCommand) func([]string) error {
+	return func(args []string) error {
+		dir, err := config.Dir()
+		if err != nil {
+			return err
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		registry.Configure(dir, cfg.Extensions)
+		if err := registry.Disabled(entry.owner); err != nil {
+			return err
+		}
+		if toggle, ok := entry.ext.(extension.Enabler); ok && !toggle.Enabled() {
+			return fmt.Errorf("%s is a command of extension %q, which the config switches off", entry.command.Name, entry.owner)
+		}
+		cmds := sessioncmd.NewSessions(dir, sessioncmd.CLIVocabulary())
+		base := extensionhost.NewOperator(dir, cmds)
+		if sessionID := envname.Get(hooks.EnvSessionID); sessionID != "" {
+			base = extensionhost.New(dir, sessionID, cmds)
+		}
+		host := base.ForExtension(entry.owner)
+		if err := entry.command.Run(ctx, args, host); !errors.Is(err, flag.ErrHelp) {
+			return err
+		}
+		return nil
 	}
 }

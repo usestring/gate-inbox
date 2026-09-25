@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 )
 
 func (m *Model) cardWidth() int {
@@ -195,6 +197,12 @@ func (m *Model) viewForm() string {
 	if m.form.focus == fieldDir && m.pathSugg.showing() {
 		b.WriteString(m.viewPathSuggestions() + "\n")
 	}
+	// The extensions' fields follow the form's own, drawn like the CLI
+	// picker: the value between the arrows that change it.
+	for i, e := range m.form.extra {
+		value := subtleStyle.Render("\u25c2 ") + valueStyle.Render(e.value()) + subtleStyle.Render(" \u25b8")
+		b.WriteString(formField(e.field.Label, value, m.form.focus == fieldCount+i))
+	}
 
 	hint := [][2]string{{"tab/↑↓", "move"}, {"←→", "change"}, {"↵", "create"}, {"esc", "cancel"}}
 	if m.form.focus == fieldTool {
@@ -208,6 +216,13 @@ func (m *Model) viewForm() string {
 	}
 	if m.form.focus == fieldDir && m.pathSugg.showing() {
 		hint = pathSuggestHint(m.pathSugg)
+	}
+	if e, ok := m.form.focusedExtra(); ok {
+		change := [2]string{"←→", "change"}
+		if e.field.Kind == extension.FormToggle {
+			change = [2]string{"space/←→", "toggle"}
+		}
+		hint = [][2]string{change, {"tab/↑↓", "move"}, {"↵", "create"}, {"esc", "cancel"}}
 	}
 	return m.card("◆ New Session", strings.TrimRight(b.String(), "\n"), hint)
 }
@@ -394,7 +409,7 @@ func (m *Model) viewSettings() string {
 			labelStyle = annotationStyle
 		}
 		// Truncate a column short so a cut label keeps a gap before the value.
-		return marker + padRight(labelStyle.Render(cellTruncate(name, labelColumn-1, "…")), labelColumn)
+		return marker + padRight(labelStyle.Render(textfmt.TruncateWidth(name, labelColumn-1, "…")), labelColumn)
 	}
 	row := func(field int, name, value string) string {
 		return lead(field, name) + subtleStyle.Render("◂ ") + valueStyle.Render(value) + subtleStyle.Render(" ▸")

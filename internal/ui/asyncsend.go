@@ -91,6 +91,15 @@ func (p *poller) sendInFlight(key string) bool {
 // back.
 func (p *poller) runSend(sessID, key, text string, settle func(error) error) {
 	finish := func(sendErr error) {
+		// Stamped before settle writes: a pass that reads the outcome must
+		// also find the stamp, or it can type the next message against a
+		// capture taken before this one was submitted.
+		p.mu.Lock()
+		if p.settledAt == nil {
+			p.settledAt = make(map[string]time.Time)
+		}
+		p.settledAt[sessID] = time.Now()
+		p.mu.Unlock()
 		if err := settle(sendErr); err != nil {
 			p.mu.Lock()
 			p.sendErr = errors.Join(p.sendErr, err)
@@ -106,6 +115,24 @@ func (p *poller) runSend(sessID, key, text string, settle func(error) error) {
 		// finish has to be the one to record it.
 		finish(err)
 	}
+}
+
+// settledSince reports whether a send to sessID finished at or after at,
+// which leaves a capture taken at that moment describing the pane from
+// before the send was submitted. Once a capture is newer the stamp can no
+// longer hold anything, so it is dropped.
+func (p *poller) settledSince(sessID string, at time.Time) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	settled, ok := p.settledAt[sessID]
+	if !ok {
+		return false
+	}
+	if at.After(settled) {
+		delete(p.settledAt, sessID)
+		return false
+	}
+	return true
 }
 
 // awaitSends blocks until every paste this manager has out has been

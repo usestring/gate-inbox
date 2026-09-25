@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 func TestMainPrintsHelpWithoutStartingTUI(t *testing.T) {
@@ -23,7 +25,7 @@ func TestMainPrintsHelpWithoutStartingTUI(t *testing.T) {
 	for _, flag := range []string{"--help", "-h"} {
 		t.Run(flag, func(t *testing.T) {
 			cmd := exec.Command(os.Args[0], "-test.run=TestMainPrintsHelpWithoutStartingTUI", "--", flag)
-			cmd.Env = append(os.Environ(), "GATE_INBOX_HELP_TEST=1")
+			cmd.Env = append(tmuxtest.Environ(), "GATE_INBOX_HELP_TEST=1")
 			out, err := cmd.CombinedOutput()
 			if err != nil {
 				t.Fatalf("gate-inbox %s: %v\n%s", flag, err, out)

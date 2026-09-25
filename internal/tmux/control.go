@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/tmuxguard"
 )
 
 // Control is a persistent control-mode client attached to one session.
@@ -185,6 +186,7 @@ func (d *Driver) ControlClientsOn(socket string) int { return d.controls.live(so
 // stops it doing so (-D) detaches whatever is already attached, which on
 // reopen is a client of ours.
 func (d *Driver) ensureAnchor(socket string) error {
+	tmuxguard.Enforce([]string{"-L", socket})
 	out, err := exec.Command(d.bin, "-L", socket, "list-sessions", "-F", "#{session_name}").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("tmux anchor session on %s: %w: %s", socket, err, strings.TrimSpace(string(out)))
@@ -228,6 +230,7 @@ func (d *Driver) closeAnchors() {
 	d.anchors = nil
 	d.anchorsMu.Unlock()
 	for socket := range sockets {
+		tmuxguard.Enforce([]string{"-L", socket})
 		exec.Command(d.bin, "-L", socket, "kill-session", "-t", anchorSession).Run()
 	}
 }
@@ -311,6 +314,7 @@ func (d *Driver) startControl(socket, session, flags string) (*Control, error) {
 	}
 	args := []string{"attach-session", "-t", session, "-f", flags}
 	logging.Info("tmux control open", "socket", socket, "cmd", strings.Join(args, " "))
+	tmuxguard.Enforce([]string{"-L", socket})
 	cmd := exec.Command(d.bin, append([]string{"-L", socket, "-C"}, args...)...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

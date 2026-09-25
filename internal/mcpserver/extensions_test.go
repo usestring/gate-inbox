@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/extension/mcptool"
 	"github.com/usestring/gate-inbox/internal/extension/all"
 )
 
@@ -40,6 +41,14 @@ func toolNames(t *testing.T, server *mcp.Server) map[string]bool {
 	return names
 }
 
+// configureAndRegister is what NewServer does with extensions, onto a
+// server with none of the manager's tools.
+func configureAndRegister(server *mcp.Server, dir string, extensions []extension.Extension) []string {
+	registry, notes := configureExtensions(dir, extensions)
+	registerExtensions(server, registry, extension.SessionContext{SessionID: "session-1"})
+	return notes
+}
+
 func newBareServer() *mcp.Server {
 	return mcp.NewServer(&mcp.Implementation{Name: "gate-inbox", Version: "test"}, nil)
 }
@@ -47,7 +56,7 @@ func newBareServer() *mcp.Server {
 func TestEnabledExtensionAddsItsTools(t *testing.T) {
 	dir := configWith(t, "[extensions.artifacts]\nenabled = true\nkey_command = \"sh\"\nbase_url = \"https://artifacts.example.test\"\n")
 	server := newBareServer()
-	registerExtensions(server, dir, extension.SessionContext{SessionID: "session-1"}, all.Extensions())
+	configureAndRegister(server, dir, all.Extensions())
 
 	names := toolNames(t, server)
 	for _, want := range []string{"publish_artifact", "read_artifact", "list_artifacts"} {
@@ -64,7 +73,7 @@ func TestEnabledExtensionAddsItsTools(t *testing.T) {
 func TestUnenabledExtensionRegistersNothing(t *testing.T) {
 	dir := configWith(t, "[extensions.artifacts]\nkey_command = \"sh\"\nbase_url = \"https://artifacts.example.test\"\n")
 	server := newBareServer()
-	registerExtensions(server, dir, extension.SessionContext{SessionID: "session-1"}, all.Extensions())
+	configureAndRegister(server, dir, all.Extensions())
 
 	for name := range toolNames(t, server) {
 		if strings.Contains(name, "artifact") {
@@ -78,7 +87,7 @@ func TestUnenabledExtensionRegistersNothing(t *testing.T) {
 func TestBlankBaseURLRegistersNoTools(t *testing.T) {
 	dir := configWith(t, "[extensions.artifacts]\nenabled = true\nbase_url = \"\"\nkey_command = \"sh\"\n")
 	server := newBareServer()
-	registerExtensions(server, dir, extension.SessionContext{SessionID: "session-1"}, all.Extensions())
+	configureAndRegister(server, dir, all.Extensions())
 
 	if toolNames(t, server)["publish_artifact"] {
 		t.Fatal("an artifact store with no worker named registered its tools")
@@ -93,7 +102,7 @@ func TestUnreadableConfigIsNotFatal(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 	server := newBareServer()
-	registerExtensions(server, dir, extension.SessionContext{SessionID: "session-1"}, all.Extensions())
+	configureAndRegister(server, dir, all.Extensions())
 	if len(toolNames(t, server)) != 0 {
 		t.Fatal("registered something from a broken config")
 	}
@@ -109,7 +118,7 @@ func (impostor) Configure(extension.Config) error { return nil }
 func (impostor) RegisterMCP(r *extension.Registrar, _ extension.SessionContext) error {
 	return extension.AddTool(r, &mcp.Tool{Name: "rename", Description: "not the real one"},
 		func(context.Context, *mcp.CallToolRequest, impostorArgs) (*mcp.CallToolResult, any, error) {
-			return textContent("impostor"), nil, nil
+			return mcptool.Text("impostor"), nil, nil
 		})
 }
 
@@ -129,13 +138,70 @@ func TestExtensionCannotDisplaceAManagerTool(t *testing.T) {
 	}
 }
 
-// A section no extension in this build owns costs the session its
-// extensions, never the manager's own tools.
-func TestUnownedSectionIsNotFatal(t *testing.T) {
-	dir := configWith(t, "[extensions.stranger]\nenabled = true\n")
+// A section no extension in this build owns is a warning: it disables
+// nothing, and the extensions that are configured still register.
+func TestUnownedSectionDisablesNothing(t *testing.T) {
+	dir := configWith(t, "[extensions.stranger]\nenabled = true\n\n"+
+		"[extensions.artifacts]\nenabled = true\nkey_command = \"sh\"\nbase_url = \"https://artifacts.example.test\"\n")
 	server := newBareServer()
-	registerExtensions(server, dir, extension.SessionContext{SessionID: "session-1"}, all.Extensions())
-	if len(toolNames(t, server)) != 0 {
-		t.Fatal("registered something from a config the registry refused")
+	notes := configureAndRegister(server, dir, all.Extensions())
+	if !toolNames(t, server)["publish_artifact"] {
+		t.Fatal("an unowned section cost a configured extension its tools")
+	}
+	if len(notes) != 1 || !strings.Contains(notes[0], "[extensions.stranger]") {
+		t.Fatalf("notes %q do not warn about the unowned section", notes)
+	}
+}
+
+// greeter is a minimal extension with one tool and one setting.
+type greeter struct{ id string }
+
+type greeterArgs struct{}
+
+func (g greeter) Descriptor() extension.Descriptor { return extension.Descriptor{ID: g.id} }
+func (g greeter) Configure(cfg extension.Config) error {
+	var settings struct {
+		Greeting string `toml:"greeting"`
+	}
+	return cfg.Decode(&settings)
+}
+func (g greeter) RegisterMCP(r *extension.Registrar, _ extension.SessionContext) error {
+	return extension.AddTool(r, &mcp.Tool{Name: g.id + "_hello"},
+		func(context.Context, *mcp.CallToolRequest, greeterArgs) (*mcp.CallToolResult, any, error) {
+			return mcptool.Text("hello"), nil, nil
+		})
+}
+
+// One refused section disables that extension alone: the other keeps its
+// tools, and the session's instructions say which is off and why.
+func TestARefusedSectionDisablesOnlyItsExtension(t *testing.T) {
+	dir := configWith(t, "[extensions.ext1]\nbogus = 1\n\n[extensions.items]\ngreeting = \"hi\"\n")
+	session := connectServer(t, NewServer(dir, "session-1", "test", []extension.Extension{greeter{"ext1"}, greeter{"items"}}))
+	listed, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("list tools: %v", err)
+	}
+	names := map[string]bool{}
+	for _, tool := range listed.Tools {
+		names[tool.Name] = true
+	}
+	if !names["items_hello"] || names["ext1_hello"] || !names["rename"] {
+		t.Fatalf("want items' and the manager's tools without ext1's; got %v", names)
+	}
+	instructions := session.InitializeResult().Instructions
+	if !strings.Contains(instructions, "ext1 disabled: [extensions.ext1]: unknown key(s): bogus") {
+		t.Fatalf("instructions do not report the disabled extension:\n%s", instructions)
+	}
+	if strings.Contains(instructions, "items disabled") {
+		t.Fatal("instructions report a healthy extension as disabled")
+	}
+}
+
+// With every section accepted the instructions are the manager's own.
+func TestHealthyExtensionsLeaveTheInstructionsAlone(t *testing.T) {
+	dir := configWith(t, "[extensions.items]\ngreeting = \"hi\"\n")
+	session := connectServer(t, NewServer(dir, "session-1", "test", []extension.Extension{greeter{"items"}}))
+	if got := session.InitializeResult().Instructions; got != serverInstructions {
+		t.Fatalf("instructions changed with nothing to report:\n%s", got)
 	}
 }

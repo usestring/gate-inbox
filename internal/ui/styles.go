@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/status"
 )
 
@@ -165,10 +166,10 @@ func statusLabel(s string) string {
 
 // padRight pads or clips a possibly-styled string to an exact display width.
 func padRight(s string, width int) string {
-	w := cellWidth(s)
+	w := textfmt.Width(s)
 	if w > width {
-		s = cellTruncate(s, width, "…")
-		w = cellWidth(s)
+		s = textfmt.TruncateWidth(s, width, "…")
+		w = textfmt.Width(s)
 	}
 	if w < width {
 		s += spaces(width - w)

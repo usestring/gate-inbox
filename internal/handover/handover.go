@@ -1,17 +1,13 @@
 // Package handover filters what a replacement session reads.
 //
-// Two handovers carry a predecessor's pollution into a fresh context. A
-// migration points the taking-over agent at the source's full transcript, and
-// a stuck agent's transcript is wall-to-wall loop spam and decline essays --
-// read back whole, the replacement re-derives the same stuck behaviour. A
-// restart fences the whole ledger into the fresh worker's prompt, and prior
-// legs write their halts into it, so each replacement reads the last leg's
-// essay and writes its own.
+// A migration points the taking-over agent at the source's full transcript,
+// which carries a predecessor's pollution into a fresh context: a stuck
+// agent's transcript is wall-to-wall loop spam and decline essays, and read
+// back whole, the replacement re-derives the same stuck behaviour.
 //
 // The filter is a transformation of what the replacement reads, never of the
-// record itself. The transcript on disk and the ledger on disk are untouched;
-// a filtered copy is written beside the transcript, and the ledger is
-// filtered only inside the restart prompt. What it removes is the pollution,
+// record itself. The transcript on disk is untouched; a filtered copy is
+// written beside it. What it removes is the pollution,
 // not the fact of it: a decline turn becomes a one-line marker saying a
 // decline happened here, loop spam is collapsed, and everything before the
 // last compaction boundary is dropped because the summary record at that

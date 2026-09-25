@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/search"
 )
 
@@ -25,7 +26,7 @@ func TestConversationBoxesWrapAndSanitizeMessages(t *testing.T) {
 			}
 		}
 		for _, row := range rows {
-			if cellWidth(row) > width {
+			if textfmt.Width(row) > width {
 				t.Fatalf("row exceeds %d columns: %q", width, row)
 			}
 			if strings.Contains(row, "52;") {
@@ -205,7 +206,7 @@ func TestShortenedConversationWrapsWithinNarrowScreens(t *testing.T) {
 			t.Fatalf("shortened message uses %d rows", len(rows))
 		}
 		for _, row := range rows {
-			if cellWidth(row) > width {
+			if textfmt.Width(row) > width {
 				t.Fatalf("row exceeds %d: %q", width, row)
 			}
 		}

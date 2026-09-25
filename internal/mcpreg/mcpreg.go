@@ -10,11 +10,15 @@ package mcpreg
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 
+	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/tmux"
+	"github.com/usestring/gate-inbox/internal/tooldrivers"
 )
 
 // ServerName is the MCP server entry every session gets, which names its
@@ -36,27 +40,32 @@ const generatedPrefix = "gate-inbox-"
 
 const StyleNone = "none"
 
-var knownStyles = map[string]bool{
-	"claude":   true,
-	"codex":    true,
-	"opencode": true,
-	StyleNone:  true,
-}
-
 // Style resolves a tool's registration style: the explicit `mcp` config
-// value wins, otherwise a tool whose config key names a known style uses
-// it, and anything else registers nothing.
+// value wins, otherwise a tool whose config key names a known style -- built
+// in or an extension's driver -- uses it, and anything else registers
+// nothing. An explicit style nothing implements reads as none here; Resolve
+// is what refuses it, and a launch goes through Resolve.
 func Style(toolName, explicit string) string {
-	if explicit != "" {
-		if knownStyles[explicit] {
-			return explicit
-		}
+	style, err := Resolve(toolName, explicit)
+	if err != nil {
 		return StyleNone
 	}
-	if knownStyles[toolName] {
-		return toolName
+	return style
+}
+
+// Resolve is Style, refusing an explicit style that neither the core nor
+// any enabled extension's driver implements.
+func Resolve(toolName, explicit string) (string, error) {
+	if explicit != "" {
+		if tooldrivers.Known(explicit) {
+			return explicit, nil
+		}
+		return "", tooldrivers.CheckTool(toolName, config.Tool{MCP: explicit})
 	}
-	return StyleNone
+	if tooldrivers.Known(toolName) {
+		return toolName, nil
+	}
+	return StyleNone, nil
 }
 
 // Apply mutates a session launch so the tool sees the MCP server: it may
@@ -135,9 +144,52 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model st
 		// generated config, and this session's identity, reach the agent.
 		command += " --standalone"
 		return command, nil
-	default:
+	case StyleNone:
 		return command, nil
+	default:
+		return applyDriver(style, exe, hooksDir, command, env, model, write)
 	}
+}
+
+// applyDriver hands the launch to the extension driver answering style. A
+// style with no driver is refused: launching as if it had said none is what
+// left a session without the board's tools and nothing saying why.
+func applyDriver(style, exe, hooksDir, command string, env map[string]string, model string, write bool) (string, error) {
+	driver, ok, err := tooldrivers.Lookup(style)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return "", fmt.Errorf("mcp style %q is not one this build has", style)
+	}
+	ctx, cancel := tooldrivers.Context()
+	defer cancel()
+	launched, err := driver.RegisterMCP(ctx, extension.MCPRequest{
+		ServerName:   ServerName,
+		Executable:   exe,
+		SessionIDEnv: hooks.EnvSessionID,
+		SessionID:    env[hooks.EnvSessionID],
+		HooksDir:     hooksDir,
+		Command:      command,
+		Env:          maps.Clone(env),
+		Model:        model,
+		DryRun:       !write,
+	})
+	if err != nil {
+		return "", fmt.Errorf("mcp style %q: %w", style, err)
+	}
+	for key, value := range launched.Env {
+		// The host's own variables are how the session and its server find
+		// the board; a driver adds to the environment, never redirects it.
+		if _, taken := env[key]; taken {
+			continue
+		}
+		env[key] = value
+	}
+	if launched.Command != "" {
+		command = launched.Command
+	}
+	return command, nil
 }
 
 // forwardedSessionID is the env block that hands a session's id to the MCP

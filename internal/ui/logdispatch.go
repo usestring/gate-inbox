@@ -44,6 +44,8 @@ func (m mode) String() string {
 		return "tmux-hint"
 	case modeAgentPick:
 		return "agent-pick"
+	case modeExtensionView:
+		return "extension-view"
 	}
 	return fmt.Sprintf("mode(%d)", int(m))
 }

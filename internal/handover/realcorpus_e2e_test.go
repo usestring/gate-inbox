@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/usestring/gate-inbox/internal/decline"
+	"github.com/usestring/gate-inbox/extension/decline"
 )
 
 // The real-transcript pass. The fixture is whatever transcript the operator

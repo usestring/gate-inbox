@@ -1982,6 +1982,29 @@
   "outputSchema": {
     "additionalProperties": false,
     "properties": {
+      "handled": {
+        "description": "what the build's extensions made of an operator's send, each under its extension's id; the message is queued and delivered either way",
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "extension": {
+              "type": "string"
+            },
+            "result": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "extension",
+            "result"
+          ],
+          "type": "object"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
       "held": {
         "description": "why nothing will type this message into the recipient as things stand, and what to do about it; empty means it is simply waiting for the agent to be at rest",
         "type": "string"
@@ -2001,6 +2024,10 @@
       "queue_position": {
         "description": "this message's place in the recipient's queue; 1 means it is next",
         "type": "integer"
+      },
+      "relayed": {
+        "description": "whether this was relayed as the operator's words; with no message_id, nothing was queued and there is nothing to track",
+        "type": "boolean"
       },
       "superseded": {
         "description": "how many earlier queued messages from this sender on the same subject this one replaced",

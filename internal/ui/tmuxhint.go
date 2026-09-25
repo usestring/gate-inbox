@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
@@ -128,7 +129,7 @@ func tmuxHintLines(findings []tmux.ConfigFinding, inner int) []string {
 			lines = append(lines, mutedStyle.Render(line))
 		}
 		if finding.Fix != "" {
-			lines = append(lines, keyStyle.Render(cellTruncate(finding.Fix, inner, "…")))
+			lines = append(lines, keyStyle.Render(textfmt.TruncateWidth(finding.Fix, inner, "…")))
 		}
 	}
 	if !anyFix(findings) {

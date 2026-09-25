@@ -7,11 +7,13 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/handover"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/migrate"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
@@ -106,6 +108,12 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 		named = source.Account
 	}
 	id := uuid.NewString()[:8]
+	// Before an account is borrowed, so a refusal leaves nothing behind.
+	shape, err := sessionhooks.Shape(migrate.NewSession(id, name, toolName, source, launch.Plan{Model: source.Model}), extension.LaunchMigrate, source.ID)
+	if err != nil {
+		return Session{}, err
+	}
+	prompt = shape.Shaped(prompt)
 	var account string
 	if opts.accountOverride != nil {
 		account = *opts.accountOverride
@@ -120,11 +128,19 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	if err != nil {
 		return Session{}, err
 	}
-	command, env, err := launch.Environment(hooks.NewManager(s.configDir), toolName, tool, plan.Command, id, plan.Model, plan.Account)
+	sess := migrate.NewSession(id, name, toolName, source, plan)
+	sessionHooks, err := sessionhooks.Current()
 	if err != nil {
 		return Session{}, err
 	}
-	sess := migrate.NewSession(id, name, toolName, source, plan)
+	contributed, err := sessionhooks.Env(sessionHooks, sess, extension.LaunchMigrate, source.ID, nil)
+	if err != nil {
+		return Session{}, err
+	}
+	command, env, err := launch.Environment(hooks.NewManager(s.configDir), toolName, tool, plan.Command, id, plan.Model, plan.Account, contributed)
+	if err != nil {
+		return Session{}, err
+	}
 	launched := false
 	if err := runtime.store.LaunchSessionBeside(sess, source.ID, func() error {
 		err := runtime.driver.Create(sess.ID, sess.Cwd, command, env, 0, 0)
@@ -134,6 +150,15 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 		if launched {
 			_ = runtime.driver.Kill(sess.ID)
 		}
+		return Session{}, err
+	}
+	// An extension that keeps state for the source has to carry it across
+	// before the migration counts as done; one that cannot undoes it, so
+	// the operator is never left with a new session its extensions do not
+	// know about.
+	if err := sessionhooks.Migrated(sessionHooks, source, sess, runtime.driver.Exists(source.ID)); err != nil {
+		_ = runtime.driver.Kill(sess.ID)
+		_ = runtime.store.Delete(sess.ID)
 		return Session{}, err
 	}
 	accounts.RecordLaunch(runtime.store, sess.ID, sess.Tool, sess.Account)
@@ -155,14 +180,8 @@ func (s *Sessions) filterForHandover(transcript migrate.Transcript) (migrate.Tra
 		return transcript, "", nil
 	}
 	dst := transcript.Path + ".handover.jsonl"
-	var stats handover.Stats
-	var err error
-	switch transcript.Kind {
-	case "claude":
-		stats, err = handover.Claude(transcript.Path, dst, handover.DefaultOptions())
-	case "codex":
-		stats, err = handover.Codex(transcript.Path, dst, handover.DefaultOptions())
-	default:
+	stats, filtered, err := filterTranscript(transcript, dst, handover.DefaultOptions())
+	if !filtered {
 		return transcript, "", nil
 	}
 	if err != nil {
@@ -173,4 +192,19 @@ func (s *Sessions) filterForHandover(transcript migrate.Transcript) (migrate.Tra
 	}
 	transcript.Path = dst
 	return transcript, stats.Note(), nil
+}
+
+// filterTranscript writes the handover filter's copy of transcript to dst.
+// filtered is false for a layout the filter cannot read, and then nothing is
+// written.
+func filterTranscript(transcript migrate.Transcript, dst string, opts handover.Options) (stats handover.Stats, filtered bool, err error) {
+	switch transcript.Kind {
+	case "claude":
+		stats, err = handover.Claude(transcript.Path, dst, opts)
+	case "codex":
+		stats, err = handover.Codex(transcript.Path, dst, opts)
+	default:
+		return handover.Stats{}, false, nil
+	}
+	return stats, true, err
 }

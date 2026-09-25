@@ -10,6 +10,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -218,7 +220,7 @@ func (m *Model) caretAtInputStart(sessID, tool string) bool {
 	if !ok {
 		return false
 	}
-	if textBeforeCaret(m.engine, tool, row, caretX) || caretX < cellWidth(prefix) {
+	if textBeforeCaret(m.engine, tool, row, caretX) || caretX < textfmt.Width(prefix) {
 		return false
 	}
 	return m.composerAboveIsBlank(tool, rows, y)
@@ -312,7 +314,7 @@ func (m *Model) selectionDialogUp(sessID, tool string) bool {
 		return false
 	}
 	prefix, ok := m.engine.InputPrefix(tool, row)
-	if !ok || caretX >= cellWidth(prefix) {
+	if !ok || caretX >= textfmt.Width(prefix) {
 		return false
 	}
 	pane := strings.Join(m.paneTextLines(), "\n")
@@ -409,7 +411,7 @@ func textBeforeCaret(engine *status.Engine, tool, row string, caretX int) bool {
 	if !ok {
 		return false
 	}
-	return status.TextBetweenCells(row, cellWidth(prefix), caretX)
+	return status.TextBetweenCells(row, textfmt.Width(prefix), caretX)
 }
 
 // leaveFocus returns to the list. Mouse reporting stays on: handing it back
@@ -645,6 +647,9 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// the line is clear, and the scrolled-back pane the next lines pull back
 	// to its live bottom was showing history rather than where the key lands.
 	submitted := m.answersFocused(sess, msg)
+	// Whether it answers a dialog rather than a line at the prompt, read
+	// now for the same reason: the dialog is gone once the key lands.
+	dialogAnswer := submitted && m.selectionDialogUp(sess.ID, sess.Tool)
 	answered := m.autoProceeds() && submitted
 	// Typing puts the cursor back on: a caret that blinks out mid-keystroke
 	// reads as a dropped character.
@@ -694,6 +699,7 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if submitted {
 		m.noteSubmission(sess)
+		m.noteOperator(sess, extension.OperatorPane, "", dialogAnswer)
 	}
 	// The answer is in. Auto-proceed spends it the way § does -- mute, leave,
 	// enter the next session that needs a person -- so a drain is one answer

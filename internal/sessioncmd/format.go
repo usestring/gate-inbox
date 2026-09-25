@@ -129,6 +129,9 @@ func FormatSessionScreen(screen SessionScreen) string {
 }
 
 func FormatSendResult(result SendResult, targetID string) string {
+	if result.Relayed && result.MessageID == 0 {
+		return fmt.Sprintf("relayed; the extension that launched this session took it, and nothing was queued for session %s", targetID)
+	}
 	text := fmt.Sprintf("queued message %d for session %s at position %d", result.MessageID, targetID, result.QueuePosition)
 	if result.Superseded == 1 {
 		text += ", replacing one of yours still queued on the same subject"
@@ -145,6 +148,9 @@ func FormatSendResult(result SendResult, targetID string) string {
 		text += "; its current turn is interrupted first unless a dialog is showing"
 	}
 	text += ". It has not reached the agent yet; message_status says delivered once it is in the agent's prompt"
+	for _, handled := range result.Handled {
+		text += fmt.Sprintf(". Extension %s: %s", handled.Extension, handled.Result)
+	}
 	// Last, because it is the part a sender has to act on: everything above
 	// says the send worked, and this says the message is not going anywhere
 	// yet and what would move it.
@@ -355,20 +361,6 @@ func FormatUnparkResult(result UnparkResult) string {
 		lines = append(lines, "failed, kept for a retry: "+failure)
 	}
 	return strings.Join(lines, "\n")
-}
-
-// firstLine keeps a decision's message to one bounded line, since a manager's
-// message is a paragraph and this is a list.
-func firstLine(text string) string {
-	text = strings.TrimSpace(text)
-	if i := strings.IndexByte(text, '\n'); i >= 0 {
-		text = text[:i]
-	}
-	const limit = 100
-	if runes := []rune(text); len(runes) > limit {
-		text = string(runes[:limit]) + "..."
-	}
-	return text
 }
 
 // FormatAnswer says what the answer did, in one line: the option it landed

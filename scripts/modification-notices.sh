@@ -38,8 +38,8 @@ derived=(
 	app/app_test.go                           # main_test.go
 	app/board.go                              # main.go
 	app/version.go                            # main.go
+	extension/artifacts/artifacts.go          # internal/mcpserver/mcpserver.go
 	internal/cli/rename.go                    # internal/cli/review.go
-	internal/extension/artifacts/artifacts.go # internal/mcpserver/mcpserver.go
 	internal/sessioncmd/accounts.go           # internal/sessioncmd/session.go
 	internal/sessioncmd/migrate.go            # internal/sessioncmd/session.go
 	internal/sessioncmd/park.go               # internal/sessioncmd/session.go

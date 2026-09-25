@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 )
 
 // The list view sits on the terminal's own background, with the sessions
@@ -252,8 +253,8 @@ func paint(s string, width int, bg string) string {
 		s = strings.ReplaceAll(s, ansiDefaultBg, fill)
 	}
 	pad := 0
-	if w := cellWidth(s); w > width {
-		s = cellTruncate(s, width, "…")
+	if w := textfmt.Width(s); w > width {
+		s = textfmt.TruncateWidth(s, width, "…")
 	} else {
 		pad = width - w
 	}
@@ -265,8 +266,8 @@ func paint(s string, width int, bg string) string {
 // session's CLI looks exactly as it does inside the session.
 func plain(s string, width int) string {
 	pad := 0
-	if w := cellWidth(s); w > width {
-		s = cellTruncate(s, width, "")
+	if w := textfmt.Width(s); w > width {
+		s = textfmt.TruncateWidth(s, width, "")
 	} else {
 		pad = width - w
 	}

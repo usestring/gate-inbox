@@ -1,6 +1,9 @@
 package worktracker
 
 import (
+	"errors"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,8 +60,8 @@ func TestGitHubOffAsksNothingAndDrawsNothing(t *testing.T) {
 	}
 }
 
-// Linear off, which is also what Linear with no LINEAR_API_KEY is: no ticket is discovered —
-// including the one a pull request's head branch names — and nothing is asked of Linear.
+// Linear off: no ticket is discovered — including the one a pull request's head branch names —
+// and nothing is asked of Linear.
 func TestLinearOffAsksNothingAndDrawsNothing(t *testing.T) {
 	now := time.Unix(1700000000, 0)
 	github := &fakeForge{health: forge.Health{OK: true}, prs: map[string]forge.PR{
@@ -133,5 +136,46 @@ func TestAProviderSwitchedOffLeavesItsRememberedStateAlone(t *testing.T) {
 	}
 	if _, ok := seen.seen["ticket:ABC-4242"]; !ok {
 		t.Error("the ticket's sighting was dropped from the store while Linear is off")
+	}
+}
+
+type refusingTransport struct{ requests int }
+
+func (r *refusingTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	r.requests++
+	return nil, errors.New("no network in tests")
+}
+
+// Linear on with no LINEAR_API_KEY: its tickets are still discovered and kept, with no state, no
+// request is sent, and its health says the key is missing rather than that Linear failed.
+func TestKeylessLinearKeepsTicketsWithoutState(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	transport := &refusingTransport{}
+	linear := &forge.Linear{Endpoint: "https://example.invalid", HTTP: &http.Client{Transport: transport}}
+	github := &fakeForge{health: forge.Health{OK: true}}
+	tr := New(fakeGit{branch: "abc-133756-slug", remote: "git@github.com:example-org/sample-repo.git"}, github, linear)
+	tr.Now = func() time.Time { return now }
+
+	session := Session{ID: "s", Dir: "/repo", Text: bothKinds, Live: true}
+	if got := kinds(tr.Discover(session)); got[workspec.KindTicket] == 0 || got[workspec.KindPR] == 0 {
+		t.Fatalf("discovered %v, want tickets and pull requests", got)
+	}
+	tr.Refresh([]Session{session})
+	now = now.Add(time.Hour)
+	tr.Refresh([]Session{session})
+
+	if transport.requests != 0 {
+		t.Errorf("sent %d requests to Linear with no key", transport.requests)
+	}
+	work := tr.For("s")
+	if kinds(work.Refs)[workspec.KindTicket] == 0 {
+		t.Errorf("ticket references dropped with Linear keyless: %+v", work.Refs)
+	}
+	if len(work.Tickets) != 0 {
+		t.Errorf("tickets carry state with no key: %+v", work.Tickets)
+	}
+	_, ln := tr.Health()
+	if !ln.Off || ln.Failed() || !strings.Contains(ln.Reason, "LINEAR_API_KEY is not set") {
+		t.Errorf("linear health = %+v, want off, not failed, naming the missing key", ln)
 	}
 }

@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -61,6 +63,10 @@ func (p *poller) relayChildRest(sess store.Session, newStatus string) error {
 	if !atRest || spawner == "" || sess.Archived {
 		return nil
 	}
+	// Nor a silent role's rest: see relayChildQuestion.
+	if sessionhooks.Role(sess.Role).Silent {
+		return nil
+	}
 	// A session's own terminal is a child row too, and closing one is not an
 	// event: the shell was opened to be used and then closed, by whoever
 	// opened it. It reaches rest as dead and nothing else, since a shell
@@ -84,7 +90,7 @@ func (p *poller) relayChildRest(sess store.Session, newStatus string) error {
 		SenderID:    sess.ID,
 		SenderName:  sess.Name,
 		Body:        body,
-		Fingerprint: store.Fingerprint(body),
+		Fingerprint: textfmt.Fingerprint(body),
 		Subject:     store.ChildRestSubject(sess.ID),
 		SentAt:      time.Now(),
 	}, store.DefaultInboxLimits)

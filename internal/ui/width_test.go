@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/usestring/gate-inbox/extension/textfmt"
 )
 
 // widthCorpus is what a frame measures and then some: bare text, the tree
@@ -33,8 +35,8 @@ var widthCorpus = []string{
 
 func TestCellWidthMatchesStringWidth(t *testing.T) {
 	for _, s := range widthCorpus {
-		if got, want := cellWidth(s), ansi.StringWidth(s); got != want {
-			t.Errorf("cellWidth(%q) = %d, ansi.StringWidth = %d", s, got, want)
+		if got, want := textfmt.Width(s), ansi.StringWidth(s); got != want {
+			t.Errorf("textfmt.Width(%q) = %d, ansi.StringWidth = %d", s, got, want)
 		}
 	}
 }
@@ -50,8 +52,8 @@ func TestCellWidthMatchesStringWidthRandom(t *testing.T) {
 			b.WriteString(widthCorpus[rng.Intn(len(widthCorpus))])
 		}
 		s := b.String()
-		if got, want := cellWidth(s), ansi.StringWidth(s); got != want {
-			t.Fatalf("cellWidth(%q) = %d, ansi.StringWidth = %d", s, got, want)
+		if got, want := textfmt.Width(s), ansi.StringWidth(s); got != want {
+			t.Fatalf("textfmt.Width(%q) = %d, ansi.StringWidth = %d", s, got, want)
 		}
 	}
 }
@@ -68,8 +70,8 @@ func TestCellWidthMatchesStringWidthBytes(t *testing.T) {
 			buf[j] = byte(rng.Intn(256))
 		}
 		s := string(buf)
-		if got, want := cellWidth(s), ansi.StringWidth(s); got != want {
-			t.Fatalf("cellWidth(%q) = %d, ansi.StringWidth = %d", s, got, want)
+		if got, want := textfmt.Width(s), ansi.StringWidth(s); got != want {
+			t.Fatalf("textfmt.Width(%q) = %d, ansi.StringWidth = %d", s, got, want)
 		}
 	}
 }
@@ -81,10 +83,10 @@ var truncTails = []string{"", "…", "▶▶"}
 func TestCellTruncateMatchesAnsiTruncate(t *testing.T) {
 	for _, s := range widthCorpus {
 		for _, tail := range truncTails {
-			for length := 0; length <= cellWidth(s)+2; length++ {
-				got, want := cellTruncate(s, length, tail), ansi.Truncate(s, length, tail)
+			for length := 0; length <= textfmt.Width(s)+2; length++ {
+				got, want := textfmt.TruncateWidth(s, length, tail), ansi.Truncate(s, length, tail)
 				if got != want {
-					t.Errorf("cellTruncate(%q, %d, %q) = %q, ansi.Truncate = %q", s, length, tail, got, want)
+					t.Errorf("textfmt.TruncateWidth(%q, %d, %q) = %q, ansi.Truncate = %q", s, length, tail, got, want)
 				}
 			}
 		}
@@ -103,9 +105,9 @@ func TestCellTruncateMatchesAnsiTruncateRandom(t *testing.T) {
 		}
 		s := b.String()
 		tail := truncTails[rng.Intn(len(truncTails))]
-		length := rng.Intn(cellWidth(s) + 3)
-		if got, want := cellTruncate(s, length, tail), ansi.Truncate(s, length, tail); got != want {
-			t.Fatalf("cellTruncate(%q, %d, %q) = %q, ansi.Truncate = %q", s, length, tail, got, want)
+		length := rng.Intn(textfmt.Width(s) + 3)
+		if got, want := textfmt.TruncateWidth(s, length, tail), ansi.Truncate(s, length, tail); got != want {
+			t.Fatalf("textfmt.TruncateWidth(%q, %d, %q) = %q, ansi.Truncate = %q", s, length, tail, got, want)
 		}
 	}
 }
@@ -122,9 +124,9 @@ func TestCellTruncateMatchesAnsiTruncateBytes(t *testing.T) {
 		}
 		s := string(buf)
 		tail := truncTails[rng.Intn(len(truncTails))]
-		length := rng.Intn(cellWidth(s) + 3)
-		if got, want := cellTruncate(s, length, tail), ansi.Truncate(s, length, tail); got != want {
-			t.Fatalf("cellTruncate(%q, %d, %q) = %q, ansi.Truncate = %q", s, length, tail, got, want)
+		length := rng.Intn(textfmt.Width(s) + 3)
+		if got, want := textfmt.TruncateWidth(s, length, tail), ansi.Truncate(s, length, tail); got != want {
+			t.Fatalf("textfmt.TruncateWidth(%q, %d, %q) = %q, ansi.Truncate = %q", s, length, tail, got, want)
 		}
 	}
 }

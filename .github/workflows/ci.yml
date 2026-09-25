@@ -46,10 +46,10 @@ jobs:
       - name: Vet
         run: go vet ./...
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        if: hashFiles('internal/extension/artifacts/worker/package.json') != ''
+        if: hashFiles('extension/artifacts/worker/package.json') != ''
       - name: Test artifacts worker
-        if: hashFiles('internal/extension/artifacts/worker/package.json') != ''
-        working-directory: internal/extension/artifacts/worker
+        if: hashFiles('extension/artifacts/worker/package.json') != ''
+        working-directory: extension/artifacts/worker
         run: bun test
 
   test:
@@ -81,9 +81,11 @@ jobs:
           printf '#!/bin/sh\necho "stub claude invoked in CI: $*" >&2\nexit 1\n' > "$RUNNER_TEMP/bin/claude"
           chmod +x "$RUNNER_TEMP/bin/claude"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      # Test servers get their own socket root, kept short because a tmux
-      # socket path is capped near 108 bytes. The sqlite fixtures already go
-      # to /dev/shm through tmuxtest.ScratchDir.
+      # The suite runs with TMUX pointed at a sentinel server, the environment
+      # a test run inherits inside an operator's tmux pane, and the step fails
+      # if that server loses or gains anything: internal/tmuxtest gives every
+      # test binary its own TMUX_TMPDIR, and this proves nothing escaped it.
+      # The sqlite fixtures go to /dev/shm through tmuxtest.ScratchDir.
       #
       # Both verdicts have to be clean: go test alone would call a suite that
       # passed by skipping a success, and testreport alone would miss a
@@ -91,11 +93,9 @@ jobs:
       - name: Test
         run: |
           go build -o "$RUNNER_TEMP/testreport" ./tools/testreport
-          TMUX_TMPDIR=$(mktemp -d /dev/shm/tmux.XXXX)
-          export TMUX_TMPDIR
-          unset TMUX TMUX_PANE
           suite=0
-          go test -json -count=1 -timeout 15m ./... > "$RUNNER_TEMP/test.json" || suite=$?
+          scripts/test-tmux-isolation.sh -- \
+            go test -json -count=1 -timeout 15m ./... > "$RUNNER_TEMP/test.json" || suite=$?
           report=0
           "$RUNNER_TEMP/testreport" \
             -allow ci-allowed-skips.txt \

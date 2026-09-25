@@ -7,26 +7,55 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
 func (m *Model) launchNewSession(sess store.Session, tool config.Tool, baseCommand string) error {
+	return m.launchNewSessionWith(sess, tool, baseCommand, nil)
+}
+
+// launchNewSessionWith is launchNewSession for a spawn from the new-session
+// form, carrying what the operator chose in the extensions' fields on it.
+func (m *Model) launchNewSessionWith(sess store.Session, tool config.Tool, baseCommand string, form map[string]string) error {
 	if sess.CreatedAt.IsZero() {
 		sess.CreatedAt = time.Now()
 	}
 	if sess.LastStatusAt.IsZero() {
 		sess.LastStatusAt = sess.CreatedAt
 	}
-	command, env, err := m.buildLaunch(sess.Tool, tool, baseCommand, sess.ID, sess.Model, sess.Account)
+	// A terminal is no agent: the extensions have no say in it.
+	shell := m.isShell(sess.Tool)
+	var sessionHooks *extension.SessionHooks
+	var contributed map[string]string
+	if !shell {
+		var err error
+		reason := extension.LaunchSpawn
+		if sess.MigrationID != "" {
+			reason = extension.LaunchMigrate
+			sessionHooks, err = sessionhooks.Current()
+		} else {
+			// Before the pane is built, so a refusal costs nothing to undo.
+			sessionHooks, err = sessionhooks.CheckSpawn(sess, extension.SpawnByOperator)
+		}
+		if err != nil {
+			return err
+		}
+		if contributed, err = sessionhooks.Env(sessionHooks, sess, reason, sess.MigrationID, form); err != nil {
+			return err
+		}
+	}
+	command, env, err := m.buildLaunch(sess.Tool, tool, baseCommand, sess.ID, sess.Model, sess.Account, contributed)
 	if err != nil {
 		return err
 	}
 	// A shell is a leaf, so T on a child agent's row nests under it rather
 	// than being refused for depth.
 	create := m.store.LaunchSession
-	if m.isShell(sess.Tool) {
+	if shell {
 		create = m.store.LaunchSessionLeaf
 	}
 	launched := false
@@ -41,6 +70,16 @@ func (m *Model) launchNewSession(sess store.Session, tool config.Tool, baseComma
 		_ = m.hooks.Remove(sess.ID)
 		return err
 	}
+	if !shell && sess.MigrationID != "" {
+		if err := m.followMigration(sessionHooks, sess); err != nil {
+			_ = m.tmux.Kill(sess.ID)
+			_ = m.store.Delete(sess.ID)
+			_ = m.hooks.Remove(sess.ID)
+			return err
+		}
+	} else if !shell {
+		sessionhooks.Spawned(sessionHooks, sess, extension.SpawnByOperator)
+	}
 	accounts.RecordLaunch(m.store, sess.ID, sess.Tool, sess.Account)
 	labelErr := m.tmux.SetLabel(sess.ID, sessionLabel(sess.Group, sess.Name))
 	if m.launched == nil {
@@ -50,6 +89,16 @@ func (m *Model) launchNewSession(sess store.Session, tool config.Tool, baseComma
 	m.sessions = append(m.sessions, sess)
 	m.rebuildRows()
 	return labelErr
+}
+
+// followMigration tells the extensions that sess carries on its source's
+// conversation. One that cannot follow it undoes the migration.
+func (m *Model) followMigration(sessionHooks *extension.SessionHooks, sess store.Session) error {
+	source, err := m.store.Get(sess.MigrationID)
+	if err != nil {
+		return err
+	}
+	return sessionhooks.Migrated(sessionHooks, source, sess, m.tmux.Exists(source.ID))
 }
 
 // landInNewSession is what every "make me a session" key ends with: the

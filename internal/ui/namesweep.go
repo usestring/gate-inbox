@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/namesweep"
@@ -357,10 +358,10 @@ func sectionHead(label string, count int, tone color.Color) string {
 const sweepNameColumn = 22
 
 func sweepRow(mark string, verdict namesweep.Verdict, inner int, nameStyle fastStyle) string {
-	name := padRight(nameStyle.Render(cellTruncate(verdict.Name, sweepNameColumn-1, "…")), sweepNameColumn)
+	name := padRight(nameStyle.Render(textfmt.TruncateWidth(verdict.Name, sweepNameColumn-1, "…")), sweepNameColumn)
 	reason := verdict.Reason
 	if room := inner - sweepNameColumn - 4; room > 8 {
-		reason = cellTruncate(reason, room, "…")
+		reason = textfmt.TruncateWidth(reason, room, "…")
 	}
 	return "  " + mark + " " + name + subtleStyle.Render(reason)
 }

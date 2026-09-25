@@ -87,7 +87,7 @@ func TestOnlyTheNavigateSegmentClaimsTheArrows(t *testing.T) {
 	}{
 		{"prose arrows above a permission prompt", []string{
 			"  successful polls went ~97k/day → 12-18k",
-			"  ⎿  sample-repo#1430 (abc-135518-steering-core) → 95844f0",
+			"  ⎿  sample-repo#1430 (abc-100001-sample-branch) → 95844f0",
 			"",
 			"  Do you want to proceed?",
 			"❯ 1. Yes",

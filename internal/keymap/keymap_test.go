@@ -213,8 +213,8 @@ func TestARequiredActionCannotBeUnbound(t *testing.T) {
 // screen's bindings are reported and ignored, and everything else applies.
 func TestARetiredScreenIsReportedAndIgnored(t *testing.T) {
 	m, problems := New(Overrides{
-		"run":       {"steer_rule": {"r"}},
-		ContextList: {"charter_card": {"c"}, Archive: {"alt+a"}},
+		"retired":   {"old_action": {"r"}},
+		ContextList: {"old_card": {"c"}, Archive: {"alt+a"}},
 	})
 	if len(problems) != 2 {
 		t.Fatalf("problems = %v, want the retired screen and the retired action", problems)

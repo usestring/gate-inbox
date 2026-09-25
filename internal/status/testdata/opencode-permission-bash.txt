@@ -44,7 +44,7 @@
   ┃
   ┃  $ echo hello-from-probe
   ┃
-  ┃                                                                                                                                                             /tmp/claude-1000/ocprobe:main
+  ┃                                                                                                                                                             /tmp/scratch-dir/ocprobe:main
   ┃   Allow once   Allow always   Reject                                                                       ctrl+f fullscreen  ⇆ select  enter confirm
   ┃                                                                                                                                                             • OpenCode 1.18.23
 

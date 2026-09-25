@@ -1,7 +1,7 @@
 
  ▐▛███▛█   Claude Code v2.1.263
 ▝▜██████▀  Opus 5 (1M context) with high effort · Claude Max
-  ▝▝ ▝▝    /tmp/claude-1000/-home-user-repos-sample-repo/11111111-2222-3333-4444-555555555555/scratchpad
+  ▝▝ ▝▝    /tmp/scratch-dir/-home-user-repos-sample-repo/11111111-2222-3333-4444-555555555555/scratchpad
 
 
 ❯ This session is already named. You can rename it later with "$GATE_INBOX_BIN" rename "<name>" only if the user asks. Do not rename it now. Then do the task:

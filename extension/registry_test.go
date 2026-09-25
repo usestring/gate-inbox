@@ -94,7 +94,7 @@ func TestRegistryRefusesDuplicateAndMalformedIDs(t *testing.T) {
 		"duplicate": {&stub{id: "one"}, &stub{id: "one"}},
 		"empty":     {&stub{id: ""}},
 		"upper":     {&stub{id: "Artifacts"}},
-		"dotted":    {&stub{id: "company.accounts"}},
+		"dotted":    {&stub{id: "example.accounts"}},
 		"nil":       {nil},
 	}
 	for name, exts := range cases {

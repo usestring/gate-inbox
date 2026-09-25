@@ -362,37 +362,6 @@ CREATE TABLE IF NOT EXISTS settings (
 		// them to the migration would delete somebody's archive on the first
 		// poll after an upgrade; leaving them costs one manual pass.
 		`ALTER TABLE sessions ADD COLUMN archived_at INTEGER NOT NULL DEFAULT 0`,
-		// These two tables and the three columns added to the first below
-		// belong to a feature this build no longer ships. They stay so a
-		// database an older build wrote keeps opening; nothing reads them.
-		`CREATE TABLE IF NOT EXISTS charters (
-			session_id   TEXT PRIMARY KEY REFERENCES sessions(id),
-			slug         TEXT NOT NULL,
-			charter_path TEXT NOT NULL,
-			ledger_path  TEXT NOT NULL,
-			state        TEXT NOT NULL DEFAULT 'active',
-			created_at   TEXT NOT NULL,
-			compactions  INTEGER NOT NULL DEFAULT 0,
-			ledger_hash  TEXT NOT NULL DEFAULT '',
-			events_since_ledger_change INTEGER NOT NULL DEFAULT 0
-		)`,
-		`CREATE TABLE IF NOT EXISTS decisions (
-			id           INTEGER PRIMARY KEY,
-			session_id   TEXT NOT NULL,
-			at           TEXT NOT NULL,
-			event        TEXT NOT NULL,
-			decision     TEXT NOT NULL,
-			message      TEXT NOT NULL,
-			rationale    TEXT NOT NULL,
-			guard        TEXT NOT NULL DEFAULT '',
-			model        TEXT NOT NULL DEFAULT '',
-			cost_usd     REAL NOT NULL DEFAULT 0,
-			delivered_at TEXT
-		)`,
-		`CREATE INDEX IF NOT EXISTS decisions_session ON decisions (session_id, at)`,
-		`ALTER TABLE charters ADD COLUMN charter_hash TEXT NOT NULL DEFAULT ''`,
-		`ALTER TABLE charters ADD COLUMN subsessions_total INTEGER NOT NULL DEFAULT 0`,
-		`ALTER TABLE charters ADD COLUMN armed_boundary TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN priority INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE groups ADD COLUMN priority INTEGER NOT NULL DEFAULT 0`,
 		// The tier that replaced those flags. A new column rather than a
@@ -1464,9 +1433,6 @@ func (s *Store) deleteSession(id string) error {
 	if err := unlinkMigration(tx, id); err != nil {
 		return err
 	}
-	if err := unlinkRetiredRoles(tx, id); err != nil {
-		return err
-	}
 	if _, err := tx.Exec(`DELETE FROM replace_holds WHERE fresh_id = ?`, id); err != nil {
 		return err
 	}
@@ -1508,9 +1474,6 @@ func (s *Store) DeleteChild(id, parentID string, kill func() error) error {
 		return err
 	}
 	if err := unlinkMigration(tx, id); err != nil {
-		return err
-	}
-	if err := unlinkRetiredRoles(tx, id); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM sessions WHERE id = ?`, id); err != nil {

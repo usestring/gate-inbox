@@ -11,6 +11,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/migrate"
+	"github.com/usestring/gate-inbox/internal/store"
 )
 
 // Accounts answers what create_session's account argument accepts for a
@@ -115,7 +116,7 @@ func (s *Sessions) SwitchAccount(sessionID, targetID, account string) (Session, 
 	if !runtime.driver.Exists(target.ID) {
 		return runtime.sessionInfo(target, false, false), nil
 	}
-	if err := s.endSession(runtime, target); err != nil {
+	if err := s.endSession(runtime, target, store.EndKilled); err != nil {
 		return Session{}, err
 	}
 	relaunched, err := s.relaunch(runtime, target, "")

@@ -215,7 +215,7 @@ func (p *parkPass) working(sess store.Session, pane string) bool {
 func (s *Sessions) parkManaged(p *parkPass, sess store.Session) {
 	pane, _ := p.runtime.driver.CapturePane(sess.ID)
 	if !p.dryRun {
-		if err := s.endSessionWith(p.runtime, sess, pane); err != nil {
+		if err := s.endSessionWith(p.runtime, sess, pane, store.EndParked); err != nil {
 			p.fail(sess, err)
 			return
 		}
@@ -251,6 +251,10 @@ func (s *Sessions) parkAdopted(p *parkPass, sess store.Session) {
 		}
 		p.runtime.driver.Release(sess.ID)
 		if err := p.runtime.store.PromoteAdopted(sess.ID, cwd, convID); err != nil {
+			p.fail(sess, err)
+			return
+		}
+		if err := p.runtime.store.RecordEnd(sess, store.EndParked); err != nil {
 			p.fail(sess, err)
 			return
 		}
@@ -298,7 +302,7 @@ func (s *Sessions) parkOrphan(p *parkPass, id string) {
 			p.fail(sess, err)
 			return
 		}
-		if err := s.endSessionWith(p.runtime, sess, pane); err != nil {
+		if err := s.endSessionWith(p.runtime, sess, pane, store.EndParked); err != nil {
 			p.fail(sess, err)
 			return
 		}
@@ -474,13 +478,15 @@ const continuePrompt = "continue"
 
 // endSession is the stop Kill and Park share: freeze the screen, end the
 // pane, and leave the row dead with the conversation id revive needs.
-func (s *Sessions) endSession(runtime *runtime, target store.Session) error {
+func (s *Sessions) endSession(runtime *runtime, target store.Session, reason string) error {
 	pane, _ := runtime.driver.CapturePane(target.ID)
-	return s.endSessionWith(runtime, target, pane)
+	return s.endSessionWith(runtime, target, pane, reason)
 }
 
 // endSessionWith is endSession for a caller that already read the screen.
-func (s *Sessions) endSessionWith(runtime *runtime, target store.Session, pane string) error {
+// reason is recorded against the agent it ends, so the next start can tell
+// this end from a loss nobody chose.
+func (s *Sessions) endSessionWith(runtime *runtime, target store.Session, pane, reason string) error {
 	if runtime.driver.Exists(target.ID) {
 		if pane != "" {
 			if err := runtime.store.SetSnapshot(target.ID, pane); err != nil {
@@ -494,6 +500,9 @@ func (s *Sessions) endSessionWith(runtime *runtime, target store.Session, pane s
 	// The agent dies without running its session-end hook, so a leftover
 	// status file would otherwise decide what a revived session reads as.
 	if err := hooks.NewManager(s.configDir).Remove(target.ID); err != nil {
+		return err
+	}
+	if err := runtime.store.RecordEnd(target, reason); err != nil {
 		return err
 	}
 	return runtime.store.UpdateStatus(target.ID, status.Dead)

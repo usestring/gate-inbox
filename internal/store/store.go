@@ -432,6 +432,14 @@ CREATE TABLE IF NOT EXISTS settings (
 			created_at INTEGER NOT NULL
 		)`,
 		`ALTER TABLE sessions ADD COLUMN replaced_by TEXT NOT NULL DEFAULT ''`,
+		// Why a session's agent was ended, when somebody ended it on
+		// purpose. See sessionend.go.
+		`CREATE TABLE IF NOT EXISTS session_ends (
+			session_id TEXT PRIMARY KEY,
+			reason     TEXT NOT NULL,
+			launched   INTEGER NOT NULL,
+			ended_at   INTEGER NOT NULL
+		)`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {
@@ -1434,6 +1442,9 @@ func (s *Store) deleteSession(id string) error {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM replace_holds WHERE fresh_id = ?`, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM session_ends WHERE session_id = ?`, id); err != nil {
 		return err
 	}
 	res, err := tx.Exec(`DELETE FROM sessions WHERE id = ?`, id)

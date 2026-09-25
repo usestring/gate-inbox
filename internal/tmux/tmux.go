@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/deps"
+	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/tmuxguard"
 )
@@ -578,6 +579,18 @@ func (d *Driver) launchScriptPath(id string) string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("gi-launch-%08x-%s.sh", h.Sum32(), id))
 }
 
+// exitStatusVar holds the agent's exit status until the script records it.
+const exitStatusVar = "gi_agent_exit"
+
+// exitFileClear drops the previous agent's record before this one starts, and
+// exitFileWrite leaves this one's. Both are no-ops for a session launched
+// without the variable naming the file. The write never creates the directory
+// (the launch does): a pane outliving its board's home must not put it back.
+const (
+	exitFileClear = `[ -z "$` + envname.ExitFile + `" ] || rm -f "$` + envname.ExitFile + `"` + "\n"
+	exitFileWrite = `[ -z "$` + envname.ExitFile + `" ] || printf '%s\n' "$` + exitStatusVar + `" > "$` + envname.ExitFile + `" 2>/dev/null` + "\n"
+)
+
 // writeLaunchScript writes the script a pane runs. The body stays POSIX: the
 // shell it runs under is the operator's, and runsLoginScript is what vouches
 // for that shell being able to read it.
@@ -624,7 +637,12 @@ func writeLaunchScript(path string, env map[string]string, command, colorFgBg st
 	// fg it. fg hands the terminal back to the job and continues it, and
 	// fails once no job is left, which is the exit the line waits for. Under
 	// a shell with no job control fg fails at once and nothing changes.
-	body.WriteString(command + "\nwhile fg >/dev/null 2>&1; do :; done\n" + shell.execLine() + "\n")
+	//
+	// The exit status is recorded between the agent and the shell the pane
+	// drops to, so the next start can tell an agent the operator quit (0)
+	// from one that crashed. A stopped agent reports its stop here rather
+	// than its exit, which reads as no verdict either way.
+	body.WriteString(exitFileClear + command + "\n" + exitStatusVar + "=$?\nwhile fg >/dev/null 2>&1; do :; done\n" + exitFileWrite + shell.execLine() + "\n")
 	if err := os.WriteFile(path, []byte(body.String()), 0o700); err != nil {
 		return "", fmt.Errorf("launch script: %w", err)
 	}

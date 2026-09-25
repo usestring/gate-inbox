@@ -1242,7 +1242,7 @@ func (s *Sessions) kill(sessionID, targetID string, terminals bool, via extensio
 	if target.ID == sessionID {
 		return Session{}, errors.New("a session cannot kill itself")
 	}
-	if err := s.endSession(runtime, target); err != nil {
+	if err := s.endSession(runtime, target, store.EndKilled); err != nil {
 		return Session{}, err
 	}
 	target.Status = status.Dead
@@ -1326,7 +1326,7 @@ func (s *Sessions) file(runtime *runtime, target store.Session, archived bool) (
 		// ends the pane, and clears the hook status file a revived session
 		// would otherwise read its status from.
 		pane, _ := runtime.driver.CapturePane(target.ID)
-		if err := s.endSessionWith(runtime, target, pane); err != nil {
+		if err := s.endSessionWith(runtime, target, pane, store.EndArchived); err != nil {
 			return Session{}, err
 		}
 		target.Status = status.Dead

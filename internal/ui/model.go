@@ -533,6 +533,9 @@ type Model struct {
 	// on the pass that decides whether to ask, so the answer outlives the run
 	// that gave it.
 	restoreDecided map[string]time.Time
+	// restoreEvidence is what the startup offer classified dead rows with,
+	// held only while the offer is open.
+	restoreEvidence endEvidence
 	// tmuxHintArmed is set by Init, so only a real startup reads the
 	// operator's tmux settings and only a real startup can raise the note.
 	tmuxHintArmed bool

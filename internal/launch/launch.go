@@ -421,6 +421,7 @@ var parentEnvBlocklist = map[string]bool{
 	"CLAUDE_CODE_SESSION_ATTENDED": true, "CLAUDE_PID": true, "CLAUDE_EFFORT": true,
 	"AI_AGENT":          true,
 	hooks.EnvStatusFile: true,
+	hooks.EnvExitFile:   true,
 }
 
 // inheritParentEnv carries the operator's own shell environment into a
@@ -509,7 +510,7 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	// The manager's own path, not its name: it is normally run out of its
 	// checkout and is on nobody's PATH, so a session told to type the bare
 	// name cannot reach the subcommands at all.
-	env := map[string]string{hooks.EnvSessionID: id, hooks.EnvExecutable: Executable()}
+	env := map[string]string{hooks.EnvSessionID: id, hooks.EnvExecutable: Executable(), hooks.EnvExitFile: manager.ExitFile(id)}
 	inheritParentEnv(env)
 	for key, value := range contributed {
 		env[key] = value
@@ -540,6 +541,11 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	register := mcpreg.Preview
 	if write {
 		register = mcpreg.Apply
+		// The launch script writes the agent's exit status here and never
+		// creates the directory itself.
+		if err := os.MkdirAll(manager.Dir(), 0o755); err != nil {
+			return "", nil, err
+		}
 	}
 	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model))
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/search"
+	"github.com/usestring/gate-inbox/internal/status"
 )
 
 func TestConversationBoxesWrapAndSanitizeMessages(t *testing.T) {
@@ -232,5 +233,48 @@ func TestGateReplyReservesConversationOnShortScreens(t *testing.T) {
 	m = pressFocused(t, m, ctrlBackslash())
 	if m.quick.active || m.gate.on {
 		t.Fatal("leaving the gate retained its draft")
+	}
+}
+
+func TestConversationShowsWorkingSpinnerBelowNewestMessage(t *testing.T) {
+	m := pressGate(t, gateFleet(t))
+	sess, _ := m.selected()
+	m.applyConversation(conversationMsg{key: conversationKey(sess.ID, sess.AgentSessionID), messages: []search.Message{
+		{Role: "user", Text: "My question"},
+		{Role: "assistant", Text: strings.Repeat("Reply line\n", 60)},
+	}})
+	width, height := m.previewPaneWidth(), m.previewPaneHeight()
+	last := func() string {
+		rows := m.conversationRows(width, height)
+		return ansi.Strip(rows[len(rows)-1])
+	}
+	if strings.Contains(last(), startupFrames[0]) || m.needsLoaderTick() {
+		t.Fatalf("waiting session shows a spinner: %q", last())
+	}
+
+	m.rows[m.cursor].sess.Status = status.Working
+	cached := len(m.conversation.wrapped(width))
+	if !m.needsLoaderTick() {
+		t.Fatal("working conversation does not drive the loader tick")
+	}
+	if got := last(); !strings.HasPrefix(got, startupFrames[0]+" working") {
+		t.Fatalf("newest row is %q, want the spinner", got)
+	}
+	m.startupPhase++
+	if got := last(); !strings.HasPrefix(got, startupFrames[1]+" working") {
+		t.Fatalf("spinner did not advance: %q", got)
+	}
+	if len(m.conversation.wrapped(width)) != cached {
+		t.Fatal("spinner leaked into the wrapped cache")
+	}
+
+	m.keyScrollFocus(focusScrollTop)
+	if top := ansi.Strip(m.conversationRows(width, height)[0]); !strings.Contains(top, "You") {
+		t.Fatalf("top of the scroll lost the first message: %q", top)
+	}
+
+	m.conversation.messages, m.conversation.dirty = nil, true
+	if got := last(); !strings.HasPrefix(got, startupFrames[1]+" working") {
+		t.Fatalf("empty conversation hides the spinner: %q", got)
 	}
 }

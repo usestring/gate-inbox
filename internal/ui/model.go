@@ -941,7 +941,7 @@ func (m *Model) previewTick() tea.Cmd {
 }
 
 func (m *Model) needsLoaderTick() bool {
-	return m.hasStartingRow()
+	return m.hasStartingRow() || m.conversationWorking()
 }
 
 func (m *Model) startStartupTick() tea.Cmd {
@@ -1854,7 +1854,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.previewCmd(sess, m.previewGen, m.procDue()), m.previewTick())
 
 	case conversationTickMsg:
-		return m, tea.Batch(m.readConversation(), conversationTick())
+		return m, tea.Batch(m.readConversation(), conversationTick(), m.startStartupTick())
 	case conversationMsg:
 		m.applyConversation(msg)
 		return m, nil

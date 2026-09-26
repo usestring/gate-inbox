@@ -45,6 +45,17 @@ func TestDefaultLegendAlwaysKeepsQuestionMark(t *testing.T) {
 	}
 }
 
+func TestListFooterHeightHoldsAcrossRowsAtANarrowWidth(t *testing.T) {
+	m := fleetModel(t, 87, 40, 50)
+	for i := range m.rows {
+		m.placeCursor(i)
+		footer := ansi.Strip(m.viewFooter())
+		if got := lipgloss.Height(footer); got != 2 {
+			t.Fatalf("row %d footer takes %d rows, want the row tier and the peek key:\n%s", i, got, footer)
+		}
+	}
+}
+
 func TestTapLegendPeekExpiresWithoutReleaseEvents(t *testing.T) {
 	m := buildModel(t)
 	_, cmd := m.handleKey(runeKey("?"))

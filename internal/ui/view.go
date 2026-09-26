@@ -615,7 +615,7 @@ func (m *Model) viewFooter() string {
 }
 
 func (m *Model) listFooter() string {
-	footer := legendBar([]legendSection{m.defaultRowLegend()}, m.width, m.legendRows())
+	footer := legendBar([]legendSection{m.defaultRowLegend()}, m.width, min(m.legendRows(), 1))
 	peekCap := m.tightCap(keymap.ContextList, keymap.LegendPeek)
 	if footer == "" || peekCap == "" {
 		return footer

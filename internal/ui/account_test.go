@@ -111,6 +111,9 @@ func TestTheAccountCardTakesOverAdoptedAndRefusesUnlaunchable(t *testing.T) {
 	withAccountTools(m)
 	seedAccountRow(t, m, "borrowed1", "borrowed", "claude", "%99")
 	seedAccountRow(t, m, "halfway01", "halfway", "half-configured", "")
+	if err := m.tmux.Adopt("borrowed1", tmux.Target{Socket: m.tmux.SocketName(), Name: "%99"}); err != nil {
+		t.Fatalf("Adopt: %v", err)
+	}
 	m.applyCmd(t, nil)
 
 	m.selectSessionRow(t, "borrowed")
@@ -128,6 +131,9 @@ func TestTheAccountCardTakesOverAdoptedAndRefusesUnlaunchable(t *testing.T) {
 	}
 	if m.tmux.Exists("borrowed1") {
 		t.Error("re-pointing a pane that was already gone launched it")
+	}
+	if _, adopted := m.tmux.AdoptedTarget("borrowed1"); adopted {
+		t.Error("the promoted row is still registered as adopted, so its revive would be refused")
 	}
 
 	m.selectSessionRow(t, "halfway")

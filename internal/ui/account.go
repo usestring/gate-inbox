@@ -196,6 +196,9 @@ func (m *Model) takeOverPane(sess store.Session) (store.Session, bool, error) {
 	}
 	if !m.tmux.Exists(sess.ID) {
 		promoted, err := promote(sess.AgentSessionID, sess.Cwd)
+		if err == nil {
+			m.tmux.Release(sess.ID)
+		}
 		return promoted, false, err
 	}
 	convID, cwd := sess.AgentSessionID, sess.Cwd

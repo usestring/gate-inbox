@@ -113,7 +113,9 @@ func (m *Model) submitAccountSwitch() (tea.Model, tea.Cmd) {
 		account = ""
 	}
 	m.mode = modeList
-	if account == sess.Account {
+	// An adopted row's account is whatever its pane was started on, which the
+	// row never recorded, so only a managed row can already be on the pick.
+	if account == sess.Account && sess.TmuxPaneID == "" {
 		m.errBar.text = sess.Name + " is already on " + m.account.names[m.account.index]
 		return m, nil
 	}

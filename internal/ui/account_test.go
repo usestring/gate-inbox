@@ -197,6 +197,31 @@ func TestTheAccountCardTakesOverALiveAdoptedPane(t *testing.T) {
 	}
 }
 
+// An adopted row records no account, so picking own login is still a switch:
+// the pane may be spending a named subscription the row never saw.
+func TestTheAccountCardTakesOverAnAdoptedPaneOntoOwnLogin(t *testing.T) {
+	m := buildModel(t)
+	withAccountTools(m)
+	seedAccountRow(t, m, "borrowed2", "borrowed-own", "claude", "%98")
+	m.applyCmd(t, nil)
+
+	m.selectSessionRow(t, "borrowed-own")
+	m.openAccountSwitch()
+	if m.mode != modeAccount {
+		t.Fatalf("the card did not open: mode %v, errBar %q", m.mode, m.errBar.text)
+	}
+	if m.account.names[m.account.index] != ownLogin {
+		t.Fatalf("the card opened on %q", m.account.names[m.account.index])
+	}
+	if _, _ = m.submitAccountSwitch(); m.errBar.text != "" {
+		t.Fatalf("submit reported %q", m.errBar.text)
+	}
+	row, err := m.store.Get("borrowed2")
+	if err != nil || row.Account != "" || row.TmuxPaneID != "" || row.TmuxSocket != "" {
+		t.Fatalf("taken-over row = %+v, %v", row, err)
+	}
+}
+
 // A takeover that fails after the pane is gone still leaves a revivable
 // row: the pane is ended and promoted first, and only then does the account
 // resolve, so a refused account costs the pane but keeps its conversation.

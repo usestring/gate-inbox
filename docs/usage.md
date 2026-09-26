@@ -84,7 +84,7 @@ over and promotes the next thing waiting on a person. `alt+.` skips the one in f
 it off the queue without the trip back to the list that `.` needs. `ctrl+\` stops.
 
 The gate footer names the rest of the session's controls, the same set v1's gate view carried:
-`ctrl+x` ends the session, `alt+n` starts a new one in its group and comes back to the queue,
+`ctrl+x` kills the session, `alt+n` starts a new one in its group and comes back to the queue,
 `alt+y` copies the agent's session id, and `alt+l` steps back to the one you just left. Your own
 snippets ride the same tier: each
 `ctrl+alt+`*letter* answers the session in front of you, and its label sits beside the controls so
@@ -142,9 +142,9 @@ Gate Inbox does not create git worktrees. A session that should edit a checkout 
 
 ## Killing and reviving sessions
 
-`x` ends a session that is holding RAM you want back, and on a group row it ends every live session under it; `X` ends every live session in view. Each asks to confirm first, and what it ends is the tmux session, not the record: the row stays in the tree, marked `dead`, with its name, group, and conversation id intact.
+`x` kills a session that is holding RAM you want back, and on a group row it kills every live session under it; `X` kills every live session in view. Each asks to confirm first, and what it kills is the tmux session, not the record: the row stays in the tree, marked `dead`, with its name, group, and conversation id intact.
 
-![ending every session under a group for the RAM, then reviving the whole subtree on its own conversations](demo-revive.gif)
+![killing every session under a group for the RAM, then reviving the whole subtree on its own conversations](demo-revive.gif)
 
 `v` relaunches a dead session under its old id, keeping its name, group, and history. When the manager holds that session's own conversation id, revive resumes **that exact conversation** through the tool's `resume_by_id_command`: `claude --resume {id}`, `codex resume {id}`, `opencode --session {id}`.
 

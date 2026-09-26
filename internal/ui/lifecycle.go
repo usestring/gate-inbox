@@ -453,7 +453,7 @@ func (m *Model) archiveSelected() (tea.Model, tea.Cmd) {
 	}
 	if entry.isGroup {
 		if entry.isRoot() {
-			m.errBar.text = "root is the top level; end the groups under it instead"
+			m.errBar.text = "root is the top level; kill the groups under it instead"
 			return m, nil
 		}
 		// Adopted panes stay in the set here, unlike the whole-view sweep:

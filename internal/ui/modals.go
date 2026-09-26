@@ -432,7 +432,7 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldLayout, "layout", normalizeLayout(m.settings.layout)) + "\n" +
 		row(settingsFieldPalette, "colour", normalizePalette(m.settings.palette)) + "\n" +
 		row(settingsFieldGlyphs, "status marks", normalizeGlyphs(m.settings.glyphs)+"  "+statusGlyph("waiting")+statusGlyph("finished")+statusGlyph("errored")) + "\n" +
-		row(settingsFieldArchiveConfirm, "ask before ending", normalizeArchiveConfirm(m.settings.archiveConfirm)) + "\n" +
+		row(settingsFieldArchiveConfirm, "ask before killing", normalizeArchiveConfirm(m.settings.archiveConfirm)) + "\n" +
 		row(settingsFieldListSort, "sort", normalizeListSort(m.settings.listSort)) + "\n" +
 		row(settingsFieldChrome, "key hints", normalizeChrome(m.settings.chrome)) + "\n" +
 		row(settingsFieldLeave, "on leaving a session", normalizeLeaveMode(m.settings.leaveMode)) + "\n" +

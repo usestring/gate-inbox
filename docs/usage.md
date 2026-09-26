@@ -42,10 +42,10 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `O` | Take over the adopted panes: restart each idle one as a managed session on its own conversation now, and the busy ones as they go idle. Asks first |
 | `R` | Restart the selected session on an empty context: same name, group, directory and tool |
 | `u` | Restore a session or group out of the archive, resuming what it held. The act is `kill`; the archive is where the row lands, the way a deleted file lands in a trash can |
-| `U` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed end as well as a silent one |
+| `U` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed kill as well as a silent one |
 | `space` | Quick prompt: answer the selected session, or spawn an agent in the selected group |
 | `F` | Fold / unfold every group |
-| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, colour, status marks, ask before ending, sort, key hints, on leaving a session, after quick send, session keys, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
+| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, colour, status marks, ask before killing, sort, key hints, on leaving a session, after quick send, session keys, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
 | `\|` | Resize the split: `←→` nudge the divider, `enter` commits, `esc` cancels |
 | `\` | Hide / show the list beside the pane: the `board` layout under a key, and `alt+\` does it from inside a focused session. The layout you had comes back on the second press |
 | `t` | Toggle archived view. A row there counts down its retention: seven days after it was archived the manager deletes it for good, with its hook files, and the countdown is on the row |

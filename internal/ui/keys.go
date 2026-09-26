@@ -480,7 +480,7 @@ func (m *Model) settleCursor(index int) tea.Cmd {
 		return nil
 	}
 	m.previewGen++
-	return m.schedulePreview()
+	return tea.Batch(m.schedulePreview(), m.startStartupTick())
 }
 
 // reorderSelected moves the selected session among its group siblings,

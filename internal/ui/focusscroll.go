@@ -324,7 +324,7 @@ func (m *Model) keyScrollFocus(kind focusScrollKind) tea.Cmd {
 	// the surplus notches.
 	whole := max(m.pane.history, m.focusScroll, rows*focusScrollStep)
 	if m.showsConversation() {
-		whole = len(m.conversation.wrapped(m.previewPaneWidth()))
+		whole = len(m.conversationBody(m.previewPaneWidth()))
 	}
 	var lines int
 	switch kind {

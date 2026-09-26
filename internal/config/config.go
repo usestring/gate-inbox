@@ -19,6 +19,11 @@ import (
 // board of ninety agents wakes up over minutes rather than all at once.
 const defaultNameSweepPace = 3 * time.Second
 
+// defaultStaleStatusAfter is how long a working or starting label may sit
+// over a screen that has not changed before the board calls it stale. Far
+// past any turn that is actually running: a turn that long still paints.
+const defaultStaleStatusAfter = 2 * time.Hour
+
 // defaultChildAutoArchive is how long a finished child that never reported
 // back stays on the list.
 const defaultChildAutoArchive = 30 * time.Minute
@@ -285,11 +290,16 @@ type Config struct {
 	// Every message it sends starts a turn in somebody's live agent, so the
 	// sweep is paced rather than fired at once; a slower machine or a larger
 	// board wants a longer gap.
-	NameSweepPace Duration     `toml:"name_sweep_pace"`
-	Log           Log          `toml:"log"`
-	Children      Children     `toml:"children"`
-	Work          Work         `toml:"work"`
-	Integrations  Integrations `toml:"integrations"`
+	NameSweepPace Duration `toml:"name_sweep_pace"`
+	// StaleStatusAfter is how long a session may read working or starting
+	// with nothing on its screen changing before its row is flagged stale:
+	// the label has outlived any turn it could describe, so it is more
+	// likely a misread than a long turn.
+	StaleStatusAfter Duration     `toml:"stale_status_after"`
+	Log              Log          `toml:"log"`
+	Children         Children     `toml:"children"`
+	Work             Work         `toml:"work"`
+	Integrations     Integrations `toml:"integrations"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see
@@ -605,6 +615,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.NameSweepPace.Duration <= 0 {
 		c.NameSweepPace.Duration = defaultNameSweepPace
+	}
+	if c.StaleStatusAfter.Duration <= 0 {
+		c.StaleStatusAfter.Duration = defaultStaleStatusAfter
 	}
 	if c.Children.AutoArchiveAfter.Duration <= 0 {
 		c.Children.AutoArchiveAfter.Duration = defaultChildAutoArchive

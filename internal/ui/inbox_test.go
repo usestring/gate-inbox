@@ -974,7 +974,7 @@ func TestInboxDeliversIntoAnAgentRatherThanTheShellBehindIt(t *testing.T) {
 // rather than the intermittent one.
 func TestInboxDeliversAMessageTallerThanThePane(t *testing.T) {
 	m := buildModel(t)
-	sess := spawnedSession(t, m, "ready-tool")
+	sess := spawnedSession(t, m, "tall-tool")
 	body := []string{"top of a tall message"}
 	for i := range 40 {
 		body = append(body, fmt.Sprintf("filler line %02d", i))

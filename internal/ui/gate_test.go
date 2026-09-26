@@ -105,9 +105,12 @@ func TestGateAdvancesOnAnAnswerWithoutTheSetting(t *testing.T) {
 		t.Fatal("arming the gate turned the setting on, so this proves nothing")
 	}
 
-	stageDialog(m, focusedID(t, m))
+	askID := focusedID(t, m)
+	stageDialog(m, askID)
 	m = pressFocused(t, m, tea.KeyPressMsg{Code: tea.KeyF2})
 	m = pressFocused(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	logHookEvent(t, m, askID, "working PostToolUse")
+	lookForLanding(t, m)
 
 	if m.mode != modeFocus {
 		t.Fatalf("answering dropped out of the drain: %s", m.errBar.text)
@@ -300,13 +303,16 @@ func TestGateMenuTogglePersistsAcrossSessions(t *testing.T) {
 
 func TestGateConversationDoesNotAnswerHiddenNativeDialogs(t *testing.T) {
 	m := pressGate(t, gateFleet(t))
-	stageDialog(m, focusedID(t, m))
+	askID := focusedID(t, m)
+	stageDialog(m, askID)
 	m = pressFocused(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
 	if got := focusedName(t, m); got != "ask" || !m.gate.menu {
 		t.Fatalf("conversation sent an unseen answer: %q, menu=%v", got, m.gate.menu)
 	}
 	m = pressFocused(t, m, tea.KeyPressMsg{Code: tea.KeyF2})
 	m = pressFocused(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	logHookEvent(t, m, askID, "working PostToolUse")
+	lookForLanding(t, m)
 	if got := focusedName(t, m); got != "next" {
 		t.Fatalf("terminal answer did not advance: %q", got)
 	}

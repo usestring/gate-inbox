@@ -71,6 +71,8 @@ func TestFocusedAnswerRemainsRescindableAfterAutoProceed(t *testing.T) {
 	stageDialog(m, answeredID)
 	updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(*Model)
+	logHookEvent(t, m, answeredID, "working PostToolUse")
+	lookForLanding(t, m)
 	if got := focusedName(t, m); got != "next" {
 		t.Fatalf("after answering, focused %q want next", got)
 	}

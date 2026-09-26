@@ -177,3 +177,34 @@ func TestTranscriptForFindsAConversationWhoseDirectoryMovedUnderIt(t *testing.T)
 		t.Errorf("TranscriptFor for a conversation with no file = %q", got)
 	}
 }
+
+// A dialog answered in the pane shows up in the transcript only as a tool
+// result, and a declined call as one carrying the rejection, so a reader
+// waiting on an answer has to be able to tell the two apart.
+func TestSinceReportsToolResultsAndWhichWereRejected(t *testing.T) {
+	path := writeDeltaTranscript(t, prompt("start"))
+	start, err := Since(path, 0)
+	if err != nil {
+		t.Fatalf("Since: %v", err)
+	}
+	appendDeltaTranscript(t, path,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"ran","content":"ok"}]}}`+"\n"+
+			`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"declined","is_error":true,"content":"The user doesn't want to proceed with this tool use. The tool use was rejected."}]}}`+"\n"+
+			`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"failed","is_error":true,"content":[{"type":"text","text":"exit status 1"}]}]}}`+"\n")
+	delta, err := Since(path, start.Next)
+	if err != nil {
+		t.Fatalf("Since: %v", err)
+	}
+	want := []Result{{ToolUseID: "ran"}, {ToolUseID: "declined", Rejected: true}, {ToolUseID: "failed"}}
+	if len(delta.Results) != len(want) {
+		t.Fatalf("results = %+v, want %+v", delta.Results, want)
+	}
+	for i := range want {
+		if delta.Results[i] != want[i] {
+			t.Fatalf("result %d = %+v, want %+v", i, delta.Results[i], want[i])
+		}
+	}
+	if len(delta.Prompts) != 0 || !delta.Empty() {
+		t.Fatalf("tool results read as prose: %+v", delta)
+	}
+}

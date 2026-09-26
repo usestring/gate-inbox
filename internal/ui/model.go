@@ -519,6 +519,16 @@ type Model struct {
 	account          accountState
 	quick            quickState
 	latestSubmission submissionRescind
+	// landing is the answer waiting to be seen reaching its session, and
+	// landingLocator finds the transcript it is read from; see landing.go.
+	// The locator is the event loop's own, since a Locator is not safe to
+	// share with the goroutines the other copies run on.
+	landing        pendingLanding
+	landingLocator *search.Locator
+	// statusesAsOf is when the newest applied poll pass listed its sessions:
+	// every status on the board is at least that fresh. A mute keyed to an
+	// answer landing lapses once it passes the landing; see mute.go.
+	statusesAsOf time.Time
 	// composerSeq numbers the prompt boxes this run has opened.
 	composerSeq int
 	settings    settingsState
@@ -1032,6 +1042,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	applyGlyphSet(storedGlyphs(st))
 	model := &Model{
 		conversation:    &conversationView{locator: newHistoryLocator()},
+		landingLocator:  newHistoryLocator(),
 		cfg:             cfg,
 		store:           st,
 		tmux:            driver,
@@ -1869,6 +1880,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyHistorySearch(msg)
 		return m, nil
 
+	case landingCheckMsg:
+		return m, m.applyLandingCheck(msg)
+
 	case refreshMsg:
 		m.ageError()
 		// The focused session can die or vanish under us; fall back to the
@@ -1883,6 +1897,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.sessions = sessions
+		if msg.listedAt.After(m.statusesAsOf) {
+			m.statusesAsOf = msg.listedAt
+		}
 		m.dropHeldAckOnNewTurn()
 		// A pane taken by the last adopt scan is on the board under its
 		// directory's basename, and this is the first pass that can see the

@@ -533,7 +533,7 @@ func TestDetachRequestRoundTrip(t *testing.T) {
 		t.Fatalf("no request expected on a clean marker, got %q", request)
 	}
 
-	for _, want := range []string{RequestEditor} {
+	for _, want := range []string{"editor"} {
 		if _, err := tmuxCmd("set-option", "-g", requestOption, want).CombinedOutput(); err != nil {
 			t.Fatalf("set marker: %v", err)
 		}
@@ -558,14 +558,12 @@ func TestDetachRequestRoundTrip(t *testing.T) {
 	}
 }
 
-// The editor key moved off C-o, which the agents running inside a session
-// bind themselves, and then off F3, which a keyboard cannot always reach
-// without a modifier of its own. A server that predates either move still
-// carries the old binding, so EnsureBindings has to drop both as well as
-// install M-o.
-func TestEnsureBindingsMovesTheEditorKeyToAltO(t *testing.T) {
+// The editor key sat on C-o, then F3, then M-o, and the action is gone now.
+// A server that predates any of those still carries the old binding, so
+// EnsureBindings drops all three.
+func TestEnsureBindingsDropsTheEditorKeys(t *testing.T) {
 	driver := requireTmux(t)
-	for _, stale := range []string{"C-o", "F3"} {
+	for _, stale := range []string{"C-o", "F3", "M-o"} {
 		if out, err := tmuxCmd("bind-key", "-n", stale, "display-message", "stale").CombinedOutput(); err != nil {
 			t.Fatalf("seed the old %s binding: %v: %s", stale, err, out)
 		}
@@ -579,21 +577,15 @@ func TestEnsureBindingsMovesTheEditorKeyToAltO(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list root keys: %v: %s", err, bound)
 	}
-	editor := false
 	for _, line := range strings.Split(string(bound), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 4 {
 			continue
 		}
-		if fields[3] == "C-o" || fields[3] == "F3" {
+		switch fields[3] {
+		case "C-o", "F3", "M-o":
 			t.Fatalf("%s should be unbound, got %q", fields[3], line)
 		}
-		if fields[3] == "M-o" && strings.Contains(line, RequestEditor) {
-			editor = true
-		}
-	}
-	if !editor {
-		t.Fatalf("M-o should request the editor, got %q", bound)
 	}
 }
 

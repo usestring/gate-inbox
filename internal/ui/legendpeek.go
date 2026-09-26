@@ -13,28 +13,28 @@ const (
 )
 
 type legendPeekState struct {
-	visible  bool
-	repeated bool
-	sticky   bool
-	seq      uint64
+	visible bool
+	keyCode rune
+	seq     uint64
 }
 
 type legendPeekDecayMsg struct{ seq uint64 }
 
-func (m *Model) beginLegendPeek() tea.Cmd {
+func (m *Model) beginLegendPeek(msg tea.KeyPressMsg) tea.Cmd {
 	m.legendPeek.visible = true
-	m.legendPeek.repeated = false
-	m.legendPeek.sticky = false
+	m.legendPeek.keyCode = msg.Code
 	return m.armLegendPeek(legendPeekTapWindow)
 }
 
 func (m *Model) repeatLegendPeek() tea.Cmd {
-	m.legendPeek.repeated = true
 	return m.armLegendPeek(legendPeekReleaseWindow)
 }
 
 func (m *Model) armLegendPeek(after time.Duration) tea.Cmd {
 	m.legendPeek.seq++
+	if m.keyReleases {
+		return nil
+	}
 	seq := m.legendPeek.seq
 	return tea.Tick(after, func(time.Time) tea.Msg { return legendPeekDecayMsg{seq: seq} })
 }
@@ -44,14 +44,10 @@ func (m *Model) dismissLegendPeek() {
 }
 
 func (m *Model) settleLegendPeek(msg legendPeekDecayMsg) {
-	if !m.legendPeek.visible || msg.seq != m.legendPeek.seq {
+	if !m.legendPeek.visible || m.keyReleases || msg.seq != m.legendPeek.seq {
 		return
 	}
-	if m.legendPeek.repeated {
-		m.dismissLegendPeek()
-		return
-	}
-	m.legendPeek.sticky = true
+	m.dismissLegendPeek()
 }
 
 func (m *Model) overlayLegendPeek(frame string, bodyHeight int) string {

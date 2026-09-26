@@ -59,11 +59,11 @@ poll_interval = "2s"
 # level = "trace" is the only setting under which captured pane text
 # reaches the log, and secrets are scrubbed even then.
 
-# The editor "o" opens a directory in, arguments allowed: "code -n", or
-# "open -a 'Visual Studio Code'". Quotes group an argument that carries a
-# space; the line is run directly, never through a shell. Left unset,
-# Gate Inbox takes $GATE_INBOX_EDITOR, then the first GUI editor on
-# PATH (code, cursor, windsurf, zed, subl, idea), then $VISUAL or $EDITOR,
+# The editor Settings opens the snippets file in, arguments allowed:
+# "code -n", or "open -a 'Visual Studio Code'". Quotes group an argument
+# that carries a space; the line is run directly, never through a shell.
+# Left unset, Gate Inbox takes $GATE_INBOX_EDITOR, then the first GUI editor
+# on PATH (code, cursor, windsurf, zed, subl, idea), then $VISUAL or $EDITOR,
 # and last a terminal editor on PATH (nvim, vim, nano, vi). Setting this is
 # how you override that order, not how you switch the editor on.
 # editor = "code"

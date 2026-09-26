@@ -239,31 +239,38 @@ func TestIgnoreDeletedSessionDropsOnlyTheDeleteRace(t *testing.T) {
 	}
 }
 
-// A tmux server that outlived the update can still carry the old C-r
-// binding, so its marker has to be consumed and ignored rather than
-// reopening a screen that no longer exists.
-func TestAttachDoneDropsAStaleReviewMarker(t *testing.T) {
-	m := buildModel(t)
-	createSession(t, m, "staleflag", t.TempDir(), "")
-	m.selectSessionRow(t, "staleflag")
-	sess := m.sessionRows()[0]
-	clearRequestOnCleanup(t, m)
+// A tmux server that outlived the update can still carry the old C-r or
+// M-o binding, so its marker has to be consumed and ignored rather than
+// reopening a screen or an editor that no longer exists.
+func TestAttachDoneDropsAStaleMarker(t *testing.T) {
+	for _, stale := range []string{"review", "editor"} {
+		t.Run(stale, func(t *testing.T) {
+			m := buildModel(t)
+			createSession(t, m, "staleflag", t.TempDir(), "")
+			m.selectSessionRow(t, "staleflag")
+			sess := m.sessionRows()[0]
+			clearRequestOnCleanup(t, m)
 
-	if _, err := tmuxCmd("set-option", "-g", "@gi_request", "review").CombinedOutput(); err != nil {
-		t.Fatalf("set marker: %v", err)
-	}
-	updated, _ := m.Update(attachDoneMsg{sessID: sess.ID})
-	*m = *updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("a stale review marker should leave the list alone, mode = %v, err = %q", m.mode, m.errBar.text)
-	}
+			if _, err := tmuxCmd("set-option", "-g", "@gi_request", stale).CombinedOutput(); err != nil {
+				t.Fatalf("set marker: %v", err)
+			}
+			updated, cmd := m.Update(attachDoneMsg{sessID: sess.ID})
+			*m = *updated.(*Model)
+			if m.mode != modeList || m.errBar.text != "" {
+				t.Fatalf("a stale %s marker should leave the list alone, mode = %v, err = %q", stale, m.mode, m.errBar.text)
+			}
+			if cmd != nil {
+				t.Fatalf("a stale %s marker should start nothing", stale)
+			}
 
-	request, err := m.tmux.PendingRequest()
-	if err != nil {
-		t.Fatalf("PendingRequest: %v", err)
-	}
-	if request != "" {
-		t.Fatalf("the stale marker should have been consumed, got %q", request)
+			request, err := m.tmux.PendingRequest()
+			if err != nil {
+				t.Fatalf("PendingRequest: %v", err)
+			}
+			if request != "" {
+				t.Fatalf("the stale marker should have been consumed, got %q", request)
+			}
+		})
 	}
 }
 

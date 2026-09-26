@@ -254,8 +254,9 @@ directory's most recent conversation.
    `bin/`.
 4. Remove the launch scripts and pasted images it left in your temp directory:
    `rm -f "${TMPDIR:-/tmp}"/gi-launch-*.sh` and `rm -rf "${TMPDIR:-/tmp}/gate-inbox-pastes"`.
-5. Undo the tmux key bindings it added (`ctrl+q`, `ctrl+\` and `alt+o`, which act only inside
-   `gi_*` sessions): `tmux unbind-key -n C-q \; unbind-key -n 'C-\' \; unbind-key -n M-o`, or
+5. Undo the tmux key bindings it added (`ctrl+q` and `ctrl+\`, plus `alt+o` from older releases,
+   which act only inside `gi_*` sessions):
+   `tmux unbind-key -n C-q \; unbind-key -n 'C-\' \; unbind-key -n M-o`, or
    restart tmux. If the board didn't exit cleanly, `tmux kill-session -t gi_poll-anchor` removes
    its helper session. If you gave it a private tmux socket, `tmux -L <name> kill-server` does
    all of this at once.

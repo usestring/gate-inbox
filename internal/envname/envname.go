@@ -17,7 +17,7 @@ const (
 	// ExitFile is where a managed pane's launch script records how its
 	// agent exited.
 	ExitFile = "GATE_INBOX_EXIT_FILE"
-	// Editor overrides the editor the board opens a path in.
+	// Editor overrides the editor Settings opens the snippets file in.
 	Editor = "GATE_INBOX_EDITOR"
 	// Golden re-records the golden files when set to "write".
 	Golden = "GATE_INBOX_GOLDEN"

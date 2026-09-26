@@ -56,6 +56,7 @@ func resetRenderCaches() {
 	clear(hruleCache)
 	clear(toneCache)
 	clear(tintedCache)
+	clear(markdownStyleCache)
 	legendSlots = [4]struct {
 		key, value string
 		set        bool

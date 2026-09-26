@@ -87,8 +87,6 @@ func (m *Model) applies(ctx keymap.Context, action keymap.Action, row treeRow) b
 		return row.sess.ID != "" && m.triage && m.triageWalkable(row.sess)
 	case keymap.Rename, keymap.Move:
 		return hasRow && !m.showArchived
-	case keymap.Editor:
-		return hasRow
 	case keymap.StatusFilter, keymap.Triage:
 		return !m.showArchived
 	case keymap.FoldAll:

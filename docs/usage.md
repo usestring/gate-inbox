@@ -6,7 +6,7 @@
 gate-inbox
 ```
 
-Sessions run inside tmux (`gi_*` namespace), so they survive the manager quitting. Inside a session, **Ctrl+Q** detaches back to the manager when your terminal and tmux leave it available; **Ctrl+\\** is an alternate under the same rule. **F3** opens its directory in your editor. In a full-screen attach, the session footer also shows an inner tmux prefix followed by `d` when configured. When nested inside another tmux, send the inner prefix shown in the footer, then press `d`. If both tmux servers use the same prefix, invoke the outer tmux's `send-prefix` binding; if the outer tmux otherwise captures the inner prefix, configure it to forward that key. `gate-inbox --version` prints the version.
+Sessions run inside tmux (`gi_*` namespace), so they survive the manager quitting. Inside a session, **Ctrl+Q** detaches back to the manager when your terminal and tmux leave it available; **Ctrl+\\** is an alternate under the same rule. In a full-screen attach, the session footer also shows an inner tmux prefix followed by `d` when configured. When nested inside another tmux, send the inner prefix shown in the footer, then press `d`. If both tmux servers use the same prefix, invoke the outer tmux's `send-prefix` binding; if the outer tmux otherwise captures the inner prefix, configure it to forward that key. `gate-inbox --version` prints the version.
 
 Agent sessions live on tmux's own default server, so `tmux ls` lists them and `tmux attach -t gi_<id>` drives one by hand. Because that server is yours as much as the manager's, the manager never writes a server-global option there, never unbinds a key, and claims `Ctrl+Q`, `Ctrl+\`, `Ctrl+R` and `F3` only when nothing has bound them already — a key you have bound yourself keeps doing what you told it, and the footer's tmux prefix followed by `d` still detaches. Set `tmux_socket` in `config.toml` (or `GATE_INBOX_TMUX_SOCKET`) to put them back on a private server, reachable as `tmux -L <socket> attach -t gi_<id>`.
 
@@ -21,7 +21,6 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `n` | New session: one question, which agent, in a box already holding the CLI you last spawned — then no form, no name, no prompt, in the group under the cursor. Type over the box to pick another, `←→` to cycle, `esc` to back out. **new session agent** in settings retires the question: on `last used` or `default tool`, `n` starts that CLI and never asks |
 | `ctrl+n` | New session, asking first (tool, name, directory, optional starting prompt, group picker). The card opens on the tool: type to pick a CLI by name, or arrow through the matches |
 | `T` | New terminal tab: a shell under the selected agent, or in the selected group |
-| `o` | Open the selected row's directory in your editor |
 | `f` | Fork the selected conversation into a named session in the same group and directory |
 | `M` | Migrate the selected conversation to another CLI: a new session there reads the transcript and carries on |
 | `g` | New group (name, parent, default path) |
@@ -31,7 +30,6 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `.` | Mark a finished session idle without entering it |
 | `ctrl+q` / `ctrl+\` | Inside a session: back to the manager when the terminal and tmux leave the key available |
 | tmux prefix, then `d` | Inside a full-screen attach: back to the manager when the prefix reaches the inner tmux |
-| `F3` | Inside a session: open its directory in your editor |
 | `→` | Step into the row: focus the session, or open the group |
 | `←` | Step out: close the group, or — focused, with the caret at the start of the agent's prompt — back to the manager. This needs the tool's prompt marker (its `activity_cutoff`) on the caret's row, so a CLI without one keeps `←` entirely; anywhere else in the prompt it moves the caret as usual |
 | `K` / `J` (or `shift+↑` / `shift+↓`) | Reorder session or group among its visible siblings |
@@ -74,7 +72,7 @@ Settings (`s`) has an `on leaving a session` row for it — `list` (the default,
 
 Press `F2` to switch between **Typing** and **Menu**, shown at the top. The choice stays
 on as the queue advances. Typing sends text to the agent. Menu uses plain keys:
-`.` skip, `l` back, `q` exit, `x` end, `n` new, `y` copy ID, `o` editor.
+`.` skip, `l` back, `q` exit, `x` end, `n` new, `y` copy ID.
 `Home` jumps to the top of the pane's history; `End` returns to live output.
 Numbers, arrows and `Enter` still answer the agent's menu. Switch to Typing for a written answer.
 The gate starts in Typing; `alt+Home` and `alt+End` reach history there too.
@@ -87,8 +85,8 @@ it off the queue without the trip back to the list that `.` needs. `ctrl+\` stop
 
 The gate footer names the rest of the session's controls, the same set v1's gate view carried:
 `ctrl+x` ends the session, `alt+n` starts a new one in its group and comes back to the queue,
-`alt+y` copies the agent's session id, `alt+l` steps back to the one you just left, and `alt+o`
-opens its directory in your editor. Your own snippets ride the same tier: each
+`alt+y` copies the agent's session id, and `alt+l` steps back to the one you just left. Your own
+snippets ride the same tier: each
 `ctrl+alt+`*letter* answers the session in front of you, and its label sits beside the controls so
 the chord is on screen while you drain. `alt+,` (or the chrome setting) hides the footer for the
 rest of the drain.
@@ -128,19 +126,15 @@ Shells live in the tree with the agents they belong to, marked with `❯` where 
 
 A shell left on its empty command carries no session id, so `gate-inbox rename` run inside one cannot find its session. Rename it from the list with `r`. Give the block a command and the pane gets an id like any other session.
 
-## Opening the editor
+## Opening the snippets file
 
-`o` opens the row under the cursor in your editor: a session's live working directory (wherever its shell or agent has moved to, not only where it started), the directory it was created in when the live one cannot be read, or a group's default path. It works on a [terminal tab](#terminal-tabs) too — the shell you ran the build in is usually sitting in the directory you want open.
-
-Gate Inbox takes the first of these it finds: `editor` in [config.toml](configuration.md), `$GATE_INBOX_EDITOR`, a GUI editor on `PATH` (`code`, `cursor`, `windsurf`, `zed`, `subl`, `idea`), then `$VISUAL` or `$EDITOR`, and last a terminal editor on `PATH` (`nvim`, `vim`, `nano`, `vi`). The environment comes before the terminal editors because it usually names the editor you set for git commit messages rather than the one a project should open in; the terminal editors come last because they are a fallback rather than a choice you made, and they are there so that nothing which opens a path can dead-end on a machine that has never been configured.
+Settings (`s`) → **snippets** opens `snippets.json` in your editor. Gate Inbox takes the first of these it finds: `editor` in [config.toml](configuration.md), `$GATE_INBOX_EDITOR`, a GUI editor on `PATH` (`code`, `cursor`, `windsurf`, `zed`, `subl`, `idea`), then `$VISUAL` or `$EDITOR`, and last a terminal editor on `PATH` (`nvim`, `vim`, `nano`, `vi`). The environment comes before the terminal editors because it usually names the editor you set for git commit messages; the terminal editors come last because they are a fallback rather than a choice you made, and they are there so the file opens on a machine that has never been configured.
 
 The line is run directly, never through a shell, so nothing in it is expanded and an `.envrc` that sets `EDITOR` cannot smuggle a command in behind it. Arguments are allowed, and quotes group one that carries a space: `editor = "code -n"`, `editor = "open -a 'Visual Studio Code'"`.
 
-Inside a session, attached or focused, `F3` opens that session's directory the same way. It costs an attach its client, so the manager steps back into the session once a windowed editor is running, or once one that draws in the terminal exits. An editor that fails to start keeps the manager on screen, where you can read why.
-
-Like `ctrl+q`, the manager keeps `F3` for itself inside a session, so a program running in there stops seeing it. Every `ctrl` combination reaches the program instead, `ctrl+o` included: Claude Code shows more lines with it, and in a [terminal tab](#terminal-tabs) `nano` writes the file out.
-
 A known windowed editor (the six above, plus `open` and `xdg-open`) starts detached and the manager stays on screen, with the status line naming what opened. Everything else takes the terminal over the way an attach does and hands it back on exit — that way round because a terminal editor started detached would have nowhere to draw, while a windowed one launched this way only costs a repaint.
+
+Inside a session every `ctrl` combination reaches the program running there, `ctrl+o` included: Claude Code shows more lines with it, and in a [terminal tab](#terminal-tabs) `nano` writes the file out.
 
 ## Sessions in their own checkout
 
@@ -407,7 +401,7 @@ The preview is not lost. Focusing a session still opens its pane, full width, an
 
 ## Key hints
 
-The legend under the list is reference material, and once you know the keys it is room the list could have had. By default it follows the terminal: the legend drops to one row on a short window and off a very short one. Settings (`s`) has a `key hints` row to take that decision off the terminal — `always` keeps the full legend at any height, while `never` drops it at any height. `H` still opens the whole key map either way.
+The legend under the list is reference material, and once you know the keys it is room the list could have had. By default it follows the terminal: the legend drops to one row on a short window and off a very short one. Settings (`s`) has a `key hints` row to take that decision off the terminal — `always` keeps the full legend at any height, while `never` drops it at any height. `?` shows the available keys while held and closes on release. Terminals without key-release reporting use a timeout: 500 ms after a tap, or 140 ms after the last repeat while held. `H` opens the whole key map and keeps it open for searching and rebinding.
 
 ## Stats
 

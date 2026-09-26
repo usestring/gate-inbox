@@ -210,14 +210,14 @@ func TestACapturedChordIsRecordedAsAChord(t *testing.T) {
 // not claim still reaches the agent.
 func TestAReboundFocusKeyClaimsItsKey(t *testing.T) {
 	m := buildModel(t)
-	writeKeys(t, m, "[focus]\neditor = [\"alt+e\"]\n")
-	if !m.isAction(keymap.ContextFocus, keymap.Editor,
+	writeKeys(t, m, "[focus]\ndismiss = [\"alt+e\"]\n")
+	if !m.isAction(keymap.ContextFocus, keymap.Dismiss,
 		tea.KeyPressMsg{Code: 'e', Text: "e", Mod: tea.ModAlt}) {
-		t.Fatal("alt+e does not open the editor after the rebind")
+		t.Fatal("alt+e does not dismiss after the rebind")
 	}
-	if m.isAction(keymap.ContextFocus, keymap.Editor,
-		tea.KeyPressMsg{Code: 'o', Text: "o", Mod: tea.ModAlt}) {
-		t.Fatal("alt+o still opens the editor")
+	if m.isAction(keymap.ContextFocus, keymap.Dismiss,
+		tea.KeyPressMsg{Code: '.', Text: ".", Mod: tea.ModAlt}) {
+		t.Fatal("alt+. still dismisses")
 	}
 }
 

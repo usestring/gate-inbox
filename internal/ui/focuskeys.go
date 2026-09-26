@@ -301,6 +301,36 @@ func (m *Model) textTypedAtPrompt(sessID, tool string) bool {
 	return textBeforeCaret(m.engine, tool, row, caretX)
 }
 
+// commandTypedAtPrompt reports whether the text the caret sits past on the
+// tool's input line opens a command rather than a message.
+//
+// A leading "/" is a command on every CLI the board drives: it runs one of
+// the CLI's own commands -- a model picker, a settings pane, a rename --
+// instead of handing the agent a turn. Enter there is the operator arming
+// something, not answering the session, and handing the session over on it
+// would drop the picker on the floor. The row reads exactly as
+// textTypedAtPrompt reads it; only the first written rune decides.
+func (m *Model) commandTypedAtPrompt(sessID, tool string) bool {
+	row, _, ok := m.caretRow(sessID)
+	if !ok {
+		return false
+	}
+	prefix, ok := m.engine.InputPrefix(tool, row)
+	if !ok {
+		return false
+	}
+	// InputPrefix returns a byte prefix of row, so the rest of the row is the
+	// text after the marker with no cell measurement needed.
+	text := strings.TrimLeftFunc(row[len(prefix):], unicode.IsSpace)
+	return strings.HasPrefix(text, commandSigil)
+}
+
+// commandSigil opens a command rather than a message on every CLI the board
+// drives: claude, codex and opencode all read a composer line starting with
+// "/" as one of their commands. It is what tells a submitted turn from the
+// operator opening something to look at.
+const commandSigil = "/"
+
 // selectionDialogUp reports whether the session is stopped on a dialog
 // waiting to be chosen from: the caret parked short of the prompt marker
 // rather than past it, with the status rules agreeing the session is waiting

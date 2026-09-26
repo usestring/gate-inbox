@@ -21,8 +21,6 @@ func jumpKey(t *testing.T, name string) tea.KeyPressMsg {
 	switch name {
 	case "tab":
 		msg = tea.KeyPressMsg{Code: tea.KeyTab}
-	case "shift+tab":
-		msg = tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
 	default:
 		msg = tea.KeyPressMsg{Code: []rune(name)[len(name)-1], Mod: tea.ModAlt}
 	}
@@ -122,8 +120,7 @@ func TestTheErroredJumpAnswersForDeadPanesToo(t *testing.T) {
 	}
 }
 
-// tab is the drain: what needs a person, in either direction, whatever the
-// individual state.
+// tab is the drain: what needs a person, whatever the individual state.
 func TestTabWalksEverythingThatNeedsAPerson(t *testing.T) {
 	m := buildModel(t)
 	seedTriageFleet(t, m)
@@ -131,9 +128,6 @@ func TestTabWalksEverythingThatNeedsAPerson(t *testing.T) {
 
 	if got := m.jumpTo(t, "tab"); got != "reviewme" {
 		t.Fatalf("tab = %q, want the finished session below crashed", got)
-	}
-	if got := m.jumpTo(t, "shift+tab"); got != "new-block" {
-		t.Fatalf("shift+tab = %q, want the waiting session above crashed", got)
 	}
 }
 

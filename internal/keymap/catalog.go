@@ -12,30 +12,29 @@ package keymap
 
 // List actions.
 const (
-	CursorUp          Action = "cursor_up"
-	CursorDown        Action = "cursor_down"
-	CursorTop         Action = "cursor_top"
-	CursorBottom      Action = "cursor_bottom"
-	Open              Action = "open"
-	StepIn            Action = "step_in"
-	StepOut           Action = "step_out"
-	LastPane          Action = "last_pane"
-	JumpAttention     Action = "jump_attention"
-	JumpAttentionBack Action = "jump_attention_back"
-	JumpWaiting       Action = "jump_waiting"
-	JumpFinished      Action = "jump_finished"
-	JumpErrored       Action = "jump_errored"
-	JumpIdle          Action = "jump_idle"
-	JumpWorking       Action = "jump_working"
-	Attach            Action = "attach"
-	ReorderUp         Action = "reorder_up"
-	ReorderDown       Action = "reorder_down"
-	PreviewUp         Action = "preview_scroll_up"
-	PreviewDown       Action = "preview_scroll_down"
-	PreviewPageUp     Action = "preview_page_up"
-	PreviewPageDown   Action = "preview_page_down"
-	PreviewTop        Action = "preview_top"
-	PreviewBottom     Action = "preview_bottom"
+	CursorUp        Action = "cursor_up"
+	CursorDown      Action = "cursor_down"
+	CursorTop       Action = "cursor_top"
+	CursorBottom    Action = "cursor_bottom"
+	Open            Action = "open"
+	StepIn          Action = "step_in"
+	StepOut         Action = "step_out"
+	LastPane        Action = "last_pane"
+	JumpAttention   Action = "jump_attention"
+	JumpWaiting     Action = "jump_waiting"
+	JumpFinished    Action = "jump_finished"
+	JumpErrored     Action = "jump_errored"
+	JumpIdle        Action = "jump_idle"
+	JumpWorking     Action = "jump_working"
+	Attach          Action = "attach"
+	ReorderUp       Action = "reorder_up"
+	ReorderDown     Action = "reorder_down"
+	PreviewUp       Action = "preview_scroll_up"
+	PreviewDown     Action = "preview_scroll_down"
+	PreviewPageUp   Action = "preview_page_up"
+	PreviewPageDown Action = "preview_page_down"
+	PreviewTop      Action = "preview_top"
+	PreviewBottom   Action = "preview_bottom"
 
 	NewSession     Action = "new_session"
 	NewSessionForm Action = "new_session_form"
@@ -134,7 +133,6 @@ var Catalog = []Binding{
 	{ContextList, LastPane, []string{"l"}, "focus the session you were on before this one; l again swaps back", false},
 	{ContextList, Rescind, []string{"ctrl+z"}, "undo the latest submission while its turn is active", false},
 	{ContextList, JumpAttention, []string{"tab"}, "enter the next session waiting on you", false},
-	{ContextList, JumpAttentionBack, []string{"shift+tab"}, "enter the one before it", false},
 	{ContextList, JumpWaiting, []string{"alt+w"}, "enter the next waiting session", false},
 	{ContextList, JumpFinished, []string{"alt+f"}, "enter the next finished session", false},
 	{ContextList, JumpErrored, []string{"alt+e"}, "enter the next errored or dead session", false},
@@ -145,8 +143,8 @@ var Catalog = []Binding{
 	{ContextList, ReorderDown, []string{"J", "shift+j", "shift+down"}, "reorder the row down", false},
 	{ContextList, PreviewUp, []string{"alt+up"}, "scroll the preview up", false},
 	{ContextList, PreviewDown, []string{"alt+down"}, "scroll the preview down", false},
-	{ContextList, PreviewPageUp, []string{"alt+pgup"}, "scroll the preview a page up", false},
-	{ContextList, PreviewPageDown, []string{"alt+pgdown"}, "scroll the preview a page down", false},
+	{ContextList, PreviewPageUp, []string{"alt+u", "alt+pgup"}, "scroll the preview a page up", false},
+	{ContextList, PreviewPageDown, []string{"alt+d", "alt+pgdown"}, "scroll the preview a page down", false},
 	{ContextList, PreviewTop, []string{"alt+home"}, "scroll the preview to its oldest", false},
 	{ContextList, PreviewBottom, []string{"alt+end"}, "scroll the preview back to live", false},
 
@@ -165,7 +163,7 @@ var Catalog = []Binding{
 	{ContextList, ArchiveAll, []string{"X", "shift+x"}, "kill every session listed", false},
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
 	{ContextList, Dismiss, []string{"."}, "dismiss: mark it idle, or mute it", false},
-	{ContextList, Priority, []string{"p"}, "priority: it goes first in triage", false},
+	{ContextList, Priority, []string{"p"}, "toggle priority (priority panes show first)", false},
 	{ContextList, HandOver, []string{"§"}, "in triage: mute this and enter the next", false},
 	{ContextList, QuickInput, []string{" ", "space"}, "quick prompt", false},
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
@@ -189,7 +187,7 @@ var Catalog = []Binding{
 	{ContextList, ToggleChrome, []string{","}, "hide / show the key hints along the foot", false},
 	{ContextList, ToggleRail, []string{`\`}, "hide / show the list beside the pane", false},
 	{ContextList, LegendPeek, []string{"?"}, "peek at every available key", false},
-	{ContextList, Help, []string{"H", "shift+h"}, "this key map", true},
+	{ContextList, Help, []string{"h", "H", "shift+h"}, "this key map", true},
 	{ContextList, Quit, []string{"q"}, "quit (sessions keep running)", true},
 
 	// ---- a focused session ----
@@ -219,8 +217,8 @@ var Catalog = []Binding{
 	{ContextFocus, BackAtPrompt, []string{"left"}, "at the prompt's start, back to the manager", false},
 	{ContextFocus, PreviewUp, []string{"alt+up"}, "scroll the pane up", false},
 	{ContextFocus, PreviewDown, []string{"alt+down"}, "scroll the pane down", false},
-	{ContextFocus, PreviewPageUp, []string{"alt+pgup"}, "scroll a page up", false},
-	{ContextFocus, PreviewPageDown, []string{"alt+pgdown"}, "scroll a page down", false},
+	{ContextFocus, PreviewPageUp, []string{"alt+u", "alt+pgup"}, "scroll a page up", false},
+	{ContextFocus, PreviewPageDown, []string{"alt+d", "alt+pgdown"}, "scroll a page down", false},
 	{ContextFocus, PreviewTop, []string{"alt+home"}, "oldest history", false},
 	{ContextFocus, PreviewBottom, []string{"alt+end"}, "back to the live bottom", false},
 
@@ -228,8 +226,8 @@ var Catalog = []Binding{
 	{ContextNameSweep, Cancel, []string{"esc", "n", "q"}, "cancel the sweep", true},
 	{ContextNameSweep, CursorUp, []string{"up", "k"}, "move up", true},
 	{ContextNameSweep, CursorDown, []string{"down", "j"}, "move down", true},
-	{ContextNameSweep, PageUp, []string{"pgup", "ctrl+u"}, "a page up", false},
-	{ContextNameSweep, PageDown, []string{"pgdown", "ctrl+d"}, "a page down", false},
+	{ContextNameSweep, PageUp, []string{"ctrl+u", "pgup"}, "a page up", false},
+	{ContextNameSweep, PageDown, []string{"ctrl+d", "pgdown"}, "a page down", false},
 	{ContextNameSweep, Confirm, []string{"y", "enter"}, "run the sweep", true},
 
 	// ---- the restore prompt ----
@@ -246,11 +244,11 @@ var Catalog = []Binding{
 
 	// ---- the welcome card ----
 	{ContextWelcome, Close, []string{"enter", "esc", "q", " ", "space"}, "close the guide", true},
-	{ContextWelcome, Help, []string{"H", "?", "shift+h"}, "the key map", false},
+	{ContextWelcome, Help, []string{"h", "H", "?", "shift+h"}, "the key map", false},
 	{ContextWelcome, CursorUp, []string{"up", "k"}, "move up", true},
 	{ContextWelcome, CursorDown, []string{"down", "j"}, "move down", true},
-	{ContextWelcome, PageUp, []string{"pgup", "ctrl+u"}, "a page up", false},
-	{ContextWelcome, PageDown, []string{"pgdown", "ctrl+d"}, "a page down", false},
+	{ContextWelcome, PageUp, []string{"ctrl+u", "pgup"}, "a page up", false},
+	{ContextWelcome, PageDown, []string{"ctrl+d", "pgdown"}, "a page down", false},
 	{ContextWelcome, Top, []string{"g", "home"}, "the top", false},
 	{ContextWelcome, Bottom, []string{"G", "end"}, "the bottom", false},
 

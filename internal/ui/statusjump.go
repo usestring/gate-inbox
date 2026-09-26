@@ -44,12 +44,11 @@ type statusJump struct {
 // while the modifier keeps the family mnemonic -- alt+w waiting, alt+f
 // finished, alt+e errored -- instead of spelling five states out of whichever
 // keys happened to be free. tab is the one a drain actually presses, so it
-// gets the key that needs no modifier at all, and shift+tab walks back up.
+// gets the key that needs no modifier at all.
 var statusJumps = map[keymap.Action]statusJump{
-	keymap.JumpAttention:     {label: "waiting on you", delta: 1, wants: (*Model).needsPerson, skipMuted: true},
-	keymap.JumpAttentionBack: {label: "waiting on you", delta: -1, wants: (*Model).needsPerson, skipMuted: true},
-	keymap.JumpWaiting:       {label: "waiting", delta: 1, wants: jumpStatus(status.Waiting)},
-	keymap.JumpFinished:      {label: "finished", delta: 1, wants: jumpStatus(status.Finished)},
+	keymap.JumpAttention: {label: "waiting on you", delta: 1, wants: (*Model).needsPerson, skipMuted: true},
+	keymap.JumpWaiting:   {label: "waiting", delta: 1, wants: jumpStatus(status.Waiting)},
+	keymap.JumpFinished:  {label: "finished", delta: 1, wants: jumpStatus(status.Finished)},
 	// Errored and dead wear the same mark on the row, so one key answers for
 	// both: a jump is named after what the operator can see, and the column
 	// draws no difference between them. A dead pane cannot be entered, and

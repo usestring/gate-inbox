@@ -37,7 +37,7 @@ Gate Inbox reads the panes; it does not sit between you and the model.
    out, and it lists what a pane kept as-is misses ([below](#kept-as-is-or-relaunched)). `N` makes
    that answer the default and stops the question; settings (`s`) turns it back on.
 4. **The loop.** `n` starts an agent, `enter` focuses it, `ctrl+q` comes back to the list, `i`
-   walks everything waiting on you, and `H` shows every key.
+   walks everything waiting on you, and `h` shows every key.
 5. **Leaving and coming back.** `q` quits and the agents keep running. When you start it again,
    the board offers back only the sessions that *died* (a reboot, tmux restarting, a crash),
    never the ones you ended yourself. [Stop using it](#stop-using-it) covers stopping for good.
@@ -80,7 +80,7 @@ gate-inbox
 2. `ctrl+q` goes back to the list. Each row shows its status as the agent works.
 3. `i` opens the triage queue, starting with the session that has waited longest.
 4. Answer it. The queue hands you the next one.
-5. `H` shows every key for the current screen, and `s` opens settings.
+5. `h` shows every key for the current screen, and `s` opens settings.
 
 Sessions live in tmux, so quitting the board leaves them running. Start `gate-inbox` again and it
 picks them back up.
@@ -108,7 +108,7 @@ away until the queue is empty; `f2` switches it between the conversation and the
 
 **Focus.** `enter` focuses a session in place: keys go to the agent while the list stays beside
 it, and `ctrl+q` comes back. `alt+\` hides the list so the pane gets the full width, and
-`alt+pgup` / `alt+end` scroll back through its output and return to the live bottom. `space`
+`alt+u` / `alt+end` scroll back through its output and return to the live bottom. `space`
 sends a prompt to the selected session without focusing it. `T` opens a shell tab under the
 selected agent for builds and one-off commands.
 
@@ -128,9 +128,9 @@ selected agent for builds and one-off commands.
 | `T` | Shell tab under the selected agent |
 | `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |
 | `f` | Fork the conversation into a new session |
-| `H` / `s` | Key map for the current screen / settings |
+| `h` / `s` | Key map for the current screen / settings |
 
-Every binding is a default, and `H` is where you rebind one. [`docs/usage.md`](docs/usage.md) is
+Every binding is a default, and `h` is where you rebind one. [`docs/usage.md`](docs/usage.md) is
 the complete reference.
 
 ## Agents working with agents

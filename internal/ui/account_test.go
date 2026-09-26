@@ -100,21 +100,40 @@ func TestTheAccountCardRepointsADeadRow(t *testing.T) {
 	}
 }
 
-// The card refuses what the manager cannot relaunch, and switch_account now
-// refuses the same things: a pane it never started, and an account the launch
-// could not use. The pane is caught before the picker opens, since the answer
-// does not depend on which account was picked.
-func TestTheAccountCardRefusesWhatCannotBeRelaunched(t *testing.T) {
+// The card takes over what the manager did not start instead of refusing
+// it, and switch_account still refuses the same things through the MCP path:
+// an account the launch could not use. A pane that is already gone only
+// needs its row promoted, so a dead adopted row is re-pointed without
+// launching anything; the picker refusal below does not depend on which
+// account was picked.
+func TestTheAccountCardTakesOverAdoptedAndRefusesUnlaunchable(t *testing.T) {
 	m := buildModel(t)
 	withAccountTools(m)
 	seedAccountRow(t, m, "borrowed1", "borrowed", "claude", "%99")
 	seedAccountRow(t, m, "halfway01", "halfway", "half-configured", "")
+	if err := m.tmux.Adopt("borrowed1", tmux.Target{Socket: m.tmux.SocketName(), Name: "%99"}); err != nil {
+		t.Fatalf("Adopt: %v", err)
+	}
 	m.applyCmd(t, nil)
 
 	m.selectSessionRow(t, "borrowed")
 	m.openAccountSwitch()
-	if m.mode == modeAccount || !strings.Contains(m.errBar.text, "did not start") {
-		t.Fatalf("an adopted pane opened the card: mode %v, errBar %q", m.mode, m.errBar.text)
+	if m.mode != modeAccount {
+		t.Fatalf("the card did not open on an adopted pane: mode %v, errBar %q", m.mode, m.errBar.text)
+	}
+	m.handleAccountKey(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	if _, _ = m.submitAccountSwitch(); m.errBar.text != "" {
+		t.Fatalf("submit reported %q", m.errBar.text)
+	}
+	row, err := m.store.Get("borrowed1")
+	if err != nil || row.Account != "ALICE1" || row.TmuxPaneID != "" || row.TmuxSocket != "" {
+		t.Fatalf("taken-over row = %+v, %v", row, err)
+	}
+	if m.tmux.Exists("borrowed1") {
+		t.Error("re-pointing a pane that was already gone launched it")
+	}
+	if _, adopted := m.tmux.AdoptedTarget("borrowed1"); adopted {
+		t.Error("the promoted row is still registered as adopted, so its revive would be refused")
 	}
 
 	m.selectSessionRow(t, "halfway")
@@ -128,6 +147,119 @@ func TestTheAccountCardRefusesWhatCannotBeRelaunched(t *testing.T) {
 		t.Fatalf("errBar = %q", m.errBar.text)
 	}
 	if row, _ := m.store.Get("halfway01"); row.Account != "" {
+		t.Errorf("a refused account was written anyway: %q", row.Account)
+	}
+}
+
+// A live adopted pane is ended, promoted and relaunched on the picked
+// account in one submit: the foreign pane dies, the row answers as a managed
+// session, and the new agent carries the account the card named.
+func TestTheAccountCardTakesOverALiveAdoptedPane(t *testing.T) {
+	m := buildModel(t)
+	withAccountTools(m)
+	tool := m.cfg.Tools["claude"]
+	tool.Command = "cat"
+	tool.ResumeByIDCommand = "true resume {id}; cat"
+	m.cfg.Tools["claude"] = tool
+	socket, pane := uiForeignServer(t, "cat")
+	const id = "takeover-live"
+	if err := m.store.CreateSession(store.Session{
+		ID: id, Name: "live-borrowed", Tool: "claude", Cwd: t.TempDir(),
+		Status: status.Idle, CreatedAt: time.Now(), LastStatusAt: time.Now(),
+		AgentSessionID: "conv-takeover-1",
+		TmuxSocket:     socket, TmuxPaneID: pane,
+	}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if err := m.tmux.Adopt(id, tmux.Target{Socket: socket, Name: pane}); err != nil {
+		t.Fatalf("Adopt: %v", err)
+	}
+	m.applyCmd(t, nil)
+	m.selectSessionRow(t, "live-borrowed")
+
+	m.openAccountSwitch()
+	if m.mode != modeAccount {
+		t.Fatalf("the card did not open on a live adopted pane: mode %v, errBar %q", m.mode, m.errBar.text)
+	}
+	m.handleAccountKey(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	if _, _ = m.submitAccountSwitch(); m.errBar.text != "" {
+		t.Fatalf("submit reported %q", m.errBar.text)
+	}
+	if foreignPaneAlive(t, socket, pane) {
+		t.Fatal("the adopted pane survived the switch")
+	}
+	row, err := m.store.Get(id)
+	if err != nil || row.Account != "ALICE1" || row.TmuxPaneID != "" || row.TmuxSocket != "" {
+		t.Fatalf("taken-over row = %+v, %v", row, err)
+	}
+	if !m.tmux.Exists(id) {
+		t.Fatal("the taken-over pane was not relaunched on the new account")
+	}
+}
+
+// An adopted row records no account, so picking own login is still a switch:
+// the pane may be spending a named subscription the row never saw.
+func TestTheAccountCardTakesOverAnAdoptedPaneOntoOwnLogin(t *testing.T) {
+	m := buildModel(t)
+	withAccountTools(m)
+	seedAccountRow(t, m, "borrowed2", "borrowed-own", "claude", "%98")
+	m.applyCmd(t, nil)
+
+	m.selectSessionRow(t, "borrowed-own")
+	m.openAccountSwitch()
+	if m.mode != modeAccount {
+		t.Fatalf("the card did not open: mode %v, errBar %q", m.mode, m.errBar.text)
+	}
+	if m.account.names[m.account.index] != ownLogin {
+		t.Fatalf("the card opened on %q", m.account.names[m.account.index])
+	}
+	if _, _ = m.submitAccountSwitch(); m.errBar.text != "" {
+		t.Fatalf("submit reported %q", m.errBar.text)
+	}
+	row, err := m.store.Get("borrowed2")
+	if err != nil || row.Account != "" || row.TmuxPaneID != "" || row.TmuxSocket != "" {
+		t.Fatalf("taken-over row = %+v, %v", row, err)
+	}
+}
+
+// A takeover that fails after the pane is gone still leaves a revivable
+// row: the pane is ended and promoted first, and only then does the account
+// resolve, so a refused account costs the pane but keeps its conversation.
+func TestTheAccountCardLeavesARevivableRowWhenTheAccountFails(t *testing.T) {
+	m := buildModel(t)
+	withAccountTools(m)
+	socket, pane := uiForeignServer(t, "cat")
+	const id = "takeover-partial"
+	if err := m.store.CreateSession(store.Session{
+		ID: id, Name: "partial-borrowed", Tool: "half-configured", Cwd: t.TempDir(),
+		Status: status.Idle, CreatedAt: time.Now(), LastStatusAt: time.Now(),
+		AgentSessionID: "conv-partial-1",
+		TmuxSocket:     socket, TmuxPaneID: pane,
+	}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if err := m.tmux.Adopt(id, tmux.Target{Socket: socket, Name: pane}); err != nil {
+		t.Fatalf("Adopt: %v", err)
+	}
+	m.applyCmd(t, nil)
+	m.selectSessionRow(t, "partial-borrowed")
+
+	m.openAccountSwitch()
+	if m.mode != modeAccount {
+		t.Fatalf("the card did not open: mode %v, errBar %q", m.mode, m.errBar.text)
+	}
+	m.handleAccountKey(tea.KeyPressMsg{Code: 'l', Text: "l"})
+	if _, _ = m.submitAccountSwitch(); !strings.Contains(m.errBar.text, "cannot be launched on a chosen account") {
+		t.Fatalf("submit reported %q", m.errBar.text)
+	}
+	if foreignPaneAlive(t, socket, pane) {
+		t.Fatal("the refused switch left the adopted pane running")
+	}
+	row, err := m.store.Get(id)
+	if err != nil || row.TmuxPaneID != "" || row.TmuxSocket != "" || row.AgentSessionID != "conv-partial-1" {
+		t.Fatalf("refused row = %+v, %v", row, err)
+	}
+	if row.Account != "" {
 		t.Errorf("a refused account was written anyway: %q", row.Account)
 	}
 }

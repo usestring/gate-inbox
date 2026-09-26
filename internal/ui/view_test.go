@@ -492,7 +492,7 @@ func TestFooterInFocusMode(t *testing.T) {
 	if !strings.Contains(footer, "Focused") {
 		t.Fatalf("the tier should name the mode it describes:\n%s", footer)
 	}
-	if !strings.Contains(footer, "back to manager") || !strings.Contains(footer, "goes to the agent") {
+	if !strings.Contains(footer, "back to manager") {
 		t.Fatalf("focus footer should carry the reserved keys:\n%s", footer)
 	}
 	if strings.Contains(footer, "navigate") || strings.Contains(footer, "View") {
@@ -591,16 +591,12 @@ func TestTransientFootersKeepListHeight(t *testing.T) {
 }
 
 // With nothing under the cursor there is nothing to act on, so the footer
-// carries only the app-wide tier.
+// stays empty rather than carrying keys for no row.
 func TestFooterWithoutASelectedRow(t *testing.T) {
 	m := buildModel(t)
 	m.rows = nil
-	footer := ansi.Strip(m.viewFooter())
-	if strings.Contains(footer, "Session") || strings.Contains(footer, "Group") {
-		t.Fatalf("no row selected, no row tier:\n%s", footer)
-	}
-	if !strings.Contains(footer, "View") {
-		t.Fatalf("the app-wide tier should stay:\n%s", footer)
+	if footer := ansi.Strip(m.viewFooter()); footer != "" {
+		t.Fatalf("no row selected, want an empty footer:\n%s", footer)
 	}
 }
 
@@ -672,7 +668,7 @@ func TestFooterTogglesNameTheNextAction(t *testing.T) {
 	}
 
 	m.showArchived = true
-	if footer := m.viewFooter(); !strings.Contains(footer, keyCapQuiet("t", "back to active")) {
-		t.Fatalf("the archived view should offer the way back:\n%s", ansi.Strip(footer))
+	if legend := m.peekLegend(m.listBodyHeight()); !strings.Contains(legend, keyCapQuiet("t", "back to active")) {
+		t.Fatalf("the archived view should offer the way back:\n%s", ansi.Strip(legend))
 	}
 }

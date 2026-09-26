@@ -187,19 +187,19 @@ func TestTheTriageFootersNameTheScopedGroup(t *testing.T) {
 	}
 }
 
-// A fleet-wide drain has no group to name, so both footers keep the wording
-// they had before triage could be scoped.
+// A fleet-wide drain has no group to name, so the key map keeps the wording
+// it had before triage could be scoped.
 func TestTheTriageFootersKeepTheirWordingUnscoped(t *testing.T) {
 	m := shotModel()
 	m.width, m.height = 200, 50
 	m.triage = true
 
 	list := ansi.Strip(m.viewFooter())
-	if !strings.Contains(list, "back to groups") {
-		t.Errorf("the list footer lost its exit hint:\n%s", list)
-	}
 	if strings.Contains(list, "triage: ") {
 		t.Errorf("an unscoped drain named a group anyway:\n%s", list)
+	}
+	if legend := ansi.Strip(m.peekLegend(m.listBodyHeight())); !strings.Contains(legend, "back to groups") {
+		t.Errorf("the key map lost the triage exit hint:\n%s", legend)
 	}
 
 	m.mode = modeFocus

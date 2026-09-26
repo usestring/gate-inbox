@@ -132,7 +132,7 @@ var Catalog = []Binding{
 	{ContextList, StepIn, []string{"right"}, "step in: a session's work, then focus it", false},
 	{ContextList, StepOut, []string{"left"}, "step out: fold the work, close the group", false},
 	{ContextList, LastPane, []string{"l"}, "focus the session you were on before this one; l again swaps back", false},
-	{ContextList, Rescind, []string{"ctrl+z"}, "rescind the latest submission while its turn is active", false},
+	{ContextList, Rescind, []string{"ctrl+z"}, "undo the latest submission while its turn is active", false},
 	{ContextList, JumpAttention, []string{"tab"}, "enter the next session waiting on you", false},
 	{ContextList, JumpAttentionBack, []string{"shift+tab"}, "enter the one before it", false},
 	{ContextList, JumpWaiting, []string{"alt+w"}, "enter the next waiting session", false},
@@ -201,7 +201,7 @@ var Catalog = []Binding{
 	{ContextFocus, ToggleGateInput, []string{"f2"}, "gate: switch conversation / terminal", false},
 	{ContextFocus, HandOver, []string{"§"}, "ctrl+q's one-press alias", false},
 	{ContextFocus, LeaveHard, []string{`ctrl+\`}, "back to the manager, always stopping there", true},
-	{ContextFocus, Rescind, []string{"ctrl+z"}, "rescind the latest submission while its turn is active", false},
+	{ContextFocus, Rescind, []string{"ctrl+z"}, "undo the latest submission while its turn is active", false},
 	// A chord for the same reason alt+, is one: a plain "." is a character
 	// the agent was owed. It mirrors the list's own dismiss key.
 	{ContextFocus, Dismiss, []string{"alt+."}, "dismiss this one and go on to the next", false},

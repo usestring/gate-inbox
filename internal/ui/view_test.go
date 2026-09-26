@@ -4,7 +4,6 @@ package ui
 
 import (
 	"fmt"
-	"github.com/usestring/gate-inbox/internal/keymap"
 	"os"
 	"strings"
 	"testing"
@@ -509,8 +508,8 @@ func TestFooterInFocusMode(t *testing.T) {
 	}
 
 	m.pane.mouse = true
-	if footer := ansi.Strip(m.viewFooter()); !strings.Contains(footer, "click / "+keymap.Display("alt+drag")) || !strings.Contains(footer, "agent UI") {
-		t.Fatalf("a mouse-tracking pane should advertise pass-through:\n%s", footer)
+	if footer := ansi.Strip(m.viewFooter()); strings.Contains(footer, "agent UI") {
+		t.Fatalf("mouse pass-through lives in the key map now, not the footer:\n%s", footer)
 	}
 }
 

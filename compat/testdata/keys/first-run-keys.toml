@@ -19,7 +19,7 @@
 # step_in             = ["right"]  # step in: a session's work, then focus it
 # step_out            = ["left"]  # step out: fold the work, close the group
 # last_pane           = ["l"]  # focus the session you were on before this one; l again swaps back
-# rescind_submission  = ["ctrl+z"]  # rescind the latest submission while its turn is active
+# rescind_submission  = ["ctrl+z"]  # undo the latest submission while its turn is active
 # jump_attention      = ["tab"]  # enter the next session waiting on you
 # jump_attention_back = ["shift+tab"]  # enter the one before it
 # jump_waiting        = ["alt+w"]  # enter the next waiting session
@@ -82,7 +82,7 @@
 # toggle_gate_input   = ["f2"]  # gate: switch conversation / terminal
 # hand_over           = ["§"]  # ctrl+q's one-press alias
 # leave_stop          = ["ctrl+\\"]  # back to the manager, always stopping there (cannot be unbound)
-# rescind_submission  = ["ctrl+z"]  # rescind the latest submission while its turn is active
+# rescind_submission  = ["ctrl+z"]  # undo the latest submission while its turn is active
 # dismiss             = ["alt+."]  # dismiss this one and go on to the next
 # toggle_chrome       = ["alt+,"]  # hide / show the key hints along the foot
 # toggle_rail         = ["alt+\\"]  # hide / show the list beside the pane

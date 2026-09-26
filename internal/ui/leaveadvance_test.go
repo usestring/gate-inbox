@@ -144,7 +144,7 @@ func TestTheFocusedFooterNamesTheAdvance(t *testing.T) {
 	// Triage names the group it is scoped to; the setting has none to name,
 	// so it must not borrow triage's wording.
 	m.triageScope = "team"
-	if got := m.leaveAdvanceHint(); got != "mute this, next needing input" {
+	if got := m.leaveAdvanceHint(); got != "skip, next needing input" {
 		t.Errorf("outside triage the hint reads %q; it must not name a triage scope", got)
 	}
 }

@@ -516,7 +516,7 @@ func (m *Model) viewFooter() string {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextList, keymap.ToggleConversation), m.conversationToggleLabel()})
 		}
 		if m.quick.message() == "" && m.canRescindLatestSubmission() {
-			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextList, keymap.Rescind), "rescind latest"})
+			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextList, keymap.Rescind), "undo"})
 		}
 		return m.transientFooter(legendSection{title: "Prompt", pairs: pairs})
 	}
@@ -599,7 +599,7 @@ func (m *Model) viewFooter() string {
 		pairs := [][2]string{{"typing", "goes to the agent"}}
 		pairs = append(pairs, exits...)
 		if m.canRescindLatestSubmission() {
-			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextFocus, keymap.Rescind), "rescind latest"})
+			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextFocus, keymap.Rescind), "undo"})
 		}
 		// A single-row footer holds one or two pairs, and the one it must hold
 		// is the way out: on a phone the key that gets back to the manager
@@ -612,13 +612,7 @@ func (m *Model) viewFooter() string {
 			// destructive, and a key nobody knows about is a key nobody
 			// uses on purpose and somebody eventually hits by accident.
 			[2]string{m.fullCap(keymap.ContextFocus, keymap.Archive), "kill"},
-			// The footer holds one row: the word and line gestures are in
-			// the key map, where there is room to name all three.
-			[2]string{"drag / click", "copy"},
 		)
-		if m.pane.mouse {
-			pairs = append(pairs, [2]string{"click / " + keymap.Display("alt+drag"), "agent UI"})
-		}
 		return m.transientFooter(legendSection{title: "Focused", pairs: pairs})
 	}
 	return m.listFooter()
@@ -806,7 +800,7 @@ func (m *Model) viewLegend() legendSection {
 		action keymap.Action
 		text   string
 	}{
-		{keymap.LastPane, "last pane"}, {keymap.Rescind, "rescind latest"},
+		{keymap.LastPane, "last pane"}, {keymap.Rescind, "undo"},
 		{keymap.NewSession, "new"}, {keymap.NewSessionForm, "new…"},
 		{keymap.NewTerminal, "terminal"}, {keymap.NewGroup, "group"}, {keymap.Search, "search"},
 		{keymap.ArchivedView, "archived"}, {keymap.StatusFilter, "attention"},

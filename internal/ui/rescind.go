@@ -75,7 +75,7 @@ func (m *Model) rescindLatestSubmission() (tea.Model, tea.Cmd) {
 	sess, ok := m.rescindableSubmission()
 	if !ok {
 		m.latestSubmission = submissionRescind{}
-		m.errBar.text = "no active submission to rescind"
+		m.errBar.text = "no active submission to undo"
 		return m, nil
 	}
 	if !m.tmux.Exists(sess.ID) {
@@ -89,7 +89,7 @@ func (m *Model) rescindLatestSubmission() (tea.Model, tea.Cmd) {
 	}
 	m.latestSubmission = submissionRescind{}
 	m.poller.noteOperatorInput(sess.ID)
-	m.errBar.text = "rescinded the latest submission to " + m.displayName(sess)
+	m.errBar.text = "undid the latest submission to " + m.displayName(sess)
 	m.requestRefresh()
 	return m, nil
 }

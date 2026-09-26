@@ -114,6 +114,17 @@ func buildModelWithStorePath(t testing.TB) (*Model, string) {
 				DefaultStatus:  status.Idle,
 				ActivityCutoff: "(?m)^❯",
 			},
+			// ready-tool drawing its own input. The line discipline's
+			// echo is dropped on macOS once tmux falls behind reading the
+			// pty, so a paste of several hundred bytes can stop mid-word on
+			// screen though every byte reached the reader. cat blocks on a
+			// full pty instead of dropping, and with echo off it stays the
+			// pane's only writer.
+			"tall-tool": {
+				Command:        `sh -c 'stty -echo; printf "❯ "; exec cat'`,
+				DefaultStatus:  status.Idle,
+				ActivityCutoff: "(?m)^❯",
+			},
 			"send-tool": {
 				Command:        `printf '❯ ' && cat` + soleWriter,
 				PromptMode:     "send",

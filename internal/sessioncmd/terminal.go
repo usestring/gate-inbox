@@ -105,6 +105,17 @@ func (c *commands) open() (opened *runtime, err error) {
 	return &runtime{cfg: cfg, words: c.words, store: st, driver: driver}, nil
 }
 
+// reach tells the driver where an adopted row's pane is. Only the board
+// holds adopted panes' targets in memory; this process learns them from the
+// row, or it would look for gi_<id> on its own server, find nothing, and
+// treat a live agent as dead.
+func (r *runtime) reach(sess store.Session) error {
+	if sess.TmuxPaneID == "" {
+		return nil
+	}
+	return r.driver.Adopt(sess.ID, tmux.Target{Socket: sess.TmuxSocket, Name: sess.TmuxPaneID})
+}
+
 func (r *runtime) caller(sessionID string) (store.Session, error) {
 	if err := validSession(sessionID); err != nil {
 		return store.Session{}, err

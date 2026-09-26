@@ -909,6 +909,9 @@ func (r *runtime) enqueue(from sender, targetID, message, subject string, interr
 	if err != nil {
 		return SendResult{}, err
 	}
+	if err := r.reach(target); err != nil {
+		return SendResult{}, err
+	}
 	now := time.Now()
 	if err := r.deliverable(target); err != nil {
 		return SendResult{}, err
@@ -1146,6 +1149,9 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 	if err != nil {
 		return SessionScreen{}, err
 	}
+	if err := runtime.reach(target); err != nil {
+		return SessionScreen{}, err
+	}
 	running := runtime.driver.Exists(target.ID)
 	var pane string
 	if running {
@@ -1241,6 +1247,11 @@ func (s *Sessions) kill(sessionID, targetID string, terminals bool, via extensio
 	}
 	if target.ID == sessionID {
 		return Session{}, errors.New("a session cannot kill itself")
+	}
+	// A kill names its session, so an adopted pane ends here as a started
+	// one does, the agent in it included.
+	if err := runtime.reach(target); err != nil {
+		return Session{}, err
 	}
 	if err := s.endSession(runtime, target, store.EndKilled); err != nil {
 		return Session{}, err

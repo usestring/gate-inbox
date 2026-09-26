@@ -20,14 +20,14 @@ func (m *Model) confirmTitle() string {
 		subject = "group"
 	}
 	// Whose pane it is belongs in the title: that is the line the operator
-	// reads before the sentence under it, and "End session" says nothing
+	// reads before the sentence under it, and "Kill session" says nothing
 	// about a session the manager never started.
 	if !m.confirm.isGroup && m.confirm.action == actionArchive && m.confirmAdopted() > 0 {
-		return "▲ End someone else's pane"
+		return "▲ Kill someone else's pane"
 	}
 	switch m.confirm.action {
 	case actionArchive:
-		return "◇ End " + subject
+		return "◇ Kill " + subject
 	case actionRestore:
 		return "◆ Restore " + subject
 	case actionRestart:
@@ -113,7 +113,7 @@ func (m *Model) viewConfirm() string {
 	answer := "confirm"
 	switch m.confirm.action {
 	case actionArchive:
-		answer = "end"
+		answer = "kill"
 	case actionRestore:
 		answer = "restore"
 	case actionRestart:

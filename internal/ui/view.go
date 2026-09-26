@@ -562,7 +562,7 @@ func (m *Model) viewFooter() string {
 		}
 		pairs = append(pairs, m.snippetLegend().pairs...)
 		pairs = append(pairs, [][2]string{
-			{m.gateCap(keymap.Archive), "end"},
+			{m.gateCap(keymap.Archive), "kill"},
 			{m.gateCap(keymap.NewSession), "new"},
 			{m.gateCap(keymap.CopySessionID), "copy ID"},
 			{m.gateCap(keymap.LastPane), "back"},
@@ -611,7 +611,7 @@ func (m *Model) viewFooter() string {
 			// Named on the footer rather than left to the key map: it is
 			// destructive, and a key nobody knows about is a key nobody
 			// uses on purpose and somebody eventually hits by accident.
-			[2]string{m.fullCap(keymap.ContextFocus, keymap.Archive), "end"},
+			[2]string{m.fullCap(keymap.ContextFocus, keymap.Archive), "kill"},
 			// The footer holds one row: the word and line gestures are in
 			// the key map, where there is room to name all three.
 			[2]string{"drag / click", "copy"},
@@ -652,7 +652,7 @@ func (m *Model) defaultRowLegend() legendSection {
 		}
 		pairs := [][2]string{{openKey, action}}
 		if m.applies(keymap.ContextList, keymap.Archive, row) {
-			pairs = append(pairs, [2]string{m.capJoin(keymap.ContextList, "/", keymap.Archive, keymap.ArchiveAll), "end / all"})
+			pairs = append(pairs, [2]string{m.capJoin(keymap.ContextList, "/", keymap.Archive, keymap.ArchiveAll), "kill / all"})
 		}
 		return legendSection{title: "Group", pairs: pairs}
 	}
@@ -688,7 +688,7 @@ func (m *Model) defaultRowLegend() legendSection {
 		pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, keymap.Dismiss), action})
 	}
 	pairs = append(pairs,
-		[2]string{m.tightCap(keymap.ContextList, keymap.Archive), "end"},
+		[2]string{m.tightCap(keymap.ContextList, keymap.Archive), "kill"},
 	)
 	return legendSection{title: title, pairs: pairs}
 }
@@ -756,7 +756,7 @@ func (m *Model) rowLegend() legendSection {
 		}{
 			{keymap.RenameSelf, "rename"}, {keymap.Move, "move"},
 			{keymap.Priority, priorityLegend(m.priorityGroups[row.group])},
-			{keymap.Archive, "end"}, {keymap.Revive, "revive"}, {keymap.Restore, "restore"},
+			{keymap.Archive, "kill"}, {keymap.Revive, "revive"}, {keymap.Restore, "restore"},
 		} {
 			if m.applies(keymap.ContextList, candidate.action, row) {
 				pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, candidate.action), candidate.text})
@@ -785,7 +785,7 @@ func (m *Model) rowLegend() legendSection {
 		{keymap.Fork, "fork"}, {keymap.RenameSelf, "rename"}, {keymap.Move, "move"},
 		{keymap.Revive, "revive"}, {keymap.ReviveAll, "revive all"},
 		{keymap.SwitchAccount, "account"}, {keymap.Restart, "restart"},
-		{keymap.ArchiveAll, "end all"},
+		{keymap.ArchiveAll, "kill all"},
 		{keymap.Priority, priorityLegend(row.sess.Priority)},
 	} {
 		if m.applies(keymap.ContextList, candidate.action, row) {

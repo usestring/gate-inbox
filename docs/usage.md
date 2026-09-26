@@ -35,17 +35,17 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `K` / `J` (or `shift+↑` / `shift+↓`) | Reorder session or group among its visible siblings |
 | `m` | Move a session to a group, a terminal into a session, or a group under another group |
 | `r` | Name a session: ask its agent to name itself (`/rename`, or the same request in prose). On an adopted pane, derive the name from its conversation. On a group, open the group card on it: name, parent and default path |
-| `x` | End the selected session, or the whole subtree under a group: kills the pane, frees the RAM its agent held, and files the row in the archive under `t` |
+| `x` | Kill the selected session, or the whole subtree under a group: kills the pane, frees the RAM its agent held, and files the row in the archive under `t` |
 | `X` | Archive every session in view. The confirmation carries a tick box (`space`) as well as the `y`, because one keystroke is the wrong price for every session on screen |
 | `v` | Revive a dead session, or every dead session under a group. On a session that is still running it restarts the agent on the conversation it is already on |
 | `V` | Revive every dead session in view |
 | `O` | Take over the adopted panes: restart each idle one as a managed session on its own conversation now, and the busy ones as they go idle. Asks first |
 | `R` | Restart the selected session on an empty context: same name, group, directory and tool |
-| `u` | Restore a session or group out of the archive, resuming what it held. The act is `end`; the archive is where the row lands, the way a deleted file lands in a trash can |
-| `U` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed end as well as a silent one |
+| `u` | Restore a session or group out of the archive, resuming what it held. The act is `kill`; the archive is where the row lands, the way a deleted file lands in a trash can |
+| `U` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed kill as well as a silent one |
 | `space` | Quick prompt: answer the selected session, or spawn an agent in the selected group |
 | `F` | Fold / unfold every group |
-| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, colour, status marks, ask before ending, sort, key hints, on leaving a session, after quick send, session keys, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
+| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, colour, status marks, ask before killing, sort, key hints, on leaving a session, after quick send, session keys, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
 | `\|` | Resize the split: `←→` nudge the divider, `enter` commits, `esc` cancels |
 | `\` | Hide / show the list beside the pane: the `board` layout under a key, and `alt+\` does it from inside a focused session. The layout you had comes back on the second press |
 | `t` | Toggle archived view. A row there counts down its retention: seven days after it was archived the manager deletes it for good, with its hook files, and the countdown is on the row |
@@ -72,7 +72,7 @@ Settings (`s`) has an `on leaving a session` row for it — `list` (the default,
 
 Press `F2` to switch between **Typing** and **Menu**, shown at the top. The choice stays
 on as the queue advances. Typing sends text to the agent. Menu uses plain keys:
-`.` skip, `l` back, `q` exit, `x` end, `n` new, `y` copy ID.
+`.` skip, `l` back, `q` exit, `x` kill, `n` new, `y` copy ID.
 `Home` jumps to the top of the pane's history; `End` returns to live output.
 Numbers, arrows and `Enter` still answer the agent's menu. Switch to Typing for a written answer.
 The gate starts in Typing; `alt+Home` and `alt+End` reach history there too.
@@ -84,7 +84,7 @@ over and promotes the next thing waiting on a person. `alt+.` skips the one in f
 it off the queue without the trip back to the list that `.` needs. `ctrl+\` stops.
 
 The gate footer names the rest of the session's controls, the same set v1's gate view carried:
-`ctrl+x` ends the session, `alt+n` starts a new one in its group and comes back to the queue,
+`ctrl+x` kills the session, `alt+n` starts a new one in its group and comes back to the queue,
 `alt+y` copies the agent's session id, and `alt+l` steps back to the one you just left. Your own
 snippets ride the same tier: each
 `ctrl+alt+`*letter* answers the session in front of you, and its label sits beside the controls so
@@ -142,9 +142,9 @@ Gate Inbox does not create git worktrees. A session that should edit a checkout 
 
 ## Killing and reviving sessions
 
-`x` ends a session that is holding RAM you want back, and on a group row it ends every live session under it; `X` ends every live session in view. Each asks to confirm first, and what it ends is the tmux session, not the record: the row stays in the tree, marked `dead`, with its name, group, and conversation id intact.
+`x` kills a session that is holding RAM you want back, and on a group row it kills every live session under it; `X` kills every live session in view. Each asks to confirm first, and what it kills is the tmux session, not the record: the row stays in the tree, marked `dead`, with its name, group, and conversation id intact.
 
-![ending every session under a group for the RAM, then reviving the whole subtree on its own conversations](demo-revive.gif)
+![killing every session under a group for the RAM, then reviving the whole subtree on its own conversations](demo-revive.gif)
 
 `v` relaunches a dead session under its old id, keeping its name, group, and history. When the manager holds that session's own conversation id, revive resumes **that exact conversation** through the tool's `resume_by_id_command`: `claude --resume {id}`, `codex resume {id}`, `opencode --session {id}`.
 

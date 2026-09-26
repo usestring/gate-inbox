@@ -161,6 +161,10 @@ func helpSections() []helpSection {
 		{title: "advanced: a pull request or ticket under a session", rows: []helpRow{
 			listRow(keymap.Open, "open it in the browser"),
 			note("the session keys act on sessions, so they are refused here"),
+			lit("■ ◧ ◰", "a pull request: merged, open, checks running"),
+			lit("▢ □", "a pull request: draft, closed"),
+			lit("▣", "a pull request blocked on you"),
+			lit("▲ ◭ △", "a ticket: done, started, not started"),
 		}},
 		{title: "advanced: group under the cursor", rows: []helpRow{
 			listRow(keymap.Open, "fold / unfold"),

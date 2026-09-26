@@ -132,3 +132,13 @@ func TestHintInstallsOpencodeV2(t *testing.T) {
 		t.Fatalf("hint = %q, want the v2 installer", got)
 	}
 }
+
+// pi is a built-in tool, and no package manager ships it under that name: a
+// guessed `apt-get install pi` installs something else or nothing.
+func TestHintInstallsPiFromItsOwnInstaller(t *testing.T) {
+	stubPath(t, "apt-get")
+	got := hint("linux", "pi")
+	if !strings.Contains(got, "https://pi.dev/install.sh") || strings.Contains(got, "apt-get") {
+		t.Fatalf("hint = %q, want the pi installer", got)
+	}
+}

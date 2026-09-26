@@ -252,7 +252,7 @@ func (s *Sessions) BoardKill(targetID string) (killed Session, err error) {
 	if err != nil {
 		return Session{}, err
 	}
-	if err := s.endSession(runtime, target); err != nil {
+	if err := s.endSession(runtime, target, store.EndKilled); err != nil {
 		return Session{}, err
 	}
 	target.Status = status.Dead

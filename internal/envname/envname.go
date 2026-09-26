@@ -14,6 +14,9 @@ const (
 	Executable = "GATE_INBOX_BIN"
 	// StatusFile is where a managed Claude Code session's hooks write state.
 	StatusFile = "GATE_INBOX_STATUS_FILE"
+	// ExitFile is where a managed pane's launch script records how its
+	// agent exited.
+	ExitFile = "GATE_INBOX_EXIT_FILE"
 	// Editor overrides the editor the board opens a path in.
 	Editor = "GATE_INBOX_EDITOR"
 	// Golden re-records the golden files when set to "write".

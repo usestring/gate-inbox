@@ -91,6 +91,13 @@ CREATE INDEX tasks_claimable ON tasks (state, created_at)
    3 created_at                   INTEGER  notnull=1 default=NULL pk=0
   index sqlite_autoindex_replace_holds_1 unique=1 origin=pk partial=0 (fresh_id)
 
+=== table session_ends
+   0 session_id                   TEXT     notnull=0 default=NULL pk=1
+   1 reason                       TEXT     notnull=1 default=NULL pk=0
+   2 launched                     INTEGER  notnull=1 default=NULL pk=0
+   3 ended_at                     INTEGER  notnull=1 default=NULL pk=0
+  index sqlite_autoindex_session_ends_1 unique=1 origin=pk partial=0 (session_id)
+
 === table session_inbox
    0 id                           INTEGER  notnull=0 default=NULL pk=1
    1 session_id                   TEXT     notnull=1 default=NULL pk=0

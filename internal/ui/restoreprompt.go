@@ -40,14 +40,31 @@ type restorePromptState struct {
 	// picking is the second screen, the per-session list. The first is the
 	// count and the three answers.
 	picking bool
+	// ends is why each dead row the offer considered is dead, including the
+	// ones it left out for having been ended on purpose.
+	ends endLedger
 }
 
 // restoreCandidates matches reviveMany's own filter, so the count the prompt
 // shows is exactly what accepting it revives.
+//
+// A row the operator ended on purpose is never a candidate; see endclass.go.
+// The verdicts are kept on the prompt so the card can say why each row is
+// there, and how many were left out.
 func (m *Model) restoreCandidates() []store.Session {
+	return m.classifyRestore(m.restoreEvidence)
+}
+
+func (m *Model) classifyRestore(ev endEvidence) []store.Session {
 	out := make([]store.Session, 0, len(m.sessions))
+	m.restore.ends = endLedger{}
 	for _, sess := range m.sessions {
-		if sess.Archived || sess.Status != status.Dead || m.restoreSettled(sess) {
+		if sess.Archived || sess.Status != status.Dead {
+			continue
+		}
+		class := classifyEnd(sess, ev)
+		m.restore.ends[sess.ID] = class
+		if class.verdict == endByOperator || m.restoreSettled(sess) {
 			continue
 		}
 		out = append(out, sess)
@@ -128,11 +145,13 @@ func (m *Model) maybeOpenRestorePrompt() {
 	}
 	m.restoreAsked = true
 	m.loadRestoreDecided()
+	m.restoreEvidence = m.loadEndEvidence()
 	candidates := m.restoreCandidates()
+	ends := m.restore.ends
 	if len(candidates) == 0 {
 		return
 	}
-	m.restore = restorePromptState{candidates: candidates}
+	m.restore = restorePromptState{candidates: candidates, ends: ends}
 	m.mode = modeRestorePrompt
 }
 
@@ -182,6 +201,7 @@ func (m *Model) openRestorePicker() {
 func (m *Model) closeRestorePrompt() {
 	m.rememberRestoreDecisions()
 	m.restore = restorePromptState{}
+	m.restoreEvidence = endEvidence{}
 	m.mode = modeList
 }
 
@@ -327,16 +347,30 @@ func (m *Model) restoreBody(inner int) []string {
 	}
 	if !m.restore.picking {
 		lines := []string{
-			fmt.Sprintf("%d %s no pane.", total, plural(total, "session has", "sessions have")),
-			subtleStyle.Render("The tmux server they ran in is gone; their conversations are not."),
+			fmt.Sprintf("%d %s without you ending %s.", total, plural(total, "session stopped", "sessions stopped"), plural(total, "it", "them")),
+			subtleStyle.Render("Their panes are gone; their conversations are not."),
 			"",
 		}
 		lines = append(lines, m.restoreSummaryList(inner)...)
-		lines = append(lines, "", sectionHead("resume exactly", exact, colorAccent))
+		lines = append(lines, "", sectionHead("died", m.restoreVerdictCount(endDied), colorAccent))
+		if unknown := m.restoreVerdictCount(endUnknown); unknown > 0 {
+			lines = append(lines,
+				sectionHead("unclear", unknown, colorWaiting),
+				"  "+subtleStyle.Render("no record says how these ended; check before bringing them back"))
+		}
+		lines = append(lines, sectionHead("resume exactly", exact, colorAccent))
 		if degraded := total - exact; degraded > 0 {
 			lines = append(lines,
 				sectionHead("no conversation id", degraded, colorWaiting),
 				"  "+subtleStyle.Render("these resume the directory's most recent conversation instead"))
+		}
+		if ended := m.restore.ends.count(endByOperator); ended > 0 {
+			lines = append(lines, "")
+			for _, line := range textfmt.Wrap(fmt.Sprintf(
+				"%d more you ended yourself %s not offered: killed, archived, parked, quit with /exit, or closed in tmux.",
+				ended, plural(ended, "is", "are")), inner) {
+				lines = append(lines, subtleStyle.Render(line))
+			}
 		}
 		return lines
 	}
@@ -345,6 +379,46 @@ func (m *Model) restoreBody(inner int) []string {
 		lines = append(lines, m.restoreRow(i, sess, inner))
 	}
 	return lines
+}
+
+// restoreVerdictCount counts the offered rows with a verdict. The ledger also
+// holds the rows left out, so it is filtered by what is on the card.
+func (m *Model) restoreVerdictCount(verdict endVerdict) int {
+	n := 0
+	for _, sess := range m.restore.candidates {
+		if m.restore.ends[sess.ID].verdict == verdict {
+			n++
+		}
+	}
+	return n
+}
+
+// restoreWhy is the reason a row is on the card, with how long ago it was
+// last seen when the reason alone cannot settle it.
+func (m *Model) restoreWhy(sess store.Session) string {
+	class, ok := m.restore.ends[sess.ID]
+	if !ok {
+		return ""
+	}
+	if class.verdict == endUnknown && !sess.LastStatusAt.IsZero() {
+		return class.why + ", last seen " + shortAge(time.Since(sess.LastStatusAt)) + " ago"
+	}
+	return class.why
+}
+
+// shortAge is a duration the way a person says it about something they last
+// saw: the largest unit, rounded down.
+func shortAge(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "moments"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d/time.Minute))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%dh", int(d/time.Hour))
+	default:
+		return fmt.Sprintf("%dd", int(d/(24*time.Hour)))
+	}
 }
 
 // restoreSummaryList names the candidates so the operator can see which
@@ -358,7 +432,7 @@ func (m *Model) restoreSummaryList(inner int) []string {
 	}
 	lines := make([]string, 0, len(shown)+1)
 	for _, sess := range shown {
-		lines = append(lines, restoreRowLine("  ", valueStyle, sess, m.resumesExactly(sess), inner))
+		lines = append(lines, restoreRowLine("  ", valueStyle, sess, m.resumesExactly(sess), m.restoreWhy(sess), inner))
 	}
 	if hidden := len(m.restore.candidates) - len(shown); hidden > 0 {
 		lines = append(lines, "  "+subtleStyle.Render(
@@ -384,16 +458,20 @@ func (m *Model) restoreRow(i int, sess store.Session, inner int) string {
 	if !m.restore.chosen[sess.ID] {
 		nameStyle = subtleStyle
 	}
-	return restoreRowLine(cursor+mark+" ", nameStyle, sess, m.resumesExactly(sess), inner)
+	return restoreRowLine(cursor+mark+" ", nameStyle, sess, m.resumesExactly(sess), m.restoreWhy(sess), inner)
 }
 
 // restoreRowLine is the shared name-and-directory rendering both the summary
 // listing and the picker use, so a session reads the same way on either.
-func restoreRowLine(prefix string, nameStyle fastStyle, sess store.Session, resumesExactly bool, inner int) string {
+// why leads the note, since it is what the operator decides on.
+func restoreRowLine(prefix string, nameStyle fastStyle, sess store.Session, resumesExactly bool, why string, inner int) string {
 	name := padRight(nameStyle.Render(textfmt.TruncateWidth(sess.Name, restoreNameColumn-1, "…")), restoreNameColumn)
 	note := sess.Cwd
 	if !resumesExactly {
 		note = "no conversation id · " + note
+	}
+	if why != "" {
+		note = why + " · " + note
 	}
 	if room := inner - restoreNameColumn - 6; room > 8 {
 		note = textfmt.TruncateWidth(note, room, "…")

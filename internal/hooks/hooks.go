@@ -14,6 +14,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +24,10 @@ import (
 )
 
 const EnvStatusFile = envname.StatusFile
+
+// EnvExitFile names the file the launch script writes the agent's exit
+// status to; see ExitFile.
+const EnvExitFile = envname.ExitFile
 
 // EnvSessionID identifies the managed session to the rename subcommand;
 // every session gets it regardless of tool.
@@ -307,6 +312,39 @@ func (m *Manager) Write(id, state string) (err error) {
 		return err
 	}
 	return os.WriteFile(m.StatusFile(id), []byte(state), 0o644)
+}
+
+// ExitFile is where a managed pane's launch script writes its agent's exit
+// status once the agent returns. It is the one record of how an agent ended
+// that survives the pane: a reboot leaves none, an agent the operator quit
+// leaves 0, and one that crashed leaves what it died of. Every tool gets it,
+// hooks or not, because the script writes it rather than the agent.
+func (m *Manager) ExitFile(id string) string {
+	return filepath.Join(m.dir, id+".exit")
+}
+
+// ReadExit returns the exit status the launch script recorded and when it
+// wrote it. ok is false when there is no record, or one that is not a number.
+func (m *Manager) ReadExit(id string) (code int, at time.Time, ok bool) {
+	path := m.ExitFile(id)
+	raw, found := readMailbox("exit", id, path)
+	if !found {
+		return 0, time.Time{}, false
+	}
+	code, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		return 0, time.Time{}, false
+	}
+	if info, err := os.Stat(path); err == nil {
+		at = info.ModTime()
+	}
+	return code, at, true
+}
+
+// RemoveExit drops the record, which a relaunch does so the new agent cannot
+// be judged by the last one's exit.
+func (m *Manager) RemoveExit(id string) error {
+	return removeIfExists(m.ExitFile(id))
 }
 
 func (m *Manager) Remove(id string) error {

@@ -156,7 +156,15 @@ Gate Inbox does not create git worktrees. A session that should edit a checkout 
 
 The id arrives one of two ways: tools with a `session_id_flag` launch under an id the manager mints, and tools that mint their own are read back by a `session_store` capturer (`codex`, `opencode`). Without an id, revive falls back to `revive_command` (`claude --continue`), which resumes the working directory's most recent conversation, and the manager says so in the status line, since sessions sharing a directory would otherwise land on the wrong one. On a group row `v` revives every dead session under it, and `V` revives every dead session in view; both revive what they can and name the first failure rather than stopping.
 
-A start that finds the panes gone — the tmux server restarted, the box rebooted — offers the fleet back before you have to notice the dead rows: `enter` restores every one of them, `c` opens a picker to take part of it, and `esc` leaves them alone. Whichever you answer, those rows are settled: the next start does not ask about them again, and `v` and `V` are still there for the ones you left. A session you revive by hand and lose again is a new loss, and that one is offered.
+A start that finds panes gone offers back the sessions that stopped without you ending them, before you have to notice the dead rows: `enter` restores every one of them, `c` opens a picker to take part of it, and `esc` leaves them alone. Whichever you answer, those rows are settled: the next start does not ask about them again, and `v` and `V` are still there for the ones you left. A session you revive by hand and lose again is a new loss, and that one is offered.
+
+Only a session that died is offered, never one you ended. The board tells them apart from what it records as it happens:
+
+- **Ended by you, never offered:** a kill from the board, the CLI (`gate-inbox kill`), the MCP tool or an extension; an archive; `gate-inbox park` (which `unpark` brings back); an agent you quit yourself with `/exit`, which leaves exit status 0 (ctrl+c's 130 counts too); and a pane you closed in tmux (`kill-pane`, `kill-window`) while its tmux server stayed up.
+- **Died, offered:** the tmux server it ran on is gone or was restarted after it launched (a reboot, tmux itself ending), or the agent crashed, which leaves a non-zero exit status or a signal.
+- **Unclear, offered and labelled:** nothing settles it either way, such as a stopped job's status. The row says what is known and when it was last seen.
+
+The exit status comes from the pane's launch script, which records the agent's status in `hooks/<id>.exit` under the config directory before it drops to the shell.
 
 ## Archiving without being asked
 

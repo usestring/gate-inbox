@@ -660,6 +660,9 @@ func (m *Model) endSession(sess store.Session, kill func(string) error) error {
 	if err := m.forgetKilled(sess); err != nil {
 		return err
 	}
+	if err := m.store.RecordEnd(sess, store.EndKilled); err != nil {
+		return err
+	}
 	return m.store.UpdateStatus(sess.ID, status.Dead)
 }
 
@@ -917,6 +920,12 @@ func (m *Model) archiveConfirmed(live map[string]bool) string {
 		// stopped on, and its hook files were cleared when it died.
 		if ended[sess.ID] {
 			if err := m.forgetKilled(sess); err != nil {
+				failed = append(failed, err.Error())
+				continue
+			}
+			// Filed away is already never offered back, but a row restored
+			// from the archive still has to read as ended on purpose.
+			if err := m.store.RecordEnd(sess, store.EndArchived); err != nil {
 				failed = append(failed, err.Error())
 				continue
 			}

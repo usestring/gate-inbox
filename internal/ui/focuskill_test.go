@@ -109,7 +109,7 @@ func TestDecliningTheFocusedKillPutsTheKeysBackInThePane(t *testing.T) {
 		t.Fatal("the session died despite the answer being no")
 	}
 	frame := ansi.Strip(m.frame())
-	if !strings.Contains(frame, "goes to the agent") {
+	if !strings.Contains(frame, "stop triage") {
 		t.Fatalf("the frame after declining is not the focused frame:\n%s", frame)
 	}
 	if strings.Contains(frame, "Kill session") {
@@ -162,7 +162,7 @@ func TestTheFocusedKillCarriesOnDrainingTheTriageQueue(t *testing.T) {
 		t.Fatal("the session the drain moved on from is still alive")
 	}
 	frame := ansi.Strip(m.frame())
-	if !strings.Contains(frame, "goes to the agent") {
+	if !strings.Contains(frame, "stop triage") {
 		t.Fatalf("the frame after the kill is not a focused frame:\n%s", frame)
 	}
 }

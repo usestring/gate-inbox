@@ -490,9 +490,9 @@ func padToHeight(s string, height int) string {
 	return s
 }
 
-// viewFooter is the app's legend: a tier of keys for whatever the cursor is
-// on, then a quieter tier for the keys that always apply. A transient mode
-// (quick prompt, rename, resize) owns the legend alone while it is up.
+// viewFooter is the app's legend: one tier of keys for whatever the cursor
+// is on. A transient mode (quick prompt, rename, resize) owns the legend
+// alone while it is up.
 func (m *Model) viewFooter() string {
 	// A half-typed group number is the one piece of state with no home on a
 	// row: the rail tints what it could still match, and the footer says what
@@ -596,16 +596,9 @@ func (m *Model) viewFooter() string {
 				{m.fullCap(keymap.ContextFocus, keymap.LeaveHard), out},
 			}
 		}
-		pairs := [][2]string{{"typing", "goes to the agent"}}
-		pairs = append(pairs, exits...)
+		pairs := append([][2]string{}, exits...)
 		if m.canRescindLatestSubmission() {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextFocus, keymap.Rescind), "rescind latest"})
-		}
-		// A single-row footer holds one or two pairs, and the one it must hold
-		// is the way out: on a phone the key that gets back to the manager
-		// is the only one the operator cannot guess.
-		if m.legendRows() == 1 {
-			pairs = append(append([][2]string{}, exits...), [2]string{"typing", "goes to the agent"})
 		}
 		pairs = append(pairs,
 			// Named on the footer rather than left to the key map: it is
@@ -616,24 +609,23 @@ func (m *Model) viewFooter() string {
 			// the key map, where there is room to name all three.
 			[2]string{"drag / click", "copy"},
 		)
-		if m.pane.mouse {
-			pairs = append(pairs, [2]string{"click / " + keymap.Display("alt+drag"), "agent UI"})
-		}
 		return m.transientFooter(legendSection{title: "Focused", pairs: pairs})
 	}
 	return m.listFooter()
 }
 
 func (m *Model) listFooter() string {
-	sections := []legendSection{m.defaultRowLegend(), m.defaultViewLegend()}
-	footer := legendBar(sections, m.width, m.legendRows())
+	footer := legendBar([]legendSection{m.defaultRowLegend()}, m.width, min(m.legendRows(), 1))
 	peekCap := m.tightCap(keymap.ContextList, keymap.LegendPeek)
-	if footer == "" || peekCap == "" || strings.Contains(footer, keyCapQuiet(peekCap, "more")) {
+	if footer == "" || peekCap == "" {
 		return footer
 	}
-	lines := splitLines(footer)
-	lines[len(lines)-1] = legendBar([]legendSection{{title: "View", quiet: true, pairs: [][2]string{{peekCap, "more"}}}}, m.width, 1)
-	return strings.Join(lines, "\n")
+	// The peek key keeps a quiet line of its own: it is the one binding on
+	// the list that has no row of its own to belong to, and the row tier
+	// above can be cut before it at a narrow width. ? opens the whole
+	// applicable legend, so "more" is still what it says.
+	return footer + "\n" + legendBar(
+		[]legendSection{{quiet: true, pairs: [][2]string{{peekCap, "more"}}}}, m.width, 1)
 }
 
 func (m *Model) defaultRowLegend() legendSection {
@@ -658,9 +650,9 @@ func (m *Model) defaultRowLegend() legendSection {
 	}
 
 	attachKey := m.tightCap(keymap.ContextList, keymap.Attach)
-	enterHint, attachHint := "focus / fold", "attach"
+	enterHint, attachHint := "focus", "attach"
 	if !m.enterFocuses() {
-		enterHint, attachHint = "attach / fold", "focus"
+		enterHint, attachHint = "attach", "focus"
 		attachKey = openKey
 	}
 	if row.sess.Archived {
@@ -677,47 +669,10 @@ func (m *Model) defaultRowLegend() legendSection {
 	} else if m.isShell(row.sess.Tool) {
 		title = "Shell"
 	}
-	if m.applies(keymap.ContextList, keymap.Dismiss, row) {
-		action := "mute"
-		switch {
-		case m.isMuted(row.sess):
-			action = "un-mute"
-		case row.sess.Status == status.Finished:
-			action = "mark idle"
-		}
-		pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, keymap.Dismiss), action})
-	}
 	pairs = append(pairs,
 		[2]string{m.tightCap(keymap.ContextList, keymap.Archive), "kill"},
 	)
 	return legendSection{title: title, pairs: pairs}
-}
-
-func (m *Model) defaultViewLegend() legendSection {
-	list := keymap.ContextList
-	pairs := [][2]string{{m.navCap(list), "navigate"}, {m.tightCap(list, keymap.NewSession), "new"}}
-	if m.showArchived {
-		pairs = append(pairs,
-			[2]string{m.tightCap(list, keymap.Search), "search"},
-			[2]string{m.tightCap(list, keymap.ArchivedView), "back to active"},
-		)
-	} else {
-		statusAction := "attention"
-		if m.statusFilter.active() {
-			statusAction = "show all"
-		}
-		triageAction := "triage"
-		if m.triage {
-			triageAction = "back to groups"
-		}
-		pairs = append(pairs,
-			[2]string{m.tightCap(list, keymap.Search), "search"},
-			[2]string{m.tightCap(list, keymap.StatusFilter), statusAction},
-			[2]string{m.tightCap(list, keymap.Triage), triageAction},
-		)
-	}
-	pairs = append(pairs, [2]string{m.tightCap(list, keymap.LegendPeek), "more"})
-	return legendSection{title: "View", quiet: true, pairs: pairs}
 }
 
 func (m *Model) peekLegendSections() []legendSection {

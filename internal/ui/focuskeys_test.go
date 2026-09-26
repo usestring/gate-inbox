@@ -868,7 +868,7 @@ func TestArchivedRowLegendOffersAttachAndRestore(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "shelved-legend", t.TempDir(), "")
 	m.selectSessionRow(t, "shelved-legend")
-	if live := ansi.Strip(m.viewFooter()); !strings.Contains(live, "↵ focus / fold") {
+	if live := ansi.Strip(m.viewFooter()); !strings.Contains(live, "↵ focus") {
 		t.Fatalf("a live row should offer focus on enter:\n%s", live)
 	}
 

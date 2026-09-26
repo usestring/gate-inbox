@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
@@ -393,7 +392,7 @@ func TestBodyYRangeMatchesListChrome(t *testing.T) {
 		t.Fatalf("start = %d want listChromeRows=%d", start, m.listChromeRows())
 	}
 	// No transient status is showing, so its row is not reserved.
-	wantH := m.height - m.listChromeRows() - 1 - lipgloss.Height(m.viewFooter())
+	wantH := m.height - m.listChromeRows() - 1 - m.footerRows()
 	if wantH < 3 {
 		wantH = 3
 	}

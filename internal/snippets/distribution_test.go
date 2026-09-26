@@ -91,7 +91,7 @@ func TestFirstRunDoesNotWriteTheDistribution(t *testing.T) {
 			t.Fatalf("snippets.json carries %s:\n%s", leaked, written)
 		}
 	}
-	if !strings.Contains(written, `"t"`) {
+	if !strings.Contains(written, `"p"`) {
 		t.Fatalf("snippets.json lost the built-ins the distribution does not supply:\n%s", written)
 	}
 

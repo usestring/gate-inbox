@@ -3,7 +3,7 @@ package app
 import "github.com/usestring/gate-inbox/internal/snippets"
 
 // Snippet is one entry of snippets.json: a key and the text it types into the
-// session in front of the operator and submits. Options.SnippetDefaults is a
+// session in front of the operator, and submits unless AutoSubmit is false. Options.SnippetDefaults is a
 // list of them.
 type Snippet struct {
 	// Key is the bare key: a single letter a-z, bound under ctrl+alt, or one
@@ -13,6 +13,9 @@ type Snippet struct {
 	Label string
 	// Text is what the key sends.
 	Text string
+	// AutoSubmit says whether the key presses Enter after Text. nil submits;
+	// false leaves the text in the prompt.
+	AutoSubmit *bool
 }
 
 // useSnippetDefaults hands the build's snippets to the loader. It is its own
@@ -20,7 +23,7 @@ type Snippet struct {
 func useSnippetDefaults(entries []Snippet) error {
 	converted := make([]snippets.Snippet, len(entries))
 	for i, s := range entries {
-		converted[i] = snippets.Snippet{Key: s.Key, Label: s.Label, Text: s.Text}
+		converted[i] = snippets.Snippet{Key: s.Key, Label: s.Label, Text: s.Text, AutoSubmit: s.AutoSubmit}
 	}
 	_, err := snippets.UseDistribution(converted)
 	return err

@@ -134,6 +134,8 @@ The line is run directly, never through a shell, so nothing in it is expanded an
 
 A known windowed editor (the six above, plus `open` and `xdg-open`) starts detached and the manager stays on screen, with the status line naming what opened. Everything else takes the terminal over the way an attach does and hands it back on exit — that way round because a terminal editor started detached would have nowhere to draw, while a windowed one launched this way only costs a repaint.
 
+Each entry is a `key`, an optional `label`, the `text` it types, and `autoSubmit`. With `autoSubmit` true the key presses Enter after the text, so the session is answered in one key; false types the text and leaves it in the prompt for you to finish and send. An entry without the field submits, which is how every snippet behaved before it was a choice. A first run writes `yes`, `continue`, `open a PR`, `anything else?`, `explain like I'm 5`, `wake up`, `nuke` and the `§` progress summary, all submitting.
+
 Inside a session every `ctrl` combination reaches the program running there, `ctrl+o` included: Claude Code shows more lines with it, and in a [terminal tab](#terminal-tabs) `nano` writes the file out.
 
 ## Sessions in their own checkout

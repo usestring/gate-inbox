@@ -105,7 +105,7 @@ func helpSections() []helpSection {
 			listRow(keymap.ToggleChrome, "hide / show the key hints along the foot"),
 			listRow(keymap.ToggleRail, "hide / show the list beside the pane: the board, under a key"),
 			listRow(keymap.Settings, "settings"),
-			note("settings reopens the welcome guide: the one-card introduction"),
+			note("w on this key map, or settings, reopens the welcome guide"),
 			note("settings: \"on reopen\" and \"outside panes\" set what startup asks"),
 			listRow(keymap.LegendPeek, "peek at every key available for this row"),
 			listRow(keymap.Help, "this key map — and where a binding is changed"),

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
@@ -72,15 +73,77 @@ func TestWelcomeNeverRaisesOverAnotherScreen(t *testing.T) {
 	}
 }
 
-func TestWalkthroughRefusesInPlaceAndSaysSo(t *testing.T) {
-	m := welcomeModel(t)
-	m.maybeOpenWelcome()
-	m.handleWelcomeKey(key("t"))
-	if m.mode != modeWelcome {
-		t.Fatalf("the refusal should keep the card up, mode=%v", m.mode)
+// n on the card is the list's own n: the card closes and a session starts,
+// which is the shortest way from a first run to a first agent.
+func TestNOnTheWelcomeCardStartsAFirstSession(t *testing.T) {
+	m := buildModel(t)
+	m.openWelcome()
+	pressKey(t, m, key("n"))
+	if m.mode == modeWelcome {
+		t.Fatal("n should leave the card")
 	}
-	if !strings.Contains(m.errBar.text, "not built yet") {
-		t.Fatalf("the walkthrough key said nothing about being unavailable: %q", m.errBar.text)
+	if m.mode != modeAgentPick && m.mode != modeFocus {
+		t.Fatalf("n should start a session the way the list's n does, mode=%v err=%q", m.mode, m.errBar.text)
+	}
+}
+
+// The card checks each configured CLI against PATH, because a CLI the board
+// lists but cannot start is the first thing a new install trips on.
+func TestWelcomeCardSaysWhichCLIsAreReady(t *testing.T) {
+	m := welcomeModel(t)
+	m.cfg = config.Config{Tools: map[string]config.Tool{
+		"present": {Command: "sh -c true"},
+		"missing": {Command: "no-such-agent-cli-anywhere --flag"},
+		"shell":   {Command: "sh", Shell: true},
+	}}
+	m.maybeOpenWelcome()
+	body := ansi.Strip(m.viewWelcome())
+	for _, want := range []string{"your agent CLIs", "present — ready", "missing — not found on PATH"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("the card never drew %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "shell —") {
+		t.Fatal("a shell block is not an agent CLI and has no row")
+	}
+}
+
+func TestWelcomeCardSaysWhenNoCLIIsInstalled(t *testing.T) {
+	m := welcomeModel(t)
+	m.cfg = config.Config{Tools: map[string]config.Tool{"missing": {Command: "no-such-agent-cli-anywhere"}}}
+	m.maybeOpenWelcome()
+	if body := ansi.Strip(m.viewWelcome()); !strings.Contains(body, "none is installed") {
+		t.Fatalf("the card should say nothing can start:\n%s", body)
+	}
+}
+
+// Agents already running in tmux are named on the card, and the reopen card
+// that follows is where they are answered for.
+func TestWelcomeCardCountsAgentsAlreadyRunning(t *testing.T) {
+	m := buildModel(t)
+	adoptForeignPane(t, m, "byhand", "byhand", "idle")
+	m.applyCmd(t, nil)
+	m.adoptFirstDone = true
+	m.openWelcome()
+	body := ansi.Strip(m.viewWelcome())
+	if !strings.Contains(body, "1 found in tmux") || !strings.Contains(body, "relaunch it into the board") {
+		t.Fatalf("the card should count the running agent:\n%s", body)
+	}
+	// Once answered it is still running, and O is the way back to it.
+	m.applyPaneChoices(m.outsidePaneCandidates(false), func(store.Session) string { return paneAdopt })
+	if body = ansi.Strip(m.viewWelcome()); !strings.Contains(body, "1 found in tmux and shown on the board as-is. O relaunches") {
+		t.Fatalf("an answered pane should still be counted:\n%s", body)
+	}
+}
+
+// The key map is the one screen everybody finds, so the card that shows once
+// can be reached from it again.
+func TestTheKeyMapReopensTheWelcomeCard(t *testing.T) {
+	m := welcomeModel(t)
+	m.openHelp()
+	m.handleHelpKey(key("w"))
+	if m.mode != modeWelcome {
+		t.Fatalf("w on the key map should open the welcome card, mode=%v", m.mode)
 	}
 }
 
@@ -101,7 +164,7 @@ func TestWelcomeCardDrawsBothAnswers(t *testing.T) {
 	m := welcomeModel(t)
 	m.maybeOpenWelcome()
 	body := ansi.Strip(m.viewWelcome())
-	for _, want := range []string{"Welcome to Gate Inbox", "get started", "take the guided walkthrough", "not built yet"} {
+	for _, want := range []string{"Welcome to Gate Inbox", "get started", "start your first session now", "the five keys that matter"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("the card never drew %q", want)
 		}
@@ -169,7 +232,7 @@ func TestSettingsReopensTheWelcomeGuide(t *testing.T) {
 // what a key does, so every row wraps under itself instead.
 func TestNarrowCardWrapsRatherThanTruncating(t *testing.T) {
 	m := welcomeModel(t)
-	m.width, m.height = 56, 60
+	m.width, m.height = 56, 100
 	m.maybeOpenWelcome()
 	body := ansi.Strip(m.viewWelcome())
 	if strings.Contains(body, "…") {

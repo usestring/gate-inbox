@@ -384,7 +384,7 @@ func (m *Model) helpHint() [][2]string {
 	}
 	return [][2]string{
 		{m.navCap(keymap.ContextList), "select"}, {"↵", "rebind"}, {"r", "default"},
-		{"pgup/pgdn", "page"}, {"/", "search"}, {"esc/q/H", "close"},
+		{"pgup/pgdn", "page"}, {"/", "search"}, {"w", "welcome guide"}, {"esc/q/H", "close"},
 	}
 }
 
@@ -496,6 +496,12 @@ func (m *Model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "q", "?", "H", "shift+h":
 		m.closeHelp()
 		return m, m.startStartupTick()
+	case "w":
+		// The welcome card again, from the one screen every operator finds:
+		// it is where the first-run checklist is, and it shows only once.
+		m.closeHelp()
+		m.openWelcome()
+		return m, nil
 	case "enter":
 		return m.armRebind()
 	case "r":

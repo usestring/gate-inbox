@@ -104,15 +104,16 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 	return sess.Status == status.Idle && !m.ownedByExtension(sess.ID)
 }
 
-// triageLess sorts by whether a person is needed, then the priority tier,
-// then the status rank, then oldest first, so the session blocked longest is
+// triageLess sorts by whether a person is needed, then the status rank, then
+// the priority tier, then oldest first, so the session blocked longest is
 // handed over first and the rail reads as a queue rather than as a ranking.
 //
-// The tier sits under the first key and over the status rank: an urgent
-// session heads the sessions that need a person, or the rest, but never
-// crosses from the second bucket into the first -- the drain hands over the
-// sessions that need somebody before any idle one, urgent or not, and the
-// rail has to read in the order the drain walks. See priority.go.
+// The tier sits under the status rank: an urgent session heads the sessions
+// in the same state as it, but never crosses into a more pressing one -- a
+// question somebody is waiting on this second is handed over before any
+// finished session, urgent or not, and an urgent idle session still waits
+// behind every session that needs a person. The rail has to read in the
+// order the drain walks. See priority.go.
 //
 // LastStatusAt is when the session entered the state it is in, which is
 // exactly how long it has been waiting; the two fields under it only keep
@@ -125,8 +126,8 @@ func (m *Model) triageLess(a, b store.Session) bool {
 }
 
 // triageKey is everything the queue orders by before it falls back to who has
-// waited longest: whether somebody is needed at all, how much the work
-// matters, and the status rank. It is a value rather than three comparisons
+// waited longest: whether somebody is needed at all, the status rank, and
+// how much the work matters. It is a value rather than three comparisons
 // in a row because a parent adopts the best key in its lineage, and "best"
 // has to mean the same thing there as it does here.
 //
@@ -139,10 +140,10 @@ func (k triageKey) before(o triageKey) bool {
 	if k.needs != o.needs {
 		return k.needs < o.needs
 	}
-	if k.priority != o.priority {
-		return k.priority < o.priority
+	if k.tier != o.tier {
+		return k.tier < o.tier
 	}
-	return k.tier < o.tier
+	return k.priority < o.priority
 }
 
 // triageKeyOf reads one session's key. Zero sorts first in each field, so a
@@ -382,9 +383,11 @@ var raisedTiers = []priority.Tier{priority.Urgent, priority.High}
 // order because the ring starts after leftID: an urgent session that came to
 // need somebody while the drain was further down would otherwise wait for
 // the ring to wrap, which is the one thing tiering it was meant to prevent.
-// Medium and Low need no pass of their own -- the ring is walked in rail
-// order, which already has them sorted, and a tier at or below the middle is
-// not a claim on jumping the rotation.
+// A raised pass takes only the sessions in the most pressing state left in
+// its bucket, the way the rail ranks the tier under the state. Medium and
+// Low need no pass of their own -- the ring is walked in rail order, which
+// already has them sorted, and a tier at or below the middle is not a claim
+// on jumping the rotation.
 func (m *Model) nextTriageInput(leftID string, tried map[string]bool) (int, bool) {
 	start := -1
 	for i, row := range m.rows {
@@ -395,51 +398,63 @@ func (m *Model) nextTriageInput(leftID string, tried map[string]bool) (int, bool
 	}
 	var passes []func(store.Session) bool
 	for _, bucket := range []func(store.Session) bool{m.needsPerson, func(s store.Session) bool { return isIdle(s.Status) }} {
+		// A raised tier jumps the ring only among the sessions in the most
+		// pressing state still to hand over, which is where the rail puts
+		// it: an urgent finished session is not a claim on going ahead of a
+		// question somebody is waiting on.
+		top := len(triageTiers) + 1
+		for _, row := range m.rows {
+			if m.triageHandable(row, leftID, tried) && bucket(row.sess) {
+				top = min(top, m.triageRankOf(row.sess))
+			}
+		}
 		for _, tier := range raisedTiers {
-			passes = append(passes, func(s store.Session) bool { return bucket(s) && m.tierOf(s) == tier })
+			passes = append(passes, func(s store.Session) bool {
+				return bucket(s) && m.triageRankOf(s) == top && m.tierOf(s) == tier
+			})
 		}
 		passes = append(passes, bucket)
 	}
 	for _, wanted := range passes {
 		for step := 1; step <= len(m.rows); step++ {
 			i := (start + step) % len(m.rows)
-			row := m.rows[i]
-			if !row.isSession() || row.sess.ID == leftID || tried[row.sess.ID] {
-				continue
+			if row := m.rows[i]; m.triageHandable(row, leftID, tried) && wanted(row.sess) {
+				return i, true
 			}
-			if row.sess.Archived || !wanted(row.sess) {
-				continue
-			}
-			// A subagent is never the row a drain hands over. Its question
-			// is its parent's to answer, and when nobody is coming for it
-			// the parent is lifted to the child's key instead -- see
-			// sortTriageWithChildren -- so the operator lands in the
-			// session that spawned the work, not in the pane under it.
-			if isSubagent(row.sess) {
-				continue
-			}
-			// A muted session is one this drain has already handed over.
-			// It still requires input on paper -- answering a question
-			// does not clear the status until the poller sees the pane
-			// change -- so without this the advance walks back up the
-			// queue it just came down. An idle session stays idle after a
-			// handover too, so the same mark is what moves the walk past
-			// it. See mute.go.
-			if m.isMuted(row.sess) {
-				continue
-			}
-			// A pane that will not act on input cannot be answered, so
-			// handing it over is handing the operator a session they can
-			// only look at -- and it reads "waiting" for as long as it is
-			// wedged, so the drain would return to it every pass. The mark
-			// lapses the moment the pane paints anything. See deaf.go.
-			if m.isDeaf(row.sess) {
-				continue
-			}
-			return i, true
 		}
 	}
 	return 0, false
+}
+
+// triageHandable is whether a drain could hand a row over at all, whatever
+// pass is asking.
+func (m *Model) triageHandable(row treeRow, leftID string, tried map[string]bool) bool {
+	if !row.isSession() || row.sess.ID == leftID || tried[row.sess.ID] || row.sess.Archived {
+		return false
+	}
+	// A subagent is never the row a drain hands over. Its question is its
+	// parent's to answer, and when nobody is coming for it the parent is
+	// lifted to the child's key instead -- see sortTriageWithChildren -- so
+	// the operator lands in the session that spawned the work, not in the
+	// pane under it.
+	if isSubagent(row.sess) {
+		return false
+	}
+	// A muted session is one this drain has already handed over. It still
+	// requires input on paper -- answering a question does not clear the
+	// status until the poller sees the pane change -- so without this the
+	// advance walks back up the queue it just came down. An idle session
+	// stays idle after a handover too, so the same mark is what moves the
+	// walk past it. See mute.go.
+	if m.isMuted(row.sess) {
+		return false
+	}
+	// A pane that will not act on input cannot be answered, so handing it
+	// over is handing the operator a session they can only look at -- and it
+	// reads "waiting" for as long as it is wedged, so the drain would return
+	// to it every pass. The mark lapses the moment the pane paints anything.
+	// See deaf.go.
+	return !m.isDeaf(row.sess)
 }
 
 func isIdle(st string) bool { return st == status.Idle }

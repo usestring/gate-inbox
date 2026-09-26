@@ -1225,7 +1225,7 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "File a session under this one so your fan-out is drawn, and reported, as your fan-out. Use it when a session you spawned came back with no parent_id, which is what a spawn looks like when the manager build serving this session predates nesting: the call succeeded and the row landed as your sibling. You may claim a session nobody owns and release one of your own; another session's child stays its own. Pass release true to take one of your children back to the top level.",
+  "description": "File a session under this one so your fan-out is drawn, and reported, as your fan-out. Use it when a session you spawned came back with no parent_id, which is what a spawn looks like when the manager build serving this session predates nesting: the call succeeded and the row landed as your sibling. You may claim a session nobody owns and release one of your own; another live session's child stays its own. Pass release true to take one of your children back to the top level, or a child whose parent is archived, deleted or no longer running, since that parent never will.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -1234,7 +1234,7 @@
         "type": "string"
       },
       "release": {
-        "description": "true takes one of your own children back out to the top level; omit to adopt",
+        "description": "true takes one of your own children, or a child of a parent that is gone, back out to the top level; omit to adopt",
         "type": "boolean"
       },
       "session_id": {

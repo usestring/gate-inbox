@@ -149,12 +149,12 @@ func (c *conversationView) wrapped(width int) []string {
 		}, ansi.Strip(message.Text))
 		heading := textfmt.TruncateWidth(" "+label+" ", max(1, width-2), "")
 		c.lines = append(c.lines, style.Render("╭"+heading+strings.Repeat("─", max(0, width-2-textfmt.Width(heading)))+"╮"))
-		messageLines := strings.Split(ansi.Hardwrap(ansi.Wrap(text, inner, ""), inner, true), "\n")
+		messageLines := markdownLines(text, inner)
 		if c.compact && len(messageLines) > 4 {
-			messageLines = append(messageLines[:4:4], textfmt.TruncateWidth(fmt.Sprintf("… %d more lines", len(messageLines)-4), inner, "…"))
+			messageLines = append(messageLines[:4:4], mutedStyle.Render(textfmt.TruncateWidth(fmt.Sprintf("… %d more lines", len(messageLines)-4), inner, "…")))
 		}
 		for _, line := range messageLines {
-			c.lines = append(c.lines, style.Render("│")+" "+padRight(valueStyle.Render(line), inner)+" "+style.Render("│"))
+			c.lines = append(c.lines, style.Render("│")+" "+padRight(line, inner)+" "+style.Render("│"))
 		}
 		c.lines = append(c.lines, style.Render("╰"+strings.Repeat("─", max(0, width-2))+"╯"), "")
 	}

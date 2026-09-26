@@ -9,37 +9,24 @@ import (
 	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
-func TestDefaultLegendIsTwoFocusedRows(t *testing.T) {
+func TestDefaultLegendIsOneSessionRow(t *testing.T) {
 	m := buildModel(t)
 	m.width, m.height = 100, 40
 	createSession(t, m, "legend", t.TempDir(), "")
 	m.applyCmd(t, m.refreshCmd())
 
 	footer := ansi.Strip(m.viewFooter())
-	if got := lipgloss.Height(footer); got != 2 {
-		t.Fatalf("default footer takes %d rows, want 2:\n%s", got, footer)
+	if got := lipgloss.Height(footer); got != 1 {
+		t.Fatalf("default footer takes %d rows, want 1:\n%s", got, footer)
 	}
-	for _, want := range []string{"focus / fold", "prompt", "end", "editor", "navigate", "new", "search", "attention", "triage", "? more"} {
+	for _, want := range []string{"Session", "focus", "prompt", "end", "editor"} {
 		if !strings.Contains(footer, want) {
 			t.Errorf("default footer is missing %q:\n%s", want, footer)
 		}
 	}
-	for _, hidden := range []string{"fork", "rename", "restart", "settings", "quit"} {
+	for _, hidden := range []string{"fork", "rename", "restart", "settings", "quit", "navigate", "triage", "View"} {
 		if strings.Contains(footer, hidden) {
 			t.Errorf("default footer still advertises %q:\n%s", hidden, footer)
-		}
-	}
-}
-
-func TestDefaultLegendAlwaysKeepsQuestionMark(t *testing.T) {
-	m := buildModel(t)
-	createSession(t, m, "pinned", t.TempDir(), "")
-	m.applyCmd(t, m.refreshCmd())
-	for _, width := range []int{40, 60, 80, 100} {
-		m.width, m.height = width, 40
-		footer := ansi.Strip(m.viewFooter())
-		if !strings.Contains(footer, "? more") {
-			t.Errorf("%d-column footer dropped the peek key:\n%s", width, footer)
 		}
 	}
 }

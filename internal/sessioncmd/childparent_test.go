@@ -87,6 +87,47 @@ func TestSessionsCreateUnnestedTakesTheRequestedGroup(t *testing.T) {
 	}
 }
 
+// A child detaching a spawn gets the same top-level row a top-level caller
+// does. It used to be filed under the child's own parent, where the store then
+// swapped the group asked for for that parent's, so the call succeeded and the
+// session landed back in the fan-out it was meant to leave. The caller is
+// still recorded as the session that spawned it.
+func TestSessionsCreateUnnestedFromAChildTakesTheRequestedGroup(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	elsewhere := "somewhere-else"
+	if err := h.store.CreateGroup(elsewhere, ""); err != nil {
+		t.Fatalf("CreateGroup: %v", err)
+	}
+	child, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "probe-one"})
+	if err != nil {
+		t.Fatalf("Create child: %v", err)
+	}
+	unnested := false
+	created, err := h.sessions.Create(child.ID, CreateSessionOptions{
+		Name: "probe-one-a", Group: &elsewhere, Nest: &unnested,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	stored, err := h.store.Get(created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if stored.ParentID != "" {
+		t.Fatalf("un-nested session has parent %q", stored.ParentID)
+	}
+	if stored.Group != elsewhere {
+		t.Fatalf("group = %q, want %q", stored.Group, elsewhere)
+	}
+	if stored.SpawnedBy != child.ID {
+		t.Fatalf("spawned_by = %q, want the session that spawned it %q", stored.SpawnedBy, child.ID)
+	}
+	if created.ParentID != "" {
+		t.Fatalf("returned parent_id = %q, want empty", created.ParentID)
+	}
+}
+
 // The store carries one level of parenthood, so a grandchild is filed beside
 // the caller rather than under it. Erroring instead would make a child that
 // fans out again fail for a reason nothing in its prompt explains.

@@ -924,6 +924,13 @@ func (m *Model) archiveConfirmed(live map[string]bool) string {
 		// next poll: the tree filters on what is in hand, and a row that
 		// stays a poll longer reads as an archive that did not take.
 		m.markArchivedLocally(filed, missing)
+		// A session this archive ended takes its queue with it, and each
+		// sender hears which of its messages went.
+		for _, id := range killed {
+			if _, err := m.store.ResolveEndedRecipient(id, time.Now()); err != nil {
+				failed = append(failed, err.Error())
+			}
+		}
 	}
 	// The group row itself only follows its sessions once they have all
 	// gone; a group marked archived over a session still running is the

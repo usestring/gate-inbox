@@ -992,6 +992,50 @@ func TestPollDropsAnAdoptedRowOnceItsPaneIsGone(t *testing.T) {
 	}
 }
 
+// A session that dies on its own with messages still queued takes them with
+// it: the pass that finds it dead drops each one as its recipient ended, and
+// tells the session that sent them.
+func TestPollDropsTheQueueOfASessionThatDied(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "sender", t.TempDir(), "")
+	createSession(t, m, "worker", t.TempDir(), "")
+	ids := map[string]string{}
+	for _, row := range m.sessionRows() {
+		ids[row.Name] = row.ID
+	}
+	sender, worker := ids["sender"], ids["worker"]
+	if sender == "" || worker == "" {
+		t.Fatalf("want both sessions on the board, got %+v", m.sessionRows())
+	}
+	queued, _, err := m.store.Enqueue(store.InboxMessage{
+		SessionID: worker, SenderID: sender, SenderName: "sender",
+		Body: "rebase on main", Fingerprint: "rebase on main", SentAt: time.Now(),
+	}, store.DefaultInboxLimits)
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if err := m.tmux.Kill(worker); err != nil {
+		t.Fatalf("Kill: %v", err)
+	}
+
+	m.applyCmd(t, m.refreshCmd())
+	msg, err := m.store.Message(queued, sender)
+	if err != nil {
+		t.Fatalf("Message: %v", err)
+	}
+	if msg.DroppedAt.IsZero() || msg.DropReason != store.DropRecipientEnded {
+		t.Fatalf("a message queued for a session that died reads %+v, want dropped because its recipient ended", msg)
+	}
+	pending := true
+	notices, err := m.store.Inbox(sender, store.InboxFilter{SenderID: worker, Pending: &pending, Limit: 10})
+	if err != nil {
+		t.Fatalf("Inbox: %v", err)
+	}
+	if len(notices) != 1 || !strings.Contains(notices[0].Body, fmt.Sprint(queued)) {
+		t.Fatalf("the sender's notices from the dead session = %+v, want one naming message %d", notices, queued)
+	}
+}
+
 // The managed half is untouched: a session the manager started keeps its dead
 // row, which holds the name, group and history revive puts an agent back
 // into.

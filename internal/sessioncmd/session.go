@@ -1022,6 +1022,10 @@ func (s *Sessions) MessageStatus(sessionID string, messageID int64) (MessageStat
 		state.Reason = fmt.Sprintf("%s replaced it with message %d on the same subject before it was typed in; that message is the one the agent reads", replacer, msg.SupersededBy)
 	// A drop stamps the delivery column as well, so that a message nothing
 	// will ever type leaves the queue, and is read first for that reason.
+	case !msg.DroppedAt.IsZero() && msg.DropReason == store.DropRecipientEnded:
+		state.State = "dropped"
+		state.Reason = fmt.Sprintf("%s: session %s ended before it was typed in, and nothing will deliver it now; revive it with %s and send it again if it is still needed",
+			store.DropRecipientEnded, msg.SessionID, runtime.words.Revive)
 	case !msg.DroppedAt.IsZero():
 		state.State = "dropped"
 		state.Reason = "Gate Inbox could not type it into the pane, and never retries a message; send it again"
@@ -1100,7 +1104,7 @@ type MessageState struct {
 	MessageID   int64  `json:"message_id"`
 	SessionID   string `json:"session_id" jsonschema:"session the message was addressed to"`
 	Body        string `json:"body"`
-	State       string `json:"state" jsonschema:"queued (waiting for the agent to be at rest), superseded (a later message from you on the same subject replaced it), held (nothing will type it in as things stand: the recipient is sitting on a dialog, has a person typing or a draft at its prompt, is archived or not running, and reason says which), delivered (typed into its prompt), dropped (it never reached the prompt and is not retried), or answered (it has since messaged back)"`
+	State       string `json:"state" jsonschema:"queued (waiting for the agent to be at rest), superseded (a later message from you on the same subject replaced it), held (nothing will type it in as things stand: the recipient is sitting on a dialog, has a person typing or a draft at its prompt, is archived or not running, and reason says which), delivered (typed into its prompt), dropped (it never reached the prompt and is not retried; reason starts 'recipient ended' when the session it was sent to ended first), or answered (it has since messaged back)"`
 	DeliveredAt string `json:"delivered_at,omitempty" jsonschema:"RFC3339 time the message reached the prompt"`
 	Reason      string `json:"reason,omitempty" jsonschema:"why the message is in that state, and what to do about it"`
 	Interrupt   bool   `json:"interrupt,omitempty" jsonschema:"sent with interrupt: the recipient's running turn is stopped before it is typed in, unless a dialog is showing"`
@@ -1256,6 +1260,9 @@ func (s *Sessions) kill(sessionID, targetID string, terminals bool, via extensio
 	if err := s.endSession(runtime, target, store.EndKilled); err != nil {
 		return Session{}, err
 	}
+	if _, err := runtime.store.ResolveEndedRecipient(target.ID, time.Now()); err != nil {
+		return Session{}, err
+	}
 	target.Status = status.Dead
 	if !runtime.cfg.Tools[target.Tool].Shell {
 		sessionhooks.Killed(target, via, sessionID)
@@ -1338,6 +1345,9 @@ func (s *Sessions) file(runtime *runtime, target store.Session, archived bool) (
 		// would otherwise read its status from.
 		pane, _ := runtime.driver.CapturePane(target.ID)
 		if err := s.endSessionWith(runtime, target, pane, store.EndArchived); err != nil {
+			return Session{}, err
+		}
+		if _, err := runtime.store.ResolveEndedRecipient(target.ID, time.Now()); err != nil {
 			return Session{}, err
 		}
 		target.Status = status.Dead

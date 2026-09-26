@@ -772,6 +772,9 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 	// observer only once the write that stores them has landed: a pass that
 	// errors drops both, and the next pass derives the same move again.
 	var moved []transition
+	// ended is every session this pass found newly dead, whose queue is
+	// resolved once the write that says so has landed.
+	var ended []string
 	flushRowState := func() error {
 		if len(rowState) == 0 {
 			return nil
@@ -968,6 +971,9 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 			if err := p.relayChildRest(sess, newStatus); err != nil {
 				return errMsg{err}
 			}
+			if newStatus == status.Dead {
+				ended = append(ended, sess.ID)
+			}
 		}
 	}
 	// Everything the loop queued and did not have to flush early, in one
@@ -975,6 +981,14 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 	step := time.Now()
 	if err := flushRowState(); err != nil {
 		return errMsg{err}
+	}
+	// Only now, with the dead status stored: the store drops a queue only
+	// for a row that reads dead, so a pane a restart is relaunching keeps
+	// what was sent to it.
+	for _, id := range ended {
+		if _, err := p.store.ResolveEndedRecipient(id, now); err != nil {
+			return errMsg{err}
+		}
 	}
 	phases.writes += lap(&step)
 	phases.derive = lap(&mark)

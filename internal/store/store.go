@@ -321,6 +321,7 @@ CREATE TABLE IF NOT EXISTS settings (
 		`ALTER TABLE session_inbox ADD COLUMN subject TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE session_inbox ADD COLUMN superseded_by INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE session_inbox ADD COLUMN interrupt INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE session_inbox ADD COLUMN drop_reason TEXT NOT NULL DEFAULT ''`,
 		`CREATE INDEX IF NOT EXISTS session_inbox_subject ON session_inbox (session_id, sender_id, subject, delivered_at)`,
 		`CREATE TABLE IF NOT EXISTS tasks (
 			id               TEXT PRIMARY KEY,

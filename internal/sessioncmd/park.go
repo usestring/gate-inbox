@@ -99,14 +99,11 @@ func (s *Sessions) Park(sessionID string, dryRun bool) (result ParkResult, err e
 	if err != nil {
 		return ParkResult{}, err
 	}
-	// This process holds no adopted registry, so the rows have to tell the
-	// driver where their panes are before the scan can say whether they
-	// are up.
+	// The scan can only say whether an adopted pane is up once reach has
+	// told the driver where it is.
 	for _, sess := range sessions {
-		if sess.TmuxPaneID != "" {
-			if err := runtime.driver.Adopt(sess.ID, tmux.Target{Socket: sess.TmuxSocket, Name: sess.TmuxPaneID}); err != nil {
-				return ParkResult{}, err
-			}
+		if err := runtime.reach(sess); err != nil {
+			return ParkResult{}, err
 		}
 	}
 	scan, err := runtime.driver.ScanPanes()
@@ -493,7 +490,14 @@ func (s *Sessions) endSessionWith(runtime *runtime, target store.Session, pane, 
 				return err
 			}
 		}
-		if err := runtime.driver.Kill(target.ID); err != nil {
+		kill := runtime.driver.Kill
+		if _, adopted := runtime.driver.AdoptedTarget(target.ID); adopted {
+			// Registered only by a command that named this session and
+			// called reach, so a pane the manager did not start dies here
+			// only when it was asked for by id.
+			kill = runtime.driver.KillAdopted
+		}
+		if err := kill(target.ID); err != nil {
 			return err
 		}
 	}

@@ -5,8 +5,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/adopt"
+	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/migrate"
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -37,10 +40,6 @@ func (m *Model) openAccountSwitch() {
 	}
 	if tool.AccountEnv == "" {
 		m.errBar.text = entry.sess.Tool + " cannot be launched on a chosen account (no account_env)"
-		return
-	}
-	if entry.sess.TmuxPaneID != "" {
-		m.errBar.text = entry.sess.Name + " is a pane the manager did not start; take it over first"
 		return
 	}
 	m.errBar.text = ""
@@ -118,7 +117,15 @@ func (m *Model) submitAccountSwitch() (tea.Model, tea.Cmd) {
 		m.errBar.text = sess.Name + " is already on " + m.account.names[m.account.index]
 		return m, nil
 	}
-	account, err = launch.AccountForSwitch(m.cfg.Tools[sess.Tool], sess.TmuxPaneID != "", account)
+	relaunch := false
+	if sess.TmuxPaneID != "" {
+		var err error
+		if sess, relaunch, err = m.takeOverPane(sess); err != nil {
+			m.errBar.text = err.Error()
+			return m, nil
+		}
+	}
+	account, err = launch.AccountForSwitch(m.cfg.Tools[sess.Tool], false, account)
 	if err != nil {
 		m.errBar.text = err.Error()
 		return m, nil
@@ -144,7 +151,7 @@ func (m *Model) submitAccountSwitch() (tea.Model, tea.Cmd) {
 			m.sessions[i].Account = account
 		}
 	}
-	if m.tmux.Exists(sess.ID) {
+	if m.tmux.Exists(sess.ID) || relaunch {
 		if err := m.resumeSession(sess); err != nil {
 			m.reportLaunchError(err)
 			return m, nil
@@ -154,6 +161,71 @@ func (m *Model) submitAccountSwitch() (tea.Model, tea.Cmd) {
 	m.rebuildRows()
 	m.requestRefresh()
 	return m, nil
+}
+
+// takeOverPane makes an adopted row the manager's own without asking: the
+// conversation is read off the agent's process while it is still up, the
+// pane is ended, and the row is promoted. It reports whether it ended a live
+// pane, which is what decides whether the caller relaunches it: a pane that
+// was already gone only needs the promotion, so a dead adopted row switches
+// like any dead row. A relaunch that fails leaves the row dead and promoted,
+// where v revives it: the pane is already gone, and a dead managed row is
+// what park leaves too.
+func (m *Model) takeOverPane(sess store.Session) (store.Session, bool, error) {
+	tool, known := m.cfg.Tools[sess.Tool]
+	if !known {
+		return sess, false, fmt.Errorf("tool %s is no longer configured", sess.Tool)
+	}
+	if tool.Shell {
+		return sess, false, fmt.Errorf("%s is a shell, not an agent", sess.Name)
+	}
+	promote := func(convID, cwd string) (store.Session, error) {
+		if err := m.store.PromoteAdopted(sess.ID, cwd, convID); err != nil {
+			return sess, err
+		}
+		promoted := sess
+		promoted.TmuxSocket, promoted.TmuxPaneID = "", ""
+		promoted.Cwd, promoted.AgentSessionID = cwd, convID
+		promoted.Status = status.Dead
+		for i := range m.sessions {
+			if m.sessions[i].ID == sess.ID {
+				m.sessions[i] = promoted
+			}
+		}
+		return promoted, nil
+	}
+	if !m.tmux.Exists(sess.ID) {
+		promoted, err := promote(sess.AgentSessionID, sess.Cwd)
+		return promoted, false, err
+	}
+	convID, cwd := sess.AgentSessionID, sess.Cwd
+	if sess.Tool == "claude" {
+		if pid, err := m.tmux.PanePID(sess.ID); err == nil && pid != 0 {
+			if session, ok := convo.ClaudeSessionInTree(
+				convo.LiveClaudeSessions(convo.ClaudeHome()), adopt.NewProcTable().PIDs(int32(pid))); ok {
+				convID = session.SessionID
+				if session.Cwd != "" {
+					cwd = session.Cwd
+				}
+			}
+		}
+	}
+	// A tool that resumes by id needs the id: relaunching on its continue
+	// command would resume the directory's most recent conversation, which
+	// is the wrong one whenever panes share a checkout, and the pane would
+	// already be gone. Better to leave it where it is and say so.
+	if convID == "" && tool.ResumeByIDCommand != "" {
+		return sess, false, fmt.Errorf("no conversation id could be read off its process, so %s stays in its pane", sess.Name)
+	}
+	if !isDir(cwd) {
+		return sess, false, fmt.Errorf("working directory no longer exists: %s", cwd)
+	}
+	if err := m.endSession(sess, m.tmux.KillAdopted); err != nil {
+		return sess, false, err
+	}
+	m.tmux.Release(sess.ID)
+	promoted, err := promote(convID, cwd)
+	return promoted, true, err
 }
 
 func (m *Model) viewAccountSwitch() string {

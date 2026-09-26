@@ -18,11 +18,11 @@ func TestConfirmRendersAsADialog(t *testing.T) {
 	m.confirm = confirmTarget{
 		action:   actionArchive,
 		sessions: []store.Session{{ID: "one", Name: "builder"}},
-		label:    "end builder? frees its RAM, t finds it.",
+		label:    "kill builder? frees its RAM, t finds it.",
 	}
 
 	out := ansi.Strip(m.frame())
-	for _, want := range []string{"End session", "end builder?", "frees its RAM", "cancel"} {
+	for _, want := range []string{"Kill session", "kill builder?", "frees its RAM", "cancel"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("confirm dialog missing %q:\n%s", want, out)
 		}
@@ -39,8 +39,8 @@ func TestConfirmTitleNamesTheAct(t *testing.T) {
 		isGroup bool
 		want    string
 	}{
-		{actionArchive, false, "End session"},
-		{actionArchive, true, "End group"},
+		{actionArchive, false, "Kill session"},
+		{actionArchive, true, "Kill group"},
 		{actionRestart, false, "Restart session"},
 		{actionRestore, false, "Restore session"},
 	}
@@ -88,10 +88,10 @@ func TestConfirmWarnsBeforeEndingSomeoneElsesPane(t *testing.T) {
 		title  string
 		want   []string
 	}{
-		{actionArchive, adoptedArchiveLabel(sess), "End someone else's pane", []string{
+		{actionArchive, adoptedArchiveLabel(sess), "Kill someone else's pane", []string{
 			"the manager did not start refactor.",
 			"it is pane %12 on tmux server default.",
-			"end it?",
+			"kill it?",
 			"this kills the pane, not just the row:",
 			"the agent running in it dies, and whatever it has not saved dies with it.",
 		}},
@@ -138,16 +138,16 @@ func TestAdoptedConsequenceIsPaintedAsAnAlarm(t *testing.T) {
 	m.confirm = confirmTarget{
 		action:   actionArchive,
 		sessions: []store.Session{{ID: "two", Name: "refactor"}},
-		label:    "end refactor? frees its RAM, t finds it.",
+		label:    "kill refactor? frees its RAM, t finds it.",
 	}
 	if m.confirmAdopted() != 0 {
 		t.Fatal("a session the manager started is not an adopted pane")
 	}
-	if got := m.confirmTitle(); !strings.Contains(got, "End session") {
+	if got := m.confirmTitle(); !strings.Contains(got, "Kill session") {
 		t.Fatalf("a managed archive keeps its own title, got %q", got)
 	}
 	frame = m.frame()
-	if styleOf(t, frame, "end refactor?") == styleOf(t, frame, "frees its RAM") {
+	if styleOf(t, frame, "kill refactor?") == styleOf(t, frame, "frees its RAM") {
 		t.Fatal("an ordinary archive should still set its consequence at the quieter weight")
 	}
 }

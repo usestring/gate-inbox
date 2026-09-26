@@ -126,7 +126,7 @@ selected agent for builds and one-off commands.
 | `/` | Fuzzy search; `esc` clears it |
 | `p` | Priority tier for a session or group; higher tiers go first in triage |
 | `T` | Shell tab under the selected agent |
-| `x` / `v` | End a session to free its RAM / revive it on its own conversation |
+| `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |
 | `f` | Fork the conversation into a new session |
 | `H` / `s` | Key map for the current screen / settings |
 

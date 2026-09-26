@@ -19,7 +19,7 @@ func TestDefaultLegendIsTwoFocusedRows(t *testing.T) {
 	if got := lipgloss.Height(footer); got != 2 {
 		t.Fatalf("default footer takes %d rows, want 2:\n%s", got, footer)
 	}
-	for _, want := range []string{"focus / fold", "prompt", "end", "navigate", "new", "search", "attention", "triage", "? more"} {
+	for _, want := range []string{"focus / fold", "prompt", "kill", "navigate", "new", "search", "attention", "triage", "? more"} {
 		if !strings.Contains(footer, want) {
 			t.Errorf("default footer is missing %q:\n%s", want, footer)
 		}

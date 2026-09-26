@@ -55,7 +55,7 @@ func (m *Model) advancesOnLeave() bool {
 // screen while a pane is focused; the setting has no scope to name.
 func (m *Model) leaveAdvanceHint() string {
 	if m.triage && m.triageScope != "" {
-		return "mute this, next in " + baseName(m.triageScope)
+		return "skip, next in " + baseName(m.triageScope)
 	}
-	return "mute this, next needing input"
+	return "skip, next needing input"
 }

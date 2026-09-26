@@ -69,9 +69,9 @@ func (m *Model) loadKeys() {
 
 // keyName is the name a press is matched under. msg.String() answers with
 // the text a terminal reported where it has one, and an enhanced keyboard
-// protocol reports text for an alt-modified rune -- so alt+o arrives as a
-// plain "o" there and would be forwarded to the agent instead of opening an
-// editor. Rebuilding the name from the code and the modifiers is what the
+// protocol reports text for an alt-modified rune -- so alt+. arrives as a
+// plain "." there and would be forwarded to the agent instead of dismissing
+// the session. Rebuilding the name from the code and the modifiers is what the
 // focused handler already did by hand for its three keys; every screen reads
 // keys through it now, because any of them can be rebound onto a chord.
 func keyName(msg tea.KeyMsg) string {

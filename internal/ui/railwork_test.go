@@ -234,7 +234,7 @@ func TestFoldAllReachesSessionWork(t *testing.T) {
 	}
 }
 
-// ↵ and o open the artifact itself; nothing else on the row does.
+// ↵ opens the artifact itself; nothing else on the row does.
 func TestArtifactRowOpensItsLink(t *testing.T) {
 	m := railWorkModel(t)
 	m.selectSessionRow(t, "add-rate-limiting")
@@ -246,7 +246,7 @@ func TestArtifactRowOpensItsLink(t *testing.T) {
 	openBrowser = func(target string) error { opened <- target; return nil }
 	t.Cleanup(func() { openBrowser = restore })
 
-	for _, key := range []tea.KeyPressMsg{{Code: tea.KeyEnter}, {Code: 'o', Text: "o"}} {
+	for _, key := range []tea.KeyPressMsg{{Code: tea.KeyEnter}} {
 		m.cursor = m.artifactRowIndexes()[0]
 		_, cmd := m.handleKey(key)
 		if cmd == nil {

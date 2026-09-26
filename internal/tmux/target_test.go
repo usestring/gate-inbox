@@ -247,8 +247,8 @@ func TestAdoptedSessionRefusesOwnerOnlyOperations(t *testing.T) {
 }
 
 // bind-key -n and the theme options are server-wide. Sent to a user's own
-// server they would seize C-q, C-\, C-r and M-o across every session that
-// person has open, so they stay on the manager's socket whatever is adopted.
+// server they would seize C-q and C-\ across every session that person has
+// open, so they stay on the manager's socket whatever is adopted.
 func TestServerGlobalWritesStayOnTheManagerSocket(t *testing.T) {
 	driver := requireTmux(t)
 	t.Cleanup(func() { clearPaneTheme(t) })
@@ -279,7 +279,7 @@ func TestServerGlobalWritesStayOnTheManagerSocket(t *testing.T) {
 		if len(fields) < 4 {
 			continue
 		}
-		for _, seized := range []string{"C-q", "C-r", "M-o"} {
+		for _, seized := range []string{"C-q", `C-\`} {
 			if fields[3] == seized {
 				t.Fatalf("the foreign server had %s rebound: %q", seized, line)
 			}
@@ -300,7 +300,13 @@ func TestServerGlobalWritesStayOnTheManagerSocket(t *testing.T) {
 	if err != nil {
 		t.Fatalf("manager list-keys: %v: %s", err, managerKeys)
 	}
-	if !strings.Contains(string(managerKeys), requestOption) {
+	carried := false
+	for _, line := range strings.Split(string(managerKeys), "\n") {
+		if fields := strings.Fields(line); len(fields) >= 4 && fields[3] == "C-q" {
+			carried = true
+		}
+	}
+	if !carried {
 		t.Fatalf("the manager socket should carry the bindings:\n%s", managerKeys)
 	}
 }

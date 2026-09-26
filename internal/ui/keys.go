@@ -153,7 +153,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		switch action {
-		case keymap.Open, keymap.Editor:
+		case keymap.Open:
 			if entry.art.url == "" {
 				m.errBar.text = entry.art.label + " has no link to open"
 				return m, nil
@@ -329,8 +329,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.requestRefresh()
 	case keymap.NewTerminal:
 		return m.terminalKey()
-	case keymap.Editor:
-		return m.openEditor()
 	case keymap.EmptyGroups:
 		return m, m.toggleEmptyGroups()
 	case keymap.Triage:
@@ -767,14 +765,6 @@ func (m *Model) afterListFilter(previousKey string) tea.Cmd {
 		return m.schedulePreview()
 	}
 	return nil
-}
-
-// warn carries a PrepareAttach failure: shown to the user, but the attach
-// still proceeds, unlike err which cancels it.
-type reattachPreparedMsg struct {
-	sessID string
-	err    error
-	warn   string
 }
 
 // captureClipboardImage is the seam the quick bar uses to save a pasted

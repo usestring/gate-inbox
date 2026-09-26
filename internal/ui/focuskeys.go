@@ -476,8 +476,8 @@ func (m *Model) releaseHeldAck() tea.Cmd {
 }
 
 // handleFocusKey forwards every key into the focused pane. Ctrl+Q and
-// ctrl+\ return to the list, alt+o opens the editor and ctrl+x archives the
-// session, and every plain character - q included - reaches the agent.
+// ctrl+\ return to the list, ctrl+x archives the session, and every plain
+// character - q included - reaches the agent.
 //
 // § is ctrl+q's one-press alias and reads the same in both modes: in triage
 // it hands over, outside it returns to the manager. In triage mode ctrl+q
@@ -580,22 +580,17 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	// alt+o opens the session's directory in an editor, matching the binding
-	// a real attach gets, and the list's own o; ctrl+x archives, matching the
-	// list's x. A windowed editor leaves the focus where it is; one that
-	// draws in the terminal takes it back on exit.
-	//
-	// The editor stays on alt because everything this handler does not claim
-	// reaches the agent, and alt+o is a key nothing behind it wanted. Archive
-	// is the deliberate exception: ctrl+x is readline's kill-line prefix and an
-	// agent's line editor answers it, so claiming it does take a working key
-	// away from the pane. A one-chord archive from inside a focused session is
-	// worth that trade; alt+x goes back to the agent to pay for it.
+	// ctrl+x archives, matching the list's x. Everything this handler does
+	// not claim reaches the agent, and archive is a deliberate exception:
+	// ctrl+x is readline's kill-line prefix and an agent's line editor
+	// answers it, so claiming it does take a working key away from the pane.
+	// A one-chord archive from inside a focused session is worth that trade;
+	// alt+x goes back to the agent to pay for it.
 	//
 	// Matched on the name rebuilt from the code and the modifiers rather
 	// than on String(), which answers with Key.Text where a terminal reports
 	// one - and an enhanced keyboard protocol does report text for an
-	// alt-modified rune, which would leave the key reading as a plain "o"
+	// alt-modified rune, which would leave the key reading as a plain letter
 	// and forwarding on. See keyName.
 	if bound {
 		switch {
@@ -612,8 +607,6 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Back to the gate you just stepped past, the way v1's `,`
 			// reopened the previous one.
 			return m.gateBack()
-		case action == keymap.Editor:
-			return m.openEditor()
 		case action == keymap.Dismiss:
 			// The skip a one-at-a-time drain needs: a session that turns
 			// out to want nothing is taken off the queue from inside it,

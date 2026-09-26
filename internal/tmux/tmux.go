@@ -36,10 +36,10 @@ const SocketEnv = "GATE_INBOX_TMUX_SOCKET"
 
 // requestOption is the global tmux user option the in-session bindings set
 // on their way out, naming what the manager should do with the session they
-// just detached from.
+// just detached from. No binding sets it any more, but a server that
+// outlived an update can still carry one that does, so the manager reads
+// and clears it on every detach.
 const requestOption = "@gi_request"
-
-const RequestEditor = "editor"
 
 type Driver struct {
 	bin    string
@@ -390,8 +390,8 @@ func (d *Driver) refuseAdopted(id, operation string) error {
 // $TMUX, so the manager -- which runs inside a pane itself -- would aim at
 // whatever server it is sitting in. args names the manager's own server and
 // never an adopted one, because what rides on it is server-wide: the same
-// bind-key -n that gives a managed session C-q, C-\, C-r and M-o would seize
-// those four keys across every session on the server. That server is now the
+// bind-key -n that gives a managed session C-q and C-\ would seize those
+// keys across every session on the server. That server is now the
 // operator's own by default, so the server-wide work is filtered before it
 // gets here -- see owned. Work scoped to one session goes through argsAt.
 func (d *Driver) args(a ...string) []string {
@@ -709,22 +709,19 @@ func attachStatusRight(primary, secondary string) string {
 			break
 		}
 	}
-	return " Gate Inbox · Alt+o = editor · " + strings.Join(exits, " / ") + " = back "
+	return " Gate Inbox · " + strings.Join(exits, " / ") + " = back "
 }
 
 func (d *Driver) EnsureBindings() error {
 	inSession := "#{m:" + prefix + "*,#{session_name}}"
-	request := func(name string) string {
-		return "set-option -g " + requestOption + " " + name + " ; detach-client"
-	}
 	binds := [][]string{
 		{"bind-key", "-n", "C-q", "if-shell", "-F", inSession, "detach-client", "send-keys C-q"},
 		{"bind-key", "-n", `C-\`, "if-shell", "-F", inSession, "detach-client", `send-keys C-\\`},
-		{"bind-key", "-n", "M-o", "if-shell", "-F", inSession, request(RequestEditor), "send-keys M-o"},
-		// The editor used to sit on C-o, which Claude Code and readline
-		// both bind, and later on F3; C-r opened the review the manager
-		// no longer has. A server that outlives the update still carries those
-		// bindings until they are dropped.
+		// The editor key sat on C-o, then F3, then M-o until the action was
+		// removed; C-r opened the review the manager no longer has. A server
+		// that outlives the update still carries those bindings until they
+		// are dropped.
+		{"unbind-key", "-n", "M-o"},
 		{"unbind-key", "-n", "C-o"},
 		{"unbind-key", "-n", "C-r"},
 		{"unbind-key", "-n", "F3"},

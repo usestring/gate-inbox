@@ -37,13 +37,13 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `K` / `J` (or `shift+↑` / `shift+↓`) | Reorder session or group among its visible siblings |
 | `m` | Move a session to a group, a terminal into a session, or a group under another group |
 | `r` | Name a session: ask its agent to name itself (`/rename`, or the same request in prose). On an adopted pane, derive the name from its conversation. On a group, open the group card on it: name, parent and default path |
-| `x` | End the selected session, or the whole subtree under a group: kills the pane, frees the RAM its agent held, and files the row in the archive under `t` |
+| `x` | Kill the selected session, or the whole subtree under a group: kills the pane, frees the RAM its agent held, and files the row in the archive under `t` |
 | `X` | Archive every session in view. The confirmation carries a tick box (`space`) as well as the `y`, because one keystroke is the wrong price for every session on screen |
 | `v` | Revive a dead session, or every dead session under a group. On a session that is still running it restarts the agent on the conversation it is already on |
 | `V` | Revive every dead session in view |
 | `O` | Take over the adopted panes: restart each idle one as a managed session on its own conversation now, and the busy ones as they go idle. Asks first |
 | `R` | Restart the selected session on an empty context: same name, group, directory and tool |
-| `u` | Restore a session or group out of the archive, resuming what it held. The act is `end`; the archive is where the row lands, the way a deleted file lands in a trash can |
+| `u` | Restore a session or group out of the archive, resuming what it held. The act is `kill`; the archive is where the row lands, the way a deleted file lands in a trash can |
 | `U` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed end as well as a silent one |
 | `space` | Quick prompt: answer the selected session, or spawn an agent in the selected group |
 | `F` | Fold / unfold every group |
@@ -74,7 +74,7 @@ Settings (`s`) has an `on leaving a session` row for it — `list` (the default,
 
 Press `F2` to switch between **Typing** and **Menu**, shown at the top. The choice stays
 on as the queue advances. Typing sends text to the agent. Menu uses plain keys:
-`.` skip, `l` back, `q` exit, `x` end, `n` new, `y` copy ID, `o` editor.
+`.` skip, `l` back, `q` exit, `x` kill, `n` new, `y` copy ID, `o` editor.
 `Home` jumps to the top of the pane's history; `End` returns to live output.
 Numbers, arrows and `Enter` still answer the agent's menu. Switch to Typing for a written answer.
 The gate starts in Typing; `alt+Home` and `alt+End` reach history there too.

@@ -495,12 +495,12 @@ func (m *Model) archiveSelected() (tea.Model, tea.Cmd) {
 		// count in the note is what warns about them.
 		subtree := stillLive(m.sessionsInGroup(entry.group))
 		_, adopted := splitAdopted(subtree)
-		label := fmt.Sprintf("end group %s (%d sessions)? frees their RAM, t finds them, %s.%s",
+		label := fmt.Sprintf("kill group %s (%d sessions)? frees their RAM, t finds them, %s.%s",
 			entry.group, len(subtree), archiveWindowPhrase, adoptedSetNote(len(adopted)))
 		if len(subtree) == 0 {
 			// An empty group is still worth filing away, and saying it holds
 			// no sessions beats an "(0 sessions)" the reader has to decode.
-			label = fmt.Sprintf("end group %s? nothing is running in it, t finds it.", entry.group)
+			label = fmt.Sprintf("kill group %s? nothing is running in it, t finds it.", entry.group)
 		}
 		m.confirm = confirmTarget{
 			isGroup:  true,
@@ -566,7 +566,7 @@ func (m *Model) archiveConfirmFor(sess store.Session) (confirmTarget, bool) {
 			spawned = append(spawned, kid)
 		}
 	}
-	label := followConfirmLabel("end", sess.Name, len(sessions)-1-len(spawned),
+	label := followConfirmLabel("kill", sess.Name, len(sessions)-1-len(spawned),
 		"frees its RAM, t finds it, "+archiveWindowPhrase+".",
 		"frees their RAM, t finds them, "+archiveWindowPhrase+".")
 	if len(sessions) == 1 && sessions[0].TmuxPaneID != "" {
@@ -603,15 +603,15 @@ func spawnedChildrenNote(m *Model, spawned []store.Session) string {
 func (m *Model) archiveAllLive() (tea.Model, tea.Cmd) {
 	managed, adopted := splitAdopted(stillLive(m.listedSessions()))
 	if len(managed) == 0 {
-		m.errBar.text = sweepEmptyText("nothing to end", len(adopted))
+		m.errBar.text = sweepEmptyText("nothing to kill", len(adopted))
 		return m, nil
 	}
 	m.confirm = confirmTarget{
 		action:   actionArchive,
 		sessions: managed,
-		label: fmt.Sprintf("end every session listed (%d)? frees their RAM, t finds them, %s.%s",
+		label: fmt.Sprintf("kill every session listed (%d)? frees their RAM, t finds them, %s.%s",
 			len(managed), archiveWindowPhrase, sweepSkippedNote(len(adopted))),
-		ack: fmt.Sprintf("yes, end all %d and start their 7 days", len(managed)),
+		ack: fmt.Sprintf("yes, kill all %d and start their 7 days", len(managed)),
 	}
 	m.mode = modeConfirmDelete
 	return m, nil
@@ -631,7 +631,7 @@ func (m *Model) killSession(sess store.Session) error {
 	// the sweep that later clears what the archive left, each of which
 	// spells out that the pane and its agent die.
 	if sess.TmuxPaneID != "" {
-		return fmt.Errorf("%s is a pane the manager did not start: end it from its own row, which warns first", sess.Name)
+		return fmt.Errorf("%s is a pane the manager did not start: kill it from its own row, which warns first", sess.Name)
 	}
 	return m.endSession(sess, m.tmux.Kill)
 }
@@ -1150,7 +1150,7 @@ func adoptedSetNote(adopted int) string {
 // not. An operator draining a queue at speed has to
 // read that here, in the same words the kill and delete dialogs use.
 func adoptedArchiveLabel(sess store.Session) string {
-	return fmt.Sprintf("the manager did not start %s. it is %s. end it? this kills the pane, not just the row: the agent running in it dies, and whatever it has not saved dies with it. t finds the row again, the agent is gone.",
+	return fmt.Sprintf("the manager did not start %s. it is %s. kill it? this kills the pane, not just the row: the agent running in it dies, and whatever it has not saved dies with it. t finds the row again, the agent is gone.",
 		sess.Name, adoptedWhere(sess))
 }
 

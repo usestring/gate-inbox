@@ -20,9 +20,10 @@ func sessionID(t *testing.T, m *Model, name string) string {
 	return ""
 }
 
-// A raised session heads the sessions that need a person, whatever it has
-// been waiting, but a raised idle session still waits behind every one that
-// does: the rail has to read in the order the drain walks.
+// A raised session never jumps a more pressing state: an urgent finished
+// session waits behind every question and error, and an urgent idle session
+// behind every session that needs a person. The rail has to read in the order
+// the drain walks.
 func TestPriorityLiftsWithinTheTriageBucket(t *testing.T) {
 	m := buildModel(t)
 	seedTriageFleet(t, m)
@@ -35,7 +36,7 @@ func TestPriorityLiftsWithinTheTriageBucket(t *testing.T) {
 	loadStoredRows(t, m)
 	pressKey(t, m, key("i"))
 
-	want := []string{"reviewme", "old-block", "new-block", "crashed", "napping", "grinder", "booting", "gone"}
+	want := []string{"old-block", "new-block", "crashed", "reviewme", "napping", "grinder", "booting", "gone"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
@@ -47,7 +48,8 @@ func TestPriorityLiftsWithinTheTriageBucket(t *testing.T) {
 }
 
 // A group's tier covers its subtree, so every session filed under it goes
-// first, and a session moved out of the group sheds it with the group.
+// first among the sessions in its state, and a session moved out of the
+// group sheds it with the group.
 func TestGroupPriorityCoversTheSubtree(t *testing.T) {
 	m := buildModel(t)
 	seedTriageFleet(t, m)
@@ -57,14 +59,16 @@ func TestGroupPriorityCoversTheSubtree(t *testing.T) {
 	loadStoredRows(t, m)
 	pressKey(t, m, key("i"))
 
-	want := []string{"new-block", "crashed", "old-block", "reviewme", "napping", "grinder", "booting", "gone"}
+	want := []string{"new-block", "old-block", "crashed", "reviewme", "napping", "grinder", "booting", "gone"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
 }
 
 // The drain reaches a raised session before the ring carries on from where
-// it left off, which is the whole point of raising one mid-drain.
+// it left off, which is the whole point of raising one mid-drain -- but only
+// among the sessions in its state: a raised finished session still waits for
+// the error ahead of it.
 func TestTriageDrainHandsOverPriorityFirst(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{
@@ -88,7 +92,7 @@ func TestTriageDrainHandsOverPriorityFirst(t *testing.T) {
 		}
 	}
 	m.rebuildRows()
-	for _, want := range []string{"done", "broke", "spare", "rest"} {
+	for _, want := range []string{"broke", "done", "spare", "rest"} {
 		updated, _ := m.handleFocusKey(ctrlQ())
 		m = updated.(*Model)
 		if m.mode != modeFocus {
@@ -130,12 +134,16 @@ func TestPriorityKeyCyclesTheSession(t *testing.T) {
 	}
 }
 
-// The tiers order among themselves inside the bucket, so the queue reads
-// urgent, high, then the ones nobody has tiered, then low.
+// The tiers order among themselves inside each state, so the queue reads
+// urgent, high, then the ones nobody has tiered, then low -- and a tier never
+// carries a session past a more pressing state.
 func TestTiersOrderWithinTheBucket(t *testing.T) {
 	m := buildModel(t)
 	seedTriageFleet(t, m)
-	if err := m.store.SetPriority(sessionID(t, m, "new-block"), priority.Low); err != nil {
+	if err := m.store.SetPriority(sessionID(t, m, "old-block"), priority.Low); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.SetPriority(sessionID(t, m, "new-block"), priority.High); err != nil {
 		t.Fatal(err)
 	}
 	if err := m.store.SetPriority(sessionID(t, m, "crashed"), priority.Urgent); err != nil {
@@ -147,7 +155,7 @@ func TestTiersOrderWithinTheBucket(t *testing.T) {
 	loadStoredRows(t, m)
 	pressKey(t, m, key("i"))
 
-	want := []string{"crashed", "reviewme", "old-block", "new-block", "napping", "grinder", "booting", "gone"}
+	want := []string{"new-block", "old-block", "crashed", "reviewme", "napping", "grinder", "booting", "gone"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
@@ -181,5 +189,46 @@ func TestPriorityKeyTogglesTheGroupAndRefusesRoot(t *testing.T) {
 	pressKey(t, m, key("p"))
 	if m.errBar.text == "" {
 		t.Fatal("p on root said nothing")
+	}
+}
+
+// A tier ranks a session among the sessions in its state and never past a
+// more pressing one: turning triage on hands over the question first, even
+// with an urgent finished session on the board, and the rail agrees.
+func TestARaisedTierNeverJumpsAMorePressingState(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{
+		"ask":   status.Waiting,
+		"broke": status.Errored,
+		"done":  status.Finished,
+		"rest":  status.Idle,
+	})
+	if err := m.store.SetPriority(sessionID(t, m, "done"), priority.Urgent); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.SetPriority(sessionID(t, m, "rest"), priority.Urgent); err != nil {
+		t.Fatal(err)
+	}
+	loadStoredRows(t, m)
+	pressKey(t, m, key("i"))
+
+	if got, want := sessionNames(m), []string{"ask", "broke", "done", "rest"}; !slices.Equal(got, want) {
+		t.Fatalf("triage order = %v want %v", got, want)
+	}
+	if m.mode != modeFocus {
+		t.Fatalf("turning triage on entered nothing: %s", m.errBar.text)
+	}
+	if got := focusedName(t, m); got != "ask" {
+		t.Fatalf("the queue opened on %q want ask", got)
+	}
+	for _, want := range []string{"broke", "done", "rest"} {
+		updated, _ := m.handleFocusKey(ctrlQ())
+		m = updated.(*Model)
+		if m.mode != modeFocus {
+			t.Fatalf("ctrl+q dropped out of the queue before %q: %s", want, m.errBar.text)
+		}
+		if got := focusedName(t, m); got != want {
+			t.Fatalf("ctrl+q landed on %q want %q", got, want)
+		}
 	}
 }

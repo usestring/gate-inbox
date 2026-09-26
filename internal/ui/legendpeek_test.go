@@ -137,7 +137,7 @@ func TestLegendPeekOverlaysWithoutChangingFooterOrFrameHeight(t *testing.T) {
 		t.Fatalf("peek changed frame height from %d to %d", lipgloss.Height(before), lipgloss.Height(after))
 	}
 	plain := ansi.Strip(after)
-	if !strings.Contains(plain, "Available") || !strings.Contains(plain, "H full key map") {
+	if !strings.Contains(plain, "Available") || !strings.Contains(plain, "h full key map") {
 		t.Fatalf("peek did not overlay the full applicable legend:\n%s", plain)
 	}
 }

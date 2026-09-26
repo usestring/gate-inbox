@@ -389,7 +389,7 @@ func TestGateFooterNamesTheSessionControls(t *testing.T) {
 	footer := m.viewFooter()
 	for _, want := range []string{
 		"reply", "skip", "exit", "top", "bottom",
-		"end", "new", "copy ID", "back",
+		"kill", "new", "copy ID", "back",
 	} {
 		if !strings.Contains(footer, want) {
 			t.Errorf("gate footer is missing %q:\n%s", want, footer)

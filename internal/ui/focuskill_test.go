@@ -78,10 +78,10 @@ func TestFocusedArchiveKeyAsksBeforeItActs(t *testing.T) {
 	m = updated.(*Model)
 
 	frame := ansi.Strip(m.frame())
-	if !strings.Contains(frame, "End session") {
+	if !strings.Contains(frame, "Kill session") {
 		t.Fatalf("ctrl+x painted no dialog:\n%s", frame)
 	}
-	if !strings.Contains(frame, "end ask") {
+	if !strings.Contains(frame, "kill ask") {
 		t.Fatalf("the dialog does not name the session it would end:\n%s", frame)
 	}
 	if !m.tmux.Exists(sess.ID) {
@@ -176,7 +176,7 @@ func TestTheFocusedFooterNamesTheArchive(t *testing.T) {
 	m.mode = modeFocus
 
 	footer := ansi.Strip(m.viewFooter())
-	if !strings.Contains(footer, "ctrl+x") || !strings.Contains(footer, "end") {
+	if !strings.Contains(footer, "ctrl+x") || !strings.Contains(footer, "kill") {
 		t.Errorf("the focused footer never names the key that ends the session:\n%s", footer)
 	}
 }
@@ -214,7 +214,7 @@ func TestAltXReachesTheAgentNowThatArchiveMovedToCtrl(t *testing.T) {
 	updated, _ := m.handleKey(altX)
 	m = updated.(*Model)
 
-	if frame := ansi.Strip(m.frame()); strings.Contains(frame, "End session") {
+	if frame := ansi.Strip(m.frame()); strings.Contains(frame, "Kill session") {
 		t.Fatalf("alt+x still archives, so the agent never got the key back:\n%s", frame)
 	}
 	if _, ok := focusKeyCommand("gi_x", altX); !ok {

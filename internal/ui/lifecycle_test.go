@@ -1377,7 +1377,7 @@ func TestArchiveAllNeedsTheTickFirst(t *testing.T) {
 	if !m.confirm.acked || m.confirm.nudged {
 		t.Fatalf("space should tick the box, acked=%v nudged=%v", m.confirm.acked, m.confirm.nudged)
 	}
-	if card := cardText(m); !strings.Contains(card, "[x] yes, end all 2") {
+	if card := cardText(m); !strings.Contains(card, "[x] yes, kill all 2") {
 		t.Fatalf("a ticked box should read as ticked:\n%s", card)
 	}
 
@@ -1762,7 +1762,7 @@ func TestArchiveAgentConfirmNamesExtraTerminals(t *testing.T) {
 	spawnTerminal(t, m)
 	m.selectSessionRow(t, "coder")
 	m.archiveSelected()
-	want := "end coder and 2 terminals? frees their RAM, t finds them, deleted for good after 7 days."
+	want := "kill coder and 2 terminals? frees their RAM, t finds them, deleted for good after 7 days."
 	if m.confirm.label != want {
 		t.Fatalf("label = %q, want %q", m.confirm.label, want)
 	}
@@ -1828,7 +1828,7 @@ func TestArchiveAllLeavesAdoptedPanesAlone(t *testing.T) {
 	if m.mode != modeConfirmDelete {
 		t.Fatalf("archive all should ask first, mode = %v, err = %q", m.mode, m.errBar.text)
 	}
-	if want := "end every session listed (1)?"; !strings.Contains(m.confirm.label, want) {
+	if want := "kill every session listed (1)?"; !strings.Contains(m.confirm.label, want) {
 		t.Fatalf("the sweep should count only its own sessions, label = %q", m.confirm.label)
 	}
 	if want := "1 adopted pane stays up"; !strings.Contains(m.confirm.label, want) {
@@ -1879,7 +1879,7 @@ func TestArchiveAdoptedPaneWarnsThenEndsIt(t *testing.T) {
 		t.Fatalf("archive should ask first, mode = %v, err = %q", m.mode, m.errBar.text)
 	}
 	for _, want := range []string{
-		"the manager did not start borrowed", pane, socket, "end it?",
+		"the manager did not start borrowed", pane, socket, "kill it?",
 		"kills the pane, not just the row", "the agent running in it dies",
 	} {
 		if !strings.Contains(m.confirm.label, want) {
@@ -1919,7 +1919,7 @@ func TestArchiveAdoptedDialogRendersTheWarning(t *testing.T) {
 
 	frame := flattenFrame(m.frame())
 	for _, want := range []string{
-		"End someone else's pane",
+		"Kill someone else's pane",
 		"the manager did not start borrowed",
 		"pane " + pane + " on tmux server " + socket,
 		"kills the pane, not just the row",

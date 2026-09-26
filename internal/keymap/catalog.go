@@ -161,8 +161,8 @@ var Catalog = []Binding{
 	{ContextList, ReviveAll, []string{"V", "shift+v"}, "revive every dead session", false},
 	{ContextList, SwitchAccount, []string{"a"}, "switch its account: restarts it on its own conversation", false},
 	{ContextList, Restart, []string{"R", "shift+r"}, "restart it on an empty context", false},
-	{ContextList, Archive, []string{"x"}, "end it and file the row", false},
-	{ContextList, ArchiveAll, []string{"X", "shift+x"}, "end every session listed", false},
+	{ContextList, Archive, []string{"x"}, "kill it and file the row", false},
+	{ContextList, ArchiveAll, []string{"X", "shift+x"}, "kill every session listed", false},
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
 	{ContextList, Dismiss, []string{"."}, "dismiss: mark it idle, or mute it", false},
 	{ContextList, Priority, []string{"p"}, "priority: it goes first in triage", false},
@@ -209,7 +209,7 @@ var Catalog = []Binding{
 	// character the agent was owed.
 	{ContextFocus, ToggleChrome, []string{"alt+,"}, "hide / show the key hints along the foot", false},
 	{ContextFocus, ToggleRail, []string{`alt+\`}, "hide / show the list beside the pane", false},
-	{ContextFocus, Archive, []string{"ctrl+x"}, "end it, asking first", false},
+	{ContextFocus, Archive, []string{"ctrl+x"}, "kill it, asking first", false},
 	// The gate's own session controls, reached from inside it: v1's gate view
 	// offered the same rows on its menu, and a drain that had to leave the
 	// queue to spawn, copy an id or step back was not one queue.

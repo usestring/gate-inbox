@@ -94,6 +94,49 @@ func TestAnswersFocusedIsOnlyTheKeyThatAnswers(t *testing.T) {
 	}
 }
 
+// A composer line that opens one of the CLI's own commands is not a turn, so
+// Enter on it must not hand the session over: "/models" and its kin open a
+// picker or a settings pane, and a drain that proceeded would leave the
+// picker behind on a session it had walked away from. Every CLI the board
+// drives reads a leading "/" the same way, so the guard is read off the line
+// rather than keyed to opencode.
+func TestAnswersFocusedIgnoresACommandTypedAtPrompt(t *testing.T) {
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatalf("default config: %v", err)
+	}
+	engine, err := status.NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("engine: %v", err)
+	}
+	cases := []struct {
+		name   string
+		tool   string
+		row    string
+		caretX int
+		want   bool
+	}{
+		{"a claude command", "claude", "❯ /model", 8, false},
+		{"an opencode command", "opencode", "  ┃  /models", 12, false},
+		// A slash inside a message is not a command: the line is a message
+		// that happens to name a path, and Enter still submits it.
+		{"a slash inside a message", "claude", "❯ open /etc/hosts", 17, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := &Model{engine: engine, mode: modeFocus}
+			m.preview = "\n" + c.row + "\n"
+			m.pane.forID = "s1"
+			m.pane.box.height, m.pane.box.width = 2, 80
+			m.pane.cursor = paneCursor{x: c.caretX, y: 1, ok: true}
+			sess := store.Session{ID: "s1", Tool: c.tool}
+			if got := m.answersFocused(sess, tea.KeyPressMsg{Code: tea.KeyEnter}); got != c.want {
+				t.Fatalf("answersFocused(%q) = %v, want %v", c.row, got, c.want)
+			}
+		})
+	}
+}
+
 // A pane the operator has scrolled back through is showing history, so the
 // row under the caret says nothing about where the next key lands.
 func TestAnswersFocusedIgnoresAScrolledBackPane(t *testing.T) {

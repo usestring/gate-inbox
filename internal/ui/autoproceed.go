@@ -84,10 +84,15 @@ func (m *Model) autoProceeds() bool {
 //
 // Two gestures count, and only two. A selection dialog is answered by Enter
 // on the highlighted row or by the number of a row, and either one closes the
-// question the drain handed the session over for. An input line with
-// something typed into it is answered by Enter, which submits it. Everything
+// question the drain handed the session over for. An input line with a
+// message typed into it is answered by Enter, which submits it. Everything
 // else is a keystroke on the way to one of those: a character, an arrow, a
 // space toggling a checkbox, Enter on an empty prompt.
+//
+// A line opening one of the CLI's own commands is not a message, so Enter
+// there is not the second gesture: it runs the command -- a model picker, a
+// settings pane -- rather than giving the agent a turn, and the drain must
+// stay where it is. See commandTypedAtPrompt.
 //
 // A dialog with a question stepper is the exception to the first gesture,
 // and the stepper says so: Enter on a question there is a step along it --
@@ -112,7 +117,10 @@ func (m *Model) answersFocused(sess store.Session, msg tea.KeyMsg) bool {
 		}
 		return key.Code == tea.KeyEnter || (key.Code >= '1' && key.Code <= '9')
 	}
-	return key.Code == tea.KeyEnter && m.textTypedAtPrompt(sess.ID, sess.Tool)
+	if key.Code != tea.KeyEnter {
+		return false
+	}
+	return m.textTypedAtPrompt(sess.ID, sess.Tool) && !m.commandTypedAtPrompt(sess.ID, sess.Tool)
 }
 
 // handOverFocused is ctrl+q's handover reached without ctrl+q: mute the

@@ -388,3 +388,37 @@ func TestTheScanRecordsTheConversationAPaneIsRunning(t *testing.T) {
 		t.Fatalf("row %+v err %v, want the sidecar's conversation", row, err)
 	}
 }
+
+// Lost sessions are asked about on the first pass even while the adopt scan
+// is still running, so the card never lands late on an operator mid-task;
+// the panes that scan then finds get one line pointing at O.
+func TestTheCardDoesNotWaitForTheScanWhenSessionsWereLost(t *testing.T) {
+	m := buildModel(t)
+	m.restoreArmed = true
+	lostSession(t, m, "lost")
+	m.applyCmd(t, nil)
+	if m.mode != modeRestorePrompt {
+		t.Fatalf("the card should open on the first pass, mode = %v", m.mode)
+	}
+	pressKey(t, m, key("n"))
+	m.noteAdopted(adoptedMsg{taken: 1, ids: []string{"late"}})
+	if m.mode != modeList || !strings.Contains(m.errBar.text, "O to relaunch") {
+		t.Fatalf("a late pane should get one line, mode = %v notice = %q", m.mode, m.errBar.text)
+	}
+}
+
+// With nothing lost, the card waits for the scan that finds the panes.
+func TestAPanesOnlyCardWaitsForTheFirstScan(t *testing.T) {
+	m := buildModel(t)
+	m.restoreArmed = true
+	adoptForeignPane(t, m, "byhand", "byhand", status.Idle)
+	m.applyCmd(t, nil)
+	if m.mode != modeList || m.restoreAsked {
+		t.Fatalf("the card opened before the scan answered, mode = %v", m.mode)
+	}
+	m.noteAdopted(adoptedMsg{})
+	m.applyCmd(t, nil)
+	if m.mode != modeRestorePrompt || len(m.restore.panes) != 1 {
+		t.Fatalf("after the scan the card should ask about the pane, mode = %v", m.mode)
+	}
+}

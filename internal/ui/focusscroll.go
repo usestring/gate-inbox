@@ -41,7 +41,7 @@ const (
 
 // scrollKindOf turns a scroll action into the gesture it stands for. The
 // keys themselves live in the key map now -- they are all alt-modified by
-// default for the same reason alt+o and alt+x are, since every unmodified
+// default for the same reason alt+. and alt+, are, since every unmodified
 // key belongs to the agent and PgUp or the arrows drive its own prompt --
 // and this is the one place the six actions are read as one family.
 func scrollKindOf(action keymap.Action) focusScrollKind {

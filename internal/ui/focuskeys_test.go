@@ -5,7 +5,6 @@ package ui
 import (
 	"fmt"
 	"os/exec"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -33,9 +32,10 @@ func TestFocusKeyCommand(t *testing.T) {
 		{"enter", tea.KeyPressMsg{Code: tea.KeyEnter}, "send-keys -t gi_x Enter", true},
 		{"escape", tea.KeyPressMsg{Code: tea.KeyEsc}, "send-keys -t gi_x Escape", true},
 		{"ctrl-c", tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}, "send-keys -t gi_x C-c", true},
-		// The editor sits on alt+o now, so ctrl+o reaches the agent: Claude
-		// Code and Gemini CLI both bind it.
+		// ctrl+o and alt+o reach the agent: Claude Code and Gemini CLI both
+		// bind ctrl+o, and no manager action claims either.
 		{"ctrl-o", tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl}, "send-keys -t gi_x C-o", true},
+		{"alt-o", tea.KeyPressMsg{Code: 'o', Mod: tea.ModAlt}, "send-keys -t gi_x -H 1b 6f", true},
 		{"tab-not-ctrl-i", tea.KeyPressMsg{Code: tea.KeyTab}, "send-keys -t gi_x Tab", true},
 		{"enter-not-ctrl-m", tea.KeyPressMsg{Code: tea.KeyEnter}, "send-keys -t gi_x Enter", true},
 		{"shift-tab", tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}, "send-keys -t gi_x BTab", true},
@@ -371,40 +371,8 @@ func TestFocusCtrlRStaysInFocus(t *testing.T) {
 	}
 }
 
-// alt+o opens the focused session's directory the way the list's o does,
-// and a windowed editor leaves the focus where it was.
-func TestFocusAltOOpensEditor(t *testing.T) {
-	m := buildModel(t)
-	launched := captureEditor(t, "code")
-	dir := t.TempDir()
-	createSession(t, m, "focusedit", dir, "")
-	m.selectSessionRow(t, "focusedit")
-
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	*m = *updated.(*Model)
-	if m.mode != modeFocus {
-		t.Fatalf("after enter, mode = %v, err = %q", m.mode, m.errBar.text)
-	}
-
-	updated, cmd := m.handleKey(tea.KeyPressMsg{Code: 'o', Mod: tea.ModAlt})
-	*m = *updated.(*Model)
-	if cmd == nil {
-		t.Fatalf("alt+o in focus returned no launch, err = %q", m.errBar.text)
-	}
-	m.applyCmd(t, cmd)
-
-	if want := []string{"code", resolved(t, dir)}; !slices.Equal(*launched, want) {
-		t.Fatalf("launched %v, want %v", *launched, want)
-	}
-	if m.mode != modeFocus {
-		t.Fatalf("a windowed editor should leave the focus alone, mode = %v", m.mode)
-	}
-	if !strings.Contains(m.errBar.text, "code") {
-		t.Fatalf("status line should name the editor, got %q", m.errBar.text)
-	}
-}
-
-// An editor that took the terminal hands it back with mouse reporting off.
+// An editor that took the terminal (the snippets file opens in one) hands it
+// back with mouse reporting off.
 // v2 reapplies it from the view on the next frame rather than from a command,
 // so this asserts the frame, not the batch.
 func TestFocusEditorThatTookTheScreenRearmsMouse(t *testing.T) {

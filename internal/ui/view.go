@@ -542,7 +542,7 @@ func (m *Model) viewFooter() string {
 		// own gestures; the row is what alt+, and the chrome setting hide.
 		//
 		// Answers stay ahead of secondary controls in the two-row budget;
-		// editor and copy remain discoverable in H.
+		// those that do not fit remain discoverable in H.
 		pairs := [][2]string{
 			{"1-9 / ↵", "answer"},
 			{m.gateCap(keymap.Dismiss), "skip"},
@@ -563,7 +563,6 @@ func (m *Model) viewFooter() string {
 			{m.gateCap(keymap.NewSession), "new"},
 			{m.gateCap(keymap.CopySessionID), "copy ID"},
 			{m.gateCap(keymap.LastPane), "back"},
-			{m.gateCap(keymap.Editor), "editor"},
 		}...)
 		return m.transientFooter(legendSection{title: "Gate", pairs: pairs})
 	}
@@ -606,7 +605,6 @@ func (m *Model) viewFooter() string {
 			pairs = append(append([][2]string{}, exits...), [2]string{"typing", "goes to the agent"})
 		}
 		pairs = append(pairs,
-			[2]string{m.fullCap(keymap.ContextFocus, keymap.Editor), "editor"},
 			// Named on the footer rather than left to the key map: it is
 			// destructive, and a key nobody knows about is a key nobody
 			// uses on purpose and somebody eventually hits by accident.
@@ -649,7 +647,7 @@ func (m *Model) defaultRowLegend() legendSection {
 		if m.collapsed[row.group] {
 			action = "unfold"
 		}
-		pairs := [][2]string{{openKey, action}, {m.tightCap(keymap.ContextList, keymap.Editor), "editor"}}
+		pairs := [][2]string{{openKey, action}}
 		if m.applies(keymap.ContextList, keymap.Archive, row) {
 			pairs = append(pairs, [2]string{m.capJoin(keymap.ContextList, "/", keymap.Archive, keymap.ArchiveAll), "end / all"})
 		}
@@ -688,7 +686,6 @@ func (m *Model) defaultRowLegend() legendSection {
 	}
 	pairs = append(pairs,
 		[2]string{m.tightCap(keymap.ContextList, keymap.Archive), "end"},
-		[2]string{m.tightCap(keymap.ContextList, keymap.Editor), "editor"},
 	)
 	return legendSection{title: title, pairs: pairs}
 }
@@ -739,7 +736,7 @@ func (m *Model) rowLegend() legendSection {
 			title = "Ticket"
 		}
 		return legendSection{title: title, pairs: [][2]string{
-			{m.capJoin(keymap.ContextList, "/", keymap.Open, keymap.Editor), "open"},
+			{m.tightCap(keymap.ContextList, keymap.Open), "open"},
 			{m.tightCap(keymap.ContextList, keymap.StepOut), "fold"},
 			{m.navCap(keymap.ContextList), "navigate"},
 		}}
@@ -754,7 +751,7 @@ func (m *Model) rowLegend() legendSection {
 			action keymap.Action
 			text   string
 		}{
-			{keymap.Editor, "editor"}, {keymap.RenameSelf, "rename"}, {keymap.Move, "move"},
+			{keymap.RenameSelf, "rename"}, {keymap.Move, "move"},
 			{keymap.Priority, priorityLegend(m.priorityGroups[row.group])},
 			{keymap.Archive, "end"}, {keymap.Revive, "revive"}, {keymap.Restore, "restore"},
 		} {

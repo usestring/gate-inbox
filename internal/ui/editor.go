@@ -51,8 +51,8 @@ var (
 		if err := cmd.Start(); err != nil {
 			return err
 		}
-		// The manager runs for days at a time; without this every o would
-		// leave the finished editor process behind holding its pipes.
+		// The manager runs for days at a time; without this every launch
+		// would leave the finished editor process behind holding its pipes.
 		go func() { _ = cmd.Wait() }()
 		return nil
 	}
@@ -63,18 +63,6 @@ type editorDoneMsg struct {
 	path       string
 	err        error
 	tookScreen bool
-}
-
-func (m *Model) openEditor() (tea.Model, tea.Cmd) {
-	if _, ok := m.selectedRow(); !ok {
-		return m, nil
-	}
-	dir, ok := m.rowDir()
-	if !ok {
-		m.errBar.text = "directory no longer exists: " + dir
-		return m, nil
-	}
-	return m.launchEditor(dir)
 }
 
 func (m *Model) launchEditor(path string) (tea.Model, tea.Cmd) {

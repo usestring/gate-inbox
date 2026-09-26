@@ -275,11 +275,11 @@ type Config struct {
 	// other. Naming a socket here puts them back on a server of their own,
 	// which nothing else on the machine shares.
 	TmuxSocket string `toml:"tmux_socket"`
-	// Editor is the command the o key opens a directory in, arguments
+	// Editor is the command Settings opens the snippets file in, arguments
 	// included. Empty falls back to $GATE_INBOX_EDITOR, then a GUI
 	// editor found on PATH, then $VISUAL / $EDITOR, and last to a
 	// terminal editor on PATH -- so this is an override rather than
-	// something that has to be set before a key which opens a path works.
+	// something that has to be set before the file can be opened.
 	Editor string `toml:"editor"`
 	// NameSweepPace is how long the bulk rename sweep waits between panes.
 	// Every message it sends starts a turn in somebody's live agent, so the
@@ -711,11 +711,11 @@ const defaultConfig = `poll_interval = "2s"
 # level = "trace" is the only setting under which captured pane text
 # reaches the log, and secrets are scrubbed even then.
 
-# The editor "o" opens a directory in, arguments allowed: "code -n", or
-# "open -a 'Visual Studio Code'". Quotes group an argument that carries a
-# space; the line is run directly, never through a shell. Left unset,
-# Gate Inbox takes $GATE_INBOX_EDITOR, then the first GUI editor on
-# PATH (code, cursor, windsurf, zed, subl, idea), then $VISUAL or $EDITOR,
+# The editor Settings opens the snippets file in, arguments allowed:
+# "code -n", or "open -a 'Visual Studio Code'". Quotes group an argument
+# that carries a space; the line is run directly, never through a shell.
+# Left unset, Gate Inbox takes $GATE_INBOX_EDITOR, then the first GUI editor
+# on PATH (code, cursor, windsurf, zed, subl, idea), then $VISUAL or $EDITOR,
 # and last a terminal editor on PATH (nvim, vim, nano, vi). Setting this is
 # how you override that order, not how you switch the editor on.
 # editor = "code"

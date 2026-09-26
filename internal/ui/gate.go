@@ -47,7 +47,7 @@ var gateMenuKeys = []struct {
 }{
 	{".", keymap.Dismiss}, {"q", keymap.LeaveHard},
 	{"x", keymap.Archive}, {"n", keymap.NewSession},
-	{"y", keymap.CopySessionID}, {"l", keymap.LastPane}, {"o", keymap.Editor},
+	{"y", keymap.CopySessionID}, {"l", keymap.LastPane},
 	{"home", keymap.PreviewTop}, {"end", keymap.PreviewBottom},
 	{"pgup", keymap.PreviewPageUp}, {"pgdown", keymap.PreviewPageDown},
 }

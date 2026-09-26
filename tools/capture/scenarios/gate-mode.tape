@@ -33,7 +33,7 @@ Sleep 1s
 
 # alt+l is the step back the gate shares with v1's `,`: the session just
 # skipped reopens and its mute is lifted. The footer beside it names the rest
-# of the session controls -- end, launch, copy id, editor -- and alt+, hides
+# of the session controls -- end, launch, copy id -- and alt+, hides
 # the row. Spelled escape-then-l for the same reason as alt+.
 Escape
 Type "l"

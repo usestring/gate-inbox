@@ -162,10 +162,6 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 		m.errBar.text = err.Error()
 		return m, nil
 	}
-	if m.gate.on && m.focusedID != sess.ID && m.quick.active {
-		m.quick.active = false
-		m.quick.release()
-	}
 	m.mode = modeFocus
 	// Recorded here rather than at the top: every guard above returns
 	// without a pane on screen, and a refusal must not count as a session
@@ -448,10 +444,6 @@ func textBeforeCaret(engine *status.Engine, tool, row string, caretX int) bool {
 // to the terminal here would let a wheel notch scroll the manager out of
 // view, so the list swallows the wheel instead.
 func (m *Model) leaveFocus() tea.Cmd {
-	if m.gate.on && m.quick.active {
-		m.quick.active = false
-		m.quick.release()
-	}
 	m.mode = modeList
 	m.sel = focusSelection{}
 	m.pending = pendingClick{}
@@ -525,44 +517,6 @@ func (m *Model) releaseHeldAck() tea.Cmd {
 // is the measurement.
 func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	action, bound := m.action(keymap.ContextFocus, msg)
-	if m.gate.on {
-		if bound && action == keymap.ToggleGateInput {
-			m.gate.menu = !m.gate.menu
-			m.sel = focusSelection{}
-			m.pending = pendingClick{}
-			m.clearForwardingMouse()
-			return m, nil
-		}
-		if m.showsConversation() {
-			if bound && action == keymap.ToggleConversation {
-				m.toggleConversation()
-				return m, nil
-			}
-			if m.quick.active && !(bound && (action == keymap.Leave || action == keymap.LeaveHard || action == keymap.HandOver)) {
-				if press, ok := msg.(tea.KeyPressMsg); ok {
-					return m.handleQuickKey(press)
-				}
-				return m, nil
-			}
-			if keyName(msg) == "space" {
-				m.openQuickMode()
-				return m, nil
-			}
-		}
-		// A snippet is the one unbound key the menu lets through: a bare ±
-		// is unmodified and would otherwise be read as a menu letter.
-		_, snip := m.snippetFor(msg.String())
-		if m.gate.menu && !bound && !snip && msg.Key().Mod&^tea.ModShift == 0 {
-			if menuAction, ok := gateMenuAction(keyName(msg)); ok {
-				action, bound = menuAction, true
-			} else {
-				return m, nil
-			}
-		}
-		if m.gate.menu && !bound && !snip {
-			return m, nil
-		}
-	}
 	if bound && (action == keymap.Leave || action == keymap.LeaveHard || action == keymap.HandOver) {
 		leftID := ""
 		sess, onRow := m.selected()
@@ -570,13 +524,6 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			leftID = sess.ID
 		}
 		if action == keymap.LeaveHard || !m.advancesOnLeave() {
-			// ctrl+\ is the way out of the run, and out of the gate with
-			// it: the operator asking to stop here means the drain is over,
-			// so the rail and the queue they had before it come back rather
-			// than being left for them to undo by hand.
-			if m.gate.on {
-				return m, tea.Batch(m.leaveFocus(), m.disarmGate())
-			}
 			return m, m.leaveFocus()
 		}
 		// Handing the session over is the operator saying they are done with
@@ -627,21 +574,16 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case action == keymap.Archive:
 			return m.archiveFocused(sess)
 		case action == keymap.NewSession:
-			// Add a session without giving up the queue: the spawn's own
-			// landing is redirected back here when a gate is armed. See
-			// gate.go.
-			return m.gateSpawn()
+			return m.startNewSession()
 		case action == keymap.CopySessionID:
 			return m.copySessionID(sess)
 		case action == keymap.LastPane:
-			// Back to the gate you just stepped past, the way v1's `,`
-			// reopened the previous one.
-			return m.gateBack()
+			return m.focusBack()
 		case action == keymap.Dismiss:
 			// The skip a one-at-a-time drain needs: a session that turns
 			// out to want nothing is taken off the queue from inside it,
-			// rather than left first and dismissed from a row the gate is
-			// not showing. See gate.go.
+			// rather than left first and dismissed from its row. See
+			// focusactions.go.
 			return m, m.dismissFocused(sess)
 		case action == keymap.ToggleChrome:
 			// The footer is the manager's own row, not the agent's: hiding
@@ -754,9 +696,6 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // tmux buffer: as raw key bytes its newlines would land as Enter presses and
 // submit the agent's prompt.
 func (m *Model) handleFocusPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
-	if m.showsConversation() {
-		return m, nil
-	}
 	sess, ok := m.selected()
 	if !ok {
 		return m, m.leaveFocus()

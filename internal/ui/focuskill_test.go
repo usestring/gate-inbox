@@ -12,42 +12,30 @@ import (
 func ctrlX() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl} }
 
 func TestRefreshReleasesFocusWhenThePaneDies(t *testing.T) {
-	for _, gate := range []bool{false, true} {
-		name := "focus"
-		if gate {
-			name = "gate"
-		}
-		t.Run(name, func(t *testing.T) {
-			m := gateFleet(t)
-			if gate {
-				m = pressGate(t, m)
-			} else {
-				m.enterFocusOn(t, "ask")
-			}
-			sess, _ := m.selected()
-			m.applyCmd(t, m.refreshCmd())
-			if m.mode != modeFocus {
-				t.Fatal("a live pane lost focus on refresh")
-			}
+	m := drainFleet(t)
+	m.enterFocusOn(t, "ask")
+	sess, _ := m.selected()
+	m.applyCmd(t, m.refreshCmd())
+	if m.mode != modeFocus {
+		t.Fatal("a live pane lost focus on refresh")
+	}
 
-			if err := m.tmux.Kill(sess.ID); err != nil {
-				t.Fatal(err)
-			}
-			m.applyCmd(t, m.refreshCmd())
-			stored, err := m.store.Get(sess.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if stored.Status != status.Dead || sessionGone(m.sessions, sess.ID) {
-				t.Fatal("the refresh must retain the dead managed session")
-			}
-			if m.mode != modeList {
-				t.Fatalf("detecting a dead pane left mode %v, want list navigation", m.mode)
-			}
-			if m.heldAckID != "" {
-				t.Fatal("the dead pane retained its held acknowledgement")
-			}
-		})
+	if err := m.tmux.Kill(sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	m.applyCmd(t, m.refreshCmd())
+	stored, err := m.store.Get(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != status.Dead || sessionGone(m.sessions, sess.ID) {
+		t.Fatal("the refresh must retain the dead managed session")
+	}
+	if m.mode != modeList {
+		t.Fatalf("detecting a dead pane left mode %v, want list navigation", m.mode)
+	}
+	if m.heldAckID != "" {
+		t.Fatal("the dead pane retained its held acknowledgement")
 	}
 }
 

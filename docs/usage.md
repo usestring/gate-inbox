@@ -53,7 +53,6 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `tab` | Enter the next session that needs you, wherever it is in the list; `shift+tab` walks back up |
 | `alt+w` `alt+f` | Enter the next `waiting` / `finished` session |
 | `alt+e` `alt+i` `alt+k` | Enter the next `errored` (or dead) / `idle` / `working` one |
-| `G` | Gate: drain that queue one session at a time — the rail goes away, answering promotes the next, `alt+.` skips one, `ctrl+\` stops |
 | `M` | Messages (updates, tips; `x` dismisses one for good). The welcome message points at Settings for a bug or an idea. |
 | `e` | Hide / show empty groups |
 | `/` | Search: session name, tool, group, status, what the pane is showing, and what the session has said or run |
@@ -68,32 +67,18 @@ Answer a session, leave it, land in the next one that needs a person: `ctrl+q` d
 
 Settings (`s`) has an `on leaving a session` row for it — `list` (the default, today's behaviour) or `next`, which gives `ctrl+q` the same walk without a queue having to be armed with `i` first. Leaving a session mutes it, which is what makes the walk converge: answering a session does not clear its status until the poller sees the pane change, so without the mute the walk hands the same session straight back. `ctrl+\` is still the way out whatever the setting says, and the focused footer names whichever the key is about to do.
 
-### The gate
+### Draining full-width
 
-Press `F2` to switch between **Typing** and **Menu**, shown at the top. The choice stays
-on as the queue advances. Typing sends text to the agent. Menu uses plain keys:
-`.` skip, `l` back, `q` exit, `x` kill, `n` new, `y` copy ID.
-`Home` jumps to the top of the pane's history; `End` returns to live output.
-Numbers, arrows and `Enter` still answer the agent's menu. Switch to Typing for a written answer.
-The gate starts in Typing; `alt+Home` and `alt+End` reach history there too.
+Triage plus two keys is the whole drain. The board opens in triage (`i` toggles it), `enter` on the head
+row (or `tab`) opens it, `alt+\` puts the list away, and `alt+,` hides the footer. Both stay that way as the queue advances, and the
+same keys bring them back. Answering is the only gesture: a dialog answered with `1`-`9` or `enter`
+hands that session over and promotes the next thing waiting on a person. `alt+.` skips the one in
+front of you, `ctrl+\` stops.
 
-`G` arms that whole drain in one key: the queue `i` builds, the hands-free handover, and the full
-width, and it opens the session at the head of the queue rather than leaving you on a list. Inside
-it, answering is the only gesture — a dialog answered with `1`-`9` or `enter` hands that session
-over and promotes the next thing waiting on a person. `alt+.` skips the one in front of you, taking
-it off the queue without the trip back to the list that `.` needs. `ctrl+\` stops.
-
-The gate footer names the rest of the session's controls, the same set v1's gate view carried:
-`ctrl+x` kills the session, `alt+n` starts a new one in its group and comes back to the queue,
-`alt+y` copies the agent's session id, and `alt+l` steps back to the one you just left. Your own
-snippets ride the same tier: each
-`ctrl+alt+`*letter* answers the session in front of you, and its label sits beside the controls so
-the chord is on screen while you drain. `alt+,` (or the chrome setting) hides the footer for the
-rest of the drain.
-
-However it ends — the key again, `ctrl+\`, or the queue running dry — the layout and the queue you
-had before it come back, because a mode is not a preference. The `GATE` badge names the key back
-out: with the rail away, nothing else is printing it.
+The rest of the session's controls work from inside it: `ctrl+x` ends the session, `alt+n` starts a
+new one in its group, `alt+y` copies the agent's session id, `alt+l` steps back to the one you just
+left. Each of your own `ctrl+alt+`*letter* snippets
+answers the session in front of you.
 
 ## Quick prompt
 

@@ -443,7 +443,8 @@ func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// The form is gone, and with it the only text naming the images it
 		// was holding.
 		m.form.prompt.release()
-		return m.cancelSpawnToGate()
+		m.mode = modeList
+		return m, nil
 	case "tab":
 		if dirCapturing {
 			m.applyPathSuggestion()
@@ -688,7 +689,8 @@ func (m *Model) formSpawnDir() string {
 func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 	if len(m.form.toolNames) == 0 {
 		m.errBar.text = "no tools configured"
-		return m.cancelSpawnToGate()
+		m.mode = modeList
+		return m, nil
 	}
 	if len(m.formToolMatches()) == 0 {
 		m.errBar.text = "no CLI matches " + strings.TrimSpace(m.form.toolFilter.Value())

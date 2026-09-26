@@ -1,12 +1,12 @@
-# The gate: several agents at once, two of them stopped on a question. G
-# drains the triage queue full-width, and every answer hands that session back
-# to its agent and brings up the next one on its own.
+# Triage: several agents at once, two of them stopped on a question. tab
+# enters the queue, alt+\ gives the pane the full width, and every answer hands that
+# session back to its agent and brings up the next one on its own. ctrl+b is
+# the demo's alias for alt+\, which vhs cannot send (see record.sh).
 #
 #   tools/demo/record.sh tools/demo/triage.tape
 #
 # record.sh has launched the board, hidden, on a scratch home. Every session
-# runs fake-agent.sh, so nothing here reaches a model. ctrl+t is the demo's
-# alias for f2, which vhs cannot send (see record.sh).
+# runs fake-agent.sh, so nothing here reaches a model.
 
 # Put the cursor on the project group, by search: esc drops the filter and
 # leaves the cursor on the row.
@@ -52,13 +52,11 @@ Sleep 10s
 Show
 Sleep 1500ms
 
-# G arms the gate on the session that has waited longest, full width.
-Type "G"
+# The board opens in triage; tab enters the session that has waited longest,
+# and alt+\ puts the list away.
+Tab
 Sleep 2500ms
-
-# f2 switches from the conversation to the terminal, where the dialog is, and
-# stays there as the queue advances.
-Ctrl+t
+Ctrl+b
 Sleep 2000ms
 
 # A number answers the dialog; the next waiting session comes up on its own.
@@ -77,6 +75,8 @@ Sleep 600ms
 Enter
 Sleep 3500ms
 
-# ctrl+\ stops the gate and the list comes back as it was.
+# alt+\ brings the list back, and ctrl+\ stops the drain.
+Ctrl+b
+Sleep 1500ms
 Ctrl+\
 Sleep 3s

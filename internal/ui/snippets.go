@@ -11,11 +11,9 @@ package ui
 // session, and a chord that acted on some off-screen row would be a key that
 // answers an agent you are not looking at.
 //
-// Advertised on the list footer, in the key map, under the quick prompt, and
-// on the gate footer's tier, whose tail row has room for them once the
-// session controls are named. The ordinary focused footer still leaves them
-// to the key map: its row is already full, and a tier of its own would move
-// the box and resize every session's pane. It is the same trade the § exit
+// Advertised on the list footer, in the key map and under the quick prompt.
+// The focused footer leaves them to the key map: its row is already full, and
+// a tier of its own would move the box and resize every session's pane. It is the same trade the § exit
 // makes there, resolved the same way: the key map names what the footer has
 // no room for.
 

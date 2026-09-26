@@ -579,8 +579,10 @@ func reserved(ctx Context, key string) (string, bool) {
 // is reported, with where its job went, and otherwise ignored like any other
 // problem: the file still loads, and the next rebind saves it without them.
 var retired = map[Action]string{
-	"approve": "was removed; bind its sentence to ± as a snippet in snippets.json",
-	"editor":  "was removed; open the directory from your own editor",
+	"approve":           "was removed; bind its sentence to ± as a snippet in snippets.json",
+	"editor":            "was removed; open the directory from your own editor",
+	"gate":              "was removed; triage with i, and hide the list with \\ and the key hints with ,",
+	"toggle_gate_input": "was removed with the gate",
 }
 
 // required reports whether an action is one this screen cannot be worked

@@ -524,6 +524,7 @@ type Model struct {
 	settings    settingsState
 	help        helpState
 	legendPeek  legendPeekState
+	keyReleases bool
 	nameSweep   nameSweepState
 	restore     restorePromptState
 	welcome     welcomeState
@@ -551,9 +552,6 @@ type Model struct {
 	welcomeArmed bool
 	moveID       string
 	movePath     string
-	// editorReturnID is the session an editor request detached from, so the
-	// attach it cost can be resumed once the editor is up.
-	editorReturnID string
 
 	// awaitedRenames holds what a spawned session launched with, for as long
 	// as the agent it carries the rename directive to is still expected to
@@ -943,7 +941,7 @@ func (m *Model) previewTick() tea.Cmd {
 }
 
 func (m *Model) needsLoaderTick() bool {
-	return m.hasStartingRow()
+	return m.hasStartingRow() || m.conversationWorking()
 }
 
 func (m *Model) startStartupTick() tea.Cmd {
@@ -1286,8 +1284,7 @@ func (m *Model) pasteSweepTick() tea.Cmd {
 
 // refreshExistingSessionUX re-applies the tmux bindings and status bar to
 // sessions that were already running when the manager started, so a session
-// created before an update still gets the current key bindings (the
-// server-global alt+o editor key) and footer.
+// created before an update still gets the current key bindings and footer.
 func (m *Model) refreshExistingSessionUX() tea.Msg {
 	if err := m.tmux.EnsureBindings(); err != nil {
 		return errMsg{err}
@@ -1748,6 +1745,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.setVisible(true), m.ownPaneVisibleCmd())
 
 	case tea.BlurMsg:
+		m.dismissLegendPeek()
 		return m, m.setVisible(false)
 
 	case visibleMsg:
@@ -1856,7 +1854,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.previewCmd(sess, m.previewGen, m.procDue()), m.previewTick())
 
 	case conversationTickMsg:
-		return m, tea.Batch(m.readConversation(), conversationTick())
+		return m, tea.Batch(m.readConversation(), conversationTick(), m.startStartupTick())
 	case conversationMsg:
 		m.applyConversation(msg)
 		return m, nil
@@ -2232,43 +2230,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.requestRefresh()
 			return m, nil
 		}
-		// alt+o inside the session leaves a marker before detaching; consume
-		// it here and carry it out for the session just attached.
-		request, err := m.tmux.PendingRequest()
-		if err != nil {
+		// No in-session binding asks the manager for anything any more, but a
+		// tmux server that outlived an update can still carry one that sets
+		// the marker on its way out, so it is consumed and ignored.
+		if request, err := m.tmux.PendingRequest(); err != nil {
 			m.errBar.text = err.Error()
 		} else if request != "" {
-			// A failed clear leaves the marker set, which would replay the
-			// request on every later detach, so surface it and stay in the
-			// list rather than letting the request reset m.errBar.text and
-			// hide it.
 			if clearErr := m.tmux.ClearRequest(); clearErr != nil {
 				m.errBar.text = clearErr.Error()
-				m.requestRefresh()
-				return m, nil
-			}
-			// The request acts on the row under the cursor, and the cursor
-			// is not where the request came from: a poll handled ahead of
-			// this message rebuilds the rows, and a filter can drop the
-			// session that detached out of the list entirely.
-			m.focusSession(msg.sessID)
-			sess, ok := m.selected()
-			if !ok || sess.ID != msg.sessID {
-				m.errBar.text = "the session that asked for it has left the list"
-				m.requestRefresh()
-				return m, nil
-			}
-			switch request {
-			case tmux.RequestEditor:
-				_, cmd := m.openEditor()
-				// The request cost the session its client, so the manager
-				// goes back into it once the editor is up, or once a
-				// terminal editor closes. A refused launch returns no
-				// command and stays in the list with its reason.
-				if cmd != nil {
-					m.editorReturnID = sess.ID
-				}
-				return m, cmd
 			}
 		}
 		m.requestRefresh()
@@ -2282,30 +2251,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			SyncTerminalBackground()
 		}
 		if msg.err != nil {
-			// Going back into the session would hide the only account of
-			// what went wrong, so a failed editor keeps the list.
 			m.errBar.text = msg.err.Error()
-			m.editorReturnID = ""
 			return m, nil
 		}
 		if msg.name != "" {
 			m.reportDone("opened " + msg.path + " in " + msg.name)
 		}
-		if id := m.editorReturnID; id != "" {
-			m.editorReturnID = ""
-			return m, m.reattach(id)
-		}
 		return m, nil
-
-	case reattachPreparedMsg:
-		if msg.err != nil {
-			m.errBar.text = msg.err.Error()
-			return m, nil
-		}
-		m.errBar.text = msg.warn
-		return m, tea.ExecProcess(m.tmux.AttachCommand(msg.sessID), func(err error) tea.Msg {
-			return attachDoneMsg{sessID: msg.sessID, err: err}
-		})
 
 	case legendPeekDecayMsg:
 		visible := m.legendPeek.visible
@@ -2317,6 +2269,18 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		return m.handleMouse(msg)
+
+	case tea.KeyboardEnhancementsMsg:
+		m.keyReleases = msg.SupportsEventTypes() && msg.SupportsAllKeysAsEscapeCodes()
+		return m, nil
+
+	case tea.KeyReleaseMsg:
+		if m.legendPeek.visible && msg.Code == m.legendPeek.keyCode {
+			m.dismissLegendPeek()
+		} else {
+			m.frameUnchanged()
+		}
+		return m, nil
 
 	case tea.KeyPressMsg:
 		model, cmd := m.handleKey(msg)

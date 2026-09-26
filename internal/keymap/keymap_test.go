@@ -180,12 +180,12 @@ func TestReservedKeysAreRefused(t *testing.T) {
 
 // Key files accept both the current Mac label and its legacy spelling.
 func TestOptionIsAcceptedAsAltInTheKeyFile(t *testing.T) {
-	m := resolve(t, Overrides{ContextFocus: {Editor: {"option+j"}}})
-	if got := m.Key(ContextFocus, Editor); got != "alt+j" {
+	m := resolve(t, Overrides{ContextFocus: {Dismiss: {"option+j"}}})
+	if got := m.Key(ContextFocus, Dismiss); got != "alt+j" {
 		t.Errorf("option+j bound as %q, want alt+j", got)
 	}
-	m = resolve(t, Overrides{ContextFocus: {Editor: {"⌥j"}}})
-	if got := m.Key(ContextFocus, Editor); got != "alt+j" {
+	m = resolve(t, Overrides{ContextFocus: {Dismiss: {"⌥j"}}})
+	if got := m.Key(ContextFocus, Dismiss); got != "alt+j" {
 		t.Errorf("⌥j bound as %q, want alt+j", got)
 	}
 	if _, problems := New(Overrides{ContextList: {NewSession: {"ctrl+⌥d"}}}); len(problems) == 0 {
@@ -390,6 +390,30 @@ func TestRetiredApproveStillLoads(t *testing.T) {
 		t.Errorf("the stale line cost the override beside it: new_session on %q", got)
 	}
 	if strings.Contains(Encode(m.Overrides()), "approve") {
+		t.Error("saving the map kept the retired action")
+	}
+}
+
+// A key file that moved the open-in-editor key still loads once that action
+// is gone: each stale line is reported, and saving the map drops it.
+func TestRetiredEditorStillLoads(t *testing.T) {
+	overrides, err := Decode("[list]\neditor = [\"alt+e\"]\nnew_session = [\"alt+n\"]\n\n[focus]\neditor = [\"alt+j\"]\n")
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	m, problems := New(overrides)
+	if len(problems) != 2 {
+		t.Fatalf("got problems %v, want one per stale line", problems)
+	}
+	for _, problem := range problems {
+		if problem.Action != "editor" || !strings.Contains(problem.Reason, "removed") {
+			t.Errorf("problem %q does not say the action was removed", problem.Error())
+		}
+	}
+	if got := m.Key(ContextList, NewSession); got != "alt+n" {
+		t.Errorf("the stale line cost the override beside it: new_session on %q", got)
+	}
+	if strings.Contains(Encode(m.Overrides()), "editor") {
 		t.Error("saving the map kept the retired action")
 	}
 }

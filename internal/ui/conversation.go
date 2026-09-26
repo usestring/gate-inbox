@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/search"
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -148,12 +149,12 @@ func (c *conversationView) wrapped(width int) []string {
 		}, ansi.Strip(message.Text))
 		heading := textfmt.TruncateWidth(" "+label+" ", max(1, width-2), "")
 		c.lines = append(c.lines, style.Render("╭"+heading+strings.Repeat("─", max(0, width-2-textfmt.Width(heading)))+"╮"))
-		messageLines := strings.Split(ansi.Hardwrap(ansi.Wrap(text, inner, ""), inner, true), "\n")
+		messageLines := markdownLines(text, inner)
 		if c.compact && len(messageLines) > 4 {
-			messageLines = append(messageLines[:4:4], textfmt.TruncateWidth(fmt.Sprintf("… %d more lines", len(messageLines)-4), inner, "…"))
+			messageLines = append(messageLines[:4:4], mutedStyle.Render(textfmt.TruncateWidth(fmt.Sprintf("… %d more lines", len(messageLines)-4), inner, "…")))
 		}
 		for _, line := range messageLines {
-			c.lines = append(c.lines, style.Render("│")+" "+padRight(valueStyle.Render(line), inner)+" "+style.Render("│"))
+			c.lines = append(c.lines, style.Render("│")+" "+padRight(line, inner)+" "+style.Render("│"))
 		}
 		c.lines = append(c.lines, style.Render("╰"+strings.Repeat("─", max(0, width-2))+"╯"), "")
 	}
@@ -186,12 +187,35 @@ func (m *Model) conversationRows(width, height int) []string {
 		if c.key == m.conversationIdentity(sess) && c.err != nil {
 			text = "Conversation unavailable: " + c.err.Error()
 		}
-		return []string{mutedStyle.Render(textfmt.TruncateWidth(text, width, "…"))}
+		return m.withWorkingRow([]string{mutedStyle.Render(textfmt.TruncateWidth(text, width, "…"))}, width)
 	}
+	rows = m.withWorkingRow(rows, width)
 	c.offset = min(c.offset, max(0, len(rows)-height))
 	end := len(rows) - c.offset
 	start := max(0, end-height)
 	return rows[start:end]
+}
+
+func (m *Model) conversationWorking() bool {
+	sess, ok := m.selected()
+	return ok && sess.Status == status.Working && m.showsConversation()
+}
+
+// withWorkingRow copies rows rather than appending in place: they are the
+// wrapped cache, and the spinner frame changes on every loader tick.
+func (m *Model) withWorkingRow(rows []string, width int) []string {
+	if !m.conversationWorking() {
+		return rows
+	}
+	sess, _ := m.selected()
+	frame := statusTint(status.Working, startupFrames[m.startupPhase%len(startupFrames)])
+	text := statusLabel(sess.Status) + " · " + relSince(lastActivity(sess))
+	row := frame + " " + mutedStyle.Render(textfmt.TruncateWidth(text, max(1, width-2), "…"))
+	return append(rows[:len(rows):len(rows)], row)
+}
+
+func (m *Model) conversationBody(width int) []string {
+	return m.withWorkingRow(m.conversation.wrapped(width), width)
 }
 
 func (m *Model) toggleConversation() {
@@ -212,7 +236,7 @@ func (m *Model) conversationToggleLabel() string {
 
 func (m *Model) scrollConversation(lines int) tea.Cmd {
 	c := m.conversation
-	rows := c.wrapped(m.previewPaneWidth())
+	rows := m.conversationBody(m.previewPaneWidth())
 	height := m.previewPaneHeight()
 	if m.pane.box.ok {
 		height = m.pane.box.height

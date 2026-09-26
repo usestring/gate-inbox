@@ -61,7 +61,6 @@ const (
 	Rename        Action = "rename"
 	NameSweep     Action = "name_sweep"
 	Move          Action = "move"
-	Editor        Action = "editor"
 
 	ShowAllWork  Action = "show_all_work"
 	StatusFilter Action = "status_filter"
@@ -174,7 +173,6 @@ var Catalog = []Binding{
 	{ContextList, NameSweep, []string{"N", "shift+n"}, "name sweep over idle adopted panes", false},
 	{ContextList, TakeOver, []string{"O", "shift+o"}, "panes started outside the board: keep, relaunch or leave out", false},
 	{ContextList, Move, []string{"m"}, "move it to a group", false},
-	{ContextList, Editor, []string{"o"}, "open its directory in your editor", false},
 
 	{ContextList, ShowAllWork, []string{"W", "shift+w"}, "show every pull request and ticket, not the first few", false},
 	{ContextList, StatusFilter, []string{"w"}, "filter to what needs attention", false},
@@ -204,7 +202,6 @@ var Catalog = []Binding{
 	{ContextFocus, HandOver, []string{"§"}, "ctrl+q's one-press alias", false},
 	{ContextFocus, LeaveHard, []string{`ctrl+\`}, "back to the manager, always stopping there", true},
 	{ContextFocus, Rescind, []string{"ctrl+z"}, "rescind the latest submission while its turn is active", false},
-	{ContextFocus, Editor, []string{"alt+o"}, "open its directory in an editor", false},
 	// A chord for the same reason alt+, is one: a plain "." is a character
 	// the agent was owed. It mirrors the list's own dismiss key.
 	{ContextFocus, Dismiss, []string{"alt+."}, "dismiss this one and go on to the next", false},

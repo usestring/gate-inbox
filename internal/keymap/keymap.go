@@ -580,6 +580,7 @@ func reserved(ctx Context, key string) (string, bool) {
 // problem: the file still loads, and the next rebind saves it without them.
 var retired = map[Action]string{
 	"approve": "was removed; bind its sentence to ± as a snippet in snippets.json",
+	"editor":  "was removed; open the directory from your own editor",
 }
 
 // required reports whether an action is one this screen cannot be worked

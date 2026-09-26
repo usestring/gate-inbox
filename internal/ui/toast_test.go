@@ -64,15 +64,12 @@ func TestStatusToastSitsTopRight(t *testing.T) {
 }
 
 // An editor that opened is an outcome, not a failure, all the way from the
-// key to the card the toast draws.
+// launch to the card the toast draws.
 func TestOpenedEditorReadsAsAnOutcome(t *testing.T) {
 	m := buildModel(t)
 	launched := captureEditor(t, "code")
-	dir := t.TempDir()
-	createSession(t, m, "agent", dir, "")
-	m.selectSessionRow(t, "agent")
 
-	_, cmd := m.openEditor()
+	_, cmd := m.launchEditor(t.TempDir())
 	m.applyCmd(t, cmd)
 	if len(*launched) == 0 {
 		t.Fatalf("the editor never launched, status = %q", m.errBar.text)

@@ -3,7 +3,6 @@
 package ui
 
 import (
-	"errors"
 	"fmt"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"strings"
@@ -97,38 +96,6 @@ func (m *Model) attachCmd(id string) tea.Cmd {
 	return tea.ExecProcess(m.tmux.AttachCommand(id), func(err error) tea.Msg {
 		return attachDoneMsg{sessID: id, err: err}
 	})
-}
-
-func (m *Model) reattach(id string) tea.Cmd {
-	driver := m.tmux
-	// Read before the closure: the hint reads the key map, and the closure
-	// runs off the event loop where the model must not be touched.
-	dead := m.deadSessionHint()
-	stor := m.store
-	poller := m.poller
-	return func() tea.Msg {
-		if !driver.Exists(id) {
-			return reattachPreparedMsg{sessID: id, err: errors.New(dead)}
-		}
-		sess, err := stor.Get(id)
-		if err != nil {
-			return reattachPreparedMsg{sessID: id, err: err}
-		}
-		if sess.Status == status.Finished {
-			if err := stor.AcknowledgeFinished(sess.ID); err != nil {
-				return reattachPreparedMsg{sessID: id, err: err}
-			}
-		}
-		var prepErr error
-		poller.reflowSessions([]string{id}, func() {
-			prepErr = driver.PrepareAttach(id)
-		})
-		var warn string
-		if prepErr != nil {
-			warn = prepErr.Error()
-		}
-		return reattachPreparedMsg{sessID: id, warn: warn}
-	}
 }
 
 // reviveSelected relaunches a dead session's tmux session under the same

@@ -170,7 +170,7 @@ func TestUnownedSocketNeverWritesServerWide(t *testing.T) {
 }
 
 func TestUnownedSocketBindsOnlyFreeRootKeys(t *testing.T) {
-	driver, calls := stubTmux(t, "C-q", "M-o")
+	driver, calls := stubTmux(t, "C-q")
 	if err := driver.EnsureBindings(); err != nil {
 		t.Fatalf("EnsureBindings: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestUnownedSocketBindsOnlyFreeRootKeys(t *testing.T) {
 		}
 	}
 	for _, key := range bound {
-		if key == "C-q" || key == "M-o" {
+		if key == "C-q" {
 			t.Errorf("replaced the operator's existing %s binding", key)
 		}
 	}

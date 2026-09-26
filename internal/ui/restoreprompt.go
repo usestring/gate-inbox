@@ -175,6 +175,17 @@ func (m *Model) adoptScanSettled() bool {
 	return m.adoptSettleWaits > reopenSettleLimit
 }
 
+// anyDeadRow reports a row the startup offer could be about, before the
+// classification that decides whether it is.
+func (m *Model) anyDeadRow() bool {
+	for _, sess := range m.sessions {
+		if !sess.Archived && sess.Status == status.Dead {
+			return true
+		}
+	}
+	return false
+}
+
 // noteAdopted records what an adopt scan took. The first scan's rows are what
 // the reopen card waits for; a later scan's are panes started while the board
 // was up, which get the stored answer quietly or a one-line pointer to O.
@@ -182,7 +193,11 @@ func (m *Model) noteAdopted(msg adoptedMsg) {
 	if !m.adoptFirstDone {
 		m.adoptFirstDone = true
 		m.adoptFirstIDs = msg.ids
-		return
+		// The card waits for this scan unless it already asked; once it
+		// has, these panes are told of like any found later.
+		if !m.restoreAsked {
+			return
+		}
 	}
 	if len(msg.ids) == 0 {
 		return
@@ -218,7 +233,12 @@ func (m *Model) maybeOpenRestorePrompt() {
 	if !m.restoreArmed || m.restoreAsked || m.mode != modeList {
 		return
 	}
-	if !m.adoptScanSettled() {
+	// Lost sessions are asked about on the first pass, as they always were:
+	// a card that turned up seconds later would land on whatever the
+	// operator had started typing. Only a start with nothing but panes to
+	// ask about waits, briefly, for the scan that finds them; panes the scan
+	// brings in after the card get noteAdopted's one line instead.
+	if !m.anyDeadRow() && !m.adoptScanSettled() {
 		return
 	}
 	m.restoreAsked = true

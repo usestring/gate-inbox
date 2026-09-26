@@ -524,6 +524,7 @@ type Model struct {
 	settings    settingsState
 	help        helpState
 	legendPeek  legendPeekState
+	keyReleases bool
 	nameSweep   nameSweepState
 	restore     restorePromptState
 	welcome     welcomeState
@@ -1748,6 +1749,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.setVisible(true), m.ownPaneVisibleCmd())
 
 	case tea.BlurMsg:
+		m.dismissLegendPeek()
 		return m, m.setVisible(false)
 
 	case visibleMsg:
@@ -2317,6 +2319,18 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		return m.handleMouse(msg)
+
+	case tea.KeyboardEnhancementsMsg:
+		m.keyReleases = msg.SupportsEventTypes() && msg.SupportsAllKeysAsEscapeCodes()
+		return m, nil
+
+	case tea.KeyReleaseMsg:
+		if m.legendPeek.visible && msg.Code == m.legendPeek.keyCode {
+			m.dismissLegendPeek()
+		} else {
+			m.frameUnchanged()
+		}
+		return m, nil
 
 	case tea.KeyPressMsg:
 		model, cmd := m.handleKey(msg)

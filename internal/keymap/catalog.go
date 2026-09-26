@@ -106,6 +106,11 @@ const (
 	Bottom   Action = "bottom"
 	More     Action = "more"
 	TickAll  Action = "tick_all"
+	// NextChoice and PrevChoice step an answer that has more than two
+	// values; NeverAsk applies a prompt's answer and makes it the default.
+	NextChoice Action = "next_choice"
+	PrevChoice Action = "prev_choice"
+	NeverAsk   Action = "never_ask"
 	// ToggleChrome hides the footer and brings it back. It is the chrome
 	// setting's "never" under a key, for an operator who wants the rows
 	// for a moment rather than for good.
@@ -167,7 +172,7 @@ var Catalog = []Binding{
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{"alt+r"}, "rename it yourself, and re-pick its tool", false},
 	{ContextList, NameSweep, []string{"N", "shift+n"}, "name sweep over idle adopted panes", false},
-	{ContextList, TakeOver, []string{"O", "shift+o"}, "take over adopted panes: restart each as a managed session once idle", false},
+	{ContextList, TakeOver, []string{"O", "shift+o"}, "panes started outside the board: keep, relaunch or leave out", false},
 	{ContextList, Move, []string{"m"}, "move it to a group", false},
 	{ContextList, Editor, []string{"o"}, "open its directory in your editor", false},
 
@@ -231,13 +236,16 @@ var Catalog = []Binding{
 	{ContextNameSweep, Confirm, []string{"y", "enter"}, "run the sweep", true},
 
 	// ---- the restore prompt ----
-	{ContextRestore, Cancel, []string{"esc", "n", "q"}, "leave the panes as they are", true},
-	{ContextRestore, More, []string{"c"}, "choose which ones", false},
+	{ContextRestore, Cancel, []string{"esc", "n", "q"}, "leave everything as it is", true},
+	{ContextRestore, More, []string{"c"}, "choose per session and per pane", false},
+	{ContextRestore, NextChoice, []string{"right", "l", "tab"}, "next answer for the outside panes", false},
+	{ContextRestore, PrevChoice, []string{"left", "h", "shift+tab"}, "previous answer for the outside panes", false},
+	{ContextRestore, NeverAsk, []string{"N", "shift+n"}, "apply this answer and stop asking", false},
 	{ContextRestore, CursorUp, []string{"up", "k"}, "move up", true},
 	{ContextRestore, CursorDown, []string{"down", "j"}, "move down", true},
 	{ContextRestore, Toggle, []string{" ", "space"}, "tick / untick the row", false},
 	{ContextRestore, TickAll, []string{"a"}, "tick every row, or start over", false},
-	{ContextRestore, Confirm, []string{"y", "enter"}, "restore the ticked panes", true},
+	{ContextRestore, Confirm, []string{"y", "enter"}, "apply: resume the ticked sessions, answer the panes", true},
 
 	// ---- the welcome card ----
 	{ContextWelcome, Close, []string{"enter", "esc", "q", " ", "space"}, "close the guide", true},

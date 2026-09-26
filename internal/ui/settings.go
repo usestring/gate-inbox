@@ -150,6 +150,8 @@ func (m *Model) openSettings() {
 		leaveMode:       normalizeLeaveMode(m.leaveMode),
 		newSessionAgent: normalizeNewSessionAgent(m.newSessionAgent),
 		autoProceed:     m.autoProceed,
+		reopenSessions:  m.reopenSessionsMode(),
+		outsidePanes:    m.outsidePanesMode(),
 		backdropSync:    storedBackdrop(m.store) == backdropSync,
 	}
 	m.mode = modeSettings
@@ -272,6 +274,12 @@ func (m *Model) persistSettings() {
 		autoProceed = "on"
 	}
 	if err := m.store.SetSetting(autoProceedSetting, autoProceed); err != nil {
+		m.errBar.text = err.Error()
+	}
+	if err := m.store.SetSetting(reopenSessionsSetting, normalizeReopenSessions(m.settings.reopenSessions)); err != nil {
+		m.errBar.text = err.Error()
+	}
+	if err := m.store.SetSetting(outsidePanesSetting, normalizeOutsidePanes(m.settings.outsidePanes)); err != nil {
 		m.errBar.text = err.Error()
 	}
 	m.autoProceed = m.settings.autoProceed
@@ -483,6 +491,21 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		m.settings.enterFocuses = !m.settings.enterFocuses
 	case settingsFieldAutoProceed:
 		m.settings.autoProceed = !m.settings.autoProceed
+	case settingsFieldReopenSessions:
+		m.settings.reopenSessions = cycleMode(reopenSessionsModes, normalizeReopenSessions(m.settings.reopenSessions), step)
+	case settingsFieldOutsidePanes:
+		m.settings.outsidePanes = cycleMode(outsidePanesModes, normalizeOutsidePanes(m.settings.outsidePanes), step)
 	}
 	return nil
+}
+
+// cycleMode steps a setting through its values.
+func cycleMode(modes []string, current string, step int) string {
+	index := 0
+	for i, mode := range modes {
+		if mode == current {
+			index = i
+		}
+	}
+	return modes[(index+step+len(modes))%len(modes)]
 }

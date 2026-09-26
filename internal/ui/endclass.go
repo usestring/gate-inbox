@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -33,6 +34,10 @@ const (
 	endDied
 	// endByOperator is never offered: somebody ended it on purpose.
 	endByOperator
+	// endSuperseded is never offered: its conversation is running on the
+	// board in another pane, and reviving it would start a second agent on
+	// the same conversation.
+	endSuperseded
 )
 
 // endClass is one row's verdict and the plain-words reason for it.
@@ -96,7 +101,7 @@ func classifyEnd(sess store.Session, ev endEvidence) endClass {
 		// one whose launch started the server, so a launch just before the
 		// stamp is on this server rather than an earlier one.
 		if sess.LaunchTime().Add(serverClockSlack).Before(ev.serverStarted) {
-			return endClass{endDied, "tmux restarted or the machine rebooted after it launched"}
+			return endClass{endDied, "tmux restarted or the machine rebooted"}
 		}
 		// The server that ran it is still up and the pane is gone: it was
 		// closed inside tmux -- kill-pane, kill-window, or a shell exited by
@@ -176,4 +181,24 @@ func (l endLedger) ids(verdict endVerdict) []string {
 	}
 	slices.Sort(out)
 	return out
+}
+
+// supersededBy finds the live row running sess's conversation, when there is
+// one. A pane somebody resumed by hand on a board session's conversation is
+// adopted as a row of its own, beside the dead row it came from; the dead one
+// is then not a loss but a duplicate, and reviving it would put a second
+// agent on one conversation.
+func (m *Model) supersededBy(sess store.Session) (store.Session, bool) {
+	if sess.AgentSessionID == "" {
+		return store.Session{}, false
+	}
+	for _, other := range m.sessions {
+		if other.ID == sess.ID || other.Archived || other.Status == status.Dead {
+			continue
+		}
+		if other.AgentSessionID == sess.AgentSessionID && other.Tool == sess.Tool {
+			return other, true
+		}
+	}
+	return store.Session{}, false
 }

@@ -293,6 +293,13 @@ type Model struct {
 	// adoptRestored marks the one-time re-registration of adopted panes after
 	// the first session load.
 	adoptRestored bool
+	// adoptFirstDone is set once the first adopt scan has answered, and
+	// adoptFirstIDs holds the rows it created: the reopen card asks about
+	// panes, so it waits until the board shows the ones found at start.
+	// adoptSettleWaits bounds that wait.
+	adoptFirstDone   bool
+	adoptFirstIDs    []string
+	adoptSettleWaits int
 	// nameAfterRefresh asks the next sweep to run a naming pass, for rows an
 	// adopt scan has just created and the board has not seen yet.
 	nameAfterRefresh bool
@@ -656,9 +663,6 @@ const (
 	actionRestart = "restart"
 	actionRevive  = "revive"
 	actionResume  = "resume"
-	// actionTakeover restarts adopted panes as managed sessions; see
-	// takeover.go.
-	actionTakeover = "takeover"
 )
 
 type confirmTarget struct {
@@ -729,6 +733,8 @@ type settingsState struct {
 	leaveMode       string
 	newSessionAgent string
 	autoProceed     bool
+	reopenSessions  string
+	outsidePanes    string
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -756,6 +762,8 @@ const (
 	settingsFieldQuickClose
 	settingsFieldFocusKey
 	settingsFieldAutoProceed
+	settingsFieldReopenSessions
+	settingsFieldOutsidePanes
 	settingsFieldSnippets
 	settingsFieldCLIs
 	settingsFieldGuide
@@ -1242,7 +1250,6 @@ func (m *Model) requestRefresh() {
 
 func (m *Model) Init() tea.Cmd {
 	m.restoreArmed = true
-	m.takeover.offer = true
 	m.welcomeArmed = true
 	m.tmuxHintArmed = true
 	// Raised before the first poll rather than after one: the card does not
@@ -1908,7 +1915,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if result := m.takeoverPass(); result.taken > 0 || len(result.failed) > 0 {
 			m.reportTakeover(result)
 		}
-		m.maybeOpenTakeoverPrompt()
 		m.groups = msg.groups
 		m.groupPaths = msg.groupPaths
 		m.archivedGroups = msg.archivedGroups
@@ -1970,6 +1976,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.errBar.text = "adopting a pane: " + msg.err.Error()
 		}
+		m.noteAdopted(msg)
 		if msg.taken > 0 {
 			// The rows are in the store but not yet on the board; the sweep
 			// is what reads them back.

@@ -44,7 +44,7 @@ quick_prompt = [" ", "space"]  # quick prompt
 rename_from_agent = ["r"]  # rename it after its conversation
 rename = ["alt+r"]  # rename it yourself, and re-pick its tool
 name_sweep = ["N", "shift+n"]  # name sweep over idle adopted panes
-take_over = ["O", "shift+o"]  # take over adopted panes: restart each as a managed session once idle
+take_over = ["O", "shift+o"]  # panes started outside the board: keep, relaunch or leave out
 move = ["m"]  # move it to a group
 editor = ["o"]  # open its directory in your editor
 show_all_work = ["W", "shift+w"]  # show every pull request and ticket, not the first few
@@ -97,13 +97,16 @@ page_down = ["pgdown", "ctrl+d"]  # a page down
 confirm = ["y", "enter"]  # run the sweep (required)
 
 [restore]
-cancel = ["esc", "n", "q"]  # leave the panes as they are (required)
-more = ["c"]  # choose which ones
+cancel = ["esc", "n", "q"]  # leave everything as it is (required)
+more = ["c"]  # choose per session and per pane
+next_choice = ["right", "l", "tab"]  # next answer for the outside panes
+prev_choice = ["left", "h", "shift+tab"]  # previous answer for the outside panes
+never_ask = ["N", "shift+n"]  # apply this answer and stop asking
 cursor_up = ["up", "k"]  # move up (required)
 cursor_down = ["down", "j"]  # move down (required)
 toggle = [" ", "space"]  # tick / untick the row
 tick_all = ["a"]  # tick every row, or start over
-confirm = ["y", "enter"]  # restore the ticked panes (required)
+confirm = ["y", "enter"]  # apply: resume the ticked sessions, answer the panes (required)
 
 [welcome]
 close = ["enter", "esc", "q", " ", "space"]  # close the guide (required)

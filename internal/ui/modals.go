@@ -439,6 +439,8 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldQuickClose, "after quick send", quickClose) + "\n" +
 		row(settingsFieldFocusKey, "session keys", focusKey) + "\n" +
 		row(settingsFieldAutoProceed, "triage auto proceed", autoProceed) + "\n" +
+		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +
+		row(settingsFieldOutsidePanes, "outside panes", outsidePanesLabel(m.settings.outsidePanes)) + "\n" +
 		actionRow(settingsFieldSnippets, "snippets", "edit quick replies") + "\n" +
 		actionRow(settingsFieldCLIs, "CLIs", "show or hide for new sessions") + "\n" +
 		actionRow(settingsFieldGuide, "welcome guide", "read the first-run introduction again") + "\n" +

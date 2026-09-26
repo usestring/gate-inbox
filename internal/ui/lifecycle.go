@@ -273,6 +273,9 @@ func (m *Model) reviveSession(sess store.Session) error {
 	if m.tmux.Exists(sess.ID) {
 		return fmt.Errorf("session %s is still running; revive only applies to dead sessions", sess.Name)
 	}
+	if live, running := m.supersededBy(sess); running {
+		return fmt.Errorf("%s's conversation is already running in %s; a revive would start a second agent on it", sess.Name, live.Name)
+	}
 	return m.launchOnHeldConversation(sess)
 }
 
@@ -1320,8 +1323,6 @@ func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.errBar.text = ""
-		case actionTakeover:
-			m.confirmTakeover()
 		default:
 			m.errBar.text = fmt.Sprintf("unknown confirm action %q", m.confirm.action)
 			return m, nil

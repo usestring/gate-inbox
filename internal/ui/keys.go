@@ -99,7 +99,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.legendPeek.visible {
 		action, bound := m.action(keymap.ContextList, msg)
-		if bound && action == keymap.LegendPeek && !m.legendPeek.sticky {
+		if bound && action == keymap.LegendPeek {
 			m.frameUnchanged()
 			return m, m.repeatLegendPeek()
 		}
@@ -361,7 +361,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case keymap.ToggleRail:
 		return m, m.toggleRail()
 	case keymap.LegendPeek:
-		return m, m.beginLegendPeek()
+		return m, m.beginLegendPeek(msg)
 	case keymap.Help:
 		m.openHelp()
 	}

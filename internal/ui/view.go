@@ -30,6 +30,9 @@ func (m *Model) View() tea.View {
 	// which is off by default -- see visible.go for the read that covers
 	// that case without writing to somebody else's tmux server.
 	view.ReportFocus = true
+	view.KeyboardEnhancements.ReportEventTypes = true
+	view.KeyboardEnhancements.ReportAllKeysAsEscapeCodes = true
+	view.KeyboardEnhancements.ReportAssociatedText = true
 	return view
 }
 

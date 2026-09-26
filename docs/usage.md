@@ -401,7 +401,7 @@ The preview is not lost. Focusing a session still opens its pane, full width, an
 
 ## Key hints
 
-The legend under the list is reference material, and once you know the keys it is room the list could have had. By default it follows the terminal: the legend drops to one row on a short window and off a very short one. Settings (`s`) has a `key hints` row to take that decision off the terminal — `always` keeps the full legend at any height, while `never` drops it at any height. `H` still opens the whole key map either way.
+The legend under the list is reference material, and once you know the keys it is room the list could have had. By default it follows the terminal: the legend drops to one row on a short window and off a very short one. Settings (`s`) has a `key hints` row to take that decision off the terminal — `always` keeps the full legend at any height, while `never` drops it at any height. `?` shows the available keys while held and closes on release. Terminals without key-release reporting use a timeout: 500 ms after a tap, or 140 ms after the last repeat while held. `H` opens the whole key map and keeps it open for searching and rebinding.
 
 ## Stats
 

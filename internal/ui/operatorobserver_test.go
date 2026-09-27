@@ -29,6 +29,10 @@ func TestQuickPromptSendIsReportedAsTheOperatorsInput(t *testing.T) {
 	if _, _ = m.submitQuick(); m.errBar.text != "" {
 		t.Fatalf("send: %q", m.errBar.text)
 	}
+	if got := operatorInputs(observer); len(got) != 0 {
+		t.Fatalf("the prompt was reported before it landed: %+v", got)
+	}
+	landAnswer(t, m, sess.ID)
 	got := operatorInputs(observer)
 	if len(got) != 1 {
 		t.Fatalf("reported %+v, want one input", got)
@@ -77,6 +81,10 @@ func TestSnippetSendIsReportedAndARefusedOneIsNot(t *testing.T) {
 	m.selectSessionRow(t, "ask")
 	sendPlusMinusToSelected(t, m)
 
+	if _, armed := m.landings[held.ID]; armed {
+		t.Fatal("a refused send was left waiting to land")
+	}
+	landAnswer(t, m, ask.ID)
 	got := operatorInputs(observer)
 	if len(got) != 1 || got[0].SessionID != ask.ID || got[0].Via != extension.OperatorSnippet || got[0].Text != plusMinusText {
 		t.Fatalf("reported %+v, want only the snippet that reached %s", got, ask.ID)

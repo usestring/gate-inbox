@@ -162,12 +162,15 @@ func (m *Model) submitQuick() (tea.Model, tea.Cmd) {
 		m.errBar.text = hold
 		return m, nil
 	}
+	// Armed before the send, like every answer: the prompt counts as
+	// submitted, and auto-proceed moves on, once the agent is seen to take
+	// it. See landing.go.
+	landing := m.armLanding(entry.sess, extension.OperatorPrompt, text, false, m.autoProceeds())
 	if err := m.tmux.SendText(entry.sess.ID, text); err != nil {
+		m.dropLanding(entry.sess.ID)
 		m.errBar.text = err.Error()
 		return m, nil
 	}
-	m.noteSubmission(entry.sess)
-	m.noteOperator(entry.sess, extension.OperatorPrompt, text, false)
 	// The prompt is delivered: clear the input before anything else can
 	// fail, so a retry cannot send it twice.
 	m.clearQuickAfterSend()
@@ -177,10 +180,7 @@ func (m *Model) submitQuick() (tea.Model, tea.Cmd) {
 		m.errBar.text = "prompt sent, but clearing the alert ack failed: " + err.Error()
 	}
 	m.requestRefresh()
-	if m.autoProceeds() {
-		return m, m.handOverFocused(entry.sess)
-	}
-	return m, nil
+	return m, landing
 }
 
 func (m *Model) quickSpawn(group, prompt string) (tea.Model, tea.Cmd) {

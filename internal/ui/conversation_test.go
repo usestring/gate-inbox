@@ -194,6 +194,10 @@ func TestGateReplySubmissionAdvancesOnlyAfterSuccessfulSend(t *testing.T) {
 		t.Fatal(m.errBar.text)
 	}
 	waitForPaneText(t, m, sess.ID, "Please continue")
+	if focusedID(t, m) != sess.ID {
+		t.Fatal("the reply handed the session over before it landed")
+	}
+	landAnswer(t, m, sess.ID)
 	if focusedID(t, m) == sess.ID || m.quick.active {
 		t.Fatal("successful send did not advance and close composer")
 	}

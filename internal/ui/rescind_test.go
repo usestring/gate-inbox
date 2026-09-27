@@ -20,7 +20,11 @@ func TestRescindTargetsTheLatestSubmissionInsteadOfTheSelectedRow(t *testing.T) 
 	m.selectSessionRow(t, "submitted")
 	m.openQuickMode()
 	m.quick.input.SetValue("start this")
-	if _, _ = m.submitQuick(); m.latestSubmission.sessionID != m.sessionID(t, "submitted") {
+	m.submitQuick()
+	if m.latestSubmission.sessionID != "" {
+		t.Fatal("a prompt was rescindable before it landed")
+	}
+	if landAnswer(t, m, m.sessionID(t, "submitted")); m.latestSubmission.sessionID != m.sessionID(t, "submitted") {
 		t.Fatalf("latest submission = %q want submitted", m.latestSubmission.sessionID)
 	}
 	m.quick.active = false

@@ -561,13 +561,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if snip, ok := m.snippetFor(msg.String()); ok {
 		m.noteFocusActivity()
 		// A snippet is a whole answer -- the sentence the drain exists to
-		// send -- so auto-proceed treats it as one. A send that failed has
-		// left the session unanswered and its reason in the bar, and handing
-		// it over would carry both off screen.
-		if m.sendSentence(sess, snip.Text, snip.Quoted()) && m.autoProceeds() {
-			return m, m.handOverFocused(sess)
-		}
-		return m, nil
+		// send -- so auto-proceed hands the session over once it lands.
+		return m, m.sendSentence(sess, snip.Text, snip.Quoted(), m.autoProceeds())
 	}
 	// ctrl+x archives, matching the list's x. Everything this handler does
 	// not claim reaches the agent, and archive is a deliberate exception:
@@ -687,7 +682,7 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		quiet = false
 		// The key never reached the pane, so there is nothing to land.
 		if arms {
-			m.dropLanding()
+			m.dropLanding(sess.ID)
 			landing = nil
 		}
 	}

@@ -89,6 +89,12 @@ func (m *Model) rescindLatestSubmission() (tea.Model, tea.Cmd) {
 	}
 	m.latestSubmission = submissionRescind{}
 	m.poller.noteOperatorInput(sess.ID)
+	// The drain muted the session when the answer landed, as dealt with. The
+	// answer is withdrawn and the agent stopped, so it is the operator's again
+	// and the queue brings it back. A later answer still pending for it is
+	// what the interrupt just cut off, so it must not land either.
+	m.unmute(sess.ID)
+	m.dropLanding(sess.ID)
 	m.errBar.text = "rescinded the latest submission to " + m.displayName(sess)
 	m.requestRefresh()
 	return m, nil

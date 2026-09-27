@@ -57,12 +57,14 @@ const (
 	landingRefused
 )
 
-// pendingLanding is the one answer the board is waiting to see land.
+// pendingLanding is an answer the board is waiting to see land. There is at
+// most one per session: a later answer to the same session replaces it. Other
+// sessions keep theirs, since a snippet or a prompt sent from the list to one
+// row is followed by the next row well inside the window.
 type pendingLanding struct {
 	// gen tells this pending from the ones it replaced, so a look still in
 	// flight for an older key cannot decide the newer one.
 	gen      int
-	active   bool
 	sess     store.Session
 	via      extension.OperatorVia
 	text     string
@@ -76,6 +78,7 @@ type pendingLanding struct {
 
 // landingCheckMsg is one look's verdict.
 type landingCheckMsg struct {
+	id      string
 	gen     int
 	verdict landingVerdict
 }
@@ -198,10 +201,12 @@ func (p *landingProbe) transcriptVerdict(delta convo.Delta) (seen, refused bool)
 // anything, and it must be called before the send so every offset it takes
 // is from before anything the answer caused.
 func (m *Model) armLanding(sess store.Session, via extension.OperatorVia, text string, dialog, handOver bool) tea.Cmd {
-	gen := m.landing.gen + 1
-	m.landing = pendingLanding{
-		gen:      gen,
-		active:   true,
+	m.landingGen++
+	if m.landings == nil {
+		m.landings = map[string]*pendingLanding{}
+	}
+	pending := &pendingLanding{
+		gen:      m.landingGen,
 		sess:     sess,
 		via:      via,
 		text:     text,
@@ -209,12 +214,14 @@ func (m *Model) armLanding(sess store.Session, via extension.OperatorVia, text s
 		handOver: handOver,
 		probe:    m.landingProbeFor(sess, dialog),
 	}
-	return m.landingCheck(gen)
+	m.landings[sess.ID] = pending
+	return landingCheck(sess.ID, pending)
 }
 
-// dropLanding forgets the pending answer: the send it was armed for failed.
-func (m *Model) dropLanding() {
-	m.landing = pendingLanding{gen: m.landing.gen}
+// dropLanding forgets the answer pending for a session: the send it was
+// armed for failed, or it has been decided.
+func (m *Model) dropLanding(id string) {
+	delete(m.landings, id)
 }
 
 // landingProbeFor snapshots the sources sess's tool offers.
@@ -272,46 +279,54 @@ func fileSize(path string) int64 {
 }
 
 // landingCheck schedules the next look. The look runs in the command's
-// goroutine, off the event loop.
-func (m *Model) landingCheck(gen int) tea.Cmd {
-	probe := m.landing.probe
-	if probe == nil {
-		return nil
-	}
+// goroutine, off the event loop; the probe is the pending's own, and only
+// this chain of looks touches it.
+func landingCheck(id string, pending *pendingLanding) tea.Cmd {
+	probe, gen := pending.probe, pending.gen
 	return tea.Tick(landingTick, func(time.Time) tea.Msg {
-		return landingCheckMsg{gen: gen, verdict: probe.look()}
+		return landingCheckMsg{id: id, gen: gen, verdict: probe.look()}
 	})
 }
 
-// keepLandingHere takes the handover off the pending answer: the operator
+// keepLandingHere takes the handover off every pending answer: the operator
 // has gone on typing into the session, or left it, so it is no longer the
-// board's to move them off. The answer still counts as sent once it lands.
+// board's to move them off. The answers still count as sent once they land.
 func (m *Model) keepLandingHere() {
-	m.landing.handOver = false
+	for _, pending := range m.landings {
+		pending.handOver = false
+	}
 }
 
 // applyLandingCheck acts on one look.
 func (m *Model) applyLandingCheck(msg landingCheckMsg) tea.Cmd {
-	pending := m.landing
-	if !pending.active || msg.gen != pending.gen {
+	pending, ok := m.landings[msg.id]
+	if !ok || msg.gen != pending.gen {
 		return nil
 	}
 	switch {
 	case msg.verdict == landingSeen:
-		m.dropLanding()
-		return m.answerLanded(pending)
+		m.dropLanding(msg.id)
+		return m.answerLanded(*pending)
 	case msg.verdict == landingRefused, !time.Now().Before(pending.deadline):
-		m.dropLanding()
+		m.dropLanding(msg.id)
 		return nil
 	}
-	return m.landingCheck(pending.gen)
+	return landingCheck(msg.id, pending)
 }
 
 // answerLanded records the answer as sent and, when the operator is still on
 // the session and the drain proceeds by itself, hands it over.
+//
+// A held acknowledgement for the session is let go of first. The operator
+// has given the agent a new turn, and leaving -- which the handover does --
+// would otherwise spend the hold on the turn they answered, before any poll
+// has seen the new one start. The new turn raises its own alert when it ends.
 func (m *Model) answerLanded(pending pendingLanding) tea.Cmd {
 	m.noteSubmission(pending.sess)
-	m.noteOperator(pending.sess, pending.via, pending.text, pending.probe != nil && pending.probe.dialog)
+	m.noteOperator(pending.sess, pending.via, pending.text, pending.probe.dialog)
+	if m.heldAckID == pending.sess.ID {
+		m.heldAckID = ""
+	}
 	if !pending.handOver || !m.autoProceeds() {
 		return nil
 	}

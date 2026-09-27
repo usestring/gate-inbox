@@ -245,15 +245,21 @@ func (m *Model) viewToolField() string {
 	if len(matches) == 0 {
 		return field + "  " + mutedStyle.Render("(no CLI matches)")
 	}
-	// The alternatives are only worth showing while they fit on the row:
-	// the card does not wrap a field value, so a long list would run past
-	// the border instead of informing anyone. Whatever is cut is still one
-	// arrow key away.
-	rest := fitNames(matches, m.selectedToolName(), m.formValueWidth()-lipgloss.Width(field)-2)
-	if rest == "" {
+	// The alternatives stay on the row while they fit, and otherwise move to
+	// lines of their own under it, so no configured CLI is left unseen.
+	var others []string
+	for _, name := range matches {
+		if name != m.selectedToolName() {
+			others = append(others, name)
+		}
+	}
+	if len(others) == 0 {
 		return field
 	}
-	return field + "  " + mutedStyle.Render(rest)
+	if rows := agentPickRows(others, "", m.formValueWidth()-lipgloss.Width(field)-2); len(rows) == 1 {
+		return field + "  " + rows[0]
+	}
+	return field + "\n" + strings.Join(agentPickRows(others, "", m.formValueWidth()), "\n")
 }
 
 func groupBadge(path string) string {
@@ -480,7 +486,7 @@ func (m *Model) viewCLIPicker() string {
 		b.WriteString(labelStyle.Render(box + " " + name))
 		b.WriteByte('\n')
 	}
-	hint := [][2]string{{"↑↓", "move"}, {"space/↵", "toggle"}, {"esc", "back"}}
+	hint := [][2]string{{"↑↓", "move"}, {"J/K", "reorder"}, {"space/↵", "toggle"}, {"esc", "back"}}
 	// Fixed card width: short checkbox rows must not stretch a wide empty panel.
 	return m.card("▣ CLIs", strings.TrimRight(b.String(), "\n"), hint)
 }
@@ -528,8 +534,9 @@ func formFieldAt(label, value string, focused bool, labelWidth int) string {
 }
 
 // viewAgentPick draws the one-question card n opens: the box, holding the CLI
-// the last spawn used, and under it the CLIs still matching what has been
-// typed over it, with the one enter would start picked out.
+// the last spawn used, and under it every CLI still matching what has been
+// typed over it -- the terminal among them -- with the one enter would start
+// picked out.
 //
 // The matches are drawn rather than hidden behind the arrows, because the box
 // opens prefilled and a prefilled field with no visible alternatives reads as
@@ -555,73 +562,45 @@ func (m *Model) viewAgentPick() string {
 	if len(matches) == 0 {
 		b.WriteString(spaces(formLabelColumn) + mutedStyle.Render("(no CLI matches)") + "\n")
 	} else {
-		b.WriteString(spaces(formLabelColumn) + agentPickRow(matches, m.agentPickName(), inner) + "\n")
+		for _, row := range agentPickRows(matches, m.agentPickName(), inner) {
+			b.WriteString(spaces(formLabelColumn) + row + "\n")
+		}
 	}
 	return m.card("◆ New Session", strings.TrimRight(b.String(), "\n"),
 		[][2]string{{"type", "pick a CLI"}, {"←→", "change"}, {"↵", "start"}, {"esc", "cancel"}})
 }
 
-// agentPickRow lays the matching CLIs on one line, the selected one in the
-// value tone and the rest muted, cut to what budget columns hold.
+// agentPickRows lays the matching CLIs out in reading order, the selected one
+// in the value tone and the rest muted, starting a new line wherever the next
+// name would run past budget columns.
 //
-// The card does not wrap a field value, so a long list would run past the
-// border instead of informing anyone; whatever is cut is still one arrow key
-// away. The selected name is measured first so it is the one thing the cut can
-// never take -- a row that dropped it would leave the card silent about what
-// enter starts.
-func agentPickRow(names []string, selected string, budget int) string {
-	shown := make(map[string]bool, len(names))
+// Every match is drawn: a cut list hid whichever CLIs sorted last, and the
+// only way to learn they existed was to arrow into them.
+func agentPickRows(names []string, selected string, budget int) []string {
+	sep := mutedStyle.Render(" \u00b7 ")
+	var lines []string
+	var line strings.Builder
 	width := 0
 	for _, name := range names {
-		if name == selected {
-			width += lipgloss.Width(name)
-			shown[name] = true
-		}
-	}
-	for _, name := range names {
-		if shown[name] {
-			continue
-		}
 		w := lipgloss.Width(name)
-		if len(shown) > 0 {
-			w += 3
+		if width > 0 && width+3+w > budget {
+			lines = append(lines, line.String())
+			line.Reset()
+			width = 0
 		}
-		if width+w > budget {
-			break
-		}
-		width += w
-		shown[name] = true
-	}
-	parts := make([]string, 0, len(shown))
-	for _, name := range names {
-		switch {
-		case !shown[name]:
-		case name == selected:
-			parts = append(parts, valueStyle.Render(name))
-		default:
-			parts = append(parts, mutedStyle.Render(name))
-		}
-	}
-	return strings.Join(parts, mutedStyle.Render(" \u00b7 "))
-}
-
-// fitNames joins the names other than the selected one for as far as budget
-// columns allow, and returns them empty when there is nothing left to show.
-func fitNames(names []string, selected string, budget int) string {
-	rest := make([]string, 0, len(names))
-	width := 0
-	for _, name := range names {
-		if name == selected {
-			continue
-		}
-		width += lipgloss.Width(name)
-		if len(rest) > 0 {
+		if width > 0 {
+			line.WriteString(sep)
 			width += 3
 		}
-		if width > budget {
-			break
+		if name == selected {
+			line.WriteString(valueStyle.Render(name))
+		} else {
+			line.WriteString(mutedStyle.Render(name))
 		}
-		rest = append(rest, name)
+		width += w
 	}
-	return strings.Join(rest, " \u00b7 ")
+	if width > 0 {
+		lines = append(lines, line.String())
+	}
+	return lines
 }

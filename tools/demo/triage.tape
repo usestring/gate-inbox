@@ -1,4 +1,4 @@
-# Triage: several agents at once, two of them stopped on a question. tab
+# Triage: several agents at once, two of them stopped on a question. i
 # enters the queue, alt+\ gives the pane the full width, and every answer hands that
 # session back to its agent and brings up the next one on its own. ctrl+b is
 # the demo's alias for alt+\, which vhs cannot send (see record.sh).
@@ -52,9 +52,9 @@ Sleep 10s
 Show
 Sleep 1500ms
 
-# The board opens in triage; tab enters the session that has waited longest,
-# and alt+\ puts the list away.
-Tab
+# i turns triage on and enters the session that has waited longest, and
+# alt+\ puts the list away.
+Type "i"
 Sleep 2500ms
 Ctrl+b
 Sleep 2000ms

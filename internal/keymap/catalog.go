@@ -200,9 +200,9 @@ var Catalog = []Binding{
 	{ContextFocus, ToggleChrome, []string{"alt+,"}, "hide / show the key hints along the foot", false},
 	{ContextFocus, ToggleRail, []string{`alt+\`}, "hide / show the list beside the pane", false},
 	{ContextFocus, Archive, []string{"ctrl+x"}, "kill it, asking first", false},
-	// The gate's own session controls, reached from inside it: v1's gate view
-	// offered the same rows on its menu, and a drain that had to leave the
-	// queue to spawn, copy an id or step back was not one queue.
+	// Session controls reached from inside the pane: a drain that had to leave
+	// the queue to spawn, copy an id or step back was not one queue. See the
+	// ui package's focusactions.go.
 	{ContextFocus, NewSession, []string{"alt+n"}, "new session in this one's group", false},
 	{ContextFocus, CopySessionID, []string{"alt+y"}, "copy the agent's session id", false},
 	{ContextFocus, LastPane, []string{"alt+l"}, "back to the previous session; alt+l again swaps back", false},

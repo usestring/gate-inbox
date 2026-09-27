@@ -270,3 +270,60 @@ func TestDefaultsCarryTheProgressSummaryOnTheSectionKey(t *testing.T) {
 		}
 	}
 }
+
+// Every entry the board writes spells autoSubmit out, so the operator sees the
+// switch in the file they edit rather than having to know it exists.
+func TestDefaultsSpellOutAutoSubmit(t *testing.T) {
+	for _, snip := range Defaults() {
+		if snip.AutoSubmit == nil || !*snip.AutoSubmit {
+			t.Errorf("default %q does not set autoSubmit true", snip.Title())
+		}
+	}
+	dir := t.TempDir()
+	if _, err := Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	raw, err := os.ReadFile(Path(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Count(string(raw), `"autoSubmit": true`), len(Defaults()); got != want {
+		t.Fatalf("first-run file has %d autoSubmit fields, want %d:\n%s", got, want, raw)
+	}
+}
+
+// The v1 inbox's one-tap answers are the starting set, alongside yes and the
+// explain-again ask.
+func TestDefaultsCarryTheV1Answers(t *testing.T) {
+	texts := map[string]bool{}
+	for _, snip := range Defaults() {
+		texts[snip.Text] = true
+	}
+	for _, want := range []string{
+		"yes",
+		"continue",
+		"Anything else in this session?",
+		"Use the nuke skill to end this session.",
+		"I'm confused, explain like I'm 5",
+	} {
+		if !texts[want] {
+			t.Errorf("defaults have no %q", want)
+		}
+	}
+}
+
+// An entry written before the field existed still submits; false is kept.
+func TestAutoSubmitDefaultsToYes(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `[{"key":"d","text":"ship it"},{"key":"f","text":"draft","autoSubmit":false},{"key":"g","text":"go","autoSubmit":true}]`)
+	set, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	want := map[string]bool{"d": true, "f": false, "g": true}
+	for _, snip := range set.Snippets {
+		if snip.Submits() != want[snip.Key] {
+			t.Errorf("%s submits %v, want %v", snip.Key, snip.Submits(), want[snip.Key])
+		}
+	}
+}

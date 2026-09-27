@@ -242,7 +242,8 @@ func (m *Model) handleAgentPickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "esc":
 		m.errBar.text = ""
-		return m.cancelSpawnToGate()
+		m.mode = modeList
+		return m, nil
 	case "enter":
 		return m.submitAgentPick()
 	case "tab", "down", "right":

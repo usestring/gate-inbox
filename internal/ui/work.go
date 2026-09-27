@@ -607,14 +607,15 @@ func asOf(at time.Time) string {
 func unlookedRow(ref workspec.Ref) workRow {
 	row := workRow{
 		detail:    "not looked up",
-		glyph:     checksGlyph(forge.ChecksPending),
 		stateHint: colorIdle,
 	}
 	if ref.Kind == workspec.KindTicket {
 		row.kind, row.label, row.short = "TICKET", ref.Identifier, ref.Identifier
+		row.glyph = currentGlyphs.ticketTodo
 		return row
 	}
 	row.kind = "PR"
+	row.glyph = currentGlyphs.prPending
 	row.label = ref.Repo + "#" + strconv.Itoa(ref.Number)
 	row.short = "#" + strconv.Itoa(ref.Number)
 	// A pull request's address is its repository and number, both of which the
@@ -626,39 +627,36 @@ func unlookedRow(ref workspec.Ref) workRow {
 }
 
 // prGlyph is a pull request reduced to the one mark a folded session shows
-// for it. The shapes are the list's own status marks rather than a second
-// vocabulary: what is blocked on a person wears the same ◆ a waiting session
-// does, so a reader who knows the list can already read this line. Shape
-// carries the state and colour reinforces it, which is what keeps the row
-// that wants you separable from the four that do not on a terminal rendering
-// no colour at all.
+// for it. It is a square, never one of the list's circles, so an expanded
+// session's work does not read as more sessions; fill carries the state as
+// it does on the circles, and colour reinforces it.
 func prGlyph(pr forge.PR) string {
 	switch {
 	case pr.NeedsYou():
-		return statusGlyph(status.Waiting)
+		return currentGlyphs.prNeedsYou
 	case pr.State == forge.PRMerged:
-		return statusGlyph(status.Finished)
+		return currentGlyphs.prMerged
 	case pr.State == forge.PRDraft:
-		return statusGlyph(status.Starting)
+		return currentGlyphs.prDraft
 	case pr.State == forge.PRClosed:
-		return statusGlyph(status.Idle)
+		return currentGlyphs.prClosed
 	case pr.Checks == forge.ChecksPending:
-		return checksGlyph(forge.ChecksPending)
+		return currentGlyphs.prPending
 	default:
-		return statusGlyph(status.Working)
+		return currentGlyphs.prOpen
 	}
 }
 
-// ticketGlyph is the ticket half of the same vocabulary, read off Linear's
-// own category rather than the per-team state name.
+// ticketGlyph is the ticket half of the same vocabulary, a triangle read off
+// Linear's own category rather than the per-team state name.
 func ticketGlyph(ticket forge.Ticket) string {
 	switch {
 	case ticket.Done():
-		return statusGlyph(status.Finished)
+		return currentGlyphs.ticketDone
 	case ticket.StateType == "started":
-		return statusGlyph(status.Working)
+		return currentGlyphs.ticketStarted
 	default:
-		return statusGlyph(status.Idle)
+		return currentGlyphs.ticketTodo
 	}
 }
 

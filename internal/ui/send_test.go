@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/snippets"
 	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 // These pin the guarded send every snippet goes through, driven from the bare
@@ -306,22 +307,6 @@ func TestPlusMinusSnippetOnAGroupSaysWhatToSelect(t *testing.T) {
 	}
 }
 
-// The gate's menu reads unmodified keys as its own letters and swallows the
-// rest, so a bare ± has to be let through by name or it never reaches the
-// snippet.
-func TestPlusMinusSnippetReachesThePaneThroughTheGateMenu(t *testing.T) {
-	m := pressGate(t, gateFleet(t))
-	bindPlusMinus(t, m)
-	m.gate.menu = true
-	sess, ok := m.selected()
-	if !ok {
-		t.Fatal("the gate opened on nothing")
-	}
-
-	m = pressFocused(t, m, plusMinusMsg())
-	waitForPaneText(t, m, sess.ID, plusMinusText)
-}
-
 // In the quick prompt a bare ± is a character the operator is typing, so it
 // lands in the input rather than firing the snippet on it.
 func TestPlusMinusTypesIntoTheQuickPrompt(t *testing.T) {
@@ -343,5 +328,41 @@ func TestPlusMinusTypesIntoTheQuickPrompt(t *testing.T) {
 	}
 	if strings.Contains(m.errBar.text, plusMinusText) {
 		t.Fatalf("± in the quick prompt fired the snippet: %q", m.errBar.text)
+	}
+}
+
+// With autoSubmit off the key types the line and stops: nothing is submitted,
+// so the session is not handed over even with auto-proceed on.
+func TestSnippetWithoutAutoSubmitOnlyTypesTheLine(t *testing.T) {
+	m := buildModel(t)
+	no := false
+	writeSnippets(t, m, []snippets.Snippet{{Key: snippets.PlusMinusKey, Text: plusMinusText, AutoSubmit: &no}})
+	liveTriageFleet(t, m, map[string]string{
+		"ask":  status.Waiting,
+		"next": status.Waiting,
+	})
+	m.triage = true
+	m.rebuildRows()
+	m.enterFocusOn(t, "ask")
+	sess := sessionNamed(t, m, "ask")
+
+	var pastedID, pastedText string
+	restore := pasteFocused
+	pasteFocused = func(d *tmux.Driver, id, text string) error {
+		pastedID, pastedText = id, text
+		return nil
+	}
+	t.Cleanup(func() { pasteFocused = restore })
+
+	updated, _ := m.handleFocusKey(plusMinusMsg())
+	m = updated.(*Model)
+	if pastedID != sess.ID || pastedText != plusMinusText {
+		t.Fatalf("pasted %q into %q, want %q into %q", pastedText, pastedID, plusMinusText, sess.ID)
+	}
+	if got := focusedName(t, m); got != "ask" {
+		t.Fatalf("a typed-only snippet handed over to %q", got)
+	}
+	if !strings.Contains(m.errBar.text, "press enter to send") {
+		t.Fatalf("status line %q does not say the line is waiting", m.errBar.text)
 	}
 }

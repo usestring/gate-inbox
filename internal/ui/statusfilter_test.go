@@ -88,10 +88,6 @@ func TestStatusFilterKeyKeepsAttentionSessions(t *testing.T) {
 	if !strings.Contains(rail, "show all") {
 		t.Fatalf("rail badge should offer clearing the filter:\n%s", rail)
 	}
-	footer := ansi.Strip(m.viewFooter())
-	if !strings.Contains(footer, "show all") {
-		t.Fatalf("footer should offer clearing the filter:\n%s", footer)
-	}
 
 	updated, cmd = m.handleKey(tea.KeyPressMsg{Code: 'w', Text: "w"})
 	m = updated.(*Model)

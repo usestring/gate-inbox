@@ -141,10 +141,10 @@ func logHookEvent(t *testing.T, m *Model, id, line string) {
 // is what the tick does off the event loop.
 func lookForLanding(t *testing.T, m *Model) {
 	t.Helper()
-	if !m.landing.active {
+	if m.landings[m.landingGen] == nil {
 		t.Fatal("no answer is pending")
 	}
-	m.applyLandingCheck(landingCheckMsg{gen: m.landing.gen, verdict: m.landing.probe.look()})
+	m.applyLandingCheck(landingCheckMsg{gen: m.landingGen, verdict: m.landings[m.landingGen].probe.look()})
 }
 
 func pressEnter(m *Model) *Model {
@@ -170,7 +170,7 @@ func TestAutoProceedHandsOverOnceTheAnswerLands(t *testing.T) {
 	if got := focusedName(t, m); got != "next" {
 		t.Fatalf("after the answer landed, focused %q want %q", got, "next")
 	}
-	if m.landing.active {
+	if m.landings[m.landingGen] != nil {
 		t.Fatal("the landing stayed pending after it was seen")
 	}
 	if m.latestSubmission.sessionID != askID {
@@ -184,12 +184,12 @@ func TestAutoProceedStaysWhenNothingLands(t *testing.T) {
 	m := drainOnDialog(t, true)
 	m = pressEnter(m)
 	lookForLanding(t, m)
-	if !m.landing.active {
+	if m.landings[m.landingGen] == nil {
 		t.Fatal("a look with nothing to see gave up before the window closed")
 	}
-	m.landing.deadline = time.Now().Add(-time.Millisecond)
+	m.landings[m.landingGen].deadline = time.Now().Add(-time.Millisecond)
 	lookForLanding(t, m)
-	if m.landing.active {
+	if m.landings[m.landingGen] != nil {
 		t.Fatal("the landing outlived its window")
 	}
 	if got := focusedName(t, m); got != "ask" {
@@ -211,7 +211,7 @@ func TestAutoProceedStaysOnARefusalOrANewDialog(t *testing.T) {
 			logHookEvent(t, m, askID, line)
 			logHookEvent(t, m, askID, "working PostToolUse")
 			lookForLanding(t, m)
-			if m.landing.active {
+			if m.landings[m.landingGen] != nil {
 				t.Fatal("a refusal left the landing pending")
 			}
 			if got := focusedName(t, m); got != "ask" {
@@ -258,7 +258,7 @@ func TestAutoProceedArmsNothingOnAModifiedEnter(t *testing.T) {
 	m := drainOnDialog(t, true)
 	updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift})
 	m = updated.(*Model)
-	if m.landing.active {
+	if m.landings[m.landingGen] != nil {
 		t.Fatal("shift+enter armed a landing")
 	}
 }

@@ -208,3 +208,46 @@ func TestSinceReportsToolResultsAndWhichWereRejected(t *testing.T) {
 		t.Fatalf("tool results read as prose: %+v", delta)
 	}
 }
+
+func TestSinceRetainsIncompleteRecordsAcrossPolls(t *testing.T) {
+	for _, prefix := range []string{"", turn("earlier")} {
+		for _, record := range []string{
+			prompt("continue"),
+			`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"allowed","content":"ok"}]}}` + "\n",
+		} {
+			for split := 1; split < len(record); split++ {
+				path := writeDeltaTranscript(t, prefix+record[:split])
+				cursor := int64(len(prefix))
+				for poll := 0; poll < 2; poll++ {
+					delta, err := Since(path, cursor)
+					if err != nil || delta.Next != cursor || !delta.Empty() || len(delta.Results) != 0 {
+						t.Fatalf("split %d poll %d: delta=%+v err=%v", split, poll, delta, err)
+					}
+				}
+				appendDeltaTranscript(t, path, record[split:])
+				delta, err := Since(path, cursor)
+				if err != nil || len(delta.Prompts)+len(delta.Results) != 1 || delta.Next != int64(len(prefix)+len(record)) {
+					t.Fatalf("completed split %d: delta=%+v err=%v", split, delta, err)
+				}
+				again, err := Since(path, delta.Next)
+				if err != nil || !again.Empty() || len(again.Results) != 0 {
+					t.Fatalf("replayed split %d: delta=%+v err=%v", split, again, err)
+				}
+			}
+		}
+	}
+}
+
+func TestSinceStopsAfterCompleteRecordsBeforeAnIncompleteRecord(t *testing.T) {
+	complete, pending := prompt("first"), turn("second")
+	path := writeDeltaTranscript(t, complete+pending[:len(pending)/2])
+	delta, err := Since(path, 0)
+	if err != nil || delta.Next != int64(len(complete)) || len(delta.Prompts) != 1 || len(delta.Turns) != 0 {
+		t.Fatalf("delta=%+v err=%v", delta, err)
+	}
+	appendDeltaTranscript(t, path, pending[len(pending)/2:])
+	delta, err = Since(path, delta.Next)
+	if err != nil || delta.LastTurn() != "second" || len(delta.Prompts) != 0 {
+		t.Fatalf("completed delta=%+v err=%v", delta, err)
+	}
+}

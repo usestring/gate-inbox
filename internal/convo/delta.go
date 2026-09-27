@@ -78,8 +78,8 @@ func (d Delta) Empty() bool { return len(d.Prompts) == 0 && len(d.Turns) == 0 }
 //
 // An offset of 0 reads the tail rather than the whole file: a first call has
 // no cursor to be faithful to, and the end is what it wants. The cursor it
-// gets back is the real end of the file either way, so the second call is a
-// true delta however large the first one's file was.
+// gets back ends at the last newline, so a record still being appended is
+// read on the next call.
 func Since(path string, offset int64) (Delta, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -110,6 +110,12 @@ func Since(path string, offset int64) (Delta, error) {
 	if err != nil {
 		return Delta{}, err
 	}
+	end := bytes.LastIndexByte(raw, '\n') + 1
+	next := start
+	if end > 0 {
+		next = probe + int64(end)
+	}
+	raw = raw[:end]
 	partial := false
 	if start > 0 {
 		if len(raw) > 0 && raw[0] == '\n' {
@@ -119,7 +125,7 @@ func Since(path string, offset int64) (Delta, error) {
 		}
 	}
 	delta := parseDelta(raw, partial)
-	delta.Next = size
+	delta.Next = next
 	delta.Rewound = rewound
 	return delta, nil
 }

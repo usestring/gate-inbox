@@ -630,7 +630,7 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		quiet = false
 		// The key never reached the pane, so there is nothing to land.
 		if arms {
-			m.dropLanding()
+			m.dropLanding(m.landingGen)
 			landing = nil
 		}
 	}
@@ -660,6 +660,7 @@ func (m *Model) handleFocusPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, m.leaveFocus()
 	}
+	m.keepLandingHere()
 	quiet := m.cursorOn
 	m.cursorOn = true
 	// Pasted text lands at the live bottom, so the view follows it there.

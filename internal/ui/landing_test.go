@@ -1,7 +1,9 @@
 package ui
 
 import (
+	tea "charm.land/bubbletea/v2"
 	"testing"
+	"time"
 
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/hooks"
@@ -86,13 +88,85 @@ func TestThePaneLandsOnlyWhatNoOtherSourceRefused(t *testing.T) {
 func TestAStaleLookDecidesNothing(t *testing.T) {
 	m := drainOnDialog(t, true)
 	m = pressEnter(m)
-	stale := m.landing.gen
+	stale := m.landingGen
 	m = pressEnter(m)
 	m.applyLandingCheck(landingCheckMsg{gen: stale, verdict: landingSeen})
-	if !m.landing.active || m.landing.gen == stale {
+	if m.landings[m.landingGen] == nil || m.landingGen == stale {
 		t.Fatal("a look for the replaced key decided the pending answer")
 	}
 	if got := focusedName(t, m); got != "ask" {
 		t.Fatalf("a stale look handed the session over to %q", got)
+	}
+}
+
+func TestPasteKeepsALandedAnswerOnItsSession(t *testing.T) {
+	m := drainOnDialog(t, true)
+	askID := focusedID(t, m)
+	m = pressEnter(m)
+	m.handleFocusPaste(tea.PasteMsg{Content: "one more thing"})
+	logHookEvent(t, m, askID, "working PostToolUse")
+	lookForLanding(t, m)
+	if got := focusedName(t, m); got != "ask" {
+		t.Fatalf("paste handed the session over to %q", got)
+	}
+	if m.latestSubmission.sessionID != askID {
+		t.Fatal("paste prevented recording the landed answer")
+	}
+}
+
+func TestPendingLandingsSurviveAnsweringAnotherSession(t *testing.T) {
+	m := drainOnDialog(t, true)
+	observer := &recordingObserver{}
+	m.ObserveBoard(observer)
+	ask, _ := m.selected()
+	m = pressEnter(m)
+	first := m.landingGen
+	m.handOverFocused(ask)
+	if got := focusedName(t, m); got != "next" {
+		t.Fatalf("manual handover focused %q", got)
+	}
+	nextID := focusedID(t, m)
+	stageDialog(m, nextID)
+	m = pressEnter(m)
+	second := m.landingGen
+	if cmd := m.applyLandingCheck(landingCheckMsg{gen: first, verdict: landingPending}); cmd == nil {
+		t.Fatal("the first session stopped polling when the second was answered")
+	}
+	logHookEvent(t, m, ask.ID, "working PostToolUse")
+	m.applyLandingCheck(landingCheckMsg{gen: first, verdict: m.landings[first].probe.look()})
+	if m.latestSubmission.sessionID != ask.ID || len(observer.inputs) != 1 || observer.inputs[0].SessionID != ask.ID {
+		t.Fatal("the first answer was not recorded")
+	}
+	if got := focusedName(t, m); got != "next" {
+		t.Fatalf("the first landing moved focus to %q", got)
+	}
+	if m.landings[second] == nil {
+		t.Fatal("the first landing discarded the second")
+	}
+	logHookEvent(t, m, nextID, "working PostToolUse")
+	lookForLanding(t, m)
+	m.applyLandingCheck(landingCheckMsg{gen: first, verdict: landingSeen})
+	if m.latestSubmission.sessionID != nextID || len(observer.inputs) != 2 || observer.inputs[1].SessionID != nextID {
+		t.Fatal("the two answers were not recorded exactly once")
+	}
+	if len(m.landings) != 0 {
+		t.Fatal("completed landings were retained")
+	}
+}
+
+func TestEndingAnOlderLandingPreservesTheNewerOne(t *testing.T) {
+	for _, verdict := range []landingVerdict{landingPending, landingRefused} {
+		m := drainOnDialog(t, true)
+		ask, _ := m.selected()
+		m = pressEnter(m)
+		first := m.landingGen
+		m.handOverFocused(ask)
+		stageDialog(m, focusedID(t, m))
+		m = pressEnter(m)
+		m.landings[first].deadline = time.Now().Add(-time.Second)
+		m.applyLandingCheck(landingCheckMsg{gen: first, verdict: verdict})
+		if m.landings[first] != nil || m.landings[m.landingGen] == nil {
+			t.Fatal("ending an older landing affected the newer one")
+		}
 	}
 }

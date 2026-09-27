@@ -57,12 +57,11 @@ const (
 	landingRefused
 )
 
-// pendingLanding is the one answer the board is waiting to see land.
+// pendingLanding is an answer the board is waiting to see land.
 type pendingLanding struct {
 	// gen tells this pending from the ones it replaced, so a look still in
 	// flight for an older key cannot decide the newer one.
 	gen      int
-	active   bool
 	sess     store.Session
 	via      extension.OperatorVia
 	text     string
@@ -198,10 +197,18 @@ func (p *landingProbe) transcriptVerdict(delta convo.Delta) (seen, refused bool)
 // anything, and it must be called before the send so every offset it takes
 // is from before anything the answer caused.
 func (m *Model) armLanding(sess store.Session, via extension.OperatorVia, text string, dialog, handOver bool) tea.Cmd {
-	gen := m.landing.gen + 1
-	m.landing = pendingLanding{
+	if m.landings == nil {
+		m.landings = make(map[int]*pendingLanding)
+	}
+	for gen, pending := range m.landings {
+		if pending.sess.ID == sess.ID {
+			m.dropLanding(gen)
+		}
+	}
+	m.landingGen++
+	gen := m.landingGen
+	m.landings[gen] = &pendingLanding{
 		gen:      gen,
-		active:   true,
 		sess:     sess,
 		via:      via,
 		text:     text,
@@ -212,9 +219,8 @@ func (m *Model) armLanding(sess store.Session, via extension.OperatorVia, text s
 	return m.landingCheck(gen)
 }
 
-// dropLanding forgets the pending answer: the send it was armed for failed.
-func (m *Model) dropLanding() {
-	m.landing = pendingLanding{gen: m.landing.gen}
+func (m *Model) dropLanding(gen int) {
+	delete(m.landings, gen)
 }
 
 // landingProbeFor snapshots the sources sess's tool offers.
@@ -274,7 +280,11 @@ func fileSize(path string) int64 {
 // landingCheck schedules the next look. The look runs in the command's
 // goroutine, off the event loop.
 func (m *Model) landingCheck(gen int) tea.Cmd {
-	probe := m.landing.probe
+	pending := m.landings[gen]
+	if pending == nil {
+		return nil
+	}
+	probe := pending.probe
 	if probe == nil {
 		return nil
 	}
@@ -287,21 +297,23 @@ func (m *Model) landingCheck(gen int) tea.Cmd {
 // has gone on typing into the session, or left it, so it is no longer the
 // board's to move them off. The answer still counts as sent once it lands.
 func (m *Model) keepLandingHere() {
-	m.landing.handOver = false
+	for _, pending := range m.landings {
+		pending.handOver = false
+	}
 }
 
 // applyLandingCheck acts on one look.
 func (m *Model) applyLandingCheck(msg landingCheckMsg) tea.Cmd {
-	pending := m.landing
-	if !pending.active || msg.gen != pending.gen {
+	pending := m.landings[msg.gen]
+	if pending == nil {
 		return nil
 	}
 	switch {
 	case msg.verdict == landingSeen:
-		m.dropLanding()
-		return m.answerLanded(pending)
+		m.dropLanding(msg.gen)
+		return m.answerLanded(*pending)
 	case msg.verdict == landingRefused, !time.Now().Before(pending.deadline):
-		m.dropLanding()
+		m.dropLanding(msg.gen)
 		return nil
 	}
 	return m.landingCheck(pending.gen)

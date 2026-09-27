@@ -471,7 +471,7 @@ func TestQuotedSignalsDoNotTrigger(t *testing.T) {
 				"  pattern:    esc to interrupt\n" +
 				"  default:    idle\n\n" +
 				"› Summarize recent commits\n" +
-				"  gpt-5.6-sol medium · /home/dev", Idle},
+				"  gpt-6-sol medium · /home/dev", Idle},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

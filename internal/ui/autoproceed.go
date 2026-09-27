@@ -139,9 +139,15 @@ func (m *Model) handOverFocused(sess store.Session) tea.Cmd {
 	// a drain that has run dry is the drain being over, so it ends here and
 	// says so rather than leaving an armed mode with no queue in it.
 	if m.gate.on {
-		drained := m.disarmGate()
-		m.errBar.text = "gate drained — nothing else is waiting on you or idle"
-		return tea.Batch(leave, drained)
+		return tea.Batch(leave, m.endDrainedGate())
 	}
 	return leave
+}
+
+// endDrainedGate disarms a gate whose queue has run dry and says why, so the
+// operator can tell a finished drain from a key that did nothing.
+func (m *Model) endDrainedGate() tea.Cmd {
+	drained := m.disarmGate()
+	m.errBar.text = "gate drained — nothing else is waiting on you or idle"
+	return drained
 }

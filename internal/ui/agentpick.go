@@ -101,7 +101,7 @@ type agentPick struct {
 }
 
 func (m *Model) openAgentPick() {
-	names := m.enabledToolNames()
+	names := m.pickerNames()
 	if len(names) == 0 {
 		m.errBar.text = "no CLIs enabled: open settings (s), then CLIs, to turn some on"
 		return
@@ -269,7 +269,8 @@ func (m *Model) handleAgentPickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// submitAgentPick starts the agent the box is showing. A filter that matches
+// submitAgentPick starts the agent the box is showing, or a plain terminal
+// when that is the pick -- the same shell T opens. A filter that matches
 // nothing refuses rather than launching whatever was selected before it was
 // typed, so nobody gets an agent they did not name.
 func (m *Model) submitAgentPick() (tea.Model, tea.Cmd) {
@@ -285,5 +286,8 @@ func (m *Model) submitAgentPick() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.mode = modeList
+	if m.isShell(name) {
+		return m.openTerminal()
+	}
 	return m.spawnInstant(name)
 }

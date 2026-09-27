@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/usestring/gate-inbox/internal/store"
@@ -15,11 +17,12 @@ import (
 // operator who opened one has already said they mean to walk it, so the
 // handover is the promise and stopping on each session is the part worth
 // asking for. It was off for as long as it was on the argument that reading
-// "done with this one" out of a keystroke is a guess. It is -- but only on
-// the two gestures answersFocused admits, and a wrong one costs the press of
-// LastPane that comes back. A queue that silently does not advance costs
-// more: it reads as the mode being broken rather than as a setting being
-// off, which is exactly how it was reported.
+// "done with this one" out of a keystroke is a guess. It no longer is: the
+// handover waits for the answer to be seen landing in the session, and a key
+// that lands nothing leaves the operator where they are. See landing.go. A
+// queue that silently does not advance costs more than a missed handover: it
+// reads as the mode being broken rather than as a setting being off, which is
+// exactly how it was reported.
 const autoProceedSetting = "triage_auto_proceed"
 
 // autoProceedDefaultSetting records that a store has been through the flip
@@ -72,57 +75,26 @@ func (m *Model) autoProceeds() bool {
 	return m.autoProceed && m.triage && m.mode == modeFocus
 }
 
-// answersFocused reports whether this key hands the focused session an answer
-// and is therefore the operator's last word on it.
-//
-// Two gestures count, and only two. A selection dialog is answered by Enter
-// on the highlighted row or by the number of a row, and either one closes the
-// question the drain handed the session over for. An input line with a
-// message typed into it is answered by Enter, which submits it. Everything
-// else is a keystroke on the way to one of those: a character, an arrow, a
-// space toggling a checkbox, Enter on an empty prompt.
-//
-// A line opening one of the CLI's own commands is not a message, so Enter
-// there is not the second gesture: it runs the command -- a model picker, a
-// settings pane -- rather than giving the agent a turn, and the drain must
-// stay where it is. See commandTypedAtPrompt.
-//
-// A dialog with a question stepper is the exception to the first gesture,
-// and the stepper says so: Enter on a question there is a step along it --
-// it picks the row and moves on to the next question, or ticks a box on a
-// multi-select and stays -- and the dialog is only answered from the review
-// page the stepper's last entry marks. Anywhere earlier on the stepper the
-// operator is still inside the dialog, so the key stays a keystroke and the
-// session stays in focus. See DialogStepIsLast.
-//
-// A modifier disqualifies the key. Shift+Enter and alt+Enter are how every
-// agent CLI on the board takes a newline inside a message, so honouring them
-// would hand the session over in the middle of the sentence being written to
-// it.
-func (m *Model) answersFocused(sess store.Session, msg tea.KeyMsg) bool {
-	key := msg.Key()
-	if key.Mod != 0 {
-		return false
-	}
-	if m.selectionDialogUp(sess.ID, sess.Tool) {
-		if last, ok := m.engine.DialogStepIsLast(sess.Tool, m.preview); ok && !last {
-			return false
-		}
-		return key.Code == tea.KeyEnter || (key.Code >= '1' && key.Code <= '9')
-	}
-	if key.Code != tea.KeyEnter {
-		return false
-	}
-	return m.textTypedAtPrompt(sess.ID, sess.Tool) && !m.commandTypedAtPrompt(sess.ID, sess.Tool)
-}
-
-// handOverFocused is ctrl+q's handover reached without ctrl+q: mute the
-// session so the walk converges, leave it, and enter the next one that needs
-// a person. The mute is what makes the queue shrink as it is drained -- the
-// status the session is left showing lags a poll behind the answer just given
-// to it -- and is the same mark the explicit handover leaves. See mute.go.
+// handOverFocused is the explicit handover: mute the session so the walk
+// converges, leave it, and enter the next one that needs a person. The mute
+// is what makes the queue shrink as it is drained -- the status the session
+// is left showing lags a poll behind whatever was just done in it. See
+// mute.go.
 func (m *Model) handOverFocused(sess store.Session) tea.Cmd {
 	m.mute(sess)
+	return m.moveOnFrom(sess)
+}
+
+// handOverLanded is auto-proceed's handover, taken once the answer the
+// operator gave sess has been seen landing at at. Its mute is keyed to that
+// landing rather than to the state sess was left in; see muteUntilSeen.
+func (m *Model) handOverLanded(sess store.Session, at time.Time) tea.Cmd {
+	m.muteUntilSeen(sess, at)
+	return m.moveOnFrom(sess)
+}
+
+// moveOnFrom leaves sess and enters the next session that needs a person.
+func (m *Model) moveOnFrom(sess store.Session) tea.Cmd {
 	leave := m.leaveFocus()
 	if next := m.advanceTriage(sess.ID); next != nil {
 		return tea.Batch(leave, next)

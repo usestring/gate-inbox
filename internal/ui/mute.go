@@ -27,6 +27,23 @@ type muteMark struct {
 	// has to remember to clear it.
 	status string
 	at     time.Time
+	// settle, when set, keys the mute to an answer seen landing at that
+	// instant instead of to the state. The state the session was left in is
+	// stale by then -- the answer moved it on and the board has not polled
+	// since -- so the mute holds only until a poll listed after the landing
+	// has been applied, and whatever that poll reports is the session's own
+	// news. Held to the state, a session whose answer changed nothing the
+	// poller sees would stay muted for the rest of the drain.
+	settle time.Time
+}
+
+// muteUntilSeen silences sess until the board has polled it after at, the
+// moment its answer was seen landing.
+func (m *Model) muteUntilSeen(sess store.Session, at time.Time) {
+	if m.muted == nil {
+		m.muted = map[string]muteMark{}
+	}
+	m.muted[sess.ID] = muteMark{status: sess.Status, at: sess.LastStatusAt, settle: at}
 }
 
 // mute silences one session in the state it is in now. Muting a session
@@ -52,6 +69,13 @@ func (m *Model) unmute(id string) {
 func (m *Model) isMuted(sess store.Session) bool {
 	mark, ok := m.muted[sess.ID]
 	if !ok {
+		return false
+	}
+	if !mark.settle.IsZero() {
+		if !m.statusesAsOf.After(mark.settle) {
+			return true
+		}
+		delete(m.muted, sess.ID)
 		return false
 	}
 	if sess.Status == mark.status && !sess.LastStatusAt.After(mark.at) {

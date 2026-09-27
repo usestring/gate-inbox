@@ -5,163 +5,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/status"
-	"github.com/usestring/gate-inbox/internal/store"
 )
-
-// The whole of auto-proceed rests on telling the key that answers a session
-// from the keys on the way to it, so that is what this pins: the two gestures
-// that hand a session over, and the near misses that must not.
-func TestAnswersFocusedIsOnlyTheKeyThatAnswers(t *testing.T) {
-	cfg, err := config.Default()
-	if err != nil {
-		t.Fatalf("default config: %v", err)
-	}
-	engine, err := status.NewEngine(cfg)
-	if err != nil {
-		t.Fatalf("engine: %v", err)
-	}
-	// Both dialogs are the shape the live board shows, caret on the marker.
-	permission := []string{
-		"  Do you want to proceed?",
-		"❯ 1. Yes",
-		"  2. No",
-		"",
-		"  Enter to confirm · Esc to cancel",
-	}
-	// A real multi-select: it steps between questions with the horizontal
-	// arrows, so Left stays the dialog's -- but Enter still answers it, which
-	// is why this reads off the dialog being up rather than off Left being
-	// free. See leftLeavesFocus in focuskeys.go.
-	multiSelect := []string{
-		"  Which approach?",
-		"❯ 1. [ ] Resume the three fix rounds (Recommended)",
-		"  2. [ ] Merge both in order",
-		"",
-		"  Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
-	}
-	written := []string{"", "❯ ship it"}
-	empty := []string{"", "❯"}
-
-	cases := []struct {
-		name   string
-		rows   []string
-		cursor paneCursor
-		key    tea.KeyPressMsg
-		want   bool
-	}{
-		{"enter on a permission dialog", permission,
-			paneCursor{x: 0, y: 1, ok: true}, tea.KeyPressMsg{Code: tea.KeyEnter}, true},
-		{"a row's number on a permission dialog", permission,
-			paneCursor{x: 0, y: 1, ok: true}, tea.KeyPressMsg{Code: '2', Text: "2"}, true},
-		{"enter on a multi-select", multiSelect,
-			paneCursor{x: 0, y: 1, ok: true}, tea.KeyPressMsg{Code: tea.KeyEnter}, true},
-		// Space ticks a box in a multi-select. The question is still open.
-		{"space on a multi-select", multiSelect,
-			paneCursor{x: 0, y: 1, ok: true}, tea.KeyPressMsg{Code: ' ', Text: " "}, false},
-		// A letter on a dialog is a keystroke the dialog may or may not want;
-		// either way it is not the operator's last word on the session.
-		{"a letter on a dialog", permission,
-			paneCursor{x: 0, y: 1, ok: true}, tea.KeyPressMsg{Code: 'y', Text: "y"}, false},
-		{"enter on a written message", written,
-			paneCursor{x: 9, y: 1, ok: true}, tea.KeyPressMsg{Code: tea.KeyEnter}, true},
-		// Shift+enter is how a message takes a newline: honouring it would
-		// hand the session over mid-sentence.
-		{"shift+enter on a written message", written,
-			paneCursor{x: 9, y: 1, ok: true}, tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift}, false},
-		// Enter on an empty prompt sends nothing, so there is nothing to
-		// proceed from.
-		{"enter on an empty prompt", empty,
-			paneCursor{x: 2, y: 1, ok: true}, tea.KeyPressMsg{Code: tea.KeyEnter}, false},
-		{"a character being typed", written,
-			paneCursor{x: 9, y: 1, ok: true}, tea.KeyPressMsg{Code: 'x', Text: "x"}, false},
-	}
-	sess := store.Session{ID: "s1", Tool: "claude"}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			m := &Model{engine: engine, mode: modeFocus}
-			m.preview = strings.Join(c.rows, "\n") + "\n"
-			m.pane.forID = "s1"
-			m.pane.box.height, m.pane.box.width = len(c.rows), 80
-			m.pane.cursor = c.cursor
-			if got := m.answersFocused(sess, c.key); got != c.want {
-				t.Fatalf("answersFocused = %v, want %v", got, c.want)
-			}
-		})
-	}
-}
-
-// A composer line that opens one of the CLI's own commands is not a turn, so
-// Enter on it must not hand the session over: "/models" and its kin open a
-// picker or a settings pane, and a drain that proceeded would leave the
-// picker behind on a session it had walked away from. Every CLI the board
-// drives reads a leading "/" the same way, so the guard is read off the line
-// rather than keyed to opencode.
-func TestAnswersFocusedIgnoresACommandTypedAtPrompt(t *testing.T) {
-	cfg, err := config.Default()
-	if err != nil {
-		t.Fatalf("default config: %v", err)
-	}
-	engine, err := status.NewEngine(cfg)
-	if err != nil {
-		t.Fatalf("engine: %v", err)
-	}
-	cases := []struct {
-		name   string
-		tool   string
-		row    string
-		caretX int
-		want   bool
-	}{
-		{"a claude command", "claude", "❯ /model", 8, false},
-		{"an opencode command", "opencode", "  ┃  /models", 12, false},
-		// A slash inside a message is not a command: the line is a message
-		// that happens to name a path, and Enter still submits it.
-		{"a slash inside a message", "claude", "❯ open /etc/hosts", 17, true},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			m := &Model{engine: engine, mode: modeFocus}
-			m.preview = "\n" + c.row + "\n"
-			m.pane.forID = "s1"
-			m.pane.box.height, m.pane.box.width = 2, 80
-			m.pane.cursor = paneCursor{x: c.caretX, y: 1, ok: true}
-			sess := store.Session{ID: "s1", Tool: c.tool}
-			if got := m.answersFocused(sess, tea.KeyPressMsg{Code: tea.KeyEnter}); got != c.want {
-				t.Fatalf("answersFocused(%q) = %v, want %v", c.row, got, c.want)
-			}
-		})
-	}
-}
-
-// A pane the operator has scrolled back through is showing history, so the
-// row under the caret says nothing about where the next key lands.
-func TestAnswersFocusedIgnoresAScrolledBackPane(t *testing.T) {
-	cfg, err := config.Default()
-	if err != nil {
-		t.Fatalf("default config: %v", err)
-	}
-	engine, err := status.NewEngine(cfg)
-	if err != nil {
-		t.Fatalf("engine: %v", err)
-	}
-	m := &Model{engine: engine, mode: modeFocus}
-	m.preview = "\n❯ ship it\n"
-	m.pane.forID = "s1"
-	m.pane.box.height, m.pane.box.width = 2, 80
-	m.pane.cursor = paneCursor{x: 9, y: 1, ok: true}
-	sess := store.Session{ID: "s1", Tool: "claude"}
-	if !m.answersFocused(sess, tea.KeyPressMsg{Code: tea.KeyEnter}) {
-		t.Fatal("enter on a written message did not read as an answer")
-	}
-	m.focusScroll = 3
-	if m.answersFocused(sess, tea.KeyPressMsg{Code: tea.KeyEnter}) {
-		t.Fatal("a scrolled-back pane still read as an answer")
-	}
-}
 
 // Off unless the operator asked for it, and only inside a drain: outside
 // triage there is no queue to proceed along.
@@ -255,94 +103,208 @@ func stageDialog(m *Model, sessID string) {
 	m.pane.cursor = paneCursor{x: 0, y: 1, ok: true}
 }
 
-// The point of the setting: answering the dialog is the whole gesture, and
-// the next session that needs somebody comes up by itself.
-func TestAutoProceedHandsOverOnceTheDialogIsAnswered(t *testing.T) {
+// drainOnDialog is a triage drain with auto-proceed on, focused on "ask"
+// stopped at a permission dialog, with "next" waiting behind it.
+func drainOnDialog(t *testing.T, auto bool) *Model {
+	t.Helper()
 	m := buildModel(t)
+	m.autoProceed = auto
 	liveTriageFleet(t, m, map[string]string{
 		"ask":  status.Waiting,
 		"next": status.Waiting,
 	})
 	m.triage = true
-	m.autoProceed = true
 	m.rebuildRows()
-
 	m.enterFocusOn(t, "ask")
 	stageDialog(m, focusedID(t, m))
+	return m
+}
+
+// logHookEvent appends one line to a session's hook log, as its hooks would.
+func logHookEvent(t *testing.T, m *Model, id, line string) {
+	t.Helper()
+	path := m.hooks.StatusFile(id)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(line + "\n"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// lookForLanding runs one look for the pending answer and applies it, which
+// is what the tick does off the event loop.
+func lookForLanding(t *testing.T, m *Model) {
+	t.Helper()
+	if m.landings[m.landingGen] == nil {
+		t.Fatal("no answer is pending")
+	}
+	m.applyLandingCheck(landingCheckMsg{gen: m.landingGen, verdict: m.landings[m.landingGen].probe.look()})
+}
+
+func pressEnter(m *Model) *Model {
 	updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	m = updated.(*Model)
+	return updated.(*Model)
+}
+
+// The point of the setting: answering the dialog is the whole gesture, and
+// the next session that needs somebody comes up by itself -- once the agent
+// is seen to have taken the answer.
+func TestAutoProceedHandsOverOnceTheAnswerLands(t *testing.T) {
+	m := drainOnDialog(t, true)
+	askID := focusedID(t, m)
+	m = pressEnter(m)
+	if got := focusedName(t, m); got != "ask" {
+		t.Fatalf("the key alone handed the session over to %q", got)
+	}
+	logHookEvent(t, m, askID, "working PostToolUse")
+	lookForLanding(t, m)
 	if m.mode != modeFocus {
 		t.Fatalf("answering dropped out of the queue: %s", m.errBar.text)
 	}
 	if got := focusedName(t, m); got != "next" {
-		t.Fatalf("after answering, focused %q want %q", got, "next")
+		t.Fatalf("after the answer landed, focused %q want %q", got, "next")
+	}
+	if m.landings[m.landingGen] != nil {
+		t.Fatal("the landing stayed pending after it was seen")
+	}
+	if m.latestSubmission.sessionID != askID {
+		t.Fatal("a landed answer was not recorded as a submission")
 	}
 }
 
-// With the setting turned off the key goes to the pane and the operator stays
+// Nothing seen inside the window is the key not having answered anything,
+// and the operator stays where they are.
+func TestAutoProceedStaysWhenNothingLands(t *testing.T) {
+	m := drainOnDialog(t, true)
+	m = pressEnter(m)
+	lookForLanding(t, m)
+	if m.landings[m.landingGen] == nil {
+		t.Fatal("a look with nothing to see gave up before the window closed")
+	}
+	m.landings[m.landingGen].deadline = time.Now().Add(-time.Millisecond)
+	lookForLanding(t, m)
+	if m.landings[m.landingGen] != nil {
+		t.Fatal("the landing outlived its window")
+	}
+	if got := focusedName(t, m); got != "ask" {
+		t.Fatalf("an answer that never landed handed the session over to %q", got)
+	}
+	if m.latestSubmission.sessionID != "" {
+		t.Fatal("an answer that never landed was recorded as a submission")
+	}
+}
+
+// A dialog that gives way to another dialog, or a turn that stops without the
+// call, is the answer not having gone through: the operator is still needed.
+func TestAutoProceedStaysOnARefusalOrANewDialog(t *testing.T) {
+	for _, line := range []string{"waiting Notification", "waiting PreToolUse", "finished Stop"} {
+		t.Run(line, func(t *testing.T) {
+			m := drainOnDialog(t, true)
+			askID := focusedID(t, m)
+			m = pressEnter(m)
+			logHookEvent(t, m, askID, line)
+			logHookEvent(t, m, askID, "working PostToolUse")
+			lookForLanding(t, m)
+			if m.landings[m.landingGen] != nil {
+				t.Fatal("a refusal left the landing pending")
+			}
+			if got := focusedName(t, m); got != "ask" {
+				t.Fatalf("a refused answer handed the session over to %q", got)
+			}
+		})
+	}
+}
+
+// With the setting turned off the answer still lands, and the operator stays
 // where they are. Off is no longer the default, so the test says so itself
 // rather than leaning on a fresh model being off.
 func TestWithoutAutoProceedAnsweringStaysPut(t *testing.T) {
-	m := buildModel(t)
-	m.autoProceed = false
-	liveTriageFleet(t, m, map[string]string{
-		"ask":  status.Waiting,
-		"next": status.Waiting,
-	})
-	m.triage = true
-	m.rebuildRows()
-
-	m.enterFocusOn(t, "ask")
-	stageDialog(m, focusedID(t, m))
-	updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	m = updated.(*Model)
+	m := drainOnDialog(t, false)
+	askID := focusedID(t, m)
+	m = pressEnter(m)
+	logHookEvent(t, m, askID, "working PostToolUse")
+	lookForLanding(t, m)
 	if got := focusedName(t, m); got != "ask" {
 		t.Fatalf("without the setting the answer moved to %q", got)
 	}
-}
-
-// A key on the way to an answer is not one: typing into the dialog leaves the
-// operator in the session, whatever the setting says.
-func TestAutoProceedStaysPutOnAKeyThatIsNotAnAnswer(t *testing.T) {
-	m := buildModel(t)
-	liveTriageFleet(t, m, map[string]string{
-		"ask":  status.Waiting,
-		"next": status.Waiting,
-	})
-	m.triage = true
-	m.autoProceed = true
-	m.rebuildRows()
-
-	m.enterFocusOn(t, "ask")
-	stageDialog(m, focusedID(t, m))
-	updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: 'y', Text: "y"})
-	m = updated.(*Model)
-	if got := focusedName(t, m); got != "ask" {
-		t.Fatalf("a plain keystroke handed the session over to %q", got)
+	if m.latestSubmission.sessionID != askID {
+		t.Fatal("the landed answer was not recorded without the setting")
 	}
 }
 
-// The key that pulls a scrolled-back pane down to its live bottom is not an
-// answer, whatever the row under the caret says: the frame on screen was
-// history. Reading it after the pull -- which clears the scroll -- would make
-// every such key look like one.
-func TestAutoProceedStaysPutOnAScrolledBackPane(t *testing.T) {
-	m := buildModel(t)
-	liveTriageFleet(t, m, map[string]string{
-		"ask":  status.Waiting,
-		"next": status.Waiting,
-	})
-	m.triage = true
-	m.autoProceed = true
-	m.rebuildRows()
-
-	m.enterFocusOn(t, "ask")
-	stageDialog(m, focusedID(t, m))
-	m.focusScroll = 3
-	updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+// A key after the answer is the operator still at work in the session, so
+// the answer landing no longer carries them off it.
+func TestAutoProceedStaysWhenTheOperatorKeepsTyping(t *testing.T) {
+	m := drainOnDialog(t, true)
+	askID := focusedID(t, m)
+	m = pressEnter(m)
+	updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(*Model)
+	logHookEvent(t, m, askID, "working PostToolUse")
+	lookForLanding(t, m)
+	if got := focusedName(t, m); got != "ask" {
+		t.Fatalf("an answer the operator typed on past handed the session over to %q", got)
+	}
+}
+
+// Shift+enter is how a message takes a newline, so it arms nothing.
+func TestAutoProceedArmsNothingOnAModifiedEnter(t *testing.T) {
+	m := drainOnDialog(t, true)
+	updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift})
+	m = updated.(*Model)
+	if m.landings[m.landingGen] != nil {
+		t.Fatal("shift+enter armed a landing")
+	}
+}
+
+// The key that pulls a scrolled-back pane down to its live bottom cannot be
+// read as answering the dialog on screen: the frame was history. It arms as
+// a composer key, which a tool call finishing does not land.
+func TestAutoProceedStaysPutOnAScrolledBackPane(t *testing.T) {
+	m := drainOnDialog(t, true)
+	askID := focusedID(t, m)
+	m.focusScroll = 3
+	m = pressEnter(m)
+	logHookEvent(t, m, askID, "working PostToolUse")
+	lookForLanding(t, m)
 	if got := focusedName(t, m); got != "ask" {
 		t.Fatalf("a key read off a scrolled-back frame handed the session over to %q", got)
+	}
+}
+
+// A mute keyed to the landing holds until a poll listed after it has been
+// applied, and then lapses whatever the session reads: the poll is the
+// session's own news, and a mute that outlived it would hide the session for
+// the rest of the drain.
+func TestLandedMuteLapsesWithTheFirstPollAfterIt(t *testing.T) {
+	m := drainOnDialog(t, true)
+	askID := focusedID(t, m)
+	m = pressEnter(m)
+	logHookEvent(t, m, askID, "working PostToolUse")
+	lookForLanding(t, m)
+	ask, ok := m.sessionByID(askID)
+	if !ok {
+		t.Fatal("ask left the board")
+	}
+	mark := m.muted[askID]
+	if mark.settle.IsZero() {
+		t.Fatal("the handover's mute was not keyed to the landing")
+	}
+	updated, _ := m.Update(refreshMsg{sessions: m.sessions, listedAt: mark.settle.Add(-time.Millisecond)})
+	m = updated.(*Model)
+	if !m.isMuted(ask) {
+		t.Fatal("a poll listed before the landing lifted its mute")
+	}
+	updated, _ = m.Update(refreshMsg{sessions: m.sessions, listedAt: mark.settle.Add(time.Millisecond)})
+	m = updated.(*Model)
+	if m.isMuted(ask) {
+		t.Fatal("the mute outlived the first poll after the landing, though the session still reads waiting")
 	}
 }
 
@@ -353,62 +315,4 @@ func focusedID(t *testing.T, m *Model) string {
 		t.Fatal("nothing is selected")
 	}
 	return sess.ID
-}
-
-// A dialog with a question stepper is not answered by the first Enter. On a
-// live dialog, Enter on a single-select question picks the row and moves the
-// stepper to the next question; on a multi-select one it ticks the row's box
-// and stays; only the review page under the stepper's Submit entry closes the
-// dialog. Handing the session over from a question left the operator's
-// remaining answers unanswered in a pane they had already left.
-//
-// The frames are live captures with their escapes, since the stepper marks
-// its active entry by background colour alone. Each was drawn on a 319x78
-// pane with the caret on the selected row's marker.
-func TestAutoProceedAnswersAStepperDialogOnlyFromItsReviewPage(t *testing.T) {
-	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
-	one := tea.KeyPressMsg{Code: '1', Text: "1"}
-	for _, c := range []struct {
-		name   string
-		file   string
-		caretY int
-		key    tea.KeyPressMsg
-		want   bool
-	}{
-		// One multi-select question: the stepper is up with the question
-		// active, and Enter ticks the highlighted box.
-		{"enter on a multi-select question", "claude-multiselect-question", 15, enter, false},
-		{"a row's number on a multi-select question", "claude-multiselect-question", 15, one, false},
-		// The second of two questions, reached by answering the first.
-		{"enter on a later question", "claude-stepper-second-question", 27, enter, false},
-		// The review page: Submit is the active entry, and its numbered
-		// list is the answer.
-		{"enter on the review page", "claude-stepper-submit-review", 35, enter, true},
-		{"a row's number on the review page", "claude-stepper-submit-review", 35, one, true},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			raw, err := os.ReadFile(filepath.Join("testdata", c.file+".txt"))
-			if err != nil {
-				t.Fatalf("read frame: %v", err)
-			}
-			m := &Model{engine: liveEngine(t), mode: modeFocus}
-			m.preview = string(raw)
-			m.pane.forID = "s1"
-			m.pane.box.height, m.pane.box.width = 78, 319
-			m.pane.cursor = paneCursor{x: 0, y: c.caretY, ok: true}
-			sess := store.Session{ID: "s1", Tool: "claude"}
-			// Every frame is a dialog to the board; what differs is where on
-			// the stepper it is, so that is the only thing the verdict may
-			// turn on.
-			if !m.selectionDialogUp(sess.ID, sess.Tool) {
-				t.Fatal("the frame does not read as a selection dialog, so this case is not testing the stepper")
-			}
-			if got := m.answersFocused(sess, c.key); got != c.want {
-				if c.want {
-					t.Fatal("the review page's answer did not hand the session over")
-				}
-				t.Fatal("a step along the dialog handed the session over before it was answered")
-			}
-		})
-	}
 }

@@ -283,50 +283,6 @@ func (m *Model) caretRows(sessID string) ([]string, int, bool) {
 	return rows, m.pane.cursor.y, true
 }
 
-// textTypedAtPrompt reports whether the caret sits on the tool's input line
-// with something written ahead of it: a message half or wholly composed, as
-// opposed to an empty prompt or a dialog marker.
-func (m *Model) textTypedAtPrompt(sessID, tool string) bool {
-	row, caretX, ok := m.caretRow(sessID)
-	if !ok {
-		return false
-	}
-	if _, ok := m.engine.InputPrefix(tool, row); !ok {
-		return false
-	}
-	return textBeforeCaret(m.engine, tool, row, caretX)
-}
-
-// commandTypedAtPrompt reports whether the text the caret sits past on the
-// tool's input line opens a command rather than a message.
-//
-// A leading "/" is a command on every CLI the board drives: it runs one of
-// the CLI's own commands -- a model picker, a settings pane, a rename --
-// instead of handing the agent a turn. Enter there is the operator arming
-// something, not answering the session, and handing the session over on it
-// would drop the picker on the floor. The row reads exactly as
-// textTypedAtPrompt reads it; only the first written rune decides.
-func (m *Model) commandTypedAtPrompt(sessID, tool string) bool {
-	row, _, ok := m.caretRow(sessID)
-	if !ok {
-		return false
-	}
-	prefix, ok := m.engine.InputPrefix(tool, row)
-	if !ok {
-		return false
-	}
-	// InputPrefix returns a byte prefix of row, so the rest of the row is the
-	// text after the marker with no cell measurement needed.
-	text := strings.TrimLeftFunc(row[len(prefix):], unicode.IsSpace)
-	return strings.HasPrefix(text, commandSigil)
-}
-
-// commandSigil opens a command rather than a message on every CLI the board
-// drives: claude, codex and opencode all read a composer line starting with
-// "/" as one of their commands. It is what tells a submitted turn from the
-// operator opening something to look at.
-const commandSigil = "/"
-
 // selectionDialogUp reports whether the session is stopped on a dialog
 // waiting to be chosen from: the caret parked short of the prompt marker
 // rather than past it, with the status rules agreeing the session is waiting
@@ -449,6 +405,9 @@ func (m *Model) leaveFocus() tea.Cmd {
 	m.pending = pendingClick{}
 	m.clearForwardingMouse()
 	m.copied = 0
+	// An answer still pending lands for the record, but it no longer moves
+	// the operator anywhere: they have already gone.
+	m.keepLandingHere()
 	return m.releaseHeldAck()
 }
 
@@ -606,17 +565,22 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if bound && action == keymap.BackAtPrompt && key.Mod == 0 && m.leftLeavesFocus(sess.ID, sess.Tool) {
 		return m, m.leaveFocus()
 	}
-	// Whether this key answers the session, read before anything below moves:
-	// it is the pane as the operator saw it when they pressed the key that
-	// says what the press meant -- a dialog to choose from, or a line with a
-	// message written on it. Once the key has landed the dialog is gone and
-	// the line is clear, and the scrolled-back pane the next lines pull back
-	// to its live bottom was showing history rather than where the key lands.
-	submitted := m.answersFocused(sess, msg)
-	// Whether it answers a dialog rather than a line at the prompt, read
-	// now for the same reason: the dialog is gone once the key lands.
-	dialogAnswer := submitted && m.selectionDialogUp(sess.ID, sess.Tool)
-	answered := m.autoProceeds() && submitted
+	// Whether a dialog is up for this key to answer, read before anything
+	// below moves: once the key has landed the dialog is gone, and the
+	// scrolled-back pane the next lines pull back to its live bottom was
+	// showing history rather than where the key lands.
+	dialog := m.selectionDialogUp(sess.ID, sess.Tool)
+	// A key that might answer the session arms a landing; whether it did is
+	// for the session to show. Enter submits a composer line or picks a
+	// dialog's row, and on a dialog a printable key can pick one too. A
+	// modifier rules the key out: shift+enter and alt+enter are how every
+	// agent CLI on the board takes a newline. Any other key means the
+	// operator is still at work in the session, so an answer already
+	// pending stops carrying them off it. See landing.go.
+	arms := key.Mod == 0 && (key.Code == tea.KeyEnter || (dialog && key.Text != ""))
+	if !arms {
+		m.keepLandingHere()
+	}
 	// Typing puts the cursor back on: a caret that blinks out mid-keystroke
 	// reads as a dropped character.
 	quiet := m.cursorOn
@@ -651,6 +615,12 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	} else if resume == nil {
 		m.echoPending = true
 	}
+	// Armed before the send, so every source it snapshots is from before
+	// anything the key caused.
+	var landing tea.Cmd
+	if arms {
+		landing = m.armLanding(sess, extension.OperatorPane, "", dialog, m.autoProceeds())
+	}
 	m.poller.noteOperatorInput(sess.ID)
 	// SendRawAt takes the pooled pipe where there is one and forks where
 	// there is not, so this is one write down a pipe the manager already
@@ -658,22 +628,11 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if err := m.sendFocusKey(sess.ID, command); err != nil {
 		m.errBar.text = err.Error()
 		quiet = false
-		// The answer never reached the pane, so the session is still asking
-		// and there is nothing to hand over.
-		answered = false
-		submitted = false
-	}
-	if submitted {
-		m.noteSubmission(sess)
-		m.noteOperator(sess, extension.OperatorPane, "", dialogAnswer)
-	}
-	// The answer is in. Auto-proceed spends it the way § does -- mute, leave,
-	// enter the next session that needs a person -- so a drain is one answer
-	// after another rather than an answer and a handover each time. Nothing
-	// here chases the echo: the pane this key was typed into is no longer the
-	// one on screen.
-	if answered {
-		return m, m.handOverFocused(sess)
+		// The key never reached the pane, so there is nothing to land.
+		if arms {
+			m.dropLanding(m.landingGen)
+			landing = nil
+		}
 	}
 	// The key is the pane's now, so start looking for what it did with it.
 	// This is the whole echo path: no timer, no client, and no cost at all
@@ -690,7 +649,7 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if quiet {
 		m.frameUnchanged()
 	}
-	return m, tea.Batch(resume, echo)
+	return m, tea.Batch(resume, echo, landing)
 }
 
 // handleFocusPaste sends a bracketed paste into the focused pane through the
@@ -701,6 +660,7 @@ func (m *Model) handleFocusPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, m.leaveFocus()
 	}
+	m.keepLandingHere()
 	quiet := m.cursorOn
 	m.cursorOn = true
 	// Pasted text lands at the live bottom, so the view follows it there.

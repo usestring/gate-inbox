@@ -480,10 +480,6 @@ type Model struct {
 	// key that answers a focused session in a drain also hands it over. Off
 	// by default; see autoproceed.go.
 	autoProceed bool
-	// gate is the armed drain: triage, hands-free handover and the full
-	// width, turned on together and put back together. It lives for the
-	// run rather than being persisted; see gate.go.
-	gate gateMode
 	// muted is the sessions this drain has already been shown, keyed by id.
 	// It is what stops the queue handing back work the operator has just
 	// done; see mute.go for why it is memory of the pass rather than state

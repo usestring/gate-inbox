@@ -64,10 +64,6 @@ const (
 	ShowAllWork  Action = "show_all_work"
 	StatusFilter Action = "status_filter"
 	Triage       Action = "triage"
-	// Gate is triage, the hands-free handover and the full width armed as
-	// one mode and put back as one: a queue drained a session at a time.
-	// See the ui package's gate.go.
-	Gate         Action = "gate"
 	EmptyGroups  Action = "empty_groups"
 	FoldAll      Action = "fold_all"
 	ArchivedView Action = "archived_view"
@@ -113,7 +109,6 @@ const (
 	// setting's "never" under a key, for an operator who wants the rows
 	// for a moment rather than for good.
 	ToggleChrome       Action = "toggle_chrome"
-	ToggleGateInput    Action = "toggle_gate_input"
 	ToggleConversation Action = "toggle_conversation"
 	// ToggleRail hides the list beside the pane and brings it back. It is
 	// the layout setting's "board" under a key, the columns answer to
@@ -176,7 +171,6 @@ var Catalog = []Binding{
 	{ContextList, StatusFilter, []string{"w"}, "filter to what needs attention", false},
 	{ContextList, Triage, []string{"i"}, "triage this group as one queue", false},
 	{ContextList, ToggleConversation, []string{"f3"}, "show full / shortened conversation", false},
-	{ContextList, Gate, []string{"G", "shift+g"}, "gate: drain that queue one session at a time", false},
 	{ContextList, EmptyGroups, []string{"e"}, "hide / show empty groups", false},
 	{ContextList, FoldAll, []string{"F", "shift+f"}, "fold / unfold everything", false},
 	{ContextList, ArchivedView, []string{"t"}, "archived view", false},
@@ -195,8 +189,6 @@ var Catalog = []Binding{
 	// binding added here is a key taken away from the pane. That is the
 	// reason the defaults are all chords.
 	{ContextFocus, Leave, []string{"ctrl+q"}, "back to the manager; in triage, on to the next", true},
-	{ContextFocus, ToggleConversation, []string{"f3"}, "show full / shortened conversation", false},
-	{ContextFocus, ToggleGateInput, []string{"f2"}, "gate: switch conversation / terminal", false},
 	{ContextFocus, HandOver, []string{"§"}, "ctrl+q's one-press alias", false},
 	{ContextFocus, LeaveHard, []string{`ctrl+\`}, "back to the manager, always stopping there", true},
 	{ContextFocus, Rescind, []string{"ctrl+z"}, "undo the latest submission while its turn is active", false},
@@ -208,10 +200,10 @@ var Catalog = []Binding{
 	{ContextFocus, ToggleChrome, []string{"alt+,"}, "hide / show the key hints along the foot", false},
 	{ContextFocus, ToggleRail, []string{`alt+\`}, "hide / show the list beside the pane", false},
 	{ContextFocus, Archive, []string{"ctrl+x"}, "kill it, asking first", false},
-	// The gate's own session controls, reached from inside it: v1's gate view
-	// offered the same rows on its menu, and a drain that had to leave the
-	// queue to spawn, copy an id or step back was not one queue.
-	{ContextFocus, NewSession, []string{"alt+n"}, "new session in this one's group, keeping your place", false},
+	// Session controls reached from inside the pane: a drain that had to leave
+	// the queue to spawn, copy an id or step back was not one queue. See the
+	// ui package's focusactions.go.
+	{ContextFocus, NewSession, []string{"alt+n"}, "new session in this one's group", false},
 	{ContextFocus, CopySessionID, []string{"alt+y"}, "copy the agent's session id", false},
 	{ContextFocus, LastPane, []string{"alt+l"}, "back to the previous session; alt+l again swaps back", false},
 	{ContextFocus, BackAtPrompt, []string{"left"}, "at the prompt's start, back to the manager", false},

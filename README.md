@@ -99,12 +99,12 @@ read from the pane itself. The preview beside the list shows the conversation as
 **Triage.** `i` flattens the groups into one queue ordered by what needs a person: waiting first,
 then errored, then finished, longest-blocked first inside each. Picking an option in a dialog, or
 sending a reply, hands that session back to its agent and opens the next one. `ctrl+q` moves on
-without answering, and `ctrl+\` stops triage. `G` is the same drain full-width, with the list put
-away until the queue is empty; `f2` switches it between the conversation and the terminal.
+without answering, and `ctrl+\` stops triage. `alt+\` puts the list away for a full-width drain,
+and `alt+,` hides the key hints.
 
-![The G gate draining four agents full-width: each answer hands the session back and the next one that needs input comes up on its own](docs/demo/triage.gif)
+![Triage draining four agents full-width: each answer hands the session back and the next one that needs input comes up on its own](docs/demo/triage.gif)
 
-<p align="center"><em>The <code>G</code> gate: triage full-width with auto-proceed. Answer one session and the next that needs you comes up on its own.</em></p>
+<p align="center"><em>Triage with the list put away. Answer one session and the next that needs you comes up on its own.</em></p>
 
 **Focus.** `enter` focuses a session in place: keys go to the agent while the list stays beside
 it, and `ctrl+q` comes back. `alt+\` hides the list so the pane gets the full width, and
@@ -121,7 +121,7 @@ selected agent for builds and one-off commands.
 | `n` / `ctrl+n` | New session, quick or with the full form |
 | `space` | Prompt the selected session, or spawn one in the selected group |
 | `enter` | Focus the session; `ctrl+q` returns to the list |
-| `i` / `G` | Triage queue / full-width drain |
+| `i` | Triage queue; `\` hides the list for a full-width drain |
 | `w` | Show only what needs attention |
 | `/` | Fuzzy search; `esc` clears it |
 | `p` | Priority tier for a session or group; higher tiers go first in triage |

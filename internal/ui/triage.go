@@ -512,7 +512,7 @@ func (m *Model) advanceTriage(leftID string) tea.Cmd {
 // enterTriageHead.
 //
 // With nothing left to hand over the cursor still leaves the dead row for
-// the head of the queue, and a gate that has run dry ends.
+// the head of the queue.
 func (m *Model) moveOnFromClosedFocus() tea.Cmd {
 	if m.advancesOnLeave() {
 		if next := m.enterTriageHead(); next != nil {
@@ -521,9 +521,6 @@ func (m *Model) moveOnFromClosedFocus() tea.Cmd {
 	}
 	if !m.triage {
 		return nil
-	}
-	if m.gate.on {
-		return m.endDrainedGate()
 	}
 	for i, row := range m.rows {
 		if row.isSession() && row.sess.Status != status.Dead {

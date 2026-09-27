@@ -307,22 +307,6 @@ func TestPlusMinusSnippetOnAGroupSaysWhatToSelect(t *testing.T) {
 	}
 }
 
-// The gate's menu reads unmodified keys as its own letters and swallows the
-// rest, so a bare ± has to be let through by name or it never reaches the
-// snippet.
-func TestPlusMinusSnippetReachesThePaneThroughTheGateMenu(t *testing.T) {
-	m := pressGate(t, gateFleet(t))
-	bindPlusMinus(t, m)
-	m.gate.menu = true
-	sess, ok := m.selected()
-	if !ok {
-		t.Fatal("the gate opened on nothing")
-	}
-
-	m = pressFocused(t, m, plusMinusMsg())
-	waitForPaneText(t, m, sess.ID, plusMinusText)
-}
-
 // In the quick prompt a bare ± is a character the operator is typing, so it
 // lands in the input rather than firing the snippet on it.
 func TestPlusMinusTypesIntoTheQuickPrompt(t *testing.T) {

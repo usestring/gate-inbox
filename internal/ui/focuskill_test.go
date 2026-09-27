@@ -12,48 +12,30 @@ import (
 func ctrlX() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl} }
 
 func TestRefreshReleasesFocusWhenThePaneDies(t *testing.T) {
-	for _, gate := range []bool{false, true} {
-		name := "focus"
-		if gate {
-			name = "gate"
-		}
-		t.Run(name, func(t *testing.T) {
-			m := gateFleet(t)
-			if gate {
-				m = pressGate(t, m)
-			} else {
-				m.enterFocusOn(t, "ask")
-			}
-			sess, _ := m.selected()
-			m.applyCmd(t, m.refreshCmd())
-			if m.mode != modeFocus {
-				t.Fatal("a live pane lost focus on refresh")
-			}
+	m := drainFleet(t)
+	m.enterFocusOn(t, "ask")
+	sess, _ := m.selected()
+	m.applyCmd(t, m.refreshCmd())
+	if m.mode != modeFocus {
+		t.Fatal("a live pane lost focus on refresh")
+	}
 
-			if err := m.tmux.Kill(sess.ID); err != nil {
-				t.Fatal(err)
-			}
-			m.applyCmd(t, m.refreshCmd())
-			stored, err := m.store.Get(sess.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if stored.Status != status.Dead || sessionGone(m.sessions, sess.ID) {
-				t.Fatal("the refresh must retain the dead managed session")
-			}
-			if gate {
-				// The gate is a drain, so the pane exiting carries it on
-				// into the rest of the queue rather than stopping on it.
-				if m.mode != modeFocus || focusedName(t, m) != "next" {
-					t.Fatalf("the gate stopped at mode %v on %q, want focus on next", m.mode, focusedName(t, m))
-				}
-			} else if m.mode != modeList {
-				t.Fatalf("detecting a dead pane left mode %v, want list navigation", m.mode)
-			}
-			if m.heldAckID == sess.ID {
-				t.Fatal("the dead pane retained its held acknowledgement")
-			}
-		})
+	if err := m.tmux.Kill(sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	m.applyCmd(t, m.refreshCmd())
+	stored, err := m.store.Get(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != status.Dead || sessionGone(m.sessions, sess.ID) {
+		t.Fatal("the refresh must retain the dead managed session")
+	}
+	if m.mode != modeList {
+		t.Fatalf("detecting a dead pane left mode %v, want list navigation", m.mode)
+	}
+	if m.heldAckID != "" {
+		t.Fatal("the dead pane retained its held acknowledgement")
 	}
 }
 
@@ -106,23 +88,6 @@ func TestTriageLeavesTheExitedRowWhenTheQueueIsEmpty(t *testing.T) {
 	}
 	if got := focusedName(t, m); got != "done" {
 		t.Fatalf("the cursor landed on %q, want the queue's head rather than the exited session", got)
-	}
-}
-
-// A gate whose last session exits has drained, and ends as it does when the
-// last one is handed over.
-func TestGateDrainsWhenItsLastPaneExits(t *testing.T) {
-	m := buildModel(t)
-	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
-	m.rebuildRows()
-	m = pressGate(t, m)
-	sess, _ := m.selected()
-	if err := m.tmux.Kill(sess.ID); err != nil {
-		t.Fatal(err)
-	}
-	m.applyCmd(t, m.refreshCmd())
-	if m.gate.on || m.mode != modeList {
-		t.Fatalf("the gate stayed armed (%v) in mode %v with nothing left", m.gate.on, m.mode)
 	}
 }
 

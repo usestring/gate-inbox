@@ -61,7 +61,6 @@
 # status_filter       = ["w"]  # filter to what needs attention
 # triage              = ["i"]  # triage this group as one queue
 # toggle_conversation = ["f3"]  # show full / shortened conversation
-# gate                = ["G", "shift+g"]  # gate: drain that queue one session at a time
 # empty_groups        = ["e"]  # hide / show empty groups
 # fold_all            = ["F", "shift+f"]  # fold / unfold everything
 # archived_view       = ["t"]  # archived view
@@ -77,8 +76,6 @@
 
 # [focus]
 # leave               = ["ctrl+q"]  # back to the manager; in triage, on to the next (cannot be unbound)
-# toggle_conversation = ["f3"]  # show full / shortened conversation
-# toggle_gate_input   = ["f2"]  # gate: switch conversation / terminal
 # hand_over           = ["§"]  # ctrl+q's one-press alias
 # leave_stop          = ["ctrl+\\"]  # back to the manager, always stopping there (cannot be unbound)
 # rescind_submission  = ["ctrl+z"]  # undo the latest submission while its turn is active
@@ -86,7 +83,7 @@
 # toggle_chrome       = ["alt+,"]  # hide / show the key hints along the foot
 # toggle_rail         = ["alt+\\"]  # hide / show the list beside the pane
 # archive             = ["ctrl+x"]  # kill it, asking first
-# new_session         = ["alt+n"]  # new session in this one's group, keeping your place
+# new_session         = ["alt+n"]  # new session in this one's group
 # copy_session_id     = ["alt+y"]  # copy the agent's session id
 # last_pane           = ["alt+l"]  # back to the previous session; alt+l again swaps back
 # leave_at_prompt     = ["left"]  # at the prompt's start, back to the manager

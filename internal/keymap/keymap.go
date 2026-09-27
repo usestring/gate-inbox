@@ -295,6 +295,9 @@ func (m *Map) apply(overrides Overrides) []Problem {
 			} else if reason, gone := retired[action]; gone {
 				problems = append(problems, Problem{Context: ctx, Action: action, Reason: reason})
 				continue
+			} else if reason, gone := retiredOn[ctx][action]; gone {
+				problems = append(problems, Problem{Context: ctx, Action: action, Reason: reason})
+				continue
 			}
 			if _, known := m.byAction[ctx][action]; !known {
 				problems = append(problems, Problem{Context: ctx, Action: action,
@@ -581,7 +584,17 @@ func reserved(ctx Context, key string) (string, bool) {
 var retired = map[Action]string{
 	"approve":             "was removed; bind its sentence to ± as a snippet in snippets.json",
 	"editor":              "was removed; open the directory from your own editor",
+	"gate":                "was removed; triage with i, and hide the list with \\ and the key hints with ,",
 	"jump_attention_back": "was removed; tab walks down the sessions waiting on you and wraps",
+	"toggle_gate_input":   "was removed with the gate",
+}
+
+// retiredOn are actions that left one screen but still work on another, so
+// they cannot go in retired, which would drop them everywhere.
+var retiredOn = map[Context]map[Action]string{
+	ContextFocus: {
+		"toggle_conversation": "was removed from inside a session with the gate; the list keeps its own",
+	},
 }
 
 // required reports whether an action is one this screen cannot be worked

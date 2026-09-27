@@ -503,16 +503,12 @@ func (m *Model) viewFooter() string {
 			{"any other key", "done"},
 		}})
 	}
-	if m.quick.active && (m.mode != modeFocus || m.showsConversation()) {
+	if m.quick.active && m.mode != modeFocus {
 		pairs := [][2]string{
 			{"↵", "send"}, {"↑↓", "switch target"}, {"tab", "tool: " + m.quickTool()},
 			{"esc", "close"},
 		}
-		if m.mode == modeFocus {
-			pairs = [][2]string{{"↵", "send"}, {"alt+enter", "newline"}, {"esc", "close"},
-				{m.fullCap(keymap.ContextFocus, keymap.ToggleConversation), m.conversationToggleLabel()},
-				{m.fullCap(keymap.ContextFocus, keymap.ToggleGateInput), "terminal"}, {"pgup/pgdn", "scroll"}}
-		} else if m.showsConversation() {
+		if m.showsConversation() {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextList, keymap.ToggleConversation), m.conversationToggleLabel()})
 		}
 		if m.quick.message() == "" && m.canRescindLatestSubmission() {
@@ -537,38 +533,6 @@ func (m *Model) viewFooter() string {
 	// Focused, the keyboard belongs to the agent: the tier says so in its
 	// title, carries the few keys the manager keeps, and drops the app-wide
 	// tier, which would name keys the agent receives.
-	if m.mode == modeFocus && m.gate.on {
-		// The gate's tier names the whole session, not only the three keys
-		// the mode is built on: v1's gate view carried the same controls, and
-		// an operator draining a queue should not have to leave it to end a
-		// session, spawn, copy an id or step back. It leads with the drain's
-		// own gestures; the row is what alt+, and the chrome setting hide.
-		//
-		// Answers stay ahead of secondary controls in the two-row budget;
-		// those that do not fit remain discoverable in H.
-		pairs := [][2]string{
-			{"1-9 / ↵", "answer"},
-			{m.gateCap(keymap.Dismiss), "skip"},
-			{m.gateCap(keymap.PreviewTop), "top"},
-			{m.gateCap(keymap.PreviewBottom), "bottom"},
-			{m.gateCap(keymap.LeaveHard), "exit"},
-		}
-		if m.gate.menu {
-			pairs[0] = [2]string{"space", "reply"}
-			pairs = append([][2]string{
-				{m.fullCap(keymap.ContextFocus, keymap.ToggleConversation), m.conversationToggleLabel()},
-				{m.fullCap(keymap.ContextFocus, keymap.ToggleGateInput), "terminal"},
-			}, pairs...)
-		}
-		pairs = append(pairs, m.snippetLegend().pairs...)
-		pairs = append(pairs, [][2]string{
-			{m.gateCap(keymap.Archive), "kill"},
-			{m.gateCap(keymap.NewSession), "new"},
-			{m.gateCap(keymap.CopySessionID), "copy ID"},
-			{m.gateCap(keymap.LastPane), "back"},
-		}...)
-		return m.transientFooter(legendSection{title: "Gate", pairs: pairs})
-	}
 	if m.mode == modeFocus {
 		// In triage the two exits stop being synonyms -- ctrl+q hands over the
 		// next session instead of returning -- so naming them together would

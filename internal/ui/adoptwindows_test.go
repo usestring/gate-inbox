@@ -253,7 +253,7 @@ func TestRepeatedScansNeverGiveAPaneASecondRow(t *testing.T) {
 	}
 }
 
-// TestManagedSessionsKeepTheirSessionWideRule is the invariant this change had
+// TestManagedSessionsKeepTheirHomeWindowRule is the invariant this change had
 // to preserve while loosening the foreign case, asserted both ways on a real
 // server.
 //
@@ -262,7 +262,7 @@ func TestRepeatedScansNeverGiveAPaneASecondRow(t *testing.T) {
 // An gi_ session no row accounts for is adopted: it is an orphan, an agent
 // still running with nothing pointing at it, and the scan is the only thing
 // that ever finds it again.
-func TestManagedSessionsKeepTheirSessionWideRule(t *testing.T) {
+func TestManagedSessionsKeepTheirHomeWindowRule(t *testing.T) {
 	dir := t.TempDir()
 	socket := windowFixture(t, "foreign", 2, dir)
 	const tracked, orphan = "trackedrow", "orphanrow"
@@ -326,6 +326,122 @@ func TestASecondPaneOfAManagedSessionIsStillRefused(t *testing.T) {
 	if adoptableOK(foreignFirst, known, map[string]bool{}) {
 		t.Error("adopted a foreign pane that already has a row")
 	}
+}
+
+// TestAgentsOpenedBesideAManagedAgentGetTheirOwnRows is the bug at the shape
+// it was reported in. A coordinator the manager launched opened its fan-out
+// as more windows of its own gi_ session, and the session-wide refusal hid
+// every one of them with "managed session already has a row". Those windows
+// are separate agents; a split of the coordinator's own window is still the
+// coordinator.
+func TestAgentsOpenedBesideAManagedAgentGetTheirOwnRows(t *testing.T) {
+	const fanOut = 3
+	dir := t.TempDir()
+	socket := windowFixture(t, "foreign", 1, dir)
+	const coordinator = "coordrow"
+	session := tmux.SessionName(coordinator)
+	addFixtureSession(t, socket, session, dir)
+	split := tmuxOnSocket(socket, "split-window", "-d", "-t", "="+session+":", "-c", dir, fixtureAgent)
+	if out, err := split.CombinedOutput(); err != nil {
+		t.Fatalf("split-window: %v: %s", err, out)
+	}
+	for i := 0; i < fanOut; i++ {
+		window := tmuxOnSocket(socket, "new-window", "-d", "-t", "="+session+":", "-c", dir, fixtureAgent)
+		if out, err := window.CombinedOutput(); err != nil {
+			t.Fatalf("new-window %d: %v: %s", i, err, out)
+		}
+	}
+	waitForPrompts(t, socket, 1+2+fanOut)
+
+	st := newFixtureStore(t)
+	row := store.Session{
+		ID: coordinator, Name: coordinator, Tool: "claude", Cwd: dir,
+		CreatedAt: time.Now(), LastStatusAt: time.Now(),
+	}
+	if err := st.CreateSession(row); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	run := newFixtureRun(t, st, socket)
+	var managed []adopt.Candidate
+	for _, candidate := range adopt.Panes(socket) {
+		if candidate.Session == session {
+			managed = append(managed, candidate)
+		}
+	}
+	if len(managed) != 2+fanOut {
+		t.Fatalf("fixture has %d panes in %s, want %d", len(managed), session, 2+fanOut)
+	}
+
+	taken, err := run.take(managed, adopt.NewProcTable())
+	if err != nil {
+		t.Fatalf("take: %v", err)
+	}
+	if taken != fanOut {
+		t.Fatalf("adopted %d of the %d agents opened beside %s; rejections were %s",
+			taken, fanOut, session, rejectionSummary(run.rejected))
+	}
+	rows, err := st.ListSessions(false)
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	home := managedHomes(managed)[managedHomeKey(managed[0])]
+	for _, sess := range rows {
+		if sess.ID == coordinator {
+			continue
+		}
+		for _, candidate := range managed {
+			if candidate.PaneID == sess.TmuxPaneID && candidate.Window == home {
+				t.Errorf("row %s took pane %s in the coordinator's own window", sess.ID, sess.TmuxPaneID)
+			}
+		}
+		if sess.ID == coordinator || tmux.SessionName(sess.ID) == session {
+			t.Errorf("an extra window was given the coordinator's id %s", sess.ID)
+		}
+	}
+	if taken, err := run.take(managed, adopt.NewProcTable()); err != nil || taken != 0 {
+		t.Fatalf("a second scan took %d more rows (err %v), want none", taken, err)
+	}
+}
+
+// TestTheHomeWindowIsTheOneThatRanTheLaunchScript covers the order a fan-out
+// can leave behind: the window the manager made is not always the oldest one
+// still open, so the launch script outranks the lowest id.
+func TestTheHomeWindowIsTheOneThatRanTheLaunchScript(t *testing.T) {
+	session := tmux.SessionName("abc")
+	launch := "sh '/tmp/gi-launch-0badf00d-abc.sh'"
+	candidates := []adopt.Candidate{
+		{Socket: "s", PaneID: "%1", Session: session, Window: "@1"},
+		{Socket: "s", PaneID: "%7", Session: session, Window: "@7", StartCommand: launch},
+		{Socket: "s", PaneID: "%3", Session: session, Window: "@3"},
+		{Socket: "s", PaneID: "%4", Session: "main", Window: "@4"},
+		{Socket: "t", PaneID: "%9", Session: session, Window: "@9"},
+		{Socket: "t", PaneID: "%12", Session: session, Window: "@12"},
+	}
+	homes := managedHomes(candidates)
+	if got := homes[managedHomeKey(candidates[0])]; got != "@7" {
+		t.Errorf("home on s is %q, want the launch script's window @7", got)
+	}
+	if got := homes[managedHomeKey(candidates[4])]; got != "@9" {
+		t.Errorf("home on t is %q, want the lowest window @9", got)
+	}
+	if _, ok := homes[managedHomeKey(candidates[3])]; ok {
+		t.Error("a foreign session was given a home window")
+	}
+	onBoard := map[string]bool{session: true}
+	if adoptableWithHomes(candidates[0], onBoard, homes) != true {
+		t.Error("refused an agent in another window of a managed session")
+	}
+	if adoptableWithHomes(candidates[1], onBoard, homes) {
+		t.Error("adopted the managed agent's own window again")
+	}
+	if adoptableWithHomes(adopt.Candidate{Socket: "s", PaneID: "%8", Session: session}, onBoard, homes) {
+		t.Error("adopted a pane with no window id; without one it has to count as home")
+	}
+}
+
+func adoptableWithHomes(candidate adopt.Candidate, onBoard map[string]bool, homes map[string]string) bool {
+	ok, _ := adoptable(candidate, "", map[string]bool{}, onBoard, homes)
+	return ok
 }
 
 // TestManyPanesInOneDirectoryGetDistinctMeaningfulNames is the other half of

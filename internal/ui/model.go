@@ -1871,11 +1871,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// list rather than typing into nothing.
 		sessions := m.keepPendingLaunches(msg.sessions, msg.listedAt)
 		var focusExit tea.Cmd
+		focusClosed := false
 		if m.mode == modeFocus {
 			if sess, ok := m.selected(); !ok || !slices.ContainsFunc(sessions, func(current store.Session) bool {
 				return current.ID == sess.ID && current.Status != status.Dead
 			}) {
 				focusExit = m.leaveFocus()
+				focusClosed = true
 			}
 		}
 		m.sessions = sessions
@@ -1947,6 +1949,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// than the board's next frame. What it finds lands as childSweptMsg.
 		childSweep := m.sweepFinishedChildren()
 		m.rebuildRows()
+		if focusClosed {
+			focusExit = tea.Batch(focusExit, m.moveOnFromClosedFocus())
+		}
 		// A pass that ran with a stale selection (a session created this
 		// tick) carries the wrong preview; resync and fetch it directly.
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {

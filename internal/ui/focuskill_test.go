@@ -39,6 +39,58 @@ func TestRefreshReleasesFocusWhenThePaneDies(t *testing.T) {
 	}
 }
 
+// A triage drain whose focused pane exits hands over the next session in the
+// queue rather than following the dead row down to the foot of the rail.
+func TestTriageAdvancesWhenTheFocusedPaneExits(t *testing.T) {
+	m := focusedKillFleet(t, true)
+	m.enterFocusOn(t, "ask")
+	sess, _ := m.selected()
+	if err := m.tmux.Kill(sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	m.applyCmd(t, m.refreshCmd())
+	if m.mode != modeFocus || focusedName(t, m) != "broke" {
+		t.Fatalf("the pane exiting left mode %v on %q, want focus on broke", m.mode, focusedName(t, m))
+	}
+}
+
+// With nothing left to hand over the drain lands on the list, and the cursor
+// on the head of the queue rather than on the session that just exited.
+func TestTriageLeavesTheExitedRowWhenTheQueueIsEmpty(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{
+		"ask":  status.Waiting,
+		"done": status.Waiting,
+	})
+	m.triage = true
+	m.rebuildRows()
+	m.enterFocusOn(t, "ask")
+	sess, _ := m.selected()
+	if err := m.tmux.Kill(sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	refresh, ok := m.refreshCmd()().(refreshMsg)
+	if !ok {
+		t.Fatal("the refresh did not report the board")
+	}
+	// Already handed over this drain, so it is on the rail but not the
+	// queue. The mark covers the state the refresh reports, since the poller
+	// re-derives every status on its way there.
+	for _, other := range refresh.sessions {
+		if other.Name == "done" {
+			m.mute(other)
+		}
+	}
+	updated, _ := m.Update(refresh)
+	m = updated.(*Model)
+	if m.mode != modeList {
+		t.Fatalf("an empty queue entered %q", focusedName(t, m))
+	}
+	if got := focusedName(t, m); got != "done" {
+		t.Fatalf("the cursor landed on %q, want the queue's head rather than the exited session", got)
+	}
+}
+
 // focusedKillFleet is a triage queue with a real pane behind every row, sized
 // so the dialog and the focused frame both have somewhere to draw.
 func focusedKillFleet(t *testing.T, triage bool) *Model {

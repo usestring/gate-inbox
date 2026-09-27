@@ -11,6 +11,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -88,8 +89,22 @@ type settingsFile struct {
 
 // statusCommand always exits 0 and no-ops outside managed sessions, so
 // the settings file is harmless if Claude Code loads it elsewhere.
-func statusCommand(state string) string {
-	return statusFileVar + `[ -z "$f" ] || printf ` + state + ` > "$f"`
+//
+// It appends rather than overwrites. The poller reads the file every couple
+// of seconds, and a single overwritten word lost every event between two
+// reads: a whole turn that started and ended inside one interval left the
+// file saying "finished" exactly as before, so the turn was never seen and
+// its alert never raised. A log keeps them, and an append of one short line
+// is atomic, where a truncate-then-write left an empty file for a reader to
+// find. See Events.
+func statusCommand(state, event string) string {
+	return statusFileVar + `[ -z "$f" ] || ` + appendEvent(state, event)
+}
+
+// appendEvent is the shell that writes one event line, the unit every hook
+// command is built from.
+func appendEvent(state, event string) string {
+	return `printf '` + state + ` ` + event + `\n' >> "$f"`
 }
 
 // statusFileVar opens every hook command by reading the status file's path
@@ -111,7 +126,7 @@ const blockingTool = "AskUserQuestion"
 // next event corrects.
 func preToolUseCommand() string {
 	return statusFileVar + `[ -z "$f" ] || { if grep -q '"tool_name"[[:space:]]*:[[:space:]]*"` + blockingTool +
-		`"'; then printf ` + status.Waiting + `; else printf ` + status.Working + `; fi > "$f"; }`
+		`"'; then ` + appendEvent(status.Waiting, "PreToolUse") + `; else ` + appendEvent(status.Working, "PreToolUse") + `; fi; }`
 }
 
 // blockingNotifications are the Notification types that leave the turn
@@ -120,10 +135,26 @@ func preToolUseCommand() string {
 // block, so the matcher names the two that do.
 const blockingNotifications = "permission_prompt|elicitation_dialog"
 
-// limitStopFailures are the StopFailure error types that mean the account
+// limitStopFailure is the StopFailure error type that means the account
 // hit a usage or rate limit. The pane also classifies those as errored;
 // the hook write covers the turn before the banner is visible.
-const limitStopFailures = "rate_limit"
+const limitStopFailure = "rate_limit"
+
+// stopFailureCommand reports how a turn that died on an API error ended.
+//
+// Every error type ends the turn, and Stop does not fire for any of them, so
+// a hook that only listened for the limit left every other failure -- an
+// overloaded API, a server error, a request the API refused -- reading
+// working from the last tool call until something else happened, which
+// nothing would. A limit is errored, because recovering from it is the
+// board's job; any other failure is a turn that ended and needs a person,
+// which is what finished says. One command reads the type off the payload,
+// for the reason preToolUseCommand does: two matchers on one event run in
+// parallel, and their lines would land in either order.
+func stopFailureCommand() string {
+	return statusFileVar + `[ -z "$f" ] || { if grep -q '"` + limitStopFailure + `"'; then ` +
+		appendEvent(status.Errored, "StopFailure") + `; else ` + appendEvent(status.Finished, "StopFailure") + `; fi; }`
+}
 
 // sessionEndCommand clears the status file and prunes the repository's
 // stale worktree records. A session that spawns per-task worktrees leaves
@@ -152,18 +183,18 @@ func settingsContent() ([]byte, error) {
 	run := func(matcher, command string) []hookMatcher {
 		return []hookMatcher{{Matcher: matcher, Hooks: []hookCommand{{Type: "command", Command: command}}}}
 	}
-	report := func(matcher, state string) []hookMatcher {
-		return run(matcher, statusCommand(state))
+	report := func(event, matcher, state string) []hookMatcher {
+		return run(matcher, statusCommand(state, event))
 	}
 	content := settingsFile{Hooks: map[string][]hookMatcher{
-		"UserPromptSubmit": report("", status.Working),
+		"UserPromptSubmit": report("UserPromptSubmit", "", status.Working),
 		"PreToolUse":       run("*", preToolUseCommand()),
-		"PostToolUse":      report("*", status.Working),
-		"Notification":     report(blockingNotifications, status.Waiting),
-		"Stop":             report("", status.Finished),
-		"StopFailure":      report(limitStopFailures, status.Errored),
+		"PostToolUse":      report("PostToolUse", "*", status.Working),
+		"Notification":     report("Notification", blockingNotifications, status.Waiting),
+		"Stop":             report("Stop", "", status.Finished),
+		"StopFailure":      run("", stopFailureCommand()),
 		// compact fires SessionStart in the middle of an active turn
-		"SessionStart": report("startup|resume|clear", status.Idle),
+		"SessionStart": report("SessionStart", "startup|resume|clear", status.Idle),
 		"SessionEnd": {{Hooks: []hookCommand{{
 			Type:    "command",
 			Command: sessionEndCommand(),
@@ -278,23 +309,134 @@ func (m *Manager) StatusFile(id string) string {
 	return filepath.Join(m.dir, id+".status")
 }
 
-// Read returns the hook-reported status for a session. The file is
-// written by shell hooks, so anything but a known status is rejected.
+// Event is one line of a session's hook log: the status the hook reported
+// and the hook event that reported it.
+type Event struct {
+	State string
+	Name  string
+}
+
+// parseEvent reads one log line. The file is written by shell hooks, so
+// anything but a known status is rejected. A line with no event name is the
+// single word this file held before it became a log, which a session
+// launched on the old settings goes on writing until it restarts.
+func parseEvent(line string) (Event, bool) {
+	fields := strings.Fields(line)
+	if len(fields) == 0 || len(fields) > 2 {
+		return Event{}, false
+	}
+	switch fields[0] {
+	case status.Working, status.Waiting, status.Finished, status.Idle, status.Errored:
+	default:
+		return Event{}, false
+	}
+	ev := Event{State: fields[0]}
+	if len(fields) == 2 {
+		ev.Name = fields[1]
+	}
+	return ev, true
+}
+
+// statusTailBytes bounds what Read looks at. The newest event is the last
+// line, and a line is a status and an event name, so this is several lines
+// of slack rather than a guess at one.
+const statusTailBytes = 256
+
+// Read returns the hook-reported status for a session: the newest event in
+// its log.
+//
+// Only the tail is read. The log grows by a line per tool call for as long as
+// the session runs, and this runs on every poll for every session.
 func (m *Manager) Read(id string) (string, bool) {
-	raw, ok := readMailbox("status", id, m.StatusFile(id))
+	raw, start, ok := readLog(id, m.StatusFile(id), func(size int64) int64 { return size - statusTailBytes })
 	if !ok {
 		return "", false
 	}
-	state := strings.TrimSpace(string(raw))
-	switch state {
-	case status.Working, status.Waiting, status.Finished, status.Idle, status.Errored:
-		return state, true
+	if start > 0 {
+		// The first line is cut short; drop it.
+		if i := bytes.IndexByte(raw, '\n'); i >= 0 {
+			raw = raw[i+1:]
+		}
+	}
+	lines := strings.Split(string(raw), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.TrimSpace(lines[i]) == "" {
+			continue
+		}
+		ev, ok := parseEvent(lines[i])
+		if !ok {
+			// The newest line decides. An unreadable one is a write this
+			// package does not recognise, and reaching past it would report
+			// an event that is no longer the newest.
+			return "", false
+		}
+		return ev.State, true
 	}
 	return "", false
 }
 
-// Write puts a status into a session's hook file, as the session's own hooks
-// would have written it.
+// Events returns the events a session's hooks have logged since offset, and
+// the offset to pass next time. ok is false when there is no log.
+//
+// This is the part of the log a single status cannot carry: what happened
+// between two looks. A turn that started and ended between two polls leaves
+// the newest line where it was, and only the lines in between say it ran.
+//
+// A log shorter than offset is not this session's log as it was; the file
+// was removed and written again. Every line in it is new.
+func (m *Manager) Events(id string, offset int64) (events []Event, next int64, ok bool) {
+	raw, start, found := readLog(id, m.StatusFile(id), func(size int64) int64 {
+		if offset > size {
+			return 0
+		}
+		return offset
+	})
+	if !found {
+		return nil, 0, false
+	}
+	// A line still being written has no newline yet; it is read next time.
+	end := bytes.LastIndexByte(raw, '\n') + 1
+	for _, line := range strings.Split(string(raw[:end]), "\n") {
+		if ev, ok := parseEvent(line); ok {
+			events = append(events, ev)
+		}
+	}
+	return events, start + int64(end), true
+}
+
+// readLog reads a status log from the offset from picks, given the file's
+// size, to its end, and returns the bytes and the offset they start at.
+func readLog(id, path string, from func(size int64) int64) (raw []byte, start int64, ok bool) {
+	started := time.Now()
+	raw, start, err := func() ([]byte, int64, error) {
+		f, err := os.Open(path)
+		if err != nil {
+			return nil, 0, err
+		}
+		defer f.Close()
+		info, err := f.Stat()
+		if err != nil {
+			return nil, 0, err
+		}
+		start := max(from(info.Size()), 0)
+		buf := make([]byte, info.Size()-start)
+		n, err := f.ReadAt(buf, start)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return nil, 0, err
+		}
+		return buf[:n], start, nil
+	}()
+	if tracing.Enabled() {
+		tracing.Record("hooks.read", started, time.Now(), nil,
+			tracing.Attr{Key: "mailbox", Value: "status"},
+			tracing.Attr{Key: "session", Value: id},
+			tracing.Attr{Key: "found", Value: err == nil})
+	}
+	return raw, start, err == nil
+}
+
+// Write logs a status as the session's own hooks would have, attributed to
+// the manager rather than to a hook event.
 //
 // The directory is created here: a session written before any hook has run
 // would otherwise have nowhere to write.
@@ -311,7 +453,15 @@ func (m *Manager) Write(id, state string) (err error) {
 	if err := os.MkdirAll(m.dir, 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(m.StatusFile(id), []byte(state), 0o644)
+	f, err := os.OpenFile(m.StatusFile(id), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(state + " manager\n"); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // ExitFile is where a managed pane's launch script writes its agent's exit

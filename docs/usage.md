@@ -50,13 +50,13 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `\` | Hide / show the list beside the pane: the `board` layout under a key, and `alt+\` does it from inside a focused session. The layout you had comes back on the second press |
 | `t` | Toggle archived view. A row there counts down its retention: seven days after it was archived the manager deletes it for good, with its hook files, and the countdown is on the row |
 | `w` | Filter to sessions that need attention (`waiting`, stuck, `finished`, `errored`); press again to show all |
-| `tab` | Enter the next session that needs you, wherever it is in the list; `shift+tab` walks back up |
+| `tab` | Enter the next session that needs you, wherever it is in the list |
 | `alt+w` `alt+f` | Enter the next `waiting` / `finished` session |
 | `alt+e` `alt+i` `alt+k` | Enter the next `errored` (or dead) / `idle` / `working` one |
 | `M` | Messages (updates, tips; `x` dismisses one for good). The welcome message points at Settings for a bug or an idea. |
 | `e` | Hide / show empty groups |
 | `/` | Search: session name, tool, group, status, what the pane is showing, and what the session has said or run |
-| `H` | The key map for the current screen (`?` also works). It scrolls (`↑↓`/`jk`, `pgup`/`pgdn`, `g`/`G`) and `/` searches it down to one line. |
+| `h` | The key map for the current screen (`H` also works), split into common and advanced keys. It scrolls (`↑↓`/`jk`, `ctrl+u`/`ctrl+d`, `g`/`G`) and `/` searches it down to one line. |
 | `q` | Quit (sessions keep running) |
 
 Navigation is keyboard-driven. The manager claims mouse reporting so the wheel stays inside the app and cannot scroll the TUI out of view: in a focused session it walks that pane's scrollback, where click-drag also selects pane text and copies it. In a focused agent that tracks the mouse, a click passes straight through to its own clickable UI while a drag still selects and copies; hold `alt` to pass a whole drag through instead, for the agent's own text selection or sliders. In the list the wheel does nothing, since moving the selection with it retargets every key that follows.
@@ -118,6 +118,8 @@ Settings (`s`) → **snippets** opens `snippets.json` in your editor. Gate Inbox
 The line is run directly, never through a shell, so nothing in it is expanded and an `.envrc` that sets `EDITOR` cannot smuggle a command in behind it. Arguments are allowed, and quotes group one that carries a space: `editor = "code -n"`, `editor = "open -a 'Visual Studio Code'"`.
 
 A known windowed editor (the six above, plus `open` and `xdg-open`) starts detached and the manager stays on screen, with the status line naming what opened. Everything else takes the terminal over the way an attach does and hands it back on exit — that way round because a terminal editor started detached would have nowhere to draw, while a windowed one launched this way only costs a repaint.
+
+Each entry is a `key`, an optional `label`, the `text` it types, and `autoSubmit`. With `autoSubmit` true the key presses Enter after the text, so the session is answered in one key; false types the text and leaves it in the prompt for you to finish and send. An entry without the field submits, which is how every snippet behaved before it was a choice. A first run writes `yes`, `continue`, `open a PR`, `anything else?`, `explain like I'm 5`, `wake up`, `nuke` and the `§` progress summary, all submitting.
 
 Inside a session every `ctrl` combination reaches the program running there, `ctrl+o` included: Claude Code shows more lines with it, and in a [terminal tab](#terminal-tabs) `nano` writes the file out.
 
@@ -354,7 +356,7 @@ Each session's tmux pane is polled (default every 2s) to derive a status:
 | `✕` | `dead` | The tmux session is gone |
 | `◌` | `starting` | The pane is still launching |
 
-Every row carries its mark, and each state has its own color from the active theme, so a glance down the rail tells you who needs you. The key map (`H`) lists the marks under "the mark on a session row".
+Every row carries its mark, and each state has its own color from the active theme, so a glance down the rail tells you who needs you. The key map (`h`) lists the marks under "the mark on a session row".
 
 A session stuck on the wrong mark is usually a rules question: the `[tools.<name>]` block in your own config is what the poller matches, and it keeps the rules it already has when a release ships better ones. [Configuration](configuration.md) has the two-line reset and how to read the pane the poller reads.
 
@@ -386,7 +388,7 @@ The preview is not lost. Focusing a session still opens its pane, full width, an
 
 ## Key hints
 
-The legend under the list is reference material, and once you know the keys it is room the list could have had. By default it follows the terminal: the legend drops to one row on a short window and off a very short one. Settings (`s`) has a `key hints` row to take that decision off the terminal — `always` keeps the full legend at any height, while `never` drops it at any height. `?` shows the available keys while held and closes on release. Terminals without key-release reporting use a timeout: 500 ms after a tap, or 140 ms after the last repeat while held. `H` opens the whole key map and keeps it open for searching and rebinding.
+The legend under the list is reference material, and once you know the keys it is room the list could have had. By default it follows the terminal: the legend drops to one row on a short window and off a very short one. Settings (`s`) has a `key hints` row to take that decision off the terminal — `always` keeps the full legend at any height, while `never` drops it at any height. `?` shows the available keys while held and closes on release. Terminals without key-release reporting use a timeout: 500 ms after a tap, or 140 ms after the last repeat while held. `h` opens the whole key map and keeps it open for searching and rebinding.
 
 ## Stats
 

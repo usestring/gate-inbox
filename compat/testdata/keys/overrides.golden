@@ -15,9 +15,8 @@ open = ["enter"]  # focus the session, or fold the group (required)
 step_in = ["right"]  # step in: a session's work, then focus it
 step_out = ["left"]  # step out: fold the work, close the group
 last_pane = ["l"]  # focus the session you were on before this one; l again swaps back
-rescind_submission = ["ctrl+z"]  # rescind the latest submission while its turn is active
+rescind_submission = ["ctrl+z"]  # undo the latest submission while its turn is active
 jump_attention = ["tab"]  # enter the next session waiting on you
-jump_attention_back = ["shift+tab"]  # enter the one before it
 jump_waiting = ["alt+w"]  # enter the next waiting session
 jump_finished = ["alt+f"]  # enter the next finished session
 jump_errored = ["alt+e"]  # enter the next errored or dead session
@@ -28,8 +27,8 @@ reorder_up = ["K", "shift+k", "shift+up"]  # reorder the row up
 reorder_down = ["J", "shift+j", "shift+down"]  # reorder the row down
 preview_scroll_up = ["alt+up"]  # scroll the preview up
 preview_scroll_down = ["alt+down"]  # scroll the preview down
-preview_page_up = ["alt+pgup"]  # scroll the preview a page up
-preview_page_down = ["alt+pgdown"]  # scroll the preview a page down
+preview_page_up = ["alt+u", "alt+pgup"]  # scroll the preview a page up
+preview_page_down = ["alt+d", "alt+pgdown"]  # scroll the preview a page down
 preview_top = ["alt+home"]  # scroll the preview to its oldest
 preview_bottom = ["alt+end"]  # scroll the preview back to live
 new_session = ["n"]  # new session: asks which agent, unless settings names one
@@ -46,7 +45,7 @@ archive = ["X"]  # kill it and file the row
 archive_all = ["shift+x"]  # kill every session listed
 restore = ["u"]  # restore it out of the archive
 dismiss = ["."]  # dismiss: mark it idle, or mute it
-priority = []  # priority: it goes first in triage
+priority = []  # toggle priority (priority panes show first)
 hand_over = ["§"]  # in triage: mute this and enter the next
 quick_prompt = [" ", "space"]  # quick prompt
 rename_from_agent = ["r"]  # rename it after its conversation
@@ -68,14 +67,14 @@ settings = ["s"]  # settings
 toggle_chrome = [","]  # hide / show the key hints along the foot
 toggle_rail = ["\\"]  # hide / show the list beside the pane
 legend_peek = ["?"]  # peek at every available key
-help = ["H", "shift+h"]  # this key map (required)
+help = ["h", "H", "shift+h"]  # this key map (required)
 quit = ["q"]  # quit (sessions keep running) (required)
 
 [focus]
 leave = ["ctrl+q"]  # back to the manager; in triage, on to the next (required)
 hand_over = ["§"]  # ctrl+q's one-press alias
 leave_stop = ["ctrl+\\"]  # back to the manager, always stopping there (required)
-rescind_submission = ["ctrl+z"]  # rescind the latest submission while its turn is active
+rescind_submission = ["ctrl+z"]  # undo the latest submission while its turn is active
 dismiss = ["alt+."]  # dismiss this one and go on to the next
 toggle_chrome = ["alt+,"]  # hide / show the key hints along the foot
 toggle_rail = ["alt+\\"]  # hide / show the list beside the pane
@@ -86,8 +85,8 @@ last_pane = ["alt+l"]  # back to the previous session; alt+l again swaps back
 leave_at_prompt = ["left"]  # at the prompt's start, back to the manager
 preview_scroll_up = ["alt+up"]  # scroll the pane up
 preview_scroll_down = ["alt+down"]  # scroll the pane down
-preview_page_up = ["alt+pgup"]  # scroll a page up
-preview_page_down = ["alt+pgdown"]  # scroll a page down
+preview_page_up = ["alt+u", "alt+pgup"]  # scroll a page up
+preview_page_down = ["alt+d", "alt+pgdown"]  # scroll a page down
 preview_top = ["alt+home"]  # oldest history
 preview_bottom = ["alt+end"]  # back to the live bottom
 
@@ -95,8 +94,8 @@ preview_bottom = ["alt+end"]  # back to the live bottom
 cancel = ["esc", "n", "q"]  # cancel the sweep (required)
 cursor_up = ["up", "k"]  # move up (required)
 cursor_down = ["down", "j"]  # move down (required)
-page_up = ["pgup", "ctrl+u"]  # a page up
-page_down = ["pgdown", "ctrl+d"]  # a page down
+page_up = ["ctrl+u", "pgup"]  # a page up
+page_down = ["ctrl+d", "pgdown"]  # a page down
 confirm = ["y", "enter"]  # run the sweep (required)
 
 [restore]
@@ -113,11 +112,11 @@ confirm = ["y", "enter"]  # apply: resume the ticked sessions, answer the panes 
 
 [welcome]
 close = ["enter", "esc", "q", " ", "space"]  # close the guide (required)
-help = ["H", "?", "shift+h"]  # the key map
+help = ["h", "H", "?", "shift+h"]  # the key map
 cursor_up = ["up", "k"]  # move up (required)
 cursor_down = ["down", "j"]  # move down (required)
-page_up = ["pgup", "ctrl+u"]  # a page up
-page_down = ["pgdown", "ctrl+d"]  # a page down
+page_up = ["ctrl+u", "pgup"]  # a page up
+page_down = ["ctrl+d", "pgdown"]  # a page down
 top = ["g", "home"]  # the top
 bottom = ["G", "end"]  # the bottom
 

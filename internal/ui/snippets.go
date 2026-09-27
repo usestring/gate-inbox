@@ -93,7 +93,7 @@ func (m *Model) sendSnippetToSelected(snip snippets.Snippet) (tea.Model, tea.Cmd
 		m.errBar.text = "select a session to send " + snip.Quoted() + " to"
 		return m, nil
 	}
-	m.sendSentence(entry.sess, snip.Text, snip.Quoted())
+	m.sendSentence(entry.sess, snip.Text, snip.Quoted(), snip.Submits())
 	return m, nil
 }
 
@@ -152,7 +152,11 @@ func (m *Model) snippetHelpSection() helpSection {
 		rows = append(rows, note(keymap.Display(section)+" has no ctrl: ctrl+"+snippets.SectionKey+" never gets through tmux"))
 	}
 	for _, snip := range m.snips.Snippets {
-		rows = append(rows, lit(snippetCap(snip), "send "+snip.Quoted()))
+		verb := "send "
+		if !snip.Submits() {
+			verb = "type "
+		}
+		rows = append(rows, lit(snippetCap(snip), verb+snip.Quoted()))
 	}
 	switch {
 	case m.snipErr != "":

@@ -551,8 +551,9 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// A snippet is a whole answer -- the sentence the drain exists to
 		// send -- so auto-proceed treats it as one. A send that failed has
 		// left the session unanswered and its reason in the bar, and handing
-		// it over would carry both off screen.
-		if m.sendSentence(sess, snip.Text, snip.Quoted()) && m.autoProceeds() {
+		// it over would carry both off screen. So would one that only typed
+		// its text, since the operator has the line still to finish.
+		if m.sendSentence(sess, snip.Text, snip.Quoted(), snip.Submits()) && m.autoProceeds() {
 			return m, m.handOverFocused(sess)
 		}
 		return m, nil

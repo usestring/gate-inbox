@@ -19,12 +19,17 @@ import (
 // derived so the commentary can name the snippet the operator recognises
 // rather than re-quote a sentence they just read on the footer.
 //
+// submit false types the sentence and leaves it in the prompt: the snippet's
+// AutoSubmit is off, so the operator finishes the line and presses Enter
+// themselves. Nothing has been sent yet, so none of what follows a send --
+// undo, the operator note, clearing the ack -- happens.
+//
 // It reports whether the sentence actually reached the agent. Auto-proceed
 // needs that answer: a refused send -- an archived session, a shell, a dead
 // pane -- has left the session unanswered, and the reason is in the error bar,
 // where handing the session over would take it off screen before it was read.
 // See autoproceed.go.
-func (m *Model) sendSentence(sess store.Session, text, quoted string) bool {
+func (m *Model) sendSentence(sess store.Session, text, quoted string, submit bool) bool {
 	if sess.Archived {
 		m.errBar.text = m.displayName(sess) + " is archived — press " + m.cap(keymap.ContextList, keymap.Restore) + " to restore it first"
 		return false
@@ -41,6 +46,15 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string) bool {
 	}
 	if hold := m.dialogHold(sess); hold != "" {
 		m.errBar.text = hold
+		return false
+	}
+	if !submit {
+		if err := pasteFocused(m.tmux, sess.ID, text); err != nil {
+			m.errBar.text = err.Error()
+			return false
+		}
+		m.errBar.text = "typed " + quoted + " into " + m.displayName(sess) + " — press enter to send"
+		m.requestRefresh()
 		return false
 	}
 	if err := m.tmux.SendText(sess.ID, text); err != nil {

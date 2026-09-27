@@ -505,12 +505,6 @@ func (m *Model) filterBadgeLines() []string {
 		// drawn from. Truncated rather than wrapped: the badge shares its
 		// line with the key that lifts it.
 		label, key, out := "TRIAGE", "i", "back to groups"
-		// The gate replaces that badge rather than sitting above it. It is
-		// the same queue under the same scope, and two badges would offer
-		// two ways out of one state, only one of which gives the rail back.
-		if m.gate.on {
-			label, key, out = "GATE", "G", "stop the gate"
-		}
 		if m.triageScope != "" {
 			label += " " + strings.ToUpper(textfmt.TruncateWidth(baseName(m.triageScope), 12, "…"))
 		}
@@ -1293,7 +1287,7 @@ func (m *Model) contentLines(width, height int) []contentLine {
 	}
 
 	var bar []contentLine
-	if m.quick.active && (m.mode != modeFocus || m.showsConversation()) {
+	if m.quick.active && m.mode != modeFocus {
 		bar = append([]contentLine{{}}, ours(splitLines(m.viewQuickBar(inner)))...)
 	}
 	var body []contentLine
@@ -1329,16 +1323,6 @@ func (m *Model) focusRuleTail(width int, corner bool) string {
 	title := " focused · ctrl+q back · " + keymap.Display("alt+↑↓") + " scroll "
 	if m.scrolledBack() {
 		title = fmt.Sprintf(" focused · %d lines back · %s or type to catch up ", m.focusScroll, keymap.Display("alt+down"))
-	}
-	if m.gate.on {
-		mode, next := "Terminal", "messages"
-		if m.gate.menu {
-			mode, next = "Messages", "terminal"
-		}
-		title = fmt.Sprintf(" %s · %s %s · %s top ", mode, m.fullCap(keymap.ContextFocus, keymap.ToggleGateInput), next, m.gateCap(keymap.PreviewTop))
-		if lipgloss.Width(title) > width-1 {
-			title = fmt.Sprintf(" %s · %s %s ", mode, m.fullCap(keymap.ContextFocus, keymap.ToggleGateInput), next)
-		}
 	}
 	edge := 0
 	if corner {

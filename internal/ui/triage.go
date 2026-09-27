@@ -502,3 +502,33 @@ func (m *Model) advanceTriage(leftID string) tea.Cmd {
 		}
 	}
 }
+
+// moveOnFromClosedFocus is what a focused session exiting under the operator
+// leads to. The rebuild keeps the cursor on the row it was on, and in triage
+// a dead row sorts to the foot of the queue, so left alone the cursor chases
+// the closed session down the rail and the drain stops there. A pane that
+// has gone is the operator done with it as surely as an archive is, so the
+// walk carries on from the head of the queue, as it does after one. See
+// enterTriageHead.
+//
+// With nothing left to hand over the cursor still leaves the dead row for
+// the head of the queue.
+func (m *Model) moveOnFromClosedFocus() tea.Cmd {
+	if m.advancesOnLeave() {
+		if next := m.enterTriageHead(); next != nil {
+			return next
+		}
+	}
+	if !m.triage {
+		return nil
+	}
+	for i, row := range m.rows {
+		if row.isSession() && row.sess.Status != status.Dead {
+			m.cursor = i
+			m.clearPreviewState()
+			m.previewGen++
+			return m.schedulePreview()
+		}
+	}
+	return nil
+}

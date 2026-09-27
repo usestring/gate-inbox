@@ -17,7 +17,7 @@ import (
 // focusedFrameMarker is what the footer says only while the keyboard belongs
 // to the agent. The list, the form and the quick bar all paint a different
 // tier, so its presence is the frame's own answer to "am I inside the pane".
-const focusedFrameMarker = "typing"
+const focusedFrameMarker = "Focused"
 
 // frameNow renders the screen the way the runtime does, defeating the reuse
 // cache so a test cannot read a frame painted before the create it is about.

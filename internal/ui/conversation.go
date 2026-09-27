@@ -45,7 +45,7 @@ func conversationTick() tea.Cmd {
 func (m *Model) showsConversation() bool {
 	sess, ok := m.selected()
 	return m.conversation != nil && ok && !m.isShell(sess.Tool) &&
-		(m.mode == modeList || m.mode == modeRename || (m.mode == modeFocus && m.gate.on && m.gate.menu))
+		(m.mode == modeList || m.mode == modeRename)
 }
 
 func conversationKey(id, agentID string) string { return id + "\x00" + agentID }

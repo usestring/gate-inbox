@@ -1,29 +1,61 @@
 === absent
+ctrl+alt+y  "yes" -> "yes"
 ctrl+alt+c  "continue" -> "continue"
-ctrl+alt+t  "run tests" -> "run the tests and report what failed"
 ctrl+alt+p  "open a PR" -> "open a pull request for this work"
+ctrl+alt+a  "anything else?" -> "Anything else in this session?"
+ctrl+alt+e  "explain like I'm 5" -> "I'm confused, explain like I'm 5"
+ctrl+alt+w  "wake up" -> "Auto wake-up: the previous turn died on a transient API error. Continue where you left off."
+ctrl+alt+n  "nuke" -> "Use the nuke skill to end this session."
 alt+§  "progress" -> "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so"
 --- snippets.json as written
 [
   {
-    "key": "c",
-    "label": "continue",
-    "text": "continue"
+    "key": "y",
+    "label": "yes",
+    "text": "yes",
+    "autoSubmit": true
   },
   {
-    "key": "t",
-    "label": "run tests",
-    "text": "run the tests and report what failed"
+    "key": "c",
+    "label": "continue",
+    "text": "continue",
+    "autoSubmit": true
   },
   {
     "key": "p",
     "label": "open a PR",
-    "text": "open a pull request for this work"
+    "text": "open a pull request for this work",
+    "autoSubmit": true
+  },
+  {
+    "key": "a",
+    "label": "anything else?",
+    "text": "Anything else in this session?",
+    "autoSubmit": true
+  },
+  {
+    "key": "e",
+    "label": "explain like I'm 5",
+    "text": "I'm confused, explain like I'm 5",
+    "autoSubmit": true
+  },
+  {
+    "key": "w",
+    "label": "wake up",
+    "text": "Auto wake-up: the previous turn died on a transient API error. Continue where you left off.",
+    "autoSubmit": true
+  },
+  {
+    "key": "n",
+    "label": "nuke",
+    "text": "Use the nuke skill to end this session.",
+    "autoSubmit": true
   },
   {
     "key": "§",
     "label": "progress",
-    "text": "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so"
+    "text": "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so",
+    "autoSubmit": true
   }
 ]
 

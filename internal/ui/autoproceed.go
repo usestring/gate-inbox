@@ -72,13 +72,6 @@ func storedAutoProceed(st *store.Store) bool {
 // triage's own order -- and outside focus the keys this hooks do not reach a
 // pane at all.
 func (m *Model) autoProceeds() bool {
-	// The gate is the setting armed on purpose and for as long as the mode
-	// lasts, so it does not consult the stored one: a drain the operator
-	// asked for by name is not something they should then have to have
-	// turned on in settings beforehand. See gate.go.
-	if m.gate.on {
-		return m.mode == modeFocus
-	}
 	return m.autoProceed && m.triage && m.mode == modeFocus
 }
 
@@ -105,15 +98,6 @@ func (m *Model) moveOnFrom(sess store.Session) tea.Cmd {
 	leave := m.leaveFocus()
 	if next := m.advanceTriage(sess.ID); next != nil {
 		return tea.Batch(leave, next)
-	}
-	// Nothing left to hand over. Outside the gate the empty rail the
-	// operator lands on is the answer; the gate has put that rail away, and
-	// a drain that has run dry is the drain being over, so it ends here and
-	// says so rather than leaving an armed mode with no queue in it.
-	if m.gate.on {
-		drained := m.disarmGate()
-		m.errBar.text = "gate drained — nothing else is waiting on you or idle"
-		return tea.Batch(leave, drained)
 	}
 	return leave
 }

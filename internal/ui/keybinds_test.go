@@ -46,10 +46,13 @@ func TestAKeyFileMovesABinding(t *testing.T) {
 func TestTheFooterNamesTheReboundKey(t *testing.T) {
 	m := buildModel(t)
 	m.width, m.height = 200, 50
-	writeKeys(t, m, "[list]\nnew_session = [\"z\"]\n")
+	createSession(t, m, "rebound", t.TempDir(), "")
+	m.applyCmd(t, m.refreshCmd())
+	m.selectSessionRow(t, "rebound")
+	writeKeys(t, m, "[list]\narchive = [\"z\"]\n")
 	footer := ansi.Strip(m.viewFooter())
-	if !strings.Contains(footer, "z new") {
-		t.Errorf("the footer does not name z as new:\n%s", footer)
+	if !strings.Contains(footer, "z kill") {
+		t.Errorf("the footer does not name z as kill:\n%s", footer)
 	}
 }
 

@@ -20,13 +20,18 @@ import (
 // derived so the commentary can name the snippet the operator recognises
 // rather than re-quote a sentence they just read on the footer.
 //
-// Reaching the pane is not the agent taking the line, so the send only arms
-// a landing (see landing.go): the sentence counts as submitted, and with
+// submit false types the sentence and leaves it in the prompt: the snippet's
+// AutoSubmit is off, so the operator finishes the line and presses Enter
+// themselves. Nothing has been sent yet, so none of what follows a send --
+// undo, the operator note, clearing the ack, a landing -- happens.
+//
+// Reaching the pane is not the agent taking the line, so a submitted send only
+// arms a landing (see landing.go): the sentence counts as submitted, and with
 // handOver the drain moves on, once the agent is seen to have taken it. A
 // refused send -- an archived session, a shell, a dead pane -- arms nothing,
 // and its reason stays in the error bar rather than being carried off screen
 // by a handover.
-func (m *Model) sendSentence(sess store.Session, text, quoted string, handOver bool) tea.Cmd {
+func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, handOver bool) tea.Cmd {
 	if sess.Archived {
 		m.errBar.text = m.displayName(sess) + " is archived — press " + m.cap(keymap.ContextList, keymap.Restore) + " to restore it first"
 		return nil
@@ -43,6 +48,15 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, handOver b
 	}
 	if hold := m.dialogHold(sess); hold != "" {
 		m.errBar.text = hold
+		return nil
+	}
+	if !submit {
+		if err := pasteFocused(m.tmux, sess.ID, text); err != nil {
+			m.errBar.text = err.Error()
+			return nil
+		}
+		m.errBar.text = "typed " + quoted + " into " + m.displayName(sess) + " — press enter to send"
+		m.requestRefresh()
 		return nil
 	}
 	landing := m.armLanding(sess, extension.OperatorSnippet, text, false, handOver)

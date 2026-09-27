@@ -63,29 +63,13 @@ func (m *Model) defaultToolSelection() ([]string, int) {
 }
 
 // handleQuickKey runs while the quick bar is docked in the sidebar: arrows
-// keep moving the selection on the list; in the gate they edit the draft. Enter submits
-// against whatever is selected, and every other key is typed text.
+// keep moving the selection on the list. Enter submits against whatever is
+// selected, and every other key is typed text.
 func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	context := keymap.ContextList
-	if m.mode == modeFocus {
-		context = keymap.ContextFocus
-	}
 	if action, bound := m.action(context, msg); bound && action == keymap.ToggleConversation {
 		m.toggleConversation()
 		return m, nil
-	}
-	if m.mode == modeFocus {
-		switch msg.String() {
-		case "alt+enter", "shift+enter":
-			m.quick.input.InsertString("\n")
-			return m, nil
-		case "up", "down", "tab", "alt+m":
-			return m, m.quick.typeKey(msg)
-		case "pgup":
-			return m, m.keyScrollFocus(focusScrollPageUp)
-		case "pgdown":
-			return m, m.keyScrollFocus(focusScrollPageDown)
-		}
 	}
 	if m.quick.message() == "" && m.canRescindLatestSubmission() {
 		if action, bound := m.action(context, msg); bound && action == keymap.Rescind {

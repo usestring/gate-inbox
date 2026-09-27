@@ -10,7 +10,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
-func TestDefaultLegendIsTwoFocusedRows(t *testing.T) {
+func TestDefaultLegendIsTheSessionRowAndThePeekKey(t *testing.T) {
 	m := buildModel(t)
 	m.width, m.height = 100, 40
 	createSession(t, m, "legend", t.TempDir(), "")
@@ -18,14 +18,14 @@ func TestDefaultLegendIsTwoFocusedRows(t *testing.T) {
 
 	footer := ansi.Strip(m.viewFooter())
 	if got := lipgloss.Height(footer); got != 2 {
-		t.Fatalf("default footer takes %d rows, want 2:\n%s", got, footer)
+		t.Fatalf("default footer takes %d rows, want the row tier and the peek key:\n%s", got, footer)
 	}
-	for _, want := range []string{"focus / fold", "prompt", "kill", "navigate", "new", "search", "attention", "triage", "? more"} {
+	for _, want := range []string{"Session", "focus", "prompt", "kill", "? more"} {
 		if !strings.Contains(footer, want) {
 			t.Errorf("default footer is missing %q:\n%s", want, footer)
 		}
 	}
-	for _, hidden := range []string{"fork", "rename", "restart", "settings", "quit", "editor"} {
+	for _, hidden := range []string{"fork", "rename", "restart", "settings", "quit", "editor", "navigate", "triage", "View", "mute"} {
 		if strings.Contains(footer, hidden) {
 			t.Errorf("default footer still advertises %q:\n%s", hidden, footer)
 		}
@@ -41,6 +41,17 @@ func TestDefaultLegendAlwaysKeepsQuestionMark(t *testing.T) {
 		footer := ansi.Strip(m.viewFooter())
 		if !strings.Contains(footer, "? more") {
 			t.Errorf("%d-column footer dropped the peek key:\n%s", width, footer)
+		}
+	}
+}
+
+func TestListFooterHeightHoldsAcrossRowsAtANarrowWidth(t *testing.T) {
+	m := fleetModel(t, 87, 40, 50)
+	for i := range m.rows {
+		m.placeCursor(i)
+		footer := ansi.Strip(m.viewFooter())
+		if got := lipgloss.Height(footer); got != 2 {
+			t.Fatalf("row %d footer takes %d rows, want the row tier and the peek key:\n%s", i, got, footer)
 		}
 	}
 }
@@ -137,7 +148,7 @@ func TestLegendPeekOverlaysWithoutChangingFooterOrFrameHeight(t *testing.T) {
 		t.Fatalf("peek changed frame height from %d to %d", lipgloss.Height(before), lipgloss.Height(after))
 	}
 	plain := ansi.Strip(after)
-	if !strings.Contains(plain, "Available") || !strings.Contains(plain, "H full key map") {
+	if !strings.Contains(plain, "Available") || !strings.Contains(plain, "h full key map") {
 		t.Fatalf("peek did not overlay the full applicable legend:\n%s", plain)
 	}
 }

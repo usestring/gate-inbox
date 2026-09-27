@@ -323,10 +323,9 @@ func TestDotAcknowledgesOnlyCurrentFinishedStatus(t *testing.T) {
 		stored     string
 		wantStatus string
 		wantAcked  bool
-		wantOffer  bool
 	}{
-		{name: "finished", listed: status.Finished, stored: status.Finished, wantStatus: status.Idle, wantAcked: true, wantOffer: true},
-		{name: "stale snapshot", listed: status.Finished, stored: status.Working, wantStatus: status.Working, wantOffer: true},
+		{name: "finished", listed: status.Finished, stored: status.Finished, wantStatus: status.Idle, wantAcked: true},
+		{name: "stale snapshot", listed: status.Finished, stored: status.Working, wantStatus: status.Working},
 		{name: "working", listed: status.Working, stored: status.Working, wantStatus: status.Working},
 	}
 	for _, tc := range cases {
@@ -340,9 +339,6 @@ func TestDotAcknowledgesOnlyCurrentFinishedStatus(t *testing.T) {
 			m.sessions[0].Status = tc.listed
 			m.rebuildRows()
 			m.selectSessionRow(t, "alert-me")
-			if offered := strings.Contains(m.viewFooter(), "mark idle"); offered != tc.wantOffer {
-				t.Fatalf("dot footer offered = %v, want %v", offered, tc.wantOffer)
-			}
 
 			m.handleKey(tea.KeyPressMsg{Code: '.', Text: "."})
 			got, err := m.store.Get(sess.ID)
@@ -374,9 +370,6 @@ func TestDotKeepsArchivedFinishedStatus(t *testing.T) {
 	m.showArchived = true
 	m.rebuildRows()
 	m.selectSessionRow(t, "kept")
-	if strings.Contains(m.viewFooter(), "mark idle") {
-		t.Fatal("dot offered on an archived session")
-	}
 
 	m.handleKey(tea.KeyPressMsg{Code: '.', Text: "."})
 	got, err := m.store.Get(sess.ID)

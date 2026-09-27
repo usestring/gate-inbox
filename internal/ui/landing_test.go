@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
-
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -105,12 +103,11 @@ func TestAStaleLookDecidesNothing(t *testing.T) {
 // A quick prompt that is never seen landing records nothing and moves the
 // drain nowhere.
 func TestAQuickPromptThatNeverLandsStaysPut(t *testing.T) {
-	m := pressGate(t, gateFleet(t))
-	m = pressFocused(t, m, tea.KeyPressMsg{Code: ' ', Text: " "})
+	m := enterDrain(t, drainFleet(t))
 	sess, _ := m.selected()
+	m.openQuickMode()
 	m.quick.input.SetValue("Please continue")
-	m = pressFocused(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
-	if m.errBar.text != "" {
+	if _, _ = m.submitQuick(); m.errBar.text != "" {
 		t.Fatal(m.errBar.text)
 	}
 	m.landings[sess.ID].deadline = time.Now().Add(-time.Millisecond)
@@ -164,7 +161,7 @@ func TestRescindingALandedAnswerUnmutesItsSession(t *testing.T) {
 		t.Fatal("the handover did not mute the answered session, so this proves nothing")
 	}
 	m.rescindLatestSubmission()
-	if !strings.Contains(m.errBar.text, "rescinded") {
+	if !strings.Contains(m.errBar.text, "undid") {
 		t.Fatalf("rescind result = %q", m.errBar.text)
 	}
 	if m.isMuted(ask) {

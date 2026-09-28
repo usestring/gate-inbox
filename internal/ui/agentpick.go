@@ -142,7 +142,7 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if msg.err != nil || msg.name == "" {
-		m.openAgentPick()
+		m.openPinnedAgentPick(msg.group)
 		m.errBar.text = "quota unavailable: choose a CLI"
 		return m, nil
 	}
@@ -151,9 +151,16 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 			return m.spawnInstantIn(name, msg.group)
 		}
 	}
-	m.openAgentPick()
+	m.openPinnedAgentPick(msg.group)
 	m.errBar.text = "chosen CLI is disabled: choose another"
 	return m, nil
+}
+
+func (m *Model) openPinnedAgentPick(group string) {
+	m.openAgentPick()
+	if m.mode == modeAgentPick {
+		m.agentPick.group, m.agentPick.pinned = group, true
+	}
 }
 
 // agentPick is the one question n asks: which agent starts here.
@@ -176,6 +183,10 @@ type agentPick struct {
 	// against fresh text replaces the whole of it, which is what makes a
 	// prefilled box overridable without a backspace per character.
 	fresh bool
+	// group pins the launch to the group an Auto route captured when n was
+	// pressed, so a fallback picker does not follow a cursor moved meanwhile.
+	group  string
+	pinned bool
 }
 
 func (m *Model) openAgentPick() {
@@ -366,6 +377,9 @@ func (m *Model) submitAgentPick() (tea.Model, tea.Cmd) {
 	m.mode = modeList
 	if m.isShell(name) {
 		return m.openTerminal()
+	}
+	if m.agentPick.pinned {
+		return m.spawnInstantIn(name, m.agentPick.group)
 	}
 	return m.spawnInstant(name)
 }

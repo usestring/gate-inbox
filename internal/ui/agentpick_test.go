@@ -89,6 +89,31 @@ func TestAutoRouteLaunchesFromAFocusedSession(t *testing.T) {
 	}
 }
 
+func TestAutoRouteFallbackPickerKeepsTheGroupSelectedWhenNWasPressed(t *testing.T) {
+	m := buildModel(t)
+	origin := filepath.Join(t.TempDir(), "origin-repo")
+	groupAt(t, m, "origin", origin)
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	m.selectGroupRow(t, "origin")
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	m.selectGroupRow(t, "elsewhere")
+	m.update(cmd())
+	if m.mode != modeAgentPick {
+		t.Fatalf("unavailable quota left mode %v, want picker", m.mode)
+	}
+	typeInto(t, m, "ready-tool")
+	pressKey(t, m, enterKey())
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || rows[0].Group != "origin" || rows[0].Cwd != origin {
+		t.Fatalf("fallback picker launched %+v, want it in the origin group (error %q)", rows, m.errBar.text)
+	}
+}
+
 func TestAutoRouteFallsBackToCLIPickerWhenQuotaUnavailable(t *testing.T) {
 	m := buildModel(t)
 	m.newSessionAgent = newSessionAgentAuto

@@ -4,6 +4,7 @@ package ui
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -258,12 +259,13 @@ func TestComposerInsertTokenSpacesOffTheWordsAroundIt(t *testing.T) {
 // textarea would truncate into text nothing points at.
 func TestComposerPasteRefusedWhenThePromptIsFull(t *testing.T) {
 	m := buildModel(t)
-	m.openQuickMode()
-	m.quick.input.CharLimit = 40
-	full := strings.Repeat("x", m.quick.input.CharLimit)
-	m.quick.input.SetValue(full)
+	m.openForm()
+	focusFormPrompt(t, m)
+	m.form.prompt.input.CharLimit = 40
+	full := strings.Repeat("x", m.form.prompt.input.CharLimit)
+	m.form.prompt.input.SetValue(full)
 
-	_, cmd := m.handleQuickKey(tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl})
+	_, cmd := m.handleFormKey(tea.KeyPressMsg{Code: 'v', Mod: tea.ModCtrl})
 
 	if cmd != nil {
 		t.Fatal("a refused paste must not start a clipboard read")
@@ -271,60 +273,19 @@ func TestComposerPasteRefusedWhenThePromptIsFull(t *testing.T) {
 	if m.errBar.text != "prompt is full - shorten it before pasting an image" {
 		t.Fatalf("errBar = %q, want the full-prompt refusal", m.errBar.text)
 	}
-	if got := m.quick.input.Value(); got != full {
+	if got := m.form.prompt.input.Value(); got != full {
 		t.Fatalf("value = %q, want the prompt untouched", got)
 	}
-	if len(m.quick.attachments) != 0 {
-		t.Fatalf("no chip should be reserved: %+v", m.quick.attachments)
+	if len(m.form.prompt.attachments) != 0 {
+		t.Fatalf("no chip should be reserved: %+v", m.form.prompt.attachments)
 	}
 }
 
 // A clipboard holding text rather than an image still pastes. The read
 // comes back as a message only the textarea can read, so what this pins is
 // the routing: whatever the read yields has to reach the input the ctrl+v
-// was typed into, rather than being dropped on the way past.
-func TestComposerNoImageFallsThroughToATextPaste(t *testing.T) {
-	orig := readClipboardText
-	t.Cleanup(func() { readClipboardText = orig })
-	readClipboardText = func() tea.Msg {
-		return tea.KeyPressMsg{Code: 'f', Text: "from the clipboard"}
-	}
-
-	m := buildModel(t)
-	m.openQuickMode()
-	m.quick.input.SetValue("see ")
-	m.quick.input.CursorEnd()
-	m.quick.lastImageID = 1
-	m.quick.attachments = []imageAttachment{{id: 1}}
-	m.quick.input.InsertString(imageToken(1))
-
-	gen := m.quick.gen
-	updated, cmd := m.Update(pasteImageMsg{target: composerQuick, gen: gen, id: 1, noImage: true})
-	m, ok := updated.(*Model)
-	if !ok {
-		t.Fatalf("Update returned %T, want *Model", updated)
-	}
-	if len(m.quick.attachments) != 0 {
-		t.Fatalf("the reserved chip should go back out: %+v", m.quick.attachments)
-	}
-	if cmd == nil {
-		t.Fatal("a clipboard with no image should still start a text paste")
-	}
-
-	// The command carries the clipboard read; its message is what has to
-	// land in the input.
-	text, ok := cmd().(pasteTextMsg)
-	if !ok {
-		t.Fatalf("paste cmd returned %T", cmd())
-	}
-	m = applyMsg(t, m, text)
-	if got := m.quick.input.Value(); got != "see from the clipboard" {
-		t.Fatalf("value = %q, want the clipboard text in place of the chip", got)
-	}
-}
-
-// The same fallback on the New Session form, where the prompt is one field
-// among several. Tabbing on while the read is in flight blurs the prompt,
+// was typed into, rather than being dropped on the way past. The prompt is
+// one field among several, and tabbing on while the read is in flight blurs the prompt,
 // and the result still belongs to the text the ctrl+v was typed into.
 func TestComposerNoImageFallsThroughToABlurredFormPrompt(t *testing.T) {
 	orig := readClipboardText
@@ -369,21 +330,21 @@ func TestComposerNoImageFallsThroughToABlurredFormPrompt(t *testing.T) {
 	}
 }
 
-// The same fallback, once the bar it was typed into is gone.
+// The same fallback, once the form it was typed into is gone.
 func TestComposerTextPasteDroppedWhenItsBoxIsClosed(t *testing.T) {
 	m := buildModel(t)
-	m.openQuickMode()
-	m.quick.input.SetValue("kept")
-	gen := m.quick.gen
-	m.quick.active = false
+	m.openForm()
+	m.form.prompt.input.SetValue("kept")
+	gen := m.form.prompt.gen
+	m.mode = modeList
 
 	m = applyMsg(t, m, pasteTextMsg{
-		target: composerQuick,
+		target: composerForm,
 		gen:    gen,
 		inner:  tea.KeyPressMsg{Code: 'l', Text: "late"},
 	})
-	if got := m.quick.input.Value(); got != "kept" {
-		t.Fatalf("value = %q, want the closed bar left alone", got)
+	if got := m.form.prompt.input.Value(); got != "kept" {
+		t.Fatalf("value = %q, want the closed form left alone", got)
 	}
 }
 
@@ -426,32 +387,16 @@ func TestComposerPasteFromAClosedBoxSkipsItsSuccessor(t *testing.T) {
 	}
 }
 
-// A paste result carries the box it was started from, so the two screens
-// cannot land each other's images.
-func TestComposerTargetsRouteToTheirOwnBox(t *testing.T) {
-	m := buildModel(t)
-	m.openQuickMode()
-	m.openForm()
-
-	if got := m.composerFor(composerQuick); got != &m.quick.composer {
-		t.Fatal("composerQuick should name the quick bar's box")
-	}
-	if got := m.composerFor(composerForm); got != &m.form.prompt {
-		t.Fatal("composerForm should name the form's prompt")
-	}
-	// The form is up and the bar is still armed behind it, so each box
-	// answers for itself rather than for whatever is on screen.
-	if !m.composerOpen(composerQuick) || !m.composerOpen(composerForm) {
-		t.Fatal("both boxes are open here")
-	}
-	m.quick.active = false
-	m.mode = modeList
-	if m.composerOpen(composerQuick) || m.composerOpen(composerForm) {
-		t.Fatal("a closed box has nowhere for an image to land")
-	}
-}
-
 func fileGone(path string) bool {
 	_, err := os.Stat(path)
 	return os.IsNotExist(err)
+}
+
+func tempImage(t *testing.T, name string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte("png-bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }

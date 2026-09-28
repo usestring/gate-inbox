@@ -116,14 +116,14 @@ func TestPasteKeepsALandedAnswerOnItsSession(t *testing.T) {
 	}
 }
 
-// A quick prompt that is never seen landing records nothing and moves the
-// drain nowhere.
-func TestAQuickPromptThatNeverLandsStaysPut(t *testing.T) {
+// A snippet from the hotkey menu that is never seen landing records nothing
+// and moves the drain nowhere.
+func TestAHotkeyMenuSendThatNeverLandsStaysPut(t *testing.T) {
 	m := enterDrain(t, drainFleet(t))
+	bindMenuSnippet(t, m, "Please continue")
 	sess, _ := m.selected()
 	m.openQuickMode()
-	m.quick.input.SetValue("Please continue")
-	if _, _ = m.submitQuick(); m.errBar.text != "" {
+	if _, _ = m.handleQuickKey(letter('c')); !strings.HasPrefix(m.errBar.text, "sent ") {
 		t.Fatal(m.errBar.text)
 	}
 	m.landings[sess.ID].deadline = time.Now().Add(-time.Millisecond)

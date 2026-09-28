@@ -88,8 +88,7 @@ picks them back up.
 ## The core loop
 
 **Spawn.** `n` starts a session in the selected group. `ctrl+n` opens the full form (tool, name,
-directory, first prompt, group). `space` on a group spawns an agent on a prompt without opening
-it. Agents name their own sessions after the task.
+directory, first prompt, group). Agents name their own sessions after the task.
 
 **See status.** Every row shows whether its agent is working, waiting on you, finished or idle,
 read from the pane itself. The preview beside the list shows the conversation as **You** and
@@ -109,7 +108,7 @@ and `alt+,` hides the key hints.
 **Focus.** `enter` focuses a session in place: keys go to the agent while the list stays beside
 it, and `ctrl+q` comes back. `alt+\` hides the list so the pane gets the full width, and
 `alt+u` / `alt+end` scroll back through its output and return to the live bottom. `space`
-sends a prompt to the selected session without focusing it. `T` opens a shell tab under the
+opens the hotkey menu, which sends one of your snippets to the selected session without focusing it. `T` opens a shell tab under the
 selected agent for builds and one-off commands.
 
 ![Focusing a session full-width, typing a three-line instruction, watching the agent answer, and scrolling back through the reply](docs/demo/focus.gif)
@@ -119,7 +118,7 @@ selected agent for builds and one-off commands.
 | Key | Action |
 |-----|--------|
 | `n` / `ctrl+n` | New session, quick or with the full form |
-| `space` | Prompt the selected session, or spawn one in the selected group |
+| `space` | Hotkey menu: send a snippet to the selected session |
 | `enter` | Focus the session; `ctrl+q` returns to the list |
 | `i` | Triage queue; `\` hides the list for a full-width drain |
 | `w` | Show only what needs attention |

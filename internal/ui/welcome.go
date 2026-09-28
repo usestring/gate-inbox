@@ -76,7 +76,7 @@ func welcomeSections() []welcomeSection {
 		}},
 		{title: "answer one", rows: [][2]string{
 			{"↵", "focus it: keys reach the agent while the list stays on screen"},
-			{"space", "quick prompt: send one message without leaving the list"},
+			{"space", "hotkeys: send a snippet without leaving the list"},
 			{"ctrl+q", "from inside a session, back to this list"},
 		}},
 		{title: "when several are blocked at once", rows: [][2]string{

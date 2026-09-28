@@ -762,7 +762,7 @@ func (m *Model) afterListFilter(previousKey string) tea.Cmd {
 	return nil
 }
 
-// captureClipboardImage is the seam the quick bar uses to save a pasted
+// captureClipboardImage is the seam the form's prompt uses to save a pasted
 // image to a temp file; tests swap it for a fake.
 var captureClipboardImage = clipboard.SaveImage
 

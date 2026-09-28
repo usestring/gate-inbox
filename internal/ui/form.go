@@ -62,8 +62,7 @@ type form struct {
 	name textinput.Model
 	dir  textinput.Model
 	// prompt is a composer rather than a plain textarea: a first task is
-	// often a screenshot, so the box has to hold pasted images the way the
-	// quick prompt does.
+	// often a screenshot, so the box has to hold pasted images.
 	prompt  composer
 	dirAuto bool
 	// toolFilter is the tool field's text entry. The picker is arrowed

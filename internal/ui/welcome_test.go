@@ -178,7 +178,7 @@ func TestWelcomeCardNamesTheKeysTheWorkflowIsBuiltOn(t *testing.T) {
 	m := welcomeModel(t)
 	m.maybeOpenWelcome()
 	body := ansi.Strip(m.viewWelcome())
-	for _, want := range []string{"new session in the group under the cursor", "quick prompt", "triage", "work view"} {
+	for _, want := range []string{"new session in the group under the cursor", "hotkeys: send a snippet", "triage", "work view"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("the card never drew %q", want)
 		}

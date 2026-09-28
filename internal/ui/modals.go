@@ -442,7 +442,7 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldListSort, "sort", normalizeListSort(m.settings.listSort)) + "\n" +
 		row(settingsFieldChrome, "key hints", normalizeChrome(m.settings.chrome)) + "\n" +
 		row(settingsFieldLeave, "on leaving a session", normalizeLeaveMode(m.settings.leaveMode)) + "\n" +
-		row(settingsFieldQuickClose, "after quick send", quickClose) + "\n" +
+		row(settingsFieldQuickClose, "after hotkey send", quickClose) + "\n" +
 		row(settingsFieldFocusKey, "session keys", focusKey) + "\n" +
 		row(settingsFieldAutoProceed, "triage auto proceed", autoProceed) + "\n" +
 		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +

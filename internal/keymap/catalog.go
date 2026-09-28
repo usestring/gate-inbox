@@ -159,7 +159,7 @@ var Catalog = []Binding{
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
 	{ContextList, Dismiss, []string{"."}, "skip", false},
 	{ContextList, Priority, []string{"p"}, "toggle priority (priority panes show first)", false},
-	{ContextList, QuickInput, []string{" ", "space"}, "quick prompt", false},
+	{ContextList, QuickInput, []string{" ", "space"}, "hotkey menu", false},
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{"alt+r"}, "rename it yourself, and re-pick its tool", false},
 	{ContextList, NameSweep, []string{"N", "shift+n"}, "name sweep over idle adopted panes", false},

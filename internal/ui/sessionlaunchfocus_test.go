@@ -15,7 +15,7 @@ import (
 // implementation, the frame is the promise.
 
 // focusedFrameMarker is what the footer says only while the keyboard belongs
-// to the agent. The list, the form and the quick bar all paint a different
+// to the agent. The list, the form and the hotkey menu all paint a different
 // tier, so its presence is the frame's own answer to "am I inside the pane".
 const focusedFrameMarker = "Focused"
 
@@ -89,40 +89,6 @@ func TestTheInstantSpawnLandsInsideTheSessionItMade(t *testing.T) {
 		t.Fatalf("instant spawn refused: %s", m.errBar.text)
 	}
 	assertLandedIn(t, m, filepath.Base(dir))
-}
-
-// TestTheQuickBarLandsInsideTheSessionItSpawned covers the quick bar, which
-// spawns when the cursor is on a group, and which also has to take itself off
-// screen: a bar left armed behind a focused pane would eat the first keystroke
-// meant for the agent.
-func TestTheQuickBarLandsInsideTheSessionItSpawned(t *testing.T) {
-	m := buildModel(t)
-	dir := t.TempDir()
-	if err := m.store.CreateGroup("work", dir); err != nil {
-		t.Fatalf("CreateGroup: %v", err)
-	}
-	m.applyCmd(t, m.refreshCmd())
-	m.selectGroupRow(t, "work")
-
-	m.openQuickMode()
-	if !m.quick.active {
-		t.Fatalf("quick bar did not open: %s", m.errBar.text)
-	}
-	m.quick.input.SetValue("do the thing")
-	updated, _ := m.submitQuick()
-	*m = *updated.(*Model)
-	if m.errBar.text != "" {
-		t.Fatalf("quick spawn refused: %s", m.errBar.text)
-	}
-	if m.quick.active {
-		t.Error("the quick bar is still armed behind the focused pane; it would take the agent's first keystroke")
-	}
-
-	sess, ok := m.selected()
-	if !ok {
-		t.Fatal("nothing is selected after a quick spawn")
-	}
-	assertLandedIn(t, m, sess.Name)
 }
 
 // TestAFailedLaunchLeavesTheOperatorInTheList is the case focusing must not

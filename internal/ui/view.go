@@ -325,15 +325,9 @@ func divider(label string, width int) string {
 	return head + lipgloss.NewStyle().Foreground(colorBorder).Render(strings.Repeat("─", dashes))
 }
 
+// quickBarMaxRows caps the hotkey menu's snippet lines, so the dock never
+// swallows the sidebar.
 const quickBarMaxRows = 5
-
-// quickBarRows is the rows the typed text needs at the current width,
-// capped so the bar never swallows the sidebar. Single-line values (the
-// normal case) count exact soft-wrap rows; pasted multi-line values are
-// estimated, with the textarea scrolling to keep the cursor visible.
-func (m *Model) quickBarRows(textWidth, maxRows int) int {
-	return textareaRows(m.quick.input, textWidth, min(maxRows, quickBarMaxRows))
-}
 
 func textareaRows(input textarea.Model, textWidth, maxRows int) int {
 	rows := 0
@@ -529,7 +523,7 @@ func padToHeight(s string, height int) string {
 }
 
 // viewFooter is the app's legend: one tier of keys for whatever the cursor
-// is on. A transient mode (quick prompt, rename, resize) owns the legend
+// is on. A transient mode (hotkey menu, rename, resize) owns the legend
 // alone while it is up.
 func (m *Model) viewFooter() string {
 	// A half-typed group number is the one piece of state with no home on a
@@ -543,16 +537,15 @@ func (m *Model) viewFooter() string {
 	}
 	if m.quick.active && m.mode != modeFocus {
 		pairs := [][2]string{
-			{"↵", "send"}, {"↑↓", "switch target"}, {"tab", "tool: " + m.quickTool()},
-			{"esc", "close"},
+			{"key", "send snippet"}, {"↑↓", "switch target"}, {"space/esc", "close"},
 		}
 		if m.showsConversation() {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextList, keymap.ToggleConversation), m.conversationToggleLabel()})
 		}
-		if m.quick.message() == "" && m.canRescindLatestSubmission() {
+		if m.canRescindLatestSubmission() {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextList, keymap.Rescind), "undo"})
 		}
-		return m.transientFooter(legendSection{title: "Prompt", pairs: pairs})
+		return m.transientFooter(legendSection{title: "Hotkeys", pairs: pairs})
 	}
 	if m.split.resizeMode {
 		return m.transientFooter(legendSection{title: "Resize", pairs: [][2]string{
@@ -659,7 +652,7 @@ func (m *Model) defaultRowLegend() legendSection {
 	title := "Session"
 	pairs := [][2]string{{openKey, enterHint}, {m.tightCap(keymap.ContextList, keymap.Attach), attachHint}}
 	if m.applies(keymap.ContextList, keymap.QuickInput, row) {
-		pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, keymap.QuickInput), "prompt"})
+		pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, keymap.QuickInput), "hotkeys"})
 	} else if m.isShell(row.sess.Tool) {
 		title = "Shell"
 	}

@@ -23,7 +23,9 @@ import (
 // So: adopt takes a parentless row as a child, release lets one go. Confined
 // the way the answer path is -- a session may claim what nobody owns and let
 // go of what it owns, and may not take a row out of somebody else's tree.
-// Rearranging another agent's fan-out is the board's job, and a person's.
+// Rearranging another agent's fan-out is the board's job, and a person's. The
+// one exception is a tree whose parent is gone: nobody is left to release its
+// children, so any session may.
 
 // AdoptSession files targetID under the calling session.
 //
@@ -36,7 +38,8 @@ func (s *Sessions) AdoptSession(sessionID, targetID string) (Session, error) {
 
 // ReleaseSession takes one of the caller's own children back out to the top
 // level, for a spawn that turned out to be its own piece of work rather than
-// part of this one.
+// part of this one. A child whose parent is gone may be released by any
+// session, since its parent never will.
 func (s *Sessions) ReleaseSession(sessionID, targetID string) (Session, error) {
 	return s.place(sessionID, targetID, false)
 }
@@ -82,9 +85,15 @@ func (s *Sessions) place(sessionID, targetID string, adopt bool) (Session, error
 		if target.ParentID == "" {
 			return Session{}, fmt.Errorf("session %s is already top-level", target.ID)
 		}
-		return Session{}, fmt.Errorf(
-			"session %s is filed under session %s, not under this one; only a parent releases its own children",
-			target.ID, target.ParentID)
+		gone, err := runtime.parentGone(target.ParentID)
+		if err != nil {
+			return Session{}, err
+		}
+		if !gone {
+			return Session{}, fmt.Errorf(
+				"session %s is filed under session %s, not under this one; only a parent releases its own children",
+				target.ID, target.ParentID)
+		}
 	}
 	// A released row keeps the group it was drawn in rather than going to the
 	// root: the group is where a person filed the work, and letting go of a
@@ -104,6 +113,25 @@ func (s *Sessions) place(sessionID, targetID string, adopt bool) (Session, error
 		return Session{}, err
 	}
 	return runtime.sessionInfo(placed, runtime.driver.Exists(placed.ID), false), nil
+}
+
+// parentGone reports whether the session a row is filed under can no longer
+// release it. Only a parent releases its own children, but a parent whose row
+// is missing, archived or without a running pane never will, and its children
+// would otherwise stay pinned under it with nobody able to move them. The
+// evidence is the one the delivery path already treats as unreachable: an
+// archived row, or no pane on the driver. A dead parent is revivable, and a
+// revived one gets its children back the same way anybody else's would, by
+// adopting them.
+func (r *runtime) parentGone(parentID string) (bool, error) {
+	parent, err := r.store.Get(parentID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return parent.Archived || !r.driver.Exists(parent.ID), nil
 }
 
 // FormatPlacement says where the row ended up, since the caller's reason for

@@ -203,7 +203,7 @@ func runSendChildren(out io.Writer, sessions sessionCommands, args []string, ses
 
 func runPlace(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
 	set := cmdline.NewFlagSet(usagePlace)
-	release := set.Bool("release", false, "take one of this session's own children back out to the top level")
+	release := set.Bool("release", false, "take one of this session's own children, or a child of a parent that is gone, back out to the top level")
 	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {

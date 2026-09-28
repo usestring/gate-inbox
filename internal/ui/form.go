@@ -322,16 +322,67 @@ func sortedToolNames(cfg config.Config) []string {
 }
 
 // enabledToolNames is the create-session picker: configured tools minus any
-// the user hid in settings. Existing sessions keep their tool even when hidden.
+// the user hid in settings, in the order settings gave them. Existing
+// sessions keep their tool even when hidden.
 func (m *Model) enabledToolNames() []string {
-	all := sortedToolNames(m.cfg)
-	hidden := m.hiddenTools()
-	if len(hidden) == 0 {
-		return all
+	var out []string
+	for _, name := range m.pickerNames() {
+		if !m.isShell(name) {
+			out = append(out, name)
+		}
 	}
-	out := make([]string, 0, len(all))
-	for _, name := range all {
+	return out
+}
+
+// pickerNames is what n's box offers: the enabled agent CLIs and, unless it
+// was turned off too, the shell block, so a terminal is one pick away rather
+// than a different key. Order is the operator's.
+func (m *Model) pickerNames() []string {
+	hidden := m.hiddenTools()
+	var out []string
+	for _, name := range m.orderedToolNames() {
 		if !hidden[name] {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// orderedToolNames is every agent CLI plus the shell block, default order
+// first -- the agents as sortedToolNames has them, the shell last -- then
+// rearranged by the saved order.
+func (m *Model) orderedToolNames() []string {
+	names := sortedToolNames(m.cfg)
+	if shell, _, ok := m.shellTool(); ok {
+		names = append(names, shell)
+	}
+	raw, err := m.store.Setting(toolOrderSetting)
+	if err != nil {
+		m.errBar.text = "reading tool order setting: " + err.Error()
+		return names
+	}
+	return orderTools(names, raw)
+}
+
+// orderTools puts the names raw lists first, in its order, and the rest
+// after them in the order they came. A saved name no longer configured is
+// skipped rather than offered.
+func orderTools(names []string, raw string) []string {
+	present := make(map[string]bool, len(names))
+	for _, name := range names {
+		present[name] = true
+	}
+	out := make([]string, 0, len(names))
+	placed := make(map[string]bool, len(names))
+	for _, part := range strings.Split(raw, ",") {
+		name := strings.TrimSpace(part)
+		if present[name] && !placed[name] {
+			out = append(out, name)
+			placed[name] = true
+		}
+	}
+	for _, name := range names {
+		if !placed[name] {
 			out = append(out, name)
 		}
 	}
@@ -443,7 +494,8 @@ func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// The form is gone, and with it the only text naming the images it
 		// was holding.
 		m.form.prompt.release()
-		return m.cancelSpawnToGate()
+		m.mode = modeList
+		return m, nil
 	case "tab":
 		if dirCapturing {
 			m.applyPathSuggestion()
@@ -688,7 +740,8 @@ func (m *Model) formSpawnDir() string {
 func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 	if len(m.form.toolNames) == 0 {
 		m.errBar.text = "no tools configured"
-		return m.cancelSpawnToGate()
+		m.mode = modeList
+		return m, nil
 	}
 	if len(m.formToolMatches()) == 0 {
 		m.errBar.text = "no CLI matches " + strings.TrimSpace(m.form.toolFilter.Value())

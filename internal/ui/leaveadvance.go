@@ -51,11 +51,7 @@ func (m *Model) advancesOnLeave() bool {
 }
 
 // leaveAdvanceHint is what the focused footer calls ctrl+q when it does not
-// merely return. Triage names its scope because the rail's badge is off
-// screen while a pane is focused; the setting has no scope to name.
+// merely return.
 func (m *Model) leaveAdvanceHint() string {
-	if m.triage && m.triageScope != "" {
-		return "mute this, next in " + baseName(m.triageScope)
-	}
-	return "mute this, next needing input"
+	return "skip"
 }

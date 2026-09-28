@@ -55,6 +55,32 @@ or the job fails. That keeps a suite that silently skipped from counting as a pa
   existing notices, and `NOTICE` names it and records the fork. A bug that also exists upstream is worth reporting
   there too.
 
+## Pull request titles and releases
+
+Pull requests are squash-merged, so the title becomes the commit subject on `main`, and releases are
+versioned from those subjects. A title must follow [Conventional Commits](https://www.conventionalcommits.org/):
+`type(optional scope): subject`, for example `fix(ui): keep the triage drain open`. The `PR title`
+check fails a pull request whose title does not parse.
+
+| Type | Release |
+| --- | --- |
+| `feat` | minor (`0.1.8` to `0.2.0`) |
+| `fix`, `perf`, `revert` | patch (`0.1.8` to `0.1.9`) |
+| `refactor`, `chore`, `docs`, `ci`, `test`, `build`, `style` | none |
+| any type with `!` (`feat!: ...`), or a `BREAKING CHANGE:` footer | major (`0.x` goes to `1.0.0`) |
+
+On every push to `main`, the release workflow runs
+[release-please](https://github.com/googleapis/release-please) over the commits since the last
+release. When they call for one, it opens a Release PR titled `chore(main): release <version>`, or
+updates the one already open. That PR bumps `.release-please-manifest.json` and adds the release
+notes, grouped by type, to `CHANGELOG.md`. Merging it tags the merge commit `v<version>` and
+publishes a GitHub Release with those notes, and goreleaser then attaches the binaries to it.
+Commits that only carry non-releasing types open no Release PR; they appear in the next release's
+compare link. Pushing a `v*` tag by hand still releases that tag through goreleaser alone.
+
+The Release PR is opened with the workflow's `GITHUB_TOKEN`, so GitHub starts no workflows for it:
+CI and the `PR title` check do not run on it.
+
 ## Licence
 
 Gate Inbox is licensed under [Apache-2.0](LICENSE). Under section 5 of that licence, anything you

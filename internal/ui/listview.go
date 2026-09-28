@@ -970,6 +970,12 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	if m.isStale(sess) {
 		state += " " + statusTint(status.Errored, "stale")
 	}
+	// The board has told this session its processes are holding the
+	// machine. Beside the label for the same reason as stale: the status is
+	// still true, and this says what else is going on.
+	if badge := hogBadge(m.hogBadges[sess.ID]); badge != "" {
+		state += " " + badge
+	}
 	state += metaText(" · " + sess.Tool)
 	// An archived row is on a clock, and the clock is the one thing about it
 	// that is not recoverable by looking. It goes after the age, in the same

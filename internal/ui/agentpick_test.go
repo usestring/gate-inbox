@@ -38,6 +38,33 @@ func TestAutoRouteStartsAnEnabledCLI(t *testing.T) {
 	}
 }
 
+func TestAutoRouteLaunchesInTheGroupSelectedWhenNWasPressed(t *testing.T) {
+	m := buildModel(t)
+	origin := filepath.Join(t.TempDir(), "origin-repo")
+	groupAt(t, m, "origin", origin)
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	m.selectGroupRow(t, "origin")
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
+		if name != "ready-tool" {
+			return autoroute.Reading{}, autoroute.ErrNoQuota
+		}
+		now := time.Now()
+		return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 10, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
+	})
+	_, cmd := m.startNewSession()
+	if cmd == nil {
+		t.Fatal("auto route did not start a quota read")
+	}
+	m.selectGroupRow(t, "elsewhere")
+	m.update(cmd())
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || rows[0].Group != "origin" || rows[0].Cwd != origin {
+		t.Fatalf("auto route launched %+v, want it in the origin group (error %q)", rows, m.errBar.text)
+	}
+}
+
 func TestAutoRouteFallsBackToCLIPickerWhenQuotaUnavailable(t *testing.T) {
 	m := buildModel(t)
 	m.newSessionAgent = newSessionAgentAuto

@@ -86,8 +86,9 @@ func (m *Model) startNewSession() (tea.Model, tea.Cmd) {
 }
 
 type autoRouteMsg struct {
-	name string
-	err  error
+	name  string
+	group string
+	err   error
 }
 
 func (m *Model) startAutoRoute() (tea.Model, tea.Cmd) {
@@ -123,11 +124,12 @@ func (m *Model) startAutoRoute() (tea.Model, tea.Cmd) {
 	}
 	m.autoRouting = true
 	router := m.autoRouter
+	group := m.contextGroup()
 	return m, func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		name, err := router.Choose(ctx, names, active, time.Now())
-		return autoRouteMsg{name: name, err: err}
+		return autoRouteMsg{name: name, group: group, err: err}
 	}
 }
 
@@ -146,7 +148,7 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 	}
 	for _, name := range m.enabledToolNames() {
 		if name == msg.name {
-			return m.spawnInstant(name)
+			return m.spawnInstantIn(name, msg.group)
 		}
 	}
 	m.openAgentPick()

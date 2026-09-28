@@ -119,6 +119,20 @@ func home() string {
 	return dir
 }
 
+func claudeConfigDir() string {
+	if dir := strings.TrimSpace(os.Getenv("CLAUDE_CONFIG_DIR")); dir != "" {
+		return dir
+	}
+	return filepath.Join(home(), ".claude")
+}
+
+func xdgDataHome() string {
+	if dir := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); dir != "" {
+		return dir
+	}
+	return filepath.Join(home(), ".local", "share")
+}
+
 func getJSON(ctx context.Context, endpoint, token string, headers map[string]string, target any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
@@ -140,7 +154,7 @@ func getJSON(ctx context.Context, endpoint, token string, headers map[string]str
 }
 
 func claudeToken(ctx context.Context) string {
-	raw, err := os.ReadFile(filepath.Join(home(), ".claude", ".credentials.json"))
+	raw, err := os.ReadFile(filepath.Join(claudeConfigDir(), ".credentials.json"))
 	if err != nil && runtime.GOOS == "darwin" {
 		raw, err = exec.CommandContext(ctx, "security", "find-generic-password", "-s", "Claude Code-credentials", "-w").Output()
 	}
@@ -196,7 +210,7 @@ type opencodeWindow struct {
 }
 
 func opencodeQuota(ctx context.Context) (Reading, error) {
-	raw, err := os.ReadFile(filepath.Join(home(), ".local", "share", "opencode", "auth.json"))
+	raw, err := os.ReadFile(filepath.Join(xdgDataHome(), "opencode", "auth.json"))
 	if err != nil {
 		return Reading{}, ErrNoQuota
 	}

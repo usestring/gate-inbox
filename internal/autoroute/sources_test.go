@@ -151,3 +151,23 @@ func TestOpenCodeReadingRequiresWeeklyAndMonthlyQuota(t *testing.T) {
 		t.Fatalf("complete OpenCode envelope = %+v, %v", got, err)
 	}
 }
+
+func TestCredentialPathsHonorDirectoryOverrides(t *testing.T) {
+	t.Setenv("HOME", "/home/sample")
+	t.Setenv("CLAUDE_CONFIG_DIR", "/srv/claude-config")
+	t.Setenv("XDG_DATA_HOME", "/srv/xdg-data")
+	if got := claudeConfigDir(); got != "/srv/claude-config" {
+		t.Fatalf("claude config dir = %q, want CLAUDE_CONFIG_DIR", got)
+	}
+	if got := xdgDataHome(); got != "/srv/xdg-data" {
+		t.Fatalf("data home = %q, want XDG_DATA_HOME", got)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv("XDG_DATA_HOME", "")
+	if got := claudeConfigDir(); got != filepath.Join("/home/sample", ".claude") {
+		t.Fatalf("claude config dir = %q, want the ~/.claude default", got)
+	}
+	if got := xdgDataHome(); got != filepath.Join("/home/sample", ".local", "share") {
+		t.Fatalf("data home = %q, want the ~/.local/share default", got)
+	}
+}

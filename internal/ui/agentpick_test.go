@@ -241,6 +241,36 @@ func TestAutoRouteRefusesAGroupChangedDuringTheQuotaRead(t *testing.T) {
 	}
 }
 
+func TestAutoRouteFallbackPickerDropsAGroupArchivedDuringTheQuotaRead(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	groupAt(t, m, "origin", filepath.Join(t.TempDir(), "origin-repo"))
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	if err := m.store.SetGroupArchived("origin", true); err != nil {
+		t.Fatal(err)
+	}
+	m.selectGroupRow(t, "elsewhere")
+	m.update(cmd())
+	if m.mode != modeAgentPick || m.agentPick.pinned {
+		t.Fatalf("archived group left mode %v pinned=%v, want an unpinned picker", m.mode, m.agentPick.pinned)
+	}
+	if !strings.Contains(m.errBar.text, "group changed") {
+		t.Fatalf("missing group-change explanation: %q", m.errBar.text)
+	}
+	typeInto(t, m, "ready-tool")
+	pressKey(t, m, enterKey())
+	m.leaveFocusForFixture(t)
+	for _, sess := range m.sessionRows() {
+		if sess.Group == "origin" {
+			t.Fatalf("fallback picker launched %+v into the archived group", sess)
+		}
+	}
+}
+
 func TestAutoRouteFallsBackToCLIPickerWhenQuotaUnavailable(t *testing.T) {
 	m := buildModel(t)
 	m.newSessionAgent = newSessionAgentAuto

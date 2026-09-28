@@ -145,6 +145,13 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 	if m.mode != modeList && m.mode != modeFocus {
 		return m, nil
 	}
+	// Checked before anything pins to the captured group, so neither a launch
+	// nor a fallback picker can reach a group renamed or archived meanwhile.
+	if !m.groupStillOpen(msg.group) {
+		m.openAgentPick()
+		m.errBar.text = "group changed: choose a CLI"
+		return m, nil
+	}
 	if msg.err != nil || msg.name == "" {
 		m.openPinnedAgentPick(msg)
 		m.errBar.text = "quota unavailable: choose a CLI"
@@ -156,11 +163,6 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 	if mode, err := accounts.Mode(m.store); err != nil || mode != msg.mode {
 		m.openPinnedAgentPick(msg)
 		m.errBar.text = "account routing changed: choose a CLI"
-		return m, nil
-	}
-	if !m.groupStillOpen(msg.group) {
-		m.openAgentPick()
-		m.errBar.text = "group changed: choose a CLI"
 		return m, nil
 	}
 	for _, name := range m.enabledToolNames() {

@@ -138,7 +138,7 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.autoRouting = false
-	if m.mode != modeList {
+	if m.mode != modeList && m.mode != modeFocus {
 		return m, nil
 	}
 	if msg.err != nil || msg.name == "" {

@@ -35,15 +35,17 @@ func New(read ReadFunc) *Router {
 	return &Router{read: read, cache: make(map[string]Reading)}
 }
 
-func (r *Router) reading(ctx context.Context, name string, now time.Time) (Reading, error) {
+func (r *Router) reading(ctx context.Context, name string, now, started time.Time) (Reading, error) {
 	r.mu.Lock()
 	cached, ok := r.cache[name]
 	r.mu.Unlock()
-	if ok && fresh(cached, now) && windowsCurrent(cached, now) {
+	current := now.Add(time.Since(started))
+	if ok && fresh(cached, current) && windowsCurrent(cached, current) {
 		return cached, nil
 	}
 	reading, err := r.read(ctx, name)
-	if err != nil || !fresh(reading, now) || !windowsCurrent(reading, now) {
+	current = now.Add(time.Since(started))
+	if err != nil || !fresh(reading, current) || !windowsCurrent(reading, current) {
 		return Reading{}, ErrNoQuota
 	}
 	r.mu.Lock()
@@ -94,6 +96,7 @@ func Score(reading Reading, active int, now time.Time) (float64, bool) {
 }
 
 func (r *Router) Choose(ctx context.Context, names []string, active map[string]int, now time.Time) (string, error) {
+	started := time.Now()
 	type result struct {
 		name    string
 		reading Reading
@@ -102,7 +105,7 @@ func (r *Router) Choose(ctx context.Context, names []string, active map[string]i
 	var wg sync.WaitGroup
 	for _, name := range names {
 		wg.Go(func() {
-			reading, err := r.reading(ctx, name, now)
+			reading, err := r.reading(ctx, name, now, started)
 			if err == nil {
 				results <- result{name, reading}
 			}
@@ -110,6 +113,7 @@ func (r *Router) Choose(ctx context.Context, names []string, active map[string]i
 	}
 	wg.Wait()
 	close(results)
+	now = now.Add(time.Since(started))
 	readings := make(map[string]Reading, len(names))
 	for result := range results {
 		readings[result.name] = result.reading

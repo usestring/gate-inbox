@@ -79,6 +79,18 @@ func TestChooseRefreshesCacheWhenWindowResets(t *testing.T) {
 	}
 }
 
+func TestChooseAcceptsFreshReadingAfterSlowRead(t *testing.T) {
+	started := time.Now()
+	router := New(func(context.Context, string) (Reading, error) {
+		time.Sleep(5100 * time.Millisecond)
+		observed := time.Now()
+		return Reading{ObservedAt: observed, Windows: []Window{{Used: 10, ResetsAt: observed.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
+	})
+	if got, err := router.Choose(context.Background(), []string{"claude"}, nil, started); err != nil || got != "claude" {
+		t.Fatalf("slow fresh read = %q, %v; want Claude", got, err)
+	}
+}
+
 func TestScoreRejectsUnknownOrExhaustedQuota(t *testing.T) {
 	now := time.Now()
 	for _, sample := range []Reading{

@@ -37,7 +37,11 @@ changelog:
   use: github
   sort: asc
 
-# A tag produces a draft; a maintainer reads it and publishes by hand.
+# semantic-release opens a draft release with its notes for the tag. goreleaser
+# finds that draft by name, keeps its notes, attaches the archives and
+# publishes it. A tag pushed by hand gets a new release with GitHub's notes.
 release:
-  draft: true
+  draft: false
+  use_existing_draft: true
+  mode: keep-existing
   prerelease: auto

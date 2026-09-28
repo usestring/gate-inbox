@@ -55,6 +55,26 @@ or the job fails. That keeps a suite that silently skipped from counting as a pa
   existing notices, and `NOTICE` names it and records the fork. A bug that also exists upstream is worth reporting
   there too.
 
+## Pull request titles and releases
+
+Pull requests are squash-merged, so the title becomes the commit subject on `main`, and releases are
+versioned from those subjects. A title must follow [Conventional Commits](https://www.conventionalcommits.org/):
+`type(optional scope): subject`, for example `fix(ui): keep the triage drain open`. The `PR title`
+check fails a pull request whose title does not parse.
+
+| Type | Release |
+| --- | --- |
+| `feat` | minor (`0.1.8` to `0.2.0`) |
+| `fix`, `perf` | patch (`0.1.8` to `0.1.9`) |
+| `refactor`, `revert`, `chore`, `docs`, `ci`, `test`, `build`, `style` | none |
+| any type with `!` (`feat!: ...`), or a `BREAKING CHANGE:` footer | major (`0.x` goes to `1.0.0`) |
+
+On every push to `main`, the release workflow runs [semantic-release](https://semantic-release.gitbook.io/)
+over the commits since the last `v*` tag. When they call for a release it pushes the next tag and
+drafts a GitHub Release with notes grouped by type, and goreleaser attaches the binaries and
+publishes it. Commits that only carry non-releasing types cut nothing; they appear in the next
+release's compare link. Pushing a `v*` tag by hand still releases that tag through goreleaser alone.
+
 ## Licence
 
 Gate Inbox is licensed under [Apache-2.0](LICENSE). Under section 5 of that licence, anything you

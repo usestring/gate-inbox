@@ -1,11 +1,19 @@
 name: Release
 
+# A push to main runs semantic-release over the conventional squash-commit
+# subjects since the last v* tag. When they call for a release it pushes the
+# tag and opens a draft GitHub Release holding the generated notes; goreleaser
+# then attaches the binaries to that draft and publishes it.
+#
+# A tag pushed by hand still releases through the goreleaser job alone. A tag
+# that semantic-release pushes with GITHUB_TOKEN does not start a second run.
 on:
   push:
+    branches: [main]
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -16,13 +24,57 @@ env:
   LC_ALL: C.UTF-8
 
 jobs:
-  goreleaser:
+  version:
+    if: github.ref_type == 'branch'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Install semantic-release
+        working-directory: .github/release
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .github/release/node_modules/.bin/semantic-release
+      # semantic-release tags HEAD locally before pushing; no tag means the
+      # commits since the last release called for none.
+      - name: Read the new tag
+        id: tag
+        run: |
+          tag=$(git tag --points-at HEAD --list 'v*' | sort -V | tail -n 1)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [ -n "$tag" ]; then
+            echo "Released $tag" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No release: no feat, fix, perf or breaking commit since the last tag." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  goreleaser:
+    needs: version
+    # always() lets a tag push run this job although version was skipped.
+    if: >-
+      always() &&
+      (github.ref_type == 'tag' ||
+       (needs.version.result == 'success' && needs.version.outputs.tag != ''))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.version.outputs.tag || github.ref }}
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -33,5 +85,5 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # The pushed tag, not whichever tag git describe reaches first.
-          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+          # The released tag, not whichever tag git describe reaches first.
+          GORELEASER_CURRENT_TAG: ${{ needs.version.outputs.tag || github.ref_name }}

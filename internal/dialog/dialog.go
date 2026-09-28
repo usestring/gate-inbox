@@ -41,7 +41,7 @@ var askOption = regexp.MustCompile(`(?m)^[ \x{A0}]*([\x{276F}\x{203A}][ \x{A0}]+
 // choices. It is chrome, not part of the choice: left on, "[ ] Build" matches
 // no answer any manager or operator would write, so the option could not be
 // selected and the answer was typed at a pane that takes keystrokes.
-var askCheckbox = regexp.MustCompile(`^\[[ xX*\x{2713}]?\][ \x{A0}]+`)
+var askCheckbox = regexp.MustCompile(`^\[([ xX*\x{2713}\x{2714}]?)\][ \x{A0}]+`)
 
 // askPicked is the tick Claude Code draws after the choice already made on a
 // question of a several-question dialog, when that question is visited
@@ -82,6 +82,8 @@ type Dialog struct {
 	// Picked is the 1-based option already chosen on a question being
 	// visited again, read off its tick; 0 when none is drawn.
 	Picked int
+	// Ticked are the 1-based options of a multi-select whose box is checked.
+	Ticked []int
 	// FreeText is the 1-based row that takes typed words, AskUserQuestion's
 	// "Type something.", or 0 for a dialog that draws none. Words pasted
 	// anywhere else are dropped by the dialog, and the Enter that follows
@@ -156,6 +158,11 @@ func Inspect(pane string) (Dialog, bool) {
 			}
 		}
 		option := strings.TrimSpace(match[3])
+		if box := askCheckbox.FindStringSubmatch(option); box != nil {
+			if strings.TrimSpace(box[1]) != "" {
+				dialog.Ticked = append(dialog.Ticked, len(dialog.Options)+1)
+			}
+		}
 		if stripped := askCheckbox.ReplaceAllString(option, ""); stripped != option {
 			dialog.MultiSelect = true
 			option = strings.TrimSpace(stripped)

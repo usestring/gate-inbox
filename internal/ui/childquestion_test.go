@@ -143,11 +143,10 @@ func TestChildWaitMessageNamesTheChildAndNotThePane(t *testing.T) {
 	}
 }
 
-func TestRelayChildQuestionTellsTheParentAboutAWaitItCannotRead(t *testing.T) {
+func TestRelayChildQuestionRelaysAPermissionPromptWhole(t *testing.T) {
 	p, st := pollerWithStore(t)
 	parent := seedSession(t, st, store.Session{ID: "parent01", Name: "site-graph-endpoint", Status: status.Working})
 	child := seedSession(t, st, store.Session{ID: "child003", Name: "retailer-shell-probe", ParentID: parent.ID, Status: status.Working})
-
 	if err := p.relayChildQuestion(child, status.Waiting, permissionPane); err != nil {
 		t.Fatalf("relayChildQuestion: %v", err)
 	}
@@ -158,11 +157,10 @@ func TestRelayChildQuestionTellsTheParentAboutAWaitItCannotRead(t *testing.T) {
 	if !found {
 		t.Fatal("the parent was told nothing about its child's stop")
 	}
-	if !strings.Contains(head.Body, "answer_session cannot answer it") {
-		t.Errorf("the message does not say the parent cannot answer it:\n%s", head.Body)
-	}
-	if strings.Contains(head.Body, "Do you want to proceed?") {
-		t.Errorf("the message carries the pane:\n%s", head.Body)
+	for _, want := range []string{"permission prompt", "Do you want to proceed?", "answer_session cannot answer"} {
+		if !strings.Contains(head.Body, want) {
+			t.Errorf("the message does not carry %q:\n%s", want, head.Body)
+		}
 	}
 }
 
@@ -277,11 +275,12 @@ func TestRelayOfAMultiSelectSaysAPersonAnswersIt(t *testing.T) {
 	}
 }
 
-func TestRelayOfAPermissionPromptNamesItAndNotThePane(t *testing.T) {
+func TestRelayOfAPermissionPromptCarriesItScrubbed(t *testing.T) {
 	p, st := pollerWithStore(t)
 	parent := seedSession(t, st, store.Session{ID: "parent01", Name: "site-graph-endpoint", Status: status.Working})
 	child := seedSession(t, st, store.Session{ID: "child005", Name: "cleaner", ParentID: parent.ID, Status: status.Working})
-	pane := "● Bash(rm -rf build/)\n\n  Do you want to proceed?\n  ❯ 1. Yes\n    2. No\n\n  Enter to confirm · Esc to cancel\n"
+	pane := "● Bash(rm -rf build/)\n\n  Bash command\n    API_TOKEN=abcdef0123456789 ./deploy.sh\n\n" +
+		"  Do you want to proceed?\n  ❯ 1. Yes\n    2. No\n\n  Enter to confirm · Esc to cancel\n"
 	if err := p.relayChildQuestion(child, status.Waiting, pane); err != nil {
 		t.Fatalf("relayChildQuestion: %v", err)
 	}
@@ -289,12 +288,12 @@ func TestRelayOfAPermissionPromptNamesItAndNotThePane(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("nothing relayed: %v", err)
 	}
-	for _, want := range []string{"a permission prompt", "only a person at its pane can"} {
+	for _, want := range []string{"permission prompt", "./deploy.sh", "Do you want to proceed?", "1. Yes", "2. No"} {
 		if !strings.Contains(head.Body, want) {
 			t.Errorf("relayed message does not mention %q:\n%s", want, head.Body)
 		}
 	}
-	if strings.Contains(head.Body, "rm -rf") || strings.Contains(head.Body, "Do you want to proceed?") {
-		t.Errorf("the message carries the pane:\n%s", head.Body)
+	if strings.Contains(head.Body, "abcdef0123456789") {
+		t.Errorf("the message carries a credential:\n%s", head.Body)
 	}
 }

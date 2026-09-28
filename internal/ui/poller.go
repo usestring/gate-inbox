@@ -26,6 +26,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
+	"github.com/usestring/gate-inbox/internal/notify"
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
@@ -100,6 +101,10 @@ type poller struct {
 	// option that fork wants and the keys that pick it. Armed at launch and
 	// dropped once answered, so it never outlives the launch it belongs to.
 	forkDialogs map[string]forkDialog
+	// childDialogs is what was last relayed about each child's dialog, and
+	// escalate pings the operator about one its parent has let stand.
+	childDialogs map[string]*childDialogRelay
+	escalate     func(notify.Note) bool
 
 	// captureBusy guards the single in-flight id-capture goroutine.
 	captureBusy atomic.Bool
@@ -361,6 +366,8 @@ func newPoller(st *store.Store, driver *tmux.Driver, engine *status.Engine, hook
 		goneAdopted:     map[string]int{},
 		operatorInputAt: map[string]time.Time{},
 		forkDialogs:     map[string]forkDialog{},
+		childDialogs:    map[string]*childDialogRelay{},
+		escalate:        notify.Post,
 		trees:           sysstat.NewTreeSampler(argvMark),
 	}
 }
@@ -882,7 +889,7 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 				// to serve the few children that stop. Kept with its escapes,
 				// because a several-question dialog marks the question on its
 				// screen only by the colour of that question's tab.
-				if sess.ParentID != "" {
+				if sess.ParentID != "" || sess.SpawnedBy != "" {
 					childPane[sess.ID] = pane
 				}
 				phases.search += lap(&step)
@@ -984,11 +991,6 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 			}
 			phases.writes += lap(&step)
 			sessions[i].Status = newStatus
-			// The parent is told once, when its child stops, not once a pass
-			// for as long as the question stands on the screen.
-			if err := p.relayChildQuestion(sess, newStatus, childPane[sess.ID]); err != nil {
-				return errMsg{err}
-			}
 			// And once when it comes to rest, for the same reason and in the
 			// same place: a parent that is not told its fan-out has landed
 			// waits on work that is already done.
@@ -997,6 +999,11 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 			}
 			if newStatus == status.Dead {
 				ended = append(ended, sess.ID)
+			}
+		}
+		if sess.ParentID != "" || sess.SpawnedBy != "" {
+			if err := p.watchChildDialog(sess, newStatus, childPane[sess.ID], now); err != nil {
+				return errMsg{err}
 			}
 		}
 	}

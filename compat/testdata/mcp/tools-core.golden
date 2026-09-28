@@ -172,6 +172,10 @@
               "items": {
                 "additionalProperties": false,
                 "properties": {
+                  "checked": {
+                    "description": "on a multi-select question on the screen, whether its box is ticked",
+                    "type": "boolean"
+                  },
                   "description": {
                     "description": "what the child said the choice means",
                     "type": "string"
@@ -1655,6 +1659,10 @@
                   "items": {
                     "additionalProperties": false,
                     "properties": {
+                      "checked": {
+                        "description": "on a multi-select question on the screen, whether its box is ticked",
+                        "type": "boolean"
+                      },
                       "description": {
                         "description": "what the child said the choice means",
                         "type": "string"

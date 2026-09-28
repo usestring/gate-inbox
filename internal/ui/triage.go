@@ -462,6 +462,16 @@ func (m *Model) triageHandable(row treeRow, leftID string, tried map[string]bool
 	if m.isMuted(row.sess) {
 		return false
 	}
+	// A submission in flight is one this drain has just answered. It still
+	// reads waiting, finished or idle on paper -- the answer counts once the
+	// agent is seen to have taken it, which is what the landing waits for --
+	// so without this the advance walks back into the session it just came
+	// from. The walk keeps going past it the way it walks past a muted row,
+	// whatever its mark, and the skip lapses with the landing itself once
+	// the answer is seen, refused or out of time. See landing.go.
+	if _, pending := m.landings[row.sess.ID]; pending {
+		return false
+	}
 	// A pane that will not act on input cannot be answered, so handing it
 	// over is handing the operator a session they can only look at -- and it
 	// reads "waiting" for as long as it is wedged, so the drain would return

@@ -2731,19 +2731,24 @@ func (m *Model) buildTree() {
 	}
 	// A parent the search itself missed still comes along to carry its
 	// matching children, in the store's order rather than after them.
+	// A terminal can hang off a child agent, so the carry climbs the whole
+	// lineage: a matching shell under a child brings that child and its
+	// parent along with it.
 	carried := map[string]bool{}
 	for _, sess := range listed {
-		if !matched[sess.ID] || sess.ParentID == "" || !listedIDs[sess.ParentID] {
+		if !matched[sess.ID] {
 			continue
 		}
-		carried[sess.ParentID] = true
+		for id := sess.ParentID; id != "" && listedIDs[id] && !carried[id]; id = byID[id].ParentID {
+			carried[id] = true
+		}
 	}
 	sessionsByGroup := map[string][]store.Session{}
 	childrenByParent := map[string][]store.Session{}
 	for _, sess := range listed {
 		if sess.ParentID != "" {
 			if _, ok := byID[sess.ParentID]; ok {
-				if matched[sess.ID] {
+				if matched[sess.ID] || carried[sess.ID] {
 					childrenByParent[sess.ParentID] = append(childrenByParent[sess.ParentID], sess)
 				}
 				continue
@@ -2753,10 +2758,23 @@ func (m *Model) buildTree() {
 			sessionsByGroup[sess.Group] = append(sessionsByGroup[sess.Group], sess)
 		}
 	}
+	// Walked is everything a tree root reaches, not just the roots: a
+	// terminal nested under a child agent hangs two levels down, and
+	// counting only the roots would paint it loose in its group.
 	walked := map[string]bool{}
+	var reach func(id string)
+	reach = func(id string) {
+		if walked[id] {
+			return
+		}
+		walked[id] = true
+		for _, child := range childrenByParent[id] {
+			reach(child.ID)
+		}
+	}
 	for _, groupSessions := range sessionsByGroup {
 		for _, sess := range groupSessions {
-			walked[sess.ID] = true
+			reach(sess.ID)
 		}
 	}
 	orphaned := map[string]bool{}
@@ -2767,7 +2785,7 @@ func (m *Model) buildTree() {
 		if _, nested := childrenByParent[sess.ParentID]; !nested || walked[sess.ParentID] {
 			continue
 		}
-		if !matched[sess.ID] {
+		if !matched[sess.ID] && !carried[sess.ID] {
 			continue
 		}
 		sessionsByGroup[sess.Group] = append(sessionsByGroup[sess.Group], sess)
@@ -2858,12 +2876,20 @@ func (m *Model) buildTree() {
 	extHides := func(sess store.Session) bool {
 		return honorFolds && !m.triage && query == "" && m.hiddenByExtension(sess.ID)
 	}
+	var appendChildren func(sess store.Session, depth int, drawn map[string]bool)
 	appendSession := func(sess store.Session, depth int) {
 		if extHides(sess) {
 			return
 		}
 		rows = append(rows, treeRow{sess: sess, depth: depth})
 		rows = append(rows, m.artifactRows(sess, depth+1)...)
+		appendChildren(sess, depth, map[string]bool{sess.ID: true})
+	}
+	// appendChildren draws a session's children and, under each, its own:
+	// a terminal opened by a child agent nests under that child rather than
+	// one level up. drawn guards a parent_id cycle a hand-edited row could
+	// make.
+	appendChildren = func(sess store.Session, depth int, drawn map[string]bool) {
 		// Folds are the browsing view's convenience only. The pruned views
 		// -- triage, search, the status filter, the archive -- were opened
 		// to find a session, and a child blocked on a person is exactly
@@ -2884,8 +2910,13 @@ func (m *Model) buildTree() {
 			if m.triage && m.foldsAway(child) && m.parentOwns(child, time.Now(), livePanes) {
 				continue
 			}
+			if drawn[child.ID] {
+				continue
+			}
+			drawn[child.ID] = true
 			rows = append(rows, treeRow{sess: child, depth: childDepth})
 			rows = append(rows, m.artifactRows(child, childDepth+1)...)
+			appendChildren(child, childDepth, drawn)
 		}
 	}
 	// A search is answered by the sessions it matched and triage by the

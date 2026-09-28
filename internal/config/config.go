@@ -52,6 +52,14 @@ type Tool struct {
 	// claude "--session-id <uuid>"), so revive can later resume that
 	// exact conversation deterministically.
 	SessionIDFlag string `toml:"session_id_flag"`
+	// AddDirFlag grants a session access to one more directory than the one
+	// it starts in (claude/codex "--add-dir <dir>"). It is only used when a
+	// spawn's pane has to open somewhere other than the directory it asked
+	// for: the agent is told to change into that directory, but a CLI that
+	// scopes its permissions to where it started would still deny or ask
+	// about the first write there. Left unset, such a launch carries only
+	// the change-directory note, which is all a tool without the flag gets.
+	AddDirFlag string `toml:"add_dir_flag"`
 	// ModelFlag launches a session on a chosen model rather than the CLI's
 	// own default (claude/codex/opencode "--model <name>"). Left unset, this
 	// tool has no way to be told, and a session asking for a model on it is
@@ -435,6 +443,7 @@ func mergeTool(name string, user, def Tool) Tool {
 		user.EchoBudget = def.EchoBudget
 	}
 	fill(&user.SessionIDFlag, def.SessionIDFlag)
+	fill(&user.AddDirFlag, def.AddDirFlag)
 	fill(&user.ResumeByIDCommand, def.ResumeByIDCommand)
 	fill(&user.ForkCommand, def.ForkCommand)
 	fill(&user.ForkDialogOption, def.ForkDialogOption)
@@ -773,6 +782,9 @@ models = ["sonnet", "sonnet[1m]", "opus", "opus[1m]", "haiku"]
 # revive (v) launches a new session with this id, so it can later resume
 # that exact conversation regardless of what else ran in the directory
 session_id_flag = "--session-id"
+# a spawn whose pane opens outside the directory it asked for is granted
+# that directory too, so its first write there is not denied
+add_dir_flag = "--add-dir"
 resume_by_id_command = "claude --resume {id}"
 fork_command = "claude --resume {id} --fork-session --session-id {new_id} --name {name}"
 # Resuming a large conversation opens a dialog offering a summary instead,
@@ -889,6 +901,8 @@ rules = [
 command = "opencode"
 # No model_flag: opencode's TUI has none, so the manager writes the chosen
 # "provider/model" into the generated OPENCODE_CONFIG instead.
+# No add_dir_flag: opencode has no flag granting a second directory, so a
+# spawn diverted to another directory is only told to change into it.
 # every provider/model pair this login can reach, one per line
 models_command = "opencode models"
 # opencode mints its own session id; capture it after launch and resume it
@@ -988,6 +1002,8 @@ rules = [
 command = "codex"
 # codex-cli 0.153.4: -m, --model <MODEL>
 model_flag = "--model"
+# codex-cli 0.157.0: --add-dir <DIR>, writable alongside the primary workspace
+add_dir_flag = "--add-dir"
 # codex repaints a typed character in 27-45ms against Claude Code's 10-25ms,
 # so the default chase gives up mid-repaint and the key waits for a tick
 echo_budget = "90ms"

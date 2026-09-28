@@ -33,8 +33,9 @@ const (
 
 const shellGlyph = "❯"
 
-// viewListFrame is the sessions rail beside the session content, both
-// painted surfaces rather than drawn panels.
+// viewListFrame is the session content beside the sessions rail, both
+// painted surfaces rather than drawn panels. The rail sits on the right, so
+// the agent's pane keeps the left edge the eye starts a line from.
 func (m *Model) viewListFrame() string {
 	leftWidth, rightWidth := m.splitWidths()
 	footer := m.viewFooter()
@@ -44,20 +45,20 @@ func (m *Model) viewListFrame() string {
 		return m.viewOnePaneFrame(bodyHeight, footer)
 	}
 
-	// The seam between the rail and the content tees into the top rule and
+	// The seam between the content and the rail tees into the top rule and
 	// runs down to meet the footer's.
 	contentWidth := rightWidth - 1
 
 	frame := []string{}
-	// The rail's fill runs from the edge column through the seam column,
-	// then bleeds half a cell further right, and half a cell above and
-	// below its body rows — soft edges drawn with half blocks, the finest
-	// step a character cell allows. The first column is drawn as foreground
-	// blocks so the window margin beside it keeps the terminal's own
-	// background and the fill's corners land exactly on the cell grid.
+	// The rail's fill runs from the seam column through the edge column,
+	// and bleeds half a cell further left, and half a cell above and below
+	// its body rows — soft edges drawn with half blocks, the finest step a
+	// character cell allows. The last column is drawn as foreground blocks
+	// so the window margin beside it keeps the terminal's own background
+	// and the fill's corners land exactly on the cell grid.
 	bleedWidth := contentWidth - 2
 	railWidth := leftWidth - 1
-	m.pane.columnX = leftWidth + 2
+	m.pane.columnX = 1
 	railRows := m.railLines(railWidth, bodyHeight)
 	contentRows := m.contentLines(bleedWidth, bodyHeight)
 	seam := make([]string, bodyHeight)
@@ -72,12 +73,12 @@ func (m *Model) viewListFrame() string {
 	}
 	frame = append(frame, m.topRule(leftWidth+1, m.width))
 	frame = append(frame, joinColumns(
-		edge,
-		paintContent(railRows, railWidth, bodyHeight, panelHex()),
-		seam,
-		m.bleedColumn(bodyHeight),
+		m.focusLeftColumn(bodyHeight),
 		paintContent(contentRows, bleedWidth, bodyHeight, backdropHex()),
-		m.focusRightColumn(bodyHeight),
+		m.bleedColumn(bodyHeight),
+		seam,
+		paintContent(railRows, railWidth, bodyHeight, panelHex()),
+		edge,
 	)...)
 	bottom := m.boundedRuleRow(leftWidth+1, m.width, "▄")
 	if m.mode == modeFocus && m.pane.box.ok {
@@ -505,12 +506,6 @@ func (m *Model) filterBadgeLines() []string {
 		// drawn from. Truncated rather than wrapped: the badge shares its
 		// line with the key that lifts it.
 		label, key, out := "TRIAGE", "i", "back to groups"
-		// The gate replaces that badge rather than sitting above it. It is
-		// the same queue under the same scope, and two badges would offer
-		// two ways out of one state, only one of which gives the rail back.
-		if m.gate.on {
-			label, key, out = "GATE", "G", "stop the gate"
-		}
 		if m.triageScope != "" {
 			label += " " + strings.ToUpper(textfmt.TruncateWidth(baseName(m.triageScope), 12, "…"))
 		}
@@ -1300,7 +1295,7 @@ func (m *Model) contentLines(width, height int) []contentLine {
 	}
 
 	var bar []contentLine
-	if m.quick.active && (m.mode != modeFocus || m.showsConversation()) {
+	if m.quick.active && m.mode != modeFocus {
 		bar = append([]contentLine{{}}, ours(splitLines(m.viewQuickBar(inner)))...)
 	}
 	var body []contentLine
@@ -1336,16 +1331,6 @@ func (m *Model) focusRuleTail(width int, corner bool) string {
 	title := " focused · ctrl+q back · " + keymap.Display("alt+↑↓") + " scroll "
 	if m.scrolledBack() {
 		title = fmt.Sprintf(" focused · %d lines back · %s or type to catch up ", m.focusScroll, keymap.Display("alt+down"))
-	}
-	if m.gate.on {
-		mode, next := "Terminal", "messages"
-		if m.gate.menu {
-			mode, next = "Messages", "terminal"
-		}
-		title = fmt.Sprintf(" %s · %s %s · %s top ", mode, m.fullCap(keymap.ContextFocus, keymap.ToggleGateInput), next, m.gateCap(keymap.PreviewTop))
-		if lipgloss.Width(title) > width-1 {
-			title = fmt.Sprintf(" %s · %s %s ", mode, m.fullCap(keymap.ContextFocus, keymap.ToggleGateInput), next)
-		}
 	}
 	edge := 0
 	if corner {

@@ -297,7 +297,7 @@ func (m *Model) persistSettings() {
 }
 
 func (m *Model) openCLIPicker() {
-	names := sortedToolNames(m.cfg)
+	names := m.orderedToolNames()
 	hidden := make(map[string]bool)
 	for name, on := range m.hiddenTools() {
 		if on {
@@ -322,6 +322,10 @@ func (m *Model) handleCLIPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settings.cliCursor = (m.settings.cliCursor + count - 1) % count
 	case "down", "j":
 		m.settings.cliCursor = (m.settings.cliCursor + 1) % count
+	case "shift+up", "K":
+		m.moveCLI(-1)
+	case "shift+down", "J":
+		m.moveCLI(1)
 	case " ", "space":
 		if m.settings.cliCursor < len(m.settings.cliNames) {
 			m.toggleCLIHidden(m.settings.cliNames[m.settings.cliCursor])
@@ -334,6 +338,9 @@ func (m *Model) handleCLIPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if err := m.store.SetSetting(hiddenToolsSetting, formatHiddenTools(m.settings.cliHidden)); err != nil {
 			m.errBar.text = err.Error()
 		}
+		if err := m.store.SetSetting(toolOrderSetting, strings.Join(m.settings.cliNames, ",")); err != nil {
+			m.errBar.text = err.Error()
+		}
 		m.settings.cliPicker = false
 		// Refresh the quick-spawn tool list so it matches the new filter.
 		names, index := m.defaultToolSelection()
@@ -341,6 +348,20 @@ func (m *Model) handleCLIPickerKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.settings.toolIndex = index
 	}
 	return m, nil
+}
+
+// moveCLI swaps the CLI under the cursor with its neighbour and keeps the
+// cursor on it, so holding the key walks one CLI through the list. The ends
+// do not wrap: a CLI jumping from last to first reads as a glitch.
+func (m *Model) moveCLI(delta int) {
+	names := m.settings.cliNames
+	from := m.settings.cliCursor
+	to := from + delta
+	if from < 0 || from >= len(names) || to < 0 || to >= len(names) {
+		return
+	}
+	names[from], names[to] = names[to], names[from]
+	m.settings.cliCursor = to
 }
 
 // toggleCLIHidden flips visibility for one tool. At least one CLI must stay
@@ -356,11 +377,11 @@ func (m *Model) toggleCLIHidden(name string) {
 	}
 	enabled := 0
 	for _, toolName := range m.settings.cliNames {
-		if !m.settings.cliHidden[toolName] {
+		if !m.settings.cliHidden[toolName] && !m.isShell(toolName) {
 			enabled++
 		}
 	}
-	if enabled <= 1 {
+	if enabled <= 1 && !m.isShell(name) {
 		m.errBar.text = "keep at least one CLI enabled"
 		return
 	}

@@ -96,8 +96,9 @@ func TestInputPrefixReadsOpencodeComposer(t *testing.T) {
 // TestInputPrefixReadsAnIndentedDialogMarker drives the shipped config over a
 // real Claude trust prompt (testdata/claude-trust-prompt.txt). Its marker row
 // is indented by one space, which a column-0 anchor read as content -- so
-// selectionDialogUp saw no dialog, answersFocused admitted neither gesture,
-// and a triage queue stopped on a session that had already been answered.
+// selectionDialogUp saw no dialog, the answer was armed as a composer line
+// that a tool call landing never confirms, and a triage queue stopped on a
+// session that had already been answered.
 func TestInputPrefixReadsAnIndentedDialogMarker(t *testing.T) {
 	cfg, err := config.Default()
 	if err != nil {

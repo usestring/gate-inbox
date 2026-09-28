@@ -141,6 +141,11 @@ type poller struct {
 	screens    map[string]screenMark
 	stale      map[string]bool
 	staleAfter time.Duration
+	// hookCursor is how far into each session's hook log the poller has
+	// read. The newest line says what the session is doing now; the lines
+	// between two passes say what it did meanwhile, and a whole turn can fit
+	// there. See missedTurn.
+	hookCursor map[string]int64
 	// goneAdopted counts the consecutive passes each adopted session's pane
 	// has been proven missing, so a row is dropped on a finding that held
 	// still rather than on a single look.
@@ -352,6 +357,7 @@ func newPoller(st *store.Store, driver *tmux.Driver, engine *status.Engine, hook
 		paneHashes:      map[string]uint64{},
 		quietSince:      map[string]time.Time{},
 		hookless:        map[string]bool{},
+		hookCursor:      map[string]int64{},
 		goneAdopted:     map[string]int{},
 		operatorInputAt: map[string]time.Time{},
 		forkDialogs:     map[string]forkDialog{},
@@ -1865,6 +1871,11 @@ func (p *poller) forgetVanished(sessions []store.Session) {
 			delete(p.screens, id)
 		}
 	}
+	for id := range p.hookCursor {
+		if !live[id] {
+			delete(p.hookCursor, id)
+		}
+	}
 	// A codex tracker holds every question its rollout has shown, so one left
 	// behind by an ended session is a leak that grows with the conversation.
 	for id := range p.codexQuestions {
@@ -2023,6 +2034,9 @@ func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAli
 			// the session is alive, and a relaunch that restores the flag
 			// picks it straight back up.
 			if hookStatus, ok := p.hooks.Read(sess.ID); ok {
+				if p.missedTurn(sess, hookStatus) {
+					return status.Working, nil
+				}
 				return p.applyHookStatus(sess, text, hookStatus, displaced), nil
 			}
 		}
@@ -2090,6 +2104,45 @@ func turnInFlight(current string) bool {
 	return current == status.Working || current == status.Finished || current == status.Waiting
 }
 
+// missedTurn reports whether the session ran a turn the row never showed:
+// its hooks logged work since the last pass, but the newest event is a rest
+// state again, and the row is not already working.
+//
+// A turn can start and end between two passes -- a one-line answer, a slash
+// command, a prompt answered straight from the cache. Read alone sees only
+// the newest event, which is the rest state the row already held, so the
+// turn left no trace: an acknowledged finished row stayed acknowledged
+// through a turn the operator never saw end, and nothing watching for a
+// status change heard one. Reporting working for this one pass is what the
+// row would have shown had the poll landed mid-turn; the next pass reads the
+// rest state as a change, and the change re-arms the alert.
+//
+// The first look at a session only records where its log ends. What came
+// before is history the stored status already reflects.
+func (p *poller) missedTurn(sess store.Session, hookStatus string) bool {
+	if p.hookCursor == nil {
+		p.hookCursor = map[string]int64{}
+	}
+	cursor, seen := p.hookCursor[sess.ID]
+	events, next, ok := p.hooks.Events(sess.ID, cursor)
+	if !ok {
+		delete(p.hookCursor, sess.ID)
+		return false
+	}
+	p.hookCursor[sess.ID] = next
+	if !seen || hookStatus == status.Working || sess.Status == status.Working {
+		return false
+	}
+	// The newest event read is the rest state; anything working before it
+	// is a turn that ran and ended since the last look.
+	for _, ev := range events {
+		if ev.State == status.Working {
+			return true
+		}
+	}
+	return false
+}
+
 // applyHookStatus trusts the hook-reported status over pane heuristics
 // for the states hooks can see. They cannot see a plain-text question,
 // an interrupt banner, an error line, or work that outlives the turn that
@@ -2140,6 +2193,19 @@ func (p *poller) applyHookStatus(sess store.Session, text, hookStatus string, di
 			if paneStatus == status.Finished && sess.Acked {
 				return status.Idle
 			}
+			return paneStatus
+		}
+	case status.Waiting:
+		// An approved permission whose command runs for minutes leaves the
+		// file on the Notification that asked: PostToolUse waits for the
+		// command, so nothing is written until it ends, and the row claimed a
+		// prompt nobody could answer. A live spinner is not something a
+		// dialog shows, so a working pane means the answer went in.
+		//
+		// Only working. A finished pane is a turn-end line, and one from an
+		// earlier turn can sit under a dialog these rules do not recognise --
+		// an MCP elicitation form -- so it would drop a wait that is real.
+		if matched && paneStatus == status.Working {
 			return paneStatus
 		}
 	case status.Idle:

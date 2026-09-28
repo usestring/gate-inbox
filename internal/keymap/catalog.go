@@ -12,30 +12,29 @@ package keymap
 
 // List actions.
 const (
-	CursorUp          Action = "cursor_up"
-	CursorDown        Action = "cursor_down"
-	CursorTop         Action = "cursor_top"
-	CursorBottom      Action = "cursor_bottom"
-	Open              Action = "open"
-	StepIn            Action = "step_in"
-	StepOut           Action = "step_out"
-	LastPane          Action = "last_pane"
-	JumpAttention     Action = "jump_attention"
-	JumpAttentionBack Action = "jump_attention_back"
-	JumpWaiting       Action = "jump_waiting"
-	JumpFinished      Action = "jump_finished"
-	JumpErrored       Action = "jump_errored"
-	JumpIdle          Action = "jump_idle"
-	JumpWorking       Action = "jump_working"
-	Attach            Action = "attach"
-	ReorderUp         Action = "reorder_up"
-	ReorderDown       Action = "reorder_down"
-	PreviewUp         Action = "preview_scroll_up"
-	PreviewDown       Action = "preview_scroll_down"
-	PreviewPageUp     Action = "preview_page_up"
-	PreviewPageDown   Action = "preview_page_down"
-	PreviewTop        Action = "preview_top"
-	PreviewBottom     Action = "preview_bottom"
+	CursorUp        Action = "cursor_up"
+	CursorDown      Action = "cursor_down"
+	CursorTop       Action = "cursor_top"
+	CursorBottom    Action = "cursor_bottom"
+	Open            Action = "open"
+	StepIn          Action = "step_in"
+	StepOut         Action = "step_out"
+	LastPane        Action = "last_pane"
+	JumpAttention   Action = "jump_attention"
+	JumpWaiting     Action = "jump_waiting"
+	JumpFinished    Action = "jump_finished"
+	JumpErrored     Action = "jump_errored"
+	JumpIdle        Action = "jump_idle"
+	JumpWorking     Action = "jump_working"
+	Attach          Action = "attach"
+	ReorderUp       Action = "reorder_up"
+	ReorderDown     Action = "reorder_down"
+	PreviewUp       Action = "preview_scroll_up"
+	PreviewDown     Action = "preview_scroll_down"
+	PreviewPageUp   Action = "preview_page_up"
+	PreviewPageDown Action = "preview_page_down"
+	PreviewTop      Action = "preview_top"
+	PreviewBottom   Action = "preview_bottom"
 
 	NewSession     Action = "new_session"
 	NewSessionForm Action = "new_session_form"
@@ -65,10 +64,6 @@ const (
 	ShowAllWork  Action = "show_all_work"
 	StatusFilter Action = "status_filter"
 	Triage       Action = "triage"
-	// Gate is triage, the hands-free handover and the full width armed as
-	// one mode and put back as one: a queue drained a session at a time.
-	// See the ui package's gate.go.
-	Gate         Action = "gate"
 	EmptyGroups  Action = "empty_groups"
 	FoldAll      Action = "fold_all"
 	ArchivedView Action = "archived_view"
@@ -114,7 +109,6 @@ const (
 	// setting's "never" under a key, for an operator who wants the rows
 	// for a moment rather than for good.
 	ToggleChrome       Action = "toggle_chrome"
-	ToggleGateInput    Action = "toggle_gate_input"
 	ToggleConversation Action = "toggle_conversation"
 	// ToggleRail hides the list beside the pane and brings it back. It is
 	// the layout setting's "board" under a key, the columns answer to
@@ -132,9 +126,8 @@ var Catalog = []Binding{
 	{ContextList, StepIn, []string{"right"}, "step in: a session's work, then focus it", false},
 	{ContextList, StepOut, []string{"left"}, "step out: fold the work, close the group", false},
 	{ContextList, LastPane, []string{"l"}, "focus the session you were on before this one; l again swaps back", false},
-	{ContextList, Rescind, []string{"ctrl+z"}, "rescind the latest submission while its turn is active", false},
+	{ContextList, Rescind, []string{"ctrl+z"}, "undo the latest submission while its turn is active", false},
 	{ContextList, JumpAttention, []string{"tab"}, "enter the next session waiting on you", false},
-	{ContextList, JumpAttentionBack, []string{"shift+tab"}, "enter the one before it", false},
 	{ContextList, JumpWaiting, []string{"alt+w"}, "enter the next waiting session", false},
 	{ContextList, JumpFinished, []string{"alt+f"}, "enter the next finished session", false},
 	{ContextList, JumpErrored, []string{"alt+e"}, "enter the next errored or dead session", false},
@@ -145,8 +138,8 @@ var Catalog = []Binding{
 	{ContextList, ReorderDown, []string{"J", "shift+j", "shift+down"}, "reorder the row down", false},
 	{ContextList, PreviewUp, []string{"alt+up"}, "scroll the preview up", false},
 	{ContextList, PreviewDown, []string{"alt+down"}, "scroll the preview down", false},
-	{ContextList, PreviewPageUp, []string{"alt+pgup"}, "scroll the preview a page up", false},
-	{ContextList, PreviewPageDown, []string{"alt+pgdown"}, "scroll the preview a page down", false},
+	{ContextList, PreviewPageUp, []string{"alt+u", "alt+pgup"}, "scroll the preview a page up", false},
+	{ContextList, PreviewPageDown, []string{"alt+d", "alt+pgdown"}, "scroll the preview a page down", false},
 	{ContextList, PreviewTop, []string{"alt+home"}, "scroll the preview to its oldest", false},
 	{ContextList, PreviewBottom, []string{"alt+end"}, "scroll the preview back to live", false},
 
@@ -164,9 +157,8 @@ var Catalog = []Binding{
 	{ContextList, Archive, []string{"x"}, "kill it and file the row", false},
 	{ContextList, ArchiveAll, []string{"X", "shift+x"}, "kill every session listed", false},
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
-	{ContextList, Dismiss, []string{"."}, "dismiss: mark it idle, or mute it", false},
-	{ContextList, Priority, []string{"p"}, "priority: it goes first in triage", false},
-	{ContextList, HandOver, []string{"§"}, "in triage: mute this and enter the next", false},
+	{ContextList, Dismiss, []string{"."}, "skip", false},
+	{ContextList, Priority, []string{"p"}, "toggle priority (priority panes show first)", false},
 	{ContextList, QuickInput, []string{" ", "space"}, "quick prompt", false},
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{"alt+r"}, "rename it yourself, and re-pick its tool", false},
@@ -178,7 +170,6 @@ var Catalog = []Binding{
 	{ContextList, StatusFilter, []string{"w"}, "filter to what needs attention", false},
 	{ContextList, Triage, []string{"i"}, "triage this group as one queue", false},
 	{ContextList, ToggleConversation, []string{"f3"}, "show full / shortened conversation", false},
-	{ContextList, Gate, []string{"G", "shift+g"}, "gate: drain that queue one session at a time", false},
 	{ContextList, EmptyGroups, []string{"e"}, "hide / show empty groups", false},
 	{ContextList, FoldAll, []string{"F", "shift+f"}, "fold / unfold everything", false},
 	{ContextList, ArchivedView, []string{"t"}, "archived view", false},
@@ -189,7 +180,7 @@ var Catalog = []Binding{
 	{ContextList, ToggleChrome, []string{","}, "hide / show the key hints along the foot", false},
 	{ContextList, ToggleRail, []string{`\`}, "hide / show the list beside the pane", false},
 	{ContextList, LegendPeek, []string{"?"}, "peek at every available key", false},
-	{ContextList, Help, []string{"H", "shift+h"}, "this key map", true},
+	{ContextList, Help, []string{"h", "H", "shift+h"}, "this key map", true},
 	{ContextList, Quit, []string{"q"}, "quit (sessions keep running)", true},
 
 	// ---- a focused session ----
@@ -197,30 +188,28 @@ var Catalog = []Binding{
 	// binding added here is a key taken away from the pane. That is the
 	// reason the defaults are all chords.
 	{ContextFocus, Leave, []string{"ctrl+q"}, "back to the manager; in triage, on to the next", true},
-	{ContextFocus, ToggleConversation, []string{"f3"}, "show full / shortened conversation", false},
-	{ContextFocus, ToggleGateInput, []string{"f2"}, "gate: switch conversation / terminal", false},
 	{ContextFocus, HandOver, []string{"§"}, "ctrl+q's one-press alias", false},
 	{ContextFocus, LeaveHard, []string{`ctrl+\`}, "back to the manager, always stopping there", true},
-	{ContextFocus, Rescind, []string{"ctrl+z"}, "rescind the latest submission while its turn is active", false},
+	{ContextFocus, Rescind, []string{"ctrl+z"}, "undo the latest submission while its turn is active", false},
 	// A chord for the same reason alt+, is one: a plain "." is a character
 	// the agent was owed. It mirrors the list's own dismiss key.
-	{ContextFocus, Dismiss, []string{"alt+."}, "dismiss this one and go on to the next", false},
+	{ContextFocus, Dismiss, []string{"alt+."}, "skip", false},
 	// A chord, like every other key this screen claims: a plain comma is a
 	// character the agent was owed.
 	{ContextFocus, ToggleChrome, []string{"alt+,"}, "hide / show the key hints along the foot", false},
 	{ContextFocus, ToggleRail, []string{`alt+\`}, "hide / show the list beside the pane", false},
 	{ContextFocus, Archive, []string{"ctrl+x"}, "kill it, asking first", false},
-	// The gate's own session controls, reached from inside it: v1's gate view
-	// offered the same rows on its menu, and a drain that had to leave the
-	// queue to spawn, copy an id or step back was not one queue.
-	{ContextFocus, NewSession, []string{"alt+n"}, "new session in this one's group, keeping your place", false},
+	// Session controls reached from inside the pane: a drain that had to leave
+	// the queue to spawn, copy an id or step back was not one queue. See the
+	// ui package's focusactions.go.
+	{ContextFocus, NewSession, []string{"alt+n"}, "new session in this one's group", false},
 	{ContextFocus, CopySessionID, []string{"alt+y"}, "copy the agent's session id", false},
 	{ContextFocus, LastPane, []string{"alt+l"}, "back to the previous session; alt+l again swaps back", false},
 	{ContextFocus, BackAtPrompt, []string{"left"}, "at the prompt's start, back to the manager", false},
 	{ContextFocus, PreviewUp, []string{"alt+up"}, "scroll the pane up", false},
 	{ContextFocus, PreviewDown, []string{"alt+down"}, "scroll the pane down", false},
-	{ContextFocus, PreviewPageUp, []string{"alt+pgup"}, "scroll a page up", false},
-	{ContextFocus, PreviewPageDown, []string{"alt+pgdown"}, "scroll a page down", false},
+	{ContextFocus, PreviewPageUp, []string{"alt+u", "alt+pgup"}, "scroll a page up", false},
+	{ContextFocus, PreviewPageDown, []string{"alt+d", "alt+pgdown"}, "scroll a page down", false},
 	{ContextFocus, PreviewTop, []string{"alt+home"}, "oldest history", false},
 	{ContextFocus, PreviewBottom, []string{"alt+end"}, "back to the live bottom", false},
 
@@ -228,8 +217,8 @@ var Catalog = []Binding{
 	{ContextNameSweep, Cancel, []string{"esc", "n", "q"}, "cancel the sweep", true},
 	{ContextNameSweep, CursorUp, []string{"up", "k"}, "move up", true},
 	{ContextNameSweep, CursorDown, []string{"down", "j"}, "move down", true},
-	{ContextNameSweep, PageUp, []string{"pgup", "ctrl+u"}, "a page up", false},
-	{ContextNameSweep, PageDown, []string{"pgdown", "ctrl+d"}, "a page down", false},
+	{ContextNameSweep, PageUp, []string{"ctrl+u", "pgup"}, "a page up", false},
+	{ContextNameSweep, PageDown, []string{"ctrl+d", "pgdown"}, "a page down", false},
 	{ContextNameSweep, Confirm, []string{"y", "enter"}, "run the sweep", true},
 
 	// ---- the restore prompt ----
@@ -246,11 +235,11 @@ var Catalog = []Binding{
 
 	// ---- the welcome card ----
 	{ContextWelcome, Close, []string{"enter", "esc", "q", " ", "space"}, "close the guide", true},
-	{ContextWelcome, Help, []string{"H", "?", "shift+h"}, "the key map", false},
+	{ContextWelcome, Help, []string{"h", "H", "?", "shift+h"}, "the key map", false},
 	{ContextWelcome, CursorUp, []string{"up", "k"}, "move up", true},
 	{ContextWelcome, CursorDown, []string{"down", "j"}, "move down", true},
-	{ContextWelcome, PageUp, []string{"pgup", "ctrl+u"}, "a page up", false},
-	{ContextWelcome, PageDown, []string{"pgdown", "ctrl+d"}, "a page down", false},
+	{ContextWelcome, PageUp, []string{"ctrl+u", "pgup"}, "a page up", false},
+	{ContextWelcome, PageDown, []string{"ctrl+d", "pgdown"}, "a page down", false},
 	{ContextWelcome, Top, []string{"g", "home"}, "the top", false},
 	{ContextWelcome, Bottom, []string{"G", "end"}, "the bottom", false},
 

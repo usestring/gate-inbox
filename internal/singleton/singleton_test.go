@@ -1,10 +1,12 @@
 package singleton
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -20,6 +22,12 @@ func TestMain(m *testing.M) {
 	dir := os.Getenv("SINGLETON_HOLD")
 	if dir == "" {
 		tmuxtest.Main(m)
+	}
+	// Importing tmuxtest unset the pane this holder runs in; a holder started
+	// inside one hands it over under names the isolation leaves alone.
+	if pane := os.Getenv("SINGLETON_TMUX_PANE"); pane != "" {
+		os.Setenv("TMUX", os.Getenv("SINGLETON_TMUX"))
+		os.Setenv("TMUX_PANE", pane)
 	}
 	if _, _, err := Acquire(dir); err != nil {
 		os.Stderr.WriteString(err.Error())
@@ -65,9 +73,8 @@ func TestFreeDirIsClaimedWithoutATakeover(t *testing.T) {
 		t.Fatalf("Acquire: took=%v err=%v", took, err)
 	}
 	defer lock.Release()
-	data, _ := os.ReadFile(filepath.Join(dir, FileName))
-	if strings.TrimSpace(string(data)) != strconv.Itoa(os.Getpid()) {
-		t.Fatalf("lock file names %q, want own pid", data)
+	if lockedPID(t, dir) != strconv.Itoa(os.Getpid()) {
+		t.Fatalf("lock file names %q, want own pid", lockedPID(t, dir))
 	}
 }
 
@@ -89,9 +96,8 @@ func TestIncumbentIsTerminatedAndSuperseded(t *testing.T) {
 	if err := holder.Wait(); err == nil {
 		t.Fatal("holder exited cleanly; expected a signal exit")
 	}
-	data, _ := os.ReadFile(filepath.Join(dir, FileName))
-	if strings.TrimSpace(string(data)) != strconv.Itoa(os.Getpid()) {
-		t.Fatalf("lock file names %q after takeover, want own pid", data)
+	if lockedPID(t, dir) != strconv.Itoa(os.Getpid()) {
+		t.Fatalf("lock file names %q after takeover, want own pid", lockedPID(t, dir))
 	}
 }
 
@@ -121,4 +127,64 @@ func TestReleaseFreesTheClaim(t *testing.T) {
 		t.Fatalf("second Acquire after Release: took=%v err=%v", took, err)
 	}
 	second.Release()
+}
+
+func lockedPID(t *testing.T, dir string) string {
+	t.Helper()
+	data, _ := os.ReadFile(filepath.Join(dir, FileName))
+	return strings.TrimSpace(string(data))
+}
+
+func TestSupersededPaneIsClosed(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux not installed")
+	}
+	dir := t.TempDir()
+	socket := tmuxtest.NewSocket("singleton")
+	t.Cleanup(func() { tmuxtest.KillServer(socket) })
+	tmux := func(args ...string) (string, error) {
+		out, err := exec.Command("tmux", append([]string{"-L", socket}, args...)...).Output()
+		return strings.TrimSpace(string(out)), err
+	}
+	// Keeps the server up once the board's pane, and with it its session,
+	// is gone.
+	if _, err := tmux("new-session", "-d", "-s", "keep", "sleep 600"); err != nil {
+		t.Fatal(err)
+	}
+	// The shell the operator launched the board from, left behind when it exits.
+	board := fmt.Sprintf(`SINGLETON_HOLD='%s' SINGLETON_TMUX="$TMUX" SINGLETON_TMUX_PANE="$TMUX_PANE" '%s' -test.run=XXX_NONE; exec sleep 600`, dir, os.Args[0])
+	paneID, err := tmux("new-session", "-d", "-s", "board", "-P", "-F", "#{pane_id}", board)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(termGrace)
+	for lockedPID(t, dir) == "" {
+		if time.Now().After(deadline) {
+			screen, _ := tmux("capture-pane", "-p", "-t", paneID)
+			t.Fatalf("the board in the pane never took the lock:\n%s", screen)
+		}
+		time.Sleep(pollEvery)
+	}
+
+	lock, took, err := Acquire(dir)
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	defer lock.Release()
+	if took == nil || took.Killed || !took.PaneClosed {
+		t.Fatalf("takeover = %+v, want a SIGTERM that closed the pane", took)
+	}
+	panes, err := tmux("list-panes", "-a", "-F", "#{pane_id}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(strings.Fields(panes), paneID) {
+		t.Fatalf("pane %s outlived the board it held; panes: %s", paneID, panes)
+	}
+}
+
+func TestAPaneOnAServerThatIsGoneIsLeftAlone(t *testing.T) {
+	if closePane(pane{socket: "/nonexistent/socket", serverPID: "1", id: "%0"}) {
+		t.Fatal("closed a pane on a server that is not there")
+	}
 }

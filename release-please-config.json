@@ -5,7 +5,8 @@
   "include-v-in-tag": true,
   "packages": {
     ".": {
-      "release-type": "go"
+      "release-type": "go",
+      "release-as": "0.1.9"
     }
   }
 }

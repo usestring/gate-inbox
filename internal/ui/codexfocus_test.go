@@ -39,10 +39,24 @@ func TestCodexPromptHeadLeavesFocus(t *testing.T) {
 	if !m.caretAtInputStart("s1", "codex") {
 		t.Fatal("caret at the head of codex's prompt was not recognised, so Left cannot leave focus")
 	}
+	// The empty composer carries placeholder text ("Ask Codex to do
+	// anything") past the caret, which still reads as the prompt's end:
+	// the hint is not typed text, and Right has nothing to move through.
+	if !m.caretAtInputEnd("s1", "codex") {
+		t.Fatal("caret at the end of codex's empty prompt was not recognised, so Right cannot leave focus")
+	}
+	if !m.rightLeavesFocus("s1", "codex") {
+		t.Fatal("Right does not leave codex's empty prompt")
+	}
 	// One cell further in is inside the composer, where Left is the agent's.
 	m.pane.cursor = paneCursor{x: 4, y: 63, ok: true}
 	if m.caretAtInputStart("s1", "codex") {
 		t.Fatal("a caret inside codex's composer read as the prompt head")
+	}
+	// ... while Right there moves through the placeholder into the line, so
+	// it stays the agent's too.
+	if m.rightLeavesFocus("s1", "codex") {
+		t.Fatal("Right left from inside codex's composer, stealing line editing from the pane")
 	}
 }
 
@@ -117,6 +131,16 @@ func TestLeftLeavesADialogThatDoesNotUseArrows(t *testing.T) {
 			}
 			if got := m.leftLeavesFocus("s1", c.tool); got != c.want {
 				t.Fatalf("leftLeavesFocus = %v, want %v", got, c.want)
+			}
+			// The exit arrow points at the rail on the right, so a dialog
+			// that spares Left spares Right too: the caret sits short of
+			// any prompt marker either way, and neither arrow owns the
+			// dialog's choice.
+			if m.caretAtInputEnd("s1", c.tool) {
+				t.Fatal("a dialog marker read as the end of a prompt")
+			}
+			if got := m.rightLeavesFocus("s1", c.tool); got != c.want {
+				t.Fatalf("rightLeavesFocus = %v, want %v", got, c.want)
 			}
 		})
 	}

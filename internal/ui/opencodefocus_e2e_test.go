@@ -15,7 +15,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-// The question-dialog Left fix, end to end over the real thing.
+// The question-dialog Right fix, end to end over the real thing.
 //
 // Everything else about this fix poses its pane by hand: a fixture for the
 // dialog, a cursor where tmux once reported one. That pins the decision
@@ -23,7 +23,7 @@ import (
 // stuck -- the fixture cannot drift from what opencode draws, and the posed
 // cursor cannot be where opencode really parks it. So this one launches a
 // real opencode, has it ask a real question through its question tool, and
-// proves both halves against the live pane: Left is a no-op inside the
+// proves both halves against the live pane: Right is a no-op inside the
 // dialog itself, and the manager still steps back to the list on it.
 //
 // It needs a working opencode on PATH with a default model that answers --
@@ -93,22 +93,22 @@ func TestOpencodeQuestionDialogLeavesFocusE2E(t *testing.T) {
 	cursorBefore := e2eCursor(t, m, sess.ID)
 	t.Logf("dialog up; caret parked at %+v", cursorBefore)
 
-	// Half one: Left is a no-op inside the live dialog, so it is spare and
+	// Half one: Right is a no-op inside the live dialog, so it is spare and
 	// the manager may spend it. The clock in the status column ticks, so it
 	// is masked out of the comparison.
-	if err := m.tmux.SendKeys(sess.ID, "Left"); err != nil {
-		t.Fatalf("send Left to the pane: %v", err)
+	if err := m.tmux.SendKeys(sess.ID, "Right"); err != nil {
+		t.Fatalf("send Right to the pane: %v", err)
 	}
 	time.Sleep(2 * time.Second)
 	after := e2eCapture(t, m, sess.ID)
 	if e2eMaskClock(after) != e2eMaskClock(dialog) {
-		t.Fatalf("Left changed the live dialog, so it is not spare:\nbefore:\n%s\nafter:\n%s", e2eTail(dialog), e2eTail(after))
+		t.Fatalf("Right changed the live dialog, so it is not spare:\nbefore:\n%s\nafter:\n%s", e2eTail(dialog), e2eTail(after))
 	}
 	if cursorAfter := e2eCursor(t, m, sess.ID); cursorAfter != cursorBefore {
-		t.Fatalf("Left moved the live caret from %+v to %+v, so it is not spare", cursorBefore, cursorAfter)
+		t.Fatalf("Right moved the live caret from %+v to %+v, so it is not spare", cursorBefore, cursorAfter)
 	}
 	if state, matched := m.engine.RuleMatch("opencode", ansi.Strip(after)); !matched || state != status.Waiting {
-		t.Fatalf("the dialog stopped reading waiting after Left: (%q, %v)", state, matched)
+		t.Fatalf("the dialog stopped reading waiting after Right: (%q, %v)", state, matched)
 	}
 
 	// Half two: the manager steps back to the list on that same key, read
@@ -132,10 +132,10 @@ func TestOpencodeQuestionDialogLeavesFocusE2E(t *testing.T) {
 	// the production text path rather than the pre-render fallback.
 	rows := len(strings.Split(strings.TrimSuffix(m.preview, "\n"), "\n"))
 	m.pane.box.height, m.pane.box.width = rows, 500
-	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
 	*m = *updated.(*Model)
 	if m.mode != modeList {
-		t.Fatalf("Left did not leave the live opencode dialog, mode = %v, err = %q", m.mode, m.errBar.text)
+		t.Fatalf("Right did not leave the live opencode dialog, mode = %v, err = %q", m.mode, m.errBar.text)
 	}
 }
 

@@ -247,6 +247,65 @@ func (m *Model) composerAboveIsBlank(tool string, rows []string, y int) bool {
 	return true
 }
 
+// railOnRight reports which side of the frame the sessions rail sits on. The
+// arrow that leaves focus is the one pointing at it: with the rail on the
+// right, Right at the prompt's end steps out to the list while Left stays
+// the pane's. The frame paints the rail on the right (see viewListFrame), so
+// this is where that assumption lives if the layout ever gains a side.
+func (m *Model) railOnRight() bool { return true }
+
+// caretAtInputEnd reports whether the agent's caret sits at the end of its
+// prompt, with nothing typed past it. Right is a no-op for the agent there,
+// which is what frees the key to mean "back to the list" without ever
+// costing a keystroke inside the prompt: anywhere else it still moves the
+// caret.
+//
+// An empty composer reads as the end on tools that draw a placeholder hint
+// past the caret (codex's "Ask Codex to do anything", opencode's "Ask
+// anything..."): the hint is not typed text, and with nothing written
+// anywhere -- before the caret, above it or below it -- Right has nothing to
+// move through. A caret at the head of a typed line shares that shape, so on
+// those tools it reads as the end too; that over-read is the price of the
+// hint being indistinguishable from typed text in a capture. Tools with no
+// hint leave the head of a typed line to the agent.
+func (m *Model) caretAtInputEnd(sessID, tool string) bool {
+	rows, y, ok := m.caretRows(sessID)
+	if !ok {
+		return false
+	}
+	row, caretX := ansi.Strip(rows[y]), m.pane.cursor.x
+	prefix, ok := m.engine.InputPrefix(tool, row)
+	if !ok || caretX < textfmt.Width(prefix) {
+		return false
+	}
+	if !textAfterCaret(m.engine, tool, row, caretX) {
+		return m.composerEndsBelow(tool, rows, y)
+	}
+	if tool != "codex" && tool != "opencode" {
+		return false
+	}
+	return !textBeforeCaret(m.engine, tool, row, caretX) &&
+		m.composerAboveIsBlank(tool, rows, y) &&
+		m.composerEndsBelow(tool, rows, y)
+}
+
+// composerEndsBelow reports whether the composer stops at the caret's own
+// row. Any marked row below means it runs on past the caret -- carrying text
+// (a second line) or blank (a newline just taken), Right moves down into it
+// either way. The first unmarked row ends the scan the way it does above:
+// box dividers and status lines below a prompt are chrome around the
+// composer, not lines of it.
+func (m *Model) composerEndsBelow(tool string, rows []string, y int) bool {
+	if y+1 >= len(rows) {
+		return true
+	}
+	row := ansi.Strip(rows[y+1])
+	if _, ok := m.engine.InputPrefix(tool, row); ok {
+		return false
+	}
+	return true
+}
+
 // caretRow is the pane row the caret is standing on, stripped of styling,
 // with the column it stands at. Every judgement about what a key means to the
 // pane starts here, and every one of them needs the same three things to be
@@ -341,6 +400,37 @@ func (m *Model) leftLeavesFocus(sessID, tool string) bool {
 	return !m.engine.DialogOwnsArrows(tool, strings.Join(m.paneTextLines(), "\n"))
 }
 
+// rightLeavesFocus reports whether Right means "back to the list" rather
+// than a keystroke the pane wanted: at the end of a prompt, and on a dialog
+// that does nothing with the horizontal arrows. It is leftLeavesFocus
+// mirrored for the rail's side of the frame (see railOnRight).
+//
+// A dialog with a question stepper answers that question itself: Right is
+// the next question there, so it leaves only on the last entry, where the
+// dialog has nothing to step forward to and the key is going spare.
+func (m *Model) rightLeavesFocus(sessID, tool string) bool {
+	if m.caretAtInputEnd(sessID, tool) {
+		return true
+	}
+	if tool == "opencode" && m.opencodeQuestionDialogUp() {
+		// A custom answer being typed into the dialog stays the pane's:
+		// Right there is line editing, not a spare key.
+		if row, caretX, ok := m.caretRow(sessID); ok {
+			if _, isInput := m.engine.InputPrefix(tool, row); isInput && textAfterCaret(m.engine, tool, row, caretX) {
+				return false
+			}
+		}
+		return true
+	}
+	if !m.selectionDialogUp(sessID, tool) {
+		return false
+	}
+	if last, ok := m.engine.DialogStepIsLast(tool, m.preview); ok {
+		return last
+	}
+	return !m.engine.DialogOwnsArrows(tool, strings.Join(m.paneTextLines(), "\n"))
+}
+
 // opencodeQuestionLegend is the legend an opencode question dialog closes
 // with. It mirrors the waiting rule the shipped config reads the dialog by --
 // "enter <verb>  esc dismiss", the verb being the dialog's own (submit,
@@ -353,13 +443,13 @@ var opencodeQuestionLegend = regexp.MustCompile(`(?m)^.*\benter (?:submit|toggle
 // The caret cannot say so: opencode parks it outside the dialog it is asking
 // from, at the end of the "→ Asked N question(s)" summary line above the
 // composer box, so selectionDialogUp's caret-on-the-marker rule never fires
-// there and Left would be forwarded into a dialog that does nothing with the
+// there and Right would be forwarded into a dialog that does nothing with the
 // horizontal arrows. The pane text says it instead, read the same way the
 // status rules read it.
 //
 // The permission overlay is the counter-case and is excluded two ways: its
-// "⇆ select" legend owns Left (see arrow_dialog_line), and it draws no
-// enter-verb/esc-dismiss legend of its own.
+// "⇆ select" legend owns the horizontal arrows (see arrow_dialog_line), and
+// it draws no enter-verb/esc-dismiss legend of its own.
 func (m *Model) opencodeQuestionDialogUp() bool {
 	if m.engine == nil {
 		return false
@@ -394,6 +484,19 @@ func textBeforeCaret(engine *status.Engine, tool, row string, caretX int) bool {
 		return false
 	}
 	return status.TextBetweenCells(row, textfmt.Width(prefix), caretX)
+}
+
+// textAfterCaret reports whether anything but blanks sits between the caret
+// and the end of the row, which is how a caret resting mid-line is told from
+// one at the end of what was typed. tmux trims a row's trailing blanks, so a
+// row that ends at the caret is blank the rest of the way. A placeholder
+// hint an empty composer draws past the caret reads as text here; the
+// end-of-input read accounts for that case itself.
+func textAfterCaret(engine *status.Engine, tool, row string, caretX int) bool {
+	if _, ok := engine.InputPrefix(tool, row); !ok {
+		return false
+	}
+	return status.TextBetweenCells(row, caretX, -1)
 }
 
 // leaveFocus returns to the list. Mouse reporting stays on: handing it back
@@ -558,8 +661,16 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	key := msg.Key()
-	if bound && action == keymap.BackAtPrompt && key.Mod == 0 && m.leftLeavesFocus(sess.ID, sess.Tool) {
-		return m, m.leaveFocus()
+	// The exit arrow is the one pointing at the rail: Right while it sits on
+	// the right, Left if it ever moves left. The spare key leaves; anywhere
+	// else the arrow still reaches the agent.
+	if bound && action == keymap.BackAtPrompt && key.Mod == 0 {
+		if key.Code == tea.KeyRight && m.railOnRight() && m.rightLeavesFocus(sess.ID, sess.Tool) {
+			return m, m.leaveFocus()
+		}
+		if key.Code == tea.KeyLeft && !m.railOnRight() && m.leftLeavesFocus(sess.ID, sess.Tool) {
+			return m, m.leaveFocus()
+		}
 	}
 	// Whether a dialog is up for this key to answer, read before anything
 	// below moves: once the key has landed the dialog is gone, and the

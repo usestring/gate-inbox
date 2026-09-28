@@ -164,13 +164,13 @@ type Tool struct {
 	// otherwise settle the turn.
 	LimitLine string `toml:"limit_line"`
 	// ArrowDialogLine is the keybinding legend of a dialog that navigates
-	// with the horizontal arrows, which is what decides whether Left still
+	// with the horizontal arrows, which is what decides whether Right still
 	// belongs to the pane once a dialog has parked the caret on its own
 	// selection marker. A dialog that only advertises "↑/↓ to navigate" does
-	// nothing with Left, so Left is free to mean "back to the list" there --
+	// nothing with Right, so Right is free to mean "back to the list" there --
 	// and being able to step out of a session while it is asking something is
 	// the case that matters, since that is when the operator most wants to
-	// leave it and come back. Left unset, no dialog claims the arrows.
+	// leave it and come back. With it unset, no dialog claims the arrows.
 	//
 	// Write it against the legend line itself, never against a bare glyph:
 	// it is matched over the whole pane, and an arrow there is ordinary
@@ -181,11 +181,11 @@ type Tool struct {
 	// DialogStepRow is the question stepper a dialog draws above its options
 	// ("←  ☐ Shape  ☐ Scope  ✔ Submit  →"), and DialogStepEntry one entry on
 	// it. Together they answer the question the legend cannot: which step is
-	// live. Left is the previous question everywhere but the first entry, and
-	// on the first entry it does nothing at all, so that is the one place it
-	// is free to mean "back to the list". Matched against the raw capture,
+	// live. Right is the next question everywhere but the last entry, and on
+	// the last entry it does nothing at all, so that is the one place it is
+	// free to mean "back to the list". Matched against the raw capture,
 	// since the active entry is marked by the background colour it is drawn
-	// on. Left unset, no dialog has a stepper and the legend decides alone.
+	// on. With it unset, no dialog has a stepper and the legend decides alone.
 	DialogStepRow   string `toml:"dialog_step_row"`
 	DialogStepEntry string `toml:"dialog_step_entry"`
 	// ScrolledLine is the affordance a tool draws while its own viewport is
@@ -826,28 +826,29 @@ limit_line = "(?m)You've hit your .+limit"
 scrolled_line = "Jump to bottom \\(ctrl\\+End\\)"
 # The key that affordance names, for the board to press itself rather than ask.
 jump_to_bottom_key = "C-End"
-# A dialog claims Left only where it says so: in the "… to navigate" segment of
+# A dialog claims an arrow only where it says so: in the "… to navigate" segment of
 # its own keybinding legend. Reading a loose ← or → anywhere in the pane is what
 # pinned the operator, because a multi-question dialog draws a decorative
 # "←  ☐ Shape  ☐ Scope  ✔ Submit  →" stepper above its options while its legend
 # says "↑/↓ to navigate · n to add notes · Tab to switch questions" -- Tab is what
-# steps between questions, not Left -- and because ordinary prose carries arrows
+# steps between questions, not Right -- and because ordinary prose carries arrows
 # too. So require the arrow wording inside that one segment: "Tab/Arrow keys to
-# navigate" claims Left, "↑/↓ to navigate" leaves it alone, and a permission
+# navigate" claims the arrows, "↑/↓ to navigate" leaves them alone, and a permission
 # prompt ("Enter to confirm · Esc to cancel") has no such segment at all.
 arrow_dialog_line = "(?i)\\x{B7} [^\\x{B7}\\n]*(?:Arrow keys|\\x{2190}|\\x{2192})[^\\x{B7}\\n]* to navigate\\b"
 # The question stepper, drawn above the options whenever the dialog has more
 # than one step: "←  ☐ Shape  ☐ Scope  ✔ Submit  →" for three questions, and
 # "←  ☐ Checks  ✔ Submit  →" for a single multi-select one, which has the
-# question and Submit. Where it sits decides Left, because Left IS the stepper:
-# one entry in, Left steps back a question; on the first entry it does nothing
-# (measured live -- the pane comes back byte for byte identical), so only there
-# is it free to leave. A dialog with no stepper falls back to the legend above.
+# question and Submit. Where it sits decides Right, because Right IS the
+# stepper's way forward: short of the last entry, Right steps on to the next
+# question; on the last entry it does nothing (measured live -- the pane comes
+# back byte for byte identical), so only there is it free to leave. A dialog
+# with no stepper falls back to the legend above.
 #
 # The entry glyph carries whether the step has been ANSWERED, so the class
 # needs every state a step is drawn in: an answered question comes back ☒, and
 # a class missing it leaves nothing visible to the left of the live entry, so a
-# later question reads as the first and Left leaves instead of stepping back.
+# later question reads as the last and Right leaves instead of stepping on.
 dialog_step_row = "^[ \\x{A0}]*\\x{2190}[ \\x{A0}].*[ \\x{A0}]\\x{2192}[ \\x{A0}]*$"
 dialog_step_entry = "[\\x{2610}-\\x{2612}\\x{2714}]"
 rules = [
@@ -924,7 +925,7 @@ activity_cutoff = "(?m)^\\s*╹"
 # composer names itself here. The bar alone is the marker: tmux trims a row's
 # trailing blanks, so an empty composer row is the bar and nothing else, and a
 # marker that demanded the box's padding would miss exactly the empty prompt
-# Left is meant to leave from.
+# Right is meant to leave from.
 input_line = "^[ \\x{A0}]*┃"
 # The finished-turn row: "Build · DeepSeek V4 Pro (New) · 4.8s · 66.7 tok/s".
 # The anchor is the duration itself: a digit-led "· 4.8s" / "· 1m 22s", then
@@ -941,9 +942,9 @@ turn_end = "^ *[^ ┃].*· \\d+(?:\\.\\d+)?[hms](?: \\d+[hms])*(?: · [\\d.]+ to
 chrome_line = "^\\s*(┃.*)?$|^ {40,}\\S.*$"
 limit_line = "(?i)requires more credits|(?:Usage|Free|Go) limit reached"
 # The permission overlay steps its options with the horizontal arrows
-# ("ctrl+f fullscreen  ⇆ select  enter confirm"), so Left belongs to the pane
-# there. A question dialog instead names "↑↓ select" -- "⇆ tab" only where
-# there is something to tab between -- so Left is spare and leaves focus.
+# ("ctrl+f fullscreen  ⇆ select  enter confirm"), so the arrows belong to the
+# pane there. A question dialog instead names "↑↓ select" -- "⇆ tab" only where
+# there is something to tab between -- so Right is spare and leaves focus.
 # Keyed on "⇆ select" rather than a bare ⇆ for that reason: the tab segment
 # must not pin the operator in a dialog that is asking them something.
 arrow_dialog_line = "\\x{21C6} select"

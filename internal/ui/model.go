@@ -483,6 +483,13 @@ type Model struct {
 	// pass carries the first real statuses, and for the restore prompt, which
 	// must win the screen when there is one.
 	triageStartupEnter bool
+	// triageResume keeps a drained queue open: a handover that finds nothing
+	// left sets it, and the first poll that brings a session needing a
+	// person picks that session straight up, so work that reaches waiting
+	// or finished while the first queue is walked joins the same queue.
+	// Anything that ends the drain on purpose -- leaving it, dismissing a
+	// row, toggling triage -- clears it. See triagePickupCmd.
+	triageResume bool
 	// autoProceed mirrors the persisted hands-free handover: with it on, the
 	// key that answers a focused session in a drain also hands it over. Off
 	// by default; see autoproceed.go.
@@ -1998,17 +2005,21 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.triageStartupEnter = false
 			}
 		}
+		// A drain that ran out of work left the operator on the list with
+		// the queue still open: the first pass carrying a new session that
+		// needs a person picks it straight up. See triageResume.
+		pickup := m.triagePickupCmd()
 		// A pass that ran with a stale selection (a session created this
 		// tick) carries the wrong preview; resync and fetch it directly.
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {
 			m.syncPollInput()
 			m.previewGen++
-			return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick())
+			return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick())
 		}
 		m.proc = msg.proc
 		m.procFor = msg.procFor
 		m.setPreviewAt(msg.preview, msg.previewAt)
-		return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, m.ownPaneVisibleCmd(), m.startStartupTick())
+		return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick())
 
 	case childSweptMsg:
 		m.applyChildSweep(msg)

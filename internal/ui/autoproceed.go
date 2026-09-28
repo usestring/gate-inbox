@@ -94,10 +94,17 @@ func (m *Model) handOverLanded(sess store.Session, at time.Time) tea.Cmd {
 }
 
 // moveOnFrom leaves sess and enters the next session that needs a person.
+// When the queue is drained the operator lands on the list with the drain
+// still open (see triageResume), so work arriving on a later poll joins the
+// same queue instead of waiting for another explicit pass.
 func (m *Model) moveOnFrom(sess store.Session) tea.Cmd {
 	leave := m.leaveFocus()
 	if next := m.advanceTriage(sess.ID); next != nil {
+		m.triageResume = false
 		return tea.Batch(leave, next)
+	}
+	if m.triage {
+		m.triageResume = true
 	}
 	return leave
 }

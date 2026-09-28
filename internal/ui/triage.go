@@ -311,6 +311,10 @@ func (m *Model) toggleTriage() tea.Cmd {
 		previousKey, fromGroup = rowKey(entry), entry.isGroup
 	}
 	m.triage = !m.triage
+	// Toggling starts a fresh pass either way: turning the queue on asks
+	// for all of it from the top, and turning it off ends the drain the
+	// resume flag was keeping open.
+	m.triageResume = false
 	if m.triage {
 		// The queue is the group the cursor was in, read before the rebuild
 		// flattens the groups away and takes the row that named it with
@@ -464,6 +468,37 @@ func isIdle(st string) bool { return st == status.Idle }
 // its parent, so the drain hands it over like a top-level session.
 func isSubagent(sess store.Session) bool {
 	return sess.ParentID != "" && !sessionhooks.Role(sess.Role).OnScreen
+}
+
+// triagePickupCmd re-enters the head of the queue when a drain that ran
+// out of work left the operator on the list and a later poll brought a new
+// session needing a person. The queue is one live queue: work that reaches
+// waiting or finished while the first pass is walked joins it in place --
+// oldest first inside its tier, the way the rail already sorts -- rather
+// than stranding the operator on the list.
+//
+// It fires only for sessions needing a person, never for idle ones: a newly
+// idle session can wait for the next explicit pass, while a question or a
+// finished turn is what the drain exists to answer. With nothing to pick up
+// the drain stays open, so a still later arrival is picked up instead.
+func (m *Model) triagePickupCmd() tea.Cmd {
+	if !m.triageResume || !m.triage || m.mode != modeList {
+		return nil
+	}
+	for _, row := range m.rows {
+		if !row.isSession() || !m.triageHandable(row, "", nil) || !m.needsPerson(row.sess) {
+			continue
+		}
+		// The flag clears only on entry: a session that refuses to be
+		// entered leaves the drain open for the next pass rather than
+		// stranding it on the list.
+		if cmd := m.enterTriageHead(); cmd != nil {
+			m.triageResume = false
+			return cmd
+		}
+		return nil
+	}
+	return nil
 }
 
 // enterTriageHead starts the queue at its head: the session that has been

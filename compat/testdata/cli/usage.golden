@@ -74,7 +74,7 @@ usage: gate-inbox place <session-id> [--release] [--json]
   -json
     	print the raw result as JSON instead of a sentence
   -release
-    	take one of this session's own children back out to the top level
+    	take one of this session's own children, or a child of a parent that is gone, back out to the top level
 
 $ gate-inbox answer -h
 exit 0

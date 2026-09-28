@@ -476,14 +476,24 @@ type Model struct {
 	// the cursor was in when triage was turned on -- and is "" for a drain
 	// of the whole fleet.
 	triageScope string
+	// triageStartupEnter is set when triage was already on at startup, so the
+	// first poll enters the head of the queue the way turning triage on does.
+	// Restoring the mode without the entry leaves the operator on a list they
+	// still have to press enter on. It waits for the first poll because that
+	// pass carries the first real statuses, and for the restore prompt, which
+	// must win the screen when there is one.
+	triageStartupEnter bool
+	// triageResume keeps a drained queue open: a handover that finds nothing
+	// left sets it, and the first poll that brings a session needing a
+	// person picks that session straight up, so work that reaches waiting
+	// or finished while the first queue is walked joins the same queue.
+	// Anything that ends the drain on purpose -- leaving it, dismissing a
+	// row, toggling triage -- clears it. See triagePickupCmd.
+	triageResume bool
 	// autoProceed mirrors the persisted hands-free handover: with it on, the
 	// key that answers a focused session in a drain also hands it over. Off
 	// by default; see autoproceed.go.
 	autoProceed bool
-	// gate is the armed drain: triage, hands-free handover and the full
-	// width, turned on together and put back together. It lives for the
-	// run rather than being persisted; see gate.go.
-	gate gateMode
 	// muted is the sessions this drain has already been shown, keyed by id.
 	// It is what stops the queue handing back work the operator has just
 	// done; see mute.go for why it is memory of the pass rather than state
@@ -519,6 +529,18 @@ type Model struct {
 	account          accountState
 	quick            quickState
 	latestSubmission submissionRescind
+	// landings are the answers waiting to be seen reaching their sessions,
+	// by session, and landingGen numbers them. landingLocator finds the
+	// transcripts they are read from; see landing.go. The locator is the
+	// event loop's own, since a Locator is not safe to share with the
+	// goroutines the other copies run on.
+	landings       map[string]*pendingLanding
+	landingGen     int
+	landingLocator *search.Locator
+	// statusesAsOf is when the newest applied poll pass listed its sessions:
+	// every status on the board is at least that fresh. A mute keyed to an
+	// answer landing lapses once it passes the landing; see mute.go.
+	statusesAsOf time.Time
 	// composerSeq numbers the prompt boxes this run has opened.
 	composerSeq int
 	settings    settingsState
@@ -1032,6 +1054,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	applyGlyphSet(storedGlyphs(st))
 	model := &Model{
 		conversation:    &conversationView{locator: newHistoryLocator()},
+		landingLocator:  newHistoryLocator(),
 		cfg:             cfg,
 		store:           st,
 		tmux:            driver,
@@ -1074,6 +1097,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	model.loadKeys()
 	model.loadSnippets()
 	model.seedFromStore()
+	model.triageStartupEnter = model.triage
 	model.noteOpencodeVersion(opencode.Cached())
 	return model
 }
@@ -1869,20 +1893,28 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyHistorySearch(msg)
 		return m, nil
 
+	case landingCheckMsg:
+		return m, m.applyLandingCheck(msg)
+
 	case refreshMsg:
 		m.ageError()
 		// The focused session can die or vanish under us; fall back to the
 		// list rather than typing into nothing.
 		sessions := m.keepPendingLaunches(msg.sessions, msg.listedAt)
 		var focusExit tea.Cmd
+		focusClosed := false
 		if m.mode == modeFocus {
 			if sess, ok := m.selected(); !ok || !slices.ContainsFunc(sessions, func(current store.Session) bool {
 				return current.ID == sess.ID && current.Status != status.Dead
 			}) {
 				focusExit = m.leaveFocus()
+				focusClosed = true
 			}
 		}
 		m.sessions = sessions
+		if msg.listedAt.After(m.statusesAsOf) {
+			m.statusesAsOf = msg.listedAt
+		}
 		m.dropHeldAckOnNewTurn()
 		// A pane taken by the last adopt scan is on the board under its
 		// directory's basename, and this is the first pass that can see the
@@ -1951,17 +1983,43 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// than the board's next frame. What it finds lands as childSweptMsg.
 		childSweep := m.sweepFinishedChildren()
 		m.rebuildRows()
+		if focusClosed {
+			focusExit = tea.Batch(focusExit, m.moveOnFromClosedFocus())
+		}
+		// A board that came up with triage already on enters the head of its
+		// queue once the first pass has settled it, the way turning triage on
+		// does. A startup card keeps the flag: welcome, the restore prompt
+		// and the tmux note all take the screen first, and the entry waits
+		// for the pass after they are gone. Anything else means the operator
+		// is already somewhere on purpose, and the entry stands down.
+		var triageEnter tea.Cmd
+		if m.triageStartupEnter {
+			switch m.mode {
+			case modeList:
+				if m.triage {
+					triageEnter = m.enterTriageHead()
+				}
+				m.triageStartupEnter = false
+			case modeWelcome, modeRestorePrompt, modeTmuxHint:
+			default:
+				m.triageStartupEnter = false
+			}
+		}
+		// A drain that ran out of work left the operator on the list with
+		// the queue still open: the first pass carrying a new session that
+		// needs a person picks it straight up. See triageResume.
+		pickup := m.triagePickupCmd()
 		// A pass that ran with a stale selection (a session created this
 		// tick) carries the wrong preview; resync and fetch it directly.
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {
 			m.syncPollInput()
 			m.previewGen++
-			return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick())
+			return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick())
 		}
 		m.proc = msg.proc
 		m.procFor = msg.procFor
 		m.setPreviewAt(msg.preview, msg.previewAt)
-		return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, m.ownPaneVisibleCmd(), m.startStartupTick())
+		return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick())
 
 	case childSweptMsg:
 		m.applyChildSweep(msg)

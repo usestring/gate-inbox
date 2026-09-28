@@ -293,3 +293,41 @@ func TestUnresolvedFiltersResolved(t *testing.T) {
 		t.Errorf("unresolved = %v, want [expired open]", ids)
 	}
 }
+
+// Since reports only what landed after the cursor, and counts an expired
+// question's empty answers as no answer at all.
+func TestSinceReportsWhatLandedAfterTheCursor(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	userLine := `{"payload":{"type":"message","role":"user","content":[{"type":"text","text":"go"}]}}`
+	if err := os.WriteFile(path, []byte(userLine+"\n"+askLine+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	start, err := Since(path, 0)
+	if err != nil {
+		t.Fatalf("Since: %v", err)
+	}
+	if !start.UserMessage {
+		t.Fatal("the first read missed the user message")
+	}
+	quiet, err := Since(path, start.Next)
+	if err != nil || quiet.UserMessage || len(quiet.Answered) != 0 || quiet.Next != start.Next {
+		t.Fatalf("nothing was appended, got %+v (%v)", quiet, err)
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = file.WriteString(outLine(`"{\"answers\":{}}"`) + "\n" + outLine(`"{\"answers\":{\"probe\":\"red\"}}"`) + "\n" +
+		`{"type":"event_msg","payload":{"type":"user_message","message":"half`)
+	file.Close()
+	got, err := Since(path, start.Next)
+	if err != nil {
+		t.Fatalf("Since: %v", err)
+	}
+	if got.UserMessage {
+		t.Fatal("a half-written user message was read before it landed")
+	}
+	if len(got.Answered) != 1 {
+		t.Fatalf("answered = %v, want the one real answer", got.Answered)
+	}
+}

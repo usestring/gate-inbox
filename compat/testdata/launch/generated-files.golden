@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf waiting \u003e \"$f\""
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf 'waiting Notification\\n' \u003e\u003e \"$f\""
           }
         ]
       }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf working \u003e \"$f\""
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf 'working PostToolUse\\n' \u003e\u003e \"$f\""
           }
         ]
       }
@@ -29,7 +29,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || { if grep -q '\"tool_name\"[[:space:]]*:[[:space:]]*\"AskUserQuestion\"'; then printf waiting; else printf working; fi \u003e \"$f\"; }"
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || { if grep -q '\"tool_name\"[[:space:]]*:[[:space:]]*\"AskUserQuestion\"'; then printf 'waiting PreToolUse\\n' \u003e\u003e \"$f\"; else printf 'working PreToolUse\\n' \u003e\u003e \"$f\"; fi; }"
           }
         ]
       }
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf idle \u003e \"$f\""
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf 'idle SessionStart\\n' \u003e\u003e \"$f\""
           }
         ]
       }
@@ -60,18 +60,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf finished \u003e \"$f\""
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf 'finished Stop\\n' \u003e\u003e \"$f\""
           }
         ]
       }
     ],
     "StopFailure": [
       {
-        "matcher": "rate_limit",
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf errored \u003e \"$f\""
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || { if grep -q '\"rate_limit\"'; then printf 'errored StopFailure\\n' \u003e\u003e \"$f\"; else printf 'finished StopFailure\\n' \u003e\u003e \"$f\"; fi; }"
           }
         ]
       }
@@ -81,7 +80,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf working \u003e \"$f\""
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || printf 'working UserPromptSubmit\\n' \u003e\u003e \"$f\""
           }
         ]
       }

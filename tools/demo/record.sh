@@ -111,13 +111,12 @@ rules = [
 ]
 TOML
 
-  # vhs sends every key on its own, so an escape-prefixed key (f2, alt+up,
+  # vhs sends every key on its own, so an escape-prefixed key (alt+up,
   # alt+\) reaches the board as esc followed by text. Each action a tape
   # needs gets a ctrl chord beside its default; the footers still name the
   # default.
   cat >"$h/.config/gate-inbox/keys.toml" <<'TOML'
 [focus]
-toggle_gate_input = ["f2", "ctrl+t"]
 toggle_rail = ["alt+\\", "ctrl+b"]
 preview_page_up = ["alt+pgup", "ctrl+u"]
 preview_bottom = ["alt+end", "ctrl+e"]

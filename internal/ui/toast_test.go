@@ -125,17 +125,17 @@ func TestSearchFieldSitsInTheRail(t *testing.T) {
 	if status := ansi.Strip(m.statusLine()); strings.Contains(status, "rate") {
 		t.Fatalf("the query moved to the rail, the notice should not repeat it: %q", status)
 	}
-	leftWidth, _ := m.splitWidths()
+	_, contentWidth := m.splitWidths()
 	rows := strings.Split(ansi.Strip(m.viewListFrame()), "\n")
 	found := false
 	for _, row := range rows {
-		column := strings.Index(row, "≡ rate")
-		if column < 0 {
+		at := strings.Index(row, "≡ rate")
+		if at < 0 {
 			continue
 		}
 		found = true
-		if column > leftWidth {
-			t.Fatalf("search field starts at column %d, past the rail (%d wide)", column, leftWidth)
+		if column := ansi.StringWidth(row[:at]); column < contentWidth {
+			t.Fatalf("search field starts at column %d, left of the rail (which starts at %d)", column, contentWidth)
 		}
 	}
 	if !found {

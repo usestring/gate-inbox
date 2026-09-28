@@ -85,12 +85,14 @@ func TestMuteLapsesWhenTheSessionMovesOn(t *testing.T) {
 func TestDismissMutesAWaitingSessionAndPressingItAgainRestoresIt(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "broke": status.Errored})
-	m.triage = true
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
 
 	updated, _ := m.handleKey(key("."))
 	m = updated.(*Model)
+	if m.mode != modeList {
+		t.Fatalf(`"." left the list in mode %v`, m.mode)
+	}
 	if !m.isMuted(sessionNamed(t, m, "ask")) {
 		t.Fatalf(`"." did not mute a waiting session: %s`, m.errBar.text)
 	}
@@ -102,6 +104,9 @@ func TestDismissMutesAWaitingSessionAndPressingItAgainRestoresIt(t *testing.T) {
 	m = updated.(*Model)
 	if m.isMuted(sessionNamed(t, m, "ask")) {
 		t.Fatal(`a second "." did not un-mute the row`)
+	}
+	if m.mode != modeList {
+		t.Fatalf(`a second "." left the list in mode %v`, m.mode)
 	}
 }
 
@@ -223,9 +228,10 @@ func TestHandoffKeyLeavesFocusOutsideTriage(t *testing.T) {
 	}
 }
 
-// The whole point of the alias on the list: a drain can be walked from the
-// moment triage is turned on, without first entering a session by hand.
-func TestHandoffKeyEntersTheQueueFromTheList(t *testing.T) {
+// In triage "." is the drain's skip key from the list too: it mutes the row
+// the cursor is on and enters the next session that needs a person, the same
+// gesture the focused key performs, minus the leaving.
+func TestSkipKeyEntersTheQueueFromTheList(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{
 		"ask":   status.Waiting,
@@ -236,60 +242,60 @@ func TestHandoffKeyEntersTheQueueFromTheList(t *testing.T) {
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
 
-	updated, cmd := m.handleKey(handoffKey())
+	updated, cmd := m.handleKey(key("."))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
 	}
 	if m.mode != modeFocus {
-		t.Fatalf("§ on the list did not enter the next session, mode %v: %s", m.mode, m.errBar.text)
+		t.Fatalf(`"." on the list did not enter the next session, mode %v: %s`, m.mode, m.errBar.text)
 	}
 	if got := focusedName(t, m); got != "broke" {
-		t.Fatalf("§ on the list landed on %q, want broke", got)
+		t.Fatalf(`"." on the list landed on %q, want broke`, got)
 	}
 	if !m.isMuted(sessionNamed(t, m, "ask")) {
-		t.Fatal("§ on the list did not mute the row it left")
+		t.Fatal(`"." on the list did not mute the row it left`)
 	}
 }
 
-// On the list, outside triage, § is a key the list does not claim: it acts on
-// nothing and says nothing, the way every unbound key does.
-func TestHandoffKeyDoesNothingOnTheListOutsideTriage(t *testing.T) {
+// Outside triage there is no queue to walk, so the same key dismisses and
+// stays put.
+func TestSkipKeyStaysOnTheListOutsideTriage(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "broke": status.Errored})
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
 	before := m.cursor
 
-	updated, cmd := m.handleKey(handoffKey())
+	updated, cmd := m.handleKey(key("."))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
 	}
 	if m.mode != modeList || m.cursor != before {
-		t.Fatalf("§ outside triage moved the cursor to %d in mode %v", m.cursor, m.mode)
+		t.Fatalf(`"." outside triage moved the cursor to %d in mode %v`, m.cursor, m.mode)
 	}
-	if len(m.muted) != 0 || m.errBar.text != "" {
-		t.Fatalf("§ outside triage muted %d rows and said %q", len(m.muted), m.errBar.text)
+	if !m.isMuted(sessionNamed(t, m, "ask")) {
+		t.Fatal(`"." outside triage did not mute the row`)
 	}
 }
 
 // A drained queue leaves the operator on the list with nothing moving, so the
 // key that did nothing has to say why.
-func TestHandoffKeyOnTheListSaysWhenTheQueueIsDrained(t *testing.T) {
+func TestSkipKeyOnTheListSaysWhenTheQueueIsDrained(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "busy": status.Working})
 	m.triage = true
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
 
-	updated, cmd := m.handleKey(handoffKey())
+	updated, cmd := m.handleKey(key("."))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
 	}
 	if m.mode != modeList {
-		t.Fatalf("§ entered %q with nothing else waiting", focusedName(t, m))
+		t.Fatalf(`"." entered %q with nothing else waiting`, focusedName(t, m))
 	}
 	if !strings.Contains(m.errBar.text, "waiting on you") {
 		t.Fatalf("a drained queue said %q", m.errBar.text)
@@ -299,26 +305,64 @@ func TestHandoffKeyOnTheListSaysWhenTheQueueIsDrained(t *testing.T) {
 	}
 }
 
+// In triage a finished session is skipped the way the focused key skips one:
+// marked idle and acked, and the drain moves on to the next session.
+func TestSkipKeyAcksAFinishedSessionAndMovesOn(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{
+		"done":  status.Finished,
+		"broke": status.Errored,
+	})
+	m.triage = true
+	m.rebuildRows()
+	names := sessionNames(m)
+	if len(names) != 2 || names[0] != "broke" {
+		t.Fatalf("queue = %v, want broke at the head", names)
+	}
+	m.selectSessionRow(t, "done")
+
+	updated, cmd := m.handleKey(key("."))
+	m = updated.(*Model)
+	if cmd != nil {
+		m.applyCmd(t, cmd)
+	}
+	if m.mode != modeFocus {
+		t.Fatalf(`"." on a finished session did not move on, mode %v: %s`, m.mode, m.errBar.text)
+	}
+	if got := focusedName(t, m); got != "broke" {
+		t.Fatalf(`"." on a finished session landed on %q, want broke`, got)
+	}
+	sess, err := m.store.Get(sessionNamed(t, m, "done").ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if sess.Status != status.Idle || !sess.Acked {
+		t.Fatalf(`"." left a finished session at %q acked=%v`, sess.Status, sess.Acked)
+	}
+}
+
 // The cursor is not always on the queue: a working session is on the rail in
-// triage but is never handed over, and pressing on from one is a request for
-// the next session that does need somebody -- without muting the row it left,
-// which was never in the queue to be silenced.
-func TestHandoffKeyFromARowOffTheQueue(t *testing.T) {
+// triage but is never handed over, and skipping it is refused rather than
+// silencing a row the drain was never going to reach.
+func TestSkipKeyFromARowOffTheQueue(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "busy": status.Working})
 	m.triage = true
 	m.rebuildRows()
 	m.selectSessionRow(t, "busy")
 
-	updated, cmd := m.handleKey(handoffKey())
+	updated, cmd := m.handleKey(key("."))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
 	}
-	if got := focusedName(t, m); got != "ask" || m.mode != modeFocus {
-		t.Fatalf("§ off the queue landed on %q in mode %v: %s", got, m.mode, m.errBar.text)
+	if m.mode != modeList {
+		t.Fatalf(`"." off the queue landed on %q in mode %v: %s`, focusedName(t, m), m.mode, m.errBar.text)
+	}
+	if !strings.Contains(m.errBar.text, "nothing to skip") {
+		t.Fatalf("skipping off the queue said %q", m.errBar.text)
 	}
 	if len(m.muted) != 0 {
-		t.Fatalf("§ muted %d rows that were never in the queue", len(m.muted))
+		t.Fatalf(`"." muted %d rows that were never in the queue`, len(m.muted))
 	}
 }

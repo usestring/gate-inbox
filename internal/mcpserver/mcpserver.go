@@ -228,7 +228,7 @@ type sendChildrenArgs struct {
 
 type placeSessionArgs struct {
 	SessionID string `json:"session_id" jsonschema:"session to file under this one, or to release from it"`
-	Release   bool   `json:"release,omitempty" jsonschema:"true takes one of your own children back out to the top level; omit to adopt"`
+	Release   bool   `json:"release,omitempty" jsonschema:"true takes one of your own children, or a child of a parent that is gone, back out to the top level; omit to adopt"`
 	// CallerSessionID is the per-call override for a multiplexed MCP
 	// server; see createSessionArgs. An opencode agent whose shell holds a
 	// different $GATE_INBOX_SESSION_ID than this server started as must
@@ -577,8 +577,8 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Name: "place_session",
 		Description: "File a session under this one so your fan-out is drawn, and reported, as your fan-out. " +
 			"Use it when a session you spawned came back with no parent_id, which is what a spawn looks like when the manager build serving this session predates nesting: the call succeeded and the row landed as your sibling. " +
-			"You may claim a session nobody owns and release one of your own; another session's child stays its own. " +
-			"Pass release true to take one of your children back to the top level.",
+			"You may claim a session nobody owns and release one of your own; another live session's child stays its own. " +
+			"Pass release true to take one of your children back to the top level, or a child whose parent is archived, deleted or no longer running, since that parent never will.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args placeSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
 		place := sessions.AdoptSession

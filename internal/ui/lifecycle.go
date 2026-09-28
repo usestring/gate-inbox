@@ -1033,13 +1033,39 @@ func (m *Model) sweepArchivesBefore(cutoff time.Time) tea.Cmd {
 }
 
 func (m *Model) sessionAndChildren(sess store.Session) ([]store.Session, error) {
-	kids, err := m.store.Children(sess.ID)
+	rows, err := m.store.ListSessions(true)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]store.Session, 0, 1+len(kids))
-	out = append(out, sess)
-	return append(out, kids...), nil
+	return withNested(sess, rows), nil
+}
+
+// withNested is sess and everything filed under it: its children, and the
+// terminals nested under each child. A terminal is a leaf, so it may hang
+// off a session that is itself a child; leaving it out let x end the child
+// and strand its shell running under a row that had gone. Each terminal
+// comes ahead of the child it hangs under, so a teardown that walks the set
+// in order never leaves a row pointing at a parent that is already gone.
+func withNested(sess store.Session, rows []store.Session) []store.Session {
+	under := map[string][]store.Session{}
+	for _, row := range rows {
+		if row.ParentID != "" {
+			under[row.ParentID] = append(under[row.ParentID], row)
+		}
+	}
+	out := []store.Session{sess}
+	for _, kid := range under[sess.ID] {
+		if kid.ID == sess.ID {
+			continue
+		}
+		for _, leaf := range under[kid.ID] {
+			if leaf.ID != sess.ID && leaf.ID != kid.ID {
+				out = append(out, leaf)
+			}
+		}
+		out = append(out, kid)
+	}
+	return out
 }
 
 // childrenFirst orders a follow-set so terminals go before the agent they
@@ -1399,7 +1425,9 @@ func (m *Model) markRestoredLocally(id string) {
 }
 
 // withoutSessions drops a set of rows from a batch, for the archive that was
-// told to leave the children where they are.
+// told to leave the children where they are. A terminal nested under a
+// child that stays stays with it: ending the shell of an agent the operator
+// just chose to keep running is not what k asked for.
 func withoutSessions(sessions, drop []store.Session) []store.Session {
 	if len(drop) == 0 {
 		return sessions
@@ -1410,7 +1438,7 @@ func withoutSessions(sessions, drop []store.Session) []store.Session {
 	}
 	kept := make([]store.Session, 0, len(sessions))
 	for _, sess := range sessions {
-		if !dropped[sess.ID] {
+		if !dropped[sess.ID] && !dropped[sess.ParentID] {
 			kept = append(kept, sess)
 		}
 	}

@@ -103,26 +103,39 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model st
 		if err != nil {
 			return "", err
 		}
-		return command + " --mcp-config " + tmux.ShellQuote(path), nil
+		steering, err := config(claudeSteeringFile, []byte(delegationSteering(style)))
+		if err != nil {
+			return "", err
+		}
+		return withClaudeSteering(command+" --mcp-config "+tmux.ShellQuote(path), steering), nil
 	case "codex":
 		overrides := []string{
 			fmt.Sprintf(`mcp_servers.%s.command=%q`, serverName, exe),
 			fmt.Sprintf(`mcp_servers.%s.args=["mcp"]`, serverName),
 			fmt.Sprintf(`mcp_servers.%s.env_vars=[%q]`, serverName, hooks.EnvSessionID),
+			// A developer message beside codex's own instructions, where
+			// model_instructions_file would replace them. It overrides a
+			// developer_instructions the operator's config.toml sets.
+			fmt.Sprintf(`developer_instructions=%q`, delegationSteering(style)),
 		}
 		for _, override := range overrides {
 			command += " -c " + tmux.ShellQuote(override)
 		}
 		return command, nil
 	case "opencode":
-		// The rename steering rides a file of its own rather than living
-		// inside the JSON: instructions are markdown, and the generated
-		// config references it by absolute path. Written only when the
+		// The rename and delegation steering ride files of their own rather
+		// than living inside the JSON: instructions are markdown, and the
+		// generated config references them by absolute path. Written only when the
 		// launch is real -- a dry run must not touch the shared directory.
-		steering, err := config(renameSteeringFile, renameSteering())
+		rename, err := config(renameSteeringFile, renameSteering())
 		if err != nil {
 			return "", err
 		}
+		delegation, err := config(opencodeSteeringFile, []byte(delegationSteering(style)))
+		if err != nil {
+			return "", err
+		}
+		steering := []string{rename, delegation}
 		name, content := generatedPrefix+"mcp-opencode.json", opencodeConfig(exe, steering, "")
 		if model != "" {
 			// v2's TUI has no model flag; the config's model key is where a
@@ -215,7 +228,7 @@ func claudeConfig(exe string) []byte {
 // opencodeConfig is the generated config a managed opencode session runs
 // with. model, when set, is the model the session was asked for; v2 reads
 // it from here because its TUI has no flag for one.
-func opencodeConfig(exe, steering, model string) []byte {
+func opencodeConfig(exe string, steering []string, model string) []byte {
 	config := map[string]any{
 		"$schema": "https://opencode.ai/config.json",
 		"mcp": map[string]any{
@@ -235,12 +248,13 @@ func opencodeConfig(exe, steering, model string) []byte {
 				"template":    renameCommandTemplate,
 			},
 		},
-		// Silent naming steering, loaded into system context at session
-		// start. It replaces the visible rename directive other tools carry
-		// in their first prompt: nothing here lands in the user message the
-		// session's own title is eventually written from. Config sources
-		// merge, so the project's own instructions are kept alongside this.
-		"instructions": []string{steering},
+		// Silent naming and delegation steering, loaded into system context
+		// at session start. The naming half replaces the visible rename
+		// directive other tools carry in their first prompt: nothing here
+		// lands in the user message the session's own title is eventually
+		// written from. Config sources merge, so the project's own
+		// instructions are kept alongside these.
+		"instructions": steering,
 	}
 	if model != "" {
 		config["model"] = model

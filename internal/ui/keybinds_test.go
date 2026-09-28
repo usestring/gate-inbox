@@ -51,8 +51,8 @@ func TestTheFooterNamesTheReboundKey(t *testing.T) {
 	m.selectSessionRow(t, "rebound")
 	writeKeys(t, m, "[list]\narchive = [\"z\"]\n")
 	footer := ansi.Strip(m.viewFooter())
-	if !strings.Contains(footer, "z end") {
-		t.Errorf("the footer does not name z as end:\n%s", footer)
+	if !strings.Contains(footer, "z kill") {
+		t.Errorf("the footer does not name z as kill:\n%s", footer)
 	}
 }
 

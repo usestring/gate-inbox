@@ -88,9 +88,18 @@ type Snippet struct {
 	// Label is what the key map, the footer and the quick bar call it. Empty
 	// falls back to the text itself, which is usually short enough to read.
 	Label string `json:"label,omitempty"`
-	// Text is what is typed into the session and submitted.
+	// Text is what is typed into the session.
 	Text string `json:"text"`
+	// AutoSubmit says whether the key presses Enter after typing Text. Every
+	// entry the board writes spells it out, so the file shows the switch
+	// exists; an entry that leaves it out submits, as every snippet did
+	// before it was a choice. false types the text and leaves it in the
+	// prompt for the operator to finish.
+	AutoSubmit *bool `json:"autoSubmit"`
 }
+
+// Submits reports whether the snippet presses Enter after its text.
+func (s Snippet) Submits() bool { return s.AutoSubmit == nil || *s.AutoSubmit }
 
 // Binding is the key as the TUI reports it, ready to compare against a
 // keypress.
@@ -165,20 +174,30 @@ const progressText = "summarise all current progress in bullet points, " +
 	"including every PR link and its status, and what the next steps are " +
 	"— or, if all the work here is finished, say so"
 
-// Defaults are written on first run and are then the user's to edit. The first
-// three are generic asks rather than a guess at anyone's workflow: the file
-// exists to be rewritten, and an empty one would not show what an entry looks
-// like. § is the exception and the reason the alt binding exists at all.
+// Defaults are written on first run and are then the user's to edit. They are
+// the answers the v1 inbox offered as one-tap shortcuts, plus the handful an
+// operator sends most -- yes, continue, open a PR, explain again -- because
+// the file exists to be rewritten, and an empty one would not show what an
+// entry looks like. § is the reason the alt binding exists at all.
 //
 // Nothing rewrites a file that already exists, so an operator who has one adds
-// the § entry by hand. That is the same deliberate rule Load follows, and it
+// a new default by hand. That is the same deliberate rule Load follows, and it
 // costs a default reaching them late rather than their own edits being lost.
 func Defaults() []Snippet {
+	submit := func(key, label, text string) Snippet {
+		yes := true
+		return Snippet{Key: key, Label: label, Text: text, AutoSubmit: &yes}
+	}
 	return []Snippet{
-		{Key: "c", Label: "continue", Text: "continue"},
-		{Key: "t", Label: "run tests", Text: "run the tests and report what failed"},
-		{Key: "p", Label: "open a PR", Text: "open a pull request for this work"},
-		{Key: SectionKey, Label: "progress", Text: progressText},
+		submit("y", "yes", "yes"),
+		submit("c", "continue", "continue"),
+		submit("p", "open a PR", "open a pull request for this work"),
+		submit("a", "anything else?", "Anything else in this session?"),
+		submit("e", "explain like I'm 5", "I'm confused, explain like I'm 5"),
+		submit("w", "wake up", "Auto wake-up: the previous turn died on a transient API error. "+
+			"Continue where you left off."),
+		submit("n", "nuke", "Use the nuke skill to end this session."),
+		submit(SectionKey, "progress", progressText),
 	}
 }
 

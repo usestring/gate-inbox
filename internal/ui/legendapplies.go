@@ -83,8 +83,6 @@ func (m *Model) applies(ctx keymap.Context, action keymap.Action, row treeRow) b
 				(m.triage && m.triageWalkable(row.sess)))
 	case keymap.Priority:
 		return row.isGroup || (row.sess.ID != "" && !row.sess.Archived)
-	case keymap.HandOver:
-		return row.sess.ID != "" && m.triage && m.triageWalkable(row.sess)
 	case keymap.Rename, keymap.Move:
 		return hasRow && !m.showArchived
 	case keymap.StatusFilter, keymap.Triage:

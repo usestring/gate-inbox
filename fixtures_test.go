@@ -44,7 +44,7 @@ func TestCommittedFixturesCarryNothingFromTheRunThatRecordedThem(t *testing.T) {
 			t.Errorf("%s carries a per-test temporary directory (%q), which no rerun reproduces",
 				name, found)
 		}
-		for _, found := range uuidPattern().FindAllString(body, -1) {
+		for _, found := range uuidsIn(body) {
 			if writtenByHand(found) {
 				continue
 			}
@@ -61,7 +61,36 @@ func tempDirPattern() *regexp.Regexp {
 }
 
 func uuidPattern() *regexp.Regexp {
-	return regexp.MustCompile(`\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
+	return regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
+}
+
+// uuidsIn is every UUID in body that stands on its own. Its edges are checked
+// by hand rather than with \b because Go counts an underscore as a word
+// character: a recorded id usually arrives behind a prefix such as fco_ or
+// call_, and \b sees no boundary between that underscore and the hex after
+// it, so the id would pass unseen. What has to be ruled out instead is a
+// longer run of hex and dashes that merely contains the shape, which is
+// something else and not a UUID at all. The neighbours are read from the body
+// rather than matched, so two ids one separator apart are both found.
+func uuidsIn(body string) []string {
+	var found []string
+	for _, span := range uuidPattern().FindAllStringIndex(body, -1) {
+		start, end := span[0], span[1]
+		if start > 0 && continuesHexRun(body[start-1]) {
+			continue
+		}
+		if end < len(body) && continuesHexRun(body[end]) {
+			continue
+		}
+		found = append(found, body[start:end])
+	}
+	return found
+}
+
+// continuesHexRun reports whether a neighbouring byte would make a match part
+// of a longer run of hex and dashes instead of a UUID of its own.
+func continuesHexRun(c byte) bool {
+	return c == '-' || '0' <= c && c <= '9' || 'a' <= c && c <= 'f' || 'A' <= c && c <= 'F'
 }
 
 // writtenByHand tells a placeholder like 11111111-2222-3333-4444-555555555555
@@ -74,6 +103,51 @@ func writtenByHand(id string) bool {
 		}
 	}
 	return true
+}
+
+// The committed-fixture test only fails once a fixture is dirty, so the
+// matching it relies on is pinned here directly: an id behind a prefix has to
+// be caught, and a longer hex run has to be left alone.
+func TestUUIDsInFindsIDsBehindAPrefix(t *testing.T) {
+	const id = "7c3e9a52-4b1d-4f86-a0e2-93d5c6b7f814"
+	cases := []struct {
+		name string
+		body string
+		want []string
+	}{
+		{"bare", `"id":"` + id + `"`, []string{id}},
+		{"whole body", id, []string{id}},
+		{"fco prefix", `"id":"fco_` + id + `"`, []string{id}},
+		{"call prefix", "call_" + id, []string{id}},
+		{"run prefix", "run_" + id, []string{id}},
+		{"sess prefix", "sess_" + id, []string{id}},
+		{"two one separator apart", id + "," + id, []string{id, id}},
+		{"longer leading hex", "a" + id, nil},
+		{"longer trailing hex", id + "0", nil},
+		{"extra trailing group", id + "-beef", nil},
+		{"extra leading group", "beef-" + id, nil},
+		{"no dashes", "fc_0da31f31e9c7d263016aa0e0fe6cd487d2958fc1ee0ca2b709", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := uuidsIn(tc.body)
+			if strings.Join(got, " ") != strings.Join(tc.want, " ") {
+				t.Errorf("uuidsIn(%q) = %q, want %q", tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
+// A placeholder behind a prefix is still a placeholder: excusing it depends on
+// the id alone, not on what sits in front of it.
+func TestWrittenByHandExcusesAPrefixedPlaceholder(t *testing.T) {
+	found := uuidsIn(`"id":"fco_11111111-2222-3333-4444-555555555555"`)
+	if len(found) != 1 || !writtenByHand(found[0]) {
+		t.Fatalf("uuidsIn found %q; want the one placeholder, written by hand", found)
+	}
+	if writtenByHand("7c3e9a52-4b1d-4f86-a0e2-93d5c6b7f814") {
+		t.Fatal("a generated id was taken for a hand-written one")
+	}
 }
 
 // fixtureFiles is everything under a testdata directory, which is where the

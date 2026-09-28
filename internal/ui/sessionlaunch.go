@@ -135,12 +135,6 @@ func (m *Model) landInNewSession(id string) (tea.Model, tea.Cmd) {
 	// launch, and until the tree is rebuilt against that filter the new row
 	// is not on it for the cursor to find.
 	m.rebuildRows()
-	// A spawn started from inside a gate keeps the operator's place in the
-	// queue rather than landing in the session it just made. See gate.go.
-	if m.returnToGate() {
-		_, focus := m.focusSelected()
-		return m, tea.Batch(focus, m.refreshCmd())
-	}
 	m.focusSession(id)
 	_, focus := m.focusSelected()
 	return m, tea.Batch(focus, m.refreshCmd())

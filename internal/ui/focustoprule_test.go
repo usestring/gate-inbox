@@ -21,7 +21,7 @@ func TestFocusRingOpensOnTheFrameRule(t *testing.T) {
 	if !strings.Contains(top, "focused · ctrl+q back") {
 		t.Fatalf("the frame's top rule does not name the mode: %q", top)
 	}
-	if !strings.Contains(top, "╭") || !strings.HasSuffix(strings.TrimRight(top, " "), "╮") {
+	if !strings.HasPrefix(top, "╭") || !strings.Contains(top, "╮") {
 		t.Errorf("the top rule does not open the ring: %q", top)
 	}
 	if strings.Contains(lines[1], "╭") {

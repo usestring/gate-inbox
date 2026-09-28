@@ -325,13 +325,15 @@ func (m *Model) noteSettling(id string, at time.Time) {
 	m.settling[id] = at
 }
 
-// settleLandings drops the marks the newest applied poll has overtaken:
+// settleLandings drops the marks a poll listed at listedAt has overtaken:
 // whatever it reports for those sessions is their own news. A session the
 // poll could not capture keeps its mark, since the poll carried its old
-// status forward rather than reading a new one.
-func (m *Model) settleLandings(unseen map[string]bool) {
+// status forward rather than reading a new one. The poll's own listing time
+// is the one that counts, not the newest applied: passes can arrive out of
+// order, and an older one's captures predate the answer.
+func (m *Model) settleLandings(listedAt time.Time, unseen map[string]bool) {
 	for id, at := range m.settling {
-		if m.statusesAsOf.After(at) && !unseen[id] {
+		if listedAt.After(at) && !unseen[id] {
 			delete(m.settling, id)
 		}
 	}

@@ -584,14 +584,20 @@ func TestTriageWalkKeepsGoingPastLandedAnswerUntilNextPoll(t *testing.T) {
 		t.Fatalf("walk past a landed, unpolled row = %q, want calm", got)
 	}
 
-	m.statusesAsOf = m.settling[doneID].Add(time.Millisecond)
-	m.settleLandings(map[string]bool{doneID: true})
+	landedAt := m.settling[doneID]
+	m.settleLandings(landedAt.Add(time.Millisecond), map[string]bool{doneID: true})
 	if got := next(sessionID(t, m, "ask")); got != "calm" {
 		t.Fatalf("walk after a poll that could not capture the landed row = %q, want calm", got)
 	}
 
-	m.statusesAsOf = m.statusesAsOf.Add(time.Millisecond)
-	m.settleLandings(nil)
+	// A pass listed before the landing but delivered after a newer one
+	// captured the row as it stood before the answer.
+	m.settleLandings(landedAt.Add(-time.Millisecond), nil)
+	if got := next(sessionID(t, m, "ask")); got != "calm" {
+		t.Fatalf("walk after an older pass delivered late = %q, want calm", got)
+	}
+
+	m.settleLandings(landedAt.Add(2*time.Millisecond), nil)
 	if got := next(sessionID(t, m, "ask")); got != "done" {
 		t.Fatalf("walk after a poll past the landing = %q, want done", got)
 	}

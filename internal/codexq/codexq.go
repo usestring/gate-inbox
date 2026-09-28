@@ -96,6 +96,9 @@ var (
 	askToolMark = []byte(askTool)
 	outputMark  = []byte(`"function_call_output"`)
 	userMark    = []byte(`"user"`)
+	// userMessageMark is the event_msg Codex writes alongside the response
+	// item when the operator submits a message.
+	userMessageMark = []byte(`"user_message"`)
 )
 
 type record struct {
@@ -301,4 +304,72 @@ func Unresolved(questions []Question) []Question {
 		}
 	}
 	return out
+}
+
+// Activity is what a rollout gained after an offset that says input from the
+// operator reached the session: a message they sent, or a question they
+// answered.
+type Activity struct {
+	// UserMessage is set when a user message was appended.
+	UserMessage bool
+	// Answered holds the call ids whose output carried an answer.
+	Answered []string
+	// Next is the offset to pass next time: the end of the last whole record.
+	Next int64
+}
+
+// Since reads what path gained after offset. A file shorter than offset is a
+// different rollout under the same name, and is read from the start.
+func Since(path string, offset int64) (Activity, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return Activity{Next: offset}, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return Activity{Next: offset}, err
+	}
+	if offset < 0 || info.Size() < offset {
+		offset = 0
+	}
+	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+		return Activity{Next: offset}, err
+	}
+	act := Activity{Next: offset}
+	br := bufio.NewReaderSize(file, 64*1024)
+	for {
+		line, err := br.ReadBytes('\n')
+		if err != nil {
+			return act, nil
+		}
+		act.Next += int64(len(line))
+		if len(line) > maxLine {
+			continue
+		}
+		act.read(line)
+	}
+}
+
+func (a *Activity) read(line []byte) {
+	if !bytes.Contains(line, outputMark) && !bytes.Contains(line, userMark) && !bytes.Contains(line, userMessageMark) {
+		return
+	}
+	var rec record
+	if json.Unmarshal(line, &rec) != nil || rec.Payload == nil {
+		return
+	}
+	p := rec.Payload
+	switch p.Type {
+	case "message":
+		if p.Role == "user" {
+			a.UserMessage = true
+		}
+	case "user_message":
+		a.UserMessage = true
+	case "function_call_output":
+		if outputState(p.Output) == Answered {
+			a.Answered = append(a.Answered, p.CallID)
+		}
+	}
 }

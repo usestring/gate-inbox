@@ -417,3 +417,32 @@ func TestRetiredEditorStillLoads(t *testing.T) {
 		t.Error("saving the map kept the retired action")
 	}
 }
+
+// A key file that bound the gate still loads once it is gone: each stale line
+// says where its job went, and saving the map drops them. The focused
+// conversation toggle went with it, while the list's stays bound.
+func TestRetiredGateStillLoads(t *testing.T) {
+	overrides, err := Decode("[list]\ngate = [\"G\"]\ntoggle_conversation = [\"f4\"]\n\n[focus]\ntoggle_gate_input = [\"f2\"]\ntoggle_conversation = [\"f3\"]\n")
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	m, problems := New(overrides)
+	if len(problems) != 3 {
+		t.Fatalf("got problems %v, want one per stale line", problems)
+	}
+	for _, problem := range problems {
+		if !strings.Contains(problem.Reason, "removed") {
+			t.Errorf("problem %q does not say the action was removed", problem.Error())
+		}
+		if problem.Action == "gate" && !strings.Contains(problem.Reason, "triage with i") {
+			t.Errorf("problem %q does not point at triage", problem.Error())
+		}
+	}
+	if got := m.Key(ContextList, ToggleConversation); got != "f4" {
+		t.Errorf("retiring the focused toggle cost the list's: toggle_conversation on %q", got)
+	}
+	saved := Encode(m.Overrides())
+	if strings.Contains(saved, "gate") || strings.Contains(saved, "[focus]") {
+		t.Errorf("saving the map kept a retired action:\n%s", saved)
+	}
+}

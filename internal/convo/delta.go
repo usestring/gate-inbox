@@ -40,6 +40,11 @@ type Delta struct {
 	// Tool traffic is deliberately absent: it is the bulk of a transcript
 	// and none of it is what a parent came to read.
 	Turns []string
+	// Results are the tool results the user side of the conversation sent
+	// back, oldest first. They carry no text: a reader wanting to know that a
+	// dialog was answered needs only that a result arrived and whether it was
+	// the operator turning the call down.
+	Results []Result
 	// Next is the offset to pass to the next call.
 	Next int64
 	// Rewound is set when the requested offset could not be honoured -- the
@@ -47,6 +52,14 @@ type Delta struct {
 	// the gap was larger than deltaCap. The window still ends at Next; it
 	// just does not begin where the caller asked.
 	Rewound bool
+}
+
+// Result is one tool_result a user record carried.
+type Result struct {
+	ToolUseID string
+	// Rejected is a result the operator refused from the permission dialog,
+	// which Claude Code writes as an error naming the rejection.
+	Rejected bool
 }
 
 // LastTurn is the conversation's most recent prose, which is the closest
@@ -65,8 +78,8 @@ func (d Delta) Empty() bool { return len(d.Prompts) == 0 && len(d.Turns) == 0 }
 //
 // An offset of 0 reads the tail rather than the whole file: a first call has
 // no cursor to be faithful to, and the end is what it wants. The cursor it
-// gets back is the real end of the file either way, so the second call is a
-// true delta however large the first one's file was.
+// gets back ends at the last newline, so a record still being appended is
+// read on the next call.
 func Since(path string, offset int64) (Delta, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -97,6 +110,12 @@ func Since(path string, offset int64) (Delta, error) {
 	if err != nil {
 		return Delta{}, err
 	}
+	end := bytes.LastIndexByte(raw, '\n') + 1
+	next := start
+	if end > 0 {
+		next = probe + int64(end)
+	}
+	raw = raw[:end]
 	partial := false
 	if start > 0 {
 		if len(raw) > 0 && raw[0] == '\n' {
@@ -106,7 +125,7 @@ func Since(path string, offset int64) (Delta, error) {
 		}
 	}
 	delta := parseDelta(raw, partial)
-	delta.Next = size
+	delta.Next = next
 	delta.Rewound = rewound
 	return delta, nil
 }
@@ -150,6 +169,7 @@ func parseDelta(raw []byte, partial bool) Delta {
 			if prompt := typedPrompt(rec.Message.Content); prompt != "" {
 				delta.Prompts = append(delta.Prompts, prompt)
 			}
+			delta.Results = append(delta.Results, toolResults(rec.Message.Content)...)
 		case "assistant":
 			// Not Normalize: that folds text for comparing against a pane
 			// capture, and this text is for a reader.
@@ -159,6 +179,44 @@ func parseDelta(raw []byte, partial bool) Delta {
 		}
 	}
 	return delta
+}
+
+// rejectionMarks are the phrases Claude Code writes into the tool_result of a
+// call the operator declined at its permission dialog.
+var rejectionMarks = []string{"doesn't want to proceed", "tool use was rejected"}
+
+// toolResults reads the tool_result parts of one user record.
+func toolResults(content json.RawMessage) []Result {
+	if len(content) == 0 || content[0] != '[' {
+		return nil
+	}
+	var parts []struct {
+		Type      string          `json:"type"`
+		ToolUseID string          `json:"tool_use_id"`
+		IsError   bool            `json:"is_error"`
+		Content   json.RawMessage `json:"content"`
+	}
+	if json.Unmarshal(content, &parts) != nil {
+		return nil
+	}
+	var out []Result
+	for _, part := range parts {
+		if part.Type != "tool_result" {
+			continue
+		}
+		result := Result{ToolUseID: part.ToolUseID}
+		if part.IsError {
+			body := string(part.Content)
+			for _, mark := range rejectionMarks {
+				if strings.Contains(body, mark) {
+					result.Rejected = true
+					break
+				}
+			}
+		}
+		out = append(out, result)
+	}
+	return out
 }
 
 // assistantProse is assistantText without the normalising, so the prose comes

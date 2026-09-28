@@ -22,7 +22,8 @@ import (
 // default for everybody who has not.
 
 // glyphSet is one full vocabulary of marks: session states, the queue mark,
-// and the check-run states the work rows read.
+// the check-run states the work rows read, and the pull request and ticket
+// states those rows lead with.
 type glyphSet struct {
 	name          string
 	working       string
@@ -37,6 +38,15 @@ type glyphSet struct {
 	checksPassing string
 	checksFailing string
 	checksPending string
+	prNeedsYou    string
+	prOpen        string
+	prPending     string
+	prMerged      string
+	prDraft       string
+	prClosed      string
+	ticketTodo    string
+	ticketStarted string
+	ticketDone    string
 }
 
 // shapeGlyphs is the board as it has always drawn: one geometric mark per
@@ -56,6 +66,19 @@ var shapeGlyphs = glyphSet{
 	checksPassing: "✓",
 	checksFailing: "✕",
 	checksPending: "◔",
+	// Work rows hang under a session and must not be read as one, so they
+	// draw from their own families: a session is a circle, a pull request a
+	// square, a ticket a triangle. Fill still carries the state the way it
+	// does on the circles -- ◧ is ◐, ◰ is ◔, ■ is ●.
+	prNeedsYou:    "▣",
+	prOpen:        "◧",
+	prPending:     "◰",
+	prMerged:      "■",
+	prDraft:       "▢",
+	prClosed:      "□",
+	ticketTodo:    "△",
+	ticketStarted: "◭",
+	ticketDone:    "▲",
 }
 
 // emojiGlyphs names each state rather than ranking it. Every mark is the
@@ -76,6 +99,17 @@ var emojiGlyphs = glyphSet{
 	checksPassing: "✅",
 	checksFailing: "❌",
 	checksPending: "⏳",
+	// The emoji name a state rather than a shape, so the work rows reuse the
+	// session names and leave the kind to the row's label.
+	prNeedsYou:    "❓",
+	prOpen:        "🔄",
+	prPending:     "⏳",
+	prMerged:      "✅",
+	prDraft:       "⏳",
+	prClosed:      "💤",
+	ticketTodo:    "💤",
+	ticketStarted: "🔄",
+	ticketDone:    "✅",
 }
 
 const (

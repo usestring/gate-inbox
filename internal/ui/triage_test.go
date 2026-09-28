@@ -203,6 +203,51 @@ func (m *Model) enterFocusOn(t *testing.T, name string) {
 	}
 }
 
+// A board that comes up with triage already on enters the head of its queue
+// on the first poll, the way turning triage on does, rather than waiting on
+// the list for an enter press.
+func TestTriageStartupEntersTheHeadOfTheQueue(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{
+		"ask":  status.Waiting,
+		"next": status.Waiting,
+	})
+	m.triage = true
+	m.triageStartupEnter = true
+	m.rebuildRows()
+
+	updated, _ := m.Update(refreshMsg{sessions: m.sessions})
+	m = updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("a board restored in triage opened in mode %v: %s", m.mode, m.errBar.text)
+	}
+	if got := focusedName(t, m); got != "ask" {
+		t.Fatalf("a board restored in triage opened on %q, want the head of the queue", got)
+	}
+	if m.triageStartupEnter {
+		t.Fatal("the startup entry did not stand down after entering")
+	}
+}
+
+// The entry is armed by the persisted mode alone: a board built over a store
+// that left triage on asks for it, and any other board does not.
+func TestTriageStartupEntryFollowsTheStoredMode(t *testing.T) {
+	m := buildModel(t)
+	if m.triageStartupEnter {
+		t.Fatal("a fresh board armed the startup entry")
+	}
+	if err := m.store.SetSetting(triageSetting, "on"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+	restored := New(m.cfg, m.store, m.tmux, m.engine, m.hooks, "dev")
+	if !restored.triage {
+		t.Fatal("the restored board did not pick up triage")
+	}
+	if !restored.triageStartupEnter {
+		t.Fatal("a board restored in triage did not arm the startup entry")
+	}
+}
+
 func TestTriageAutoAdvanceWalksTheQueue(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{

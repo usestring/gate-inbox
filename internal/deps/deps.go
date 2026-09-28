@@ -45,6 +45,7 @@ var official = map[string]string{
 	"claude":   "curl -fsSL https://claude.ai/install.sh | bash",
 	"codex":    "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
 	"opencode": "curl -fsSL https://opencode.ai/v2/install | bash",
+	"pi":       "curl -fsSL https://pi.dev/install.sh | sh",
 }
 
 func Hint(tool string) string {

@@ -55,7 +55,7 @@ func (s *Sessions) BoardReplace(targetID, rolePrefix string, opts BoardLaunchOpt
 	sess := prepared.sess
 	launched := false
 	launchPane := func() error {
-		if err := runtime.driver.Create(sess.ID, sess.Cwd, prepared.command, prepared.env, 0, 0); err != nil {
+		if err := runtime.createPane(sess.ID, sess.Cwd, prepared.command, prepared.env); err != nil {
 			return err
 		}
 		launched = true

@@ -94,7 +94,7 @@ launch.env.PATH=<scratch>/bin
 launch.env.TMUX_TMPDIR=<scratch>/tmux
 
 == revive without a captured conversation id
-command: claude --continue
+command: claude --resume
 
 == revive with a captured conversation id
 command: claude --resume '<uuid>'
@@ -190,7 +190,7 @@ launch.env.PATH=<scratch>/bin
 launch.env.TMUX_TMPDIR=<scratch>/tmux
 
 == revive without a captured conversation id
-command: codex resume --last
+command: codex resume
 
 == revive with a captured conversation id
 command: codex resume '<uuid>'

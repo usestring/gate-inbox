@@ -63,8 +63,9 @@ func (m *Model) defaultToolSelection() ([]string, int) {
 }
 
 // handleQuickKey runs while the quick bar is docked in the sidebar: arrows
-// keep moving the selection on the list. Enter submits against whatever is
-// selected, and every other key is typed text.
+// keep moving the selection on the list unless the caret has a prompt row
+// to move to. Enter submits against whatever is selected, and every other
+// key is typed text.
 func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	context := keymap.ContextList
 	if action, bound := m.action(context, msg); bound && action == keymap.ToggleConversation {
@@ -84,8 +85,14 @@ func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.quick.release()
 		return m, nil
 	case "up":
+		if cmd, stepped := m.quick.stepRow(msg); stepped {
+			return m, cmd
+		}
 		return m, m.moveCursor(-1)
 	case "down":
+		if cmd, stepped := m.quick.stepRow(msg); stepped {
+			return m, cmd
+		}
 		return m, m.moveCursor(1)
 	case "tab", "alt+m":
 		if len(m.quick.toolNames) > 0 {
@@ -185,14 +192,19 @@ func (m *Model) quickSpawn(group, prompt string) (tea.Model, tea.Cmd) {
 	name := toolName + "-" + newID()[:4]
 	// The quick prompt has no model field: it is the one-key spawn, and the
 	// card is where a session is configured.
-	id, err := m.spawnSessionAs(toolName, "", name, dir, group, prompt, true, store.SourceUser)
-	if err != nil {
-		m.reportLaunchError(err)
+	var id string
+	spawn := func() error {
+		var err error
+		id, err = m.spawnSessionAs(toolName, "", name, dir, group, prompt, true, store.SourceUser)
+		return err
+	}
+	if err := spawn(); err != nil {
+		m.reportLaunchError(err, spawn)
 		// A spawn the hint dialog refused leaves nothing to send, so the
-		// bar closes instead of swallowing the list keys behind the dialog.
+		// bar closes instead of swallowing the list keys behind the dialog;
+		// the dialog releases its images once no install can still spawn it.
 		if m.mode == modeLaunchHint {
 			m.quick.active = false
-			m.quick.release()
 		}
 		return m, nil
 	}

@@ -1,3 +1,5 @@
+// Modified by Durable Alpha, 2026: changes from the upstream commit named in NOTICE.
+
 package notify
 
 import (
@@ -8,17 +10,22 @@ import (
 	"time"
 )
 
+// restore also pins isWSL off, so a suite run under WSL still exercises the
+// Linux paths the tests name.
 func restore() func() {
-	origGOOS, origEnv, origLook, origRun, origEmit := goos, getenv, lookPath, runCmd, emitSeq
+	origGOOS, origEnv, origLook, origRun, origRunEnv, origEmit, origWSL := goos, getenv, lookPath, runCmd, runEnv, emitSeq, isWSL
+	isWSL = func() bool { return false }
 	return func() {
-		goos, getenv, lookPath, runCmd, emitSeq = origGOOS, origEnv, origLook, origRun, origEmit
+		goos, getenv, lookPath, runCmd, runEnv, emitSeq, isWSL = origGOOS, origEnv, origLook, origRun, origRunEnv, origEmit, origWSL
 	}
 }
 
-// cmdRecorder answers lookPath and runCmd while logging every command.
+// cmdRecorder answers lookPath, runCmd and runEnv while logging every
+// command and the environment each runEnv call carried.
 type cmdRecorder struct {
 	known  map[string]bool
 	called [][]string
+	envs   []map[string]string
 	runErr error
 }
 
@@ -31,6 +38,11 @@ func (r *cmdRecorder) install() {
 	}
 	runCmd = func(name string, args ...string) error {
 		r.called = append(r.called, append([]string{name}, args...))
+		return r.runErr
+	}
+	runEnv = func(env map[string]string, name string, args ...string) error {
+		r.called = append(r.called, append([]string{name}, args...))
+		r.envs = append(r.envs, env)
 		return r.runErr
 	}
 }

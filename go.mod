@@ -2,7 +2,7 @@
 
 module github.com/usestring/gate-inbox
 
-go 1.26.5
+go 1.27.1
 
 require (
 	charm.land/bubbles/v2 v2.2.0
@@ -11,15 +11,17 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/ultraviolet v0.0.0-20260811164956-006e29f97886
 	github.com/charmbracelet/x/ansi v0.11.8
+	github.com/distatus/battery v0.11.0
 	github.com/google/uuid v1.6.0
 	github.com/junegunn/fzf v0.74.4
-	github.com/modelcontextprotocol/go-sdk v1.7.0
-	github.com/shirou/gopsutil/v4 v4.26.7
-	golang.design/x/clipboard v0.8.0
-	golang.org/x/image v0.45.0
-	golang.org/x/sys v0.47.0
+	github.com/modelcontextprotocol/go-sdk v1.8.0
+	github.com/shirou/gopsutil/v4 v4.26.8
+	golang.design/x/clipboard v0.9.0
+	golang.org/x/image v0.46.0
+	golang.org/x/sys v0.48.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
-	modernc.org/sqlite v1.56.0
+	howett.net/plist v1.0.1
+	modernc.org/sqlite v1.59.0
 )
 
 require (
@@ -31,7 +33,7 @@ require (
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/ebitengine/purego v0.10.2 // indirect
+	github.com/ebitengine/purego v0.11.1 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/junegunn/go-shellwords v0.0.0-20250127100254-2aa3b3277741 // indirect
@@ -54,11 +56,14 @@ require (
 	golang.design/x/x11 v0.2.0 // indirect
 	golang.org/x/exp/shiny v0.0.0-20250606033433-dcc06ee1d476 // indirect
 	golang.org/x/mobile v0.0.0-20250606033058-a2a15c67f36f // indirect
+	golang.org/x/mod v0.41.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
-	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	golang.org/x/tools v0.48.0 // indirect
-	modernc.org/libc v1.74.4 // indirect
+	golang.org/x/tools v0.49.0 // indirect
+	modernc.org/libc v1.75.7 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.11.0 // indirect
+	modernc.org/memory v1.12.1 // indirect
 )
+
+godebug x509sslcertoverrideplatform=0

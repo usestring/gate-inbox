@@ -542,7 +542,7 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 	if err != nil {
 		return config.Tool{}, err
 	}
-	if err := runtime.driver.Create(target.ID, target.Cwd, command, env, 0, 0); err != nil {
+	if err := runtime.createPane(target.ID, target.Cwd, command, env); err != nil {
 		return config.Tool{}, err
 	}
 	_ = runtime.driver.SetLabel(target.ID, sessionLabel(target.Group, target.Name))

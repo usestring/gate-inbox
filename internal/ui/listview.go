@@ -525,7 +525,7 @@ func (m *Model) filterBadgeLines() []string {
 		badge(strings.ToUpper(m.statusFilter.label()), "w", "show all")
 	}
 	m.extensionFilterBadges(badge)
-	if m.hideEmptyGroups {
+	if m.hideEmptyGroups && !m.showArchived {
 		badge("HIDE EMPTY", "e", "show empty")
 	}
 	return lines
@@ -1206,16 +1206,19 @@ func (m *Model) buildComputerLines(width int) []string {
 		barWidth = 10
 	}
 
-	meter := func(label string, percent float64, ok bool, extra string) string {
-		if !ok {
-			return pad + labelStyle.Width(5).Render(label) + subtleStyle.Render("n/a")
-		}
-		line := pad + labelStyle.Width(5).Render(label) + gauge(percent, barWidth) +
+	render := func(label string, percent float64, extra, bar string) string {
+		line := pad + labelStyle.Width(5).Render(label) + bar +
 			valueStyle.Render(fmt.Sprintf(" %3.0f%%", percent))
 		if extra != "" {
 			line += subtleStyle.Render(" " + extra)
 		}
 		return line
+	}
+	meter := func(label string, percent float64, ok bool, extra string) string {
+		if !ok {
+			return pad + labelStyle.Width(5).Render(label) + subtleStyle.Render("n/a")
+		}
+		return render(label, percent, extra, gauge(percent, barWidth, false))
 	}
 
 	lines := []string{pad + subtleStyle.Render("computer")}
@@ -1234,6 +1237,14 @@ func (m *Model) buildComputerLines(width int) []string {
 			humanBytes(snap.DiskFree)+" free"))
 	} else {
 		lines = append(lines, meter("disk", 0, false, ""))
+	}
+	if snap.BatteryOK {
+		extra := ""
+		if snap.BatteryCharging {
+			extra = "charging"
+		}
+		lines = append(lines, render("batt", snap.BatteryPercent, extra,
+			gauge(snap.BatteryPercent, barWidth, true)))
 	}
 	if temps := tempReadings(snap); temps != "" {
 		lines = append(lines, pad+labelStyle.Width(5).Render("temp")+temps)
@@ -1296,7 +1307,7 @@ func (m *Model) contentLines(width, height int) []contentLine {
 
 	var bar []contentLine
 	if m.quick.active && m.mode != modeFocus {
-		bar = append([]contentLine{{}}, ours(splitLines(m.viewQuickBar(inner)))...)
+		bar = append([]contentLine{{}}, ours(splitLines(m.viewQuickBar(inner, quickBarMaxRows)))...)
 	}
 	var body []contentLine
 	// The frame's own top rule already seams the header off the body, so the
@@ -1407,7 +1418,7 @@ func (m *Model) previewLines(width, height int, gutter string) []contentLine {
 	}
 	var lines []contentLine
 	loader := m.startupLoader(width, height)
-	pane := paneExact(m.preview, height, width)
+	pane := paneExact(m.preview, height, width, m.paneCaretRow())
 	if len(pane) == 0 {
 		// No rows painted means nothing to hit-test: a box left over from
 		// the previous session would catch clicks on empty space.
@@ -1583,7 +1594,7 @@ func lastActivity(sess store.Session) time.Time {
 
 // viewQuickBar is the docked prompt: enter answers the selected session, or
 // spawns a fresh agent when a group is selected.
-func (m *Model) viewQuickBar(width int) string {
+func (m *Model) viewQuickBar(width, maxRows int) string {
 	label := func(text string) string { return labelStyle.Render(padRight(text, detailLabelWidth)) }
 	target := rowColumns(label("target")+mutedStyle.Render("no selection"), "", width)
 	if entry, ok := m.selectedRow(); ok {
@@ -1603,12 +1614,16 @@ func (m *Model) viewQuickBar(width int) string {
 				[]string{state + " " + chipStyle.Render(sess.Tool), state, ""}, width)
 		}
 	}
+	// The rows the frame can spare become the box's own cap, so a keystroke
+	// repositions the viewport inside the rows that are actually on screen.
+	// LineInfo counts wraps at the width already stored on the box.
 	m.quick.input.SetWidth(width)
-	rows := m.quickBarRows(width - 2)
+	limit := min(maxRows, quickBarMaxRows)
 	if m.mode == modeFocus {
-		rows = min(rows, max(1, m.listBodyHeight()-6))
+		limit = min(limit, max(1, m.listBodyHeight()-6))
 	}
-	m.quick.input.SetHeight(rows)
+	m.quick.maxRows = limit
+	m.quick.input.SetHeight(m.quickBarRows(width-2, limit))
 	// Chips are tokens inside the typed text, so they wrap and reflow with
 	// the words around them; painting happens on the rendered prompt.
 	bar := target + "\n" + m.quick.renderChips(m.quick.input.View())

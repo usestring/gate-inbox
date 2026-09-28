@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/extension/gitroot"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -61,7 +62,7 @@ func NewTerminals(configDir string, words Vocabulary) *Terminals {
 }
 
 func newTerminals(configDir string, words Vocabulary, newDriver func(socket string) (*tmux.Driver, error)) *Terminals {
-	return &Terminals{commands: commands{configDir: configDir, words: words, newDriver: newDriver}}
+	return &Terminals{commands: commands{configDir: configDir, words: words, newDriver: newDriver, loadConfig: config.LoadDir}}
 }
 
 // commands is the shared plumbing of every managed-pane command: the
@@ -74,6 +75,8 @@ type commands struct {
 	// running inside a pane reaches the same tmux server as the manager
 	// that started it, whichever the config names.
 	newDriver func(socket string) (*tmux.Driver, error)
+	// loadConfig is config.LoadDir outside the tests, which inject fake CLIs.
+	loadConfig func(string) (config.Config, error)
 }
 
 type runtime struct {
@@ -81,6 +84,18 @@ type runtime struct {
 	words  Vocabulary
 	store  *store.Store
 	driver *tmux.Driver
+	// paneWidth and paneHeight are read when the store opens, since a pane
+	// is created inside the transaction that files its row, and that
+	// transaction holds the store's only connection.
+	paneWidth, paneHeight int
+}
+
+// createPane opens a session's pane at the box the running manager pins
+// its panes to. Nothing here can measure the preview, and tmux hands an
+// unsized detached session 80x24, which is narrower than any manager
+// layout and holds until something resizes it.
+func (r *runtime) createPane(id, cwd, command string, env map[string]string) error {
+	return r.driver.Create(id, cwd, command, env, r.paneWidth, r.paneHeight)
 }
 
 // open is the fixed cost under every command in this package: the config off
@@ -90,7 +105,7 @@ type runtime struct {
 // was asked.
 func (c *commands) open() (opened *runtime, err error) {
 	defer start("sessioncmd.open").done(&err)
-	cfg, err := config.LoadDir(c.configDir)
+	cfg, err := c.loadConfig(c.configDir)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +117,11 @@ func (c *commands) open() (opened *runtime, err error) {
 	if err != nil {
 		return nil, err
 	}
-	return &runtime{cfg: cfg, words: c.words, store: st, driver: driver}, nil
+	width, height, err := st.PaneSize()
+	if err != nil {
+		logging.Info("pane size unreadable; tmux sizes new panes", "error", err)
+	}
+	return &runtime{cfg: cfg, words: c.words, store: st, driver: driver, paneWidth: width, paneHeight: height}, nil
 }
 
 // reach tells the driver where an adopted row's pane is. Only the board
@@ -302,7 +321,7 @@ func (t *Terminals) Create(sessionID string, opts CreateTerminalOptions) (create
 	}
 	launched := false
 	if err := create(sess, func() error {
-		err := runtime.driver.Create(sess.ID, sess.Cwd, tool.Command, nil, 0, 0)
+		err := runtime.createPane(sess.ID, sess.Cwd, tool.Command, nil)
 		launched = err == nil
 		return err
 	}); err != nil {

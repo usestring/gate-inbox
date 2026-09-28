@@ -12,6 +12,7 @@ import (
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/tracing"
@@ -189,6 +190,12 @@ func (m *Model) previewPaneWidth() int {
 	return w
 }
 
+// paneTargetSize is the tmux window size sessions are pinned to: the
+// preview panel's box.
+func (m *Model) paneTargetSize() (int, int) {
+	return m.previewPaneWidth(), m.previewPaneHeight()
+}
+
 // previewPaneHeight is the rows of session pane content the Preview
 // section can show with nothing transient over it, which is what tmux is
 // pinned to: the painted view crops a taller pane, where resizing it for
@@ -209,6 +216,11 @@ func (m *Model) previewPaneHeight() int {
 		return 3
 	}
 	return rest
+}
+
+// focusPaneRows is the rows of pane content the focused view paints.
+func (m *Model) focusPaneRows() int {
+	return m.previewPaneHeight()
 }
 
 // statusLine is the transient message: prompts, search, and self-dismissing
@@ -319,8 +331,8 @@ const quickBarMaxRows = 5
 // capped so the bar never swallows the sidebar. Single-line values (the
 // normal case) count exact soft-wrap rows; pasted multi-line values are
 // estimated, with the textarea scrolling to keep the cursor visible.
-func (m *Model) quickBarRows(textWidth int) int {
-	return textareaRows(m.quick.input, textWidth, quickBarMaxRows)
+func (m *Model) quickBarRows(textWidth, maxRows int) int {
+	return textareaRows(m.quick.input, textWidth, min(maxRows, quickBarMaxRows))
 }
 
 func textareaRows(input textarea.Model, textWidth, maxRows int) int {
@@ -459,23 +471,49 @@ func expandPaneTabs(line string, width int) string {
 	return out.String()
 }
 
-// paneExact returns up to n lines of pane text as the pane painted them,
-// preserving blank rows so a full-screen agent TUI looks the same in the
-// preview. When the capture is taller than the panel (stale size), the
-// bottom n lines are kept — the visible end of the pane. Rows arrive here
-// before anything measures them, so this is where a tab becomes the cells
-// it covers and the frame, the caret and the selection all count one set
-// of columns.
-func paneExact(pane string, n, width int) []string {
+// paneWindow picks the half-open row range of a capture the panel shows.
+// A pane is left taller than the panel on purpose, since shrinking it
+// costs agents like Codex their whole scrollback (#369), so the window
+// drops a blank tail instead. A completely blank, not-yet-painted pane
+// keeps its rows hit-testable, and a live caret keeps its row in view.
+func paneWindow(pane string, n, caretRow int) (lines []string, start int) {
 	if n <= 0 || pane == "" {
-		return nil
+		return nil, 0
 	}
 	// capture-pane often ends with a trailing newline; drop only that.
-	pane = strings.TrimSuffix(pane, "\n")
-	lines := strings.Split(pane, "\n")
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
+	lines = strings.Split(strings.TrimSuffix(pane, "\n"), "\n")
+	end := len(lines)
+	for end > 0 && blankPaneRow(lines[end-1]) {
+		end--
 	}
+	if end == 0 {
+		end = min(n, len(lines))
+	}
+	if caretRow+1 > end {
+		end = caretRow + 1
+	}
+	if end > len(lines) {
+		end = len(lines)
+	}
+	start = end - n
+	if start < 0 {
+		start = 0
+	}
+	return lines[start:end], start
+}
+
+func blankPaneRow(line string) bool {
+	return strings.TrimSpace(ansi.Strip(line)) == ""
+}
+
+// paneExact returns up to n lines of pane text as the pane painted them,
+// preserving blank rows so a full-screen agent TUI looks the same in the
+// preview. caretRow is the capture row the live caret sits on, or -1 when
+// none is in play. Rows arrive here before anything measures them, so this
+// is where a tab becomes the cells it covers and the frame, the caret and
+// the selection all count one set of columns.
+func paneExact(pane string, n, width, caretRow int) []string {
+	lines, _ := paneWindow(pane, n, caretRow)
 	for i, line := range lines {
 		lines[i] = expandPaneTabs(line, width)
 	}

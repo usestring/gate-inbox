@@ -92,14 +92,101 @@ func TestPendingRenameForADeletedSessionDoesNotFailThePoll(t *testing.T) {
 	}
 }
 
-func writeName(t *testing.T, m *Model, id, name string) {
+// writeName queues a rename the way the subcommand does, and returns the
+// request its answer comes back under.
+func writeName(t *testing.T, m *Model, id, name string) string {
 	t.Helper()
 	path := m.hooks.NameFile(id)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatalf("hooks dir: %v", err)
 	}
-	if err := os.WriteFile(path, []byte(name), 0o644); err != nil {
+	request, err := hooks.NewRequestID()
+	if err != nil {
+		t.Fatalf("request id: %v", err)
+	}
+	if err := os.WriteFile(path, []byte(hooks.NameRequest(request, name)), 0o644); err != nil {
 		t.Fatalf("write name file: %v", err)
+	}
+	return request
+}
+
+func TestPendingRenameReportsTheAppliedName(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "claude-7a72", t.TempDir(), "")
+	sess := m.sessionRows()[0]
+	request := writeName(t, m, sess.ID, "audit   the poller")
+
+	if err := m.poller.applyPendingRename(&sess); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+	verdict, found, err := m.hooks.ReadNameResult(sess.ID, request)
+	if err != nil || !found || verdict.Refusal != nil || verdict.Applied != "audit the poller" || verdict.Requested != "audit the poller" {
+		t.Fatalf("result = %+v, %v, %v; want the asked and applied names", verdict, found, err)
+	}
+}
+
+// A verdict the manager cannot write keeps the rename claimed, so the
+// agent waiting on it hears the answer on a later poll instead of timing
+// out on a rename that was in fact applied.
+func TestPendingRenameKeepsItsClaimUntilTheVerdictLands(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "claude-7a72", t.TempDir(), "")
+	sess := m.sessionRows()[0]
+	request := writeName(t, m, sess.ID, "audit the poller")
+	// A directory in the verdict's place is what an unwritable result
+	// looks like from here: the claim is still takeable, the answer is not.
+	blocked := m.hooks.NameResultFile(sess.ID, request)
+	if err := os.MkdirAll(blocked, 0o755); err != nil {
+		t.Fatalf("block the result: %v", err)
+	}
+
+	if err := m.poller.applyPendingRename(&sess); err == nil {
+		t.Fatal("a verdict that cannot be written should fail the pass")
+	}
+	stored, err := m.store.Get(sess.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if stored.Name != "audit the poller" {
+		t.Fatalf("name = %q, want the rename applied", stored.Name)
+	}
+
+	if err := os.Remove(blocked); err != nil {
+		t.Fatalf("unblock: %v", err)
+	}
+	if err := m.poller.applyPendingRename(&sess); err != nil {
+		t.Fatalf("second pass: %v", err)
+	}
+	verdict, found, err := m.hooks.ReadNameResult(sess.ID, request)
+	if err != nil || !found || verdict.Refusal != nil || verdict.Requested != "audit the poller" || verdict.Applied != "audit the poller" {
+		t.Fatalf("result = %+v, %v, %v; want the answer the first pass could not write", verdict, found, err)
+	}
+	if _, _, found, _ := m.hooks.ClaimName(sess.ID); found {
+		t.Fatal("the answered rename should no longer be claimed")
+	}
+}
+
+// Pending input waits out a live turn, and an errored pane is a rest: the
+// turn that printed the error is over and nothing else would release it.
+func TestPendingInputRestGate(t *testing.T) {
+	cases := map[string]struct {
+		derived   string
+		typeAhead bool
+		want      bool
+	}{
+		"idle":                {status.Idle, false, true},
+		"finished":            {status.Finished, false, true},
+		"waiting":             {status.Waiting, false, true},
+		"errored":             {status.Errored, false, true},
+		"working":             {status.Working, false, false},
+		"working, type-ahead": {status.Working, true, true},
+		"starting":            {status.Starting, false, false},
+		"dead":                {status.Dead, false, false},
+	}
+	for name, tc := range cases {
+		if got := pendingDeliverable(tc.derived, tc.typeAhead); got != tc.want {
+			t.Errorf("%s: pendingDeliverable = %v, want %v", name, got, tc.want)
+		}
 	}
 }
 

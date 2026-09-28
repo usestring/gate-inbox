@@ -816,6 +816,7 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 		}
 		phases.rename += lap(&step)
 		newStatus := status.Dead
+		delivered := false
 		if pid := panes[sess.ID]; pid > 0 {
 			stat := trees[pid]
 			if stat.OK {
@@ -891,13 +892,6 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 				if err := p.maybeAnswerForkDialog(sess, pane); err != nil {
 					return errMsg{err}
 				}
-				sent, err := p.maybeSendPendingInput(sess, pane, agentAlive)
-				if err != nil {
-					return errMsg{err}
-				}
-				if sent {
-					sessions[i].PendingInputs = sessions[i].PendingInputs[1:]
-				}
 				phases.inbox += lap(&step)
 				derived, err := p.deriveCleanPaneStatus(sess, clean, agentAlive, paneHashes)
 				if err != nil {
@@ -905,6 +899,14 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 				}
 				phases.status += lap(&step)
 				newStatus = derived
+				sent, err := p.maybeSendPendingInputWhenReady(sess, capture, derived, agentAlive)
+				if err != nil {
+					return errMsg{err}
+				}
+				if sent {
+					sessions[i].PendingInputs = sessions[i].PendingInputs[1:]
+				}
+				phases.inbox += lap(&step)
 				retried, err := p.maybeRecoverLimit(sess, limitRecoveries, capture, clean, derived, agentAlive, !sent && limitContinuations < limitRecoveriesPerPass, now)
 				if err != nil {
 					return errMsg{err}
@@ -921,8 +923,13 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 				// waits for the next capture rather than landing on a pane
 				// that is already starting a turn.
 				if !sent && len(sessions[i].PendingInputs) == 0 {
-					if err := p.maybeDeliverInbox(sess, heads, capture, derived, agentAlive); err != nil {
+					delivered, err = p.deliverInboxHead(sess, heads, capture, derived, agentAlive)
+					if err != nil {
 						return errMsg{err}
+					}
+					// Typing it in starts a turn only the next capture can show.
+					if delivered {
+						newStatus = status.Working
 					}
 				}
 				phases.inbox += lap(&step)
@@ -1283,6 +1290,37 @@ func (p *poller) captureAgentSessionIDs(sessions []store.Session, panes map[stri
 	return captured, nil
 }
 
+// pendingDeliverable is the rest gate for pending input and queued messages.
+// An errored pane joins the rest states: the turn that printed the error is
+// over, and a queue held there has nothing left to release it.
+func pendingDeliverable(derived string, typeAhead bool) bool {
+	return inboxDeliverable(derived, typeAhead) || derived == status.Errored
+}
+
+// maybeSendPendingInputWhenReady holds pending input until the turn in the
+// pane has ended, like a queued message. A claimed input bypasses the gate so
+// crash recovery also runs during a live turn.
+func (p *poller) maybeSendPendingInputWhenReady(sess store.Session, capture tmux.Capture, derived string, agentAlive bool) (bool, error) {
+	if len(sess.PendingInputs) == 0 {
+		return false, nil
+	}
+	if !sess.PendingInputClaimed && !pendingDeliverable(derived, p.engine.TypeAhead(sess.Tool)) {
+		return false, nil
+	}
+	if !sess.PendingInputClaimed && agentAlive {
+		// The paste ends in Enter, so a line someone has part way written
+		// at the newly idle prompt would be submitted with it.
+		if p.engine.DeliveryHold(sess.Tool, ansi.Strip(capture.Text)) != "" || p.operatorTyping(sess, capture.State) {
+			return false, nil
+		}
+		typing, err := p.composerCarriesDraft(sess, capture)
+		if err != nil || typing {
+			return false, err
+		}
+	}
+	return p.maybeSendPendingInput(sess, capture.Text, agentAlive)
+}
+
 // A durable claim makes automatic delivery at-most-once: after a process or
 // database failure, an ambiguous input is dropped and surfaced rather than
 // risking the same task or slash command running twice.
@@ -1386,22 +1424,29 @@ func inboxDeliverable(derived string, typeAhead bool) bool {
 // is part way through writing, or a keystroke of theirs still on its way
 // to the screen, holds the queue for another poll.
 func (p *poller) maybeDeliverInbox(sess store.Session, heads map[string]store.InboxMessage, capture tmux.Capture, derived string, agentAlive bool) error {
+	_, err := p.deliverInboxHead(sess, heads, capture, derived, agentAlive)
+	return err
+}
+
+// deliverInboxHead is maybeDeliverInbox reporting whether it handed a
+// message to the pane, which starts a turn only the next capture can show.
+func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.InboxMessage, capture tmux.Capture, derived string, agentAlive bool) (bool, error) {
 	if !agentAlive {
-		return nil
+		return false, nil
 	}
 	// A retired session is a row whose conversation was deliberately ended.
 	// Its pane reappearing -- a revive, a stale window, an id reused -- must
 	// not make it the destination for something queued before it died; the
 	// restart forwarded that message to the session that replaced it.
 	if sess.Status == status.Dead || sess.RetiredAgentSessionID != "" && sess.AgentSessionID == "" {
-		return nil
+		return false, nil
 	}
 	// Before the pane is touched: a board where nothing is queued -- the
 	// common case -- now does no work here at all, where it used to run a
 	// query and strip a pane's worth of ANSI per session.
 	msg, queued := heads[sess.ID]
 	if !queued {
-		return nil
+		return false, nil
 	}
 	// The pass captures the panes before it reads the queue, and a send to
 	// this session can settle between the two. The head it read is then the
@@ -1409,19 +1454,19 @@ func (p *poller) maybeDeliverInbox(sess store.Session, heads map[string]store.In
 	// from before that submit: typed now, it lands on a turn the tool has not
 	// drawn yet. It waits for a capture taken after the send.
 	if p.settledSince(sess.ID, capture.At) {
-		return nil
+		return false, nil
 	}
 	if msg.Interrupt && derived == status.Working && msg.ClaimedAt.IsZero() {
 		if waiting, err := p.interruptForMessage(sess, msg, capture); waiting || err != nil {
-			return err
+			return false, err
 		}
 	}
-	if !inboxDeliverable(derived, p.engine.TypeAhead(sess.Tool)) {
-		return nil
+	if !pendingDeliverable(derived, p.engine.TypeAhead(sess.Tool)) {
+		return false, nil
 	}
 	clean := ansi.Strip(capture.Text)
 	if p.engine.DeliveryHold(sess.Tool, clean) != "" {
-		return nil
+		return false, nil
 	}
 	// A claim this old with no delivery means the manager died between the
 	// claim and the send. Whether it reached the pane is unknowable, so it
@@ -1432,30 +1477,30 @@ func (p *poller) maybeDeliverInbox(sess store.Session, heads map[string]store.In
 		// takes, and retiring it would both tell the sender it was dropped
 		// and leave the send that is still out to deliver it anyway.
 		if p.sendInFlight(messageSend(msg.ID)) || time.Since(msg.ClaimedAt) < inboxClaimGrace {
-			return nil
+			return false, nil
 		}
 		if err := p.store.MarkDropped(msg.ID, time.Now()); err != nil {
-			return err
+			return false, err
 		}
-		return fmt.Errorf("dropped an unconfirmed message to %s from %s to avoid delivering it twice", sess.Name, msg.SenderName)
+		return false, fmt.Errorf("dropped an unconfirmed message to %s from %s to avoid delivering it twice", sess.Name, msg.SenderName)
 	}
 	if p.operatorTyping(sess, capture.State) {
-		return nil
+		return false, nil
 	}
 	typing, err := p.composerCarriesDraft(sess, capture)
 	if err != nil || typing {
-		return err
+		return false, err
 	}
 	// Reserved before the claim: a pass that has no slot left has written
 	// nothing, so the message simply stays queued for the next one.
 	key := messageSend(msg.ID)
 	if !p.reserveSend(key) {
-		return nil
+		return false, nil
 	}
 	claimed, err := p.store.ClaimMessage(msg.ID, time.Now())
 	if err != nil || !claimed {
 		p.releaseSend(key)
-		return err
+		return false, err
 	}
 	// The claim already keeps this message from being typed again, so
 	// recording the drop is the only thing that stops its sender being told
@@ -1480,6 +1525,12 @@ func (p *poller) maybeDeliverInbox(sess store.Session, heads map[string]store.In
 		if err != nil {
 			return err
 		}
+		// The pass that claimed this message already read the row as
+		// working; stamping it again after the delivery is what lets a wait
+		// for the handoff tell the new turn from the one before it.
+		if err := ignoreDeletedSession(p.store.UpdateStatus(sess.ID, status.Working)); err != nil {
+			return err
+		}
 		// The operator's own words, sent from a shell, reach the board's
 		// extensions here: once, on the delivery that recorded them. A
 		// relayed line is not reported: the relaying extension recorded it
@@ -1496,7 +1547,7 @@ func (p *poller) maybeDeliverInbox(sess store.Session, heads map[string]store.In
 		}
 		return nil
 	})
-	return nil
+	return true, nil
 }
 
 // interruptGrace is how long a message sent with interrupt waits, after its
@@ -1799,22 +1850,43 @@ func launchPromptTaken(sess store.Session, region string) bool {
 // applyPendingRename picks up a name the session's agent left via the
 // rename subcommand: the store row and tmux label update together here,
 // keeping the manager the sole database writer. The file is consumed
-// even when the name is unchanged so it never lingers. A dead tmux
-// session cannot take a label, which is fine; the label is rewritten on
-// revive.
+// even when the name is unchanged so it never lingers, and the outcome
+// is left in the result mailbox for the subcommand still waiting on it.
+// A dead tmux session cannot take a label, which is fine; the label is
+// rewritten on revive.
 func (p *poller) applyPendingRename(sess *store.Session) error {
-	name, found := p.hooks.ReadName(sess.ID)
-	if !found {
-		return nil
+	request, name, found, err := p.hooks.ClaimName(sess.ID)
+	if err != nil || !found {
+		return err
 	}
-	if name != "" && name != sess.Name {
-		if err := ignoreDeletedSession(p.store.RenameSessionAs(sess.ID, name, store.SourceAgent)); err != nil {
+	renameErr := p.renamePending(sess, name)
+	// The claim outlives a verdict this poll could not write: the next one
+	// answers the same rename rather than leaving the agent that asked to
+	// time out on a rename that has in fact been applied or refused. A
+	// rename that carries no request has nobody waiting on an answer.
+	if request != "" {
+		if err := p.hooks.WriteNameResult(sess.ID, request, name, sess.Name, renameErr); err != nil {
 			return err
 		}
-		sess.Name = name
-		_ = p.tmux.SetLabel(sess.ID, sessionLabel(sess.Group, name))
 	}
-	return p.hooks.RemoveName(sess.ID)
+	if err := p.hooks.ReleaseName(sess.ID); err != nil {
+		return err
+	}
+	// The row going out from under this rename is the agent's answer, not
+	// a failure of the pass that carried it.
+	return ignoreDeletedSession(renameErr)
+}
+
+func (p *poller) renamePending(sess *store.Session, name string) error {
+	if name == "" || name == sess.Name {
+		return nil
+	}
+	if err := p.store.RenameSessionAs(sess.ID, name, store.SourceAgent); err != nil {
+		return err
+	}
+	sess.Name = name
+	_ = p.tmux.SetLabel(sess.ID, sessionLabel(sess.Group, name))
+	return nil
 }
 
 // applyPendingPriority picks up a tier the session's agent declared via the

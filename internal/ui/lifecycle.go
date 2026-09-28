@@ -4,7 +4,6 @@ package ui
 
 import (
 	"fmt"
-	"github.com/usestring/gate-inbox/internal/keymap"
 	"strings"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/adopt"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -225,7 +225,7 @@ func (m *Model) sessionsInGroup(path string) []store.Session {
 // sessions share a directory.
 func (m *Model) degradedResumeNotice(sess store.Session) string {
 	tool, ok := m.cfg.Tools[sess.Tool]
-	if !ok || sess.AgentSessionID != "" || tool.ResumeByIDCommand == "" {
+	if !ok || sess.AgentSessionID != "" || tool.ResumeByIDCommand == "" || tool.ResumePickerCommand != "" {
 		return ""
 	}
 	return fmt.Sprintf("revived %s with --continue: no conversation id captured, may resume the wrong conversation", sess.Name)
@@ -946,6 +946,8 @@ func (m *Model) archiveSessions(sessions []store.Session, isGroup bool, path str
 	if isGroup && len(failed) == 0 {
 		if err := m.store.SetGroupArchived(path, true); err != nil {
 			failed = append(failed, err.Error())
+		} else {
+			m.markGroup(m.confirm.path, goneMark{archived: true})
 		}
 	}
 	if len(failed) == 0 {
@@ -971,6 +973,9 @@ func (m *Model) markArchivedLocally(ids []string, missing []string) {
 		if filed[m.sessions[i].ID] {
 			m.sessions[i].Archived = true
 		}
+	}
+	for id := range filed {
+		m.markSession(id, goneMark{archived: true})
 	}
 }
 
@@ -1016,6 +1021,7 @@ func (m *Model) sweepArchivesBefore(cutoff time.Time) tea.Cmd {
 	}
 	for _, path := range removed {
 		delete(m.collapsed, path)
+		m.markGroup(path, goneMark{deleted: true})
 	}
 	if len(removed) > 0 {
 		m.persistCollapsed()
@@ -1185,6 +1191,17 @@ func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	// The card advertises its answer and n/esc; any other key leaves it up
+	// rather than dismissing a question the operator has not answered.
+	if !confirmed {
+		switch msg.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "n", "esc":
+		default:
+			return m, nil
+		}
+	}
 	fromFocus, answered := m.confirm.fromFocus, false
 	// A relaunch the manager refused opened the hint dialog, and a triage
 	// advance has already focused the session it moved on to; either owns
@@ -1259,12 +1276,14 @@ func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.errBar.text = err.Error()
 					return m, nil
 				}
+				m.markRestoredLocally(sess.ID)
 			}
 			if m.confirm.isGroup {
 				if err := m.store.SetGroupArchived(m.confirm.path, false); err != nil {
 					m.errBar.text = err.Error()
 					return m, nil
 				}
+				m.markGroup(m.confirm.path, goneMark{archived: false})
 			}
 			m.errBar.text = ""
 		case actionRestart:
@@ -1349,8 +1368,34 @@ func (m *Model) deleteSessions(sessions []store.Session) error {
 		if err := m.store.Delete(sess.ID); err != nil {
 			return err
 		}
+		m.removeSessionLocally(sess.ID)
 	}
 	return nil
+}
+
+// removeSessionLocally drops a deleted row from the list on screen and
+// records it, so a poll that listed the store before the delete cannot put
+// it back for a frame.
+func (m *Model) removeSessionLocally(id string) {
+	kept := make([]store.Session, 0, len(m.sessions))
+	for _, sess := range m.sessions {
+		if sess.ID != id {
+			kept = append(kept, sess)
+		}
+	}
+	m.sessions = kept
+	m.markSession(id, goneMark{deleted: true})
+}
+
+// markRestoredLocally brings a restored row back to the live list on this
+// frame, and keeps a stale poll from filing it away again.
+func (m *Model) markRestoredLocally(id string) {
+	for i := range m.sessions {
+		if m.sessions[i].ID == id {
+			m.sessions[i].Archived = false
+		}
+	}
+	m.markSession(id, goneMark{archived: false})
 }
 
 // withoutSessions drops a set of rows from a batch, for the archive that was

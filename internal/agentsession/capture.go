@@ -65,6 +65,94 @@ func Capture(sessionStore, cwd string, launchedAt time.Time, claimed map[string]
 	}
 }
 
+// Snapshot records every conversation the store currently holds for cwd
+// with its last activity time, taken just before a relaunch pane starts.
+// Recapture then admits only conversations whose activity outruns what this
+// saw, which tells the conversation the picker selected apart from ones that
+// merely predate the launch. ok=false when the store cannot be read; the
+// relaunch proceeds without a snapshot and recapture refuses to guess.
+func Snapshot(sessionStore, cwd string) (map[string]int64, bool) {
+	switch sessionStore {
+	case "codex":
+		cands, err := codexCandidates(codexRoot(), cwd, time.Time{}, nil)
+		if err != nil {
+			return nil, false
+		}
+		snapshot := make(map[string]int64, len(cands))
+		for _, cand := range cands {
+			snapshot[cand.ID] = cand.Created.UnixNano()
+		}
+		return snapshot, true
+	case "opencode":
+		entries, ok := opencodeSessionListJSON(cwd)
+		if !ok {
+			return nil, false
+		}
+		snapshot := map[string]int64{}
+		for _, e := range entries {
+			if e.ID == "" || !extension.SamePath(e.Directory, cwd) {
+				continue
+			}
+			snapshot[e.ID] = e.Updated * int64(time.Millisecond)
+		}
+		return snapshot, true
+	default:
+		return nil, false
+	}
+}
+
+// Recapture returns the conversation a resumed session picked, admitting
+// only conversations whose activity outruns the pre-launch snapshot: picking
+// an existing conversation shows as activity after the snapshot, where a
+// plain launch cutoff would also admit conversations merely predating the
+// launch. A nil snapshot or several qualifying conversations refuses rather
+// than guess.
+func Recapture(sessionStore, cwd string, snapshot map[string]int64, claimed map[string]bool) (string, bool) {
+	if snapshot == nil {
+		return "", false
+	}
+	var matched []string
+	switch sessionStore {
+	case "codex":
+		cands, err := codexCandidates(codexRoot(), cwd, time.Time{}, claimed)
+		if err != nil {
+			return "", false
+		}
+		for _, cand := range cands {
+			if afterSnapshot(snapshot, cand.ID, cand.Created.UnixNano()) {
+				matched = append(matched, cand.ID)
+			}
+		}
+	case "opencode":
+		entries, ok := opencodeSessionListJSON(cwd)
+		if !ok {
+			return "", false
+		}
+		for _, e := range entries {
+			if e.ID == "" || claimed[e.ID] || !extension.SamePath(e.Directory, cwd) {
+				continue
+			}
+			if afterSnapshot(snapshot, e.ID, e.Updated*int64(time.Millisecond)) {
+				matched = append(matched, e.ID)
+			}
+		}
+	default:
+		return "", false
+	}
+	if len(matched) != 1 {
+		return "", false
+	}
+	return matched[0], true
+}
+
+// afterSnapshot reports whether the conversation's activity postdates what
+// the pre-launch snapshot recorded: a conversation the snapshot never saw
+// was minted since, and a seen one must have moved since it was recorded.
+func afterSnapshot(snapshot map[string]int64, id string, activity int64) bool {
+	prev, seen := snapshot[id]
+	return !seen || activity > prev
+}
+
 // captureDriver asks the extension driver named by sessionStore. A store no
 // driver answers is refused at startup and at launch, so here it simply
 // captures nothing.
@@ -146,6 +234,29 @@ var opencodeListIDs = func(cwd string) ([]string, bool) {
 		return nil, false
 	}
 	return dedupeOrdered(opencodeIDPattern.FindAllString(string(out), -1)), true
+}
+
+// opencodeListEntry is one row of `opencode session list --format json`,
+// which carries the update time snapshot and recapture compare against in
+// one subprocess, where the table output keeps only the id. Updated is a
+// Unix timestamp in milliseconds.
+type opencodeListEntry struct {
+	ID        string `json:"id"`
+	Directory string `json:"directory"`
+	Updated   int64  `json:"updated"`
+}
+
+// A package variable so tests substitute canned output.
+var opencodeSessionListJSON = func(cwd string) ([]opencodeListEntry, bool) {
+	out, err := runOpencode(cwd, "session", "list", "--format", "json")
+	if err != nil {
+		return nil, false
+	}
+	var entries []opencodeListEntry
+	if err := json.Unmarshal(out, &entries); err != nil {
+		return nil, false
+	}
+	return entries, true
 }
 
 // opencodeSessionMeta returns a session's working directory and creation
@@ -252,15 +363,26 @@ func pickEarliest(cands []extension.SessionCandidate) (string, bool) {
 
 // captureCodex scans rollout-*.jsonl files, each whose first line is a
 // session_meta record carrying the session id and the directory it ran
-// in. A file older than the launch cannot be this session's.
+// in. A file older than the launch cannot be this session's. A rollout that
+// cannot be read fails the scan rather than capture from a partial list.
 func captureCodex(root, cwd string, launchedAt time.Time, claimed map[string]bool) (string, bool) {
-	if root == "" {
+	cands, err := codexCandidates(root, cwd, launchedAt.Add(-clockSlack), claimed)
+	if err != nil {
 		return "", false
 	}
-	cutoff := launchedAt.Add(-clockSlack)
+	return pickEarliest(cands)
+}
+
+func codexCandidates(root, cwd string, cutoff time.Time, claimed map[string]bool) ([]extension.SessionCandidate, error) {
+	if root == "" {
+		return nil, os.ErrNotExist
+	}
 	var cands []extension.SessionCandidate
-	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
 			return nil
 		}
 		name := d.Name()
@@ -268,30 +390,40 @@ func captureCodex(root, cwd string, launchedAt time.Time, claimed map[string]boo
 			return nil
 		}
 		info, err := d.Info()
-		if err != nil || info.ModTime().Before(cutoff) {
+		if err != nil {
+			return err
+		}
+		if info.ModTime().Before(cutoff) {
 			return nil
 		}
-		id, metaCwd, ok := codexMeta(path)
-		if !ok || !extension.SamePath(metaCwd, cwd) || claimed[id] {
+		id, metaCwd, err := codexMeta(path)
+		if err != nil {
+			return err
+		}
+		if id == "" || !extension.SamePath(metaCwd, cwd) || claimed[id] {
 			return nil
 		}
 		cands = append(cands, extension.SessionCandidate{ID: id, Created: info.ModTime()})
 		return nil
 	})
-	return pickEarliest(cands)
+	return cands, err
 }
 
-// codexMeta reads the session id and cwd from a rollout's first line.
-func codexMeta(path string) (id, cwd string, ok bool) {
+// codexMeta reads the session id and cwd from a rollout's first line. A
+// malformed or overlong first line yields no id and no error.
+func codexMeta(path string) (id, cwd string, err error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return "", "", false
+		return "", "", err
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	if !scanner.Scan() {
-		return "", "", false
+		if err := scanner.Err(); err != nil && !errors.Is(err, bufio.ErrTooLong) {
+			return "", "", err
+		}
+		return "", "", nil
 	}
 	var line struct {
 		Type    string `json:"type"`
@@ -300,13 +432,10 @@ func codexMeta(path string) (id, cwd string, ok bool) {
 			Cwd       string `json:"cwd"`
 		} `json:"payload"`
 	}
-	if err := json.Unmarshal(scanner.Bytes(), &line); err != nil {
-		return "", "", false
+	if json.Unmarshal(scanner.Bytes(), &line) != nil || line.Type != "session_meta" || !extension.ValidSessionID(line.Payload.SessionID) {
+		return "", "", nil
 	}
-	if line.Type != "session_meta" || !extension.ValidSessionID(line.Payload.SessionID) {
-		return "", "", false
-	}
-	return line.Payload.SessionID, line.Payload.Cwd, true
+	return line.Payload.SessionID, line.Payload.Cwd, nil
 }
 
 // captureOpencode finds the conversation opencode minted for a session

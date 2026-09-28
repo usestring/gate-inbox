@@ -1,6 +1,7 @@
 package sysstat
 
 import (
+	"bytes"
 	"os"
 	"strconv"
 	"strings"
@@ -141,6 +142,11 @@ func sampleTree(root int, argvMark string) (ProcStat, bool) {
 	// process the operator is watching, and seen makes the cycle finite.
 	seen := map[int]bool{root: true}
 	queue := childrenOf(root, info.threads)
+	for _, child := range queue {
+		if program := argvProgram(child); program != "" {
+			stat.Children = append(stat.Children, program)
+		}
+	}
 	for len(queue) > 0 {
 		pid := queue[0]
 		queue = queue[1:]
@@ -193,6 +199,19 @@ func argvHas(pid int, mark string) bool {
 		found = strings.Contains(strings.Join(argv, " "), mark)
 	})
 	return found
+}
+
+// argvProgram is a process's argv[0], the program as it was invoked, or
+// empty when the process has exited or is a kernel thread with no argv.
+func argvProgram(pid int) string {
+	program := ""
+	withProcFile("/proc/"+strconv.Itoa(pid)+"/cmdline", func(raw []byte) {
+		if end := bytes.IndexByte(raw, 0); end >= 0 {
+			raw = raw[:end]
+		}
+		program = string(raw)
+	})
+	return program
 }
 
 // childrenOf lists a process's direct children.

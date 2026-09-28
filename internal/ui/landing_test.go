@@ -1,6 +1,7 @@
 package ui
 
 import (
+	tea "charm.land/bubbletea/v2"
 	"strings"
 	"testing"
 	"time"
@@ -97,6 +98,21 @@ func TestAStaleLookDecidesNothing(t *testing.T) {
 	}
 	if got := focusedName(t, m); got != "ask" {
 		t.Fatalf("a stale look handed the session over to %q", got)
+	}
+}
+
+func TestPasteKeepsALandedAnswerOnItsSession(t *testing.T) {
+	m := drainOnDialog(t, true)
+	askID := focusedID(t, m)
+	m = pressEnter(m)
+	m.handleFocusPaste(tea.PasteMsg{Content: "one more thing"})
+	logHookEvent(t, m, askID, "working PostToolUse")
+	lookForLanding(t, m)
+	if got := focusedName(t, m); got != "ask" {
+		t.Fatalf("paste handed the session over to %q", got)
+	}
+	if m.latestSubmission.sessionID != askID {
+		t.Fatal("paste prevented recording the landed answer")
 	}
 }
 

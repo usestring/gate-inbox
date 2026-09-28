@@ -656,6 +656,7 @@ func (m *Model) handleFocusPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, m.leaveFocus()
 	}
+	m.keepLandingHere()
 	quiet := m.cursorOn
 	m.cursorOn = true
 	// Pasted text lands at the live bottom, so the view follows it there.

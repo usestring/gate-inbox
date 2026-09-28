@@ -229,6 +229,9 @@ func (s *Sessions) Wait(ctx context.Context, sessionID string, opts WaitOptions)
 			// is worth one more fork to get right.
 			runtime.refreshLive(live)
 			seen, outcome, _ = observeWait(current, live, wanted)
+			for _, observed := range seen {
+				noteSpawnerRead(runtime, caller.ID, observed.session)
+			}
 			return runtime.waitResult(seen, outcome, started)
 		}
 		select {

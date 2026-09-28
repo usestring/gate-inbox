@@ -28,6 +28,11 @@ const defaultStaleStatusAfter = 2 * time.Hour
 // back stays on the list.
 const defaultChildAutoArchive = 30 * time.Minute
 
+// defaultFinishedChildGrace is how long a finished child whose spawner has
+// taken in the finish stays on the list, so the spawner can still send it a
+// follow-up.
+const defaultFinishedChildGrace = 10 * time.Minute
+
 type Rule struct {
 	State   string `toml:"state"`
 	Pattern string `toml:"pattern"`
@@ -251,6 +256,15 @@ type Children struct {
 	// that did report is archived as soon as the report lands, whatever this
 	// says. A child with a live pane is never swept, whatever its status.
 	AutoArchiveAfter Duration `toml:"auto_archive_after"`
+	// FinishedGrace is how long a finished child is kept after its spawner
+	// took the finish in -- the rest notice was delivered, or the spawner
+	// read or waited on it -- before the board archives it. A child that is
+	// waiting, working, errored, spawned with keep, or has live children of
+	// its own is never archived this way.
+	FinishedGrace Duration `toml:"finished_grace"`
+	// KeepFinished turns that off board-wide: finished children stay until
+	// someone archives them.
+	KeepFinished bool `toml:"keep_finished"`
 }
 
 // Work configures what the board does with the pull requests and tickets its
@@ -638,6 +652,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Children.AutoArchiveAfter.Duration <= 0 {
 		c.Children.AutoArchiveAfter.Duration = defaultChildAutoArchive
+	}
+	if c.Children.FinishedGrace.Duration <= 0 {
+		c.Children.FinishedGrace.Duration = defaultFinishedChildGrace
 	}
 	if c.Tools == nil {
 		c.Tools = map[string]Tool{}

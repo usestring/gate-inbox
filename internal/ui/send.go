@@ -1,6 +1,7 @@
 package ui
 
 import (
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/usestring/gate-inbox/extension"
@@ -22,59 +23,60 @@ import (
 // submit false types the sentence and leaves it in the prompt: the snippet's
 // AutoSubmit is off, so the operator finishes the line and presses Enter
 // themselves. Nothing has been sent yet, so none of what follows a send --
-// undo, the operator note, clearing the ack -- happens.
+// undo, the operator note, clearing the ack, a landing -- happens.
 //
-// It reports whether the sentence actually reached the agent. Auto-proceed
-// needs that answer: a refused send -- an archived session, a shell, a dead
-// pane -- has left the session unanswered, and the reason is in the error bar,
-// where handing the session over would take it off screen before it was read.
-// See autoproceed.go.
-func (m *Model) sendSentence(sess store.Session, text, quoted string, submit bool) bool {
+// Reaching the pane is not the agent taking the line, so a submitted send only
+// arms a landing (see landing.go): the sentence counts as submitted, and with
+// handOver the drain moves on, once the agent is seen to have taken it. A
+// refused send -- an archived session, a shell, a dead pane -- arms nothing,
+// and its reason stays in the error bar rather than being carried off screen
+// by a handover.
+func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, handOver bool) tea.Cmd {
 	if sess.Archived {
 		m.errBar.text = m.displayName(sess) + " is archived — press " + m.cap(keymap.ContextList, keymap.Restore) + " to restore it first"
-		return false
+		return nil
 	}
 	// SendText pastes and presses Enter, so on a shell row the sentence
 	// would run as a command. Same guard, same reason as the quick prompt.
 	if m.isShell(sess.Tool) {
 		m.errBar.text = shellPromptHint(sess.Name)
-		return false
+		return nil
 	}
 	if !m.tmux.Exists(sess.ID) {
 		m.errBar.text = m.deadSessionHint()
-		return false
+		return nil
 	}
 	if hold := m.dialogHold(sess); hold != "" {
 		m.errBar.text = hold
-		return false
+		return nil
 	}
 	if !submit {
 		if err := pasteFocused(m.tmux, sess.ID, text); err != nil {
 			m.errBar.text = err.Error()
-			return false
+			return nil
 		}
 		m.errBar.text = "typed " + quoted + " into " + m.displayName(sess) + " — press enter to send"
 		m.requestRefresh()
-		return false
+		return nil
 	}
+	landing := m.armLanding(sess, extension.OperatorSnippet, text, false, handOver)
 	if err := m.tmux.SendText(sess.ID, text); err != nil {
+		m.dropLanding(sess.ID)
 		m.errBar.text = err.Error()
-		return false
+		return nil
 	}
-	m.noteSubmission(sess)
-	m.noteOperator(sess, extension.OperatorSnippet, text, false)
 	// The agent has been given something to do, so the operator wants the
 	// alert it raises when it is done with it.
 	if err := m.store.SetAcked(sess.ID, false); err != nil {
 		m.errBar.text = "sent, but clearing the alert ack failed: " + err.Error()
-		return true
+		return landing
 	}
 	// Nothing on screen says a key that sends a sentence did anything until
 	// the pane repaints, and a pane mid-launch can take a moment: the line
 	// is the acknowledgement.
 	m.errBar.text = "sent " + quoted + " to " + m.displayName(sess)
 	m.requestRefresh()
-	return true
+	return landing
 }
 
 // dialogHold reports why a pasted sentence must not be sent to this pane yet,

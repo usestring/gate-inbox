@@ -141,10 +141,31 @@ func logHookEvent(t *testing.T, m *Model, id, line string) {
 // is what the tick does off the event loop.
 func lookForLanding(t *testing.T, m *Model) {
 	t.Helper()
-	if m.landings[m.landingGen] == nil {
-		t.Fatal("no answer is pending")
+	pending := onlyLanding(t, m)
+	m.applyLandingCheck(landingCheckMsg{id: pending.sess.ID, gen: pending.gen, verdict: pending.probe.look()})
+}
+
+// landAnswer decides the answer pending for id as seen, for the tests about
+// what landing does rather than how it is seen; landing_test.go covers that.
+func landAnswer(t *testing.T, m *Model, id string) tea.Cmd {
+	t.Helper()
+	pending, ok := m.landings[id]
+	if !ok {
+		t.Fatalf("no answer pending for %s", id)
 	}
-	m.applyLandingCheck(landingCheckMsg{gen: m.landingGen, verdict: m.landings[m.landingGen].probe.look()})
+	return m.applyLandingCheck(landingCheckMsg{id: id, gen: pending.gen, verdict: landingSeen})
+}
+
+// onlyLanding is the one answer pending on the board.
+func onlyLanding(t *testing.T, m *Model) *pendingLanding {
+	t.Helper()
+	if len(m.landings) != 1 {
+		t.Fatalf("%d answers pending, want one", len(m.landings))
+	}
+	for _, pending := range m.landings {
+		return pending
+	}
+	return nil
 }
 
 func pressEnter(m *Model) *Model {
@@ -170,7 +191,7 @@ func TestAutoProceedHandsOverOnceTheAnswerLands(t *testing.T) {
 	if got := focusedName(t, m); got != "next" {
 		t.Fatalf("after the answer landed, focused %q want %q", got, "next")
 	}
-	if m.landings[m.landingGen] != nil {
+	if len(m.landings) != 0 {
 		t.Fatal("the landing stayed pending after it was seen")
 	}
 	if m.latestSubmission.sessionID != askID {
@@ -184,12 +205,12 @@ func TestAutoProceedStaysWhenNothingLands(t *testing.T) {
 	m := drainOnDialog(t, true)
 	m = pressEnter(m)
 	lookForLanding(t, m)
-	if m.landings[m.landingGen] == nil {
+	if len(m.landings) == 0 {
 		t.Fatal("a look with nothing to see gave up before the window closed")
 	}
-	m.landings[m.landingGen].deadline = time.Now().Add(-time.Millisecond)
+	onlyLanding(t, m).deadline = time.Now().Add(-time.Millisecond)
 	lookForLanding(t, m)
-	if m.landings[m.landingGen] != nil {
+	if len(m.landings) != 0 {
 		t.Fatal("the landing outlived its window")
 	}
 	if got := focusedName(t, m); got != "ask" {
@@ -211,7 +232,7 @@ func TestAutoProceedStaysOnARefusalOrANewDialog(t *testing.T) {
 			logHookEvent(t, m, askID, line)
 			logHookEvent(t, m, askID, "working PostToolUse")
 			lookForLanding(t, m)
-			if m.landings[m.landingGen] != nil {
+			if len(m.landings) != 0 {
 				t.Fatal("a refusal left the landing pending")
 			}
 			if got := focusedName(t, m); got != "ask" {
@@ -258,7 +279,7 @@ func TestAutoProceedArmsNothingOnAModifiedEnter(t *testing.T) {
 	m := drainOnDialog(t, true)
 	updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift})
 	m = updated.(*Model)
-	if m.landings[m.landingGen] != nil {
+	if len(m.landings) != 0 {
 		t.Fatal("shift+enter armed a landing")
 	}
 }

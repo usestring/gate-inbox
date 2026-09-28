@@ -515,11 +515,12 @@ type Model struct {
 	account          accountState
 	quick            quickState
 	latestSubmission submissionRescind
-	// landings are the answers waiting to be seen reaching their sessions, and
-	// landingLocator finds the transcript it is read from; see landing.go.
-	// The locator is the event loop's own, since a Locator is not safe to
-	// share with the goroutines the other copies run on.
-	landings       map[int]*pendingLanding
+	// landings are the answers waiting to be seen reaching their sessions,
+	// by session, and landingGen numbers them. landingLocator finds the
+	// transcripts they are read from; see landing.go. The locator is the
+	// event loop's own, since a Locator is not safe to share with the
+	// goroutines the other copies run on.
+	landings       map[string]*pendingLanding
 	landingGen     int
 	landingLocator *search.Locator
 	// statusesAsOf is when the newest applied poll pass listed its sessions:

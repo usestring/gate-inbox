@@ -85,6 +85,10 @@ func TestPlusMinusSnippetHandsOverWhenAutoProceedIsOn(t *testing.T) {
 	m = updated.(*Model)
 
 	waitForPaneText(t, m, sess.ID, plusMinusText)
+	if got := focusedName(t, m); got != "ask" {
+		t.Fatalf("± handed the session over to %q before it landed", got)
+	}
+	landAnswer(t, m, sess.ID)
 	if m.mode != modeFocus {
 		t.Fatalf("± dropped out of the queue, mode %v: %s", m.mode, m.errBar.text)
 	}

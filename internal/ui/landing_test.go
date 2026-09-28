@@ -1,7 +1,7 @@
 package ui
 
 import (
-	tea "charm.land/bubbletea/v2"
+	"strings"
 	"testing"
 	"time"
 
@@ -88,10 +88,11 @@ func TestThePaneLandsOnlyWhatNoOtherSourceRefused(t *testing.T) {
 func TestAStaleLookDecidesNothing(t *testing.T) {
 	m := drainOnDialog(t, true)
 	m = pressEnter(m)
-	stale := m.landingGen
+	askID := focusedID(t, m)
+	stale := onlyLanding(t, m).gen
 	m = pressEnter(m)
-	m.applyLandingCheck(landingCheckMsg{gen: stale, verdict: landingSeen})
-	if m.landings[m.landingGen] == nil || m.landingGen == stale {
+	m.applyLandingCheck(landingCheckMsg{id: askID, gen: stale, verdict: landingSeen})
+	if pending := onlyLanding(t, m); pending.gen == stale {
 		t.Fatal("a look for the replaced key decided the pending answer")
 	}
 	if got := focusedName(t, m); got != "ask" {
@@ -99,74 +100,95 @@ func TestAStaleLookDecidesNothing(t *testing.T) {
 	}
 }
 
-func TestPasteKeepsALandedAnswerOnItsSession(t *testing.T) {
+// A quick prompt that is never seen landing records nothing and moves the
+// drain nowhere.
+func TestAQuickPromptThatNeverLandsStaysPut(t *testing.T) {
+	m := enterDrain(t, drainFleet(t))
+	sess, _ := m.selected()
+	m.openQuickMode()
+	m.quick.input.SetValue("Please continue")
+	if _, _ = m.submitQuick(); m.errBar.text != "" {
+		t.Fatal(m.errBar.text)
+	}
+	m.landings[sess.ID].deadline = time.Now().Add(-time.Millisecond)
+	lookForLanding(t, m)
+	if len(m.landings) != 0 {
+		t.Fatal("the prompt outlived its window")
+	}
+	if focusedID(t, m) != sess.ID {
+		t.Fatal("a prompt that never landed handed the session over")
+	}
+	if m.latestSubmission.sessionID != "" {
+		t.Fatal("a prompt that never landed was made rescindable")
+	}
+}
+
+// Snippets sent down the list to one row after another are each waited on,
+// so the first is still reported when the second goes out inside its window.
+func TestSnippetsToSeveralRowsEachLand(t *testing.T) {
+	m := buildModel(t)
+	bindPlusMinus(t, m)
+	liveTriageFleet(t, m, map[string]string{"one": status.Waiting, "two": status.Waiting})
+	m.rebuildRows()
+	observer := &recordingObserver{}
+	m.ObserveBoard(observer)
+
+	one, two := sessionNamed(t, m, "one"), sessionNamed(t, m, "two")
+	m.selectSessionRow(t, "one")
+	sendPlusMinusToSelected(t, m)
+	m.selectSessionRow(t, "two")
+	sendPlusMinusToSelected(t, m)
+	if len(m.landings) != 2 {
+		t.Fatalf("%d snippets pending, want both", len(m.landings))
+	}
+	landAnswer(t, m, one.ID)
+	landAnswer(t, m, two.ID)
+	if got := operatorInputs(observer); len(got) != 2 {
+		t.Fatalf("reported %+v, want both snippets", got)
+	}
+}
+
+// Undo withdraws an answer the drain had counted as dealt with, so the
+// session is the operator's again: its handover mute goes with it.
+func TestRescindingALandedAnswerUnmutesItsSession(t *testing.T) {
 	m := drainOnDialog(t, true)
 	askID := focusedID(t, m)
 	m = pressEnter(m)
-	m.handleFocusPaste(tea.PasteMsg{Content: "one more thing"})
 	logHookEvent(t, m, askID, "working PostToolUse")
 	lookForLanding(t, m)
-	if got := focusedName(t, m); got != "ask" {
-		t.Fatalf("paste handed the session over to %q", got)
+	ask, _ := m.sessionByID(askID)
+	if !m.isMuted(ask) {
+		t.Fatal("the handover did not mute the answered session, so this proves nothing")
 	}
-	if m.latestSubmission.sessionID != askID {
-		t.Fatal("paste prevented recording the landed answer")
+	m.rescindLatestSubmission()
+	if !strings.Contains(m.errBar.text, "undid") {
+		t.Fatalf("rescind result = %q", m.errBar.text)
 	}
-}
-
-func TestPendingLandingsSurviveAnsweringAnotherSession(t *testing.T) {
-	m := drainOnDialog(t, true)
-	observer := &recordingObserver{}
-	m.ObserveBoard(observer)
-	ask, _ := m.selected()
-	m = pressEnter(m)
-	first := m.landingGen
-	m.handOverFocused(ask)
-	if got := focusedName(t, m); got != "next" {
-		t.Fatalf("manual handover focused %q", got)
-	}
-	nextID := focusedID(t, m)
-	stageDialog(m, nextID)
-	m = pressEnter(m)
-	second := m.landingGen
-	if cmd := m.applyLandingCheck(landingCheckMsg{gen: first, verdict: landingPending}); cmd == nil {
-		t.Fatal("the first session stopped polling when the second was answered")
-	}
-	logHookEvent(t, m, ask.ID, "working PostToolUse")
-	m.applyLandingCheck(landingCheckMsg{gen: first, verdict: m.landings[first].probe.look()})
-	if m.latestSubmission.sessionID != ask.ID || len(observer.inputs) != 1 || observer.inputs[0].SessionID != ask.ID {
-		t.Fatal("the first answer was not recorded")
-	}
-	if got := focusedName(t, m); got != "next" {
-		t.Fatalf("the first landing moved focus to %q", got)
-	}
-	if m.landings[second] == nil {
-		t.Fatal("the first landing discarded the second")
-	}
-	logHookEvent(t, m, nextID, "working PostToolUse")
-	lookForLanding(t, m)
-	m.applyLandingCheck(landingCheckMsg{gen: first, verdict: landingSeen})
-	if m.latestSubmission.sessionID != nextID || len(observer.inputs) != 2 || observer.inputs[1].SessionID != nextID {
-		t.Fatal("the two answers were not recorded exactly once")
-	}
-	if len(m.landings) != 0 {
-		t.Fatal("completed landings were retained")
+	if m.isMuted(ask) {
+		t.Fatal("the rescinded session stayed muted out of the queue")
 	}
 }
 
-func TestEndingAnOlderLandingPreservesTheNewerOne(t *testing.T) {
-	for _, verdict := range []landingVerdict{landingPending, landingRefused} {
-		m := drainOnDialog(t, true)
-		ask, _ := m.selected()
-		m = pressEnter(m)
-		first := m.landingGen
-		m.handOverFocused(ask)
-		stageDialog(m, focusedID(t, m))
-		m = pressEnter(m)
-		m.landings[first].deadline = time.Now().Add(-time.Second)
-		m.applyLandingCheck(landingCheckMsg{gen: first, verdict: verdict})
-		if m.landings[first] != nil || m.landings[m.landingGen] == nil {
-			t.Fatal("ending an older landing affected the newer one")
-		}
+// An answer landing on a finished session starts a new turn, so the handover
+// that follows must not spend the held acknowledgement on the turn it
+// answered: that would swallow the alert before any poll saw the new turn.
+func TestALandedAnswerLetsGoOfTheHeldAck(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{"done": status.Finished, "next": status.Waiting})
+	m.triage = true
+	m.rebuildRows()
+	m.enterFocusOn(t, "done")
+	id := focusedID(t, m)
+	if m.heldAckID != id {
+		t.Fatalf("entering held %q, want %q", m.heldAckID, id)
+	}
+
+	m = pressEnter(m)
+	runStoreCmd(t, landAnswer(t, m, id))
+	if got := focusedName(t, m); got == "done" {
+		t.Fatal("the landed answer did not hand the session over, so this proves nothing")
+	}
+	if got := storedSession(t, m, "done"); got.Acked {
+		t.Fatal("handing over after a landed answer spent the held acknowledgement")
 	}
 }

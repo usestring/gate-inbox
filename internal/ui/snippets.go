@@ -93,8 +93,7 @@ func (m *Model) sendSnippetToSelected(snip snippets.Snippet) (tea.Model, tea.Cmd
 		m.errBar.text = "select a session to send " + snip.Quoted() + " to"
 		return m, nil
 	}
-	m.sendSentence(entry.sess, snip.Text, snip.Quoted(), snip.Submits())
-	return m, nil
+	return m, m.sendSentence(entry.sess, snip.Text, snip.Quoted(), snip.Submits(), false)
 }
 
 // snippetLegend is the footer's tier for the snippets that exist.

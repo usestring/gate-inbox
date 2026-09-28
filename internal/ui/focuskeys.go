@@ -508,14 +508,10 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if snip, ok := m.snippetFor(msg.String()); ok {
 		m.noteFocusActivity()
 		// A snippet is a whole answer -- the sentence the drain exists to
-		// send -- so auto-proceed treats it as one. A send that failed has
-		// left the session unanswered and its reason in the bar, and handing
-		// it over would carry both off screen. So would one that only typed
-		// its text, since the operator has the line still to finish.
-		if m.sendSentence(sess, snip.Text, snip.Quoted(), snip.Submits()) && m.autoProceeds() {
-			return m, m.handOverFocused(sess)
-		}
-		return m, nil
+		// send -- so auto-proceed hands the session over once it lands. One
+		// that only typed its text arms nothing: the operator has the line
+		// still to finish.
+		return m, m.sendSentence(sess, snip.Text, snip.Quoted(), snip.Submits(), m.autoProceeds())
 	}
 	// ctrl+x archives, matching the list's x. Everything this handler does
 	// not claim reaches the agent, and archive is a deliberate exception:
@@ -630,7 +626,7 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		quiet = false
 		// The key never reached the pane, so there is nothing to land.
 		if arms {
-			m.dropLanding(m.landingGen)
+			m.dropLanding(sess.ID)
 			landing = nil
 		}
 	}
@@ -660,7 +656,6 @@ func (m *Model) handleFocusPaste(msg tea.PasteMsg) (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, m.leaveFocus()
 	}
-	m.keepLandingHere()
 	quiet := m.cursorOn
 	m.cursorOn = true
 	// Pasted text lands at the live bottom, so the view follows it there.

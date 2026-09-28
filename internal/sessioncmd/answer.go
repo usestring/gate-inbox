@@ -39,6 +39,14 @@ type AnsweredQuestion struct {
 	// in the dialog's own text field.
 	Selected string `json:"selected,omitempty" jsonschema:"option the answer picked; empty when the answer was typed instead"`
 	Standing int    `json:"standing_questions,omitempty" jsonschema:"questions still unanswered in the same dialog after this one"`
+	// Answers is each answer a call filled in, for a dialog asking several
+	// questions; Question, Answer and Selected above repeat the last of them.
+	Answers []FilledAnswer `json:"answers,omitempty" jsonschema:"each question this call answered, in order"`
+	// Submitted is a several-question dialog sent: every question had an
+	// answer, the review page showed them, and Submit was pressed.
+	Submitted bool `json:"submitted,omitempty" jsonschema:"true when the dialog was submitted and the child has its answers; false with standing_questions above zero means it is still waiting on the rest"`
+	// Questions is every question of the dialog as it stands after the call.
+	Questions []dialog.Question `json:"questions,omitempty" jsonschema:"every question of the dialog after this call, with which are answered"`
 }
 
 // Answer picks or types reply into the question dialog targetID is holding.
@@ -91,8 +99,12 @@ func (r *runtime) answer(target store.Session, reply, by, byID string) (Answered
 	// precisely because they have to be refused, and a refusal that cannot say
 	// which shape it saw is the defect this path had. See the two messages
 	// below -- they send the caller to two different places.
-	held, ok := dialog.Inspect(ansi.Strip(pane))
+	plain := ansi.Strip(pane)
+	held, ok := dialog.Inspect(plain)
 	if !ok {
+		if _, onReview := dialog.ParseReview(plain); onReview {
+			return r.submitReview(target, pane, reply, by, byID)
+		}
 		// Not an error about the answer: there is no dialog on the screen. The
 		// question was answered by somebody who got there first, or the child
 		// is resting at its own input line having ended a turn on a question in
@@ -126,7 +138,7 @@ func (r *runtime) answer(target store.Session, reply, by, byID string) (Answered
 	if standing := held.Standing(); standing > 1 {
 		answered.Standing = standing - 1
 	}
-	// len(keys) > 0 is exactly the case where an option was named: selectKeys
+	// len(keys) > 0 is exactly the case where an option was named: SelectKeys
 	// sends nothing for a want of 0, which is Choose's answer for words that
 	// are nobody's option.
 	if len(keys) > 0 {
@@ -136,14 +148,83 @@ func (r *runtime) answer(target store.Session, reply, by, byID string) (Answered
 		if err := r.driver.SendKeys(target.ID, keys...); err != nil {
 			return AnsweredQuestion{}, err
 		}
-		return answered, nil
+		return r.submitIfLast(target, pane, held, answered)
 	}
 	logging.Info(by+" answered a child's question by typing",
 		by, byID, "session", target.ID)
+	if held.Kind == dialog.KindAsk && held.FreeText > 0 {
+		// AskUserQuestion drops words pasted anywhere but its free-text row,
+		// and the Enter after them then picks the option under the cursor.
+		if err := typeAnswer(tmuxPane{r.driver, target.ID}, held, reply, 1); err != nil {
+			return AnsweredQuestion{}, err
+		}
+		return r.submitIfLast(target, pane, held, answered)
+	}
 	if err := r.driver.SendText(target.ID, reply); err != nil {
 		return AnsweredQuestion{}, err
 	}
 	return answered, nil
+}
+
+// submitIfLast sends a several-question dialog once the answer just keyed
+// was its last unanswered question. The dialog does not send itself: it moves
+// to its Submit page and waits there, and a child left on that page is
+// waiting as surely as one left on a question.
+func (r *runtime) submitIfLast(target store.Session, raw string, held dialog.Dialog, answered AnsweredQuestion) (AnsweredQuestion, error) {
+	if held.Kind != dialog.KindAsk || held.Steps == 0 || held.Standing() != 1 {
+		return answered, nil
+	}
+	// Only when the question on the screen is the unanswered one: a question
+	// answered earlier and visited again leaves the other one standing.
+	stepper, ok := dialog.ParseStepper(raw)
+	switch {
+	case ok && stepper.Active >= 0 && stepper.Active < len(stepper.Steps):
+		if stepper.Steps[stepper.Active].Answered {
+			return answered, nil
+		}
+	case held.Picked > 0:
+		return answered, nil
+	}
+	pane := tmuxPane{r.driver, target.ID}
+	if _, err := waitFor(pane, func(raw string) bool {
+		stepper, ok := dialog.ParseStepper(raw)
+		return !ok || stepper.AllAnswered()
+	}); err != nil {
+		return answered, fmt.Errorf("answered, but the dialog never showed every question answered, so it "+
+			"was not submitted; read_session shows where it stands: %w", err)
+	}
+	if err := submitDialog(pane, held.Steps, nil, nil); err != nil {
+		return answered, fmt.Errorf("answered every question, but submitting failed (answer \"Submit "+
+			"answers\" to try again): %w", err)
+	}
+	answered.Submitted = true
+	return answered, nil
+}
+
+// submitReview answers the Submit page a several-question dialog ends on:
+// "Submit answers" sends it, and anything else is refused, because the page
+// holds no question to put words to.
+func (r *runtime) submitReview(target store.Session, pane, reply, by, byID string) (AnsweredQuestion, error) {
+	switch strings.ToLower(strings.Join(strings.Fields(reply), " ")) {
+	case "submit", "submit answers":
+	default:
+		return AnsweredQuestion{}, fmt.Errorf("session %s is on the Submit page of a dialog asking several "+
+			"questions, where there is nothing to answer; answer \"Submit answers\" to send it, or pass "+
+			"answers naming a question to change one first", target.ID)
+	}
+	stepper, _ := dialog.ParseStepper(pane)
+	if err := submitDialog(tmuxPane{r.driver, target.ID}, len(stepper.Steps), nil, nil); err != nil {
+		return AnsweredQuestion{}, err
+	}
+	logging.Info(by+" submitted a child's dialog", by, byID, "session", target.ID)
+	return AnsweredQuestion{
+		SessionID: target.ID,
+		Name:      target.Name,
+		Question:  "Review your answers",
+		Answer:    reply,
+		Selected:  "Submit answers",
+		Submitted: true,
+	}, nil
 }
 
 // wrapped is err under a message of its own, so the words a caller reads

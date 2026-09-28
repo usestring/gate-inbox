@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -49,11 +50,11 @@ func seedSession(t *testing.T, st *store.Store, sess store.Session) store.Sessio
 }
 
 func TestChildQuestionMessageNamesTheChildAndHowToAnswer(t *testing.T) {
-	held, ok := dialog.Parse(askPane)
-	if !ok {
-		t.Fatal("the fixture pane does not parse as a dialog")
+	questions := dialog.Questions(askPane, nil)
+	if len(questions) != 1 {
+		t.Fatalf("the fixture pane reads as %d questions, want 1", len(questions))
 	}
-	body := childQuestionMessage(store.Session{ID: "abc12345", Name: "sampleapp-reach-census"}, held)
+	body := childQuestionsMessage(store.Session{ID: "abc12345", Name: "sampleapp-reach-census"}, questions)
 	for _, want := range []string{
 		"sampleapp-reach-census",
 		"abc12345",
@@ -226,5 +227,74 @@ func TestRelayChildRestQueuesForTheSpawnerNotTheRoot(t *testing.T) {
 		t.Fatalf("HeadMessage: %v", err)
 	} else if atRoot {
 		t.Error("the root was told about a child it did not spawn")
+	}
+}
+
+func readDialogFixture(t *testing.T, name string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "dialog", "testdata", name))
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	return string(raw)
+}
+
+// The stop that prompted the rewrite: an ordinary four-question
+// AskUserQuestion on a narrow pane, its tab labels cut short and its legend
+// wrapped, relayed as a permission prompt only a person could answer. It is a
+// question, so it is relayed as one, with the call that answers it. The pane
+// is the raw capture, which is what the poller now hands the relay.
+func TestRelayOfATabbedDialogIsAQuestion(t *testing.T) {
+	p, st := pollerWithStore(t)
+	parent := seedSession(t, st, store.Session{ID: "parent01", Name: "release-lead", Status: status.Working})
+	child := seedSession(t, st, store.Session{ID: "9b7f9d5c", Name: "release-audit", ParentID: parent.ID, Status: status.Working})
+	if err := p.relayChildQuestion(child, status.Waiting, readDialogFixture(t, "claude-2.1.283-tabs-w50-second.ansi")); err != nil {
+		t.Fatalf("relayChildQuestion: %v", err)
+	}
+	head, found, err := st.HeadMessage(parent.ID)
+	if err != nil || !found {
+		t.Fatalf("nothing relayed: %v", err)
+	}
+	for _, want := range []string{"a dialog asking 4 questions", "Question 2 of 4 [Compliance]", "Question 3 of 4 [np…]",
+		"Should the release pipeline block on the licence compliance scan?", "Block", "answer_session",
+		"word for word"} {
+		if !strings.Contains(head.Body, want) {
+			t.Errorf("relayed message does not mention %q:\n%s", want, head.Body)
+		}
+	}
+	if strings.Contains(head.Body, "only a person") {
+		t.Errorf("a question was relayed as a person's to answer:\n%s", head.Body)
+	}
+}
+
+func TestRelayOfAMultiSelectSaysAPersonAnswersIt(t *testing.T) {
+	body := childQuestionsMessage(store.Session{ID: "child004", Name: "ci-checks"},
+		dialog.Questions(readDialogFixture(t, "claude-2.1.283-tabs-w44-multiselect.ansi"), nil))
+	for _, want := range []string{"Which checks must pass before merge?", "multi-select", "only a person"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("relayed message does not mention %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestRelayOfAPermissionPromptNamesItAndNotThePane(t *testing.T) {
+	p, st := pollerWithStore(t)
+	parent := seedSession(t, st, store.Session{ID: "parent01", Name: "site-graph-endpoint", Status: status.Working})
+	child := seedSession(t, st, store.Session{ID: "child005", Name: "cleaner", ParentID: parent.ID, Status: status.Working})
+	pane := "● Bash(rm -rf build/)\n\n  Do you want to proceed?\n  ❯ 1. Yes\n    2. No\n\n  Enter to confirm · Esc to cancel\n"
+	if err := p.relayChildQuestion(child, status.Waiting, pane); err != nil {
+		t.Fatalf("relayChildQuestion: %v", err)
+	}
+	head, found, err := st.HeadMessage(parent.ID)
+	if err != nil || !found {
+		t.Fatalf("nothing relayed: %v", err)
+	}
+	for _, want := range []string{"a permission prompt", "only a person at its pane can"} {
+		if !strings.Contains(head.Body, want) {
+			t.Errorf("relayed message does not mention %q:\n%s", want, head.Body)
+		}
+	}
+	if strings.Contains(head.Body, "rm -rf") || strings.Contains(head.Body, "Do you want to proceed?") {
+		t.Errorf("the message carries the pane:\n%s", head.Body)
 	}
 }

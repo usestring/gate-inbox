@@ -38,6 +38,21 @@ type ReadDigest struct {
 	// transcript holds to "what it concluded". Empty when the conversation
 	// could not be read.
 	Result string `json:"result,omitempty" jsonschema:"the session's most recent prose turn, which is the closest thing to its result"`
+	// Questions is every question of the dialog the session is holding, one
+	// entry each, read without a keystroke into its pane: a Claude Code
+	// dialog asking several shows one at a time, and the rest come from the
+	// transcript.
+	Questions []dialog.Question `json:"questions,omitempty" jsonschema:"every question of the dialog the session is holding, with its header, full text, options and whether it is answered; answer them with answer_session"`
+}
+
+// withQuestions records the dialog's questions, and puts all of them in
+// Question when there are several: the pane shows one, and a parent reading
+// only that would not know the others were asked.
+func (d *ReadDigest) withQuestions(questions []dialog.Question) {
+	d.Questions = questions
+	if len(questions) > 1 {
+		d.Question = strings.TrimRight(dialog.RenderQuestions(questions), "\n")
+	}
 }
 
 // cursorSeparator joins the conversation a cursor was taken from to the

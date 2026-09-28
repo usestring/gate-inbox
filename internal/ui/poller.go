@@ -875,12 +875,14 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 				step = time.Now()
 				clean := ansi.Strip(pane)
 				searchText[sess.ID] = strings.ToLower(clean)
-				// A child's stripped pane is kept off the same capture, for
-				// the same reason: relaying its question to its parent has to
-				// read the dialog, and a capture of its own would be paid on
-				// every pass to serve the few children that stop.
+				// A child's pane is kept off the same capture, for the same
+				// reason: relaying its question to its parent has to read the
+				// dialog, and a capture of its own would be paid on every pass
+				// to serve the few children that stop. Kept with its escapes,
+				// because a several-question dialog marks the question on its
+				// screen only by the colour of that question's tab.
 				if sess.ParentID != "" {
-					childPane[sess.ID] = clean
+					childPane[sess.ID] = pane
 				}
 				phases.search += lap(&step)
 				// Ahead of every other write into the pane: until the
@@ -955,7 +957,7 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 			}
 		}
 		if sess.ParentID != "" && newStatus == status.Waiting {
-			if _, ok := dialog.Parse(childPane[sess.ID]); ok {
+			if _, ok := dialog.Parse(ansi.Strip(childPane[sess.ID])); ok {
 				answerableWait[sess.ID] = true
 			}
 		}

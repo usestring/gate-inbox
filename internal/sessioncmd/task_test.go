@@ -174,16 +174,17 @@ func TestOnlyUnfinishedDependenciesAreNamedAsBlocking(t *testing.T) {
 		t.Fatalf("the refusal names a finished dependency: %v", err)
 	}
 
-	tasks, err := h.sessions.Tasks(h.caller.ID)
+	listed, err := h.sessions.Tasks(h.caller.ID, TaskListOptions{})
 	if err != nil {
 		t.Fatalf("Tasks: %v", err)
 	}
-	listed := FormatTaskList(tasks)
-	if !strings.Contains(listed, "blocked on "+second.ID) {
-		t.Fatalf("the list does not name what blocks the task:\n%s", listed)
+	tasks := listed.Tasks
+	text := FormatTaskList(listed)
+	if !strings.Contains(text, "blocked on "+second.ID) {
+		t.Fatalf("the list does not name what blocks the task:\n%s", text)
 	}
-	if strings.Contains(listed, "blocked on "+first.ID) {
-		t.Fatalf("the list reports a finished dependency as blocking:\n%s", listed)
+	if strings.Contains(text, "blocked on "+first.ID) {
+		t.Fatalf("the list reports a finished dependency as blocking:\n%s", text)
 	}
 	for _, task := range tasks {
 		if task.ID == dependent.ID && (len(task.BlockedBy) != 1 || task.BlockedBy[0] != second.ID) {
@@ -212,10 +213,11 @@ func TestReleasedAndDeletedTasksLeaveTheList(t *testing.T) {
 	if err := h.sessions.DeleteTask(h.caller.ID, created.ID); err != nil {
 		t.Fatalf("DeleteTask: %v", err)
 	}
-	tasks, err := h.sessions.Tasks(h.caller.ID)
+	listed, err := h.sessions.Tasks(h.caller.ID, TaskListOptions{IncludeDone: true})
 	if err != nil {
 		t.Fatalf("Tasks: %v", err)
 	}
+	tasks := listed.Tasks
 	if len(tasks) != 0 {
 		t.Fatalf("deleted task is still listed: %+v", tasks)
 	}
@@ -241,10 +243,11 @@ func TestDeletingASessionHandsItsClaimsBack(t *testing.T) {
 	if err := h.store.Delete(worker.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	tasks, err := h.sessions.Tasks(h.caller.ID)
+	listed, err := h.sessions.Tasks(h.caller.ID, TaskListOptions{IncludeDone: true})
 	if err != nil {
 		t.Fatalf("Tasks: %v", err)
 	}
+	tasks := listed.Tasks
 	if len(tasks) != 1 || tasks[0].State != "pending" || tasks[0].Owner != "" {
 		t.Fatalf("a deleted session left its claim parked: %+v", tasks)
 	}
@@ -292,10 +295,11 @@ func TestRacingClaimsOnOneTaskLeaveASingleWinner(t *testing.T) {
 			t.Fatalf("a losing racer was told %q, which does not say who holds it", err)
 		}
 	}
-	stored, err := h.sessions.Tasks(h.caller.ID)
+	listed, err := h.sessions.Tasks(h.caller.ID, TaskListOptions{IncludeDone: true})
 	if err != nil {
 		t.Fatalf("Tasks: %v", err)
 	}
+	stored := listed.Tasks
 	if len(stored) != 1 || stored[0].State != "in_progress" || stored[0].Owner != winner.Owner {
 		t.Fatalf("stored task = %+v, winner = %+v", stored, winner)
 	}
@@ -363,13 +367,96 @@ func TestRacingSessionsSplitTheListWithoutSharingATask(t *testing.T) {
 	if len(owners) != taskCount {
 		t.Fatalf("%d of %d tasks were claimed: %v", len(owners), taskCount, owners)
 	}
-	stored, err := h.sessions.Tasks(h.caller.ID)
+	listed, err := h.sessions.Tasks(h.caller.ID, TaskListOptions{IncludeDone: true})
 	if err != nil {
 		t.Fatalf("Tasks: %v", err)
 	}
+	stored := listed.Tasks
 	for _, task := range stored {
 		if task.State != "in_progress" || task.Owner != owners[task.ID] {
 			t.Fatalf("stored task %+v disagrees with the claim %s reported", task, owners[task.ID])
 		}
+	}
+}
+
+// An agent reads the list to find work, and on a list that has run for a
+// while nearly every row is finished. The default read is the open work as
+// titles, and a list the limit cut says so rather than passing for whole.
+func TestTheTaskListDefaultsToOpenWorkAndSaysWhenItWasCut(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	worker := h.addSessionRow(t, "worker")
+	ids := make([]string, 0, 4)
+	for _, title := range []string{"add the column", "backfill it", "write the docs", "verify"} {
+		created, err := h.sessions.CreateTask(h.caller.ID, title, "the full instruction for "+title, nil)
+		if err != nil {
+			t.Fatalf("CreateTask: %v", err)
+		}
+		ids = append(ids, created.ID)
+	}
+	for _, id := range ids[:2] {
+		if _, err := h.sessions.ClaimTask(h.caller.ID, id); err != nil {
+			t.Fatalf("ClaimTask: %v", err)
+		}
+		if _, err := h.sessions.FinishTask(h.caller.ID, id); err != nil {
+			t.Fatalf("FinishTask: %v", err)
+		}
+	}
+	if _, err := h.sessions.ClaimTask(worker, ids[2]); err != nil {
+		t.Fatalf("ClaimTask: %v", err)
+	}
+
+	open, err := h.sessions.Tasks(h.caller.ID, TaskListOptions{})
+	if err != nil {
+		t.Fatalf("Tasks: %v", err)
+	}
+	if open.Matched != 2 || open.Returned != 2 || open.Truncated {
+		t.Fatalf("default list = %d of %d, truncated %t; want the 2 open tasks", open.Returned, open.Matched, open.Truncated)
+	}
+	for _, task := range open.Tasks {
+		if task.State == store.TaskDone {
+			t.Fatalf("the default list carried finished work: %+v", task)
+		}
+		if task.Body != "" {
+			t.Fatalf("the default list carried %s's body", task.ID)
+		}
+	}
+
+	everything, err := h.sessions.Tasks(h.caller.ID, TaskListOptions{IncludeDone: true, IncludeBody: true, Limit: 3})
+	if err != nil {
+		t.Fatalf("Tasks: %v", err)
+	}
+	if everything.Matched != 4 || everything.Returned != 3 || !everything.Truncated {
+		t.Fatalf("limited list = %d of %d, truncated %t; want 3 of 4, truncated", everything.Returned, everything.Matched, everything.Truncated)
+	}
+	if everything.Tasks[0].Body == "" {
+		t.Fatal("a list that asked for bodies came back without them")
+	}
+	if text := FormatTaskList(everything); !strings.Contains(text, "(3 of 4 matching tasks; narrow state or mine, or raise limit)") {
+		t.Fatalf("the rendering does not say the list was cut:\n%s", text)
+	}
+
+	done, err := h.sessions.Tasks(h.caller.ID, TaskListOptions{State: []string{"done"}, Mine: true})
+	if err != nil {
+		t.Fatalf("Tasks: %v", err)
+	}
+	if done.Matched != 2 || !done.Tasks[0].Mine || !done.Tasks[1].Mine {
+		t.Fatalf("the caller's finished work = %+v", done.Tasks)
+	}
+	theirs, err := h.sessions.Tasks(worker, TaskListOptions{Mine: true})
+	if err != nil {
+		t.Fatalf("Tasks: %v", err)
+	}
+	if theirs.Matched != 1 || theirs.Tasks[0].ID != ids[2] {
+		t.Fatalf("the worker's own claims = %+v", theirs.Tasks)
+	}
+
+	if _, err := h.sessions.Tasks(h.caller.ID, TaskListOptions{State: []string{"finished"}}); err == nil ||
+		!strings.Contains(err.Error(), "use pending, in_progress or done") {
+		t.Fatalf("an unknown state = %v", err)
+	}
+	if _, err := h.sessions.Tasks(h.caller.ID, TaskListOptions{Limit: MaxTaskLimit + 1}); err == nil ||
+		!strings.Contains(err.Error(), "out of range") {
+		t.Fatalf("a limit past the maximum = %v", err)
 	}
 }

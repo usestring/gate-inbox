@@ -78,6 +78,8 @@ internal/store/inboxsubject_test.go
 internal/store/reservation_test.go
 internal/store/store.go
 internal/store/store_test.go
+internal/store/tasks.go
+internal/store/tasks_test.go
 internal/store/timeenc_test.go
 internal/sysstat/mem_darwin.go
 internal/sysstat/mem_other.go

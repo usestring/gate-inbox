@@ -597,6 +597,11 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	// stopped -- is spawned_by, set below to the caller at whatever depth,
 	// because the caller is the session that wanted the work done. See
 	// store/spawner.go for what reading both off parent_id cost.
+	//
+	// A detached spawn has nothing to flatten: it is a top-level row in the
+	// group asked for, whatever depth the caller sits at. Filing it under the
+	// caller's parent would put it back into that parent's fan-out and group,
+	// which is the one thing nest false asks for not to happen.
 	parentID := ""
 	create := runtime.store.LaunchSession
 	if nest {
@@ -608,8 +613,6 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 				return runtime.store.LaunchSessionBeside(row, caller.ID, launch)
 			}
 		}
-	} else if caller.ParentID != "" {
-		parentID = caller.ParentID
 	}
 	name := strings.TrimSpace(opts.Name)
 	autoNamed := name == ""

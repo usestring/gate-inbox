@@ -51,6 +51,11 @@ func (m *Model) triageRankOf(sess store.Session) int {
 	if tier := m.extAttention[sess.ID].Rank.tier(); tier != "" {
 		return triageRank(tier)
 	}
+	// A stale label is ranked as what the screen shows -- a session at
+	// rest -- rather than as what the label claims.
+	if m.isStale(sess) {
+		return triageRank(status.Idle)
+	}
 	return triageRank(sess.Status)
 }
 
@@ -90,7 +95,7 @@ func (m *Model) needsPerson(sess store.Session) bool {
 // the queue of sessions that are has been answered it is the next thing a
 // drain can usefully put in front of the operator -- a session with nothing
 // running is one that could be given work. Working, starting and dead stay
-// off: entering a mid-turn session is the one thing triage must never do,
+// off, bar a working or starting label flagged stale (see stalestatus.go): entering a mid-turn session is the one thing triage must never do,
 // and a dead pane cannot be entered.
 //
 // The rail paints this, the mute keys read it and the walk above filters on
@@ -101,7 +106,11 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 	if m.needsPerson(sess) {
 		return true
 	}
-	return sess.Status == status.Idle && !m.ownedByExtension(sess.ID)
+	// A stale working or starting label is walkable for the same reason an
+	// idle one is: the screen under it has not moved in hours, so entering
+	// cannot interrupt a turn, and a person looking is the only way the
+	// misread gets noticed.
+	return (sess.Status == status.Idle || m.isStale(sess)) && !m.ownedByExtension(sess.ID)
 }
 
 // triageLess sorts by whether a person is needed, then the status rank, then

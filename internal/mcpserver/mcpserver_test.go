@@ -87,6 +87,7 @@ type fakeSessionCommands struct {
 	waitedUntil    []string
 	waitedTimeout  time.Duration
 	tasks          []sessioncmd.Task
+	taskListOpts   sessioncmd.TaskListOptions
 	taskTitle      string
 	taskBody       string
 	taskDeps       []string
@@ -214,8 +215,9 @@ func (f *fakeSessionCommands) Archive(_ string, id string, archived bool) (sessi
 	return updated, f.err
 }
 
-func (f *fakeSessionCommands) Tasks(string) ([]sessioncmd.Task, error) {
-	return f.tasks, f.err
+func (f *fakeSessionCommands) Tasks(_ string, opts sessioncmd.TaskListOptions) (sessioncmd.TaskList, error) {
+	f.taskListOpts = opts
+	return sessioncmd.TaskList{Tasks: f.tasks, Matched: len(f.tasks), Returned: len(f.tasks)}, f.err
 }
 
 func (f *fakeSessionCommands) CreateTask(_ string, title, body string, dependsOn []string) (sessioncmd.Task, error) {
@@ -1027,6 +1029,18 @@ func TestTaskToolsForwardArgumentsAndRenderTheList(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("task list text missing %q: %s", want, text)
 		}
+	}
+	if !reflect.DeepEqual(fake.taskListOpts, sessioncmd.TaskListOptions{}) {
+		t.Fatalf("a bare list forwarded %+v, want the zero options", fake.taskListOpts)
+	}
+	if _, isError := callText(t, session, "task", map[string]any{
+		"action": "list", "state": []string{"done"}, "include_done": true, "mine": true, "include_body": true, "limit": 7,
+	}); isError {
+		t.Fatal("a narrowed task list errored")
+	}
+	want := sessioncmd.TaskListOptions{State: []string{"done"}, IncludeDone: true, Mine: true, IncludeBody: true, Limit: 7}
+	if !reflect.DeepEqual(fake.taskListOpts, want) {
+		t.Fatalf("list forwarded %+v, want %+v", fake.taskListOpts, want)
 	}
 
 	if _, isError := callText(t, session, "task", map[string]any{

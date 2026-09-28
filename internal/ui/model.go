@@ -261,6 +261,10 @@ type Model struct {
 	// pane-derived because nothing is writing their hook file. See
 	// hooklessGlyph for what the row does with it.
 	hookless map[string]bool
+	// stale mirrors refreshMsg.stale: the rows whose working or starting
+	// label has held over an unchanged screen past the threshold. See
+	// stalestatus.go.
+	stale map[string]bool
 	// history is the full-text index over the board's transcripts, nil when
 	// disabled or unavailable. historyHits is the last answer, valid for
 	// historyQuery alone; historySeq tags the debounce timer so only the
@@ -827,6 +831,9 @@ type refreshMsg struct {
 	// its status file. Replaced whole each pass like queuedMessages, which is
 	// what makes the mark lapse the moment a relaunch restores the flag.
 	hookless map[string]bool
+	// stale is every session whose status has outlived its screen, replaced
+	// whole each pass so the flag lapses the moment the screen moves.
+	stale map[string]bool
 }
 
 // previewMsg is every pane frame the model receives. There used to be three
@@ -1092,6 +1099,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		visible: true,
 	}
 	model.poller.interruptKeys = interruptKeys
+	model.poller.staleAfter = cfg.StaleStatusAfter.Duration
 	model.ownPane, model.ownSocket = tmux.OwnPane()
 	model.initDeviceTheme()
 	model.loadKeys()
@@ -1955,6 +1963,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.searchText = msg.searchText
 		m.answerableWait = msg.answerableWait
 		m.hookless = msg.hookless
+		m.stale = msg.stale
 		if msg.snapOK {
 			m.snap = msg.snap
 			m.updateNetRates(msg.snap)

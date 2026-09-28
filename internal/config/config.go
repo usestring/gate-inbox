@@ -19,6 +19,11 @@ import (
 // board of ninety agents wakes up over minutes rather than all at once.
 const defaultNameSweepPace = 3 * time.Second
 
+// defaultStaleStatusAfter is how long a working or starting label may sit
+// over a screen that has not changed before the board calls it stale. Far
+// past any turn that is actually running: a turn that long still paints.
+const defaultStaleStatusAfter = 2 * time.Hour
+
 // defaultChildAutoArchive is how long a finished child that never reported
 // back stays on the list.
 const defaultChildAutoArchive = 30 * time.Minute
@@ -35,11 +40,16 @@ type Tool struct {
 	// keys that write into a pane refuse it, since a sentence typed at a
 	// shell is a command. Never inferred, so a tool block only means this
 	// when its author said so.
-	Shell         bool     `toml:"shell"`
-	ReviveCommand string   `toml:"revive_command"`
-	PromptFlag    string   `toml:"prompt_flag"`
-	PromptMode    string   `toml:"prompt_mode"`
-	InterruptKeys []string `toml:"interrupt_keys"`
+	Shell         bool   `toml:"shell"`
+	ReviveCommand string `toml:"revive_command"`
+	PromptFlag    string `toml:"prompt_flag"`
+	PromptMode    string `toml:"prompt_mode"`
+	// TypedPromptPrefixes are openings the CLI reads as something other than
+	// a prompt when they lead an argument: pi takes "@file" as an attachment
+	// and "-x" as an option. A launch prompt starting with one is typed into
+	// the pane, as prompt_mode "send" does, instead of riding the command line.
+	TypedPromptPrefixes []string `toml:"typed_prompt_prefixes"`
+	InterruptKeys       []string `toml:"interrupt_keys"`
 	// EchoBudget bounds the after-keystroke chase on this tool's panes: how
 	// long the focused view keeps looking for the repaint a key caused before
 	// leaving it to the tick. It is per tool because agent TUIs differ by
@@ -52,6 +62,14 @@ type Tool struct {
 	// claude "--session-id <uuid>"), so revive can later resume that
 	// exact conversation deterministically.
 	SessionIDFlag string `toml:"session_id_flag"`
+	// AddDirFlag grants a session access to one more directory than the one
+	// it starts in (claude/codex "--add-dir <dir>"). It is only used when a
+	// spawn's pane has to open somewhere other than the directory it asked
+	// for: the agent is told to change into that directory, but a CLI that
+	// scopes its permissions to where it started would still deny or ask
+	// about the first write there. Left unset, such a launch carries only
+	// the change-directory note, which is all a tool without the flag gets.
+	AddDirFlag string `toml:"add_dir_flag"`
 	// ModelFlag launches a session on a chosen model rather than the CLI's
 	// own default (claude/codex/opencode "--model <name>"). Left unset, this
 	// tool has no way to be told, and a session asking for a model on it is
@@ -285,11 +303,16 @@ type Config struct {
 	// Every message it sends starts a turn in somebody's live agent, so the
 	// sweep is paced rather than fired at once; a slower machine or a larger
 	// board wants a longer gap.
-	NameSweepPace Duration     `toml:"name_sweep_pace"`
-	Log           Log          `toml:"log"`
-	Children      Children     `toml:"children"`
-	Work          Work         `toml:"work"`
-	Integrations  Integrations `toml:"integrations"`
+	NameSweepPace Duration `toml:"name_sweep_pace"`
+	// StaleStatusAfter is how long a session may read working or starting
+	// with nothing on its screen changing before its row is flagged stale:
+	// the label has outlived any turn it could describe, so it is more
+	// likely a misread than a long turn.
+	StaleStatusAfter Duration     `toml:"stale_status_after"`
+	Log              Log          `toml:"log"`
+	Children         Children     `toml:"children"`
+	Work             Work         `toml:"work"`
+	Integrations     Integrations `toml:"integrations"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see
@@ -428,6 +451,9 @@ func mergeTool(name string, user, def Tool) Tool {
 	fill(&user.AccountsCommand, def.AccountsCommand)
 	fill(&user.PromptFlag, def.PromptFlag)
 	fill(&user.PromptMode, def.PromptMode)
+	if len(user.TypedPromptPrefixes) == 0 {
+		user.TypedPromptPrefixes = def.TypedPromptPrefixes
+	}
 	if len(user.InterruptKeys) == 0 {
 		user.InterruptKeys = def.InterruptKeys
 	}
@@ -435,6 +461,7 @@ func mergeTool(name string, user, def Tool) Tool {
 		user.EchoBudget = def.EchoBudget
 	}
 	fill(&user.SessionIDFlag, def.SessionIDFlag)
+	fill(&user.AddDirFlag, def.AddDirFlag)
 	fill(&user.ResumeByIDCommand, def.ResumeByIDCommand)
 	fill(&user.ForkCommand, def.ForkCommand)
 	fill(&user.ForkDialogOption, def.ForkDialogOption)
@@ -606,6 +633,9 @@ func (c *Config) applyDefaults() {
 	if c.NameSweepPace.Duration <= 0 {
 		c.NameSweepPace.Duration = defaultNameSweepPace
 	}
+	if c.StaleStatusAfter.Duration <= 0 {
+		c.StaleStatusAfter.Duration = defaultStaleStatusAfter
+	}
 	if c.Children.AutoArchiveAfter.Duration <= 0 {
 		c.Children.AutoArchiveAfter.Duration = defaultChildAutoArchive
 	}
@@ -773,6 +803,9 @@ models = ["sonnet", "sonnet[1m]", "opus", "opus[1m]", "haiku"]
 # revive (v) launches a new session with this id, so it can later resume
 # that exact conversation regardless of what else ran in the directory
 session_id_flag = "--session-id"
+# a spawn whose pane opens outside the directory it asked for is granted
+# that directory too, so its first write there is not denied
+add_dir_flag = "--add-dir"
 resume_by_id_command = "claude --resume {id}"
 fork_command = "claude --resume {id} --fork-session --session-id {new_id} --name {name}"
 # Resuming a large conversation opens a dialog offering a summary instead,
@@ -889,6 +922,8 @@ rules = [
 command = "opencode"
 # No model_flag: opencode's TUI has none, so the manager writes the chosen
 # "provider/model" into the generated OPENCODE_CONFIG instead.
+# No add_dir_flag: opencode has no flag granting a second directory, so a
+# spawn diverted to another directory is only told to change into it.
 # every provider/model pair this login can reach, one per line
 models_command = "opencode models"
 # opencode mints its own session id; capture it after launch and resume it
@@ -988,6 +1023,8 @@ rules = [
 command = "codex"
 # codex-cli 0.153.4: -m, --model <MODEL>
 model_flag = "--model"
+# codex-cli 0.157.0: --add-dir <DIR>, writable alongside the primary workspace
+add_dir_flag = "--add-dir"
 # codex repaints a typed character in 27-45ms against Claude Code's 10-25ms,
 # so the default chase gives up mid-repaint and the key waits for a tick
 echo_budget = "90ms"

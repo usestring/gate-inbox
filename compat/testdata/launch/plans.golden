@@ -50,7 +50,7 @@ plan.command: claude 'Your working directory for this task is /srv/example/moved
 
 First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
 
-Fix the flaky widget test and report what changed.' --session-id <uuid>
+Fix the flaky widget test and report what changed.' --session-id <uuid> --add-dir '/srv/example/moved'
 plan.launch_prompt: "Your working directory for this task is /srv/example/moved. This session was started in a different directory, so change into it first with \"cd '/srv/example/moved'\". If it is not there, stop and say so rather than working anywhere else.\n\nFirst, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): \"$GATE_INBOX_BIN\" rename \"<name>\". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:\n\nFix the flaky widget test and report what changed."
 plan.agent_session_id: "<uuid>"
 plan.model: ""
@@ -59,7 +59,7 @@ launch.command: claude 'Your working directory for this task is /srv/example/mov
 
 First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
 
-Fix the flaky widget test and report what changed.' --session-id <uuid> --mcp-config '<scratch>/home/hooks/gate-inbox-mcp-claude.json' --settings '<scratch>/home/hooks/claude-settings.json'
+Fix the flaky widget test and report what changed.' --session-id <uuid> --add-dir '/srv/example/moved' --mcp-config '<scratch>/home/hooks/gate-inbox-mcp-claude.json' --settings '<scratch>/home/hooks/claude-settings.json'
 launch.env.EXAMPLE_API_KEY=<redacted>
 launch.env.GATE_INBOX_BIN=<scratch>/home/bin/gate-inbox
 launch.env.GATE_INBOX_EXIT_FILE=<scratch>/home/hooks/cafe0001.exit
@@ -148,7 +148,7 @@ plan.command: codex 'Your working directory for this task is /srv/example/moved.
 
 First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
 
-Fix the flaky widget test and report what changed.'
+Fix the flaky widget test and report what changed.' --add-dir '/srv/example/moved'
 plan.launch_prompt: "Your working directory for this task is /srv/example/moved. This session was started in a different directory, so change into it first with \"cd '/srv/example/moved'\". If it is not there, stop and say so rather than working anywhere else.\n\nFirst, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): \"$GATE_INBOX_BIN\" rename \"<name>\". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:\n\nFix the flaky widget test and report what changed."
 plan.agent_session_id: ""
 plan.model: ""
@@ -157,7 +157,7 @@ launch.command: codex 'Your working directory for this task is /srv/example/move
 
 First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:
 
-Fix the flaky widget test and report what changed.' -c 'mcp_servers.gate-inbox.command="<scratch>/home/bin/gate-inbox"' -c 'mcp_servers.gate-inbox.args=["mcp"]' -c 'mcp_servers.gate-inbox.env_vars=["GATE_INBOX_SESSION_ID"]'
+Fix the flaky widget test and report what changed.' --add-dir '/srv/example/moved' -c 'mcp_servers.gate-inbox.command="<scratch>/home/bin/gate-inbox"' -c 'mcp_servers.gate-inbox.args=["mcp"]' -c 'mcp_servers.gate-inbox.env_vars=["GATE_INBOX_SESSION_ID"]'
 launch.env.EXAMPLE_API_KEY=<redacted>
 launch.env.GATE_INBOX_BIN=<scratch>/home/bin/gate-inbox
 launch.env.GATE_INBOX_EXIT_FILE=<scratch>/home/hooks/cafe0001.exit

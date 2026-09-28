@@ -9,6 +9,10 @@ on:
 permissions:
   pull-requests: read
 
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   conventional:
     runs-on: ubuntu-latest

@@ -15,8 +15,11 @@ on:
 permissions:
   contents: read
 
+# One release at a time across main and hand-pushed tags. A queued run is
+# never cancelled mid-release; a newer push replaces an older queued one,
+# which is safe because semantic-release reads every commit since the last tag.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 env:

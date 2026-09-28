@@ -158,6 +158,11 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 		m.errBar.text = "account routing changed: choose a CLI"
 		return m, nil
 	}
+	if !m.groupStillOpen(msg.group) {
+		m.openAgentPick()
+		m.errBar.text = "group changed: choose a CLI"
+		return m, nil
+	}
 	for _, name := range m.enabledToolNames() {
 		if name == msg.name {
 			return m.spawnInstantIn(name, msg.group)
@@ -166,6 +171,27 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 	m.openPinnedAgentPick(msg)
 	m.errBar.text = "chosen CLI is disabled: choose another"
 	return m, nil
+}
+
+// groupStillOpen reports whether group can still take a new session: the top
+// level, or a group that exists and is not archived. The store is read rather
+// than the last poll, because a rename or archive finished during the quota
+// read may not have reached the model yet.
+func (m *Model) groupStillOpen(group string) bool {
+	if group == "" {
+		return true
+	}
+	groups, err := m.store.Groups()
+	if err != nil {
+		return false
+	}
+	names := make([]string, len(groups))
+	archived := make(map[string]bool, len(groups))
+	for i, g := range groups {
+		names[i] = g.Name
+		archived[g.Name] = g.Archived
+	}
+	return groupClosure(names, m.sessions)[group] && !store.EffectivelyArchived(archived, group)
 }
 
 func (m *Model) openPinnedAgentPick(msg autoRouteMsg) {

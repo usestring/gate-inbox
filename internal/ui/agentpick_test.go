@@ -197,6 +197,50 @@ func TestAutoRouteRefusesALaunchAfterAccountRoutingChanged(t *testing.T) {
 	}
 }
 
+func TestAutoRouteRefusesAGroupChangedDuringTheQuotaRead(t *testing.T) {
+	for _, change := range []struct {
+		name  string
+		apply func(*testing.T, *Model)
+	}{
+		{"renamed", func(t *testing.T, m *Model) {
+			if err := m.store.RenameGroup("origin", "renamed"); err != nil {
+				t.Fatal(err)
+			}
+			m.renameGroupLocally("origin", "renamed", m.groupPaths["origin"])
+		}},
+		{"archived", func(t *testing.T, m *Model) {
+			if err := m.store.SetGroupArchived("origin", true); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			m := buildModel(t)
+			groupAt(t, m, "origin", filepath.Join(t.TempDir(), "origin-repo"))
+			m.newSessionAgent = newSessionAgentAuto
+			m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
+				if name != "ready-tool" {
+					return autoroute.Reading{}, autoroute.ErrNoQuota
+				}
+				now := time.Now()
+				return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 10, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
+			})
+			_, cmd := m.startNewSession()
+			if cmd == nil {
+				t.Fatal("auto route did not start a quota read")
+			}
+			change.apply(t, m)
+			m.update(cmd())
+			if m.mode != modeAgentPick || len(m.sessionRows()) != 0 {
+				t.Fatalf("%s group left mode %v with %d sessions, want the picker and none", change.name, m.mode, len(m.sessionRows()))
+			}
+			if !strings.Contains(m.errBar.text, "group changed") {
+				t.Fatalf("missing group-change explanation: %q", m.errBar.text)
+			}
+		})
+	}
+}
+
 func TestAutoRouteFallsBackToCLIPickerWhenQuotaUnavailable(t *testing.T) {
 	m := buildModel(t)
 	m.newSessionAgent = newSessionAgentAuto

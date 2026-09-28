@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/config"
@@ -98,12 +99,41 @@ func Reader(tools map[string]config.Tool) ReadFunc {
 	}
 }
 
+const quotaOutputLimit = 1 << 20
+
+var errQuotaOutputTooLarge = errors.New("quota command output exceeds the limit")
+
+// cappedOutput holds a quota command's stdout and stops it at the limit, so
+// an unbounded stream is cut off while it is being read rather than after.
+type cappedOutput struct {
+	buf      bytes.Buffer
+	overflow func()
+}
+
+func (c *cappedOutput) Write(p []byte) (int, error) {
+	if c.buf.Len()+len(p) > quotaOutputLimit {
+		c.overflow()
+		return 0, errQuotaOutputTooLarge
+	}
+	return c.buf.Write(p)
+}
+
+// commandQuota runs a custom quota_command in its own process group, so a
+// deadline or an oversized stream kills everything it started; WaitDelay
+// bounds the wait on a descendant that escaped the group but kept stdout.
 func commandQuota(ctx context.Context, command string) (Reading, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
-	output, err := cmd.Output()
-	if err != nil || len(output) > 1<<20 {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = time.Second
+	stdout := &cappedOutput{overflow: cancel}
+	cmd.Stdout = stdout
+	if err := cmd.Run(); err != nil {
 		return Reading{}, ErrNoQuota
 	}
+	output := stdout.buf.Bytes()
 	var payload struct {
 		ObservedAt time.Time             `json:"observed_at"`
 		Windows    map[string]wireWindow `json:"windows"`

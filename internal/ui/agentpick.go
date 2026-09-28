@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"time"
 
@@ -87,6 +88,8 @@ func (m *Model) startNewSession() (tea.Model, tea.Cmd) {
 
 type autoRouteMsg struct {
 	name     string
+	names    []string
+	active   map[string]int
 	group    string
 	row      treeRow
 	selected bool
@@ -119,21 +122,33 @@ func (m *Model) startAutoRoute() (tea.Model, tea.Cmd) {
 		m.errBar.text = "quota unavailable: choose a CLI"
 		return m, nil
 	}
+	row, selected := m.selectedRow()
+	return m, m.autoRouteCmd(autoRouteMsg{names: names, active: m.activeByTool(), group: m.contextGroup(), row: row, selected: selected, mode: mode})
+}
+
+// activeByTool counts the sessions each CLI already has in flight, which the
+// score reserves quota for.
+func (m *Model) activeByTool() map[string]int {
 	active := map[string]int{}
 	for _, session := range m.sessions {
 		if !session.Archived && (session.Status == status.Working || session.Status == status.Starting || session.Status == status.Waiting) {
 			active[session.Tool]++
 		}
 	}
+	return active
+}
+
+// autoRouteCmd reads quota and scores req.names against req.active, handing
+// the rest of req back with the choice.
+func (m *Model) autoRouteCmd(req autoRouteMsg) tea.Cmd {
 	m.autoRouting = true
 	router := m.autoRouter
-	group := m.contextGroup()
-	row, selected := m.selectedRow()
-	return m, func() tea.Msg {
+	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		name, err := router.Choose(ctx, names, active, time.Now())
-		return autoRouteMsg{name: name, group: group, row: row, selected: selected, mode: mode, err: err}
+		msg := req
+		msg.name, msg.err = router.Choose(ctx, req.names, req.active, time.Now())
+		return msg
 	}
 }
 
@@ -164,6 +179,13 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 		m.openPinnedAgentPick(msg)
 		m.errBar.text = "account routing changed: choose a CLI"
 		return m, nil
+	}
+	// Work that started during the read changes the reserve the score holds
+	// back, so the choice is made again against the counts as they are now.
+	// The readings are cached, so the second pass does not wait on quota.
+	if active := m.activeByTool(); !maps.Equal(active, msg.active) {
+		msg.active = active
+		return m, m.autoRouteCmd(msg)
 	}
 	for _, name := range m.enabledToolNames() {
 		if name == msg.name {
@@ -432,7 +454,7 @@ func (m *Model) submitAgentPick() (tea.Model, tea.Cmd) {
 
 // openPinnedTerminal opens the fallback shell beside the row captured when n
 // was pressed, read fresh so a moved pane directory is followed. A session
-// closed meanwhile leaves only its group to open in.
+// closed or archived meanwhile leaves only its group to open in.
 func (m *Model) openPinnedTerminal() (tea.Model, tea.Cmd) {
 	row := m.agentPick.row
 	if !m.agentPick.rowSelected {
@@ -440,7 +462,7 @@ func (m *Model) openPinnedTerminal() (tea.Model, tea.Cmd) {
 	}
 	if !row.isGroup {
 		sess, ok := m.sessionByID(row.sess.ID)
-		if !ok {
+		if !ok || sess.Archived {
 			return m.openTerminalIn(m.agentPick.group)
 		}
 		row.sess = sess

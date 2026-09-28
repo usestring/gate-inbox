@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/autoroute"
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -268,6 +269,75 @@ func TestAutoRouteFallbackPickerDropsAGroupArchivedDuringTheQuotaRead(t *testing
 		if sess.Group == "origin" {
 			t.Fatalf("fallback picker launched %+v into the archived group", sess)
 		}
+	}
+}
+
+func TestAutoRouteFallbackTerminalLeavesASessionArchivedDuringTheQuotaRead(t *testing.T) {
+	m := buildModel(t)
+	groupDir, sessionDir := t.TempDir(), t.TempDir()
+	if err := m.store.CreateGroup("backend", groupDir); err != nil {
+		t.Fatal(err)
+	}
+	createSession(t, m, "agent", sessionDir, "backend")
+	m.selectSessionRow(t, "agent")
+	agent, _ := m.selected()
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	if err := m.store.SetArchived(agent.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	for i := range m.sessions {
+		if m.sessions[i].ID == agent.ID {
+			m.sessions[i].Archived = true
+		}
+	}
+	m.update(cmd())
+	typeInto(t, m, "term")
+	pressKey(t, m, enterKey())
+	var shell store.Session
+	for _, sess := range m.sessions {
+		if m.isShell(sess.Tool) {
+			shell = sess
+		}
+	}
+	if shell.ID == "" || shell.ParentID != "" || shell.Group != "backend" || shell.Cwd != resolved(t, groupDir) {
+		t.Fatalf("fallback terminal = %+v, want an unnested shell in the backend group at %q (error %q)", shell, groupDir, m.errBar.text)
+	}
+}
+
+func TestAutoRouteRescoresWhenWorkStartsDuringTheQuotaRead(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
+		if name != "ready-tool" {
+			return autoroute.Reading{}, autoroute.ErrNoQuota
+		}
+		now := time.Now()
+		// 85% used clears the 10-point reserve for no active work but not
+		// the 15 points one running session adds.
+		return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 85, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
+	})
+	_, cmd := m.startNewSession()
+	if cmd == nil {
+		t.Fatal("auto route did not start a quota read")
+	}
+	m.sessions = append(m.sessions, store.Session{ID: "busy", Tool: "ready-tool", Status: status.Working})
+	_, rescore := m.update(cmd())
+	if rescore == nil {
+		t.Fatalf("new in-flight work did not trigger a rescore (mode %v, error %q)", m.mode, m.errBar.text)
+	}
+	m.update(rescore())
+	for _, sess := range m.sessions {
+		if sess.ID != "busy" && sess.Tool == "ready-tool" {
+			t.Fatalf("auto route launched %+v past the reserve for in-flight work", sess)
+		}
+	}
+	if m.mode != modeAgentPick || !strings.Contains(m.errBar.text, "quota unavailable") {
+		t.Fatalf("rescore left mode %v with error %q, want the quota fallback picker", m.mode, m.errBar.text)
 	}
 }
 

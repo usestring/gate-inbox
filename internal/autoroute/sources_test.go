@@ -9,6 +9,38 @@ import (
 	"time"
 )
 
+// commandQuotaWithin fails the test if commandQuota has not returned by the
+// bound, so a regression shows up as a failure rather than a hung suite.
+func commandQuotaWithin(t *testing.T, ctx context.Context, command string, bound time.Duration) error {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() {
+		_, err := commandQuota(ctx, command)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(bound):
+		t.Fatalf("commandQuota(%q) still running after %v", command, bound)
+		return nil
+	}
+}
+
+func TestCustomQuotaCommandStopsADescendantHoldingStdout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if err := commandQuotaWithin(t, ctx, "sleep 30; echo late", 10*time.Second); err != ErrNoQuota {
+		t.Fatalf("err = %v, want ErrNoQuota", err)
+	}
+}
+
+func TestCustomQuotaCommandStopsAnUnboundedStream(t *testing.T) {
+	if err := commandQuotaWithin(t, context.Background(), "yes", 10*time.Second); err != ErrNoQuota {
+		t.Fatalf("err = %v, want ErrNoQuota", err)
+	}
+}
+
 func TestCodexReadsRecentBackendWindows(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("CODEX_HOME", root)

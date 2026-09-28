@@ -114,6 +114,28 @@ func TestAutoRouteFallbackPickerKeepsTheGroupSelectedWhenNWasPressed(t *testing.
 	}
 }
 
+func TestAutoRouteFallbackTerminalKeepsTheGroupSelectedWhenNWasPressed(t *testing.T) {
+	m := buildModel(t)
+	origin := filepath.Join(t.TempDir(), "origin-repo")
+	groupAt(t, m, "origin", origin)
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	m.selectGroupRow(t, "origin")
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	m.selectGroupRow(t, "elsewhere")
+	m.update(cmd())
+	typeInto(t, m, "term")
+	pressKey(t, m, enterKey())
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || !m.isShell(rows[0].Tool) || rows[0].Group != "origin" || rows[0].Cwd != origin {
+		t.Fatalf("fallback terminal launched %+v, want a shell in the origin group (error %q)", rows, m.errBar.text)
+	}
+}
+
 func TestAutoRouteFallsBackToCLIPickerWhenQuotaUnavailable(t *testing.T) {
 	m := buildModel(t)
 	m.newSessionAgent = newSessionAgentAuto

@@ -108,8 +108,13 @@ func commandQuota(ctx context.Context, command string) (Reading, error) {
 		ObservedAt time.Time             `json:"observed_at"`
 		Windows    map[string]wireWindow `json:"windows"`
 	}
-	if json.Unmarshal(output, &payload) != nil {
+	if json.Unmarshal(output, &payload) != nil || len(payload.Windows) == 0 {
 		return Reading{}, ErrNoQuota
+	}
+	for _, window := range payload.Windows {
+		if usedPercent(window) == nil {
+			return Reading{}, ErrNoQuota
+		}
 	}
 	return Reading{ObservedAt: payload.ObservedAt, Windows: windows(payload.Windows)}, nil
 }

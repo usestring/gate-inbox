@@ -171,3 +171,13 @@ func TestCredentialPathsHonorDirectoryOverrides(t *testing.T) {
 		t.Fatalf("data home = %q, want the ~/.local/share default", got)
 	}
 }
+
+func TestCustomQuotaCommandRejectsAnIncompleteWindow(t *testing.T) {
+	command := `printf '%s' '{"observed_at":"2026-09-28T18:00:00Z","windows":{"monthly":{"utilization":25,"resets_at":"2026-10-23T18:00:00Z","duration_seconds":2592000},"daily":{"utilization":null,"resets_at":"2026-09-29T18:00:00Z","duration_seconds":86400}}}'`
+	if _, err := commandQuota(context.Background(), command); err != ErrNoQuota {
+		t.Fatalf("incomplete window err = %v, want ErrNoQuota", err)
+	}
+	if _, err := commandQuota(context.Background(), `printf '%s' '{"observed_at":"2026-09-28T18:00:00Z","windows":{}}'`); err != ErrNoQuota {
+		t.Fatalf("empty windows err = %v, want ErrNoQuota", err)
+	}
+}

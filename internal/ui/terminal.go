@@ -82,6 +82,32 @@ func (m *Model) openTerminal() (tea.Model, tea.Cmd) {
 		}
 		sess.Group = entry.sess.Group
 	}
+	return m.launchTerminal(toolName, tool, sess)
+}
+
+// openTerminalIn spawns a shell tab in group's default directory, whatever
+// the cursor is on now.
+func (m *Model) openTerminalIn(group string) (tea.Model, tea.Cmd) {
+	toolName, tool, ok := m.shellTool()
+	if !ok {
+		m.errBar.text = `no shell configured: add a tool block with shell = true to config.toml`
+		return m, nil
+	}
+	dir, ok := resolveExistingDir("", m.groupDefaultDir(group))
+	if !ok {
+		m.errBar.text = "no directory to open a terminal in: " + dir
+		return m, nil
+	}
+	return m.launchTerminal(toolName, tool, store.Session{
+		ID:     newID(),
+		Tool:   toolName,
+		Cwd:    dir,
+		Group:  group,
+		Status: status.Starting,
+	})
+}
+
+func (m *Model) launchTerminal(toolName string, tool config.Tool, sess store.Session) (tea.Model, tea.Cmd) {
 	sess.Name = sessioncmd.ShellName(toolName, sess.ParentID, newID()[:4], m.sessions)
 	if err := m.launchNewSession(sess, tool, tool.Command); err != nil {
 		m.errBar.text = err.Error()

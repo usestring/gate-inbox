@@ -376,6 +376,9 @@ func (m *Model) submitAgentPick() (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeList
 	if m.isShell(name) {
+		if m.agentPick.pinned {
+			return m.openTerminalIn(m.agentPick.group)
+		}
 		return m.openTerminal()
 	}
 	if m.agentPick.pinned {

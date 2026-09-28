@@ -156,35 +156,40 @@ func (m *Model) dismissSelected() (tea.Model, tea.Cmd) {
 // means the same thing -- hand over in triage, back to the manager outside it
 // -- rather than reaching the agent in one mode and not the other. That costs
 // the pane a § it will almost never want, and buys an exit the operator does
-// not have to think about. On the list it stays triage-only: outside a queue
-// there is nothing to hand over, and nothing to leave.
+// not have to think about.
 const triageHandoffKey = "§"
 
-// handOverSelected is the handover from the list. Focused, ctrl+q's handover
-// is the way on through the queue; from the list the same request had no key
-// at all -- "." mutes but stays put -- so a drain could only be walked from
-// inside a session. This mutes the row the cursor is on and enters the next
-// session that needs a person, which is the same gesture the focused key
-// performs, minus the leaving.
-func (m *Model) handOverSelected() (tea.Model, tea.Cmd) {
-	if !m.triage {
-		return m, nil
-	}
+// skipSelected is the row's skip key: the dismiss above, and in triage the
+// handover after it, so a drain can be walked from the list without entering
+// a session first. Outside triage there is no queue to walk, so it dismisses
+// and stays put. A muted row is only un-muted: bringing a row back is not a
+// request for the next one.
+func (m *Model) skipSelected() (tea.Model, tea.Cmd) {
 	sess, ok := m.selected()
 	if !ok || sess.Archived {
 		return m, nil
 	}
-	m.errBar.text = ""
-	// Only a session the drain would hand over is on the queue this walks,
-	// so muting anything else would silence a row it was never going to
-	// reach. Pressing on from such a row is still a request for the next
-	// one that does need somebody, and an empty leftID scans from the top.
-	leftID := ""
-	if m.triageWalkable(sess) {
-		m.mute(sess)
-		leftID = sess.ID
+	if m.isMuted(sess) {
+		m.unmute(sess.ID)
+		return m, nil
 	}
-	if cmd := m.advanceTriage(leftID); cmd != nil {
+	if !m.triage {
+		return m.dismissSelected()
+	}
+	m.errBar.text = ""
+	if sess.Status == status.Finished {
+		if err := m.store.AcknowledgeFinished(sess.ID); err != nil {
+			m.errBar.text = err.Error()
+			return m, nil
+		}
+		m.requestRefresh()
+	} else if m.triageWalkable(sess) {
+		m.mute(sess)
+	} else {
+		m.errBar.text = m.displayName(sess) + " is not waiting on you — nothing to skip"
+		return m, nil
+	}
+	if cmd := m.advanceTriage(sess.ID); cmd != nil {
 		return m, cmd
 	}
 	// The queue is drained, but the drain stays open: work arriving on a

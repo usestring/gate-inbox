@@ -288,11 +288,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case keymap.Revive:
 		return m.reviveSelected()
 	case keymap.Dismiss:
-		return m.dismissSelected()
+		return m.skipSelected()
 	case keymap.Priority:
 		return m.cyclePrioritySelected()
-	case keymap.HandOver:
-		return m.handOverSelected()
 	case keymap.ReviveAll:
 		return m.reviveAllDead()
 	case keymap.SwitchAccount:

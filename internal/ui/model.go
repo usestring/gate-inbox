@@ -476,6 +476,13 @@ type Model struct {
 	// the cursor was in when triage was turned on -- and is "" for a drain
 	// of the whole fleet.
 	triageScope string
+	// triageStartupEnter is set when triage was already on at startup, so the
+	// first poll enters the head of the queue the way turning triage on does.
+	// Restoring the mode without the entry leaves the operator on a list they
+	// still have to press enter on. It waits for the first poll because that
+	// pass carries the first real statuses, and for the restore prompt, which
+	// must win the screen when there is one.
+	triageStartupEnter bool
 	// triageResume keeps a drained queue open: a handover that finds nothing
 	// left sets it, and the first poll that brings a session needing a
 	// person picks that session straight up, so work that reaches waiting
@@ -1090,6 +1097,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	model.loadKeys()
 	model.loadSnippets()
 	model.seedFromStore()
+	model.triageStartupEnter = model.triage
 	model.noteOpencodeVersion(opencode.Cached())
 	return model
 }
@@ -1978,6 +1986,25 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if focusClosed {
 			focusExit = tea.Batch(focusExit, m.moveOnFromClosedFocus())
 		}
+		// A board that came up with triage already on enters the head of its
+		// queue once the first pass has settled it, the way turning triage on
+		// does. A startup card keeps the flag: welcome, the restore prompt
+		// and the tmux note all take the screen first, and the entry waits
+		// for the pass after they are gone. Anything else means the operator
+		// is already somewhere on purpose, and the entry stands down.
+		var triageEnter tea.Cmd
+		if m.triageStartupEnter {
+			switch m.mode {
+			case modeList:
+				if m.triage {
+					triageEnter = m.enterTriageHead()
+				}
+				m.triageStartupEnter = false
+			case modeWelcome, modeRestorePrompt, modeTmuxHint:
+			default:
+				m.triageStartupEnter = false
+			}
+		}
 		// A drain that ran out of work left the operator on the list with
 		// the queue still open: the first pass carrying a new session that
 		// needs a person picks it straight up. See triageResume.
@@ -1987,12 +2014,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {
 			m.syncPollInput()
 			m.previewGen++
-			return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick())
+			return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick())
 		}
 		m.proc = msg.proc
 		m.procFor = msg.procFor
 		m.setPreviewAt(msg.preview, msg.previewAt)
-		return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, pickup, m.ownPaneVisibleCmd(), m.startStartupTick())
+		return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick())
 
 	case childSweptMsg:
 		m.applyChildSweep(msg)

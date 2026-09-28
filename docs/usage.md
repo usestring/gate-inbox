@@ -73,8 +73,7 @@ Triage plus two keys is the whole drain. `i` turns triage on and opens the head 
 `alt+\` puts the list away, and `alt+,` hides the footer. Both stay that way as the queue advances, and the
 same keys bring them back. Answering is the only gesture: a dialog answered with `1`-`9` or `enter`
 hands that session over and promotes the next thing waiting on a person. `alt+.` skips the one in
-front of you, `ctrl+\` stops. The queue is one live queue: a session that reaches waiting or
-finished while the first pass is walked joins it in place rather than waiting for another `i`.
+front of you, `.` skips the row under the cursor from the list, `ctrl+\` stops. The queue is one live queue: a session that reaches waiting or finished while the first pass is walked joins it in place rather than waiting for another `i`.
 
 The rest of the session's controls work from inside it: `ctrl+x` ends the session, `alt+n` starts a
 new one in its group, `alt+y` copies the agent's session id, `alt+l` steps back to the one you just

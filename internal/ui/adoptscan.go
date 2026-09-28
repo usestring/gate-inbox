@@ -169,6 +169,10 @@ type adoptRun struct {
 	// onBoard is every gi_ session a row accounts for. Only the manager's own
 	// sessions belong here -- see adoptable.
 	onBoard map[string]bool
+	// homes is the window each gi_ session's own agent runs in, by
+	// managedHomeKey. take fills it from the candidates before deciding any
+	// of them.
+	homes map[string]string
 	// names is every name the board is using, so a new row cannot collide
 	// with one.
 	names    map[string]bool
@@ -213,8 +217,9 @@ func (r *adoptRun) reject(candidate adopt.Candidate, why string, extra ...any) {
 // basenames and can only number them.
 func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (int, error) {
 	var accepted []adoptCandidate
+	r.homes = managedHomes(candidates)
 	for _, candidate := range candidates {
-		if ok, why := adoptable(candidate, r.self, r.known, r.onBoard); !ok {
+		if ok, why := adoptable(candidate, r.self, r.known, r.onBoard, r.homes); !ok {
 			r.reject(candidate, why)
 			continue
 		}
@@ -253,12 +258,12 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 		// candidates naming the same pane -- the same socket reached under
 		// two spellings, say -- cannot both reach creation below.
 		r.known[adoptKey(candidate.Socket, candidate.PaneID)] = true
-		if tmux.Managed(candidate.Session) {
+		if tmux.Managed(candidate.Session) && inHome(candidate, r.homes) {
 			// A recovered gi_ session may have been split into several panes;
-			// one row for it is the recovery, two is a mess. A foreign
-			// session is not claimed: its other windows are other agents, and
-			// the pane key above is what keeps this one from being taken
-			// twice.
+			// one row for it is the recovery, two is a mess. Its other
+			// windows, like every window of a foreign session, are other
+			// agents, and the pane key above is what keeps this one from
+			// being taken twice.
 			r.onBoard[candidate.Session] = true
 		}
 		conversation := ""
@@ -326,7 +331,7 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 }
 
 func (r *adoptRun) rowID(candidate adopt.Candidate) (id string, recovered, ok bool, err error) {
-	if !tmux.Managed(candidate.Session) {
+	if !tmux.Managed(candidate.Session) || !inHome(candidate, r.homes) {
 		return newID(), false, true, nil
 	}
 	id, named := tmux.SessionID(candidate.Session)
@@ -619,12 +624,14 @@ func onBoardSessions(rows []store.Session) map[string]bool {
 // pane: the operator runs a dozen independent agents as windows of a
 // long-lived session called "main", and they share nothing but a name.
 //
-// The session-wide refusal below is only for the manager's own gi_ sessions,
-// and it stays exactly as strict as it was. The manager shares a server with
-// the panes it scans, and taking one of its own sessions a second time would
-// give that pane a row that no longer answers to revive, rename or kill --
-// and a managed session that was split into several panes is one agent, so
-// one row for it is the recovery and two is a mess.
+// The refusal below is only for the home window of the manager's own gi_
+// sessions. The manager shares a server with the panes it scans, and taking
+// one of its own agents a second time would give that pane a row that no
+// longer answers to revive, rename or kill -- and a home window that was split
+// into several panes is one agent, so one row for it is the recovery and two
+// is a mess. Any other window of a gi_ session is a separate agent somebody
+// opened there, and gets its own row like a window of "main" does: refusing
+// the whole session hid every agent a fan-out started beside its coordinator.
 //
 // An gi_ session with no row is the opposite case and the reason the scan
 // looks at its own server at all. It is an orphan -- an agent still running
@@ -635,7 +642,7 @@ func onBoardSessions(rows []store.Session) map[string]bool {
 // Generalising the session refusal to foreign sessions is what made the board
 // unusable: 21 of the operator's 23 running agents were rejected because one
 // other window of the same tmux session already had a row.
-func adoptable(candidate adopt.Candidate, self string, known, onBoard map[string]bool) (bool, string) {
+func adoptable(candidate adopt.Candidate, self string, known, onBoard map[string]bool, homes map[string]string) (bool, string) {
 	key := adoptKey(candidate.Socket, candidate.PaneID)
 	if self != "" && key == self {
 		return false, "the manager's own pane"
@@ -646,13 +653,58 @@ func adoptable(candidate adopt.Candidate, self string, known, onBoard map[string
 	if !tmux.Managed(candidate.Session) {
 		return true, ""
 	}
-	if onBoard[candidate.Session] {
-		// This pane is new, but it is another pane of a managed session a row
-		// already accounts for, so a split window of one of the manager's own
+	if onBoard[candidate.Session] && inHome(candidate, homes) {
+		// This pane is new, but it is another pane of the window a managed
+		// session's row accounts for, so a split of one of the manager's own
 		// agents is passed over.
 		return false, "managed session already has a row"
 	}
 	return true, ""
+}
+
+// managedHomes picks, for each gi_ session among candidates, the window its
+// own agent runs in: the one whose pane runs the session's launch script, or
+// failing that the oldest window still open.
+func managedHomes(candidates []adopt.Candidate) map[string]string {
+	homes := map[string]string{}
+	launched := map[string]bool{}
+	for _, c := range candidates {
+		key := managedHomeKey(c)
+		if c.Window == "" || !tmux.Managed(c.Session) || launched[key] {
+			continue
+		}
+		if id, _ := tmux.SessionID(c.Session); tmux.RunsLaunchScript(c.StartCommand, id) {
+			homes[key] = c.Window
+			launched[key] = true
+			continue
+		}
+		if home, ok := homes[key]; !ok || windowNumber(c.Window) < windowNumber(home) {
+			homes[key] = c.Window
+		}
+	}
+	return homes
+}
+
+// managedHomeKey names a session on one server. Window ids are server-local,
+// so the same session name on two scanned servers has two homes.
+func managedHomeKey(c adopt.Candidate) string {
+	return c.Socket + "\x00" + c.Session
+}
+
+// inHome reports whether a pane is in its session's home window. A pane with
+// no window id, or in a session with no known home, counts as home, which
+// keeps the whole-session refusal wherever the window cannot be told.
+func inHome(c adopt.Candidate, homes map[string]string) bool {
+	home, ok := homes[managedHomeKey(c)]
+	return !ok || c.Window == "" || c.Window == home
+}
+
+func windowNumber(window string) int {
+	n, err := strconv.Atoi(strings.TrimPrefix(window, "@"))
+	if err != nil {
+		return int(^uint(0) >> 1)
+	}
+	return n
 }
 
 // selfPaneKey is the pane the manager itself is drawing in, in the identity

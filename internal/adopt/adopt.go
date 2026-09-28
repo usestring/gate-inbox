@@ -39,6 +39,12 @@ type Candidate struct {
 	// never sufficient: an agent started from a shell often reads as "node".
 	Command string
 	PID     int32
+	// Window is tmux's "@3" for the window holding the pane. Window ids only
+	// grow, so the lowest one in a session is the oldest window still open.
+	Window string
+	// StartCommand is what tmux started the pane with, empty for a pane that
+	// started the default shell.
+	StartCommand string
 }
 
 // Signal is one piece of evidence that a pane is running a given tool.
@@ -219,7 +225,9 @@ func lineProgram(fields []string) string {
 }
 
 // paneFormat is what a scan asks tmux for, in the order Panes parses it.
-const paneFormat = "#{pane_id}\t#{session_name}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}"
+// The start command is last because it is free text; everything after the
+// sixth tab belongs to it.
+const paneFormat = "#{pane_id}\t#{session_name}\t#{pane_pid}\t#{pane_current_command}\t#{pane_current_path}\t#{window_id}\t#{pane_start_command}"
 
 // Panes lists every pane on one tmux server.
 //
@@ -235,9 +243,12 @@ func Panes(socket string) []Candidate {
 		socket = DefaultSocket
 	}
 	var found []Candidate
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		parts := strings.Split(line, "\t")
-		if len(parts) != 5 || parts[0] == "" {
+	// Only the final newline goes: a pane started with the default shell has
+	// an empty start command, and trimming space would take the tab before it
+	// and drop the last pane listed.
+	for _, line := range strings.Split(strings.TrimSuffix(string(out), "\n"), "\n") {
+		parts := strings.SplitN(line, "\t", 7)
+		if len(parts) != 7 || parts[0] == "" {
 			continue
 		}
 		pid, err := strconv.ParseInt(parts[2], 10, 32)
@@ -245,12 +256,14 @@ func Panes(socket string) []Candidate {
 			continue
 		}
 		found = append(found, Candidate{
-			Socket:  socket,
-			PaneID:  parts[0],
-			Session: parts[1],
-			PID:     int32(pid),
-			Command: parts[3],
-			Cwd:     parts[4],
+			Socket:       socket,
+			PaneID:       parts[0],
+			Session:      parts[1],
+			PID:          int32(pid),
+			Command:      parts[3],
+			Cwd:          parts[4],
+			Window:       parts[5],
+			StartCommand: parts[6],
 		})
 	}
 	return found

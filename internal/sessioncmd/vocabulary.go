@@ -18,6 +18,7 @@ type Vocabulary struct {
 	ListGroups     string
 	CreateGroup    string
 	CreateTerminal string
+	SpawnTool      string
 	Revive         string
 	Restore        string
 	Send           string
@@ -34,6 +35,7 @@ func MCPVocabulary() Vocabulary {
 		ListGroups:     "list_groups",
 		CreateGroup:    "create_group",
 		CreateTerminal: "create_terminal",
+		SpawnTool:      "create_session tool",
 		Revive:         "revive_session",
 		Restore:        "archive_session archived false",
 		Send:           "send_session",
@@ -68,6 +70,7 @@ func CLIVocabulary() Vocabulary {
 		ListGroups:     cliCommand + " groups",
 		CreateGroup:    cliCommand + " create-group",
 		CreateTerminal: cliCommand + " terminal create",
+		SpawnTool:      cliCommand + " spawn --tool",
 		Revive:         cliCommand + " revive",
 		Restore:        cliCommand + " archive --restore",
 		Send:           cliCommand + " send",

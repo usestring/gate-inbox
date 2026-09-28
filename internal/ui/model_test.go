@@ -574,3 +574,28 @@ func TestUnchangedWindowSizeRepaintsTheBackdrop(t *testing.T) {
 		t.Fatalf("resume returned %T, want a full-screen clear", got)
 	}
 }
+
+// The launch paths that run without a manager read the box out of the
+// store, so the manager has to keep it current there.
+func TestRefreshPublishesThePaneSize(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "sized", t.TempDir(), "")
+	m.applyCmd(t, m.refreshCmd())
+	width, height, err := m.store.PaneSize()
+	if err != nil {
+		t.Fatalf("pane size: %v", err)
+	}
+	if width != m.previewPaneWidth() || height != m.previewPaneHeight() {
+		t.Fatalf("published %dx%d, want %dx%d", width, height, m.previewPaneWidth(), m.previewPaneHeight())
+	}
+
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 150, Height: 45})
+	*m = *updated.(*Model)
+	width, height, err = m.store.PaneSize()
+	if err != nil {
+		t.Fatalf("pane size after resize: %v", err)
+	}
+	if width != m.previewPaneWidth() || height != m.previewPaneHeight() {
+		t.Fatalf("after a resize published %dx%d, want %dx%d", width, height, m.previewPaneWidth(), m.previewPaneHeight())
+	}
+}

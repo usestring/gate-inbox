@@ -4,7 +4,6 @@ package ui
 
 import (
 	"fmt"
-	"github.com/usestring/gate-inbox/internal/keymap"
 	"strings"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/adopt"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -225,7 +225,7 @@ func (m *Model) sessionsInGroup(path string) []store.Session {
 // sessions share a directory.
 func (m *Model) degradedResumeNotice(sess store.Session) string {
 	tool, ok := m.cfg.Tools[sess.Tool]
-	if !ok || sess.AgentSessionID != "" || tool.ResumeByIDCommand == "" {
+	if !ok || sess.AgentSessionID != "" || tool.ResumeByIDCommand == "" || tool.ResumePickerCommand != "" {
 		return ""
 	}
 	return fmt.Sprintf("revived %s with --continue: no conversation id captured, may resume the wrong conversation", sess.Name)
@@ -841,19 +841,27 @@ func (m *Model) snapshotLive(sessions []store.Session, live map[string]bool) err
 // on the commit landing between one kill and the next: one contended write
 // lock for the batch is enough.
 func (m *Model) archiveConfirmed(live map[string]bool) string {
-	var failed []string
 	if m.confirm.keepChildren {
 		m.confirm.sessions = withoutSessions(m.confirm.sessions, m.confirm.keptChildren)
 	}
+	return m.archiveSessions(m.confirm.sessions, m.confirm.isGroup, m.confirm.path, live)
+}
+
+// archiveSessions is the teardown itself, for a dialog's answer or for the
+// child sweep that files a finished child away with nobody at the keys: the
+// same kills, the same end records and the same single commit either way.
+// path is the group a group archive files once its sessions are gone.
+func (m *Model) archiveSessions(sessions []store.Session, isGroup bool, path string, live map[string]bool) string {
+	var failed []string
 	// A parent leaving the list takes its fold with it, so a new session
 	// reusing the id cannot inherit somebody else's decision.
-	for _, sess := range m.confirm.sessions {
+	for _, sess := range sessions {
 		if m.hasChildren(sess.ID) {
 			m.clearChildFold(sess.ID)
 		}
 	}
-	targets := make([]killTarget, 0, len(m.confirm.sessions))
-	for _, sess := range m.confirm.sessions {
+	targets := make([]killTarget, 0, len(sessions))
+	for _, sess := range sessions {
 		if !m.paneIsLive(sess, live) {
 			// Nothing to end. The row is still filed away below, which is
 			// what archiving a dead session has always done.
@@ -878,9 +886,9 @@ func (m *Model) archiveConfirmed(live map[string]bool) string {
 	}
 
 	done := 0
-	filed := make([]string, 0, len(m.confirm.sessions))
+	filed := make([]string, 0, len(sessions))
 	killed := make([]string, 0, len(targets))
-	for _, sess := range m.confirm.sessions {
+	for _, sess := range sessions {
 		if err := killErrs[sess.ID]; err != nil {
 			failed = append(failed, err.Error())
 			continue
@@ -904,7 +912,7 @@ func (m *Model) archiveConfirmed(live map[string]bool) string {
 		filed = append(filed, sess.ID)
 		// A group archive leaves the launch record alone, the way it always
 		// has: restoring the group revives from it.
-		if !m.confirm.isGroup {
+		if !isGroup {
 			m.forgetLaunch(sess.ID)
 		}
 		done++
@@ -935,15 +943,17 @@ func (m *Model) archiveConfirmed(live map[string]bool) string {
 	// The group row itself only follows its sessions once they have all
 	// gone; a group marked archived over a session still running is the
 	// stranding this is here to avoid.
-	if m.confirm.isGroup && len(failed) == 0 {
-		if err := m.store.SetGroupArchived(m.confirm.path, true); err != nil {
+	if isGroup && len(failed) == 0 {
+		if err := m.store.SetGroupArchived(path, true); err != nil {
 			failed = append(failed, err.Error())
+		} else {
+			m.markGroup(m.confirm.path, goneMark{archived: true})
 		}
 	}
 	if len(failed) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("archived %d of %d: %s", done, len(m.confirm.sessions), strings.Join(failed, "; "))
+	return fmt.Sprintf("archived %d of %d: %s", done, len(sessions), strings.Join(failed, "; "))
 }
 
 // markArchivedLocally files rows away in the list on screen, matching the
@@ -963,6 +973,9 @@ func (m *Model) markArchivedLocally(ids []string, missing []string) {
 		if filed[m.sessions[i].ID] {
 			m.sessions[i].Archived = true
 		}
+	}
+	for id := range filed {
+		m.markSession(id, goneMark{archived: true})
 	}
 }
 
@@ -1008,6 +1021,7 @@ func (m *Model) sweepArchivesBefore(cutoff time.Time) tea.Cmd {
 	}
 	for _, path := range removed {
 		delete(m.collapsed, path)
+		m.markGroup(path, goneMark{deleted: true})
 	}
 	if len(removed) > 0 {
 		m.persistCollapsed()
@@ -1177,6 +1191,17 @@ func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	// The card advertises its answer and n/esc; any other key leaves it up
+	// rather than dismissing a question the operator has not answered.
+	if !confirmed {
+		switch msg.String() {
+		case "ctrl+c":
+			return m, tea.Quit
+		case "n", "esc":
+		default:
+			return m, nil
+		}
+	}
 	fromFocus, answered := m.confirm.fromFocus, false
 	// A relaunch the manager refused opened the hint dialog, and a triage
 	// advance has already focused the session it moved on to; either owns
@@ -1251,12 +1276,14 @@ func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.errBar.text = err.Error()
 					return m, nil
 				}
+				m.markRestoredLocally(sess.ID)
 			}
 			if m.confirm.isGroup {
 				if err := m.store.SetGroupArchived(m.confirm.path, false); err != nil {
 					m.errBar.text = err.Error()
 					return m, nil
 				}
+				m.markGroup(m.confirm.path, goneMark{archived: false})
 			}
 			m.errBar.text = ""
 		case actionRestart:
@@ -1341,8 +1368,34 @@ func (m *Model) deleteSessions(sessions []store.Session) error {
 		if err := m.store.Delete(sess.ID); err != nil {
 			return err
 		}
+		m.removeSessionLocally(sess.ID)
 	}
 	return nil
+}
+
+// removeSessionLocally drops a deleted row from the list on screen and
+// records it, so a poll that listed the store before the delete cannot put
+// it back for a frame.
+func (m *Model) removeSessionLocally(id string) {
+	kept := make([]store.Session, 0, len(m.sessions))
+	for _, sess := range m.sessions {
+		if sess.ID != id {
+			kept = append(kept, sess)
+		}
+	}
+	m.sessions = kept
+	m.markSession(id, goneMark{deleted: true})
+}
+
+// markRestoredLocally brings a restored row back to the live list on this
+// frame, and keeps a stale poll from filing it away again.
+func (m *Model) markRestoredLocally(id string) {
+	for i := range m.sessions {
+		if m.sessions[i].ID == id {
+			m.sessions[i].Archived = false
+		}
+	}
+	m.markSession(id, goneMark{archived: false})
 }
 
 // withoutSessions drops a set of rows from a batch, for the archive that was

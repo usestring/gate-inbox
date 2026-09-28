@@ -5,6 +5,7 @@ package ui
 import (
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -61,18 +62,23 @@ func (m *Model) cursorCell(paneLines int) (row, col int, ok bool) {
 	return row, cursor.x, true
 }
 
-// paneRowOffset is how many captured rows the panel dropped off the top.
-// A capture taller than the box is painted from its bottom, so a painted
-// row and the pane's own row differ by exactly that many lines.
+// paneRowOffset is how many captured rows the panel dropped off the top,
+// which is exactly what separates a painted row from the pane's own row.
+// It reads the same crop window the renderer paints, so caret and mouse
+// coordinates can never drift from what the user sees.
 func (m *Model) paneRowOffset(paneLines int) int {
-	if paneLines <= 0 {
-		return 0
+	_, start := paneWindow(m.preview, paneLines, m.paneCaretRow())
+	return start
+}
+
+// paneCaretRow is the capture row the live caret sits on, or -1 when no
+// caret is in play. The crop keeps this row painted whatever the blank
+// rows around it look like: it is where typing lands.
+func (m *Model) paneCaretRow() int {
+	if m.mode != modeFocus || !m.pane.cursor.ok || m.scrolledBack() {
+		return -1
 	}
-	captured := len(strings.Split(strings.TrimSuffix(m.preview, "\n"), "\n"))
-	if captured <= paneLines {
-		return 0
-	}
-	return captured - paneLines
+	return m.pane.cursor.y
 }
 
 // focusSelection is a text selection drawn over the focused pane. anchor
@@ -114,7 +120,7 @@ func (m *Model) paneCell(x, y int) (row, col int, ok bool) {
 // same slice the renderer paints, so selection indices line up with what
 // is on screen.
 func (m *Model) paneTextLines() []string {
-	rows := paneExact(m.preview, m.pane.box.height, m.pane.box.width)
+	rows := paneExact(m.preview, m.pane.box.height, m.pane.box.width, m.paneCaretRow())
 	if m.showsConversation() {
 		rows = m.conversationRows(m.pane.box.width, m.pane.box.height)
 	}
@@ -151,7 +157,7 @@ func (m *Model) handleFocusMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	if _, press := msg.(tea.MouseClickMsg); press && mouse.Mod.Contains(tea.ModAlt) && m.pane.mouse && !m.showsConversation() {
 		if row, col, inside := m.paneCell(mouse.X, mouse.Y); inside {
-			m.sel = focusSelection{}
+			m.clearSelection()
 			m.pending = pendingClick{}
 			m.forwardingMouse = true
 			m.forwardingButton = mouseButton(mouse.Button)
@@ -172,7 +178,7 @@ func (m *Model) handleFocusMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 		row, col, ok := m.paneCell(mouse.X, mouse.Y)
 		if !ok {
-			m.sel = focusSelection{}
+			m.clearSelection()
 			return m, nil
 		}
 		// A repeated press at the same cell is the user asking for a word or
@@ -231,11 +237,22 @@ func (m *Model) handleFocusMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 // deferClick parks a press until motion or release resolves the gesture,
-// recording it as the start of a possible double or triple click run.
+// recording it as the start of a possible double or triple click run. The
+// press drops the earlier selection whichever way it resolves: a highlight
+// left standing under a click elsewhere reads as still selected.
 func (m *Model) deferClick(button, row, col int) {
+	m.clearSelection()
 	m.pending = pendingClick{active: true, button: button, row: row, col: col}
 	m.sel.lastClick, m.sel.lastRow, m.sel.lastCol = time.Now(), row, col
 	m.sel.clickCount = 1
+}
+
+// clearSelection drops the highlight along with the copy confirmation that
+// belongs to it.
+func (m *Model) clearSelection() {
+	m.sel = focusSelection{}
+	m.copied = 0
+	m.copyGen++
 }
 
 // clickRunContinues reports whether a press at this cell extends the click
@@ -261,6 +278,20 @@ func (m *Model) forwardClick(button, row, col int) {
 	m.sendFocusReport(press + release)
 }
 
+// endForwardedGesture closes a gesture the pane's application is still
+// holding, for the paths that leave focus between a forwarded press and
+// its release, which would leave it tracking a button nobody is holding.
+func (m *Model) endForwardedGesture() {
+	if !m.forwardingMouse {
+		return
+	}
+	paneRow := m.forwardingRow + m.paneRowOffset(m.pane.box.height)
+	if release, ok := m.mouseReport(m.forwardingButton, true, m.forwardingCol, paneRow); ok {
+		m.sendFocusReport(release)
+	}
+	m.clearForwardingMouse()
+}
+
 func (m *Model) clearForwardingMouse() {
 	m.forwardingMouse = false
 	m.forwardingButton = leftButton
@@ -284,6 +315,7 @@ func (m *Model) startSelection(row, col int) {
 // motion turned into a drag anchors here without widening the run.
 func (m *Model) beginSelection(row, col int) {
 	m.copied = 0
+	m.copyGen++
 	m.sel.active = true
 	m.sel.dragging = true
 	m.sel.anchorRow, m.sel.anchorCol = row, col
@@ -475,17 +507,30 @@ func (m *Model) copySelectionCmd() tea.Cmd {
 	if strings.TrimSpace(text) == "" {
 		return nil
 	}
+	gen := m.copyGen
+	return copyTextCmd(text, func(chars int) tea.Msg {
+		return focusCopiedMsg{chars: chars, gen: gen}
+	})
+}
+
+// copyTextCmd writes text to the system clipboard off the update loop:
+// WriteText waits up to three seconds on the platform's copy command,
+// which would freeze the UI for that long.
+func copyTextCmd(text string, done func(chars int) tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		if err := clipboard.WriteText(text); err != nil {
 			return errMsg{err}
 		}
-		return focusCopiedMsg{chars: len([]rune(text))}
+		return done(utf8.RuneCountInString(text))
 	}
 }
 
 // focusCopiedMsg reports a finished clipboard write so the status line can
 // confirm it.
-type focusCopiedMsg struct{ chars int }
+type focusCopiedMsg struct {
+	chars int
+	gen   int
+}
 
 // renderPaneRow draws one captured pane row, overlaying the selection when
 // it covers part of it. The agent's own styling survives on both sides of

@@ -15,6 +15,16 @@ if [[ -r "$file" ]]; then
     printf '%s\n' "$line"
     sleep 0.12
   done <"$file"
+  # A transcript file whose last line carries no trailing newline stops there
+  # on purpose: it is how a scenario leaves the pane's caret at the end of the
+  # line the agent last drew, which is where a resting CLI parks it. With a
+  # trailing newline the caret falls to the blank row below, and a change that
+  # reads the caret's position -- what Left or Right means at a prompt -- has
+  # no frame it can be recorded in. The read above stops at EOF with that
+  # partial line still in $line, so printing it here is the whole of it.
+  if [[ -n "${line:-}" ]]; then
+    printf '%s' "$line"
+  fi
 else
   printf 'demo-agent: no transcript %s\n' "$transcript"
 fi

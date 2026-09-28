@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -27,6 +28,11 @@ const defaultStaleStatusAfter = 2 * time.Hour
 // defaultChildAutoArchive is how long a finished child that never reported
 // back stays on the list.
 const defaultChildAutoArchive = 30 * time.Minute
+
+// defaultFinishedChildGrace is how long a finished child whose spawner has
+// taken in the finish stays on the list, so the spawner can still send it a
+// follow-up.
+const defaultFinishedChildGrace = 10 * time.Minute
 
 type Rule struct {
 	State   string `toml:"state"`
@@ -110,6 +116,10 @@ type Tool struct {
 	// with the session's agent id. Preferred over ReviveCommand, which only
 	// resumes the working directory's most recent conversation.
 	ResumeByIDCommand string `toml:"resume_by_id_command"`
+	// ResumePickerCommand launches the tool's own session picker when revive
+	// has no captured conversation id, instead of the blind revive_command
+	// fallback, which resumes the directory's newest conversation.
+	ResumePickerCommand string `toml:"resume_picker_command"`
 	// ForkCommand creates a new conversation from an existing one. Templates
 	// can use {id}, {new_id}, and {name}; Gate Inbox quotes each value.
 	ForkCommand string `toml:"fork_command"`
@@ -182,13 +192,13 @@ type Tool struct {
 	// otherwise settle the turn.
 	LimitLine string `toml:"limit_line"`
 	// ArrowDialogLine is the keybinding legend of a dialog that navigates
-	// with the horizontal arrows, which is what decides whether Left still
+	// with the horizontal arrows, which is what decides whether Right still
 	// belongs to the pane once a dialog has parked the caret on its own
 	// selection marker. A dialog that only advertises "↑/↓ to navigate" does
-	// nothing with Left, so Left is free to mean "back to the list" there --
+	// nothing with Right, so Right is free to mean "back to the list" there --
 	// and being able to step out of a session while it is asking something is
 	// the case that matters, since that is when the operator most wants to
-	// leave it and come back. Left unset, no dialog claims the arrows.
+	// leave it and come back. With it unset, no dialog claims the arrows.
 	//
 	// Write it against the legend line itself, never against a bare glyph:
 	// it is matched over the whole pane, and an arrow there is ordinary
@@ -199,11 +209,11 @@ type Tool struct {
 	// DialogStepRow is the question stepper a dialog draws above its options
 	// ("←  ☐ Shape  ☐ Scope  ✔ Submit  →"), and DialogStepEntry one entry on
 	// it. Together they answer the question the legend cannot: which step is
-	// live. Left is the previous question everywhere but the first entry, and
-	// on the first entry it does nothing at all, so that is the one place it
-	// is free to mean "back to the list". Matched against the raw capture,
+	// live. Right is the next question everywhere but the last entry, and on
+	// the last entry it does nothing at all, so that is the one place it is
+	// free to mean "back to the list". Matched against the raw capture,
 	// since the active entry is marked by the background colour it is drawn
-	// on. Left unset, no dialog has a stepper and the legend decides alone.
+	// on. With it unset, no dialog has a stepper and the legend decides alone.
 	DialogStepRow   string `toml:"dialog_step_row"`
 	DialogStepEntry string `toml:"dialog_step_entry"`
 	// ScrolledLine is the affordance a tool draws while its own viewport is
@@ -251,6 +261,15 @@ type Children struct {
 	// that did report is archived as soon as the report lands, whatever this
 	// says. A child with a live pane is never swept, whatever its status.
 	AutoArchiveAfter Duration `toml:"auto_archive_after"`
+	// FinishedGrace is how long a finished child is kept after its spawner
+	// took the finish in -- the rest notice was delivered, or the spawner
+	// read or waited on it -- before the board archives it. A child that is
+	// waiting, working, errored, spawned with keep, or has live children of
+	// its own is never archived this way.
+	FinishedGrace Duration `toml:"finished_grace"`
+	// KeepFinished turns that off board-wide: finished children stay until
+	// someone archives them.
+	KeepFinished bool `toml:"keep_finished"`
 }
 
 // Work configures what the board does with the pull requests and tickets its
@@ -426,6 +445,17 @@ const busyLineEveryKind = `^[✻✳✶✽✢·✦✧+*] (?:Waiting for \d+ backg
 // current pattern; one edited by hand keeps what its author wrote.
 const waitingEnterToConfirmBare = `Enter to confirm`
 
+// codexTurnEndRuleOnly, codexChromeLineMCPOnly and codexWorkingNoHints are
+// the codex patterns shipped before codex 0.154 moved the turn end to a dim
+// label under the reply and 0.157 parked hint rows above the composer. A
+// config carrying any of them verbatim was written by an older release and
+// takes the current pattern; one edited by hand keeps what its author wrote.
+const codexTurnEndRuleOnly = `(?m)^(?:─+ Worked for [\dhms. ]+─.*|─{20,}\s*)$`
+
+const codexChromeLineMCPOnly = `^\s*─*\s*$|^⚠ (?:The \S+ MCP server is not logged in\. Run \x60codex mcp login \S+\x60\.|MCP startup incomplete \(failed: [^)]+\))$`
+
+const codexWorkingNoHints = `(?m)^[ \t]*(?:• )?[^\n]*\([\dhms. ]+ [•·] esc to interrupt\)(?: · [^\n]*)?[ \t]*\n(?:[ \t]+└[^\n]*\n(?:[ \t]{4}[^\n]*\n)*)?[ \t\n]*\z`
+
 // mergeTool returns user with any zero-value field filled from def.
 //
 // Shell is deliberately not among them. "terminal" is a plausible name for
@@ -463,6 +493,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	fill(&user.SessionIDFlag, def.SessionIDFlag)
 	fill(&user.AddDirFlag, def.AddDirFlag)
 	fill(&user.ResumeByIDCommand, def.ResumeByIDCommand)
+	fill(&user.ResumePickerCommand, def.ResumePickerCommand)
 	fill(&user.ForkCommand, def.ForkCommand)
 	fill(&user.ForkDialogOption, def.ForkDialogOption)
 	if len(user.ForkDialogKeys) == 0 {
@@ -492,8 +523,11 @@ func mergeTool(name string, user, def Tool) Tool {
 		if user.ActivityCutoff == `(?m)^›` {
 			user.ActivityCutoff = def.ActivityCutoff
 		}
-		if user.ChromeLine == `^\s*─*\s*$` {
+		if user.ChromeLine == `^\s*─*\s*$` || user.ChromeLine == codexChromeLineMCPOnly {
 			user.ChromeLine = def.ChromeLine
+		}
+		if user.TurnEnd == codexTurnEndRuleOnly {
+			user.TurnEnd = def.TurnEnd
 		}
 	}
 	if name == "claude" && (user.BusyLine == busyLineAgentsOnly || user.BusyLine == busyLineShellsOnly || user.BusyLine == busyLineEveryKind) {
@@ -508,7 +542,7 @@ func mergeTool(name string, user, def Tool) Tool {
 		user.Rules = withDialogRules(user.Rules, def.Rules, opencodeDialogSamples)
 	} else if name == "codex" {
 		for i, rule := range user.Rules {
-			if rule.State != "working" || rule.Pattern != `(?m)esc to interrupt\b` {
+			if rule.State != "working" || (rule.Pattern != `(?m)esc to interrupt\b` && rule.Pattern != codexWorkingNoHints) {
 				continue
 			}
 			for _, current := range def.Rules {
@@ -639,6 +673,9 @@ func (c *Config) applyDefaults() {
 	if c.Children.AutoArchiveAfter.Duration <= 0 {
 		c.Children.AutoArchiveAfter.Duration = defaultChildAutoArchive
 	}
+	if c.Children.FinishedGrace.Duration <= 0 {
+		c.Children.FinishedGrace.Duration = defaultFinishedChildGrace
+	}
 	if c.Tools == nil {
 		c.Tools = map[string]Tool{}
 	}
@@ -650,11 +687,14 @@ func (c *Config) applyDefaults() {
 	}
 }
 
+// ToolNames lists the configured tools by name, so a sentence naming them
+// reads the same on every run.
 func (c Config) ToolNames() []string {
 	names := make([]string, 0, len(c.Tools))
 	for name := range c.Tools {
 		names = append(names, name)
 	}
+	slices.Sort(names)
 	return names
 }
 
@@ -807,6 +847,7 @@ session_id_flag = "--session-id"
 # that directory too, so its first write there is not denied
 add_dir_flag = "--add-dir"
 resume_by_id_command = "claude --resume {id}"
+resume_picker_command = "claude --resume"
 fork_command = "claude --resume {id} --fork-session --session-id {new_id} --name {name}"
 # Resuming a large conversation opens a dialog offering a summary instead,
 # with the summary preselected -- and a fork answered that way keeps a
@@ -859,28 +900,29 @@ limit_line = "(?m)You've hit your .+limit"
 scrolled_line = "Jump to bottom \\(ctrl\\+End\\)"
 # The key that affordance names, for the board to press itself rather than ask.
 jump_to_bottom_key = "C-End"
-# A dialog claims Left only where it says so: in the "… to navigate" segment of
+# A dialog claims an arrow only where it says so: in the "… to navigate" segment of
 # its own keybinding legend. Reading a loose ← or → anywhere in the pane is what
 # pinned the operator, because a multi-question dialog draws a decorative
 # "←  ☐ Shape  ☐ Scope  ✔ Submit  →" stepper above its options while its legend
 # says "↑/↓ to navigate · n to add notes · Tab to switch questions" -- Tab is what
-# steps between questions, not Left -- and because ordinary prose carries arrows
+# steps between questions, not Right -- and because ordinary prose carries arrows
 # too. So require the arrow wording inside that one segment: "Tab/Arrow keys to
-# navigate" claims Left, "↑/↓ to navigate" leaves it alone, and a permission
+# navigate" claims the arrows, "↑/↓ to navigate" leaves them alone, and a permission
 # prompt ("Enter to confirm · Esc to cancel") has no such segment at all.
 arrow_dialog_line = "(?i)\\x{B7} [^\\x{B7}\\n]*(?:Arrow keys|\\x{2190}|\\x{2192})[^\\x{B7}\\n]* to navigate\\b"
 # The question stepper, drawn above the options whenever the dialog has more
 # than one step: "←  ☐ Shape  ☐ Scope  ✔ Submit  →" for three questions, and
 # "←  ☐ Checks  ✔ Submit  →" for a single multi-select one, which has the
-# question and Submit. Where it sits decides Left, because Left IS the stepper:
-# one entry in, Left steps back a question; on the first entry it does nothing
-# (measured live -- the pane comes back byte for byte identical), so only there
-# is it free to leave. A dialog with no stepper falls back to the legend above.
+# question and Submit. Where it sits decides Right, because Right IS the
+# stepper's way forward: short of the last entry, Right steps on to the next
+# question; on the last entry it does nothing (measured live -- the pane comes
+# back byte for byte identical), so only there is it free to leave. A dialog
+# with no stepper falls back to the legend above.
 #
 # The entry glyph carries whether the step has been ANSWERED, so the class
 # needs every state a step is drawn in: an answered question comes back ☒, and
 # a class missing it leaves nothing visible to the left of the live entry, so a
-# later question reads as the first and Left leaves instead of stepping back.
+# later question reads as the last and Right leaves instead of stepping on.
 dialog_step_row = "^[ \\x{A0}]*\\x{2190}[ \\x{A0}].*[ \\x{A0}]\\x{2192}[ \\x{A0}]*$"
 dialog_step_entry = "[\\x{2610}-\\x{2612}\\x{2714}]"
 rules = [
@@ -959,7 +1001,7 @@ activity_cutoff = "(?m)^\\s*╹"
 # composer names itself here. The bar alone is the marker: tmux trims a row's
 # trailing blanks, so an empty composer row is the bar and nothing else, and a
 # marker that demanded the box's padding would miss exactly the empty prompt
-# Left is meant to leave from.
+# Right is meant to leave from.
 input_line = "^[ \\x{A0}]*┃"
 # The finished-turn row: "Build · DeepSeek V4 Pro (New) · 4.8s · 66.7 tok/s".
 # The anchor is the duration itself: a digit-led "· 4.8s" / "· 1m 22s", then
@@ -976,9 +1018,9 @@ turn_end = "^ *[^ ┃].*· \\d+(?:\\.\\d+)?[hms](?: \\d+[hms])*(?: · [\\d.]+ to
 chrome_line = "^\\s*(┃.*)?$|^ {40,}\\S.*$"
 limit_line = "(?i)requires more credits|(?:Usage|Free|Go) limit reached"
 # The permission overlay steps its options with the horizontal arrows
-# ("ctrl+f fullscreen  ⇆ select  enter confirm"), so Left belongs to the pane
-# there. A question dialog instead names "↑↓ select" -- "⇆ tab" only where
-# there is something to tab between -- so Left is spare and leaves focus.
+# ("ctrl+f fullscreen  ⇆ select  enter confirm"), so the arrows belong to the
+# pane there. A question dialog instead names "↑↓ select" -- "⇆ tab" only where
+# there is something to tab between -- so Right is spare and leaves focus.
 # Keyed on "⇆ select" rather than a bare ⇆ for that reason: the tab segment
 # must not pin the operator in a dialog that is asking them something.
 arrow_dialog_line = "\\x{21C6} select"
@@ -1038,6 +1080,7 @@ echo_budget = "90ms"
 # codex mints its own session id; capture it after launch and resume it
 session_store = "codex"
 resume_by_id_command = "codex resume {id}"
+resume_picker_command = "codex resume"
 fork_command = "codex fork {id}"
 # fallback: resumes the most recent session in the working directory
 revive_command = "codex resume --last"
@@ -1063,8 +1106,14 @@ input_line = "^›"
 # printed above it. That way round is the cheap one: the turn is still live, the
 # \z-anchored working rule below still matches it, and the next poll of a
 # settled turn reads the whole thing.
-turn_end = "(?m)^(?:─+ Worked for [\\dhms. ]+─.*|─{20,}\\s*)$"
-chrome_line = '^\s*─*\s*$|^⚠ (?:The \S+ MCP server is not logged in\. Run \x60codex mcp login \S+\x60\.|MCP startup incomplete \(failed: [^)]+\))$'
+#
+# Codex 0.154 closes a turn on a dim label under the reply instead ("  02:41",
+# "  done 2:41 AM", "  Worked for 1m 5s · 02:41", "  Sep 3 at 02:41"), with the
+# opt-in runtime metrics after it ("· Local tools: 2 calls (1.2s) • ...").
+turn_end = "(?m)^(?:─+ Worked for [\\dhms. ]+─.*|─{20,}\\s*|  (?:Worked for [\\dhms ]+ · )?(?:done )?(?:[A-Z][a-z]{2} \\d{1,2}(?:, \\d{4})? at )?\\d{1,2}:\\d{2}(?: [AP]M)?(?: · (?:Local tools: |Inference: |WebSocket: |Streams?: |\\d+ events received |Responses API |TTFT: |TBT: )[^\\n]*)?)$"
+# Codex 0.157 parks right-aligned hint rows (usage warning, tip, scroll and
+# copy notices) between the transcript and the composer.
+chrome_line = '^\s*─*\s*$|^⚠ (?:The \S+ MCP server is not logged in\. Run \x60codex mcp login \S+\x60\.|MCP startup incomplete \(failed: [^)]+\))$|^\s+(?:⚠|↓|Tip: |Copied )'
 limit_line = "(?m)You've hit your usage limit"
 rules = [
   # bottom-pane dialogs (command approval, choice prompts, first-run trust)
@@ -1072,9 +1121,11 @@ rules = [
   { state = "waiting", pattern = "(?m)^\\s*›\\s+\\d+\\." },
   { state = "waiting", pattern = "(?m)Press enter to (confirm|continue)\\b" },
   { state = "waiting", pattern = "(?m)enter to submit answer\\b" },
+  # the 0.157 rate-limit model-switch dialog
+  { state = "waiting", pattern = "(?m)^\\s*enter select · esc back\\b" },
   # active status row is the final row above the input box; anchoring its full
   # shape keeps an answer that quotes "esc to interrupt" from looking active
-  { state = "working", pattern = "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?[ \\t\\n]*\\z" },
+  { state = "working", pattern = "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?(?:[ \\t]*\\n|[ \\t]+(?:⚠|↓|Tip: |Copied )[^\\n]*\\n)*[ \\t\\n]*\\z" },
   { state = "errored", pattern = "(?im)^\\s*■.*\\berror\\b" },
 ]
 

@@ -16,6 +16,7 @@ import (
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/git"
 	"github.com/usestring/gate-inbox/internal/hooks"
@@ -114,6 +115,10 @@ type CreateSessionOptions struct {
 	// makes a sibling, which is the only way to put a spawned session in
 	// another group -- the store forces a child into its parent's.
 	Nest *bool
+	// Keep exempts the child from automatic cleanup: the board never files
+	// it away on its own, and cleanup_children takes it only when asked for
+	// all. See cleanupchildren.go.
+	Keep bool
 }
 
 type Sessions struct {
@@ -133,7 +138,7 @@ func NewSessions(configDir string, words Vocabulary) *Sessions {
 
 func newSessions(configDir string, words Vocabulary, newDriver func(socket string) (*tmux.Driver, error), newGit func() (*git.Driver, error)) *Sessions {
 	return &Sessions{
-		commands:   commands{configDir: configDir, words: words, newDriver: newDriver},
+		commands:   commands{configDir: configDir, words: words, newDriver: newDriver, loadConfig: config.LoadDir},
 		newGit:     newGit,
 		claudeHome: convo.ClaudeHome(),
 		roots:      migrate.DefaultRoots(),
@@ -563,6 +568,12 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	}
 	toolName := strings.TrimSpace(opts.Tool)
 	if toolName == "" {
+		// A spawn with no tool named runs whatever the caller runs, which a
+		// terminal cannot supply: its tool is the user's shell. Guessing an
+		// agent for it would start a CLI nobody asked for.
+		if runtime.cfg.Tools[caller.Tool].Shell {
+			return Session{}, fmt.Errorf("a terminal runs a shell, not an agent CLI, so there is none to inherit; name one with %s (configured tools are %s)", runtime.words.SpawnTool, strings.Join(agentToolNames(runtime), ", "))
+		}
 		toolName = caller.Tool
 	}
 	tool, known := runtime.cfg.Tools[toolName]
@@ -691,7 +702,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	}
 	launched := false
 	if err := create(sess, func() error {
-		err := runtime.driver.Create(sess.ID, launchDir, command, env, 0, 0)
+		err := runtime.createPane(sess.ID, launchDir, command, env)
 		launched = err == nil
 		return err
 	}); err != nil {
@@ -701,6 +712,11 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		return Session{}, err
 	}
 	accounts.RecordLaunch(runtime.store, sess.ID, sess.Tool, sess.Account)
+	if opts.Keep {
+		if err := runtime.store.SetKeepChild(sess.ID, true); err != nil {
+			return Session{}, err
+		}
+	}
 	sessionhooks.Spawned(sessionHooks, sess, extension.SpawnBySession)
 	logging.Info("session created by an agent",
 		"caller", caller.ID, "callerTool", caller.Tool,
@@ -1173,6 +1189,7 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 		}
 	}
 	pane = strings.TrimRight(ansi.Strip(pane), "\r\n")
+	noteSpawnerRead(runtime, sessionID, target)
 
 	cursor, delta, note, readable := s.readDelta(target, since)
 	screen = SessionScreen{
@@ -1315,6 +1332,10 @@ func (s *Sessions) Revive(sessionID, targetID string) (revived Session, err erro
 // days, invisible on the active list. The board path has always killed;
 // only this one did not, so the same verb meant two different things
 // depending on who called it.
+//
+// Archiving takes the target's fan-out with it, every session it spawned at
+// any depth, for the same reason: a parent filed away leaves nobody to steer
+// the children still under it. Restoring brings back the target alone.
 func (s *Sessions) Archive(sessionID, targetID string, archived bool) (filed Session, err error) {
 	// Archiving a running session also ends it, so this is two commands wide
 	// depending on the flag; the flag is on the span for that reason.
@@ -1334,6 +1355,11 @@ func (s *Sessions) Archive(sessionID, targetID string, archived bool) (filed Ses
 	}
 	if target.ID == sessionID && archived {
 		return Session{}, errors.New("a session cannot archive itself")
+	}
+	if archived {
+		if err := s.fileDescendants(runtime, target, sessionID); err != nil {
+			return Session{}, err
+		}
 	}
 	return s.file(runtime, target, archived)
 }

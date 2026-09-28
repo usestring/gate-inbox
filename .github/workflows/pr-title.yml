@@ -1,0 +1,42 @@
+name: PR title
+
+# The repository squash-merges, so a pull request's title becomes the commit
+# subject on main, and the release workflow versions from those subjects.
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+
+concurrency:
+  group: pr-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  conventional:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Reads the title through the API and never checks out the pull
+      # request's code, which is what makes pull_request_target safe here.
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            revert
+            chore
+            docs
+            ci
+            test
+            build
+            style
+          requireScope: false
+          subjectPattern: ^[^\s].*[^.]$
+          subjectPatternError: |
+            The subject "{subject}" in "{title}" must not start with whitespace or end with a period.

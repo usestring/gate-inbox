@@ -208,6 +208,10 @@ func (s *Sessions) Wait(ctx context.Context, sessionID string, opts WaitOptions)
 		live[target.ID] = true
 	}
 
+	pending := func(target store.Session) (bool, error) {
+		return runtime.awaitsDelivery(caller.ID, target)
+	}
+
 	for tick := 0; ; tick++ {
 		current := make([]store.Session, 0, len(targets))
 		for _, target := range targets {
@@ -223,12 +227,21 @@ func (s *Sessions) Wait(ctx context.Context, sessionID string, opts WaitOptions)
 		if tick%existsEvery == 0 {
 			runtime.refreshLive(live)
 		}
-		seen, outcome, settled := observeWait(current, live, wanted)
+		seen, outcome, settled, err := observeWait(current, live, wanted, pending)
+		if err != nil {
+			return WaitResult{}, err
+		}
 		if outcome == WaitReached || settled == len(seen) || !time.Now().Before(deadline) {
 			// The cheap ticks trust the last scan; the answer we hand back
 			// is worth one more fork to get right.
 			runtime.refreshLive(live)
-			seen, outcome, _ = observeWait(current, live, wanted)
+			seen, outcome, _, err = observeWait(current, live, wanted, pending)
+			if err != nil {
+				return WaitResult{}, err
+			}
+			for _, observed := range seen {
+				noteSpawnerRead(runtime, caller.ID, observed.session)
+			}
 			return runtime.waitResult(seen, outcome, started)
 		}
 		select {
@@ -255,7 +268,11 @@ type waitObservation struct {
 // The outcome is the best standing in the set, so a death is still what a
 // caller is told about when nothing arrived; the count is what says the set
 // is spent, and only that ends a wait the arrival did not.
-func observeWait(current []store.Session, live, wanted map[string]bool) ([]waitObservation, string, int) {
+//
+// A running session whose status predates a message the caller queued for
+// it is still on the turn before that message, so its state is not an
+// arrival yet.
+func observeWait(current []store.Session, live, wanted map[string]bool, pending func(store.Session) (bool, error)) ([]waitObservation, string, int, error) {
 	seen := make([]waitObservation, 0, len(current))
 	overall := WaitTimedOut
 	settled := 0
@@ -266,8 +283,16 @@ func observeWait(current []store.Session, live, wanted map[string]bool) ([]waitO
 			state = status.Dead
 		}
 		observed := waitObservation{session: sess, running: running, state: state, outcome: WaitTimedOut}
+		reached := wanted[state]
+		if reached && running {
+			awaiting, err := pending(sess)
+			if err != nil {
+				return nil, "", 0, err
+			}
+			reached = !awaiting
+		}
 		switch {
-		case wanted[state]:
+		case reached:
 			observed.outcome = WaitReached
 		case !running:
 			observed.outcome = WaitDied
@@ -280,7 +305,7 @@ func observeWait(current []store.Session, live, wanted map[string]bool) ([]waitO
 		}
 		seen = append(seen, observed)
 	}
-	return seen, overall, settled
+	return seen, overall, settled, nil
 }
 
 // waitTargets resolves what this call parks on. A children wait reads
@@ -359,6 +384,17 @@ func (r *runtime) refreshLive(live map[string]bool) {
 		_, running := panes[id]
 		live[id] = running
 	}
+}
+
+// awaitsDelivery reports a message from the caller that target's status
+// predates, which leaves that status on the turn before the message.
+func (r *runtime) awaitsDelivery(callerID string, target store.Session) (bool, error) {
+	queued, typedSince, err := r.store.HandoffFrom(target.ID, callerID, target.LastStatusAt)
+	if err != nil || typedSince || !queued {
+		return typedSince, err
+	}
+	held, err := r.heldReason(target.ID)
+	return held == "", err
 }
 
 func (r *runtime) waitResult(seen []waitObservation, outcome string, started time.Time) (WaitResult, error) {

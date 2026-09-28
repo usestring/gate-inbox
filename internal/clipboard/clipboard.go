@@ -22,6 +22,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/termseq"
+	"github.com/usestring/gate-inbox/internal/wsl"
 )
 
 // ErrNoImage means the clipboard held no image when it was read.
@@ -48,10 +49,11 @@ var (
 	}
 	// wslProbe reports whether we are running under WSL (Windows clipboard
 	// bridge needed when Linux tools cannot see the host clipboard).
-	wslProbe = detectWSL
+	wslProbe = wsl.Detect
 	getenv   = os.Getenv
 	// emitSeq writes a control sequence to the terminal drawing the app.
 	emitSeq = termseq.Emit
+	remote  = termseq.Remote
 	// readNativeImage is set by platform files (darwin/linux) to an
 	// in-process pasteboard reader. Nil means "use the shell-tool path".
 	// Prefer native: spawning osascript/wl-paste is tens of ms each paste.
@@ -293,19 +295,6 @@ func saveWSLWindowsImage() (string, error) {
 	return path, nil
 }
 
-// detectWSL reports WSL via env or the kernel release string.
-func detectWSL() bool {
-	if os.Getenv("WSL_DISTRO_NAME") != "" || os.Getenv("WSL_INTEROP") != "" {
-		return true
-	}
-	data, err := os.ReadFile("/proc/sys/kernel/osrelease")
-	if err != nil {
-		return false
-	}
-	release := strings.ToLower(string(data))
-	return strings.Contains(release, "microsoft") || strings.Contains(release, "wsl")
-}
-
 // newPasteFile creates an empty paste-* file under pastesDir and returns
 // its absolute path (caller fills it or removes it).
 func newPasteFile(ext string) (string, error) {
@@ -395,9 +384,17 @@ func clipboardText(name, text string) []byte {
 }
 
 // copyCommand picks the platform's clipboard writer. The false return means
-// no local writer can reach a clipboard, which is the headless-host case
-// WriteText answers with OSC 52.
+// no writer here can reach the user's clipboard, on a headless host or one
+// reached over SSH, which WriteText answers with OSC 52.
 func copyCommand() (string, []string, bool) {
+	// Over SSH every writer here fills the remote host's clipboard, except
+	// an X one talking to a display ssh forwarded back to the user.
+	if remote() {
+		if !forwardedDisplay() {
+			return "", nil, false
+		}
+		return xCopyCommand()
+	}
 	switch goos {
 	case "darwin":
 		return "pbcopy", nil, true
@@ -416,19 +413,30 @@ func copyCommand() (string, []string, bool) {
 		if _, err := lookPath("wl-copy"); err == nil {
 			return "wl-copy", nil, true
 		}
-		if _, err := lookPath("xclip"); err == nil {
-			return "xclip", []string{"-selection", "clipboard"}, true
-		}
-		if _, err := lookPath("xsel"); err == nil {
-			return "xsel", []string{"--clipboard", "--input"}, true
-		}
-		return "", nil, false
+		return xCopyCommand()
 	}
+}
+
+func xCopyCommand() (string, []string, bool) {
+	if _, err := lookPath("xclip"); err == nil {
+		return "xclip", []string{"-selection", "clipboard"}, true
+	}
+	if _, err := lookPath("xsel"); err == nil {
+		return "xsel", []string{"--clipboard", "--input"}, true
+	}
+	return "", nil, false
 }
 
 // hasDisplay reports whether a display server this process can reach exists.
 func hasDisplay() bool {
 	return getenv("WAYLAND_DISPLAY") != "" || getenv("DISPLAY") != ""
+}
+
+// forwardedDisplay reports whether DISPLAY is ssh's X11 forward. ssh sets it
+// to host:n, while the remote desktop's own display reads :n.
+func forwardedDisplay() bool {
+	display := getenv("DISPLAY")
+	return display != "" && !strings.HasPrefix(display, ":")
 }
 
 // osc52Limit caps the base64 payload, matching xterm's own OSC 52 ceiling.

@@ -1,0 +1,7 @@
+❯ add the focus exit arrow to the key map
+
+⏺ Done. The key map now names the exit arrow at the prompt's end.
+
+✻ Worked for 41s · done 12:04 AM
+
+❯

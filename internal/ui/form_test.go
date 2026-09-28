@@ -781,6 +781,7 @@ func TestBuildLaunchCarriesSessionID(t *testing.T) {
 func TestSortedToolNamesOrder(t *testing.T) {
 	cfg := config.Config{Tools: map[string]config.Tool{
 		"grok":     {Command: "grok"},
+		"muse":     {Command: "muse"},
 		"gemini":   {Command: "gemini"},
 		"codex":    {Command: "codex"},
 		"claude":   {Command: "claude"},
@@ -790,7 +791,7 @@ func TestSortedToolNamesOrder(t *testing.T) {
 		"acme":     {Command: "acme"},
 	}}
 	got := sortedToolNames(cfg)
-	want := []string{"claude", "codex", "opencode", "acme", "gemini", "grok", "pi", "zephyr"}
+	want := []string{"claude", "codex", "opencode", "acme", "gemini", "grok", "muse", "pi", "zephyr"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("sortedToolNames = %v want %v", got, want)
 	}
@@ -1019,5 +1020,39 @@ func TestTypingACLIAndPressingEnterCreatesIt(t *testing.T) {
 	}
 	if sessions[0].Tool != "quietchat" {
 		t.Fatalf("tool = %q, want the typed CLI rather than the settings default", sessions[0].Tool)
+	}
+}
+
+func TestFormUpDownMoveTheCaretBetweenPromptRows(t *testing.T) {
+	m := buildModel(t)
+	m.openForm()
+	focusFormPrompt(t, m)
+	m.form.prompt.input.SetWidth(40)
+	m.form.prompt.input.SetHeight(formPromptMaxRows)
+	m.form.prompt.input.SetValue("first\nsecond\nthird")
+
+	_, _ = m.handleFormKey(key("up"))
+	if m.form.focus != fieldPrompt || m.form.prompt.input.Line() != 1 {
+		t.Fatalf("up from the last row: focus %v, caret line %d; want the prompt, line 1", m.form.focus, m.form.prompt.input.Line())
+	}
+	_, _ = m.handleFormKey(key("up"))
+	_, _ = m.handleFormKey(key("up"))
+	if m.form.focus == fieldPrompt {
+		t.Fatal("up from the first row should leave the prompt field")
+	}
+
+	m.formFocus(1)
+	if m.form.focus != fieldPrompt {
+		t.Fatalf("focus = %v, want fieldPrompt", m.form.focus)
+	}
+	m.form.prompt.input.SetCursorColumn(0)
+	_, _ = m.handleFormKey(key("down"))
+	if m.form.focus != fieldPrompt || m.form.prompt.input.Line() != 1 {
+		t.Fatalf("down from the first row: focus %v, caret line %d; want the prompt, line 1", m.form.focus, m.form.prompt.input.Line())
+	}
+	_, _ = m.handleFormKey(key("down"))
+	_, _ = m.handleFormKey(key("down"))
+	if m.form.focus == fieldPrompt {
+		t.Fatal("down from the last row should leave the prompt field")
 	}
 }

@@ -167,6 +167,17 @@ func TestFocusWheelScrollsHistory(t *testing.T) {
 	}
 }
 
+// The wheel entry point, not just scrollFocus, has to walk tmux history
+// on a plain pane: this is the path a real wheel notch takes.
+func TestWheelFocusWalksTmuxHistory(t *testing.T) {
+	m, _ := focusedWithHistory(t, "wheel-walk")
+
+	m.wheelFocus(true, m.pane.box.x+2, m.pane.box.y+1)
+	if m.focusScroll == 0 {
+		t.Fatal("wheel did not walk tmux history")
+	}
+}
+
 // A capture scheduled before the preview reflows must not blank the bottom
 // of the resized viewport when its reply arrives afterwards.
 func TestFocusScrollRecapturesAfterPreviewResize(t *testing.T) {
@@ -193,7 +204,7 @@ func TestFocusScrollRecapturesAfterPreviewResize(t *testing.T) {
 	}
 	updated, _ = m.Update(recapture())
 	m = updated.(*Model)
-	if got, want := len(paneExact(m.preview, m.previewPaneHeight(), m.previewPaneWidth())), m.previewPaneHeight(); got != want {
+	if got, want := len(paneExact(m.preview, m.previewPaneHeight(), m.previewPaneWidth(), -1)), m.previewPaneHeight(); got != want {
 		t.Fatalf("scroll frame has %d rows, want %d", got, want)
 	}
 	if !strings.Contains(m.preview, "history-line-") {
@@ -236,7 +247,7 @@ func TestFocusScrollKeepsDeepHistoryFrame(t *testing.T) {
 	}
 	updated, _ := m.Update(msg)
 	m = updated.(*Model)
-	if got, want := len(paneExact(m.preview, m.previewPaneHeight(), m.previewPaneWidth())), m.previewPaneHeight(); got != want {
+	if got, want := len(paneExact(m.preview, m.previewPaneHeight(), m.previewPaneWidth(), -1)), m.previewPaneHeight(); got != want {
 		t.Fatalf("deep frame has %d rows, want %d", got, want)
 	}
 	if !strings.Contains(m.preview, "history-line-") {
@@ -327,6 +338,44 @@ func TestScrollStopsAtHistoryTop(t *testing.T) {
 	// comes back and re-reads for where the wheel ended.
 	if silent != 0 {
 		t.Fatalf("%d of %d notches moved the view without reading the pane", silent, notches)
+	}
+}
+
+// A wheel burst keeps one capture in flight: the first notch issues the
+// fetch, the rest only move the offset, and the reply for a target the
+// wheel has already left issues the single catch-up instead of the burst
+// queueing a full history capture per notch.
+func TestWheelBurstKeepsOneCaptureInFlight(t *testing.T) {
+	m, sessID := focusedWithHistory(t, "burst")
+	if m.pane.history == 0 {
+		t.Skip("pane reported no history")
+	}
+	if cmd := m.scrollFocus(-1); cmd == nil {
+		t.Fatal("the first notch should issue the fetch")
+	}
+	for i := 0; i < 5; i++ {
+		if cmd := m.scrollFocus(-1); cmd != nil {
+			t.Fatal("a notch behind an in-flight capture issued its own fetch")
+		}
+	}
+	moved := m.focusScroll
+	if moved != 6*focusScrollStep && moved != m.pane.history {
+		t.Fatalf("offset = %d after 6 notches, want %d", moved, 6*focusScrollStep)
+	}
+	// The reply for the stale first target fetches the final viewport once.
+	updated, cmd := m.Update(focusScrollMsg{sessID: sessID, offset: focusScrollStep, rows: m.previewPaneHeight(), width: m.previewPaneWidth(), ok: true})
+	*m = *updated.(*Model)
+	if cmd == nil {
+		t.Fatal("the stale reply should issue the catch-up fetch")
+	}
+	// The catch-up's own reply lands on the live target and frees the pipe.
+	updated, _ = m.Update(focusScrollMsg{sessID: sessID, offset: m.focusScroll, rows: m.previewPaneHeight(), width: m.previewPaneWidth(), block: "frame\n", ok: true})
+	*m = *updated.(*Model)
+	if m.focusReading {
+		t.Fatal("a reply at the live target should clear the in-flight guard")
+	}
+	if cmd := m.scrollFocus(-1); cmd == nil && m.focusScroll < m.pane.history {
+		t.Fatal("the next notch after settling should fetch again")
 	}
 }
 
@@ -621,6 +670,36 @@ func TestAppMouseClearsScrollback(t *testing.T) {
 	}
 	if m.preview != "LIVE-FRAME\n" {
 		t.Fatalf("preview = %q, want the live frame", m.preview)
+	}
+}
+
+// The wheel claim a capture carries can be stale: the cached flag trails an
+// app that left mouse mode, and the pane's own history is the tell, since a
+// genuine wheel owner keeps none. A user scrolled into that history must keep
+// their place until the fresh flags arrive.
+func TestStaleMouseClaimDoesNotClearHistoryScroll(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "stale-hold", t.TempDir(), "")
+	m.selectSessionRow(t, "stale-hold")
+	sess := m.rows[m.cursor].sess
+	m.mode = modeFocus
+	m.preview = "SCROLLED-FRAME\n"
+	m.focusScroll = 9
+	m.pane.history = 80
+
+	updated, _ := m.Update(previewMsg{
+		sessID:  sess.ID,
+		at:      time.Now(),
+		preview: "LIVE-FRAME\n",
+		facts:   paneFacts{paneMouse: true, historySize: 80},
+		factsOK: true,
+	})
+	m = updated.(*Model)
+	if m.focusScroll != 9 {
+		t.Fatalf("focusScroll = %d, want the history offset kept", m.focusScroll)
+	}
+	if m.preview != "SCROLLED-FRAME\n" {
+		t.Fatalf("preview = %q, want the scrolled frame held", m.preview)
 	}
 }
 

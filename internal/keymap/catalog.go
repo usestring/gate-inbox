@@ -205,7 +205,7 @@ var Catalog = []Binding{
 	{ContextFocus, NewSession, []string{"alt+n"}, "new session in this one's group", false},
 	{ContextFocus, CopySessionID, []string{"alt+y"}, "copy the agent's session id", false},
 	{ContextFocus, LastPane, []string{"alt+l"}, "back to the previous session; alt+l again swaps back", false},
-	{ContextFocus, BackAtPrompt, []string{"left"}, "at the prompt's start, back to the manager", false},
+	{ContextFocus, BackAtPrompt, []string{"right"}, "at the prompt's end, back to the manager", false},
 	{ContextFocus, PreviewUp, []string{"alt+up"}, "scroll the pane up", false},
 	{ContextFocus, PreviewDown, []string{"alt+down"}, "scroll the pane down", false},
 	{ContextFocus, PreviewPageUp, []string{"alt+u", "alt+pgup"}, "scroll a page up", false},

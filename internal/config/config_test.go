@@ -887,3 +887,24 @@ rules = [
 		}
 	}
 }
+
+func TestFinishedChildCleanupDefaultsOnWithATenMinuteGrace(t *testing.T) {
+	var cfg Config
+	cfg.applyDefaults()
+	if cfg.Children.FinishedGrace.Duration != 10*time.Minute || cfg.Children.KeepFinished {
+		t.Fatalf("children = %+v, want a 10m grace with cleanup on", cfg.Children)
+	}
+
+	dir := t.TempDir()
+	body := "[children]\nfinished_grace = \"45m\"\nkeep_finished = true\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	if loaded.Children.FinishedGrace.Duration != 45*time.Minute || !loaded.Children.KeepFinished {
+		t.Fatalf("children = %+v, want the file's grace and opt-out", loaded.Children)
+	}
+}

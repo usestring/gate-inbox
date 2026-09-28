@@ -5,12 +5,16 @@ package sysstat
 import (
 	"math"
 	"os"
+	"path/filepath"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/shirou/gopsutil/v4/sensors"
 )
 
 func TestSample(t *testing.T) {
+	disableHostSampling(t)
 	snap := Sample("/")
 	if snap.MemOK && snap.MemTotal == 0 {
 		t.Fatal("mem reported OK but total is zero")
@@ -334,5 +338,56 @@ func TestScaleToHost(t *testing.T) {
 func TestLogicalCPUs(t *testing.T) {
 	if n := LogicalCPUs(); n < 1 {
 		t.Fatalf("LogicalCPUs = %d, want >= 1", n)
+	}
+}
+
+// The poller identifies the CLI a pane is running from the pane shell's own
+// children, so a tree sample has to name them, on the ps scan and on the
+// /proc walk that replaces it after the first pass.
+func TestTreesNamesDirectChildren(t *testing.T) {
+	// The inner sh forks for a two-command script rather than exec'ing over
+	// itself, so sleep lands a level below and proves only children are
+	// reported.
+	root := startFixture(t, `sh -c 'sleep 60; true' "$0" & wait`).Process.Pid
+	isSh := func(c string) bool { return filepath.Base(c) == "sh" }
+	isSleep := func(c string) bool { return filepath.Base(c) == "sleep" }
+
+	sampler := NewTreeSampler("")
+	samplers := map[string]func() map[int]ProcStat{
+		"ps":    func() map[int]ProcStat { return Trees([]int{root}) },
+		"/proc": func() map[int]ProcStat { return sampler.Sample([]int{root}, nil) },
+	}
+	for name, sample := range samplers {
+		var children []string
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			stat, sampled := sample()[root]
+			if !sampled || !stat.OK {
+				t.Fatalf("%s: no tree sample for the fixture", name)
+			}
+			children = stat.Children
+			if slices.ContainsFunc(children, isSh) && stat.Procs >= 3 {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		if !slices.ContainsFunc(children, isSh) {
+			t.Fatalf("%s: children = %v, want one named sh", name, children)
+		}
+		if slices.ContainsFunc(children, isSleep) {
+			t.Fatalf("%s: children = %v, want no grandchild in it", name, children)
+		}
+	}
+}
+
+// A child that exits between the two ps passes frees its pid, and a pid the
+// kernel hands to something unrelated must not be read as this pane's agent.
+func TestChildNamesRequireTheSampledParent(t *testing.T) {
+	stats := map[int]ProcStat{100: {OK: true}}
+	children := map[int][]int{100: {101, 102}}
+	applyChildNames(stats, children, "  101   100 /opt/homebrew/bin/codex --resume 7\n  102   999 /usr/bin/vim notes.txt\n")
+	want := []string{"/opt/homebrew/bin/codex"}
+	if got := stats[100].Children; !slices.Equal(got, want) {
+		t.Fatalf("children = %v, want %v", got, want)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -188,5 +189,243 @@ func TestOpencodeSessionMetaV2UsesSessionExport(t *testing.T) {
 func TestCaptureUnknownStore(t *testing.T) {
 	if _, ok := Capture("weird", "/repo", time.Now(), map[string]bool{}); ok {
 		t.Fatal("unknown store should not match")
+	}
+}
+
+// stubOpencodeJSON substitutes the `session list --format json` output
+// snapshot and recapture read.
+func stubOpencodeJSON(t *testing.T, entries []opencodeListEntry) {
+	t.Helper()
+	saved := opencodeSessionListJSON
+	opencodeSessionListJSON = func(string) ([]opencodeListEntry, bool) { return entries, true }
+	t.Cleanup(func() { opencodeSessionListJSON = saved })
+}
+
+// when exactly one store entry answers the relaunch: a resumed session
+// replays an existing conversation rather than minting one, so a shared cwd
+// can hold several touched entries and none of them may be guessed from.
+
+func TestRecaptureCodexBindsOnlyWhatOutranTheSnapshot(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CODEX_HOME", root)
+	base := time.Now().Add(-time.Hour)
+	// Written one second before the relaunch: what the snapshot sees, and
+	// the exact shape of the stale-binding bug — it must not bind untouched.
+	writeFile(t, filepath.Join(root, "sessions", "2026/07/18/rollout-pre.jsonl"),
+		codexRollout("pre-uuid", "/repo"), base)
+	snapshot, ok := Snapshot("codex", "/repo")
+	if !ok {
+		t.Fatal("snapshot failed")
+	}
+	if id, ok := Recapture("codex", "/repo", snapshot, map[string]bool{}); ok {
+		t.Fatalf("a conversation that merely predates the relaunch must not bind, got %q", id)
+	}
+	// The picker's choice turns again: its rollout outruns the snapshot.
+	writeFile(t, filepath.Join(root, "sessions", "2026/07/18/rollout-pre.jsonl"),
+		codexRollout("pre-uuid", "/repo"), base.Add(10*time.Second))
+	id, ok := Recapture("codex", "/repo", snapshot, map[string]bool{})
+	if !ok || id != "pre-uuid" {
+		t.Fatalf("got id=%q ok=%v, want pre-uuid true", id, ok)
+	}
+}
+
+func TestRecaptureCodexMintedAfterSnapshotBinds(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CODEX_HOME", root)
+	base := time.Now().Add(-time.Hour)
+	writeFile(t, filepath.Join(root, "sessions", "a/rollout-old.jsonl"),
+		codexRollout("old-uuid", "/repo"), base)
+	snapshot, ok := Snapshot("codex", "/repo")
+	if !ok {
+		t.Fatal("snapshot failed")
+	}
+	// A restart mints a fresh conversation: unseen by the snapshot, it
+	// qualifies without needing an advance.
+	writeFile(t, filepath.Join(root, "sessions", "a/rollout-new.jsonl"),
+		codexRollout("new-uuid", "/repo"), base.Add(time.Second))
+	id, ok := Recapture("codex", "/repo", snapshot, map[string]bool{})
+	if !ok || id != "new-uuid" {
+		t.Fatalf("got id=%q ok=%v, want new-uuid true", id, ok)
+	}
+}
+
+func TestRecaptureCodexRefusesTwoThatOutranTheSnapshot(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CODEX_HOME", root)
+	base := time.Now().Add(-time.Hour)
+	writeFile(t, filepath.Join(root, "sessions", "a/rollout-1.jsonl"),
+		codexRollout("first-uuid", "/repo"), base)
+	writeFile(t, filepath.Join(root, "sessions", "a/rollout-2.jsonl"),
+		codexRollout("second-uuid", "/repo"), base)
+	snapshot, ok := Snapshot("codex", "/repo")
+	if !ok {
+		t.Fatal("snapshot failed")
+	}
+	writeFile(t, filepath.Join(root, "sessions", "a/rollout-1.jsonl"),
+		codexRollout("first-uuid", "/repo"), base.Add(10*time.Second))
+	writeFile(t, filepath.Join(root, "sessions", "a/rollout-2.jsonl"),
+		codexRollout("second-uuid", "/repo"), base.Add(20*time.Second))
+
+	if id, ok := Recapture("codex", "/repo", snapshot, map[string]bool{}); ok {
+		t.Fatalf("expected no match for two candidates, got %q", id)
+	}
+}
+
+func TestRecaptureRefusesWithoutSnapshot(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CODEX_HOME", root)
+	writeFile(t, filepath.Join(root, "sessions", "a/rollout-1.jsonl"),
+		codexRollout("some-uuid", "/repo"), time.Now())
+	// A nil snapshot means the relaunch predates snapshot capture; recapture
+	// must refuse rather than guess from a bare cutoff.
+	if id, ok := Recapture("codex", "/repo", nil, map[string]bool{}); ok {
+		t.Fatalf("expected no match without a snapshot, got %q", id)
+	}
+}
+
+func TestSnapshotCodexRecordsEachCwdConversation(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CODEX_HOME", root)
+	// Whole-second base, so the filesystem's own mtime granularity cannot
+	// round the value the assertion compares against.
+	base := time.Now().Add(-time.Hour).Truncate(time.Second)
+	writeFile(t, filepath.Join(root, "sessions", "a/rollout-1.jsonl"),
+		codexRollout("first-uuid", "/repo"), base)
+	writeFile(t, filepath.Join(root, "sessions", "a/rollout-2.jsonl"),
+		codexRollout("second-uuid", "/other"), base.Add(time.Second))
+
+	snapshot, ok := Snapshot("codex", "/repo")
+	if !ok {
+		t.Fatal("snapshot failed")
+	}
+	if len(snapshot) != 1 || snapshot["first-uuid"] != base.UnixNano() {
+		t.Fatalf("got %v, want only first-uuid at %d", snapshot, base.UnixNano())
+	}
+}
+
+// An empty store is a real pre-launch state, not a failure: any conversation
+// that appears after it qualifies.
+func TestRecaptureBindsAfterAnEmptySnapshot(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CODEX_HOME", root)
+	snapshot := map[string]int64{}
+	writeFile(t, filepath.Join(root, "sessions", "a/rollout-1.jsonl"),
+		codexRollout("fresh-uuid", "/repo"), time.Now())
+
+	id, ok := Recapture("codex", "/repo", snapshot, map[string]bool{})
+	if !ok || id != "fresh-uuid" {
+		t.Fatalf("got id=%q ok=%v, want fresh-uuid true", id, ok)
+	}
+}
+
+func TestSnapshotOpencodeRecordsTheListUpdateTimes(t *testing.T) {
+	stubOpencodeJSON(t, []opencodeListEntry{
+		{ID: "ses_ours", Directory: "/repo", Updated: 3000},
+		{ID: "ses_other", Directory: "/elsewhere", Updated: 2000},
+	})
+	snapshot, ok := Snapshot("opencode", "/repo")
+	if !ok {
+		t.Fatal("snapshot failed")
+	}
+	if len(snapshot) != 1 || snapshot["ses_ours"] != 3000*int64(time.Millisecond) {
+		t.Fatalf("got %v, want only ses_ours at %d", snapshot, 3000*int64(time.Millisecond))
+	}
+}
+
+func TestRecaptureOpencodeBindsOnlyWhatOutranTheSnapshot(t *testing.T) {
+	stubOpencodeJSON(t, []opencodeListEntry{
+		{ID: "ses_ours", Directory: "/repo", Updated: 1000},
+		{ID: "ses_other", Directory: "/elsewhere", Updated: 2000},
+	})
+	snapshot, ok := Snapshot("opencode", "/repo")
+	if !ok {
+		t.Fatal("snapshot failed")
+	}
+	if id, ok := Recapture("opencode", "/repo", snapshot, map[string]bool{}); ok {
+		t.Fatalf("a conversation that merely predates the relaunch must not bind, got %q", id)
+	}
+	// Picking the conversation reopens it: info.time.updated advances.
+	stubOpencodeJSON(t, []opencodeListEntry{
+		{ID: "ses_ours", Directory: "/repo", Updated: 3000},
+		{ID: "ses_other", Directory: "/elsewhere", Updated: 2000},
+	})
+	id, ok := Recapture("opencode", "/repo", snapshot, map[string]bool{})
+	if !ok || id != "ses_ours" {
+		t.Fatalf("got id=%q ok=%v, want ses_ours true", id, ok)
+	}
+}
+
+func TestRecaptureOpencodeRefusesTwoThatOutranTheSnapshot(t *testing.T) {
+	stubOpencodeJSON(t, []opencodeListEntry{
+		{ID: "ses_1", Directory: "/repo", Updated: 1000},
+		{ID: "ses_2", Directory: "/repo", Updated: 1000},
+	})
+	snapshot, ok := Snapshot("opencode", "/repo")
+	if !ok {
+		t.Fatal("snapshot failed")
+	}
+	stubOpencodeJSON(t, []opencodeListEntry{
+		{ID: "ses_1", Directory: "/repo", Updated: 3000},
+		{ID: "ses_2", Directory: "/repo", Updated: 4000},
+	})
+	if id, ok := Recapture("opencode", "/repo", snapshot, map[string]bool{}); ok {
+		t.Fatalf("expected no match for two resumed conversations, got %q", id)
+	}
+}
+
+// hermes's post-resume signal is its activity columns, not a file mtime.
+
+func TestSnapshotCodexDistinguishesEmptyFromUnavailable(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CODEX_HOME", root)
+	if err := os.MkdirAll(filepath.Join(root, "sessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := Snapshot("codex", "/repo")
+	if !ok || got == nil || len(got) != 0 {
+		t.Fatalf("empty store snapshot = %v, %v; want non-nil empty, true", got, ok)
+	}
+	t.Setenv("CODEX_HOME", filepath.Join(root, "missing"))
+	got, ok = Snapshot("codex", "/repo")
+	if ok || got != nil {
+		t.Fatalf("unavailable store snapshot = %v, %v; want nil, false", got, ok)
+	}
+}
+
+// A conversation the scan cannot open may be the one a relaunch picks, and a
+// snapshot that left it out would let recapture bind it as new.
+func TestCodexRefusesAnUnreadableConversation(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode-0 file")
+	}
+	root, cwd := t.TempDir(), t.TempDir()
+	t.Setenv("CODEX_HOME", root)
+	launch := time.Now()
+	unreadable := filepath.Join(root, "sessions", "a", "rollout-unreadable.jsonl")
+	writeFile(t, unreadable, codexRollout("unreadable", cwd), launch)
+	writeFile(t, filepath.Join(root, "sessions", "a", "rollout-readable.jsonl"), codexRollout("readable", cwd), launch.Add(time.Second))
+	if snapshot, ok := Snapshot("codex", cwd); !ok || len(snapshot) != 2 {
+		t.Fatalf("readable snapshot = %v, %v; want both conversations", snapshot, ok)
+	}
+	if err := os.Chmod(unreadable, 0); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot, ok := Snapshot("codex", cwd); ok {
+		t.Fatalf("snapshot = %v past an unreadable conversation; want unavailable", snapshot)
+	}
+	if id, ok := Capture("codex", cwd, launch, map[string]bool{}); ok {
+		t.Fatalf("captured %q past an unreadable conversation", id)
+	}
+}
+
+// An oversized line is a record the scan cannot parse, not a store it cannot
+// read, so the store still snapshots.
+func TestCodexSkipsAnOversizedRecord(t *testing.T) {
+	root, cwd := t.TempDir(), t.TempDir()
+	t.Setenv("CODEX_HOME", root)
+	path := filepath.Join(root, "sessions", "a", "rollout-first.jsonl")
+	writeFile(t, path, strings.Repeat("x", 1024*1024+1)+"\n", time.Now())
+	if snapshot, ok := Snapshot("codex", cwd); !ok || len(snapshot) != 0 {
+		t.Fatalf("snapshot = %v, %v; want empty, true", snapshot, ok)
 	}
 }

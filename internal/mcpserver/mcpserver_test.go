@@ -66,6 +66,7 @@ func (f *fakeTerminalCommands) Close(_ string, id string) error {
 }
 
 type fakeSessionCommands struct {
+	cleanup        sessioncmd.CleanupOptions
 	listed         []sessioncmd.Session
 	listOpts       sessioncmd.ListOptions
 	created        sessioncmd.Session
@@ -167,6 +168,11 @@ func (f *fakeSessionCommands) Read(_ string, id string, since string) (sessioncm
 func (f *fakeSessionCommands) SendChildren(_ string, message string) (sessioncmd.ChildSend, error) {
 	f.sentMessage = message
 	return sessioncmd.ChildSend{Queued: 1, Deliveries: []sessioncmd.ChildDelivery{{SessionID: "kid-a", Name: "kid-a", MessageID: 1}}}, f.err
+}
+
+func (f *fakeSessionCommands) CleanupChildren(_ string, opts sessioncmd.CleanupOptions) (sessioncmd.ChildCleanup, error) {
+	f.cleanup = opts
+	return sessioncmd.ChildCleanup{Archived: 1, Children: []sessioncmd.ChildCleaned{{SessionID: "kid-a", Name: "kid-a", Status: "finished", Archived: true}}}, f.err
 }
 
 func (f *fakeSessionCommands) AdoptSession(_ string, id string) (sessioncmd.Session, error) {
@@ -629,7 +635,7 @@ func TestListsFleetTools(t *testing.T) {
 	}
 	for _, want := range []string{
 		"list_sessions", "create_session", "read_session", "send_session",
-		"revive_session", "kill_session", "archive_session",
+		"revive_session", "kill_session", "archive_session", "cleanup_children",
 		"list_groups", "create_group", "delete_group", "message_status", "wait_for_session",
 		"list_accounts", "switch_account",
 		"task",
@@ -682,6 +688,10 @@ func TestServerTeachesDelegationWorkflow(t *testing.T) {
 		"Agent/Task", "spawn_agent", "opencode's task",
 		"on the user's board",
 		"quick read-only lookups",
+		// Finished children are filed away on their own now, and the bulk
+		// call is how a parent clears the rest without one call per child.
+		"auto-archive after a grace period",
+		"cleanup_children",
 	} {
 		if !strings.Contains(instructions, want) {
 			t.Fatalf("server instructions do not teach %q:\n%s", want, instructions)
@@ -1145,5 +1155,37 @@ func TestCreateSessionForwardsTheModel(t *testing.T) {
 	}
 	if fake.createdOpts.Model != "" {
 		t.Errorf("Model = %q, want empty", fake.createdOpts.Model)
+	}
+}
+
+func TestCreateSessionForwardsKeep(t *testing.T) {
+	fake := &fakeSessionCommands{}
+	session := connectServer(t, serverWithFakes(t, fake))
+	if text, isError := callText(t, session, "create_session",
+		map[string]any{"name": "worker", "tool": "claude", "keep": true}); isError {
+		t.Fatalf("create_session: %s", text)
+	}
+	if !fake.createdOpts.Keep {
+		t.Errorf("Keep = false, want it forwarded")
+	}
+}
+
+func TestCleanupChildrenForwardsItsFilters(t *testing.T) {
+	fake := &fakeSessionCommands{}
+	session := connectServer(t, serverWithFakes(t, fake))
+	text, isError := callText(t, session, "cleanup_children",
+		map[string]any{"statuses": []string{"finished", "errored"}, "dry_run": true})
+	if isError {
+		t.Fatalf("cleanup_children: %s", text)
+	}
+	if !strings.HasPrefix(text, "archived 1 of 1 children") {
+		t.Fatalf("cleanup_children text = %q", text)
+	}
+	want := sessioncmd.CleanupOptions{Statuses: []string{"finished", "errored"}, DryRun: true}
+	if !reflect.DeepEqual(fake.cleanup, want) {
+		t.Fatalf("options = %+v, want %+v", fake.cleanup, want)
+	}
+	if _, isError := callText(t, session, "cleanup_children", map[string]any{"all": true}); isError || !fake.cleanup.All {
+		t.Fatalf("all = %+v, isError=%v", fake.cleanup, isError)
 	}
 }

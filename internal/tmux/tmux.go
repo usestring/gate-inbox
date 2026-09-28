@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -232,6 +233,27 @@ func NewWithSocket(socket string) (*Driver, error) {
 		return nil, err
 	}
 	return &Driver{bin: bin, socket: socket, owned: OwnsSocket(socket)}, nil
+}
+
+// socketPathFromEnv rebuilds what tmux resolves -L to, without asking a
+// server that may not be running. tmux reports the path with its symlinks
+// resolved, so this does too and the two agree once a server exists.
+func socketPathFromEnv(socket string) string {
+	dir := "/tmp"
+	// tmux skips a TMUX_TMPDIR it cannot resolve.
+	if custom := os.Getenv("TMUX_TMPDIR"); custom != "" {
+		if _, err := os.Stat(custom); err == nil {
+			dir = custom
+		}
+	}
+	// tmux takes a relative TMUX_TMPDIR from its own working directory.
+	if absolute, err := filepath.Abs(dir); err == nil {
+		dir = absolute
+	}
+	if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = resolved
+	}
+	return filepath.Join(dir, fmt.Sprintf("tmux-%d", os.Getuid()), socket)
 }
 
 // resolveSocket is the tmux server a configured value names: the value
@@ -682,6 +704,22 @@ func (d *Driver) installSessionUX(id string) error {
 	return err
 }
 
+// Tmux answers an un-overridden session option with an empty string rather than the global option.
+func (d *Driver) resolvedOption(name, option string) (string, error) {
+	value, err := d.run("show-options", "-t", name, "-v", option)
+	if err != nil {
+		return "", err
+	}
+	if value = strings.TrimSpace(value); value != "" {
+		return value, nil
+	}
+	global, err := d.run("show-options", "-g", "-v", option)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(global), nil
+}
+
 // styleStatusBar sets a session's status bar chrome, leaving status-left (the
 // name label) untouched so re-styling a live session keeps its label. An
 // adopted session is refused: these options are session-wide on a server the
@@ -691,11 +729,11 @@ func (d *Driver) styleStatusBar(id string) error {
 		return err
 	}
 	name := sessionName(id)
-	primary, err := d.run("show-options", "-t", name, "-v", "prefix")
+	primary, err := d.resolvedOption(name, "prefix")
 	if err != nil {
 		return err
 	}
-	secondary, err := d.run("show-options", "-t", name, "-v", "prefix2")
+	secondary, err := d.resolvedOption(name, "prefix2")
 	if err != nil {
 		return err
 	}
@@ -704,7 +742,7 @@ func (d *Driver) styleStatusBar(id string) error {
 		// The default status-right-length of 40 truncates the hints, so widen it
 		// to fit the whole footer, including the configured-prefix fallback.
 		{"set-option", "-t", name, "status-right-length", "100"},
-		{"set-option", "-t", name, "status-right", attachStatusRight(strings.TrimSpace(primary), strings.TrimSpace(secondary))},
+		{"set-option", "-t", name, "status-right", attachStatusRight(primary, secondary)},
 		{"set-option", "-t", name, "status-style", "bg=colour236,fg=colour249"},
 		// hide the "0:windowname*" window list; it reads as noise here
 		{"set-option", "-t", name, "window-status-format", ""},
@@ -754,8 +792,13 @@ func (d *Driver) EnsureBindings() error {
 			return err
 		}
 	}
-	_, err := d.run(commandList(binds...)...)
-	return err
+	// list-keys starts a server that exits again straight away when it has
+	// no sessions. Nothing needs the setup then: Create runs this again once
+	// a session brings the server up.
+	if _, err := d.run(commandList(binds...)...); err != nil && !noServer(err.Error()) {
+		return err
+	}
+	return nil
 }
 
 // sharedBindings is the part of a binding list that may be installed on a
@@ -1027,7 +1070,8 @@ func (d *Driver) paste(id, text string) error {
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("paste temp close: %w", err)
 	}
-	buf := fmt.Sprintf("gi_paste_%d", pasteSeq.Add(1))
+	// tmux buffers are server-wide, and every agent's MCP process pastes too.
+	buf := fmt.Sprintf("gi_paste_%d_%d", os.Getpid(), pasteSeq.Add(1))
 	if _, err := d.runAt(id, "load-buffer", "-b", buf, path); err != nil {
 		return err
 	}
@@ -1798,4 +1842,128 @@ func (d *Driver) serverPanes(ctx context.Context, socket string) (map[string]int
 		}
 	}
 	return live, nil
+}
+
+// SessionOfPane names the managed session a tmux pane belongs to, for a
+// caller that knows which pane it sits in but not which session it is.
+// A terminal the manager opens carries no launch command, so it gets no
+// launch script and the session id never reaches its environment; the
+// pane it runs in still says which session tmux filed it under.
+//
+// tmuxEnv is the caller's $TMUX, socket,server_pid,session_id. A pane on any
+// other server belongs to some other tmux, not to this manager, and answers
+// empty. The socket alone cannot tell servers apart: it keeps its path across
+// a restart while pane ids start again at %0, so an environment inherited from
+// a previous server would name whichever session owns that id now. The pid
+// is what differs.
+func (d *Driver) SessionOfPane(tmuxEnv, paneID string) (string, error) {
+	// tmux resolves a target it cannot parse to the current session and
+	// exits 0, which would answer for a session this pane is not in.
+	if !paneIDPattern.MatchString(paneID) {
+		return "", nil
+	}
+	socket, pid, ok := socketAndPid(tmuxEnv)
+	if !ok {
+		return "", nil
+	}
+	out, err := d.run("display-message", "-p", "-t", paneID, "#{socket_path} #{pid} #{session_name}")
+	if err != nil {
+		return "", err
+	}
+	serverSocket, serverPid, name := splitPaneInfo(strings.TrimRight(out, "\n"))
+	if resolvedSocket(socket) != resolvedSocket(serverSocket) || pid != serverPid {
+		return "", nil
+	}
+	id, _ := SessionID(name)
+	return id, nil
+}
+
+var paneIDPattern = regexp.MustCompile(`^%[0-9]+$`)
+
+// SessionOfProcess names the managed session whose pane process is pid or
+// one of its ancestors. It serves a process that inherited neither $TMUX nor
+// $TMUX_PANE, such as an MCP server a CLI starts with a scrubbed environment.
+func (d *Driver) SessionOfProcess(pid int) (string, error) {
+	out, err := d.run("list-panes", "-a", "-F", "#{pane_pid} #{session_name}")
+	if err != nil {
+		return "", err
+	}
+	sessions := map[int]string{}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		panePID, name, _ := strings.Cut(line, " ")
+		id, managed := SessionID(name)
+		if pid, err := strconv.Atoi(panePID); err == nil && managed {
+			sessions[pid] = id
+		}
+	}
+	parents, err := processParents()
+	if err != nil {
+		return "", err
+	}
+	// The step bound stops a parent loop, which a racing ps snapshot can
+	// produce when a pid is reused mid-listing.
+	for steps := 0; pid > 1 && steps <= len(parents); steps++ {
+		if name, ok := sessions[pid]; ok {
+			return name, nil
+		}
+		pid = parents[pid]
+	}
+	return "", nil
+}
+
+func processParents() (map[int]int, error) {
+	out, err := exec.Command("ps", "-A", "-o", "pid=,ppid=").Output()
+	if err != nil {
+		return nil, fmt.Errorf("list processes: %w", err)
+	}
+	parents := map[int]int{}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 2 {
+			continue
+		}
+		pid, pidErr := strconv.Atoi(fields[0])
+		ppid, ppidErr := strconv.Atoi(fields[1])
+		if pidErr == nil && ppidErr == nil {
+			parents[pid] = ppid
+		}
+	}
+	return parents, nil
+}
+
+// socketAndPid reads $TMUX from the right, since the socket path is the one
+// field free to contain a comma.
+func socketAndPid(tmuxEnv string) (socket, pid string, ok bool) {
+	rest, _, found := cutLast(tmuxEnv, ",")
+	if !found {
+		return "", "", false
+	}
+	socket, pid, found = cutLast(rest, ",")
+	return socket, pid, found && socket != "" && pid != ""
+}
+
+// splitPaneInfo reads the name and the pid off the end, so a socket path
+// with spaces in it stays whole. An unknown pane leaves the name empty.
+func splitPaneInfo(out string) (socket, pid, name string) {
+	rest, name, _ := cutLast(out, " ")
+	socket, pid, _ = cutLast(rest, " ")
+	return socket, pid, name
+}
+
+func cutLast(s, sep string) (before, after string, found bool) {
+	i := strings.LastIndex(s, sep)
+	if i < 0 {
+		return s, "", false
+	}
+	return s[:i], s[i+len(sep):], true
+}
+
+// resolvedSocket puts two socket paths in the same terms before they are
+// compared: macOS reports /private/tmp where the other side says /tmp, and
+// a temporary directory is routinely a symlink on either platform.
+func resolvedSocket(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
+	}
+	return filepath.Clean(path)
 }

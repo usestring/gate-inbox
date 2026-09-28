@@ -19,11 +19,11 @@ func TestOpencodeSelectPromptReadsWaiting(t *testing.T) {
 }
 
 // The permission overlay steps its options with the horizontal arrows
-// ("⇆ select"), so Left belongs to the pane there. A question dialog never
-// does -- "↑↓ select", with "⇆ tab" only where there is something to tab
-// between -- so Left is spare and leaves focus. The ⇆-tab variants below are
-// the falsifiers: keying the arrow claim on a bare ⇆ would pin the operator
-// in a dialog that is asking them something.
+// ("⇆ select"), so the arrows belong to the pane there. A question dialog
+// never does -- "↑↓ select", with "⇆ tab" only where there is something to
+// tab between -- so Right is spare and leaves focus. The ⇆-tab variants below
+// are the falsifiers: keying the arrow claim on a bare ⇆ would pin the
+// operator in a dialog that is asking them something.
 func TestOpencodeArrowOwnership(t *testing.T) {
 	engine := defaultEngine(t)
 	for _, name := range []string{

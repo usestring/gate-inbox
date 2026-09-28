@@ -326,10 +326,12 @@ func (m *Model) noteSettling(id string, at time.Time) {
 }
 
 // settleLandings drops the marks the newest applied poll has overtaken:
-// whatever it reports for those sessions is their own news.
-func (m *Model) settleLandings() {
+// whatever it reports for those sessions is their own news. A session the
+// poll could not capture keeps its mark, since the poll carried its old
+// status forward rather than reading a new one.
+func (m *Model) settleLandings(unseen map[string]bool) {
 	for id, at := range m.settling {
-		if m.statusesAsOf.After(at) {
+		if m.statusesAsOf.After(at) && !unseen[id] {
 			delete(m.settling, id)
 		}
 	}

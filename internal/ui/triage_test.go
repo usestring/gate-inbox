@@ -585,7 +585,13 @@ func TestTriageWalkKeepsGoingPastLandedAnswerUntilNextPoll(t *testing.T) {
 	}
 
 	m.statusesAsOf = m.settling[doneID].Add(time.Millisecond)
-	m.settleLandings()
+	m.settleLandings(map[string]bool{doneID: true})
+	if got := next(sessionID(t, m, "ask")); got != "calm" {
+		t.Fatalf("walk after a poll that could not capture the landed row = %q, want calm", got)
+	}
+
+	m.statusesAsOf = m.statusesAsOf.Add(time.Millisecond)
+	m.settleLandings(nil)
 	if got := next(sessionID(t, m, "ask")); got != "done" {
 		t.Fatalf("walk after a poll past the landing = %q, want done", got)
 	}

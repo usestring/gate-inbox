@@ -857,6 +857,9 @@ type refreshMsg struct {
 	// stale is every session whose status has outlived its screen, replaced
 	// whole each pass so the flag lapses the moment the screen moves.
 	stale map[string]bool
+	// unseen is every session whose pane capture failed this pass. Its row
+	// keeps the status it already had, so the pass is no news of it.
+	unseen map[string]bool
 }
 
 // previewMsg is every pane frame the model receives. There used to be three
@@ -1985,7 +1988,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.listedAt.After(m.statusesAsOf) {
 			m.statusesAsOf = msg.listedAt
 		}
-		m.settleLandings()
+		m.settleLandings(msg.unseen)
 		m.dropHeldAckOnNewTurn()
 		// A pane taken by the last adopt scan is on the board under its
 		// directory's basename, and this is the first pass that can see the

@@ -716,9 +716,11 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 	// program: the whole board paid it every couple of seconds.
 	captures := p.tmux.CapturePanes(live)
 	*stat = passStat{sessions: len(sessions), live: len(live), failures: map[string]int{}}
+	unseen := map[string]bool{}
 	for id, capture := range captures {
 		if capture.Err != nil {
 			stat.failures[p.tmux.TargetFor(id).Socket]++
+			unseen[id] = true
 		}
 	}
 	phases.capture = lap(&mark)
@@ -1089,6 +1091,7 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 		answerableWait:   answerableWait,
 		hookless:         p.hooklessRows(),
 		stale:            p.staleRows(),
+		unseen:           unseen,
 	}
 	if sampleStats {
 		msg.snap = sysstat.Sample("/")

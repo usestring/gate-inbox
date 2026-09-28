@@ -384,7 +384,7 @@ func TestAgentsOpenedBesideAManagedAgentGetTheirOwnRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListSessions: %v", err)
 	}
-	home := managedHomes(managed)[managedHomeKey(managed[0])]
+	home := managedHomes(managed, nil)[managedHomeKey(managed[0])]
 	for _, sess := range rows {
 		if sess.ID == coordinator {
 			continue
@@ -417,7 +417,7 @@ func TestTheHomeWindowIsTheOneThatRanTheLaunchScript(t *testing.T) {
 		{Socket: "t", PaneID: "%9", Session: session, Window: "@9"},
 		{Socket: "t", PaneID: "%12", Session: session, Window: "@12"},
 	}
-	homes := managedHomes(candidates)
+	homes := managedHomes(candidates, nil)
 	if got := homes[managedHomeKey(candidates[0])]; got != "@7" {
 		t.Errorf("home on s is %q, want the launch script's window @7", got)
 	}
@@ -436,6 +436,50 @@ func TestTheHomeWindowIsTheOneThatRanTheLaunchScript(t *testing.T) {
 	}
 	if adoptableWithHomes(adopt.Candidate{Socket: "s", PaneID: "%8", Session: session}, onBoard, homes) {
 		t.Error("adopted a pane with no window id; without one it has to count as home")
+	}
+}
+
+// TestALaunchedSessionWhoseAgentExitedHasNoHome is the session an operator
+// keeps working in after its own agent is gone: every window left is an agent
+// they opened there. Guessing the oldest one as home hid a live agent behind a
+// row whose agent had exited. A session that may never have run a script -- a
+// terminal row, or an orphan -- keeps the oldest-window guess.
+func TestALaunchedSessionWhoseAgentExitedHasNoHome(t *testing.T) {
+	agent, terminal, orphan := tmux.SessionName("abc"), tmux.SessionName("def"), tmux.SessionName("ghi")
+	candidates := []adopt.Candidate{
+		{Socket: "s", PaneID: "%2", Session: agent, Window: "@2", StartCommand: "bash -lic 'claude'"},
+		{Socket: "s", PaneID: "%5", Session: agent, Window: "@5"},
+		{Socket: "s", PaneID: "%6", Session: terminal, Window: "@6"},
+		{Socket: "s", PaneID: "%8", Session: terminal, Window: "@8"},
+		{Socket: "s", PaneID: "%9", Session: orphan, Window: "@9"},
+	}
+	rows := []store.Session{{ID: "abc", Tool: "claude"}, {ID: "def", Tool: "terminal"}}
+	launched := launchedSessions(rows, map[string]bool{"claude": true})
+	homes := managedHomes(candidates, launched)
+	onBoard := map[string]bool{agent: true, terminal: true}
+	for _, c := range candidates[:2] {
+		if !adoptableWithHomes(c, onBoard, homes) {
+			t.Errorf("refused %s in %s; its own agent is gone, so every window is another agent", c.Window, c.Session)
+		}
+	}
+	if adoptableWithHomes(adopt.Candidate{Socket: "s", PaneID: "%3", Session: agent}, onBoard, homes) {
+		t.Error("adopted a pane with no window id; without one it has to count as home")
+	}
+	if got := homes[managedHomeKey(candidates[2])]; got != "@6" {
+		t.Errorf("terminal session home is %q, want the oldest window @6", got)
+	}
+	if adoptableWithHomes(candidates[2], onBoard, homes) || !adoptableWithHomes(candidates[3], onBoard, homes) {
+		t.Error("a terminal session lost its oldest-window home")
+	}
+	if got := homes[managedHomeKey(candidates[4])]; got != "@9" {
+		t.Errorf("orphan home is %q, want its oldest window @9", got)
+	}
+
+	launch := "sh '/tmp/gi-launch-0badf00d-abc.sh'"
+	candidates = append(candidates, adopt.Candidate{Socket: "s", PaneID: "%7", Session: agent, Window: "@7", StartCommand: launch})
+	homes = managedHomes(candidates, launched)
+	if got := homes[managedHomeKey(candidates[0])]; got != "@7" {
+		t.Errorf("home is %q, want the window still running the launch script @7", got)
 	}
 }
 

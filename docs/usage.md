@@ -31,7 +31,7 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `ctrl+q` / `ctrl+\` | Inside a session: back to the manager when the terminal and tmux leave the key available |
 | tmux prefix, then `d` | Inside a full-screen attach: back to the manager when the prefix reaches the inner tmux |
 | `→` | Step into the row: focus the session, or open the group |
-| `←` | Step out: close the group, or — focused, with the caret at the start of the agent's prompt — back to the manager. This needs the tool's prompt marker (its `activity_cutoff`) on the caret's row, so a CLI without one keeps `←` entirely; anywhere else in the prompt it moves the caret as usual |
+| `←` / `→` | Step out: close the group, or — focused, with the caret at the end of the agent's prompt — back to the manager. This needs the tool's prompt marker (its `activity_cutoff`) on the caret's row, so a CLI without one keeps `→` entirely; anywhere else in the prompt it moves the caret as usual |
 | `K` / `J` (or `shift+↑` / `shift+↓`) | Reorder session or group among its visible siblings |
 | `m` | Move a session to a group, a terminal into a session, or a group under another group |
 | `r` | Name a session: ask its agent to name itself (`/rename`, or the same request in prose). On an adopted pane, derive the name from its conversation. On a group, open the group card on it: name, parent and default path |

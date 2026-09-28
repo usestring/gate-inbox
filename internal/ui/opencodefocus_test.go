@@ -102,11 +102,76 @@ func TestLeftStaysWhileTypingOpencodeCustomAnswer(t *testing.T) {
 	}
 }
 
+// The Right half of the dialog contract above: the exit arrow points at the
+// rail on the right, so a question dialog that does nothing with the
+// horizontal arrows releases Right, while the permission overlay and a
+// half-typed custom answer keep it.
+func TestRightLeavesOpencodeQuestionDialog(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "opencode-question-dialog.txt"))
+	if err != nil {
+		t.Fatalf("read frame: %v", err)
+	}
+	rows := strings.Split(strings.TrimSuffix(string(raw), "\n"), "\n")
+	if len(rows) != 50 || !strings.Contains(rows[31], "Asked 1 question") {
+		t.Fatalf("the fixture no longer carries the dialog frame this pins: %d rows, caret row %q", len(rows), rows[31])
+	}
+	m, sessID := opencodePosed(t, string(raw), paneCursor{x: 24, y: 31, ok: true}, 50, 200)
+
+	if m.caretAtInputEnd(sessID, "opencode") {
+		t.Fatal("the summary line read as the end of a prompt")
+	}
+	if !m.opencodeQuestionDialogUp() {
+		t.Fatal("the question dialog was not recognised, so Right cannot leave focus")
+	}
+	if !m.rightLeavesFocus(sessID, "opencode") {
+		t.Fatal("Right does not leave an opencode question dialog, so the operator is pinned in a session that is asking them something")
+	}
+}
+
+func TestRightStaysOnOpencodePermissionOverlay(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "status", "testdata", "opencode-permission-bash.txt"))
+	if err != nil {
+		t.Fatalf("read frame: %v", err)
+	}
+	m, sessID := opencodePosed(t, string(raw), paneCursor{x: 5, y: 6, ok: true}, 50, 200)
+
+	if m.rightLeavesFocus(sessID, "opencode") {
+		t.Fatal("Right left a permission overlay, stealing the option step from the pane")
+	}
+}
+
+// An empty boxed composer still leaves by the caret path, dialog or not --
+// by the end this time, where the placeholder hint past the caret reads as
+// nothing typed.
+func TestRightLeavesOpencodeEmptyComposer(t *testing.T) {
+	m, sessID := opencodePosed(t, "  ┃\n  ┃\n  ╹▀▀▀\n", paneCursor{x: 5, y: 1, ok: true}, 3, 80)
+	if !m.caretAtInputEnd(sessID, "opencode") {
+		t.Fatal("an empty opencode composer stopped reading as the prompt end")
+	}
+	if !m.rightLeavesFocus(sessID, "opencode") {
+		t.Fatal("Right does not leave an empty opencode composer")
+	}
+}
+
+func TestRightStaysWhileTypingOpencodeCustomAnswer(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "opencode-question-dialog.txt"))
+	if err != nil {
+		t.Fatalf("read frame: %v", err)
+	}
+	// Row 40 of the fixture is the first option row inside the box; a caret
+	// inside its text is a half-written answer, wherever the rest of the
+	// dialog is.
+	m, sessID := opencodePosed(t, string(raw), paneCursor{x: 10, y: 39, ok: true}, 50, 200)
+	if m.rightLeavesFocus(sessID, "opencode") {
+		t.Fatal("Right left while a custom answer was being typed, stealing line editing from the pane")
+	}
+}
+
 // End to end: the key that was swallowed now returns to the list.
-func TestFocusLeftKeyLeavesOpencodeQuestionDialog(t *testing.T) {
+func TestFocusRightKeyLeavesOpencodeQuestionDialog(t *testing.T) {
 	m := buildModel(t)
-	createSession(t, m, "ocleft", t.TempDir(), "")
-	m.selectSessionRow(t, "ocleft")
+	createSession(t, m, "ocright", t.TempDir(), "")
+	m.selectSessionRow(t, "ocright")
 
 	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	*m = *updated.(*Model)
@@ -127,9 +192,9 @@ func TestFocusLeftKeyLeavesOpencodeQuestionDialog(t *testing.T) {
 	m.pane.box.height, m.pane.box.width = 50, 200
 	m.pane.cursor = paneCursor{x: 24, y: 31, ok: true}
 
-	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
 	*m = *updated.(*Model)
 	if m.mode != modeList {
-		t.Fatalf("Left did not leave the opencode dialog, mode = %v, err = %q", m.mode, m.errBar.text)
+		t.Fatalf("Right did not leave the opencode dialog, mode = %v, err = %q", m.mode, m.errBar.text)
 	}
 }

@@ -307,7 +307,8 @@ func AccountForSwitch(tool config.Tool, adopted bool, account string) (string, e
 
 // The workdir argument, when set, is the directory the spawn asked for but the
 // pane could not be opened in; the agent is told to change into it before doing
-// anything else. Empty for every session launched where it was asked to be,
+// anything else, and a tool with an add_dir_flag is granted it on the command
+// line as well. Empty for every session launched where it was asked to be,
 // which is almost all of them.
 func Assemble(toolName string, tool config.Tool, rawPrompt, workdir string, autoNamed bool, model, account string) (Plan, error) {
 	account, err := WithAccount(tool, account)
@@ -348,10 +349,30 @@ func Assemble(toolName string, tool config.Tool, rawPrompt, workdir string, auto
 	if err != nil {
 		return Plan{}, err
 	}
-	plan.Command = command
+	plan.Command = WithAddDir(tool, command, workdir)
 	plan.Model = strings.TrimSpace(model)
 	plan.Account = account
 	return plan, nil
+}
+
+// WithAddDir grants a diverted launch the directory it was asked to work in.
+// The pane opens in another directory to get past the CLI's trust dialog, and
+// a CLI that scopes its permissions to where it started would otherwise deny
+// or ask about the agent's first write in the directory it was sent to. The
+// change-directory note still goes with it; this only makes the move usable.
+//
+// The flag goes after every other argument Assemble writes. Claude Code reads
+// "--add-dir" as taking any number of directories, so a positional argument
+// behind it -- the prompt -- would be taken for one more directory; the
+// options appended after this point stop it the way the end of the line does.
+// A tool without the flag keeps the command it had, and so does every launch
+// that opens where it was asked to.
+func WithAddDir(tool config.Tool, command, workdir string) string {
+	workdir = strings.TrimSpace(workdir)
+	if workdir == "" || tool.AddDirFlag == "" {
+		return command
+	}
+	return command + " " + tool.AddDirFlag + " " + tmux.ShellQuote(workdir)
 }
 
 // ReviveCommand is the base command a dead session comes back on. When

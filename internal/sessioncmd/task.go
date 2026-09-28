@@ -26,36 +26,121 @@ type Task struct {
 	Mine      bool     `json:"mine" jsonschema:"whether the calling session holds the claim"`
 }
 
-// Tasks is the shared work list every session in the manager can see and
-// claim from, so a fleet coordinates without one agent brokering handoffs.
-func (s *Sessions) Tasks(sessionID string) ([]Task, error) {
-	runtime, err := s.open()
-	if err != nil {
-		return nil, err
-	}
-	defer runtime.store.Close()
-	if _, err := runtime.caller(sessionID); err != nil {
-		return nil, err
-	}
-	return runtime.taskList(sessionID)
+// A list that has run for a while is mostly finished work, and every row
+// carried its full instruction, so an agent checking what is left to claim
+// paid for every task anyone had ever done. These bound what a list returns
+// unless the caller asks for more.
+const (
+	DefaultTaskLimit = 50
+	// MaxTaskLimit is well past a list anybody reads row by row; a caller
+	// that wants the whole history still has to say so.
+	MaxTaskLimit = 500
+)
+
+// TaskListOptions narrows the task list. The zero value is the cheap read:
+// work that is still open, without bodies, the first DefaultTaskLimit rows.
+type TaskListOptions struct {
+	// State keeps only tasks in these states. Empty keeps pending and
+	// in_progress, which is the work somebody can still act on.
+	State []string
+	// IncludeDone adds finished tasks to whatever State keeps.
+	IncludeDone bool
+	// Mine keeps only tasks the caller holds or finished.
+	Mine bool
+	// IncludeBody carries each task's full instruction. A claim returns the
+	// body anyway, so a caller choosing what to claim reads titles.
+	IncludeBody bool
+	// Limit caps the rows returned, after filtering. Zero takes
+	// DefaultTaskLimit and anything over MaxTaskLimit is refused.
+	Limit int
 }
 
-func (r *runtime) taskList(sessionID string) ([]Task, error) {
-	stored, err := r.store.Tasks()
-	if err != nil {
-		return nil, err
+// TaskList carries the rows plus what the filters and the limit hid, for
+// the same reason SessionList does: an agent that silently saw 50 of 80
+// open tasks would plan against a wrong list.
+type TaskList struct {
+	Tasks    []Task `json:"tasks"`
+	Matched  int    `json:"matched" jsonschema:"how many tasks matched the filters, before limit"`
+	Returned int    `json:"returned" jsonschema:"how many rows are in tasks"`
+	// Truncated is stated rather than left to matched > returned, so a
+	// caller reading the structured payload does not have to derive it.
+	Truncated bool `json:"truncated" jsonschema:"true when limit left matching tasks out; narrow state or mine, or raise limit"`
+}
+
+func (o TaskListOptions) query(callerID string) (store.TaskQuery, error) {
+	query := store.TaskQuery{SkipBody: !o.IncludeBody}
+	seen := map[string]bool{}
+	for _, raw := range o.State {
+		state := strings.ToLower(strings.TrimSpace(raw))
+		switch state {
+		case store.TaskPending, store.TaskInProgress, store.TaskDone:
+		default:
+			return store.TaskQuery{}, fmt.Errorf("unknown task state %q; use pending, in_progress or done", raw)
+		}
+		if !seen[state] {
+			seen[state] = true
+			query.States = append(query.States, state)
+		}
 	}
+	if len(query.States) == 0 {
+		query.States = []string{store.TaskPending, store.TaskInProgress}
+	}
+	if o.IncludeDone && !seen[store.TaskDone] {
+		query.States = append(query.States, store.TaskDone)
+	}
+	if o.Mine {
+		query.Owner = callerID
+	}
+	switch {
+	case o.Limit == 0:
+		query.Limit = DefaultTaskLimit
+	case o.Limit < 0 || o.Limit > MaxTaskLimit:
+		return store.TaskQuery{}, fmt.Errorf("limit %d is out of range; ask for between 1 and %d", o.Limit, MaxTaskLimit)
+	default:
+		query.Limit = o.Limit
+	}
+	return query, nil
+}
+
+// Tasks is the shared work list every session in the manager can see and
+// claim from, so a fleet coordinates without one agent brokering handoffs.
+func (s *Sessions) Tasks(sessionID string, opts TaskListOptions) (TaskList, error) {
+	runtime, err := s.open()
+	if err != nil {
+		return TaskList{}, err
+	}
+	defer runtime.store.Close()
+	caller, err := runtime.caller(sessionID)
+	if err != nil {
+		return TaskList{}, err
+	}
+	query, err := opts.query(caller.ID)
+	if err != nil {
+		return TaskList{}, err
+	}
+	page, err := runtime.store.QueryTasks(query)
+	if err != nil {
+		return TaskList{}, err
+	}
+	tasks, err := runtime.taskRows(caller.ID, page.Tasks)
+	if err != nil {
+		return TaskList{}, err
+	}
+	return TaskList{
+		Tasks:     tasks,
+		Matched:   page.Matched,
+		Returned:  len(tasks),
+		Truncated: page.Matched > len(tasks),
+	}, nil
+}
+
+func (r *runtime) taskRows(sessionID string, stored []store.Task) ([]Task, error) {
 	names, err := r.sessionNames()
 	if err != nil {
 		return nil, err
 	}
-	byID := make(map[string]store.Task, len(stored))
-	for _, task := range stored {
-		byID[task.ID] = task
-	}
 	tasks := make([]Task, 0, len(stored))
 	for _, task := range stored {
-		blocking := task.Blocking(byID)
 		tasks = append(tasks, Task{
 			ID:        task.ID,
 			Title:     task.Title,
@@ -64,8 +149,8 @@ func (r *runtime) taskList(sessionID string) ([]Task, error) {
 			Owner:     task.Owner,
 			OwnerName: names[task.Owner],
 			DependsOn: task.DependsOn,
-			BlockedBy: blocking,
-			Blocked:   task.State == store.TaskPending && len(blocking) > 0,
+			BlockedBy: task.Blocking,
+			Blocked:   task.State == store.TaskPending && len(task.Blocking) > 0,
 			Mine:      task.Owner == sessionID,
 		})
 	}
@@ -85,16 +170,18 @@ func (r *runtime) sessionNames() (map[string]string, error) {
 }
 
 func (r *runtime) task(sessionID, id string) (Task, error) {
-	tasks, err := r.taskList(sessionID)
+	stored, err := r.store.Task(id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Task{}, fmt.Errorf("task %s does not exist; call %s for current ids", id, r.words.ListTasks)
+	}
 	if err != nil {
 		return Task{}, err
 	}
-	for _, task := range tasks {
-		if task.ID == id {
-			return task, nil
-		}
+	tasks, err := r.taskRows(sessionID, []store.Task{stored})
+	if err != nil {
+		return Task{}, err
 	}
-	return Task{}, fmt.Errorf("task %s does not exist; call %s for current ids", id, r.words.ListTasks)
+	return tasks[0], nil
 }
 
 func (s *Sessions) CreateTask(sessionID, title, body string, dependsOn []string) (Task, error) {

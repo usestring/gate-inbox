@@ -89,12 +89,72 @@ func TestReleaseTakesTheCallersOwnChildToTheTopLevel(t *testing.T) {
 	}
 }
 
+// A live parent's children stay its own: the parent is still there to let
+// them go, so nobody else may.
 func TestReleaseRefusesASessionItDoesNotOwn(t *testing.T) {
 	h := newSessionHarness(t)
 	other := row(t, h, store.Session{ID: "other002", Name: "another-agent"})
+	if err := h.driver.Create(other.ID, t.TempDir(), "", nil, 80, 24); err != nil {
+		t.Fatalf("create parent pane: %v", err)
+	}
 	theirs := row(t, h, store.Session{ID: "theirs02", Name: "their-child", ParentID: other.ID})
-	if _, err := h.sessions.ReleaseSession(h.caller.ID, theirs.ID); err == nil {
+	_, err := h.sessions.ReleaseSession(h.caller.ID, theirs.ID)
+	if err == nil {
 		t.Fatal("released a session the caller does not own")
+	}
+	if !strings.Contains(err.Error(), "only a parent releases its own children") {
+		t.Errorf("ReleaseSession err = %v, want the parent-only refusal", err)
+	}
+	stored, err := h.store.Get(theirs.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if stored.ParentID != other.ID {
+		t.Errorf("stored parent = %q, want it left under %q", stored.ParentID, other.ID)
+	}
+}
+
+// A parent that is gone will never release its children, so any session may.
+// Each case files the child under a parent that cannot act: one with no pane,
+// one archived (with a pane, so the archive alone is what counts), and one
+// whose row was deleted out from under its children.
+func TestReleaseFreesTheChildOfAGoneParent(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(t *testing.T, h *sessionHarness, parent store.Session)
+	}{
+		{name: "dead", setup: func(*testing.T, *sessionHarness, store.Session) {}},
+		{name: "archived", setup: func(t *testing.T, h *sessionHarness, parent store.Session) {
+			if err := h.driver.Create(parent.ID, t.TempDir(), "", nil, 80, 24); err != nil {
+				t.Fatalf("create parent pane: %v", err)
+			}
+			if err := h.store.SetArchived(parent.ID, true); err != nil {
+				t.Fatalf("SetArchived: %v", err)
+			}
+		}},
+		{name: "missing", setup: func(t *testing.T, h *sessionHarness, parent store.Session) {
+			if err := h.store.Delete(parent.ID); err != nil {
+				t.Fatalf("Delete: %v", err)
+			}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newSessionHarness(t)
+			parent := row(t, h, store.Session{ID: "parent03", Name: "gone-parent"})
+			child := row(t, h, store.Session{ID: "child003", Name: "stranded", ParentID: parent.ID})
+			tc.setup(t, h, parent)
+			placed, err := h.sessions.ReleaseSession(h.caller.ID, child.ID)
+			if err != nil {
+				t.Fatalf("ReleaseSession: %v", err)
+			}
+			if placed.ParentID != "" {
+				t.Errorf("parent = %q, want it released", placed.ParentID)
+			}
+			if placed.Group != child.Group {
+				t.Errorf("group = %q, want it kept at %q", placed.Group, child.Group)
+			}
+		})
 	}
 }
 

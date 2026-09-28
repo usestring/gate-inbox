@@ -150,6 +150,13 @@ type taskArgs struct {
 	Body      string   `json:"body,omitempty" jsonschema:"create: full instruction for whoever claims it; it cannot see this conversation; or name a file in body_file"`
 	BodyFile  string   `json:"body_file,omitempty" jsonschema:"create: absolute path of a file holding the instruction, used instead of body"`
 	DependsOn []string `json:"depends_on,omitempty" jsonschema:"create: ids of tasks that must be done first; a task with unfinished dependencies cannot be claimed"`
+	// The list arguments below mirror list_sessions: the default read is the
+	// open work, capped, and the reply says what the cap left out.
+	State       []string `json:"state,omitempty" jsonschema:"list: keep only tasks in these states: pending, in_progress or done; omit for pending and in_progress, which is the work still open"`
+	IncludeDone bool     `json:"include_done,omitempty" jsonschema:"list: also list finished tasks, which on a long-lived list are most of it; pass it only when checking what was done"`
+	Mine        bool     `json:"mine,omitempty" jsonschema:"list: keep only tasks this session holds or finished"`
+	IncludeBody bool     `json:"include_body,omitempty" jsonschema:"list: carry each task's full instruction; claim returns the body anyway, so choosing what to claim needs only the titles"`
+	Limit       int      `json:"limit,omitempty" jsonschema:"list: how many rows to return (default 50, maximum 500); the reply says how many matched, so a truncated one is never silent"`
 }
 
 type reserveFilesArgs struct {
@@ -185,8 +192,13 @@ type listTerminalsOutput struct {
 }
 
 type taskOutput struct {
-	Tasks []sessioncmd.Task `json:"tasks,omitempty" jsonschema:"the whole shared list, for action list"`
-	Task  *sessioncmd.Task  `json:"task,omitempty" jsonschema:"the task acted on"`
+	Tasks []sessioncmd.Task `json:"tasks,omitempty" jsonschema:"the tasks matching the list filters, for action list"`
+	// Matched, Returned and Truncated are sessioncmd.TaskList's, carried
+	// here because one output type serves every action.
+	Matched   int              `json:"matched,omitempty" jsonschema:"list: how many tasks matched the filters, before limit"`
+	Returned  int              `json:"returned,omitempty" jsonschema:"list: how many rows are in tasks"`
+	Truncated bool             `json:"truncated,omitempty" jsonschema:"list: true when limit left matching tasks out; narrow state or mine, or raise limit"`
+	Task      *sessioncmd.Task `json:"task,omitempty" jsonschema:"the task acted on"`
 }
 
 type listReservationsOutput struct {
@@ -216,7 +228,7 @@ type sendChildrenArgs struct {
 
 type placeSessionArgs struct {
 	SessionID string `json:"session_id" jsonschema:"session to file under this one, or to release from it"`
-	Release   bool   `json:"release,omitempty" jsonschema:"true takes one of your own children back out to the top level; omit to adopt"`
+	Release   bool   `json:"release,omitempty" jsonschema:"true takes one of your own children, or a child of a parent that is gone, back out to the top level; omit to adopt"`
 	// CallerSessionID is the per-call override for a multiplexed MCP
 	// server; see createSessionArgs. An opencode agent whose shell holds a
 	// different $GATE_INBOX_SESSION_ID than this server started as must
@@ -257,7 +269,7 @@ type sessionCommands interface {
 	Migrate(sessionID, targetID string, opts sessioncmd.MigrateOptions) (sessioncmd.Session, error)
 	Kill(sessionID, targetID string, via extension.KillSource) (sessioncmd.Session, error)
 	Archive(sessionID, targetID string, archived bool) (sessioncmd.Session, error)
-	Tasks(sessionID string) ([]sessioncmd.Task, error)
+	Tasks(sessionID string, opts sessioncmd.TaskListOptions) (sessioncmd.TaskList, error)
 	CreateTask(sessionID, title, body string, dependsOn []string) (sessioncmd.Task, error)
 	ClaimTask(sessionID, taskID string) (sessioncmd.Task, error)
 	FinishTask(sessionID, taskID string) (sessioncmd.Task, error)
@@ -565,8 +577,8 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Name: "place_session",
 		Description: "File a session under this one so your fan-out is drawn, and reported, as your fan-out. " +
 			"Use it when a session you spawned came back with no parent_id, which is what a spawn looks like when the manager build serving this session predates nesting: the call succeeded and the row landed as your sibling. " +
-			"You may claim a session nobody owns and release one of your own; another session's child stays its own. " +
-			"Pass release true to take one of your children back to the top level.",
+			"You may claim a session nobody owns and release one of your own; another live session's child stays its own. " +
+			"Pass release true to take one of your children back to the top level, or a child whose parent is archived, deleted or no longer running, since that parent never will.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args placeSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
 		place := sessions.AdoptSession
@@ -745,6 +757,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Name: "task",
 		Description: "The shared work list every session in this manager claims from; action picks the operation. " +
 			"list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. " +
+			"By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, state or include_done for finished work, include_body for the full instructions. " +
 			"create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. " +
 			"claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task, which is how a worker finds its next job, and a task another session holds is refused with the holder named. " +
 			"finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. " +
@@ -753,11 +766,22 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args taskArgs) (*mcp.CallToolResult, taskOutput, error) {
 		switch args.Action {
 		case "list":
-			listed, err := sessions.Tasks(sessionID)
+			listed, err := sessions.Tasks(sessionID, sessioncmd.TaskListOptions{
+				State:       args.State,
+				IncludeDone: args.IncludeDone,
+				Mine:        args.Mine,
+				IncludeBody: args.IncludeBody,
+				Limit:       args.Limit,
+			})
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
-			return mcptool.Text(sessioncmd.FormatTaskList(listed)), taskOutput{Tasks: listed}, nil
+			return mcptool.Text(sessioncmd.FormatTaskList(listed)), taskOutput{
+				Tasks:     listed.Tasks,
+				Matched:   listed.Matched,
+				Returned:  listed.Returned,
+				Truncated: listed.Truncated,
+			}, nil
 		case "create":
 			body, err := mcptool.TextArg(args.Body, args.BodyFile, "body", "body_file")
 			if err != nil {

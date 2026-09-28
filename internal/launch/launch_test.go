@@ -960,6 +960,55 @@ func TestAssembleWithoutAWorkdirIsUnchanged(t *testing.T) {
 	}
 }
 
+// A diverted claude launch opens in another directory than the one it was sent
+// to, and claude scopes what it may write to where it started. So the shipped
+// claude launch grants the requested directory as well as naming it, or the
+// agent's first write there is denied or held on a permission prompt.
+func TestADivertedClaudeLaunchIsGrantedItsDirectory(t *testing.T) {
+	cfg, err := config.LoadDir(t.TempDir())
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	claude := cfg.Tools["claude"]
+	plan, err := Assemble("claude", claude, "build the api", "/srv/other tree", true, "opus", "")
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	if !strings.HasSuffix(plan.Command, " --add-dir '/srv/other tree'") {
+		t.Fatalf("a diverted launch is not granted its directory last on the line: %q", plan.Command)
+	}
+	if !strings.HasPrefix(plan.LaunchPrompt, WorkdirDirectivePrefix) {
+		t.Fatalf("the grant replaced the change-directory note: %q", plan.LaunchPrompt)
+	}
+	home, err := Assemble("claude", claude, "build the api", "", true, "opus", "")
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	if strings.Contains(home.Command, "--add-dir") {
+		t.Fatalf("a launch that opened where it was asked still carried a grant: %q", home.Command)
+	}
+}
+
+// A tool whose config names no add_dir_flag has nothing to be granted with, so
+// a diverted launch on it keeps the command it always had and relies on the
+// change-directory note alone.
+func TestADivertedLaunchWithoutTheFlagKeepsItsCommand(t *testing.T) {
+	tool := config.Tool{Command: "hermes"}
+	plan, err := Assemble("hermes", tool, "build the api", "/srv/work", true, "", "")
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	plain, err := Assemble("hermes", tool, "build the api", "", true, "", "")
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	// The prompts differ by the change-directory note, so compare what is
+	// left of each command line once its own prompt is taken off.
+	if strings.TrimSuffix(plan.Command, tmux.ShellQuote(plan.LaunchPrompt)) != strings.TrimSuffix(plain.Command, tmux.ShellQuote(plain.LaunchPrompt)) {
+		t.Fatalf("a tool without the flag launched differently when diverted: %q against %q", plan.Command, plain.Command)
+	}
+}
+
 // A stored prompt that is one of the manager's own banded notes is nothing
 // the user typed.
 func TestTypedPromptDropsABandedNote(t *testing.T) {

@@ -74,7 +74,7 @@ usage: gate-inbox place <session-id> [--release] [--json]
   -json
     	print the raw result as JSON instead of a sentence
   -release
-    	take one of this session's own children back out to the top level
+    	take one of this session's own children, or a child of a parent that is gone, back out to the top level
 
 $ gate-inbox answer -h
 exit 0
@@ -181,7 +181,7 @@ usage: gate-inbox delete-group <path> [--json]
 $ gate-inbox task -h
 exit 0
 --- stdout
-  gate-inbox task list [--json]
+  gate-inbox task list [--state <state>] [--include-done] [--mine] [--include-body] [--limit <n>] [--json]
       read the work list every session shares: what is pending, who holds what, and what is blocked
   gate-inbox task create <title> [--body <text>] [--depends-on <id,id>] [--json]
       put a piece of work on the shared list so any session can pick it up
@@ -197,9 +197,19 @@ exit 0
 $ gate-inbox task list -h
 exit 0
 --- stdout
-usage: gate-inbox task list [--json]
+usage: gate-inbox task list [--state <state>] [--include-done] [--mine] [--include-body] [--limit <n>] [--json]
+  -include-body
+    	print each task's full instruction under its row
+  -include-done
+    	also list finished tasks, which on a long-lived list are most of it
   -json
     	print the raw result as JSON instead of a sentence
+  -limit int
+    	how many rows to print, at most 500; the last line says what was left out (default 50)
+  -mine
+    	keep only tasks this session holds or finished
+  -state value
+    	state to keep, repeatable or comma separated: pending, in_progress or done; omitted keeps pending and in_progress
 
 $ gate-inbox task create -h
 exit 0

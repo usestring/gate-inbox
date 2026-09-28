@@ -220,17 +220,27 @@ func FormatTask(task Task) string {
 	return line
 }
 
-func FormatTaskList(tasks []Task) string {
-	if len(tasks) == 0 {
-		return "no tasks on the shared list"
+func FormatTaskList(list TaskList) string {
+	if len(list.Tasks) == 0 {
+		// Said outright, because the default leaves finished work out and an
+		// empty answer would otherwise read as an empty list.
+		return "no tasks matched; done tasks are left out unless asked for"
 	}
-	lines := make([]string, 0, len(tasks))
-	for _, task := range tasks {
+	lines := make([]string, 0, len(list.Tasks)+1)
+	for _, task := range list.Tasks {
 		line := "- " + FormatTask(task)
 		if task.Mine {
 			line += "; yours"
 		}
 		lines = append(lines, line)
+		// A body is only present when the caller asked for it, and then it
+		// belongs under its own row rather than in the structured half alone.
+		if task.Body != "" {
+			lines = append(lines, "  "+strings.ReplaceAll(task.Body, "\n", "\n  "))
+		}
+	}
+	if list.Truncated {
+		lines = append(lines, fmt.Sprintf("(%d of %d matching tasks; narrow state or mine, or raise limit)", list.Returned, list.Matched))
 	}
 	return strings.Join(lines, "\n")
 }

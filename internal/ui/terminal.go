@@ -57,12 +57,19 @@ func (m *Model) terminalKey() (tea.Model, tea.Cmd) {
 // shell, so no prompt, rename directive or MCP registration applies to a
 // session there is no agent to send them to.
 func (m *Model) openTerminal() (tea.Model, tea.Cmd) {
+	entry, selected := m.selectedRow()
+	return m.openTerminalAt(entry, selected)
+}
+
+// openTerminalAt is openTerminal for a row captured earlier, which the cursor
+// may since have left.
+func (m *Model) openTerminalAt(entry treeRow, selected bool) (tea.Model, tea.Cmd) {
 	toolName, tool, ok := m.shellTool()
 	if !ok {
 		m.errBar.text = `no shell configured: add a tool block with shell = true to config.toml`
 		return m, nil
 	}
-	dir, ok := m.rowDir()
+	dir, ok := m.rowDir(entry, selected)
 	if !ok {
 		m.errBar.text = "no directory to open a terminal in: " + dir
 		return m, nil
@@ -71,10 +78,12 @@ func (m *Model) openTerminal() (tea.Model, tea.Cmd) {
 		ID:     newID(),
 		Tool:   toolName,
 		Cwd:    dir,
-		Group:  m.contextGroup(),
 		Status: status.Starting,
 	}
-	if entry, ok := m.selectedRow(); ok && !entry.isGroup {
+	if selected && entry.isGroup {
+		sess.Group = entry.group
+	}
+	if selected && !entry.isGroup {
 		if m.isShell(entry.sess.Tool) {
 			sess.ParentID = entry.sess.ParentID
 		} else {
@@ -120,14 +129,13 @@ func (m *Model) launchTerminal(toolName string, tool config.Tool, sess store.Ses
 	return m.landInNewSession(sess.ID)
 }
 
-// rowDir is the directory the cursor points at: a live session's pane
+// rowDir is the directory a row points at: a live session's pane
 // directory, which follows wherever its shell or agent moved, falling back
 // to the directory it was created in; for a group, its default path. Both
 // paths are checked, so a directory removed under a running session cannot
 // hand back somewhere that is no longer there.
-func (m *Model) rowDir() (string, bool) {
-	entry, ok := m.selectedRow()
-	if !ok {
+func (m *Model) rowDir(entry treeRow, selected bool) (string, bool) {
+	if !selected {
 		return "", false
 	}
 	if entry.isGroup {

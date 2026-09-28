@@ -86,9 +86,12 @@ func (m *Model) startNewSession() (tea.Model, tea.Cmd) {
 }
 
 type autoRouteMsg struct {
-	name  string
-	group string
-	err   error
+	name     string
+	group    string
+	row      treeRow
+	selected bool
+	mode     string
+	err      error
 }
 
 func (m *Model) startAutoRoute() (tea.Model, tea.Cmd) {
@@ -125,11 +128,12 @@ func (m *Model) startAutoRoute() (tea.Model, tea.Cmd) {
 	m.autoRouting = true
 	router := m.autoRouter
 	group := m.contextGroup()
+	row, selected := m.selectedRow()
 	return m, func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		name, err := router.Choose(ctx, names, active, time.Now())
-		return autoRouteMsg{name: name, group: group, err: err}
+		return autoRouteMsg{name: name, group: group, row: row, selected: selected, mode: mode, err: err}
 	}
 }
 
@@ -142,8 +146,16 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if msg.err != nil || msg.name == "" {
-		m.openPinnedAgentPick(msg.group)
+		m.openPinnedAgentPick(msg)
 		m.errBar.text = "quota unavailable: choose a CLI"
+		return m, nil
+	}
+	// The quota was scored under the routing mode read when n was pressed; a
+	// mode changed in settings since then may route this CLI through an
+	// account that was never scored.
+	if mode, err := accounts.Mode(m.store); err != nil || mode != msg.mode {
+		m.openPinnedAgentPick(msg)
+		m.errBar.text = "account routing changed: choose a CLI"
 		return m, nil
 	}
 	for _, name := range m.enabledToolNames() {
@@ -151,15 +163,16 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 			return m.spawnInstantIn(name, msg.group)
 		}
 	}
-	m.openPinnedAgentPick(msg.group)
+	m.openPinnedAgentPick(msg)
 	m.errBar.text = "chosen CLI is disabled: choose another"
 	return m, nil
 }
 
-func (m *Model) openPinnedAgentPick(group string) {
+func (m *Model) openPinnedAgentPick(msg autoRouteMsg) {
 	m.openAgentPick()
 	if m.mode == modeAgentPick {
-		m.agentPick.group, m.agentPick.pinned = group, true
+		m.agentPick.group, m.agentPick.pinned = msg.group, true
+		m.agentPick.row, m.agentPick.rowSelected = msg.row, msg.selected
 	}
 }
 
@@ -183,10 +196,12 @@ type agentPick struct {
 	// against fresh text replaces the whole of it, which is what makes a
 	// prefilled box overridable without a backspace per character.
 	fresh bool
-	// group pins the launch to the group an Auto route captured when n was
+	// group and row pin the launch to what an Auto route captured when n was
 	// pressed, so a fallback picker does not follow a cursor moved meanwhile.
-	group  string
-	pinned bool
+	group       string
+	row         treeRow
+	rowSelected bool
+	pinned      bool
 }
 
 func (m *Model) openAgentPick() {
@@ -377,7 +392,7 @@ func (m *Model) submitAgentPick() (tea.Model, tea.Cmd) {
 	m.mode = modeList
 	if m.isShell(name) {
 		if m.agentPick.pinned {
-			return m.openTerminalIn(m.agentPick.group)
+			return m.openPinnedTerminal()
 		}
 		return m.openTerminal()
 	}
@@ -385,4 +400,22 @@ func (m *Model) submitAgentPick() (tea.Model, tea.Cmd) {
 		return m.spawnInstantIn(name, m.agentPick.group)
 	}
 	return m.spawnInstant(name)
+}
+
+// openPinnedTerminal opens the fallback shell beside the row captured when n
+// was pressed, read fresh so a moved pane directory is followed. A session
+// closed meanwhile leaves only its group to open in.
+func (m *Model) openPinnedTerminal() (tea.Model, tea.Cmd) {
+	row := m.agentPick.row
+	if !m.agentPick.rowSelected {
+		return m.openTerminalIn(m.agentPick.group)
+	}
+	if !row.isGroup {
+		sess, ok := m.sessionByID(row.sess.ID)
+		if !ok {
+			return m.openTerminalIn(m.agentPick.group)
+		}
+		row.sess = sess
+	}
+	return m.openTerminalAt(row, true)
 }

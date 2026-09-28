@@ -136,6 +136,67 @@ func TestAutoRouteFallbackTerminalKeepsTheGroupSelectedWhenNWasPressed(t *testin
 	}
 }
 
+func TestAutoRouteFallbackTerminalKeepsTheSessionSelectedWhenNWasPressed(t *testing.T) {
+	m := buildModel(t)
+	groupDir, sessionDir := t.TempDir(), t.TempDir()
+	if err := m.store.CreateGroup("backend", groupDir); err != nil {
+		t.Fatal(err)
+	}
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	createSession(t, m, "agent", sessionDir, "backend")
+	m.selectSessionRow(t, "agent")
+	agent, _ := m.selected()
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	m.selectGroupRow(t, "elsewhere")
+	m.update(cmd())
+	typeInto(t, m, "term")
+	pressKey(t, m, enterKey())
+	m.leaveFocusForFixture(t)
+	var shell store.Session
+	for _, sess := range m.sessionRows() {
+		if m.isShell(sess.Tool) {
+			shell = sess
+		}
+	}
+	if shell.ParentID != agent.ID || shell.Group != "backend" || shell.Cwd != resolved(t, sessionDir) {
+		t.Fatalf("fallback terminal = %+v, want nested under %q in %q (error %q)", shell, agent.ID, sessionDir, m.errBar.text)
+	}
+}
+
+func TestAutoRouteRefusesALaunchAfterAccountRoutingChanged(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
+	m.newSessionAgent = newSessionAgentAuto
+	tool := m.cfg.Tools["ready-tool"]
+	tool.AccountEnv = "SHARED_TOKEN"
+	m.cfg.Tools["ready-tool"] = tool
+	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
+		if name != "ready-tool" {
+			return autoroute.Reading{}, autoroute.ErrNoQuota
+		}
+		now := time.Now()
+		return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 10, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
+	})
+	_, cmd := m.startNewSession()
+	if cmd == nil {
+		t.Fatal("auto route did not start a quota read")
+	}
+	if err := m.store.SetSetting(store.AccountRoutingSetting, accounts.Smart); err != nil {
+		t.Fatal(err)
+	}
+	m.update(cmd())
+	if m.mode != modeAgentPick || len(m.sessionRows()) != 0 {
+		t.Fatalf("routing change left mode %v with %d sessions, want the picker and none", m.mode, len(m.sessionRows()))
+	}
+	if !strings.Contains(m.errBar.text, "account routing changed") {
+		t.Fatalf("missing routing-change explanation: %q", m.errBar.text)
+	}
+}
+
 func TestAutoRouteFallsBackToCLIPickerWhenQuotaUnavailable(t *testing.T) {
 	m := buildModel(t)
 	m.newSessionAgent = newSessionAgentAuto

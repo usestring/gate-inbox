@@ -60,6 +60,42 @@ func TestClaudePromptHeadLeavesFocus(t *testing.T) {
 	}
 }
 
+// The Right half of the same contract: the rail sits on the right of the
+// frame, so the end of the prompt is what frees the key. Posed on the live
+// frame above, whose composer is empty, and on hand-posed rows for the rest.
+func TestClaudePromptEndLeavesFocus(t *testing.T) {
+	raw, err := os.ReadFile("testdata/claude-live-frame.txt")
+	if err != nil {
+		t.Fatalf("read frame: %v", err)
+	}
+	m := &Model{engine: liveEngine(t), mode: modeFocus}
+	m.preview = string(raw)
+	m.pane.forID = "s1"
+	m.pane.cursor = paneCursor{x: 2, y: 67, ok: true}
+
+	if !m.caretAtInputEnd("s1", "claude") {
+		t.Fatal("caret at the end of claude's empty prompt was not recognised, so Right cannot leave focus")
+	}
+	if !m.rightLeavesFocus("s1", "claude") {
+		t.Fatal("Right does not leave claude's empty prompt")
+	}
+
+	// With something typed, Right is the agent's line editing again until
+	// the end of the line.
+	m.preview = "❯\u00a0draft\n"
+	m.pane.cursor = paneCursor{x: 4, y: 0, ok: true}
+	if m.caretAtInputEnd("s1", "claude") {
+		t.Fatal("a caret inside typed text read as the prompt end")
+	}
+	if m.rightLeavesFocus("s1", "claude") {
+		t.Fatal("Right left from inside typed text, stealing line editing from the pane")
+	}
+	m.pane.cursor = paneCursor{x: 7, y: 0, ok: true}
+	if !m.caretAtInputEnd("s1", "claude") {
+		t.Fatal("a caret at the end of typed text was not recognised")
+	}
+}
+
 // The reported bug, end to end on the frame it was reported from: a
 // multi-select question, the caret parked on the dialog's own marker, and
 // Left refusing to return to the list.
@@ -151,6 +187,40 @@ func TestLeftLeavesOnlyTheFirstStepperEntry(t *testing.T) {
 					t.Fatal("Left does not leave on the first stepper entry, where the dialog has nothing to step back to")
 				}
 				t.Fatal("Left left the pane from a later stepper entry, so it stole the step back to the previous question")
+			}
+		})
+	}
+}
+
+// Right is the stepper's next question, so it stays the dialog's on every
+// entry but the last. The fixtures above pose the first two entries of
+// three-question dialogs -- neither is last, so Right stays on both. No
+// last-entry frame exists to pin the leaving half; that half reads off
+// DialogStepIsLast the way the leaving half above reads off IsFirst.
+func TestRightStaysOnNonLastStepperEntries(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		file string
+		rows int
+		cols int
+		y    int
+	}{
+		{"first entry", "claude-stepper-first-step", 71, 319, 17},
+		{"second entry", "claude-stepper-second-step", 71, 319, 17},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join("testdata", c.file+".txt"))
+			if err != nil {
+				t.Fatalf("read frame: %v", err)
+			}
+			m := &Model{engine: liveEngine(t), mode: modeFocus}
+			m.preview = string(raw)
+			m.pane.forID = "s1"
+			m.pane.box.height, m.pane.box.width = c.rows, c.cols
+			m.pane.cursor = paneCursor{x: 0, y: c.y, ok: true}
+
+			if m.rightLeavesFocus("s1", "claude") {
+				t.Fatal("Right left the pane from a non-last stepper entry, so it stole the step forward to the next question")
 			}
 		})
 	}

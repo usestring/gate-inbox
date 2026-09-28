@@ -2215,3 +2215,136 @@ func TestReviveOnALiveParentCanTakeTheDeadChildrenToo(t *testing.T) {
 		t.Fatal("the child was asked for and did not come back")
 	}
 }
+
+func TestDegradedResumeNoticeWarnsOnlyForBlindFallbacks(t *testing.T) {
+	base := config.Tool{
+		Command:           "claude",
+		ReviveCommand:     "claude --continue",
+		ResumeByIDCommand: "claude --resume {id}",
+	}
+	picker := base
+	picker.ResumePickerCommand = "claude --resume"
+
+	for _, tc := range []struct {
+		name string
+		tool config.Tool
+		id   string
+		want string
+	}{
+		{"a picker revive is not degraded", picker, "", ""},
+		{"a captured id is not degraded", base, "abc-123", ""},
+		{"a blind continue fallback warns", base, "", "revived reviveme with --continue"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := buildModel(t)
+			m.cfg.Tools["claude"] = tc.tool
+			got := m.degradedResumeNotice(store.Session{Tool: "claude", Name: "reviveme", AgentSessionID: tc.id})
+			if tc.want == "" {
+				if got != "" {
+					t.Fatalf("degradedResumeNotice = %q, want empty", got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("degradedResumeNotice = %q, want it to contain %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// openKillCard raises the teardown dialog on one live session.
+func openKillCard(t *testing.T) (*Model, store.Session) {
+	t.Helper()
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), "")
+	sess := m.sessionRows()[0]
+	m.selectSessionRow(t, "alpha")
+	if _, _ = m.archiveSelected(); m.mode != modeConfirmDelete {
+		t.Fatalf("archiveSelected should open the confirm card, mode = %v", m.mode)
+	}
+	return m, sess
+}
+
+func TestConfirmKeyIgnoresUnboundKeys(t *testing.T) {
+	cases := []struct {
+		name string
+		key  tea.KeyPressMsg
+	}{
+		{"j", tea.KeyPressMsg{Code: 'j', Text: "j"}},
+		{"q", tea.KeyPressMsg{Code: 'q', Text: "q"}},
+		{"space", tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}},
+		{"k", tea.KeyPressMsg{Code: 'k', Text: "k"}},
+		{"Y", tea.KeyPressMsg{Code: 'y', ShiftedCode: 'Y', Mod: tea.ModShift, Text: "Y"}},
+		{"down", tea.KeyPressMsg{Code: tea.KeyDown}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m, sess := openKillCard(t)
+			before := m.confirm
+
+			_, cmd := m.handleConfirmKey(tc.key)
+			if cmd != nil {
+				t.Fatalf("an unbound key should issue no command, got %T", cmd())
+			}
+			if m.mode != modeConfirmDelete {
+				t.Fatalf("mode = %v, want the card to stay up", m.mode)
+			}
+			if m.confirm.action != before.action || len(m.confirm.sessions) != len(before.sessions) {
+				t.Fatalf("confirm = %+v, want it untouched (%+v)", m.confirm, before)
+			}
+			if !m.tmux.Exists(sess.ID) {
+				t.Fatal("an unbound key should not kill the session")
+			}
+		})
+	}
+}
+
+func TestConfirmKeyCancels(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		key  tea.KeyPressMsg
+	}{
+		{"n", tea.KeyPressMsg{Code: 'n', Text: "n"}},
+		{"esc", tea.KeyPressMsg{Code: tea.KeyEscape}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m, sess := openKillCard(t)
+
+			_, cmd := m.handleConfirmKey(tc.key)
+			if cmd != nil {
+				t.Fatalf("a cancel should issue no command, got %T", cmd())
+			}
+			if m.mode != modeList {
+				t.Fatalf("mode = %v, want modeList after a cancel", m.mode)
+			}
+			if m.confirm.action != "" || m.confirm.sessions != nil {
+				t.Fatalf("confirm = %+v, want the zero confirmTarget", m.confirm)
+			}
+			if !m.tmux.Exists(sess.ID) {
+				t.Fatal("a cancel should leave the session alive")
+			}
+		})
+	}
+}
+
+func TestConfirmKeyCtrlCQuits(t *testing.T) {
+	m, sess := openKillCard(t)
+	before := m.confirm
+
+	_, cmd := m.handleConfirmKey(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("ctrl+c should return a command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatalf("ctrl+c should produce tea.QuitMsg, got %T", cmd())
+	}
+	if m.mode != modeConfirmDelete {
+		t.Fatalf("mode = %v, want the card left alone", m.mode)
+	}
+	if m.confirm.action != before.action {
+		t.Fatalf("confirm = %+v, want it untouched (%+v)", m.confirm, before)
+	}
+	if !m.tmux.Exists(sess.ID) {
+		t.Fatal("ctrl+c should not kill the session")
+	}
+}

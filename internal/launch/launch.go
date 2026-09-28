@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/internal/accounts"
@@ -110,7 +111,21 @@ func coordinationNote(toolName string, tool config.Tool) string {
 // session's first prompt; otherwise auto-named sessions get the rename
 // directive later as its own message.
 func DirectiveEmbeddable(prompt string) bool {
-	return prompt != "" && !strings.HasPrefix(prompt, "/")
+	return prompt != "" && !opensWithSlashCommand(prompt)
+}
+
+// opensWithSlashCommand separates a prompt the agent reads as a command,
+// which has to open the message, from one that merely starts with an
+// absolute path, as a prompt led by a pasted image does. A command name
+// is a single segment; a path carries further separators.
+func opensWithSlashCommand(prompt string) bool {
+	if !strings.HasPrefix(prompt, "/") {
+		return false
+	}
+	name := strings.TrimPrefix(prompt, "/")
+	name, _, _ = strings.Cut(name, " ")
+	name, _, _ = strings.Cut(name, "\n")
+	return name != "" && !strings.Contains(name, "/")
 }
 
 // Prompt prepends the short agent notes a first prompt can carry: auto-named
@@ -380,12 +395,16 @@ func WithAddDir(tool config.Tool, command, workdir string) string {
 // conversation instead of the working directory's most recent one, which
 // would be the wrong conversation whenever sessions share a cwd. The id is
 // read from the agent CLI's own store rather than minted here, so it is
-// quoted for the shell the way a fork's {id} already is.
+// quoted for the shell the way a fork's {id} already is. With no id, a
+// tool's own session picker is preferred to resuming the directory's newest
+// conversation blind.
 func ReviveCommand(toolName string, tool config.Tool, agentSessionID, model string) (string, error) {
 	base := tool.Command
 	switch {
 	case agentSessionID != "" && tool.ResumeByIDCommand != "":
 		base = strings.ReplaceAll(tool.ResumeByIDCommand, "{id}", tmux.ShellQuote(agentSessionID))
+	case tool.ResumePickerCommand != "":
+		base = tool.ResumePickerCommand
 	case tool.ReviveCommand != "":
 		base = tool.ReviveCommand
 	}
@@ -423,6 +442,9 @@ func Environment(manager *hooks.Manager, toolName string, tool config.Tool, base
 		return "", nil, err
 	}
 	if err := manager.RemoveName(id); err != nil {
+		return "", nil, err
+	}
+	if err := manager.SweepNameResults(time.Now()); err != nil {
 		return "", nil, err
 	}
 	if tool.StatusSource == hooks.StatusSourceClaude {

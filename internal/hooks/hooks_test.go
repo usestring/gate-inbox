@@ -4,11 +4,14 @@ package hooks
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
@@ -435,5 +438,309 @@ func TestStatusCommandWritesTheExportedStatusFile(t *testing.T) {
 	// appended, not overwritten
 	if raw, err := os.ReadFile(file); err != nil || string(raw) != "working Stop\nfinished Stop\n" {
 		t.Fatalf("log = %q, %v", raw, err)
+	}
+}
+
+const (
+	testRequest  = "00000000000000a1"
+	otherRequest = "00000000000000b2"
+)
+
+// A rename file is written by agents, so a first line that is not a
+// request this package issued must never reach a result path.
+func TestReadNameRejectsARequestItDidNotIssue(t *testing.T) {
+	manager := NewManager(t.TempDir())
+	if err := os.MkdirAll(manager.Dir(), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	cases := []struct {
+		label    string
+		content  string
+		wantName string
+	}{
+		{"empty request", "\nfix auth bug", "fix auth bug"},
+		{"slash", "../../escape\nfix auth bug", "../../escape fix auth bug"},
+		{"traversal", "..\nfix auth bug", ".. fix auth bug"},
+		{"not hex", "not-a-request\nfix auth bug", "not-a-request fix auth bug"},
+		{"too short", testRequest[1:] + "\nfix auth bug", testRequest[1:] + " fix auth bug"},
+		{"one line", "fix auth bug", "fix auth bug"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.label, func(t *testing.T) {
+			if err := os.WriteFile(manager.NameFile("x"), []byte(testCase.content), 0o644); err != nil {
+				t.Fatalf("write name: %v", err)
+			}
+			name, found := manager.ReadName("x")
+			if !found || name != testCase.wantName {
+				t.Fatalf("ReadName = %q, %v; want the whole file as the name", name, found)
+			}
+			request, name, found, err := manager.ClaimName("x")
+			if err != nil || !found || request != "" || name != testCase.wantName {
+				t.Fatalf("ClaimName = %q, %q, %v, %v", request, name, found, err)
+			}
+			if err := manager.ReleaseName("x"); err != nil {
+				t.Fatalf("ReleaseName: %v", err)
+			}
+		})
+	}
+}
+
+func TestNameResultRoundTrips(t *testing.T) {
+	manager := NewManager(t.TempDir())
+	if err := os.MkdirAll(manager.Dir(), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if _, found, err := manager.ReadNameResult("x", testRequest); found || err != nil {
+		t.Fatalf("before the poller answers: found=%v err=%v", found, err)
+	}
+
+	if err := manager.WriteNameResult("x", testRequest, "fix auth  bug", "fix auth bug", nil); err != nil {
+		t.Fatalf("WriteNameResult: %v", err)
+	}
+	verdict, found, err := manager.ReadNameResult("x", testRequest)
+	if err != nil || !found || verdict.Refusal != nil || verdict.Requested != "fix auth  bug" || verdict.Applied != "fix auth bug" {
+		t.Fatalf("ReadNameResult = %+v, %v, %v; want the asked and applied names", verdict, found, err)
+	}
+
+	if err := manager.WriteNameResult("x", testRequest, "taken", "", errors.New("branch already exists: am/taken")); err != nil {
+		t.Fatalf("WriteNameResult refusal: %v", err)
+	}
+	verdict, found, err = manager.ReadNameResult("x", testRequest)
+	if err != nil || !found || verdict.Refusal == nil || verdict.Refusal.Error() != "branch already exists: am/taken" || verdict.Requested != "taken" || verdict.Applied != "" {
+		t.Fatalf("ReadNameResult = %+v, %v, %v; want the refusal", verdict, found, err)
+	}
+
+	if err := manager.RemoveNameResult("x", testRequest); err != nil {
+		t.Fatalf("RemoveNameResult: %v", err)
+	}
+	if _, found, err := manager.ReadNameResult("x", testRequest); found || err != nil {
+		t.Fatalf("removed result: found=%v err=%v", found, err)
+	}
+	if err := manager.RemoveNameResult("x", testRequest); err != nil {
+		t.Fatalf("second RemoveNameResult should be a no-op: %v", err)
+	}
+}
+
+// Two renames for one session are answered apart, so neither reads nor
+// removes the answer meant for the other.
+func TestNameResultsAreKeptApartPerRequest(t *testing.T) {
+	manager := NewManager(t.TempDir())
+	if err := os.MkdirAll(manager.Dir(), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := manager.WriteNameResult("x", testRequest, "first name", "first name", nil); err != nil {
+		t.Fatalf("write first: %v", err)
+	}
+	if err := manager.WriteNameResult("x", otherRequest, "second name", "second name", nil); err != nil {
+		t.Fatalf("write second: %v", err)
+	}
+
+	if err := manager.RemoveNameResult("x", otherRequest); err != nil {
+		t.Fatalf("RemoveNameResult: %v", err)
+	}
+	verdict, found, err := manager.ReadNameResult("x", testRequest)
+	if err != nil || !found || verdict.Applied != "first name" {
+		t.Fatalf("the other rename took this answer with it: %+v, %v, %v", verdict, found, err)
+	}
+
+	if err := manager.SweepNameResults(time.Now().Add(NameResultLifetime)); err != nil {
+		t.Fatalf("SweepNameResults: %v", err)
+	}
+	if _, found, _ := manager.ReadNameResult("x", testRequest); found {
+		t.Fatal("an answer nobody came back for should be swept")
+	}
+}
+
+// A sweep must never take an answer from a caller still reading for it,
+// and must collect the ones left by sessions that are gone.
+func TestSweepNameResultsKeepsFreshAnswers(t *testing.T) {
+	manager := NewManager(t.TempDir())
+	if err := os.MkdirAll(manager.Dir(), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := manager.WriteNameResult("fresh", testRequest, "a name", "a name", nil); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := manager.WriteNameResult("stale", otherRequest, "another name", "another name", nil); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	old := time.Now().Add(-NameResultLifetime - time.Minute)
+	if err := os.Chtimes(manager.NameResultFile("stale", otherRequest), old, old); err != nil {
+		t.Fatalf("age the answer: %v", err)
+	}
+
+	if err := manager.SweepNameResults(time.Now()); err != nil {
+		t.Fatalf("SweepNameResults: %v", err)
+	}
+	if _, found, err := manager.ReadNameResult("fresh", testRequest); !found || err != nil {
+		t.Fatalf("the sweep took an answer a caller could still be reading: found=%v err=%v", found, err)
+	}
+	if _, found, _ := manager.ReadNameResult("stale", otherRequest); found {
+		t.Fatal("an answer past its lifetime should be gone")
+	}
+}
+
+// A file this package did not write is no answer: reading one as a
+// rename that happened is the false success this mailbox exists to stop.
+func TestReadNameResultRejectsAForeignFile(t *testing.T) {
+	manager := NewManager(t.TempDir())
+	if err := os.MkdirAll(manager.Dir(), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	for _, content := range []string{"", "renam", "fix auth bug", "ok\nfix auth bug\nfix auth bug", "renamed\nfix auth bug", "renamed\n\nfix auth bug", "renamed\nfix auth bug\n"} {
+		if err := os.WriteFile(manager.NameResultFile("x", testRequest), []byte(content), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if verdict, found, err := manager.ReadNameResult("x", testRequest); found || err != nil {
+			t.Fatalf("content %q read as an answer: %+v, %v", content, verdict, err)
+		}
+	}
+}
+
+// A mailbox that cannot be read is not the same as no answer yet: the
+// waiting command must hear about it rather than report a rename queued.
+func TestReadNameResultSurfacesAReadFailure(t *testing.T) {
+	manager := NewManager(t.TempDir())
+	if err := os.MkdirAll(manager.NameResultFile("x", testRequest), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if _, found, err := manager.ReadNameResult("x", testRequest); err == nil || found {
+		t.Fatalf("unreadable result = found %v, err %v; want the failure", found, err)
+	}
+}
+
+// A claim takes the pending rename out of the mailbox in one step, so a
+// rename written while it is being applied waits for the next claim
+// instead of being consumed with it.
+func TestClaimNameLeavesALaterRenameForTheNextClaim(t *testing.T) {
+	manager := NewManager(t.TempDir())
+	if err := os.MkdirAll(manager.Dir(), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if _, _, found, err := manager.ClaimName("x"); found || err != nil {
+		t.Fatalf("ClaimName with nothing pending = %v, %v", found, err)
+	}
+	if err := os.WriteFile(manager.NameFile("x"), []byte(NameRequest(testRequest, "first name")), 0o644); err != nil {
+		t.Fatalf("write name: %v", err)
+	}
+
+	request, name, found, err := manager.ClaimName("x")
+	if err != nil || !found || name != "first name" || request != testRequest {
+		t.Fatalf("ClaimName = %q, %q, %v, %v", request, name, found, err)
+	}
+	if _, found := manager.ReadName("x"); found {
+		t.Fatal("a claimed rename must leave the mailbox free")
+	}
+	if err := os.WriteFile(manager.NameFile("x"), []byte(NameRequest(otherRequest, "second name")), 0o644); err != nil {
+		t.Fatalf("write second name: %v", err)
+	}
+
+	// A claim the manager did not finish is picked up again ahead of it.
+	request, again, found, err := manager.ClaimName("x")
+	if err != nil || !found || again != "first name" || request != testRequest {
+		t.Fatalf("re-claim = %q, %q, %v, %v; want the unfinished claim", request, again, found, err)
+	}
+	if err := manager.ReleaseName("x"); err != nil {
+		t.Fatalf("ReleaseName: %v", err)
+	}
+	request, next, found, err := manager.ClaimName("x")
+	if err != nil || !found || next != "second name" || request != otherRequest {
+		t.Fatalf("next claim = %q, %q, %v, %v; want the rename written meanwhile", request, next, found, err)
+	}
+	if err := manager.ReleaseName("x"); err != nil {
+		t.Fatalf("ReleaseName: %v", err)
+	}
+	if _, _, found, _ := manager.ClaimName("x"); found {
+		t.Fatal("a released claim leaves nothing pending")
+	}
+}
+
+// The claim tells a caller its rename is being applied, so a claim the
+// manager took from a file carrying no request of ours reports no
+// request rather than a made-up one.
+func TestClaimedRequestReportsWhatWasClaimed(t *testing.T) {
+	manager := NewManager(t.TempDir())
+	if err := os.MkdirAll(manager.Dir(), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if request, held, err := manager.ClaimedRequest("x"); held || request != "" || err != nil {
+		t.Fatalf("with nothing claimed = %q, %v, %v", request, held, err)
+	}
+
+	for _, testCase := range []struct {
+		label   string
+		content string
+		want    string
+	}{
+		{"a request we issued", NameRequest(testRequest, "fix auth bug"), testRequest},
+		{"a file carrying no request", "fix auth bug", ""},
+	} {
+		t.Run(testCase.label, func(t *testing.T) {
+			if err := os.WriteFile(manager.NameFile("x"), []byte(testCase.content), 0o644); err != nil {
+				t.Fatalf("write name: %v", err)
+			}
+			if _, _, found, err := manager.ClaimName("x"); err != nil || !found {
+				t.Fatalf("ClaimName = %v, %v", found, err)
+			}
+			request, held, err := manager.ClaimedRequest("x")
+			if err != nil || !held || request != testCase.want {
+				t.Fatalf("ClaimedRequest = %q, %v, %v; want %q", request, held, err, testCase.want)
+			}
+			if err := manager.ReleaseName("x"); err != nil {
+				t.Fatalf("ReleaseName: %v", err)
+			}
+		})
+	}
+}
+
+// Two renames for one session write at the same time, so neither may
+// publish the other's content or fail on a staging file it does not own.
+func TestWriteWholeSurvivesConcurrentWriters(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "abc123.name")
+	var wg sync.WaitGroup
+	for _, content := range []string{"first name", "second name"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 50 {
+				if err := WriteWhole(path, content); err != nil {
+					t.Errorf("WriteWhole(%q): %v", content, err)
+					return
+				}
+				raw, err := os.ReadFile(path)
+				if err != nil {
+					t.Errorf("read: %v", err)
+					return
+				}
+				if got := string(raw); got != "first name" && got != "second name" {
+					t.Errorf("read a torn file: %q", got)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("staging files were left behind: %v", entries)
+	}
+}
+
+// A queued rename leads with its request id; ReadName hands back only the
+// name, so a caller reading the mailbox never mistakes the id for part of it.
+func TestReadNameDropsTheRequestLine(t *testing.T) {
+	manager := NewManager(t.TempDir())
+	if err := os.MkdirAll(manager.Dir(), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(manager.NameFile("x"), []byte(NameRequest(testRequest, "fix auth bug")), 0o644); err != nil {
+		t.Fatalf("write name: %v", err)
+	}
+	if name, found := manager.ReadName("x"); !found || name != "fix auth bug" {
+		t.Fatalf("ReadName = %q, %v; want the name alone", name, found)
 	}
 }

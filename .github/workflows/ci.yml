@@ -52,6 +52,14 @@ jobs:
         working-directory: extension/artifacts/worker
         run: bun test
 
+  govulncheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1.1.0
+        with:
+          go-version-file: go.mod
+          go-package: ./...
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20

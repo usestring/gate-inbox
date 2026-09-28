@@ -622,3 +622,123 @@ func TestQuickPromptNeverRunsWhatIsTypedAtAShell(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
+
+// seedTwoGroups gives the list two rows so a selection move is observable.
+func seedTwoGroups(t *testing.T, m *Model) {
+	t.Helper()
+	for _, name := range []string{"alpha", "beta"} {
+		if err := m.store.CreateGroup(name, t.TempDir()); err != nil {
+			t.Fatalf("create group: %v", err)
+		}
+	}
+	m.applyCmd(t, m.refreshCmd())
+	if len(m.rows) < 2 {
+		t.Fatalf("rows = %d, want at least 2", len(m.rows))
+	}
+}
+
+func TestQuickUpDownMoveTheCaretBetweenPromptRows(t *testing.T) {
+	m := buildModel(t)
+	seedTwoGroups(t, m)
+	m.cursor = 1
+	m.openQuickMode()
+	m.quick.input.SetWidth(40)
+	m.quick.input.SetHeight(quickBarMaxRows)
+	m.quick.input.SetValue("first\nsecond\nthird")
+
+	_, _ = m.handleQuickKey(key("up"))
+	if m.quick.input.Line() != 1 || m.cursor != 1 {
+		t.Fatalf("up from the last row: caret line %d, selection %d; want caret 1, selection 1", m.quick.input.Line(), m.cursor)
+	}
+	_, _ = m.handleQuickKey(key("up"))
+	if m.quick.input.Line() != 0 || m.cursor != 1 {
+		t.Fatalf("up from the middle row: caret line %d, selection %d; want caret 0, selection 1", m.quick.input.Line(), m.cursor)
+	}
+	_, _ = m.handleQuickKey(key("up"))
+	if m.quick.input.Line() != 0 || m.cursor != 0 {
+		t.Fatalf("up from the first row: caret line %d, selection %d; want caret 0, selection 0", m.quick.input.Line(), m.cursor)
+	}
+
+	_, _ = m.handleQuickKey(key("down"))
+	if m.quick.input.Line() != 1 || m.cursor != 0 {
+		t.Fatalf("down from the first row: caret line %d, selection %d; want caret 1, selection 0", m.quick.input.Line(), m.cursor)
+	}
+	_, _ = m.handleQuickKey(key("down"))
+	_, _ = m.handleQuickKey(key("down"))
+	if m.quick.input.Line() != 2 || m.cursor != 1 {
+		t.Fatalf("down from the last row: caret line %d, selection %d; want caret 2, selection 1", m.quick.input.Line(), m.cursor)
+	}
+}
+
+func TestQuickUpDownWalkSoftWrappedRows(t *testing.T) {
+	m := buildModel(t)
+	seedTwoGroups(t, m)
+	m.cursor = 1
+	m.openQuickMode()
+	m.quick.input.SetWidth(12)
+	m.quick.input.SetHeight(quickBarMaxRows)
+	m.quick.input.SetValue("one two three four five six seven")
+	if height := m.quick.input.LineInfo().Height; height < 3 {
+		t.Fatalf("value should soft-wrap over at least 3 rows, got %d", height)
+	}
+	last := m.quick.input.LineInfo().RowOffset
+	if height := m.quick.input.LineInfo().Height; last != height-1 {
+		t.Fatalf("the caret starts on row %d of %d, want the last wrapped row", last, height)
+	}
+
+	_, _ = m.handleQuickKey(key("up"))
+	if got := m.quick.input.LineInfo().RowOffset; got != last-1 || m.cursor != 1 {
+		t.Fatalf("up inside a wrapped line: row %d, selection %d; want row %d, selection 1", got, m.cursor, last-1)
+	}
+	_, _ = m.handleQuickKey(key("down"))
+	if got := m.quick.input.LineInfo().RowOffset; got != last || m.cursor != 1 {
+		t.Fatalf("down inside a wrapped line: row %d, selection %d; want row %d, selection 1", got, m.cursor, last)
+	}
+	_, _ = m.handleQuickKey(key("down"))
+	if m.cursor == 1 {
+		t.Fatal("down from the last wrapped row should move the selection")
+	}
+}
+
+func TestQuickOneRowPromptKeepsArrowsOnTheList(t *testing.T) {
+	m := buildModel(t)
+	seedTwoGroups(t, m)
+	m.cursor = 1
+	m.openQuickMode()
+	m.quick.input.SetWidth(40)
+	m.quick.input.SetValue("short answer")
+
+	_, _ = m.handleQuickKey(key("up"))
+	if m.cursor != 0 {
+		t.Fatalf("up on a one-row prompt should move the selection, got %d", m.cursor)
+	}
+	_, _ = m.handleQuickKey(key("down"))
+	if m.cursor != 1 {
+		t.Fatalf("down on a one-row prompt should move the selection, got %d", m.cursor)
+	}
+}
+
+// A chip the caret lands inside snaps toward the step's direction, so ↑
+// always leaves the row it started on instead of reading as a dead key.
+func TestQuickUpStepsOffTheRowWhenAChipIsInTheWay(t *testing.T) {
+	m := buildModel(t)
+	seedTwoGroups(t, m)
+	m.cursor = 1
+	m.openQuickMode()
+	m.quick.attachments = []imageAttachment{{id: 1, path: "/tmp/a.png"}}
+	m.quick.input.SetWidth(21)
+	m.quick.input.SetHeight(quickBarMaxRows)
+	m.quick.input.SetValue("aaaa bbbb " + imageToken(1) + " cccc dddd eeee ffff")
+	m.quick.input.SetCursorColumn(33)
+
+	for !m.quick.caretOnFirstRow() {
+		before := m.quick.input.LineInfo().RowOffset
+		_, _ = m.handleQuickKey(key("up"))
+		if got := m.quick.input.LineInfo().RowOffset; got >= before {
+			t.Fatalf("up left the caret on row %d, want a row above %d", got, before)
+		}
+		if m.cursor != 1 {
+			t.Fatal("up inside the prompt should not move the selection")
+		}
+	}
+}

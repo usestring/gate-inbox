@@ -24,6 +24,41 @@ func paneAt(t *testing.T, lines ...string) *Model {
 	return m
 }
 
+// A pane held taller than the panel crops at its content and never at the
+// caret, which can sit below the content on an empty prompt row; the caret
+// must land on the painted row the crop gave it.
+func TestCaretRowSurvivesTallPaneCrop(t *testing.T) {
+	rows := append([]string{"one", "two"}, make([]string, 38)...)
+	m := paneAt(t, rows...)
+	m.pane.box.height = 10
+	m.pane.cursor = paneCursor{x: 0, y: 25, ok: true}
+	row, col, ok := m.cursorCell(m.pane.box.height)
+	if !ok || row != 9 || col != 0 {
+		t.Fatalf("caret at pane row 25 = (%d,%d,%v), want painted row 9", row, col, ok)
+	}
+}
+
+// Focus can paint before the newly focused session pushes its first
+// frame, and until then the cached caret is the last session's. Followed
+// into this pane's blank tail it would crop away every painted row.
+func TestFocusDropsTheLastSessionsCaret(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), "")
+	m.selectSessionRow(t, "alpha")
+	m.pane.forID = "another-session"
+	m.pane.cursor = paneCursor{x: 0, y: 25, ok: true}
+	updated, _ := m.focusSelected()
+	m = updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("test setup: focus alpha, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+	m.preview = "one\ntwo" + strings.Repeat("\n", 38)
+	rows := paneExact(m.preview, 10, 40, m.paneCaretRow())
+	if len(rows) != 2 || rows[0] != "one" {
+		t.Fatalf("focused pane = %q, want the painted rows", rows)
+	}
+}
+
 func press(m *Model, x, y int) {
 	m.handleFocusMouse(tea.MouseClickMsg{Button: tea.MouseLeft, X: x, Y: y})
 }
@@ -352,7 +387,7 @@ func TestSelectionOverlayKeepsWideGraphemesWhole(t *testing.T) {
 }
 
 func TestSelectionSurvivesShortLines(t *testing.T) {
-	m := paneAt(t, "ab", "")
+	m := paneAt(t, "ab", "", "later")
 	press(m, 10, 5)
 	drag(m, 40, 6)
 	if got := m.selectionText(); got != "ab\n" {
@@ -636,7 +671,7 @@ func TestTabbedRowSharesItsColumns(t *testing.T) {
 	const width = 30
 	m := paneAt(t, "ok  \tgithub.com/x/y\t1.5s")
 	m.pane.box.width = width
-	rows := paneExact(m.preview, m.pane.box.height, width)
+	rows := paneExact(m.preview, m.pane.box.height, width, -1)
 
 	// Column 8 is where the pane paints the package name's first letter.
 	m.pane.cursor = paneCursor{x: 8, y: 0, ok: true}
@@ -691,4 +726,62 @@ func TestAdoptedMousePaneClickReachesTheAgent(t *testing.T) {
 		return sgrMouseReportRe(leftButton, false).MatchString(out) &&
 			sgrMouseReportRe(leftButton, true).MatchString(out)
 	})
+}
+
+// A click somewhere else ends the previous selection, in a pane that tracks
+// the mouse and forwards the press as much as in one that selects on it: a
+// highlight left standing reads as text still selected, and the copy
+// confirmation belongs to the highlight it counted.
+func TestClickElsewhereClearsSelection(t *testing.T) {
+	for _, tracksMouse := range []bool{false, true} {
+		m := paneAt(t, "alpha beta", "gamma delta")
+		m.pane.mouse = tracksMouse
+		press(m, 10, 5)
+		drag(m, 14, 5)
+		m.handleFocusMouse(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: 14, Y: 5})
+		if got := m.selectionText(); got != "alph" {
+			t.Fatalf("mouse=%v: drag selected %q", tracksMouse, got)
+		}
+		m.copied = 4
+
+		press(m, 12, 6)
+		if got := m.selectionText(); got != "" {
+			t.Fatalf("mouse=%v: click elsewhere still selects %q", tracksMouse, got)
+		}
+		if m.copied != 0 {
+			t.Fatalf("mouse=%v: click elsewhere kept the copy confirmation: %d", tracksMouse, m.copied)
+		}
+		m.handleFocusMouse(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: 12, Y: 6})
+		if got := m.selectionText(); got != "" {
+			t.Fatalf("mouse=%v: releasing the click restored the selection %q", tracksMouse, got)
+		}
+	}
+}
+
+// The clipboard writer runs off the update loop, so its confirmation can
+// land after a click elsewhere has already dropped the highlight it counted.
+// Re-arming the banner there would put "copied N chars" under no selection,
+// which is the state this file exists to prevent.
+func TestLateCopyConfirmationIsDroppedAfterTheSelectionGoes(t *testing.T) {
+	m := paneAt(t, "alpha beta", "gamma delta")
+	press(m, 10, 5)
+	drag(m, 14, 5)
+	m.handleFocusMouse(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: 14, Y: 5})
+	inFlight := focusCopiedMsg{chars: 4, gen: m.copyGen}
+
+	press(m, 12, 6)
+	m.Update(inFlight)
+	if m.copied != 0 {
+		t.Fatalf("a write that landed after the click re-armed the count: %d", m.copied)
+	}
+
+	// The same confirmation still counts while its own selection stands.
+	m2 := paneAt(t, "alpha beta", "gamma delta")
+	press(m2, 10, 5)
+	drag(m2, 14, 5)
+	m2.handleFocusMouse(tea.MouseReleaseMsg{Button: tea.MouseLeft, X: 14, Y: 5})
+	m2.Update(focusCopiedMsg{chars: 4, gen: m2.copyGen})
+	if m2.copied != 4 {
+		t.Fatalf("the write for the standing selection was dropped: %d", m2.copied)
+	}
 }

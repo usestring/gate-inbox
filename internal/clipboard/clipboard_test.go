@@ -12,12 +12,15 @@ import (
 	"time"
 )
 
+// restore saves the seams for the returned func to put back, and starts the
+// test on a local terminal whatever session the suite itself runs in.
 func restore() func() {
 	origGOOS, origLook, origRun, origToFile, origWSL, origNative := goos, lookPath, runCmd, runCmdToFile, wslProbe, readNativeImage
-	origEnv, origEmit := getenv, emitSeq
+	origEnv, origEmit, origRemote := getenv, emitSeq, remote
+	remote = func() bool { return false }
 	return func() {
 		goos, lookPath, runCmd, runCmdToFile, wslProbe, readNativeImage = origGOOS, origLook, origRun, origToFile, origWSL, origNative
-		getenv, emitSeq = origEnv, origEmit
+		getenv, emitSeq, remote = origEnv, origEmit, origRemote
 	}
 }
 
@@ -596,14 +599,50 @@ func TestWriteTextNativeFailureFallsBackToOSC52(t *testing.T) {
 	}
 }
 
-func TestDetectWSLEnv(t *testing.T) {
-	t.Setenv("WSL_DISTRO_NAME", "Ubuntu")
-	if !detectWSL() {
-		t.Fatal("WSL_DISTRO_NAME should mark WSL")
+// Over SSH this host's clipboard is not the user's. Only an X display that
+// ssh forwarded back reaches their screen, through an X writer. Everything
+// else leaves the copy to the terminal.
+func TestCopyCommandOverSSH(t *testing.T) {
+	cases := []struct {
+		name     string
+		goos     string
+		wsl      bool
+		display  string
+		wayland  string
+		wantName string
+		wantOK   bool
+	}{
+		{name: "mac host", goos: "darwin"},
+		{name: "linux desktop display", goos: "linux", display: ":0"},
+		{name: "linux wayland session", goos: "linux", wayland: "wayland-0"},
+		{name: "WSL host", goos: "linux", wsl: true},
+		{name: "forwarded X display", goos: "linux", display: "localhost:10.0", wantName: "xclip", wantOK: true},
 	}
-	t.Setenv("WSL_DISTRO_NAME", "")
-	t.Setenv("WSL_INTEROP", "/run/WSL/1_interop")
-	if !detectWSL() {
-		t.Fatal("WSL_INTEROP should mark WSL")
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			defer restore()()
+			remote = func() bool { return true }
+			goos = c.goos
+			wslProbe = func() bool { return c.wsl }
+			getenv = func(name string) string {
+				switch name {
+				case "DISPLAY":
+					return c.display
+				case "WAYLAND_DISPLAY":
+					return c.wayland
+				}
+				return ""
+			}
+			lookPath = func(name string) (string, error) {
+				if name == "wl-copy" || name == "xclip" {
+					return "/usr/bin/" + name, nil
+				}
+				return "", errors.New("not found")
+			}
+			name, _, ok := copyCommand()
+			if name != c.wantName || ok != c.wantOK {
+				t.Fatalf("copyCommand() = %q %v, want %q %v", name, ok, c.wantName, c.wantOK)
+			}
+		})
 	}
 }

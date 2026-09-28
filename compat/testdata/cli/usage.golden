@@ -1,4 +1,4 @@
-36 commands and verbs
+37 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -18,7 +18,7 @@ usage: gate-inbox sessions [--parent <id|me>] [--status <state>] [--include-arch
 $ gate-inbox spawn -h
 exit 0
 --- stdout
-usage: gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--nest] [--json]
+usage: gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--nest] [--keep] [--json]
   -account string
     	named subscription it runs on, read from Secret Manager at launch; omit for the board's default account
   -directory string
@@ -27,6 +27,8 @@ usage: gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--mode
     	existing group path for a detached (--nest=false) session; a nested one is always in yours
   -json
     	print the raw result as JSON instead of a sentence
+  -keep
+    	keep it on the list after it finishes, where Gate Inbox would otherwise archive it once you have read its finish and the grace period has passed
   -model string
     	model that CLI should run on, in its own names; omit for the CLI's default
   -name string
@@ -138,6 +140,19 @@ usage: gate-inbox archive <session-id> [--restore] [--json]
     	print the raw result as JSON instead of a sentence
   -restore
     	put an archived session back on the active list
+
+$ gate-inbox cleanup-children -h
+exit 0
+--- stdout
+usage: gate-inbox cleanup-children [--status <state>] [--all] [--dry-run] [--json]
+  -all
+    	archive every child whatever its state, including ones spawned with --keep
+  -dry-run
+    	print what would be archived without archiving anything
+  -json
+    	print the raw result as JSON instead of a sentence
+  -status value
+    	state of the children to archive, repeatable or comma separated; defaults to finished, idle and dead
 
 $ gate-inbox park -h
 exit 0

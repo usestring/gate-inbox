@@ -8,7 +8,7 @@ Every command acts as the session it runs in, so run them from your own shell.
 Agent sessions
   gate-inbox sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json]
       list every agent session with its id, CLI, group, directory and status; call it before delegating anything
-  gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--nest] [--json]
+  gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--nest] [--keep] [--json]
       start another agent CLI on a task of its own, so independent work runs beside you instead of queued behind you
   gate-inbox send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--json]
       queue a message for another agent; it is typed in once that agent is at rest, so it never lands on an approval prompt
@@ -32,6 +32,8 @@ Agent sessions
       move a session's conversation to another agent CLI: a new session there reads the source's transcript and carries on; the source stays until you archive it
   gate-inbox archive <session-id> [--restore] [--json]
       file a finished session out of the active list, ending it if it is still running, or restore it with --restore; a row left archived is deleted for good after 7 days
+  gate-inbox cleanup-children [--status <state>] [--all] [--dry-run] [--json]
+      archive the sessions you spawned that are done, each with whatever it spawned: finished, idle and dead by default, --status to choose, --all for every one; a finished child you have read is archived on its own after a grace period anyway
   gate-inbox park [--dry-run] [--json]
       stop every live agent session the manager started and record the set, so the machine can reboot; --dry-run only prints the plan; runs from any shell
   gate-inbox unpark [--json]

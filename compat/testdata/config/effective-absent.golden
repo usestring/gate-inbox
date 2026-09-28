@@ -5,6 +5,8 @@
 #   ignored  written in config.toml, but no setting reads it
 default  adopt_sockets = []
 default  children.auto_archive_after = "30m0s"
+default  children.finished_grace = "10m0s"
+default  children.keep_finished = false
 default  editor = ""
 default  extensions = {}
 default  integrations.github.enabled = <unset>

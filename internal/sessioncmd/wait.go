@@ -239,6 +239,9 @@ func (s *Sessions) Wait(ctx context.Context, sessionID string, opts WaitOptions)
 			if err != nil {
 				return WaitResult{}, err
 			}
+			for _, observed := range seen {
+				noteSpawnerRead(runtime, caller.ID, observed.session)
+			}
 			return runtime.waitResult(seen, outcome, started)
 		}
 		select {

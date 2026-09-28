@@ -1,6 +1,7 @@
-30 tools
+31 tools
   answer_session
   archive_session
+  cleanup_children
   close_terminal
   create_group
   create_session
@@ -104,7 +105,7 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "File a finished session out of the active list, or restore an archived one with archived false. Use it to keep the user's list readable once a session's work is done. This ENDS a running agent: the row and its last screen are kept and revive_session brings it back, but work in progress stops, so read_session first if you are not sure it has finished.",
+  "description": "File a finished session out of the active list, or restore an archived one with archived false. Use it to keep the user's list readable once a session's work is done; cleanup_children files all of your finished children at once. This ENDS a running agent, and every session it spawned goes with it: the rows and their last screens are kept and revive_session brings one back, but work in progress stops, so read_session first if you are not sure it has finished.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -192,6 +193,114 @@
       "running",
       "archived",
       "self"
+    ],
+    "type": "object"
+  }
+}
+
+=== cleanup_children
+{
+  "annotations": {
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+  },
+  "description": "Archive the sessions this one spawned that are done, in one call, instead of archive_session on each. By default it takes children that are finished, idle or dead, each with every session it spawned in turn, and leaves one that is working, waiting on a question, errored, spawned with keep, or still has working children of its own, saying why. Pass statuses to choose the states, all true to archive every child whatever it is doing, and dry_run true to see the plan first. It reaches only your own fan-out. Archiving ends a running agent: its last screen is kept, the row stays in the archived view for 7 days, and revive_session brings it back. You rarely need it for a finished child: Gate Inbox archives one on its own once you have read or been told of its finish and left it alone for the grace period.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "all": {
+        "description": "archive every child whatever its state, including ones spawned with keep and ones whose own children are still working",
+        "type": "boolean"
+      },
+      "dry_run": {
+        "description": "report what would be archived without archiving anything",
+        "type": "boolean"
+      },
+      "statuses": {
+        "description": "states of the children to archive: starting, working, waiting, finished, idle, errored or dead; defaults to finished, idle and dead",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      }
+    },
+    "type": "object"
+  },
+  "name": "cleanup_children",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "archived": {
+        "description": "how many children were archived, not counting their own descendants",
+        "type": "integer"
+      },
+      "children": {
+        "description": "per-child outcome, in board order",
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "archived": {
+              "description": "whether it was archived (or, on a dry run, would be)",
+              "type": "boolean"
+            },
+            "descendants": {
+              "description": "ids of the sessions this child spawned, at any depth, archived with it",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "name": {
+              "description": "that session's name",
+              "type": "string"
+            },
+            "session_id": {
+              "description": "child session id",
+              "type": "string"
+            },
+            "skipped": {
+              "description": "why this child was left alone; empty when it was archived",
+              "type": "string"
+            },
+            "status": {
+              "description": "the child's state when the cleanup read it",
+              "type": "string"
+            }
+          },
+          "required": [
+            "session_id",
+            "name",
+            "status",
+            "archived"
+          ],
+          "type": "object"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
+      "dry_run": {
+        "description": "true when nothing was archived and the result is only the plan",
+        "type": "boolean"
+      },
+      "skipped": {
+        "description": "how many were left alone, with a reason on each",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "archived",
+      "skipped",
+      "children"
     ],
     "type": "object"
   }
@@ -308,6 +417,10 @@
           "null",
           "string"
         ]
+      },
+      "keep": {
+        "description": "keep this child on the list after it finishes: Gate Inbox otherwise archives a finished child on its own once you have read or been told of its finish and left it alone for the grace period (10 minutes by default)",
+        "type": "boolean"
       },
       "model": {
         "description": "model that CLI should run on, in whatever names it uses (claude: sonnet, opus, haiku, plus the 1M-context opus[1m] and sonnet[1m]; opencode: provider/model); call list_models for the names a CLI accepts rather than guessing one, since an unknown name is refused by the CLI and the session dies on launch; omit for the CLI's own default",

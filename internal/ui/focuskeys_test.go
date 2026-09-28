@@ -630,9 +630,101 @@ func TestCaretAtInputStartNeedsCurrentPane(t *testing.T) {
 	}
 }
 
-// Left leaves focus at the head of the prompt and reaches the agent
-// anywhere else, so a typed prompt keeps its caret movement.
-func TestFocusLeftUnfocusesAtPromptHead(t *testing.T) {
+// Right is only free to mean "back to the list" where the agent would do
+// nothing with it: at the end of its prompt, with nothing typed past the
+// caret.
+func TestCaretAtInputEnd(t *testing.T) {
+	cases := []struct {
+		name   string
+		tool   string
+		cursor paneCursor
+		rows   []string
+		want   bool
+	}{
+		// tmux trims a row's trailing blanks, so an empty prompt is the
+		// marker alone with the caret out past it.
+		{"empty prompt", "claude", paneCursor{x: 2, y: 1, ok: true}, []string{"output", "❯"}, true},
+		{"nbsp padded prompt", "claude", paneCursor{x: 2, y: 0, ok: true}, []string{"❯ "}, true},
+		{"typed line end", "claude", paneCursor{x: 4, y: 0, ok: true}, []string{"❯ hi"}, true},
+		{"typed line middle", "claude", paneCursor{x: 3, y: 0, ok: true}, []string{"❯ hi"}, false},
+		{"caret before the marker's end", "claude", paneCursor{x: 0, y: 0, ok: true}, []string{"❯ hi"}, false},
+		// A caret at the head of a typed line is the agent's to move into --
+		// claude draws no placeholder, so nothing past the caret reads as
+		// anything but typed text. (Placeholder tools over-read this shape
+		// as the end; see caretAtInputEnd.)
+		{"head of a typed line", "claude", paneCursor{x: 1, y: 0, ok: true}, []string{"❯ hi"}, false},
+		// A wrapped prompt's continuation rows carry no marker, so a caret
+		// on one of them is never at the end of anything the marker names.
+		{"wrapped continuation", "claude", paneCursor{x: 9, y: 1, ok: true}, []string{"❯ a long", "  wrapped"}, false},
+		// The end of a wrapped first line does read as the end: the
+		// continuation below carries no marker, so the scan stops there.
+		// Right at a soft wrap's edge is the one key this costs.
+		{"wrapped first line end", "claude", paneCursor{x: 8, y: 0, ok: true}, []string{"❯ a long", "  wrapped"}, true},
+		{"plain output row", "claude", paneCursor{x: 11, y: 0, ok: true}, []string{"some output"}, false},
+		{"tool without a marker", "unmarked", paneCursor{x: 2, y: 0, ok: true}, []string{"❯"}, false},
+		{"unknown tool", "nosuch", paneCursor{x: 2, y: 0, ok: true}, []string{"❯"}, false},
+		{"no cursor report", "claude", paneCursor{x: 2, y: 1}, []string{"output", "❯"}, false},
+		{"cursor row past the capture", "claude", paneCursor{x: 2, y: 9, ok: true}, []string{"❯"}, false},
+		// A boxed composer marks every row it owns, so a marked row below
+		// the caret -- text or a newline just taken -- means Right moves
+		// down into it rather than going spare.
+		{"boxed empty composer", "boxed", paneCursor{x: 5, y: 1, ok: true}, []string{"  ┃", "  ┃", "  ╹▀▀▀"}, true},
+		{"boxed empty composer first row", "boxed", paneCursor{x: 5, y: 0, ok: true}, []string{"  ┃", "  ┃", "  ╹▀▀▀"}, false},
+		{"boxed line end with more below", "boxed", paneCursor{x: 17, y: 1, ok: true}, []string{"  ┃", "  ┃  first line", "  ┃", "  ╹▀▀▀"}, false},
+		{"boxed last line end", "boxed", paneCursor{x: 17, y: 1, ok: true}, []string{"  ┃", "  ┃  first line", "  ╹▀▀▀"}, true},
+		{"boxed mid-line", "boxed", paneCursor{x: 8, y: 1, ok: true}, []string{"  ┃", "  ┃  first line", "  ╹▀▀▀"}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			m := caretModel(t, c.cursor, c.rows...)
+			if got := m.caretAtInputEnd("s1", c.tool); got != c.want {
+				t.Fatalf("caretAtInputEnd = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// Right leaves focus at the end of the prompt and reaches the agent
+// anywhere else, so a typed prompt keeps its caret movement. The rail sits
+// on the right of the frame, so the exit arrow is Right; Left always reaches
+// the agent, even at the head where it is a no-op for it.
+func TestFocusRightUnfocusesAtPromptEnd(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "rightie", t.TempDir(), "")
+	m.selectSessionRow(t, "rightie")
+
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	*m = *updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("after enter, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+	sess := m.rows[m.cursor].sess
+	m.rows[m.cursor].sess.Tool = "claude-hooked"
+	m.pane.forID = sess.ID
+	m.pane.cursor = paneCursor{x: 2, y: 0, ok: true}
+	m.preview = "❯ hi\n"
+
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	*m = *updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("right inside a typed prompt left focus, mode = %v", m.mode)
+	}
+	if m.errBar.text != "" {
+		t.Fatalf("forwarding right set err: %q", m.errBar.text)
+	}
+
+	m.pane.cursor = paneCursor{x: 4, y: 0, ok: true}
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	*m = *updated.(*Model)
+	if m.mode != modeList {
+		t.Fatalf("right at the prompt end did not unfocus, mode = %v", m.mode)
+	}
+}
+
+// Left is the pane's on every prompt position now: the exit arrow points at
+// the rail on the right, so even the head-of-prompt Left that used to leave
+// forwards instead.
+func TestFocusLeftStaysAtPromptHead(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "leftie", t.TempDir(), "")
 	m.selectSessionRow(t, "leftie")
@@ -645,23 +737,16 @@ func TestFocusLeftUnfocusesAtPromptHead(t *testing.T) {
 	sess := m.rows[m.cursor].sess
 	m.rows[m.cursor].sess.Tool = "claude-hooked"
 	m.pane.forID = sess.ID
-	m.pane.cursor = paneCursor{x: 4, y: 0, ok: true}
+	m.pane.cursor = paneCursor{x: 2, y: 0, ok: true}
 	m.preview = "❯ hi\n"
 
 	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
 	*m = *updated.(*Model)
 	if m.mode != modeFocus {
-		t.Fatalf("left inside a typed prompt left focus, mode = %v", m.mode)
+		t.Fatalf("left at the prompt head left focus, mode = %v", m.mode)
 	}
 	if m.errBar.text != "" {
 		t.Fatalf("forwarding left set err: %q", m.errBar.text)
-	}
-
-	m.pane.cursor = paneCursor{x: 2, y: 0, ok: true}
-	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
-	*m = *updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("left at the prompt head did not unfocus, mode = %v", m.mode)
 	}
 }
 
@@ -683,6 +768,28 @@ func TestFocusAltLeftStaysWithTheAgent(t *testing.T) {
 	*m = *updated.(*Model)
 	if m.mode != modeFocus {
 		t.Fatalf("alt+left left focus, mode = %v", m.mode)
+	}
+}
+
+// Alt+Right is a word jump inside the prompt, so it stays the agent's even
+// at the prompt's end, where a plain Right steps back to the list.
+func TestFocusAltRightStaysWithTheAgent(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "altright", t.TempDir(), "")
+	m.selectSessionRow(t, "altright")
+
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	*m = *updated.(*Model)
+	sess := m.rows[m.cursor].sess
+	m.rows[m.cursor].sess.Tool = "claude-hooked"
+	m.pane.forID = sess.ID
+	m.pane.cursor = paneCursor{x: 4, y: 0, ok: true}
+	m.preview = "❯ hi\n"
+
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight, Mod: tea.ModAlt})
+	*m = *updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("alt+right left focus, mode = %v", m.mode)
 	}
 }
 

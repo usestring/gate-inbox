@@ -18,7 +18,7 @@ import (
 
 const (
 	usageSessions      = "sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json]"
-	usageSpawn         = "spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--nest] [--json]"
+	usageSpawn         = "spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--nest] [--keep] [--json]"
 	usageSend          = `send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--json]`
 	usageRead          = "read <session-id> [--since <cursor>] [--json]"
 	usageSendChildren  = "send-children \"<message>\" [--json]"
@@ -30,6 +30,7 @@ const (
 	usageRevive        = "revive <session-id> [--json]"
 	usageMigrate       = "migrate <session-id> --tool <cli> [--name <name>] [--json]"
 	usageArchive       = "archive <session-id> [--restore] [--json]"
+	usageCleanup       = "cleanup-children [--status <state>] [--all] [--dry-run] [--json]"
 	usagePark          = "park [--dry-run] [--json]"
 	usageUnpark        = "unpark [--json]"
 	usageGroups        = "groups [--json]"
@@ -42,6 +43,7 @@ type sessionCommands interface {
 	Create(sessionID string, opts sessioncmd.CreateSessionOptions) (sessioncmd.Session, error)
 	Send(sessionID, targetID, message, subject string, interrupt bool) (sessioncmd.SendResult, error)
 	SendChildren(sessionID, message string) (sessioncmd.ChildSend, error)
+	CleanupChildren(sessionID string, opts sessioncmd.CleanupOptions) (sessioncmd.ChildCleanup, error)
 	SendAsHuman(sessionID, targetID, message, subject string, interrupt bool) (sessioncmd.SendResult, error)
 	Read(sessionID, targetID, since string) (sessioncmd.SessionScreen, error)
 	AdoptSession(sessionID, targetID string) (sessioncmd.Session, error)
@@ -81,6 +83,7 @@ func sessionSection() section {
 			{name: "revive", usage: usageRevive, about: "bring a dead session back on its old row, resuming the conversation it held", run: bind(newSessions, runRevive)},
 			{name: "migrate", usage: usageMigrate, about: "move a session's conversation to another agent CLI: a new session there reads the source's transcript and carries on; the source stays until you archive it", run: bind(newSessions, runMigrate)},
 			{name: "archive", usage: usageArchive, about: "file a finished session out of the active list, ending it if it is still running, or restore it with --restore; a row left archived is deleted for good after 7 days", run: bind(newSessions, runArchive)},
+			{name: "cleanup-children", usage: usageCleanup, about: "archive the sessions you spawned that are done, each with whatever it spawned: finished, idle and dead by default, --status to choose, --all for every one; a finished child you have read is archived on its own after a grace period anyway", run: bind(newSessions, runCleanupChildren)},
 			{name: "park", usage: usagePark, about: "stop every live agent session the manager started and record the set, so the machine can reboot; --dry-run only prints the plan; runs from any shell", run: bind(newSessions, runPark)},
 			{name: "unpark", usage: usageUnpark, about: "bring back every session park stopped, resuming the conversation each held; runs from any shell", run: bind(newSessions, runUnpark)},
 			{name: "groups", usage: usageGroups, about: "list the groups sessions and terminals are filed under", run: bind(newSessions, runGroups)},
@@ -123,6 +126,7 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 	group := set.String("group", "", "existing group path for a detached (--nest=false) session; a nested one is always in yours")
 	directory := set.String("directory", "", "existing directory it works in; defaults to yours, or to the group's inherited path")
 	nest := set.Bool("nest", true, "file it under this session, where its questions and rests reach you; --nest=false detaches it, for work that is not yours")
+	keep := set.Bool("keep", false, "keep it on the list after it finishes, where Gate Inbox would otherwise archive it once you have read its finish and the grace period has passed")
 	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
 		return err
@@ -134,6 +138,7 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 		Prompt:    *prompt,
 		Model:     *model,
 		Account:   *account,
+		Keep:      *keep,
 	}
 	// An omitted group inherits this session's and an omitted nest the
 	// engine's own, so only a flag the caller actually typed is passed on.
@@ -365,6 +370,27 @@ func runArchive(out io.Writer, sessions sessionCommands, args []string, sessionI
 		return err
 	}
 	return cmdline.Emit(out, *asJSON, updated, sessioncmd.FormatArchiveState(updated))
+}
+
+func runCleanupChildren(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
+	set := cmdline.NewFlagSet(usageCleanup)
+	var states stringList
+	set.Var(&states, "status", "state of the children to archive, repeatable or comma separated; defaults to finished, idle and dead")
+	all := set.Bool("all", false, "archive every child whatever its state, including ones spawned with --keep")
+	dryRun := set.Bool("dry-run", false, "print what would be archived without archiving anything")
+	asJSON := cmdline.JSONFlag(set)
+	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
+		return err
+	}
+	cleaned, err := sessions.CleanupChildren(sessionID, sessioncmd.CleanupOptions{
+		Statuses: states,
+		All:      *all,
+		DryRun:   *dryRun,
+	})
+	if err != nil {
+		return err
+	}
+	return cmdline.Emit(out, *asJSON, cleaned, sessioncmd.FormatChildCleanup(cleaned))
 }
 
 func runPark(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {

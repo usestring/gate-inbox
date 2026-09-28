@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -47,6 +48,7 @@ type fakeSessions struct {
 	note         string
 	ttl          time.Duration
 	deleted      bool
+	cleanup      sessioncmd.CleanupOptions
 
 	session   sessioncmd.Session
 	wait      sessioncmd.WaitResult
@@ -90,6 +92,14 @@ func (f *fakeSessions) SendChildren(sessionID, message string) (sessioncmd.Child
 	return sessioncmd.ChildSend{Queued: 2, Deliveries: []sessioncmd.ChildDelivery{
 		{SessionID: "kid-a", Name: "kid-a", MessageID: 1},
 		{SessionID: "kid-b", Name: "kid-b", MessageID: 2},
+	}}, f.failWith
+}
+
+func (f *fakeSessions) CleanupChildren(sessionID string, opts sessioncmd.CleanupOptions) (sessioncmd.ChildCleanup, error) {
+	f.callerID, f.cleanup = sessionID, opts
+	return sessioncmd.ChildCleanup{Archived: 1, Skipped: 1, Children: []sessioncmd.ChildCleaned{
+		{SessionID: "kid-a", Name: "kid-a", Status: "finished", Archived: true},
+		{SessionID: "kid-b", Name: "kid-b", Status: "working", Skipped: "working, which this cleanup does not take"},
 	}}, f.failWith
 }
 
@@ -521,10 +531,49 @@ func TestAFrontReportsWhatTheLayerDecided(t *testing.T) {
 	}
 }
 
+func TestCleanupChildrenForwardsItsFilters(t *testing.T) {
+	fake := &fakeSessions{}
+	out := &bytes.Buffer{}
+	if err := runCleanupChildren(out, fake, []string{"--status", "finished,idle", "--status", "errored", "--dry-run"}, "cafe0001"); err != nil {
+		t.Fatalf("cleanup-children: %v", err)
+	}
+	if fake.callerID != "cafe0001" {
+		t.Fatalf("caller = %q, want the calling session", fake.callerID)
+	}
+	want := sessioncmd.CleanupOptions{Statuses: []string{"finished", "idle", "errored"}, DryRun: true}
+	if !reflect.DeepEqual(fake.cleanup, want) {
+		t.Fatalf("options = %+v, want %+v", fake.cleanup, want)
+	}
+	if !strings.HasPrefix(out.String(), "archived 1 of 2 children") || !strings.Contains(out.String(), "kid-b (kid-b) left: working") {
+		t.Fatalf("output = %q", out.String())
+	}
+
+	fake = &fakeSessions{}
+	if err := runCleanupChildren(&bytes.Buffer{}, fake, []string{"--all"}, "cafe0001"); err != nil {
+		t.Fatalf("cleanup-children --all: %v", err)
+	}
+	if !fake.cleanup.All || len(fake.cleanup.Statuses) != 0 {
+		t.Fatalf("--all options = %+v", fake.cleanup)
+	}
+	if err := runCleanupChildren(&bytes.Buffer{}, &fakeSessions{}, []string{"stray"}, "cafe0001"); err == nil {
+		t.Fatal("cleanup-children took an operand it has no use for")
+	}
+}
+
+func TestSpawnKeepReachesCreate(t *testing.T) {
+	fake := &fakeSessions{session: sampleSession()}
+	if err := runSpawn(&bytes.Buffer{}, fake, []string{"--name", "kept", "--keep"}, "cafe0001"); err != nil {
+		t.Fatalf("spawn --keep: %v", err)
+	}
+	if !fake.opts.Keep {
+		t.Fatalf("spawn --keep options = %+v, want Keep", fake.opts)
+	}
+}
+
 func TestCommandsAndHelpCoverEverySection(t *testing.T) {
 	table := Commands()
 	registered := []string{
-		"sessions", "spawn", "send", "read", "send-children", "place", "answer", "wait", "message-status", "kill", "revive", "migrate", "archive", "park", "unpark",
+		"sessions", "spawn", "send", "read", "send-children", "place", "answer", "wait", "message-status", "kill", "revive", "migrate", "archive", "cleanup-children", "park", "unpark",
 		"groups", "create-group", "delete-group", "task", "reserve", "release-files", "reservations", "terminal",
 		"rename", "priority",
 	}

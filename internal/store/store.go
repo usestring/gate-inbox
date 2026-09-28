@@ -442,6 +442,10 @@ CREATE TABLE IF NOT EXISTS settings (
 			launched   INTEGER NOT NULL,
 			ended_at   INTEGER NOT NULL
 		)`,
+		// A child its spawner asked to keep, and when the spawner last read
+		// or waited on it. See childretire.go.
+		`ALTER TABLE sessions ADD COLUMN keep_child INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE sessions ADD COLUMN spawner_read_at INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {

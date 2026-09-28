@@ -842,11 +842,19 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	if counts := queuedCounts(t, filepath.Join(home, "state.db")); counts[fresh] != 3 || counts[helper] != 0 {
 		t.Fatalf("queued = %v, want the helper's message forwarded at the commit", counts)
 	}
+	if err := os.WriteFile(filepath.Join(data, "go-kill"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if got := waitForFile(t, filepath.Join(data, "env-"+fresh+".txt"), "", exited, &out); got != "replace "+helper {
 		t.Fatalf("the replacement's pane saw NOOP_LAUNCH=%q, want a replace from the helper", got)
 	}
 	checkPlanWasLaunched(t, home, data, helper, fresh)
 	waitForFile(t, filepath.Join(data, "killed.txt"), fresh+" dead false\n", exited, &out)
+	// Ending the replacement drops what was forwarded to it, as the queue
+	// of a recipient that ended.
+	if counts := queuedCounts(t, filepath.Join(home, "state.db")); counts[fresh] != 0 {
+		t.Fatalf("queued = %v, want the replacement's queue dropped with it", counts)
+	}
 	waitForFile(t, filepath.Join(data, "archived.txt"), fresh+" archived true\n", exited, &out)
 	pendingLine := waitForFile(t, filepath.Join(data, "pending.txt"), " held-under "+helper+"\n", exited, &out)
 	pending, _, _ := strings.Cut(pendingLine, " ")

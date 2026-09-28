@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	usageTaskList    = "task list [--json]"
+	usageTaskList    = "task list [--state <state>] [--include-done] [--mine] [--include-body] [--limit <n>] [--json]"
 	usageTaskCreate  = "task create <title> [--body <text>] [--depends-on <id,id>] [--json]"
 	usageTaskClaim   = "task claim [<task-id>] [--json]"
 	usageTaskFinish  = "task finish <task-id> [--json]"
@@ -20,7 +20,7 @@ const (
 )
 
 type taskCommands interface {
-	Tasks(sessionID string) ([]sessioncmd.Task, error)
+	Tasks(sessionID string, opts sessioncmd.TaskListOptions) (sessioncmd.TaskList, error)
 	CreateTask(sessionID, title, body string, dependsOn []string) (sessioncmd.Task, error)
 	ClaimTask(sessionID, taskID string) (sessioncmd.Task, error)
 	FinishTask(sessionID, taskID string) (sessioncmd.Task, error)
@@ -49,11 +49,23 @@ func taskSection() section {
 
 func runTaskList(out io.Writer, tasks taskCommands, args []string, sessionID string) error {
 	set := cmdline.NewFlagSet(usageTaskList)
+	var states stringList
+	set.Var(&states, "state", "state to keep, repeatable or comma separated: pending, in_progress or done; omitted keeps pending and in_progress")
+	includeDone := set.Bool("include-done", false, "also list finished tasks, which on a long-lived list are most of it")
+	mine := set.Bool("mine", false, "keep only tasks this session holds or finished")
+	includeBody := set.Bool("include-body", false, "print each task's full instruction under its row")
+	limit := set.Int("limit", sessioncmd.DefaultTaskLimit, fmt.Sprintf("how many rows to print, at most %d; the last line says what was left out", sessioncmd.MaxTaskLimit))
 	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
 		return err
 	}
-	listed, err := tasks.Tasks(sessionID)
+	listed, err := tasks.Tasks(sessionID, sessioncmd.TaskListOptions{
+		State:       states,
+		IncludeDone: *includeDone,
+		Mine:        *mine,
+		IncludeBody: *includeBody,
+		Limit:       *limit,
+	})
 	if err != nil {
 		return err
 	}

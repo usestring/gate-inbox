@@ -116,7 +116,7 @@ func TestUnansweredCodexQuestionsWithoutLocator(t *testing.T) {
 // ever cleared on an answer would read waiting for the rest of the session's
 // life. The operator's next message in the session retires it.
 func TestOperatorReturnClearsTheRow(t *testing.T) {
-	const agentID = "01a08470-0000-7000-8000-00000000beef"
+	const agentID = "0c0dec0d-0000-7000-8000-00000000beef"
 	root := t.TempDir()
 	dir := filepath.Join(root, "2026", "09", "09")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -220,7 +220,7 @@ func buildBulkRollout(t *testing.T, root, agentID string, sizeMB int) string {
 // the codex ones. The first lookup must cost nothing like the read it stands
 // in for, and the questions must arrive on a later pass.
 func TestCodexSeedStaysOffThePollPass(t *testing.T) {
-	const agentID = "01a08470-0000-7000-8000-00000000f00d"
+	const agentID = "0c0dec0d-0000-7000-8000-00000000f00d"
 	root := t.TempDir()
 	path := buildBulkRollout(t, root, agentID, 8)
 

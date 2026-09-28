@@ -134,6 +134,13 @@ type poller struct {
 	// relaunch that restores the flag has to clear it without a sweep --
 	// the same reason deafMark is not stored on the row.
 	hookless map[string]bool
+	// screens is each session's last screen and the status it was read as,
+	// and stale the sessions whose pair has held past staleAfter. stale is
+	// rebuilt every pass like hookless; screens persists across passes and
+	// is pruned with the rest. See stalestatus.go.
+	screens    map[string]screenMark
+	stale      map[string]bool
+	staleAfter time.Duration
 	// hookCursor is how far into each session's hook log the poller has
 	// read. The newest line says what the session is doing now; the lines
 	// between two passes say what it did meanwhile, and a whole turn can fit
@@ -773,11 +780,15 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 	// takes its finding with it. Filled as the loop reaches each session,
 	// which is before anything derives that session's status from it.
 	p.hookless = make(map[string]bool, len(p.hookless))
+	p.stale = make(map[string]bool, len(p.stale))
 	var rowState []store.DerivedState
 	// moved is the status transitions rowState carries, told to the
 	// observer only once the write that stores them has landed: a pass that
 	// errors drops both, and the next pass derives the same move again.
 	var moved []transition
+	// ended is every session this pass found newly dead, whose queue is
+	// resolved once the write that says so has landed.
+	var ended []string
 	flushRowState := func() error {
 		if len(rowState) == 0 {
 			return nil
@@ -940,6 +951,7 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 				if sess.ID == selectedID {
 					preview, previewAt = pane, time.Now()
 				}
+				p.noteScreen(sess, newStatus, clean, now)
 			}
 		}
 		if sess.ParentID != "" && newStatus == status.Waiting {
@@ -974,6 +986,9 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 			if err := p.relayChildRest(sess, newStatus); err != nil {
 				return errMsg{err}
 			}
+			if newStatus == status.Dead {
+				ended = append(ended, sess.ID)
+			}
 		}
 	}
 	// Everything the loop queued and did not have to flush early, in one
@@ -981,6 +996,14 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 	step := time.Now()
 	if err := flushRowState(); err != nil {
 		return errMsg{err}
+	}
+	// Only now, with the dead status stored: the store drops a queue only
+	// for a row that reads dead, so a pane a restart is relaunching keeps
+	// what was sent to it.
+	for _, id := range ended {
+		if _, err := p.store.ResolveEndedRecipient(id, now); err != nil {
+			return errMsg{err}
+		}
 	}
 	phases.writes += lap(&step)
 	phases.derive = lap(&mark)
@@ -1058,6 +1081,7 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 		searchText:       searchText,
 		answerableWait:   answerableWait,
 		hookless:         p.hooklessRows(),
+		stale:            p.staleRows(),
 	}
 	if sampleStats {
 		msg.snap = sysstat.Sample("/")
@@ -1854,6 +1878,11 @@ func (p *poller) forgetVanished(sessions []store.Session) {
 	for id := range p.quietSince {
 		if !live[id] {
 			delete(p.quietSince, id)
+		}
+	}
+	for id := range p.screens {
+		if !live[id] {
+			delete(p.screens, id)
 		}
 	}
 	for id := range p.hookCursor {

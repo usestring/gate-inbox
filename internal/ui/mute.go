@@ -125,6 +125,9 @@ func (m *Model) dismissSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.errBar.text = ""
+	// Dismissing is handling the queue by hand rather than walking it, so a
+	// drain left open by an earlier handover ends here.
+	m.triageResume = false
 	if m.isMuted(sess) {
 		m.unmute(sess.ID)
 		return m, nil
@@ -188,6 +191,11 @@ func (m *Model) skipSelected() (tea.Model, tea.Cmd) {
 	}
 	if cmd := m.advanceTriage(sess.ID); cmd != nil {
 		return m, cmd
+	}
+	// The queue is drained, but the drain stays open: work arriving on a
+	// later poll joins the same queue. See triageResume.
+	if m.triage {
+		m.triageResume = true
 	}
 	// The queue is drained. Saying so is worth a line here in a way it is not
 	// focused, where the same ending drops the operator back onto the list

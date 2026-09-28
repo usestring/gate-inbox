@@ -960,6 +960,55 @@ func TestAssembleWithoutAWorkdirIsUnchanged(t *testing.T) {
 	}
 }
 
+// A diverted claude launch opens in another directory than the one it was sent
+// to, and claude scopes what it may write to where it started. So the shipped
+// claude launch grants the requested directory as well as naming it, or the
+// agent's first write there is denied or held on a permission prompt.
+func TestADivertedClaudeLaunchIsGrantedItsDirectory(t *testing.T) {
+	cfg, err := config.LoadDir(t.TempDir())
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	claude := cfg.Tools["claude"]
+	plan, err := Assemble("claude", claude, "build the api", "/srv/other tree", true, "opus", "")
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	if !strings.HasSuffix(plan.Command, " --add-dir '/srv/other tree'") {
+		t.Fatalf("a diverted launch is not granted its directory last on the line: %q", plan.Command)
+	}
+	if !strings.HasPrefix(plan.LaunchPrompt, WorkdirDirectivePrefix) {
+		t.Fatalf("the grant replaced the change-directory note: %q", plan.LaunchPrompt)
+	}
+	home, err := Assemble("claude", claude, "build the api", "", true, "opus", "")
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	if strings.Contains(home.Command, "--add-dir") {
+		t.Fatalf("a launch that opened where it was asked still carried a grant: %q", home.Command)
+	}
+}
+
+// A tool whose config names no add_dir_flag has nothing to be granted with, so
+// a diverted launch on it keeps the command it always had and relies on the
+// change-directory note alone.
+func TestADivertedLaunchWithoutTheFlagKeepsItsCommand(t *testing.T) {
+	tool := config.Tool{Command: "hermes"}
+	plan, err := Assemble("hermes", tool, "build the api", "/srv/work", true, "", "")
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	plain, err := Assemble("hermes", tool, "build the api", "", true, "", "")
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	// The prompts differ by the change-directory note, so compare what is
+	// left of each command line once its own prompt is taken off.
+	if strings.TrimSuffix(plan.Command, tmux.ShellQuote(plan.LaunchPrompt)) != strings.TrimSuffix(plain.Command, tmux.ShellQuote(plain.LaunchPrompt)) {
+		t.Fatalf("a tool without the flag launched differently when diverted: %q against %q", plan.Command, plain.Command)
+	}
+}
+
 // A stored prompt that is one of the manager's own banded notes is nothing
 // the user typed.
 func TestTypedPromptDropsABandedNote(t *testing.T) {
@@ -968,5 +1017,62 @@ func TestTypedPromptDropsABandedNote(t *testing.T) {
 	}
 	if got := TypedPrompt("[gate-inbox] is the product name"); got != "[gate-inbox] is the product name" {
 		t.Errorf("a prompt that only mentions the tag was dropped: %q", got)
+	}
+}
+
+// A CLI that reads "@file" as an attachment or "-x" as an option cannot take
+// such a prompt as an argument, so it is typed in once the pane is up.
+func TestAssembleTypesAPromptOpeningWithAPrefixTheCLIWouldParse(t *testing.T) {
+	// An MCP client and no rename directive, so nothing is put in front of
+	// the prompt and it reaches the CLI as the person wrote it.
+	tool := config.Tool{
+		Command: "pi", SessionIDFlag: "--session-id", ModelFlag: "--model", MCP: "claude",
+		SkipRenameDirective: true, TypedPromptPrefixes: []string{"@", "-"},
+	}
+	for _, prompt := range []string{"@notes.md is out of date", "- tidy the list"} {
+		plan, err := Assemble("pi", tool, prompt, "", false, "provider/model", "")
+		if err != nil {
+			t.Fatalf("Assemble(%q): %v", prompt, err)
+		}
+		if strings.Contains(plan.Command, prompt) {
+			t.Fatalf("the prompt rode the command line: %q", plan.Command)
+		}
+		if !strings.HasPrefix(plan.Command, "pi --session-id ") || !strings.Contains(plan.Command, " --model ") {
+			t.Fatalf("command = %q, want the bare command with its flags", plan.Command)
+		}
+		if plan.LaunchPrompt != "" {
+			t.Fatalf("a typed prompt left a launch prompt to wait for: %q", plan.LaunchPrompt)
+		}
+		if len(plan.PendingInputs) != 1 || plan.PendingInputs[0] != prompt {
+			t.Fatalf("pending = %q, want the prompt typed in as written", plan.PendingInputs)
+		}
+	}
+
+	plain, err := Assemble("pi", tool, "tidy the list", "", false, "", "")
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	if plain.LaunchPrompt != "tidy the list" || !strings.Contains(plain.Command, "'tidy the list'") || len(plain.PendingInputs) != 0 {
+		t.Fatalf("a plain prompt should still ride the command line: %+v", plain)
+	}
+}
+
+func TestTypesPromptMatchesOnlyAConfiguredOpening(t *testing.T) {
+	tool := config.Tool{TypedPromptPrefixes: []string{"@", ""}}
+	for prompt, want := range map[string]bool{
+		"@a.md":        true,
+		"see @a.md":    false,
+		" @a.md":       false,
+		"plain prompt": false,
+	} {
+		if got := TypesPrompt(tool, prompt); got != want {
+			t.Errorf("TypesPrompt(%q) = %v, want %v", prompt, got, want)
+		}
+	}
+	if !TypesPrompt(config.Tool{PromptMode: "send"}, "anything") {
+		t.Error("a send-mode tool types every prompt")
+	}
+	if got := WithPrompt(tool, "pi", "@a.md"); got != "pi" {
+		t.Errorf("WithPrompt kept a typed prompt on the command line: %q", got)
 	}
 }

@@ -586,6 +586,10 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			leftID = sess.ID
 		}
 		if action == keymap.LeaveHard || !m.advancesOnLeave() {
+			// Leaving the drain outright ends it: a queue left open by an
+			// earlier handover must not pull the operator back in on the
+			// next poll. See triageResume.
+			m.triageResume = false
 			return m, m.leaveFocus()
 		}
 		// Handing the session over is the operator saying they are done with

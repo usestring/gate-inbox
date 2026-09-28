@@ -175,11 +175,26 @@ func TypedPrompt(prompt string) string {
 	}
 }
 
+// TypesPrompt reports whether a prompt reaches the tool as typed input
+// rather than on its command line: always for a send-mode tool, and for any
+// prompt that opens with a prefix the CLI would parse as something else.
+func TypesPrompt(tool config.Tool, prompt string) bool {
+	if tool.PromptMode == "send" {
+		return true
+	}
+	for _, prefix := range tool.TypedPromptPrefixes {
+		if prefix != "" && strings.HasPrefix(prompt, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // WithPrompt appends the first prompt to a tool's command, using the
-// tool's prompt flag when it has one. Tools that take their prompt as
-// typed input instead keep the bare command.
+// tool's prompt flag when it has one. A prompt the tool takes as typed
+// input instead leaves the bare command.
 func WithPrompt(tool config.Tool, command, prompt string) string {
-	if prompt == "" || tool.PromptMode == "send" {
+	if prompt == "" || TypesPrompt(tool, prompt) {
 		return command
 	}
 	if tool.PromptFlag != "" {
@@ -292,7 +307,8 @@ func AccountForSwitch(tool config.Tool, adopted bool, account string) (string, e
 
 // The workdir argument, when set, is the directory the spawn asked for but the
 // pane could not be opened in; the agent is told to change into it before doing
-// anything else. Empty for every session launched where it was asked to be,
+// anything else, and a tool with an add_dir_flag is granted it on the command
+// line as well. Empty for every session launched where it was asked to be,
 // which is almost all of them.
 func Assemble(toolName string, tool config.Tool, rawPrompt, workdir string, autoNamed bool, model, account string) (Plan, error) {
 	account, err := WithAccount(tool, account)
@@ -312,10 +328,11 @@ func Assemble(toolName string, tool config.Tool, rawPrompt, workdir string, auto
 	if workdir != "" && !carried {
 		plan.PendingInputs = append(plan.PendingInputs, ManagerBand+WorkdirDirective(workdir))
 	}
-	if tool.PromptMode != "send" {
+	typed := TypesPrompt(tool, prompt)
+	if !typed {
 		plan.LaunchPrompt = prompt
 	}
-	if tool.PromptMode == "send" && prompt != "" {
+	if typed && prompt != "" {
 		plan.PendingInputs = append(plan.PendingInputs, prompt)
 	}
 	if autoNamed && !tool.SkipRenameDirective && !carried {
@@ -332,10 +349,30 @@ func Assemble(toolName string, tool config.Tool, rawPrompt, workdir string, auto
 	if err != nil {
 		return Plan{}, err
 	}
-	plan.Command = command
+	plan.Command = WithAddDir(tool, command, workdir)
 	plan.Model = strings.TrimSpace(model)
 	plan.Account = account
 	return plan, nil
+}
+
+// WithAddDir grants a diverted launch the directory it was asked to work in.
+// The pane opens in another directory to get past the CLI's trust dialog, and
+// a CLI that scopes its permissions to where it started would otherwise deny
+// or ask about the agent's first write in the directory it was sent to. The
+// change-directory note still goes with it; this only makes the move usable.
+//
+// The flag goes after every other argument Assemble writes. Claude Code reads
+// "--add-dir" as taking any number of directories, so a positional argument
+// behind it -- the prompt -- would be taken for one more directory; the
+// options appended after this point stop it the way the end of the line does.
+// A tool without the flag keeps the command it had, and so does every launch
+// that opens where it was asked to.
+func WithAddDir(tool config.Tool, command, workdir string) string {
+	workdir = strings.TrimSpace(workdir)
+	if workdir == "" || tool.AddDirFlag == "" {
+		return command
+	}
+	return command + " " + tool.AddDirFlag + " " + tmux.ShellQuote(workdir)
 }
 
 // ReviveCommand is the base command a dead session comes back on. When

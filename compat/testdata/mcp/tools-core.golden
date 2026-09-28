@@ -1096,7 +1096,7 @@
         "type": "string"
       },
       "state": {
-        "description": "queued (waiting for the agent to be at rest), superseded (a later message from you on the same subject replaced it), held (nothing will type it in as things stand: the recipient is sitting on a dialog, has a person typing or a draft at its prompt, is archived or not running, and reason says which), delivered (typed into its prompt), dropped (it never reached the prompt and is not retried), or answered (it has since messaged back)",
+        "description": "queued (waiting for the agent to be at rest), superseded (a later message from you on the same subject replaced it), held (nothing will type it in as things stand: the recipient is sitting on a dialog, has a person typing or a draft at its prompt, is archived or not running, and reason says which), delivered (typed into its prompt), dropped (it never reached the prompt and is not retried; reason starts 'recipient ended' when the session it was sent to ended first), or answered (it has since messaged back)",
         "type": "string"
       }
     },
@@ -1225,7 +1225,7 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "File a session under this one so your fan-out is drawn, and reported, as your fan-out. Use it when a session you spawned came back with no parent_id, which is what a spawn looks like when the manager build serving this session predates nesting: the call succeeded and the row landed as your sibling. You may claim a session nobody owns and release one of your own; another session's child stays its own. Pass release true to take one of your children back to the top level.",
+  "description": "File a session under this one so your fan-out is drawn, and reported, as your fan-out. Use it when a session you spawned came back with no parent_id, which is what a spawn looks like when the manager build serving this session predates nesting: the call succeeded and the row landed as your sibling. You may claim a session nobody owns and release one of your own; another live session's child stays its own. Pass release true to take one of your children back to the top level, or a child whose parent is archived, deleted or no longer running, since that parent never will.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -1234,7 +1234,7 @@
         "type": "string"
       },
       "release": {
-        "description": "true takes one of your own children back out to the top level; omit to adopt",
+        "description": "true takes one of your own children, or a child of a parent that is gone, back out to the top level; omit to adopt",
         "type": "boolean"
       },
       "session_id": {
@@ -2224,7 +2224,7 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task, which is how a worker finds its next job, and a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. release hands a claimed task back for another session. delete removes work that turned out not to be needed.",
+  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, state or include_done for finished work, include_body for the full instructions. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task, which is how a worker finds its next job, and a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. release hands a claimed task back for another session. delete removes work that turned out not to be needed.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -2242,6 +2242,32 @@
       },
       "depends_on": {
         "description": "create: ids of tasks that must be done first; a task with unfinished dependencies cannot be claimed",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
+      "include_body": {
+        "description": "list: carry each task's full instruction; claim returns the body anyway, so choosing what to claim needs only the titles",
+        "type": "boolean"
+      },
+      "include_done": {
+        "description": "list: also list finished tasks, which on a long-lived list are most of it; pass it only when checking what was done",
+        "type": "boolean"
+      },
+      "limit": {
+        "description": "list: how many rows to return (default 50, maximum 500); the reply says how many matched, so a truncated one is never silent",
+        "type": "integer"
+      },
+      "mine": {
+        "description": "list: keep only tasks this session holds or finished",
+        "type": "boolean"
+      },
+      "state": {
+        "description": "list: keep only tasks in these states: pending, in_progress or done; omit for pending and in_progress, which is the work still open",
         "items": {
           "type": "string"
         },
@@ -2268,6 +2294,14 @@
   "outputSchema": {
     "additionalProperties": false,
     "properties": {
+      "matched": {
+        "description": "list: how many tasks matched the filters, before limit",
+        "type": "integer"
+      },
+      "returned": {
+        "description": "list: how many rows are in tasks",
+        "type": "integer"
+      },
       "task": {
         "additionalProperties": false,
         "description": "the task acted on",
@@ -2338,7 +2372,7 @@
         ]
       },
       "tasks": {
-        "description": "the whole shared list, for action list",
+        "description": "the tasks matching the list filters, for action list",
         "items": {
           "additionalProperties": false,
           "properties": {
@@ -2408,6 +2442,10 @@
           "null",
           "array"
         ]
+      },
+      "truncated": {
+        "description": "list: true when limit left matching tasks out; narrow state or mine, or raise limit",
+        "type": "boolean"
       }
     },
     "type": "object"

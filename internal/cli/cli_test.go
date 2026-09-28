@@ -38,6 +38,7 @@ type fakeSessions struct {
 	groupPath    string
 	directory    string
 	taskID       string
+	taskListOpts sessioncmd.TaskListOptions
 	title        string
 	body         string
 	dependsOn    []string
@@ -170,9 +171,10 @@ func (f *fakeSessions) DeleteGroup(sessionID, path string) (sessioncmd.GroupRemo
 	return sessioncmd.GroupRemoval{Removed: []string{path}, Moved: []string{"beef1234"}}, f.failWith
 }
 
-func (f *fakeSessions) Tasks(sessionID string) ([]sessioncmd.Task, error) {
+func (f *fakeSessions) Tasks(sessionID string, opts sessioncmd.TaskListOptions) (sessioncmd.TaskList, error) {
 	f.callerID = sessionID
-	return []sessioncmd.Task{f.task}, f.failWith
+	f.taskListOpts = opts
+	return sessioncmd.TaskList{Tasks: []sessioncmd.Task{f.task}, Matched: 1, Returned: 1}, f.failWith
 }
 
 func (f *fakeSessions) CreateTask(sessionID, title, body string, dependsOn []string) (sessioncmd.Task, error) {

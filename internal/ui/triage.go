@@ -51,6 +51,11 @@ func (m *Model) triageRankOf(sess store.Session) int {
 	if tier := m.extAttention[sess.ID].Rank.tier(); tier != "" {
 		return triageRank(tier)
 	}
+	// A stale label is ranked as what the screen shows -- a session at
+	// rest -- rather than as what the label claims.
+	if m.isStale(sess) {
+		return triageRank(status.Idle)
+	}
 	return triageRank(sess.Status)
 }
 
@@ -90,7 +95,7 @@ func (m *Model) needsPerson(sess store.Session) bool {
 // the queue of sessions that are has been answered it is the next thing a
 // drain can usefully put in front of the operator -- a session with nothing
 // running is one that could be given work. Working, starting and dead stay
-// off: entering a mid-turn session is the one thing triage must never do,
+// off, bar a working or starting label flagged stale (see stalestatus.go): entering a mid-turn session is the one thing triage must never do,
 // and a dead pane cannot be entered.
 //
 // The rail paints this, the mute keys read it and the walk above filters on
@@ -101,7 +106,11 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 	if m.needsPerson(sess) {
 		return true
 	}
-	return sess.Status == status.Idle && !m.ownedByExtension(sess.ID)
+	// A stale working or starting label is walkable for the same reason an
+	// idle one is: the screen under it has not moved in hours, so entering
+	// cannot interrupt a turn, and a person looking is the only way the
+	// misread gets noticed.
+	return (sess.Status == status.Idle || m.isStale(sess)) && !m.ownedByExtension(sess.ID)
 }
 
 // triageLess sorts by whether a person is needed, then the status rank, then
@@ -311,6 +320,10 @@ func (m *Model) toggleTriage() tea.Cmd {
 		previousKey, fromGroup = rowKey(entry), entry.isGroup
 	}
 	m.triage = !m.triage
+	// Toggling starts a fresh pass either way: turning the queue on asks
+	// for all of it from the top, and turning it off ends the drain the
+	// resume flag was keeping open.
+	m.triageResume = false
 	if m.triage {
 		// The queue is the group the cursor was in, read before the rebuild
 		// flattens the groups away and takes the row that named it with
@@ -464,6 +477,37 @@ func isIdle(st string) bool { return st == status.Idle }
 // its parent, so the drain hands it over like a top-level session.
 func isSubagent(sess store.Session) bool {
 	return sess.ParentID != "" && !sessionhooks.Role(sess.Role).OnScreen
+}
+
+// triagePickupCmd re-enters the head of the queue when a drain that ran
+// out of work left the operator on the list and a later poll brought a new
+// session needing a person. The queue is one live queue: work that reaches
+// waiting or finished while the first pass is walked joins it in place --
+// oldest first inside its tier, the way the rail already sorts -- rather
+// than stranding the operator on the list.
+//
+// It fires only for sessions needing a person, never for idle ones: a newly
+// idle session can wait for the next explicit pass, while a question or a
+// finished turn is what the drain exists to answer. With nothing to pick up
+// the drain stays open, so a still later arrival is picked up instead.
+func (m *Model) triagePickupCmd() tea.Cmd {
+	if !m.triageResume || !m.triage || m.mode != modeList {
+		return nil
+	}
+	for _, row := range m.rows {
+		if !row.isSession() || !m.triageHandable(row, "", nil) || !m.needsPerson(row.sess) {
+			continue
+		}
+		// The flag clears only on entry: a session that refuses to be
+		// entered leaves the drain open for the next pass rather than
+		// stranding it on the list.
+		if cmd := m.enterTriageHead(); cmd != nil {
+			m.triageResume = false
+			return cmd
+		}
+		return nil
+	}
+	return nil
 }
 
 // enterTriageHead starts the queue at its head: the session that has been

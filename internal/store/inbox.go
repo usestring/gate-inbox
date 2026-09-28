@@ -90,11 +90,14 @@ type InboxMessage struct {
 	// subject replaces the earlier one still waiting instead of stacking
 	// behind it. Empty means the message stands on its own, which is every
 	// message the caller did not label.
-	Subject      string
-	SentAt       time.Time
-	ClaimedAt    time.Time
-	DeliveredAt  time.Time
-	DroppedAt    time.Time
+	Subject     string
+	SentAt      time.Time
+	ClaimedAt   time.Time
+	DeliveredAt time.Time
+	DroppedAt   time.Time
+	// DropReason is set when the board, not a failed paste, retired the
+	// message: DropRecipientEnded for one whose recipient ended first.
+	DropReason   string
 	ReadAt       time.Time
 	SupersededBy int64
 	// Interrupt asks for the recipient's running turn to be stopped before
@@ -449,11 +452,11 @@ func (s *Store) Message(id int64, callerID string) (InboxMessage, error) {
 	var sentAt, claimedAt, deliveredAt, droppedAt, readAt int64
 	err := s.db.QueryRow(`
 SELECT i.session_id, i.sender_id, i.sender_name, i.body, i.fingerprint, i.subject, i.superseded_by, i.interrupt,
-       i.sent_at, i.claimed_at, i.delivered_at, i.dropped_at, i.read_at
+       i.sent_at, i.claimed_at, i.delivered_at, i.dropped_at, i.drop_reason, i.read_at
   FROM session_inbox i LEFT JOIN sessions s ON s.id = i.session_id
  WHERE i.id = ? AND (i.sender_id = ? OR `+spawnerColumnOf("s")+` = ?)`, id, callerID, callerID).
 		Scan(&msg.SessionID, &msg.SenderID, &msg.SenderName, &msg.Body, &msg.Fingerprint, &msg.Subject, &msg.SupersededBy, &msg.Interrupt,
-			&sentAt, &claimedAt, &deliveredAt, &droppedAt, &readAt)
+			&sentAt, &claimedAt, &deliveredAt, &droppedAt, &msg.DropReason, &readAt)
 	if err != nil {
 		return InboxMessage{}, err
 	}

@@ -261,6 +261,10 @@ type Model struct {
 	// pane-derived because nothing is writing their hook file. See
 	// hooklessGlyph for what the row does with it.
 	hookless map[string]bool
+	// stale mirrors refreshMsg.stale: the rows whose working or starting
+	// label has held over an unchanged screen past the threshold. See
+	// stalestatus.go.
+	stale map[string]bool
 	// history is the full-text index over the board's transcripts, nil when
 	// disabled or unavailable. historyHits is the last answer, valid for
 	// historyQuery alone; historySeq tags the debounce timer so only the
@@ -483,6 +487,13 @@ type Model struct {
 	// pass carries the first real statuses, and for the restore prompt, which
 	// must win the screen when there is one.
 	triageStartupEnter bool
+	// triageResume keeps a drained queue open: a handover that finds nothing
+	// left sets it, and the first poll that brings a session needing a
+	// person picks that session straight up, so work that reaches waiting
+	// or finished while the first queue is walked joins the same queue.
+	// Anything that ends the drain on purpose -- leaving it, dismissing a
+	// row, toggling triage -- clears it. See triagePickupCmd.
+	triageResume bool
 	// autoProceed mirrors the persisted hands-free handover: with it on, the
 	// key that answers a focused session in a drain also hands it over. Off
 	// by default; see autoproceed.go.
@@ -820,6 +831,9 @@ type refreshMsg struct {
 	// its status file. Replaced whole each pass like queuedMessages, which is
 	// what makes the mark lapse the moment a relaunch restores the flag.
 	hookless map[string]bool
+	// stale is every session whose status has outlived its screen, replaced
+	// whole each pass so the flag lapses the moment the screen moves.
+	stale map[string]bool
 }
 
 // previewMsg is every pane frame the model receives. There used to be three
@@ -1085,6 +1099,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		visible: true,
 	}
 	model.poller.interruptKeys = interruptKeys
+	model.poller.staleAfter = cfg.StaleStatusAfter.Duration
 	model.ownPane, model.ownSocket = tmux.OwnPane()
 	model.initDeviceTheme()
 	model.loadKeys()
@@ -1948,6 +1963,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.searchText = msg.searchText
 		m.answerableWait = msg.answerableWait
 		m.hookless = msg.hookless
+		m.stale = msg.stale
 		if msg.snapOK {
 			m.snap = msg.snap
 			m.updateNetRates(msg.snap)
@@ -1998,17 +2014,21 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.triageStartupEnter = false
 			}
 		}
+		// A drain that ran out of work left the operator on the list with
+		// the queue still open: the first pass carrying a new session that
+		// needs a person picks it straight up. See triageResume.
+		pickup := m.triagePickupCmd()
 		// A pass that ran with a stale selection (a session created this
 		// tick) carries the wrong preview; resync and fetch it directly.
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {
 			m.syncPollInput()
 			m.previewGen++
-			return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick())
+			return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick())
 		}
 		m.proc = msg.proc
 		m.procFor = msg.procFor
 		m.setPreviewAt(msg.preview, msg.previewAt)
-		return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, m.ownPaneVisibleCmd(), m.startStartupTick())
+		return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick())
 
 	case childSweptMsg:
 		m.applyChildSweep(msg)

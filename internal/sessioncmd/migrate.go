@@ -143,7 +143,7 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	}
 	launched := false
 	if err := runtime.store.LaunchSessionBeside(sess, source.ID, func() error {
-		err := runtime.driver.Create(sess.ID, sess.Cwd, command, env, 0, 0)
+		err := runtime.createPane(sess.ID, sess.Cwd, command, env)
 		launched = err == nil
 		return err
 	}); err != nil {

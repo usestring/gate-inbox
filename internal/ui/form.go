@@ -485,6 +485,7 @@ func (m *Model) rebuildGroupOptions(selectPath string) {
 func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	dirSuggesting := m.form.focus == fieldDir && m.pathSugg.active()
 	dirCapturing := m.form.focus == fieldDir && m.pathSugg.capturing()
+	promptFocused := m.form.focus == fieldPrompt
 	switch msg.String() {
 	case "esc":
 		if dirCapturing {
@@ -507,6 +508,11 @@ func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.formFocus(-1)
 		return m, nil
 	case "up":
+		if promptFocused {
+			if cmd, stepped := m.form.prompt.stepRow(msg); stepped {
+				return m, cmd
+			}
+		}
 		if dirSuggesting {
 			if !m.pathSugg.move(-1) {
 				m.formFocus(-1)
@@ -516,6 +522,11 @@ func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case "down":
+		if promptFocused {
+			if cmd, stepped := m.form.prompt.stepRow(msg); stepped {
+				return m, cmd
+			}
+		}
 		if dirSuggesting {
 			if !m.pathSugg.move(1) {
 				m.formFocus(1)
@@ -568,7 +579,7 @@ func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.submitForm()
 	}
 
-	if m.form.focus == fieldPrompt {
+	if promptFocused {
 		if cmd, handled := m.composerKey(composerForm, msg); handled {
 			return m, cmd
 		}
@@ -774,15 +785,18 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 	}
 
 	values := m.form.formValues()
-	id, err := m.spawnSessionWith(toolName, m.formModel(), name, dir, group, prompt, autoNamed, store.SourceUser, values)
-	if err != nil {
-		m.reportLaunchError(err)
-		// A spawn the hint dialog refused takes the form off screen with it,
-		// so its images go the way esc sends them. An error reported in the
-		// bar leaves the form up, and the prompt still names them.
-		if m.mode == modeLaunchHint {
-			m.form.prompt.release()
-		}
+	var id string
+	spawn := func() error {
+		var err error
+		id, err = m.spawnSessionWith(toolName, m.formModel(), name, dir, group, prompt, autoNamed, store.SourceUser, values)
+		return err
+	}
+	if err := spawn(); err != nil {
+		// A spawn the hint dialog refused takes the form off screen with
+		// it; the dialog releases its images once no install can still
+		// spawn it. An error reported in the bar leaves the form up, and
+		// the prompt still names them.
+		m.reportLaunchError(err, spawn)
 		return m, nil
 	}
 	// New sessions start as starting, which attention excludes; clear so

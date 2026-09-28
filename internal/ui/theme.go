@@ -46,6 +46,10 @@ type Theme struct {
 	Finished string
 	Errored  string
 	Idle     string
+
+	// Counterpart names the same family on the other side of lightBackdrop,
+	// which theme auto-detect switches to before falling back to a default.
+	Counterpart string
 }
 
 // themes is the built-in palette set, in picker order.
@@ -113,6 +117,8 @@ var themes = []Theme{
 		Finished: "#859900",
 		Errored:  "#dc322f",
 		Idle:     "#586e75",
+
+		Counterpart: "solarized light",
 	},
 	{
 		Name:    "catppuccin mocha",
@@ -132,6 +138,8 @@ var themes = []Theme{
 		Finished: "#a6e3a1",
 		Errored:  "#f38ba8",
 		Idle:     "#7f849c",
+
+		Counterpart: "catppuccin latte",
 	},
 	{
 		Name:    "tokyo night",
@@ -151,6 +159,8 @@ var themes = []Theme{
 		Finished: "#9ece6a",
 		Errored:  "#f7768e",
 		Idle:     "#565f89",
+
+		Counterpart: "tokyo night day",
 	},
 	{
 		Name:    "gruvbox dark",
@@ -170,6 +180,8 @@ var themes = []Theme{
 		Finished: "#b8bb26",
 		Errored:  "#fb4934",
 		Idle:     "#928374",
+
+		Counterpart: "gruvbox light",
 	},
 	{
 		Name:    "nord",
@@ -227,6 +239,8 @@ var themes = []Theme{
 		Finished: "#31748f",
 		Errored:  "#eb6f92",
 		Idle:     "#6e6a86",
+
+		Counterpart: "rosé pine dawn",
 	},
 	{
 		Name:    "monochrome",
@@ -248,6 +262,27 @@ var themes = []Theme{
 		Idle:     "#63636d",
 	},
 	{
+		Name:    "kanagawa wave",
+		Bg:      "#1f1f28",
+		Surface: "#2a2a37",
+		Overlay: "#363646",
+		Border:  "#363646",
+		Bright:  "#dcd7ba",
+		Text:    "#c8c093",
+		Dim:     "#938aa9",
+		Subtle:  "#727169",
+		Accent:  "#7e9cd8",
+		Accent2: "#7aa89f",
+
+		Working:  "#ff9e3b",
+		Waiting:  "#957fb8",
+		Finished: "#98bb6c",
+		Errored:  "#e82424",
+		Idle:     "#727169",
+
+		Counterpart: "kanagawa lotus",
+	},
+	{
 		Name:    "solarized light",
 		Bg:      "#fdf6e3",
 		Surface: "#eee8d5",
@@ -265,6 +300,8 @@ var themes = []Theme{
 		Finished: "#859900",
 		Errored:  "#dc322f",
 		Idle:     "#93a1a1",
+
+		Counterpart: "solarized dark",
 	},
 	{
 		Name:    "catppuccin latte",
@@ -284,6 +321,8 @@ var themes = []Theme{
 		Finished: "#40a02b",
 		Errored:  "#d20f39",
 		Idle:     "#8c8fa1",
+
+		Counterpart: "catppuccin mocha",
 	},
 	{
 		Name:    "tokyo night day",
@@ -303,6 +342,8 @@ var themes = []Theme{
 		Finished: "#587539",
 		Errored:  "#f52a65",
 		Idle:     "#848cb5",
+
+		Counterpart: "tokyo night",
 	},
 	{
 		Name:    "gruvbox light",
@@ -322,6 +363,8 @@ var themes = []Theme{
 		Finished: "#79740e",
 		Errored:  "#9d0006",
 		Idle:     "#928374",
+
+		Counterpart: "gruvbox dark",
 	},
 	{
 		Name:    "rosé pine dawn",
@@ -341,6 +384,8 @@ var themes = []Theme{
 		Finished: "#286983",
 		Errored:  "#b4637a",
 		Idle:     "#9893a5",
+
+		Counterpart: "rosé pine",
 	},
 	{
 		Name:    "paper",
@@ -360,6 +405,27 @@ var themes = []Theme{
 		Finished: "#6a6a74",
 		Errored:  "#0a0a0e",
 		Idle:     "#9a9aa0",
+	},
+	{
+		Name:    "kanagawa lotus",
+		Bg:      "#f2ecbc",
+		Surface: "#dcd5ac",
+		Overlay: "#d5cea3",
+		Border:  "#d5cea3",
+		Bright:  "#43436c",
+		Text:    "#545464",
+		Dim:     "#766b90",
+		Subtle:  "#8a8980",
+		Accent:  "#4d699b",
+		Accent2: "#597b75",
+
+		Working:  "#e98a00",
+		Waiting:  "#624c83",
+		Finished: "#6f894e",
+		Errored:  "#e82424",
+		Idle:     "#8a8980",
+
+		Counterpart: "kanagawa wave",
 	},
 }
 

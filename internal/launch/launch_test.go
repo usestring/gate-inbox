@@ -221,6 +221,8 @@ func TestReviveCommandResumesTheConversationItHeld(t *testing.T) {
 		ReviveCommand:     "claude --continue",
 		ResumeByIDCommand: "claude --resume {id}",
 	}
+	picker := full
+	picker.ResumePickerCommand = "claude --resume"
 	for _, tc := range []struct {
 		name           string
 		tool           config.Tool
@@ -229,6 +231,8 @@ func TestReviveCommandResumesTheConversationItHeld(t *testing.T) {
 	}{
 		{"a captured id resumes that conversation", full, "abc-123", "claude --resume 'abc-123'"},
 		{"no captured id falls back to the newest one", full, "", "claude --continue"},
+		{"no captured id with a picker opens it", picker, "", "claude --resume"},
+		{"a captured id wins over the picker", picker, "abc-123", "claude --resume 'abc-123'"},
 		{"a tool with no revive of its own starts fresh", config.Tool{Command: "pi"}, "abc-123", "pi"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1074,5 +1078,23 @@ func TestTypesPromptMatchesOnlyAConfiguredOpening(t *testing.T) {
 	}
 	if got := WithPrompt(tool, "pi", "@a.md"); got != "pi" {
 		t.Errorf("WithPrompt kept a typed prompt on the command line: %q", got)
+	}
+}
+
+func TestAssembleCarriesTheDirectiveOverAPastedImagePath(t *testing.T) {
+	flagged := config.Tool{Command: "claude", PromptFlag: "-p"}
+	prompt := "/var/folders/_b/T/gate-inbox-pastes/paste-268.png why is this session working?"
+	plan, err := Assemble("claude", flagged, prompt, "", true, "", "")
+	if err != nil {
+		t.Fatalf("Assemble: %v", err)
+	}
+	if len(plan.PendingInputs) != 0 {
+		t.Fatalf("a prompt led by an image path is no slash command, got %v", plan.PendingInputs)
+	}
+	if !strings.Contains(plan.Command, RenameDirective) || !strings.Contains(plan.Command, prompt) {
+		t.Fatalf("directive should ride the prompt, got %q", plan.Command)
+	}
+	if DirectiveEmbeddable("/compact") || DirectiveEmbeddable("/land-pr now") {
+		t.Fatal("a slash command must still open its own message")
 	}
 }

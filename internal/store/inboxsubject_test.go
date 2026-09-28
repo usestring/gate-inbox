@@ -121,6 +121,7 @@ func TestAReplacementIsNotRefusedByTheQueueItClears(t *testing.T) {
 	now := time.Now()
 	limits := DefaultInboxLimits
 	limits.RateCap = 1000
+	limits.PairCap = 0
 
 	// Nineteen unrelated messages and one on the subject the replacement
 	// carries, which is the shape that matters: the correction is refused by

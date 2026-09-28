@@ -128,6 +128,10 @@ func (m *Model) submitFork() (tea.Model, tea.Cmd) {
 		agentID = copied
 		baseCommand = strings.ReplaceAll(tool.ResumeByIDCommand, "{id}", tmux.ShellQuote(copied))
 	}
+	return m.launchFork(source, tool, managerID, account, name, agentID, baseCommand)
+}
+
+func (m *Model) launchFork(source store.Session, tool config.Tool, managerID, account, name, agentID, baseCommand string) (tea.Model, tea.Cmd) {
 	forked := store.Session{
 		ID:             managerID,
 		Name:           name,
@@ -138,8 +142,9 @@ func (m *Model) submitFork() (tea.Model, tea.Cmd) {
 		AgentSessionID: agentID,
 		Account:        account,
 	}
-	if err := m.launchNewSession(forked, tool, baseCommand); err != nil {
-		m.reportLaunchError(err)
+	launch := func() error { return m.launchNewSession(forked, tool, baseCommand) }
+	if err := launch(); err != nil {
+		m.reportLaunchError(err, launch)
 		return m, nil
 	}
 	// The resumed CLI may ask which of the source conversation to bring over

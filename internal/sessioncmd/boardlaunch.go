@@ -111,7 +111,7 @@ func (s *Sessions) BoardLaunch(opts BoardLaunchOptions) (created Session, err er
 	}
 	launched := false
 	if err := create(sess, func() error {
-		err := runtime.driver.Create(sess.ID, sess.Cwd, prepared.command, prepared.env, 0, 0)
+		err := runtime.createPane(sess.ID, sess.Cwd, prepared.command, prepared.env)
 		launched = err == nil
 		return err
 	}); err != nil {

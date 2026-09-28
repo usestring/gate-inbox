@@ -64,6 +64,70 @@ func TestComputerLinesTemperatures(t *testing.T) {
 	}
 }
 
+func TestComputerLinesBattery(t *testing.T) {
+	cases := []struct {
+		name string
+		snap sysstat.Snapshot
+		want string
+	}{
+		{
+			name: "discharging",
+			snap: sysstat.Snapshot{BatteryOK: true, BatteryPercent: 84},
+			want: "batt " + strings.Repeat("━", 10) + " 84%",
+		},
+		{
+			name: "charging",
+			snap: sysstat.Snapshot{BatteryOK: true, BatteryPercent: 50, BatteryCharging: true},
+			want: "batt " + strings.Repeat("━", 10) + " 50% charging",
+		},
+		{
+			name: "no battery",
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &Model{width: 120, height: 34, snap: tc.snap}
+			var batt string
+			for _, line := range m.computerLines(40) {
+				plain := strings.TrimSpace(ansi.Strip(line))
+				if strings.HasPrefix(plain, "batt") {
+					batt = strings.Join(strings.Fields(plain), " ")
+				}
+			}
+			if tc.want == "" {
+				if batt != "" {
+					t.Fatalf("expected no battery row, got %q", batt)
+				}
+				return
+			}
+			if batt != tc.want {
+				t.Fatalf("battery row = %q, want %q", batt, tc.want)
+			}
+		})
+	}
+}
+
+// A battery gauge colors off how empty it is, the opposite of every other
+// meter: low charge should read as alarming, a full battery as calm.
+func TestGaugeInvertFlipsTheColorRamp(t *testing.T) {
+	lowCharge := sgrOf(gauge(5, 10, true))
+	highUsage := sgrOf(gauge(95, 10, false))
+	if lowCharge != highUsage {
+		t.Fatalf("5%% inverted = %q, want the same alarm color as 95%% uninverted %q", lowCharge, highUsage)
+	}
+
+	highCharge := sgrOf(gauge(95, 10, true))
+	lowUsage := sgrOf(gauge(5, 10, false))
+	if highCharge != lowUsage {
+		t.Fatalf("95%% inverted = %q, want the same calm color as 5%% uninverted %q", highCharge, lowUsage)
+	}
+
+	if lowCharge == highCharge {
+		t.Fatal("low and high battery charge rendered the same color")
+	}
+}
+
 // The separator carries its own reset, so a reading cannot inherit color.
 func TestTemperatureReadingsEachKeepTheirColor(t *testing.T) {
 
@@ -693,7 +757,7 @@ func TestEveryReadingOfASessionStandsInForAnAwaitedName(t *testing.T) {
 	m.selectSessionRow(t, generated)
 	readings = append(readings, reading{"detail", ansi.Strip(strings.Join(m.sessionDetailLines(60), "\n"))})
 	m.openQuickMode()
-	readings = append(readings, reading{"quick bar", ansi.Strip(m.viewQuickBar(112))})
+	readings = append(readings, reading{"quick bar", ansi.Strip(m.viewQuickBar(112, quickBarMaxRows))})
 
 	// The prompt the spawn was given is what every reading wears until the
 	// agent answers with a name of its own.
@@ -782,7 +846,6 @@ func TestFilterBadgesStackOverTheList(t *testing.T) {
 	want := [][2]string{
 		{"ARCHIVED", "t back to active"},
 		{"ATTENTION", "w show all"},
-		{"HIDE EMPTY", "e show empty"},
 	}
 	if len(painted) < len(want) {
 		t.Fatalf("rail painted %d lines, want the %d badges first:\n%s", len(painted), len(want), rail)
@@ -791,6 +854,22 @@ func TestFilterBadgesStackOverTheList(t *testing.T) {
 		line := painted[i]
 		if !strings.Contains(line, badge[0]) || !strings.Contains(line, badge[1]) {
 			t.Errorf("rail line %d = %q, want %q beside %q", i, line, badge[0], badge[1])
+		}
+	}
+}
+
+func TestHideEmptyBadgeBelongsToTheActiveRail(t *testing.T) {
+	m := shotModel()
+	m.width, m.height = 120, 40
+	m.hideEmptyGroups = true
+	for _, tc := range []struct {
+		archived bool
+		want     bool
+	}{{false, true}, {true, false}} {
+		m.showArchived = tc.archived
+		rail := ansi.Strip(railLinesText(m.railLines(36, m.listBodyHeight())))
+		if got := strings.Contains(rail, "HIDE EMPTY"); got != tc.want {
+			t.Errorf("showArchived=%v: HIDE EMPTY painted = %v, want %v:\n%s", tc.archived, got, tc.want, rail)
 		}
 	}
 }
@@ -822,7 +901,7 @@ func TestPreviewShowsLoaderWhileSessionStarts(t *testing.T) {
 	if got := previewText(m); !strings.Contains(got, "starting up") {
 		t.Fatalf("preview should carry the launch loader, got %q", got)
 	}
-	if !m.pane.box.ok || m.pane.box.height != len(paneExact(blankCapture, 12, 80)) {
+	if !m.pane.box.ok || m.pane.box.height != len(paneExact(blankCapture, 12, 80, -1)) {
 		t.Fatalf("the loader must not cost the pane its geometry, box = %+v", m.pane.box)
 	}
 }
@@ -934,8 +1013,8 @@ func TestPreviewLoaderFramesAreNotStatusMarks(t *testing.T) {
 	}
 }
 
-// A focused pane is the screen the user types on, so it keeps its own first
-// row and the caret drawn there rather than the loader.
+// A focused pane is the screen the user types on, so its first captured row
+// keeps the caret drawn there rather than the loader.
 func TestPreviewLeavesTheFocusedPaneAlone(t *testing.T) {
 
 	m := previewModel(status.Starting, blankCapture)
@@ -1013,5 +1092,16 @@ func TestSelectedRowSkipsTheBoxWhenShort(t *testing.T) {
 		if strings.ContainsAny(ansi.Strip(line.text), selectionBorder.Top+selectionBorder.Bottom) {
 			t.Fatalf("a two-line rail drew a rule: %q", ansi.Strip(line.text))
 		}
+	}
+}
+
+func TestQuickBarMeasuresRowsAtTheWidthItJustSet(t *testing.T) {
+	m := buildModel(t)
+	m.openQuickMode()
+	m.quick.input.SetWidth(80)
+	m.quick.input.SetValue("one two three four five six seven eight nine ten")
+	m.viewQuickBar(14, quickBarMaxRows)
+	if got := m.quick.input.Height(); got < 2 {
+		t.Fatalf("rows = %d, want the wrap at width 14, not the previous width", got)
 	}
 }

@@ -5,6 +5,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -103,6 +104,99 @@ func TestEnqueueGuardsAgainstLoops(t *testing.T) {
 	}
 	if _, _, err := st.Enqueue(message("fourth", later), limits); !errors.Is(err, ErrInboxFull) {
 		t.Fatalf("past the queue cap = %v, want ErrInboxFull", err)
+	}
+}
+
+func pairMessage(from, to, body string, at time.Time) InboxMessage {
+	return InboxMessage{
+		SessionID:   to,
+		SenderID:    from,
+		SenderName:  from,
+		Body:        body,
+		Fingerprint: body,
+		SentAt:      at,
+	}
+}
+
+func TestEnqueueGuardsAPingPongBetweenAPair(t *testing.T) {
+	st := newTestStore(t)
+	now := time.Now()
+	ping := func(from, to string, n int) InboxMessage {
+		body := from + "->" + to + ":" + string(rune('a'+n))
+		return pairMessage(from, to, body, now)
+	}
+	for i := range 4 {
+		if _, _, err := st.Enqueue(ping("sessA", "sessB", i), DefaultInboxLimits); err != nil {
+			t.Fatalf("A->B %d: %v", i, err)
+		}
+		if _, _, err := st.Enqueue(ping("sessB", "sessA", i), DefaultInboxLimits); err != nil {
+			t.Fatalf("B->A %d: %v", i, err)
+		}
+	}
+	if _, _, err := st.Enqueue(ping("sessA", "sessB", 4), DefaultInboxLimits); !errors.Is(err, ErrInboxPairLimited) {
+		t.Fatalf("9th between the pair = %v, want ErrInboxPairLimited", err)
+	}
+	if _, _, err := st.Enqueue(ping("sessA", "sessC", 0), DefaultInboxLimits); err != nil {
+		t.Fatalf("A->C should not count against A<->B: %v", err)
+	}
+	later := pairMessage("sessA", "sessB", "after-window", now.Add(11*time.Minute))
+	if _, _, err := st.Enqueue(later, DefaultInboxLimits); err != nil {
+		t.Fatalf("after the pair window: %v", err)
+	}
+	for i := range DefaultInboxLimits.PairCap + 1 {
+		body := "steer " + string(rune('a'+i))
+		steer := pairMessage(HumanSenderID, "sessD", body, now.Add(time.Duration(i)*61*time.Second))
+		if _, _, err := st.Enqueue(steer, DefaultInboxLimits); err != nil {
+			t.Fatalf("operator send %d: %v", i, err)
+		}
+	}
+}
+
+// A parent and its child -- drawn under it, or spawned by it from deeper in
+// the tree -- are exempt from the pair cap: a coordinator steering a child
+// and the child's finished notices must never be refused. Two siblings are
+// no such pair and still meet the cap.
+func TestPairCapExemptsAParentAndItsChild(t *testing.T) {
+	st := newTestStore(t)
+	for _, sess := range []Session{
+		{ID: "root01", Name: "coordinator", Tool: "t", Cwd: "/"},
+		{ID: "child01", Name: "worker", Tool: "t", Cwd: "/", ParentID: "root01", SpawnedBy: "root01"},
+		{ID: "grand01", Name: "helper", Tool: "t", Cwd: "/", ParentID: "root01", SpawnedBy: "child01"},
+		{ID: "sib01", Name: "sibling", Tool: "t", Cwd: "/", ParentID: "root01", SpawnedBy: "root01"},
+	} {
+		if err := st.CreateSession(sess); err != nil {
+			t.Fatalf("create %s: %v", sess.ID, err)
+		}
+	}
+	limits := DefaultInboxLimits
+	limits.RateCap = 1000
+	limits.QueueCap = 1000
+	now := time.Now()
+	exchange := func(a, b string, rounds int) error {
+		for i := range rounds {
+			for _, msg := range []InboxMessage{
+				pairMessage(a, b, fmt.Sprintf("%s->%s %d", a, b, i), now),
+				pairMessage(b, a, fmt.Sprintf("%s->%s %d", b, a, i), now),
+			} {
+				if _, _, err := st.Enqueue(msg, limits); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	past := limits.PairCap
+	if err := exchange("root01", "child01", past); err != nil {
+		t.Fatalf("parent<->child past the cap: %v", err)
+	}
+	if err := exchange("grand01", "child01", past); err != nil {
+		t.Fatalf("spawner<->spawned past the cap: %v", err)
+	}
+	if err := exchange("child01", "sib01", limits.PairCap/2); err != nil {
+		t.Fatalf("siblings up to the cap: %v", err)
+	}
+	if _, _, err := st.Enqueue(pairMessage("child01", "sib01", "one too many", now), limits); !errors.Is(err, ErrInboxPairLimited) {
+		t.Fatalf("siblings at the cap = %v, want ErrInboxPairLimited", err)
 	}
 }
 

@@ -43,13 +43,24 @@ var darwinManagers = []manager{
 // not support (opencode.Report.UpgradeNotice).
 var official = map[string]string{
 	"claude":   "curl -fsSL https://claude.ai/install.sh | bash",
+	"cmd":      "npm install -g command-code",
 	"codex":    "curl -fsSL https://chatgpt.com/codex/install.sh | sh",
+	"muse":     "curl -fsSL https://dev.meta.ai/install.sh | bash",
 	"opencode": "curl -fsSL https://opencode.ai/v2/install | bash",
 	"pi":       "curl -fsSL https://pi.dev/install.sh | sh",
 }
 
 func Hint(tool string) string {
 	return hint(runtime.GOOS, tool)
+}
+
+// Command is the install command the setup dialog offers to run, empty
+// when there is none to offer. Only the agent CLIs with a vendor
+// installer have one: a package-manager line is built from the tool's
+// own command name, so for a custom tool it would install whatever
+// package happens to share that name. Those stay a suggestion to read.
+func Command(tool string) string {
+	return official[tool]
 }
 
 func hint(goos, tool string) string {

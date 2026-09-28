@@ -172,6 +172,20 @@ func (m *Model) mouseReport(button int, release bool, col, row int) (string, boo
 	return report, true
 }
 
+// guardedMouseCommand has tmux drop the report unless the pane still tracks
+// the mouse when it arrives. The cached flag trails a pane that left mouse
+// mode by a debounce, and a report the application no longer expects is
+// printed on its input line instead. mouse_any_flag covers every mode, so
+// the per-mode flags would only repeat it. The nested send carries spaces,
+// so the command only rides a parser that honours quoting: the pooled pipe,
+// or the separated args.
+func guardedMouseCommand(target, report string) (string, []string) {
+	const condition = "#{mouse_any_flag}"
+	send := "send-keys -t " + target + " -H " + hexBytes(report)
+	command := "if-shell -F -t " + target + " '" + condition + "' '" + send + "'"
+	return command, []string{"if-shell", "-F", "-t", target, condition, send}
+}
+
 // wheelFocus routes one wheel notch at the pane on screen -- the focused
 // one, or the list's preview of the selected session. An application that
 // has turned on mouse tracking scrolls itself and gets the event; anything
@@ -405,7 +419,12 @@ func (m *Model) sendFocusReport(report string) {
 		return
 	}
 	m.poller.noteOperatorInput(sess.ID)
-	command := "send-keys -t " + m.tmux.TargetName(sess.ID) + " -H " + hexBytes(report)
+	target := m.tmux.TargetName(sess.ID)
+	guarded, _ := guardedMouseCommand(target, report)
+	if m.tmux.PipeSend(sess.ID, guarded) {
+		return
+	}
+	command := "send-keys -t " + target + " -H " + hexBytes(report)
 	if err := m.tmux.SendRawAt(sess.ID, command); err != nil {
 		m.errBar.text = err.Error()
 	}

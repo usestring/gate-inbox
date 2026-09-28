@@ -198,7 +198,7 @@ func TestBadgesAndTitlesAreWidelyDrawn(t *testing.T) {
 	for _, state := range []string{"working", "starting", "waiting", "finished", "errored", "dead", "idle"} {
 		assertWidelyDrawn(t, "statusGlyph("+state+")", statusGlyph(state))
 	}
-	assertWidelyDrawn(t, "gauge", gauge(75, 12))
+	assertWidelyDrawn(t, "gauge", gauge(75, 12, false))
 
 	m := shotModel()
 	for _, action := range []string{actionArchive, actionRestore, actionRestart, actionRevive} {

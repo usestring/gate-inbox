@@ -1,3 +1,5 @@
+// Modified by Durable Alpha, 2026: changes from the upstream commit named in NOTICE.
+
 // Package notify delivers a desktop or terminal notification.
 //
 // Delivery is best-path. Inside Ghostty (cmux included) an OSC 777 escape
@@ -5,8 +7,10 @@
 // attributed to that window and workspace — and since the escape rides the
 // terminal connection, it reaches the user even when the board runs on a
 // remote host over SSH. Without such a terminal, macOS posts via osascript
-// and Linux via notify-send. With nothing better available the terminal bell
-// is the floor, so headless and WSL setups still get an audible cue.
+// and Linux via notify-send. WSL posts a Windows toast through PowerShell,
+// which Windows attributes to PowerShell itself. With nothing better
+// available the terminal bell is the floor, so headless setups still get an
+// audible cue.
 package notify
 
 import (
@@ -18,6 +22,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/termseq"
+	"github.com/usestring/gate-inbox/internal/wsl"
 )
 
 // Overridable seams so tests can drive the platform branches without a
@@ -27,7 +32,9 @@ var (
 	getenv   = os.Getenv
 	lookPath = exec.LookPath
 	runCmd   = runBounded
+	runEnv   = runBoundedEnv
 	emitSeq  = termseq.Emit
+	isWSL    = wsl.Detect
 )
 
 // cmdTimeout bounds external notifiers: a wedged osascript or notify-send
@@ -38,6 +45,23 @@ func runBounded(name string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
 	defer cancel()
 	return exec.CommandContext(ctx, name, args...).Run()
+}
+
+// helperStartTimeout bounds a notifier that has a runtime to spin up
+// first, such as PowerShell reached through WSL interop.
+const helperStartTimeout = 15 * time.Second
+
+// runBoundedEnv passes the content through the environment, which keeps
+// it clear of the command line and of the notifier's own quoting.
+func runBoundedEnv(env map[string]string, name string, args ...string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), helperStartTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = os.Environ()
+	for key, value := range env {
+		cmd.Env = append(cmd.Env, key+"="+value)
+	}
+	return cmd.Run()
 }
 
 // appName titles every notification: the system shows it as the sender.
@@ -63,6 +87,7 @@ type Note struct {
 
 type presentation struct {
 	macSound      string
+	windowsSound  string
 	linuxSound    string
 	linuxUrgency  string
 	linuxIcon     string
@@ -74,6 +99,7 @@ func describe(kind Kind) presentation {
 	case Waiting:
 		return presentation{
 			macSound:      "Funk",
+			windowsSound:  "ms-winsoundevent:Notification.Reminder",
 			linuxSound:    "dialog-question",
 			linuxUrgency:  "normal",
 			linuxIcon:     "dialog-question",
@@ -82,6 +108,7 @@ func describe(kind Kind) presentation {
 	case Finished:
 		return presentation{
 			macSound:      "Hero",
+			windowsSound:  "ms-winsoundevent:Notification.Default",
 			linuxSound:    "complete-download",
 			linuxUrgency:  "low",
 			linuxIcon:     "emblem-default",
@@ -90,6 +117,7 @@ func describe(kind Kind) presentation {
 	case Errored:
 		return presentation{
 			macSound:      "Basso",
+			windowsSound:  "ms-winsoundevent:Notification.IM",
 			linuxSound:    "dialog-error",
 			linuxUrgency:  "critical",
 			linuxIcon:     "dialog-error",
@@ -98,6 +126,7 @@ func describe(kind Kind) presentation {
 	}
 	return presentation{
 		macSound:      "Glass",
+		windowsSound:  "ms-winsoundevent:Notification.Default",
 		linuxSound:    "message-new-instant",
 		linuxUrgency:  "normal",
 		linuxIcon:     "dialog-information",
@@ -140,6 +169,12 @@ func Send(note Note) {
 			return
 		}
 	case "linux":
+		if isWSL() {
+			if windowsToast(subject, body, detail.windowsSound) == nil {
+				return
+			}
+			break
+		}
 		if _, err := lookPath("notify-send"); err == nil &&
 			runCmd("notify-send",
 				"--app-name=gate-inbox",

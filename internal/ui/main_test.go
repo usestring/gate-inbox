@@ -26,8 +26,7 @@ var testSocket = newTestSocket()
 // The anchor session then holds the server up for the whole run: tests kill
 // their sessions in cleanup, and a server whose last session dies begins an
 // exit-empty shutdown that takes the next test's fresh session down with it
-// ("server exited unexpectedly", the recurring CI failure in
-// TestFocusWatchReportsCursor).
+// ("server exited unexpectedly").
 func TestMain(m *testing.M) {
 	// A pane runs the launch script under $SHELL, and tmux answers
 	// #{pane_current_path} from that process's own working directory. An
@@ -41,6 +40,9 @@ func TestMain(m *testing.M) {
 	// read those sequences point Out at their own buffer; the rest must not
 	// turn the terminal running go test black.
 	termseq.Out = io.Discard
+	// The suite runs as if at the machine it runs on, even when the
+	// developer reached it over SSH.
+	remoteTerminal = localTerminal
 	// tmuxtest.Guard clears the inherited TMUX/TMUX_PANE, sweeps strays from
 	// earlier runs, and takes this run's server and the clients that outlive
 	// it down afterwards. Shared with every other package here that drives

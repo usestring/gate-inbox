@@ -56,6 +56,8 @@ type Control struct {
 	// then no reply block may resolve a command waiter.
 	greeted bool
 
+	// ready closes once tmux has answered the attach with its greeting block.
+	ready chan struct{}
 	// done closes when the control client exits (detach, kill, or error).
 	done    chan struct{}
 	exitErr error
@@ -202,8 +204,13 @@ func (d *Driver) ensureAnchor(socket string) error {
 		}
 	}
 	if !present {
+		release, err := enterGate(socket, false)
+		if err != nil {
+			return err
+		}
 		made, err := exec.Command(d.bin, "-L", socket, "new-session", "-d",
 			"-s", anchorSession, "sh -c "+ShellQuote(anchorCommand)).CombinedOutput()
+		release()
 		// A second manager racing this one wins the name, which is the
 		// answer either of them wanted.
 		if err != nil && !strings.Contains(string(made), "duplicate session") {
@@ -231,7 +238,10 @@ func (d *Driver) closeAnchors() {
 	d.anchorsMu.Unlock()
 	for socket := range sockets {
 		tmuxguard.Enforce([]string{"-L", socket})
-		exec.Command(d.bin, "-L", socket, "kill-session", "-t", anchorSession).Run()
+		if release, err := enterGate(socket, false); err == nil {
+			exec.Command(d.bin, "-L", socket, "kill-session", "-t", anchorSession).Run()
+			release()
+		}
 	}
 }
 
@@ -294,6 +304,43 @@ func (d *Driver) OpenPollControl(socket string) (*Control, error) {
 	return control, nil
 }
 
+// tmux before 3.7 crashes if a control client is notified mid-handshake
+// (tmux/tmux#4980). attachGate orders this process, and a lock file beside
+// the socket orders every Gate Inbox process on that server.
+var attachGate sync.RWMutex
+
+// enterGate lets a tmux command run beside others until release. Exclusive,
+// it holds off every Gate Inbox command on the server instead.
+func enterGate(socket string, exclusive bool) (release func(), err error) {
+	lock, unlock := attachGate.RLock, attachGate.RUnlock
+	if exclusive {
+		lock, unlock = attachGate.Lock, attachGate.Unlock
+	}
+	lock()
+	unlockServer, err := lockServer(socket, exclusive)
+	if err != nil {
+		unlock()
+		return nil, err
+	}
+	return func() {
+		unlockServer()
+		unlock()
+	}, nil
+}
+
+// enterGateFor is enterGate for the server a tmux argument list names with
+// -L, or the default server when it names none.
+func enterGateFor(full []string) (release func(), err error) {
+	socket := DefaultSocket
+	for i := 0; i+1 < len(full); i++ {
+		if full[i] == "-L" {
+			socket = full[i+1]
+			break
+		}
+	}
+	return enterGate(socket, false)
+}
+
 // startControl attaches one control-mode client to one session. Every
 // control client in the program is built here and the -t is a parameter
 // rather than part of a caller's argument list, which is what keeps "never
@@ -312,6 +359,11 @@ func (d *Driver) startControl(socket, session, flags string) (*Control, error) {
 		return nil, fmt.Errorf("control attach on %q: refusing to become a client of session %q, which this manager did not create: %w",
 			socket, session, ErrAdopted)
 	}
+	release, err := enterGate(socket, true)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	args := []string{"attach-session", "-t", session, "-f", flags}
 	logging.Info("tmux control open", "socket", socket, "cmd", strings.Join(args, " "))
 	tmuxguard.Enforce([]string{"-L", socket})
@@ -339,6 +391,11 @@ func (d *Driver) startControl(socket, session, flags string) (*Control, error) {
 		<-control.done
 		control.reap("exited")
 	}()
+	// Killing a client mid-handshake crashes tmux before 3.7 too, so wait it out.
+	select {
+	case <-control.ready:
+	case <-control.done:
+	}
 	return control, nil
 }
 
@@ -347,6 +404,7 @@ func (d *Driver) startControl(socket, session, flags string) (*Control, error) {
 func newControl(stdin io.WriteCloser, stdout io.Reader) *Control {
 	control := &Control{
 		stdin: stdin,
+		ready: make(chan struct{}),
 		done:  make(chan struct{}),
 	}
 	go control.readLoop(stdout)
@@ -522,6 +580,12 @@ func (c *Control) Close() error {
 		c.reap("already-closed")
 		return nil
 	}
+	// Leaving notifies every other control client. The client leaves even
+	// when the gate fails, and Close reports the failure.
+	release, err := enterGate(c.socket, false)
+	if err == nil {
+		defer release()
+	}
 	c.stdin.Close()
 	timeout := time.NewTimer(c.replyTimeout())
 	defer timeout.Stop()
@@ -657,6 +721,7 @@ func (c *Control) resolve(text string, isError bool) {
 	if !c.greeted {
 		c.greeted = true
 		c.mu.Unlock()
+		close(c.ready)
 		return
 	}
 	var waiter chan reply

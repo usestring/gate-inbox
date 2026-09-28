@@ -16,6 +16,7 @@ import (
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/git"
 	"github.com/usestring/gate-inbox/internal/hooks"
@@ -133,7 +134,7 @@ func NewSessions(configDir string, words Vocabulary) *Sessions {
 
 func newSessions(configDir string, words Vocabulary, newDriver func(socket string) (*tmux.Driver, error), newGit func() (*git.Driver, error)) *Sessions {
 	return &Sessions{
-		commands:   commands{configDir: configDir, words: words, newDriver: newDriver},
+		commands:   commands{configDir: configDir, words: words, newDriver: newDriver, loadConfig: config.LoadDir},
 		newGit:     newGit,
 		claudeHome: convo.ClaudeHome(),
 		roots:      migrate.DefaultRoots(),
@@ -563,6 +564,12 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	}
 	toolName := strings.TrimSpace(opts.Tool)
 	if toolName == "" {
+		// A spawn with no tool named runs whatever the caller runs, which a
+		// terminal cannot supply: its tool is the user's shell. Guessing an
+		// agent for it would start a CLI nobody asked for.
+		if runtime.cfg.Tools[caller.Tool].Shell {
+			return Session{}, fmt.Errorf("a terminal runs a shell, not an agent CLI, so there is none to inherit; name one with %s (configured tools are %s)", runtime.words.SpawnTool, strings.Join(agentToolNames(runtime), ", "))
+		}
 		toolName = caller.Tool
 	}
 	tool, known := runtime.cfg.Tools[toolName]
@@ -691,7 +698,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	}
 	launched := false
 	if err := create(sess, func() error {
-		err := runtime.driver.Create(sess.ID, launchDir, command, env, 0, 0)
+		err := runtime.createPane(sess.ID, launchDir, command, env)
 		launched = err == nil
 		return err
 	}); err != nil {

@@ -36,7 +36,7 @@ usage: gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--mode
   -prompt string
     	first task to hand it, written as a full instruction, since it cannot see your conversation
   -tool string
-    	agent CLI to run; defaults to the CLI this session runs
+    	agent CLI to run; defaults to the CLI this session runs, and is required when this session is a terminal
 
 $ gate-inbox send -h
 exit 0

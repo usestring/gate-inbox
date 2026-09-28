@@ -4,6 +4,7 @@ package status
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/usestring/gate-inbox/internal/config"
 )
@@ -301,7 +302,7 @@ func (tr toolRules) matchScope(pane string) string {
 	hasWorkingFooter := tr.hasFooter(inputTail, Working)
 	lines := strings.Split(region, "\n")
 	if lastEnd := tr.lastTurnEndIndex(lines); lastEnd >= 0 {
-		scope := strings.Join(lines[lastEnd+1:], "\n")
+		scope := tr.withoutInputRows(lines[lastEnd+1:])
 		if hasWaitingFooter || hasWorkingFooter {
 			return scope + cutoffTail
 		}
@@ -316,9 +317,51 @@ func (tr toolRules) matchScope(pane string) string {
 		return pane
 	}
 	if hasWorkingFooter {
-		return region + cutoffTail
+		return tr.withoutInputRows(lines) + cutoffTail
 	}
-	return region
+	return tr.withoutInputRows(lines)
+}
+
+// withoutInputRows joins region rows, dropping the messages the user
+// already sent. The tool replays them above its composer wearing the same
+// marker, so a numbered list they typed is otherwise indistinguishable
+// from a dialog's selected option, and text they quoted from another pane
+// reads as that pane's live signal. A replayed message runs from its
+// marker row until a row opens a block of its own.
+func (tr toolRules) withoutInputRows(lines []string) string {
+	kept := make([]string, 0, len(lines))
+	sent := false
+	for _, line := range lines {
+		if tr.inputRow(line) {
+			sent = true
+			continue
+		}
+		if sent && wrapsAbove(line) {
+			continue
+		}
+		sent = false
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
+}
+
+// wrapsAbove reports whether a row belongs to the block above it rather
+// than starting one: tools indent what wraps and leave the blank rows
+// between blocks empty.
+func wrapsAbove(row string) bool {
+	body := strings.TrimLeftFunc(row, unicode.IsSpace)
+	return body == "" || len(body) < len(row)
+}
+
+// inputRow reports whether a row opens with the tool's activity cutoff. A
+// zero-width match is no marker: a degenerate cutoff like ^ would otherwise
+// stamp every row as input.
+func (tr toolRules) inputRow(row string) bool {
+	if tr.activityCutoff == nil {
+		return false
+	}
+	loc := tr.activityCutoff.FindStringIndex(row)
+	return loc != nil && loc[0] == 0 && loc[1] > 0
 }
 
 // hasFooter reports whether a rule of the given state matches the footer:

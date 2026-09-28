@@ -170,8 +170,7 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 	// Focusing is somebody sitting down at the pane, so it starts on the
 	// fast cadence rather than waiting for the first keystroke to earn it.
 	m.noteFocusActivity()
-	m.sel = focusSelection{}
-	m.copied = 0
+	m.clearSelection()
 	m.cursorOn = true
 	m.focusScroll = 0
 	// Pane facts read from a previously focused session must not route this
@@ -183,6 +182,10 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 		m.pane.motion = false
 		m.pane.sgr = false
 		m.pane.history = 0
+	}
+	// A caret from another session would crop this pane to the wrong row.
+	if m.pane.forID != sess.ID {
+		m.pane.cursor = paneCursor{}
 	}
 	// Mouse reporting makes the pane a closed window: clicks land here
 	// instead of the host terminal, so a drag selects pane text alone and
@@ -401,10 +404,9 @@ func textBeforeCaret(engine *status.Engine, tool, row string, caretX int) bool {
 // view, so the list swallows the wheel instead.
 func (m *Model) leaveFocus() tea.Cmd {
 	m.mode = modeList
-	m.sel = focusSelection{}
+	m.clearSelection()
 	m.pending = pendingClick{}
-	m.clearForwardingMouse()
-	m.copied = 0
+	m.endForwardedGesture()
 	// An answer still pending lands for the record, but it no longer moves
 	// the operator anywhere: they have already gone.
 	m.keepLandingHere()

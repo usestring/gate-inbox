@@ -58,7 +58,7 @@ Gate Inbox reads the panes; it does not sit between you and the model.
 ## Install
 
 Gate Inbox runs on Linux and macOS, and on Windows inside WSL2. It needs **tmux 3.1+** and **git**
-on `PATH`, plus at least one agent CLI. Building needs **Go 1.26.5+**.
+on `PATH`, plus at least one agent CLI. Building needs **Go 1.27.1+**.
 
 ```bash
 git clone https://github.com/usestring/gate-inbox.git
@@ -240,8 +240,9 @@ id. From that session's working directory:
 | Codex | `codex resume <id>` |
 | OpenCode | `opencode --session <id>` |
 
-Without an id, `claude --continue`, `codex resume --last` and `opencode --continue` pick up the
-directory's most recent conversation.
+Without an id, Claude Code and Codex open their own session picker (`claude --resume`,
+`codex resume`) so you choose the conversation, and `opencode --continue` picks up the
+directory's most recent one.
 
 **Uninstall.**
 

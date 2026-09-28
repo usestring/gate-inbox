@@ -1,3 +1,5 @@
+# Modified by Durable Alpha, 2026: changes from the upstream commit named in NOTICE.
+
 name: Release
 
 on:

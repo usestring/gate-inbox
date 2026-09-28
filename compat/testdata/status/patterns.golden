@@ -31,8 +31,8 @@ default_status = "idle"
 type_ahead = false
 activity_cutoff = "(?m)^(?:[ \\t\\x{2800}-\\x{28ff}]*\\n)*›"
 input_line = "^›"
-turn_end = "(?m)^(?:─+ Worked for [\\dhms. ]+─.*|─{20,}\\s*)$"
-chrome_line = "^\\s*─*\\s*$|^⚠ (?:The \\S+ MCP server is not logged in\\. Run \\x60codex mcp login \\S+\\x60\\.|MCP startup incomplete \\(failed: [^)]+\\))$"
+turn_end = "(?m)^(?:─+ Worked for [\\dhms. ]+─.*|─{20,}\\s*|  (?:Worked for [\\dhms ]+ · )?(?:done )?(?:[A-Z][a-z]{2} \\d{1,2}(?:, \\d{4})? at )?\\d{1,2}:\\d{2}(?: [AP]M)?(?: · (?:Local tools: |Inference: |WebSocket: |Streams?: |\\d+ events received |Responses API |TTFT: |TBT: )[^\\n]*)?)$"
+chrome_line = "^\\s*─*\\s*$|^⚠ (?:The \\S+ MCP server is not logged in\\. Run \\x60codex mcp login \\S+\\x60\\.|MCP startup incomplete \\(failed: [^)]+\\))$|^\\s+(?:⚠|↓|Tip: |Copied )"
 blocked_line = ""
 trailing_note = ""
 busy_line = ""
@@ -47,8 +47,9 @@ interrupt_keys = []
 rules[0] waiting "(?m)^\\s*›\\s+\\d+\\."
 rules[1] waiting "(?m)Press enter to (confirm|continue)\\b"
 rules[2] waiting "(?m)enter to submit answer\\b"
-rules[3] working "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?[ \\t\\n]*\\z"
-rules[4] errored "(?im)^\\s*■.*\\berror\\b"
+rules[3] waiting "(?m)^\\s*enter select · esc back\\b"
+rules[4] working "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?(?:[ \\t]*\\n|[ \\t]+(?:⚠|↓|Tip: |Copied )[^\\n]*\\n)*[ \\t\\n]*\\z"
+rules[5] errored "(?im)^\\s*■.*\\berror\\b"
 
 [opencode]
 status_source = ""

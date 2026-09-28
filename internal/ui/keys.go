@@ -726,8 +726,13 @@ func (m *Model) cycleStatusFilter() tea.Cmd {
 }
 
 // toggleEmptyGroups hides or restores group rows whose subtree has no
-// sessions in the current active/archive view. It never changes the store.
+// sessions in the active list. It never changes the store, and the archived
+// view ignores the filter, so the key is refused there rather than flipping
+// a setting nothing on screen reports.
 func (m *Model) toggleEmptyGroups() tea.Cmd {
+	if m.showArchived {
+		return nil
+	}
 	previousKey := ""
 	if entry, ok := m.selectedRow(); ok {
 		previousKey = rowKey(entry)

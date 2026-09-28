@@ -128,7 +128,9 @@ func (d *Driver) chromeBatch(entries []ChromeEntry) error {
 // Each value is delimited rather than counted by lines: `show-options -v` on an
 // option a session has not set -- which is most of them, the prefix being a
 // global -- prints nothing at all, not an empty line, so a line-per-value
-// mapping would silently attribute one session's prefix to another.
+// mapping would silently attribute one session's prefix to another. A session
+// that has not set one answers with the global value, read once at the end of
+// the same list.
 func (d *Driver) readPrefixes(entries []ChromeEntry) ([][2]string, int, error) {
 	sep, err := captureSeparator()
 	if err != nil {
@@ -144,6 +146,12 @@ func (d *Driver) readPrefixes(entries []ChromeEntry) ([][2]string, int, error) {
 			[]string{"display-message", "-p", sep},
 		)
 	}
+	commands = append(commands,
+		[]string{"show-options", "-g", "-v", "prefix"},
+		[]string{"display-message", "-p", sep},
+		[]string{"show-options", "-g", "-v", "prefix2"},
+		[]string{"display-message", "-p", sep},
+	)
 	out, err := d.output(d.args(commandList(commands...)...))
 	blocks := strings.Split(string(out), sep+"\n")
 	if len(blocks) > 0 {
@@ -154,8 +162,17 @@ func (d *Driver) readPrefixes(entries []ChromeEntry) ([][2]string, int, error) {
 	if answered > len(entries) {
 		answered = len(entries)
 	}
+	var global [2]string
+	if g := len(entries) * 2; len(blocks) >= g+2 {
+		global = [2]string{strings.TrimSpace(blocks[g]), strings.TrimSpace(blocks[g+1])}
+	}
 	for i := 0; i < answered; i++ {
-		prefixes[i] = [2]string{strings.TrimSpace(blocks[i*2]), strings.TrimSpace(blocks[i*2+1])}
+		for j := range 2 {
+			prefixes[i][j] = strings.TrimSpace(blocks[i*2+j])
+			if prefixes[i][j] == "" {
+				prefixes[i][j] = global[j]
+			}
+		}
 	}
 	if err != nil {
 		return prefixes, answered, fmt.Errorf("tmux prefix read: %w: %s", err, strings.TrimSpace(string(stderrOf(err))))

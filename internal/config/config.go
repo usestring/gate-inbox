@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -119,6 +120,10 @@ type Tool struct {
 	// with the session's agent id. Preferred over ReviveCommand, which only
 	// resumes the working directory's most recent conversation.
 	ResumeByIDCommand string `toml:"resume_by_id_command"`
+	// ResumePickerCommand launches the tool's own session picker when revive
+	// has no captured conversation id, instead of the blind revive_command
+	// fallback, which resumes the directory's newest conversation.
+	ResumePickerCommand string `toml:"resume_picker_command"`
 	// ForkCommand creates a new conversation from an existing one. Templates
 	// can use {id}, {new_id}, and {name}; Gate Inbox quotes each value.
 	ForkCommand string `toml:"fork_command"`
@@ -444,6 +449,17 @@ const busyLineEveryKind = `^[✻✳✶✽✢·✦✧+*] (?:Waiting for \d+ backg
 // current pattern; one edited by hand keeps what its author wrote.
 const waitingEnterToConfirmBare = `Enter to confirm`
 
+// codexTurnEndRuleOnly, codexChromeLineMCPOnly and codexWorkingNoHints are
+// the codex patterns shipped before codex 0.154 moved the turn end to a dim
+// label under the reply and 0.157 parked hint rows above the composer. A
+// config carrying any of them verbatim was written by an older release and
+// takes the current pattern; one edited by hand keeps what its author wrote.
+const codexTurnEndRuleOnly = `(?m)^(?:─+ Worked for [\dhms. ]+─.*|─{20,}\s*)$`
+
+const codexChromeLineMCPOnly = `^\s*─*\s*$|^⚠ (?:The \S+ MCP server is not logged in\. Run \x60codex mcp login \S+\x60\.|MCP startup incomplete \(failed: [^)]+\))$`
+
+const codexWorkingNoHints = `(?m)^[ \t]*(?:• )?[^\n]*\([\dhms. ]+ [•·] esc to interrupt\)(?: · [^\n]*)?[ \t]*\n(?:[ \t]+└[^\n]*\n(?:[ \t]{4}[^\n]*\n)*)?[ \t\n]*\z`
+
 // mergeTool returns user with any zero-value field filled from def.
 //
 // Shell is deliberately not among them. "terminal" is a plausible name for
@@ -481,6 +497,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	fill(&user.SessionIDFlag, def.SessionIDFlag)
 	fill(&user.AddDirFlag, def.AddDirFlag)
 	fill(&user.ResumeByIDCommand, def.ResumeByIDCommand)
+	fill(&user.ResumePickerCommand, def.ResumePickerCommand)
 	fill(&user.ForkCommand, def.ForkCommand)
 	fill(&user.ForkDialogOption, def.ForkDialogOption)
 	if len(user.ForkDialogKeys) == 0 {
@@ -510,8 +527,11 @@ func mergeTool(name string, user, def Tool) Tool {
 		if user.ActivityCutoff == `(?m)^›` {
 			user.ActivityCutoff = def.ActivityCutoff
 		}
-		if user.ChromeLine == `^\s*─*\s*$` {
+		if user.ChromeLine == `^\s*─*\s*$` || user.ChromeLine == codexChromeLineMCPOnly {
 			user.ChromeLine = def.ChromeLine
+		}
+		if user.TurnEnd == codexTurnEndRuleOnly {
+			user.TurnEnd = def.TurnEnd
 		}
 	}
 	if name == "claude" && (user.BusyLine == busyLineAgentsOnly || user.BusyLine == busyLineShellsOnly || user.BusyLine == busyLineEveryKind) {
@@ -526,7 +546,7 @@ func mergeTool(name string, user, def Tool) Tool {
 		user.Rules = withDialogRules(user.Rules, def.Rules, opencodeDialogSamples)
 	} else if name == "codex" {
 		for i, rule := range user.Rules {
-			if rule.State != "working" || rule.Pattern != `(?m)esc to interrupt\b` {
+			if rule.State != "working" || (rule.Pattern != `(?m)esc to interrupt\b` && rule.Pattern != codexWorkingNoHints) {
 				continue
 			}
 			for _, current := range def.Rules {
@@ -671,11 +691,14 @@ func (c *Config) applyDefaults() {
 	}
 }
 
+// ToolNames lists the configured tools by name, so a sentence naming them
+// reads the same on every run.
 func (c Config) ToolNames() []string {
 	names := make([]string, 0, len(c.Tools))
 	for name := range c.Tools {
 		names = append(names, name)
 	}
+	slices.Sort(names)
 	return names
 }
 
@@ -828,6 +851,7 @@ session_id_flag = "--session-id"
 # that directory too, so its first write there is not denied
 add_dir_flag = "--add-dir"
 resume_by_id_command = "claude --resume {id}"
+resume_picker_command = "claude --resume"
 fork_command = "claude --resume {id} --fork-session --session-id {new_id} --name {name}"
 # Resuming a large conversation opens a dialog offering a summary instead,
 # with the summary preselected -- and a fork answered that way keeps a
@@ -1060,6 +1084,7 @@ echo_budget = "90ms"
 # codex mints its own session id; capture it after launch and resume it
 session_store = "codex"
 resume_by_id_command = "codex resume {id}"
+resume_picker_command = "codex resume"
 fork_command = "codex fork {id}"
 # fallback: resumes the most recent session in the working directory
 revive_command = "codex resume --last"
@@ -1085,8 +1110,14 @@ input_line = "^›"
 # printed above it. That way round is the cheap one: the turn is still live, the
 # \z-anchored working rule below still matches it, and the next poll of a
 # settled turn reads the whole thing.
-turn_end = "(?m)^(?:─+ Worked for [\\dhms. ]+─.*|─{20,}\\s*)$"
-chrome_line = '^\s*─*\s*$|^⚠ (?:The \S+ MCP server is not logged in\. Run \x60codex mcp login \S+\x60\.|MCP startup incomplete \(failed: [^)]+\))$'
+#
+# Codex 0.154 closes a turn on a dim label under the reply instead ("  02:41",
+# "  done 2:41 AM", "  Worked for 1m 5s · 02:41", "  Sep 3 at 02:41"), with the
+# opt-in runtime metrics after it ("· Local tools: 2 calls (1.2s) • ...").
+turn_end = "(?m)^(?:─+ Worked for [\\dhms. ]+─.*|─{20,}\\s*|  (?:Worked for [\\dhms ]+ · )?(?:done )?(?:[A-Z][a-z]{2} \\d{1,2}(?:, \\d{4})? at )?\\d{1,2}:\\d{2}(?: [AP]M)?(?: · (?:Local tools: |Inference: |WebSocket: |Streams?: |\\d+ events received |Responses API |TTFT: |TBT: )[^\\n]*)?)$"
+# Codex 0.157 parks right-aligned hint rows (usage warning, tip, scroll and
+# copy notices) between the transcript and the composer.
+chrome_line = '^\s*─*\s*$|^⚠ (?:The \S+ MCP server is not logged in\. Run \x60codex mcp login \S+\x60\.|MCP startup incomplete \(failed: [^)]+\))$|^\s+(?:⚠|↓|Tip: |Copied )'
 limit_line = "(?m)You've hit your usage limit"
 rules = [
   # bottom-pane dialogs (command approval, choice prompts, first-run trust)
@@ -1094,9 +1125,11 @@ rules = [
   { state = "waiting", pattern = "(?m)^\\s*›\\s+\\d+\\." },
   { state = "waiting", pattern = "(?m)Press enter to (confirm|continue)\\b" },
   { state = "waiting", pattern = "(?m)enter to submit answer\\b" },
+  # the 0.157 rate-limit model-switch dialog
+  { state = "waiting", pattern = "(?m)^\\s*enter select · esc back\\b" },
   # active status row is the final row above the input box; anchoring its full
   # shape keeps an answer that quotes "esc to interrupt" from looking active
-  { state = "working", pattern = "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?[ \\t\\n]*\\z" },
+  { state = "working", pattern = "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?(?:[ \\t]*\\n|[ \\t]+(?:⚠|↓|Tip: |Copied )[^\\n]*\\n)*[ \\t\\n]*\\z" },
   { state = "errored", pattern = "(?im)^\\s*■.*\\berror\\b" },
 ]
 

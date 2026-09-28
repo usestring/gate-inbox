@@ -120,7 +120,7 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 	set := cmdline.NewFlagSet(usageSpawn)
 	name := set.String("name", "", "kebab-case name naming the work it will do; the new agent names itself when this is empty")
 	prompt := set.String("prompt", "", "first task to hand it, written as a full instruction, since it cannot see your conversation")
-	tool := set.String("tool", "", "agent CLI to run; defaults to the CLI this session runs")
+	tool := set.String("tool", "", "agent CLI to run; defaults to the CLI this session runs, and is required when this session is a terminal")
 	model := set.String("model", "", "model that CLI should run on, in its own names; omit for the CLI's default")
 	account := set.String("account", "", "named subscription it runs on, read from Secret Manager at launch; omit for the board's default account")
 	group := set.String("group", "", "existing group path for a detached (--nest=false) session; a nested one is always in yours")

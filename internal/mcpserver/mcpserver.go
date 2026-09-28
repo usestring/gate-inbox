@@ -95,7 +95,7 @@ type createSessionArgs struct {
 	// PromptFile is the brief written to disk instead of pasted into the
 	// call; see textArg.
 	PromptFile string  `json:"prompt_file,omitempty" jsonschema:"absolute path of a file holding the first task, used instead of prompt when the brief is long; the server reads it, so write the brief once and name it here"`
-	Tool       string  `json:"tool,omitempty" jsonschema:"agent CLI to run, such as claude, codex or opencode; defaults to the CLI this session runs; call list_sessions to see which are in use"`
+	Tool       string  `json:"tool,omitempty" jsonschema:"agent CLI to run, such as claude, codex or opencode; defaults to the CLI this session runs, and is required when this session is a terminal; call list_sessions to see which are in use"`
 	Model      string  `json:"model,omitempty" jsonschema:"model that CLI should run on, in whatever names it uses (claude: sonnet, opus, haiku, plus the 1M-context opus[1m] and sonnet[1m]; opencode: provider/model); call list_models for the names a CLI accepts rather than guessing one, since an unknown name is refused by the CLI and the session dies on launch; omit for the CLI's own default"`
 	Account    string  `json:"account,omitempty" jsonschema:"optional pinned subscription from list_accounts; omit to follow the board's routing settings, using own subscription first and quota-based pool overflow in smart mode; a child does not inherit its parent's borrowed account; an explicit account overrides routing and requires a CLI that accepts a token"`
 	Group      *string `json:"group,omitempty" jsonschema:"existing group path for a detached session (nest false) to sit in; pass an empty string for the root group; a nested session is always in this agent's group and refuses any other; call list_groups for the existing ones"`
@@ -684,6 +684,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Call it after handing an agent a task when your next step depends on its result. " +
 			"For a fan-out pass children true, or several session_ids: one call parks on the whole set and returns the moment any one of them arrives, so never wait on children one at a time. " +
 			"By default it returns once a session reaches any state that means it stopped (finished, waiting, idle, errored or dead); pass until to wait for particular states. " +
+			"It counts from your own handoff. While a message you sent that session is still queued, its state describes the turn before, so the wait carries on until that message goes in and its turn ends. " +
 			"A timeout is a normal answer, not a failure: the result carries reached false and the actual state, and outcome says whether it reached, timed_out or died. " +
 			"standing carries every waited-on session with its own outcome, so use that rather than a follow-up list_sessions, then read_session on whichever one moved.",
 		Annotations: mcptool.Annotations(true, false, false),

@@ -157,6 +157,8 @@ CREATE INDEX tasks_claimable ON tasks (state, created_at)
   29 priority_tier                TEXT     notnull=1 default='' pk=0
   30 role                         TEXT     notnull=1 default='' pk=0
   31 replaced_by                  TEXT     notnull=1 default='' pk=0
+  32 keep_child                   INTEGER  notnull=1 default=0 pk=0
+  33 spawner_read_at              INTEGER  notnull=1 default=0 pk=0
   index sqlite_autoindex_sessions_1 unique=1 origin=pk partial=0 (id)
 
 === table settings

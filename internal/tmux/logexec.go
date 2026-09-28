@@ -20,6 +20,11 @@ import (
 
 func (d *Driver) combined(full []string) ([]byte, error) {
 	tmuxguard.Enforce(full)
+	release, err := enterGateFor(full)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	start := time.Now()
 	countExec(full)
 	out, err := exec.Command(d.bin, full...).CombinedOutput()
@@ -68,6 +73,11 @@ const killGrace = 100 * time.Millisecond
 
 func (d *Driver) output(full []string) ([]byte, error) {
 	tmuxguard.Enforce(full)
+	release, err := enterGateFor(full)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	start := time.Now()
 	countExec(full)
 	out, err := exec.Command(d.bin, full...).Output()
@@ -87,8 +97,13 @@ func stderrOf(err error) []byte {
 
 func (d *Driver) silent(full []string) error {
 	tmuxguard.Enforce(full)
+	release, err := enterGateFor(full)
+	if err != nil {
+		return err
+	}
+	defer release()
 	start := time.Now()
-	err := exec.Command(d.bin, full...).Run()
+	err = exec.Command(d.bin, full...).Run()
 	logTmux(full, start, err, nil)
 	return err
 }

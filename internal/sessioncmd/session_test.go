@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1582,5 +1583,88 @@ func TestSessionsListByParentPagesStayExactWhileChildrenMove(t *testing.T) {
 	}
 	if _, err := h.sessions.List(h.caller.ID, ListOptions{After: first.Cursor}); err == nil {
 		t.Fatal("a parent-filtered cursor was accepted by an unfiltered list")
+	}
+}
+
+func paneWindowSize(t *testing.T, driver *tmux.Driver, id string) (int, int) {
+	t.Helper()
+	out, err := exec.Command("tmux", "-L", driver.SocketName(), "display-message", "-p", "-t", "gi_"+id,
+		"#{window_width} #{window_height}").Output()
+	if err != nil {
+		t.Fatalf("read the size of session %s: %v", id, err)
+	}
+	var width, height int
+	if _, err := fmt.Sscan(string(out), &width, &height); err != nil {
+		t.Fatalf("parse the size %q: %v", out, err)
+	}
+	return width, height
+}
+
+// Nothing outside the manager can measure the preview panel, and tmux
+// hands an unsized detached session 80x24, so every pane these tools open
+// comes up narrower than the panel that has to draw it. They take the box
+// the running manager recorded instead.
+func TestHeadlessLaunchesUseTheManagersPaneSize(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	if err := h.store.SetPaneSize(131, 47); err != nil {
+		t.Fatalf("set pane size: %v", err)
+	}
+
+	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "worker"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if width, height := paneWindowSize(t, h.driver, created.ID); width != 131 || height != 47 {
+		t.Fatalf("created pane = %dx%d, want 131x47", width, height)
+	}
+
+	if _, err := h.sessions.Kill(h.caller.ID, created.ID, extension.KillByCLI); err != nil {
+		t.Fatalf("Kill: %v", err)
+	}
+	if _, err := h.sessions.Revive(h.caller.ID, created.ID); err != nil {
+		t.Fatalf("Revive: %v", err)
+	}
+	if width, height := paneWindowSize(t, h.driver, created.ID); width != 131 || height != 47 {
+		t.Fatalf("revived pane = %dx%d, want 131x47", width, height)
+	}
+}
+
+// A terminal's tool is the user's shell, so a spawn from a terminal has no
+// agent CLI to inherit and has to be told which one to run.
+func TestSessionsCreateFromATerminalAsksForATool(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	terminal, err := h.terminals.Create(h.caller.ID, CreateTerminalOptions{})
+	if err != nil {
+		t.Fatalf("Create terminal: %v", err)
+	}
+	_, err = h.sessions.Create(terminal.ID, CreateSessionOptions{Prompt: "ship the fix"})
+	if err == nil {
+		t.Fatal("a toolless spawn from a terminal succeeded")
+	}
+	for _, want := range []string{"create_session tool", "echoer"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not mention %q", err, want)
+		}
+	}
+	runtime, openErr := h.sessions.open()
+	if openErr != nil {
+		t.Fatalf("open: %v", openErr)
+	}
+	shell, _, _ := runtime.cfg.ShellTool()
+	runtime.store.Close()
+	_, listed, _ := strings.Cut(err.Error(), "(configured tools are ")
+	offered := strings.Split(strings.TrimSuffix(listed, ")"), ", ")
+	if slices.Contains(offered, shell) {
+		t.Fatalf("the error offers the shell tool %q as a choice: %v", shell, err)
+	}
+
+	created, err := h.sessions.Create(terminal.ID, CreateSessionOptions{Tool: "echoer", Prompt: "ship the fix"})
+	if err != nil {
+		t.Fatalf("Create with a tool named: %v", err)
+	}
+	if created.Tool != "echoer" || !created.Running {
+		t.Fatalf("created from a terminal = %+v, terminal = %+v", created, terminal)
 	}
 }

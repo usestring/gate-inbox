@@ -5,6 +5,8 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -113,6 +115,8 @@ type InboxLimits struct {
 	RateCap      int
 	RateWindow   time.Duration
 	DedupeWindow time.Duration
+	PairCap      int
+	PairWindow   time.Duration
 }
 
 var DefaultInboxLimits = InboxLimits{
@@ -120,6 +124,8 @@ var DefaultInboxLimits = InboxLimits{
 	RateCap:      5,
 	RateWindow:   time.Minute,
 	DedupeWindow: 10 * time.Minute,
+	PairCap:      8,
+	PairWindow:   10 * time.Minute,
 }
 
 // PollerHeartbeatKey is stamped by the manager while it polls. A session
@@ -135,10 +141,25 @@ const (
 	PollerHeartbeatStale = 30 * time.Second
 )
 
+// ManagerAwake reports whether a manager stamped the heartbeat recently
+// enough to still be polling. Queued messages only move while it runs.
+func (s *Store) ManagerAwake(now time.Time, pollInterval time.Duration) (bool, error) {
+	raw, err := s.Setting(PollerHeartbeatKey)
+	if err != nil || raw == "" {
+		return false, err
+	}
+	stamp, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return false, fmt.Errorf("poller heartbeat %q is not a timestamp: %w", raw, err)
+	}
+	return now.Sub(time.Unix(0, stamp)) < max(3*pollInterval, PollerHeartbeatStale), nil
+}
+
 var (
 	ErrInboxFull        = errors.New("the recipient's queue is full; wait for it to read what is already queued")
 	ErrInboxRateLimited = errors.New("too many messages to this session in the last minute")
 	ErrInboxDuplicate   = errors.New("an identical message is already queued or was just sent")
+	ErrInboxPairLimited = errors.New("these two sessions have exchanged too many messages recently; wait before sending again")
 )
 
 // Enqueue appends one message, retiring whatever the sender still has
@@ -209,10 +230,41 @@ type execer interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
+// pairCap is the back-and-forth limit a message is held to. The operator's
+// own words are exempt: the cap exists to break two agents answering each
+// other in a loop, not to stop a person steering one. So is a parent and its
+// child, drawn under it or spawned by it: a coordinator driving its children
+// and their finished notices are the traffic the board exists to carry.
+func pairCap(db execer, msg InboxMessage, limits InboxLimits) (int, error) {
+	if limits.PairCap < 1 || SpeaksAsOperator(msg.SenderID) {
+		return 0, nil
+	}
+	var related int
+	if err := db.QueryRow(`
+SELECT EXISTS (
+  SELECT 1 FROM sessions
+   WHERE (id = ? AND (parent_id = ? OR spawned_by = ?))
+      OR (id = ? AND (parent_id = ? OR spawned_by = ?))
+)`,
+		msg.SessionID, msg.SenderID, msg.SenderID,
+		msg.SenderID, msg.SessionID, msg.SessionID).Scan(&related); err != nil {
+		return 0, err
+	}
+	if related != 0 {
+		return 0, nil
+	}
+	return limits.PairCap, nil
+}
+
 func (s *Store) insertMessage(db execer, msg InboxMessage, limits InboxLimits) (int64, error) {
 	sentAt := encodeTime(msg.SentAt)
 	rateFrom := encodeTime(msg.SentAt.Add(-limits.RateWindow))
 	dedupeFrom := encodeTime(msg.SentAt.Add(-limits.DedupeWindow))
+	pairFrom := encodeTime(msg.SentAt.Add(-limits.PairWindow))
+	pairLimit, err := pairCap(db, msg, limits)
+	if err != nil {
+		return 0, err
+	}
 	res, err := db.Exec(`
 INSERT INTO session_inbox (session_id, sender_id, sender_name, body, fingerprint, subject, interrupt, sent_at)
 SELECT ?, ?, ?, ?, ?, ?, ?, ?
@@ -221,11 +273,17 @@ WHERE (SELECT COUNT(*) FROM session_inbox WHERE session_id = ? AND delivered_at 
   AND NOT EXISTS (
     SELECT 1 FROM session_inbox
      WHERE session_id = ? AND sender_id = ? AND fingerprint = ? AND sent_at >= ?
-  )`,
+  )
+  AND (? < 1 OR (
+    SELECT COUNT(*) FROM session_inbox
+     WHERE sent_at >= ?
+       AND ((session_id = ? AND sender_id = ?) OR (session_id = ? AND sender_id = ?))
+  ) < ?)`,
 		msg.SessionID, msg.SenderID, msg.SenderName, msg.Body, msg.Fingerprint, msg.Subject, msg.Interrupt, sentAt,
 		msg.SessionID, limits.QueueCap,
 		msg.SessionID, msg.SenderID, rateFrom, limits.RateCap,
-		msg.SessionID, msg.SenderID, msg.Fingerprint, dedupeFrom)
+		msg.SessionID, msg.SenderID, msg.Fingerprint, dedupeFrom,
+		pairLimit, pairFrom, msg.SessionID, msg.SenderID, msg.SenderID, msg.SessionID, pairLimit)
 	if err != nil {
 		return 0, err
 	}
@@ -266,6 +324,24 @@ func (s *Store) rejectedEnqueue(db execer, msg InboxMessage, limits InboxLimits)
 	}
 	if duplicate > 0 {
 		return ErrInboxDuplicate
+	}
+	pairLimit, err := pairCap(db, msg, limits)
+	if err != nil {
+		return err
+	}
+	if pairLimit > 0 {
+		var pair int
+		if err := db.QueryRow(
+			`SELECT COUNT(*) FROM session_inbox
+			  WHERE sent_at >= ?
+			    AND ((session_id = ? AND sender_id = ?) OR (session_id = ? AND sender_id = ?))`,
+			encodeTime(msg.SentAt.Add(-limits.PairWindow)),
+			msg.SessionID, msg.SenderID, msg.SenderID, msg.SessionID).Scan(&pair); err != nil {
+			return err
+		}
+		if pair >= pairLimit {
+			return ErrInboxPairLimited
+		}
 	}
 	return errors.New("message was not queued")
 }
@@ -476,6 +552,16 @@ func (s *Store) QueuedCount(sessionID string) (int, error) {
 		`SELECT COUNT(*) FROM session_inbox WHERE session_id = ? AND delivered_at = 0`,
 		sessionID).Scan(&queued)
 	return queued, err
+}
+
+// HandoffFrom reports the messages from one sender that a session's status,
+// written at statusAt, cannot describe yet: still queued, or typed in since.
+func (s *Store) HandoffFrom(sessionID, senderID string, statusAt time.Time) (queued, typedSince bool, err error) {
+	err = s.db.QueryRow(`
+SELECT EXISTS(SELECT 1 FROM session_inbox WHERE session_id = ? AND sender_id = ? AND delivered_at = 0),
+       EXISTS(SELECT 1 FROM session_inbox WHERE session_id = ? AND sender_id = ? AND dropped_at = 0 AND delivered_at > ?)`,
+		sessionID, senderID, sessionID, senderID, encodeTime(statusAt)).Scan(&queued, &typedSince)
+	return queued, typedSince, err
 }
 
 // QueuedCounts is every session's waiting count in one query, for the

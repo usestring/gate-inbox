@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -267,6 +268,44 @@ func TestInboxHoldsAWorkingTypeAheadAgentOnADialogOrWithNoInputLine(t *testing.T
 	}
 }
 
+func TestInboxDeliversToARestingErroredPane(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "claude-hooked")
+	queueMessage(t, m, sess.ID, "rebase on main")
+
+	if err := deliverInbox(t, m, sess, queuedHeads(t, m), "❯ ", status.Errored, true); err != nil {
+		t.Fatalf("maybeDeliverInbox: %v", err)
+	}
+	if queued, _ := m.store.QueuedCount(sess.ID); queued != 0 {
+		t.Fatal("message was held on a resting errored pane")
+	}
+}
+
+// A turn that died on a provider error leaves opencode's working marker on
+// screen above a resting footer. The message must go in, not wait behind a
+// guard that reads the dead turn as still running.
+func TestInboxDeliversToAnOpencodeTurnThatDiedOnAProviderError(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "ready-tool")
+	sess.Tool = "opencode"
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatalf("built-in config: %v", err)
+	}
+	if m.poller.engine, err = status.NewEngine(cfg); err != nil {
+		t.Fatalf("engine: %v", err)
+	}
+	queueMessage(t, m, sess.ID, "rebase on main")
+	pane := "  ┃  Reply with just the word hi.\n  ┃\n  ┃\n  ┃  API key not valid. Please pass a valid API key.\n  ┃\n     ▣  Build · Gemini 3.6 Flash\n  ┃\n  ┃\n  ┃\n  ┃  Build · Gemini 3.6 Flash Google\n  ╹▀▀▀▀\n   /home/dev                    tab agents  ctrl+p commands"
+
+	if err := deliverInbox(t, m, sess, queuedHeads(t, m), pane, status.Errored, true); err != nil {
+		t.Fatalf("maybeDeliverInbox: %v", err)
+	}
+	if queued, _ := m.store.QueuedCount(sess.ID); queued != 0 {
+		t.Fatal("message is still queued after delivery")
+	}
+}
+
 func TestInboxDeliversToARestingAgentWithItsSenderNamed(t *testing.T) {
 	m := buildModel(t)
 	sess := spawnedSession(t, m, "claude-hooked")
@@ -290,6 +329,60 @@ func TestInboxDeliversToARestingAgentWithItsSenderNamed(t *testing.T) {
 	// the subcommand.
 	settledPane(t, m, sess.ID, "rebase on main", "not from the user", "payments-fix",
 		sessioncmd.CLIVocabulary().Send+" sender01")
+}
+
+// Typing a message in is what starts the recipient's next turn. The pass that
+// types it has to read the row that way already, stamped after the message
+// went in: the next capture is a poll away, and until then a wait for the
+// handoff takes the rest of the turn before. A message queued behind a turn
+// goes in on the pass that sees that turn end, with the row still working.
+func TestInboxDeliveryReadsTheRecipientAsWorking(t *testing.T) {
+	for _, stored := range []string{status.Finished, status.Working} {
+		t.Run(stored, func(t *testing.T) {
+			disableQuietEndGrace(t)
+			m := buildModel(t)
+			sess := spawnedSession(t, m, "ready-tool")
+			pane := settledPane(t, m, sess.ID, "❯")
+			// A launch input is typed ahead of anything queued, so the one the
+			// spawn left goes first, the way it did long ago in a session at rest.
+			for _, input := range sess.PendingInputs {
+				if claimed, err := m.store.ClaimPendingInput(sess.ID, input); err != nil || !claimed {
+					t.Fatalf("claim launch input: claimed=%v err=%v", claimed, err)
+				}
+				if _, err := m.store.ConsumeClaimedPendingInput(sess.ID, input); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := m.store.UpdateStatus(sess.ID, stored); err != nil {
+				t.Fatal(err)
+			}
+			seedRegionHash(t, m, sess, pane)
+			id := queueMessage(t, m, sess.ID, "rebase on main")
+
+			if msg, failed := m.poller.refreshOnce().(errMsg); failed {
+				t.Fatalf("refreshOnce: %v", msg.err)
+			}
+			if !m.poller.awaitSends(10 * time.Second) {
+				t.Fatal("the delivery never settled")
+			}
+
+			sent, err := m.store.Message(id, "sender01")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sent.DeliveredAt.IsZero() {
+				t.Fatal("the pass never typed the message in, so it proves nothing")
+			}
+			got, err := m.store.Get(sess.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Status != status.Working || !got.LastStatusAt.After(sent.DeliveredAt) {
+				t.Fatalf("after the pass that typed the message in: status %q written at %s, message in at %s; want working written after it",
+					got.Status, got.LastStatusAt, sent.DeliveredAt)
+			}
+		})
+	}
 }
 
 // An agent holds one front or the other, so the envelope has to send the

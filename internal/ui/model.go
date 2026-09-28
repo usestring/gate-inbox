@@ -321,9 +321,12 @@ type Model struct {
 	// sel is the focused-pane selection, written during paint so clicks
 	// resolve against the current frame. copied is the size of the last
 	// clipboard write, shown once in the status line and cleared on the
-	// next selection.
-	copied int
-	sel    focusSelection
+	// next selection. copyGen rises whenever the selection behind a write
+	// stops being the one on screen, so a write that lands late is dropped
+	// instead of re-arming the count under nothing.
+	copied  int
+	copyGen int
+	sel     focusSelection
 	// forwardingMouse holds an Alt-initiated in-pane click lifecycle until
 	// its release. The button and last in-pane cell keep an X10 release
 	// paired with its press when it reports MouseButtonNone outside the pane.
@@ -527,9 +530,12 @@ type Model struct {
 	// archiveConfirm is the persisted answer to whether x asks first, and
 	// undo is what the last archive filed away so U can put it back. See
 	// archiveundo.go.
-	archiveConfirm   string
-	undo             archiveUndo
-	launchHint       string
+	archiveConfirm string
+	undo           archiveUndo
+	launchFix      launchFix
+	// install is the setup-dialog install still running in a shell tab,
+	// nil when none is.
+	install          *pendingInstall
 	rename           renameTarget
 	fork             forkState
 	migrate          migrateState
@@ -605,6 +611,14 @@ type Model struct {
 	// launched is when this run recorded each session it spawned. A poll
 	// that listed the store before that has nothing to say about the row.
 	launched map[string]time.Time
+	// gone is when this run took each session off the loaded list itself,
+	// by deleting or archiving it, so a poll that listed the store before
+	// that moment cannot put the row back on screen for a frame.
+	gone map[string]goneMark
+	// goneGroups is the group-path counterpart of gone: when this run
+	// archived, restored, or deleted a group, a poll that listed the store
+	// before that moment must not put the old state back on the tree.
+	goneGroups map[string]goneMark
 	// terminalKeyAt is when the last T finished being handled. Held down it
 	// autorepeats into a burst of keystrokes, and T is the only key that
 	// spawns on the keystroke itself rather than opening a form that would
@@ -651,6 +665,9 @@ type paneMirror struct {
 	// resizing is set while a resize pass is out on its own goroutine, so
 	// the passes cannot pile up one per poll result.
 	resizing bool
+	// published is the last box written to the store for the paneless
+	// launch paths to read.
+	published [2]int
 }
 
 type errBar struct {
@@ -673,12 +690,14 @@ func (m *Model) reportDone(text string) {
 
 // splitState is the horizontal sessions/sidebar split. ratio is the left
 // panel's share of the terminal width; resizeMode arms keyboard divider
-// nudging.
+// nudging, dragging holds a divider drag whichever armed it, and moved
+// separates a drag from a plain click on the seam, which commits nothing.
 type splitState struct {
 	ratio       float64
 	ratioBefore float64
 	resizeMode  bool
 	dragging    bool
+	moved       bool
 }
 
 // confirmTarget.action values. There is no zero value among them on purpose:
@@ -1477,18 +1496,20 @@ func (m *Model) cursorRow() (treeRow, bool) {
 }
 
 // focusSession puts the cursor on a session's row, for the keys that make
-// one and leave the user on it. A session filtered out of the current view
-// has no row, and the cursor stays where it was.
-func (m *Model) focusSession(id string) {
+// one and leave the user on it, and reports whether it found the row. A
+// session filtered out of the current view has none, and the cursor stays
+// where it was.
+func (m *Model) focusSession(id string) bool {
 	for i, row := range m.rows {
 		if row.isSession() && row.sess.ID == id {
 			m.cursor = i
 			// The cursor decides which session's work is open, so a cursor
 			// put somewhere rather than stepped there rebuilds too.
 			m.rebuildRows()
-			return
+			return true
 		}
 	}
+	return false
 }
 
 // schedulePreview arms a single capture after previewSettle. Call after
@@ -1708,6 +1729,34 @@ func (m *Model) applyPaneGeom(msg paneGeomMsg) tea.Cmd {
 	return m.resizeSessions()
 }
 
+// markFreshPane queues one exact size pin for a session whose window this
+// run just created. Its launch size came from pre-selection geometry, and
+// with nothing in its scrollback yet the one re-pin is free.
+func (m *Model) markFreshPane(id string) {
+	if m.pane.geom == nil {
+		m.pane.geom = map[string][2]int{}
+	}
+	m.pane.geom[id] = [2]int{0, 0}
+}
+
+// publishPaneSize records the box for the launch paths that run without a
+// manager: the CLI and the MCP server open a pane with nothing to ask for
+// the preview geometry, and tmux gives an unsized detached session 80x24.
+func (m *Model) publishPaneSize() {
+	if m.width <= 0 {
+		return
+	}
+	width, height := m.paneTargetSize()
+	if width <= 0 || height <= 0 || m.pane.published == [2]int{width, height} {
+		return
+	}
+	if err := m.store.SetPaneSize(width, height); err != nil {
+		m.errBar.text = err.Error()
+		return
+	}
+	m.pane.published = [2]int{width, height}
+}
+
 // update is the model's own dispatch. Update, in logdispatch.go, is the
 // exported entry point: it records the press and the branch it took before
 // handing over here.
@@ -1737,6 +1786,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Re-assert the terminal backdrop: a reattach or a fresh outer
 		// terminal delivers a size message and may carry stale colors.
 		SyncTerminalBackground()
+		m.publishPaneSize()
 		// Geometry cache is stale for every session after a real resize.
 		m.pane.geom = nil
 		resize := m.settleResizeLater()
@@ -1799,6 +1849,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case browserOpenMsg:
 		m.handleBrowserOpen(msg)
 		return m, nil
+
+	case linkOpenErrMsg:
+		m.errBar.text = msg.err.Error()
+		return m, nil
+
+	case linkPageMsg:
+		return m, showLinkPage(msg.url)
 
 	case startupTickMsg:
 		if !m.needsLoaderTick() {
@@ -1914,7 +1971,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ageError()
 		// The focused session can die or vanish under us; fall back to the
 		// list rather than typing into nothing.
-		sessions := m.keepPendingLaunches(msg.sessions, msg.listedAt)
+		sessions := m.dropRecentlyRemoved(m.keepPendingLaunches(msg.sessions, msg.listedAt), msg.listedAt)
+		stripDeletedGroups(&msg, m.goneGroups)
 		var focusExit tea.Cmd
 		focusClosed := false
 		if m.mode == modeFocus {
@@ -1981,6 +2039,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// re-asserts geometry for every one of them.
 			m.pane.geom = nil
 		}
+		m.publishPaneSize()
 		// The preview box changes height for more reasons than a terminal
 		// resize: the quick bar opening, the status line appearing, a new
 		// badge in the header. A pane left at the old height paints a dead
@@ -1997,6 +2056,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Off the loop, so a busy tmux server delays a child's filing rather
 		// than the board's next frame. What it finds lands as childSweptMsg.
 		childSweep := m.sweepFinishedChildren()
+		m.settleInstall()
 		m.rebuildRows()
 		if focusClosed {
 			focusExit = tea.Batch(focusExit, m.moveOnFromClosedFocus())
@@ -2147,7 +2207,17 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.cursorOn = !m.cursorOn
 		return m, m.cursorBlink()
 
+	case launchCommandCopiedMsg:
+		m.handleLaunchCommandCopied(msg)
+		return m, nil
+
 	case focusCopiedMsg:
+		// The clipboard writer runs off the update loop and can take
+		// hundreds of milliseconds, long enough for a click elsewhere to
+		// drop the highlight this count belongs to.
+		if msg.gen != m.copyGen {
+			return m, nil
+		}
 		m.errBar.text = ""
 		m.copied = msg.chars
 		return m, nil
@@ -2290,7 +2360,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pane.geom != nil {
 			delete(m.pane.geom, msg.sessID)
 		}
-		width, height := m.previewPaneWidth(), m.previewPaneHeight()
+		width, height := m.paneTargetSize()
 		m.poller.reflowSessions([]string{msg.sessID}, func() {
 			_ = m.tmux.Resize(msg.sessID, width, height)
 		})
@@ -2476,8 +2546,11 @@ func (m *Model) storePaneState(sessID string, facts paneFacts) {
 	m.pane.sgr = facts.paneSGR
 	m.pane.history = facts.historySize
 	// Once the app owns the wheel, nothing can walk a leftover offset back
-	// down, and holding it would freeze the view for good.
-	if m.pane.mouse && m.focusScroll != 0 {
+	// down, and holding it would freeze the view for good. A mouse-tracking
+	// agent keeps no tmux history, though, so history beside a wheel claim
+	// is the cached flag trailing an app that just left mouse mode, and the
+	// offset stays reachable.
+	if m.pane.mouse && m.focusScroll != 0 && m.pane.history == 0 {
 		m.focusScroll = 0
 	}
 	m.reclampFocusScroll()
@@ -2757,7 +2830,7 @@ func (m *Model) buildTree() {
 			paths = pathsWithSessions(paths, sessionsByGroup)
 		}
 	}
-	if m.hideEmptyGroups {
+	if m.hideEmptyGroups && !m.showArchived {
 		// This is a presentation filter only: stored groups remain available
 		// to forms and return to the tree as soon as the toggle is switched
 		// off. Ancestors of groups with visible sessions stay in the tree.

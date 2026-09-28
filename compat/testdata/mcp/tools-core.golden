@@ -1096,7 +1096,7 @@
         "type": "string"
       },
       "state": {
-        "description": "queued (waiting for the agent to be at rest), superseded (a later message from you on the same subject replaced it), held (nothing will type it in as things stand: the recipient is sitting on a dialog, has a person typing or a draft at its prompt, is archived or not running, and reason says which), delivered (typed into its prompt), dropped (it never reached the prompt and is not retried), or answered (it has since messaged back)",
+        "description": "queued (waiting for the agent to be at rest), superseded (a later message from you on the same subject replaced it), held (nothing will type it in as things stand: the recipient is sitting on a dialog, has a person typing or a draft at its prompt, is archived or not running, and reason says which), delivered (typed into its prompt), dropped (it never reached the prompt and is not retried; reason starts 'recipient ended' when the session it was sent to ended first), or answered (it has since messaged back)",
         "type": "string"
       }
     },

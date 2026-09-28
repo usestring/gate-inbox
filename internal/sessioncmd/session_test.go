@@ -4,6 +4,7 @@ package sessioncmd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -680,6 +681,49 @@ func TestASenderIsToldWhenItsMessageWasDropped(t *testing.T) {
 	}
 }
 
+// A message still queued when its recipient is killed is never typed in, and
+// its sender is told so twice over: message_status says the recipient ended,
+// and a notice naming the message arrives at the sender's own prompt.
+func TestKillingARecipientTellsTheSenderItsQueuedMessageWentWithIt(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	worker, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "worker"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	// Queued straight into the store so nothing types it in first: the
+	// point is a message that was still waiting when the kill landed.
+	id, _, err := h.store.Enqueue(store.InboxMessage{
+		SessionID: worker.ID, SenderID: h.caller.ID, SenderName: h.caller.Name,
+		Body: "rebase on main", Fingerprint: "rebase on main", SentAt: time.Now(),
+	}, store.DefaultInboxLimits)
+	if err != nil {
+		t.Fatalf("Enqueue: %v", err)
+	}
+	if _, err := h.sessions.Kill(h.caller.ID, worker.ID, extension.KillByMCP); err != nil {
+		t.Fatalf("Kill: %v", err)
+	}
+
+	state, err := h.sessions.MessageStatus(h.caller.ID, id)
+	if err != nil {
+		t.Fatalf("MessageStatus: %v", err)
+	}
+	if state.State != "dropped" || !strings.HasPrefix(state.Reason, store.DropRecipientEnded+":") {
+		t.Fatalf("a message whose recipient was killed reads %+v, want dropped: %s", state, store.DropRecipientEnded)
+	}
+	if formatted := FormatMessageState(state); !strings.Contains(formatted, "dropped: "+store.DropRecipientEnded) {
+		t.Fatalf("message-status prints %q", formatted)
+	}
+	pending := true
+	notices, err := h.store.Inbox(h.caller.ID, store.InboxFilter{Pending: &pending, Limit: 10})
+	if err != nil {
+		t.Fatalf("Inbox: %v", err)
+	}
+	if len(notices) != 1 || notices[0].SenderID != worker.ID || !strings.Contains(notices[0].Body, fmt.Sprint(id)) {
+		t.Fatalf("the sender's notices = %+v, want one from %s naming message %d", notices, worker.ID, id)
+	}
+}
+
 // A draft at the recipient's prompt holds the queue for as long as it sits
 // there, so the sender is told that is what it is waiting on, and told with
 // the same read the poller makes.
@@ -777,28 +821,14 @@ func TestASenderIsToldWhenItsRecipientLeftTheManagersReach(t *testing.T) {
 		t.Fatalf("Archive: %v", err)
 	}
 
+	// Archiving a running session ends it, so the message queued for it went
+	// with it: dropped, with a reason that says so.
 	state, err := h.sessions.MessageStatus(h.caller.ID, sent.MessageID)
 	if err != nil {
 		t.Fatalf("MessageStatus: %v", err)
 	}
-	if state.State != "held" || !strings.Contains(state.Reason, "archived") ||
-		!strings.Contains(state.Reason, h.sessions.words.Restore) {
+	if state.State != "dropped" || !strings.HasPrefix(state.Reason, "recipient ended") {
 		t.Fatalf("a message to an archived session reads as %+v", state)
-	}
-
-	if _, err := h.sessions.Archive(h.caller.ID, worker.ID, false); err != nil {
-		t.Fatalf("restore: %v", err)
-	}
-	if _, err := h.sessions.Kill(h.caller.ID, worker.ID, extension.KillByCLI); err != nil {
-		t.Fatalf("Kill: %v", err)
-	}
-	state, err = h.sessions.MessageStatus(h.caller.ID, sent.MessageID)
-	if err != nil {
-		t.Fatalf("MessageStatus: %v", err)
-	}
-	if state.State != "held" || !strings.Contains(state.Reason, "not running") ||
-		!strings.Contains(state.Reason, h.sessions.words.Revive) {
-		t.Fatalf("a message to a dead session reads as %+v", state)
 	}
 }
 

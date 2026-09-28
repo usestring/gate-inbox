@@ -175,11 +175,26 @@ func TypedPrompt(prompt string) string {
 	}
 }
 
+// TypesPrompt reports whether a prompt reaches the tool as typed input
+// rather than on its command line: always for a send-mode tool, and for any
+// prompt that opens with a prefix the CLI would parse as something else.
+func TypesPrompt(tool config.Tool, prompt string) bool {
+	if tool.PromptMode == "send" {
+		return true
+	}
+	for _, prefix := range tool.TypedPromptPrefixes {
+		if prefix != "" && strings.HasPrefix(prompt, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // WithPrompt appends the first prompt to a tool's command, using the
-// tool's prompt flag when it has one. Tools that take their prompt as
-// typed input instead keep the bare command.
+// tool's prompt flag when it has one. A prompt the tool takes as typed
+// input instead leaves the bare command.
 func WithPrompt(tool config.Tool, command, prompt string) string {
-	if prompt == "" || tool.PromptMode == "send" {
+	if prompt == "" || TypesPrompt(tool, prompt) {
 		return command
 	}
 	if tool.PromptFlag != "" {
@@ -312,10 +327,11 @@ func Assemble(toolName string, tool config.Tool, rawPrompt, workdir string, auto
 	if workdir != "" && !carried {
 		plan.PendingInputs = append(plan.PendingInputs, ManagerBand+WorkdirDirective(workdir))
 	}
-	if tool.PromptMode != "send" {
+	typed := TypesPrompt(tool, prompt)
+	if !typed {
 		plan.LaunchPrompt = prompt
 	}
-	if tool.PromptMode == "send" && prompt != "" {
+	if typed && prompt != "" {
 		plan.PendingInputs = append(plan.PendingInputs, prompt)
 	}
 	if autoNamed && !tool.SkipRenameDirective && !carried {

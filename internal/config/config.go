@@ -35,11 +35,16 @@ type Tool struct {
 	// keys that write into a pane refuse it, since a sentence typed at a
 	// shell is a command. Never inferred, so a tool block only means this
 	// when its author said so.
-	Shell         bool     `toml:"shell"`
-	ReviveCommand string   `toml:"revive_command"`
-	PromptFlag    string   `toml:"prompt_flag"`
-	PromptMode    string   `toml:"prompt_mode"`
-	InterruptKeys []string `toml:"interrupt_keys"`
+	Shell         bool   `toml:"shell"`
+	ReviveCommand string `toml:"revive_command"`
+	PromptFlag    string `toml:"prompt_flag"`
+	PromptMode    string `toml:"prompt_mode"`
+	// TypedPromptPrefixes are openings the CLI reads as something other than
+	// a prompt when they lead an argument: pi takes "@file" as an attachment
+	// and "-x" as an option. A launch prompt starting with one is typed into
+	// the pane, as prompt_mode "send" does, instead of riding the command line.
+	TypedPromptPrefixes []string `toml:"typed_prompt_prefixes"`
+	InterruptKeys       []string `toml:"interrupt_keys"`
 	// EchoBudget bounds the after-keystroke chase on this tool's panes: how
 	// long the focused view keeps looking for the repaint a key caused before
 	// leaving it to the tick. It is per tool because agent TUIs differ by
@@ -428,6 +433,9 @@ func mergeTool(name string, user, def Tool) Tool {
 	fill(&user.AccountsCommand, def.AccountsCommand)
 	fill(&user.PromptFlag, def.PromptFlag)
 	fill(&user.PromptMode, def.PromptMode)
+	if len(user.TypedPromptPrefixes) == 0 {
+		user.TypedPromptPrefixes = def.TypedPromptPrefixes
+	}
 	if len(user.InterruptKeys) == 0 {
 		user.InterruptKeys = def.InterruptKeys
 	}

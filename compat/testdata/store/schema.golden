@@ -113,6 +113,7 @@ CREATE INDEX tasks_claimable ON tasks (state, created_at)
   11 subject                      TEXT     notnull=1 default='' pk=0
   12 superseded_by                INTEGER  notnull=1 default=0 pk=0
   13 interrupt                    INTEGER  notnull=1 default=0 pk=0
+  14 drop_reason                  TEXT     notnull=1 default='' pk=0
   index session_inbox_queue unique=0 origin=c partial=0 (session_id, delivered_at, id)
   index session_inbox_sender unique=0 origin=c partial=0 (session_id, sender_id, sent_at)
   index session_inbox_subject unique=0 origin=c partial=0 (session_id, sender_id, subject, delivered_at)

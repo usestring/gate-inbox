@@ -821,28 +821,14 @@ func TestASenderIsToldWhenItsRecipientLeftTheManagersReach(t *testing.T) {
 		t.Fatalf("Archive: %v", err)
 	}
 
+	// Archiving a running session ends it, so the message queued for it went
+	// with it: dropped, with a reason that says so.
 	state, err := h.sessions.MessageStatus(h.caller.ID, sent.MessageID)
 	if err != nil {
 		t.Fatalf("MessageStatus: %v", err)
 	}
-	if state.State != "held" || !strings.Contains(state.Reason, "archived") ||
-		!strings.Contains(state.Reason, h.sessions.words.Restore) {
+	if state.State != "dropped" || !strings.HasPrefix(state.Reason, "recipient ended") {
 		t.Fatalf("a message to an archived session reads as %+v", state)
-	}
-
-	if _, err := h.sessions.Archive(h.caller.ID, worker.ID, false); err != nil {
-		t.Fatalf("restore: %v", err)
-	}
-	if _, err := h.sessions.Kill(h.caller.ID, worker.ID, extension.KillByCLI); err != nil {
-		t.Fatalf("Kill: %v", err)
-	}
-	state, err = h.sessions.MessageStatus(h.caller.ID, sent.MessageID)
-	if err != nil {
-		t.Fatalf("MessageStatus: %v", err)
-	}
-	if state.State != "held" || !strings.Contains(state.Reason, "not running") ||
-		!strings.Contains(state.Reason, h.sessions.words.Revive) {
-		t.Fatalf("a message to a dead session reads as %+v", state)
 	}
 }
 

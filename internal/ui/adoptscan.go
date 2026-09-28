@@ -83,6 +83,7 @@ func (m *Model) adoptScan() tea.Cmd {
 		// the manager's own are recovered either way.
 		ignored:     loadPaneDecisions(m.store).ignoredPaneKeys(),
 		skipForeign: m.outsidePanesMode() == paneIgnore,
+		agentTools:  m.agentToolNames(),
 	}
 	for _, sess := range m.sessions {
 		if key := adoptKey(sess.TmuxSocket, sess.TmuxPaneID); key != "" {
@@ -108,6 +109,7 @@ func (m *Model) adoptScan() tea.Cmd {
 			return adoptedMsg{err: err}
 		}
 		run.onBoard = onBoardSessions(rows)
+		run.launched = launchedSessions(rows, run.agentTools)
 		run.pruneIgnored(candidates)
 		run.claude = convo.LiveClaudeSessions(convo.ClaudeHome())
 
@@ -173,6 +175,12 @@ type adoptRun struct {
 	// managedHomeKey. take fills it from the candidates before deciding any
 	// of them.
 	homes map[string]string
+	// launched is every gi_ session whose row started an agent command, so
+	// its home window is the one that ran the launch script and no other.
+	// agentTools is the configured tools that start one, read on the event
+	// loop for the closure to build launched from.
+	launched   map[string]bool
+	agentTools map[string]bool
 	// names is every name the board is using, so a new row cannot collide
 	// with one.
 	names    map[string]bool
@@ -217,7 +225,7 @@ func (r *adoptRun) reject(candidate adopt.Candidate, why string, extra ...any) {
 // basenames and can only number them.
 func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (int, error) {
 	var accepted []adoptCandidate
-	r.homes = managedHomes(candidates)
+	r.homes = managedHomes(candidates, r.launched)
 	for _, candidate := range candidates {
 		if ok, why := adoptable(candidate, r.self, r.known, r.onBoard, r.homes); !ok {
 			r.reject(candidate, why)
@@ -665,21 +673,35 @@ func adoptable(candidate adopt.Candidate, self string, known, onBoard map[string
 // managedHomes picks, for each gi_ session among candidates, the window its
 // own agent runs in: the one whose pane runs the session's launch script, or
 // failing that the oldest window still open.
-func managedHomes(candidates []adopt.Candidate) map[string]string {
+//
+// The oldest-window guess is only for a session that may never have run a
+// script: a terminal row, or an orphan with no row to say. A session in
+// launched started its agent through the script, so when no window runs it
+// any more that agent has exited and the session has no home -- recorded as
+// an empty window, so every window left in it is somebody else's agent.
+// Guessing the oldest one there hid a live agent behind a row whose own agent
+// was gone.
+func managedHomes(candidates []adopt.Candidate, launched map[string]bool) map[string]string {
 	homes := map[string]string{}
-	launched := map[string]bool{}
+	scripted := map[string]bool{}
 	for _, c := range candidates {
 		key := managedHomeKey(c)
-		if c.Window == "" || !tmux.Managed(c.Session) || launched[key] {
+		if c.Window == "" || !tmux.Managed(c.Session) || scripted[key] {
 			continue
 		}
 		if id, _ := tmux.SessionID(c.Session); tmux.RunsLaunchScript(c.StartCommand, id) {
 			homes[key] = c.Window
-			launched[key] = true
+			scripted[key] = true
 			continue
 		}
 		if home, ok := homes[key]; !ok || windowNumber(c.Window) < windowNumber(home) {
 			homes[key] = c.Window
+		}
+	}
+	for _, c := range candidates {
+		key := managedHomeKey(c)
+		if tmux.Managed(c.Session) && launched[c.Session] && !scripted[key] {
+			homes[key] = ""
 		}
 	}
 	return homes
@@ -693,10 +715,35 @@ func managedHomeKey(c adopt.Candidate) string {
 
 // inHome reports whether a pane is in its session's home window. A pane with
 // no window id, or in a session with no known home, counts as home, which
-// keeps the whole-session refusal wherever the window cannot be told.
+// keeps the whole-session refusal wherever the window cannot be told. A
+// session whose home is known to be gone has no pane in it.
 func inHome(c adopt.Candidate, homes map[string]string) bool {
 	home, ok := homes[managedHomeKey(c)]
 	return !ok || c.Window == "" || c.Window == home
+}
+
+// launchedSessions is the tmux session name of every row whose tool starts an
+// agent command, the rows managedHomes may trust to have run a launch script.
+func launchedSessions(rows []store.Session, agentTools map[string]bool) map[string]bool {
+	names := map[string]bool{}
+	for _, sess := range rows {
+		if agentTools[sess.Tool] {
+			names[tmux.SessionName(sess.ID)] = true
+		}
+	}
+	return names
+}
+
+// agentToolNames is the configured tools a launch starts a command for. A
+// shell block is left out: its session may run no script at all.
+func (m *Model) agentToolNames() map[string]bool {
+	names := map[string]bool{}
+	for name, tool := range m.cfg.Tools {
+		if !tool.Shell && tool.Command != "" {
+			names[name] = true
+		}
+	}
+	return names
 }
 
 func windowNumber(window string) int {

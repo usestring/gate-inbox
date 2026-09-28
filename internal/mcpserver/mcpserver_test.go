@@ -682,9 +682,15 @@ func TestServerTeachesDelegationWorkflow(t *testing.T) {
 		// nest false, and its whole fan-out landed flat with nothing relayed
 		// to it; the block has to say the opposite.
 		"never make a group for one",
+		// Every CLI offers its own subagents, and a model reads its own
+		// tool as the default unless the block names it and says why not.
+		"not your CLI's built-in subagent tool",
+		"Agent/Task", "spawn_agent", "opencode's task",
+		"on the user's board",
+		"quick read-only lookups",
 		// Finished children are filed away on their own now, and the bulk
 		// call is how a parent clears the rest without one call per child.
-		"archived for you after a grace period",
+		"auto-archive after a grace period",
 		"cleanup_children",
 	} {
 		if !strings.Contains(instructions, want) {
@@ -723,7 +729,7 @@ func TestSessionDescriptionsTeachWhenAndHowToChainTools(t *testing.T) {
 	}
 	for tool, wants := range map[string][]string{
 		"list_sessions":    {"Call first", "create_session"},
-		"create_session":   {"without waiting for the user", "own checkout", "cannot see this conversation", "read_session", "never create a group for one", "nest false is a detach"},
+		"create_session":   {"instead of your CLI's built-in subagent tool", "quick read-only lookup", "without waiting for the user", "own checkout", "cannot see this conversation", "read_session", "never create a group for one", "nest false is a detach"},
 		"read_session":     {"after create_session", "current screen"},
 		"send_session":     {"self-contained instruction", "read_session", "at rest", "another agent rather than from the user"},
 		"message_status":   {"delivered", "queued"},

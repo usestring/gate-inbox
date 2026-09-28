@@ -1476,3 +1476,69 @@ func TestPendingPriorityOfADeletedSessionDoesNotFailThePass(t *testing.T) {
 		t.Fatal("the mailbox should be consumed instead of retried every poll")
 	}
 }
+
+func appendHookLog(t *testing.T, m *Model, id, lines string) {
+	t.Helper()
+	path := m.hooks.StatusFile(id)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir hooks dir: %v", err)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatalf("open hook log: %v", err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(lines); err != nil {
+		t.Fatalf("append hook log: %v", err)
+	}
+}
+
+// A turn that starts and ends between two passes leaves the newest hook
+// event where it was. The row still has to show it ran, or an acknowledged
+// row stays acknowledged through a turn nobody saw end.
+func TestAHookTurnBetweenTwoPassesStillShows(t *testing.T) {
+	m := buildModel(t)
+	sess := store.Session{ID: "missed01", Tool: "claude-hooked", Status: status.Idle, Acked: true}
+	pane := "some output\n❯ \n"
+	appendHookLog(t, m, sess.ID, "working UserPromptSubmit\nfinished Stop\n")
+
+	// The first look is history the stored status already reflects.
+	if got := deriveStatus(t, m, sess, pane, true); got != status.Idle {
+		t.Fatalf("first look = %q, want idle", got)
+	}
+	if got := deriveStatus(t, m, sess, pane, true); got != status.Idle {
+		t.Fatalf("a pass with no new events = %q, want idle", got)
+	}
+
+	appendHookLog(t, m, sess.ID, "working UserPromptSubmit\nworking PostToolUse\nfinished Stop\n")
+	if got := deriveStatus(t, m, sess, pane, true); got != status.Working {
+		t.Fatalf("a turn run between passes = %q, want working for that pass", got)
+	}
+	// The working pass cleared the acknowledgement; the rest state now
+	// arrives as a change.
+	sess.Status, sess.Acked = status.Working, false
+	if got := deriveStatus(t, m, sess, pane, true); got != status.Finished {
+		t.Fatalf("the pass after = %q, want finished", got)
+	}
+}
+
+// A row already showing the turn needs nothing invented, and a session whose
+// newest event is still working is not a missed turn.
+func TestMissedTurnLeavesARowThatSawTheTurnAlone(t *testing.T) {
+	m := buildModel(t)
+	sess := store.Session{ID: "missed02", Tool: "claude-hooked", Status: status.Working}
+	pane := "some output\n❯ \n"
+	appendHookLog(t, m, sess.ID, "finished Stop\n")
+	deriveStatus(t, m, sess, pane, true)
+
+	appendHookLog(t, m, sess.ID, "working PostToolUse\nfinished Stop\n")
+	if got := deriveStatus(t, m, sess, pane, true); got != status.Finished {
+		t.Fatalf("a working row = %q, want finished", got)
+	}
+
+	sess.Status = status.Finished
+	appendHookLog(t, m, sess.ID, "working UserPromptSubmit\n")
+	if got := deriveStatus(t, m, sess, "plain streaming text no rule matches\n❯ \n", true); got != status.Working {
+		t.Fatalf("a turn still running = %q, want working", got)
+	}
+}

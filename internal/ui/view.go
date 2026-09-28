@@ -503,20 +503,16 @@ func (m *Model) viewFooter() string {
 			{"any other key", "done"},
 		}})
 	}
-	if m.quick.active && (m.mode != modeFocus || m.showsConversation()) {
+	if m.quick.active && m.mode != modeFocus {
 		pairs := [][2]string{
 			{"↵", "send"}, {"↑↓", "switch target"}, {"tab", "tool: " + m.quickTool()},
 			{"esc", "close"},
 		}
-		if m.mode == modeFocus {
-			pairs = [][2]string{{"↵", "send"}, {"alt+enter", "newline"}, {"esc", "close"},
-				{m.fullCap(keymap.ContextFocus, keymap.ToggleConversation), m.conversationToggleLabel()},
-				{m.fullCap(keymap.ContextFocus, keymap.ToggleGateInput), "terminal"}, {"pgup/pgdn", "scroll"}}
-		} else if m.showsConversation() {
+		if m.showsConversation() {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextList, keymap.ToggleConversation), m.conversationToggleLabel()})
 		}
 		if m.quick.message() == "" && m.canRescindLatestSubmission() {
-			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextList, keymap.Rescind), "rescind latest"})
+			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextList, keymap.Rescind), "undo"})
 		}
 		return m.transientFooter(legendSection{title: "Prompt", pairs: pairs})
 	}
@@ -537,38 +533,6 @@ func (m *Model) viewFooter() string {
 	// Focused, the keyboard belongs to the agent: the tier says so in its
 	// title, carries the few keys the manager keeps, and drops the app-wide
 	// tier, which would name keys the agent receives.
-	if m.mode == modeFocus && m.gate.on {
-		// The gate's tier names the whole session, not only the three keys
-		// the mode is built on: v1's gate view carried the same controls, and
-		// an operator draining a queue should not have to leave it to end a
-		// session, spawn, copy an id or step back. It leads with the drain's
-		// own gestures; the row is what alt+, and the chrome setting hide.
-		//
-		// Answers stay ahead of secondary controls in the two-row budget;
-		// those that do not fit remain discoverable in H.
-		pairs := [][2]string{
-			{"1-9 / ↵", "answer"},
-			{m.gateCap(keymap.Dismiss), "skip"},
-			{m.gateCap(keymap.PreviewTop), "top"},
-			{m.gateCap(keymap.PreviewBottom), "bottom"},
-			{m.gateCap(keymap.LeaveHard), "exit"},
-		}
-		if m.gate.menu {
-			pairs[0] = [2]string{"space", "reply"}
-			pairs = append([][2]string{
-				{m.fullCap(keymap.ContextFocus, keymap.ToggleConversation), m.conversationToggleLabel()},
-				{m.fullCap(keymap.ContextFocus, keymap.ToggleGateInput), "terminal"},
-			}, pairs...)
-		}
-		pairs = append(pairs, m.snippetLegend().pairs...)
-		pairs = append(pairs, [][2]string{
-			{m.gateCap(keymap.Archive), "kill"},
-			{m.gateCap(keymap.NewSession), "new"},
-			{m.gateCap(keymap.CopySessionID), "copy ID"},
-			{m.gateCap(keymap.LastPane), "back"},
-		}...)
-		return m.transientFooter(legendSection{title: "Gate", pairs: pairs})
-	}
 	if m.mode == modeFocus {
 		// In triage the two exits stop being synonyms -- ctrl+q hands over the
 		// next session instead of returning -- so naming them together would
@@ -578,11 +542,6 @@ func (m *Model) viewFooter() string {
 		// the one exit a user does not have to be told about. Help names it.
 		exits := [][2]string{{m.capJoinFull(keymap.ContextFocus, " / ", keymap.Leave, keymap.LeaveHard), "back to manager"}}
 		if m.advancesOnLeave() {
-			// Focused, the rail's TRIAGE badge is off screen, so this line
-			// is the only place left that can say which group ctrl+q will
-			// hand over next -- and landing in a session from somebody
-			// else's group is exactly what the scope exists to prevent.
-			//
 			// It is also the only place the walk is named at all for
 			// somebody driving it from the setting rather than from a
 			// queue they armed: an advance nothing announces reads as the
@@ -598,16 +557,13 @@ func (m *Model) viewFooter() string {
 		}
 		pairs := append([][2]string{}, exits...)
 		if m.canRescindLatestSubmission() {
-			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextFocus, keymap.Rescind), "rescind latest"})
+			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextFocus, keymap.Rescind), "undo"})
 		}
 		pairs = append(pairs,
 			// Named on the footer rather than left to the key map: it is
 			// destructive, and a key nobody knows about is a key nobody
 			// uses on purpose and somebody eventually hits by accident.
 			[2]string{m.fullCap(keymap.ContextFocus, keymap.Archive), "kill"},
-			// The footer holds one row: the word and line gestures are in
-			// the key map, where there is room to name all three.
-			[2]string{"drag / click", "copy"},
 		)
 		return m.transientFooter(legendSection{title: "Focused", pairs: pairs})
 	}
@@ -761,7 +717,7 @@ func (m *Model) viewLegend() legendSection {
 		action keymap.Action
 		text   string
 	}{
-		{keymap.LastPane, "last pane"}, {keymap.Rescind, "rescind latest"},
+		{keymap.LastPane, "last pane"}, {keymap.Rescind, "undo"},
 		{keymap.NewSession, "new"}, {keymap.NewSessionForm, "new…"},
 		{keymap.NewTerminal, "terminal"}, {keymap.NewGroup, "group"}, {keymap.Search, "search"},
 		{keymap.ArchivedView, "archived"}, {keymap.StatusFilter, "attention"},

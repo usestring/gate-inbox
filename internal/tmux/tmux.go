@@ -579,6 +579,25 @@ func (d *Driver) launchScriptPath(id string) string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("gi-launch-%08x-%s.sh", h.Sum32(), id))
 }
 
+// RunsLaunchScript reports whether a pane's start command runs the launch
+// script of session id, which marks the window that session was made with. It
+// matches the file name alone, so it holds whichever server wrote the script.
+func RunsLaunchScript(startCommand, id string) bool {
+	if id == "" {
+		return false
+	}
+	suffix := "-" + id + ".sh"
+	for _, field := range strings.FieldsFunc(startCommand, func(r rune) bool {
+		return r == ' ' || r == '\'' || r == '"' || r == '\\'
+	}) {
+		base := filepath.Base(field)
+		if strings.HasPrefix(base, "gi-launch-") && strings.HasSuffix(base, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
 // exitStatusVar holds the agent's exit status until the script records it.
 const exitStatusVar = "gi_agent_exit"
 

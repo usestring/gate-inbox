@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -20,6 +21,11 @@ import (
 // holder's pid; the lock itself is an flock, which the kernel drops with the
 // holder, so a manager killed with SIGKILL never leaves a stale claim.
 const FileName = "manager.lock"
+
+// PaneFileName records the holder's $TMUX and $TMUX_PANE, one per line, so a
+// successor can close the pane it was drawn in. It is kept out of the lock
+// file because older builds read that file as nothing but a pid.
+const PaneFileName = "manager.pane"
 
 const (
 	termGrace = 5 * time.Second
@@ -34,8 +40,18 @@ type Lock struct {
 
 // Takeover records what happened to an incumbent so the caller can log it.
 type Takeover struct {
-	PID    int
-	Killed bool // SIGTERM was not enough; SIGKILL was sent.
+	PID        int
+	Killed     bool // SIGTERM was not enough; SIGKILL was sent.
+	PaneClosed bool // The tmux pane the incumbent was drawn in was killed.
+}
+
+// pane is where a holder's board was drawn, as tmux told it through the
+// environment. The server pid is kept because a restarted server on the same
+// socket numbers its panes from %0 again.
+type pane struct {
+	socket    string
+	serverPID string
+	id        string
 }
 
 // Acquire claims dir for this process. When another manager holds the claim
@@ -64,9 +80,10 @@ func Acquire(dir string) (*Lock, *Takeover, error) {
 	}
 
 	took := &Takeover{PID: pid}
+	where := holderPane(dir)
 	_ = syscall.Kill(pid, syscall.SIGTERM)
 	if waitLock(file, termGrace) {
-		return finish(file, took)
+		return finish(file, took, where)
 	}
 	// A concurrent start may have taken the claim while this one waited;
 	// its pid is not the one that ignored SIGTERM, and the old one may
@@ -78,15 +95,47 @@ func Acquire(dir string) (*Lock, *Takeover, error) {
 	took.Killed = true
 	_ = syscall.Kill(pid, syscall.SIGKILL)
 	if waitLock(file, killGrace) {
-		return finish(file, took)
+		return finish(file, took, where)
 	}
 	file.Close()
 	return nil, took, fmt.Errorf("manager pid %d holds %s and would not exit", pid, path)
 }
 
-func finish(file *os.File, took *Takeover) (*Lock, *Takeover, error) {
+func finish(file *os.File, took *Takeover, where pane) (*Lock, *Takeover, error) {
 	lock, _, err := claim(file)
+	if err == nil && where.id != "" {
+		// The lock is released before the incumbent's other defers restore
+		// its pins, and killing the pane hangs it up mid-restore, so the pane
+		// waits for the process.
+		waitExit(took.PID, termGrace)
+		took.PaneClosed = closePane(where)
+	}
 	return lock, took, err
+}
+
+// closePane kills the pane a superseded board was drawn in, so a relaunch
+// leaves one board on screen rather than a board and the shell the old one
+// exited to. It refuses a pane it cannot be sure is still that one: its own,
+// or one on a server that has restarted since the holder wrote it down.
+func closePane(where pane) bool {
+	if where.socket == "" || where.id == "" {
+		return false
+	}
+	if where.id == os.Getenv("TMUX_PANE") && where.socket == socketOf(os.Getenv("TMUX")) {
+		return false
+	}
+	out, err := exec.Command("tmux", "-S", where.socket, "display-message", "-p", "-t", where.id, "#{pid}").Output()
+	if err != nil || strings.TrimSpace(string(out)) != where.serverPID {
+		return false
+	}
+	return exec.Command("tmux", "-S", where.socket, "kill-pane", "-t", where.id).Run() == nil
+}
+
+func waitExit(pid int, limit time.Duration) {
+	deadline := time.Now().Add(limit)
+	for syscall.Kill(pid, 0) == nil && time.Now().Before(deadline) {
+		time.Sleep(pollEvery)
+	}
 }
 
 func claim(file *os.File) (*Lock, *Takeover, error) {
@@ -98,6 +147,10 @@ func claim(file *os.File) (*Lock, *Takeover, error) {
 		file.Close()
 		return nil, nil, err
 	}
+	// Written even outside tmux, so a successor never reads the pane of a
+	// holder before this one. Losing it costs only the pane close.
+	record := os.Getenv("TMUX") + "\n" + os.Getenv("TMUX_PANE") + "\n"
+	_ = os.WriteFile(filepath.Join(filepath.Dir(file.Name()), PaneFileName), []byte(record), 0o644)
 	return &Lock{file: file}, nil, nil
 }
 
@@ -140,4 +193,27 @@ func holderPID(file *os.File) int {
 		return 0
 	}
 	return pid
+}
+
+// holderPane is empty for a holder outside tmux, and for one started by a
+// build that did not record its pane.
+func holderPane(dir string) pane {
+	data, err := os.ReadFile(filepath.Join(dir, PaneFileName))
+	if err != nil {
+		return pane{}
+	}
+	lines := strings.Split(string(data), "\n")
+	if len(lines) < 2 {
+		return pane{}
+	}
+	fields := strings.Split(strings.TrimSpace(lines[0]), ",")
+	if len(fields) < 2 {
+		return pane{}
+	}
+	return pane{socket: fields[0], serverPID: fields[1], id: strings.TrimSpace(lines[1])}
+}
+
+// socketOf is the socket path in a $TMUX value.
+func socketOf(tmuxEnv string) string {
+	return strings.Split(tmuxEnv, ",")[0]
 }

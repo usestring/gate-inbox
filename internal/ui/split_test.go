@@ -73,7 +73,8 @@ func TestSplitWidthsUsesRatio(t *testing.T) {
 
 func TestSetSplitFromXClampsAndUpdatesRatio(t *testing.T) {
 	m := &Model{width: 100, split: splitState{ratio: defaultSplitRatio}}
-	m.setSplitFromX(50)
+	// The seam at column 49 leaves the rail the 50 columns to its right.
+	m.setSplitFromX(49)
 	if m.split.ratio != 0.5 {
 		t.Fatalf("ratio = %v want 0.5", m.split.ratio)
 	}
@@ -81,7 +82,7 @@ func TestSetSplitFromXClampsAndUpdatesRatio(t *testing.T) {
 	if left != 50 {
 		t.Fatalf("left = %d want 50", left)
 	}
-	m.setSplitFromX(5)
+	m.setSplitFromX(94)
 	left, right := m.splitWidths()
 	if left != minSplitSide || right != 100-minSplitSide {
 		t.Fatalf("clamped left split = %d,%d", left, right)
@@ -139,8 +140,9 @@ func TestArrowNudgeAndPipeCommits(t *testing.T) {
 	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
 	m = updated.(*Model)
 	after, _ := m.splitWidths()
-	if after != before+1 {
-		t.Fatalf("right arrow left width = %d want %d", after, before+1)
+	// The rail is on the right, so moving the seam right narrows it.
+	if after != before-1 {
+		t.Fatalf("right arrow rail width = %d want %d", after, before-1)
 	}
 	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
 	m = updated.(*Model)
@@ -161,8 +163,8 @@ func TestArrowNudgeAndPipeCommits(t *testing.T) {
 	if err != nil || raw == "" {
 		t.Fatalf("committed ratio missing: %v %q", err, raw)
 	}
-	if left, _ := m.splitWidths(); left != before+1 {
-		t.Fatalf("committed left = %d want %d", left, before+1)
+	if left, _ := m.splitWidths(); left != before-1 {
+		t.Fatalf("committed left = %d want %d", left, before-1)
 	}
 }
 
@@ -182,7 +184,7 @@ func TestEnterCommitsResize(t *testing.T) {
 	}
 	updated, _ := m.enterResizeMode()
 	m = updated.(*Model)
-	m.nudgeSplit(8)
+	m.nudgeSplit(-8)
 
 	updated, cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(*Model)
@@ -229,7 +231,7 @@ func TestQuitFromResizePersistsRatio(t *testing.T) {
 	}
 	updated, _ := m.enterResizeMode()
 	m = updated.(*Model)
-	m.nudgeSplit(8)
+	m.nudgeSplit(-8)
 
 	updated, cmd := m.handleKey(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	m = updated.(*Model)
@@ -272,13 +274,13 @@ func TestDragReleasePersistsAndExits(t *testing.T) {
 		t.Fatal("press on divider should start drag")
 	}
 
-	updated, _ = m.handleMouse(tea.MouseMotionMsg{X: 50, Y: 5, Button: tea.MouseLeft})
+	updated, _ = m.handleMouse(tea.MouseMotionMsg{X: 49, Y: 5, Button: tea.MouseLeft})
 	m = updated.(*Model)
 	if left, _ := m.splitWidths(); left != 50 {
 		t.Fatalf("motion should set left=50, got %d", left)
 	}
 
-	updated, cmd := m.handleMouse(tea.MouseReleaseMsg{X: 50, Y: 5, Button: tea.MouseLeft})
+	updated, cmd := m.handleMouse(tea.MouseReleaseMsg{X: 49, Y: 5, Button: tea.MouseLeft})
 	m = updated.(*Model)
 	if m.split.dragging || m.split.resizeMode {
 		t.Fatal("release should end drag and exit resize mode")
@@ -416,7 +418,7 @@ func TestDragCancelRestoresRatio(t *testing.T) {
 	div := m.dividerX()
 	updated, _ = m.handleMouse(tea.MouseClickMsg{X: div, Y: 5, Button: tea.MouseLeft})
 	m = updated.(*Model)
-	updated, _ = m.handleMouse(tea.MouseMotionMsg{X: 55, Y: 5, Button: tea.MouseLeft})
+	updated, _ = m.handleMouse(tea.MouseMotionMsg{X: 44, Y: 5, Button: tea.MouseLeft})
 	m = updated.(*Model)
 	if left, _ := m.splitWidths(); left != 55 {
 		t.Fatalf("pre-cancel left = %d want 55", left)

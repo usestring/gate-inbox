@@ -167,7 +167,7 @@ func TestTheBadgeWalksTheLadderDownAsTheRailNarrows(t *testing.T) {
 		{58, "◆ 1pr 1is"},
 		{56, "1pr 1is"},
 		{54, "1p 1i"},
-		{52, "◆ ◐"},
+		{52, "▣ ◭"},
 		{50, "+2"},
 		{48, ""},
 	} {

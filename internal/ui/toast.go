@@ -59,7 +59,13 @@ func (m *Model) overlayTopRight(frame string, box []string, top int) string {
 	if len(box) == 0 {
 		return frame
 	}
-	left := m.width - maxLineWidth(box) - toastMargin
+	// With the rail on the right, the content column's right edge is the
+	// seam's bleed, and the box anchors there instead of over the rail.
+	right := m.width
+	if _, content := m.splitWidths(); content > 0 {
+		right = content - 1
+	}
+	left := right - maxLineWidth(box) - toastMargin
 	if left < 0 {
 		left = 0
 	}

@@ -841,19 +841,27 @@ func (m *Model) snapshotLive(sessions []store.Session, live map[string]bool) err
 // on the commit landing between one kill and the next: one contended write
 // lock for the batch is enough.
 func (m *Model) archiveConfirmed(live map[string]bool) string {
-	var failed []string
 	if m.confirm.keepChildren {
 		m.confirm.sessions = withoutSessions(m.confirm.sessions, m.confirm.keptChildren)
 	}
+	return m.archiveSessions(m.confirm.sessions, m.confirm.isGroup, m.confirm.path, live)
+}
+
+// archiveSessions is the teardown itself, for a dialog's answer or for the
+// child sweep that files a finished child away with nobody at the keys: the
+// same kills, the same end records and the same single commit either way.
+// path is the group a group archive files once its sessions are gone.
+func (m *Model) archiveSessions(sessions []store.Session, isGroup bool, path string, live map[string]bool) string {
+	var failed []string
 	// A parent leaving the list takes its fold with it, so a new session
 	// reusing the id cannot inherit somebody else's decision.
-	for _, sess := range m.confirm.sessions {
+	for _, sess := range sessions {
 		if m.hasChildren(sess.ID) {
 			m.clearChildFold(sess.ID)
 		}
 	}
-	targets := make([]killTarget, 0, len(m.confirm.sessions))
-	for _, sess := range m.confirm.sessions {
+	targets := make([]killTarget, 0, len(sessions))
+	for _, sess := range sessions {
 		if !m.paneIsLive(sess, live) {
 			// Nothing to end. The row is still filed away below, which is
 			// what archiving a dead session has always done.
@@ -878,9 +886,9 @@ func (m *Model) archiveConfirmed(live map[string]bool) string {
 	}
 
 	done := 0
-	filed := make([]string, 0, len(m.confirm.sessions))
+	filed := make([]string, 0, len(sessions))
 	killed := make([]string, 0, len(targets))
-	for _, sess := range m.confirm.sessions {
+	for _, sess := range sessions {
 		if err := killErrs[sess.ID]; err != nil {
 			failed = append(failed, err.Error())
 			continue
@@ -904,7 +912,7 @@ func (m *Model) archiveConfirmed(live map[string]bool) string {
 		filed = append(filed, sess.ID)
 		// A group archive leaves the launch record alone, the way it always
 		// has: restoring the group revives from it.
-		if !m.confirm.isGroup {
+		if !isGroup {
 			m.forgetLaunch(sess.ID)
 		}
 		done++
@@ -935,15 +943,15 @@ func (m *Model) archiveConfirmed(live map[string]bool) string {
 	// The group row itself only follows its sessions once they have all
 	// gone; a group marked archived over a session still running is the
 	// stranding this is here to avoid.
-	if m.confirm.isGroup && len(failed) == 0 {
-		if err := m.store.SetGroupArchived(m.confirm.path, true); err != nil {
+	if isGroup && len(failed) == 0 {
+		if err := m.store.SetGroupArchived(path, true); err != nil {
 			failed = append(failed, err.Error())
 		}
 	}
 	if len(failed) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("archived %d of %d: %s", done, len(m.confirm.sessions), strings.Join(failed, "; "))
+	return fmt.Sprintf("archived %d of %d: %s", done, len(sessions), strings.Join(failed, "; "))
 }
 
 // markArchivedLocally files rows away in the list on screen, matching the

@@ -1635,22 +1635,32 @@ func (m *Model) quickMenuLines(width, limit int) []string {
 	const gap = 3
 	var lines [][]cell
 	var line []cell
-	lineWidth := 0
+	used := 0
 	for _, snip := range m.snips.Snippets {
 		key, title := snip.Key, snip.Title()
 		if room := width - textfmt.Width(key) - 1; textfmt.Width(title) > room {
 			title = truncateTail(title, max(1, room))
 		}
 		c := cell{keyStyle.Render(key) + " " + mutedStyle.Render(title), textfmt.Width(key) + 1 + textfmt.Width(title)}
-		if len(line) > 0 && lineWidth+gap+c.width > width {
-			lines, line, lineWidth = append(lines, line), nil, 0
+		if len(line) > 0 && used+gap+c.width > width {
+			lines, line, used = append(lines, line), nil, 0
 		}
 		if len(line) > 0 {
-			lineWidth += gap
+			used += gap
 		}
-		line, lineWidth = append(line, c), lineWidth+c.width
+		line, used = append(line, c), used+c.width
 	}
 	lines = append(lines, line)
+	lineWidth := func(cells []cell) int {
+		w := 0
+		for i, c := range cells {
+			if i > 0 {
+				w += gap
+			}
+			w += c.width
+		}
+		return w
+	}
 	shown := lines
 	var more string
 	if len(lines) > limit {
@@ -1664,31 +1674,25 @@ func (m *Model) quickMenuLines(width, limit int) []string {
 		// are counted in it.
 		for {
 			more = "+" + strconv.Itoa(hidden) + " more in the key map"
-			used := 0
-			for i, c := range last {
-				if i > 0 {
-					used += gap
-				}
-				used += c.width
-			}
-			if len(last) == 0 || used+gap+textfmt.Width(more) <= width {
+			if len(last) == 0 || lineWidth(last)+gap+textfmt.Width(more) <= width {
 				break
 			}
 			last, hidden = last[:len(last)-1], hidden+1
 		}
 		shown[limit-1] = last
 	}
+	sep := strings.Repeat(" ", gap)
 	out := make([]string, len(shown))
 	for i, l := range shown {
 		parts := make([]string, len(l))
 		for j, c := range l {
 			parts[j] = c.text
 		}
-		out[i] = strings.Join(parts, "   ")
+		out[i] = strings.Join(parts, sep)
 	}
 	if more != "" {
 		if out[limit-1] != "" {
-			out[limit-1] += "   "
+			out[limit-1] += sep
 		}
 		out[limit-1] += subtleStyle.Render(truncateTail(more, width))
 	}

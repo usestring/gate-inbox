@@ -21,23 +21,9 @@ func (m *Model) openQuickMode() {
 	m.quick = quickState{active: true, closeAfterSend: m.quickCloseAfterSend()}
 }
 
-// defaultToolSelection returns enabled tool names with the index of
-// the configured default, ready to seed a tool picker.
-func (m *Model) defaultToolSelection() ([]string, int) {
-	names := m.enabledToolNames()
-	current := m.defaultTool()
-	index := 0
-	for i, name := range names {
-		if name == current {
-			index = i
-		}
-	}
-	return names, index
-}
-
 // handleQuickKey runs while the hotkey menu is docked in the sidebar: arrows
-// keep moving the selection on the list, a snippet's key sends it, and space
-// or esc closes the menu. Nothing is typed, so a key that names no snippet
+// keep moving the selection on the list, a snippet's key sends it, and the
+// key that opened the menu, or esc, closes it. Nothing is typed, so a key that names no snippet
 // does nothing rather than reaching some other binding behind the menu.
 func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	context := keymap.ContextList
@@ -46,6 +32,9 @@ func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case keymap.ToggleConversation:
 			m.toggleConversation()
 			return m, nil
+		case keymap.QuickInput:
+			m.quick.active = false
+			return m, nil
 		case keymap.Rescind:
 			if m.canRescindLatestSubmission() {
 				return m.rescindLatestSubmission()
@@ -53,7 +42,7 @@ func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	switch msg.String() {
-	case "esc", " ", "space":
+	case "esc":
 		m.quick.active = false
 		return m, nil
 	case "up":

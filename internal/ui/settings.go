@@ -11,6 +11,20 @@ import (
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
+// defaultToolSelection returns enabled tool names with the index of
+// the configured default, ready to seed a tool picker.
+func (m *Model) defaultToolSelection() ([]string, int) {
+	names := m.enabledToolNames()
+	current := m.defaultTool()
+	index := 0
+	for i, name := range names {
+		if name == current {
+			index = i
+		}
+	}
+	return names, index
+}
+
 // defaultTool is the CLI quick spawn launches: the settings choice when it
 // is still enabled, else the first enabled tool. A store error still yields
 // the fallback but is surfaced, never swallowed.

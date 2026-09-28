@@ -33,8 +33,9 @@ const (
 
 const shellGlyph = "❯"
 
-// viewListFrame is the sessions rail beside the session content, both
-// painted surfaces rather than drawn panels.
+// viewListFrame is the session content beside the sessions rail, both
+// painted surfaces rather than drawn panels. The rail sits on the right, so
+// the agent's pane keeps the left edge the eye starts a line from.
 func (m *Model) viewListFrame() string {
 	leftWidth, rightWidth := m.splitWidths()
 	footer := m.viewFooter()
@@ -44,20 +45,20 @@ func (m *Model) viewListFrame() string {
 		return m.viewOnePaneFrame(bodyHeight, footer)
 	}
 
-	// The seam between the rail and the content tees into the top rule and
+	// The seam between the content and the rail tees into the top rule and
 	// runs down to meet the footer's.
 	contentWidth := rightWidth - 1
 
 	frame := []string{}
-	// The rail's fill runs from the edge column through the seam column,
-	// then bleeds half a cell further right, and half a cell above and
-	// below its body rows — soft edges drawn with half blocks, the finest
-	// step a character cell allows. The first column is drawn as foreground
-	// blocks so the window margin beside it keeps the terminal's own
-	// background and the fill's corners land exactly on the cell grid.
+	// The rail's fill runs from the seam column through the edge column,
+	// and bleeds half a cell further left, and half a cell above and below
+	// its body rows — soft edges drawn with half blocks, the finest step a
+	// character cell allows. The last column is drawn as foreground blocks
+	// so the window margin beside it keeps the terminal's own background
+	// and the fill's corners land exactly on the cell grid.
 	bleedWidth := contentWidth - 2
 	railWidth := leftWidth - 1
-	m.pane.columnX = leftWidth + 2
+	m.pane.columnX = 1
 	railRows := m.railLines(railWidth, bodyHeight)
 	contentRows := m.contentLines(bleedWidth, bodyHeight)
 	seam := make([]string, bodyHeight)
@@ -72,12 +73,12 @@ func (m *Model) viewListFrame() string {
 	}
 	frame = append(frame, m.topRule(leftWidth+1, m.width))
 	frame = append(frame, joinColumns(
-		edge,
-		paintContent(railRows, railWidth, bodyHeight, panelHex()),
-		seam,
-		m.bleedColumn(bodyHeight),
+		m.focusLeftColumn(bodyHeight),
 		paintContent(contentRows, bleedWidth, bodyHeight, backdropHex()),
-		m.focusRightColumn(bodyHeight),
+		m.bleedColumn(bodyHeight),
+		seam,
+		paintContent(railRows, railWidth, bodyHeight, panelHex()),
+		edge,
 	)...)
 	bottom := m.boundedRuleRow(leftWidth+1, m.width, "▄")
 	if m.mode == modeFocus && m.pane.box.ok {

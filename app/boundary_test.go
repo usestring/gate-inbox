@@ -382,7 +382,8 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		// scratch directory as the fixture's.
 		t.Setenv("TMUX_TMPDIR", tmuxDir)
 		t.Cleanup(func() { killTestServer(t, tmuxDir, socket) })
-		paintSession(t, filepath.Join(home, "state.db"), socket, "d1a10001", boardAskPane)
+		paintAnswering(t, filepath.Join(home, "state.db"), socket, "d1a10001", boardAskPane,
+			"Which region should the survey cover?", "North only", "South only")
 		paintSession(t, filepath.Join(home, "state.db"), socket, "d1a10002", boardPermissionPane)
 
 		session := connectFixture(t, bin, env)
@@ -1257,6 +1258,48 @@ func killTestServer(t *testing.T, dir, socket string) {
 // on socket, showing pane, and waits for the paint to land.
 func paintSession(t *testing.T, path, socket, id, pane string) {
 	t.Helper()
+	paintRunning(t, path, socket, id, pane, "cat %s; sleep 60")
+}
+
+// answeringScript paints a one-question dialog, follows the arrows from the
+// first row, and on Enter prints the record Claude Code prints of the answer
+// it took, which is what an answer is read back from.
+const answeringScript = `cat "$1"
+opts=(%s)
+cur=1
+while IFS= read -rsn1 key; do
+  if [[ $key == $'\e' ]]; then
+    read -rsn2 rest
+    case $rest in
+      '[A') ((cur > 1)) && cur=$((cur - 1)) ;;
+      '[B') ((cur < ${#opts[@]})) && cur=$((cur + 1)) ;;
+    esac
+  elif [[ -z $key ]]; then
+    printf '\n● User answered Claude'"'"'s questions:\n  ⎿  · %%s → %%s\n\n' %q "${opts[cur-1]}"
+    break
+  fi
+done
+sleep 60
+`
+
+// paintAnswering is paintSession over a pane that takes its answer.
+func paintAnswering(t *testing.T, path, socket, id, pane, question string, options ...string) {
+	t.Helper()
+	quoted := make([]string, len(options))
+	for i, option := range options {
+		quoted[i] = strconv.Quote(option)
+	}
+	script := filepath.Join(t.TempDir(), "answering.sh")
+	if err := os.WriteFile(script, []byte(fmt.Sprintf(answeringScript, strings.Join(quoted, " "), question)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paintRunning(t, path, socket, id, pane, "bash "+script+" %s")
+}
+
+// paintRunning files a session whose pane runs command, formatted with the
+// path of a file holding pane.
+func paintRunning(t *testing.T, path, socket, id, pane, command string) {
+	t.Helper()
 	dir := t.TempDir()
 	fixture := filepath.Join(dir, "pane.txt")
 	if err := os.WriteFile(fixture, []byte(pane), 0o644); err != nil {
@@ -1266,7 +1309,7 @@ func paintSession(t *testing.T, path, socket, id, pane string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := driver.Create(id, dir, "cat "+fixture+"; sleep 60", nil, 80, 24); err != nil {
+	if err := driver.Create(id, dir, fmt.Sprintf(command, fixture), nil, 80, 24); err != nil {
 		t.Fatalf("create %s: %v", id, err)
 	}
 	t.Cleanup(func() { _ = driver.Kill(id) })

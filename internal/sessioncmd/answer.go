@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -45,6 +47,11 @@ type AnsweredQuestion struct {
 	// Submitted is a several-question dialog sent: every question had an
 	// answer, the review page showed them, and Submit was pressed.
 	Submitted bool `json:"submitted,omitempty" jsonschema:"true when the dialog was submitted and the child has its answers; false with standing_questions above zero means it is still waiting on the rest"`
+	// Verified is the child's screen read back after the answer and found to
+	// hold exactly the answer given: the Submit page or the answered-questions
+	// record Claude Code prints. An answer that reads back as anything else is
+	// an error, never a result.
+	Verified bool `json:"verified" jsonschema:"true when the child's screen was read back after answering and shows exactly the answers given; false only for a Codex dialog, which draws no record to read"`
 	// Questions is every question of the dialog as it stands after the call.
 	Questions []dialog.Question `json:"questions,omitempty" jsonschema:"every question of the dialog after this call, with which are answered"`
 }
@@ -87,7 +94,8 @@ var errEmptyAnswer = errors.New(
 // answer keys or types reply into the dialog target's pane is holding, once
 // the caller has settled who may. by and byID name who answered, in the log.
 func (r *runtime) answer(target store.Session, reply, by, byID string) (AnsweredQuestion, error) {
-	pane, err := r.driver.CapturePane(target.ID)
+	pane := tmuxPane{r.driver, target.ID}
+	raw, err := pane.Capture()
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
@@ -99,11 +107,11 @@ func (r *runtime) answer(target store.Session, reply, by, byID string) (Answered
 	// precisely because they have to be refused, and a refusal that cannot say
 	// which shape it saw is the defect this path had. See the two messages
 	// below -- they send the caller to two different places.
-	plain := ansi.Strip(pane)
+	plain := ansi.Strip(raw)
 	held, ok := dialog.Inspect(plain)
 	if !ok {
 		if _, onReview := dialog.ParseReview(plain); onReview {
-			return r.submitReview(target, pane, reply, by, byID)
+			return r.submitReview(target, raw, reply, by, byID)
 		}
 		// Not an error about the answer: there is no dialog on the screen. The
 		// question was answered by somebody who got there first, or the child
@@ -117,88 +125,61 @@ func (r *runtime) answer(target store.Session, reply, by, byID string) (Answered
 				"answered, or be resting at its own input line. Use %s to send it words instead",
 			target.ID, r.words.Send))
 	}
-	chosen := held.Choose(reply)
-	keys, err := dialog.AnswerKeys(held, reply)
-	if errors.Is(err, dialog.ErrNotKeyAnswerable) {
+	if _, err := dialog.AnswerKeys(held, reply); errors.Is(err, dialog.ErrNotKeyAnswerable) {
 		// Named rather than described. Two of these four want a person on the
 		// board and two want this caller to look again in a moment, and one
 		// sentence covering all of them told a manager neither.
 		return AnsweredQuestion{}, wrapped(err, fmt.Sprintf(
 			"session %s is on %s", target.ID, held.Refusal()))
 	}
+	answered, err := answerHeld(pane, raw, held, reply)
+	answered.SessionID, answered.Name = target.ID, target.Name
 	if err != nil {
-		return AnsweredQuestion{}, err
+		logging.Warn(by+"'s answer to a child's question did not land as given",
+			by, byID, "session", target.ID, "err", err)
+		return AnsweredQuestion{}, fmt.Errorf("session %s: %w", target.ID, err)
 	}
-	answered := AnsweredQuestion{
-		SessionID: target.ID,
-		Name:      target.Name,
-		Question:  held.Question(),
-		Answer:    reply,
-	}
-	if standing := held.Standing(); standing > 1 {
-		answered.Standing = standing - 1
-	}
-	// len(keys) > 0 is exactly the case where an option was named: SelectKeys
-	// sends nothing for a want of 0, which is Choose's answer for words that
-	// are nobody's option.
-	if len(keys) > 0 {
-		answered.Selected = held.Options[chosen-1]
-		logging.Info(by+" answered a child's question by selection",
-			by, byID, "session", target.ID, "option", answered.Selected)
-		if err := r.driver.SendKeys(target.ID, keys...); err != nil {
-			return AnsweredQuestion{}, err
-		}
-		return r.submitIfLast(target, pane, held, answered)
-	}
-	logging.Info(by+" answered a child's question by typing",
-		by, byID, "session", target.ID)
-	if held.Kind == dialog.KindAsk && held.FreeText > 0 {
-		// AskUserQuestion drops words pasted anywhere but its free-text row,
-		// and the Enter after them then picks the option under the cursor.
-		if err := typeAnswer(tmuxPane{r.driver, target.ID}, held, reply, 1); err != nil {
-			return AnsweredQuestion{}, err
-		}
-		return r.submitIfLast(target, pane, held, answered)
-	}
-	if err := r.driver.SendText(target.ID, reply); err != nil {
-		return AnsweredQuestion{}, err
-	}
+	logging.Info(by+" answered a child's question",
+		by, byID, "session", target.ID, "option", answered.Selected, "verified", answered.Verified)
 	return answered, nil
 }
 
-// submitIfLast sends a several-question dialog once the answer just keyed
-// was its last unanswered question. The dialog does not send itself: it moves
-// to its Submit page and waits there, and a child left on that page is
-// waiting as surely as one left on a question.
-func (r *runtime) submitIfLast(target store.Session, raw string, held dialog.Dialog, answered AnsweredQuestion) (AnsweredQuestion, error) {
-	if held.Kind != dialog.KindAsk || held.Steps == 0 || held.Standing() != 1 {
-		return answered, nil
-	}
-	// Only when the question on the screen is the unanswered one: a question
-	// answered earlier and visited again leaves the other one standing.
-	stepper, ok := dialog.ParseStepper(raw)
+// answerHeld answers the question held is, on pane, and reads back what the
+// child took.
+func answerHeld(pane dialogPane, raw string, held dialog.Dialog, reply string) (AnsweredQuestion, error) {
+	answered := AnsweredQuestion{Question: held.Question(), Answer: reply}
 	switch {
-	case ok && stepper.Active >= 0 && stepper.Active < len(stepper.Steps):
-		if stepper.Steps[stepper.Active].Answered {
-			return answered, nil
+	case held.Kind == dialog.KindAsk && held.Steps > 0:
+		questions := dialog.Questions(raw, nil)
+		on := slices.IndexFunc(questions, func(q dialog.Question) bool { return q.OnScreen })
+		if on < 0 {
+			return answered, errors.New("cannot tell which of the dialog's questions is on the screen, so nothing was keyed")
 		}
-	case held.Picked > 0:
+		filled, err := fillDialog(pane, questions, []QuestionAnswer{{Question: strconv.Itoa(on + 1), Answer: reply}}, true)
+		filled.Question = answered.Question
+		return filled, err
+	case held.Kind == dialog.KindAsk:
+		before := len(dialog.ParseAnswered(ansi.Strip(raw)))
+		question := dialog.Question{Index: 1, Question: strings.Join(strings.Fields(held.Prompt), " ")}
+		filled, err := answerOnScreen(pane, raw, question, reply, false)
+		answered.Selected = filled.Selected
+		if err != nil {
+			return answered, err
+		}
+		if err := confirmEcho(pane, before, []FilledAnswer{filled}); err != nil {
+			return answered, err
+		}
+		answered.Verified = true
 		return answered, nil
 	}
-	pane := tmuxPane{r.driver, target.ID}
-	if _, err := waitFor(pane, func(raw string) bool {
-		stepper, ok := dialog.ParseStepper(raw)
-		return !ok || stepper.AllAnswered()
-	}); err != nil {
-		return answered, fmt.Errorf("answered, but the dialog never showed every question answered, so it "+
-			"was not submitted; read_session shows where it stands: %w", err)
+	// Codex's request_user_input draws no record of the answer it took, so
+	// there is nothing on its screen to read back.
+	keys, _ := dialog.AnswerKeys(held, reply)
+	if len(keys) > 0 {
+		answered.Selected = held.Options[held.Choose(reply)-1]
+		return answered, pane.Keys(keys...)
 	}
-	if err := submitDialog(pane, held.Steps, nil, nil); err != nil {
-		return answered, fmt.Errorf("answered every question, but submitting failed (answer \"Submit "+
-			"answers\" to try again): %w", err)
-	}
-	answered.Submitted = true
-	return answered, nil
+	return answered, pane.Type(reply)
 }
 
 // submitReview answers the Submit page a several-question dialog ends on:
@@ -213,7 +194,7 @@ func (r *runtime) submitReview(target store.Session, pane, reply, by, byID strin
 			"answers naming a question to change one first", target.ID)
 	}
 	stepper, _ := dialog.ParseStepper(pane)
-	if err := submitDialog(tmuxPane{r.driver, target.ID}, len(stepper.Steps), nil, nil); err != nil {
+	if err := submitDialog(tmuxPane{r.driver, target.ID}, len(stepper.Steps), nil); err != nil {
 		return AnsweredQuestion{}, err
 	}
 	logging.Info(by+" submitted a child's dialog", by, byID, "session", target.ID)

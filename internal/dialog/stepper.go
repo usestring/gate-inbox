@@ -214,6 +214,7 @@ func ParseReview(pane string) (Review, bool) {
 	}
 	review := Review{Complete: true}
 	var current *ReviewAnswer
+	inAnswer := false
 	for _, line := range lines[start+1:] {
 		text := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "│"))
 		switch {
@@ -223,10 +224,15 @@ func ParseReview(pane string) (Review, bool) {
 			review.Complete = false
 		case strings.HasPrefix(text, "● "):
 			review.Answers = append(review.Answers, ReviewAnswer{Question: strings.TrimSpace(text[len("● "):])})
-			current = &review.Answers[len(review.Answers)-1]
-		case strings.HasPrefix(text, "→ ") && current != nil:
+			current, inAnswer = &review.Answers[len(review.Answers)-1], false
+		case strings.HasPrefix(text, "→ ") && current != nil && !inAnswer:
 			current.Answer = strings.TrimSpace(text[len("→ "):])
-			current = nil
+			inAnswer = true
+		case text == "Ready to submit your answers?":
+			current, inAnswer = nil, false
+		case inAnswer && current != nil && !askOption.MatchString(line):
+			// An answer longer than the pane is wide wraps under its arrow.
+			current.Answer += " " + text
 		case askOption.MatchString(line):
 			match := askOption.FindStringSubmatch(line)
 			n, _ := strconv.Atoi(match[2])

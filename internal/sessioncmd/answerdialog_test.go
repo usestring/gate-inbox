@@ -32,10 +32,29 @@ type tabbedDialog struct {
 	typing    string
 	closed    bool
 	keys      []string
+	// single draws one question with no row of tabs, as a one-question call
+	// does: Enter on a choice answers it and closes the dialog.
+	single bool
+	// width wraps the prompt, the choices, the review page and the record of
+	// answers the way a narrow pane does; 0 draws every line whole.
+	width int
+	// prose is the turn above the dialog, drawn over its top edge.
+	prose []string
+	// shift is a fault: Enter on a choice registers the one shift rows below
+	// the cursor, the way a dialog keyed from a stale position would.
+	shift int
+	// silent is a fault: the dialog closes without printing its record.
+	silent bool
 }
 
 func newTabbedDialog(questions []convo.AskQuestion) *tabbedDialog {
 	return &tabbedDialog{questions: questions, answers: make([]string, len(questions)), cursor: 1}
+}
+
+func newSingleDialog(question convo.AskQuestion, width int, prose ...string) *tabbedDialog {
+	d := newTabbedDialog([]convo.AskQuestion{question})
+	d.single, d.width, d.prose = true, width, prose
+	return d
 }
 
 func (d *tabbedDialog) rows() int {
@@ -47,25 +66,76 @@ func (d *tabbedDialog) rows() int {
 
 func (d *tabbedDialog) freeText() int { return len(d.questions[d.active].Options) + 1 }
 
-func (d *tabbedDialog) Capture() (string, error) {
-	if d.closed {
-		return "● User answered Claude's questions:\n\n❯ \n", nil
+// wrap breaks text into lines of at most the model's width, the first after
+// first and the rest after indent.
+func (d *tabbedDialog) wrap(first, indent, text string) string {
+	if d.width == 0 {
+		return first + text + "\n"
 	}
 	var out strings.Builder
-	out.WriteString("────────────────────────────────────────\n←  ")
-	for i, q := range d.questions {
-		glyph := "☐"
-		if d.answers[i] != "" {
-			glyph = "☒"
+	line := first
+	fresh := true
+	for _, word := range strings.Fields(text) {
+		if !fresh && len([]rune(line))+1+len([]rune(word)) > d.width {
+			out.WriteString(line + "\n")
+			line, fresh = indent, true
 		}
-		entry := glyph + " " + q.Header
-		if i == d.active {
-			out.WriteString("\x1b[38;5;16m\x1b[48;5;153m " + entry + " \x1b[39m\x1b[49m ")
-		} else {
-			out.WriteString(" " + entry + "  ")
+		if !fresh {
+			line += " "
+		}
+		line += word
+		fresh = false
+	}
+	out.WriteString(line + "\n")
+	return out.String()
+}
+
+func (d *tabbedDialog) rule() string {
+	if d.width == 0 {
+		return strings.Repeat("─", 40) + "\n"
+	}
+	return strings.Repeat("─", d.width) + "\n"
+}
+
+func (d *tabbedDialog) Capture() (string, error) {
+	var out strings.Builder
+	for _, line := range d.prose {
+		out.WriteString(d.wrap("  ", "     ", line))
+	}
+	if d.closed {
+		if d.silent {
+			return out.String() + "\n❯ \n", nil
+		}
+		out.WriteString("\n● User answered Claude's questions:\n")
+		for i, q := range d.questions {
+			lead := "     · "
+			if i == 0 {
+				lead = "  ⎿  · "
+			}
+			out.WriteString(d.wrap(lead, "     ", q.Question+" → "+d.answers[i]))
+		}
+		out.WriteString("\n❯ \n")
+		return out.String(), nil
+	}
+	out.WriteString(d.rule())
+	if d.single {
+		out.WriteString(" ☐ " + d.questions[0].Header + "\n\n")
+	} else {
+		out.WriteString("←  ")
+		for i, q := range d.questions {
+			glyph := "☐"
+			if d.answers[i] != "" {
+				glyph = "☒"
+			}
+			entry := glyph + " " + q.Header
+			if i == d.active {
+				out.WriteString("\x1b[38;5;16m\x1b[48;5;153m " + entry + " \x1b[39m\x1b[49m ")
+			} else {
+				out.WriteString(" " + entry + "  ")
+			}
 		}
 	}
-	if d.active == len(d.questions) {
+	if !d.single && d.active == len(d.questions) {
 		out.WriteString("\x1b[38;5;16m\x1b[48;5;153m ✔ Submit \x1b[38;5;246m\x1b[49m →\n")
 		out.WriteString("Review your answers\n")
 		complete := true
@@ -74,7 +144,8 @@ func (d *tabbedDialog) Capture() (string, error) {
 				complete = false
 				continue
 			}
-			fmt.Fprintf(&out, " ● %s\n   → %s\n", q.Question, d.answers[i])
+			out.WriteString(d.wrap(" ● ", "   ", q.Question))
+			out.WriteString(d.wrap("   → ", "   ", d.answers[i]))
 		}
 		if !complete {
 			out.WriteString("⚠ You have not answered all questions\n")
@@ -89,15 +160,17 @@ func (d *tabbedDialog) Capture() (string, error) {
 		}
 		return out.String(), nil
 	}
-	out.WriteString(" ✔ Submit  →\n")
+	if !d.single {
+		out.WriteString(" ✔ Submit  →\n")
+	}
 	q := d.questions[d.active]
-	out.WriteString(q.Question + "\n")
+	out.WriteString(d.wrap("", "", q.Question))
 	row := func(n int, label string) {
 		marker := "  "
 		if n == d.cursor {
 			marker = "❯ "
 		}
-		fmt.Fprintf(&out, "%s%d. %s\n", marker, n, label)
+		out.WriteString(d.wrap(fmt.Sprintf("%s%d. ", marker, n), "     ", label))
 	}
 	for n, option := range q.Options {
 		label := option.Label
@@ -105,16 +178,20 @@ func (d *tabbedDialog) Capture() (string, error) {
 			label += " ✔"
 		}
 		row(n+1, label)
-		out.WriteString("     " + option.Description + "\n")
+		out.WriteString(d.wrap("     ", "     ", option.Description))
 	}
 	free := "Type something."
 	if d.typing != "" {
 		free = d.typing
 	}
 	row(d.freeText(), free)
-	out.WriteString("────────────────────────────────────────\n")
+	out.WriteString(d.rule())
 	row(d.freeText()+1, "Chat about this")
-	out.WriteString("Enter to select · Tab/Arrow keys to navigate · Esc to cancel\n")
+	legend := "Enter to select · Tab/Arrow keys to navigate · Esc to cancel"
+	if d.single {
+		legend = "Enter to select · ↑/↓ to navigate · Esc to cancel"
+	}
+	out.WriteString(d.wrap("", "", legend))
 	return out.String(), nil
 }
 
@@ -127,7 +204,7 @@ func (d *tabbedDialog) Keys(keys ...string) error {
 		onFreeText := d.active < len(d.questions) && d.cursor == d.freeText()
 		switch key {
 		case "Right", "Tab", "Left":
-			if onFreeText && d.typing != "" {
+			if d.single || onFreeText && d.typing != "" {
 				continue
 			}
 			if key == "Left" && d.active > 0 {
@@ -157,10 +234,14 @@ func (d *tabbedDialog) enter() {
 	q := d.questions[d.active]
 	switch {
 	case d.cursor <= len(q.Options):
-		d.answers[d.active] = q.Options[d.cursor-1].Label
+		d.answers[d.active] = q.Options[min(d.cursor+d.shift, len(q.Options))-1].Label
 	case d.cursor == d.freeText() && d.typing != "":
 		d.answers[d.active] = d.typing
 	default:
+		return
+	}
+	if d.single {
+		d.closed = true
 		return
 	}
 	d.active++
@@ -190,9 +271,9 @@ var fourQuestions = []convo.AskQuestion{
 
 func fastSettle(t *testing.T) {
 	t.Helper()
-	timeout, poll := settleTimeout, settlePoll
-	settleTimeout, settlePoll = 200*time.Millisecond, time.Millisecond
-	t.Cleanup(func() { settleTimeout, settlePoll = timeout, poll })
+	timeout, poll, readback := settleTimeout, settlePoll, readbackTimeout
+	settleTimeout, settlePoll, readbackTimeout = 200*time.Millisecond, time.Millisecond, 200*time.Millisecond
+	t.Cleanup(func() { settleTimeout, settlePoll, readbackTimeout = timeout, poll, readback })
 }
 
 func questionsOf(t *testing.T, pane dialogPane, asked []convo.AskQuestion) []dialog.Question {

@@ -39,7 +39,7 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Answer a question one of your own spawned sessions has stopped on, so the fan-out you started keeps moving instead of waiting on a person who did not set the task. You are told a child has stopped by a message from it; this is how you reply to the dialog itself, which send_session cannot do -- a message is held until the recipient is at rest, and a session on a question never is. It reads Claude Code's AskUserQuestion, including one asking several questions drawn as tabs, and Codex's request_user_input. Read every question first: the relayed message lists them, and read_session's digest.questions has each one's index, header, full text, options and whether it is answered. Then pass answers, one entry per question, naming it by index or header and giving the option's text to pick it or your own words to type into its free-text row; the call fills them in, checks the review page, and presses Submit once every question has an answer (submit false stops before that). answer alone answers just the question on the screen, and answering the last one submits the dialog; standing_questions says how many are left. Your own words are typed into the question's \"Type something.\" row, which is also the way to talk a question over: the child reads them as the answer. Its \"Chat about this\" row is refused, because it drops the dialog without answering. Decide each question in turn: answer it yourself where your brief to that child or your user's standing decisions already settle it; otherwise ask your own user with your own question tool, copying the header, the question, every option and any recommendation word for word, and answer the child with what they choose. Collect every answer before calling, so the child gets them in one call. Only the session that spawned it may answer it. A permission prompt, Codex's first-run directory-trust prompt and a multi-select question are still a person's to answer at the child's pane -- tell your user which child is waiting -- and the refusal says which of them it saw rather than leaving you to guess.",
+  "description": "Answer a question one of your own spawned sessions has stopped on, so the fan-out you started keeps moving instead of waiting on a person who did not set the task. You are told a child has stopped by a message from it; this is how you reply to the dialog itself, which send_session cannot do -- a message is held until the recipient is at rest, and a session on a question never is. It reads Claude Code's AskUserQuestion, including one asking several questions drawn as tabs, and Codex's request_user_input. Read every question first: the relayed message lists them, and read_session's digest.questions has each one's index, header, full text, options and whether it is answered. Then pass answers, one entry per question, naming it by index or header and giving the option's text to pick it or your own words to type into its free-text row; the call fills them in, checks the review page, and presses Submit once every question has an answer (submit false stops before that). answer alone answers just the question on the screen, and answering the last one submits the dialog; standing_questions says how many are left. After answering it reads back what the child registered -- the Submit page's review, or the record Claude Code prints once it takes the answers -- and returns an error naming the answer given and the one registered if they differ or the answer cannot be confirmed; a result means the child holds exactly your answer (verified). Your own words are typed into the question's \"Type something.\" row, which is also the way to talk a question over: the child reads them as the answer. Its \"Chat about this\" row is refused, because it drops the dialog without answering. Decide each question in turn: answer it yourself where your brief to that child or your user's standing decisions already settle it; otherwise ask your own user with your own question tool, copying the header, the question, every option and any recommendation word for word, and answer the child with what they choose. Collect every answer before calling, so the child gets them in one call. Only the session that spawned it may answer it. A permission prompt, Codex's first-run directory-trust prompt and a multi-select question are still a person's to answer at the child's pane -- tell your user which child is waiting -- and the refusal says which of them it saw rather than leaving you to guess.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -223,13 +223,18 @@
       "submitted": {
         "description": "true when the dialog was submitted and the child has its answers; false with standing_questions above zero means it is still waiting on the rest",
         "type": "boolean"
+      },
+      "verified": {
+        "description": "true when the child's screen was read back after answering and shows exactly the answers given; false only for a Codex dialog, which draws no record to read",
+        "type": "boolean"
       }
     },
     "required": [
       "session_id",
       "name",
       "question",
-      "answer"
+      "answer",
+      "verified"
     ],
     "type": "object"
   }

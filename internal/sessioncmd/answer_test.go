@@ -1,6 +1,7 @@
 package sessioncmd
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -44,6 +45,50 @@ func childOn(t *testing.T, h *sessionHarness, parentID string) store.Session {
 // no question and fails whichever assertion follows.
 func childShowing(t *testing.T, h *sessionHarness, parentID, id, name, pane string) store.Session {
 	t.Helper()
+	return childRunning(t, h, parentID, id, name, pane, "cat %s; sleep 60")
+}
+
+// answeringScript paints a one-question dialog, follows the arrows from the
+// first row, and on Enter prints the record Claude Code prints of the answer
+// it took.
+const answeringScript = `cat "$1"
+opts=(%s)
+cur=1
+while IFS= read -rsn1 key; do
+  if [[ $key == $'\e' ]]; then
+    read -rsn2 rest
+    case $rest in
+      '[A') ((cur > 1)) && cur=$((cur - 1)) ;;
+      '[B') ((cur < ${#opts[@]})) && cur=$((cur + 1)) ;;
+    esac
+  elif [[ -z $key ]]; then
+    printf '\n● User answered Claude'"'"'s questions:\n  ⎿  · %%s → %%s\n\n' %q "${opts[cur-1]}"
+    break
+  fi
+done
+sleep 60
+`
+
+// childAnswering is childShowing over a pane that takes its answer the way
+// AskUserQuestion does, so the answer can be read back off it.
+func childAnswering(t *testing.T, h *sessionHarness, parentID, id, name, pane, question string, options ...string) store.Session {
+	t.Helper()
+	quoted := make([]string, len(options))
+	for i, option := range options {
+		quoted[i] = fmt.Sprintf("%q", option)
+	}
+	script := filepath.Join(t.TempDir(), "answering.sh")
+	body := fmt.Sprintf(answeringScript, strings.Join(quoted, " "), question)
+	if err := os.WriteFile(script, []byte(body), 0o644); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+	return childRunning(t, h, parentID, id, name, pane, "bash "+script+" %s")
+}
+
+// childRunning files a child whose pane runs command, formatted with the path
+// of a file holding pane.
+func childRunning(t *testing.T, h *sessionHarness, parentID, id, name, pane, command string) store.Session {
+	t.Helper()
 	dir := t.TempDir()
 	fixture := filepath.Join(dir, "pane.txt")
 	if err := os.WriteFile(fixture, []byte(pane), 0o644); err != nil {
@@ -59,7 +104,7 @@ func childShowing(t *testing.T, h *sessionHarness, parentID, id, name, pane stri
 		ParentID: parentID,
 	}
 	width, height := paneSize(pane)
-	if err := h.driver.Create(child.ID, child.Cwd, "cat "+fixture+"; sleep 60", nil, width, height); err != nil {
+	if err := h.driver.Create(child.ID, child.Cwd, fmt.Sprintf(command, fixture), nil, width, height); err != nil {
 		t.Fatalf("create child pane: %v", err)
 	}
 	t.Cleanup(func() { _ = h.driver.Kill(child.ID) })
@@ -109,31 +154,41 @@ func paneSize(pane string) (width, height int) {
 
 func TestAnswerPicksTheOptionTheParentNamed(t *testing.T) {
 	h := newSessionHarness(t)
-	child := childOn(t, h, h.caller.ID)
+	child := childAnswering(t, h, h.caller.ID, "child001", "sampleapp-reach-census", answerPane,
+		"Which storefront should the census cover?", "Germany only", "Every storefront")
 	answered, err := h.sessions.Answer(h.caller.ID, child.ID, "Every storefront")
 	if err != nil {
 		t.Fatalf("Answer: %v", err)
 	}
-	if answered.Selected != "Every storefront" {
-		t.Errorf("selected %q, want the second option", answered.Selected)
+	if answered.Selected != "Every storefront" || !answered.Verified {
+		t.Errorf("selected %q verified=%v, want the second option read back", answered.Selected, answered.Verified)
 	}
 	if !strings.Contains(answered.Question, "Which storefront") {
 		t.Errorf("question = %q, want the prompt from the pane", answered.Question)
 	}
 }
 
-// Words that are nobody's option are typed rather than mapped onto whichever
-// option they share the most with; a parent answering in its own words has
-// still answered, and guessing here would pick a choice nobody made.
-func TestAnswerTypesWordsThatAreNotAnOption(t *testing.T) {
+// Words are typed only into the dialog's free-text row. A dialog drawing none
+// drops pasted words and takes the Enter after them as a pick of whatever the
+// cursor is on, so the answer is refused before a keystroke rather than
+// registered as an option nobody chose.
+func TestAnswerRefusesWordsWithNowhereToTypeThem(t *testing.T) {
 	h := newSessionHarness(t)
 	child := childOn(t, h, h.caller.ID)
-	answered, err := h.sessions.Answer(h.caller.ID, child.ID, "cover de and kr, skip the rest")
-	if err != nil {
-		t.Fatalf("Answer: %v", err)
+	_, err := h.sessions.Answer(h.caller.ID, child.ID, "cover de and kr, skip the rest")
+	if err == nil || !strings.Contains(err.Error(), "no free-text row") {
+		t.Fatalf("Answer err = %v, want a refusal naming the missing free-text row", err)
 	}
-	if answered.Selected != "" {
-		t.Errorf("selected %q, want the answer to have been typed", answered.Selected)
+}
+
+// A child whose screen never shows the answer it took is an error, not a
+// success: nothing says the answer landed.
+func TestAnswerFailsWhenTheAnswerCannotBeReadBack(t *testing.T) {
+	h := newSessionHarness(t)
+	child := childOn(t, h, h.caller.ID)
+	_, err := h.sessions.Answer(h.caller.ID, child.ID, "Every storefront")
+	if err == nil || !strings.Contains(err.Error(), "cannot be confirmed") || !strings.Contains(err.Error(), `"Every storefront"`) {
+		t.Fatalf("Answer err = %v, want one saying the answer cannot be confirmed", err)
 	}
 }
 
@@ -307,16 +362,23 @@ func colouredAskPane(t *testing.T) string {
 func TestAnswerReadsADialogDrawnInColour(t *testing.T) {
 	h := newSessionHarness(t)
 	child := childShowing(t, h, h.caller.ID, "child003", "shape-question", colouredAskPane(t))
-	answered, err := h.sessions.Answer(h.caller.ID, child.ID, "Square")
-	if err != nil {
-		t.Fatalf("Answer: %v", err)
+	// The pane is a still capture, so the tab never ticks; the answer reaching
+	// that check at all is the dialog read through its colour, the question
+	// on the screen resolved, and the option keyed.
+	_, err := h.sessions.Answer(h.caller.ID, child.ID, "Square")
+	if err == nil || !strings.Contains(err.Error(), "question 1 was keyed but its tab never ticked") {
+		t.Fatalf("Answer err = %v, want the keyed question reported unconfirmed", err)
 	}
+	still := &stillPane{raw: colouredAskPane(t)}
+	held := mustInspect(t, still.raw)
+	answered, _ := answerHeld(still, still.raw, held, "Square")
 	// Past the legend is not enough: askOption, the cursor marker and the
 	// stepper all read the same text, and a fix that parsed the dialog and
 	// then picked the wrong option would be worse than the clean refusal it
 	// replaced.
-	if answered.Selected != "Square" {
-		t.Errorf("selected %q, want the option the answer named", answered.Selected)
+	if want := dialog.SelectKeys(held.Cursor, held.Choose("Square")); held.Options[held.Choose("Square")-1] != "Square" ||
+		!reflect.DeepEqual(still.keys, want) {
+		t.Errorf("keyed %v, want %v for the option the answer named", still.keys, want)
 	}
 	if !strings.Contains(answered.Question, "Which shape?") {
 		t.Errorf("question = %q, want the prompt from the pane", answered.Question)
@@ -324,27 +386,33 @@ func TestAnswerReadsADialogDrawnInColour(t *testing.T) {
 	if !strings.Contains(answered.Question, "1. Round") || strings.Contains(answered.Question, "\x1b") {
 		t.Errorf("question = %q, want the options in plain text", answered.Question)
 	}
-	// Three questions in the one call, so answering this one moves to the next.
-	if answered.Standing != 2 {
-		t.Errorf("standing = %d, want the two questions this one does not answer", answered.Standing)
+	// Three questions in the one call, and the still pane took none of them.
+	if answered.Standing != 3 || answered.Verified {
+		t.Errorf("standing = %d verified = %v, want all three standing and nothing confirmed", answered.Standing, answered.Verified)
 	}
 }
 
-// The keystrokes are what actually moves the child's selection, so a cursor
-// misread as 3 would send two Ups and answer with whatever they landed on.
-func TestAColouredDialogParsesThroughToItsKeystrokes(t *testing.T) {
-	held, ok := dialog.Parse(ansi.Strip(colouredAskPane(t)))
+// stillPane is a pane that never redraws, and notes the keys sent to it.
+type stillPane struct {
+	raw  string
+	keys []string
+}
+
+func (p *stillPane) Capture() (string, error) { return p.raw, nil }
+func (p *stillPane) Keys(keys ...string) error {
+	p.keys = append(p.keys, keys...)
+	return nil
+}
+func (p *stillPane) Type(text string) error {
+	p.keys = append(p.keys, "paste:"+text)
+	return nil
+}
+
+func mustInspect(t *testing.T, raw string) dialog.Dialog {
+	t.Helper()
+	held, ok := dialog.Inspect(ansi.Strip(raw))
 	if !ok {
-		t.Fatal("the captured coloured dialog did not read as a dialog once stripped")
+		t.Fatalf("no dialog read off:\n%s", raw)
 	}
-	if held.Cursor != 1 {
-		t.Fatalf("cursor = %d, want the marker on the first option", held.Cursor)
-	}
-	keys, err := dialog.AnswerKeys(held, "Square")
-	if err != nil {
-		t.Fatalf("AnswerKeys: %v", err)
-	}
-	if !reflect.DeepEqual(keys, []string{"Down", "Enter"}) {
-		t.Errorf("keys = %v, want one Down onto the named option and Enter", keys)
-	}
+	return held
 }

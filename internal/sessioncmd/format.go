@@ -392,6 +392,9 @@ func FormatAnswer(answered AnsweredQuestion) string {
 		}
 		line := fmt.Sprintf("answered %d question(s) of %s (%s) -- %s", len(answered.Answers),
 			answered.Name, answered.SessionID, strings.Join(parts, "; "))
+		if answered.Verified {
+			line += "; read back from its screen as given"
+		}
 		switch {
 		case answered.Submitted:
 			line += "; submitted, so it has its answers"
@@ -405,6 +408,11 @@ func FormatAnswer(answered AnsweredQuestion) string {
 	line := fmt.Sprintf("answered %s (%s) by typing", answered.Name, answered.SessionID)
 	if answered.Selected != "" {
 		line = fmt.Sprintf("answered %s (%s) with option %q", answered.Name, answered.SessionID, answered.Selected)
+	}
+	if answered.Verified {
+		line += "; read back from its screen as given"
+	} else {
+		line += "; not read back, because this dialog draws no record of the answer it took"
 	}
 	if answered.Standing > 0 {
 		line += fmt.Sprintf("; %d more question(s) in the same dialog still stand", answered.Standing)

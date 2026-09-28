@@ -1,0 +1,45 @@
+[48;5;237m  [38;5;231mexactly this prose, then call the [39m
+  [38;5;231mAskUserQuestion tool once with ONE [39m
+  [38;5;231mquestion. Prose:[39m
+  [38;5;231mOptions on the table:[39m
+  [38;5;231m1. Hold for staged UI until the [39m
+  [38;5;231mrework ships[39m
+  [38;5;231m2. Only region #4021, leave the rest[39m
+  [38;5;231m3. Do both in parallel[39m
+  [38;5;231m   Then call AskUserQuestion with [39m
+  [38;5;231mquestion "Which rollout path should I[39m
+  [38;5;231mtake?", header "Rollout", [39m
+  [38;5;231mmultiSelect false, and exactly these [39m
+  [38;5;231moptions in this order (labels [39m
+  [38;5;231mverbatim, each with a one-line [39m
+  [38;5;231mdescription): "Hold for staged UI", [39m
+  [38;5;231m"Only region #4021", "Do both". After[39m
+  [38;5;231myou get the answer, reply with only [39m
+  [38;5;231mthe word DONE and the answer, and [39m
+  [38;5;231mstop.[39m
+
+[38;5;231m[49m●[39m Options on the table:
+  1. Hold for staged UI until the rework
+     ships
+  2. Only region #4021, leave the rest
+  3. Do both in parallel
+[38;5;246m────────────────────────────────────────
+[38;5;16m[48;5;153m ☐ Rollout [39m[49m
+
+[1m[38;5;231mWhich rollout path should I take?[0m
+
+  [38;5;246m1.[39m Hold for staged UI
+     [38;5;246mWait until the staged UI rework is
+[39m     [38;5;246mshipped before any rollout[39m
+  [38;5;246m2.[39m Only region #4021
+     [38;5;246mRoll out only region #4021, leave [39m
+     [38;5;246mthe other regions unchanged[39m
+  [38;5;246m3.[39m Do both
+     [38;5;246mRoll out to all regions and staged
+[39m     [38;5;246mUI in parallel[39m
+[38;5;153m❯[39m [38;5;246m4. [2m[39mType something.[0m
+[38;5;246m────────────────────────────────────────
+[39m  5. Chat about this
+
+[38;5;246mEnter to select · ↑/↓ to navigate · [39m
+[38;5;246mctrl+g to edit in nano · Esc to cancel[39m

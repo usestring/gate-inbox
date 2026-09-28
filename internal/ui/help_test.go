@@ -43,7 +43,7 @@ func TestKeyMapDocumentsEveryAction(t *testing.T) {
 		}
 	}
 	for _, binding := range keymap.Catalog {
-		if !documented[binding.Context][binding.Action] {
+		if !documented[binding.Context][binding.Action] && !selfEvident[binding.Context][binding.Action] {
 			t.Errorf("%s.%s is bindable but has no row in the ? key map",
 				binding.Context, binding.Action)
 		}
@@ -135,7 +135,7 @@ func TestHelpSearchIsCaseInsensitive(t *testing.T) {
 func TestHelpSearchOnASectionTitleKeepsItsRows(t *testing.T) {
 	var card resolvedSection
 	for _, section := range helpSectionsOf() {
-		if strings.HasPrefix(section.title, "the name sweep") {
+		if strings.HasSuffix(section.title, "the name sweep") {
 			card = section
 		}
 	}

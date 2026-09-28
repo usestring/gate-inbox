@@ -132,15 +132,15 @@ func runBoard(version string, registry *extension.Registry) error {
 	}
 	// One board per config dir: a second start supersedes the first, which
 	// is told to quit (restoring its pins) before this one restores or pins
-	// anything. Two managers over one store and one set of tmux servers is
-	// never what an operator meant.
+	// anything, and whose tmux pane is then closed. Two managers over one
+	// store and one set of tmux servers is never what an operator meant.
 	lock, took, err := singleton.Acquire(dir)
 	if err != nil {
 		return err
 	}
 	defer lock.Release()
 	if took != nil {
-		logging.Info("superseded running manager", "pid", took.PID, "killed", took.Killed)
+		logging.Info("superseded running manager", "pid", took.PID, "killed", took.Killed, "paneClosed", took.PaneClosed)
 	}
 
 	// Install the board's own binary where the sessions it spawns can still

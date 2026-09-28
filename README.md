@@ -37,7 +37,7 @@ Gate Inbox reads the panes; it does not sit between you and the model.
    out, and it lists what a pane kept as-is misses ([below](#kept-as-is-or-relaunched)). `N` makes
    that answer the default and stops the question; settings (`s`) turns it back on.
 4. **The loop.** `n` starts an agent, `enter` focuses it, `ctrl+q` comes back to the list, `i`
-   walks everything waiting on you, and `H` shows every key.
+   walks everything waiting on you, and `h` shows every key.
 5. **Leaving and coming back.** `q` quits and the agents keep running. When you start it again,
    the board offers back only the sessions that *died* (a reboot, tmux restarting, a crash),
    never the ones you ended yourself. [Stop using it](#stop-using-it) covers stopping for good.
@@ -80,7 +80,7 @@ gate-inbox
 2. `ctrl+q` goes back to the list. Each row shows its status as the agent works.
 3. `i` opens the triage queue, starting with the session that has waited longest.
 4. Answer it. The queue hands you the next one.
-5. `H` shows every key for the current screen, and `s` opens settings.
+5. `h` shows every key for the current screen, and `s` opens settings.
 
 Sessions live in tmux, so quitting the board leaves them running. Start `gate-inbox` again and it
 picks them back up.
@@ -99,16 +99,16 @@ read from the pane itself. The preview beside the list shows the conversation as
 **Triage.** `i` flattens the groups into one queue ordered by what needs a person: waiting first,
 then errored, then finished, longest-blocked first inside each. Picking an option in a dialog, or
 sending a reply, hands that session back to its agent and opens the next one. `ctrl+q` moves on
-without answering, and `ctrl+\` stops triage. `G` is the same drain full-width, with the list put
-away until the queue is empty; `f2` switches it between the conversation and the terminal.
+without answering, and `ctrl+\` stops triage. `alt+\` puts the list away for a full-width drain,
+and `alt+,` hides the key hints.
 
-![The G gate draining four agents full-width: each answer hands the session back and the next one that needs input comes up on its own](docs/demo/triage.gif)
+![Triage draining four agents full-width: each answer hands the session back and the next one that needs input comes up on its own](docs/demo/triage.gif)
 
-<p align="center"><em>The <code>G</code> gate: triage full-width with auto-proceed. Answer one session and the next that needs you comes up on its own.</em></p>
+<p align="center"><em>Triage with the list put away. Answer one session and the next that needs you comes up on its own.</em></p>
 
 **Focus.** `enter` focuses a session in place: keys go to the agent while the list stays beside
 it, and `ctrl+q` comes back. `alt+\` hides the list so the pane gets the full width, and
-`alt+pgup` / `alt+end` scroll back through its output and return to the live bottom. `space`
+`alt+u` / `alt+end` scroll back through its output and return to the live bottom. `space`
 sends a prompt to the selected session without focusing it. `T` opens a shell tab under the
 selected agent for builds and one-off commands.
 
@@ -121,16 +121,16 @@ selected agent for builds and one-off commands.
 | `n` / `ctrl+n` | New session, quick or with the full form |
 | `space` | Prompt the selected session, or spawn one in the selected group |
 | `enter` | Focus the session; `ctrl+q` returns to the list |
-| `i` / `G` | Triage queue / full-width drain |
+| `i` | Triage queue; `\` hides the list for a full-width drain |
 | `w` | Show only what needs attention |
 | `/` | Fuzzy search; `esc` clears it |
 | `p` | Priority tier for a session or group; higher tiers go first in triage |
 | `T` | Shell tab under the selected agent |
 | `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |
 | `f` | Fork the conversation into a new session |
-| `H` / `s` | Key map for the current screen / settings |
+| `h` / `s` | Key map for the current screen / settings |
 
-Every binding is a default, and `H` is where you rebind one. [`docs/usage.md`](docs/usage.md) is
+Every binding is a default, and `h` is where you rebind one. [`docs/usage.md`](docs/usage.md) is
 the complete reference.
 
 ## Agents working with agents

@@ -711,19 +711,19 @@ func TestEveryReadingOfASessionStandsInForAnAwaitedName(t *testing.T) {
 // A content separator stops at the pane's edge instead of crossing the seam.
 func TestContentRuleStopsAtSeam(t *testing.T) {
 	m := shotModel()
-	leftWidth, _ := m.splitWidths()
+	seam := m.dividerX()
 	rows := strings.Split(m.frame(), "\n")
 	start, end := m.bodyYRange()
 
 	crossings := 0
 	for i := start; i < end; i++ {
 		row := []rune(ansi.Strip(rows[i]))
-		contentRule := row[leftWidth+2] == '─'
-		railRule := row[leftWidth-2] == '─'
-		if contentRule && !railRule && row[leftWidth] == '─' {
+		contentRule := row[seam-2] == '─'
+		railRule := row[seam+2] == '─'
+		if contentRule && !railRule && row[seam] == '─' {
 			t.Fatalf("row %d: content rule crosses the seam:\n%s", i, string(row))
 		}
-		if railRule && row[leftWidth] == '─' {
+		if railRule && row[seam] == '─' {
 			crossings++
 		}
 	}

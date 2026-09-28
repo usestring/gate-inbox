@@ -63,29 +63,13 @@ func (m *Model) defaultToolSelection() ([]string, int) {
 }
 
 // handleQuickKey runs while the quick bar is docked in the sidebar: arrows
-// keep moving the selection on the list; in the gate they edit the draft. Enter submits
-// against whatever is selected, and every other key is typed text.
+// keep moving the selection on the list. Enter submits against whatever is
+// selected, and every other key is typed text.
 func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	context := keymap.ContextList
-	if m.mode == modeFocus {
-		context = keymap.ContextFocus
-	}
 	if action, bound := m.action(context, msg); bound && action == keymap.ToggleConversation {
 		m.toggleConversation()
 		return m, nil
-	}
-	if m.mode == modeFocus {
-		switch msg.String() {
-		case "alt+enter", "shift+enter":
-			m.quick.input.InsertString("\n")
-			return m, nil
-		case "up", "down", "tab", "alt+m":
-			return m, m.quick.typeKey(msg)
-		case "pgup":
-			return m, m.keyScrollFocus(focusScrollPageUp)
-		case "pgdown":
-			return m, m.keyScrollFocus(focusScrollPageDown)
-		}
 	}
 	if m.quick.message() == "" && m.canRescindLatestSubmission() {
 		if action, bound := m.action(context, msg); bound && action == keymap.Rescind {
@@ -162,12 +146,15 @@ func (m *Model) submitQuick() (tea.Model, tea.Cmd) {
 		m.errBar.text = hold
 		return m, nil
 	}
+	// Armed before the send, like every answer: the prompt counts as
+	// submitted, and auto-proceed moves on, once the agent is seen to take
+	// it. See landing.go.
+	landing := m.armLanding(entry.sess, extension.OperatorPrompt, text, false, m.autoProceeds())
 	if err := m.tmux.SendText(entry.sess.ID, text); err != nil {
+		m.dropLanding(entry.sess.ID)
 		m.errBar.text = err.Error()
 		return m, nil
 	}
-	m.noteSubmission(entry.sess)
-	m.noteOperator(entry.sess, extension.OperatorPrompt, text, false)
 	// The prompt is delivered: clear the input before anything else can
 	// fail, so a retry cannot send it twice.
 	m.clearQuickAfterSend()
@@ -177,10 +164,7 @@ func (m *Model) submitQuick() (tea.Model, tea.Cmd) {
 		m.errBar.text = "prompt sent, but clearing the alert ack failed: " + err.Error()
 	}
 	m.requestRefresh()
-	if m.autoProceeds() {
-		return m, m.handOverFocused(entry.sess)
-	}
-	return m, nil
+	return m, landing
 }
 
 func (m *Model) quickSpawn(group, prompt string) (tea.Model, tea.Cmd) {

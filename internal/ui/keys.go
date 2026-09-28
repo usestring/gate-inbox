@@ -288,11 +288,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case keymap.Revive:
 		return m.reviveSelected()
 	case keymap.Dismiss:
-		return m.dismissSelected()
+		return m.skipSelected()
 	case keymap.Priority:
 		return m.cyclePrioritySelected()
-	case keymap.HandOver:
-		return m.handOverSelected()
 	case keymap.ReviveAll:
 		return m.reviveAllDead()
 	case keymap.SwitchAccount:
@@ -332,15 +330,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case keymap.EmptyGroups:
 		return m, m.toggleEmptyGroups()
 	case keymap.Triage:
-		if m.gate.on {
-			// The gate is that queue plus the mode built around it, so the
-			// key that leaves the queue leaves the mode with it rather than
-			// stranding a gate with nothing under it.
-			return m, m.disarmGate()
-		}
 		return m, m.toggleTriage()
-	case keymap.Gate:
-		return m, m.toggleGate()
 	case keymap.Search:
 		m.searching = true
 		m.errBar.text = ""
@@ -379,7 +369,7 @@ var artifactRowActions = map[keymap.Action]bool{
 	keymap.Search: true, keymap.ClearSearch: true, keymap.LegendPeek: true, keymap.Help: true,
 	keymap.NameSweep: true, keymap.TakeOver: true, keymap.Settings: true, keymap.Resize: true,
 	keymap.ArchivedView: true, keymap.StatusFilter: true,
-	keymap.EmptyGroups: true, keymap.Triage: true, keymap.Gate: true, keymap.ToggleChrome: true,
+	keymap.EmptyGroups: true, keymap.Triage: true, keymap.ToggleChrome: true,
 	keymap.ToggleRail: true,
 	// LastPane reads the pair it swaps between, not the row under the
 	// cursor, so an artifact row is no reason to swallow it.
@@ -780,6 +770,11 @@ const quickCloseSetting = "quick_prompt_close"
 // hiddenToolsSetting lists CLI tools omitted from new-session pickers
 // (comma-separated names). Empty means every configured tool is shown.
 const hiddenToolsSetting = "hidden_tools"
+
+// toolOrderSetting is the operator's order for the new-session pickers
+// (comma-separated names). Names it leaves out keep their default order and
+// follow the ones it lists.
+const toolOrderSetting = "tool_order"
 
 func (m *Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {

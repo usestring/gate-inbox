@@ -80,18 +80,15 @@ func TestEnsureSettingsWritesValidHookJSON(t *testing.T) {
 			t.Fatalf("Notification matcher %q subscribes to %s", notification.Matcher, unwanted)
 		}
 	}
-	if command := notification.Hooks[0].Command; !strings.Contains(command, "printf "+status.Waiting) || strings.Contains(command, "grep") {
+	if command := notification.Hooks[0].Command; !strings.Contains(command, appendEvent(status.Waiting, "Notification")) || strings.Contains(command, "grep") {
 		t.Fatalf("Notification command = %q, want a plain %s write", command, status.Waiting)
 	}
 	if got := parsed.Hooks["SessionStart"][0].Matcher; got != "startup|resume|clear" {
 		t.Fatalf("SessionStart matcher = %q, want startup|resume|clear", got)
 	}
-	stopFailure := parsed.Hooks["StopFailure"][0]
-	if stopFailure.Matcher != limitStopFailures {
-		t.Fatalf("StopFailure matcher = %q, want %q", stopFailure.Matcher, limitStopFailures)
-	}
-	if command := stopFailure.Hooks[0].Command; !strings.Contains(command, "printf "+status.Errored) {
-		t.Fatalf("StopFailure command = %q, want a plain %s write", command, status.Errored)
+	// Every API error ends the turn, and only one of them is a limit.
+	if sf := parsed.Hooks["StopFailure"]; len(sf) != 1 || sf[0].Matcher != "" || sf[0].Hooks[0].Command != stopFailureCommand() {
+		t.Fatalf("StopFailure = %+v, want one unfiltered type-aware command", sf)
 	}
 }
 
@@ -155,7 +152,18 @@ func TestReadWhitelist(t *testing.T) {
 		t.Fatalf("trailing newline should trim to working, got %q, %v", got, ok)
 	}
 
-	for _, invalid := range []string{"garbage", "", "dead"} {
+	writeStatus("working UserPromptSubmit\nworking PostToolUse\nfinished Stop\n")
+	if got, ok := manager.Read("x"); !ok || got != status.Finished {
+		t.Fatalf("Read of a log = %q, %v; want the newest event", got, ok)
+	}
+
+	// A log longer than the tail Read looks at still reads its newest line.
+	writeStatus(strings.Repeat("working PostToolUse\n", 100) + "waiting Notification\n")
+	if got, ok := manager.Read("x"); !ok || got != status.Waiting {
+		t.Fatalf("Read of a long log = %q, %v; want waiting", got, ok)
+	}
+
+	for _, invalid := range []string{"garbage", "", "dead", "working Stop extra", "finished Stop\ngarbage\n"} {
 		writeStatus(invalid)
 		if got, ok := manager.Read("x"); ok {
 			t.Fatalf("Read(%q) accepted %q, want rejection", invalid, got)
@@ -255,10 +263,104 @@ func TestPreToolUseCommandReportsTheQuestionDialog(t *testing.T) {
 			if err != nil {
 				t.Fatalf("hook wrote no status: %v", err)
 			}
-			if got := strings.TrimSpace(string(raw)); got != tc.want {
+			if got := strings.TrimSpace(string(raw)); got != tc.want+" PreToolUse" {
 				t.Fatalf("hook wrote %q want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// A turn that died on an API error ends there: Stop does not fire for it.
+// The limit is the board's to recover; every other failure is a turn that
+// ended and wants a person.
+func TestStopFailureCommandEndsTheTurn(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{"rate limit", `{"hook_event_name":"StopFailure","error":"rate_limit"}`, status.Errored},
+		{"overloaded", `{"hook_event_name":"StopFailure","error":"overloaded"}`, status.Finished},
+		{"server error", `{"hook_event_name":"StopFailure","error":"server_error"}`, status.Finished},
+		{"unreadable payload", `not json`, status.Finished},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "session.status")
+			if err := os.WriteFile(file, []byte("working PostToolUse\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cmd := exec.Command("sh", "-c", stopFailureCommand())
+			cmd.Env = append(tmuxtest.Environ(), EnvStatusFile+"="+file)
+			cmd.Stdin = strings.NewReader(tc.payload)
+			if err := cmd.Run(); err != nil {
+				t.Fatalf("hook command failed: %v", err)
+			}
+			raw, _ := os.ReadFile(file)
+			want := "working PostToolUse\n" + tc.want + " StopFailure\n"
+			if string(raw) != want {
+				t.Fatalf("log = %q want %q", raw, want)
+			}
+		})
+	}
+}
+
+// Events is how a turn that began and ended between two polls is still
+// seen: the newest line is back where it was, the lines between are not.
+func TestEventsReturnsWhatHappenedSinceAnOffset(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if _, _, ok := m.Events("s", 0); ok {
+		t.Fatal("a session with no log reported events")
+	}
+	file := m.StatusFile("s")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	appendLog := func(s string) {
+		t.Helper()
+		f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.WriteString(s)
+		f.Close()
+	}
+	appendLog("finished Stop\n")
+	_, cursor, _ := m.Events("s", 0)
+	if cursor != int64(len("finished Stop\n")) {
+		t.Fatalf("cursor %d, want the end of the log", cursor)
+	}
+
+	appendLog("working UserPromptSubmit\nworking PostToolUse\nfinished Stop\n")
+	events, next, ok := m.Events("s", cursor)
+	want := []Event{{status.Working, "UserPromptSubmit"}, {status.Working, "PostToolUse"}, {status.Finished, "Stop"}}
+	if !ok || len(events) != len(want) {
+		t.Fatalf("Events = %+v, %v; want %+v", events, ok, want)
+	}
+	for i := range want {
+		if events[i] != want[i] {
+			t.Fatalf("event %d = %+v want %+v", i, events[i], want[i])
+		}
+	}
+
+	// A line with no newline yet is still being written: not read, and
+	// not skipped either.
+	appendLog("waiting Noti")
+	events, partial, _ := m.Events("s", next)
+	if len(events) != 0 || partial != next {
+		t.Fatalf("a partial line read as %+v (next %d, was %d)", events, partial, next)
+	}
+	appendLog("fication\n")
+	if events, _, _ = m.Events("s", partial); len(events) != 1 || events[0] != (Event{status.Waiting, "Notification"}) {
+		t.Fatalf("the completed line read as %+v", events)
+	}
+
+	// A log shorter than the offset was removed and begun again.
+	if err := os.WriteFile(file, []byte("idle SessionStart\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if events, _, _ = m.Events("s", next); len(events) != 1 || events[0].State != status.Idle {
+		t.Fatalf("a restarted log read as %+v", events)
 	}
 }
 
@@ -323,12 +425,15 @@ func TestSessionEndPrunesWorktrees(t *testing.T) {
 // The hooks find the status file through the variable the launch exports.
 func TestStatusCommandWritesTheExportedStatusFile(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "status")
-	cmd := exec.Command("sh", "-c", statusCommand(status.Working))
-	cmd.Env = append(tmuxtest.Environ(), EnvStatusFile+"="+file)
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("hook command: %v", err)
+	for _, state := range []string{status.Working, status.Finished} {
+		cmd := exec.Command("sh", "-c", statusCommand(state, "Stop"))
+		cmd.Env = append(tmuxtest.Environ(), EnvStatusFile+"="+file)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("hook command: %v", err)
+		}
 	}
-	if raw, err := os.ReadFile(file); err != nil || strings.TrimSpace(string(raw)) != status.Working {
-		t.Fatalf("status = %q, %v; want %s", raw, err, status.Working)
+	// appended, not overwritten
+	if raw, err := os.ReadFile(file); err != nil || string(raw) != "working Stop\nfinished Stop\n" {
+		t.Fatalf("log = %q, %v", raw, err)
 	}
 }

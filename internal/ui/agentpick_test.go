@@ -278,6 +278,7 @@ func TestAutoRouteFallbackTerminalLeavesASessionArchivedDuringTheQuotaRead(t *te
 	if err := m.store.CreateGroup("backend", groupDir); err != nil {
 		t.Fatal(err)
 	}
+	loadStoredRows(t, m)
 	createSession(t, m, "agent", sessionDir, "backend")
 	m.selectSessionRow(t, "agent")
 	agent, _ := m.selected()

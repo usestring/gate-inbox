@@ -157,9 +157,8 @@ var Catalog = []Binding{
 	{ContextList, Archive, []string{"x"}, "kill it and file the row", false},
 	{ContextList, ArchiveAll, []string{"X", "shift+x"}, "kill every session listed", false},
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
-	{ContextList, Dismiss, []string{"."}, "dismiss: mark it idle, or mute it", false},
+	{ContextList, Dismiss, []string{"."}, "skip", false},
 	{ContextList, Priority, []string{"p"}, "toggle priority (priority panes show first)", false},
-	{ContextList, HandOver, []string{"§"}, "in triage: mute this and enter the next", false},
 	{ContextList, QuickInput, []string{" ", "space"}, "quick prompt", false},
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{"alt+r"}, "rename it yourself, and re-pick its tool", false},
@@ -194,7 +193,7 @@ var Catalog = []Binding{
 	{ContextFocus, Rescind, []string{"ctrl+z"}, "undo the latest submission while its turn is active", false},
 	// A chord for the same reason alt+, is one: a plain "." is a character
 	// the agent was owed. It mirrors the list's own dismiss key.
-	{ContextFocus, Dismiss, []string{"alt+."}, "dismiss this one and go on to the next", false},
+	{ContextFocus, Dismiss, []string{"alt+."}, "skip", false},
 	// A chord, like every other key this screen claims: a plain comma is a
 	// character the agent was owed.
 	{ContextFocus, ToggleChrome, []string{"alt+,"}, "hide / show the key hints along the foot", false},

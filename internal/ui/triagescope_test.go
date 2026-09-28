@@ -163,9 +163,8 @@ func TestTriageScopeForAMissingGroupWidensToTheFleet(t *testing.T) {
 }
 
 // The footers are what a user reads while the rail is off screen or its
-// badge is out of view, so a scoped queue has to name its group in both:
-// the list footer beside the key that leaves, and the focused footer beside
-// the key that walks on.
+// badge is out of view, so a scoped queue names its group on the list: the
+// focused footer beside the key that walks on just says skip.
 func TestTheTriageFootersNameTheScopedGroup(t *testing.T) {
 	m := shotModel()
 	m.width, m.height = 200, 50
@@ -179,7 +178,7 @@ func TestTheTriageFootersNameTheScopedGroup(t *testing.T) {
 
 	m.mode = modeFocus
 	focus := ansi.Strip(m.viewFooter())
-	if !strings.Contains(focus, "next in backend") {
+	if !strings.Contains(focus, "skip") {
 		t.Errorf("the focused footer does not say where ctrl+q goes next:\n%s", focus)
 	}
 	if !strings.Contains(focus, "stop triage") {
@@ -204,7 +203,7 @@ func TestTheTriageFootersKeepTheirWordingUnscoped(t *testing.T) {
 
 	m.mode = modeFocus
 	focus := ansi.Strip(m.viewFooter())
-	if !strings.Contains(focus, "next needing input") {
+	if !strings.Contains(focus, "skip") {
 		t.Errorf("the focused footer lost its advance hint:\n%s", focus)
 	}
 }

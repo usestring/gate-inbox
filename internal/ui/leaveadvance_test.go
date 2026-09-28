@@ -141,11 +141,14 @@ func TestTheFocusedFooterNamesTheAdvance(t *testing.T) {
 	if !m.advancesOnLeave() {
 		t.Error("the setting did not turn the advance on")
 	}
-	// Triage names the group it is scoped to; the setting has none to name,
-	// so it must not borrow triage's wording.
+	// The hint stays one word whatever the scope or the setting says.
 	m.triageScope = "team"
-	if got := m.leaveAdvanceHint(); got != "skip, next needing input" {
-		t.Errorf("outside triage the hint reads %q; it must not name a triage scope", got)
+	if got := m.leaveAdvanceHint(); got != "skip" {
+		t.Errorf("outside triage the hint reads %q; want just skip", got)
+	}
+	m.triage = true
+	if got := m.leaveAdvanceHint(); got != "skip" {
+		t.Errorf("in triage the hint reads %q; want just skip", got)
 	}
 }
 

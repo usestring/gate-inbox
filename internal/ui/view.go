@@ -542,11 +542,6 @@ func (m *Model) viewFooter() string {
 		// the one exit a user does not have to be told about. Help names it.
 		exits := [][2]string{{m.capJoinFull(keymap.ContextFocus, " / ", keymap.Leave, keymap.LeaveHard), "back to manager"}}
 		if m.advancesOnLeave() {
-			// Focused, the rail's TRIAGE badge is off screen, so this line
-			// is the only place left that can say which group ctrl+q will
-			// hand over next -- and landing in a session from somebody
-			// else's group is exactly what the scope exists to prevent.
-			//
 			// It is also the only place the walk is named at all for
 			// somebody driving it from the setting rather than from a
 			// queue they armed: an advance nothing announces reads as the

@@ -98,3 +98,56 @@ func TestCustomQuotaCommandParsesMonthlyWindow(t *testing.T) {
 		t.Fatalf("monthly quota = %+v, %v", got, err)
 	}
 }
+
+func TestClaudeReadingRequiresBothQuotaEnvelopes(t *testing.T) {
+	now := time.Now().UTC()
+	for _, sample := range []string{
+		`{"five_hour":{"utilization":20},"seven_day":{"utilization":null}}`,
+		`{"five_hour":{"utilization":null},"seven_day":{"utilization":20}}`,
+		`{"five_hour":{"utilization":20}}`,
+		`{"seven_day":{"utilization":20}}`,
+	} {
+		var payload map[string]wireWindow
+		if err := json.Unmarshal([]byte(sample), &payload); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := claudeReading(payload, now); err == nil {
+			t.Fatalf("partial Claude envelope %s accepted: %+v", sample, got)
+		}
+	}
+	used := 20.0
+	got, err := claudeReading(map[string]wireWindow{
+		"five_hour":        {Utilization: &used, ResetsAt: now.Add(4 * time.Hour)},
+		"seven_day":        {Utilization: &used, ResetsAt: now.Add(6 * 24 * time.Hour)},
+		"seven_day_sonnet": {ResetsAt: now.Add(6 * 24 * time.Hour)},
+	}, now)
+	if err != nil || len(got.Windows) != 2 {
+		t.Fatalf("complete Claude envelope = %+v, %v", got, err)
+	}
+}
+
+func TestOpenCodeReadingRequiresWeeklyAndMonthlyQuota(t *testing.T) {
+	now := time.Now().UTC()
+	for _, sample := range []string{
+		`{"weekly":{"percent":20},"monthly":{"percent":null}}`,
+		`{"weekly":{"percent":null},"monthly":{"percent":20}}`,
+		`{"weekly":{"percent":20}}`,
+		`{"monthly":{"percent":20}}`,
+	} {
+		var usage map[string]opencodeWindow
+		if err := json.Unmarshal([]byte(sample), &usage); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := opencodeReading(usage, now); err == nil {
+			t.Fatalf("partial OpenCode envelope %s accepted: %+v", sample, got)
+		}
+	}
+	used := 20.0
+	got, err := opencodeReading(map[string]opencodeWindow{
+		"weekly":  {Percent: &used, ResetsAt: now.Add(6 * 24 * time.Hour)},
+		"monthly": {Percent: &used, ResetsAt: now.Add(25 * 24 * time.Hour)},
+	}, now)
+	if err != nil || len(got.Windows) != 2 {
+		t.Fatalf("complete OpenCode envelope = %+v, %v", got, err)
+	}
+}

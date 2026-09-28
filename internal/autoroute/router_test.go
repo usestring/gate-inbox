@@ -59,6 +59,26 @@ func TestChooseCachesOnlyFreshSuccessfulReads(t *testing.T) {
 	}
 }
 
+func TestChooseRefreshesCacheWhenWindowResets(t *testing.T) {
+	now := time.Date(2026, 9, 28, 18, 0, 0, 0, time.UTC)
+	reads := 0
+	router := New(func(context.Context, string) (Reading, error) {
+		reads++
+		if reads == 1 {
+			return Reading{ObservedAt: now, Windows: []Window{{Used: 50, ResetsAt: now.Add(30 * time.Second), Duration: 5 * time.Hour}}}, nil
+		}
+		return Reading{ObservedAt: now.Add(time.Minute), Windows: []Window{{Used: 0, ResetsAt: now.Add(5 * time.Hour), Duration: 5 * time.Hour}}}, nil
+	})
+	for _, at := range []time.Time{now, now.Add(time.Minute)} {
+		if got, err := router.Choose(context.Background(), []string{"claude"}, nil, at); err != nil || got != "claude" {
+			t.Fatalf("choose at %v = %q, %v", at, got, err)
+		}
+	}
+	if reads != 2 {
+		t.Fatalf("quota reads = %d, want a refresh after reset", reads)
+	}
+}
+
 func TestScoreRejectsUnknownOrExhaustedQuota(t *testing.T) {
 	now := time.Now()
 	for _, sample := range []Reading{

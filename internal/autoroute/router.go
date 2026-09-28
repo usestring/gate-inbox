@@ -39,17 +39,29 @@ func (r *Router) reading(ctx context.Context, name string, now time.Time) (Readi
 	r.mu.Lock()
 	cached, ok := r.cache[name]
 	r.mu.Unlock()
-	if ok && fresh(cached, now) {
+	if ok && fresh(cached, now) && windowsCurrent(cached, now) {
 		return cached, nil
 	}
 	reading, err := r.read(ctx, name)
-	if err != nil || !fresh(reading, now) {
+	if err != nil || !fresh(reading, now) || !windowsCurrent(reading, now) {
 		return Reading{}, ErrNoQuota
 	}
 	r.mu.Lock()
 	r.cache[name] = reading
 	r.mu.Unlock()
 	return reading, nil
+}
+
+func windowsCurrent(reading Reading, now time.Time) bool {
+	if len(reading.Windows) == 0 {
+		return false
+	}
+	for _, window := range reading.Windows {
+		if !window.ResetsAt.After(now) {
+			return false
+		}
+	}
+	return true
 }
 
 func fresh(reading Reading, now time.Time) bool {

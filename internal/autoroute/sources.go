@@ -53,13 +53,7 @@ func duration(name string, w wireWindow) time.Duration {
 func windows(wire map[string]wireWindow) []Window {
 	out := make([]Window, 0, len(wire))
 	for name, w := range wire {
-		used := w.Utilization
-		if used == nil {
-			used = w.Percent
-		}
-		if used == nil {
-			used = w.UsedPercent
-		}
+		used := usedPercent(w)
 		if used == nil {
 			continue
 		}
@@ -70,6 +64,16 @@ func windows(wire map[string]wireWindow) []Window {
 		out = append(out, Window{Used: *used, ResetsAt: reset, Duration: duration(name, w)})
 	}
 	return out
+}
+
+func usedPercent(w wireWindow) *float64 {
+	if w.Utilization != nil {
+		return w.Utilization
+	}
+	if w.Percent != nil {
+		return w.Percent
+	}
+	return w.UsedPercent
 }
 
 func Reader(tools map[string]config.Tool) ReadFunc {
@@ -167,19 +171,28 @@ func claudeQuota(ctx context.Context) (Reading, error) {
 	if err := getJSON(ctx, "https://api.anthropic.com/api/oauth/usage", token, map[string]string{"anthropic-beta": "oauth-2025-04-20"}, &payload); err != nil {
 		return Reading{}, err
 	}
+	return claudeReading(payload, time.Now())
+}
+
+func claudeReading(payload map[string]wireWindow, observedAt time.Time) (Reading, error) {
 	selected := map[string]wireWindow{}
 	for name, window := range payload {
 		if name == "five_hour" || name == "seven_day" || strings.HasPrefix(name, "seven_day_") {
 			selected[name] = window
 		}
 	}
-	if _, ok := selected["five_hour"]; !ok {
-		return Reading{}, ErrNoQuota
+	for _, name := range []string{"five_hour", "seven_day"} {
+		window, ok := selected[name]
+		if !ok || usedPercent(window) == nil {
+			return Reading{}, ErrNoQuota
+		}
 	}
-	if _, ok := selected["seven_day"]; !ok {
-		return Reading{}, ErrNoQuota
-	}
-	return Reading{ObservedAt: time.Now(), Windows: windows(selected)}, nil
+	return Reading{ObservedAt: observedAt, Windows: windows(selected)}, nil
+}
+
+type opencodeWindow struct {
+	Percent  *float64  `json:"percent"`
+	ResetsAt time.Time `json:"resetsAt"`
 }
 
 func opencodeQuota(ctx context.Context) (Reading, error) {
@@ -194,23 +207,24 @@ func opencodeQuota(ctx context.Context) (Reading, error) {
 		return Reading{}, ErrNoQuota
 	}
 	var payload struct {
-		Usage map[string]struct {
-			Percent  *float64  `json:"percent"`
-			ResetsAt time.Time `json:"resetsAt"`
-		} `json:"usage"`
+		Usage map[string]opencodeWindow `json:"usage"`
 	}
 	if err := getJSON(ctx, "https://opencode.ai/zen/go/v1/usage", auth["opencode-go"].Key, nil, &payload); err != nil {
 		return Reading{}, err
 	}
+	return opencodeReading(payload.Usage, time.Now())
+}
+
+func opencodeReading(usage map[string]opencodeWindow, observedAt time.Time) (Reading, error) {
 	selected := map[string]wireWindow{}
 	for _, name := range []string{"weekly", "monthly"} {
-		window, ok := payload.Usage[name]
-		if !ok {
+		window, ok := usage[name]
+		if !ok || window.Percent == nil {
 			return Reading{}, ErrNoQuota
 		}
 		selected[name] = wireWindow{Percent: window.Percent, ResetsAt: window.ResetsAt}
 	}
-	return Reading{ObservedAt: time.Now(), Windows: windows(selected)}, nil
+	return Reading{ObservedAt: observedAt, Windows: windows(selected)}, nil
 }
 
 func codexQuota(ctx context.Context) (Reading, error) {

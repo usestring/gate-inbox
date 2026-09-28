@@ -315,7 +315,8 @@ func (m *Model) toggleTriage() tea.Cmd {
 	// for all of it from the top, and turning it off ends the drain the
 	// resume flag was keeping open.
 	m.triageResume = false
-	if m.triage { // The queue is the group the cursor was in, read before the rebuild
+	if m.triage {
+		// The queue is the group the cursor was in, read before the rebuild
 		// flattens the groups away and takes the row that named it with
 		// them. A drain is walked from inside one group far more often than
 		// across the whole board, and a queue that hands over sessions from
@@ -485,10 +486,17 @@ func (m *Model) triagePickupCmd() tea.Cmd {
 		return nil
 	}
 	for _, row := range m.rows {
-		if row.isSession() && m.triageHandable(row, "", nil) && m.needsPerson(row.sess) {
-			m.triageResume = false
-			return m.enterTriageHead()
+		if !row.isSession() || !m.triageHandable(row, "", nil) || !m.needsPerson(row.sess) {
+			continue
 		}
+		// The flag clears only on entry: a session that refuses to be
+		// entered leaves the drain open for the next pass rather than
+		// stranding it on the list.
+		if cmd := m.enterTriageHead(); cmd != nil {
+			m.triageResume = false
+			return cmd
+		}
+		return nil
 	}
 	return nil
 }

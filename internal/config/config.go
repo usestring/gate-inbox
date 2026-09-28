@@ -104,6 +104,10 @@ type Tool struct {
 	// with {account} standing for the account name in upper case
 	// ("CLAUDE_OAUTH_TOKEN_{account}").
 	AccountSecret string `toml:"account_secret"`
+	// QuotaCommand prints fresh subscription quota JSON for Auto routing on a
+	// custom CLI. Its output has observed_at and windows with utilization,
+	// resets_at, and duration_seconds; it never receives account credentials.
+	QuotaCommand string `toml:"quota_command"`
 	// AccountCommand prints one secret's value, with {secret} standing for
 	// the name AccountSecret produced. It runs at launch; the token goes into
 	// the session's environment and is never written to a row.

@@ -15,6 +15,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/autoroute"
 	"github.com/usestring/gate-inbox/internal/clipboard"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
@@ -444,6 +445,8 @@ type Model struct {
 	// newSessionAgent is the persisted answer to which agent n starts, and
 	// whether it asks at all. See agentpick.go.
 	newSessionAgent string
+	autoRouter      *autoroute.Router
+	autoRouting     bool
 	// focusedID is the session focus mode is on or was last on, and
 	// prevFocusID the one before it: the pair l swaps between. See
 	// lastpane.go.
@@ -1086,6 +1089,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		chrome:          storedChrome(st),
 		leaveMode:       storedLeaveMode(st),
 		newSessionAgent: storedNewSessionAgent(st),
+		autoRouter:      autoroute.New(autoroute.Reader(cfg.Tools)),
 		triage:          storedTriage(st),
 		triageScope:     storedTriageScope(st),
 		autoProceed:     storedAutoProceed(st),
@@ -1712,6 +1716,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg := msg.(type) {
+	case autoRouteMsg:
+		return m.finishAutoRoute(msg)
 	case tea.WindowSizeMsg:
 		// Resuming from a tmux attach re-sends the current size unchanged; only
 		// a real resize needs the per-session tmux resize calls, so an

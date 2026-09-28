@@ -1,13 +1,101 @@
 package ui
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/autoroute"
+	"github.com/usestring/gate-inbox/internal/store"
 )
+
+func TestAutoRouteStartsAnEnabledCLI(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
+		if name != "ready-tool" {
+			return autoroute.Reading{}, autoroute.ErrNoQuota
+		}
+		now := time.Now()
+		return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 10, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
+	})
+	_, cmd := m.startNewSession()
+	if cmd == nil {
+		t.Fatal("auto route did not start a quota read")
+	}
+	msg := cmd()
+	m.update(msg)
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || rows[0].Tool != "ready-tool" {
+		t.Fatalf("auto route launched %+v, want ready-tool (msg %+v, mode %v, error %q)", rows, msg, m.mode, m.errBar.text)
+	}
+}
+
+func TestAutoRouteFallsBackToCLIPickerWhenQuotaUnavailable(t *testing.T) {
+	m := buildModel(t)
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	m.update(cmd())
+	if m.mode != modeAgentPick || len(m.sessionRows()) != 0 {
+		t.Fatalf("unavailable quota left mode %v with %d sessions", m.mode, len(m.sessionRows()))
+	}
+	if !strings.Contains(m.errBar.text, "quota unavailable") {
+		t.Fatalf("missing fallback explanation: %q", m.errBar.text)
+	}
+}
+
+func TestAutoRouteNeverReadsAHiddenCLI(t *testing.T) {
+	m := buildModel(t)
+	m.newSessionAgent = newSessionAgentAuto
+	if err := m.store.SetSetting(hiddenToolsSetting, "ready-tool"); err != nil {
+		t.Fatal(err)
+	}
+	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
+		if name == "ready-tool" {
+			t.Fatal("hidden CLI was sent to quota routing")
+		}
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	m.update(cmd())
+	if m.mode != modeAgentPick {
+		t.Fatalf("no readable enabled quota left mode %v, want picker", m.mode)
+	}
+}
+
+func TestAutoRouteSkipsSharedAccountTools(t *testing.T) {
+	m := buildModel(t)
+	m.newSessionAgent = newSessionAgentAuto
+	if err := m.store.SetSetting(store.AccountRoutingSetting, accounts.Smart); err != nil {
+		t.Fatal(err)
+	}
+	tool := m.cfg.Tools["ready-tool"]
+	tool.AccountEnv = "SHARED_TOKEN"
+	m.cfg.Tools["ready-tool"] = tool
+	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
+		if name == "ready-tool" {
+			t.Fatal("own-login quota was read for a shared-account tool")
+		}
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	if cmd != nil {
+		m.update(cmd())
+	}
+	if m.mode != modeAgentPick {
+		t.Fatalf("shared-account routing left mode %v, want picker", m.mode)
+	}
+}
 
 func typeInto(t *testing.T, m *Model, text string) {
 	t.Helper()
@@ -458,6 +546,24 @@ func TestSettingsCyclesTheNewSessionAgent(t *testing.T) {
 	}
 	if got := storedNewSessionAgent(m.store); got != newSessionAgentLast {
 		t.Errorf("stored mode = %q, want %q", got, newSessionAgentLast)
+	}
+}
+
+func TestSettingsCanSelectAutoRouting(t *testing.T) {
+	m := buildModel(t)
+	m.openSettings()
+	for i := 0; i < settingsFieldNewSessionAgent; i++ {
+		m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	for range 3 {
+		m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	}
+	if m.settings.newSessionAgent != newSessionAgentAuto {
+		t.Fatalf("settings selected %q, want auto", m.settings.newSessionAgent)
+	}
+	m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if got := storedNewSessionAgent(m.store); got != newSessionAgentAuto {
+		t.Fatalf("saved mode %q, want auto", got)
 	}
 }
 

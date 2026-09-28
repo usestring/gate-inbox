@@ -1,11 +1,15 @@
 package ui
 
 import (
+	"context"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -38,10 +42,11 @@ const (
 	// newSessionAgentDefault skips the box and starts the settings default
 	// tool.
 	newSessionAgentDefault = "default tool"
+	newSessionAgentAuto    = "auto"
 )
 
 // newSessionAgentModes is the setting's cycle order.
-var newSessionAgentModes = []string{newSessionAgentAsk, newSessionAgentLast, newSessionAgentDefault}
+var newSessionAgentModes = []string{newSessionAgentAsk, newSessionAgentLast, newSessionAgentDefault, newSessionAgentAuto}
 
 func storedNewSessionAgent(st *store.Store) string {
 	chosen, err := st.Setting(newSessionAgentSetting)
@@ -73,8 +78,79 @@ func (m *Model) startNewSession() (tea.Model, tea.Cmd) {
 		return m.spawnInstant(m.lastTool())
 	case newSessionAgentDefault:
 		return m.spawnInstant(m.defaultTool())
+	case newSessionAgentAuto:
+		return m.startAutoRoute()
 	}
 	m.openAgentPick()
+	return m, nil
+}
+
+type autoRouteMsg struct {
+	name string
+	err  error
+}
+
+func (m *Model) startAutoRoute() (tea.Model, tea.Cmd) {
+	if m.autoRouting {
+		return m, nil
+	}
+	names := m.enabledToolNames()
+	mode, err := accounts.Mode(m.store)
+	if err != nil {
+		m.openAgentPick()
+		m.errBar.text = "account routing unavailable: choose a CLI"
+		return m, nil
+	}
+	if mode == accounts.Smart {
+		eligible := names[:0]
+		for _, name := range names {
+			if m.cfg.Tools[name].AccountEnv == "" {
+				eligible = append(eligible, name)
+			}
+		}
+		names = eligible
+	}
+	if len(names) == 0 {
+		m.openAgentPick()
+		m.errBar.text = "quota unavailable: choose a CLI"
+		return m, nil
+	}
+	active := map[string]int{}
+	for _, session := range m.sessions {
+		if !session.Archived && (session.Status == status.Working || session.Status == status.Starting || session.Status == status.Waiting) {
+			active[session.Tool]++
+		}
+	}
+	m.autoRouting = true
+	router := m.autoRouter
+	return m, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		name, err := router.Choose(ctx, names, active, time.Now())
+		return autoRouteMsg{name: name, err: err}
+	}
+}
+
+func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
+	if !m.autoRouting {
+		return m, nil
+	}
+	m.autoRouting = false
+	if m.mode != modeList {
+		return m, nil
+	}
+	if msg.err != nil || msg.name == "" {
+		m.openAgentPick()
+		m.errBar.text = "quota unavailable: choose a CLI"
+		return m, nil
+	}
+	for _, name := range m.enabledToolNames() {
+		if name == msg.name {
+			return m.spawnInstant(name)
+		}
+	}
+	m.openAgentPick()
+	m.errBar.text = "chosen CLI is disabled: choose another"
 	return m, nil
 }
 

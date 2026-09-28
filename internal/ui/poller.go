@@ -134,6 +134,13 @@ type poller struct {
 	// relaunch that restores the flag has to clear it without a sweep --
 	// the same reason deafMark is not stored on the row.
 	hookless map[string]bool
+	// screens is each session's last screen and the status it was read as,
+	// and stale the sessions whose pair has held past staleAfter. stale is
+	// rebuilt every pass like hookless; screens persists across passes and
+	// is pruned with the rest. See stalestatus.go.
+	screens    map[string]screenMark
+	stale      map[string]bool
+	staleAfter time.Duration
 	// hookCursor is how far into each session's hook log the poller has
 	// read. The newest line says what the session is doing now; the lines
 	// between two passes say what it did meanwhile, and a whole turn can fit
@@ -773,6 +780,7 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 	// takes its finding with it. Filled as the loop reaches each session,
 	// which is before anything derives that session's status from it.
 	p.hookless = make(map[string]bool, len(p.hookless))
+	p.stale = make(map[string]bool, len(p.stale))
 	var rowState []store.DerivedState
 	// moved is the status transitions rowState carries, told to the
 	// observer only once the write that stores them has landed: a pass that
@@ -940,6 +948,7 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 				if sess.ID == selectedID {
 					preview, previewAt = pane, time.Now()
 				}
+				p.noteScreen(sess, newStatus, clean, now)
 			}
 		}
 		if sess.ParentID != "" && newStatus == status.Waiting {
@@ -1058,6 +1067,7 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 		searchText:       searchText,
 		answerableWait:   answerableWait,
 		hookless:         p.hooklessRows(),
+		stale:            p.staleRows(),
 	}
 	if sampleStats {
 		msg.snap = sysstat.Sample("/")
@@ -1854,6 +1864,11 @@ func (p *poller) forgetVanished(sessions []store.Session) {
 	for id := range p.quietSince {
 		if !live[id] {
 			delete(p.quietSince, id)
+		}
+	}
+	for id := range p.screens {
+		if !live[id] {
+			delete(p.screens, id)
 		}
 	}
 	for id := range p.hookCursor {

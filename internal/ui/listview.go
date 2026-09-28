@@ -963,7 +963,14 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	}
 	// A session names its state in words as well as in its dot; a group,
 	// whose row rolls several states together, is left to its dots.
-	state := statusTint(sess.Status, statusLabel(sess.Status)) + metaText(" · "+sess.Tool)
+	state := statusTint(sess.Status, statusLabel(sess.Status))
+	// Beside the label rather than in place of it: the board does not know
+	// what the session is really doing, only that the label has sat over a
+	// screen that has not moved for longer than any turn runs.
+	if m.isStale(sess) {
+		state += " " + statusTint(status.Errored, "stale")
+	}
+	state += metaText(" · " + sess.Tool)
 	// An archived row is on a clock, and the clock is the one thing about it
 	// that is not recoverable by looking. It goes after the age, in the same
 	// muted weight: it is a fact about the row, not a warning, right up

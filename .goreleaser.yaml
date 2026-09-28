@@ -37,11 +37,10 @@ changelog:
   use: github
   sort: asc
 
-# semantic-release opens a draft release with its notes for the tag. goreleaser
-# finds that draft by name, keeps its notes, attaches the archives and
-# publishes it. A tag pushed by hand gets a new release with GitHub's notes.
+# release-please publishes the release with its notes before goreleaser runs.
+# goreleaser finds it by tag, keeps its notes and attaches the archives. A tag
+# pushed by hand gets a new release with GitHub's notes.
 release:
   draft: false
-  use_existing_draft: true
   mode: keep-existing
   prerelease: auto

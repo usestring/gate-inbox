@@ -15,6 +15,3 @@
 *.swp
 .DS_Store
 /scripts/thirdpartylicences/thirdpartylicences
-
-# Release tooling installed by .github/workflows/release.yml
-/.github/release/node_modules/

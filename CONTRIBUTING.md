@@ -65,15 +65,21 @@ check fails a pull request whose title does not parse.
 | Type | Release |
 | --- | --- |
 | `feat` | minor (`0.1.8` to `0.2.0`) |
-| `fix`, `perf` | patch (`0.1.8` to `0.1.9`) |
-| `refactor`, `revert`, `chore`, `docs`, `ci`, `test`, `build`, `style` | none |
+| `fix`, `perf`, `revert` | patch (`0.1.8` to `0.1.9`) |
+| `refactor`, `chore`, `docs`, `ci`, `test`, `build`, `style` | none |
 | any type with `!` (`feat!: ...`), or a `BREAKING CHANGE:` footer | major (`0.x` goes to `1.0.0`) |
 
-On every push to `main`, the release workflow runs [semantic-release](https://semantic-release.gitbook.io/)
-over the commits since the last `v*` tag. When they call for a release it pushes the next tag and
-drafts a GitHub Release with notes grouped by type, and goreleaser attaches the binaries and
-publishes it. Commits that only carry non-releasing types cut nothing; they appear in the next
-release's compare link. Pushing a `v*` tag by hand still releases that tag through goreleaser alone.
+On every push to `main`, the release workflow runs
+[release-please](https://github.com/googleapis/release-please) over the commits since the last
+release. When they call for one, it opens a Release PR titled `chore(main): release <version>`, or
+updates the one already open. That PR bumps `.release-please-manifest.json` and adds the release
+notes, grouped by type, to `CHANGELOG.md`. Merging it tags the merge commit `v<version>` and
+publishes a GitHub Release with those notes, and goreleaser then attaches the binaries to it.
+Commits that only carry non-releasing types open no Release PR; they appear in the next release's
+compare link. Pushing a `v*` tag by hand still releases that tag through goreleaser alone.
+
+The Release PR is opened with the workflow's `GITHUB_TOKEN`, so GitHub starts no workflows for it:
+CI and the `PR title` check do not run on it.
 
 ## Licence
 

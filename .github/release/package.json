@@ -1,9 +1,0 @@
-{
-  "name": "gate-inbox-release-tooling",
-  "private": true,
-  "description": "Pinned semantic-release toolchain for .github/workflows/release.yml. Not part of the product.",
-  "devDependencies": {
-    "conventional-changelog-conventionalcommits": "9.3.1",
-    "semantic-release": "25.0.9"
-  }
-}

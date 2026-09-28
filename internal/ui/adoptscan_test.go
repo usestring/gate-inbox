@@ -172,7 +172,7 @@ func TestTheFirstAdoptScanDoesNotWaitOutTheInterval(t *testing.T) {
 // about which panes the board may take rather than about which refusal fired.
 // The manager's own pane is not in play in any of them, so self is empty.
 func adoptableOK(candidate adopt.Candidate, known, onBoard map[string]bool) bool {
-	ok, _ := adoptable(candidate, "", known, onBoard)
+	ok, _ := adoptable(candidate, "", known, onBoard, nil)
 	return ok
 }
 
@@ -252,17 +252,17 @@ func TestASiblingManagersPaneIsStillAdoptable(t *testing.T) {
 	sibling := adopt.Candidate{Socket: tmux.DefaultSocket, PaneID: "%2", Session: "main"}
 	selfKey := adoptKey(self.Socket, self.PaneID)
 
-	if ok, why := adoptable(self, selfKey, map[string]bool{}, map[string]bool{}); ok {
+	if ok, why := adoptable(self, selfKey, map[string]bool{}, map[string]bool{}, nil); ok {
 		t.Error("adopted the manager's own pane")
 	} else if why != "the manager's own pane" {
 		t.Errorf("refused the manager's own pane as %q, want the self rule to be the one that fired", why)
 	}
-	if ok, _ := adoptable(sibling, selfKey, map[string]bool{}, map[string]bool{}); !ok {
+	if ok, _ := adoptable(sibling, selfKey, map[string]bool{}, map[string]bool{}, nil); !ok {
 		t.Error("refused a sibling manager's pane; only this process's own pane nests")
 	}
 	// A manager not running under tmux has no own pane, and an empty self key
 	// must not match the pane whose id happens to be empty either.
-	if ok, _ := adoptable(self, "", map[string]bool{}, map[string]bool{}); !ok {
+	if ok, _ := adoptable(self, "", map[string]bool{}, map[string]bool{}, nil); !ok {
 		t.Error("an empty self key refused a pane; a manager outside tmux excludes nothing")
 	}
 }

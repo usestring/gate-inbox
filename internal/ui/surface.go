@@ -72,7 +72,7 @@ func (m *Model) railTopRow(paneWidth, width int) string {
 // the ring along the frame's bottom rule. The ring used to open on a row of
 // its own directly under this one, which drew as two hairlines a cell apart
 // and spent a line of the mirrored agent's terminal on saying twice what one
-// row says.
+// row says. paneWidth is the rail's run, counted in from the right edge.
 func (m *Model) topRule(paneWidth, width int) string {
 	if m.mode != modeFocus {
 		return m.railTopRow(paneWidth, width)
@@ -83,56 +83,57 @@ func (m *Model) topRule(paneWidth, width int) string {
 		return paint(m.focusRuleTail(width, false), width, backdropHex())
 	}
 	tail := width - paneWidth - 1
-	if tail < 1 || paneWidth < 2 {
+	if tail < 2 || paneWidth < 2 {
 		return m.railTopRow(paneWidth, width)
 	}
 	// The uprights are only drawn once there is a pane box to run down, so
 	// without one the rule keeps the frame's own corner rather than opening
 	// a ring nothing closes.
-	corner := lipgloss.NewStyle().Foreground(colorBackdrop).Render("▜")
+	head := paint(m.focusRuleTail(tail, false), tail, backdropHex())
+	corner := lipgloss.NewStyle().Foreground(colorBackdrop).Render("▛")
 	if m.pane.box.ok {
-		corner = focusEdgeStyle.Render("╭")
+		head = focusEdgeStyle.Render("╭") + paint(m.focusRuleTail(tail-1, false), tail-1, backdropHex())
+		corner = focusEdgeStyle.Render("╮")
 	}
-	first := plain(lipgloss.NewStyle().Foreground(lipgloss.Color(panelHex())).Render("▄"), 1)
 	interior := lipgloss.NewStyle().Foreground(colorBackdrop).Render(strings.Repeat("▀", paneWidth-1))
-	return first + paint(interior, paneWidth-1, panelHex()) + paint(corner, 1, panelHex()) +
-		paint(m.focusRuleTail(tail, m.pane.box.ok), tail, backdropHex())
+	last := plain(lipgloss.NewStyle().Foreground(lipgloss.Color(panelHex())).Render("▄"), 1)
+	return head + paint(corner, 1, panelHex()) + paint(interior, paneWidth-1, panelHex()) + last
 }
 
 // boundedRuleRow draws one of the rows that bound the body — edge "▀" opens
-// it, edge "▄" closes it. Over the pane it draws half blocks in the
-// pane's own tone — the fill bleeding half a cell past its box — and across
-// the content it draws the thin rule, whose center line meets the half
-// blocks' edge at the same height.
+// it, edge "▄" closes it. Across the content it draws the thin rule, and over
+// the pane — the rail, on the right — it draws half blocks in the pane's own
+// tone, the fill bleeding half a cell past its box, whose edge meets the
+// rule's center line at the same height.
 // The run's interior is drawn inverted — the cell background carries the
 // pane tone and the glyph paints the backdrop half in the theme's backdrop
 // color — but both end cells are not. The terminal extends a row's edge
 // cell background into the window margin at full cell height, so an
-// inverted first cell smears pane tone past the pane's corner; drawing it
+// inverted last cell smears pane tone past the pane's corner; drawing it
 // as a foreground half block keeps the margin on the terminal's own
-// background. The last cell sits over the bleed column, whose fill is only
+// background. The first cell sits over the bleed column, whose fill is only
 // half a cell wide, so it takes a quadrant instead of a half block and the
 // pane tone stops at the corner instead of jutting past it.
 func (m *Model) boundedRuleRow(paneWidth, width int, edge string) string {
 	if paneWidth < 2 || paneWidth >= width {
 		return paint(hrule(width), width, backdropHex())
 	}
-	facing, corner := "▄", "▜"
+	facing, corner := "▄", "▛"
 	if edge == "▄" {
-		facing, corner = "▀", "▟"
+		facing, corner = "▀", "▙"
 	}
-	first := plain(lipgloss.NewStyle().Foreground(lipgloss.Color(panelHex())).Render(facing), 1)
+	first := lipgloss.NewStyle().Foreground(colorBackdrop).Render(corner)
 	interior := lipgloss.NewStyle().Foreground(colorBackdrop).
 		Render(strings.Repeat(edge, paneWidth-1))
-	last := lipgloss.NewStyle().Foreground(colorBackdrop).Render(corner)
-	return first + paint(interior, paneWidth-1, panelHex()) + paint(last, 1, panelHex()) +
-		paint(hrule(width-paneWidth-1), width-paneWidth-1, backdropHex())
+	last := plain(lipgloss.NewStyle().Foreground(lipgloss.Color(panelHex())).Render(facing), 1)
+	return paint(hrule(width-paneWidth-1), width-paneWidth-1, backdropHex()) +
+		paint(first, 1, panelHex()) + paint(interior, paneWidth-1, panelHex()) + last
 }
 
-// railEdgeCell is one row of the pane's first column, drawn as a foreground
+// railEdgeCell is one row of the pane's last column, drawn as a foreground
 // block in the row's own tone rather than as cell background. The window
 // margin beside it inherits the cell's background — the terminal's own —
-// so the pane's left edge lands exactly on the cell grid.
+// so the pane's right edge lands exactly on the cell grid.
 func railEdgeCell(fill string) string {
 	if out, ok := edgeCellCache[fill]; ok {
 		return out
@@ -152,10 +153,11 @@ func (m *Model) vruleColumn(height int) []string {
 	return lines
 }
 
-// bleedColumn finishes a pane's right edge: a half block in the pane's
-// tone on the backdrop, extending the fill half a cell past the seam.
+// bleedColumn finishes a pane's left edge: a half block in the pane's
+// tone on the backdrop, extending the fill half a cell past the seam. In
+// focus mode it carries the ring's right upright.
 func (m *Model) bleedColumn(height int) []string {
-	cell := paint(lipgloss.NewStyle().Foreground(colorBackdrop).Render("▐"), 1, panelHex())
+	cell := paint(lipgloss.NewStyle().Foreground(colorBackdrop).Render("▌"), 1, panelHex())
 	lines := make([]string, height)
 	for i := range lines {
 		lines[i] = cell
@@ -163,7 +165,7 @@ func (m *Model) bleedColumn(height int) []string {
 	// Keep the edge joined to the footer even before a full capture arrives.
 	if m.mode == modeFocus && m.pane.box.ok {
 		edge := paint(focusEdgeStyle.Render("│"), 1, panelHex())
-		corner := paint(focusEdgeStyle.Render("╭"), 1, panelHex())
+		corner := paint(focusEdgeStyle.Render("╮"), 1, panelHex())
 		top := m.pane.box.y - m.listChromeRows()
 		if top-1 >= 0 && top-1 < len(lines) {
 			lines[top-1] = corner
@@ -175,7 +177,9 @@ func (m *Model) bleedColumn(height int) []string {
 	return lines
 }
 
-func (m *Model) focusRightColumn(height int) []string {
+// focusLeftColumn is the frame's first column: bare backdrop, and in focus
+// mode the ring's left upright.
+func (m *Model) focusLeftColumn(height int) []string {
 	lines := paintRows(nil, 1, height, backdropHex())
 	if m.mode != modeFocus || !m.pane.box.ok {
 		return lines
@@ -184,7 +188,7 @@ func (m *Model) focusRightColumn(height int) []string {
 	for row := max(0, top-1); row < height; row++ {
 		glyph := "│"
 		if row == top-1 {
-			glyph = "╮"
+			glyph = "╭"
 		}
 		lines[row] = plain(focusEdgeStyle.Render(glyph), 1)
 	}
@@ -192,18 +196,18 @@ func (m *Model) focusRightColumn(height int) []string {
 }
 
 // focusBottomRule closes the focused pane's hairline along the frame rule
-// under the body: the corner cell is the bleed column the left edge runs
+// under the body: the corner cell is the bleed column the right upright runs
 // down, so the two meet exactly.
 func (m *Model) focusBottomRule(paneWidth, width int) string {
 	tail := width - paneWidth - 1
-	if tail < 1 || paneWidth < 2 {
+	if tail < 2 || paneWidth < 2 {
 		return m.boundedRuleRow(paneWidth, width, "▄")
 	}
-	first := plain(lipgloss.NewStyle().Foreground(lipgloss.Color(panelHex())).Render("▀"), 1)
+	corner := focusEdgeStyle.Render("╯")
 	interior := lipgloss.NewStyle().Foreground(colorBackdrop).Render(strings.Repeat("▄", paneWidth-1))
-	corner := focusEdgeStyle.Render("╰")
-	return first + paint(interior, paneWidth-1, panelHex()) + paint(corner, 1, panelHex()) +
-		paint(focusEdgeStyle.Render(strings.Repeat("─", tail-1)+"╯"), tail, backdropHex())
+	last := plain(lipgloss.NewStyle().Foreground(lipgloss.Color(panelHex())).Render("▀"), 1)
+	return paint(focusEdgeStyle.Render("╰"+strings.Repeat("─", tail-1)), tail, backdropHex()) +
+		paint(corner, 1, panelHex()) + paint(interior, paneWidth-1, panelHex()) + last
 }
 
 // seamCell is one row of the vertical seam. The column is the pane's own

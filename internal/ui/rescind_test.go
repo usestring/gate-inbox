@@ -20,7 +20,11 @@ func TestRescindTargetsTheLatestSubmissionInsteadOfTheSelectedRow(t *testing.T) 
 	m.selectSessionRow(t, "submitted")
 	m.openQuickMode()
 	m.quick.input.SetValue("start this")
-	if _, _ = m.submitQuick(); m.latestSubmission.sessionID != m.sessionID(t, "submitted") {
+	m.submitQuick()
+	if m.latestSubmission.sessionID != "" {
+		t.Fatal("a prompt was rescindable before it landed")
+	}
+	if landAnswer(t, m, m.sessionID(t, "submitted")); m.latestSubmission.sessionID != m.sessionID(t, "submitted") {
 		t.Fatalf("latest submission = %q want submitted", m.latestSubmission.sessionID)
 	}
 	m.quick.active = false
@@ -28,8 +32,8 @@ func TestRescindTargetsTheLatestSubmissionInsteadOfTheSelectedRow(t *testing.T) 
 
 	footer := ansi.Strip(m.peekLegend(m.listBodyHeight()))
 	if !strings.Contains(footer, m.tightCap(keymap.ContextList, keymap.Rescind)) ||
-		!strings.Contains(footer, "rescind latest") {
-		t.Fatalf("footer did not offer rescind: %q", footer)
+		!strings.Contains(footer, "undo") {
+		t.Fatalf("footer did not offer undo: %q", footer)
 	}
 
 	tool := m.cfg.Tools["claude"]
@@ -40,7 +44,7 @@ func TestRescindTargetsTheLatestSubmissionInsteadOfTheSelectedRow(t *testing.T) 
 	if m.latestSubmission.sessionID != "" {
 		t.Fatalf("successful rescind left target %q armed", m.latestSubmission.sessionID)
 	}
-	if !strings.Contains(m.errBar.text, "rescinded the latest submission to submitted") {
+	if !strings.Contains(m.errBar.text, "undid the latest submission to submitted") {
 		t.Fatalf("rescind result = %q", m.errBar.text)
 	}
 	if !m.tmux.Exists(m.sessionID(t, "selected")) {
@@ -71,14 +75,16 @@ func TestFocusedAnswerRemainsRescindableAfterAutoProceed(t *testing.T) {
 	stageDialog(m, answeredID)
 	updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(*Model)
+	logHookEvent(t, m, answeredID, "working PostToolUse")
+	lookForLanding(t, m)
 	if got := focusedName(t, m); got != "next" {
 		t.Fatalf("after answering, focused %q want next", got)
 	}
 	if m.latestSubmission.sessionID != answeredID {
 		t.Fatalf("rescind target = %q want answered session %q", m.latestSubmission.sessionID, answeredID)
 	}
-	if footer := ansi.Strip(m.viewFooter()); !strings.Contains(footer, "rescind latest") {
-		t.Fatalf("focused footer did not offer rescind after auto-proceed: %q", footer)
+	if footer := ansi.Strip(m.viewFooter()); !strings.Contains(footer, "undo") {
+		t.Fatalf("focused footer did not offer undo after auto-proceed: %q", footer)
 	}
 }
 

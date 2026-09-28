@@ -20,9 +20,11 @@ var precedencePanes = map[string]string{
 // the case sample-repo#983 left open: SessionStart writes it and no later event
 // rewrites it, so a live waiting or working pane has to win. Finished and
 // errored stay hook-authoritative against an idle hook, since re-deriving
-// an alert the operator already dismissed would re-notify each poll. The
-// waiting rows pin the deliberate gap: a hook-written waiting is a live
-// Notification event, so no pane verdict displaces it.
+// an alert the operator already dismissed would re-notify each poll. A
+// waiting hook yields only to a live working pane, the approved command
+// still running with no hook due until it ends; a turn-end line can be an
+// old one sitting under a dialog the rules do not recognise, so finished
+// and errored panes leave the wait standing.
 func TestHookStatusPrecedenceAgainstPaneVerdicts(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -38,7 +40,8 @@ func TestHookStatusPrecedenceAgainstPaneVerdicts(t *testing.T) {
 		{"idle hook, acked waiting pane", status.Idle, status.Waiting, true, status.Waiting},
 		{"idle hook, acked finished pane", status.Idle, status.Finished, true, status.Idle},
 
-		{"waiting hook, working pane", status.Waiting, status.Working, false, status.Waiting},
+		{"waiting hook, working pane", status.Waiting, status.Working, false, status.Working},
+		{"waiting hook, acked working pane", status.Waiting, status.Working, true, status.Working},
 		{"waiting hook, finished pane", status.Waiting, status.Finished, false, status.Waiting},
 		{"waiting hook, errored pane", status.Waiting, status.Errored, false, status.Waiting},
 		{"waiting hook, waiting pane", status.Waiting, status.Waiting, false, status.Waiting},

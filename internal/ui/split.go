@@ -79,15 +79,15 @@ func clampSplitLeft(left, width int) int {
 	return left
 }
 
-// setSplitFromX pins the left panel's right edge to terminal column x and
-// updates the stored ratio. Live during a drag; consumers re-read via
-// splitWidths on the next View.
+// setSplitFromX pins the seam to terminal column x, which leaves the rail
+// every column to its right, and updates the stored ratio. Live during a
+// drag; consumers re-read via splitWidths on the next View.
 func (m *Model) setSplitFromX(x int) {
 	if m.width <= 0 {
 		return
 	}
-	left := clampSplitLeft(x, m.width)
-	m.split.ratio = float64(left) / float64(m.width)
+	rail := clampSplitLeft(m.width-x-1, m.width)
+	m.split.ratio = float64(rail) / float64(m.width)
 }
 
 // enterResizeMode arms divider dragging, which the arrow keys drive. The
@@ -127,8 +127,7 @@ func (m *Model) nudgeSplit(delta int) {
 	if m.width <= 0 || delta == 0 {
 		return
 	}
-	left, _ := m.splitWidths()
-	m.setSplitFromX(left + delta)
+	m.setSplitFromX(m.dividerX() + delta)
 }
 
 // listChromeRows is the number of rows above the sessions/content body: the
@@ -153,11 +152,11 @@ func (m *Model) bodyYRange() (start, end int) {
 	return m.listChromeRows(), m.listChromeRows() + m.listBodyHeight()
 }
 
-// dividerX is the column index of the sessions/sidebar junction (first
-// column of the right panel, or the grip column when resize mode is on).
+// dividerX is the column index of the content/rail junction: the seam,
+// which is also the grip column when resize mode is on.
 func (m *Model) dividerX() int {
-	left, _ := m.splitWidths()
-	return left
+	rail, _ := m.splitWidths()
+	return m.width - rail - 1
 }
 
 // onDivider reports whether terminal column x is close enough to the

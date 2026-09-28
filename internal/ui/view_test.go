@@ -373,19 +373,28 @@ func TestFocusedPaneHasRightBorder(t *testing.T) {
 					t.Fatalf("painted width %d differs from tmux width %d", m.pane.box.width, m.previewPaneWidth())
 				}
 				top, bottom := m.pane.box.y-1, m.listChromeRows()+m.listBodyHeight()
-				if preview == "hello" && []rune(rows[m.pane.box.y])[width-2] != 'Z' {
+				right := m.pane.box.x + m.pane.box.width
+				if preview == "hello" && []rune(rows[m.pane.box.y])[right-1] != 'Z' {
 					t.Fatal("border overwrote the last column of pane content")
 				}
+				// The rail sits to the right, so the ring's right upright is
+				// the bleed column just short of the seam.
+				if right != m.dividerX()-1 {
+					t.Fatalf("pane ends at %d, want the bleed column %d", right, m.dividerX()-1)
+				}
 				for y := top; y <= bottom; y++ {
-					want := '│'
+					wantLeft, wantRight := '│', '│'
 					if y == top {
-						want = '╮'
+						wantLeft, wantRight = '╭', '╮'
 					}
 					if y == bottom {
-						want = '╯'
+						wantLeft, wantRight = '╰', '╯'
 					}
-					if got := []rune(rows[y])[width-1]; got != want {
-						t.Fatalf("%dx%d row %d: right border = %q, want %q", width, height, y, got, want)
+					if got := []rune(rows[y])[0]; got != wantLeft {
+						t.Fatalf("%dx%d row %d: left border = %q, want %q", width, height, y, got, wantLeft)
+					}
+					if got := []rune(rows[y])[right]; got != wantRight {
+						t.Fatalf("%dx%d row %d: right border = %q, want %q", width, height, y, got, wantRight)
 					}
 				}
 				for y, row := range rows {
@@ -407,26 +416,27 @@ func TestFocusedPaneHasRightBorder(t *testing.T) {
 }
 
 // The pane's soft edges: the opening row bleeds down by half a cell, the
-// closing row bleeds up by half, and every body row ends with the ▐
-// half-block edge one column past the seam. The end cells of the edge rows
-// are the corners: the first is a foreground block so the window margin
-// cannot inherit pane tone and smear past the corner, and the last is
+// closing row bleeds up by half, and every body row starts the rail with the
+// ▌ half-block edge one column short of the seam. The end cells of the edge
+// rows are the corners: the last is a foreground block so the window margin
+// cannot inherit pane tone and smear past the corner, and the first is
 // narrowed to the bleed's half width so the fill closes at the corner
-// instead of jutting right. Both rows are drawn in block elements, the
+// instead of jutting left. Both rows are drawn in block elements, the
 // vocabulary of the rest of the frame; TestFrameStaysInWidelyDrawnGlyphs
 // is what holds the seam out of Symbols for Legacy Computing.
 func TestPaneSoftEdges(t *testing.T) {
 	m := shotModel()
 	rows := strings.Split(m.frame(), "\n")
-	leftWidth, _ := m.splitWidths()
+	seam := m.dividerX()
+	last := m.width - 1
 
 	top := []rune(ansi.Strip(rows[(m.listChromeRows() - 1)]))
 	bottom := []rune(ansi.Strip(rows[(m.listChromeRows()-1)+1+m.listBodyHeight()]))
-	if top[0] != '▄' || bottom[0] != '▀' {
-		t.Fatalf("edge rows should open with foreground blocks, got %q and %q",
-			string(top[0]), string(bottom[0]))
+	if top[last] != '▄' || bottom[last] != '▀' {
+		t.Fatalf("edge rows should close with foreground blocks, got %q and %q",
+			string(top[last]), string(bottom[last]))
 	}
-	for col := 1; col <= leftWidth; col++ {
+	for col := seam; col < last; col++ {
 		if top[col] != '▀' {
 			t.Fatalf("top edge col %d is %q, want ▀:\n%s", col, string(top[col]), string(top))
 		}
@@ -434,24 +444,24 @@ func TestPaneSoftEdges(t *testing.T) {
 			t.Fatalf("bottom edge col %d is %q, want ▄:\n%s", col, string(bottom[col]), string(bottom))
 		}
 	}
-	if top[leftWidth+1] != '▜' || bottom[leftWidth+1] != '▟' {
-		t.Fatalf("edge rows should close on the bleed's half width, got %q and %q",
-			string(top[leftWidth+1]), string(bottom[leftWidth+1]))
+	if top[seam-1] != '▛' || bottom[seam-1] != '▙' {
+		t.Fatalf("edge rows should open on the bleed's half width, got %q and %q",
+			string(top[seam-1]), string(bottom[seam-1]))
 	}
-	if top[leftWidth+2] == '▀' || bottom[leftWidth+2] == '▄' {
-		t.Fatalf("the bleed should stop after the seam's edge column")
+	if top[seam-2] == '▀' || bottom[seam-2] == '▄' {
+		t.Fatalf("the bleed should stop before the seam's edge column")
 	}
 	for i := (m.listChromeRows() - 1) + 1; i < (m.listChromeRows()-1)+1+m.listBodyHeight(); i++ {
 		row := []rune(ansi.Strip(rows[i]))
-		if cell := row[0]; cell != '█' {
-			t.Fatalf("row %d: first column is %q, want █:\n%s", i, string(cell), string(row))
+		if cell := row[last]; cell != '█' {
+			t.Fatalf("row %d: last column is %q, want █:\n%s", i, string(cell), string(row))
 		}
-		if cell := row[leftWidth+1]; cell != '▐' && cell != '─' {
-			t.Fatalf("row %d: edge column is %q, want ▐:\n%s", i, string(cell), string(row))
+		if cell := row[seam-1]; cell != '▌' && cell != '─' {
+			t.Fatalf("row %d: edge column is %q, want ▌:\n%s", i, string(cell), string(row))
 		}
 		// The seam is fill, not a drawn line: the glyphs of the old line
 		// seam appearing here mean a stale seam renderer shipped again.
-		if cell := row[leftWidth]; cell != ' ' && cell != '─' {
+		if cell := row[seam]; cell != ' ' && cell != '─' {
 			t.Fatalf("row %d: seam column is %q, want pane fill:\n%s", i, string(cell), string(row))
 		}
 	}

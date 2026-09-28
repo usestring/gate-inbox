@@ -259,13 +259,72 @@ func TestTheCardNamesTheCLIAFilterResolvedTo(t *testing.T) {
 	}
 }
 
-// The cut can drop an alternative, never the selection: a row that lost it
-// would leave the card silent about what enter starts.
-func TestTheSelectedCLISurvivesANarrowRow(t *testing.T) {
+// Nothing is cut: names that run past the budget wrap onto a line of their
+// own rather than dropping off the card.
+func TestAgentPickRowsWrapInsteadOfCutting(t *testing.T) {
 	names := []string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc"}
-	row := ansi.Strip(agentPickRow(names, "cccccccccc", 12))
-	if !strings.Contains(row, "cccccccccc") {
-		t.Fatalf("row = %q, want the selected CLI kept", row)
+	rows := agentPickRows(names, "cccccccccc", 12)
+	if len(rows) != 3 {
+		t.Fatalf("rows = %q, want one name per line at this width", rows)
+	}
+	joined := ansi.Strip(strings.Join(rows, "\n"))
+	for _, name := range names {
+		if !strings.Contains(joined, name) {
+			t.Fatalf("rows = %q, missing %s", joined, name)
+		}
+	}
+}
+
+// The box offers the terminal beside the agents, and picking it opens the
+// shell T would, not an agent.
+func TestAgentBoxLaunchesATerminal(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
+	pressKey(t, m, instantKey())
+	card := ansi.Strip(m.viewAgentPick())
+	if !strings.Contains(card, "terminal") {
+		t.Fatalf("card does not offer the terminal:\n%s", card)
+	}
+	typeInto(t, m, "term")
+	pressKey(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || !m.isShell(rows[0].Tool) {
+		t.Fatalf("sessions = %+v, want one shell (err %q)", rows, m.errBar.text)
+	}
+}
+
+// The saved order is the order the box offers, terminal included, and a CLI
+// the order leaves out follows the ones it names.
+func TestPickerFollowsTheSavedOrder(t *testing.T) {
+	m := buildModel(t)
+	if err := m.store.SetSetting(toolOrderSetting, "terminal,ready-tool,gone"); err != nil {
+		t.Fatal(err)
+	}
+	names := m.pickerNames()
+	if len(names) < 3 || names[0] != "terminal" || names[1] != "ready-tool" {
+		t.Fatalf("picker = %v, want terminal then ready-tool first", names)
+	}
+	for _, name := range m.enabledToolNames() {
+		if m.isShell(name) {
+			t.Fatalf("enabledToolNames = %v, want agents only", m.enabledToolNames())
+		}
+	}
+}
+
+// Reordering in the CLIs panel is saved on the way out.
+func TestCLIPanelReorderIsSaved(t *testing.T) {
+	m := buildModel(t)
+	m.openSettings()
+	m.openCLIPicker()
+	first := m.settings.cliNames[0]
+	m.handleCLIPickerKey(tea.KeyPressMsg{Code: tea.KeyDown, Mod: tea.ModShift})
+	if m.settings.cliNames[1] != first || m.settings.cliCursor != 1 {
+		t.Fatalf("names = %v cursor %d, want %s moved down", m.settings.cliNames, m.settings.cliCursor, first)
+	}
+	m.handleCLIPickerKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if got := m.orderedToolNames(); got[1] != first {
+		t.Fatalf("saved order = %v, want %s second", got, first)
 	}
 }
 

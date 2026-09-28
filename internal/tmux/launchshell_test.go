@@ -322,3 +322,22 @@ func TestLoginProbeIsCachedPerShell(t *testing.T) {
 		t.Fatalf("probed the shell %d times, want 1", got)
 	}
 }
+
+func TestRunsLaunchScriptMatchesOnlyThatSessionsScript(t *testing.T) {
+	for _, tc := range []struct {
+		start, id string
+		want      bool
+	}{
+		{"sh '/var/folders/x/T/gi-launch-0badf00d-abc.sh'", "abc", true},
+		{`"/tmp/gi-launch-0badf00d-abc.sh"`, "abc", true},
+		{"/tmp/gi-launch-0badf00d-abcd.sh", "abc", false},
+		{"/tmp/gi-launch-0badf00d-xabc.sh", "abc", false},
+		{"claude --resume abc", "abc", false},
+		{"", "abc", false},
+		{"/tmp/gi-launch-0badf00d-.sh", "", false},
+	} {
+		if got := RunsLaunchScript(tc.start, tc.id); got != tc.want {
+			t.Errorf("RunsLaunchScript(%q, %q) = %v, want %v", tc.start, tc.id, got, tc.want)
+		}
+	}
+}

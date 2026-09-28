@@ -467,9 +467,14 @@ func (m *Model) triageHandable(row treeRow, leftID string, tried map[string]bool
 	// agent is seen to have taken it, which is what the landing waits for --
 	// so without this the advance walks back into the session it just came
 	// from. The walk keeps going past it the way it walks past a muted row,
-	// whatever its mark, and the skip lapses with the landing itself once
-	// the answer is seen, refused or out of time. See landing.go.
+	// whatever its mark. A refused or timed-out answer lapses the skip with
+	// the landing; a seen one holds it until a poll listed after the landing
+	// has been applied, since until then the row still reads the state the
+	// answer moved it on from. See landing.go.
 	if _, pending := m.landings[row.sess.ID]; pending {
+		return false
+	}
+	if _, settling := m.settling[row.sess.ID]; settling {
 		return false
 	}
 	// A pane that will not act on input cannot be answered, so handing it

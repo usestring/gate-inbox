@@ -547,6 +547,10 @@ type Model struct {
 	landings       map[string]*pendingLanding
 	landingGen     int
 	landingLocator *search.Locator
+	// settling are the sessions whose answer has been seen landing, by the
+	// instant it was, until a poll listed after that has been applied: the
+	// row still shows the state the answer moved it on from. See triage.go.
+	settling map[string]time.Time
 	// statusesAsOf is when the newest applied poll pass listed its sessions:
 	// every status on the board is at least that fresh. A mute keyed to an
 	// answer landing lapses once it passes the landing; see mute.go.
@@ -1981,6 +1985,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.listedAt.After(m.statusesAsOf) {
 			m.statusesAsOf = msg.listedAt
 		}
+		m.settleLandings()
 		m.dropHeldAckOnNewTurn()
 		// A pane taken by the last adopt scan is on the board under its
 		// directory's basename, and this is the first pass that can see the

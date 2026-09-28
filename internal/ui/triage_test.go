@@ -551,3 +551,42 @@ func TestTriageWalkKeepsGoingPastSessionsWithSubmissionsInFlight(t *testing.T) {
 		t.Fatalf("walk past a submitted waiting row = %q, %v, want done", got, ok)
 	}
 }
+
+// An answer seen landing is still not news the board has polled: the row
+// reads the state it was answered in until a poll listed after the landing
+// is applied. The walk keeps going past it until then, so an answer sent from
+// the list to one row that lands while the operator works another is not
+// handed straight back to them.
+func TestTriageWalkKeepsGoingPastLandedAnswerUntilNextPoll(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{
+		"ask":  status.Waiting,
+		"done": status.Finished,
+		"calm": status.Idle,
+	})
+	m.triage = true
+	m.rebuildRows()
+	next := func(leftID string) string {
+		t.Helper()
+		i, ok := m.nextTriageInput(leftID, map[string]bool{})
+		if !ok {
+			return ""
+		}
+		return m.rows[i].sess.Name
+	}
+	doneID := sessionID(t, m, "done")
+	m.landings = map[string]*pendingLanding{doneID: {gen: 1, probe: &landingProbe{}}}
+	m.applyLandingCheck(landingCheckMsg{id: doneID, gen: 1, verdict: landingSeen})
+	if _, pending := m.landings[doneID]; pending {
+		t.Fatal("landing still pending after it was seen")
+	}
+	if got := next(sessionID(t, m, "ask")); got != "calm" {
+		t.Fatalf("walk past a landed, unpolled row = %q, want calm", got)
+	}
+
+	m.statusesAsOf = m.settling[doneID].Add(time.Millisecond)
+	m.settleLandings()
+	if got := next(sessionID(t, m, "ask")); got != "done" {
+		t.Fatalf("walk after a poll past the landing = %q, want done", got)
+	}
+}

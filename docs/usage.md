@@ -255,7 +255,7 @@ That server is started once by its CLI and then lives as long as the conversatio
 | `revive_session` | Bring a dead session back, resuming the conversation it held |
 | `kill_session` | Stop a running agent, keeping its row and last screen |
 | `archive_session` | File a finished session out of the active list, or restore it. An archived row is deleted for good seven days later |
-| `task` | The shared work list in one tool: `action` is `list`, `create`, `claim`, `finish`, `release` or `delete` |
+| `task` | The shared work list in one tool: `action` is `list`, `create`, `claim`, `finish`, `release` or `delete`; `list` is narrowed by `state`, `mine`, `include_done`, `include_body` and `limit`, and done tasks and bodies are left out unless asked for |
 | `reserve_files` | Declare the files this session is editing, and see who else claims them |
 | `release_files` | Give those claims back |
 | `list_reservations` | See what every session is editing right now |
@@ -307,6 +307,8 @@ Delivery needs the manager running, since its poller is what types the message i
 `wait_for_session` parks a single tool call until a session reaches one of the states that mean it stopped working, so an agent that spawned work does not read screens in a loop while it waits. A timeout returns the session's current state with `reached` false, because a timeout is an answer rather than a failure; `outcome` separates that from the session dying before it ever reached one of the awaited states. It is an ordinary tool call, which is what makes it work with every MCP client.
 
 The task list is the manager's shared to-do list, visible to every session, all of it behind the one `task` tool. `create` puts work on it, `claim` takes a piece (by id, or the oldest one nothing is blocking), and `finish` marks it done, which unblocks every task that depended on it. A claim is a single atomic write, so two agents racing for the same task cannot both win: the loser is told who holds it. A session that is deleted hands its claims back to the list rather than parking them forever.
+
+`list` returns the open work by default: pending and in-progress tasks, as titles without their bodies, the first 50 rows. A list that has run for a while is mostly finished work, and reading all of it with every instruction attached costs far more than the handful of rows an agent choosing its next task needs. `mine` keeps the caller's own claims, `state` names the states to keep, `include_done` adds finished tasks, `include_body` carries each full instruction (a claim returns the body anyway), and `limit` takes up to 500 rows. The reply carries `matched`, `returned` and `truncated`, and its text ends with a line saying how many rows the limit left out, so a cut list never passes for a whole one. `gate-inbox task list` takes the same filters as `--state`, `--mine`, `--include-done`, `--include-body` and `--limit`, and its `--json` output is the same record.
 
 ### File reservations
 

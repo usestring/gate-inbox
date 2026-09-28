@@ -1,3 +1,5 @@
+// Modified by Durable Alpha, 2026: changes from the upstream commit named in NOTICE.
+
 package store
 
 import (
@@ -89,5 +91,71 @@ func TestDeleteTaskLeavesTheEdgesOfAnIDThatNamesNoTask(t *testing.T) {
 	}
 	if taken {
 		t.Fatalf("a task the list reports blocked was handed out as the next one: %+v", next)
+	}
+}
+
+// A list that has run for a while is mostly finished work. The narrowing
+// has to happen in the statement, or every finished row and every body is
+// still read to be thrown away; and the count has to be of what matched,
+// or a caller cannot tell a short list from a cut one.
+func TestQueryTasksNarrowsAndCountsInTheStatement(t *testing.T) {
+	st := newTestStore(t)
+	now := time.Now()
+	for _, id := range []string{"a-schema", "b-backfill", "c-docs", "d-verify"} {
+		if err := st.CreateTask(Task{
+			ID: id, Title: "work on " + id, Body: "the long instruction for " + id, State: TaskPending,
+			CreatedAt: now, UpdatedAt: now,
+		}); err != nil {
+			t.Fatalf("CreateTask(%s): %v", id, err)
+		}
+	}
+	createTask(t, st, "e-release", "a-schema", "b-backfill")
+	for _, id := range []string{"a-schema", "b-backfill"} {
+		if ok, err := st.ClaimTask(id, "session01", now); err != nil || !ok {
+			t.Fatalf("ClaimTask(%s) = %t, %v", id, ok, err)
+		}
+	}
+	if ok, err := st.FinishTask("a-schema", "session01", now); err != nil || !ok {
+		t.Fatalf("FinishTask = %t, %v", ok, err)
+	}
+
+	open, err := st.QueryTasks(TaskQuery{States: []string{TaskPending, TaskInProgress}, SkipBody: true})
+	if err != nil {
+		t.Fatalf("QueryTasks: %v", err)
+	}
+	if open.Matched != 4 || len(open.Tasks) != 4 {
+		t.Fatalf("open work = %d rows of %d matched, want 4 of 4: %+v", len(open.Tasks), open.Matched, open.Tasks)
+	}
+	for _, task := range open.Tasks {
+		if task.State == TaskDone {
+			t.Fatalf("a done task came back from a read of the open work: %+v", task)
+		}
+		if task.Body != "" {
+			t.Fatalf("%s carried its body through a read that skipped bodies", task.ID)
+		}
+		// The finished dependency is not on this page, and that must not
+		// make it read as unfinished.
+		if task.ID == "e-release" && (len(task.Blocking) != 1 || task.Blocking[0] != "b-backfill") {
+			t.Fatalf("e-release is blocked on %v, want only b-backfill", task.Blocking)
+		}
+	}
+
+	cut, err := st.QueryTasks(TaskQuery{States: []string{TaskPending}, Limit: 1})
+	if err != nil {
+		t.Fatalf("QueryTasks: %v", err)
+	}
+	if len(cut.Tasks) != 1 || cut.Matched != 3 || cut.Tasks[0].ID != "c-docs" {
+		t.Fatalf("limited read = %d rows of %d matched, first %+v; want c-docs, 1 of 3", len(cut.Tasks), cut.Matched, cut.Tasks)
+	}
+	if cut.Tasks[0].Body == "" {
+		t.Fatal("a read that did not skip bodies came back without one")
+	}
+
+	held, err := st.QueryTasks(TaskQuery{Owner: "session01"})
+	if err != nil {
+		t.Fatalf("QueryTasks: %v", err)
+	}
+	if held.Matched != 2 || len(held.Tasks) != 2 {
+		t.Fatalf("owner read = %+v, want the finished and the claimed task", held.Tasks)
 	}
 }

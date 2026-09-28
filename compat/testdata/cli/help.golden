@@ -46,7 +46,7 @@ Agent sessions
 Shared task list
   gate-inbox task <list|create|claim|finish|release|delete>
       the work list every session in this manager claims from
-  gate-inbox task list [--json]
+  gate-inbox task list [--state <state>] [--include-done] [--mine] [--include-body] [--limit <n>] [--json]
       read the work list every session shares: what is pending, who holds what, and what is blocked
   gate-inbox task create <title> [--body <text>] [--depends-on <id,id>] [--json]
       put a piece of work on the shared list so any session can pick it up

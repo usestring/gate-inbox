@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -142,7 +143,7 @@ func TestTheTwoFrontsShareOneTaskList(t *testing.T) {
 	if !strings.Contains(finished, "[done]") {
 		t.Fatalf("finish = %q", finished)
 	}
-	if text, isError := w.mcpText(t, w.worker.ID, "task", map[string]any{"action": "list"}); isError ||
+	if text, isError := w.mcpText(t, w.worker.ID, "task", map[string]any{"action": "list", "include_done": true}); isError ||
 		!strings.Contains(text, "wire the cli ("+id+") [done]") {
 		t.Fatalf("the MCP front does not see the shell's finish: %q, isError=%v", text, isError)
 	}
@@ -174,23 +175,10 @@ func TestTheTwoFrontsAnswerOneOperationIdentically(t *testing.T) {
 	cliRecord := cliText(t, func(out *bytes.Buffer) error {
 		return runTaskList(out, w.tasks, []string{"--json"}, w.lead.ID)
 	})
-	var cliTasks []sessioncmd.Task
-	if err := json.Unmarshal([]byte(cliRecord), &cliTasks); err != nil {
-		t.Fatalf("task list --json is not JSON: %v (%q)", err, cliRecord)
-	}
-	structured := w.mcpCall(t, w.lead.ID, "task", map[string]any{"action": "list"}).StructuredContent
-	encoded, err := json.Marshal(structured)
-	if err != nil {
-		t.Fatalf("marshal structured content: %v", err)
-	}
-	var mcpTasks struct {
-		Tasks []sessioncmd.Task `json:"tasks"`
-	}
-	if err := json.Unmarshal(encoded, &mcpTasks); err != nil {
-		t.Fatalf("structured content is not a task list: %v (%s)", err, encoded)
-	}
-	if !reflect.DeepEqual(cliTasks, mcpTasks.Tasks) {
-		t.Fatalf("the fronts return different records:\ncli: %+v\nmcp: %+v", cliTasks, mcpTasks.Tasks)
+	cliTasks := decodeTaskList(t, []byte(cliRecord))
+	mcpTasks := w.mcpTaskList(t, w.lead.ID, map[string]any{"action": "list"})
+	if !reflect.DeepEqual(cliTasks, mcpTasks) {
+		t.Fatalf("the fronts return different records:\ncli: %+v\nmcp: %+v", cliTasks, mcpTasks)
 	}
 
 	// A refusal is what an agent reads most often, so it has to match too.
@@ -385,5 +373,175 @@ func TestBothFrontsTakeEverySendArgument(t *testing.T) {
 		if !strings.Contains(err.Error(), "nosuch12") {
 			t.Errorf("send_session takes %q and `gate-inbox send` does not: %v", name, err)
 		}
+	}
+}
+
+// taskListRecord is the list both fronts hand a caller, decoded field by
+// field so a front that dropped the count or the truncation flag differs.
+type taskListRecord struct {
+	Tasks     []sessioncmd.Task `json:"tasks"`
+	Matched   int               `json:"matched"`
+	Returned  int               `json:"returned"`
+	Truncated bool              `json:"truncated"`
+}
+
+func decodeTaskList(t *testing.T, encoded []byte) taskListRecord {
+	t.Helper()
+	var list taskListRecord
+	if err := json.Unmarshal(encoded, &list); err != nil {
+		t.Fatalf("not a task list: %v (%s)", err, encoded)
+	}
+	return list
+}
+
+func (w *parityWorkspace) mcpTaskList(t *testing.T, sessionID string, args map[string]any) taskListRecord {
+	t.Helper()
+	result := w.mcpCall(t, sessionID, "task", args)
+	if result.IsError {
+		t.Fatalf("task list %v errored: %+v", args, result.Content)
+	}
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal structured content: %v", err)
+	}
+	return decodeTaskList(t, encoded)
+}
+
+// A list that has run for a while is mostly finished work, each row with
+// its full instruction. Both fronts have to leave that out by default, take
+// the same arguments to ask for it back, and say in the same words when a
+// limit cut the answer.
+func TestTheTwoFrontsNarrowTheTaskListAlike(t *testing.T) {
+	w := newParityWorkspace(t)
+	var ids []string
+	for _, title := range []string{"add the column", "backfill it", "write the docs", "verify"} {
+		created := cliText(t, func(out *bytes.Buffer) error {
+			return runTaskCreate(out, w.tasks, []string{title, "--body", "the full instruction for " + title}, w.lead.ID)
+		})
+		ids = append(ids, taskID(t, created))
+	}
+	for _, id := range ids[:2] {
+		if _, err := w.tasks.ClaimTask(w.lead.ID, id); err != nil {
+			t.Fatalf("ClaimTask: %v", err)
+		}
+		if _, err := w.tasks.FinishTask(w.lead.ID, id); err != nil {
+			t.Fatalf("FinishTask: %v", err)
+		}
+	}
+	if _, err := w.tasks.ClaimTask(w.worker.ID, ids[2]); err != nil {
+		t.Fatalf("ClaimTask: %v", err)
+	}
+
+	for _, ask := range []struct {
+		name     string
+		mcp      map[string]any
+		cli      []string
+		caller   string
+		matched  int
+		returned int
+	}{
+		{"the default read", map[string]any{}, nil, w.lead.ID, 2, 2},
+		{"finished work too", map[string]any{"include_done": true}, []string{"--include-done"}, w.lead.ID, 4, 4},
+		{"one state", map[string]any{"state": []string{"done"}}, []string{"--state", "done"}, w.lead.ID, 2, 2},
+		{"its own claims", map[string]any{"mine": true}, []string{"--mine"}, w.worker.ID, 1, 1},
+		{"a cut list", map[string]any{"include_done": true, "limit": 3}, []string{"--include-done", "--limit", "3"}, w.lead.ID, 4, 3},
+		{"with bodies", map[string]any{"include_body": true}, []string{"--include-body"}, w.lead.ID, 2, 2},
+	} {
+		t.Run(ask.name, func(t *testing.T) {
+			args := map[string]any{"action": "list"}
+			for name, value := range ask.mcp {
+				args[name] = value
+			}
+			fromMCP, isError := w.mcpText(t, ask.caller, "task", args)
+			if isError {
+				t.Fatalf("task list %v errored: %q", args, fromMCP)
+			}
+			fromCLI := cliText(t, func(out *bytes.Buffer) error {
+				return runTaskList(out, w.tasks, ask.cli, ask.caller)
+			})
+			if strings.TrimSpace(fromCLI) != strings.TrimSpace(fromMCP) {
+				t.Fatalf("the fronts describe one list differently:\ncli: %q\nmcp: %q", fromCLI, fromMCP)
+			}
+			record := decodeTaskList(t, []byte(cliText(t, func(out *bytes.Buffer) error {
+				return runTaskList(out, w.tasks, append(ask.cli, "--json"), ask.caller)
+			})))
+			if structured := w.mcpTaskList(t, ask.caller, args); !reflect.DeepEqual(record, structured) {
+				t.Fatalf("the fronts return different records:\ncli: %+v\nmcp: %+v", record, structured)
+			}
+			if record.Matched != ask.matched || record.Returned != ask.returned || record.Truncated != (ask.returned < ask.matched) {
+				t.Fatalf("list = %d of %d, truncated %t; want %d of %d", record.Returned, record.Matched, record.Truncated, ask.returned, ask.matched)
+			}
+			_, askedForDone := ask.mcp["include_done"]
+			_, askedForState := ask.mcp["state"]
+			_, askedForBody := ask.mcp["include_body"]
+			for _, task := range record.Tasks {
+				if task.State == store.TaskDone && !askedForDone && !askedForState {
+					t.Fatalf("finished work was listed without being asked for: %+v", task)
+				}
+				if (task.Body != "") != askedForBody {
+					t.Fatalf("%s came back with body %q when include_body was %t", task.ID, task.Body, askedForBody)
+				}
+			}
+			if ask.returned < ask.matched && !strings.Contains(fromMCP, fmt.Sprintf("(%d of %d matching tasks", ask.returned, ask.matched)) {
+				t.Fatalf("a cut list does not say so: %q", fromMCP)
+			}
+		})
+	}
+}
+
+// An argument the task tool takes for list is one a shell has to be able
+// to pass as well; the list arguments are the ones whose description opens
+// with "list:".
+func TestBothFrontsTakeEveryTaskListArgument(t *testing.T) {
+	w := newParityWorkspace(t)
+	listed, err := w.mcpSession(t, w.lead.ID).ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	var schema struct {
+		Properties map[string]struct {
+			Type        any    `json:"type"`
+			Description string `json:"description"`
+		} `json:"properties"`
+	}
+	for _, tool := range listed.Tools {
+		if tool.Name != "task" {
+			continue
+		}
+		encoded, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			t.Fatalf("marshal task schema: %v", err)
+		}
+		if err := json.Unmarshal(encoded, &schema); err != nil {
+			t.Fatalf("task schema is not an object schema: %v (%s)", err, encoded)
+		}
+	}
+	checked := 0
+	for name, prop := range schema.Properties {
+		if !strings.HasPrefix(prop.Description, "list:") {
+			continue
+		}
+		checked++
+		flag := "--" + strings.ReplaceAll(name, "_", "-")
+		if !strings.Contains(usageTaskList, flag) {
+			t.Errorf("%s is not in the task list usage line: %q", flag, usageTaskList)
+		}
+		args := []string{flag}
+		switch name {
+		case "state":
+			args = append(args, "pending")
+		case "limit":
+			args = append(args, "5")
+		}
+		if prop.Type != "boolean" && len(args) == 1 {
+			t.Errorf("the test does not know a value for %s", name)
+			continue
+		}
+		if err := runTaskList(&bytes.Buffer{}, w.tasks, args, w.lead.ID); err != nil {
+			t.Errorf("the task tool takes %q for list and `task list` does not: %v", name, err)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("the task tool offers no list arguments at all")
 	}
 }

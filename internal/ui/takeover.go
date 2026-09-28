@@ -23,15 +23,11 @@ import (
 // up, one pane at a time and only when the pane is idle, so no turn is lost
 // to it.
 //
-// The offer is the reopen card's panes section (reopenpanes.go): once per
-// start for panes nobody has answered for, and on O at any time for every
-// adopted pane. The idle panes go at once, the busy ones follow on their own
-// as each goes idle. The set is fixed when the operator answers; a pane
-// adopted after that is not taken behind their back.
+// The outside-panes setting and O both schedule relaunches. Idle panes move
+// at once; busy ones follow as each goes idle.
 
 type takeoverState struct {
-	// pending is the set the operator agreed to and the background pass is
-	// still owed: adopted rows that were busy when the answer came, by id.
+	// pending holds adopted rows still owed a relaunch, by id.
 	pending map[string]bool
 }
 
@@ -62,18 +58,14 @@ func takeoverReady(sess store.Session) bool {
 	return sess.Status == status.Idle
 }
 
-// takeOverAdopted is the O key: the reopen card's panes section over every
-// adopted pane the board holds now, answered for or not, with relaunching
-// as the answer it starts on, since that is what the key is for.
+// takeOverAdopted is the O key: relaunch every adopted pane the board holds.
 func (m *Model) takeOverAdopted() (tea.Model, tea.Cmd) {
-	candidates := m.outsidePaneCandidates(true)
+	candidates := m.outsidePaneCandidates()
 	if len(candidates) == 0 {
 		m.errBar.text = "no adopted panes to take over: every session on the board is already the manager's"
 		return m, nil
 	}
-	m.errBar.text = ""
-	m.restore = restorePromptState{panes: candidates, paneDefault: paneRelaunch}
-	m.mode = modeRestorePrompt
+	m.applyPaneChoices(candidates, func(store.Session) string { return paneRelaunch })
 	return m, nil
 }
 

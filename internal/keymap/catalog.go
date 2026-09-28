@@ -163,7 +163,7 @@ var Catalog = []Binding{
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{"alt+r"}, "rename it yourself, and re-pick its tool", false},
 	{ContextList, NameSweep, []string{"N", "shift+n"}, "name sweep over idle adopted panes", false},
-	{ContextList, TakeOver, []string{"O", "shift+o"}, "panes started outside the board: keep, relaunch or leave out", false},
+	{ContextList, TakeOver, []string{"O", "shift+o"}, "relaunch adopted panes into the board", false},
 	{ContextList, Move, []string{"m"}, "move it to a group", false},
 
 	{ContextList, ShowAllWork, []string{"W", "shift+w"}, "show every pull request and ticket, not the first few", false},
@@ -223,9 +223,7 @@ var Catalog = []Binding{
 
 	// ---- the restore prompt ----
 	{ContextRestore, Cancel, []string{"esc", "n", "q"}, "leave everything as it is", true},
-	{ContextRestore, More, []string{"c"}, "choose per session and per pane", false},
-	{ContextRestore, NextChoice, []string{"right", "l", "tab"}, "next answer for the outside panes", false},
-	{ContextRestore, PrevChoice, []string{"left", "h", "shift+tab"}, "previous answer for the outside panes", false},
+	{ContextRestore, More, []string{"c"}, "choose per session", false},
 	{ContextRestore, NeverAsk, []string{"N", "shift+n"}, "apply this answer and stop asking", false},
 	{ContextRestore, CursorUp, []string{"up", "k"}, "move up", true},
 	{ContextRestore, CursorDown, []string{"down", "j"}, "move down", true},

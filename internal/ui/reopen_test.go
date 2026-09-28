@@ -46,10 +46,7 @@ func setMode(t *testing.T, m *Model, key, value string) {
 	}
 }
 
-// The scenario the card exists for: the board was closed, its own session was
-// lost to a reboot, and meanwhile somebody started an agent by hand. One
-// screen asks about both, and one answer settles both.
-func TestReopenAsksAboutLostSessionsAndOutsidePanesOnOneCard(t *testing.T) {
+func TestReopenAsksOnlyAboutLostSessions(t *testing.T) {
 	m := reopening(t)
 	lostSession(t, m, "lost")
 	socket, pane := adoptForeignPane(t, m, "byhand", "byhand", status.Idle)
@@ -58,20 +55,17 @@ func TestReopenAsksAboutLostSessionsAndOutsidePanesOnOneCard(t *testing.T) {
 	if m.mode != modeRestorePrompt {
 		t.Fatalf("mode = %v, want the reopen card", m.mode)
 	}
-	if len(m.restore.candidates) != 1 || len(m.restore.panes) != 1 {
-		t.Fatalf("card holds %d sessions and %d panes, want one of each", len(m.restore.candidates), len(m.restore.panes))
+	if len(m.restore.candidates) != 1 {
+		t.Fatalf("card holds %d sessions, want only the lost session", len(m.restore.candidates))
 	}
 	out := ansi.Strip(m.frame())
-	for _, want := range []string{"Welcome back", "1 session stopped without you ending it",
-		"rebooted", "outside the board", "[adopt as-is]", "misses:"} {
+	for _, want := range []string{"Welcome back", "1 session stopped without you ending it", "rebooted"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("card missing %q:\n%s", want, out)
 		}
 	}
-
-	pressKey(t, m, rightKey)
-	if m.restore.paneDefault != paneRelaunch {
-		t.Fatalf("→ should move the pane answer to relaunch, got %q", m.restore.paneDefault)
+	if strings.Contains(out, "outside the board") {
+		t.Fatalf("card still asks about the outside pane:\n%s", out)
 	}
 	pressKey(t, m, key("y"))
 	if m.mode != modeList {
@@ -80,11 +74,11 @@ func TestReopenAsksAboutLostSessionsAndOutsidePanesOnOneCard(t *testing.T) {
 	if !m.tmux.Exists("lost") {
 		t.Fatal("the lost session was not resumed")
 	}
-	if foreignPaneAlive(t, socket, pane) {
-		t.Fatal("the outside pane was not relaunched into the board")
+	if !foreignPaneAlive(t, socket, pane) {
+		t.Fatal("the outside pane was ended")
 	}
-	if got, _ := m.store.Get("byhand"); got.TmuxPaneID != "" || !m.tmux.Exists("byhand") {
-		t.Fatalf("the outside pane is not a board session now: %+v", got)
+	if _, err := m.store.Get("byhand"); err == nil {
+		t.Fatal("the outside pane is still on the board")
 	}
 }
 
@@ -141,26 +135,23 @@ func TestEachReopenSessionsSettingValue(t *testing.T) {
 }
 
 func TestEachOutsidePanesSettingValue(t *testing.T) {
-	t.Run("ask", func(t *testing.T) {
-		m := reopening(t)
-		adoptForeignPane(t, m, "byhand", "byhand", status.Idle)
-		m.applyCmd(t, nil)
-		if m.mode != modeRestorePrompt || len(m.restore.panes) != 1 {
-			t.Fatalf("ask should raise the card, mode = %v", m.mode)
-		}
-	})
-	t.Run("adopt", func(t *testing.T) {
-		m := reopening(t)
-		setMode(t, m, outsidePanesSetting, paneAdopt)
-		socket, pane := adoptForeignPane(t, m, "byhand", "byhand", status.Idle)
-		m.applyCmd(t, nil)
-		if m.mode != modeList {
-			t.Fatalf("adopt should not ask, mode = %v", m.mode)
-		}
-		if got, _ := m.store.Get("byhand"); got.TmuxPaneID == "" || !foreignPaneAlive(t, socket, pane) {
-			t.Fatal("adopt should leave the pane as it is")
-		}
-	})
+	for _, legacy := range []string{"", reopenAsk, paneAdopt, "unknown"} {
+		t.Run("legacy-"+legacy, func(t *testing.T) {
+			m := reopening(t)
+			setMode(t, m, outsidePanesSetting, legacy)
+			socket, pane := adoptForeignPane(t, m, "byhand", "byhand", status.Idle)
+			if legacy == paneAdopt {
+				m.applyPaneChoices(m.outsidePaneCandidates(), func(store.Session) string { return paneAdopt })
+			}
+			m.applyCmd(t, nil)
+			if m.mode != modeList {
+				t.Fatalf("legacy setting should not ask, mode = %v", m.mode)
+			}
+			if _, err := m.store.Get("byhand"); err == nil || !foreignPaneAlive(t, socket, pane) {
+				t.Fatal("legacy setting should leave the pane running off the board")
+			}
+		})
+	}
 	t.Run("relaunch", func(t *testing.T) {
 		m := reopening(t)
 		setMode(t, m, outsidePanesSetting, paneRelaunch)
@@ -213,8 +204,8 @@ func TestNeverAskStoresTheAnswerAsTheDefault(t *testing.T) {
 	if got := m.reopenSessionsMode(); got != reopenResume {
 		t.Fatalf("on reopen = %q, want resume", got)
 	}
-	if got := m.outsidePanesMode(); got != paneAdopt {
-		t.Fatalf("outside panes = %q, want adopt", got)
+	if got := m.outsidePanesMode(); got != paneIgnore {
+		t.Fatalf("outside panes = %q, want ignore", got)
 	}
 	if !m.tmux.Exists("lost") {
 		t.Fatal("N should still apply the answer it stores")
@@ -224,43 +215,17 @@ func TestNeverAskStoresTheAnswerAsTheDefault(t *testing.T) {
 	}
 }
 
-// The picker answers each pane on its own, and a pane left out is remembered
-// by the scan, which does not take it again while it runs.
-func TestPickerAnswersEachPaneAndTheScanRemembersALeftOutOne(t *testing.T) {
+func TestIgnoreRemembersALeftOutPane(t *testing.T) {
 	m := buildModel(t)
 	leftSocket, leftPane := adoptForeignPane(t, m, "left", "left", status.Idle)
-	movedSocket, movedPane := adoptForeignPane(t, m, "moved", "moved", status.Idle)
 	m.applyCmd(t, nil)
-
-	pressKey(t, m, key("O"))
-	pressKey(t, m, key("c"))
-	if !m.restore.picking {
-		t.Fatal("c should open the picker")
+	m.applyPaneChoices(m.outsidePaneCandidates(), func(store.Session) string { return paneIgnore })
+	if _, err := m.store.Get("left"); err == nil {
+		t.Fatal("left should be off the board")
 	}
-	// The cursor starts on the first pane; one step from relaunch is ignore.
-	first, _ := m.restorePaneUnderCursor()
-	pressKey(t, m, rightKey)
-	if m.restorePaneChoice(first) != paneIgnore {
-		t.Fatalf("→ on a pane row should step its answer, got %q", m.restorePaneChoice(first))
-	}
-	pressKey(t, m, key("y"))
-
-	ignored, relaunched := first.ID, "moved"
-	ignoredSocket, ignoredPane := leftSocket, leftPane
-	if first.ID == "moved" {
-		ignored, relaunched = "moved", "left"
-		ignoredSocket, ignoredPane = movedSocket, movedPane
-	}
-	if _, err := m.store.Get(ignored); err == nil {
-		t.Fatalf("%s should be off the board", ignored)
-	}
-	if !foreignPaneAlive(t, ignoredSocket, ignoredPane) {
+	if !foreignPaneAlive(t, leftSocket, leftPane) {
 		t.Fatal("leaving a pane out must not end it")
 	}
-	if !m.tmux.Exists(relaunched) {
-		t.Fatalf("%s should be a board session now", relaunched)
-	}
-
 	// The next scan sees the pane and leaves it alone.
 	run := &adoptRun{
 		tools:    m.adoptTools(),
@@ -272,7 +237,7 @@ func TestPickerAnswersEachPaneAndTheScanRemembersALeftOutOne(t *testing.T) {
 		rejected: map[string]int{},
 		ignored:  loadPaneDecisions(m.store).ignoredPaneKeys(),
 	}
-	taken, err := run.take(adopt.Panes(ignoredSocket), adopt.NewProcTable())
+	taken, err := run.take(adopt.Panes(leftSocket), adopt.NewProcTable())
 	if err != nil {
 		t.Fatalf("take: %v", err)
 	}
@@ -301,9 +266,9 @@ func TestSettingsCyclesAndSavesTheReopenChoices(t *testing.T) {
 	m.settings.field = settingsFieldReopenSessions
 	m.cycleSetting(1)
 	m.settings.field = settingsFieldOutsidePanes
-	m.cycleSetting(-1)
+	m.cycleSetting(1)
 	out := ansi.Strip(m.frame())
-	for _, want := range []string{"on reopen", "always resume the ones that died", "outside panes", "ignore them"} {
+	for _, want := range []string{"on reopen", "always resume the ones that died", "outside panes", "always relaunch into the board"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("settings missing %q:\n%s", want, out)
 		}
@@ -312,18 +277,16 @@ func TestSettingsCyclesAndSavesTheReopenChoices(t *testing.T) {
 	if got := m.reopenSessionsMode(); got != reopenResume {
 		t.Fatalf("on reopen saved as %q", got)
 	}
-	if got := m.outsidePanesMode(); got != paneIgnore {
+	if got := m.outsidePanesMode(); got != paneRelaunch {
 		t.Fatalf("outside panes saved as %q", got)
 	}
 }
 
-// A pane started while the board is up is taken as-is and pointed at, not
-// raised as a card over whatever the operator is doing.
-func TestAPaneAdoptedWhileRunningGetsOneLine(t *testing.T) {
+func TestAPaneAdoptedWhileRunningDoesNotPrompt(t *testing.T) {
 	m := buildModel(t)
 	m.adoptFirstDone = true
 	m.noteAdopted(adoptedMsg{taken: 1, ids: []string{"later"}})
-	if m.mode != modeList || !strings.Contains(m.errBar.text, "O to relaunch") {
+	if m.mode != modeList || m.errBar.text != "" {
 		t.Fatalf("mode = %v notice = %q", m.mode, m.errBar.text)
 	}
 }
@@ -390,8 +353,7 @@ func TestTheScanRecordsTheConversationAPaneIsRunning(t *testing.T) {
 }
 
 // Lost sessions are asked about on the first pass even while the adopt scan
-// is still running, so the card never lands late on an operator mid-task;
-// the panes that scan then finds get one line pointing at O.
+// is still running, so the card never lands late on an operator mid-task.
 func TestTheCardDoesNotWaitForTheScanWhenSessionsWereLost(t *testing.T) {
 	m := buildModel(t)
 	m.restoreArmed = true
@@ -402,13 +364,12 @@ func TestTheCardDoesNotWaitForTheScanWhenSessionsWereLost(t *testing.T) {
 	}
 	pressKey(t, m, key("n"))
 	m.noteAdopted(adoptedMsg{taken: 1, ids: []string{"late"}})
-	if m.mode != modeList || !strings.Contains(m.errBar.text, "O to relaunch") {
-		t.Fatalf("a late pane should get one line, mode = %v notice = %q", m.mode, m.errBar.text)
+	if m.mode != modeList || m.errBar.text != "" {
+		t.Fatalf("a late pane should not prompt, mode = %v notice = %q", m.mode, m.errBar.text)
 	}
 }
 
-// With nothing lost, the card waits for the scan that finds the panes.
-func TestAPanesOnlyCardWaitsForTheFirstScan(t *testing.T) {
+func TestOutsidePanesDoNotOpenAReopenCard(t *testing.T) {
 	m := buildModel(t)
 	m.restoreArmed = true
 	adoptForeignPane(t, m, "byhand", "byhand", status.Idle)
@@ -418,7 +379,10 @@ func TestAPanesOnlyCardWaitsForTheFirstScan(t *testing.T) {
 	}
 	m.noteAdopted(adoptedMsg{})
 	m.applyCmd(t, nil)
-	if m.mode != modeRestorePrompt || len(m.restore.panes) != 1 {
-		t.Fatalf("after the scan the card should ask about the pane, mode = %v", m.mode)
+	if m.mode != modeList || !m.restoreAsked {
+		t.Fatalf("after the scan no card should open, mode = %v", m.mode)
+	}
+	if _, err := m.store.Get("byhand"); err == nil {
+		t.Fatal("the outside pane should be removed from the board")
 	}
 }

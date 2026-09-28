@@ -5,8 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/x/ansi"
-
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -45,47 +43,21 @@ func setStatus(t *testing.T, m *Model, id, state string) {
 	}
 }
 
-// The startup offer is the reopen card: once, on a refresh that finds a pane
-// started outside the board, with adopting as-is as the answer it starts on.
-// Leaving it as it is keeps the pane and settles it, so the next start does
-// not ask about it again.
-func TestOutsidePanesAreOfferedOnceAtStartupOnTheReopenCard(t *testing.T) {
+func TestOutsidePanesAreIgnoredAtStartupWithoutAReopenCard(t *testing.T) {
 	m := buildModel(t)
-	adoptForeignPane(t, m, "borrowed", "borrowed", status.Idle)
+	socket, pane := adoptForeignPane(t, m, "borrowed", "borrowed", status.Idle)
 	m.restoreArmed = true
 	m.adoptFirstDone = true
 
 	m.applyCmd(t, nil)
-	if m.mode != modeRestorePrompt || len(m.restore.panes) != 1 {
-		t.Fatalf("after the first refresh mode = %v panes = %d, want the reopen card", m.mode, len(m.restore.panes))
-	}
-	out := ansi.Strip(m.frame())
-	for _, want := range []string{"Panes started outside the board", "1 agent pane was started outside the board",
-		"[adopt as-is]", "misses:", "MCP tools", "flags and model", "never ask"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("card missing %q:\n%s", want, out)
-		}
-	}
-
-	pressKey(t, m, key("n"))
 	if m.mode != modeList {
-		t.Fatalf("after n mode = %v, want the list", m.mode)
+		t.Fatalf("the outside pane raised a card, mode = %v", m.mode)
 	}
-	m.applyCmd(t, nil)
-	if m.mode != modeList {
-		t.Fatalf("a dismissed card was raised again on the next refresh")
+	if _, err := m.store.Get("borrowed"); err == nil {
+		t.Fatal("the outside pane remained on the board")
 	}
-	if got, _ := m.store.Get("borrowed"); got.TmuxPaneID == "" {
-		t.Fatal("dismissing the card promoted the row")
-	}
-	if decided := loadPaneDecisions(m.store); decided["borrowed"] != paneAdopt {
-		t.Fatalf("dismissing should settle the pane as kept, ledger = %v", decided)
-	}
-	// The next start: the answered pane is not asked about again.
-	m.restoreAsked = false
-	m.applyCmd(t, nil)
-	if m.mode != modeList {
-		t.Fatalf("an answered pane was offered again on the next start, mode = %v", m.mode)
+	if !foreignPaneAlive(t, socket, pane) {
+		t.Fatal("the outside pane was ended")
 	}
 }
 
@@ -107,10 +79,9 @@ func TestTakeoverRestartsAnIdlePaneAsAManagedSession(t *testing.T) {
 	m.applyCmd(t, nil)
 
 	pressKey(t, m, key("O"))
-	if m.mode != modeRestorePrompt || m.restore.paneDefault != paneRelaunch {
-		t.Fatalf("O did not open the card on relaunch: mode = %v, err = %q", m.mode, m.errBar.text)
+	if m.mode != modeList {
+		t.Fatalf("O opened a card: mode = %v, err = %q", m.mode, m.errBar.text)
 	}
-	pressKey(t, m, key("y"))
 
 	if foreignPaneAlive(t, socket, pane) {
 		t.Fatal("the adopted pane is still up in its own window")
@@ -148,11 +119,6 @@ func TestTakeoverWaitsForABusyPaneToGoIdle(t *testing.T) {
 	setStatus(t, m, "busy", status.Working)
 
 	pressKey(t, m, key("O"))
-	out := ansi.Strip(m.frame())
-	if !strings.Contains(out, "[relaunch into the board]") || !strings.Contains(out, "once it is idle") {
-		t.Fatalf("the card should say relaunching waits for idle:\n%s", out)
-	}
-	pressKey(t, m, key("y"))
 	if !foreignPaneAlive(t, socket, pane) {
 		t.Fatal("a working pane was ended by the yes")
 	}
@@ -196,7 +162,6 @@ func TestTakeoverLeavesAPaneWhoseConversationCannotBeRead(t *testing.T) {
 	m.applyCmd(t, nil)
 
 	pressKey(t, m, key("O"))
-	pressKey(t, m, key("y"))
 	if !foreignPaneAlive(t, socket, pane) {
 		t.Fatal("a pane with no readable conversation was ended")
 	}

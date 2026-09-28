@@ -195,17 +195,12 @@ func (m *Model) welcomeRunningLine() string {
 	if !m.adoptFirstDone && m.store != nil && m.tmux != nil {
 		return "looking for agents already running in tmux…"
 	}
-	n := len(m.outsidePaneCandidates(true))
-	undecided := len(m.outsidePaneCandidates(false))
-	them := plural(n, "it", "them")
+	n := len(m.outsidePaneCandidates())
 	switch {
 	case n == 0:
-		return "none found in tmux. Agents you start by hand later show up on the board as well."
-	case undecided > 0 && m.outsidePanesMode() == reopenAsk:
-		return fmt.Sprintf("%d found in tmux and put on the board as-is. After this card the board asks whether to keep %s, relaunch %s into the board, or leave %s out.",
-			n, them, them, them)
+		return "none found in tmux. Agents started by hand stay outside the board."
 	}
-	return fmt.Sprintf("%d found in tmux and shown on the board as-is. O relaunches %s into the board or leaves %s out.", n, them, them)
+	return fmt.Sprintf("%d found in tmux and shown on the board as-is. O relaunches %s into the board.", n, plural(n, "it", "them"))
 }
 
 // welcomeRow lays one key against its description, the description wrapping

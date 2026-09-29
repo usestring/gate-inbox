@@ -66,6 +66,7 @@ settings = ["s"]  # settings
 toggle_chrome = [","]  # hide / show the key hints along the foot
 toggle_rail = ["\\"]  # hide / show the list beside the pane
 legend_peek = ["?"]  # peek at every available key
+quick_actions = [":", "ctrl+p"]  # quick actions: find any action by name, run it, see its key
 help = ["h", "H", "shift+h"]  # this key map (required)
 quit = ["q"]  # quit (sessions keep running) (required)
 

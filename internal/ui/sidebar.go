@@ -51,29 +51,51 @@ func sidebarOverride(chosen, configured string) string {
 // left side, with the session's content to its right.
 func (m *Model) railOnLeft() bool { return m.sidebar == config.SidebarLeft }
 
-// sideBindings are the bindings whose horizontal key names a side of the
-// frame -- the side the rail is on -- rather than a direction through a
-// list or a value. Their keys are written for the default right-hand rail
-// and read through mirrorArrow when the rail is on the left, so one binding
-// file means the same thing on either side. Each carries the help text the
-// left-hand rail shows in place of the catalog's.
+// sideBinding is a binding whose horizontal key names a side of the frame
+// rather than a direction through a value: the way from the list to the
+// pane, and back.
+type sideBinding struct {
+	// written is the side of the frame the binding's keys are written for.
+	// On the other side they are read through mirrorArrow, so one key file
+	// means the same thing whichever side the rail is on.
+	written string
+	// mirroredText is the key map's description on the other side, where
+	// the catalog's names the wrong end of the prompt. Empty when the row
+	// reads the same on both sides or is not in the key map.
+	mirroredText string
+}
+
+// sideBindings are written for the left-hand rail, where the pane is to the
+// right: → from the list opens a row's work and then focuses its pane, and
+// ← folds. With the rail on the right the pane is to the left, so the list
+// takes ← to step in and → to fold, and the arrow still points at the pane.
 //
-// Most horizontal keys are not here, on purpose. The list's step in and step
-// out (→ ←) are the tree's: → opens a row's work and then focuses the pane,
-// and ← folds, whichever side the pane is drawn on -- and with the rail on
-// the left, → already points at the pane. The divider's ← → move it in
-// screen columns, so they already follow what is on screen. Settings, the
-// reopen card and the pickers step through values.
-var sideBindings = map[keymap.Context]map[keymap.Action]string{
+// The focused session's exit is the one entry written for the right-hand
+// rail. It shipped as "right" when the rail moved there, and a key file
+// holding it is read the way it was written; on the left it is ← at the head
+// of the prompt instead.
+//
+// Everything else horizontal is not here, on purpose. The divider's ← → move
+// it in screen columns, so they already follow what is on screen; Settings,
+// the reopen card and the pickers step through values.
+var sideBindings = map[keymap.Context]map[keymap.Action]sideBinding{
+	keymap.ContextList: {
+		keymap.StepIn:  {written: config.SidebarLeft},
+		keymap.StepOut: {written: config.SidebarLeft},
+	},
 	keymap.ContextFocus: {
-		keymap.BackAtPrompt: "focused, at the prompt's head: back to the list",
+		keymap.BackAtPrompt: {
+			written:      config.SidebarRight,
+			mirroredText: "focused, at the prompt's head: back to the list",
+		},
 	},
 }
 
-// sideMirrored reports whether a binding's key follows the rail's side.
-func sideMirrored(ctx keymap.Context, action keymap.Action) bool {
-	_, ok := sideBindings[ctx][action]
-	return ok
+// mirrors reports whether a binding's keys are read through the mirror on
+// this side of the frame.
+func (m *Model) mirrors(ctx keymap.Context, action keymap.Action) bool {
+	binding, ok := sideBindings[ctx][action]
+	return ok && binding.written != normalizeSidebar(m.sidebar)
 }
 
 // mirrorArrow swaps a key for its horizontal mirror image: left and right,
@@ -99,45 +121,38 @@ func mirrorArrow(key string) string {
 	return prefix + base
 }
 
-// sideKey is the key a side-following binding answers on this side of the
-// frame: the key as bound with the rail on the right, its mirror with the
-// rail on the left. Any other binding's key is returned as it is. The same
-// mapping turns a key pressed on the left back into the key to store, since
-// mirroring is its own inverse.
+// sideKey is the key a binding answers on this side of the frame: the key
+// as bound, or its mirror for a side binding written for the other side.
+// The same mapping turns a key pressed on this side back into the key to
+// store, since mirroring is its own inverse.
 func (m *Model) sideKey(ctx keymap.Context, action keymap.Action, key string) string {
-	if m.railOnRight() || !sideMirrored(ctx, action) {
+	if !m.mirrors(ctx, action) {
 		return key
 	}
 	return mirrorArrow(key)
 }
 
-// sideAction is m.action with the side-following bindings read through the
-// mirror. With the rail on the left a key bound to one of them no longer
-// answers to it -- its mirror does -- so the pressed key falls through to
-// whatever it would mean without the binding.
+// sideAction is m.action with the side bindings read through the mirror. A
+// press whose mirror is bound to a side binding written for the other side
+// is that binding; a press bound to such a binding directly is not, and
+// falls through to whatever it would mean without it.
 func (m *Model) sideAction(ctx keymap.Context, msg tea.KeyMsg) (keymap.Action, bool) {
-	action, bound := m.action(ctx, msg)
-	if m.railOnRight() {
-		return action, bound
-	}
-	if bound && sideMirrored(ctx, action) {
-		return "", false
-	}
-	if bound {
-		return action, bound
-	}
 	for _, name := range []string{keyName(msg), msg.String()} {
-		if mirrored, ok := m.km().Action(ctx, mirrorArrow(name)); ok && sideMirrored(ctx, mirrored) {
+		if mirrored, ok := m.km().Action(ctx, mirrorArrow(name)); ok && m.mirrors(ctx, mirrored) {
 			return mirrored, true
 		}
 	}
-	return "", false
+	action, bound := m.action(ctx, msg)
+	if bound && m.mirrors(ctx, action) {
+		return "", false
+	}
+	return action, bound
 }
 
-// sideHelpText is a help row's description for this side of the frame.
+// sideHelpText is a key map row's description on this side of the frame.
 func (m *Model) sideHelpText(ctx keymap.Context, action keymap.Action, text string) string {
-	if left, ok := sideBindings[ctx][action]; ok && m.railOnLeft() {
-		return left
+	if m.mirrors(ctx, action) && sideBindings[ctx][action].mirroredText != "" {
+		return sideBindings[ctx][action].mirroredText
 	}
 	return text
 }

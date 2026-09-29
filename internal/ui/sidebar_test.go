@@ -276,10 +276,9 @@ func TestMirrorArrow(t *testing.T) {
 	}
 }
 
-// Each horizontal binding with the rail on the left, against the same
-// binding with it on the right: only the focus exit follows the side. The
-// list's step in and out stay the tree's arrows, so → still points at the
-// pane on the left-hand layout.
+// Each horizontal binding on both sides. The list's step in is the arrow
+// pointing at the pane and its fold the other one; the focus exit is the
+// arrow pointing back at the list.
 func TestSideActionPerBinding(t *testing.T) {
 	press := func(code rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: code} }
 	for _, tc := range []struct {
@@ -291,8 +290,10 @@ func TestSideActionPerBinding(t *testing.T) {
 	}{
 		{"focus → at the prompt", keymap.ContextFocus, tea.KeyRight, keymap.BackAtPrompt, ""},
 		{"focus ← at the prompt", keymap.ContextFocus, tea.KeyLeft, "", keymap.BackAtPrompt},
-		{"list → steps in", keymap.ContextList, tea.KeyRight, keymap.StepIn, keymap.StepIn},
-		{"list ← steps out", keymap.ContextList, tea.KeyLeft, keymap.StepOut, keymap.StepOut},
+		{"list →", keymap.ContextList, tea.KeyRight, keymap.StepOut, keymap.StepIn},
+		{"list ←", keymap.ContextList, tea.KeyLeft, keymap.StepIn, keymap.StepOut},
+		{"list h stays help", keymap.ContextList, 'h', keymap.Help, keymap.Help},
+		{"list l stays last pane", keymap.ContextList, 'l', keymap.LastPane, keymap.LastPane},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, side := range []string{config.SidebarRight, config.SidebarLeft} {
@@ -345,7 +346,23 @@ func TestSideHelpAndRebindKey(t *testing.T) {
 		t.Fatalf("a right-rail rebind would store %q, want it as pressed", got)
 	}
 	if got := left.sideKey(keymap.ContextList, keymap.StepIn, "right"); got != "right" {
-		t.Fatalf("a list binding was mirrored to %q", got)
+		t.Fatalf("a left rail read step in as %q, want right", got)
+	}
+	if got := right.sideKey(keymap.ContextList, keymap.StepIn, "right"); got != "left" {
+		t.Fatalf("a right rail read step in as %q, want left", got)
+	}
+	// The footers name the key that works: the fold cap on an artifact row,
+	// and the focus exit, read through the same caps every legend uses.
+	for _, tc := range []struct {
+		m            *Model
+		fold, stepIn string
+	}{{right, "right", "left"}, {left, "left", "right"}} {
+		if got := tc.m.tightCap(keymap.ContextList, keymap.StepOut); got != keymap.Compact(tc.fold) {
+			t.Fatalf("%q rail fold cap = %q, want %q", tc.m.sidebar, got, keymap.Compact(tc.fold))
+		}
+		if got := tc.m.cap(keymap.ContextList, keymap.StepIn); got != keymap.Display(tc.stepIn) {
+			t.Fatalf("%q rail step-in cap = %q, want %q", tc.m.sidebar, got, keymap.Display(tc.stepIn))
+		}
 	}
 }
 

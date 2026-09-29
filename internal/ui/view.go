@@ -663,6 +663,9 @@ func (m *Model) defaultRowLegend() legendSection {
 	} else if m.isShell(row.sess.Tool) {
 		title = "Shell"
 	}
+	if m.showsConversation() {
+		pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, keymap.ToggleConversation), m.conversationToggleLabel()})
+	}
 	pairs = append(pairs,
 		[2]string{m.tightCap(keymap.ContextList, keymap.Archive), "kill"},
 	)

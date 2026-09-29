@@ -19,6 +19,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/git"
+	"github.com/usestring/gate-inbox/internal/hogs"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/logging"
@@ -265,6 +266,9 @@ type Model struct {
 	// label has held over an unchanged screen past the threshold. See
 	// stalestatus.go.
 	stale map[string]bool
+	// hogBadges mirrors refreshMsg.hogBadges: the rows whose process tree
+	// the board has told about its CPU or memory. See hogwatch.go.
+	hogBadges map[string]hogs.Badge
 	// queueDeadlines mirrors refreshMsg.queueDeadlines.
 	queueDeadlines map[string]time.Time
 	// history is the full-text index over the board's transcripts, nil when
@@ -870,6 +874,9 @@ type refreshMsg struct {
 	// stale is every session whose status has outlived its screen, replaced
 	// whole each pass so the flag lapses the moment the screen moves.
 	stale map[string]bool
+	// hogBadges is every session with an open CPU or memory episode the
+	// board has told it about, as of the watcher's latest sample.
+	hogBadges map[string]hogs.Badge
 	// unseen is every session whose pane capture failed this pass. Its row
 	// keeps the status it already had, so the pass is no news of it.
 	unseen map[string]bool
@@ -1143,6 +1150,10 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	}
 	model.poller.interruptKeys = interruptKeys
 	model.poller.staleAfter = cfg.StaleStatusAfter.Duration
+	model.poller.hogWatch = newHogWatch(cfg.Hogs, "", func(msg store.InboxMessage) error {
+		_, _, err := st.Enqueue(msg, store.DefaultInboxLimits)
+		return err
+	})
 	model.ownPane, model.ownSocket = tmux.OwnPane()
 	model.initDeviceTheme()
 	model.loadKeys()
@@ -2055,6 +2066,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.answerableWait = msg.answerableWait
 		m.hookless = msg.hookless
 		m.stale = msg.stale
+		m.hogBadges = msg.hogBadges
 		m.queueDeadlines = msg.queueDeadlines
 		if msg.snapOK {
 			m.snap = msg.snap

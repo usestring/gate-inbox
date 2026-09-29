@@ -15,6 +15,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/autoroute"
 	"github.com/usestring/gate-inbox/internal/clipboard"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
@@ -451,6 +452,8 @@ type Model struct {
 	// newSessionAgent is the persisted answer to which agent n starts, and
 	// whether it asks at all. See agentpick.go.
 	newSessionAgent string
+	autoRouter      *autoroute.Router
+	autoRouting     bool
 	// focusedID is the session focus mode is on or was last on, and
 	// prevFocusID the one before it: the pair l swaps between. See
 	// lastpane.go.
@@ -551,6 +554,10 @@ type Model struct {
 	landings       map[string]*pendingLanding
 	landingGen     int
 	landingLocator *search.Locator
+	// settling are the sessions whose answer has been seen landing, by the
+	// instant it was, until a poll listed after that has been applied: the
+	// row still shows the state the answer moved it on from. See triage.go.
+	settling map[string]time.Time
 	// statusesAsOf is when the newest applied poll pass listed its sessions:
 	// every status on the board is at least that fresh. A mute keyed to an
 	// answer landing lapses once it passes the landing; see mute.go.
@@ -860,6 +867,9 @@ type refreshMsg struct {
 	// hogBadges is every session with an open CPU or memory episode the
 	// board has told it about, as of the watcher's latest sample.
 	hogBadges map[string]hogs.Badge
+	// unseen is every session whose pane capture failed this pass. Its row
+	// keeps the status it already had, so the pass is no news of it.
+	unseen map[string]bool
 }
 
 // previewMsg is every pane frame the model receives. There used to be three
@@ -1112,6 +1122,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		chrome:          storedChrome(st),
 		leaveMode:       storedLeaveMode(st),
 		newSessionAgent: storedNewSessionAgent(st),
+		autoRouter:      autoroute.New(autoroute.Reader(cfg.Tools)),
 		triage:          storedTriage(st),
 		triageScope:     storedTriageScope(st),
 		autoProceed:     storedAutoProceed(st),
@@ -1772,6 +1783,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg := msg.(type) {
+	case autoRouteMsg:
+		return m.finishAutoRoute(msg)
 	case tea.WindowSizeMsg:
 		// Resuming from a tmux attach re-sends the current size unchanged; only
 		// a real resize needs the per-session tmux resize calls, so an
@@ -1992,6 +2005,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.listedAt.After(m.statusesAsOf) {
 			m.statusesAsOf = msg.listedAt
 		}
+		m.settleLandings(msg.listedAt, msg.unseen)
 		m.dropHeldAckOnNewTurn()
 		// A pane taken by the last adopt scan is on the board under its
 		// directory's basename, and this is the first pass that can see the
@@ -2743,19 +2757,24 @@ func (m *Model) buildTree() {
 	}
 	// A parent the search itself missed still comes along to carry its
 	// matching children, in the store's order rather than after them.
+	// A terminal can hang off a child agent, so the carry climbs the whole
+	// lineage: a matching shell under a child brings that child and its
+	// parent along with it.
 	carried := map[string]bool{}
 	for _, sess := range listed {
-		if !matched[sess.ID] || sess.ParentID == "" || !listedIDs[sess.ParentID] {
+		if !matched[sess.ID] {
 			continue
 		}
-		carried[sess.ParentID] = true
+		for id := sess.ParentID; id != "" && listedIDs[id] && !carried[id]; id = byID[id].ParentID {
+			carried[id] = true
+		}
 	}
 	sessionsByGroup := map[string][]store.Session{}
 	childrenByParent := map[string][]store.Session{}
 	for _, sess := range listed {
 		if sess.ParentID != "" {
 			if _, ok := byID[sess.ParentID]; ok {
-				if matched[sess.ID] {
+				if matched[sess.ID] || carried[sess.ID] {
 					childrenByParent[sess.ParentID] = append(childrenByParent[sess.ParentID], sess)
 				}
 				continue
@@ -2765,10 +2784,23 @@ func (m *Model) buildTree() {
 			sessionsByGroup[sess.Group] = append(sessionsByGroup[sess.Group], sess)
 		}
 	}
+	// Walked is everything a tree root reaches, not just the roots: a
+	// terminal nested under a child agent hangs two levels down, and
+	// counting only the roots would paint it loose in its group.
 	walked := map[string]bool{}
+	var reach func(id string)
+	reach = func(id string) {
+		if walked[id] {
+			return
+		}
+		walked[id] = true
+		for _, child := range childrenByParent[id] {
+			reach(child.ID)
+		}
+	}
 	for _, groupSessions := range sessionsByGroup {
 		for _, sess := range groupSessions {
-			walked[sess.ID] = true
+			reach(sess.ID)
 		}
 	}
 	orphaned := map[string]bool{}
@@ -2779,7 +2811,7 @@ func (m *Model) buildTree() {
 		if _, nested := childrenByParent[sess.ParentID]; !nested || walked[sess.ParentID] {
 			continue
 		}
-		if !matched[sess.ID] {
+		if !matched[sess.ID] && !carried[sess.ID] {
 			continue
 		}
 		sessionsByGroup[sess.Group] = append(sessionsByGroup[sess.Group], sess)
@@ -2870,12 +2902,20 @@ func (m *Model) buildTree() {
 	extHides := func(sess store.Session) bool {
 		return honorFolds && !m.triage && query == "" && m.hiddenByExtension(sess.ID)
 	}
+	var appendChildren func(sess store.Session, depth int, drawn map[string]bool)
 	appendSession := func(sess store.Session, depth int) {
 		if extHides(sess) {
 			return
 		}
 		rows = append(rows, treeRow{sess: sess, depth: depth})
 		rows = append(rows, m.artifactRows(sess, depth+1)...)
+		appendChildren(sess, depth, map[string]bool{sess.ID: true})
+	}
+	// appendChildren draws a session's children and, under each, its own:
+	// a terminal opened by a child agent nests under that child rather than
+	// one level up. drawn guards a parent_id cycle a hand-edited row could
+	// make.
+	appendChildren = func(sess store.Session, depth int, drawn map[string]bool) {
 		// Folds are the browsing view's convenience only. The pruned views
 		// -- triage, search, the status filter, the archive -- were opened
 		// to find a session, and a child blocked on a person is exactly
@@ -2896,8 +2936,13 @@ func (m *Model) buildTree() {
 			if m.triage && m.foldsAway(child) && m.parentOwns(child, time.Now(), livePanes) {
 				continue
 			}
+			if drawn[child.ID] {
+				continue
+			}
+			drawn[child.ID] = true
 			rows = append(rows, treeRow{sess: child, depth: childDepth})
 			rows = append(rows, m.artifactRows(child, childDepth+1)...)
+			appendChildren(child, childDepth, drawn)
 		}
 	}
 	// A search is answered by the sessions it matched and triage by the

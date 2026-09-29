@@ -70,3 +70,46 @@ func TestAnEndIsKeptForTheLaunchItEnded(t *testing.T) {
 		t.Fatalf("a deleted row's end outlived it: %+v", ends)
 	}
 }
+
+// close_terminal deletes through DeleteChild, which used to drop only the
+// row: a terminal killed first left its end record, and anything else that
+// named the id, pointing at an id a later session may be handed.
+func TestDeleteChildClearsWhatDeleteClears(t *testing.T) {
+	st := newTestStore(t)
+	parent := sample("p", "g1")
+	if err := st.CreateSession(parent); err != nil {
+		t.Fatalf("create parent: %v", err)
+	}
+	shell := sample("sh", "g1")
+	shell.ParentID = "p"
+	if err := st.CreateSessionLeaf(shell); err != nil {
+		t.Fatalf("create terminal: %v", err)
+	}
+	row, err := st.Get("sh")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if err := st.RecordEnd(row, EndKilled); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	if _, _, err := st.Enqueue(InboxMessage{SessionID: "p", SenderID: "sh", Body: "hi", SentAt: time.Now()}, DefaultInboxLimits); err != nil {
+		t.Fatalf("enqueue: %v", err)
+	}
+	if err := st.DeleteChild("sh", "p", func() error { return nil }); err != nil {
+		t.Fatalf("DeleteChild: %v", err)
+	}
+	ends, err := st.SessionEnds()
+	if err != nil {
+		t.Fatalf("ends: %v", err)
+	}
+	if _, ok := ends["sh"]; ok {
+		t.Fatal("the deleted terminal's end record is still stored")
+	}
+	var messages int
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM session_inbox WHERE sender_id = 'sh' OR session_id = 'sh'`).Scan(&messages); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if messages != 0 {
+		t.Fatalf("%d inbox rows still name the deleted terminal", messages)
+	}
+}

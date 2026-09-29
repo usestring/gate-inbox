@@ -306,12 +306,37 @@ func (m *Model) applyLandingCheck(msg landingCheckMsg) tea.Cmd {
 	switch {
 	case msg.verdict == landingSeen:
 		m.dropLanding(msg.id)
+		m.noteSettling(msg.id, time.Now())
 		return m.answerLanded(*pending)
 	case msg.verdict == landingRefused, !time.Now().Before(pending.deadline):
 		m.dropLanding(msg.id)
 		return nil
 	}
 	return landingCheck(msg.id, pending)
+}
+
+// noteSettling marks an answer seen landing on id at at. The row keeps the
+// state the answer moved it on from until the board polls again, so the
+// drain walks past it until then, the way it walked past the landing.
+func (m *Model) noteSettling(id string, at time.Time) {
+	if m.settling == nil {
+		m.settling = map[string]time.Time{}
+	}
+	m.settling[id] = at
+}
+
+// settleLandings drops the marks a poll listed at listedAt has overtaken:
+// whatever it reports for those sessions is their own news. A session the
+// poll could not capture keeps its mark, since the poll carried its old
+// status forward rather than reading a new one. The poll's own listing time
+// is the one that counts, not the newest applied: passes can arrive out of
+// order, and an older one's captures predate the answer.
+func (m *Model) settleLandings(listedAt time.Time, unseen map[string]bool) {
+	for id, at := range m.settling {
+		if listedAt.After(at) && !unseen[id] {
+			delete(m.settling, id)
+		}
+	}
 }
 
 // answerLanded records the answer as sent and, when the operator is still on

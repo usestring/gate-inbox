@@ -227,6 +227,7 @@ func (m *Model) quickSpawn(group, prompt string) (tea.Model, tea.Cmd) {
 // entirely when the settings toggle asks for that.
 func (m *Model) clearQuickAfterSend() {
 	m.quick.input.SetValue("")
+	m.quick.suggestionIndex = 0
 	m.quick.attachments = nil
 	if m.quick.closeAfterSend {
 		m.quick.active = false

@@ -91,6 +91,14 @@ picks them back up.
 directory, first prompt, group). `space` on a group spawns an agent on a prompt without opening
 it. Agents name their own sessions after the task.
 
+**Reuse prompts.** In the quick bar or the New Session prompt field, matching suggestions appear
+under the text as you type. `ctrl+n` / `ctrl+p` choose among them and `ctrl+y` inserts the chosen
+text for further editing; it does not send the prompt. Suggestions come from the newest 16 MiB of
+each CLI's submission log within the past 30 days. A whole prompt or a line in a multi-line prompt
+must occur at least four times to qualify. Counting ignores case and repeated whitespace, and
+each submission counts once per candidate. The logs are reread in the background every minute;
+typing and matching stay local to the board.
+
 **See status.** Every row shows whether its agent is working, waiting on you, finished or idle,
 read from the pane itself. The preview beside the list shows the conversation as **You** and
 **Assistant** messages, without the tool noise. `w` filters the list to what needs attention, and

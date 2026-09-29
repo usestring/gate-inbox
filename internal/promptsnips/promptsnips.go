@@ -1,23 +1,17 @@
 // Package promptsnips turns the prompts an operator keeps retyping into
 // suggestions for the composer.
 //
-// It is the pure half of the feature: given the user submissions read out of
-// recent Claude and Codex transcripts, it counts how often each one recurs,
-// keeps those seen at least MinOccurrences times, and ranks the survivors
-// against whatever is in the input box. Reading transcripts and drawing the
-// suggestions live elsewhere, so everything here is deterministic and cheap
-// enough to run on every keystroke.
+// It reads bounded Claude and Codex submission logs, counts recurring text,
+// and ranks eligible snippets against the current input.
 //
 // A snippet is either a whole submission or one line of a multi-line
 // submission. Lines count on their own because a recurring instruction is
 // often pasted into otherwise different prompts, and only counting whole
 // submissions would never see it.
 //
-// Counting is by submission, not by transcript row. A resumed or forked
-// session copies earlier user turns into its new file, so the same submission
-// can be read several times; every copy carries the original row's ID, and
-// Build counts each ID once. Two submissions with the same text and different
-// IDs are a genuine repeat and both count.
+// Counting is by submission. CLI history logs append once per prompt, while
+// resumed or forked transcripts copy earlier turns; Build also deduplicates
+// stable IDs when a caller supplies transcript-derived submissions.
 package promptsnips
 
 import (
@@ -43,17 +37,17 @@ const Window = 30 * 24 * time.Hour
 // "continue"); above MaxLength the text is a pasted document, not a phrase.
 const (
 	MinLength = 12
-	MaxLength = 4000
+	MaxLength = 2000
 )
 
 // HalfLife is how quickly recency discounts frequency when ranking: a
 // snippet last used HalfLife ago weighs half as much as one used now.
 const HalfLife = 7 * 24 * time.Hour
 
-// Submission is one user turn as its transcript recorded it.
+// Submission is one user prompt from a history log or transcript.
 type Submission struct {
-	// ID identifies the turn across copies of the transcript. Empty means the
-	// source has no stable ID, and the submission is counted as unique.
+	// ID identifies a prompt within a read. Empty means the source has no
+	// stable ID, and the submission is counted as unique.
 	ID   string
 	Text string
 	At   time.Time
@@ -129,6 +123,9 @@ func units(text string) map[string]string {
 	add := func(s string) {
 		s = strings.TrimSpace(s)
 		key := Normalize(s)
+		if strings.Contains(key, "[pasted text #") || strings.Contains(key, "[image #") {
+			return
+		}
 		if n := utf8.RuneCountInString(key); n >= MinLength && n <= MaxLength {
 			out[key] = s
 		}

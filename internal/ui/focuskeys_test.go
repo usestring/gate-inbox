@@ -801,7 +801,7 @@ func uiForeignServer(t testing.TB, command string) (string, string) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
-	socket := tmuxtest.NewSocket("uiforeign")
+	socket := tmuxtest.Socket(t, "uiforeign")
 	// kill-server fails whenever no server is up, which is the normal case.
 	tmuxOnSocket(socket, "kill-server").Run()
 	if out, err := tmuxOnSocket(socket, "new-session", "-d", "-s", "user", "-c", "/tmp", "-x", "80", "-y", "24", command).CombinedOutput(); err != nil {

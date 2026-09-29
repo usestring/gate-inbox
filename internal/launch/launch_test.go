@@ -271,7 +271,7 @@ func TestReviveCommandKeepsACapturedIDOutOfTheShell(t *testing.T) {
 	id := `abc; touch ` + marker
 
 	command := mustRevive(t, config.Tool{ResumeByIDCommand: "echo resume {id}"}, id, "")
-	socket := tmuxtest.NewSocket("launch")
+	socket := tmuxtest.Socket(t, "launch")
 	driver, err := tmux.NewWithSocket(socket)
 	if err != nil {
 		t.Fatalf("driver: %v", err)
@@ -758,7 +758,7 @@ func TestComposeReachesAPaneUnderTheOperatorShell(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Compose: %v", err)
 	}
-	driver, err := tmux.NewWithSocket(tmuxtest.NewSocket("e2e"))
+	driver, err := tmux.NewWithSocket(tmuxtest.Socket(t, "e2e"))
 	if err != nil {
 		t.Fatalf("NewWithSocket: %v", err)
 	}

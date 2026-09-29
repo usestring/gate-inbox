@@ -18,7 +18,7 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 
 | Key | Action |
 |-----|--------|
-| `n` | New session: one question, which agent, in a box already holding the CLI you last spawned — then no form, no name, no prompt, in the group under the cursor. Type over the box to pick another — `terminal` among them, for a plain shell — `←→` to cycle, `esc` to back out. Settings → CLIs sets which appear and their order (`J`/`K` moves one). **new session agent** can use `last used`, `default tool`, or `auto`. Auto chooses an enabled CLI from fresh subscription quota and opens the ordinary picker when quota is unavailable. |
+| `n` | New session: one question, which agent, in a box already holding the CLI you last spawned — then no form, no name, no prompt, in the group under the cursor. Type over the box to pick another — `terminal` among them, for a plain shell — `←→` to cycle, `esc` to back out. Settings → CLIs sets which appear and their order (`J`/`K` moves one). **new session agent** can use `last used`, `default tool`, or `auto`. Auto asks the build's extension which enabled CLI to start, is offered only when it can answer, and opens the ordinary picker when it does not. |
 | `ctrl+n` | New session, asking first (tool, name, directory, optional starting prompt, group picker). The card opens on the tool: type to pick a CLI by name, or arrow through the matches |
 | `T` | New terminal tab: a shell under the selected agent, or in the selected group |
 | `f` | Fork the selected conversation into a named session in the same group and directory |

@@ -3,7 +3,7 @@ poll_interval = "2s"
 # The shared artifact store. Agents publish HTML, markdown or JSON to a URL
 # and hand the link to you or to each other; the link carries its own key, so
 # whoever has it can open that one artifact and nothing else. An artifact
-# published by a session on one pooled account is readable by a session on
+# published by a session on one account is readable by a session on
 # another -- and by a CLI that has no artifacts of its own.
 #
 # Off until you turn it on. An extension that is off registers no tools, so

@@ -128,7 +128,7 @@ func Run(ctx context.Context, args []string, opts Options) error {
 	if err := defaultsOwnedBy(registry); err != nil {
 		return err
 	}
-	accounts.UsePool(poolOf(registry))
+	accounts.UseChooser(chooserOf(registry))
 	sessionhooks.Use(sessionHooksOf(registry))
 	sessionhooks.UseSessions(&spawnReader{})
 	table := subcommands(ctx, version, opts.Extensions)
@@ -171,13 +171,13 @@ func Run(ctx context.Context, args []string, opts Options) error {
 	return nil
 }
 
-// poolOf finds the build's account pool the first time a launch needs one.
-// The board has configured every extension by then; a CLI command or the
-// MCP server has not, and configures only the one supplying the pool.
-func poolOf(registry *extension.Registry) func() (extension.AccountPool, error) {
-	return sync.OnceValues(func() (extension.AccountPool, error) {
+// chooserOf finds the build's account chooser the first time a launch needs
+// one. The board has configured every extension by then; a CLI command or
+// the MCP server has not, and configures only the one supplying the chooser.
+func chooserOf(registry *extension.Registry) func() (extension.AccountChooser, error) {
+	return sync.OnceValues(func() (extension.AccountChooser, error) {
 		if registry.Configured() {
-			return registry.AccountPool("", nil)
+			return registry.AccountChooser("", nil)
 		}
 		dir, err := config.Dir()
 		if err != nil {
@@ -187,13 +187,13 @@ func poolOf(registry *extension.Registry) func() (extension.AccountPool, error) 
 		if err != nil {
 			return nil, err
 		}
-		return registry.AccountPool(dir, cfg.Extensions)
+		return registry.AccountChooser(dir, cfg.Extensions)
 	})
 }
 
 // sessionHooksOf finds the build's spawn policies, launch contributors and
 // migration observers the first time a launch asks, configuring only those
-// when nothing has configured the rest, as poolOf does.
+// when nothing has configured the rest, as chooserOf does.
 func sessionHooksOf(registry *extension.Registry) func() (*extension.SessionHooks, error) {
 	return sync.OnceValues(func() (*extension.SessionHooks, error) {
 		if registry.Configured() {
@@ -235,7 +235,7 @@ func defaultsOwnedBy(registry *extension.Registry) error {
 }
 
 // driversOf finds the build's tool drivers the first time a tool block
-// names a style the core does not implement, configuring as poolOf does.
+// names a style the core does not implement, configuring as chooserOf does.
 func driversOf(registry *extension.Registry) func() (map[string]extension.ToolDriver, error) {
 	return sync.OnceValues(func() (map[string]extension.ToolDriver, error) {
 		if registry.Configured() {

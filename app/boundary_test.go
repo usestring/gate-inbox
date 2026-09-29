@@ -958,9 +958,6 @@ func checkPlanWasLaunched(t *testing.T, home, data, helper, fresh string) {
 	if _, err := st.Get(plan.SessionID); err == nil {
 		t.Fatalf("the plan filed a row for %s", plan.SessionID)
 	}
-	if borrower, _ := st.Setting("account_borrower:" + plan.SessionID); borrower != "" {
-		t.Fatalf("the plan recorded a borrower for %s", plan.SessionID)
-	}
 	asLaunched := func(s string) string { return strings.ReplaceAll(s, plan.SessionID, fresh) }
 	fields := func(path string) []string {
 		body, err := os.ReadFile(path)

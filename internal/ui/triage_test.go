@@ -602,3 +602,51 @@ func TestTriageWalkKeepsGoingPastLandedAnswerUntilNextPoll(t *testing.T) {
 		t.Fatalf("walk after a poll past the landing = %q, want done", got)
 	}
 }
+
+// Sessions tied on status and priority queue by the deadlines extensions
+// set, earliest first, ahead of sessions with none; and the order follows
+// the deadlines as each pass brings them, not only when a status changes.
+func TestTriageTieBreaksOnQueueDeadlines(t *testing.T) {
+	m := buildModel(t)
+	seedTriageFleet(t, m)
+	m.triage = true
+	m.rebuildRows()
+	if got := sessionNames(m)[0]; got != "old-block" {
+		t.Fatalf("baseline head = %q, want the oldest waiting session", got)
+	}
+	now := time.Now()
+	pass := func(deadlines map[string]time.Time) {
+		t.Helper()
+		sessions, err := m.store.ListSessions(true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.Update(refreshMsg{sessions: sessions, listedAt: time.Now(), queueDeadlines: deadlines})
+	}
+	pass(map[string]time.Time{"s1": now.Add(4 * time.Minute), "s3": now.Add(2 * time.Minute)})
+	if got := sessionNames(m)[:2]; got[0] != "new-block" || got[1] != "old-block" {
+		t.Fatalf("order = %v, want the earlier deadline first", got)
+	}
+	pass(map[string]time.Time{"s1": now.Add(4 * time.Minute), "s3": now.Add(9 * time.Minute)})
+	if got := sessionNames(m)[0]; got != "old-block" {
+		t.Fatalf("head = %q after new-block's deadline moved out", got)
+	}
+	pass(map[string]time.Time{"s3": now.Add(9 * time.Minute)})
+	if got := sessionNames(m)[0]; got != "new-block" {
+		t.Fatalf("head = %q, want the only session with a deadline", got)
+	}
+	pass(map[string]time.Time{"s3": now.Add(-time.Second)})
+	if got := sessionNames(m)[0]; got != "old-block" {
+		t.Fatalf("head = %q once new-block's deadline passed", got)
+	}
+	// A deadline never crosses a status tier.
+	pass(map[string]time.Time{"s5": now.Add(10 * time.Second)})
+	if got := sessionNames(m)[:2]; got[0] == "reviewme" || got[1] == "reviewme" {
+		t.Fatalf("a deadline crossed a status tier: %v", got)
+	}
+	// With no extension setting any, the order is the plain one.
+	pass(nil)
+	if got := sessionNames(m)[0]; got != "old-block" {
+		t.Fatalf("head = %q with no deadlines", got)
+	}
+}

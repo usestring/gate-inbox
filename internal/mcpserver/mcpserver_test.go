@@ -4,6 +4,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -1187,5 +1188,37 @@ func TestCleanupChildrenForwardsItsFilters(t *testing.T) {
 	}
 	if _, isError := callText(t, session, "cleanup_children", map[string]any{"all": true}); isError || !fake.cleanup.All {
 		t.Fatalf("all = %+v, isError=%v", fake.cleanup, isError)
+	}
+}
+
+// migrate_session offers no account: the new session's account is the
+// build's extension's choice, so an agent cannot pin a move to one.
+func TestMigrateSessionTakesNoAccount(t *testing.T) {
+	fake := &fakeSessionCommands{created: sessioncmd.Session{ID: "e5f6a7b8", Name: "worker-claude"}}
+	session := connectServer(t, serverWithFakes(t, fake))
+	tools, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools.Tools {
+		if tool.Name != "migrate_session" {
+			continue
+		}
+		schema, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(schema), `"account"`) {
+			t.Fatalf("migrate_session still offers an account: %s", schema)
+		}
+	}
+	if _, isError := callText(t, session, "migrate_session", map[string]any{"session_id": "a1b2c3d4", "tool": "claude"}); isError {
+		t.Fatal("migrate_session errored")
+	}
+	if fake.migratedID != "a1b2c3d4" || fake.migratedOpts != (sessioncmd.MigrateOptions{Tool: "claude"}) {
+		t.Fatalf("migrate args = %q %+v", fake.migratedID, fake.migratedOpts)
+	}
+	if _, isError := callText(t, session, "migrate_session", map[string]any{"session_id": "a1b2c3d4", "tool": "claude", "account": "ALICE1"}); !isError {
+		t.Fatal("migrate_session accepted an account")
 	}
 }

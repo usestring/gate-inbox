@@ -15,7 +15,6 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"github.com/usestring/gate-inbox/internal/autoroute"
 	"github.com/usestring/gate-inbox/internal/clipboard"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
@@ -266,6 +265,8 @@ type Model struct {
 	// label has held over an unchanged screen past the threshold. See
 	// stalestatus.go.
 	stale map[string]bool
+	// queueDeadlines mirrors refreshMsg.queueDeadlines.
+	queueDeadlines map[string]time.Time
 	// history is the full-text index over the board's transcripts, nil when
 	// disabled or unavailable. historyHits is the last answer, valid for
 	// historyQuery alone; historySeq tags the debounce timer so only the
@@ -448,7 +449,6 @@ type Model struct {
 	// newSessionAgent is the persisted answer to which agent n starts, and
 	// whether it asks at all. See agentpick.go.
 	newSessionAgent string
-	autoRouter      *autoroute.Router
 	autoRouting     bool
 	// focusedID is the session focus mode is on or was last on, and
 	// prevFocusID the one before it: the pair l swaps between. See
@@ -765,26 +765,26 @@ type quickState struct {
 }
 
 type settingsState struct {
-	toolNames       []string
-	toolIndex       int
-	accountRouting  string
-	poolAvailable   bool
-	themeIndex      int
-	field           int
-	quickCloseSend  bool
-	enterFocuses    bool
-	comfortableRows bool
-	layout          string
-	palette         string
-	glyphs          string
-	archiveConfirm  string
-	listSort        string
-	chrome          string
-	leaveMode       string
-	newSessionAgent string
-	autoProceed     bool
-	reopenSessions  string
-	outsidePanes    string
+	toolNames        []string
+	toolIndex        int
+	accountRouting   string
+	chooserAvailable bool
+	themeIndex       int
+	field            int
+	quickCloseSend   bool
+	enterFocuses     bool
+	comfortableRows  bool
+	layout           string
+	palette          string
+	glyphs           string
+	archiveConfirm   string
+	listSort         string
+	chrome           string
+	leaveMode        string
+	newSessionAgent  string
+	autoProceed      bool
+	reopenSessions   string
+	outsidePanes     string
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -863,6 +863,9 @@ type refreshMsg struct {
 	// unseen is every session whose pane capture failed this pass. Its row
 	// keeps the status it already had, so the pass is no news of it.
 	unseen map[string]bool
+	// queueDeadlines is the extensions' deadlines by session; triage breaks
+	// ties on them.
+	queueDeadlines map[string]time.Time
 }
 
 // previewMsg is every pane frame the model receives. There used to be three
@@ -1115,7 +1118,6 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		chrome:          storedChrome(st),
 		leaveMode:       storedLeaveMode(st),
 		newSessionAgent: storedNewSessionAgent(st),
-		autoRouter:      autoroute.New(autoroute.Reader(cfg.Tools)),
 		triage:          storedTriage(st),
 		triageScope:     storedTriageScope(st),
 		autoProceed:     storedAutoProceed(st),
@@ -1276,6 +1278,12 @@ func (m *Model) ObserveBoard(observer BoardObserver) {
 func (m *Model) PinStatuses(pins StatusPins) (refresh func()) {
 	m.poller.pins = pins
 	return m.poller.requestRefresh
+}
+
+// UseQueueDeadlines has every poll pass carry deadlines' current answer to
+// triage. It is set before StartPoller.
+func (m *Model) UseQueueDeadlines(deadlines QueueDeadlines) {
+	m.poller.deadlines = deadlines
 }
 
 // StartPoller launches the background polling loop. It runs outside the
@@ -2036,6 +2044,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.answerableWait = msg.answerableWait
 		m.hookless = msg.hookless
 		m.stale = msg.stale
+		m.queueDeadlines = msg.queueDeadlines
 		if msg.snapOK {
 			m.snap = msg.snap
 			m.updateNetRates(msg.snap)

@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -36,14 +37,14 @@ func (m *Model) defaultTool() string {
 
 const ownLogin = "own login"
 
-func (s settingsState) routingValue() string {
-	if !s.poolAvailable {
-		return "own subscription (no account pool to route onto)"
+func (s settingsState) launchAccountValue() string {
+	if !s.chooserAvailable {
+		return "own login (no extension chooses accounts)"
 	}
-	if s.accountRouting == accounts.Smart {
-		return "smart routing"
+	if s.accountRouting == accounts.Extension {
+		return "chosen by extension"
 	}
-	return "own subscription"
+	return ownLogin
 }
 
 // hiddenTools returns the set of CLI names the user turned off for new sessions.
@@ -126,33 +127,34 @@ func (m *Model) openSettings() {
 	if err != nil {
 		m.errBar.text = err.Error()
 	}
-	// A stored smart with nothing to route onto refuses every unnamed
-	// launch; shown and saved as own, closing settings is the way out.
-	pool := accounts.PoolAvailable()
-	if !pool && routing == accounts.Smart {
+	// A stored extension mode with no extension to ask refuses every
+	// unnamed launch; shown and saved as own, closing settings is the way
+	// out.
+	chooser := accounts.ChooserAvailable()
+	if !chooser && routing == accounts.Extension {
 		routing = accounts.Own
 	}
 	m.settings = settingsState{
-		toolNames:       names,
-		toolIndex:       index,
-		accountRouting:  routing,
-		poolAvailable:   pool,
-		themeIndex:      themeIndex(current.Name),
-		quickCloseSend:  m.quickCloseAfterSend(),
-		enterFocuses:    m.enterFocuses(),
-		comfortableRows: m.comfortableRows,
-		layout:          normalizeLayout(m.layout),
-		palette:         normalizePalette(m.palette),
-		glyphs:          normalizeGlyphs(m.glyphs),
-		archiveConfirm:  normalizeArchiveConfirm(m.archiveConfirm),
-		listSort:        normalizeListSort(m.listSort),
-		chrome:          normalizeChrome(m.chrome),
-		leaveMode:       normalizeLeaveMode(m.leaveMode),
-		newSessionAgent: normalizeNewSessionAgent(m.newSessionAgent),
-		autoProceed:     m.autoProceed,
-		reopenSessions:  m.reopenSessionsMode(),
-		outsidePanes:    m.outsidePanesMode(),
-		backdropSync:    storedBackdrop(m.store) == backdropSync,
+		toolNames:        names,
+		toolIndex:        index,
+		accountRouting:   routing,
+		chooserAvailable: chooser,
+		themeIndex:       themeIndex(current.Name),
+		quickCloseSend:   m.quickCloseAfterSend(),
+		enterFocuses:     m.enterFocuses(),
+		comfortableRows:  m.comfortableRows,
+		layout:           normalizeLayout(m.layout),
+		palette:          normalizePalette(m.palette),
+		glyphs:           normalizeGlyphs(m.glyphs),
+		archiveConfirm:   normalizeArchiveConfirm(m.archiveConfirm),
+		listSort:         normalizeListSort(m.listSort),
+		chrome:           normalizeChrome(m.chrome),
+		leaveMode:        normalizeLeaveMode(m.leaveMode),
+		newSessionAgent:  normalizeNewSessionAgent(m.newSessionAgent),
+		autoProceed:      m.autoProceed,
+		reopenSessions:   m.reopenSessionsMode(),
+		outsidePanes:     m.outsidePanesMode(),
+		backdropSync:     storedBackdrop(m.store) == backdropSync,
 	}
 	m.mode = modeSettings
 }
@@ -402,13 +404,13 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		}
 		m.settings.toolIndex = (m.settings.toolIndex + step + count) % count
 	case settingsFieldAccountRouting:
-		if !m.settings.poolAvailable {
+		if !m.settings.chooserAvailable {
 			return nil
 		}
-		if m.settings.accountRouting == accounts.Smart {
+		if m.settings.accountRouting == accounts.Extension {
 			m.settings.accountRouting = accounts.Own
 		} else {
-			m.settings.accountRouting = accounts.Smart
+			m.settings.accountRouting = accounts.Extension
 		}
 	case settingsFieldTheme:
 		m.settings.themeIndex = (m.settings.themeIndex + step + len(themes)) % len(themes)
@@ -491,13 +493,18 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		}
 		m.settings.chrome = chromeModes[(index+step+len(chromeModes))%len(chromeModes)]
 	case settingsFieldNewSessionAgent:
+		modes := newSessionAgentModes
+		// Auto has nobody to ask in a build whose extension chooses no CLI.
+		if _, ok := toolChooser(); !ok {
+			modes = slices.DeleteFunc(slices.Clone(modes), func(mode string) bool { return mode == newSessionAgentAuto })
+		}
 		index := 0
-		for i, mode := range newSessionAgentModes {
+		for i, mode := range modes {
 			if mode == m.settings.newSessionAgent {
 				index = i
 			}
 		}
-		m.settings.newSessionAgent = newSessionAgentModes[(index+step+len(newSessionAgentModes))%len(newSessionAgentModes)]
+		m.settings.newSessionAgent = modes[(index+step+len(modes))%len(modes)]
 	case settingsFieldLeave:
 		index := 0
 		for i, mode := range leaveModes {

@@ -20,13 +20,13 @@ func TestAccountOrUsesLocalLoginInsteadOfLegacyDefault(t *testing.T) {
 	}
 	r := &runtime{store: st}
 	claude := config.Tool{AccountEnv: "CLAUDE_CODE_OAUTH_TOKEN"}
-	if got, _ := r.accountOr("", claude, ""); got != "" {
+	if got, _ := r.accountOr("", "claude", claude, "", "spawn"); got != "" {
 		t.Errorf("claude spawn got %q, want the local login", got)
 	}
-	if got, _ := r.accountOr("BOB2", claude, ""); got != "BOB2" {
+	if got, _ := r.accountOr("BOB2", "claude", claude, "", "spawn"); got != "BOB2" {
 		t.Errorf("a named account was overridden: %q", got)
 	}
-	if got, _ := r.accountOr("", config.Tool{}, ""); got != "" {
+	if got, _ := r.accountOr("", "x", config.Tool{}, "", "spawn"); got != "" {
 		t.Errorf("a tool with no account_env took the default: %q", got)
 	}
 }

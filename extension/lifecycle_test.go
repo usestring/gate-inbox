@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/usestring/gate-inbox/extension"
 )
@@ -90,6 +91,13 @@ func (v fakeView) Unpark(context.Context, string) (bool, error) {
 func (v fakeView) PlanReplace(context.Context, string, extension.LaunchRequest) (extension.LaunchPlan, error) {
 	return extension.LaunchPlan{}, errors.New("no replacements here")
 }
+func (v fakeView) SessionAccount(context.Context, string) (string, extension.AccountTool, error) {
+	return "", extension.AccountTool{}, nil
+}
+func (v fakeView) SwitchAccount(context.Context, string, string) (extension.SessionInfo, error) {
+	return extension.SessionInfo{}, nil
+}
+func (v fakeView) SetQueueDeadline(string, time.Time) {}
 
 func (v fakeView) Withdraw(context.Context, string, string) (int, error) {
 	return 0, errors.New("no withdrawals here")

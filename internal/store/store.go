@@ -1817,6 +1817,63 @@ func (s *Store) DeleteGroup(path string) ([]string, error) {
 // ErrGroupNotFound reports a group path no row carries.
 var ErrGroupNotFound = errors.New("group does not exist")
 
+// ErrGroupNotEmpty reports a group with a session, live or archived, filed
+// somewhere beneath it.
+var ErrGroupNotEmpty = errors.New("group still holds sessions")
+
+const subtreeHoldsSessions = `SELECT EXISTS(SELECT 1 FROM sessions
+	 WHERE group_name = ? OR group_name LIKE ? || '/%' ESCAPE '\')`
+
+// GroupHoldsSessions reports whether any session, live or archived, is
+// filed at or below a group.
+func (s *Store) GroupHoldsSessions(path string) (bool, error) {
+	var held int
+	err := s.db.QueryRow(subtreeHoldsSessions, path, escapeLike(path)).Scan(&held)
+	return held != 0, err
+}
+
+// DeleteEmptyGroup removes a group and its descendant groups when no
+// session, live or archived, is filed anywhere beneath them, reporting the
+// paths it removed. The check and the delete share one transaction, so a
+// session filed in between is refused with ErrGroupNotEmpty rather than
+// left under a group that no longer exists.
+func (s *Store) DeleteEmptyGroup(path string) ([]string, error) {
+	if path == "" {
+		return nil, fmt.Errorf("cannot delete the root group")
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	var held int
+	if err := tx.QueryRow(subtreeHoldsSessions, path, escapeLike(path)).Scan(&held); err != nil {
+		return nil, err
+	}
+	if held != 0 {
+		return nil, fmt.Errorf("group %q: %w", path, ErrGroupNotEmpty)
+	}
+	removed, err := txStrings(tx,
+		`SELECT name FROM groups WHERE name = ? OR name LIKE ? || '/%' ESCAPE '\'
+		 ORDER BY sort_order, name`,
+		path, escapeLike(path))
+	if err != nil {
+		return nil, err
+	}
+	if len(removed) == 0 {
+		return nil, fmt.Errorf("group %q: %w", path, ErrGroupNotFound)
+	}
+	if _, err := tx.Exec(
+		`DELETE FROM groups WHERE name = ? OR name LIKE ? || '/%' ESCAPE '\'`,
+		path, escapeLike(path)); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return removed, nil
+}
+
 // RemoveGroup deletes a group and its descendant groups and moves every
 // session held beneath them to the root, in one transaction, so a failure
 // partway leaves the tree as it was. A moved session keeps its parent

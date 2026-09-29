@@ -21,9 +21,10 @@ import (
 // TestHogWatchOverheadE2E measures what hog detection costs the board: the
 // same board, on the same panes, run for a window with the watcher on at the
 // built-in tiers and a window with it off, reading the board process's own
-// CPU from /proc. The panes are eight stand-in agents of 41 processes each,
-// four of them running a busy loop at nice 19, and the on window also takes a
-// CPU profile through the board's pprof listener.
+// CPU from /proc. The panes are eight stand-in agents of 41 processes each:
+// two also run a busy loop at nice 19 and two a headless Chrome, whose
+// renderers are the most expensive processes on a machine to read PSS from.
+// The on window also takes a CPU profile through the board's pprof listener.
 //
 // It holds a scratch board for two windows of GATE_INBOX_E2E_HOGS_WINDOW
 // (default 5m), so it is opt-in:
@@ -67,17 +68,14 @@ func TestHogWatchOverheadE2E(t *testing.T) {
 	type pane struct{ id, load, dir string }
 	var panes []pane
 	for i := range 8 {
-		load := "none"
-		if i%2 == 0 {
-			load = "cpu"
-		}
+		load := []string{"cpu", "none", "browser", "none"}[i%4]
 		p := pane{id: fmt.Sprintf("c0de%04d", 100+i), load: load, dir: t.TempDir()}
 		cmd := "HOG_FANOUT=40 HOG_NICE=19 bash " + script + " " + load + " prompt " + p.dir + "; :"
 		if err := driver.Create(p.id, p.dir, cmd, nil, 120, 40); err != nil {
 			t.Fatalf("create %s: %v", p.id, err)
 		}
 		t.Cleanup(func() {
-			stopLoad(p.dir)
+			stopAgent(p.dir)
 			_ = driver.Kill(p.id)
 		})
 		panes = append(panes, p)

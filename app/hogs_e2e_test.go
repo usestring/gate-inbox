@@ -133,7 +133,7 @@ func TestHogNoticesE2E(t *testing.T) {
 			t.Fatalf("create %s: %v", id, err)
 		}
 		t.Cleanup(func() {
-			stopLoad(dir)
+			stopAgent(dir)
 			_ = driver.Kill(id)
 		})
 		st, err := store.Open(db)
@@ -314,12 +314,26 @@ func buildBoard(t *testing.T) string {
 
 // stopLoad kills the load process a stand-in agent started.
 func stopLoad(dir string) {
-	raw, err := os.ReadFile(filepath.Join(dir, "load.pid"))
+	killPids(filepath.Join(dir, "load.pid"))
+}
+
+// stopAgent kills everything a stand-in agent started. Its children outlive
+// the pane: killing the tmux session hangs up the shell, not a background
+// job, so they are reaped by pid.
+func stopAgent(dir string) {
+	killPids(filepath.Join(dir, "load.pid"))
+	killPids(filepath.Join(dir, "fanout.pids"))
+}
+
+func killPids(path string) {
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
-	if pid, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && pid > 1 {
-		_ = syscall.Kill(pid, syscall.SIGKILL)
+	for _, field := range strings.Fields(string(raw)) {
+		if pid, err := strconv.Atoi(field); err == nil && pid > 1 {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
 	}
 }
 
@@ -422,6 +436,9 @@ stop = []
 	}
 
 	work := t.TempDir()
+	// Registered before the pane's kill so it runs after it: cleanups run
+	// last-registered first, and a live Claude rewrites its transcript.
+	transcript := claudeTranscript(t, work)
 	prompt := "Run exactly this shell command in the foreground with the Bash tool and wait for it: " +
 		"timeout 300 sh -c 'while :; do :; done' -- then reply with the single word done."
 	caller := append(withoutKey(env, "GATE_INBOX_SESSION_ID"), "GATE_INBOX_SESSION_ID=ca11e400")
@@ -471,7 +488,6 @@ stop = []
 	// Claude Code draws a full-screen UI, so the pane holds only the tail of
 	// the conversation. What the agent was given, and what it did with it, is
 	// read from its own transcript.
-	transcript := claudeTranscript(t, work)
 	waitUntil(t, 90*time.Second, "the notice in claude's transcript", func() bool {
 		return strings.Contains(transcript(), "Notice from Gate Inbox")
 	})
@@ -508,7 +524,12 @@ func claudeTranscript(t *testing.T, dir string) func() string {
 	}
 	slug := regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(dir, "-")
 	project := filepath.Join(root, slug)
-	t.Cleanup(func() { _ = os.RemoveAll(project) })
+	t.Cleanup(func() {
+		// The session was killed just before this runs; give it the moment
+		// it takes to flush on the way out, or it recreates the directory.
+		time.Sleep(3 * time.Second)
+		_ = os.RemoveAll(project)
+	})
 	return func() string {
 		files, _ := filepath.Glob(filepath.Join(project, "*.jsonl"))
 		var all strings.Builder

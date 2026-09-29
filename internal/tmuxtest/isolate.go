@@ -135,6 +135,16 @@ func shimTmux(dir string) {
 	prependShimDir()
 }
 
+// ShimPath is the tmux shim on this run's PATH, or "" when tmux is not
+// installed.
+func ShimPath() string {
+	path := filepath.Join(shimDir(privateDir), "tmux")
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
+}
+
 // prependShimDir puts the shim first on PATH, once. A child that inherited its
 // parent's environment already has it there.
 func prependShimDir() {

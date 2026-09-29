@@ -168,7 +168,7 @@ func (s *Sessions) BoardAnswer(targetID, reply string) (answered AnsweredQuestio
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
-	return runtime.answer(target, reply, "board", "")
+	return runtime.answer(target, reply, "board", "", nil)
 }
 
 // BoardSend queues message for an agent session on behalf of the board

@@ -348,6 +348,9 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 			return mcpserver.Run(ctx, configDir, sessionID, version, extensions)
 		}),
 	}
+	table["hook"] = withConfigDir(func(args []string, sessionID, configDir string) error {
+		return cli.RunHook(os.Stdin, os.Stdout, args, sessionID, configDir)
+	})
 	for name, command := range cli.Commands() {
 		if name != "spawn" && name != "migrate" && name != "revive" && name != "unpark" {
 			table[name] = withConfigDir(command)

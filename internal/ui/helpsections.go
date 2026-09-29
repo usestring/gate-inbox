@@ -93,6 +93,7 @@ func helpSections() []helpSection {
 			note("typing goes straight to the agent, every letter of it"),
 			bound(focus, keymap.Leave, "back to the list; in triage, on to the next"),
 			bound(focus, keymap.LeaveHard, "back to the list, always stopping there"),
+			bound(focus, keymap.Help, "this key map, without leaving the session"),
 			bound(focus, keymap.Rescind, "undo the latest submission while its turn is active"),
 			bound(focus, keymap.LastPane, "back to the previous session"),
 			bound(focus, keymap.PreviewPageUp, "scroll a page up"),

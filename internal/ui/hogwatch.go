@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -61,10 +62,12 @@ func newHogWatch(cfg config.Hogs, procRoot string, enqueue func(store.InboxMessa
 	if !sampler.Supported() {
 		return nil
 	}
+	policy := hogPolicy(cfg)
+	sampler.SetPSSFloor(pssFloor(policy))
 	return &hogWatch{
 		every:   cfg.SampleEvery.Duration,
 		sampler: sampler,
-		tracker: hogs.NewTracker(hogPolicy(cfg)),
+		tracker: hogs.NewTracker(policy),
 		enqueue: enqueue,
 	}
 }
@@ -100,6 +103,19 @@ func hogPolicy(cfg config.Hogs) hogs.Policy {
 	tiers(cfg.CPU, hogs.KindCPU, &policy.CPU)
 	tiers(cfg.Memory, hogs.KindMemory, &policy.Memory)
 	return policy
+}
+
+// pssFloor is the smallest tree size any memory rule tests. A tree under it
+// is under every size rule whether it is read as RSS or as the smaller PSS,
+// so only a tree at or over it pays for the precise reading.
+func pssFloor(policy hogs.Policy) uint64 {
+	floor := uint64(math.MaxUint64)
+	for _, r := range policy.Memory {
+		if r.MemBytes > 0 {
+			floor = min(floor, r.MemBytes)
+		}
+	}
+	return floor
 }
 
 // hogTargets picks the sessions the watcher reads this pass.
@@ -164,6 +180,7 @@ func (w *hogWatch) run(now time.Time, targets []hogTarget) {
 		if target.quiet {
 			continue
 		}
+		w.sampler.Name(&usage)
 		body := hogs.Compose(raised, usage, sample.Host)
 		err := w.enqueue(store.InboxMessage{
 			SessionID:   id,

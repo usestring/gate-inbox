@@ -31,7 +31,9 @@ func writeHogProc(t *testing.T, root string, uptime float64, procs map[int][2]ui
 	write("meminfo", "MemTotal: 67108864 kB\nMemAvailable: 33554432 kB\n")
 	for pid, v := range procs {
 		p := fmt.Sprint(pid)
-		write(p+"/stat", fmt.Sprintf("%d (stress) R 1 0 0 0 -1 0 0 0 0 0 %d 0 0 0 20 0 1 0 100 0 10 0\n", pid, v[0]))
+		// RSS in pages, a little over the PSS: a tree is screened on RSS
+		// before its PSS is read, and PSS is never more than RSS.
+		write(p+"/stat", fmt.Sprintf("%d (stress) R 1 0 0 0 -1 0 0 0 0 0 %d 0 0 0 20 0 1 0 100 0 %d 0\n", pid, v[0], v[1]/4+16))
 		write(p+"/cmdline", "stress\x00--cpu\x008\x00")
 		write(p+"/smaps_rollup", fmt.Sprintf("Pss: %d kB\n", v[1]))
 		write(p+"/task/"+p+"/children", "")

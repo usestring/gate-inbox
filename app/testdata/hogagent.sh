@@ -12,11 +12,16 @@
 # screen: prompt  a "$ " prompt from the start
 #         dialog  a confirm dialog until <dir>/go exists, then the prompt
 # dir:    <dir>/typed.log gets every line read; <dir>/load.pid the child's pid
+#
+# HOG_FANOUT=N adds N idle children, for a tree the size of a real agent's.
+# HOG_NICE=N runs a cpu load at that niceness.
 set -u
 load=$1 screen=$2 dir=$3
 
+for _ in $(seq 1 "${HOG_FANOUT:-0}"); do sleep 1000000 & done
+
 case $load in
-cpu) sh -c 'while :; do :; done' & ;;
+cpu) nice -n "${HOG_NICE:-0}" sh -c 'while :; do :; done' & ;;
 mem) python3 -c 'import time; b = b"x" * (600 << 20); time.sleep(10**6)' & ;;
 grow) python3 -c '
 import time

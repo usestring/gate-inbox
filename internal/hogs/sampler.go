@@ -6,12 +6,14 @@ package hogs
 
 import (
 	"bytes"
+	"math"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/usestring/gate-inbox/internal/sysstat"
 )
 
 // clockTicks is USER_HZ, the unit /proc/<pid>/stat reports CPU time and start
@@ -28,13 +30,15 @@ const commandWidth = 120
 
 // ProcUsage is one process in a session's tree as a notice names it.
 type ProcUsage struct {
-	PID     int
+	PID int
+	// Command is empty until Sampler.Name fills it: argv is read only for a
+	// session that is about to be told something.
 	Command string
 	// CPUPercent is this process's share over the last interval, 100 being
 	// one full core. It counts children the process reaped in that interval,
 	// so a make or a go build carries the compilers it ran.
 	CPUPercent float64
-	// MemBytes is PSS where the kernel exposes it, RSS otherwise.
+	// MemBytes is PSS for a tree read at PSS, RSS otherwise (see Usage.PSS).
 	MemBytes uint64
 }
 
@@ -45,9 +49,13 @@ type Usage struct {
 	// tree, which has nothing to difference against.
 	CPUPercent float64
 	CPUValid   bool
-	// MemBytes is the tree's resident memory: PSS summed where available, so
-	// pages the tree's processes share are not counted once per process.
+	// MemBytes is the tree's resident memory. PSS reports whether it was
+	// summed as PSS, which counts a page shared among the tree's processes
+	// once rather than once per process; a tree whose RSS stays under the
+	// sampler's PSS floor is left at RSS, because reading PSS is expensive
+	// and a tree under the floor is under every size rule either way.
 	MemBytes uint64
+	PSS      bool
 	Procs    int
 	// TopCPU and TopMem are the heaviest processes by each measure, heaviest
 	// first.
@@ -105,10 +113,13 @@ type treeMemo struct {
 
 // Sampler reads session process trees out of a /proc filesystem.
 //
-// It opens its own files rather than sharing internal/sysstat's walk: that one
-// runs every poll and keeps only tree totals, where a notice has to name the
-// processes, and this one runs every few seconds, so the per-process reads it
-// adds (PSS, argv for the top few) are paid at a tenth of the rate.
+// Its cost is dominated by what the kernel has to do to answer, not by what
+// is parsed. A stat is ~10µs. A smaps_rollup walks the process's whole
+// address space under its mmap lock: ~5ms for one Chrome renderer on the
+// board this was measured on, 1.9s for every process on that machine against
+// 22ms for their stats -- and the lock it takes stalls the target's own page
+// faults while it is held. So memory is screened on RSS, which stat already
+// carries, and PSS is read only for a tree whose RSS has reached pssFloor.
 //
 // Not safe for concurrent use; the watcher that owns one runs one sample at a
 // time.
@@ -116,15 +127,27 @@ type Sampler struct {
 	root     string
 	pageSize uint64
 	trees    map[string]treeMemo
+	// pssFloor is the tree RSS at which memory is read as PSS. PSS is never
+	// more than RSS, so a tree under the smallest size a rule tests cannot
+	// cross it by being read more precisely.
+	pssFloor uint64
+	// childLists is whether the kernel exposes task/<tid>/children: 0 until
+	// the first walk finds out, then 1 or -1. Without them (a kernel built
+	// without CONFIG_PROC_CHILDREN) the tree comes from every process's ppid.
+	childLists int
 }
 
-// NewSampler reads the /proc mounted at root; empty means /proc.
+// NewSampler reads the /proc mounted at root; empty means /proc. It reads
+// no PSS until SetPSSFloor says from what size.
 func NewSampler(root string) *Sampler {
 	if root == "" {
 		root = "/proc"
 	}
-	return &Sampler{root: root, pageSize: uint64(os.Getpagesize()), trees: map[string]treeMemo{}}
+	return &Sampler{root: root, pageSize: uint64(os.Getpagesize()), trees: map[string]treeMemo{}, pssFloor: math.MaxUint64}
 }
+
+// SetPSSFloor sets the tree RSS from which memory is summed as PSS.
+func (s *Sampler) SetPSSFloor(bytes uint64) { s.pssFloor = bytes }
 
 // Supported reports whether root looks like a Linux /proc this sampler can
 // read. Everywhere else hog detection is off.
@@ -143,29 +166,36 @@ func (s *Sampler) Sample(now time.Time, roots map[string]int) Sample {
 		if root <= 0 {
 			continue
 		}
-		pids, ok := s.childrenWalk(root)
-		if !ok {
-			// Without per-task child lists (a kernel built without
-			// CONFIG_PROC_CHILDREN) the tree comes from one scan of every
-			// process's parent, taken once per sample for every session.
+		var reads []procRead
+		var rss uint64
+		if s.hasChildLists(root) {
+			reads, rss = s.walk(root)
+		} else {
 			if parents == nil {
 				parents = s.parentTable()
 			}
-			pids = walkParents(root, parents)
-		}
-		reads := make(map[procKey]procRead, len(pids))
-		for _, pid := range pids {
-			if read, ok := s.readProc(pid); ok {
-				reads[read.key] = read
-			}
+			reads, rss = s.walkTable(root, parents)
 		}
 		if len(reads) == 0 {
 			delete(s.trees, id)
 			continue
 		}
-		usage := s.usage(id, now, uptimeOK, reads)
+		pss := rss >= s.pssFloor
+		if pss {
+			for i := range reads {
+				if v, ok := s.pss(reads[i].key.pid); ok {
+					reads[i].mem = v
+				}
+			}
+		}
+		memo := make(map[procKey]procRead, len(reads))
+		for _, r := range reads {
+			memo[r.key] = r
+		}
+		usage := s.usage(id, now, uptimeOK, reads, memo)
+		usage.PSS = pss
 		out.Sessions[id] = usage
-		s.trees[id] = treeMemo{at: now, uptime: uptime, procs: reads}
+		s.trees[id] = treeMemo{at: now, uptime: uptime, procs: memo}
 	}
 	for id := range s.trees {
 		if _, live := roots[id]; !live {
@@ -176,24 +206,18 @@ func (s *Sampler) Sample(now time.Time, roots map[string]int) Sample {
 }
 
 // usage differences this tree against its previous sample.
-func (s *Sampler) usage(id string, now time.Time, uptimeOK bool, reads map[procKey]procRead) Usage {
+func (s *Sampler) usage(id string, now time.Time, uptimeOK bool, reads []procRead, memo map[procKey]procRead) Usage {
 	usage := Usage{Procs: len(reads)}
-	type scored struct {
-		read procRead
-		cpu  float64
-	}
-	all := make([]scored, 0, len(reads))
+	cpu := make([]float64, len(reads))
 	for _, read := range reads {
 		usage.MemBytes += read.mem
-		all = append(all, scored{read: read})
 	}
 	prev, seen := s.trees[id]
 	elapsed := now.Sub(prev.at).Seconds()
 	if seen && elapsed > 0 {
 		usage.CPUValid = true
 		var total, reapedGain, vanished float64
-		for i := range all {
-			read := all[i].read
+		for i, read := range reads {
 			before, known := prev.procs[read.key]
 			var delta float64
 			switch {
@@ -205,12 +229,12 @@ func (s *Sampler) usage(id string, now time.Time, uptimeOK bool, reads map[procK
 				delta = read.own + read.reaped
 			default:
 				// Present before but not seen -- it joined the tree some other
-				// way, or this is a sampler that missed it. Its history is not
-				// this interval's, so it counts from here.
+				// way. Its history is not this interval's, so it counts from
+				// here.
 				delta = 0
 			}
 			delta = max(0, delta)
-			all[i].cpu = delta / elapsed * 100
+			cpu[i] = delta / elapsed * 100
 			total += delta
 		}
 		// A process that exited since the last sample and was reaped by a
@@ -221,7 +245,7 @@ func (s *Sampler) usage(id string, now time.Time, uptimeOK bool, reads map[procK
 		// tree was not reaped here, and subtracting its lifetime would erase
 		// real work.
 		for key, before := range prev.procs {
-			if _, still := reads[key]; !still {
+			if _, still := memo[key]; !still {
 				vanished += before.own + before.reaped
 			}
 		}
@@ -229,69 +253,76 @@ func (s *Sampler) usage(id string, now time.Time, uptimeOK bool, reads map[procK
 		usage.CPUPercent = max(0, total) / elapsed * 100
 	}
 
-	byCPU := slices.Clone(all)
-	slices.SortFunc(byCPU, func(a, b scored) int {
-		if a.cpu != b.cpu {
-			if a.cpu > b.cpu {
-				return -1
-			}
-			return 1
+	var topCPU, topMem [topProcs]int
+	var nCPU, nMem int
+	insert := func(top *[topProcs]int, n *int, i int, better func(a, b int) bool) {
+		at := *n
+		for at > 0 && better(i, top[at-1]) {
+			at--
 		}
-		return a.read.key.pid - b.read.key.pid
-	})
-	byMem := slices.Clone(all)
-	slices.SortFunc(byMem, func(a, b scored) int {
-		if a.read.mem != b.read.mem {
-			if a.read.mem > b.read.mem {
-				return -1
-			}
-			return 1
+		if at >= topProcs {
+			return
 		}
-		return a.read.key.pid - b.read.key.pid
-	})
-	commands := map[int]string{}
-	named := func(sc scored) ProcUsage {
-		pid := sc.read.key.pid
-		cmd, ok := commands[pid]
-		if !ok {
-			cmd = s.command(pid)
-			commands[pid] = cmd
-		}
-		return ProcUsage{PID: pid, Command: cmd, CPUPercent: sc.cpu, MemBytes: sc.read.mem}
+		end := min(*n, topProcs-1)
+		copy(top[at+1:end+1], top[at:end])
+		top[at] = i
+		*n = min(*n+1, topProcs)
 	}
-	if usage.CPUValid {
-		for _, sc := range byCPU[:min(topProcs, len(byCPU))] {
-			if sc.cpu <= 0 {
-				break
-			}
-			usage.TopCPU = append(usage.TopCPU, named(sc))
+	for i := range reads {
+		if usage.CPUValid && cpu[i] > 0 {
+			insert(&topCPU, &nCPU, i, func(a, b int) bool {
+				return cpu[a] > cpu[b] || cpu[a] == cpu[b] && reads[a].key.pid < reads[b].key.pid
+			})
 		}
+		insert(&topMem, &nMem, i, func(a, b int) bool {
+			return reads[a].mem > reads[b].mem || reads[a].mem == reads[b].mem && reads[a].key.pid < reads[b].key.pid
+		})
 	}
-	for _, sc := range byMem[:min(topProcs, len(byMem))] {
-		usage.TopMem = append(usage.TopMem, named(sc))
+	for _, i := range topCPU[:nCPU] {
+		usage.TopCPU = append(usage.TopCPU, ProcUsage{PID: reads[i].key.pid, CPUPercent: cpu[i], MemBytes: reads[i].mem})
+	}
+	for _, i := range topMem[:nMem] {
+		usage.TopMem = append(usage.TopMem, ProcUsage{PID: reads[i].key.pid, CPUPercent: cpu[i], MemBytes: reads[i].mem})
 	}
 	return usage
 }
 
-// childrenWalk lists root and everything under it through the per-task child
-// lists. It reports false when the kernel does not expose them, so the caller
-// can fall back; a root that has exited returns an empty list and true.
-func (s *Sampler) childrenWalk(root int) ([]int, bool) {
-	rootTasks := filepath.Join(s.root, strconv.Itoa(root), "task")
-	tasks, err := os.ReadDir(rootTasks)
-	if err != nil {
-		return nil, true
-	}
-	if len(tasks) > 0 {
-		if _, err := os.Stat(filepath.Join(rootTasks, tasks[0].Name(), "children")); err != nil {
-			return nil, false
+// Name fills in the command line of every process usage names.
+func (s *Sampler) Name(usage *Usage) {
+	for _, list := range [][]ProcUsage{usage.TopCPU, usage.TopMem} {
+		for i := range list {
+			list[i].Command = s.command(list[i].PID)
 		}
 	}
+}
+
+func (s *Sampler) procPath(pid int, rest string) string {
+	return s.root + "/" + strconv.Itoa(pid) + rest
+}
+
+// hasChildLists reports whether the kernel exposes per-task child lists,
+// finding out on the first root that has a /proc entry.
+func (s *Sampler) hasChildLists(root int) bool {
+	if s.childLists == 0 {
+		if _, err := os.Stat(s.procPath(root, "")); err == nil {
+			s.childLists = -1
+			if _, err := os.Stat(s.procPath(root, "/task/"+strconv.Itoa(root)+"/children")); err == nil {
+				s.childLists = 1
+			}
+		}
+	}
+	return s.childLists >= 0
+}
+
+// walk reads root and everything under it through the per-task child lists,
+// returning each process and the tree's RSS.
+func (s *Sampler) walk(root int) ([]procRead, uint64) {
+	var reads []procRead
+	var rss uint64
 	// Breadth-first with a seen set, so a pid that somehow lists itself
 	// cannot loop the walk.
 	seen := map[int]bool{}
 	queue := []int{root}
-	var out []int
 	for len(queue) > 0 {
 		pid := queue[0]
 		queue = queue[1:]
@@ -299,61 +330,64 @@ func (s *Sampler) childrenWalk(root int) ([]int, bool) {
 			continue
 		}
 		seen[pid] = true
-		out = append(out, pid)
-		base := filepath.Join(s.root, strconv.Itoa(pid), "task")
-		entries, err := os.ReadDir(base)
-		if err != nil {
+		st, ok := s.readStat(pid)
+		if !ok {
 			// Exited between being listed and being read.
 			continue
 		}
-		for _, task := range entries {
-			raw, err := os.ReadFile(filepath.Join(base, task.Name(), "children"))
-			if err != nil {
-				continue
-			}
-			for _, field := range strings.Fields(string(raw)) {
-				if child, err := strconv.Atoi(field); err == nil {
-					queue = append(queue, child)
-				}
-			}
+		reads = append(reads, st.read)
+		rss += st.read.mem
+		// A single-threaded process has exactly one task, named for itself,
+		// so its child list is read without listing the directory first.
+		if st.threads <= 1 {
+			queue = s.appendChildren(queue, s.procPath(pid, "/task/"+strconv.Itoa(pid)+"/children"))
+			continue
 		}
+		base := s.procPath(pid, "/task")
+		sysstat.ListProcDir(base, func(task string) {
+			queue = s.appendChildren(queue, base+"/"+task+"/children")
+		})
 	}
-	return out, true
+	return reads, rss
+}
+
+func (s *Sampler) appendChildren(queue []int, path string) []int {
+	sysstat.ReadProcFile(path, func(raw []byte) {
+		for len(raw) > 0 {
+			raw = bytes.TrimLeft(raw, " \n")
+			end := bytes.IndexAny(raw, " \n")
+			if end < 0 {
+				end = len(raw)
+			}
+			if child, ok := parseUint(raw[:end]); ok {
+				queue = append(queue, int(child))
+			}
+			raw = raw[end:]
+		}
+	})
+	return queue
 }
 
 // parentTable maps every process to its children from each one's ppid.
 func (s *Sampler) parentTable() map[int][]int {
-	entries, err := os.ReadDir(s.root)
-	if err != nil {
-		return nil
-	}
 	parents := map[int][]int{}
-	for _, entry := range entries {
-		pid, err := strconv.Atoi(entry.Name())
+	sysstat.ListProcDir(s.root, func(name string) {
+		pid, err := strconv.Atoi(name)
 		if err != nil {
-			continue
+			return
 		}
-		raw, err := os.ReadFile(filepath.Join(s.root, entry.Name(), "stat"))
-		if err != nil {
-			continue
+		if st, ok := s.readStat(pid); ok {
+			parents[st.ppid] = append(parents[st.ppid], pid)
 		}
-		fields, _, ok := statFields(raw)
-		if !ok {
-			continue
-		}
-		ppid, err := strconv.Atoi(fields[ppidField-3])
-		if err != nil {
-			continue
-		}
-		parents[ppid] = append(parents[ppid], pid)
-	}
+	})
 	return parents
 }
 
-func walkParents(root int, parents map[int][]int) []int {
+func (s *Sampler) walkTable(root int, parents map[int][]int) ([]procRead, uint64) {
+	var reads []procRead
+	var rss uint64
 	seen := map[int]bool{}
 	queue := []int{root}
-	var out []int
 	for len(queue) > 0 {
 		pid := queue[0]
 		queue = queue[1:]
@@ -361,82 +395,146 @@ func walkParents(root int, parents map[int][]int) []int {
 			continue
 		}
 		seen[pid] = true
-		out = append(out, pid)
+		if st, ok := s.readStat(pid); ok {
+			reads = append(reads, st.read)
+			rss += st.read.mem
+		}
 		queue = append(queue, parents[pid]...)
 	}
-	return out
+	return reads, rss
 }
 
-// proc(5) numbers the stat fields from 1; statFields returns them from field
-// 3 (state) on, so field N is at index N-3.
+type statRead struct {
+	read    procRead
+	ppid    int
+	threads int
+}
+
+// proc(5) numbers the stat fields from 1; the scan below counts from field 3
+// (state), the first after the comm.
 const (
 	ppidField      = 4
 	utimeField     = 14
 	stimeField     = 15
 	cutimeField    = 16
 	cstimeField    = 17
+	threadsField   = 20
 	starttimeField = 22
 	rssField       = 24
 )
 
-// statFields splits a stat line after its comm, which is parenthesised and
-// may itself hold spaces and parentheses, and returns the comm too.
-func statFields(raw []byte) ([]string, string, bool) {
-	open := bytes.IndexByte(raw, '(')
-	end := bytes.LastIndexByte(raw, ')')
-	if open < 0 || end < open || end+2 > len(raw) {
-		return nil, "", false
-	}
-	fields := strings.Fields(string(raw[end+1:]))
-	if len(fields) <= rssField-3 {
-		return nil, "", false
-	}
-	return fields, string(raw[open+1 : end]), true
+// readStat reads one process's stat line. It reports false for a process
+// that exited underneath the walk.
+func (s *Sampler) readStat(pid int) (statRead, bool) {
+	var st statRead
+	ok := false
+	sysstat.ReadProcFile(s.procPath(pid, "/stat"), func(raw []byte) {
+		st, ok = parseStat(raw, s.pageSize)
+	})
+	st.read.key.pid = pid
+	return st, ok
 }
 
-// readProc reads one process's times and memory. It reports false for a
-// process that exited underneath the walk.
-func (s *Sampler) readProc(pid int) (procRead, bool) {
-	dir := filepath.Join(s.root, strconv.Itoa(pid))
-	raw, err := os.ReadFile(filepath.Join(dir, "stat"))
-	if err != nil {
-		return procRead{}, false
+// parseStat pulls the fields the sampler uses out of a stat line without
+// allocating. The fields are located after the last ')' because a comm is
+// parenthesised and may itself contain spaces and parentheses.
+func parseStat(raw []byte, pageSize uint64) (statRead, bool) {
+	end := bytes.LastIndexByte(raw, ')')
+	if end < 0 {
+		return statRead{}, false
 	}
-	fields, _, ok := statFields(raw)
-	if !ok {
-		return procRead{}, false
+	rest := raw[end+1:]
+	var st statRead
+	var utime, stime, cutime, cstime uint64
+	field := 2
+	found := 0
+	for len(rest) > 0 && field < rssField {
+		rest = bytes.TrimLeft(rest, " ")
+		stop := bytes.IndexByte(rest, ' ')
+		if stop < 0 {
+			stop = len(rest)
+		}
+		token := rest[:stop]
+		rest = rest[stop:]
+		field++
+		var dst *uint64
+		var v uint64
+		switch field {
+		case ppidField, threadsField:
+			dst = &v
+		case utimeField:
+			dst = &utime
+		case stimeField:
+			dst = &stime
+		case cutimeField:
+			dst = &cutime
+		case cstimeField:
+			dst = &cstime
+		case starttimeField:
+			dst = &st.read.key.start
+		case rssField:
+			dst = &v
+		default:
+			continue
+		}
+		n, ok := parseInt(token)
+		if !ok {
+			return statRead{}, false
+		}
+		*dst = n
+		found++
+		switch field {
+		case ppidField:
+			st.ppid = int(v)
+		case threadsField:
+			st.threads = int(v)
+		case rssField:
+			st.read.mem = v * pageSize
+		}
 	}
-	num := func(field int) float64 {
-		v, _ := strconv.ParseFloat(fields[field-3], 64)
-		return v
+	if found != 8 {
+		return statRead{}, false
 	}
-	start, err := strconv.ParseUint(fields[starttimeField-3], 10, 64)
-	if err != nil {
-		return procRead{}, false
+	st.read.own = float64(utime+stime) / clockTicks
+	st.read.reaped = float64(cutime+cstime) / clockTicks
+	return st, true
+}
+
+// parseInt reads a decimal stat field, clamping a negative one (cutime can
+// be, briefly, on some kernels) to zero.
+func parseInt(b []byte) (uint64, bool) {
+	if len(b) > 0 && b[0] == '-' {
+		_, ok := parseUint(b[1:])
+		return 0, ok
 	}
-	read := procRead{
-		key:    procKey{pid: pid, start: start},
-		own:    (num(utimeField) + num(stimeField)) / clockTicks,
-		reaped: (num(cutimeField) + num(cstimeField)) / clockTicks,
+	return parseUint(b)
+}
+
+func parseUint(b []byte) (uint64, bool) {
+	if len(b) == 0 {
+		return 0, false
 	}
-	if pss, ok := s.pss(dir); ok {
-		read.mem = pss
-	} else if pages, err := strconv.ParseUint(fields[rssField-3], 10, 64); err == nil {
-		read.mem = pages * s.pageSize
+	var n uint64
+	for _, c := range b {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + uint64(c-'0')
 	}
-	return read, true
+	return n, true
 }
 
 // pss reads a process's proportional set size from smaps_rollup, which
 // divides each shared page among the processes mapping it. That matters
 // here because a tree is summed: a browser's renderers or a forked worker
 // pool share most of their pages, and RSS counts them once per process.
-func (s *Sampler) pss(dir string) (uint64, bool) {
-	raw, err := os.ReadFile(filepath.Join(dir, "smaps_rollup"))
-	if err != nil {
-		return 0, false
-	}
-	return kibField(raw, "Pss:")
+func (s *Sampler) pss(pid int) (uint64, bool) {
+	var v uint64
+	ok := false
+	sysstat.ReadProcFile(s.procPath(pid, "/smaps_rollup"), func(raw []byte) {
+		v, ok = kibField(raw, "Pss:")
+	})
+	return v, ok
 }
 
 // kibField reads a "Name:   123 kB" line out of a /proc file, in bytes.
@@ -446,56 +544,53 @@ func kibField(raw []byte, name string) (uint64, bool) {
 		if !found {
 			continue
 		}
-		fields := strings.Fields(string(rest))
-		if len(fields) == 0 {
-			return 0, false
+		rest = bytes.TrimSpace(rest)
+		if end := bytes.IndexByte(rest, ' '); end >= 0 {
+			rest = rest[:end]
 		}
-		kib, err := strconv.ParseUint(fields[0], 10, 64)
-		if err != nil {
-			return 0, false
-		}
-		return kib * 1024, true
+		kib, ok := parseUint(rest)
+		return kib * 1024, ok
 	}
 	return 0, false
 }
 
 func (s *Sampler) host() Host {
-	raw, err := os.ReadFile(filepath.Join(s.root, "meminfo"))
-	if err != nil {
-		return Host{}
-	}
-	total, ok1 := kibField(raw, "MemTotal:")
-	avail, ok2 := kibField(raw, "MemAvailable:")
-	return Host{MemTotal: total, MemAvailable: avail, OK: ok1 && ok2 && total > 0}
+	var h Host
+	sysstat.ReadProcFile(s.root+"/meminfo", func(raw []byte) {
+		total, ok1 := kibField(raw, "MemTotal:")
+		avail, ok2 := kibField(raw, "MemAvailable:")
+		h = Host{MemTotal: total, MemAvailable: avail, OK: ok1 && ok2 && total > 0}
+	})
+	return h
 }
 
 func (s *Sampler) uptime() (float64, bool) {
-	raw, err := os.ReadFile(filepath.Join(s.root, "uptime"))
-	if err != nil {
-		return 0, false
-	}
-	fields := strings.Fields(string(raw))
-	if len(fields) == 0 {
-		return 0, false
-	}
-	up, err := strconv.ParseFloat(fields[0], 64)
-	return up, err == nil
+	var up float64
+	ok := false
+	sysstat.ReadProcFile(s.root+"/uptime", func(raw []byte) {
+		if end := bytes.IndexByte(raw, ' '); end > 0 {
+			v, err := strconv.ParseFloat(string(raw[:end]), 64)
+			up, ok = v, err == nil
+		}
+	})
+	return up, ok
 }
 
 // command is a process's command line as a notice quotes it, or its comm for
 // a process with no argv.
 func (s *Sampler) command(pid int) string {
-	dir := filepath.Join(s.root, strconv.Itoa(pid))
 	cmd := ""
-	if raw, err := os.ReadFile(filepath.Join(dir, "cmdline")); err == nil {
+	sysstat.ReadProcFile(s.procPath(pid, "/cmdline"), func(raw []byte) {
 		cmd = strings.Join(strings.Fields(strings.ReplaceAll(string(raw), "\x00", " ")), " ")
-	}
+	})
 	if cmd == "" {
-		if raw, err := os.ReadFile(filepath.Join(dir, "stat")); err == nil {
-			if _, comm, ok := statFields(raw); ok {
-				cmd = "[" + comm + "]"
+		sysstat.ReadProcFile(s.procPath(pid, "/stat"), func(raw []byte) {
+			open := bytes.IndexByte(raw, '(')
+			end := bytes.LastIndexByte(raw, ')')
+			if open >= 0 && end > open {
+				cmd = "[" + string(raw[open+1:end]) + "]"
 			}
-		}
+		})
 	}
 	if len([]rune(cmd)) > commandWidth {
 		cmd = string([]rune(cmd)[:commandWidth-1]) + "…"

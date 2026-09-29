@@ -117,6 +117,7 @@ func TestSamplerSumsTheWholeTreeAndNamesTheHeaviest(t *testing.T) {
 				f.put(p)
 			}
 			s := newTestSampler(f.root)
+			s.SetPSSFloor(0)
 			t0 := time.Unix(1_000_000, 0)
 			first := s.Sample(t0, map[string]int{"sess": 10})
 			usage := first.Sessions["sess"]
@@ -131,6 +132,7 @@ func TestSamplerSumsTheWholeTreeAndNamesTheHeaviest(t *testing.T) {
 			if usage.MemBytes != wantMem {
 				t.Fatalf("MemBytes = %d, want %d", usage.MemBytes, wantMem)
 			}
+			s.Name(&usage)
 			if usage.TopMem[0].PID != 12 || usage.TopMem[0].Command != "go build ./..." {
 				t.Fatalf("TopMem[0] = %+v, want the go build", usage.TopMem[0])
 			}
@@ -253,5 +255,42 @@ func TestSamplerQuotesACommandBoundedAndFallsBackToComm(t *testing.T) {
 	}
 	if got := s.command(11); got != "[kworker (x)]" {
 		t.Fatalf("command = %q, want the comm for a process with no argv", got)
+	}
+}
+
+// PSS is read only for a tree whose RSS has reached the floor: under it the
+// tree is summed from stat's RSS and smaps_rollup is never opened.
+func TestSamplerReadsPSSOnlyForATreeAtTheFloor(t *testing.T) {
+	f := newFakeProc(t)
+	f.put(fakeProcess{pid: 10, ppid: 1, comm: "zsh", rssPages: 1024, pssKiB: 1024, children: []int{11}})
+	f.put(fakeProcess{pid: 11, ppid: 10, comm: "node", rssPages: 1024, pssKiB: 1024})
+	rss := uint64(2 * 1024 * 4096)
+	pss := uint64(2 * 1024 * 1024)
+	for _, tc := range []struct {
+		floor   uint64
+		wantMem uint64
+		wantPSS bool
+	}{
+		{floor: rss + 1, wantMem: rss, wantPSS: false},
+		{floor: rss, wantMem: pss, wantPSS: true},
+	} {
+		s := newTestSampler(f.root)
+		s.SetPSSFloor(tc.floor)
+		u := s.Sample(time.Unix(1, 0), map[string]int{"sess": 10}).Sessions["sess"]
+		if u.MemBytes != tc.wantMem || u.PSS != tc.wantPSS {
+			t.Errorf("floor %d: mem %d pss %v, want %d %v", tc.floor, u.MemBytes, u.PSS, tc.wantMem, tc.wantPSS)
+		}
+	}
+}
+
+func TestParseStatReadsTheFieldsAfterTheComm(t *testing.T) {
+	line := []byte("42 (a (b) c) S 7 0 0 0 -1 0 0 0 0 0 150 50 -3 20 20 0 4 0 12345 0 99 0 0\n")
+	st, ok := parseStat(line, 4096)
+	if !ok || st.ppid != 7 || st.threads != 4 || st.read.key.start != 12345 || st.read.mem != 99*4096 ||
+		st.read.own != 2 || st.read.reaped != 0.2 {
+		t.Fatalf("parseStat = %+v, %v", st, ok)
+	}
+	if _, ok := parseStat([]byte("42 (x) S 1 2"), 4096); ok {
+		t.Fatal("a truncated line parsed")
 	}
 }

@@ -272,6 +272,49 @@ func TestAutoRouteFallbackPickerDropsAGroupArchivedDuringTheQuotaRead(t *testing
 	}
 }
 
+func TestAutoRouteFallbackPickerRechecksTheGroupOnSubmit(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	groupAt(t, m, "origin", filepath.Join(t.TempDir(), "origin-repo"))
+	m.selectGroupRow(t, "origin")
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	m.update(cmd())
+	if m.mode != modeAgentPick || !m.agentPick.pinned {
+		t.Fatalf("unavailable quota left mode %v pinned=%v, want a pinned picker", m.mode, m.agentPick.pinned)
+	}
+	if _, _, err := m.store.RemoveGroup("origin"); err != nil {
+		t.Fatal(err)
+	}
+	m.selectGroupRow(t, "elsewhere")
+	typeInto(t, m, "ready-tool")
+	pressKey(t, m, enterKey())
+	if m.mode != modeAgentPick || m.agentPick.pinned || len(m.sessionRows()) != 0 {
+		t.Fatalf("deleted group left mode %v pinned=%v rows %+v, want an unpinned picker and no launch", m.mode, m.agentPick.pinned, m.sessionRows())
+	}
+	if !strings.Contains(m.errBar.text, "group changed") {
+		t.Fatalf("missing group-change explanation: %q", m.errBar.text)
+	}
+	pressKey(t, m, enterKey())
+	m.leaveFocusForFixture(t)
+	groups, err := m.store.Groups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range groups {
+		if g.Name == "origin" {
+			t.Fatal("fallback picker recreated the deleted group")
+		}
+	}
+	rows := m.sessionRows()
+	if len(rows) != 1 || rows[0].Group != "elsewhere" {
+		t.Fatalf("fallback picker launched %+v, want it in the current group", rows)
+	}
+}
+
 func TestAutoRouteFallbackTerminalLeavesASessionArchivedDuringTheQuotaRead(t *testing.T) {
 	m := buildModel(t)
 	groupDir, sessionDir := t.TempDir(), t.TempDir()

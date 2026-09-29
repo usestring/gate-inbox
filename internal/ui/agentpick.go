@@ -439,6 +439,13 @@ func (m *Model) submitAgentPick() (tea.Model, tea.Cmd) {
 		m.mode = modeList
 		return m, nil
 	}
+	// The picker can stay open long enough for another agent to delete or
+	// archive the pinned group, and launching into it would recreate it.
+	if m.agentPick.pinned && !m.groupStillOpen(m.agentPick.group) {
+		m.agentPick.pinned = false
+		m.errBar.text = "group changed: enter starts it here"
+		return m, nil
+	}
 	m.mode = modeList
 	if m.isShell(name) {
 		if m.agentPick.pinned {

@@ -15,7 +15,7 @@ func commandQuotaWithin(t *testing.T, ctx context.Context, command string, bound
 	t.Helper()
 	done := make(chan error, 1)
 	go func() {
-		_, err := commandQuota(ctx, command)
+		_, err := commandQuota(ctx, command, "")
 		done <- err
 	}()
 	select {
@@ -125,7 +125,7 @@ func TestCustomQuotaCommandParsesMonthlyWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := commandQuota(context.Background(), "printf '%s' '"+string(payload)+"'")
+	got, err := commandQuota(context.Background(), "printf '%s' '"+string(payload)+"'", "")
 	if err != nil || len(got.Windows) != 1 || got.Windows[0].Duration != 30*24*time.Hour {
 		t.Fatalf("monthly quota = %+v, %v", got, err)
 	}
@@ -206,10 +206,21 @@ func TestCredentialPathsHonorDirectoryOverrides(t *testing.T) {
 
 func TestCustomQuotaCommandRejectsAnIncompleteWindow(t *testing.T) {
 	command := `printf '%s' '{"observed_at":"2026-09-28T18:00:00Z","windows":{"monthly":{"utilization":25,"resets_at":"2026-10-23T18:00:00Z","duration_seconds":2592000},"daily":{"utilization":null,"resets_at":"2026-09-29T18:00:00Z","duration_seconds":86400}}}'`
-	if _, err := commandQuota(context.Background(), command); err != ErrNoQuota {
+	if _, err := commandQuota(context.Background(), command, ""); err != ErrNoQuota {
 		t.Fatalf("incomplete window err = %v, want ErrNoQuota", err)
 	}
-	if _, err := commandQuota(context.Background(), `printf '%s' '{"observed_at":"2026-09-28T18:00:00Z","windows":{}}'`); err != ErrNoQuota {
+	if _, err := commandQuota(context.Background(), `printf '%s' '{"observed_at":"2026-09-28T18:00:00Z","windows":{}}'`, ""); err != ErrNoQuota {
 		t.Fatalf("empty windows err = %v, want ErrNoQuota", err)
+	}
+}
+
+func TestCommandQuotaClearsTheAccountEnv(t *testing.T) {
+	t.Setenv("SAMPLE_ACCOUNT_TOKEN", "borrowed-token")
+	command := `[ -z "$SAMPLE_ACCOUNT_TOKEN" ] && printf '%s' '{"windows":{"weekly":{"percent":20}}}'`
+	if _, err := commandQuota(context.Background(), command, "SAMPLE_ACCOUNT_TOKEN"); err != nil {
+		t.Fatalf("quota command saw the exported account token: %v", err)
+	}
+	if _, err := commandQuota(context.Background(), command, ""); err != ErrNoQuota {
+		t.Fatalf("control run without an account env = %v, want the token visible", err)
 	}
 }

@@ -84,7 +84,7 @@ func Reader(tools map[string]config.Tool) ReadFunc {
 			return Reading{}, ErrNoQuota
 		}
 		if tool.QuotaCommand != "" {
-			return commandQuota(ctx, tool.QuotaCommand)
+			return commandQuota(ctx, tool.QuotaCommand, tool.AccountEnv)
 		}
 		switch name {
 		case "claude":
@@ -121,13 +121,18 @@ func (c *cappedOutput) Write(p []byte) (int, error) {
 // commandQuota runs a custom quota_command in its own process group, so a
 // deadline or an oversized stream kills everything it started; WaitDelay
 // bounds the wait on a descendant that escaped the group but kept stdout.
-func commandQuota(ctx context.Context, command string) (Reading, error) {
+// accountEnv is cleared the way a launch without a named account clears it,
+// so the command measures the login the session will actually run on.
+func commandQuota(ctx context.Context, command, accountEnv string) (Reading, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = time.Second
+	if accountEnv != "" {
+		cmd.Env = append(os.Environ(), accountEnv+"=")
+	}
 	stdout := &cappedOutput{overflow: cancel}
 	cmd.Stdout = stdout
 	if err := cmd.Run(); err != nil {

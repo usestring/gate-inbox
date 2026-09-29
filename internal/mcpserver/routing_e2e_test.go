@@ -276,7 +276,7 @@ func newRoutingHarness(t *testing.T) *routingHarness {
 	t.Cleanup(accounts.UsePool(pool.Resolve))
 	configDir := tmuxtest.ScratchDir(t)
 	t.Setenv(config.HomeEnv, configDir)
-	socket := tmuxtest.NewSocket("routing")
+	socket := tmuxtest.Socket(t, "routing")
 	t.Setenv(tmux.SocketEnv, socket)
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "fixture-parent-borrowed-token")
 	text := `[tools.claude]

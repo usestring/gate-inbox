@@ -24,7 +24,7 @@ func paneServer(t *testing.T, dir, command string) string {
 	// A name in a family tmuxtest knows: the old one was outside every
 	// prefix the reaper matches, so nothing this package left behind was
 	// ever collected by anything but a human.
-	socket := tmuxtest.NewSocket("adopt")
+	socket := tmuxtest.Socket(t, "adopt")
 	out, err := exec.Command("tmux", "-L", socket, "new-session", "-d", "-s", "work",
 		"-c", dir, "-x", "80", "-y", "24", command).CombinedOutput()
 	if err != nil {

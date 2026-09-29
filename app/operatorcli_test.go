@@ -35,7 +35,7 @@ func TestExternalBuildHearsAShellSendAsTheOperator(t *testing.T) {
 		t.Skip("the board polls a tmux server")
 	}
 	bin := buildFixture(t)
-	socket := tmuxtest.NewSocket("operator")
+	socket := tmuxtest.Socket(t, "operator")
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+promptTool+"\n[extensions.tally]\nanswers = \"asks-the-operator\"\n")
 	home := envValue(env, "GATE_INBOX_HOME")
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })
@@ -120,7 +120,7 @@ func TestExternalBuildAnswersTheOperatorsSendWithNoBoard(t *testing.T) {
 		t.Skip("sessions run in a tmux server")
 	}
 	bin := buildFixture(t)
-	socket := tmuxtest.NewSocket("handled")
+	socket := tmuxtest.Socket(t, "handled")
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+promptTool+"\n[extensions.tally]\nanswers = \"asks-the-operator\"\n")
 	home := envValue(env, "GATE_INBOX_HOME")
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })

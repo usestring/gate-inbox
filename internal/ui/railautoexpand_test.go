@@ -211,18 +211,19 @@ func TestSteppingIsReversible(t *testing.T) {
 	}
 }
 
-// An explicit fold is a decision and a default is not, so ← on the row the
-// cursor is on shuts it and keeps it shut.
+// An explicit fold is a decision and a default is not, so the fold arrow (→
+// with the rail on the right) on the row the cursor is on shuts it and keeps
+// it shut.
 func TestAnExplicitFoldBeatsAutoExpansion(t *testing.T) {
 	m := undecidedFleet(t, fleetSize, 120, 40)
 	sess := firstWorkingSession(t, m)
 	m.cursor = sessionRowIndex(t, m, sess.ID)
 	m.rebuildRows()
 
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
 	*m = *updated.(*Model)
 	if owners := artifactOwners(m); owners[sess.ID] != 0 {
-		t.Fatalf("← left %q open: %v", sess.ID, owners)
+		t.Fatalf("→ left %q open: %v", sess.ID, owners)
 	}
 	m.rebuildRows()
 	if owners := artifactOwners(m); owners[sess.ID] != 0 {

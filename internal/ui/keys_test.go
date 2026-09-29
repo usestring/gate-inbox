@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -362,38 +363,57 @@ func TestToggleCollapseAllFlipsEveryGroup(t *testing.T) {
 	}
 }
 
-// Right steps into the row under the cursor: a session is focused, and a
-// collapsed group opens without the toggle closing an open one.
-func TestRightStepsIntoTheRow(t *testing.T) {
-	m := buildModel(t)
-	if err := m.store.CreateGroup("grouped", ""); err != nil {
-		t.Fatalf("create group: %v", err)
-	}
-	m.applyCmd(t, m.refreshCmd())
-	createSession(t, m, "stepin", t.TempDir(), "grouped")
-	m.selectGroupRow(t, "grouped")
+// The step-in arrow steps into the row under the cursor: a session is
+// focused, and a collapsed group opens without the toggle closing an open
+// one. It is the arrow pointing at the pane: ← with the rail on the right,
+// where the pane is to its left, and → with the rail on the left; the other
+// arrow folds.
+func TestStepInArrowStepsIntoTheRow(t *testing.T) {
+	for _, tc := range []struct {
+		side         string
+		stepIn, fold rune
+	}{
+		{config.SidebarRight, tea.KeyLeft, tea.KeyRight},
+		{config.SidebarLeft, tea.KeyRight, tea.KeyLeft},
+	} {
+		t.Run(tc.side, func(t *testing.T) {
+			m := buildModel(t)
+			m.sidebar = tc.side
+			if err := m.store.CreateGroup("grouped", ""); err != nil {
+				t.Fatalf("create group: %v", err)
+			}
+			m.applyCmd(t, m.refreshCmd())
+			createSession(t, m, "stepin", t.TempDir(), "grouped")
+			m.selectGroupRow(t, "grouped")
 
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
-	*m = *updated.(*Model)
-	if !m.collapsed["grouped"] {
-		t.Fatal("left did not close the group")
-	}
-	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
-	*m = *updated.(*Model)
-	if m.collapsed["grouped"] {
-		t.Fatal("right did not open the group")
-	}
-	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
-	*m = *updated.(*Model)
-	if m.collapsed["grouped"] {
-		t.Fatal("a second right closed the group it had opened")
-	}
+			updated, _ := m.handleKey(tea.KeyPressMsg{Code: tc.fold})
+			*m = *updated.(*Model)
+			if !m.collapsed["grouped"] {
+				t.Fatal("the fold arrow did not close the group")
+			}
+			updated, _ = m.handleKey(tea.KeyPressMsg{Code: tc.stepIn})
+			*m = *updated.(*Model)
+			if m.collapsed["grouped"] {
+				t.Fatal("the step-in arrow did not open the group")
+			}
+			updated, _ = m.handleKey(tea.KeyPressMsg{Code: tc.stepIn})
+			*m = *updated.(*Model)
+			if m.collapsed["grouped"] {
+				t.Fatal("a second step-in closed the group it had opened")
+			}
 
-	m.selectSessionRow(t, "stepin")
-	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
-	*m = *updated.(*Model)
-	if m.mode != modeFocus {
-		t.Fatalf("right did not focus the session, mode = %v, err = %q", m.mode, m.errBar.text)
+			m.selectSessionRow(t, "stepin")
+			updated, _ = m.handleKey(tea.KeyPressMsg{Code: tc.fold})
+			*m = *updated.(*Model)
+			if m.mode == modeFocus {
+				t.Fatal("the fold arrow focused the session")
+			}
+			updated, _ = m.handleKey(tea.KeyPressMsg{Code: tc.stepIn})
+			*m = *updated.(*Model)
+			if m.mode != modeFocus {
+				t.Fatalf("the step-in arrow did not focus the session, mode = %v, err = %q", m.mode, m.errBar.text)
+			}
+		})
 	}
 }
 

@@ -72,7 +72,8 @@ func (m *Model) railTopRow(paneWidth, width int) string {
 // the ring along the frame's bottom rule. The ring used to open on a row of
 // its own directly under this one, which drew as two hairlines a cell apart
 // and spent a line of the mirrored agent's terminal on saying twice what one
-// row says. paneWidth is the rail's run, counted in from the right edge.
+// row says. paneWidth is the rail's run, counted in from the rail's edge of
+// the frame: the right edge by default, the left with the sidebar there.
 func (m *Model) topRule(paneWidth, width int) string {
 	if m.mode != modeFocus {
 		return m.railTopRow(paneWidth, width)
@@ -89,6 +90,18 @@ func (m *Model) topRule(paneWidth, width int) string {
 	// The uprights are only drawn once there is a pane box to run down, so
 	// without one the rule keeps the frame's own corner rather than opening
 	// a ring nothing closes.
+	if m.railOnLeft() {
+		// Mirrored: the rail's run comes first, counted in from the left
+		// edge, and the titled tail closes on the ring's right corner.
+		corner := lipgloss.NewStyle().Foreground(colorBackdrop).Render("▜")
+		if m.pane.box.ok {
+			corner = focusEdgeStyle.Render("╭")
+		}
+		first := plain(lipgloss.NewStyle().Foreground(lipgloss.Color(panelHex())).Render("▄"), 1)
+		interior := lipgloss.NewStyle().Foreground(colorBackdrop).Render(strings.Repeat("▀", paneWidth-1))
+		return first + paint(interior, paneWidth-1, panelHex()) + paint(corner, 1, panelHex()) +
+			paint(m.focusRuleTail(tail, m.pane.box.ok), tail, backdropHex())
+	}
 	head := paint(m.focusRuleTail(tail, false), tail, backdropHex())
 	corner := lipgloss.NewStyle().Foreground(colorBackdrop).Render("▛")
 	if m.pane.box.ok {
@@ -117,6 +130,20 @@ func (m *Model) topRule(paneWidth, width int) string {
 func (m *Model) boundedRuleRow(paneWidth, width int, edge string) string {
 	if paneWidth < 2 || paneWidth >= width {
 		return paint(hrule(width), width, backdropHex())
+	}
+	if m.railOnLeft() {
+		// Mirrored: the foreground end cell sits at the left window edge
+		// and the quadrant over the bleed column at the run's right end.
+		facing, corner := "▄", "▜"
+		if edge == "▄" {
+			facing, corner = "▀", "▟"
+		}
+		first := plain(lipgloss.NewStyle().Foreground(lipgloss.Color(panelHex())).Render(facing), 1)
+		interior := lipgloss.NewStyle().Foreground(colorBackdrop).
+			Render(strings.Repeat(edge, paneWidth-1))
+		last := lipgloss.NewStyle().Foreground(colorBackdrop).Render(corner)
+		return first + paint(interior, paneWidth-1, panelHex()) + paint(last, 1, panelHex()) +
+			paint(hrule(width-paneWidth-1), width-paneWidth-1, backdropHex())
 	}
 	facing, corner := "▄", "▛"
 	if edge == "▄" {
@@ -153,11 +180,16 @@ func (m *Model) vruleColumn(height int) []string {
 	return lines
 }
 
-// bleedColumn finishes a pane's left edge: a half block in the pane's
+// bleedColumn finishes a pane's inner edge: a half block in the pane's
 // tone on the backdrop, extending the fill half a cell past the seam. In
-// focus mode it carries the ring's right upright.
+// focus mode it carries the ring's upright on the rail's side: the right
+// one with the rail on the right, the left one with it on the left.
 func (m *Model) bleedColumn(height int) []string {
-	cell := paint(lipgloss.NewStyle().Foreground(colorBackdrop).Render("▌"), 1, panelHex())
+	half, ringCorner := "▌", "╮"
+	if m.railOnLeft() {
+		half, ringCorner = "▐", "╭"
+	}
+	cell := paint(lipgloss.NewStyle().Foreground(colorBackdrop).Render(half), 1, panelHex())
 	lines := make([]string, height)
 	for i := range lines {
 		lines[i] = cell
@@ -165,7 +197,7 @@ func (m *Model) bleedColumn(height int) []string {
 	// Keep the edge joined to the footer even before a full capture arrives.
 	if m.mode == modeFocus && m.pane.box.ok {
 		edge := paint(focusEdgeStyle.Render("│"), 1, panelHex())
-		corner := paint(focusEdgeStyle.Render("╮"), 1, panelHex())
+		corner := paint(focusEdgeStyle.Render(ringCorner), 1, panelHex())
 		top := m.pane.box.y - m.listChromeRows()
 		if top-1 >= 0 && top-1 < len(lines) {
 			lines[top-1] = corner
@@ -180,6 +212,18 @@ func (m *Model) bleedColumn(height int) []string {
 // focusLeftColumn is the frame's first column: bare backdrop, and in focus
 // mode the ring's left upright.
 func (m *Model) focusLeftColumn(height int) []string {
+	return m.focusOuterColumn(height, "╭")
+}
+
+// focusRightColumn is the frame's last column with the rail on the left:
+// bare backdrop, and in focus mode the ring's right upright.
+func (m *Model) focusRightColumn(height int) []string {
+	return m.focusOuterColumn(height, "╮")
+}
+
+// focusOuterColumn is the content's outer column, the one on the frame's
+// edge rather than the seam's side, topped by corner in focus mode.
+func (m *Model) focusOuterColumn(height int, corner string) []string {
 	lines := paintRows(nil, 1, height, backdropHex())
 	if m.mode != modeFocus || !m.pane.box.ok {
 		return lines
@@ -188,7 +232,7 @@ func (m *Model) focusLeftColumn(height int) []string {
 	for row := max(0, top-1); row < height; row++ {
 		glyph := "│"
 		if row == top-1 {
-			glyph = "╭"
+			glyph = corner
 		}
 		lines[row] = plain(focusEdgeStyle.Render(glyph), 1)
 	}
@@ -202,6 +246,13 @@ func (m *Model) focusBottomRule(paneWidth, width int) string {
 	tail := width - paneWidth - 1
 	if tail < 2 || paneWidth < 2 {
 		return m.boundedRuleRow(paneWidth, width, "▄")
+	}
+	if m.railOnLeft() {
+		first := plain(lipgloss.NewStyle().Foreground(lipgloss.Color(panelHex())).Render("▀"), 1)
+		interior := lipgloss.NewStyle().Foreground(colorBackdrop).Render(strings.Repeat("▄", paneWidth-1))
+		corner := focusEdgeStyle.Render("╰")
+		return first + paint(interior, paneWidth-1, panelHex()) + paint(corner, 1, panelHex()) +
+			paint(focusEdgeStyle.Render(strings.Repeat("─", tail-1)+"╯"), tail, backdropHex())
 	}
 	corner := focusEdgeStyle.Render("╯")
 	interior := lipgloss.NewStyle().Foreground(colorBackdrop).Render(strings.Repeat("▄", paneWidth-1))

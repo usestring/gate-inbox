@@ -253,9 +253,9 @@ func (m *Model) composerAboveIsBlank(tool string, rows []string, y int) bool {
 // railOnRight reports which side of the frame the sessions rail sits on. The
 // arrow that leaves focus is the one pointing at it: with the rail on the
 // right, Right at the prompt's end steps out to the list while Left stays
-// the pane's. The frame paints the rail on the right (see viewListFrame), so
-// this is where that assumption lives if the layout ever gains a side.
-func (m *Model) railOnRight() bool { return true }
+// the pane's, and the other way round with it on the left. The side is the
+// sidebar setting (see sidebar.go).
+func (m *Model) railOnRight() bool { return !m.railOnLeft() }
 
 // caretAtInputEnd reports whether the agent's caret sits at the end of its
 // prompt, with nothing typed past it. Right is a no-op for the agent there,
@@ -580,7 +580,7 @@ func (m *Model) releaseHeldAck() tea.Cmd {
 // down a pipe the manager already holds. TestFocusedKeystrokeLatencyBreakdown
 // is the measurement.
 func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	action, bound := m.action(keymap.ContextFocus, msg)
+	action, bound := m.sideAction(keymap.ContextFocus, msg)
 	if bound && (action == keymap.Leave || action == keymap.LeaveHard || action == keymap.HandOver) {
 		leftID := ""
 		sess, onRow := m.selected()
@@ -668,7 +668,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	key := msg.Key()
 	// The exit arrow is the one pointing at the rail: Right while it sits on
-	// the right, Left if it ever moves left. The spare key leaves; anywhere
+	// the right, Left while the sidebar setting has it on the left (sideAction
+	// reads the binding through the mirror). The spare key leaves; anywhere
 	// else the arrow still reaches the agent.
 	if bound && action == keymap.BackAtPrompt && key.Mod == 0 {
 		if key.Code == tea.KeyRight && m.railOnRight() && m.rightLeavesFocus(sess.ID, sess.Tool) {

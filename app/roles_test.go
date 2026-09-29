@@ -29,7 +29,7 @@ func TestExternalBuildsRolesChangeHowTheirSessionsAreTreated(t *testing.T) {
 		t.Skip("a spawn launches a tmux pane")
 	}
 	bin := buildFixture(t)
-	socket := tmuxtest.NewSocket("roles")
+	socket := tmuxtest.Socket(t, "roles")
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+restingTool)
 	home := envValue(env, "GATE_INBOX_HOME")
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })

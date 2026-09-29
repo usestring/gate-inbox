@@ -20,7 +20,7 @@ import (
 // live. TestMain tears it down before and after the run, so the name must be
 // unique per process: a fixed one let concurrent checkouts kill-server each
 // other's tests, which reads as an unrelated flake.
-var testSocket = newTestSocket()
+var testSocket = tmuxtest.NewSocket("ui")
 
 // TestMain kills any leftover test server so each run starts and ends clean.
 // The anchor session then holds the server up for the whole run: tests kill

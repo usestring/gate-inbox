@@ -762,7 +762,7 @@ func operatorServer(t *testing.T) string {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
-	socket := tmuxtest.NewSocket("operator")
+	socket := tmuxtest.Socket(t, "operator")
 	tmuxOn(socket, "kill-server").Run()
 	t.Cleanup(func() { tmuxOn(socket, "kill-server").Run() })
 	run := func(args ...string) {
@@ -775,7 +775,7 @@ func operatorServer(t *testing.T) string {
 	run("new-window", "-t", operatorSession, "cat")
 	run("select-window", "-t", operatorSession+":0")
 
-	terminal := tmuxtest.NewSocket("terminal")
+	terminal := tmuxtest.Socket(t, "terminal")
 	tmuxOn(terminal, "kill-server").Run()
 	t.Cleanup(func() { tmuxOn(terminal, "kill-server").Run() })
 	if out, err := tmuxOn(terminal, "new-session", "-d", "-s", "terminal", "-x", "80", "-y", "24",
@@ -1058,7 +1058,7 @@ func startControlOnEmptyTarget(driver *Driver, socket string) (*Control, error) 
 // the anchor's own pane rather than failing.
 func TestPollControlDoesNotStartADeadServer(t *testing.T) {
 	driver := requireTmux(t)
-	socket := tmuxtest.NewSocket("gone")
+	socket := tmuxtest.Socket(t, "gone")
 	if _, err := driver.OpenPollControl(socket); err == nil {
 		t.Fatal("opened a poll client on a server that is not running")
 	}

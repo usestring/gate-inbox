@@ -12,6 +12,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/sysstat"
@@ -714,5 +715,37 @@ func TestFooterTogglesNameTheNextAction(t *testing.T) {
 	m.showArchived = true
 	if legend := m.peekLegend(m.listBodyHeight()); !strings.Contains(legend, keyCapQuiet("t", "back to active")) {
 		t.Fatalf("the archived view should offer the way back:\n%s", ansi.Strip(legend))
+	}
+}
+
+// Skip is the same gesture in both modes -- "." on the list, "alt+." in a
+// pane -- so both footers name it: a key nobody can find is a key nobody
+// uses on purpose and somebody eventually hits by accident.
+func TestFootersNameSkipInBothModes(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{
+		"ask":  status.Waiting,
+		"busy": status.Working,
+	})
+	m.rebuildRows()
+
+	m.selectSessionRow(t, "ask")
+	if footer := ansi.Strip(m.viewFooter()); !strings.Contains(footer, "skip") ||
+		!strings.Contains(footer, m.tightCap(keymap.ContextList, keymap.Dismiss)) {
+		t.Fatalf("the list footer does not offer the skip key on a waiting session:\n%s", footer)
+	}
+
+	// A working session has nothing to skip, so the key stays off the
+	// footer rather than offering a press that would only refuse it.
+	m.selectSessionRow(t, "busy")
+	if footer := ansi.Strip(m.viewFooter()); strings.Contains(footer, "skip") {
+		t.Fatalf("the list footer offers skip on a working session:\n%s", footer)
+	}
+
+	m.enterFocusOn(t, "ask")
+	footer := ansi.Strip(m.viewFooter())
+	if key := m.fullCap(keymap.ContextFocus, keymap.Dismiss); key == "" ||
+		!strings.Contains(footer, key) || !strings.Contains(footer, "skip") {
+		t.Fatalf("the focused footer does not offer the skip key:\n%s", footer)
 	}
 }

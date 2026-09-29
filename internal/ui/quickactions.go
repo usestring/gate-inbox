@@ -125,11 +125,13 @@ func quickActionScore(entry quickActionEntry, query string) (int, bool) {
 	if strings.EqualFold(entry.key, query) {
 		exactKey = 1 << 20
 	}
-	haystack := util.ToChars([]byte(strings.ToLower(
-		entry.label + " " + strings.ReplaceAll(string(entry.action), "_", " ") + " " + entry.key)))
+	name := strings.ReplaceAll(string(entry.action), "_", " ")
+	haystack := util.ToChars([]byte(strings.ToLower(entry.label + " " + name + " " + entry.key)))
+	nameChars := util.ToChars([]byte(name))
 	score := 0
 	for _, term := range strings.Fields(query) {
-		match, _ := algo.FuzzyMatchV2(false, false, true, &haystack, []rune(term), false, nil)
+		pattern := []rune(term)
+		match, _ := algo.FuzzyMatchV2(false, false, true, &haystack, pattern, false, nil)
 		if match.Start < 0 {
 			if exactKey > 0 {
 				return exactKey, true
@@ -137,6 +139,11 @@ func quickActionScore(entry quickActionEntry, query string) (int, bool) {
 			return 0, false
 		}
 		score += match.Score
+		// WHY: A label can mention another action's verb ("or fold the
+		// group" on open); the action's own name is the stronger signal.
+		if named, _ := algo.FuzzyMatchV2(false, false, true, &nameChars, pattern, false, nil); named.Start >= 0 {
+			score += named.Score
+		}
 	}
 	return score + exactKey, true
 }

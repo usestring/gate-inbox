@@ -58,6 +58,16 @@ func TestQuickActionsRanksAnExactKeyFirst(t *testing.T) {
 	}
 }
 
+func TestQuickActionsRanksTheActionsOwnNameAboveALabelMention(t *testing.T) {
+	m := buildModel(t)
+	m.openQuickActions()
+	typeInto(t, m, "fold")
+	got := m.quickActionMatches()
+	if len(got) == 0 || got[0].action != keymap.FoldAll {
+		t.Fatalf("\"fold\" matched %+v first, want %s", got, keymap.FoldAll)
+	}
+}
+
 func TestQuickActionsLeadsWithWhatWasRunLast(t *testing.T) {
 	m := buildModel(t)
 	m.rememberQuickAction(keymap.Settings)

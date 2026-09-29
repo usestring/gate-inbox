@@ -128,6 +128,7 @@ selected agent for builds and one-off commands.
 | `T` | Shell tab under the selected agent |
 | `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |
 | `f` | Fork the conversation into a new session |
+| `:` / `ctrl+p` | Quick actions: type what you want, `enter` runs it, and each row shows its key |
 | `h` / `s` | Key map for the current screen / settings |
 
 Every binding is a default, and `h` is where you rebind one. [`docs/usage.md`](docs/usage.md) is

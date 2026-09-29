@@ -58,6 +58,7 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `e` | Hide / show empty groups |
 | `/` | Search: session name, tool, group, status, what the pane is showing, and what the session has said or run |
 | `h` / `ctrl+h` | The key map for the current screen (`H` also works), split into common and advanced keys. It scrolls (`↑↓`/`jk`, `ctrl+u`/`ctrl+d`, `g`/`G`) and `/` searches it down to one line. `ctrl+h` opens it from anywhere, including inside a session, and closes it again. |
+| `:` / `ctrl+p` | Quick actions: type what you want to do, `↑↓` pick, `enter` runs it. Each row shows the action's current key, what it does, and the name `keys.toml` gives it, and running one leaves a note with the key that would have done it in one press. Recently run actions lead the list |
 | `q` | Quit (sessions keep running) |
 
 Navigation is keyboard-driven. The manager claims mouse reporting so the wheel stays inside the app and cannot scroll the TUI out of view: in a focused session it walks that pane's scrollback, where click-drag also selects pane text and copies it. In a focused agent that tracks the mouse, a click passes straight through to its own clickable UI while a drag still selects and copies; hold `alt` to pass a whole drag through instead, for the agent's own text selection or sliders. In the list the wheel does nothing, since moving the selection with it retargets every key that follows.

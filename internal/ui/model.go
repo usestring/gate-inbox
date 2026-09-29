@@ -74,6 +74,9 @@ const (
 	// starts here. See agentpick.go.
 	modeAgentPick
 	modeExtensionView
+	// modeQuickActions holds the palette that runs any list action by name
+	// and shows the key it is on. See quickactions.go.
+	modeQuickActions
 )
 
 type treeRow struct {
@@ -536,6 +539,7 @@ type Model struct {
 
 	form      form
 	agentPick agentPick
+	actions   quickActions
 	groupForm groupForm
 	pathSugg  pathComplete
 	confirm   confirmTarget

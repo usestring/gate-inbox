@@ -72,6 +72,7 @@ const (
 	Resize       Action = "resize_split"
 	Settings     Action = "settings"
 	LegendPeek   Action = "legend_peek"
+	QuickActions Action = "quick_actions"
 	Help         Action = "help"
 	Quit         Action = "quit"
 )
@@ -180,6 +181,7 @@ var Catalog = []Binding{
 	{ContextList, ToggleChrome, []string{","}, "hide / show the key hints along the foot", false},
 	{ContextList, ToggleRail, []string{`\`}, "hide / show the list beside the pane", false},
 	{ContextList, LegendPeek, []string{"?"}, "peek at every available key", false},
+	{ContextList, QuickActions, []string{":", "ctrl+p"}, "quick actions: find any action by name, run it, see its key", false},
 	{ContextList, Help, []string{"h", "H", "shift+h", "ctrl+h"}, "this key map", true},
 	{ContextList, Quit, []string{"q"}, "quit (sessions keep running)", true},
 

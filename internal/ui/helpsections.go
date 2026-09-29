@@ -77,6 +77,7 @@ func helpSections() []helpSection {
 			listRow(keymap.Triage, "triage: this group as one queue, head first"),
 			listRow(keymap.Settings, "settings"),
 			listRow(keymap.LegendPeek, "peek at every key available for this row"),
+			listRow(keymap.QuickActions, "quick actions: type what you want, ↵ runs it, and it shows the key"),
 			listRow(keymap.Help, "this key map, where a binding is changed"),
 			listRow(keymap.Quit, "quit (sessions keep running)"),
 			lit("ctrl+c", "quit, from any screen"),

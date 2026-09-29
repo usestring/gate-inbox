@@ -279,7 +279,7 @@ func TestRelayOfAPermissionPromptCarriesItScrubbed(t *testing.T) {
 	p, st := pollerWithStore(t)
 	parent := seedSession(t, st, store.Session{ID: "parent01", Name: "site-graph-endpoint", Status: status.Working})
 	child := seedSession(t, st, store.Session{ID: "child005", Name: "cleaner", ParentID: parent.ID, Status: status.Working})
-	pane := "● Bash(rm -rf build/)\n\n  Bash command\n    API_TOKEN=abcdef0123456789 ./deploy.sh\n\n" +
+	pane := "● Bash(rm -rf build/)\n\n  Bash command\n    API_TOKEN=XXXXXXXXXXXXXXXXXXXXXXXX ./deploy.sh\n\n" +
 		"  Do you want to proceed?\n  ❯ 1. Yes\n    2. No\n\n  Enter to confirm · Esc to cancel\n"
 	if err := p.relayChildQuestion(child, status.Waiting, pane); err != nil {
 		t.Fatalf("relayChildQuestion: %v", err)
@@ -293,7 +293,7 @@ func TestRelayOfAPermissionPromptCarriesItScrubbed(t *testing.T) {
 			t.Errorf("relayed message does not mention %q:\n%s", want, head.Body)
 		}
 	}
-	if strings.Contains(head.Body, "abcdef0123456789") {
+	if strings.Contains(head.Body, "XXXXXXXXXXXXXXXXXXXXXXXX") {
 		t.Errorf("the message carries a credential:\n%s", head.Body)
 	}
 }

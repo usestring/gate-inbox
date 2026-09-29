@@ -429,7 +429,7 @@ func (m *Model) viewSettings() string {
 		themeScope = m.themeDevice
 	}
 	body := row(settingsFieldTool, "default tool", toolValue) + "\n" +
-		row(settingsFieldAccountRouting, "routing mode", m.settings.routingValue()) + "\n" +
+		row(settingsFieldAccountRouting, "launch accounts", m.settings.launchAccountValue()) + "\n" +
 		row(settingsFieldNewSessionAgent, "new session agent", normalizeNewSessionAgent(m.settings.newSessionAgent)) + "\n" +
 		row(settingsFieldTheme, "theme", themes[m.settings.themeIndex].Name) + "  " +
 		themeSwatch(themes[m.settings.themeIndex]) + "  " + mutedStyle.Render(themeScope) + "\n" +

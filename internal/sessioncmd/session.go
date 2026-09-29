@@ -670,7 +670,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		return Session{}, err
 	}
 
-	account, err := runtime.accountOr(opts.Account, tool, id)
+	account, err := runtime.accountOr(opts.Account, toolName, tool, id, extension.LaunchSpawn)
 	if err != nil {
 		return Session{}, err
 	}
@@ -711,7 +711,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		}
 		return Session{}, err
 	}
-	accounts.RecordLaunch(runtime.store, sess.ID, sess.Tool, sess.Account)
+	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account)
 	if opts.Keep {
 		if err := runtime.store.SetKeepChild(sess.ID, true); err != nil {
 			return Session{}, err

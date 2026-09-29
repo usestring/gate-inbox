@@ -2,33 +2,49 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
-	"github.com/usestring/gate-inbox/internal/autoroute"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
+
+var errNoChoice = errors.New("nothing to choose")
+
+// toolChooserFake answers ChooseTool with choose, and ChooseAccount with
+// the CLI's own login.
+type toolChooserFake struct {
+	choose func(extension.ToolRequest) (string, error)
+}
+
+func (f toolChooserFake) ChooseAccount(context.Context, extension.AccountRequest) (string, error) {
+	return "", nil
+}
+
+func (f toolChooserFake) ChooseTool(_ context.Context, req extension.ToolRequest) (string, error) {
+	return f.choose(req)
+}
+
+func useToolChooser(t *testing.T, choose func(extension.ToolRequest) (string, error)) {
+	t.Helper()
+	fake := toolChooserFake{choose: choose}
+	t.Cleanup(accounts.UseChooser(func() (extension.AccountChooser, error) { return fake, nil }))
+}
 
 func TestAutoRouteStartsAnEnabledCLI(t *testing.T) {
 	m := buildModel(t)
 	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
 	m.newSessionAgent = newSessionAgentAuto
-	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
-		if name != "ready-tool" {
-			return autoroute.Reading{}, autoroute.ErrNoQuota
-		}
-		now := time.Now()
-		return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 10, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
-	})
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "ready-tool", nil })
 	_, cmd := m.startNewSession()
 	if cmd == nil {
-		t.Fatal("auto route did not start a quota read")
+		t.Fatal("auto route did not ask the chooser")
 	}
 	msg := cmd()
 	m.update(msg)
@@ -46,16 +62,10 @@ func TestAutoRouteLaunchesInTheGroupSelectedWhenNWasPressed(t *testing.T) {
 	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
 	m.selectGroupRow(t, "origin")
 	m.newSessionAgent = newSessionAgentAuto
-	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
-		if name != "ready-tool" {
-			return autoroute.Reading{}, autoroute.ErrNoQuota
-		}
-		now := time.Now()
-		return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 10, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
-	})
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "ready-tool", nil })
 	_, cmd := m.startNewSession()
 	if cmd == nil {
-		t.Fatal("auto route did not start a quota read")
+		t.Fatal("auto route did not ask the chooser")
 	}
 	m.selectGroupRow(t, "elsewhere")
 	m.update(cmd())
@@ -70,17 +80,11 @@ func TestAutoRouteLaunchesFromAFocusedSession(t *testing.T) {
 	m := buildModel(t)
 	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
 	m.newSessionAgent = newSessionAgentAuto
-	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
-		if name != "ready-tool" {
-			return autoroute.Reading{}, autoroute.ErrNoQuota
-		}
-		now := time.Now()
-		return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 10, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
-	})
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "ready-tool", nil })
 	m.mode = modeFocus
 	_, cmd := m.startNewSession()
 	if cmd == nil {
-		t.Fatal("auto route did not start a quota read from focus")
+		t.Fatal("auto route did not ask the chooser from focus")
 	}
 	m.update(cmd())
 	m.leaveFocusForFixture(t)
@@ -97,14 +101,12 @@ func TestAutoRouteFallbackPickerKeepsTheGroupSelectedWhenNWasPressed(t *testing.
 	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
 	m.selectGroupRow(t, "origin")
 	m.newSessionAgent = newSessionAgentAuto
-	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
-		return autoroute.Reading{}, autoroute.ErrNoQuota
-	})
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "", errNoChoice })
 	_, cmd := m.startNewSession()
 	m.selectGroupRow(t, "elsewhere")
 	m.update(cmd())
 	if m.mode != modeAgentPick {
-		t.Fatalf("unavailable quota left mode %v, want picker", m.mode)
+		t.Fatalf("no choice left mode %v, want picker", m.mode)
 	}
 	typeInto(t, m, "ready-tool")
 	pressKey(t, m, enterKey())
@@ -122,9 +124,7 @@ func TestAutoRouteFallbackTerminalKeepsTheGroupSelectedWhenNWasPressed(t *testin
 	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
 	m.selectGroupRow(t, "origin")
 	m.newSessionAgent = newSessionAgentAuto
-	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
-		return autoroute.Reading{}, autoroute.ErrNoQuota
-	})
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "", errNoChoice })
 	_, cmd := m.startNewSession()
 	m.selectGroupRow(t, "elsewhere")
 	m.update(cmd())
@@ -148,9 +148,7 @@ func TestAutoRouteFallbackTerminalKeepsTheSessionSelectedWhenNWasPressed(t *test
 	m.selectSessionRow(t, "agent")
 	agent, _ := m.selected()
 	m.newSessionAgent = newSessionAgentAuto
-	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
-		return autoroute.Reading{}, autoroute.ErrNoQuota
-	})
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "", errNoChoice })
 	_, cmd := m.startNewSession()
 	m.selectGroupRow(t, "elsewhere")
 	m.update(cmd())
@@ -168,37 +166,31 @@ func TestAutoRouteFallbackTerminalKeepsTheSessionSelectedWhenNWasPressed(t *test
 	}
 }
 
-func TestAutoRouteRefusesALaunchAfterAccountRoutingChanged(t *testing.T) {
+func TestAutoRouteRefusesALaunchAfterLaunchAccountsChanged(t *testing.T) {
 	m := buildModel(t)
 	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
 	m.newSessionAgent = newSessionAgentAuto
 	tool := m.cfg.Tools["ready-tool"]
 	tool.AccountEnv = "SHARED_TOKEN"
 	m.cfg.Tools["ready-tool"] = tool
-	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
-		if name != "ready-tool" {
-			return autoroute.Reading{}, autoroute.ErrNoQuota
-		}
-		now := time.Now()
-		return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 10, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
-	})
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "ready-tool", nil })
 	_, cmd := m.startNewSession()
 	if cmd == nil {
-		t.Fatal("auto route did not start a quota read")
+		t.Fatal("auto route did not ask the chooser")
 	}
-	if err := m.store.SetSetting(store.AccountRoutingSetting, accounts.Smart); err != nil {
+	if err := m.store.SetSetting(store.AccountRoutingSetting, accounts.Extension); err != nil {
 		t.Fatal(err)
 	}
 	m.update(cmd())
 	if m.mode != modeAgentPick || len(m.sessionRows()) != 0 {
-		t.Fatalf("routing change left mode %v with %d sessions, want the picker and none", m.mode, len(m.sessionRows()))
+		t.Fatalf("launch-account change left mode %v with %d sessions, want the picker and none", m.mode, len(m.sessionRows()))
 	}
-	if !strings.Contains(m.errBar.text, "account routing changed") {
-		t.Fatalf("missing routing-change explanation: %q", m.errBar.text)
+	if !strings.Contains(m.errBar.text, "launch accounts changed") {
+		t.Fatalf("missing launch-account-change explanation: %q", m.errBar.text)
 	}
 }
 
-func TestAutoRouteRefusesAGroupChangedDuringTheQuotaRead(t *testing.T) {
+func TestAutoRouteRefusesAGroupChangedWhileTheChooserAnswers(t *testing.T) {
 	for _, change := range []struct {
 		name  string
 		apply func(*testing.T, *Model)
@@ -219,16 +211,10 @@ func TestAutoRouteRefusesAGroupChangedDuringTheQuotaRead(t *testing.T) {
 			m := buildModel(t)
 			groupAt(t, m, "origin", filepath.Join(t.TempDir(), "origin-repo"))
 			m.newSessionAgent = newSessionAgentAuto
-			m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
-				if name != "ready-tool" {
-					return autoroute.Reading{}, autoroute.ErrNoQuota
-				}
-				now := time.Now()
-				return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 10, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
-			})
+			useToolChooser(t, func(extension.ToolRequest) (string, error) { return "ready-tool", nil })
 			_, cmd := m.startNewSession()
 			if cmd == nil {
-				t.Fatal("auto route did not start a quota read")
+				t.Fatal("auto route did not ask the chooser")
 			}
 			change.apply(t, m)
 			m.update(cmd())
@@ -242,14 +228,12 @@ func TestAutoRouteRefusesAGroupChangedDuringTheQuotaRead(t *testing.T) {
 	}
 }
 
-func TestAutoRouteFallbackPickerDropsAGroupArchivedDuringTheQuotaRead(t *testing.T) {
+func TestAutoRouteFallbackPickerDropsAGroupArchivedWhileTheChooserAnswers(t *testing.T) {
 	m := buildModel(t)
 	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
 	groupAt(t, m, "origin", filepath.Join(t.TempDir(), "origin-repo"))
 	m.newSessionAgent = newSessionAgentAuto
-	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
-		return autoroute.Reading{}, autoroute.ErrNoQuota
-	})
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "", errNoChoice })
 	_, cmd := m.startNewSession()
 	if err := m.store.SetGroupArchived("origin", true); err != nil {
 		t.Fatal(err)
@@ -278,13 +262,11 @@ func TestAutoRouteFallbackPickerRechecksTheGroupOnSubmit(t *testing.T) {
 	groupAt(t, m, "origin", filepath.Join(t.TempDir(), "origin-repo"))
 	m.selectGroupRow(t, "origin")
 	m.newSessionAgent = newSessionAgentAuto
-	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
-		return autoroute.Reading{}, autoroute.ErrNoQuota
-	})
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "", errNoChoice })
 	_, cmd := m.startNewSession()
 	m.update(cmd())
 	if m.mode != modeAgentPick || !m.agentPick.pinned {
-		t.Fatalf("unavailable quota left mode %v pinned=%v, want a pinned picker", m.mode, m.agentPick.pinned)
+		t.Fatalf("no choice left mode %v pinned=%v, want a pinned picker", m.mode, m.agentPick.pinned)
 	}
 	if _, _, err := m.store.RemoveGroup("origin"); err != nil {
 		t.Fatal(err)
@@ -315,7 +297,7 @@ func TestAutoRouteFallbackPickerRechecksTheGroupOnSubmit(t *testing.T) {
 	}
 }
 
-func TestAutoRouteFallbackTerminalLeavesASessionArchivedDuringTheQuotaRead(t *testing.T) {
+func TestAutoRouteFallbackTerminalLeavesASessionArchivedWhileTheChooserAnswers(t *testing.T) {
 	m := buildModel(t)
 	groupDir, sessionDir := t.TempDir(), t.TempDir()
 	if err := m.store.CreateGroup("backend", groupDir); err != nil {
@@ -326,9 +308,7 @@ func TestAutoRouteFallbackTerminalLeavesASessionArchivedDuringTheQuotaRead(t *te
 	m.selectSessionRow(t, "agent")
 	agent, _ := m.selected()
 	m.newSessionAgent = newSessionAgentAuto
-	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
-		return autoroute.Reading{}, autoroute.ErrNoQuota
-	})
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "", errNoChoice })
 	_, cmd := m.startNewSession()
 	if err := m.store.SetArchived(agent.ID, true); err != nil {
 		t.Fatal(err)
@@ -352,95 +332,118 @@ func TestAutoRouteFallbackTerminalLeavesASessionArchivedDuringTheQuotaRead(t *te
 	}
 }
 
-func TestAutoRouteRescoresWhenWorkStartsDuringTheQuotaRead(t *testing.T) {
+func TestAutoRouteAsksAgainWhenWorkStartsWhileTheChooserAnswers(t *testing.T) {
 	m := buildModel(t)
 	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
 	m.newSessionAgent = newSessionAgentAuto
-	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
-		if name != "ready-tool" {
-			return autoroute.Reading{}, autoroute.ErrNoQuota
+	// The chooser takes ready-tool only while nothing is running on it.
+	useToolChooser(t, func(req extension.ToolRequest) (string, error) {
+		if req.Active["ready-tool"] > 0 {
+			return "", errNoChoice
 		}
-		now := time.Now()
-		// 85% used clears the 10-point reserve for no active work but not
-		// the 15 points one running session adds.
-		return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 85, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
+		return "ready-tool", nil
 	})
 	_, cmd := m.startNewSession()
 	if cmd == nil {
-		t.Fatal("auto route did not start a quota read")
+		t.Fatal("auto route did not ask the chooser")
 	}
 	m.sessions = append(m.sessions, store.Session{ID: "busy", Tool: "ready-tool", Status: status.Working})
-	_, rescore := m.update(cmd())
-	if rescore == nil {
-		t.Fatalf("new in-flight work did not trigger a rescore (mode %v, error %q)", m.mode, m.errBar.text)
+	_, again := m.update(cmd())
+	if again == nil {
+		t.Fatalf("new in-flight work did not ask the chooser again (mode %v, error %q)", m.mode, m.errBar.text)
 	}
-	m.update(rescore())
+	m.update(again())
 	for _, sess := range m.sessions {
 		if sess.ID != "busy" && sess.Tool == "ready-tool" {
-			t.Fatalf("auto route launched %+v past the reserve for in-flight work", sess)
+			t.Fatalf("auto route launched %+v on an answer given before the work started", sess)
 		}
 	}
-	if m.mode != modeAgentPick || !strings.Contains(m.errBar.text, "quota unavailable") {
-		t.Fatalf("rescore left mode %v with error %q, want the quota fallback picker", m.mode, m.errBar.text)
+	if m.mode != modeAgentPick || !strings.Contains(m.errBar.text, "no CLI chosen") {
+		t.Fatalf("second answer left mode %v with error %q, want the fallback picker", m.mode, m.errBar.text)
 	}
 }
 
-func TestAutoRouteFallsBackToCLIPickerWhenQuotaUnavailable(t *testing.T) {
+func TestAutoRouteFallsBackToCLIPickerWhenNothingIsChosen(t *testing.T) {
 	m := buildModel(t)
 	m.newSessionAgent = newSessionAgentAuto
-	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
-		return autoroute.Reading{}, autoroute.ErrNoQuota
-	})
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "", errNoChoice })
 	_, cmd := m.startNewSession()
 	m.update(cmd())
 	if m.mode != modeAgentPick || len(m.sessionRows()) != 0 {
-		t.Fatalf("unavailable quota left mode %v with %d sessions", m.mode, len(m.sessionRows()))
+		t.Fatalf("no choice left mode %v with %d sessions", m.mode, len(m.sessionRows()))
 	}
-	if !strings.Contains(m.errBar.text, "quota unavailable") {
+	if !strings.Contains(m.errBar.text, "no CLI chosen") {
 		t.Fatalf("missing fallback explanation: %q", m.errBar.text)
 	}
 }
 
-func TestAutoRouteNeverReadsAHiddenCLI(t *testing.T) {
+func TestAutoRouteNeverOffersAHiddenCLI(t *testing.T) {
 	m := buildModel(t)
 	m.newSessionAgent = newSessionAgentAuto
 	if err := m.store.SetSetting(hiddenToolsSetting, "ready-tool"); err != nil {
 		t.Fatal(err)
 	}
-	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
-		if name == "ready-tool" {
-			t.Fatal("hidden CLI was sent to quota routing")
+	useToolChooser(t, func(req extension.ToolRequest) (string, error) {
+		for _, c := range req.Candidates {
+			if c.Name == "ready-tool" {
+				t.Error("hidden CLI was offered to the chooser")
+			}
 		}
-		return autoroute.Reading{}, autoroute.ErrNoQuota
+		return "", errNoChoice
 	})
 	_, cmd := m.startNewSession()
 	m.update(cmd())
 	if m.mode != modeAgentPick {
-		t.Fatalf("no readable enabled quota left mode %v, want picker", m.mode)
+		t.Fatalf("no choice left mode %v, want picker", m.mode)
 	}
 }
 
-func TestAutoRouteSkipsSharedAccountTools(t *testing.T) {
+// The chooser is told which CLIs take a named account and whether the
+// extension is choosing accounts, which is what it needs to leave those CLIs
+// out when their own login is not what the launch would run on.
+func TestAutoRouteTellsTheChooserAboutAccounts(t *testing.T) {
 	m := buildModel(t)
 	m.newSessionAgent = newSessionAgentAuto
-	if err := m.store.SetSetting(store.AccountRoutingSetting, accounts.Smart); err != nil {
+	if err := m.store.SetSetting(store.AccountRoutingSetting, accounts.Extension); err != nil {
 		t.Fatal(err)
 	}
 	tool := m.cfg.Tools["ready-tool"]
 	tool.AccountEnv = "SHARED_TOKEN"
 	m.cfg.Tools["ready-tool"] = tool
-	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
-		if name == "ready-tool" {
-			t.Fatal("own-login quota was read for a shared-account tool")
-		}
-		return autoroute.Reading{}, autoroute.ErrNoQuota
+	var got extension.ToolRequest
+	useToolChooser(t, func(req extension.ToolRequest) (string, error) {
+		got = req
+		return "", errNoChoice
 	})
 	_, cmd := m.startNewSession()
-	if cmd != nil {
-		m.update(cmd())
+	m.update(cmd())
+	if !got.ChoosingAccounts {
+		t.Fatal("the chooser was not told the extension chooses accounts")
 	}
-	if m.mode != modeAgentPick {
-		t.Fatalf("shared-account routing left mode %v, want picker", m.mode)
+	for _, c := range got.Candidates {
+		if (c.Account != nil) != (c.Name == "ready-tool") {
+			t.Fatalf("candidate %+v: only ready-tool takes an account", c)
+		}
+		if c.Name == "ready-tool" && c.Account.Env != "SHARED_TOKEN" {
+			t.Fatalf("candidate %+v lost its account settings", c)
+		}
+	}
+}
+
+// A build whose extension chooses no CLI has nobody to ask: n opens the box,
+// and settings does not offer auto.
+func TestAutoWithNoChooserOpensTheBox(t *testing.T) {
+	m := buildModel(t)
+	t.Cleanup(accounts.UseChooser(func() (extension.AccountChooser, error) { return nil, nil }))
+	m.newSessionAgent = newSessionAgentAuto
+	if _, cmd := m.startNewSession(); cmd != nil || m.mode != modeAgentPick {
+		t.Fatalf("auto with no chooser: cmd %v, mode %v", cmd != nil, m.mode)
+	}
+	m.settings.field = settingsFieldNewSessionAgent
+	m.settings.newSessionAgent = newSessionAgentDefault
+	m.cycleSetting(1)
+	if m.settings.newSessionAgent == newSessionAgentAuto {
+		t.Fatal("settings offered auto with no chooser")
 	}
 }
 
@@ -898,6 +901,7 @@ func TestSettingsCyclesTheNewSessionAgent(t *testing.T) {
 
 func TestSettingsCanSelectAutoRouting(t *testing.T) {
 	m := buildModel(t)
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "", errNoChoice })
 	m.openSettings()
 	for i := 0; i < settingsFieldNewSessionAgent; i++ {
 		m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyDown})

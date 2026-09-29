@@ -53,7 +53,7 @@ func TestCatalogHasNoCollisions(t *testing.T) {
 
 func TestHelpAndLegendPeekHaveSeparateKeys(t *testing.T) {
 	m := resolve(t, nil)
-	for _, key := range []string{"H", "shift+h"} {
+	for _, key := range []string{"H", "shift+h", "ctrl+h"} {
 		action, ok := m.Action(ContextList, key)
 		if !ok || action != Help {
 			t.Errorf("%s on list answers %q, want %s", key, action, Help)
@@ -62,7 +62,10 @@ func TestHelpAndLegendPeekHaveSeparateKeys(t *testing.T) {
 	if action, ok := m.Action(ContextList, "?"); !ok || action != LegendPeek {
 		t.Errorf("? on list answers %q, want %s", action, LegendPeek)
 	}
-	for _, key := range []string{"H", "?", "shift+h"} {
+	if action, ok := m.Action(ContextFocus, "ctrl+h"); !ok || action != Help {
+		t.Errorf("ctrl+h in focus answers %q, want %s", action, Help)
+	}
+	for _, key := range []string{"H", "?", "shift+h", "ctrl+h"} {
 		if action, ok := m.Action(ContextWelcome, key); !ok || action != Help {
 			t.Errorf("%s on welcome answers %q, want %s", key, action, Help)
 		}

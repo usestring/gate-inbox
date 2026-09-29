@@ -182,7 +182,7 @@ var Catalog = []Binding{
 	{ContextList, ToggleRail, []string{`\`}, "hide / show the list beside the pane", false},
 	{ContextList, LegendPeek, []string{"?"}, "peek at every available key", false},
 	{ContextList, QuickActions, []string{":", "ctrl+p"}, "quick actions: find any action by name, run it, see its key", false},
-	{ContextList, Help, []string{"h", "H", "shift+h"}, "this key map", true},
+	{ContextList, Help, []string{"h", "H", "shift+h", "ctrl+h"}, "this key map", true},
 	{ContextList, Quit, []string{"q"}, "quit (sessions keep running)", true},
 
 	// ---- a focused session ----
@@ -201,13 +201,17 @@ var Catalog = []Binding{
 	{ContextFocus, ToggleChrome, []string{"alt+,"}, "hide / show the key hints along the foot", false},
 	{ContextFocus, ToggleRail, []string{`alt+\`}, "hide / show the list beside the pane", false},
 	{ContextFocus, Archive, []string{"ctrl+x"}, "kill it, asking first", false},
+	// A chord, like every other key this screen claims: ctrl+h would otherwise
+	// reach the agent as readline's backward-delete, and backspace still sends
+	// that edit under its own name.
+	{ContextFocus, Help, []string{"ctrl+h"}, "this key map", false},
 	// Session controls reached from inside the pane: a drain that had to leave
 	// the queue to spawn, copy an id or step back was not one queue. See the
 	// ui package's focusactions.go.
 	{ContextFocus, NewSession, []string{"alt+n"}, "new session in this one's group", false},
 	{ContextFocus, CopySessionID, []string{"alt+y"}, "copy the agent's session id", false},
 	{ContextFocus, LastPane, []string{"alt+l"}, "back to the previous session; alt+l again swaps back", false},
-	{ContextFocus, BackAtPrompt, []string{"right"}, "at the prompt's end, back to the manager", false},
+	{ContextFocus, BackAtPrompt, []string{"right", "left"}, "at a prompt edge, leave or advance triage", false},
 	{ContextFocus, PreviewUp, []string{"alt+up"}, "scroll the pane up", false},
 	{ContextFocus, PreviewDown, []string{"alt+down"}, "scroll the pane down", false},
 	{ContextFocus, PreviewPageUp, []string{"alt+u", "alt+pgup"}, "scroll a page up", false},
@@ -237,7 +241,7 @@ var Catalog = []Binding{
 
 	// ---- the welcome card ----
 	{ContextWelcome, Close, []string{"enter", "esc", "q", " ", "space"}, "close the guide", true},
-	{ContextWelcome, Help, []string{"h", "H", "?", "shift+h"}, "the key map", false},
+	{ContextWelcome, Help, []string{"h", "H", "?", "shift+h", "ctrl+h"}, "the key map", false},
 	{ContextWelcome, CursorUp, []string{"up", "k"}, "move up", true},
 	{ContextWelcome, CursorDown, []string{"down", "j"}, "move down", true},
 	{ContextWelcome, PageUp, []string{"ctrl+u", "pgup"}, "a page up", false},

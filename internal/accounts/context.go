@@ -10,9 +10,9 @@ import (
 )
 
 type contextSnapshot struct {
-	conversation, model, borrower, lender string
-	at                                    time.Time
-	usage                                 promptcache.Usage
+	conversation, model, account string
+	at                           time.Time
+	usage                        promptcache.Usage
 }
 
 func recordSessionUsage(st *store.Store, tools map[string]config.Tool, running func(string) bool, reader *promptcache.Reader, last map[string]contextSnapshot) error {
@@ -30,11 +30,7 @@ func recordSessionUsage(st *store.Store, tools map[string]config.Tool, running f
 		if state.Usage == nil || state.LastTurnAt.After(time.Now()) || state.LastTurnAt.Before(session.LaunchTime()) {
 			continue
 		}
-		borrower, err := st.Setting("account_borrower:" + session.ID)
-		if err != nil {
-			return err
-		}
-		snapshot := contextSnapshot{session.AgentSessionID, state.Model, borrower, Normalize(session.Account), state.LastTurnAt, *state.Usage}
+		snapshot := contextSnapshot{session.AgentSessionID, state.Model, Normalize(session.Account), state.LastTurnAt, *state.Usage}
 		if previous, ok := last[session.ID]; ok && previous == snapshot {
 			continue
 		}
@@ -44,9 +40,7 @@ func recordSessionUsage(st *store.Store, tools map[string]config.Tool, running f
 			tracing.Attr{Key: "session", Value: session.ID},
 			tracing.Attr{Key: "tool", Value: session.Tool},
 			tracing.Attr{Key: "model", Value: state.Model},
-			tracing.Attr{Key: "account.borrower", Value: borrower},
-			tracing.Attr{Key: "account.lender", Value: snapshot.lender},
-			tracing.Attr{Key: "account.attributed", Value: borrower != "" && snapshot.lender != ""},
+			tracing.Attr{Key: "account.name", Value: snapshot.account},
 			tracing.Attr{Key: "usage.observed_at", Value: state.LastTurnAt.Format(time.RFC3339Nano)},
 			tracing.Attr{Key: "usage.context_tokens", Value: u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens},
 			tracing.Attr{Key: "usage.input_tokens", Value: u.InputTokens},

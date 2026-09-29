@@ -30,7 +30,7 @@ var DistributionSupplied = []Supplied{
 	{Key: "extensions.artifacts.key_secret", Without: "key_command gets an empty {secret}"},
 	{Key: "extensions.artifacts.key_command", Without: "the artifact tools stay off even when enabled"},
 	{Key: "extensions.artifacts.identity_command", Without: "artifacts are published with no name on them"},
-	{Key: "AccountPoolProvider", Extension: true, Without: "smart routing is unavailable and refuses to launch; own-login and named-account launches work, charged to nobody"},
+	{Key: "AccountChooserProvider", Extension: true, Without: "sessions that name no account run on the CLI's own login; named-account launches work"},
 	{Key: "GATE_INBOX_TRACES", Env: true, Without: "nothing is traced"},
 	{Key: "GATE_INBOX_TRACE_DATASET", Env: true, Without: "the axiom sink refuses to start"},
 	{Key: "GATE_INBOX_TRACE_SECRET", Env: true, Without: "the axiom sink needs AXIOM_TRACE_TOKEN"},

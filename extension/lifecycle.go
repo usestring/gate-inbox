@@ -154,12 +154,32 @@ type BoardHost interface {
 	// PlanReplace is what Replace would launch for the same arguments,
 	// composed by the same code and refused for the same reasons, with
 	// nothing done: no row filed, no pane started or ended, nothing moved,
-	// no turn of an account pool taken. Spawn policies and launch
+	// no account chooser asked to commit. Spawn policies and launch
 	// contributors are asked, since what they answer is part of the plan.
 	// The plan's SessionID is its own; a Replace that follows mints another,
 	// and that id, wherever the command and environment carry it, is the
 	// only difference between the two.
 	PlanReplace(ctx context.Context, id string, req LaunchRequest) (LaunchPlan, error)
+	// SessionAccount is the named account an agent session runs on, "" for
+	// the CLI's own login, and its CLI's account settings as a launch hands
+	// them to an AccountChooser. It fails for a terminal.
+	SessionAccount(ctx context.Context, id string) (account string, tool AccountTool, err error)
+	// SwitchAccount moves an agent session onto a named account, "" for the
+	// CLI's own login, as switch_account does for a conversation it can
+	// resume: the row is re-pointed, a running session is relaunched on the
+	// conversation it holds, and a dead one takes the account at its next
+	// revive. A context too large to resume on another account is refused
+	// rather than migrated, as is a pane the manager did not start and a
+	// CLI that cannot be launched on a named account.
+	SwitchAccount(ctx context.Context, id, account string) (SessionInfo, error)
+	// SetQueueDeadline tells triage when a session's place in the operator's
+	// queue gets dearer. Among sessions triage otherwise ranks the same, the
+	// one with the earliest deadline still ahead is handed over first, and
+	// those with none follow; zero clears this extension's deadline for the
+	// session. Where several extensions set one, the earliest counts. Like
+	// PinStatus it is the board's, not the store's, and lapses when the
+	// extension stops.
+	SetQueueDeadline(id string, at time.Time)
 	// Archive files one of this extension's own helpers -- a session it
 	// launched with a role -- out of the active list, ending it first if it
 	// is running, as archive_session does. Every other session is refused:

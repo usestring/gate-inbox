@@ -94,6 +94,7 @@ func helpSections() []helpSection {
 			note("typing goes straight to the agent, every letter of it"),
 			bound(focus, keymap.Leave, "back to the list; in triage, on to the next"),
 			bound(focus, keymap.LeaveHard, "back to the list, always stopping there"),
+			bound(focus, keymap.Help, "this key map, without leaving the session"),
 			bound(focus, keymap.Rescind, "undo the latest submission while its turn is active"),
 			bound(focus, keymap.LastPane, "back to the previous session"),
 			bound(focus, keymap.PreviewPageUp, "scroll a page up"),
@@ -183,7 +184,7 @@ func helpSections() []helpSection {
 		}},
 		{title: "advanced: inside a session", rows: []helpRow{
 			bound(focus, keymap.HandOver, "the one-press alias for leaving, in triage and out"),
-			bound(focus, keymap.BackAtPrompt, "focused, at the prompt's end: back to the list"),
+			bound(focus, keymap.BackAtPrompt, "Right at prompt's end: list; finished triage: Left/Right next"),
 			bound(focus, keymap.Dismiss, "skip"),
 			bound(focus, keymap.ToggleChrome, "hide / show the key hints along the foot; the pane takes the rows"),
 			bound(focus, keymap.ToggleRail, "hide / show the list beside the pane; the pane takes the columns"),

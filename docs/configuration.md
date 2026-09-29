@@ -4,13 +4,30 @@
 
 Config lives in your OS user config dir (`~/Library/Application Support/gate-inbox/config.toml` on macOS, `~/.config/gate-inbox/config.toml` on Linux, with `XDG_CONFIG_HOME` honored when set) and is created on first run with defaults for the three supported CLIs: Claude Code, Codex, and OpenCode v2. Any other CLI can be added as its own `[tools.<name>]` block (below); nothing about it is built in, so its block has to say everything the manager needs to know.
 
-**Auto routing.** Set **new session agent** to `auto` in Settings to choose an enabled CLI for each `n` spawn. Gate Inbox reads Claude Code's live OAuth usage, OpenCode Go's live weekly/monthly usage, and a Codex backend rate-limit snapshot only when that snapshot is at most two minutes old. Successful reads are cached for two minutes. It scores every available window against an even pace to its reset and reserves quota for sessions already working, starting, or waiting. Tools launched through a shared account pool are omitted because their own-login quota does not describe the account a new session will use. A missing, stale, exhausted, or unreadable quota is never treated as free capacity; when no CLI has usable quota, `n` opens the usual CLI picker. This choice applies to new sessions only.
-
-A custom CLI can supply `quota_command` in its `[tools.<name>]` block. The command must print JSON such as `{"observed_at":"2026-09-28T18:00:00Z","windows":{"monthly":{"utilization":25,"resets_at":"2026-10-23T18:00:00Z","duration_seconds":2592000}}}`. The observation must be at most two minutes old; each window needs a used percentage, a future reset, and a duration. The command is run only when Auto needs a new reading and must get its own credentials from the CLI's normal login. Unknown CLIs without a quota command stay available in the manual picker.
+**Launch accounts.** A session that names no account runs on its CLI's own login. A build can carry an extension that chooses the account instead (`extension.AccountChooserProvider`); Settings then offers **launch accounts**, which switches between the CLI's own login and the extension's choice. A migration never takes an account from its caller: it runs on the extension's choice, or the CLI's own login when the build has none. With **new session agent** set to `auto`, `n` asks the same extension which CLI to start; Settings offers `auto` only when the extension can answer, and `n` opens the usual CLI picker whenever it does not.
 
 Top-level: `poll_interval` (default `"2s"`) sets how often panes are polled for status, preview, and stats. `name_sweep_pace` (default `"3s"`) sets how long the `N` name sweep waits between panes; every message it sends starts a turn in a live agent, so a larger board wants a longer gap. `stale_status_after` (default `"2h"`) is how long a session may read `working` or `starting` with its screen unchanged before its row is flagged `stale` and offered up by triage (see [Status](usage.md#status)). `editor` is the command Settings opens the snippets file in, arguments included (`editor = "code -n"`, `editor = "open -a 'Visual Studio Code'"`); it is run directly rather than through a shell, and quotes group an argument carrying a space. Left unset, Gate Inbox falls back to `$GATE_INBOX_EDITOR`, then a GUI editor on `PATH`, then `$VISUAL` / `$EDITOR`, and last a terminal editor on `PATH` (see [Opening the snippets file](usage.md#opening-the-snippets-file)). Nothing here has to be set for the file to open.
 
 `[children]` controls what the board does with sessions an agent spawned. `auto_archive_after` (default `"30m"`) is how long a child whose pane has exited stays on the list when it never reported back. `finished_grace` (default `"10m"`) is how long a *finished* child stays once its spawner has taken the finish in -- the rest notice reached the spawner's prompt, or the spawner ran `read_session` or `wait_for_session` on it after it finished -- before the board archives it through the same teardown as `x`, so `t` finds it and `u` restores it for the 7-day retention window. A child that is waiting, working, errored, dead without having finished, adopted, spawned with `keep`, or still has live children of its own is never archived by this rule, and archiving a parent takes its descendants with it. `keep_finished = true` turns the finished-child cleanup off board-wide.
+
+<a id="resource-hogs"></a>`[hogs]` sets when the board tells a session its processes are holding the machine (see [Resource hogs](usage.md#status)). It reads `/proc`, so it is Linux only (WSL2 included); elsewhere it is off. `enabled` (default on) switches it off with `false`. `sample_every` (default `"10s"`) is how often the trees are read, `reset_after` (default `"2m"`) is how long every rule of a kind must stay below before its episode ends -- a shorter dip keeps each rule's window open -- and `cooldown` (default `"30m"`) is the least time between two notices of the same tier to one session. Each tier of `[hogs.cpu]` and `[hogs.memory]` is a list of alternative rules; any one held for its `for` puts the session at that tier (`for` left out means the first sample that finds it). A CPU rule sets `percent`, summed over the tree, 100 being one full core. A memory rule sets `gib` (the tree's PSS), `growth_gib_per_min` (its growth over the last minute) and `available_below` (the host's `MemAvailable` as a percentage of RAM), and every one it sets must hold. A tier left out takes the built-in rules below; `stop = []` switches that tier off.
+
+| Kind | Tier | Built-in rules (any one) |
+| --- | --- | --- |
+| cpu | `notice` | `{ percent = 100, for = "10m" }` |
+| cpu | `warn` | `{ percent = 200, for = "5m" }`, `{ percent = 100, for = "30m" }` |
+| cpu | `stop` | `{ percent = 400, for = "5m" }`, `{ percent = 200, for = "20m" }` |
+| memory | `notice` | `{ gib = 8, for = "10m" }`, `{ gib = 4, available_below = 25 }` |
+| memory | `warn` | `{ gib = 16, for = "5m" }`, `{ growth_gib_per_min = 1, for = "5m" }`, `{ gib = 4, available_below = 15 }` |
+| memory | `stop` | `{ gib = 32 }`, `{ gib = 4, available_below = 10, for = "2m" }` |
+
+```toml
+[hogs]
+cooldown = "1h"
+
+[hogs.cpu]
+notice = [{ percent = 150, for = "15m" }]
+```
 
 `[board]` holds the frame's layout. `sidebar` (default `"right"`) is the side the sessions list sits on, `"right"` or `"left"`; the session's pane takes the other side. Any other value stops the board at startup with an error naming the key. Settings (`s`) → **sidebar** can pick the other side on one machine, which outranks this file there; picking the file's side in Settings again goes back to following it (see [The board layout](usage.md#the-board-layout)).
 

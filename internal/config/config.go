@@ -105,10 +105,6 @@ type Tool struct {
 	// with {account} standing for the account name in upper case
 	// ("CLAUDE_OAUTH_TOKEN_{account}").
 	AccountSecret string `toml:"account_secret"`
-	// QuotaCommand prints fresh subscription quota JSON for Auto routing on a
-	// custom CLI. Its output has observed_at and windows with utilization,
-	// resets_at, and duration_seconds; it never receives account credentials.
-	QuotaCommand string `toml:"quota_command"`
 	// AccountCommand prints one secret's value, with {secret} standing for
 	// the name AccountSecret produced. It runs at launch; the token goes into
 	// the session's environment and is never written to a row.
@@ -304,6 +300,54 @@ type Integration struct {
 // On reports whether the provider is switched on.
 func (i Integration) On() bool { return i.Enabled == nil || *i.Enabled }
 
+// Hogs configures how the board watches each session's process tree for
+// sustained CPU and memory use, and how firmly it tells the session. Gate
+// Inbox never stops a process itself: the session that started the work is
+// told what is running, how much and for how long, and decides.
+type Hogs struct {
+	// Enabled is a pointer so that absent means on.
+	Enabled *bool `toml:"enabled"`
+	// SampleEvery is how often the trees are read. The windows are minutes
+	// long, so this is far coarser than the poll.
+	SampleEvery Duration `toml:"sample_every"`
+	// ResetAfter is how long every rule of a kind must stay below its
+	// threshold before that kind's episode ends; a shorter dip keeps each
+	// rule's window open.
+	ResetAfter Duration `toml:"reset_after"`
+	// Cooldown is the least time between two notices of the same tier to one
+	// session.
+	Cooldown Duration `toml:"cooldown"`
+	CPU      HogTiers `toml:"cpu"`
+	Memory   HogTiers `toml:"memory"`
+}
+
+// On reports whether hog detection is switched on.
+func (h Hogs) On() bool { return h.Enabled == nil || *h.Enabled }
+
+// HogTiers is one resource's rules by tier. A tier's rules are alternatives:
+// any one of them held for its duration puts the session at that tier. A tier
+// left out of the file takes the built-in rules; one written as an empty
+// array is switched off.
+type HogTiers struct {
+	Notice []HogRule `toml:"notice"`
+	Warn   []HogRule `toml:"warn"`
+	Stop   []HogRule `toml:"stop"`
+}
+
+// HogRule is one condition. A CPU rule sets Percent (100 is one full core,
+// summed over the session's whole process tree). A memory rule sets GiB, the
+// tree's resident memory; GrowthGiBPerMin, its growth over the last minute;
+// AvailableBelow, a ceiling on the host's MemAvailable as a percentage of its
+// RAM; or several, all of which must hold. For is how long the condition must
+// hold; zero means the first sample that finds it.
+type HogRule struct {
+	Percent         float64  `toml:"percent"`
+	GiB             float64  `toml:"gib"`
+	GrowthGiBPerMin float64  `toml:"growth_gib_per_min"`
+	AvailableBelow  float64  `toml:"available_below"`
+	For             Duration `toml:"for"`
+}
+
 // The sides the board's sidebar -- the sessions rail -- can sit on.
 const (
 	SidebarRight = "right"
@@ -353,6 +397,7 @@ type Config struct {
 	Children         Children     `toml:"children"`
 	Work             Work         `toml:"work"`
 	Integrations     Integrations `toml:"integrations"`
+	Hogs             Hogs         `toml:"hogs"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see
@@ -711,6 +756,7 @@ func (c *Config) applyDefaults() {
 	if c.Children.FinishedGrace.Duration <= 0 {
 		c.Children.FinishedGrace.Duration = defaultFinishedChildGrace
 	}
+	c.Hogs.applyDefaults()
 	c.Board.Sidebar = strings.ToLower(strings.TrimSpace(c.Board.Sidebar))
 	if c.Board.Sidebar == "" {
 		c.Board.Sidebar = SidebarRight
@@ -764,7 +810,7 @@ const defaultConfig = `poll_interval = "2s"
 # The shared artifact store. Agents publish HTML, markdown or JSON to a URL
 # and hand the link to you or to each other; the link carries its own key, so
 # whoever has it can open that one artifact and nothing else. An artifact
-# published by a session on one pooled account is readable by a session on
+# published by a session on one account is readable by a session on
 # another -- and by a CLI that has no artifacts of its own.
 #
 # Off until you turn it on. An extension that is off registers no tools, so

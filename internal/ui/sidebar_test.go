@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
 // The settings screen's stored choice outranks the config file; with none
@@ -257,5 +258,106 @@ func TestFocusLeftUnfocusesAtPromptHeadRailLeft(t *testing.T) {
 	*m = *updated.(*Model)
 	if m.mode != modeList {
 		t.Fatalf("left at the prompt head did not unfocus with the rail on the left, mode = %v", m.mode)
+	}
+}
+
+func TestMirrorArrow(t *testing.T) {
+	for key, want := range map[string]string{
+		"left": "right", "right": "left", "h": "l", "l": "h",
+		"shift+left": "shift+right", "alt+right": "alt+left", "ctrl+shift+left": "ctrl+shift+right",
+		"up": "up", "tab": "tab", "enter": "enter", "+": "+", "ctrl+q": "ctrl+q",
+	} {
+		if got := mirrorArrow(key); got != want {
+			t.Errorf("mirrorArrow(%q) = %q, want %q", key, got, want)
+		}
+		if back := mirrorArrow(mirrorArrow(key)); back != key {
+			t.Errorf("mirroring %q twice gave %q", key, back)
+		}
+	}
+}
+
+// Each horizontal binding with the rail on the left, against the same
+// binding with it on the right: only the focus exit follows the side. The
+// list's step in and out stay the tree's arrows, so → still points at the
+// pane on the left-hand layout.
+func TestSideActionPerBinding(t *testing.T) {
+	press := func(code rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: code} }
+	for _, tc := range []struct {
+		name  string
+		ctx   keymap.Context
+		key   rune
+		right keymap.Action
+		left  keymap.Action
+	}{
+		{"focus → at the prompt", keymap.ContextFocus, tea.KeyRight, keymap.BackAtPrompt, ""},
+		{"focus ← at the prompt", keymap.ContextFocus, tea.KeyLeft, "", keymap.BackAtPrompt},
+		{"list → steps in", keymap.ContextList, tea.KeyRight, keymap.StepIn, keymap.StepIn},
+		{"list ← steps out", keymap.ContextList, tea.KeyLeft, keymap.StepOut, keymap.StepOut},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, side := range []string{config.SidebarRight, config.SidebarLeft} {
+				m := &Model{sidebar: side}
+				want := tc.right
+				if side == config.SidebarLeft {
+					want = tc.left
+				}
+				got, bound := m.sideAction(tc.ctx, press(tc.key))
+				if !bound {
+					got = ""
+				}
+				if got != want {
+					t.Errorf("%s rail: action = %q, want %q", side, got, want)
+				}
+			}
+		})
+	}
+}
+
+// The key map screen names the exit by the key that works on this side, and
+// a key pressed to rebind it with the rail on the left is stored as the
+// right-hand rail reads it.
+func TestSideHelpAndRebindKey(t *testing.T) {
+	find := func(m *Model) (string, string) {
+		for _, section := range m.resolvedHelp() {
+			for _, row := range section.rows {
+				if row.ctx == keymap.ContextFocus && row.action == keymap.BackAtPrompt {
+					return row.key, row.text
+				}
+			}
+		}
+		t.Fatal("no help row for the focus exit")
+		return "", ""
+	}
+	right := &Model{}
+	key, text := find(right)
+	if key != keymap.Display("right") || !strings.Contains(text, "prompt's end") {
+		t.Fatalf("right rail help row = %q %q, want the unchanged → at the prompt's end", key, text)
+	}
+	left := &Model{sidebar: config.SidebarLeft}
+	key, text = find(left)
+	if key != keymap.Display("left") || !strings.Contains(text, "prompt's head") {
+		t.Fatalf("left rail help row = %q %q, want ← at the prompt's head", key, text)
+	}
+	if got := left.sideKey(keymap.ContextFocus, keymap.BackAtPrompt, "ctrl+left"); got != "ctrl+right" {
+		t.Fatalf("a left-rail rebind would store %q, want ctrl+right", got)
+	}
+	if got := right.sideKey(keymap.ContextFocus, keymap.BackAtPrompt, "ctrl+left"); got != "ctrl+left" {
+		t.Fatalf("a right-rail rebind would store %q, want it as pressed", got)
+	}
+	if got := left.sideKey(keymap.ContextList, keymap.StepIn, "right"); got != "right" {
+		t.Fatalf("a list binding was mirrored to %q", got)
+	}
+}
+
+// The divider's arrows move it in screen columns on either side: → moves
+// the seam right, which narrows a right-hand rail and widens a left-hand one.
+func TestResizeArrowsFollowTheScreen(t *testing.T) {
+	for _, side := range []string{config.SidebarRight, config.SidebarLeft} {
+		m := &Model{width: 100, split: splitState{ratio: 0.4, resizeMode: true}, sidebar: side}
+		before := m.dividerX()
+		m.nudgeSplit(1)
+		if got := m.dividerX(); got != before+1 {
+			t.Fatalf("%s rail: → moved the divider from %d to %d", side, before, got)
+		}
 	}
 }

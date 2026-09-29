@@ -5,7 +5,6 @@ package ui
 import (
 	"fmt"
 	"regexp"
-	"slices"
 	"strings"
 	"unicode"
 
@@ -257,18 +256,6 @@ func (m *Model) composerAboveIsBlank(tool string, rows []string, y int) bool {
 // the pane's, and the other way round with it on the left. The side is the
 // sidebar setting (see sidebar.go).
 func (m *Model) railOnRight() bool { return !m.railOnLeft() }
-
-// mirroredBackAtPrompt reports whether a plain Left is the exit arrow
-// because the rail sits on the left: the binding names the arrow for the
-// default side, "right", and with the rail moved the arrow that points at
-// it is the other one. A binding the operator moved off the arrows is
-// theirs and is not mirrored.
-func (m *Model) mirroredBackAtPrompt(key tea.Key) bool {
-	if m.railOnRight() || key.Code != tea.KeyLeft || key.Mod != 0 {
-		return false
-	}
-	return slices.Contains(m.km().Keys(keymap.ContextFocus, keymap.BackAtPrompt), "right")
-}
 
 // caretAtInputEnd reports whether the agent's caret sits at the end of its
 // prompt, with nothing typed past it. Right is a no-op for the agent there,
@@ -593,7 +580,7 @@ func (m *Model) releaseHeldAck() tea.Cmd {
 // down a pipe the manager already holds. TestFocusedKeystrokeLatencyBreakdown
 // is the measurement.
 func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	action, bound := m.action(keymap.ContextFocus, msg)
+	action, bound := m.sideAction(keymap.ContextFocus, msg)
 	if bound && (action == keymap.Leave || action == keymap.LeaveHard || action == keymap.HandOver) {
 		leftID := ""
 		sess, onRow := m.selected()
@@ -681,11 +668,9 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	key := msg.Key()
 	// The exit arrow is the one pointing at the rail: Right while it sits on
-	// the right, Left while the sidebar setting has it on the left. The
-	// spare key leaves; anywhere else the arrow still reaches the agent.
-	if !bound && m.mirroredBackAtPrompt(key) {
-		action, bound = keymap.BackAtPrompt, true
-	}
+	// the right, Left while the sidebar setting has it on the left (sideAction
+	// reads the binding through the mirror). The spare key leaves; anywhere
+	// else the arrow still reaches the agent.
 	if bound && action == keymap.BackAtPrompt && key.Mod == 0 {
 		if key.Code == tea.KeyRight && m.railOnRight() && m.rightLeavesFocus(sess.ID, sess.Tool) {
 			return m, m.leaveFocus()

@@ -380,11 +380,11 @@ func (m *Model) helpHint() [][2]string {
 	}
 	if m.help.query != "" {
 		return [][2]string{{m.navCap(keymap.ContextList), "select"}, {"↵", "rebind"}, {"r", "default"},
-			{"esc", "clear search"}, {"q/h", "close"}}
+			{"esc", "clear search"}, {"q/h/^h", "close"}}
 	}
 	return [][2]string{
 		{m.navCap(keymap.ContextList), "select"}, {"↵", "rebind"}, {"r", "default"},
-		{"ctrl+u/d", "page"}, {"/", "search"}, {"w", "welcome guide"}, {"esc/q/h", "close"},
+		{"ctrl+u/d", "page"}, {"/", "search"}, {"w", "welcome guide"}, {"esc/q/h/^h", "close"},
 	}
 }
 
@@ -493,7 +493,7 @@ func (m *Model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.closeHelp()
 		return m, m.startStartupTick()
-	case "q", "?", "h", "H", "shift+h":
+	case "q", "?", "h", "H", "shift+h", "ctrl+h":
 		m.closeHelp()
 		return m, m.startStartupTick()
 	case "w":

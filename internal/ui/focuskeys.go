@@ -560,8 +560,8 @@ func (m *Model) releaseHeldAck() tea.Cmd {
 }
 
 // handleFocusKey forwards every key into the focused pane. Ctrl+Q and
-// ctrl+\ return to the list, ctrl+x archives the session, and every plain
-// character - q included - reaches the agent.
+// ctrl+\ return to the list, ctrl+x archives the session, ctrl+h opens the
+// key map, and every plain character - q included - reaches the agent.
 //
 // § is ctrl+q's one-press alias and reads the same in both modes: in triage
 // it hands over, outside it returns to the manager. In triage mode ctrl+q
@@ -658,6 +658,9 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// the same argument runs sideways: a session that wants the
 			// width gets it without a trip back to the board.
 			return m, m.toggleRail()
+		case action == keymap.Help:
+			m.openHelp()
+			return m, nil
 		case isScrollAction(action):
 			// The pane scrolls for the operator with no wheel: a phone, or a
 			// terminal that sends a swipe as arrows.

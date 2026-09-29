@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -43,7 +45,10 @@ const (
 	// newSessionAgentDefault skips the box and starts the settings default
 	// tool.
 	newSessionAgentDefault = "default tool"
-	newSessionAgentAuto    = "auto"
+	// newSessionAgentAuto skips the box and starts the CLI the build's
+	// extension chooses (see extension.ToolChooser); settings offers it only
+	// in a build that has one.
+	newSessionAgentAuto = "auto"
 )
 
 // newSessionAgentModes is the setting's cycle order.
@@ -88,8 +93,7 @@ func (m *Model) startNewSession() (tea.Model, tea.Cmd) {
 
 type autoRouteMsg struct {
 	name     string
-	names    []string
-	active   map[string]int
+	request  extension.ToolRequest
 	group    string
 	row      treeRow
 	selected bool
@@ -97,37 +101,54 @@ type autoRouteMsg struct {
 	err      error
 }
 
+// toolChooser is the build's chooser for a new session's CLI, when its
+// account chooser offers one. Without it "auto" has nobody to ask, and n
+// opens the box instead.
+func toolChooser() (extension.ToolChooser, bool) {
+	chooser, err := accounts.Chooser()
+	if err != nil || chooser == nil {
+		return nil, false
+	}
+	tools, ok := chooser.(extension.ToolChooser)
+	return tools, ok
+}
+
 func (m *Model) startAutoRoute() (tea.Model, tea.Cmd) {
 	if m.autoRouting {
 		return m, nil
 	}
-	names := m.enabledToolNames()
+	if _, ok := toolChooser(); !ok {
+		m.openAgentPick()
+		m.errBar.text = "no extension chooses a CLI: choose one"
+		return m, nil
+	}
 	mode, err := accounts.Mode(m.store)
 	if err != nil {
 		m.openAgentPick()
-		m.errBar.text = "account routing unavailable: choose a CLI"
+		m.errBar.text = "launch accounts unavailable: choose a CLI"
 		return m, nil
 	}
-	if mode == accounts.Smart {
-		eligible := names[:0]
-		for _, name := range names {
-			if m.cfg.Tools[name].AccountEnv == "" {
-				eligible = append(eligible, name)
-			}
+	var candidates []extension.ToolCandidate
+	for _, name := range m.enabledToolNames() {
+		candidate := extension.ToolCandidate{Name: name}
+		if tool := m.cfg.Tools[name]; tool.AccountEnv != "" {
+			account := accounts.Tool(tool)
+			candidate.Account = &account
 		}
-		names = eligible
+		candidates = append(candidates, candidate)
 	}
-	if len(names) == 0 {
+	if len(candidates) == 0 {
 		m.openAgentPick()
-		m.errBar.text = "quota unavailable: choose a CLI"
+		m.errBar.text = "no CLI to choose from: choose a CLI"
 		return m, nil
 	}
 	row, selected := m.selectedRow()
-	return m, m.autoRouteCmd(autoRouteMsg{names: names, active: m.activeByTool(), group: m.contextGroup(), row: row, selected: selected, mode: mode})
+	req := extension.ToolRequest{Candidates: candidates, Active: m.activeByTool(), ChoosingAccounts: mode == accounts.Extension}
+	return m, m.autoRouteCmd(autoRouteMsg{request: req, group: m.contextGroup(), row: row, selected: selected, mode: mode})
 }
 
-// activeByTool counts the sessions each CLI already has in flight, which the
-// score reserves quota for.
+// activeByTool counts the sessions each CLI already has in flight, which a
+// chooser may weigh.
 func (m *Model) activeByTool() map[string]int {
 	active := map[string]int{}
 	for _, session := range m.sessions {
@@ -138,16 +159,20 @@ func (m *Model) activeByTool() map[string]int {
 	return active
 }
 
-// autoRouteCmd reads quota and scores req.names against req.active, handing
-// the rest of req back with the choice.
+// autoRouteCmd asks the build's chooser for a CLI off the event loop, handing
+// the rest of req back with the answer.
 func (m *Model) autoRouteCmd(req autoRouteMsg) tea.Cmd {
 	m.autoRouting = true
-	router := m.autoRouter
 	return func() tea.Msg {
+		msg := req
+		chooser, ok := toolChooser()
+		if !ok {
+			msg.err = errors.New("no extension chooses a CLI")
+			return msg
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		msg := req
-		msg.name, msg.err = router.Choose(ctx, req.names, req.active, time.Now())
+		msg.name, msg.err = chooser.ChooseTool(ctx, req.request)
 		return msg
 	}
 }
@@ -169,22 +194,21 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 	}
 	if msg.err != nil || msg.name == "" {
 		m.openPinnedAgentPick(msg)
-		m.errBar.text = "quota unavailable: choose a CLI"
+		m.errBar.text = "no CLI chosen: choose one"
 		return m, nil
 	}
-	// The quota was scored under the routing mode read when n was pressed; a
-	// mode changed in settings since then may route this CLI through an
-	// account that was never scored.
+	// The chooser answered for the launch-account mode read when n was
+	// pressed; a mode changed in settings since then may launch this CLI on
+	// an account it was not asked about.
 	if mode, err := accounts.Mode(m.store); err != nil || mode != msg.mode {
 		m.openPinnedAgentPick(msg)
-		m.errBar.text = "account routing changed: choose a CLI"
+		m.errBar.text = "launch accounts changed: choose a CLI"
 		return m, nil
 	}
-	// Work that started during the read changes the reserve the score holds
-	// back, so the choice is made again against the counts as they are now.
-	// The readings are cached, so the second pass does not wait on quota.
-	if active := m.activeByTool(); !maps.Equal(active, msg.active) {
-		msg.active = active
+	// Work that started while the chooser was answering changes what it was
+	// told, so it is asked again against the counts as they are now.
+	if active := m.activeByTool(); !maps.Equal(active, msg.request.Active) {
+		msg.request.Active = active
 		return m, m.autoRouteCmd(msg)
 	}
 	for _, name := range m.enabledToolNames() {
@@ -199,8 +223,8 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 
 // groupStillOpen reports whether group can still take a new session: the top
 // level, or a group that exists and is not archived. The store is read rather
-// than the last poll, because a rename or archive finished during the quota
-// read may not have reached the model yet.
+// than the last poll, because a rename or archive finished while the chooser
+// was answering may not have reached the model yet.
 func (m *Model) groupStillOpen(group string) bool {
 	if group == "" {
 		return true
@@ -246,7 +270,7 @@ type agentPick struct {
 	// against fresh text replaces the whole of it, which is what makes a
 	// prefilled box overridable without a backspace per character.
 	fresh bool
-	// group and row pin the launch to what an Auto route captured when n was
+	// group and row pin the launch to what an auto choice captured when n was
 	// pressed, so a fallback picker does not follow a cursor moved meanwhile.
 	group       string
 	row         treeRow

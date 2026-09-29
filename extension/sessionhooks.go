@@ -52,7 +52,7 @@ type policy struct {
 // KillObserver, OperatorSendHandler, SessionFormExtender or
 // FormSpawnObserver. On a registry nothing has
 // configured yet only those are configured, from sections and under
-// configDir, as AccountPool does: a CLI command launching one session has
+// configDir, as AccountChooser does: a CLI command launching one session has
 // no use for the rest, and must not fail on a section it never reads.
 //
 // An extension whose section was refused is disabled, and its hooks are

@@ -16,7 +16,7 @@ Sleep 1s
 Screenshot {{SHOTS}}/02-default-account-own-login.png
 Sleep 1s
 
-# Cycled to the first pooled account.
+# Cycled to the first named account.
 Right
 Sleep 1500ms
 Screenshot {{SHOTS}}/03-default-account-alice1.png

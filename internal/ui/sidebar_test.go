@@ -277,8 +277,8 @@ func TestMirrorArrow(t *testing.T) {
 }
 
 // Each horizontal binding on both sides. The list's step in is the arrow
-// pointing at the pane and its fold the other one; the focus exit is the
-// arrow pointing back at the list.
+// pointing at the pane and its fold the other one; both prompt arrows bind
+// in focus, where only finished triage can use the one pointing away.
 func TestSideActionPerBinding(t *testing.T) {
 	press := func(code rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: code} }
 	for _, tc := range []struct {
@@ -288,8 +288,8 @@ func TestSideActionPerBinding(t *testing.T) {
 		right keymap.Action
 		left  keymap.Action
 	}{
-		{"focus → at the prompt", keymap.ContextFocus, tea.KeyRight, keymap.BackAtPrompt, ""},
-		{"focus ← at the prompt", keymap.ContextFocus, tea.KeyLeft, "", keymap.BackAtPrompt},
+		{"focus → at the prompt", keymap.ContextFocus, tea.KeyRight, keymap.BackAtPrompt, keymap.BackAtPrompt},
+		{"focus ← at the prompt", keymap.ContextFocus, tea.KeyLeft, keymap.BackAtPrompt, keymap.BackAtPrompt},
 		{"list →", keymap.ContextList, tea.KeyRight, keymap.StepOut, keymap.StepIn},
 		{"list ←", keymap.ContextList, tea.KeyLeft, keymap.StepIn, keymap.StepOut},
 		{"list h stays help", keymap.ContextList, 'h', keymap.Help, keymap.Help},

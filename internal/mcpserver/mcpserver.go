@@ -97,7 +97,7 @@ type createSessionArgs struct {
 	PromptFile string  `json:"prompt_file,omitempty" jsonschema:"absolute path of a file holding the first task, used instead of prompt when the brief is long; the server reads it, so write the brief once and name it here"`
 	Tool       string  `json:"tool,omitempty" jsonschema:"agent CLI to run, such as claude, codex or opencode; defaults to the CLI this session runs, and is required when this session is a terminal; call list_sessions to see which are in use"`
 	Model      string  `json:"model,omitempty" jsonschema:"model that CLI should run on, in whatever names it uses (claude: sonnet, opus, haiku, plus the 1M-context opus[1m] and sonnet[1m]; opencode: provider/model); call list_models for the names a CLI accepts rather than guessing one, since an unknown name is refused by the CLI and the session dies on launch; omit for the CLI's own default"`
-	Account    string  `json:"account,omitempty" jsonschema:"optional pinned subscription from list_accounts; omit to follow the board's routing settings, using own subscription first and quota-based pool overflow in smart mode; a child does not inherit its parent's borrowed account; an explicit account overrides routing and requires a CLI that accepts a token"`
+	Account    string  `json:"account,omitempty" jsonschema:"optional named account from list_accounts; omit to follow the board's launch-account setting (the CLI's own login unless the build's extension chooses); a child does not inherit its parent's account; a named account requires a CLI that accepts a token"`
 	Group      *string `json:"group,omitempty" jsonschema:"existing group path for a detached session (nest false) to sit in; pass an empty string for the root group; a nested session is always in this agent's group and refuses any other; call list_groups for the existing ones"`
 	Directory  string  `json:"directory,omitempty" jsonschema:"existing directory the session works in; defaults to this agent's own directory, or to the selected group's inherited path when group is set"`
 	Nest       *bool   `json:"nest,omitempty" jsonschema:"omit it: the new session is this session's child, drawn under it, and its questions, rests and finishes are relayed to this session, which is how a fan-out gets steered; false detaches it into a top-level session that reports to nobody, and is only for work that is not this session's, such as a standalone session the user asked for in another group"`
@@ -136,7 +136,6 @@ type migrateSessionArgs struct {
 	SessionID string `json:"session_id" jsonschema:"session id returned by list_sessions whose conversation moves to another CLI"`
 	Tool      string `json:"tool" jsonschema:"agent CLI the conversation moves to, such as claude, codex or opencode; call list_sessions to see which are in use"`
 	Name      string `json:"name,omitempty" jsonschema:"kebab-case name for the new session; defaults to the source's name with the tool appended"`
-	Account   string `json:"account,omitempty" jsonschema:"named subscription the new session runs on, from list_accounts; defaults to the source's own, then the board's default account, and is how a conversation that hit one account's usage limit continues on another"`
 }
 
 type archiveSessionArgs struct {
@@ -508,8 +507,8 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "list_accounts",
-		Description: "Call before passing an account to create_session or migrate_session, to find the named subscriptions a CLI can be launched on instead of guessing one; omit account to follow the board's routing settings (own subscription first, shared overflow in smart mode). An explicit account stays pinned. " +
-			"The names are the team's pooled accounts, each a long-lived token in Secret Manager; a session launched on one spends that account's usage window rather than the operator's own login, which is how work moves off a person who has hit their limit. " +
+		Description: "Call before passing an account to create_session, to find the named accounts a CLI can be launched on instead of guessing one; omit account to follow the board's launch-account setting. An explicit account stays pinned. " +
+			"Each name is a long-lived token in a secret store; a session launched on one spends that account's usage window rather than the operator's own login. " +
 			"Names one CLI's accounts when tool is given, and every configured CLI that can take one when it is omitted; a CLI that cannot says so here rather than at spawn time.",
 		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args listAccountsArgs) (*mcp.CallToolResult, any, error) {
@@ -534,7 +533,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Name: "create_session",
 		Description: "Start another agent CLI in its own Gate Inbox session and hand it a task, so independent work runs beside this conversation instead of queued behind it. " +
 			"The new session is a full CLI process of its own on the user's machine, which the user can watch and type into, and it can run a different CLI than this one. " +
-			"Omit account to use the board's subscription routing automatically, including quota-based overflow in smart mode; a child does not inherit a borrowed account from its parent. " +
+			"Omit account to follow the board's launch-account setting; a child does not inherit its parent's account. " +
 			"Use it instead of your CLI's built-in subagent tool (Agent/Task, spawn_agent, opencode's task) for any unit of real work -- an investigation, an implementation, a review -- since the user can see and steer a session and never sees a subagent; keep the built-in tool for a quick read-only lookup. " +
 			"Call it without waiting for the user when a task splits into parallel parts, or the user asks for a second agent or an independent opinion. " +
 			"Pass a descriptive name and a prompt stating the whole task, since the new agent cannot see this conversation -- a long brief goes in a file named by prompt_file rather than in the call -- and, for repo work beside other agents, a directory that is its own checkout, made with the repository's own tooling first. " +
@@ -724,11 +723,11 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "migrate_session",
 		Description: "Move a session's conversation to a different agent CLI: starts a new session on that CLI in the same group and directory, whose first prompt points at the source's full transcript on disk and tells it to read it and carry on where the source left off. " +
-			"Use it when a session should continue on another CLI, such as after a usage limit on the one it runs, or to move this session itself by passing its own id; the same CLI with another account moves a conversation onto a different subscription. " +
+			"Use it when a session should continue on another CLI, such as after a usage limit on the one it runs, or to move this session itself by passing its own id. The new session's account is never the caller's to choose: it is the build's extension's choice, or the CLI's own login in a build without one. " +
 			"The source is left as it is, so archive it once the new session has taken over; only claude, codex and opencode sessions with a transcript can be moved.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args migrateSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
-		created, err := sessions.Migrate(sessionID, args.SessionID, sessioncmd.MigrateOptions{Tool: args.Tool, Name: args.Name, Account: args.Account})
+		created, err := sessions.Migrate(sessionID, args.SessionID, sessioncmd.MigrateOptions{Tool: args.Tool, Name: args.Name})
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}

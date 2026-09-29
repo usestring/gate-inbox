@@ -122,7 +122,7 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 	prompt := set.String("prompt", "", "first task to hand it, written as a full instruction, since it cannot see your conversation")
 	tool := set.String("tool", "", "agent CLI to run; defaults to the CLI this session runs, and is required when this session is a terminal")
 	model := set.String("model", "", "model that CLI should run on, in its own names; omit for the CLI's default")
-	account := set.String("account", "", "named subscription it runs on, read from Secret Manager at launch; omit for the board's default account")
+	account := set.String("account", "", "named account it runs on, read from its secret at launch; omit for the board's launch-account setting")
 	group := set.String("group", "", "existing group path for a detached (--nest=false) session; a nested one is always in yours")
 	directory := set.String("directory", "", "existing directory it works in; defaults to yours, or to the group's inherited path")
 	nest := set.Bool("nest", true, "file it under this session, where its questions and rests reach you; --nest=false detaches it, for work that is not yours")
@@ -344,13 +344,12 @@ func runMigrate(out io.Writer, sessions sessionCommands, args []string, sessionI
 	set := cmdline.NewFlagSet(usageMigrate)
 	tool := set.String("tool", "", "agent CLI the conversation moves to")
 	name := set.String("name", "", "name for the new session; defaults to the source's name with the tool appended")
-	account := set.String("account", "", "named subscription the new session runs on; defaults to the source's own, then the board's default")
 	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
 	}
-	migrated, err := sessions.Migrate(sessionID, operands[0], sessioncmd.MigrateOptions{Tool: *tool, Name: *name, Account: *account})
+	migrated, err := sessions.Migrate(sessionID, operands[0], sessioncmd.MigrateOptions{Tool: *tool, Name: *name})
 	if err != nil {
 		return err
 	}

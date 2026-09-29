@@ -4,10 +4,10 @@
 // dashboard, a diff review -- to a URL anyone holding the link can open.
 //
 // It exists because the artifacts built into one CLI belong to the account
-// that published them, and this board deliberately rotates work across a
-// pool of accounts (see extension.AccountPoolProvider). An artifact published by a
-// session on one account is therefore unreadable from a session on the
-// next, which is the opposite of what an artifact is for. These tools
+// that published them, and sessions on one board can run on different
+// accounts (see extension.AccountChooserProvider). An artifact published by a
+// session on one account is therefore unreadable from a session on
+// another, which is the opposite of what an artifact is for. These tools
 // publish to a store the whole team shares instead, and every session gets
 // them regardless of which CLI it runs -- including the ones that have no
 // artifacts of their own.

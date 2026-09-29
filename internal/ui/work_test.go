@@ -205,8 +205,10 @@ func TestSessionRowCarriesTheWorkBadge(t *testing.T) {
 
 	for _, width := range []int{40, 100, 200} {
 		row := ansi.Strip(m.renderTreeRow(treeRow{sess: m.sessions[0]}, false, width, 0, panelHex()))
-		if got := ansi.StringWidth(row); got > width {
-			t.Errorf("width %d: row overflows to %d: %q", width, got, row)
+		for _, line := range splitLines(row) {
+			if got := ansi.StringWidth(line); got > width {
+				t.Errorf("width %d: row overflows to %d: %q", width, got, line)
+			}
 		}
 		t.Logf("width %3d |%s|", width, row)
 	}

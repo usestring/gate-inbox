@@ -295,6 +295,10 @@ type Model struct {
 	// naming sweep found them. A session's opening never changes, so an
 	// entry here is final once it holds the count the sweep keeps.
 	firstPrompts map[string][]string
+	// titles is the model-written title of each session's conversation, by
+	// session id, as the naming sweep last read it. It is what a list row
+	// says the session is about.
+	titles map[string]string
 	// adoptRestored marks the one-time re-registration of adopted panes after
 	// the first session load.
 	adoptRestored bool
@@ -2143,6 +2147,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errBar.text = "naming a session: " + msg.err.Error()
 		}
 		m.applyFirstPrompts(msg.prompts)
+		m.applyTitles(msg.titles)
 		if m.applyRenames(msg.renamed) {
 			m.rebuildRows()
 			// The rail is already right; this is for everything else a pass

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -1061,10 +1062,62 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 		head = head[:nameEnd] + after + head[nameEnd:] + slot
 	}
 
+	// The summary takes whatever the name, its marks and the meta leave, and
+	// is the first thing to go: the name is still what a row is found by.
+	summaryRoom := width - railGutter - textfmt.Width(head) - 2
+	if !m.stackedRows() {
+		summaryRoom -= textfmt.Width(meta) + 2
+	}
+	head += m.summaryTag(sess, summaryRoom, metaText)
+
 	if m.stackedRows() {
 		return stackedRow(head, indent+meta, width, bg)
 	}
 	return paint(rowColumns(head, meta, width-railGutter), width, bg)
+}
+
+// minSummary is the fewest cells of a summary worth drawing: any shorter and
+// the row wears a word or two that says less than the name beside it.
+const minSummary = 12
+
+// summaryTag is what the session is about, set after its name: the title its
+// own CLI wrote for the conversation, or the prompt it was opened with until
+// it has one. Nothing when there is not room for it, or when it would only
+// repeat the name.
+func (m *Model) summaryTag(sess store.Session, room int, style func(string) string) string {
+	if room < minSummary {
+		return ""
+	}
+	text := m.sessionSummary(sess)
+	if text == "" {
+		return ""
+	}
+	return "  " + style(textfmt.TruncateWidth(text, room-2, "…"))
+}
+
+func (m *Model) sessionSummary(sess store.Session) string {
+	// A row still waiting on its name already wears the prompt as one.
+	if m.awaitingRename(sess) {
+		return ""
+	}
+	text := strings.TrimSpace(m.titles[sess.ID])
+	if text == "" {
+		if opening := m.openingPrompts(sess); len(opening) > 0 {
+			text = promptPlain(opening[0])
+		}
+	}
+	if text == "" || sameWords(text, sess.Name) {
+		return ""
+	}
+	return text
+}
+
+// sameWords reports whether two labels say the same thing once case and
+// separators are set aside, as "Fix login bug" and fix-login-bug do.
+func sameWords(a, b string) bool {
+	split := func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }
+	x, y := strings.FieldsFunc(strings.ToLower(a), split), strings.FieldsFunc(strings.ToLower(b), split)
+	return strings.Join(x, " ") == strings.Join(y, " ")
 }
 
 // renderArtifactEntry paints one pull request or ticket under the session

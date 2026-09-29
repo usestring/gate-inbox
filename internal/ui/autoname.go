@@ -54,7 +54,10 @@ type autoNamedMsg struct {
 	// prompts is the opening prompts of every session the pass could
 	// attribute a conversation to, by session id.
 	prompts map[string][]string
-	err     error
+	// titles is the model-written title of every attributed conversation,
+	// by session id, whether or not the row's name was the sweep's to set.
+	titles map[string]string
+	err    error
 }
 
 func (m *Model) autoNameTick() tea.Cmd {
@@ -177,6 +180,7 @@ func (m *Model) autoNameScan() tea.Cmd {
 
 		entries := make([]sessname.Entry, 0, len(assigned.Matched))
 		prompts := map[string][]string{}
+		titles := map[string]string{}
 		targets := map[string]search.Target{}
 		for _, pane := range panes {
 			match, ok := assigned.For(pane.sessID)
@@ -186,6 +190,9 @@ func (m *Model) autoNameScan() tea.Cmd {
 			targets[pane.sessID] = search.Target{Key: pane.sessID, Tool: match.Conversation.Tool, AgentID: match.Conversation.ID, Path: match.Conversation.TranscriptPath}
 			if opening := typedPrompts(match.Conversation.FirstPrompts); len(opening) > 0 {
 				prompts[pane.sessID] = opening
+			}
+			if title := strings.TrimSpace(match.Conversation.Title); title != "" {
+				titles[pane.sessID] = title
 			}
 			if !pane.nameable {
 				continue
@@ -222,7 +229,7 @@ func (m *Model) autoNameScan() tea.Cmd {
 			}
 		}
 		logSweep(started, scanned, refreshed, linked, index.Cost(), len(panes), len(renamed))
-		return autoNamedMsg{renamed: renamed, prompts: prompts, targets: targets, err: refreshErr}
+		return autoNamedMsg{renamed: renamed, prompts: prompts, titles: titles, targets: targets, err: refreshErr}
 	}
 }
 
@@ -388,6 +395,18 @@ func (m *Model) applyFirstPrompts(prompts map[string][]string) {
 		if len(opening) > len(m.firstPrompts[id]) {
 			m.firstPrompts[id] = opening
 		}
+	}
+}
+
+// applyTitles records the conversation titles a pass found. A title moves as
+// the conversation does, so the newest reading replaces the last; a row the
+// pass could not attribute keeps what it had.
+func (m *Model) applyTitles(titles map[string]string) {
+	if m.titles == nil && len(titles) > 0 {
+		m.titles = map[string]string{}
+	}
+	for id, title := range titles {
+		m.titles[id] = title
 	}
 }
 

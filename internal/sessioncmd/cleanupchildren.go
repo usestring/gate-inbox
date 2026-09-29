@@ -89,9 +89,10 @@ func (s *Sessions) CleanupChildren(sessionID string, opts CleanupOptions) (clean
 	}
 	result := ChildCleanup{DryRun: opts.DryRun}
 	for _, child := range sessions {
-		// spawned_by, as send_children reads it: a caller that is itself a
-		// child has its spawns filed beside it, not under it.
-		if store.SpawnerOf(child) != caller.ID || child.Archived {
+		// The tracker, as send_children reads it: a caller that is itself a
+		// child has its spawns filed beside it, not under it, and a detached
+		// spawn is the user's to file away, not the caller's.
+		if store.TrackerOf(child) != caller.ID || child.Archived {
 			continue
 		}
 		// A terminal is the caller's own shell, which close_terminal ends
@@ -249,7 +250,7 @@ func (s *Sessions) fileBelow(runtime *runtime, below []store.Session, callerID s
 // A failure is logged and dropped: the read itself succeeded, and a child
 // left on the list a little longer is the whole cost.
 func noteSpawnerRead(runtime *runtime, callerID string, target store.Session) {
-	if store.SpawnerOf(target) != callerID {
+	if store.TrackerOf(target) != callerID {
 		return
 	}
 	if err := runtime.store.NoteSpawnerRead(target.ID, time.Now()); err != nil {

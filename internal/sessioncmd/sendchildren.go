@@ -74,10 +74,11 @@ func (s *Sessions) SendChildren(sessionID, message string) (ChildSend, error) {
 	stamp := textfmt.Fingerprint(message)
 	result := ChildSend{}
 	for _, child := range sessions {
-		// spawned_by, not parent_id: a caller that is itself a child has its
+		// The tracker, not parent_id: a caller that is itself a child has its
 		// own spawns filed beside it under their shared root, so reading the
 		// fan-out off the tree told such a caller it had no children at all.
-		if store.SpawnerOf(child) != caller.ID {
+		// A detached spawn is not in the fan-out; see store.TrackerOf.
+		if store.TrackerOf(child) != caller.ID {
 			continue
 		}
 		delivery := ChildDelivery{SessionID: child.ID, Name: child.Name}

@@ -1,6 +1,7 @@
 package sessioncmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -284,6 +285,14 @@ func TestAnswerNamesTheShapeItWillNotAnswer(t *testing.T) {
 		// capture no longer carries by the time the options are read.
 		{"a dialog whose selection cannot be located", "child008",
 			twoMarkerFixture, "selection this cannot locate"},
+		{"a Claude Code 2.1.284 permission prompt at 40 columns", "child009",
+			dialogFixture(t, "claude-2.1.284-w40-permission-touch.txt"), "is on a permission prompt"},
+		{"a Claude Code 2.1.284 permission prompt at 50 columns", "child010",
+			dialogFixture(t, "claude-2.1.284-w50-permission-touch.txt"), "is on a permission prompt"},
+		{"a Claude Code 2.1.284 permission prompt at 60 columns", "child011",
+			dialogFixture(t, "claude-2.1.284-w60-permission-touch.txt"), "is on a permission prompt"},
+		{"a dialog with no numbered choices", "child012",
+			unnumberedDialogFixture, "a dialog this cannot read"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newSessionHarness(t)
@@ -301,9 +310,25 @@ func TestAnswerNamesTheShapeItWillNotAnswer(t *testing.T) {
 			if strings.Contains(err.Error(), "send it words instead") {
 				t.Fatalf("refusal = %q, want it not to name the path that cannot work", err)
 			}
+			if !errors.Is(err, dialog.ErrNotKeyAnswerable) {
+				t.Fatalf("refusal = %v, want ErrNotKeyAnswerable", err)
+			}
+			if strings.Contains(err.Error(), "send_session") && !strings.Contains(err.Error(), "send_session is held") {
+				t.Fatalf("refusal = %q recommends send_session while a dialog stands", err)
+			}
 		})
 	}
 }
+
+// unnumberedDialogFixture is Claude Code's workspace-trust dialog, whose
+// choices carry no numbers for Inspect to read.
+const unnumberedDialogFixture = ` Quick safety check: Is this a project you trust?
+
+ ❯ No, exit
+   Yes, I trust this folder
+
+ Enter to confirm · Esc to cancel
+`
 
 const codexApprovalFixture = `  $ rm -rf build/
 

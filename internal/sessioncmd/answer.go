@@ -113,6 +113,13 @@ func (r *runtime) answer(target store.Session, reply, by, byID string) (Answered
 		if _, onReview := dialog.ParseReview(plain); onReview {
 			return r.submitReview(target, raw, reply, by, byID)
 		}
+		if dialog.Standing(plain) {
+			return AnsweredQuestion{}, wrapped(dialog.ErrNotKeyAnswerable, fmt.Sprintf(
+				"session %s is on a dialog this cannot read, so no keystroke is sent to it; what it "+
+					"asks is a person's call: put it to your user word for word (read_session shows it), "+
+					"or ask the operator to answer it on the board. %s is held while a dialog stands",
+				target.ID, r.words.Send))
+		}
 		// Not an error about the answer: there is no dialog on the screen. The
 		// question was answered by somebody who got there first, or the child
 		// is resting at its own input line having ended a turn on a question in

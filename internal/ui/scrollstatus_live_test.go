@@ -37,7 +37,7 @@ func TestLiveScrolledPaneKeepsItsStatus(t *testing.T) {
 	}
 
 	// A socket of its own, so nothing here can reach the operator's board.
-	socket := newTestSocket()
+	socket := newTestSocket(t)
 	const target = "byhand"
 	cwd := t.TempDir()
 	t.Cleanup(func() { _ = exec.Command("tmux", "-L", socket, "kill-server").Run() })

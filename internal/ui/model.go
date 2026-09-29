@@ -296,6 +296,10 @@ type Model struct {
 	// naming sweep found them. A session's opening never changes, so an
 	// entry here is final once it holds the count the sweep keeps.
 	firstPrompts map[string][]string
+	// titles is the model-written title of each session's conversation, by
+	// session id, as the naming sweep last read it. It is what a list row
+	// says the session is about.
+	titles map[string]string
 	// adoptRestored marks the one-time re-registration of adopted panes after
 	// the first session load.
 	adoptRestored bool
@@ -421,6 +425,10 @@ type Model struct {
 	// layout is the persisted override for the tight layout: auto, desktop
 	// or mobile. See layout.go.
 	layout string
+	// sidebar is the side of the frame the sessions rail is drawn on,
+	// right or left: the settings screen's choice, else [board] sidebar
+	// in config.toml. See sidebar.go.
+	sidebar string
 	// layoutShown is the mode the toggle key hid the rail from, so that
 	// bringing it back restores what the operator chose rather than auto.
 	// It lives for the run, the way chromeShown does.
@@ -775,6 +783,7 @@ type settingsState struct {
 	enterFocuses     bool
 	comfortableRows  bool
 	layout           string
+	sidebar          string
 	palette          string
 	glyphs           string
 	archiveConfirm   string
@@ -803,6 +812,7 @@ const (
 	settingsFieldBackdrop
 	settingsFieldDensity
 	settingsFieldLayout
+	settingsFieldSidebar
 	settingsFieldPalette
 	settingsFieldGlyphs
 	settingsFieldArchiveConfirm
@@ -1111,6 +1121,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		focusOnEnter:    storedFocusOnEnter(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),
+		sidebar:         storedSidebar(st, cfg.Board.Sidebar),
 		palette:         storedPalette(st),
 		glyphs:          storedGlyphs(st),
 		archiveConfirm:  storedArchiveConfirm(st),
@@ -2145,6 +2156,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errBar.text = "naming a session: " + msg.err.Error()
 		}
 		m.applyFirstPrompts(msg.prompts)
+		m.applyTitles(msg.titles)
 		if m.applyRenames(msg.renamed) {
 			m.rebuildRows()
 			// The rail is already right; this is for everything else a pass

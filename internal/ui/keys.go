@@ -130,7 +130,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// to refuse "take me to the next finished session". One table holds the
 	// whole family, so the handler below does not grow a case per state.
 	// See statusjump.go.
-	action, bound := m.action(keymap.ContextList, msg)
+	// The list's step in and fold follow the rail's side (see sideBindings).
+	action, bound := m.sideAction(keymap.ContextList, msg)
 	if jump, isJump := statusJumps[action]; bound && isJump {
 		return m.jumpToStatus(jump)
 	}
@@ -231,8 +232,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.attachSelected()
 	case keymap.StepIn:
-		// Unfolding claims → first: ↵ already opens a group and focuses a
-		// session, so → is the only key left for a session's work.
+		// Unfolding claims the step-in arrow first (→ with the rail on the
+		// left, ← with it on the right): ↵ already opens a group and focuses
+		// a session, so it is the only key left for a session's work.
 		if entry, ok := m.selectedRow(); ok && entry.isSession() &&
 			m.hasRailWork(entry.sess) && !m.railWorkExpanded(entry.sess.ID) {
 			m.toggleRailWork()

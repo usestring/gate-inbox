@@ -144,6 +144,7 @@ func (m *Model) openSettings() {
 		enterFocuses:     m.enterFocuses(),
 		comfortableRows:  m.comfortableRows,
 		layout:           normalizeLayout(m.layout),
+		sidebar:          normalizeSidebar(m.sidebar),
 		palette:          normalizePalette(m.palette),
 		glyphs:           normalizeGlyphs(m.glyphs),
 		archiveConfirm:   normalizeArchiveConfirm(m.archiveConfirm),
@@ -250,6 +251,9 @@ func (m *Model) persistSettings() {
 	if err := m.store.SetSetting(layoutSetting, normalizeLayout(m.settings.layout)); err != nil {
 		m.errBar.text = err.Error()
 	}
+	if err := m.store.SetSetting(sidebarSetting, sidebarOverride(m.settings.sidebar, m.cfg.Board.Sidebar)); err != nil {
+		m.errBar.text = err.Error()
+	}
 	if err := m.store.SetSetting(paletteSetting, normalizePalette(m.settings.palette)); err != nil {
 		m.errBar.text = err.Error()
 	}
@@ -288,6 +292,7 @@ func (m *Model) persistSettings() {
 	m.focusOnEnter = m.settings.enterFocuses
 	m.comfortableRows = m.settings.comfortableRows
 	m.layout = normalizeLayout(m.settings.layout)
+	m.sidebar = normalizeSidebar(m.settings.sidebar)
 	m.palette = normalizePalette(m.settings.palette)
 	m.glyphs = normalizeGlyphs(m.settings.glyphs)
 	applyGlyphSet(m.glyphs)
@@ -444,6 +449,13 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 			}
 		}
 		m.settings.layout = layoutModes[(index+step+len(layoutModes))%len(layoutModes)]
+	case settingsFieldSidebar:
+		// Applied as it is stepped, the way the palette is: the panel is
+		// drawn over the board, so the rail moving behind it is the
+		// preview. Only the side changes, not the widths, so the panes
+		// keep their size and tmux has nothing to be told.
+		m.settings.sidebar = cycleMode(sidebarSides, normalizeSidebar(m.settings.sidebar), step)
+		m.sidebar = m.settings.sidebar
 	case settingsFieldPalette:
 		index := 0
 		for i, mode := range paletteModes {

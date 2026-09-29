@@ -306,7 +306,7 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		if _, err := exec.LookPath("tmux"); err != nil {
 			t.Skip("ending a terminal ends a tmux pane")
 		}
-		socket := tmuxtest.NewSocket("endterm")
+		socket := tmuxtest.Socket(t, "endterm")
 		env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+shellTool)
 		home := envValue(env, "GATE_INBOX_HOME")
 		tmuxDir := envValue(env, "TMUX_TMPDIR")
@@ -372,7 +372,7 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		if _, err := exec.LookPath("tmux"); err != nil {
 			t.Skip("the board reads a tmux pane")
 		}
-		socket := tmuxtest.NewSocket("board")
+		socket := tmuxtest.Socket(t, "board")
 		env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n")
 		home := envValue(env, "GATE_INBOX_HOME")
 		tmuxDir := envValue(env, "TMUX_TMPDIR")
@@ -730,7 +730,7 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 		t.Skip("the board polls a tmux server")
 	}
 	bin := buildFixture(t)
-	socket := tmuxtest.NewSocket("lifecycle")
+	socket := tmuxtest.Socket(t, "lifecycle")
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+envEchoTool+shellTool+envDumpTool)
 	home := envValue(env, "GATE_INBOX_HOME")
 	logFile := filepath.Join(home, "board.log")
@@ -1109,7 +1109,7 @@ func TestExternalBuildRunsExtensionCommands(t *testing.T) {
 		if _, err := exec.LookPath("tmux"); err != nil {
 			t.Skip("the session services open a tmux driver")
 		}
-		env := fixtureHome(t, "tmux_socket = \""+tmuxtest.NewSocket("operator")+"\"\n")
+		env := fixtureHome(t, "tmux_socket = \""+tmuxtest.Socket(t, "operator")+"\"\n")
 		seedSessions(t, filepath.Join(envValue(env, "GATE_INBOX_HOME"), "state.db"))
 		operator := slices.DeleteFunc(slices.Clone(env), func(entry string) bool {
 			return strings.HasPrefix(entry, "GATE_INBOX_SESSION_ID=")
@@ -1131,7 +1131,7 @@ func TestExternalBuildRunsExtensionCommands(t *testing.T) {
 		if _, err := exec.LookPath("tmux"); err != nil {
 			t.Skip("the session services open a tmux driver")
 		}
-		env := fixtureHome(t, "tmux_socket = \""+tmuxtest.NewSocket("plan")+"\"\n"+envEchoTool)
+		env := fixtureHome(t, "tmux_socket = \""+tmuxtest.Socket(t, "plan")+"\"\n"+envEchoTool)
 		state := filepath.Join(envValue(env, "GATE_INBOX_HOME"), "state.db")
 		seedSessions(t, state)
 		out, code := run(t, append(env, "GATE_INBOX_SESSION_ID=ca11e400"), "noop-plan", "c41d0001")

@@ -30,8 +30,9 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `.` | Mark a finished session idle without entering it |
 | `ctrl+q` / `ctrl+\` | Inside a session: back to the manager when the terminal and tmux leave the key available |
 | tmux prefix, then `d` | Inside a full-screen attach: back to the manager when the prefix reaches the inner tmux |
-| `→` | Step into the row: focus the session, or open the group |
-| `←` / `→` | Step out: close the group, or — focused, with the caret at the end of the agent's prompt — back to the manager. This needs the tool's prompt marker (its `activity_cutoff`) on the caret's row, so a CLI without one keeps `→` entirely; anywhere else in the prompt it moves the caret as usual |
+| `←` (`→` with the list on the left) | Step into the row, toward the pane: open the session's work, then focus the session; on a group, open it |
+| `→` (`←` with the list on the left) | Step out, toward the list: fold the work, or close the group |
+| `→` (`←` with the list on the left) | Focused, with the caret at the end of the agent's prompt (its head, with the list on the left): back to the manager. This needs the tool's prompt marker (its `activity_cutoff`) on the caret's row, so a CLI without one keeps the arrow entirely; anywhere else in the prompt it moves the caret as usual |
 | `K` / `J` (or `shift+↑` / `shift+↓`) | Reorder session or group among its visible siblings |
 | `m` | Move a session to a group, a terminal into a session, or a group under another group |
 | `r` | Name a session: ask its agent to name itself (`/rename`, or the same request in prose). On an adopted pane, derive the name from its conversation. On a group, open the group card on it: name, parent and default path |
@@ -45,7 +46,7 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `U` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed kill as well as a silent one |
 | `space` | Quick prompt: answer the selected session, or spawn an agent in the selected group |
 | `F` | Fold / unfold every group |
-| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, colour, status marks, ask before killing, sort, key hints, on leaving a session, after quick send, session keys, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
+| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, ask before killing, sort, key hints, on leaving a session, after quick send, session keys, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
 | `\|` | Resize the split: `←→` nudge the divider, `enter` commits, `esc` cancels |
 | `\` | Hide / show the list beside the pane: the `board` layout under a key, and `alt+\` does it from inside a focused session. The layout you had comes back on the second press |
 | `t` | Toggle archived view. A row there counts down its retention: seven days after it was archived the manager deletes it for good, with its hook files, and the countdown is on the row |
@@ -388,6 +389,8 @@ The manager normally shares the frame with a preview of the selected session. Se
 The preview is not lost. Focusing a session still opens its pane, full width, and leaving it comes back to the board — the same one-panel frame a terminal too narrow for two columns already draws, asked for rather than measured. `board` is a choice about columns, not about a small screen, so unlike `mobile` it does not tighten the rail or cut the key hints.
 
 `\` is that setting under a key, for the times you want the width for a moment rather than for good: it puts the rail away and brings back the layout you were on, and `alt+\` does the same from inside a focused session, where the rail is the only thing between the pane and the whole terminal. A `WIDE` badge on the board names the key back. The setting is persisted either way, so a rail put away with the key is still away after a restart.
+
+The list sits on the right of the pane by default. Settings (`s`) has a `sidebar` row that moves it to the left, or back: the rail moves as you step the row, so the board behind the panel is the preview, and closing Settings keeps it. Only the side changes. The split keeps its size, because the stored ratio is the list's share whichever side it is on, so the agents' panes keep their width and nothing is redrawn inside them. The divider (`|`) drags the same way on either side, and the arrow that leaves a focused session is the one pointing at the list: `→` at the end of the prompt with it on the right, `←` at the head of the prompt with it on the left. The list's own arrows follow the same rule: stepping into a row, which opens its work and then focuses its pane, is the arrow pointing at the pane (`←` with the list on the right, `→` with it on the left), and folding is the other one. The footer and the key map (`h`) name whichever key works on the side you are on, and a key you rebind is taken as the key for the side the list is on. The divider's arrows move it the way they point on either side. To set the side in the config file instead, `[board] sidebar = "left"` in [config.toml](configuration.md); the Settings row outranks the file on the machine it was changed on, and picking the file's side there again hands the choice back to the file.
 
 ## Key hints
 

@@ -39,6 +39,13 @@ poll_interval = "2s"
 # [children]
 # auto_archive_after = "30m"
 
+# The board's layout. sidebar is the side of the frame the sessions list sits
+# on, "right" or "left"; the session's pane takes the other side. Settings
+# can pick the other side on one machine, and picking this value there again
+# goes back to following this file.
+# [board]
+# sidebar = "right"
+
 # The pull requests and tickets sessions are on. One that is over -- merged,
 # closed, completed, cancelled -- stays on the board this long after you first
 # see it that way, then leaves the rail and the counts for good.

@@ -64,7 +64,7 @@ func windowFixture(t *testing.T, session string, windows int, dir string) string
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
-	socket := newTestSocket()
+	socket := newTestSocket(t)
 	t.Cleanup(func() { killFixtureServer(t, socket) })
 
 	newSession := tmuxOnSocket(socket, "new-session", "-d", "-s", session, "-c", dir, fixtureAgent)

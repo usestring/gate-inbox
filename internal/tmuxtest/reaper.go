@@ -79,6 +79,20 @@ func NewSocket(family string) string {
 	return socketPrefix + family + "-" + uuid.NewString()[:8]
 }
 
+// Socket is NewSocket for one test: the server on it is killed when the test
+// ends, pass or fail, so a failing test no longer leaves its server running
+// until the package's teardown -- or, if that never runs, indefinitely. Only
+// that socket's server is killed; KillServer refuses any other.
+func Socket(tb testing.TB, family string) string {
+	tb.Helper()
+	socket := NewSocket(family)
+	tb.Cleanup(func() {
+		KillServer(socket)
+		ReapSocket(socket)
+	})
+	return socket
+}
+
 // Owns reports whether a tmux socket name is one this module's own tests
 // created, and is the only thing standing between the reaper and the
 // operator's live work.
@@ -278,8 +292,63 @@ func ReapStrays() int {
 		}
 		killed += kill(clients)
 	}
+	killed += reapOrphanedRuns()
 	sweepDeadSocketFiles()
 	return killed
+}
+
+// reapOrphanedRuns ends what a dead run left in its private directory. A run
+// that times out or is killed skips its cleanups and TestMain's teardown, and
+// its servers still answer on their sockets, so the liveness check above
+// leaves them running indefinitely: 32 were found on one host, some three
+// days old.
+//
+// A directory qualifies only if its name is one isolate creates and nobody
+// holds the lock on its owner file. One without an owner file is left alone:
+// the safe failure is to collect nothing.
+func reapOrphanedRuns() int {
+	dirs, err := filepath.Glob(filepath.Join(tempRoot(), "gitmux-*"))
+	if err != nil {
+		return 0
+	}
+	killed := 0
+	for _, dir := range dirs {
+		if dir == privateDir || !ownerDead(dir) {
+			continue
+		}
+		sockets := filepath.Join(dir, fmt.Sprintf("tmux-%d", os.Getuid()))
+		if entries, err := os.ReadDir(sockets); err == nil {
+			for _, entry := range entries {
+				if Owns(entry.Name()) {
+					_ = exec.Command("tmux", "-S", filepath.Join(sockets, entry.Name()), "kill-server").Run()
+				}
+			}
+		}
+		var orphans []Client
+		for _, c := range Clients() {
+			if path, ok := clientSocketPath(c); ok && strings.HasPrefix(path, dir+string(filepath.Separator)) {
+				orphans = append(orphans, c)
+			}
+		}
+		killed += kill(orphans)
+		_ = os.RemoveAll(dir)
+	}
+	return killed
+}
+
+// ownerDead reports whether the run that created a private directory has
+// exited: its owner file exists and nobody holds the lock on it.
+func ownerDead(dir string) bool {
+	f, err := os.Open(filepath.Join(dir, ownerFile))
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	if syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
+		return false
+	}
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return true
 }
 
 // clientSocketPath is the socket a client's -L name resolved to, from the

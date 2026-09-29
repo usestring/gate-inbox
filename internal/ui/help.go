@@ -291,8 +291,8 @@ func (m *Model) resolvedHelp() []resolvedSection {
 				continue
 			}
 			rows = append(rows, resolvedRow{
-				key:        keymap.Display(m.km().Key(row.ctx, row.action)),
-				text:       row.text,
+				key:        keymap.Display(m.sideKey(row.ctx, row.action, m.km().Key(row.ctx, row.action))),
+				text:       m.sideHelpText(row.ctx, row.action, row.text),
 				ctx:        row.ctx,
 				action:     row.action,
 				rebindable: true,
@@ -567,7 +567,10 @@ func (m *Model) captureRebind(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	key := keyName(msg)
-	if notes := m.rebind(row.ctx, row.action, []string{key}); len(notes) > 0 {
+	// A side-following binding is stored as the right-hand rail reads it, so
+	// a key pressed with the rail on the left is mirrored back before it is
+	// written.
+	if notes := m.rebind(row.ctx, row.action, []string{m.sideKey(row.ctx, row.action, key)}); len(notes) > 0 {
 		m.help.notes = notes
 		return m, nil
 	}

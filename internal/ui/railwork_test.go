@@ -144,7 +144,7 @@ func TestSessionWithNoWorkIsNotExpandable(t *testing.T) {
 func TestUnfoldingASessionListsItsWork(t *testing.T) {
 	m := railWorkModel(t)
 	m.selectSessionRow(t, "add-rate-limiting")
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
 	*m = *updated.(*Model)
 
 	indexes := m.artifactRowIndexes()
@@ -172,10 +172,10 @@ func TestUnfoldingASessionListsItsWork(t *testing.T) {
 		}
 	}
 
-	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
 	*m = *updated.(*Model)
 	if got := m.artifactRowIndexes(); len(got) != 0 {
-		t.Fatalf("left did not fold the work: %v", got)
+		t.Fatalf("right did not fold the work: %v", got)
 	}
 }
 
@@ -184,7 +184,7 @@ func TestUnfoldingASessionListsItsWork(t *testing.T) {
 func TestRebuildKeepsTheCursorOnAnArtifact(t *testing.T) {
 	m := railWorkModel(t)
 	m.selectSessionRow(t, "add-rate-limiting")
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
 	*m = *updated.(*Model)
 	m.cursor = m.artifactRowIndexes()[1]
 	key := rowKey(m.rows[m.cursor])
@@ -200,11 +200,11 @@ func TestRebuildKeepsTheCursorOnAnArtifact(t *testing.T) {
 func TestFoldingFromAnArtifactLandsOnItsSession(t *testing.T) {
 	m := railWorkModel(t)
 	m.selectSessionRow(t, "add-rate-limiting")
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
 	*m = *updated.(*Model)
 	m.cursor = m.artifactRowIndexes()[1]
 
-	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
 	*m = *updated.(*Model)
 	row, ok := m.cursorRow()
 	if !ok || !row.isSession() || row.sess.ID != "add-rate-limiting" {
@@ -217,7 +217,7 @@ func TestFoldingFromAnArtifactLandsOnItsSession(t *testing.T) {
 func TestFoldAllReachesSessionWork(t *testing.T) {
 	m := railWorkModel(t)
 	m.selectSessionRow(t, "add-rate-limiting")
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
 	*m = *updated.(*Model)
 	m.cursor = m.artifactRowIndexes()[0]
 
@@ -238,7 +238,7 @@ func TestFoldAllReachesSessionWork(t *testing.T) {
 func TestArtifactRowOpensItsLink(t *testing.T) {
 	m := railWorkModel(t)
 	m.selectSessionRow(t, "add-rate-limiting")
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
 	*m = *updated.(*Model)
 
 	opened := make(chan string, 4)
@@ -482,6 +482,9 @@ func railRawLine(t *testing.T, m *Model, width int, name string) string {
 // as it already is on the work card.
 func TestAnUnfoldedRailRowLinksItsPullRequestAndTicket(t *testing.T) {
 	m := railWorkModel(t)
+	// The row's summary is its title, so the only line naming #838 is the
+	// pull request's own.
+	m.titles = map[string]string{"add-rate-limiting": "Rate limit the public API"}
 	m.setWorkFolded("add-rate-limiting", false)
 	m.rebuildRows()
 

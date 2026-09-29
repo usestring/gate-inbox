@@ -146,6 +146,38 @@ func TestTriageDrainHoldsTheRowStillWhileTheOperatorAnswersIt(t *testing.T) {
 	}
 }
 
+func TestTriageFinishedPromptArrowHandsOverToNextFinished(t *testing.T) {
+	for _, arrow := range []struct {
+		name string
+		code rune
+	}{
+		{"left", tea.KeyLeft},
+		{"right", tea.KeyRight},
+	} {
+		t.Run(arrow.name, func(t *testing.T) {
+			m := buildModel(t)
+			liveTriageFleet(t, m, map[string]string{
+				"first":  status.Finished,
+				"second": status.Finished,
+			})
+			m.triage = true
+			m.rebuildRows()
+			m.enterFocusOn(t, "first")
+			m.engine = liveEngine(t)
+			m.preview = "❯\u00a0\n"
+			m.pane.forID = focusedID(t, m)
+			m.pane.cursor = paneCursor{x: 2, y: 0, ok: true}
+
+			updated, cmd := m.handleFocusKey(tea.KeyPressMsg{Code: arrow.code})
+			m = updated.(*Model)
+			runStoreCmd(t, cmd)
+			if m.mode != modeFocus || focusedName(t, m) != "second" {
+				t.Fatalf("%s from finished focused %q in mode %v, want second", arrow.name, focusedName(t, m), m.mode)
+			}
+		})
+	}
+}
+
 // Leaving the drain rather than walking it is the same promise: the session
 // the operator sat in is dealt with, and the one they never reached is not.
 func TestTriageDrainLeavingSpendsOnlyTheSessionEntered(t *testing.T) {

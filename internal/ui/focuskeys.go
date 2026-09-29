@@ -251,10 +251,9 @@ func (m *Model) composerAboveIsBlank(tool string, rows []string, y int) bool {
 }
 
 // railOnRight reports which side of the frame the sessions rail sits on. The
-// arrow that leaves focus is the one pointing at it: with the rail on the
-// right, Right at the prompt's end steps out to the list while Left stays
-// the pane's, and the other way round with it on the left. The side is the
-// sidebar setting (see sidebar.go).
+// arrow pointing at it steps out to the list at the prompt's edge, except
+// when a finished session is being triaged. The side is the sidebar setting
+// (see sidebar.go).
 func (m *Model) railOnRight() bool { return !m.railOnLeft() }
 
 // caretAtInputEnd reports whether the agent's caret sits at the end of its
@@ -366,7 +365,7 @@ func (m *Model) selectionDialogUp(sessID, tool string) bool {
 	return matched && state == status.Waiting
 }
 
-// leftLeavesFocus reports whether Left means "back to the list" rather than a
+// leftLeavesFocus reports whether Left may leave focus rather than becoming a
 // keystroke the pane wanted: at the head of a prompt, and on a dialog that
 // does nothing with the horizontal arrows.
 //
@@ -403,10 +402,9 @@ func (m *Model) leftLeavesFocus(sessID, tool string) bool {
 	return !m.engine.DialogOwnsArrows(tool, strings.Join(m.paneTextLines(), "\n"))
 }
 
-// rightLeavesFocus reports whether Right means "back to the list" rather
-// than a keystroke the pane wanted: at the end of a prompt, and on a dialog
-// that does nothing with the horizontal arrows. It is leftLeavesFocus
-// mirrored for the rail's side of the frame (see railOnRight).
+// rightLeavesFocus reports whether Right may leave focus rather than becoming
+// a keystroke the pane wanted: at the end of a prompt, and on a dialog that
+// does nothing with the horizontal arrows. It mirrors leftLeavesFocus.
 //
 // A dialog with a question stepper answers that question itself: Right is
 // the next question there, so it leaves only on the last entry, where the
@@ -667,16 +665,25 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	key := msg.Key()
-	// The exit arrow is the one pointing at the rail: Right while it sits on
-	// the right, Left while the sidebar setting has it on the left (sideAction
-	// reads the binding through the mirror). The spare key leaves; anywhere
-	// else the arrow still reaches the agent.
+	// The arrow pointing at the rail leaves at its prompt edge. When a
+	// session is finished in triage, either spare edge arrow hands it over
+	// so the drain continues, independent of the sidebar's side.
 	if bound && action == keymap.BackAtPrompt && key.Mod == 0 {
-		if key.Code == tea.KeyRight && m.railOnRight() && m.rightLeavesFocus(sess.ID, sess.Tool) {
-			return m, m.leaveFocus()
+		if key.Code == tea.KeyRight && m.rightLeavesFocus(sess.ID, sess.Tool) {
+			if m.triage && sess.Status == status.Finished {
+				return m, m.handOverFocused(sess)
+			}
+			if m.railOnRight() {
+				return m, m.leaveFocus()
+			}
 		}
-		if key.Code == tea.KeyLeft && !m.railOnRight() && m.leftLeavesFocus(sess.ID, sess.Tool) {
-			return m, m.leaveFocus()
+		if key.Code == tea.KeyLeft && m.leftLeavesFocus(sess.ID, sess.Tool) {
+			if m.triage && sess.Status == status.Finished {
+				return m, m.handOverFocused(sess)
+			}
+			if !m.railOnRight() {
+				return m, m.leaveFocus()
+			}
 		}
 	}
 	// Whether a dialog is up for this key to answer, read before anything

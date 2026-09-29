@@ -28,9 +28,6 @@ func twinSessions(t *testing.T) *Model {
 	// wears no badge. The badge is what this file is about, so the cursor
 	// parks on the row that has none.
 	m.selectSessionRow(t, "no-work-here")
-	// A title that only restates the name draws no summary, which keeps the
-	// badge the last thing on the row.
-	m.titles = map[string]string{"has-work-here": "Has work here"}
 	m.rebuildRows()
 	return m
 }

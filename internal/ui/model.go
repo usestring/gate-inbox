@@ -302,13 +302,8 @@ type Model struct {
 	// adoptRestored marks the one-time re-registration of adopted panes after
 	// the first session load.
 	adoptRestored bool
-	// adoptFirstDone is set once the first adopt scan has answered, and
-	// adoptFirstIDs holds the rows it created: the reopen card asks about
-	// panes, so it waits until the board shows the ones found at start.
-	// adoptSettleWaits bounds that wait.
-	adoptFirstDone   bool
-	adoptFirstIDs    []string
-	adoptSettleWaits int
+	// adoptFirstDone is set once the first adopt scan has answered.
+	adoptFirstDone bool
 	// nameAfterRefresh asks the next sweep to run a naming pass, for rows an
 	// adopt scan has just created and the board has not seen yet.
 	nameAfterRefresh bool
@@ -2030,9 +2025,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// so it is the earliest point a dead row means a missing pane rather
 		// than a row the poller has not reached yet.
 		m.maybeOpenRestorePrompt()
-		// A busy pane the operator agreed to take over is taken on the pass
-		// that first sees it idle. Quiet unless something moved: the count
-		// still owed was said when the answer was given.
+		// An adopted pane is taken over on the pass that first sees it idle.
+		// Quiet unless something moved, so a busy pane waiting its turn does
+		// not repeat itself on every pass.
 		if result := m.takeoverPass(); result.taken > 0 || len(result.failed) > 0 {
 			m.reportTakeover(result)
 		}

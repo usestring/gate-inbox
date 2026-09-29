@@ -436,6 +436,7 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldBackdrop, "terminal background", backdrop) + "\n" +
 		row(settingsFieldDensity, "list density", density) + "\n" +
 		row(settingsFieldLayout, "layout", normalizeLayout(m.settings.layout)) + "\n" +
+		row(settingsFieldSidebar, "sidebar", normalizeSidebar(m.settings.sidebar)) + "\n" +
 		row(settingsFieldPalette, "colour", normalizePalette(m.settings.palette)) + "\n" +
 		row(settingsFieldGlyphs, "status marks", normalizeGlyphs(m.settings.glyphs)+"  "+statusGlyph("waiting")+statusGlyph("finished")+statusGlyph("errored")) + "\n" +
 		row(settingsFieldArchiveConfirm, "ask before killing", normalizeArchiveConfirm(m.settings.archiveConfirm)) + "\n" +

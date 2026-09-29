@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -147,15 +148,19 @@ func TestTriageDrainHoldsTheRowStillWhileTheOperatorAnswersIt(t *testing.T) {
 }
 
 func TestTriageFinishedPromptArrowHandsOverToNextFinished(t *testing.T) {
-	for _, arrow := range []struct {
+	for _, tc := range []struct {
 		name string
+		side string
 		code rune
 	}{
-		{"left", tea.KeyLeft},
-		{"right", tea.KeyRight},
+		{"right sidebar, left arrow", config.SidebarRight, tea.KeyLeft},
+		{"right sidebar, right arrow", config.SidebarRight, tea.KeyRight},
+		{"left sidebar, left arrow", config.SidebarLeft, tea.KeyLeft},
+		{"left sidebar, right arrow", config.SidebarLeft, tea.KeyRight},
 	} {
-		t.Run(arrow.name, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			m := buildModel(t)
+			m.sidebar = tc.side
 			liveTriageFleet(t, m, map[string]string{
 				"first":  status.Finished,
 				"second": status.Finished,
@@ -168,11 +173,11 @@ func TestTriageFinishedPromptArrowHandsOverToNextFinished(t *testing.T) {
 			m.pane.forID = focusedID(t, m)
 			m.pane.cursor = paneCursor{x: 2, y: 0, ok: true}
 
-			updated, cmd := m.handleFocusKey(tea.KeyPressMsg{Code: arrow.code})
+			updated, cmd := m.handleFocusKey(tea.KeyPressMsg{Code: tc.code})
 			m = updated.(*Model)
 			runStoreCmd(t, cmd)
 			if m.mode != modeFocus || focusedName(t, m) != "second" {
-				t.Fatalf("%s from finished focused %q in mode %v, want second", arrow.name, focusedName(t, m), m.mode)
+				t.Fatalf("%s from finished focused %q in mode %v, want second", tc.name, focusedName(t, m), m.mode)
 			}
 		})
 	}

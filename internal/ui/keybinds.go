@@ -106,7 +106,7 @@ func (m *Model) isAction(ctx keymap.Context, want keymap.Action, msg tea.KeyMsg)
 // operator has unbound it, which a legend must leave out rather than print
 // as an empty cap.
 func (m *Model) cap(ctx keymap.Context, action keymap.Action) string {
-	return m.km().Cap(ctx, action)
+	return keymap.Display(m.sideKey(ctx, action, m.km().Key(ctx, action)))
 }
 
 // rebind moves an action onto keys and writes the file. The map is replaced
@@ -155,7 +155,7 @@ func (m *Model) saveKeys() []string {
 // "ctrl+q / ctrl+\" is a sentence. The list footer compacts instead,
 // because there it is one key among twenty letters.
 func (m *Model) fullCap(ctx keymap.Context, action keymap.Action) string {
-	return m.km().Cap(ctx, action)
+	return m.cap(ctx, action)
 }
 
 // capJoinFull is capJoin in the spelled-out spelling.
@@ -174,7 +174,7 @@ func (m *Model) capJoinFull(ctx keymap.Context, sep string, actions ...keymap.Ac
 // preview box sits under, and a second row there resizes every session's
 // pane. The key map has room to spell chords out and does.
 func (m *Model) tightCap(ctx keymap.Context, action keymap.Action) string {
-	return keymap.Compact(m.km().Key(ctx, action))
+	return keymap.Compact(m.sideKey(ctx, action, m.km().Key(ctx, action)))
 }
 
 // capJoin renders several actions as one legend cap: "x/X" for end and end

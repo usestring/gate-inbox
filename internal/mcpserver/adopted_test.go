@@ -23,7 +23,7 @@ func TestSessionToolsReachAnAdoptedPaneWithNoBoard(t *testing.T) {
 		t.Skip("tmux not installed")
 	}
 	configDir := tmuxtest.ScratchDir(t)
-	socket := tmuxtest.NewSocket("mcpadopt")
+	socket := tmuxtest.Socket(t, "mcpadopt")
 	t.Setenv(tmux.SocketEnv, socket)
 	t.Cleanup(func() {
 		tmuxtest.KillServer(socket)

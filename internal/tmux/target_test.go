@@ -48,7 +48,7 @@ func foreignServer(t *testing.T) (string, []string) {
 	// failure with nothing to do with whatever change was under test. Nothing
 	// accumulates from the fresh names: the cleanup kills the server, and
 	// tmuxtest sweeps whatever a panicking run leaves.
-	socket := tmuxtest.NewSocket("foreign")
+	socket := tmuxtest.Socket(t, "foreign")
 	if out, err := tmuxOn(socket, "new-session", "-d", "-s", "user", "-c", "/", "-x", "80", "-y", "24", "cat").CombinedOutput(); err != nil {
 		t.Fatalf("foreign new-session: %v: %s", err, out)
 	}
@@ -456,7 +456,7 @@ func TestPanesCoversAdoptedSessionsWithNoServerOfOurOwn(t *testing.T) {
 
 	// A socket no server was ever started on: exactly what the manager has
 	// before it launches anything itself.
-	driver, err := NewWithSocket(tmuxtest.NewSocket("empty"))
+	driver, err := NewWithSocket(tmuxtest.Socket(t, "empty"))
 	if err != nil {
 		t.Fatalf("NewWithSocket: %v", err)
 	}

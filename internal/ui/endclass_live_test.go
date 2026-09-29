@@ -18,7 +18,7 @@ import (
 // its own, then takes that server away the way a reboot does, and reads each
 // verdict from the evidence the launch script and the server actually leave.
 func TestEndsAreClassifiedFromWhatARealPaneLeavesBehind(t *testing.T) {
-	socket := newTestSocket()
+	socket := newTestSocket(t)
 	t.Cleanup(func() { tmuxtest.KillServer(socket) })
 	driver, err := tmux.NewWithSocket(socket)
 	if err != nil {

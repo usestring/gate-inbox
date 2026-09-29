@@ -27,7 +27,11 @@ inside a tmux pane (the `env -u TMUX` above is a courtesy, not the safeguard):
 - Every test package that starts a process has a `TestMain` that calls `tmuxtest.Main`, `Run` or
   `Guard` from `internal/tmuxtest`. Importing that package unsets `TMUX` and `TMUX_PANE` and points
   `TMUX_TMPDIR` at a fresh directory for the run; the teardown kills every server in that directory
-  by `-S` path and removes it.
+  by `-S` path and removes it. It also puts a `tmux` shim first on `PATH` that adds `-f /dev/null`,
+  so no test server loads your `~/.tmux.conf` or its plugins, and the next run reaps the servers of
+  a run that was killed or timed out before its teardown.
+- A test that starts its own server takes its socket from `tmuxtest.Socket(t, family)`, which kills
+  that server when the test ends, pass or fail.
 - A child process gets `tmuxtest.Environ()` (or `tmuxtest.ScrubEnv(env)`), never `os.Environ()`.
 - A raw `tmux` command in a test names its server with `-L` or `-S`, or goes through `tmuxOn`,
   `tmuxOnSocket`, `tmuxCmd` or `tmuxtest.KillServer`. Never write a bare `tmux kill-server` or

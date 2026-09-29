@@ -250,6 +250,12 @@ func (m *Model) composerAboveIsBlank(tool string, rows []string, y int) bool {
 	return true
 }
 
+// railOnRight reports which side of the frame the sessions rail sits on. The
+// arrow pointing at it steps out to the list at the prompt's edge, except
+// when a finished session is being triaged. The side is the sidebar setting
+// (see sidebar.go).
+func (m *Model) railOnRight() bool { return !m.railOnLeft() }
+
 // caretAtInputEnd reports whether the agent's caret sits at the end of its
 // prompt, with nothing typed past it. Right is a no-op for the agent there,
 // which is what frees the key to mean "back to the list" without ever
@@ -572,7 +578,7 @@ func (m *Model) releaseHeldAck() tea.Cmd {
 // down a pipe the manager already holds. TestFocusedKeystrokeLatencyBreakdown
 // is the measurement.
 func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	action, bound := m.action(keymap.ContextFocus, msg)
+	action, bound := m.sideAction(keymap.ContextFocus, msg)
 	if bound && (action == keymap.Leave || action == keymap.LeaveHard || action == keymap.HandOver) {
 		leftID := ""
 		sess, onRow := m.selected()
@@ -659,19 +665,25 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	key := msg.Key()
-	// An arrow is spare only at the edge of the prompt or in a dialog that
-	// does not use it. Left stays with the pane outside a finished triage
-	// session; leaving one this way continues the drain.
+	// The arrow pointing at the rail leaves at its prompt edge. When a
+	// session is finished in triage, either spare edge arrow hands it over
+	// so the drain continues, independent of the sidebar's side.
 	if bound && action == keymap.BackAtPrompt && key.Mod == 0 {
 		if key.Code == tea.KeyRight && m.rightLeavesFocus(sess.ID, sess.Tool) {
 			if m.triage && sess.Status == status.Finished {
 				return m, m.handOverFocused(sess)
 			}
-			return m, m.leaveFocus()
+			if m.railOnRight() {
+				return m, m.leaveFocus()
+			}
 		}
-		if key.Code == tea.KeyLeft && m.triage && sess.Status == status.Finished &&
-			m.leftLeavesFocus(sess.ID, sess.Tool) {
-			return m, m.handOverFocused(sess)
+		if key.Code == tea.KeyLeft && m.leftLeavesFocus(sess.ID, sess.Tool) {
+			if m.triage && sess.Status == status.Finished {
+				return m, m.handOverFocused(sess)
+			}
+			if !m.railOnRight() {
+				return m, m.leaveFocus()
+			}
 		}
 	}
 	// Whether a dialog is up for this key to answer, read before anything

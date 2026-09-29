@@ -36,7 +36,7 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 		t.Skip("the board polls a tmux server")
 	}
 	bin := buildFixture(t)
-	socket := tmuxtest.NewSocket("ui")
+	socket := tmuxtest.Socket(t, "ui")
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n")
 	home := envValue(env, "GATE_INBOX_HOME")
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })
@@ -283,7 +283,7 @@ func TestExternalBuildConfirmsBeforeOpening(t *testing.T) {
 		t.Skip("the board focuses a tmux pane")
 	}
 	bin := buildFixture(t)
-	socket := tmuxtest.NewSocket("open")
+	socket := tmuxtest.Socket(t, "open")
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n\n[extensions.noop]\nconfirm = [\"0be0a001\"]\n")
 	home := envValue(env, "GATE_INBOX_HOME")
 	tmuxDir := envValue(env, "TMUX_TMPDIR")
@@ -416,7 +416,7 @@ func TestExternalBuildCarriesOldNamesOverToAnExtension(t *testing.T) {
 		t.Skip("the board polls a tmux server")
 	}
 	bin := buildFixture(t)
-	socket := tmuxtest.NewSocket("alias")
+	socket := tmuxtest.Socket(t, "alias")
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n")
 	home := envValue(env, "GATE_INBOX_HOME")
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })

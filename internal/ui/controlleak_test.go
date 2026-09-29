@@ -127,7 +127,7 @@ func adoptedBoard(t testing.TB, panes int) (*Model, string) {
 		t.Skip("tmux not installed")
 	}
 	m := buildModel(t)
-	socket := tmuxtest.NewSocket("uiforeign")
+	socket := tmuxtest.Socket(t, "uiforeign")
 	tmuxOnSocket(socket, "kill-server").Run()
 	if out, err := tmuxOnSocket(socket, "new-session", "-d", "-s", "user",
 		"-c", "/tmp", "-x", "80", "-y", "24", "cat").CombinedOutput(); err != nil {

@@ -36,7 +36,7 @@ func TestBoardStartAbortsAHoldAKilledBoardLeft(t *testing.T) {
 		t.Skip("the board polls a tmux server")
 	}
 	bin := buildFixture(t)
-	socket := tmuxtest.NewSocket("orphan")
+	socket := tmuxtest.Socket(t, "orphan")
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+sleeperTool)
 	home := envValue(env, "GATE_INBOX_HOME")
 	socketPath := filepath.Join(envValue(env, "TMUX_TMPDIR"), "tmux-"+strconv.Itoa(os.Getuid()), socket)

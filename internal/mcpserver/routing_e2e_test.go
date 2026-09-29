@@ -11,11 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/accounts/accountstest"
 	"github.com/usestring/gate-inbox/internal/config"
@@ -32,25 +30,18 @@ type routingTransport func(*http.Request) (*http.Response, error)
 
 func (f routingTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func TestSmartRoutingLaunchAndHTTPExportEndToEnd(t *testing.T) {
+func TestChosenAccountLaunchAndHTTPExportEndToEnd(t *testing.T) {
 	if testing.Short() {
 		t.Skip("exercises the real one-minute usage monitor")
 	}
 	h := newRoutingHarness(t)
 	parentClient := connect(t, h.configDir, h.caller.ID)
-	for key, value := range map[string]string{store.DefaultAccountSetting: "WRONG_LEGACY_OWNER", store.AccountRoutingSetting: "smart"} {
+	for key, value := range map[string]string{store.DefaultAccountSetting: "WRONG_LEGACY_OWNER", store.AccountRoutingSetting: accounts.Extension} {
 		if err := h.store.SetSetting(key, value); err != nil {
 			t.Fatal(err)
 		}
 	}
-	var exhausted atomic.Bool
-	h.pool.UsageOf = func(account string) (extension.AccountUsage, error) {
-		used := 10.0
-		if account == "OWNER" && exhausted.Load() {
-			used = 100
-		}
-		return accountstest.Quota(time.Now(), used, time.Hour), nil
-	}
+	h.chooser.Account = "ALICE1"
 	payloads := make(chan []byte, 32)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -94,28 +85,20 @@ func TestSmartRoutingLaunchAndHTTPExportEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer tracer.Close()
-	var lastSession, borrowedChild string
-	for i, want := range []string{"OWNER", "ALICE1", "POOL2", "OWNER", ""} {
-		if i == 1 {
-			exhausted.Store(true)
-			if err := h.store.SetSetting("account_usage:v2:CLAUDE_OAUTH_TOKEN_{account}:OWNER", ""); err != nil {
-				t.Fatal(err)
-			}
-		}
-		client := parentClient
+	var lastSession string
+	// The chooser's pick, an explicitly named account, and own login once
+	// the operator stops the extension choosing.
+	for i, want := range []string{"ALICE1", "OWNER", ""} {
 		args := map[string]any{"tool": "claude", "name": "routing-fixture", "prompt": "fixture-private-prompt"}
-		if i == 2 {
-			client = connect(t, h.configDir, borrowedChild)
-		}
-		if i == 3 {
+		if i == 1 {
 			args["account"] = "OWNER"
 		}
-		if i == 4 {
-			if err := h.store.SetSetting(store.AccountRoutingSetting, "own"); err != nil {
+		if i == 2 {
+			if err := h.store.SetSetting(store.AccountRoutingSetting, accounts.Own); err != nil {
 				t.Fatal(err)
 			}
 		}
-		result := callTool(t, client, "create_session", args)
+		result := callTool(t, parentClient, "create_session", args)
 		if result.IsError {
 			data, _ := json.Marshal(result.Content)
 			t.Fatalf("MCP create_session failed: %s", data)
@@ -131,13 +114,10 @@ func TestSmartRoutingLaunchAndHTTPExportEndToEnd(t *testing.T) {
 		if created.ParentID != h.caller.ID {
 			t.Fatalf("child lost parent: %+v", created)
 		}
-		if i == 1 {
-			borrowedChild = created.ID
-		}
 		if created.Account != want {
 			t.Fatalf("launch %d account = %q, want %q", i, created.Account, want)
 		}
-		if i == 2 {
+		if i == 0 {
 			lastSession = created.ID
 		}
 		output := "test-token-CLAUDE_OAUTH_TOKEN_" + want
@@ -145,13 +125,9 @@ func TestSmartRoutingLaunchAndHTTPExportEndToEnd(t *testing.T) {
 			output = "fixture-local-login"
 		}
 		waitForRoutingOutput(t, h.sessions, h.caller.ID, created.ID, output)
-		borrower, err := h.store.Setting("account_borrower:" + created.ID)
-		if err != nil || borrower != "OWNER" {
-			t.Fatalf("borrower = %q, err = %v", borrower, err)
-		}
 	}
-	if reads := h.pool.Reads(); reads != 4 {
-		t.Errorf("quota reads = %d, want one per account plus the invalidated owner", reads)
+	if asked := len(h.chooser.Requests()); asked != 1 {
+		t.Errorf("chooser asked %d times, want only for the launch that named no account in the extension mode", asked)
 	}
 	t.Setenv("HOME", t.TempDir())
 	row, err := h.store.Get(lastSession)
@@ -235,7 +211,7 @@ func TestSmartRoutingLaunchAndHTTPExportEndToEnd(t *testing.T) {
 							}
 						}
 						for key, want := range map[string]any{
-							"session": lastSession, "model": "claude-fixture", "account.borrower": "OWNER", "account.lender": "POOL2",
+							"session": lastSession, "model": "claude-fixture", "account.name": "ALICE1",
 							"usage.context_tokens": "5500", "usage.input_tokens": "500", "usage.output_tokens": "75",
 							"usage.cache_read_input_tokens": "4000", "usage.cache_creation_input_tokens": "1000",
 						} {
@@ -248,19 +224,16 @@ func TestSmartRoutingLaunchAndHTTPExportEndToEnd(t *testing.T) {
 			}
 		}
 	}
-	for name, want := range map[string]int{"account.selection": 5, "account.launch": 4, "account.context": 1} {
+	for name, want := range map[string]int{"account.selection": 1, "account.launch": 2, "account.context": 1} {
 		if counts[name] != want {
 			t.Errorf("received %d %s spans, want %d", counts[name], name, want)
 		}
-	}
-	if counts["account.usage"] < 8 {
-		t.Errorf("received %d quota-window spans, want at least 8", counts["account.usage"])
 	}
 }
 
 type routingHarness struct {
 	configDir string
-	pool      *accountstest.Pool
+	chooser   *accountstest.Chooser
 	driver    *tmux.Driver
 	store     *store.Store
 	sessions  *sessioncmd.Sessions
@@ -272,13 +245,13 @@ func newRoutingHarness(t *testing.T) *routingHarness {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
-	pool := accountstest.LoggedInAs("owner")
-	t.Cleanup(accounts.UsePool(pool.Resolve))
+	chooser := &accountstest.Chooser{}
+	t.Cleanup(accounts.UseChooser(chooser.Resolve))
 	configDir := tmuxtest.ScratchDir(t)
 	t.Setenv(config.HomeEnv, configDir)
 	socket := tmuxtest.Socket(t, "routing")
 	t.Setenv(tmux.SocketEnv, socket)
-	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "fixture-parent-borrowed-token")
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "fixture-parent-named-token")
 	text := `[tools.claude]
 command = "sh -c 'if [ -n \"$CLAUDE_CODE_OAUTH_TOKEN\" ]; then printenv CLAUDE_CODE_OAUTH_TOKEN; else echo fixture-local-login; fi'; echo"
 default_status = "idle"
@@ -314,7 +287,7 @@ accounts_command = "printf 'CLAUDE_OAUTH_TOKEN_OWNER\\nCLAUDE_OAUTH_TOKEN_ALICE1
 		tmuxtest.ReapSocket(socket)
 		st.Close()
 	})
-	return &routingHarness{configDir: configDir, pool: pool, driver: driver, store: st, caller: caller, sessions: sessioncmd.NewSessions(configDir, sessioncmd.MCPVocabulary())}
+	return &routingHarness{configDir: configDir, chooser: chooser, driver: driver, store: st, caller: caller, sessions: sessioncmd.NewSessions(configDir, sessioncmd.MCPVocabulary())}
 }
 
 func waitForRoutingOutput(t *testing.T, sessions *sessioncmd.Sessions, caller, child, want string) {

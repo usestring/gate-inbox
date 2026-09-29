@@ -166,6 +166,8 @@ type poller struct {
 	// pins holds the statuses board extensions pinned the sessions they
 	// supervise at; nil holds none.
 	pins StatusPins
+	// deadlines is the extensions' queue deadlines; nil sets none.
+	deadlines QueueDeadlines
 }
 
 // BoardObserver is told what the poll pass observes: each status change
@@ -184,6 +186,13 @@ type BoardObserver interface {
 // asked on the poll loop with runMu held, so it must answer from memory.
 type StatusPins interface {
 	PinnedStatus(id string) (string, bool)
+}
+
+// QueueDeadlines is when board extensions say each session's place in the
+// operator's queue gets dearer, for triage to break ties on. Asked on the
+// poll loop, so it must answer from memory.
+type QueueDeadlines interface {
+	QueueDeadlines() map[string]time.Time
 }
 
 type transition struct{ id, from, to string }
@@ -1092,6 +1101,9 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 		hookless:         p.hooklessRows(),
 		stale:            p.staleRows(),
 		unseen:           unseen,
+	}
+	if p.deadlines != nil {
+		msg.queueDeadlines = p.deadlines.QueueDeadlines()
 	}
 	if sampleStats {
 		msg.snap = sysstat.Sample("/")

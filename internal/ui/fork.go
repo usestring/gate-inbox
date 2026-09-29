@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/agentsession"
 	"github.com/usestring/gate-inbox/internal/config"
@@ -96,7 +97,7 @@ func (m *Model) submitFork() (tea.Model, tea.Cmd) {
 	}
 
 	managerID := newID()
-	account, err := accounts.Select(m.store, tool, source.Account, managerID)
+	account, err := accounts.Select(m.store, tool, source.Account, accounts.Request{SessionID: managerID, ToolName: source.Tool, Reason: extension.LaunchSpawn, From: source.ID})
 	if err != nil {
 		m.reportLaunchError(err)
 		return m, nil

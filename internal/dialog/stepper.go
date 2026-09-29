@@ -215,7 +215,9 @@ func ParseReview(pane string) (Review, bool) {
 	review := Review{Complete: true}
 	var current *ReviewAnswer
 	inAnswer := false
-	for _, line := range lines[start+1:] {
+	width := paneWidth(lines)
+	for i, line := range lines[start+1:] {
+		joined := continuation(lines[start+i], line, width)
 		text := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "│"))
 		switch {
 		case text == "":
@@ -232,7 +234,7 @@ func ParseReview(pane string) (Review, bool) {
 			current, inAnswer = nil, false
 		case inAnswer && current != nil && !askOption.MatchString(line):
 			// An answer longer than the pane is wide wraps under its arrow.
-			current.Answer += " " + text
+			current.Answer += joined + text
 		case askOption.MatchString(line):
 			match := askOption.FindStringSubmatch(line)
 			n, _ := strconv.Atoi(match[2])
@@ -243,7 +245,7 @@ func ParseReview(pane string) (Review, bool) {
 				review.Submit = n
 			}
 		case current != nil && current.Answer == "":
-			current.Question += " " + text
+			current.Question += joined + text
 		}
 	}
 	if review.Submit == 0 {

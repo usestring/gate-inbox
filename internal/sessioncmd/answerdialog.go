@@ -486,7 +486,7 @@ func registered(listed []dialog.ReviewAnswer, filled FilledAnswer) (string, bool
 
 func mismatch(answer FilledAnswer, got, then string) error {
 	return fmt.Errorf("%w: question %d was answered %q, but the child registered %q; %s",
-		errWrongAnswer, answer.Index, answer.want(), got, then)
+		errWrongAnswer, answer.Index, answer.want(), dialog.Readable(got), then)
 }
 
 // errWrongAnswer is a readback showing the child took something other than

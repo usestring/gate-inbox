@@ -2,6 +2,7 @@ package dialog
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
@@ -130,5 +131,81 @@ func TestALabelRepeatedAboveTheDialogStillPicksTheOption(t *testing.T) {
 	blocks := ParseAnswered(ansi.Strip(fixture(t, "claude-2.1.284-w50-typed-answer-took-highlighted.ansi")))
 	if len(blocks) != 1 || blocks[0][0].Answer != "Hold for staged UI" {
 		t.Fatalf("record = %q, want the highlighted option the typed answer fell onto", blocks)
+	}
+}
+
+// At 40 columns the path in an approval question is wider than the record's
+// text column, and Claude Code breaks it wherever the row ends: "/tmp/s" over
+// "ample-9000/...". Captured from 2.1.284 by the end-to-end rig.
+func TestParseAnsweredRejoinsAWordBrokenAcrossRows(t *testing.T) {
+	for _, width := range []int{40, 50, 60} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			asked, ok := Inspect(fixture(t, fmt.Sprintf("claude-2.1.284-w%d-approval-asked.txt", width)))
+			if !ok {
+				t.Fatal("no dialog read")
+			}
+			path := fmt.Sprintf("/tmp/sample-9000/gie/work/cache-w%d?", width)
+			question := "May I delete the directory " + path
+			if !SameText(asked.Prompt, question) {
+				t.Fatalf("prompt = %q", asked.Prompt)
+			}
+			blocks := ParseAnswered(fixture(t, fmt.Sprintf("claude-2.1.284-w%d-approval-answered.txt", width)))
+			if len(blocks) != 1 || len(blocks[0]) != 1 {
+				t.Fatalf("read %q", blocks)
+			}
+			got := blocks[0][0]
+			if !SameQuestion(got.Question, asked.Prompt) || !SameText(got.Question, question) {
+				t.Errorf("question %q is not the one asked, %q", got.Question, asked.Prompt)
+			}
+			if Readable(got.Question) != question {
+				t.Errorf("readable question = %q", Readable(got.Question))
+			}
+			if !SameText(got.Answer, "Deny") || SameText(got.Answer, "Approve") {
+				t.Errorf("answer = %q", got.Answer)
+			}
+			// Rejoining reads a break as a space or as nothing, and never
+			// anything more: a different path is a different question.
+			for _, other := range []string{
+				"May I delete the directory /tmp/s ample-9000/gie/work/cache-w99?",
+				"May I delete the directory /tmp/sample-9000/gie/work/cache-w4?",
+				"May I delete the directory /tmp/smple-9000/gie/work/cache-w" + fmt.Sprint(width) + "?",
+			} {
+				if SameText(got.Question, other) || SameQuestion(got.Question, other) {
+					t.Errorf("%q read as %q", got.Question, other)
+				}
+			}
+		})
+	}
+}
+
+// A full row that ended where its last word did was ended at a space: the
+// next word would have fit the column, so it moved down whole. That join is
+// a space and only a space.
+func TestAFullRowEndingOnAWordIsJoinedWithASpace(t *testing.T) {
+	blocks := ParseAnswered(ansi.Strip(fixture(t, "claude-2.1.284-w40-single-free-after.ansi")))
+	if len(blocks) != 1 {
+		t.Fatalf("read %q", blocks)
+	}
+	answer := blocks[0][0].Answer
+	if !SameText(answer, longFreeText) || SameText(answer, strings.Replace(longFreeText, "rework is", "reworkis", 1)) {
+		t.Fatalf("answer %q", answer)
+	}
+}
+
+const longFreeText = "Ship region #4021 first, then staged UI next week once the rework is green"
+
+func TestContinuationBreaksAWordOnlyWhenItCouldNotHaveFit(t *testing.T) {
+	for _, tc := range []struct {
+		row, next string
+		want      string
+	}{
+		{"  ⎿  · May I delete the directory /tmp/s", "     ample-9000/gie/work/cache-w40? → ", wrapJoin},
+		{"  ⎿  · then staged UI once the rework", "     is green", " "},
+		{"  ⎿  · short row", "     next", " "},
+		{"", "     next", " "},
+	} {
+		if got := continuation(tc.row, tc.next, 40); got != tc.want {
+			t.Errorf("continuation(%q, %q) = %q, want %q", tc.row, tc.next, got, tc.want)
+		}
 	}
 }

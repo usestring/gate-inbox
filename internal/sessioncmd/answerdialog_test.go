@@ -67,7 +67,8 @@ func (d *tabbedDialog) rows() int {
 func (d *tabbedDialog) freeText() int { return len(d.questions[d.active].Options) + 1 }
 
 // wrap breaks text into lines of at most the model's width, the first after
-// first and the rest after indent.
+// first and the rest after indent. A word wider than the text column is
+// broken wherever a row ends, as Claude Code breaks a long path.
 func (d *tabbedDialog) wrap(first, indent, text string) string {
 	if d.width == 0 {
 		return first + text + "\n"
@@ -76,6 +77,22 @@ func (d *tabbedDialog) wrap(first, indent, text string) string {
 	line := first
 	fresh := true
 	for _, word := range strings.Fields(text) {
+		if runes := []rune(word); len(runes) > d.width-len([]rune(indent)) {
+			if !fresh {
+				line += " "
+			}
+			for len(runes) > 0 {
+				room := d.width - len([]rune(line))
+				if room <= 0 {
+					out.WriteString(line + "\n")
+					line, room = indent, d.width-len([]rune(indent))
+				}
+				take := min(room, len(runes))
+				line, runes = line+string(runes[:take]), runes[take:]
+			}
+			fresh = false
+			continue
+		}
 		if !fresh && len([]rune(line))+1+len([]rune(word)) > d.width {
 			out.WriteString(line + "\n")
 			line, fresh = indent, true

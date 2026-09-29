@@ -256,3 +256,36 @@ func TestAnAnswerCapturedLiveReadsBack(t *testing.T) {
 		t.Errorf("keyed %v", pane.keys)
 	}
 }
+
+// A path wider than the record's text column is broken inside a word at 40
+// columns, and the child's record then reads "/tmp/s" over "ample-...". The
+// answer landed; the readback has to say so, and still catch a wrong one.
+func TestAnAnswerToAQuestionWhosePathWrapsMidWordIsVerified(t *testing.T) {
+	fastSettle(t)
+	for _, width := range widths {
+		approval := convo.AskQuestion{Header: "Approval",
+			Question: fmt.Sprintf("May I delete the directory /tmp/sample-9000/gie/work/cache-w%d?", width),
+			Options:  []convo.AskOption{{Label: "Approve", Description: "Delete it"}, {Label: "Deny", Description: "Keep it"}}}
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			sim := newSingleDialog(approval, width)
+			answered, err := answerSingle(t, sim, "Deny")
+			if err != nil || !answered.Verified || sim.answers[0] != "Deny" {
+				t.Fatalf("answered %+v, err %v, registered %q", answered, err, sim.answers[0])
+			}
+			wrong := newSingleDialog(approval, width)
+			wrong.shift = 1
+			_, err = answerSingle(t, wrong, "Approve")
+			if !errors.Is(err, errWrongAnswer) || !strings.Contains(err.Error(), `"Deny"`) {
+				t.Fatalf("a wrong answer across the wrap read back as %v", err)
+			}
+		})
+	}
+	sim := newSingleDialog(convo.AskQuestion{Header: "Approval",
+		Question: "May I delete the directory /tmp/sample-9000/gie/work/cache-w40?",
+		Options:  []convo.AskOption{{Label: "Approve"}, {Label: "Deny"}}}, 40)
+	sim.closed, sim.answers[0] = true, "Deny"
+	record, _ := sim.Capture()
+	if !strings.Contains(record, "/tmp/s\n     ample-9000") {
+		t.Fatalf("the model did not break the path mid-word:\n%s", record)
+	}
+}

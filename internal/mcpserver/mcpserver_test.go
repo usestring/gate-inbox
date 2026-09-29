@@ -17,6 +17,7 @@ import (
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/extension/all"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
@@ -290,7 +291,7 @@ func (f *fakeSessionCommands) DeleteGroup(_ string, path string) (sessioncmd.Gro
 
 func connect(t *testing.T, configDir, sessionID string) *mcp.ClientSession {
 	t.Helper()
-	return connectServer(t, NewServer(configDir, sessionID, "test", all.Extensions()))
+	return connectServer(t, NewServer(configDir, sessionID, "test", all.Extensions(), ""))
 }
 
 func connectServer(t *testing.T, server *mcp.Server) *mcp.ClientSession {
@@ -686,7 +687,7 @@ func TestServerTeachesDelegationWorkflow(t *testing.T) {
 		// Every CLI offers its own subagents, and a model reads its own
 		// tool as the default unless the block names it and says why not.
 		"not your CLI's built-in subagent tool",
-		"Agent/Task", "spawn_agent", "opencode's task",
+		"Agent/Task", "spawn_agent", "opencode's subagent",
 		"on the user's board",
 		"quick read-only lookups",
 		// Finished children are filed away on their own now, and the bulk
@@ -697,6 +698,23 @@ func TestServerTeachesDelegationWorkflow(t *testing.T) {
 		if !strings.Contains(instructions, want) {
 			t.Fatalf("server instructions do not teach %q:\n%s", want, instructions)
 		}
+	}
+}
+
+// OpenCode v2 loads no instruction file a launch can name, so its generated
+// config starts this server with the steering flag, and the naming and
+// delegation steering arrive inside this block. Every other launch carries
+// its own and gets the shared block alone, which keeps it under Claude
+// Code's cap.
+func TestServerCarriesSteeringOnlyWhenAskedTo(t *testing.T) {
+	steered := connectServer(t, NewServer(t.TempDir(), "abc123", "test", all.Extensions(), "opencode")).InitializeResult().Instructions
+	want, _ := mcpreg.ServerSteering("opencode")
+	if !strings.HasPrefix(steered, serverInstructions) || !strings.Contains(steered, want) {
+		t.Fatalf("steered instructions are not the shared block plus the opencode steering:\n%s", steered)
+	}
+	plain := connect(t, t.TempDir(), "abc123").InitializeResult().Instructions
+	if strings.Contains(plain, "# Session naming") || strings.Contains(plain, "# Delegating work") {
+		t.Fatalf("an unsteered server carries launch steering:\n%s", plain)
 	}
 }
 

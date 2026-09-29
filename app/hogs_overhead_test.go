@@ -87,6 +87,7 @@ func TestHogWatchOverheadE2E(t *testing.T) {
 		home := envValue(env, "GATE_INBOX_HOME")
 		db := filepath.Join(home, "state.db")
 		skipWelcome(t, db)
+		skipTmuxHint(t, db)
 		st, err := store.Open(db)
 		if err != nil {
 			t.Fatal(err)

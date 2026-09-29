@@ -118,6 +118,7 @@ func TestHogNoticesE2E(t *testing.T) {
 	})
 	db := filepath.Join(home, "state.db")
 	skipWelcome(t, db)
+	skipTmuxHint(t, db)
 	driver, err := tmux.NewWithSocket(agents)
 	if err != nil {
 		t.Fatal(err)
@@ -426,6 +427,7 @@ stop = []
 	db := filepath.Join(home, "state.db")
 	seedSessions(t, db)
 	skipWelcome(t, db)
+	skipTmuxHint(t, db)
 
 	hostPath := hostSocket(t, tmpdir, boardHost)
 	host := exec.Command("tmux", "-S", hostPath, "new-session", "-d", "-s", "board", "-x", "200", "-y", "50", bin)
@@ -580,4 +582,21 @@ func hostSocket(t *testing.T, tmpdir, socket string) string {
 		t.Fatal(err)
 	}
 	return filepath.Join(dir, socket)
+}
+
+// skipTmuxHint records the board's tmux-config card as already read. The
+// board here runs inside a test tmux server, which loads no config and so
+// reports tmux's defaults, and the card it raises for them covers the list
+// these tests read the badges off.
+func skipTmuxHint(t *testing.T, path string) {
+	t.Helper()
+	st, err := store.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	seen := strings.Join([]string{tmux.FindingHyperlinks, tmux.FindingSetClipboard, tmux.FindingMouseClicks}, ",")
+	if err := st.SetSetting("tmux_config_seen", seen); err != nil {
+		t.Fatal(err)
+	}
 }

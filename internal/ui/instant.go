@@ -26,11 +26,14 @@ import (
 // spoken to yet has nothing to name itself after. The title pass names the row
 // once there is a conversation to read, which costs the agent nothing.
 func (m *Model) spawnInstant(toolName string) (tea.Model, tea.Cmd) {
+	return m.spawnInstantIn(toolName, m.contextGroup())
+}
+
+func (m *Model) spawnInstantIn(toolName, group string) (tea.Model, tea.Cmd) {
 	if toolName == "" {
 		m.errBar.text = "no CLIs enabled: open settings (s), then CLIs, to turn some on"
 		return m, nil
 	}
-	group := m.contextGroup()
 	dir, ok := resolveExistingDir("", m.groupDefaultDir(group))
 	if !ok {
 		m.errBar.text = "working directory does not exist: " + dir

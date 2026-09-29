@@ -497,3 +497,108 @@ func TestNormalModeOrderAndCtrlQUnchanged(t *testing.T) {
 		t.Fatalf("ctrl+q outside triage moved the cursor to %q", got)
 	}
 }
+
+// A session with an answer in flight is one the drain has just dealt with:
+// its row still reads waiting, finished or idle, because the answer only
+// counts once the agent is seen to have taken it. The walk keeps going past
+// it the way it walks past a muted row -- through the finished and idle
+// rows as well as the waiting ones -- instead of handing back the session
+// the operator just answered.
+func TestTriageWalkKeepsGoingPastSessionsWithSubmissionsInFlight(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{
+		"ask":  status.Waiting,
+		"done": status.Finished,
+		"calm": status.Idle,
+	})
+	m.triage = true
+	m.rebuildRows()
+	if got, want := sessionNames(m), []string{"ask", "done", "calm"}; !slices.Equal(got, want) {
+		t.Fatalf("queue = %v want %v", got, want)
+	}
+	next := func(leftID string) (string, bool) {
+		t.Helper()
+		i, ok := m.nextTriageInput(leftID, map[string]bool{})
+		if !ok {
+			return "", false
+		}
+		return m.rows[i].sess.Name, true
+	}
+
+	// No submissions: from ask the walk hands over done (finished).
+	if got, ok := next(sessionID(t, m, "ask")); !ok || got != "done" {
+		t.Fatalf("walk from ask = %q, %v, want done", got, ok)
+	}
+
+	// A submission in flight on done: the walk keeps going past the
+	// finished row to calm, rather than handing back the session just
+	// answered.
+	m.landings = map[string]*pendingLanding{sessionID(t, m, "done"): {}}
+	if got, ok := next(sessionID(t, m, "ask")); !ok || got != "calm" {
+		t.Fatalf("walk past a submitted finished row = %q, %v, want calm", got, ok)
+	}
+
+	// Submissions on done and calm: nothing walkable is left past ask.
+	m.landings[sessionID(t, m, "calm")] = &pendingLanding{}
+	if got, ok := next(sessionID(t, m, "ask")); ok {
+		t.Fatalf("walk past submitted finished and idle rows = %q, want the drain to end", got)
+	}
+
+	// The waiting row is no exception: a submission on ask means a walk
+	// from the head keeps going past it to done.
+	m.landings = map[string]*pendingLanding{sessionID(t, m, "ask"): {}}
+	if got, ok := next(""); !ok || got != "done" {
+		t.Fatalf("walk past a submitted waiting row = %q, %v, want done", got, ok)
+	}
+}
+
+// An answer seen landing is still not news the board has polled: the row
+// reads the state it was answered in until a poll listed after the landing
+// is applied. The walk keeps going past it until then, so an answer sent from
+// the list to one row that lands while the operator works another is not
+// handed straight back to them.
+func TestTriageWalkKeepsGoingPastLandedAnswerUntilNextPoll(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{
+		"ask":  status.Waiting,
+		"done": status.Finished,
+		"calm": status.Idle,
+	})
+	m.triage = true
+	m.rebuildRows()
+	next := func(leftID string) string {
+		t.Helper()
+		i, ok := m.nextTriageInput(leftID, map[string]bool{})
+		if !ok {
+			return ""
+		}
+		return m.rows[i].sess.Name
+	}
+	doneID := sessionID(t, m, "done")
+	m.landings = map[string]*pendingLanding{doneID: {gen: 1, probe: &landingProbe{}}}
+	m.applyLandingCheck(landingCheckMsg{id: doneID, gen: 1, verdict: landingSeen})
+	if _, pending := m.landings[doneID]; pending {
+		t.Fatal("landing still pending after it was seen")
+	}
+	if got := next(sessionID(t, m, "ask")); got != "calm" {
+		t.Fatalf("walk past a landed, unpolled row = %q, want calm", got)
+	}
+
+	landedAt := m.settling[doneID]
+	m.settleLandings(landedAt.Add(time.Millisecond), map[string]bool{doneID: true})
+	if got := next(sessionID(t, m, "ask")); got != "calm" {
+		t.Fatalf("walk after a poll that could not capture the landed row = %q, want calm", got)
+	}
+
+	// A pass listed before the landing but delivered after a newer one
+	// captured the row as it stood before the answer.
+	m.settleLandings(landedAt.Add(-time.Millisecond), nil)
+	if got := next(sessionID(t, m, "ask")); got != "calm" {
+		t.Fatalf("walk after an older pass delivered late = %q, want calm", got)
+	}
+
+	m.settleLandings(landedAt.Add(2*time.Millisecond), nil)
+	if got := next(sessionID(t, m, "ask")); got != "done" {
+		t.Fatalf("walk after a poll past the landing = %q, want done", got)
+	}
+}

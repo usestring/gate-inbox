@@ -234,3 +234,31 @@ func TestArchiveSparesACallerUnderTheTarget(t *testing.T) {
 	requireFiled(t, h, "mine-bb2", false)
 	requireFiled(t, h, h.caller.ID, false)
 }
+
+// A terminal whose shell has exited is over like any exited child and is
+// filed with the rest. A running one may be a shell left for the user, which
+// only close_terminal ends, so no cleanup touches it, all included.
+func TestCleanupChildrenFilesAnExitedTerminalAndLeavesALiveOne(t *testing.T) {
+	h := newSessionHarness(t)
+	childRow(t, h, store.Session{ID: "done-aa1", Name: "done-aa1", ParentID: h.caller.ID, SpawnedBy: h.caller.ID, Status: status.Finished}, true)
+	childRow(t, h, store.Session{ID: "gone-sh1", Name: "gone-sh1", Tool: "terminal", ParentID: h.caller.ID, Status: status.Dead}, false)
+	childRow(t, h, store.Session{ID: "live-sh2", Name: "live-sh2", Tool: "terminal", ParentID: h.caller.ID, Status: status.Idle}, true)
+
+	for _, opts := range []CleanupOptions{{}, {All: true}} {
+		cleaned, err := h.sessions.CleanupChildren(h.caller.ID, opts)
+		if err != nil && !opts.All {
+			t.Fatalf("CleanupChildren: %v", err)
+		}
+		for _, child := range cleaned.Children {
+			if child.SessionID == "live-sh2" {
+				t.Fatalf("cleanup (all=%v) reached a live terminal: %+v", opts.All, child)
+			}
+		}
+	}
+	requireFiled(t, h, "done-aa1", true)
+	requireFiled(t, h, "gone-sh1", true)
+	requireFiled(t, h, "live-sh2", false)
+	if !h.driver.Exists("live-sh2") {
+		t.Fatal("cleanup ended a live terminal")
+	}
+}

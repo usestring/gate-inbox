@@ -1,13 +1,448 @@
 package ui
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/autoroute"
+	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
 )
+
+func TestAutoRouteStartsAnEnabledCLI(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
+		if name != "ready-tool" {
+			return autoroute.Reading{}, autoroute.ErrNoQuota
+		}
+		now := time.Now()
+		return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 10, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
+	})
+	_, cmd := m.startNewSession()
+	if cmd == nil {
+		t.Fatal("auto route did not start a quota read")
+	}
+	msg := cmd()
+	m.update(msg)
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || rows[0].Tool != "ready-tool" {
+		t.Fatalf("auto route launched %+v, want ready-tool (msg %+v, mode %v, error %q)", rows, msg, m.mode, m.errBar.text)
+	}
+}
+
+func TestAutoRouteLaunchesInTheGroupSelectedWhenNWasPressed(t *testing.T) {
+	m := buildModel(t)
+	origin := filepath.Join(t.TempDir(), "origin-repo")
+	groupAt(t, m, "origin", origin)
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	m.selectGroupRow(t, "origin")
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
+		if name != "ready-tool" {
+			return autoroute.Reading{}, autoroute.ErrNoQuota
+		}
+		now := time.Now()
+		return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 10, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
+	})
+	_, cmd := m.startNewSession()
+	if cmd == nil {
+		t.Fatal("auto route did not start a quota read")
+	}
+	m.selectGroupRow(t, "elsewhere")
+	m.update(cmd())
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || rows[0].Group != "origin" || rows[0].Cwd != origin {
+		t.Fatalf("auto route launched %+v, want it in the origin group (error %q)", rows, m.errBar.text)
+	}
+}
+
+func TestAutoRouteLaunchesFromAFocusedSession(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
+		if name != "ready-tool" {
+			return autoroute.Reading{}, autoroute.ErrNoQuota
+		}
+		now := time.Now()
+		return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 10, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
+	})
+	m.mode = modeFocus
+	_, cmd := m.startNewSession()
+	if cmd == nil {
+		t.Fatal("auto route did not start a quota read from focus")
+	}
+	m.update(cmd())
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || rows[0].Tool != "ready-tool" {
+		t.Fatalf("auto route from focus launched %+v, want ready-tool (mode %v, error %q)", rows, m.mode, m.errBar.text)
+	}
+}
+
+func TestAutoRouteFallbackPickerKeepsTheGroupSelectedWhenNWasPressed(t *testing.T) {
+	m := buildModel(t)
+	origin := filepath.Join(t.TempDir(), "origin-repo")
+	groupAt(t, m, "origin", origin)
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	m.selectGroupRow(t, "origin")
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	m.selectGroupRow(t, "elsewhere")
+	m.update(cmd())
+	if m.mode != modeAgentPick {
+		t.Fatalf("unavailable quota left mode %v, want picker", m.mode)
+	}
+	typeInto(t, m, "ready-tool")
+	pressKey(t, m, enterKey())
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || rows[0].Group != "origin" || rows[0].Cwd != origin {
+		t.Fatalf("fallback picker launched %+v, want it in the origin group (error %q)", rows, m.errBar.text)
+	}
+}
+
+func TestAutoRouteFallbackTerminalKeepsTheGroupSelectedWhenNWasPressed(t *testing.T) {
+	m := buildModel(t)
+	origin := filepath.Join(t.TempDir(), "origin-repo")
+	groupAt(t, m, "origin", origin)
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	m.selectGroupRow(t, "origin")
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	m.selectGroupRow(t, "elsewhere")
+	m.update(cmd())
+	typeInto(t, m, "term")
+	pressKey(t, m, enterKey())
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || !m.isShell(rows[0].Tool) || rows[0].Group != "origin" || rows[0].Cwd != origin {
+		t.Fatalf("fallback terminal launched %+v, want a shell in the origin group (error %q)", rows, m.errBar.text)
+	}
+}
+
+func TestAutoRouteFallbackTerminalKeepsTheSessionSelectedWhenNWasPressed(t *testing.T) {
+	m := buildModel(t)
+	groupDir, sessionDir := t.TempDir(), t.TempDir()
+	if err := m.store.CreateGroup("backend", groupDir); err != nil {
+		t.Fatal(err)
+	}
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	createSession(t, m, "agent", sessionDir, "backend")
+	m.selectSessionRow(t, "agent")
+	agent, _ := m.selected()
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	m.selectGroupRow(t, "elsewhere")
+	m.update(cmd())
+	typeInto(t, m, "term")
+	pressKey(t, m, enterKey())
+	m.leaveFocusForFixture(t)
+	var shell store.Session
+	for _, sess := range m.sessionRows() {
+		if m.isShell(sess.Tool) {
+			shell = sess
+		}
+	}
+	if shell.ParentID != agent.ID || shell.Group != "backend" || shell.Cwd != resolved(t, sessionDir) {
+		t.Fatalf("fallback terminal = %+v, want nested under %q in %q (error %q)", shell, agent.ID, sessionDir, m.errBar.text)
+	}
+}
+
+func TestAutoRouteRefusesALaunchAfterAccountRoutingChanged(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
+	m.newSessionAgent = newSessionAgentAuto
+	tool := m.cfg.Tools["ready-tool"]
+	tool.AccountEnv = "SHARED_TOKEN"
+	m.cfg.Tools["ready-tool"] = tool
+	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
+		if name != "ready-tool" {
+			return autoroute.Reading{}, autoroute.ErrNoQuota
+		}
+		now := time.Now()
+		return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 10, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
+	})
+	_, cmd := m.startNewSession()
+	if cmd == nil {
+		t.Fatal("auto route did not start a quota read")
+	}
+	if err := m.store.SetSetting(store.AccountRoutingSetting, accounts.Smart); err != nil {
+		t.Fatal(err)
+	}
+	m.update(cmd())
+	if m.mode != modeAgentPick || len(m.sessionRows()) != 0 {
+		t.Fatalf("routing change left mode %v with %d sessions, want the picker and none", m.mode, len(m.sessionRows()))
+	}
+	if !strings.Contains(m.errBar.text, "account routing changed") {
+		t.Fatalf("missing routing-change explanation: %q", m.errBar.text)
+	}
+}
+
+func TestAutoRouteRefusesAGroupChangedDuringTheQuotaRead(t *testing.T) {
+	for _, change := range []struct {
+		name  string
+		apply func(*testing.T, *Model)
+	}{
+		{"renamed", func(t *testing.T, m *Model) {
+			if err := m.store.RenameGroup("origin", "renamed"); err != nil {
+				t.Fatal(err)
+			}
+			m.renameGroupLocally("origin", "renamed", m.groupPaths["origin"])
+		}},
+		{"archived", func(t *testing.T, m *Model) {
+			if err := m.store.SetGroupArchived("origin", true); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			m := buildModel(t)
+			groupAt(t, m, "origin", filepath.Join(t.TempDir(), "origin-repo"))
+			m.newSessionAgent = newSessionAgentAuto
+			m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
+				if name != "ready-tool" {
+					return autoroute.Reading{}, autoroute.ErrNoQuota
+				}
+				now := time.Now()
+				return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 10, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
+			})
+			_, cmd := m.startNewSession()
+			if cmd == nil {
+				t.Fatal("auto route did not start a quota read")
+			}
+			change.apply(t, m)
+			m.update(cmd())
+			if m.mode != modeAgentPick || len(m.sessionRows()) != 0 {
+				t.Fatalf("%s group left mode %v with %d sessions, want the picker and none", change.name, m.mode, len(m.sessionRows()))
+			}
+			if !strings.Contains(m.errBar.text, "group changed") {
+				t.Fatalf("missing group-change explanation: %q", m.errBar.text)
+			}
+		})
+	}
+}
+
+func TestAutoRouteFallbackPickerDropsAGroupArchivedDuringTheQuotaRead(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	groupAt(t, m, "origin", filepath.Join(t.TempDir(), "origin-repo"))
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	if err := m.store.SetGroupArchived("origin", true); err != nil {
+		t.Fatal(err)
+	}
+	m.selectGroupRow(t, "elsewhere")
+	m.update(cmd())
+	if m.mode != modeAgentPick || m.agentPick.pinned {
+		t.Fatalf("archived group left mode %v pinned=%v, want an unpinned picker", m.mode, m.agentPick.pinned)
+	}
+	if !strings.Contains(m.errBar.text, "group changed") {
+		t.Fatalf("missing group-change explanation: %q", m.errBar.text)
+	}
+	typeInto(t, m, "ready-tool")
+	pressKey(t, m, enterKey())
+	m.leaveFocusForFixture(t)
+	for _, sess := range m.sessionRows() {
+		if sess.Group == "origin" {
+			t.Fatalf("fallback picker launched %+v into the archived group", sess)
+		}
+	}
+}
+
+func TestAutoRouteFallbackPickerRechecksTheGroupOnSubmit(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	groupAt(t, m, "origin", filepath.Join(t.TempDir(), "origin-repo"))
+	m.selectGroupRow(t, "origin")
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	m.update(cmd())
+	if m.mode != modeAgentPick || !m.agentPick.pinned {
+		t.Fatalf("unavailable quota left mode %v pinned=%v, want a pinned picker", m.mode, m.agentPick.pinned)
+	}
+	if _, _, err := m.store.RemoveGroup("origin"); err != nil {
+		t.Fatal(err)
+	}
+	m.selectGroupRow(t, "elsewhere")
+	typeInto(t, m, "ready-tool")
+	pressKey(t, m, enterKey())
+	if m.mode != modeAgentPick || m.agentPick.pinned || len(m.sessionRows()) != 0 {
+		t.Fatalf("deleted group left mode %v pinned=%v rows %+v, want an unpinned picker and no launch", m.mode, m.agentPick.pinned, m.sessionRows())
+	}
+	if !strings.Contains(m.errBar.text, "group changed") {
+		t.Fatalf("missing group-change explanation: %q", m.errBar.text)
+	}
+	pressKey(t, m, enterKey())
+	m.leaveFocusForFixture(t)
+	groups, err := m.store.Groups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range groups {
+		if g.Name == "origin" {
+			t.Fatal("fallback picker recreated the deleted group")
+		}
+	}
+	rows := m.sessionRows()
+	if len(rows) != 1 || rows[0].Group != "elsewhere" {
+		t.Fatalf("fallback picker launched %+v, want it in the current group", rows)
+	}
+}
+
+func TestAutoRouteFallbackTerminalLeavesASessionArchivedDuringTheQuotaRead(t *testing.T) {
+	m := buildModel(t)
+	groupDir, sessionDir := t.TempDir(), t.TempDir()
+	if err := m.store.CreateGroup("backend", groupDir); err != nil {
+		t.Fatal(err)
+	}
+	loadStoredRows(t, m)
+	createSession(t, m, "agent", sessionDir, "backend")
+	m.selectSessionRow(t, "agent")
+	agent, _ := m.selected()
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	if err := m.store.SetArchived(agent.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	for i := range m.sessions {
+		if m.sessions[i].ID == agent.ID {
+			m.sessions[i].Archived = true
+		}
+	}
+	m.update(cmd())
+	typeInto(t, m, "term")
+	pressKey(t, m, enterKey())
+	var shell store.Session
+	for _, sess := range m.sessions {
+		if m.isShell(sess.Tool) {
+			shell = sess
+		}
+	}
+	if shell.ID == "" || shell.ParentID != "" || shell.Group != "backend" || shell.Cwd != resolved(t, groupDir) {
+		t.Fatalf("fallback terminal = %+v, want an unnested shell in the backend group at %q (error %q)", shell, groupDir, m.errBar.text)
+	}
+}
+
+func TestAutoRouteRescoresWhenWorkStartsDuringTheQuotaRead(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
+		if name != "ready-tool" {
+			return autoroute.Reading{}, autoroute.ErrNoQuota
+		}
+		now := time.Now()
+		// 85% used clears the 10-point reserve for no active work but not
+		// the 15 points one running session adds.
+		return autoroute.Reading{ObservedAt: now, Windows: []autoroute.Window{{Used: 85, ResetsAt: now.Add(4 * time.Hour), Duration: 5 * time.Hour}}}, nil
+	})
+	_, cmd := m.startNewSession()
+	if cmd == nil {
+		t.Fatal("auto route did not start a quota read")
+	}
+	m.sessions = append(m.sessions, store.Session{ID: "busy", Tool: "ready-tool", Status: status.Working})
+	_, rescore := m.update(cmd())
+	if rescore == nil {
+		t.Fatalf("new in-flight work did not trigger a rescore (mode %v, error %q)", m.mode, m.errBar.text)
+	}
+	m.update(rescore())
+	for _, sess := range m.sessions {
+		if sess.ID != "busy" && sess.Tool == "ready-tool" {
+			t.Fatalf("auto route launched %+v past the reserve for in-flight work", sess)
+		}
+	}
+	if m.mode != modeAgentPick || !strings.Contains(m.errBar.text, "quota unavailable") {
+		t.Fatalf("rescore left mode %v with error %q, want the quota fallback picker", m.mode, m.errBar.text)
+	}
+}
+
+func TestAutoRouteFallsBackToCLIPickerWhenQuotaUnavailable(t *testing.T) {
+	m := buildModel(t)
+	m.newSessionAgent = newSessionAgentAuto
+	m.autoRouter = autoroute.New(func(context.Context, string) (autoroute.Reading, error) {
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	m.update(cmd())
+	if m.mode != modeAgentPick || len(m.sessionRows()) != 0 {
+		t.Fatalf("unavailable quota left mode %v with %d sessions", m.mode, len(m.sessionRows()))
+	}
+	if !strings.Contains(m.errBar.text, "quota unavailable") {
+		t.Fatalf("missing fallback explanation: %q", m.errBar.text)
+	}
+}
+
+func TestAutoRouteNeverReadsAHiddenCLI(t *testing.T) {
+	m := buildModel(t)
+	m.newSessionAgent = newSessionAgentAuto
+	if err := m.store.SetSetting(hiddenToolsSetting, "ready-tool"); err != nil {
+		t.Fatal(err)
+	}
+	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
+		if name == "ready-tool" {
+			t.Fatal("hidden CLI was sent to quota routing")
+		}
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	m.update(cmd())
+	if m.mode != modeAgentPick {
+		t.Fatalf("no readable enabled quota left mode %v, want picker", m.mode)
+	}
+}
+
+func TestAutoRouteSkipsSharedAccountTools(t *testing.T) {
+	m := buildModel(t)
+	m.newSessionAgent = newSessionAgentAuto
+	if err := m.store.SetSetting(store.AccountRoutingSetting, accounts.Smart); err != nil {
+		t.Fatal(err)
+	}
+	tool := m.cfg.Tools["ready-tool"]
+	tool.AccountEnv = "SHARED_TOKEN"
+	m.cfg.Tools["ready-tool"] = tool
+	m.autoRouter = autoroute.New(func(_ context.Context, name string) (autoroute.Reading, error) {
+		if name == "ready-tool" {
+			t.Fatal("own-login quota was read for a shared-account tool")
+		}
+		return autoroute.Reading{}, autoroute.ErrNoQuota
+	})
+	_, cmd := m.startNewSession()
+	if cmd != nil {
+		m.update(cmd())
+	}
+	if m.mode != modeAgentPick {
+		t.Fatalf("shared-account routing left mode %v, want picker", m.mode)
+	}
+}
 
 func typeInto(t *testing.T, m *Model, text string) {
 	t.Helper()
@@ -458,6 +893,24 @@ func TestSettingsCyclesTheNewSessionAgent(t *testing.T) {
 	}
 	if got := storedNewSessionAgent(m.store); got != newSessionAgentLast {
 		t.Errorf("stored mode = %q, want %q", got, newSessionAgentLast)
+	}
+}
+
+func TestSettingsCanSelectAutoRouting(t *testing.T) {
+	m := buildModel(t)
+	m.openSettings()
+	for i := 0; i < settingsFieldNewSessionAgent; i++ {
+		m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	for range 3 {
+		m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	}
+	if m.settings.newSessionAgent != newSessionAgentAuto {
+		t.Fatalf("settings selected %q, want auto", m.settings.newSessionAgent)
+	}
+	m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if got := storedNewSessionAgent(m.store); got != newSessionAgentAuto {
+		t.Fatalf("saved mode %q, want auto", got)
 	}
 }
 

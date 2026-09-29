@@ -1454,6 +1454,23 @@ func (s *Store) deleteSession(id string) error {
 		return err
 	}
 	defer tx.Rollback()
+	if err := purgeSessionRefs(tx, id); err != nil {
+		return err
+	}
+	res, err := tx.Exec(`DELETE FROM sessions WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if err := requireRow(res, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// purgeSessionRefs clears every row that points at a session about to be
+// deleted. Both deletes share it, so a terminal closed with close_terminal
+// leaves no more behind than one the retention sweep deletes.
+func purgeSessionRefs(tx *sql.Tx, id string) error {
 	// Session ids are recycled from a fresh UUID prefix, so a message left
 	// pointing at a deleted id could be re-attached to a future session.
 	if _, err := tx.Exec(`DELETE FROM session_inbox WHERE session_id = ? OR sender_id = ?`, id, id); err != nil {
@@ -1479,14 +1496,7 @@ func (s *Store) deleteSession(id string) error {
 	if _, err := tx.Exec(`DELETE FROM session_ends WHERE session_id = ?`, id); err != nil {
 		return err
 	}
-	res, err := tx.Exec(`DELETE FROM sessions WHERE id = ?`, id)
-	if err != nil {
-		return err
-	}
-	if err := requireRow(res, id); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return nil
 }
 
 // DeleteChild removes a session only while it still hangs under parentID.
@@ -1513,10 +1523,7 @@ func (s *Store) DeleteChild(id, parentID string, kill func() error) error {
 	if err := kill(); err != nil {
 		return err
 	}
-	if err := deleteOpenedPRs(tx, id); err != nil {
-		return err
-	}
-	if err := unlinkMigration(tx, id); err != nil {
+	if err := purgeSessionRefs(tx, id); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM sessions WHERE id = ?`, id); err != nil {

@@ -5,8 +5,15 @@
 # and Left at the empty prompt is the arrow that returns to the list.
 #
 # The sidebar row is the eighth in Settings, so seven Downs reach it. The
-# claude row is found by the text of its transcript rather than by counting
-# rows, since the live poll reorders and unfolds the tree under a blind Down.
+# claude row is found by searching for its tool rather than by counting rows,
+# since the live poll reorders and unfolds the tree under a blind Down. Left
+# only leaves at the head of the prompt, so record with the claude session
+# resting on its bare prompt. Linear is switched off so the branch's ticket
+# does not draw a work row under the session:
+#
+#   printf '[integrations.linear]\nenabled = false\n' > /tmp/claude/no-linear.toml
+#   tools/capture/capture.sh --scenario tools/capture/scenarios/sidebar-left.tape \
+#     --transcripts resting,working,finished --config /tmp/claude/no-linear.toml
 #
 # {{SHOTS}} is replaced with this run's still directory. Every Screenshot needs
 # a Sleep after it, or vhs ends the recording before the frame is written.
@@ -45,7 +52,7 @@ Sleep 1s
 
 Type "/"
 Sleep 1s
-Type "focus exit arrow "
+Type "claude"
 Sleep 1500ms
 Enter
 Sleep 1500ms

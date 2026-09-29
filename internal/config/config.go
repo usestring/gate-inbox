@@ -300,6 +300,22 @@ type Integration struct {
 // On reports whether the provider is switched on.
 func (i Integration) On() bool { return i.Enabled == nil || *i.Enabled }
 
+// The sides the board's sidebar -- the sessions rail -- can sit on.
+const (
+	SidebarRight = "right"
+	SidebarLeft  = "left"
+)
+
+// Board configures how the board frame is laid out.
+type Board struct {
+	// Sidebar is the side of the frame the sessions list sits on, "right"
+	// or "left", with the session's pane taking the other side. Unset, it
+	// is right. The settings screen can pick the other side on one
+	// machine; choosing this value there again goes back to following the
+	// file.
+	Sidebar string `toml:"sidebar"`
+}
+
 type Config struct {
 	PollInterval Duration `toml:"poll_interval"`
 	// AdoptSockets names extra tmux servers to scan for agent panes the
@@ -328,6 +344,7 @@ type Config struct {
 	// the label has outlived any turn it could describe, so it is more
 	// likely a misread than a long turn.
 	StaleStatusAfter Duration     `toml:"stale_status_after"`
+	Board            Board        `toml:"board"`
 	Log              Log          `toml:"log"`
 	Children         Children     `toml:"children"`
 	Work             Work         `toml:"work"`
@@ -397,7 +414,21 @@ func LoadDir(dir string) (Config, error) {
 		return Config{}, err
 	}
 	cfg.applyDefaults()
+	if err := cfg.validate(); err != nil {
+		return Config{}, fmt.Errorf("config %s: %w", path, err)
+	}
 	return cfg, nil
+}
+
+// validate refuses values the board has no reading for, so a misspelt
+// choice is named at startup rather than quietly drawn as the default.
+func (c Config) validate() error {
+	switch c.Board.Sidebar {
+	case SidebarRight, SidebarLeft:
+	default:
+		return fmt.Errorf("board.sidebar = %q: want %q or %q", c.Board.Sidebar, SidebarRight, SidebarLeft)
+	}
+	return nil
 }
 
 // backfillToolDefaults fills fields the built-in tools gained after a
@@ -676,6 +707,10 @@ func (c *Config) applyDefaults() {
 	if c.Children.FinishedGrace.Duration <= 0 {
 		c.Children.FinishedGrace.Duration = defaultFinishedChildGrace
 	}
+	c.Board.Sidebar = strings.ToLower(strings.TrimSpace(c.Board.Sidebar))
+	if c.Board.Sidebar == "" {
+		c.Board.Sidebar = SidebarRight
+	}
 	if c.Tools == nil {
 		c.Tools = map[string]Tool{}
 	}
@@ -760,6 +795,13 @@ const defaultConfig = `poll_interval = "2s"
 # counting them as "(+N done)".
 # [children]
 # auto_archive_after = "30m"
+
+# The board's layout. sidebar is the side of the frame the sessions list sits
+# on, "right" or "left"; the session's pane takes the other side. Settings
+# can pick the other side on one machine, and picking this value there again
+# goes back to following this file.
+# [board]
+# sidebar = "right"
 
 # The pull requests and tickets sessions are on. One that is over -- merged,
 # closed, completed, cancelled -- stays on the board this long after you first

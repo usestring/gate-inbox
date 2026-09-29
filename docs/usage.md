@@ -45,7 +45,7 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `U` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed kill as well as a silent one |
 | `space` | Quick prompt: answer the selected session, or spawn an agent in the selected group |
 | `F` | Fold / unfold every group |
-| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, colour, status marks, ask before killing, sort, key hints, on leaving a session, after quick send, session keys, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
+| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, ask before killing, sort, key hints, on leaving a session, after quick send, session keys, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
 | `\|` | Resize the split: `←→` nudge the divider, `enter` commits, `esc` cancels |
 | `\` | Hide / show the list beside the pane: the `board` layout under a key, and `alt+\` does it from inside a focused session. The layout you had comes back on the second press |
 | `t` | Toggle archived view. A row there counts down its retention: seven days after it was archived the manager deletes it for good, with its hook files, and the countdown is on the row |
@@ -388,6 +388,8 @@ The manager normally shares the frame with a preview of the selected session. Se
 The preview is not lost. Focusing a session still opens its pane, full width, and leaving it comes back to the board — the same one-panel frame a terminal too narrow for two columns already draws, asked for rather than measured. `board` is a choice about columns, not about a small screen, so unlike `mobile` it does not tighten the rail or cut the key hints.
 
 `\` is that setting under a key, for the times you want the width for a moment rather than for good: it puts the rail away and brings back the layout you were on, and `alt+\` does the same from inside a focused session, where the rail is the only thing between the pane and the whole terminal. A `WIDE` badge on the board names the key back. The setting is persisted either way, so a rail put away with the key is still away after a restart.
+
+The list sits on the right of the pane by default. Settings (`s`) has a `sidebar` row that moves it to the left, or back: the rail moves as you step the row, so the board behind the panel is the preview, and closing Settings keeps it. Only the side changes. The split keeps its size, because the stored ratio is the list's share whichever side it is on, so the agents' panes keep their width and nothing is redrawn inside them. The divider (`|`) drags the same way on either side, and the arrow that leaves a focused session is the one pointing at the list: `→` at the end of the prompt with it on the right, `←` at the head of the prompt with it on the left. To set the side in the config file instead, `[board] sidebar = "left"` in [config.toml](configuration.md); the Settings row outranks the file on the machine it was changed on, and picking the file's side there again hands the choice back to the file.
 
 ## Key hints
 

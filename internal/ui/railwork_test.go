@@ -482,6 +482,9 @@ func railRawLine(t *testing.T, m *Model, width int, name string) string {
 // as it already is on the work card.
 func TestAnUnfoldedRailRowLinksItsPullRequestAndTicket(t *testing.T) {
 	m := railWorkModel(t)
+	// The row's summary is its title, so the only line naming #838 is the
+	// pull request's own.
+	m.titles = map[string]string{"add-rate-limiting": "Rate limit the public API"}
 	m.setWorkFolded("add-rate-limiting", false)
 	m.rebuildRows()
 

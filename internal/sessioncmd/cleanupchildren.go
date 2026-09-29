@@ -94,8 +94,12 @@ func (s *Sessions) CleanupChildren(sessionID string, opts CleanupOptions) (clean
 		if store.SpawnerOf(child) != caller.ID || child.Archived {
 			continue
 		}
-		// A terminal is the caller's own shell, which close_terminal ends.
-		if runtime.cfg.Tools[child.Tool].Shell {
+		// A terminal is the caller's own shell, which close_terminal ends
+		// while it runs: it may be one opened for the user to take over, so
+		// no cleanup ends it, all included. One whose shell has exited is
+		// over like any exited child, and is filed with the rest rather than
+		// left on the list for nobody.
+		if runtime.cfg.Tools[child.Tool].Shell && (child.Status != status.Dead || runtime.driver.Exists(child.ID)) {
 			continue
 		}
 		entry := ChildCleaned{SessionID: child.ID, Name: child.Name, Status: child.Status}

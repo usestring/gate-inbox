@@ -771,6 +771,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Description: "Archive the sessions this one spawned that are done, in one call, instead of archive_session on each. " +
 			"By default it takes children that are finished, idle or dead, each with every session it spawned in turn, and leaves one that is working, waiting on a question, errored, spawned with keep, or still has working children of its own, saying why. " +
 			"Pass statuses to choose the states, all true to archive every child whatever it is doing, and dry_run true to see the plan first. " +
+			"A terminal you opened is taken only once its shell has exited; a running one is left for close_terminal. " +
 			"It reaches only your own fan-out. Archiving ends a running agent: its last screen is kept, the row stays in the archived view for 7 days, and revive_session brings it back. " +
 			"You rarely need it for a finished child: Gate Inbox archives one on its own once you have read or been told of its finish and left it alone for the grace period.",
 		Annotations: mcptool.Annotations(false, true, false),

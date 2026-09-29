@@ -420,6 +420,10 @@ type Model struct {
 	// layout is the persisted override for the tight layout: auto, desktop
 	// or mobile. See layout.go.
 	layout string
+	// sidebar is the side of the frame the sessions rail is drawn on,
+	// right or left: the settings screen's choice, else [board] sidebar
+	// in config.toml. See sidebar.go.
+	sidebar string
 	// layoutShown is the mode the toggle key hid the rail from, so that
 	// bringing it back restores what the operator chose rather than auto.
 	// It lives for the run, the way chromeShown does.
@@ -775,6 +779,7 @@ type settingsState struct {
 	enterFocuses    bool
 	comfortableRows bool
 	layout          string
+	sidebar         string
 	palette         string
 	glyphs          string
 	archiveConfirm  string
@@ -803,6 +808,7 @@ const (
 	settingsFieldBackdrop
 	settingsFieldDensity
 	settingsFieldLayout
+	settingsFieldSidebar
 	settingsFieldPalette
 	settingsFieldGlyphs
 	settingsFieldArchiveConfirm
@@ -1108,6 +1114,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		focusOnEnter:    storedFocusOnEnter(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),
+		sidebar:         storedSidebar(st, cfg.Board.Sidebar),
 		palette:         storedPalette(st),
 		glyphs:          storedGlyphs(st),
 		archiveConfirm:  storedArchiveConfirm(st),

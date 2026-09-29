@@ -4,6 +4,7 @@
 #   default  not in config.toml; filled from the built-in default
 #   ignored  written in config.toml, but no setting reads it
 file     adopt_sockets = ["scratch-a", "scratch-b"]
+default  board.sidebar = "right"
 file*    children.auto_archive_after = "1h0m0s"
          (file: "1h")
 default  children.finished_grace = "10m0s"

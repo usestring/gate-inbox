@@ -34,8 +34,9 @@ const (
 const shellGlyph = "❯"
 
 // viewListFrame is the session content beside the sessions rail, both
-// painted surfaces rather than drawn panels. The rail sits on the right, so
-// the agent's pane keeps the left edge the eye starts a line from.
+// painted surfaces rather than drawn panels. The rail sits on the right by
+// default, so the agent's pane keeps the left edge the eye starts a line
+// from; the sidebar setting puts it on the left instead (see sidebar.go).
 func (m *Model) viewListFrame() string {
 	leftWidth, rightWidth := m.splitWidths()
 	footer := m.viewFooter()
@@ -58,7 +59,13 @@ func (m *Model) viewListFrame() string {
 	// and the fill's corners land exactly on the cell grid.
 	bleedWidth := contentWidth - 2
 	railWidth := leftWidth - 1
+	// Set before the content is laid out: the pane box it records for hit
+	// testing starts here. With the rail on the left the content starts
+	// past the edge, the rail, the seam and the bleed.
 	m.pane.columnX = 1
+	if m.railOnLeft() {
+		m.pane.columnX = leftWidth + 2
+	}
 	railRows := m.railLines(railWidth, bodyHeight)
 	contentRows := m.contentLines(bleedWidth, bodyHeight)
 	seam := make([]string, bodyHeight)
@@ -72,14 +79,27 @@ func (m *Model) viewListFrame() string {
 		edge[i] = railEdgeCell(tone)
 	}
 	frame = append(frame, m.topRule(leftWidth+1, m.width))
-	frame = append(frame, joinColumns(
-		m.focusLeftColumn(bodyHeight),
-		paintContent(contentRows, bleedWidth, bodyHeight, backdropHex()),
-		m.bleedColumn(bodyHeight),
-		seam,
-		paintContent(railRows, railWidth, bodyHeight, panelHex()),
-		edge,
-	)...)
+	if m.railOnLeft() {
+		// The mirror image: the rail's edge column opens the row, and the
+		// content ends on the ring's right upright.
+		frame = append(frame, joinColumns(
+			edge,
+			paintContent(railRows, railWidth, bodyHeight, panelHex()),
+			seam,
+			m.bleedColumn(bodyHeight),
+			paintContent(contentRows, bleedWidth, bodyHeight, backdropHex()),
+			m.focusRightColumn(bodyHeight),
+		)...)
+	} else {
+		frame = append(frame, joinColumns(
+			m.focusLeftColumn(bodyHeight),
+			paintContent(contentRows, bleedWidth, bodyHeight, backdropHex()),
+			m.bleedColumn(bodyHeight),
+			seam,
+			paintContent(railRows, railWidth, bodyHeight, panelHex()),
+			edge,
+		)...)
+	}
 	bottom := m.boundedRuleRow(leftWidth+1, m.width, "▄")
 	if m.mode == modeFocus && m.pane.box.ok {
 		bottom = m.focusBottomRule(leftWidth+1, m.width)

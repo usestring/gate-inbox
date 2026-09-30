@@ -27,6 +27,7 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `enter` | Focus session in place (keys go to the agent, list stays) / fold group. An archived session has no live pane to focus, so the row offers attach and `u` instead |
 | `A` | Attach session full screen (Settings can swap it with `enter`) |
 | `l` | Focus the session you were on before this one; `l` again swaps back. The pair is held by session, so a poll, a fold or a filter reordering the board does not move it |
+| `ctrl+g` | Jump to a pane: search listed sessions by name, group, tool or status, then press `enter` to focus one. Works from the list or a focused pane; `esc` returns without switching. Folded groups are opened when you jump into them. |
 | `.` | Mark a finished session idle without entering it |
 | `ctrl+q` / `ctrl+\` | Inside a session: back to the manager when the terminal and tmux leave the key available |
 | tmux prefix, then `d` | Inside a full-screen attach: back to the manager when the prefix reaches the inner tmux |

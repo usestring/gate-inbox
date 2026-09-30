@@ -120,6 +120,8 @@ func (m *Model) paint() (string, bool) {
 		frame = m.viewExtension()
 	case modeQuickActions:
 		frame = m.viewQuickActions()
+	case modePanePicker:
+		frame = m.viewPanePicker()
 	default:
 		frame = m.viewListFrame()
 	}

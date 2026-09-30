@@ -78,6 +78,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleExtensionViewKey(msg)
 	case modeQuickActions:
 		return m.handleQuickActionsKey(msg)
+	case modePanePicker:
+		return m.handlePanePickerKey(msg)
 	}
 
 	// A pending open waits for the open key again on the same row. esc
@@ -134,6 +136,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// See statusjump.go.
 	// The list's step in and fold follow the rail's side (see sideBindings).
 	action, bound := m.sideAction(keymap.ContextList, msg)
+	if bound && action == keymap.JumpPane {
+		m.openPanePicker()
+		return m, nil
+	}
 	if jump, isJump := statusJumps[action]; bound && isJump {
 		return m.jumpToStatus(jump)
 	}

@@ -221,6 +221,10 @@ func (m *Model) runQuickAction(entry quickActionEntry) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) dispatchQuickAction(action keymap.Action) (tea.Model, tea.Cmd) {
+	if action == keymap.JumpPane {
+		m.openPanePicker()
+		return m, nil
+	}
 	if jump, isJump := statusJumps[action]; isJump {
 		return m.jumpToStatus(jump)
 	}

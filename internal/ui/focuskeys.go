@@ -642,6 +642,9 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.copySessionID(sess)
 		case action == keymap.LastPane:
 			return m.focusBack()
+		case action == keymap.JumpPane:
+			m.openPanePicker()
+			return m, tea.ClearScreen
 		case action == keymap.Dismiss:
 			// The skip a one-at-a-time drain needs: a session that turns
 			// out to want nothing is taken off the queue from inside it,

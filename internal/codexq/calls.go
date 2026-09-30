@@ -14,11 +14,8 @@ import (
 	"time"
 )
 
-// NoneOfTheAbove is the row Codex adds under a question's options; picking it
-// with a note is how a question takes words of the answerer's own.
 const NoneOfTheAbove = "None of the above"
 
-// NotePrefix marks the note in an answer's list.
 const NotePrefix = "user_note: "
 
 type Option struct {
@@ -46,10 +43,8 @@ type Call struct {
 	State      State
 	Answers    map[string]Answer
 	ResolvedAt time.Time
-	// Reply is the message the operator sent after an async call, which is
-	// how one is answered.
-	Reply   string
-	ReplyAt time.Time
+	Reply      string
+	ReplyAt    time.Time
 }
 
 type callRecord struct {
@@ -81,8 +76,6 @@ type callArgs struct {
 	} `json:"questions"`
 }
 
-// ReadCalls is every request_user_input call in the rollout at path, with
-// what became of it, in ask order.
 func ReadCalls(path string) ([]Call, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -239,7 +232,6 @@ func parseAnswers(raw json.RawMessage) map[string]Answer {
 	return answers
 }
 
-// Root is where Codex keeps its rollouts.
 func Root() string {
 	if home := os.Getenv("CODEX_HOME"); home != "" {
 		return filepath.Join(home, "sessions")
@@ -256,7 +248,6 @@ var (
 	paths   = map[string]string{}
 )
 
-// RolloutPath finds the rollout of the conversation id under root.
 func RolloutPath(root, id string) string {
 	if root == "" || id == "" {
 		return ""
@@ -303,8 +294,6 @@ var (
 	parsedBy = map[string]*parsed{}
 )
 
-// CallsAt is ReadCalls kept up to date: each call reads only what the rollout
-// gained since the last.
 func CallsAt(path string) ([]Call, error) {
 	parsedMu.Lock()
 	defer parsedMu.Unlock()

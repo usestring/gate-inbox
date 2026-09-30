@@ -188,8 +188,6 @@ func codexFinish(pane dialogPane, result AnsweredQuestion, err error) (AnsweredQ
 	return result, err
 }
 
-// codexNavigate moves the dialog to question index with Left and Right, which
-// Codex's legend names for moving between questions.
 func codexNavigate(pane dialogPane, index int) (string, error) {
 	for range 16 {
 		raw, err := pane.Capture()
@@ -230,8 +228,6 @@ func codexNavigate(pane dialogPane, index int) (string, error) {
 	return "", fmt.Errorf("could not reach question %d", index+1)
 }
 
-// codexPick picks an option by its number, which Codex takes as selecting it
-// and answering the question, or by arrows past row nine.
 func codexPick(pane dialogPane, ask dialog.CodexAsk, label string) error {
 	n := 0
 	for _, option := range ask.Options {
@@ -256,9 +252,6 @@ func codexChoose(pane dialogPane, cursor, n int) error {
 	return pane.Keys(keys...)
 }
 
-// codexType puts words into the note of None of the above and submits them:
-// the cursor goes to that row, Tab opens its note, and the words are pasted
-// with the Enter that answers.
 func codexType(pane dialogPane, ask dialog.CodexAsk, text string, index int) error {
 	other := ask.Other()
 	if other == 0 {
@@ -292,8 +285,6 @@ func codexType(pane dialogPane, ask dialog.CodexAsk, text string, index int) err
 	return pane.Type(text)
 }
 
-// readbackCodex reads the call's output out of the rollout and checks every
-// answer is registered as given.
 func readbackCodex(call asks.Call, record func(string) (asks.Result, bool), steps []codexStep, result *AnsweredQuestion) error {
 	deadline := time.Now().Add(readbackTimeout)
 	var got asks.Result
@@ -335,8 +326,6 @@ func readbackCodex(call asks.Call, record func(string) (asks.Result, bool), step
 	return nil
 }
 
-// answerCodexAsync answers a request_user_input_async call, which draws no
-// dialog: Codex reads the next message the operator sends as its answer.
 func answerCodexAsync(pane dialogPane, call asks.Call, record func(string) (asks.Result, bool), answers []QuestionAnswer,
 	guard *answerGuard) (AnsweredQuestion, error) {
 	questions := make([]dialog.Question, len(call.Questions))
@@ -406,9 +395,6 @@ func readbackAsync(call asks.Call, record func(string) (asks.Result, bool), mess
 	}
 }
 
-// codexNotAQuestion answers a pane holding no request_user_input dialog: the
-// confirmation Codex asks before submitting with questions unanswered, a
-// question that expired, or a dialog that is a person's to answer.
 func codexNotAQuestion(pane dialogPane, raw string, call asks.Call, pending bool, record func(string) (asks.Result, bool),
 	lost func() (asks.Result, bool), answers []QuestionAnswer) (AnsweredQuestion, error) {
 	plain := ansi.Strip(raw)

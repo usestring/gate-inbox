@@ -11,32 +11,19 @@ import (
 	"github.com/usestring/gate-inbox/internal/convo"
 )
 
-// CodexNoneOfTheAbove is the row Codex 0.157 adds under every
-// request_user_input question; its note is where typed words go.
 const CodexNoneOfTheAbove = "None of the above"
 
-// CodexAsk is a request_user_input dialog as Codex draws it:
-//
-//	Question 1/2 (2 unanswered) · auto-resolves in 30s
-//	Which color should the banner use?
-//	› 1. Red                Use a red banner.
-//	  2. None of the above  Optionally, add details in notes (tab)
-//	tab to add notes | enter to submit answer | ←/→ to navigate questions | esc to interrupt
 type CodexAsk struct {
 	Index, Total int
-	// Unanswered is -1 when the heading does not say.
-	Unanswered int
-	Countdown  string
-	Prompt     string
-	Options    []CodexOption
-	// Cursor is the 1-based option the › marker is on, 0 for none.
-	Cursor    int
-	NotesOpen bool
-	Notes     string
-	// Last is the legend offering to submit every answer: the question on
-	// the screen is the last one.
-	Last   bool
-	Legend string
+	Unanswered   int
+	Countdown    string
+	Prompt       string
+	Options      []CodexOption
+	Cursor       int
+	NotesOpen    bool
+	Notes        string
+	Last         bool
+	Legend       string
 }
 
 type CodexOption struct {
@@ -45,7 +32,6 @@ type CodexOption struct {
 	Description string
 }
 
-// Other is the 1-based row of None of the above, 0 when it is not drawn.
 func (a CodexAsk) Other() int {
 	for _, option := range a.Options {
 		if option.Label == CodexNoneOfTheAbove {
@@ -55,8 +41,6 @@ func (a CodexAsk) Other() int {
 	return 0
 }
 
-// Choose finds the option answer names, 1-based, or 0 for words that are
-// none of them.
 func (a CodexAsk) Choose(answer string) int {
 	labels := make([]string, len(a.Options))
 	for i, option := range a.Options {
@@ -73,8 +57,6 @@ var (
 	codexSplit      = regexp.MustCompile(`\S(\s{2,})\S`)
 )
 
-// ParseCodexAsk reads the request_user_input dialog off a pane, raw or
-// stripped.
 func ParseCodexAsk(pane string) (CodexAsk, bool) {
 	lines := codexLines(pane)
 	head := -1
@@ -148,8 +130,6 @@ func codexLines(pane string) []string {
 	return lines
 }
 
-// codexOptions reads the numbered rows from lines[from], each with the lines
-// its label or description wrapped onto, and returns where they end.
 func codexOptions(lines []string, from int) ([]CodexOption, int) {
 	var (
 		options []CodexOption
@@ -199,10 +179,6 @@ var (
 	codexMCPApproval = regexp.MustCompile(`(?i)^\s*Allow the .* MCP server to run tool`)
 )
 
-// ReadCodexScreen reads a Codex dialog that is not a request_user_input
-// question: a command or edit approval, an MCP tool approval or input form,
-// the folder-trust and update prompts, and the confirmation Codex asks before
-// submitting a dialog with questions left unanswered.
 func ReadCodexScreen(pane string) (Screen, bool) {
 	lines := codexLines(pane)
 	end := len(lines)
@@ -312,9 +288,6 @@ func codexScreenKind(screen Screen) ScreenKind {
 	return ScreenWorkspaceTrust
 }
 
-// CodexUnansweredConfirm reports whether the pane shows the confirmation Codex
-// asks before submitting a dialog with questions left unanswered, and the
-// 1-based rows of its Proceed and Go back choices.
 func CodexUnansweredConfirm(pane string) (proceed, goBack, cursor int, ok bool) {
 	screen, ok := ReadCodexScreen(pane)
 	if !ok || !strings.HasPrefix(strings.TrimSpace(screen.Lines[0]), "Submit with unanswered") {

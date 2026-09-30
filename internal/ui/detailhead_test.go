@@ -35,22 +35,28 @@ func TestSessionDetailLinesFitTheirColumn(t *testing.T) {
 			}
 		}
 
-		if !strings.Contains(ansi.Strip(strings.Join(blocks["session"], "\n")), "»2") {
-			t.Errorf("block at %d dropped the queued-message badge", width)
+		if strings.Contains(ansi.Strip(strings.Join(blocks["session"], "\n")), "»2") {
+			t.Errorf("block at %d repeats the queued-message badge the cursor row already wears", width)
 		}
 	}
 }
 
-// The name and state survive even a rail too narrow for the rest of the
-// facts; a fact whose value does not fit is cut with an ellipsis rather
-// than dropped or left to overflow.
-func TestSessionDetailLinesStayReadableWhenNarrow(t *testing.T) {
+// The block carries only what the cursor row does not: the row already
+// draws the name, the state and the age, so the block says where the session
+// runs and on what, and cuts a fact that does not fit rather than dropping it
+// or letting it overflow.
+func TestSessionDetailLinesLeaveTheRowItsOwnFacts(t *testing.T) {
 	m := shotModel()
 
 	wide := ansi.Strip(strings.Join(m.sessionDetailLines(70), "\n"))
-	for _, want := range []string{"add-rate-limiting", "claude", "working"} {
+	for _, want := range []string{"claude", "group", "started", "dir"} {
 		if !strings.Contains(wide, want) {
 			t.Fatalf("wide block is missing %q: %q", want, wide)
+		}
+	}
+	for _, repeated := range []string{"add-rate-limiting", "working"} {
+		if strings.Contains(wide, repeated) {
+			t.Errorf("wide block repeats %q from the cursor row: %q", repeated, wide)
 		}
 	}
 
@@ -62,13 +68,6 @@ func TestSessionDetailLinesStayReadableWhenNarrow(t *testing.T) {
 		if got := ansi.StringWidth(line); got > 20 {
 			t.Errorf("narrow line is %d wide, want at most 20: %q", got, ansi.Strip(line))
 		}
-	}
-	plain := ansi.Strip(strings.Join(narrow, "\n"))
-	if !strings.Contains(plain, "add-rate") {
-		t.Errorf("20 columns lost the name entirely: %q", plain)
-	}
-	if !strings.Contains(plain, "working") {
-		t.Errorf("20 columns lost the state: %q", plain)
 	}
 
 	// Too tight for even a label column: the block steps aside instead of

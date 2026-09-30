@@ -238,9 +238,9 @@ func helpSections() []helpSection {
 			bound(keymap.ContextWelcome, keymap.Bottom, "the bottom"),
 		}},
 		{title: "advanced: settings", rows: []helpRow{
-			lit("↵", "run the field's action (CLIs, report, suggest)"),
+			lit("↵", "run the field's action (snippets, CLIs, guide, keys)"),
 			lit("esc", "save and close"),
-			note("settings also reopens the welcome guide"),
+			note("settings also reopens the welcome guide and the key map"),
 		}},
 		{title: "advanced: dialogs", rows: []helpRow{
 			lit("tab", "next field"),

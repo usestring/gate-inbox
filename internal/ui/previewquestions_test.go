@@ -278,3 +278,41 @@ func TestThePollReadsThePendingCallOncePerTranscriptChange(t *testing.T) {
 		}
 	}
 }
+
+// The card is not drawn in the focus accent or the selected row's frame, on
+// any theme, quiet or not, so it never reads as the focused view.
+func TestTheQuestionCardHasItsOwnColour(t *testing.T) {
+	t.Cleanup(func() { applyTheme(themes[themeIndex(defaultTheme)]) })
+	for _, theme := range themes {
+		for _, quiet := range []bool{false, true} {
+			drawn := theme
+			if quiet {
+				drawn = quietened(theme)
+			}
+			card := cardColor(drawn)
+			if strings.EqualFold(card, drawn.Accent) || strings.EqualFold(card, drawn.Dim) {
+				t.Errorf("%s (quiet %v): card %s is the accent or the selected frame", theme.Name, quiet, card)
+			}
+			reachable := false
+			for _, c := range []string{drawn.Working, drawn.Finished, drawn.Accent2, drawn.Waiting, drawn.Errored} {
+				if min(rgbDistance(c, drawn.Accent), rgbDistance(c, drawn.Dim)) >= cardDistance {
+					reachable = true
+				}
+			}
+			if gap := min(rgbDistance(card, drawn.Accent), rgbDistance(card, drawn.Dim)); reachable && gap < cardDistance {
+				t.Errorf("%s (quiet %v): card %s is only %.0f from the focus colours", theme.Name, quiet, card, gap)
+			}
+		}
+		applyTheme(theme)
+		lines := questionCardLines(nil, true, 40, cardFull)
+		want, accent := fgSeq(cardColor(theme)), fgSeq(theme.Accent)
+		for _, line := range lines {
+			if !strings.Contains(line, want) {
+				t.Errorf("%s: card row does not carry the card colour: %q", theme.Name, line)
+			}
+		}
+		if last := lines[len(lines)-2]; strings.Contains(last, accent) && !strings.EqualFold(theme.Accent, cardColor(theme)) {
+			t.Errorf("%s: the on-screen Submit row is drawn in the focus accent: %q", theme.Name, last)
+		}
+	}
+}

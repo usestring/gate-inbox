@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -546,9 +547,39 @@ func applyTheme(t Theme) {
 	colorFinished = lipgloss.Color(t.Finished)
 	colorErrored = lipgloss.Color(t.Errored)
 	colorIdle = lipgloss.Color(t.Idle)
+	colorCard = lipgloss.Color(cardColor(t))
 
 	resetRenderCaches()
 	rebuildStyles()
+}
+
+// cardDistance is how far, in RGB, the card's colour has to sit from the
+// focus accent and the selected row's frame to read as a colour of its own.
+const cardDistance = 60
+
+// cardColor is the first of the theme's own tokens far enough from both the
+// focus accent and the selected row's frame, or failing that the farthest of
+// them: a theme where Working is its accent, as Solarized's is, falls through
+// to Finished.
+func cardColor(t Theme) string {
+	best, bestGap := t.Working, -1.0
+	for _, candidate := range []string{t.Working, t.Finished, t.Accent2, t.Waiting, t.Errored} {
+		gap := min(rgbDistance(candidate, t.Accent), rgbDistance(candidate, t.Dim))
+		if gap >= cardDistance {
+			return candidate
+		}
+		if gap > bestGap {
+			best, bestGap = candidate, gap
+		}
+	}
+	return best
+}
+
+func rgbDistance(a, b string) float64 {
+	r1, g1, b1 := hexRGB(a)
+	r2, g2, b2 := hexRGB(b)
+	dr, dg, db := float64(r1-r2), float64(g1-g2), float64(b1-b2)
+	return math.Sqrt(dr*dr + dg*dg + db*db)
 }
 
 func (t Theme) lightBackdrop() bool {

@@ -117,8 +117,9 @@ func (m *Model) previewQuestions(width, height int) []string {
 // with what, the question and its options for the rest, which one the dialog
 // is showing, and the Submit tab last.
 func questionCardLines(questions []dialog.Question, onSubmit bool, width, detail int) []string {
-	border := newFastStyle(lipgloss.NewStyle().Foreground(colorWaiting))
+	border := newFastStyle(lipgloss.NewStyle().Foreground(colorCard))
 	bold := newFastStyle(lipgloss.NewStyle().Foreground(colorText).Bold(true))
+	showing := newFastStyle(lipgloss.NewStyle().Foreground(colorCard).Bold(true))
 	inner := max(1, width-4)
 	answered := 0
 	for _, q := range questions {
@@ -152,9 +153,9 @@ func questionCardLines(questions []dialog.Question, onSubmit bool, width, detail
 		head := fmt.Sprintf("%s %d. %s", mark, q.Index, header)
 		style := bold
 		if q.OnScreen {
-			style = annotationStyle
+			style = showing
 		}
-		body = append(body, headLine(style.Render(head), head, q.OnScreen, inner))
+		body = append(body, headLine(style.Render(head), head, q.OnScreen, inner, border))
 		if q.Answered {
 			answer := textfmt.OneLine(q.Answer)
 			if answer == "" {
@@ -200,9 +201,9 @@ func questionCardLines(questions []dialog.Question, onSubmit bool, width, detail
 	}
 	style := bold
 	if onSubmit {
-		style = annotationStyle
+		style = showing
 	}
-	body = append(body, headLine(style.Render(submit), submit, onSubmit, inner))
+	body = append(body, headLine(style.Render(submit), submit, onSubmit, inner, border))
 
 	title := fmt.Sprintf(" %d questions · %d answered ", len(questions), answered)
 	title = textfmt.TruncateWidth(title, max(1, width-2), "")
@@ -215,12 +216,12 @@ func questionCardLines(questions []dialog.Question, onSubmit bool, width, detail
 
 // headLine is a question's header row, with the mark saying the dialog is
 // showing it when there is room for one.
-func headLine(styled, plain string, onScreen bool, inner int) string {
+func headLine(styled, plain string, onScreen bool, inner int, marker fastStyle) string {
 	const showing = "  ◂ on screen"
 	if !onScreen || textfmt.Width(plain)+textfmt.Width(showing) > inner {
 		return styled
 	}
-	return styled + mutedStyle.Render(showing)
+	return styled + marker.Render(showing)
 }
 
 // packItems sets items on as few lines of width as it can, two spaces apart,

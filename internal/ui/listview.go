@@ -230,9 +230,9 @@ func (m *Model) railLines(width, height int) []contentLine {
 	}
 	// The opening block only rides a rail with the full dock, and only while
 	// the list keeps the rows the full dock itself promises it. The selected
-	// row's own identity sits right above the prompt it was launched with,
-	// since both answer "what is this" before the dock answers "how loaded
-	// is the machine".
+	// row's facts sit right above the prompt it was launched with, since both
+	// answer "what is this" before the dock answers "how loaded is the
+	// machine".
 	var opening []string
 	if tier == dockFull {
 		block := append(m.sessionDetailLines(width), m.promptLines(width)...)
@@ -404,10 +404,12 @@ func railFact(pad, label, value string) string {
 	return pad + labelStyle.Render(padRight(label, railFactLabelWidth)) + value
 }
 
-// sessionDetailLines is the selected session's or group's identity — name,
-// state, and the facts that place it — moved out of the content column and
-// into the rail, right above the prompt block it now sits beside. Freeing
-// the content column of its own head leaves nothing there but the live pane.
+// sessionDetailLines is the selected session's or group's identity: the
+// facts that place it, right above the prompt block it sits beside. A
+// session's name, its queued-message badge, its state and its age are left
+// to the cursor row, which already draws them one glance away, so the block
+// carries only what the row does not. Its start time goes too, so the only
+// clock on the rail is the row's.
 func (m *Model) sessionDetailLines(width int) []string {
 	pad := spaces(railInset)
 	room := width - railInset - 2
@@ -437,14 +439,6 @@ func (m *Model) sessionDetailLines(width int) []string {
 	if sess.Account != "" {
 		tool += " as " + sess.Account
 	}
-	name := lipgloss.NewStyle().Foreground(colorBright).Bold(true).Render(m.displayName(sess))
-	if queued := m.queuedMessages[sess.ID]; queued > 0 {
-		name = inboxBadge(queued) + " " + name
-	}
-	head := name + "  " + chipStyle.Render(tool)
-	state := lipgloss.NewStyle().Foreground(statusColor(sess.Status)).
-		Render(statusGlyph(sess.Status)+" "+statusLabel(sess.Status)) +
-		subtleStyle.Render(" · "+relSince(lastActivity(sess)))
 	factRoom := max(room-railFactLabelWidth, 1)
 	usage := ""
 	if m.procFor == sess.ID && m.proc.OK {
@@ -456,10 +450,8 @@ func (m *Model) sessionDetailLines(width int) []string {
 	}
 	lines := []string{
 		pad + subtleStyle.Render("session"),
-		pad + textfmt.TruncateWidth(head, room, "…"),
-		pad + textfmt.TruncateWidth(state, room, "…"),
+		railFact(pad, "cli", chipStyle.Render(textfmt.TruncateWidth(tool, max(factRoom-2, 1), "…"))),
 		railFact(pad, "group", lipgloss.NewStyle().Foreground(colorAccent2).Render(textfmt.TruncateWidth(displayGroup(sess.Group), factRoom, "…"))),
-		railFact(pad, "started", subtleStyle.Render(textfmt.TruncateWidth(relSince(sess.CreatedAt), factRoom, "…"))),
 		railFact(pad, "dir", mutedStyle.Render(truncateTail(sess.Cwd, factRoom))),
 	}
 	if usage != "" {
@@ -636,14 +628,10 @@ func (m *Model) entryHeight(entry treeRow) int {
 	if entry.isArtifact() {
 		return 1
 	}
-	height := 1
 	if m.stackedRows() {
-		height = 2
+		return 2
 	}
-	if !entry.isGroup && m.promptRow(entry.sess) != "" {
-		height++
-	}
-	return height
+	return 1
 }
 
 // lineWindow keeps the cursor's entry fully visible inside a line budget,
@@ -850,9 +838,6 @@ func (m *Model) renderTreeRowContent(entry treeRow, selected bool, width, index 
 		row := paint(line, width, selectedHex())
 		if m.stackedRows() {
 			row += "\n" + paint(pad+trail, width, selectedHex())
-		}
-		if !entry.isGroup {
-			row += m.promptLine(entry.sess, metaIndent(pad, trail)+spaces(m.railFoldReserve()), width, subtleText, selectedHex())
 		}
 		return row
 	}
@@ -1083,43 +1068,10 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	}
 	head += m.summaryTag(sess, summaryRoom, metaText)
 
-	row := paint(rowColumns(head, meta, width-railGutter), width, bg)
 	if m.stackedRows() {
-		row = stackedRow(head, indent+meta, width, bg)
+		return stackedRow(head, indent+meta, width, bg)
 	}
-	return row + m.promptLine(sess, indent, width, metaText, bg)
-}
-
-// promptRowWidth caps the opening prompt a row carries under its name: enough
-// to say which task the row is, short enough to stay one line on any rail.
-const promptRowWidth = 60
-
-// promptRow is the opening prompt a session row carries on a line of its own,
-// flattened and cut to promptRowWidth. Nothing for a session with no prompt on
-// file, or one still waiting on its name, which already wears the prompt.
-func (m *Model) promptRow(sess store.Session) string {
-	if m.awaitingRename(sess) {
-		return ""
-	}
-	opening := m.openingPrompts(sess)
-	if len(opening) == 0 {
-		return ""
-	}
-	return textfmt.TruncateWidth(promptPlain(opening[0]), promptRowWidth, "…")
-}
-
-// promptLine paints promptRow under the row at its meta's indent, trimmed
-// again to whatever the rail leaves beside that indent.
-func (m *Model) promptLine(sess store.Session, indent string, width int, style func(string) string, bg string) string {
-	text := m.promptRow(sess)
-	if text == "" {
-		return ""
-	}
-	room := width - railGutter - textfmt.Width(indent)
-	if room < 1 {
-		return "\n" + paint(indent, width, bg)
-	}
-	return "\n" + paint(indent+style(textfmt.TruncateWidth(text, room, "…")), width, bg)
+	return paint(rowColumns(head, meta, width-railGutter), width, bg)
 }
 
 // minSummary is the fewest cells of a summary worth drawing: any shorter and
@@ -1127,9 +1079,9 @@ func (m *Model) promptLine(sess store.Session, indent string, width int, style f
 const minSummary = 12
 
 // summaryTag is what the session is about, set after its name: the title its
-// own CLI wrote for the conversation. The prompt it was opened with has a line
-// of its own under the row. Nothing when there is not room for it, or when it
-// would only repeat the name.
+// own CLI wrote for the conversation, or the prompt it was opened with until
+// it has one. Nothing when there is not room for it, or when it would only
+// repeat the name.
 func (m *Model) summaryTag(sess store.Session, room int, style func(string) string) string {
 	if room < minSummary {
 		return ""
@@ -1147,6 +1099,11 @@ func (m *Model) sessionSummary(sess store.Session) string {
 		return ""
 	}
 	text := strings.TrimSpace(m.titles[sess.ID])
+	if text == "" {
+		if opening := m.openingPrompts(sess); len(opening) > 0 {
+			text = promptPlain(opening[0])
+		}
+	}
 	if text == "" || sameWords(text, sess.Name) {
 		return ""
 	}

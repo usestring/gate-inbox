@@ -1,3 +1,0 @@
-{"type":"ai-title","sessionId":"list-summary","aiTitle":"Retry failed uploads when the storage bucket times out"}
-{"type":"user","sessionId":"list-summary","message":{"role":"user","content":"Uploads fail whenever the storage bucket times out. Retry them with backoff."}}
-{"type":"assistant","sessionId":"list-summary","message":{"role":"assistant","content":[{"type":"text","text":"I will wrap the upload call in a retry with exponential backoff."}]}}

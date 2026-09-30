@@ -21,6 +21,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/agentsession"
 	"github.com/usestring/gate-inbox/internal/band"
 	"github.com/usestring/gate-inbox/internal/codexq"
+	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/git"
 	"github.com/usestring/gate-inbox/internal/hooks"
@@ -113,6 +114,9 @@ type poller struct {
 	// rather than microseconds. It is reached from a pass and from its own
 	// goroutines, so unlike codexQuestions it carries its own lock.
 	codexSeeds codexSeeder
+	// askReads is each session's last read of a pending AskUserQuestion
+	// call, under runMu. See previewquestions.go.
+	askReads map[string]*askRead
 
 	// guarded by runMu: refresh state shared between the polling loop
 	// and one-off refresh commands
@@ -777,6 +781,8 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 	// stands for as long as nobody answers it, and the fold has to keep
 	// deciding about it the whole time.
 	answerableWait := make(map[string]bool)
+	askQuestions := make(map[string][]convo.AskQuestion)
+	askReads := make(map[string]*askRead)
 	// The row state this pass derives, written in one transaction instead of
 	// a statement per row. See store.ApplyDerivedStates for why that matters:
 	// the pass shares its write lock with every mcp process on the board, and
@@ -900,6 +906,9 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 				// screen only by the colour of that question's tab.
 				if sess.ParentID != "" {
 					childPane[sess.ID] = pane
+				}
+				if asked := p.pendingAsk(sess, clean, askReads); len(asked) > 0 {
+					askQuestions[sess.ID] = asked
 				}
 				phases.search += lap(&step)
 				// Ahead of every other write into the pane: until the
@@ -1087,6 +1096,7 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 	}
 	p.prevTreeCPU = nextTreeCPU
 	p.prevTreeAt = now
+	p.askReads = askReads
 	phases.tail = lap(&mark)
 
 	msg := refreshMsg{
@@ -1105,6 +1115,7 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 		archivedChildren: archivedKids,
 		searchText:       searchText,
 		answerableWait:   answerableWait,
+		askQuestions:     askQuestions,
 		hookless:         p.hooklessRows(),
 		stale:            p.staleRows(),
 		hogBadges:        p.hogWatch.badgeRows(),

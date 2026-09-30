@@ -15,9 +15,6 @@ type storedMessage struct {
 	Data        json.RawMessage `json:"data"`
 }
 
-// OpencodeStore writes the fixture's messages into a store with OpenCode 2's
-// session_message table, keeps the first keep of them (all when keep is 0),
-// and points the board at it.
 func OpencodeStore(t *testing.T, fixture, session string, keep int) {
 	t.Helper()
 	raw, err := os.ReadFile(fixture)

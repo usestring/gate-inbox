@@ -21,8 +21,6 @@ func (opencodeSource) Traits() Traits {
 	return Traits{Name: "OpenCode", MultiSelectAnswerable: true, FreeText: "type as its own answer instead"}
 }
 
-// OpencodeQuestionPart is one question tool call OpenCode stored in its
-// session store, in stored order.
 type OpencodeQuestionPart struct {
 	ID        string
 	MessageAt time.Time
@@ -65,9 +63,6 @@ type opencodePart struct {
 	} `json:"time"`
 }
 
-// OpencodeQuestions reads every question call of the session id out of the
-// store at path, oldest first, and says whether a user message was stored
-// after the last of them.
 func OpencodeQuestions(path, id string) ([]OpencodeQuestionPart, bool, error) {
 	if path == "" || id == "" {
 		return nil, false, nil

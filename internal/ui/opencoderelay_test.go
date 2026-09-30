@@ -17,8 +17,6 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// opencodeChild is an OpenCode session whose store holds the fixture's first
-// keep messages (all when keep is 0).
 func opencodeChild(t *testing.T, keep int) store.Session {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join("..", "asks", "testdata", "opencode-2.0.3-session-questions.json"))

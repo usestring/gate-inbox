@@ -53,8 +53,6 @@ type opencodeStep struct {
 	custom   string
 }
 
-// labels is what the step should leave registered: the options' labels in
-// the order the dialog lists them, then the words typed.
 func (s opencodeStep) labels() []string {
 	var out []string
 	for _, n := range s.options {
@@ -170,8 +168,6 @@ func splitChoices(text string) []string {
 	return out
 }
 
-// opencodeCustomRow is the row that takes typed words: the one past the
-// question's own options.
 func opencodeCustomRow(ask dialog.OpencodeAsk, question dialog.Question) int {
 	if len(ask.Options) > len(question.Options) {
 		return len(question.Options) + 1
@@ -208,8 +204,6 @@ func answerOpencodeSingle(pane dialogPane, ask dialog.OpencodeAsk, step opencode
 	return result, nil
 }
 
-// opencodeTypeCustom picks the question's own-words row, which opens a text
-// field, and pastes the words with the Enter that confirms them.
 func opencodeTypeCustom(pane dialogPane, ask dialog.OpencodeAsk, step opencodeStep) error {
 	row := opencodeCustomRow(ask, step.question)
 	if row == 0 || row > 9 {
@@ -234,8 +228,6 @@ func opencodePosition(ask dialog.OpencodeAsk, asked []convo.AskQuestion, total i
 	return ask.OnScreen(asked)
 }
 
-// opencodeNavigate moves the dialog to tab index (len(questions) is Submit)
-// with Tab and Shift+Tab.
 func opencodeNavigate(pane dialogPane, asked []convo.AskQuestion, total, index int) (dialog.OpencodeAsk, error) {
 	for range 2*total + 4 {
 		raw, err := pane.Capture()
@@ -313,9 +305,6 @@ func fillOpencode(pane dialogPane, asked []convo.AskQuestion, questions []dialog
 	return result, nil
 }
 
-// tickOpencode leaves exactly the step's boxes ticked on a multi-select, one
-// number key per box that has to change, and types its words into the
-// own-words row when it has any.
 func tickOpencode(pane dialogPane, ask dialog.OpencodeAsk, step opencodeStep) error {
 	custom := opencodeCustomRow(ask, step.question)
 	for _, option := range ask.Options {
@@ -404,8 +393,6 @@ func markOpencode(result *AnsweredQuestion, ask dialog.OpencodeAsk) {
 	}
 }
 
-// checkOpencodeReview reads the Submit page's "Header: answer" rows back
-// against what each step keyed.
 func checkOpencodeReview(ask dialog.OpencodeAsk, questions []dialog.Question, steps []opencodeStep) error {
 	if !ask.OnSubmit {
 		return fmt.Errorf("%w: the Submit tab is not showing its review, so the answers could not be read back", errDialogMoved)
@@ -468,8 +455,6 @@ func submitOpencode(pane dialogPane, call asks.Call, pending bool, record func(s
 	return result, readbackOpencode(call, record, steps, &result)
 }
 
-// readbackOpencode reads the answers OpenCode stored for the call and checks
-// each is what was keyed.
 func readbackOpencode(call asks.Call, record func(string) (asks.Result, bool), steps []opencodeStep, result *AnsweredQuestion) error {
 	deadline := time.Now().Add(readbackTimeout)
 	var got asks.Result

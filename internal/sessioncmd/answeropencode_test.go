@@ -12,9 +12,6 @@ import (
 	"github.com/usestring/gate-inbox/internal/dialog"
 )
 
-// opencodeModel is OpenCode 2's question dialog driven by keys, drawn inside
-// the composer bar the way internal/dialog/testdata/opencode shows it, and
-// storing its answers the way the session store does.
 type opencodeModel struct {
 	questions []convo.AskQuestion
 	tab       int

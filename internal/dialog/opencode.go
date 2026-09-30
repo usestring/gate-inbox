@@ -10,17 +10,10 @@ import (
 	"github.com/usestring/gate-inbox/internal/convo"
 )
 
-// OpencodeCustom is the row OpenCode's question dialog adds for an answer of
-// the answerer's own words, before any are typed.
 const OpencodeCustom = "Type your own answer"
 
-// OpencodeAsk is OpenCode 2's question dialog as drawn inside its composer
-// bar. Several questions get a row of tabs ("Color  Features  Name  Submit"),
-// which a pane under 50 columns replaces with "Field 1 of 3 · 0/3 completed";
-// the Submit tab is a review page listing "Header: answer".
 type OpencodeAsk struct {
-	Tabs []string
-	// Field is the 1-based question the narrow heading names, 0 when none.
+	Tabs      []string
 	Field     int
 	Completed int
 	Total     int
@@ -41,7 +34,6 @@ type OpencodeOption struct {
 	Picked      bool
 }
 
-// Checked is the 1-based rows whose box is ticked.
 func (a OpencodeAsk) Checked() []int {
 	var out []int
 	for _, option := range a.Options {
@@ -60,8 +52,6 @@ var (
 	opencodeTabSplit = regexp.MustCompile(`\s{2,}`)
 )
 
-// opencodeBlock is the composer box's rows, bar stripped, from the last row
-// titled title to the bottom of the box.
 func opencodeBlock(pane, title string) ([]string, bool) {
 	var rows []string
 	start := -1
@@ -86,7 +76,6 @@ func opencodeBlock(pane, title string) ([]string, bool) {
 	return rows, start >= 0
 }
 
-// ParseOpencodeAsk reads OpenCode's question dialog off a pane.
 func ParseOpencodeAsk(pane string) (OpencodeAsk, bool) {
 	rows, ok := opencodeBlock(pane, "Questions")
 	if !ok {
@@ -186,8 +175,6 @@ func ParseOpencodeAsk(pane string) (OpencodeAsk, bool) {
 	return ask, true
 }
 
-// opencodeReviewRows reads the Submit tab's "Header: answer" rows, joining a
-// row the pane wrapped.
 func opencodeReviewRows(rows, tabs []string) []ReviewAnswer {
 	var out []ReviewAnswer
 	for _, row := range rows {
@@ -212,11 +199,8 @@ func containsFold(list []string, s string) bool {
 	return false
 }
 
-// OpencodeNotAnswered is how the review page draws a question with no answer.
 const OpencodeNotAnswered = "(not answered)"
 
-// OnScreen is the 0-based question the dialog shows, matched against asked,
-// or -1.
 func (a OpencodeAsk) OnScreen(asked []convo.AskQuestion) int {
 	if a.OnSubmit {
 		return -1
@@ -296,8 +280,6 @@ func opencodeQuestions(pane string, asked []convo.AskQuestion) (Reading, bool) {
 	return Reading{Questions: out}, true
 }
 
-// ReadOpencodeScreen reads OpenCode's permission ask: the tool and what it
-// wants to touch, and its Allow once / Always allow / Reject choices.
 func ReadOpencodeScreen(pane string) (Screen, bool) {
 	rows, ok := opencodeBlock(pane, "△ Permission required")
 	if !ok {
@@ -337,8 +319,6 @@ func ReadOpencodeScreen(pane string) (Screen, bool) {
 
 var sgrBackground = regexp.MustCompile(`\x1b\[[0-9;]*48;[0-9;]*m`)
 
-// opencodeSelectedChoice finds the choice drawn on a background of its own,
-// which is how the permission ask marks the selected one, or -1.
 func opencodeSelectedChoice(pane string, choices []ScreenChoice) int {
 	if len(choices) < 2 || !strings.Contains(pane, "\x1b[") {
 		return -1

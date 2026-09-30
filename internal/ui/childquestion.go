@@ -389,7 +389,7 @@ func screenKeystroke(screen dialog.Screen) string {
 	if screen.Choices[0].Number > 0 {
 		return "Pressing a choice's number at its pane picks that choice."
 	}
-	sideways := strings.Contains(screen.Legend, "\u21c6")
+	sideways := strings.ContainsRune(screen.Legend, rune(0x21c6))
 	if cursor := screen.Cursor(); cursor >= 0 {
 		if sideways {
 			return fmt.Sprintf("Enter picks the selected choice; Left/Right moves the selection first (it is on "+

@@ -91,13 +91,11 @@ func missingToolText(missing config.MissingToolError) string {
 
 // openLaunchHint takes the refused prompt's images out of the composers:
 // the prompt text already names their paths, and the dialog owns the
-// files until the launch runs or is given up, so the form and the quick
-// bar can be reopened meanwhile.
+// files until the launch runs or is given up, so the form can be reopened
+// meanwhile.
 func (m *Model) openLaunchHint(fix launchFix) {
 	fix.images = append(fix.images, m.form.prompt.attachments...)
-	fix.images = append(fix.images, m.quick.attachments...)
 	m.form.prompt.attachments = nil
-	m.quick.attachments = nil
 	m.launchFix = fix
 	m.mode = modeLaunchHint
 }

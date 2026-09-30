@@ -16,6 +16,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/launch"
+	"github.com/usestring/gate-inbox/internal/snippets"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/sysstat"
@@ -1362,7 +1363,7 @@ func tempReadings(snap sysstat.Snapshot) string {
 }
 
 // contentLines is the right column: what the cursor is on, then its live
-// pane, with the quick prompt docked at the foot when it is open. width is
+// pane, with the hotkey menu docked at the foot when it is open. width is
 // the whole column; our own blocks sit inside its gutters, while the
 // captured pane spans it edge to edge.
 func (m *Model) contentLines(width, height int) []contentLine {
@@ -1663,68 +1664,110 @@ func lastActivity(sess store.Session) time.Time {
 	return sess.LastStatusAt
 }
 
-// viewQuickBar is the docked prompt: enter answers the selected session, or
-// spawns a fresh agent when a group is selected.
+// viewQuickBar is the docked hotkey menu: the session a key would answer,
+// then every snippet under the key that sends it from here.
 func (m *Model) viewQuickBar(width, maxRows int) string {
 	label := func(text string) string { return labelStyle.Render(padRight(text, detailLabelWidth)) }
 	target := rowColumns(label("target")+mutedStyle.Render("no selection"), "", width)
-	if entry, ok := m.selectedRow(); ok {
-		if entry.isGroup {
-			// Spawning: the tool decides what gets created, so it sits
-			// where the eye lands before typing.
-			tool := chipStyle.Render(m.quickTool())
-			target = fitColumns(
-				[]string{label("new") + lipgloss.NewStyle().Foreground(colorAccent2).Render(displayGroup(entry.group))},
-				[]string{tool, ""}, width)
-		} else {
-			sess := entry.sess
-			state := lipgloss.NewStyle().Foreground(statusColor(sess.Status)).
-				Render(statusGlyph(sess.Status) + " " + statusLabel(sess.Status))
-			target = fitColumns(
-				[]string{label("answer") + lipgloss.NewStyle().Foreground(colorBright).Bold(true).Render(m.displayName(sess))},
-				[]string{state + " " + chipStyle.Render(sess.Tool), state, ""}, width)
-		}
+	entry, ok := m.selectedRow()
+	if ok && entry.isGroup {
+		target = rowColumns(label("target")+mutedStyle.Render("a group: select a session to send to"), "", width)
+	} else if ok {
+		sess := entry.sess
+		state := lipgloss.NewStyle().Foreground(statusColor(sess.Status)).
+			Render(statusGlyph(sess.Status) + " " + statusLabel(sess.Status))
+		target = fitColumns(
+			[]string{label("send") + lipgloss.NewStyle().Foreground(colorBright).Bold(true).Render(m.displayName(sess))},
+			[]string{state + " " + chipStyle.Render(sess.Tool), state, ""}, width)
 	}
-	// The rows the frame can spare become the box's own cap, so a keystroke
-	// repositions the viewport inside the rows that are actually on screen.
-	// LineInfo counts wraps at the width already stored on the box.
-	m.quick.input.SetWidth(width)
 	limit := min(maxRows, quickBarMaxRows)
 	if m.mode == modeFocus {
 		limit = min(limit, max(1, m.listBodyHeight()-6))
 	}
-	m.quick.maxRows = limit
-	m.quick.input.SetHeight(m.quickBarRows(width-2, limit))
-	// Chips are tokens inside the typed text, so they wrap and reflow with
-	// the words around them; painting happens on the rendered prompt.
-	bar := target + "\n" + m.quick.renderChips(m.quick.input.View())
-	if line := m.quickSnippetLine(width); line != "" {
-		bar += "\n" + line
-	}
-	return bar
+	return target + "\n" + strings.Join(m.quickMenuLines(width, limit), "\n")
 }
 
-// quickSnippetLine offers the operator's snippets under the prompt: the
-// messages already on a key, so a sentence that has one is not typed again.
-//
-// One line, and only when a session is selected. On a group the bar spawns
-// rather than answers, and a snippet has no pane to reach there -- listing
-// them would be offering keys that refuse. The line is truncated rather than
-// wrapped: the dock's height is measured from what this returns, so a set of
-// snippets long enough to wrap would push the live pane down by however many
-// the operator happened to define.
-func (m *Model) quickSnippetLine(width int) string {
-	entry, ok := m.selectedRow()
-	if !ok || entry.isGroup {
-		return ""
+// quickMenuLines lays the snippets out as the menu's body: each key beside
+// its label, packed across the width and wrapped onto at most limit lines.
+// The dock's height is measured from what this returns, so the cap is what
+// keeps a long snippets file from pushing the live pane off the screen; the
+// last line says how many did not fit, and the key map lists them all.
+func (m *Model) quickMenuLines(width, limit int) []string {
+	if m.snipErr != "" {
+		return []string{errStyle.Render(truncateTail("snippets.json could not be read: "+m.snipErr, width))}
 	}
-	rows := m.snippetQuickRows()
-	if len(rows) == 0 {
-		return ""
+	if len(m.snips.Snippets) == 0 {
+		return []string{mutedStyle.Render(truncateTail("no snippets yet: add them to "+snippets.Path(m.configDir()), width))}
 	}
-	// Joined and cut as plain text, then styled once. Truncating a string
-	// that already carries escape sequences cuts them mid-sequence.
-	return subtleStyle.Render(truncateTail(strings.Join(rows, "  ·  "), width))
+	type cell struct {
+		text  string
+		width int
+	}
+	const gap = 3
+	var lines [][]cell
+	var line []cell
+	used := 0
+	for _, snip := range m.snips.Snippets {
+		key, title := snip.Key, snip.Title()
+		if room := width - textfmt.Width(key) - 1; textfmt.Width(title) > room {
+			title = truncateTail(title, max(1, room))
+		}
+		c := cell{keyStyle.Render(key) + " " + mutedStyle.Render(title), textfmt.Width(key) + 1 + textfmt.Width(title)}
+		if len(line) > 0 && used+gap+c.width > width {
+			lines, line, used = append(lines, line), nil, 0
+		}
+		if len(line) > 0 {
+			used += gap
+		}
+		line, used = append(line, c), used+c.width
+	}
+	lines = append(lines, line)
+	lineWidth := func(cells []cell) int {
+		w := 0
+		for i, c := range cells {
+			if i > 0 {
+				w += gap
+			}
+			w += c.width
+		}
+		return w
+	}
+	shown := lines
+	var more string
+	if len(lines) > limit {
+		shown = lines[:limit]
+		last := shown[limit-1]
+		hidden := 0
+		for _, l := range lines[limit:] {
+			hidden += len(l)
+		}
+		// The note takes the last line's tail, and the cells it displaces
+		// are counted in it.
+		for {
+			more = "+" + strconv.Itoa(hidden) + " more in the key map"
+			if len(last) == 0 || lineWidth(last)+gap+textfmt.Width(more) <= width {
+				break
+			}
+			last, hidden = last[:len(last)-1], hidden+1
+		}
+		shown[limit-1] = last
+	}
+	sep := strings.Repeat(" ", gap)
+	out := make([]string, len(shown))
+	for i, l := range shown {
+		parts := make([]string, len(l))
+		for j, c := range l {
+			parts[j] = c.text
+		}
+		out[i] = strings.Join(parts, sep)
+	}
+	if more != "" {
+		if out[limit-1] != "" {
+			out[limit-1] += sep
+		}
+		out[limit-1] += subtleStyle.Render(truncateTail(more, width))
+	}
+	return out
 }
 
 // archiveTimeLeft is how long an archived row has before the retention sweep

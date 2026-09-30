@@ -763,16 +763,11 @@ type renameTarget struct {
 	toolIndex int
 }
 
-// quickState is the inline prompt bar docked under the preview: active
-// across cursor moves, so the target follows the selection. The tool is
-// the spawn CLI for group targets, cycled with tab. A pasted image lands
-// at the caret as an "[Image #N]" token that renders as a chip and steps,
-// deletes, and wraps as one unit; on submit each token becomes its path.
+// quickState is the hotkey menu docked under the preview: active across
+// cursor moves, so the target follows the selection. It lists the snippets
+// and takes no text.
 type quickState struct {
-	active bool
-	composer
-	toolNames      []string
-	toolIndex      int
+	active         bool
 	closeAfterSend bool
 }
 
@@ -2475,10 +2470,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		if m.mode == modeExtensionView {
 			return m, m.pasteIntoView(msg)
-		}
-		if m.quick.active && (m.mode == modeList || m.showsConversation()) {
-			m.quick.input.InsertString(msg.Content)
-			return m, nil
 		}
 		if m.mode == modeFocus {
 			return m.handleFocusPaste(msg)

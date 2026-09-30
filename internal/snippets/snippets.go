@@ -77,8 +77,8 @@ const (
 // none -- nothing behind the manager binds ±, and the manager binds nothing
 // on it -- and because a bare key is what the hand already expects there.
 //
-// Being bare, it is also text, so the quick prompt bar leaves it to the input
-// rather than reading it as the snippet: see Bare.
+// Being bare, it is also text, so a text input keeps it as the character it
+// types rather than reading it as the snippet: see Bare.
 const PlusMinusKey = "±"
 
 // Snippet is one key and what it sends.

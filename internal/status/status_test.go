@@ -314,6 +314,14 @@ func TestCodexRealPanes(t *testing.T) {
 			"• Reconnecting... 3/5 (1m 04s • esc to interrupt)\n" +
 				"  └ Stream disconnected before completion\n\n" +
 				"› Ask Codex to do anything\n  gpt-5.6-terra medium · /home/dev", Working},
+		{"codex connection lost while reconnecting", "codex",
+			"■ Connection lost. Attempting to reconnect…\n\n• Reconnecting... 3/5 (1m 04s • esc to interrupt)\n\n› Ask Codex to do anything", Working},
+		{"codex automatic reconnect exhausted", "codex",
+			"• Working (12s • esc to interrupt)\n\n■ Connection lost. Attempting to reconnect…\n\n■ Automatic reconnect could not restore this session. Your draft is still editable. Copy it before quitting with Ctrl+C, then\nreconnect with the same command.\n\n■ app-server session could not be restored\n\n› Ask Codex to do anything", Errored},
+		{"codex automatic reconnect could not restore alone", "codex",
+			"■ Automatic reconnect could not restore this session. Your draft is still editable.\n\n› Ask Codex to do anything", Errored},
+		{"codex app-server session could not be restored", "codex",
+			"• Working (12s • esc to interrupt)\n\n■ app-server session could not be restored", Errored},
 		{"codex numbered draft is not a dialog", "codex",
 			"• Working (0s • esc to interrupt)\n\n› 1. keep this as ordinary input\n  gpt-5.6-terra medium · /home/dev", Working},
 		{"codex option-shaped draft without footer is not a dialog", "codex",

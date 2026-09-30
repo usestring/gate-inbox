@@ -97,7 +97,9 @@ func TestSessionWorkArrivesFolded(t *testing.T) {
 	if want := statusGlyph(status.Waiting) + " 1 pr · 1 issue"; !strings.Contains(rail, want) {
 		t.Fatalf("folded row lost its badge (want %q):\n%s", want, rail)
 	}
-	if strings.Contains(rail, "#838") {
+	// The prompt line under the row quotes the prompt that named the work;
+	// only a row of the tree's own may name it apart from that.
+	if strings.Contains(strings.ReplaceAll(rail, "finish PR #838 for ABC-100001", ""), "#838") {
 		t.Fatalf("a folded row names an artifact the tree should name:\n%s", rail)
 	}
 	if !strings.Contains(rail, "▸ ") {
@@ -144,7 +146,7 @@ func TestSessionWithNoWorkIsNotExpandable(t *testing.T) {
 func TestUnfoldingASessionListsItsWork(t *testing.T) {
 	m := railWorkModel(t)
 	m.selectSessionRow(t, "add-rate-limiting")
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
 	*m = *updated.(*Model)
 
 	indexes := m.artifactRowIndexes()
@@ -172,10 +174,10 @@ func TestUnfoldingASessionListsItsWork(t *testing.T) {
 		}
 	}
 
-	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
 	*m = *updated.(*Model)
 	if got := m.artifactRowIndexes(); len(got) != 0 {
-		t.Fatalf("left did not fold the work: %v", got)
+		t.Fatalf("right did not fold the work: %v", got)
 	}
 }
 
@@ -184,7 +186,7 @@ func TestUnfoldingASessionListsItsWork(t *testing.T) {
 func TestRebuildKeepsTheCursorOnAnArtifact(t *testing.T) {
 	m := railWorkModel(t)
 	m.selectSessionRow(t, "add-rate-limiting")
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
 	*m = *updated.(*Model)
 	m.cursor = m.artifactRowIndexes()[1]
 	key := rowKey(m.rows[m.cursor])
@@ -200,11 +202,11 @@ func TestRebuildKeepsTheCursorOnAnArtifact(t *testing.T) {
 func TestFoldingFromAnArtifactLandsOnItsSession(t *testing.T) {
 	m := railWorkModel(t)
 	m.selectSessionRow(t, "add-rate-limiting")
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
 	*m = *updated.(*Model)
 	m.cursor = m.artifactRowIndexes()[1]
 
-	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
 	*m = *updated.(*Model)
 	row, ok := m.cursorRow()
 	if !ok || !row.isSession() || row.sess.ID != "add-rate-limiting" {
@@ -217,7 +219,7 @@ func TestFoldingFromAnArtifactLandsOnItsSession(t *testing.T) {
 func TestFoldAllReachesSessionWork(t *testing.T) {
 	m := railWorkModel(t)
 	m.selectSessionRow(t, "add-rate-limiting")
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
 	*m = *updated.(*Model)
 	m.cursor = m.artifactRowIndexes()[0]
 
@@ -238,7 +240,7 @@ func TestFoldAllReachesSessionWork(t *testing.T) {
 func TestArtifactRowOpensItsLink(t *testing.T) {
 	m := railWorkModel(t)
 	m.selectSessionRow(t, "add-rate-limiting")
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
 	*m = *updated.(*Model)
 
 	opened := make(chan string, 4)
@@ -467,10 +469,12 @@ func TestARailWithNoWorkReservesNoFoldColumn(t *testing.T) {
 // point when the thing under test is an escape.
 func railRawLine(t *testing.T, m *Model, width int, name string) string {
 	t.Helper()
+	// The last line naming it: a session's prompt line can name the same
+	// artifact, and the artifact's own row is drawn after it.
 	lines := m.railLines(width, m.listBodyHeight())
-	for _, line := range lines {
-		if strings.Contains(ansi.Strip(line.text), name) {
-			return line.text
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.Contains(ansi.Strip(lines[i].text), name) {
+			return lines[i].text
 		}
 	}
 	t.Fatalf("no rail line names %s:\n%s", name, railLinesText(lines))

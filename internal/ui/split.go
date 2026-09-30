@@ -80,13 +80,20 @@ func clampSplitLeft(left, width int) int {
 }
 
 // setSplitFromX pins the seam to terminal column x, which leaves the rail
-// every column to its right, and updates the stored ratio. Live during a
-// drag; consumers re-read via splitWidths on the next View.
+// every column on its side -- to the right of it, or to the left with the
+// sidebar on the left -- and updates the stored ratio. The ratio is the
+// rail's share whichever side it is on, so a saved split keeps its meaning
+// when the side changes. Live during a drag; consumers re-read via
+// splitWidths on the next View.
 func (m *Model) setSplitFromX(x int) {
 	if m.width <= 0 {
 		return
 	}
-	rail := clampSplitLeft(m.width-x-1, m.width)
+	rail := m.width - x - 1
+	if m.railOnLeft() {
+		rail = x
+	}
+	rail = clampSplitLeft(rail, m.width)
 	m.split.ratio = float64(rail) / float64(m.width)
 }
 
@@ -156,6 +163,10 @@ func (m *Model) bodyYRange() (start, end int) {
 // which is also the grip column when resize mode is on.
 func (m *Model) dividerX() int {
 	rail, _ := m.splitWidths()
+	if m.railOnLeft() {
+		// Past the rail's edge cell and its rail-1 columns of list.
+		return rail
+	}
 	return m.width - rail - 1
 }
 

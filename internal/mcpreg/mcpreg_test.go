@@ -163,7 +163,7 @@ func TestApplyOpencodeV2PutsTheModelInASessionConfig(t *testing.T) {
 	if parsed.Model != "anthropic/claude-sonnet-5" {
 		t.Fatalf("model = %q, want the chosen one", parsed.Model)
 	}
-	if parsed.MCP["gate-inbox"] == nil || parsed.Cmd["rename"] == nil || len(parsed.Instr) != 1 {
+	if parsed.MCP["gate-inbox"] == nil || parsed.Cmd["rename"] == nil || len(parsed.Instr) != 2 {
 		t.Fatalf("the session config must carry everything the shared one does:\n%s", content)
 	}
 }
@@ -215,8 +215,8 @@ func TestApplyOpencodeRegistersRenameCommandAndSteering(t *testing.T) {
 			t.Fatalf("rename template is missing %q:\n%s", want, rename.Template)
 		}
 	}
-	if len(parsed.Instructions) != 1 {
-		t.Fatalf("instructions = %v, want the one generated steering file", parsed.Instructions)
+	if len(parsed.Instructions) != 2 {
+		t.Fatalf("instructions = %v, want the rename and delegation steering files", parsed.Instructions)
 	}
 	steering, err := os.ReadFile(parsed.Instructions[0])
 	if err != nil {

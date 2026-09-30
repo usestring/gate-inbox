@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -143,6 +144,42 @@ func TestTriageDrainHoldsTheRowStillWhileTheOperatorAnswersIt(t *testing.T) {
 	// just as still one hop later.
 	if got := storedSession(t, m, next); got.Status != status.Finished || got.Acked {
 		t.Fatalf("the next session spent its alert on arrival: status %q acked %v", got.Status, got.Acked)
+	}
+}
+
+func TestTriageFinishedPromptArrowHandsOverToNextFinished(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		side string
+		code rune
+	}{
+		{"right sidebar, left arrow", config.SidebarRight, tea.KeyLeft},
+		{"right sidebar, right arrow", config.SidebarRight, tea.KeyRight},
+		{"left sidebar, left arrow", config.SidebarLeft, tea.KeyLeft},
+		{"left sidebar, right arrow", config.SidebarLeft, tea.KeyRight},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := buildModel(t)
+			m.sidebar = tc.side
+			liveTriageFleet(t, m, map[string]string{
+				"first":  status.Finished,
+				"second": status.Finished,
+			})
+			m.triage = true
+			m.rebuildRows()
+			m.enterFocusOn(t, "first")
+			m.engine = liveEngine(t)
+			m.preview = "❯\u00a0\n"
+			m.pane.forID = focusedID(t, m)
+			m.pane.cursor = paneCursor{x: 2, y: 0, ok: true}
+
+			updated, cmd := m.handleFocusKey(tea.KeyPressMsg{Code: tc.code})
+			m = updated.(*Model)
+			runStoreCmd(t, cmd)
+			if m.mode != modeFocus || focusedName(t, m) != "second" {
+				t.Fatalf("%s from finished focused %q in mode %v, want second", tc.name, focusedName(t, m), m.mode)
+			}
+		})
 	}
 }
 

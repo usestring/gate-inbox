@@ -15,9 +15,6 @@ import (
 // operator is typing into the agent itself.
 func (m *Model) openQuickMode() {
 	m.errBar.text = ""
-	if m.showsConversation() {
-		m.conversation.compact, m.conversation.dirty, m.conversation.offset = true, true, 0
-	}
 	m.quick = quickState{active: true, closeAfterSend: m.quickCloseAfterSend()}
 }
 

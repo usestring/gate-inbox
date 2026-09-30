@@ -53,7 +53,7 @@ func (m *Model) parentOwns(child store.Session, now time.Time, live map[string]b
 	// Whose question it is, is whose spawn it was. Reading it off the tree
 	// folded a grandchild's question away because a root was live, when the
 	// session that could actually answer it was somebody else entirely.
-	spawner := store.SpawnerOf(child)
+	spawner := store.TrackerOf(child)
 	if spawner == "" {
 		return false
 	}

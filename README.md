@@ -33,9 +33,10 @@ Gate Inbox reads the panes; it does not sit between you and the model.
    agent CLIs are ready, the five keys that matter, and any agents you already have running in
    tmux. `n` on the card starts your first session.
 3. **Agents you already had.** Anything you started by hand in tmux shows up on the board as-is.
-   The next card asks whether to keep each one that way, relaunch it into the board, or leave it
-   out, and it lists what a pane kept as-is misses ([below](#kept-as-is-or-relaunched)). `N` makes
-   that answer the default and stops the question; settings (`s`) turns it back on.
+   The board then takes each one over: once it is idle, it is relaunched on the same conversation
+   as a board session, and a busy one is never interrupted. What a pane kept as-is would miss is
+   [below](#kept-as-is-or-relaunched); settings (`s`) has "outside panes" to keep them as-is
+   instead.
 4. **The loop.** `n` starts an agent, `enter` focuses it, `ctrl+q` comes back to the list, `i`
    walks everything waiting on you, and `h` shows every key.
 5. **Leaving and coming back.** `q` quits and the agents keep running. When you start it again,
@@ -127,6 +128,7 @@ selected agent for builds and one-off commands.
 | `T` | Shell tab under the selected agent |
 | `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |
 | `f` | Fork the conversation into a new session |
+| `:` / `ctrl+p` | Quick actions: type what you want, `enter` runs it, and each row shows its key |
 | `h` / `s` | Key map for the current screen / settings |
 
 Every binding is a default, and `h` is where you rebind one. [`docs/usage.md`](docs/usage.md) is

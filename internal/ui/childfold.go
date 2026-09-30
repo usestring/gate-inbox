@@ -19,8 +19,9 @@ import (
 const childFoldPrefix = "children:"
 
 // childDepthCap is how deep a lineage draws before it flattens. The store
-// allows one level of parenthood, so nothing reaches this today; it is here
-// so that relaxing that rule cannot walk the list off the right edge.
+// allows one level of agent parenthood plus a terminal under a child, so
+// nothing reaches this today; it is here so that relaxing that rule cannot
+// walk the list off the right edge.
 const childDepthCap = 3
 
 // deeperMark stands in for the levels a flattened row is really at, so a row
@@ -52,7 +53,8 @@ func (m *Model) clearChildFold(parentID string) { delete(m.collapsed, childFoldP
 // of bloat between the parent and the next thing the human was reading, and
 // the badge says what is down there. The cursor sitting on a child is the
 // exception, so arriving on one from triage or a search opens its parent
-// rather than selecting a row that is not drawn.
+// rather than selecting a row that is not drawn. That holds for every
+// ancestor: a terminal under a child agent sits two folds down.
 func (m *Model) childrenShown(parentID string) bool {
 	if parentID == "" {
 		return false
@@ -60,21 +62,24 @@ func (m *Model) childrenShown(parentID string) bool {
 	if folded, decided := m.childFoldDecision(parentID); decided {
 		return !folded
 	}
-	return parentID == m.cursorParentID()
+	return m.cursorAncestors()[parentID]
 }
 
-// cursorParentID is the parent of the session the tree is being built around,
-// empty when that session is a root or there is no cursor.
-func (m *Model) cursorParentID() string {
+// cursorAncestors is the lineage above the session the tree is being built
+// around, empty when that session is a root or there is no cursor.
+func (m *Model) cursorAncestors() map[string]bool {
+	ancestors := map[string]bool{}
 	if m.railCursorSess == "" {
-		return ""
+		return ancestors
 	}
+	parents := make(map[string]string, len(m.sessions))
 	for _, sess := range m.sessions {
-		if sess.ID == m.railCursorSess {
-			return sess.ParentID
-		}
+		parents[sess.ID] = sess.ParentID
 	}
-	return ""
+	for id := parents[m.railCursorSess]; id != "" && !ancestors[id]; id = parents[id] {
+		ancestors[id] = true
+	}
+	return ancestors
 }
 
 // hasChildren reports whether a session is foldable at all. A terminal under

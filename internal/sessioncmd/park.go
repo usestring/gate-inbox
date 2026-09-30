@@ -562,6 +562,6 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 			return config.Tool{}, err
 		}
 	}
-	accounts.RecordLaunch(runtime.store, target.ID, target.Tool, target.Account)
+	accounts.RecordLaunch(target.ID, target.Tool, target.Account)
 	return tool, nil
 }

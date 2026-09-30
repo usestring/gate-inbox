@@ -19,6 +19,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/git"
+	"github.com/usestring/gate-inbox/internal/hogs"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/logging"
@@ -73,6 +74,9 @@ const (
 	// starts here. See agentpick.go.
 	modeAgentPick
 	modeExtensionView
+	// modeQuickActions holds the palette that runs any list action by name
+	// and shows the key it is on. See quickactions.go.
+	modeQuickActions
 )
 
 type treeRow struct {
@@ -265,6 +269,11 @@ type Model struct {
 	// label has held over an unchanged screen past the threshold. See
 	// stalestatus.go.
 	stale map[string]bool
+	// hogBadges mirrors refreshMsg.hogBadges: the rows whose process tree
+	// the board has told about its CPU or memory. See hogwatch.go.
+	hogBadges map[string]hogs.Badge
+	// queueDeadlines mirrors refreshMsg.queueDeadlines.
+	queueDeadlines map[string]time.Time
 	// history is the full-text index over the board's transcripts, nil when
 	// disabled or unavailable. historyHits is the last answer, valid for
 	// historyQuery alone; historySeq tags the debounce timer so only the
@@ -294,16 +303,15 @@ type Model struct {
 	// naming sweep found them. A session's opening never changes, so an
 	// entry here is final once it holds the count the sweep keeps.
 	firstPrompts map[string][]string
+	// titles is the model-written title of each session's conversation, by
+	// session id, as the naming sweep last read it. It is what a list row
+	// says the session is about.
+	titles map[string]string
 	// adoptRestored marks the one-time re-registration of adopted panes after
 	// the first session load.
 	adoptRestored bool
-	// adoptFirstDone is set once the first adopt scan has answered, and
-	// adoptFirstIDs holds the rows it created: the reopen card asks about
-	// panes, so it waits until the board shows the ones found at start.
-	// adoptSettleWaits bounds that wait.
-	adoptFirstDone   bool
-	adoptFirstIDs    []string
-	adoptSettleWaits int
+	// adoptFirstDone is set once the first adopt scan has answered.
+	adoptFirstDone bool
 	// nameAfterRefresh asks the next sweep to run a naming pass, for rows an
 	// adopt scan has just created and the board has not seen yet.
 	nameAfterRefresh bool
@@ -419,6 +427,10 @@ type Model struct {
 	// layout is the persisted override for the tight layout: auto, desktop
 	// or mobile. See layout.go.
 	layout string
+	// sidebar is the side of the frame the sessions rail is drawn on,
+	// right or left: the settings screen's choice, else [board] sidebar
+	// in config.toml. See sidebar.go.
+	sidebar string
 	// layoutShown is the mode the toggle key hid the rail from, so that
 	// bringing it back restores what the operator chose rather than auto.
 	// It lives for the run, the way chromeShown does.
@@ -447,6 +459,7 @@ type Model struct {
 	// newSessionAgent is the persisted answer to which agent n starts, and
 	// whether it asks at all. See agentpick.go.
 	newSessionAgent string
+	autoRouting     bool
 	// focusedID is the session focus mode is on or was last on, and
 	// prevFocusID the one before it: the pair l swaps between. See
 	// lastpane.go.
@@ -521,6 +534,7 @@ type Model struct {
 
 	form      form
 	agentPick agentPick
+	actions   quickActions
 	groupForm groupForm
 	pathSugg  pathComplete
 	confirm   confirmTarget
@@ -547,6 +561,10 @@ type Model struct {
 	landings       map[string]*pendingLanding
 	landingGen     int
 	landingLocator *search.Locator
+	// settling are the sessions whose answer has been seen landing, by the
+	// instant it was, until a poll listed after that has been applied: the
+	// row still shows the state the answer moved it on from. See triage.go.
+	settling map[string]time.Time
 	// statusesAsOf is when the newest applied poll pass listed its sessions:
 	// every status on the board is at least that fresh. A mute keyed to an
 	// answer landing lapses once it passes the landing; see mute.go.
@@ -706,6 +724,7 @@ const (
 	actionRestart = "restart"
 	actionRevive  = "revive"
 	actionResume  = "resume"
+	actionDelete  = "delete"
 )
 
 type confirmTarget struct {
@@ -753,26 +772,27 @@ type quickState struct {
 }
 
 type settingsState struct {
-	toolNames       []string
-	toolIndex       int
-	accountRouting  string
-	poolAvailable   bool
-	themeIndex      int
-	field           int
-	quickCloseSend  bool
-	enterFocuses    bool
-	comfortableRows bool
-	layout          string
-	palette         string
-	glyphs          string
-	archiveConfirm  string
-	listSort        string
-	chrome          string
-	leaveMode       string
-	newSessionAgent string
-	autoProceed     bool
-	reopenSessions  string
-	outsidePanes    string
+	toolNames        []string
+	toolIndex        int
+	accountRouting   string
+	chooserAvailable bool
+	themeIndex       int
+	field            int
+	quickCloseSend   bool
+	enterFocuses     bool
+	comfortableRows  bool
+	layout           string
+	sidebar          string
+	palette          string
+	glyphs           string
+	archiveConfirm   string
+	listSort         string
+	chrome           string
+	leaveMode        string
+	newSessionAgent  string
+	autoProceed      bool
+	reopenSessions   string
+	outsidePanes     string
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -791,6 +811,7 @@ const (
 	settingsFieldBackdrop
 	settingsFieldDensity
 	settingsFieldLayout
+	settingsFieldSidebar
 	settingsFieldPalette
 	settingsFieldGlyphs
 	settingsFieldArchiveConfirm
@@ -848,6 +869,15 @@ type refreshMsg struct {
 	// stale is every session whose status has outlived its screen, replaced
 	// whole each pass so the flag lapses the moment the screen moves.
 	stale map[string]bool
+	// hogBadges is every session with an open CPU or memory episode the
+	// board has told it about, as of the watcher's latest sample.
+	hogBadges map[string]hogs.Badge
+	// unseen is every session whose pane capture failed this pass. Its row
+	// keeps the status it already had, so the pass is no news of it.
+	unseen map[string]bool
+	// queueDeadlines is the extensions' deadlines by session; triage breaks
+	// ties on them.
+	queueDeadlines map[string]time.Time
 }
 
 // previewMsg is every pane frame the model receives. There used to be three
@@ -1074,7 +1104,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	// force here rather than read off the model on every paint.
 	applyGlyphSet(storedGlyphs(st))
 	model := &Model{
-		conversation:    &conversationView{locator: newHistoryLocator()},
+		conversation:    &conversationView{locator: newHistoryLocator(), compact: true},
 		landingLocator:  newHistoryLocator(),
 		cfg:             cfg,
 		store:           st,
@@ -1093,6 +1123,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		focusOnEnter:    storedFocusOnEnter(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),
+		sidebar:         storedSidebar(st, cfg.Board.Sidebar),
 		palette:         storedPalette(st),
 		glyphs:          storedGlyphs(st),
 		archiveConfirm:  storedArchiveConfirm(st),
@@ -1114,6 +1145,10 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	}
 	model.poller.interruptKeys = interruptKeys
 	model.poller.staleAfter = cfg.StaleStatusAfter.Duration
+	model.poller.hogWatch = newHogWatch(cfg.Hogs, "", func(msg store.InboxMessage) error {
+		_, _, err := st.Enqueue(msg, store.DefaultInboxLimits)
+		return err
+	})
 	model.ownPane, model.ownSocket = tmux.OwnPane()
 	model.initDeviceTheme()
 	model.loadKeys()
@@ -1260,6 +1295,12 @@ func (m *Model) ObserveBoard(observer BoardObserver) {
 func (m *Model) PinStatuses(pins StatusPins) (refresh func()) {
 	m.poller.pins = pins
 	return m.poller.requestRefresh
+}
+
+// UseQueueDeadlines has every poll pass carry deadlines' current answer to
+// triage. It is set before StartPoller.
+func (m *Model) UseQueueDeadlines(deadlines QueueDeadlines) {
+	m.poller.deadlines = deadlines
 }
 
 // StartPoller launches the background polling loop. It runs outside the
@@ -1756,6 +1797,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg := msg.(type) {
+	case autoRouteMsg:
+		return m.finishAutoRoute(msg)
 	case tea.WindowSizeMsg:
 		// Resuming from a tmux attach re-sends the current size unchanged; only
 		// a real resize needs the per-session tmux resize calls, so an
@@ -1976,6 +2019,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.listedAt.After(m.statusesAsOf) {
 			m.statusesAsOf = msg.listedAt
 		}
+		m.settleLandings(msg.listedAt, msg.unseen)
 		m.dropHeldAckOnNewTurn()
 		// A pane taken by the last adopt scan is on the board under its
 		// directory's basename, and this is the first pass that can see the
@@ -2000,9 +2044,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// so it is the earliest point a dead row means a missing pane rather
 		// than a row the poller has not reached yet.
 		m.maybeOpenRestorePrompt()
-		// A busy pane the operator agreed to take over is taken on the pass
-		// that first sees it idle. Quiet unless something moved: the count
-		// still owed was said when the answer was given.
+		// An adopted pane is taken over on the pass that first sees it idle.
+		// Quiet unless something moved, so a busy pane waiting its turn does
+		// not repeat itself on every pass.
 		if result := m.takeoverPass(); result.taken > 0 || len(result.failed) > 0 {
 			m.reportTakeover(result)
 		}
@@ -2017,6 +2061,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.answerableWait = msg.answerableWait
 		m.hookless = msg.hookless
 		m.stale = msg.stale
+		m.hogBadges = msg.hogBadges
+		m.queueDeadlines = msg.queueDeadlines
 		if msg.snapOK {
 			m.snap = msg.snap
 			m.updateNetRates(msg.snap)
@@ -2117,6 +2163,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errBar.text = "naming a session: " + msg.err.Error()
 		}
 		m.applyFirstPrompts(msg.prompts)
+		m.applyTitles(msg.titles)
 		if m.applyRenames(msg.renamed) {
 			m.rebuildRows()
 			// The rail is already right; this is for everything else a pass
@@ -2722,19 +2769,24 @@ func (m *Model) buildTree() {
 	}
 	// A parent the search itself missed still comes along to carry its
 	// matching children, in the store's order rather than after them.
+	// A terminal can hang off a child agent, so the carry climbs the whole
+	// lineage: a matching shell under a child brings that child and its
+	// parent along with it.
 	carried := map[string]bool{}
 	for _, sess := range listed {
-		if !matched[sess.ID] || sess.ParentID == "" || !listedIDs[sess.ParentID] {
+		if !matched[sess.ID] {
 			continue
 		}
-		carried[sess.ParentID] = true
+		for id := sess.ParentID; id != "" && listedIDs[id] && !carried[id]; id = byID[id].ParentID {
+			carried[id] = true
+		}
 	}
 	sessionsByGroup := map[string][]store.Session{}
 	childrenByParent := map[string][]store.Session{}
 	for _, sess := range listed {
 		if sess.ParentID != "" {
 			if _, ok := byID[sess.ParentID]; ok {
-				if matched[sess.ID] {
+				if matched[sess.ID] || carried[sess.ID] {
 					childrenByParent[sess.ParentID] = append(childrenByParent[sess.ParentID], sess)
 				}
 				continue
@@ -2744,10 +2796,23 @@ func (m *Model) buildTree() {
 			sessionsByGroup[sess.Group] = append(sessionsByGroup[sess.Group], sess)
 		}
 	}
+	// Walked is everything a tree root reaches, not just the roots: a
+	// terminal nested under a child agent hangs two levels down, and
+	// counting only the roots would paint it loose in its group.
 	walked := map[string]bool{}
+	var reach func(id string)
+	reach = func(id string) {
+		if walked[id] {
+			return
+		}
+		walked[id] = true
+		for _, child := range childrenByParent[id] {
+			reach(child.ID)
+		}
+	}
 	for _, groupSessions := range sessionsByGroup {
 		for _, sess := range groupSessions {
-			walked[sess.ID] = true
+			reach(sess.ID)
 		}
 	}
 	orphaned := map[string]bool{}
@@ -2758,7 +2823,7 @@ func (m *Model) buildTree() {
 		if _, nested := childrenByParent[sess.ParentID]; !nested || walked[sess.ParentID] {
 			continue
 		}
-		if !matched[sess.ID] {
+		if !matched[sess.ID] && !carried[sess.ID] {
 			continue
 		}
 		sessionsByGroup[sess.Group] = append(sessionsByGroup[sess.Group], sess)
@@ -2849,12 +2914,20 @@ func (m *Model) buildTree() {
 	extHides := func(sess store.Session) bool {
 		return honorFolds && !m.triage && query == "" && m.hiddenByExtension(sess.ID)
 	}
+	var appendChildren func(sess store.Session, depth int, drawn map[string]bool)
 	appendSession := func(sess store.Session, depth int) {
 		if extHides(sess) {
 			return
 		}
 		rows = append(rows, treeRow{sess: sess, depth: depth})
 		rows = append(rows, m.artifactRows(sess, depth+1)...)
+		appendChildren(sess, depth, map[string]bool{sess.ID: true})
+	}
+	// appendChildren draws a session's children and, under each, its own:
+	// a terminal opened by a child agent nests under that child rather than
+	// one level up. drawn guards a parent_id cycle a hand-edited row could
+	// make.
+	appendChildren = func(sess store.Session, depth int, drawn map[string]bool) {
 		// Folds are the browsing view's convenience only. The pruned views
 		// -- triage, search, the status filter, the archive -- were opened
 		// to find a session, and a child blocked on a person is exactly
@@ -2875,8 +2948,13 @@ func (m *Model) buildTree() {
 			if m.triage && m.foldsAway(child) && m.parentOwns(child, time.Now(), livePanes) {
 				continue
 			}
+			if drawn[child.ID] {
+				continue
+			}
+			drawn[child.ID] = true
 			rows = append(rows, treeRow{sess: child, depth: childDepth})
 			rows = append(rows, m.artifactRows(child, childDepth+1)...)
+			appendChildren(child, childDepth, drawn)
 		}
 	}
 	// A search is answered by the sessions it matched and triage by the

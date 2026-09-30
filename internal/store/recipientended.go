@@ -101,6 +101,9 @@ func (s *Store) tellSendersRecipientEnded(recipientID, recipientName string, dro
 		if _, ok := ExtensionSender(msg.SenderID); ok {
 			continue
 		}
+		if FromSystem(msg.SenderID) {
+			continue
+		}
 		if _, seen := ids[msg.SenderID]; !seen {
 			senders = append(senders, msg.SenderID)
 		}

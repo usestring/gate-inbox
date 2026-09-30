@@ -163,18 +163,12 @@ The marker is the tool's own — claude's `❯`, codex's `›`, opencode's `┃`
 so a transcript that ends on claude's reads as a prompt only for the claude row.
 Reach that row by the text of the transcript, since only one tool gets it.
 
-### A `--foreign` run starts with a dialog up
+### A `--foreign` pane is taken over once idle
 
-The adoption scan raises the "Take over adopted panes" offer on its first pass,
-so on a `--no-seed --foreign …` board that offer — not the list — is what the
-scenario's first key reaches, and the key is spent answering it. Unless the
-offer is the subject (`take-over-adopted.tape`), dismiss it first:
-
-```
-Sleep 5s
-Escape
-Sleep 1s
-```
+The board takes adopted panes over by itself, so on a `--no-seed --foreign …`
+board an idle pane comes back as a `gi_` session a few seconds in, and a
+waiting or working one stays adopted until it goes idle. A scenario about an
+adopted row should use a pane that is not idle, or shoot before the first pass.
 
 ### Shoot a message on the error bar within a second
 

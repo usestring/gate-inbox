@@ -53,7 +53,7 @@ func TestCatalogHasNoCollisions(t *testing.T) {
 
 func TestHelpAndLegendPeekHaveSeparateKeys(t *testing.T) {
 	m := resolve(t, nil)
-	for _, key := range []string{"H", "shift+h"} {
+	for _, key := range []string{"H", "shift+h", "ctrl+h"} {
 		action, ok := m.Action(ContextList, key)
 		if !ok || action != Help {
 			t.Errorf("%s on list answers %q, want %s", key, action, Help)
@@ -62,7 +62,10 @@ func TestHelpAndLegendPeekHaveSeparateKeys(t *testing.T) {
 	if action, ok := m.Action(ContextList, "?"); !ok || action != LegendPeek {
 		t.Errorf("? on list answers %q, want %s", action, LegendPeek)
 	}
-	for _, key := range []string{"H", "?", "shift+h"} {
+	if action, ok := m.Action(ContextFocus, "ctrl+h"); !ok || action != Help {
+		t.Errorf("ctrl+h in focus answers %q, want %s", action, Help)
+	}
+	for _, key := range []string{"H", "?", "shift+h", "ctrl+h"} {
 		if action, ok := m.Action(ContextWelcome, key); !ok || action != Help {
 			t.Errorf("%s on welcome answers %q, want %s", key, action, Help)
 		}
@@ -444,5 +447,29 @@ func TestRetiredGateStillLoads(t *testing.T) {
 	saved := Encode(m.Overrides())
 	if strings.Contains(saved, "gate") || strings.Contains(saved, "[focus]") {
 		t.Errorf("saving the map kept a retired action:\n%s", saved)
+	}
+}
+
+// A key file that moved the reopen card's pane answer still loads once the
+// card stops asking: each stale line points at the setting, and saving drops it.
+func TestRetiredPaneChoiceStillLoads(t *testing.T) {
+	overrides, err := Decode("[restore]\nnext_choice = [\"L\"]\nprev_choice = [\"H\"]\nmore = [\"C\"]\n")
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	m, problems := New(overrides)
+	if len(problems) != 2 {
+		t.Fatalf("got problems %v, want one per stale line", problems)
+	}
+	for _, problem := range problems {
+		if !strings.Contains(problem.Reason, "outside panes") {
+			t.Errorf("problem %q does not point at the outside panes setting", problem.Error())
+		}
+	}
+	if got := m.Key(ContextRestore, More); got != "C" {
+		t.Errorf("the stale lines cost the override beside them: more on %q", got)
+	}
+	if strings.Contains(Encode(m.Overrides()), "choice") {
+		t.Error("saving the map kept a retired action")
 	}
 }

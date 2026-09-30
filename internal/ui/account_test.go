@@ -273,9 +273,6 @@ func TestAccountCardMigratesLargeContextsOnChosenSubscription(t *testing.T) {
 			if err := m.store.SetAccount(source.ID, "ALICE1"); err != nil {
 				t.Fatal(err)
 			}
-			if err := m.store.SetSetting("account_borrower:"+source.ID, "ORIGINAL"); err != nil {
-				t.Fatal(err)
-			}
 			if err := m.store.SetSetting(store.DefaultAccountSetting, "OTHER"); err != nil {
 				t.Fatal(err)
 			}
@@ -323,10 +320,6 @@ func TestAccountCardMigratesLargeContextsOnChosenSubscription(t *testing.T) {
 			kept, err := m.store.Get(source.ID)
 			if err != nil || kept.Account != "ALICE1" || !m.tmux.Exists(source.ID) {
 				t.Fatalf("source changed: %+v %v", kept, err)
-			}
-			borrower, err := m.store.Setting("account_borrower:" + moved.ID)
-			if err != nil || borrower != "ORIGINAL" {
-				t.Fatalf("borrower=%q err=%v", borrower, err)
 			}
 			deadline := time.Now().Add(3 * time.Second)
 			var prompt []byte

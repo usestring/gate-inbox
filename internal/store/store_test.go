@@ -867,6 +867,56 @@ func TestAddGroupStoresSettingsWithoutReplacingExistingGroup(t *testing.T) {
 	}
 }
 
+// DeleteEmptyGroup takes a group and its subtree only while nothing, live
+// or archived, is filed anywhere beneath it. A sibling sharing the name as a
+// prefix is not part of the subtree.
+func TestDeleteEmptyGroupRefusesAGroupHoldingSessions(t *testing.T) {
+	st := newTestStore(t)
+	for _, name := range []string{"aeo", "aeo/child", "aeox"} {
+		if err := st.CreateGroup(name, ""); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+	sess := sample("a", "aeo/child")
+	if err := st.CreateSession(sess); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := st.SetArchived("a", true); err != nil {
+		t.Fatalf("archive session: %v", err)
+	}
+
+	if held, err := st.GroupHoldsSessions("aeo"); err != nil || !held {
+		t.Fatalf("GroupHoldsSessions(aeo) = %v, %v; want true", held, err)
+	}
+	if _, err := st.DeleteEmptyGroup("aeo"); !errors.Is(err, ErrGroupNotEmpty) {
+		t.Fatalf("delete over an archived session error = %v, want ErrGroupNotEmpty", err)
+	}
+
+	if err := st.Delete("a"); err != nil {
+		t.Fatalf("delete session: %v", err)
+	}
+	if held, err := st.GroupHoldsSessions("aeo"); err != nil || held {
+		t.Fatalf("GroupHoldsSessions(aeo) = %v, %v; want false", held, err)
+	}
+	removed, err := st.DeleteEmptyGroup("aeo")
+	if err != nil {
+		t.Fatalf("delete empty group: %v", err)
+	}
+	if !slices.Equal(removed, []string{"aeo", "aeo/child"}) {
+		t.Fatalf("removed = %v, want aeo and aeo/child", removed)
+	}
+	groups, err := st.Groups()
+	if err != nil {
+		t.Fatalf("groups: %v", err)
+	}
+	if len(groups) != 1 || groups[0].Name != "aeox" {
+		t.Fatalf("groups left = %+v, want only aeox", groups)
+	}
+	if _, err := st.DeleteEmptyGroup("aeo"); !errors.Is(err, ErrGroupNotFound) {
+		t.Fatalf("second delete error = %v, want ErrGroupNotFound", err)
+	}
+}
+
 func TestSetAgentLaunchedAtMovesLaunchTimeWithoutRetiringConversation(t *testing.T) {
 	st := newTestStore(t)
 	sess := sample("a", "g1")

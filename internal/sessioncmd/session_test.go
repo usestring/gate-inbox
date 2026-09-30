@@ -129,7 +129,7 @@ func newSessionHarness(t *testing.T) *sessionHarness {
 	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(sessionConfig), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	driver, err := tmux.NewWithSocket(tmuxtest.NewSocket("sess"))
+	driver, err := tmux.NewWithSocket(tmuxtest.Socket(t, "sess"))
 	if err != nil {
 		t.Fatalf("tmux driver: %v", err)
 	}

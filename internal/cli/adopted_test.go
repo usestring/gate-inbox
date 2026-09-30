@@ -24,7 +24,7 @@ func TestReadSendAndKillReachAnAdoptedPaneWithNoBoard(t *testing.T) {
 		t.Skip("tmux not installed")
 	}
 	configDir := tmuxtest.ScratchDir(t)
-	socket := tmuxtest.NewSocket("cliadopt")
+	socket := tmuxtest.Socket(t, "cliadopt")
 	t.Setenv(tmux.SocketEnv, socket)
 	t.Cleanup(func() {
 		tmuxtest.KillServer(socket)

@@ -72,6 +72,7 @@ const (
 	Resize       Action = "resize_split"
 	Settings     Action = "settings"
 	LegendPeek   Action = "legend_peek"
+	QuickActions Action = "quick_actions"
 	Help         Action = "help"
 	Quit         Action = "quit"
 )
@@ -100,11 +101,8 @@ const (
 	Bottom   Action = "bottom"
 	More     Action = "more"
 	TickAll  Action = "tick_all"
-	// NextChoice and PrevChoice step an answer that has more than two
-	// values; NeverAsk applies a prompt's answer and makes it the default.
-	NextChoice Action = "next_choice"
-	PrevChoice Action = "prev_choice"
-	NeverAsk   Action = "never_ask"
+	// NeverAsk applies a prompt's answer and makes it the default.
+	NeverAsk Action = "never_ask"
 	// ToggleChrome hides the footer and brings it back. It is the chrome
 	// setting's "never" under a key, for an operator who wants the rows
 	// for a moment rather than for good.
@@ -163,7 +161,7 @@ var Catalog = []Binding{
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{"alt+r"}, "rename it yourself, and re-pick its tool", false},
 	{ContextList, NameSweep, []string{"N", "shift+n"}, "name sweep over idle adopted panes", false},
-	{ContextList, TakeOver, []string{"O", "shift+o"}, "panes started outside the board: keep, relaunch or leave out", false},
+	{ContextList, TakeOver, []string{"O", "shift+o"}, "take over the adopted panes now; busy ones once they go idle", false},
 	{ContextList, Move, []string{"m"}, "move it to a group", false},
 
 	{ContextList, ShowAllWork, []string{"W", "shift+w"}, "show every pull request and ticket, not the first few", false},
@@ -180,7 +178,8 @@ var Catalog = []Binding{
 	{ContextList, ToggleChrome, []string{","}, "hide / show the key hints along the foot", false},
 	{ContextList, ToggleRail, []string{`\`}, "hide / show the list beside the pane", false},
 	{ContextList, LegendPeek, []string{"?"}, "peek at every available key", false},
-	{ContextList, Help, []string{"h", "H", "shift+h"}, "this key map", true},
+	{ContextList, QuickActions, []string{":", "ctrl+p"}, "quick actions: find any action by name, run it, see its key", false},
+	{ContextList, Help, []string{"h", "H", "shift+h", "ctrl+h"}, "this key map", true},
 	{ContextList, Quit, []string{"q"}, "quit (sessions keep running)", true},
 
 	// ---- a focused session ----
@@ -199,13 +198,17 @@ var Catalog = []Binding{
 	{ContextFocus, ToggleChrome, []string{"alt+,"}, "hide / show the key hints along the foot", false},
 	{ContextFocus, ToggleRail, []string{`alt+\`}, "hide / show the list beside the pane", false},
 	{ContextFocus, Archive, []string{"ctrl+x"}, "kill it, asking first", false},
+	// A chord, like every other key this screen claims: ctrl+h would otherwise
+	// reach the agent as readline's backward-delete, and backspace still sends
+	// that edit under its own name.
+	{ContextFocus, Help, []string{"ctrl+h"}, "this key map", false},
 	// Session controls reached from inside the pane: a drain that had to leave
 	// the queue to spawn, copy an id or step back was not one queue. See the
 	// ui package's focusactions.go.
 	{ContextFocus, NewSession, []string{"alt+n"}, "new session in this one's group", false},
 	{ContextFocus, CopySessionID, []string{"alt+y"}, "copy the agent's session id", false},
 	{ContextFocus, LastPane, []string{"alt+l"}, "back to the previous session; alt+l again swaps back", false},
-	{ContextFocus, BackAtPrompt, []string{"right"}, "at the prompt's end, back to the manager", false},
+	{ContextFocus, BackAtPrompt, []string{"right", "left"}, "at a prompt edge, leave or advance triage", false},
 	{ContextFocus, PreviewUp, []string{"alt+up"}, "scroll the pane up", false},
 	{ContextFocus, PreviewDown, []string{"alt+down"}, "scroll the pane down", false},
 	{ContextFocus, PreviewPageUp, []string{"alt+u", "alt+pgup"}, "scroll a page up", false},
@@ -223,9 +226,7 @@ var Catalog = []Binding{
 
 	// ---- the restore prompt ----
 	{ContextRestore, Cancel, []string{"esc", "n", "q"}, "leave everything as it is", true},
-	{ContextRestore, More, []string{"c"}, "choose per session and per pane", false},
-	{ContextRestore, NextChoice, []string{"right", "l", "tab"}, "next answer for the outside panes", false},
-	{ContextRestore, PrevChoice, []string{"left", "h", "shift+tab"}, "previous answer for the outside panes", false},
+	{ContextRestore, More, []string{"c"}, "choose per session", false},
 	{ContextRestore, NeverAsk, []string{"N", "shift+n"}, "apply this answer and stop asking", false},
 	{ContextRestore, CursorUp, []string{"up", "k"}, "move up", true},
 	{ContextRestore, CursorDown, []string{"down", "j"}, "move down", true},
@@ -235,7 +236,7 @@ var Catalog = []Binding{
 
 	// ---- the welcome card ----
 	{ContextWelcome, Close, []string{"enter", "esc", "q", " ", "space"}, "close the guide", true},
-	{ContextWelcome, Help, []string{"h", "H", "?", "shift+h"}, "the key map", false},
+	{ContextWelcome, Help, []string{"h", "H", "?", "shift+h", "ctrl+h"}, "the key map", false},
 	{ContextWelcome, CursorUp, []string{"up", "k"}, "move up", true},
 	{ContextWelcome, CursorDown, []string{"down", "j"}, "move down", true},
 	{ContextWelcome, PageUp, []string{"ctrl+u", "pgup"}, "a page up", false},

@@ -5,13 +5,15 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/accounts/accountstest"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-func TestSettingsPersistsSubscriptionRouting(t *testing.T) {
-	t.Cleanup(accounts.UsePool(accountstest.LoggedInAs("owner").Resolve))
+func TestSettingsPersistsTheLaunchAccountMode(t *testing.T) {
+	chooser := &accountstest.Chooser{}
+	t.Cleanup(accounts.UseChooser(chooser.Resolve))
 	m := buildModel(t)
 	if err := m.store.SetSetting(store.DefaultAccountSetting, "WRONG_LEGACY_OWNER"); err != nil {
 		t.Fatal(err)
@@ -26,15 +28,15 @@ func TestSettingsPersistsSubscriptionRouting(t *testing.T) {
 	}
 	m.settings.field = settingsFieldAccountRouting
 	m.cycleSetting(1)
-	if !strings.Contains(ansi.Strip(m.viewSettings()), "smart routing") {
-		t.Fatal("missing routing mode")
+	if !strings.Contains(ansi.Strip(m.viewSettings()), "chosen by extension") {
+		t.Fatal("missing launch-account mode")
 	}
 	m.persistSettings()
-	if mode, err := m.store.Setting(store.AccountRoutingSetting); err != nil || mode != accounts.Smart {
+	if mode, err := m.store.Setting(store.AccountRoutingSetting); err != nil || mode != accounts.Extension {
 		t.Fatalf("%q %v", mode, err)
 	}
 	m.openSettings()
-	if m.settings.accountRouting != accounts.Smart {
+	if m.settings.accountRouting != accounts.Extension {
 		t.Fatal("mode not restored")
 	}
 	m.settings.field = settingsFieldAccountRouting
@@ -45,19 +47,20 @@ func TestSettingsPersistsSubscriptionRouting(t *testing.T) {
 	}
 }
 
-// With no pool, smart routing is not offered, and a smart mode left by a
-// build that had one is shown and saved as own.
-func TestSettingsWithNoPoolOffersOnlyOwnSubscription(t *testing.T) {
+// With no chooser, the extension mode is not offered, and one left by a
+// build that had a chooser is shown and saved as own.
+func TestSettingsWithNoChooserOffersOnlyOwnLogin(t *testing.T) {
 	m := buildModel(t)
-	if err := m.store.SetSetting(store.AccountRoutingSetting, accounts.Smart); err != nil {
+	t.Cleanup(accounts.UseChooser(func() (extension.AccountChooser, error) { return nil, nil }))
+	if err := m.store.SetSetting(store.AccountRoutingSetting, accounts.Extension); err != nil {
 		t.Fatal(err)
 	}
 	m.openSettings()
 	m.settings.field = settingsFieldAccountRouting
 	m.cycleSetting(1)
 	rendered := ansi.Strip(m.viewSettings())
-	if strings.Contains(rendered, "smart routing") || !strings.Contains(rendered, "no account pool") {
-		t.Fatalf("routing row offers smart routing with no pool: %s", rendered)
+	if strings.Contains(rendered, "chosen by extension") || !strings.Contains(rendered, "no extension chooses accounts") {
+		t.Fatalf("launch-account row offers the extension with no chooser: %s", rendered)
 	}
 	m.persistSettings()
 	if mode, err := accounts.Mode(m.store); err != nil || mode != accounts.Own {

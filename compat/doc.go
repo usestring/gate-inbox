@@ -14,7 +14,8 @@
 //     file, with every setting marked as written, rewritten or backfilled;
 //   - launch plans: the command, pending input, environment and resume
 //     command each agent CLI is launched with, secrets redacted;
-//   - account selection across the own, explicit and smart modes;
+//   - account selection across the own-login, named-account and extension
+//     modes;
 //   - the state store's schema;
 //   - the default key bindings per context and the status-engine patterns
 //     per tool.
@@ -22,7 +23,7 @@
 // Every test runs against a scratch GATE_INBOX_HOME, a scratch TMUX_TMPDIR,
 // an environment emptied of everything the host exported, and fake agent
 // CLIs and a fake secret store on a PATH of their own, with a fake account
-// pool in place of an extension's. Nothing reaches a tmux server, a real
+// chooser in place of an extension's. Nothing reaches a tmux server, a real
 // secret store, a monitoring endpoint or the network, and no operator path,
 // account or transcript appears in a fixture.
 //

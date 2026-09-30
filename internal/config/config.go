@@ -300,6 +300,70 @@ type Integration struct {
 // On reports whether the provider is switched on.
 func (i Integration) On() bool { return i.Enabled == nil || *i.Enabled }
 
+// Hogs configures how the board watches each session's process tree for
+// sustained CPU and memory use, and how firmly it tells the session. Gate
+// Inbox never stops a process itself: the session that started the work is
+// told what is running, how much and for how long, and decides.
+type Hogs struct {
+	// Enabled is a pointer so that absent means on.
+	Enabled *bool `toml:"enabled"`
+	// SampleEvery is how often the trees are read. The windows are minutes
+	// long, so this is far coarser than the poll.
+	SampleEvery Duration `toml:"sample_every"`
+	// ResetAfter is how long every rule of a kind must stay below its
+	// threshold before that kind's episode ends; a shorter dip keeps each
+	// rule's window open.
+	ResetAfter Duration `toml:"reset_after"`
+	// Cooldown is the least time between two notices of the same tier to one
+	// session.
+	Cooldown Duration `toml:"cooldown"`
+	CPU      HogTiers `toml:"cpu"`
+	Memory   HogTiers `toml:"memory"`
+}
+
+// On reports whether hog detection is switched on.
+func (h Hogs) On() bool { return h.Enabled == nil || *h.Enabled }
+
+// HogTiers is one resource's rules by tier. A tier's rules are alternatives:
+// any one of them held for its duration puts the session at that tier. A tier
+// left out of the file takes the built-in rules; one written as an empty
+// array is switched off.
+type HogTiers struct {
+	Notice []HogRule `toml:"notice"`
+	Warn   []HogRule `toml:"warn"`
+	Stop   []HogRule `toml:"stop"`
+}
+
+// HogRule is one condition. A CPU rule sets Percent (100 is one full core,
+// summed over the session's whole process tree). A memory rule sets GiB, the
+// tree's resident memory; GrowthGiBPerMin, its growth over the last minute;
+// AvailableBelow, a ceiling on the host's MemAvailable as a percentage of its
+// RAM; or several, all of which must hold. For is how long the condition must
+// hold; zero means the first sample that finds it.
+type HogRule struct {
+	Percent         float64  `toml:"percent"`
+	GiB             float64  `toml:"gib"`
+	GrowthGiBPerMin float64  `toml:"growth_gib_per_min"`
+	AvailableBelow  float64  `toml:"available_below"`
+	For             Duration `toml:"for"`
+}
+
+// The sides the board's sidebar -- the sessions rail -- can sit on.
+const (
+	SidebarRight = "right"
+	SidebarLeft  = "left"
+)
+
+// Board configures how the board frame is laid out.
+type Board struct {
+	// Sidebar is the side of the frame the sessions list sits on, "right"
+	// or "left", with the session's pane taking the other side. Unset, it
+	// is right. The settings screen can pick the other side on one
+	// machine; choosing this value there again goes back to following the
+	// file.
+	Sidebar string `toml:"sidebar"`
+}
+
 type Config struct {
 	PollInterval Duration `toml:"poll_interval"`
 	// AdoptSockets names extra tmux servers to scan for agent panes the
@@ -328,10 +392,12 @@ type Config struct {
 	// the label has outlived any turn it could describe, so it is more
 	// likely a misread than a long turn.
 	StaleStatusAfter Duration     `toml:"stale_status_after"`
+	Board            Board        `toml:"board"`
 	Log              Log          `toml:"log"`
 	Children         Children     `toml:"children"`
 	Work             Work         `toml:"work"`
 	Integrations     Integrations `toml:"integrations"`
+	Hogs             Hogs         `toml:"hogs"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see
@@ -397,7 +463,21 @@ func LoadDir(dir string) (Config, error) {
 		return Config{}, err
 	}
 	cfg.applyDefaults()
+	if err := cfg.validate(); err != nil {
+		return Config{}, fmt.Errorf("config %s: %w", path, err)
+	}
 	return cfg, nil
+}
+
+// validate refuses values the board has no reading for, so a misspelt
+// choice is named at startup rather than quietly drawn as the default.
+func (c Config) validate() error {
+	switch c.Board.Sidebar {
+	case SidebarRight, SidebarLeft:
+	default:
+		return fmt.Errorf("board.sidebar = %q: want %q or %q", c.Board.Sidebar, SidebarRight, SidebarLeft)
+	}
+	return nil
 }
 
 // backfillToolDefaults fills fields the built-in tools gained after a
@@ -676,6 +756,11 @@ func (c *Config) applyDefaults() {
 	if c.Children.FinishedGrace.Duration <= 0 {
 		c.Children.FinishedGrace.Duration = defaultFinishedChildGrace
 	}
+	c.Hogs.applyDefaults()
+	c.Board.Sidebar = strings.ToLower(strings.TrimSpace(c.Board.Sidebar))
+	if c.Board.Sidebar == "" {
+		c.Board.Sidebar = SidebarRight
+	}
 	if c.Tools == nil {
 		c.Tools = map[string]Tool{}
 	}
@@ -725,7 +810,7 @@ const defaultConfig = `poll_interval = "2s"
 # The shared artifact store. Agents publish HTML, markdown or JSON to a URL
 # and hand the link to you or to each other; the link carries its own key, so
 # whoever has it can open that one artifact and nothing else. An artifact
-# published by a session on one pooled account is readable by a session on
+# published by a session on one account is readable by a session on
 # another -- and by a CLI that has no artifacts of its own.
 #
 # Off until you turn it on. An extension that is off registers no tools, so
@@ -760,6 +845,13 @@ const defaultConfig = `poll_interval = "2s"
 # counting them as "(+N done)".
 # [children]
 # auto_archive_after = "30m"
+
+# The board's layout. sidebar is the side of the frame the sessions list sits
+# on, "right" or "left"; the session's pane takes the other side. Settings
+# can pick the other side on one machine, and picking this value there again
+# goes back to following this file.
+# [board]
+# sidebar = "right"
 
 # The pull requests and tickets sessions are on. One that is over -- merged,
 # closed, completed, cancelled -- stays on the board this long after you first
@@ -1126,7 +1218,7 @@ rules = [
   # active status row is the final row above the input box; anchoring its full
   # shape keeps an answer that quotes "esc to interrupt" from looking active
   { state = "working", pattern = "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?(?:[ \\t]*\\n|[ \\t]+(?:⚠|↓|Tip: |Copied )[^\\n]*\\n)*[ \\t\\n]*\\z" },
-  { state = "errored", pattern = "(?im)^\\s*■.*\\berror\\b" },
+  { state = "errored", pattern = "(?im)^\\s*■(?:.*\\berror\\b| (?:Automatic reconnect could not restore this session|app-server session could not be restored)\\b)" },
 ]
 
 # The terminal tab "T" spawns: a shell in the group's directory, listed

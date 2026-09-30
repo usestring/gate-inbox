@@ -76,6 +76,16 @@ func SpeaksAsOperator(senderID string) bool {
 	return FromOperator(senderID) || strings.HasPrefix(senderID, operatorVoicedPrefix)
 }
 
+// SystemSenderID marks a notice Gate Inbox itself queued for a session, such
+// as a warning that the session's processes are holding the machine's CPU or
+// memory. It is delivered fenced, under a band that names the board rather
+// than an agent, and it names nobody to reply to. Like HumanSenderID it is not
+// a session id and cannot collide with one.
+const SystemSenderID = "gate-inbox"
+
+// FromSystem reports whether a message was queued by the board itself.
+func FromSystem(senderID string) bool { return senderID == SystemSenderID }
+
 // InboxMessage is one agent-to-agent message waiting to be typed into a
 // session's prompt. It rides its own table rather than PendingInputs
 // because a launch prompt and a message need different delivery gates,

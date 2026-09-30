@@ -835,6 +835,7 @@ const (
 	settingsFieldSnippets
 	settingsFieldCLIs
 	settingsFieldGuide
+	settingsFieldKeys
 	settingsFieldVersion
 	settingsFieldCount
 )

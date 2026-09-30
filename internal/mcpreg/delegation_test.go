@@ -1,7 +1,6 @@
 package mcpreg
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -121,29 +120,23 @@ func TestApplyCodexCarriesTheSteeringAsDeveloperInstructions(t *testing.T) {
 	}
 }
 
-func TestApplyOpencodeListsTheDelegationSteering(t *testing.T) {
-	dir := t.TempDir()
-	env := map[string]string{}
-	if _, err := Apply("opencode", "/opt/bin/gate-inbox", dir, "opencode", env, ""); err != nil {
-		t.Fatal(err)
+// OpenCode v2 loads no instruction file a launch can name, so its naming
+// and delegation steering ride the MCP server's own block. No other CLI's
+// server carries it: theirs rides the launch, where it outranks that block.
+func TestServerSteeringCarriesOpencodeNamingAndDelegation(t *testing.T) {
+	steering, ok := ServerSteering("opencode")
+	if !ok {
+		t.Fatal("opencode has no server steering")
 	}
-	content, err := os.ReadFile(env["OPENCODE_CONFIG"])
-	if err != nil {
-		t.Fatal(err)
+	assertSteers(t, "opencode", steering, builtinDelegation["opencode"])
+	for _, want := range []string{"# Session naming", "not as your first action", `"rename"`} {
+		if !strings.Contains(steering, want) {
+			t.Fatalf("server steering is missing %q:\n%s", want, steering)
+		}
 	}
-	var parsed struct {
-		Instructions []string `json:"instructions"`
+	for _, style := range []string{"", "claude", "codex", "none"} {
+		if text, ok := ServerSteering(style); ok || text != "" {
+			t.Fatalf("ServerSteering(%q) = %q, %v; want nothing", style, text, ok)
+		}
 	}
-	if err := json.Unmarshal(content, &parsed); err != nil {
-		t.Fatal(err)
-	}
-	want := filepath.Join(dir, opencodeSteeringFile)
-	if len(parsed.Instructions) != 2 || parsed.Instructions[1] != want {
-		t.Fatalf("instructions = %v, want %s among them", parsed.Instructions, want)
-	}
-	steering, err := os.ReadFile(want)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertSteers(t, "opencode", string(steering), builtinDelegation["opencode"])
 }

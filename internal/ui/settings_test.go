@@ -245,3 +245,29 @@ func TestSettingsHasNoTerminalRows(t *testing.T) {
 		t.Fatal("terminal rows setting must be gone")
 	}
 }
+
+func TestSettingsKeysRowOpensKeyMap(t *testing.T) {
+	m := buildModel(t)
+	m.openSettings()
+	if card := ansi.Strip(m.viewSettings()); !strings.Contains(card, "keys") || !strings.Contains(card, "rebind") {
+		t.Fatalf("settings is missing the keys row: %s", card)
+	}
+	m.settings.comfortableRows = true
+	m.settings.field = settingsFieldKeys
+	updated, _ := m.handleSettingsKey(key("enter"))
+	m = updated.(*Model)
+	if m.mode != modeHelp {
+		t.Fatalf("enter on keys left mode %v, want key map", m.mode)
+	}
+	if m.help.returnMode != modeSettings {
+		t.Fatalf("key map return = %v, want settings", m.help.returnMode)
+	}
+	if got, _ := m.store.Setting(listDensitySetting); got != "comfortable" {
+		t.Fatalf("density = %q, want comfortable: settings were dropped on the way to keys", got)
+	}
+	updated, _ = m.handleHelpKey(key("esc"))
+	m = updated.(*Model)
+	if m.mode != modeSettings {
+		t.Fatalf("leaving the key map left mode %v, want settings", m.mode)
+	}
+}

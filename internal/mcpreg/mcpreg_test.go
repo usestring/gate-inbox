@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -152,10 +153,11 @@ func TestApplyOpencodeV2PutsTheModelInASessionConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	var parsed struct {
-		Model string         `json:"model"`
-		MCP   map[string]any `json:"mcp"`
-		Cmd   map[string]any `json:"command"`
-		Instr []string       `json:"instructions"`
+		Model string `json:"model"`
+		MCP   struct {
+			Servers map[string]any `json:"servers"`
+		} `json:"mcp"`
+		Commands map[string]any `json:"commands"`
 	}
 	if err := json.Unmarshal(content, &parsed); err != nil {
 		t.Fatal(err)
@@ -163,7 +165,7 @@ func TestApplyOpencodeV2PutsTheModelInASessionConfig(t *testing.T) {
 	if parsed.Model != "anthropic/claude-sonnet-5" {
 		t.Fatalf("model = %q, want the chosen one", parsed.Model)
 	}
-	if parsed.MCP["gate-inbox"] == nil || parsed.Cmd["rename"] == nil || len(parsed.Instr) != 2 {
+	if parsed.MCP.Servers["gate-inbox"] == nil || parsed.Commands["rename"] == nil {
 		t.Fatalf("the session config must carry everything the shared one does:\n%s", content)
 	}
 }
@@ -186,7 +188,12 @@ func TestPreviewOpencodeV2NamesTheSessionConfigWithoutWriting(t *testing.T) {
 	}
 }
 
-func TestApplyOpencodeRegistersRenameCommandAndSteering(t *testing.T) {
+// OpenCode v2 reads servers from mcp.servers and slash commands from
+// commands: it drops a v1 command block, and a v1 mcp.<name> entry serves
+// its tools only through code mode. It also loads nothing from a config
+// instructions list, so the steering rides the server, which the command
+// names with the steering flag.
+func TestApplyOpencodeWritesTheV2Schema(t *testing.T) {
 	dir := t.TempDir()
 	env := map[string]string{}
 	if _, err := Apply("opencode", "/opt/bin/gate-inbox", dir, "opencode", env, ""); err != nil {
@@ -197,16 +204,41 @@ func TestApplyOpencodeRegistersRenameCommandAndSteering(t *testing.T) {
 		t.Fatal(err)
 	}
 	var parsed struct {
-		Command map[string]struct {
+		MCP struct {
+			Servers map[string]struct {
+				Type        string            `json:"type"`
+				Command     []string          `json:"command"`
+				Environment map[string]string `json:"environment"`
+				Codemode    *bool             `json:"codemode"`
+			} `json:"servers"`
+		} `json:"mcp"`
+		Commands map[string]struct {
 			Description string `json:"description"`
 			Template    string `json:"template"`
-		} `json:"command"`
-		Instructions []string `json:"instructions"`
+		} `json:"commands"`
 	}
 	if err := json.Unmarshal(content, &parsed); err != nil {
 		t.Fatal(err)
 	}
-	rename, ok := parsed.Command["rename"]
+	for _, v1 := range []string{`"command": {`, `"instructions"`, `"enabled"`} {
+		if strings.Contains(string(content), v1) {
+			t.Fatalf("generated config carries the v1 key %s:\n%s", v1, content)
+		}
+	}
+	server, ok := parsed.MCP.Servers["gate-inbox"]
+	if !ok || server.Type != "local" {
+		t.Fatalf("no local gate-inbox server under mcp.servers:\n%s", content)
+	}
+	if want := []string{"/opt/bin/gate-inbox", "mcp", SteeringFlag, "opencode"}; !slices.Equal(server.Command, want) {
+		t.Fatalf("server command = %q, want %q", server.Command, want)
+	}
+	if server.Environment[hooks.EnvSessionID] != "{env:"+hooks.EnvSessionID+"}" {
+		t.Fatalf("environment = %v, want the session id forwarded", server.Environment)
+	}
+	if server.Codemode == nil || *server.Codemode {
+		t.Fatalf("codemode = %v, want false so the tools are called directly", server.Codemode)
+	}
+	rename, ok := parsed.Commands["rename"]
 	if !ok || rename.Template == "" {
 		t.Fatalf("generated config registers no rename command: %s", content)
 	}
@@ -215,22 +247,13 @@ func TestApplyOpencodeRegistersRenameCommandAndSteering(t *testing.T) {
 			t.Fatalf("rename template is missing %q:\n%s", want, rename.Template)
 		}
 	}
-	if len(parsed.Instructions) != 2 {
-		t.Fatalf("instructions = %v, want the rename and delegation steering files", parsed.Instructions)
-	}
-	steering, err := os.ReadFile(parsed.Instructions[0])
-	if err != nil {
-		t.Fatalf("steering file %q unreadable: %v", parsed.Instructions[0], err)
-	}
-	for _, want := range []string{"not as your first action", `"rename"`, "$GATE_INBOX_BIN"} {
-		if !strings.Contains(string(steering), want) {
-			t.Fatalf("steering is missing %q:\n%s", want, steering)
-		}
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 1 {
+		t.Fatalf("an opencode launch wrote %v (err %v), want the config alone", entries, err)
 	}
 }
 
 // A dry run shows the same paths a launch would carry but writes nothing:
-// the steering file lives in shared state a rehearsal must not touch.
+// the config lives in shared state a rehearsal must not touch.
 func TestPreviewOpencodeWritesNothing(t *testing.T) {
 	dir := t.TempDir()
 	env := map[string]string{}

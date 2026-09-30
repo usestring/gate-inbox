@@ -133,6 +133,10 @@ func OpencodeQuestions(path, id string) ([]OpencodeQuestionPart, bool, error) {
 	return out, userAfter, rows.Err()
 }
 
+func (p OpencodeQuestionPart) dismissed() bool {
+	return p.Status == "error" && strings.Contains(strings.ToLower(p.ErrorText), "dismissed")
+}
+
 func (opencodeSource) parts(t Target) ([]OpencodeQuestionPart, bool) {
 	parts, userAfter, _ := OpencodeQuestions(opencode.DBPath(), t.AgentSessionID)
 	return parts, userAfter
@@ -197,7 +201,7 @@ func (s opencodeSource) Unanswered(t Target) (Result, bool) {
 		return Result{}, false
 	}
 	last := parts[len(parts)-1]
-	if last.Status != "error" {
+	if last.Status != "error" || !last.dismissed() {
 		return Result{}, false
 	}
 	return opencodeResult(last), true

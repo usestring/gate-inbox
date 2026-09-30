@@ -218,3 +218,26 @@ func TestUnknownCommandNamesTheVerbAndTheHelp(t *testing.T) {
 		t.Fatalf("exit code %d, want 2", code)
 	}
 }
+
+// A generated opencode config starts the server with the steering flag; a
+// bare `mcp`, which every other launch runs, carries none, and a style the
+// build has no steering for fails the start instead of serving without it.
+func TestMCPSteeringFlag(t *testing.T) {
+	cases := []struct {
+		args    []string
+		want    string
+		wantErr bool
+	}{
+		{nil, "", false},
+		{[]string{"--steering", "opencode"}, "opencode", false},
+		{[]string{"--steering=opencode"}, "opencode", false},
+		{[]string{"--steering", "claude"}, "", true},
+		{[]string{"--nope"}, "", true},
+	}
+	for _, c := range cases {
+		got, err := mcpSteering(c.args)
+		if (err != nil) != c.wantErr || got != c.want {
+			t.Errorf("mcpSteering(%q) = %q, %v; want %q, error %v", c.args, got, err, c.want, c.wantErr)
+		}
+	}
+}

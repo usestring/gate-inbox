@@ -95,6 +95,11 @@ func (m *Model) autoNameScan() tea.Cmd {
 		return nil
 	}
 	var panes []autoNamePane
+	var codexTargets []search.Target
+	resolved := map[string]search.Target{}
+	for _, target := range m.poller.currentHistoryTargets() {
+		resolved[target.Key] = target
+	}
 	// taken is every name on the board, the candidates' own included. A row
 	// this pass cannot name -- no conversation could be attributed to it --
 	// keeps the name it has, so that name must not be handed to another row.
@@ -102,6 +107,12 @@ func (m *Model) autoNameScan() tea.Cmd {
 	for _, sess := range m.sessions {
 		taken[sess.Name] = true
 		if sess.Archived {
+			continue
+		}
+		if target, ok := resolved[sess.ID]; ok && target.Tool == search.ToolCodex {
+			if len(m.firstPrompts[sess.ID]) < firstPromptRows {
+				codexTargets = append(codexTargets, target)
+			}
 			continue
 		}
 		// A name a person or an agent asked for is not ours to replace, so
@@ -125,7 +136,7 @@ func (m *Model) autoNameScan() tea.Cmd {
 			nameable: nameable,
 		})
 	}
-	if len(panes) == 0 {
+	if len(panes) == 0 && len(codexTargets) == 0 {
 		return nil
 	}
 	m.autoNaming = true
@@ -182,6 +193,14 @@ func (m *Model) autoNameScan() tea.Cmd {
 		prompts := map[string][]string{}
 		titles := map[string]string{}
 		targets := map[string]search.Target{}
+		for _, target := range codexTargets {
+			opening, err := search.ReadFirstPrompts(target, firstPromptRows)
+			if err != nil {
+				logging.Debug("read opening prompts", "session", target.Key, "error", err)
+			}
+			prompts[target.Key] = typedPrompts(opening)
+			targets[target.Key] = target
+		}
 		for _, pane := range panes {
 			match, ok := assigned.For(pane.sessID)
 			if !ok {

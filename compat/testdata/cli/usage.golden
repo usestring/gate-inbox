@@ -81,9 +81,11 @@ usage: gate-inbox place <session-id> [--release] [--json]
 $ gate-inbox answer -h
 exit 0
 --- stdout
-usage: gate-inbox answer <session-id> "<answer>" [--json]
+usage: gate-inbox answer <session-id> "<answer>" [--relay] [--json]
   -json
     	print the raw result as JSON instead of a sentence
+  -relay
+    	the answer is your user's own, given to the same question word for word in your own dialog; required for a question headed Approval
 
 $ gate-inbox wait -h
 exit 0

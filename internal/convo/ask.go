@@ -1,9 +1,12 @@
 package convo
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
+	"time"
 )
 
 // Reading the questions a pending AskUserQuestion call is asking.
@@ -42,20 +45,35 @@ const askWindow = 512 << 10
 // is waiting on, or ok false when the last such call has been answered or the
 // window holds none.
 func PendingAsk(path string) (questions []AskQuestion, ok bool) {
+	call, ok := PendingAskCall(path)
+	return call.Questions, ok
+}
+
+// AskCall is a pending AskUserQuestion call: its tool_use id, its questions
+// and when the model wrote it.
+type AskCall struct {
+	ToolUseID string
+	Questions []AskQuestion
+	AskedAt   time.Time
+}
+
+// PendingAskCall is the AskUserQuestion call path's conversation is waiting
+// on, with the id and time PendingAsk leaves out.
+func PendingAskCall(path string) (AskCall, bool) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return nil, false
+		return AskCall{}, false
 	}
 	start := max(info.Size()-askWindow, 0)
 	raw, err := readRange(path, start, info.Size())
 	if err != nil {
-		return nil, false
+		return AskCall{}, false
 	}
 	lines := bytes.Split(raw, []byte{'\n'})
 	if start > 0 && len(lines) > 0 {
 		lines = lines[1:]
 	}
-	var pendingID string
+	var pending AskCall
 	for _, line := range lines {
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 || line[0] != '{' {
@@ -68,20 +86,103 @@ func PendingAsk(path string) (questions []AskQuestion, ok bool) {
 		switch rec.Type {
 		case "assistant":
 			if id, asked, found := askCall(rec.Message.Content); found {
-				pendingID, questions = id, asked
+				pending = AskCall{ToolUseID: id, Questions: asked, AskedAt: recordTime(rec.Timestamp)}
 			}
 		case "user":
 			for _, result := range toolResults(rec.Message.Content) {
-				if pendingID != "" && result.ToolUseID == pendingID {
-					pendingID, questions = "", nil
+				if pending.ToolUseID != "" && result.ToolUseID == pending.ToolUseID {
+					pending = AskCall{}
 				}
 			}
 		}
 	}
-	if pendingID == "" || len(questions) == 0 {
-		return nil, false
+	if pending.ToolUseID == "" || len(pending.Questions) == 0 {
+		return AskCall{}, false
 	}
-	return questions, true
+	return pending, true
+}
+
+// AnsweredAsk is an AskUserQuestion call and the answers its dialog returned.
+type AnsweredAsk struct {
+	ToolUseID  string
+	Questions  []AskQuestion
+	Answers    map[string]string
+	AskedAt    time.Time
+	AnsweredAt time.Time
+}
+
+// AnsweredAsks is every AskUserQuestion call in path answered after since,
+// oldest first. The questions come from the call the model wrote and the
+// answers from the result Claude Code recorded (toolUseResult.answers, keyed
+// by question text); a result with no call before it in the file is skipped.
+func AnsweredAsks(path string, since time.Time) ([]AnsweredAsk, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	reader := bufio.NewReaderSize(file, 1<<20)
+	calls := map[string]AnsweredAsk{}
+	var out []AnsweredAsk
+	for {
+		line, err := reader.ReadBytes('\n')
+		if bytes.Contains(line, []byte("AskUserQuestion")) || bytes.Contains(line, []byte(`"answers"`)) {
+			collectAsk(bytes.TrimSpace(line), calls, since, &out)
+		}
+		if err == io.EOF {
+			return out, nil
+		}
+		if err != nil {
+			return out, err
+		}
+	}
+}
+
+func collectAsk(line []byte, calls map[string]AnsweredAsk, since time.Time, out *[]AnsweredAsk) {
+	if len(line) == 0 || line[0] != '{' {
+		return
+	}
+	var rec struct {
+		record
+		ToolUseResult json.RawMessage `json:"toolUseResult"`
+	}
+	if json.Unmarshal(line, &rec) != nil {
+		return
+	}
+	at := recordTime(rec.Timestamp)
+	switch rec.Type {
+	case "assistant":
+		if id, asked, found := askCall(rec.Message.Content); found {
+			calls[id] = AnsweredAsk{ToolUseID: id, Questions: asked, AskedAt: at}
+		}
+	case "user":
+		var result struct {
+			Answers map[string]string `json:"answers"`
+		}
+		if len(rec.ToolUseResult) == 0 || rec.ToolUseResult[0] != '{' || json.Unmarshal(rec.ToolUseResult, &result) != nil {
+			return
+		}
+		for _, tr := range toolResults(rec.Message.Content) {
+			call, found := calls[tr.ToolUseID]
+			if !found || len(result.Answers) == 0 {
+				continue
+			}
+			delete(calls, tr.ToolUseID)
+			if at.IsZero() || !at.After(since) {
+				continue
+			}
+			call.Answers, call.AnsweredAt = result.Answers, at
+			*out = append(*out, call)
+		}
+	}
+}
+
+func recordTime(stamp string) time.Time {
+	at, err := time.Parse(time.RFC3339Nano, stamp)
+	if err != nil {
+		return time.Time{}
+	}
+	return at
 }
 
 // askCall reads an AskUserQuestion tool call out of one assistant record's

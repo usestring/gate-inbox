@@ -42,8 +42,6 @@ func (f fakeAsks) Unanswered(asks.Target) (asks.Result, bool) {
 	return *f.lost, true
 }
 
-// fakePane marks a pane holding the fake CLI's dialog, and names the
-// question on its screen.
 func fakeReader(pane string, asked []convo.AskQuestion) (dialog.Reading, bool) {
 	if !strings.Contains(pane, "FAKE-DIALOG") {
 		return dialog.Reading{}, false

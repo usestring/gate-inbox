@@ -44,6 +44,25 @@ func TestSettingsTogglesQuickClose(t *testing.T) {
 	}
 }
 
+func TestExperimentalFeatureIsDefaultOffAndPersists(t *testing.T) {
+	m := buildModel(t)
+	if m.jevAutoSuggest {
+		t.Fatal("JEV Auto Suggest should be off by default")
+	}
+	m.openSettings()
+	m.settings.field = settingsFieldExperimental
+	m.handleSettingsKey(key("enter"))
+	if !m.settings.experimentalPicker {
+		t.Fatal("experimental row did not open the feature list")
+	}
+	m.handleSettingsKey(key("right"))
+	m.handleSettingsKey(key("esc"))
+	m.handleSettingsKey(key("esc"))
+	if !m.jevAutoSuggest || !storedJevAutoSuggest(m.store) {
+		t.Fatal("enabled feature did not persist")
+	}
+}
+
 func TestSettingsShowsVersion(t *testing.T) {
 	m := &Model{
 		version:  "v0.9.0",

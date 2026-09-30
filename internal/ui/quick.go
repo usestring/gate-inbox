@@ -74,6 +74,12 @@ func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m.rescindLatestSubmission()
 		}
 	}
+	if candidates := m.autoSuggestions(); len(candidates) > 0 {
+		if msg.String() == "ctrl+y" {
+			m.quick.input.SetValue(candidates[0])
+			return m, nil
+		}
+	}
 	switch msg.String() {
 	case "esc":
 		m.quick.active = false

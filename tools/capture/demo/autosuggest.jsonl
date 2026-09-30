@@ -1,0 +1,7 @@
+{"type":"ai-title","sessionId":"autosuggest","aiTitle":"Auto suggest demo"}
+{"type":"user","sessionId":"autosuggest","message":{"role":"user","content":"Build the dashboard layout"}}
+{"type":"assistant","sessionId":"autosuggest","message":{"role":"assistant","content":"The dashboard layout is ready."}}
+{"type":"user","sessionId":"autosuggest","message":{"role":"user","content":"Add the filtering controls"}}
+{"type":"assistant","sessionId":"autosuggest","message":{"role":"assistant","content":"The filtering controls are ready."}}
+{"type":"user","sessionId":"autosuggest","message":{"role":"user","content":"Add the keyboard shortcuts"}}
+{"type":"assistant","sessionId":"autosuggest","message":{"role":"assistant","content":"The keyboard shortcuts are ready. What comes next?"}}

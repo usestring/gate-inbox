@@ -1741,6 +1741,9 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 	// Chips are tokens inside the typed text, so they wrap and reflow with
 	// the words around them; painting happens on the rendered prompt.
 	bar := target + "\n" + m.quick.renderChips(m.quick.input.View())
+	if suggestion := m.selectedAutoSuggestion(); suggestion != "" {
+		bar += "\n" + subtleStyle.Render(truncateTail("ctrl+y insert · "+suggestion, width))
+	}
 	if line := m.quickSnippetLine(width); line != "" {
 		bar += "\n" + line
 	}

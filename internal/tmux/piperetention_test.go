@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 // Does a capture over the pooled control pipe actually retain memory in a
@@ -73,7 +75,7 @@ func measureRetention(t *testing.T, env []string, rows int) (perCapture float64,
 		rows = 50
 	}
 	t.Helper()
-	socket := "arena" + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "")
+	socket := tmuxtest.Socket(t, "arena")
 	driver, err := NewWithSocket(socket)
 	if err != nil {
 		t.Fatal(err)

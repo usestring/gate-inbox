@@ -131,3 +131,80 @@ func TestReapCollectsOnlyARunWhoseOwnerIsGone(t *testing.T) {
 		t.Errorf("directory %s of a live run was removed: %v", liveDir, err)
 	}
 }
+
+const userConfigMarker = "@gitest-user-config"
+
+// withUserConfig points HOME and XDG_CONFIG_HOME at a directory whose tmux
+// config sets userConfigMarker, in both places tmux looks for one.
+func withUserConfig(t *testing.T) {
+	t.Helper()
+	home := t.TempDir()
+	xdg := filepath.Join(home, ".config")
+	if err := os.MkdirAll(filepath.Join(xdg, "tmux"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line := []byte("set -g " + userConfigMarker + " loaded\n")
+	for _, path := range []string{filepath.Join(home, ".tmux.conf"), filepath.Join(xdg, "tmux", "tmux.conf")} {
+		if err := os.WriteFile(path, line, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+}
+
+// markerOn starts a server with bin on a fresh test socket and reads the
+// marker back from it.
+func markerOn(t *testing.T, bin string) string {
+	t.Helper()
+	socket := Socket(t, "config")
+	Check(t, socket)
+	start := exec.Command(bin, "-L", socket, "new-session", "-d", "sleep 60")
+	start.Env = Environ()
+	if out, err := start.CombinedOutput(); err != nil {
+		t.Fatalf("new-session: %v: %s", err, out)
+	}
+	show := exec.Command(bin, "-L", socket, "show-options", "-gqv", userConfigMarker)
+	show.Env = Environ()
+	out, err := show.Output()
+	if err != nil {
+		t.Fatalf("show-options: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+func TestTestServersIgnoreTheUserConfig(t *testing.T) {
+	found, err := exec.LookPath("tmux")
+	if err != nil {
+		t.Skip("tmux not installed")
+	}
+	if found != ShimPath() {
+		t.Fatalf("tmux resolves to %s, want this run's shim %s", found, ShimPath())
+	}
+	withUserConfig(t)
+	if got := markerOn(t, "tmux"); got != "" {
+		t.Fatalf("a test server sourced the user's tmux config: %s = %q", userConfigMarker, got)
+	}
+}
+
+// Without the shim the same server does read the config, so the test above
+// measures the shim and not a HOME tmux never looked at.
+func TestTheUnwrappedTmuxWouldSourceIt(t *testing.T) {
+	shim := ShimPath()
+	if shim == "" {
+		t.Skip("tmux not installed")
+	}
+	script, err := os.ReadFile(shim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rest, _ := strings.Cut(string(script), "exec '")
+	real, _, ok := strings.Cut(rest, "'")
+	if !ok {
+		t.Fatalf("cannot read the real tmux out of the shim:\n%s", script)
+	}
+	withUserConfig(t)
+	if got := markerOn(t, real); got != "loaded" {
+		t.Fatalf("the unwrapped tmux did not source the user's config (%s = %q): the test above proves nothing", userConfigMarker, got)
+	}
+}

@@ -132,7 +132,7 @@ func (p *poller) relayChildQuestion(sess store.Session, newStatus, pane string) 
 // relayTarget is the session a child's dialog is relayed to: the one that
 // spawned it, while that one is alive and the child's role is not silent.
 func (p *poller) relayTarget(sess store.Session) (store.Session, bool, error) {
-	spawner := store.SpawnerOf(sess)
+	spawner := store.TrackerOf(sess)
 	if spawner == "" || sess.Archived || sessionhooks.Role(sess.Role).Silent {
 		return store.Session{}, false, nil
 	}
@@ -244,6 +244,17 @@ func childQuestionsMessage(sess store.Session, questions []dialog.Question) stri
 			"with one answer_session call: answers, one entry per question, naming it by number or header and "+
 			"giving the option's text, or your own words to type instead. It presses Submit once every "+
 			"question has an answer.", sess.ID)
+	}
+	var approvals []string
+	for _, q := range questions {
+		if !q.Answered && dialog.IsApproval(q.Header) {
+			approvals = append(approvals, fmt.Sprint(q.Index))
+		}
+	}
+	if len(approvals) > 0 {
+		fmt.Fprintf(&out, "\n\nQuestion %s is headed Approval: the child is asking for your user's approval. "+
+			"Never answer it yourself. Ask your user verbatim, then answer with relay: true; any other answer "+
+			"is refused.", strings.Join(approvals, ", "))
 	}
 	if len(person) > 0 {
 		fmt.Fprintf(&out, "\n\nQuestion %s is a multi-select, which answer_session cannot tick: only a "+

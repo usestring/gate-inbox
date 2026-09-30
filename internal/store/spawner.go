@@ -44,3 +44,37 @@ func SpawnerOf(sess Session) string {
 	}
 	return sess.ParentID
 }
+
+// Who follows a row, as opposed to who made it.
+//
+// create_session with nest false detaches the spawn: a top-level row, handed
+// to whoever sits at its pane. spawned_by still names the session that made
+// it, and that stays on the row for anyone asking where it came from. But
+// ownership read off spawned_by alone kept treating the row as the maker's
+// child: every finish and every question was typed into the maker's prompt,
+// the maker answered the row's dialogs, and archiving the maker archived it.
+// A session the user asked for, to own themselves, was steered by the agent
+// that happened to launch it.
+//
+// So ownership needs the row to be drawn under somebody. Only a detached
+// spawn has a spawner and no parent -- a nested one is always filed under its
+// spawner or that spawner's root, and place_session moves the two columns
+// together -- so an empty parent_id is what detached means, and it follows
+// the row: placing a detached session under a session hands it to that one.
+
+// TrackerOf is the session that follows sess: hears its rests and questions,
+// answers its dialogs, reaches it with send_children and files it away with
+// its own archive. That is its spawner while it is drawn under a session and
+// nobody for a detached one.
+func TrackerOf(sess Session) string {
+	if sess.ParentID == "" {
+		return ""
+	}
+	return SpawnerOf(sess)
+}
+
+// Detached reports whether sess was spawned by a session and left untracked
+// by it: a record of who made it, and nothing more.
+func Detached(sess Session) bool {
+	return sess.ParentID == "" && sess.SpawnedBy != ""
+}

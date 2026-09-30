@@ -23,7 +23,7 @@ const (
 	usageRead          = "read <session-id> [--since <cursor>] [--json]"
 	usageSendChildren  = "send-children \"<message>\" [--json]"
 	usagePlace         = "place <session-id> [--release] [--json]"
-	usageAnswer        = "answer <session-id> \"<answer>\" [--json]"
+	usageAnswer        = "answer <session-id> \"<answer>\" [--relay] [--json]"
 	usageWait          = "wait [<session-id>...] [--children] [--until <state>] [--timeout <duration>] [--json]"
 	usageMessageStatus = "message-status <message-id> [--json]"
 	usageKill          = "kill <session-id> [--json]"
@@ -48,7 +48,7 @@ type sessionCommands interface {
 	Read(sessionID, targetID, since string) (sessioncmd.SessionScreen, error)
 	AdoptSession(sessionID, targetID string) (sessioncmd.Session, error)
 	ReleaseSession(sessionID, targetID string) (sessioncmd.Session, error)
-	Answer(sessionID, targetID, reply string) (sessioncmd.AnsweredQuestion, error)
+	Answer(sessionID, targetID, reply string, relay bool) (sessioncmd.AnsweredQuestion, error)
 	Wait(ctx context.Context, sessionID string, opts sessioncmd.WaitOptions) (sessioncmd.WaitResult, error)
 	MessageStatus(sessionID string, messageID int64) (sessioncmd.MessageState, error)
 	Kill(sessionID, targetID string, via extension.KillSource) (sessioncmd.Session, error)
@@ -122,10 +122,10 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 	prompt := set.String("prompt", "", "first task to hand it, written as a full instruction, since it cannot see your conversation")
 	tool := set.String("tool", "", "agent CLI to run; defaults to the CLI this session runs, and is required when this session is a terminal")
 	model := set.String("model", "", "model that CLI should run on, in its own names; omit for the CLI's default")
-	account := set.String("account", "", "named subscription it runs on, read from Secret Manager at launch; omit for the board's default account")
+	account := set.String("account", "", "named account it runs on, read from its secret at launch; omit for the board's launch-account setting")
 	group := set.String("group", "", "existing group path for a detached (--nest=false) session; a nested one is always in yours")
 	directory := set.String("directory", "", "existing directory it works in; defaults to yours, or to the group's inherited path")
-	nest := set.Bool("nest", true, "file it under this session, where its questions and rests reach you; --nest=false detaches it, for work that is not yours")
+	nest := set.Bool("nest", true, "file it under this session, where its questions and rests reach you; --nest=false detaches it: the user's, not yours, and nothing about it is relayed to you")
 	keep := set.Bool("keep", false, "keep it on the list after it finishes, where Gate Inbox would otherwise archive it once you have read its finish and the grace period has passed")
 	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
@@ -227,12 +227,13 @@ func runPlace(out io.Writer, sessions sessionCommands, args []string, sessionID 
 
 func runAnswer(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
 	set := cmdline.NewFlagSet(usageAnswer)
+	relay := set.Bool("relay", false, "the answer is your user's own, given to the same question word for word in your own dialog; required for a question headed Approval")
 	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 2, 2)
 	if err != nil {
 		return err
 	}
-	answered, err := sessions.Answer(sessionID, operands[0], operands[1])
+	answered, err := sessions.Answer(sessionID, operands[0], operands[1], *relay)
 	if err != nil {
 		return err
 	}
@@ -344,13 +345,12 @@ func runMigrate(out io.Writer, sessions sessionCommands, args []string, sessionI
 	set := cmdline.NewFlagSet(usageMigrate)
 	tool := set.String("tool", "", "agent CLI the conversation moves to")
 	name := set.String("name", "", "name for the new session; defaults to the source's name with the tool appended")
-	account := set.String("account", "", "named subscription the new session runs on; defaults to the source's own, then the board's default")
 	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
 	}
-	migrated, err := sessions.Migrate(sessionID, operands[0], sessioncmd.MigrateOptions{Tool: *tool, Name: *name, Account: *account})
+	migrated, err := sessions.Migrate(sessionID, operands[0], sessioncmd.MigrateOptions{Tool: *tool, Name: *name})
 	if err != nil {
 		return err
 	}

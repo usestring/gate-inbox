@@ -64,10 +64,15 @@ type AnsweredQuestion struct {
 // from that placement refused every spawner its own children's dialogs while
 // putting the root in front of questions it never assigned.
 //
+// Nor may the spawner of a detached session. Detaching hands the session to
+// whoever is at its pane, and a dialog is theirs to answer; see TrackerOf.
+//
 // One call answers one question. A dialog asking several reports the rest as
 // Standing and is answered by calling again; AnswerKeys holds why that is not
 // a list.
-func (s *Sessions) Answer(sessionID, targetID, reply string) (AnsweredQuestion, error) {
+//
+// relay keys the answer as the caller's user's own: see relay.go.
+func (s *Sessions) Answer(sessionID, targetID, reply string, relay bool) (AnsweredQuestion, error) {
 	reply = strings.TrimSpace(reply)
 	if reply == "" {
 		return AnsweredQuestion{}, errEmptyAnswer
@@ -85,7 +90,7 @@ func (s *Sessions) Answer(sessionID, targetID, reply string) (AnsweredQuestion, 
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
-	return runtime.answer(target, reply, "parent", caller.ID)
+	return runtime.answer(target, reply, "parent", caller.ID, s.guard(runtime.store, caller, target, relay))
 }
 
 var errEmptyAnswer = errors.New(
@@ -93,7 +98,9 @@ var errEmptyAnswer = errors.New(
 
 // answer keys or types reply into the dialog target's pane is holding, once
 // the caller has settled who may. by and byID name who answered, in the log.
-func (r *runtime) answer(target store.Session, reply, by, byID string) (AnsweredQuestion, error) {
+// A parent's answer carries a guard, which admits it and records it before
+// the first keystroke; the board's, a person's, carries none.
+func (r *runtime) answer(target store.Session, reply, by, byID string, guard *answerGuard) (AnsweredQuestion, error) {
 	pane := tmuxPane{r.driver, target.ID}
 	raw, err := pane.Capture()
 	if err != nil {
@@ -139,7 +146,7 @@ func (r *runtime) answer(target store.Session, reply, by, byID string) (Answered
 		return AnsweredQuestion{}, wrapped(err, fmt.Sprintf(
 			"session %s is on %s", target.ID, held.Refusal()))
 	}
-	answered, err := answerHeld(pane, raw, held, reply)
+	answered, err := answerGuarded(pane, raw, held, reply, guard)
 	answered.SessionID, answered.Name = target.ID, target.Name
 	if err != nil {
 		logging.Warn(by+"'s answer to a child's question did not land as given",
@@ -149,6 +156,34 @@ func (r *runtime) answer(target store.Session, reply, by, byID string) (Answered
 	logging.Info(by+" answered a child's question",
 		by, byID, "session", target.ID, "option", answered.Selected, "verified", answered.Verified)
 	return answered, nil
+}
+
+// answerGuarded is answerHeld behind guard: the answer is admitted and
+// ledgered before the first keystroke and marked once the keys are in. A nil
+// guard, the board's, keys it as it stands.
+func answerGuarded(pane dialogPane, raw string, held dialog.Dialog, reply string, guard *answerGuard) (AnsweredQuestion, error) {
+	if guard != nil {
+		index, screen := heldIndex(raw, held)
+		if err := guard.admit([]plannedAnswer{{index, reply}}, screen); err != nil {
+			return AnsweredQuestion{}, err
+		}
+	}
+	answered, err := answerHeld(pane, raw, held, reply)
+	guard.finish(err)
+	return answered, err
+}
+
+// heldIndex is the 0-based question held is showing, or -1 when it is not an
+// AskUserQuestion dialog, with the dialog's questions as the screen draws them.
+func heldIndex(raw string, held dialog.Dialog) (int, []dialog.Question) {
+	if held.Kind != dialog.KindAsk {
+		return -1, nil
+	}
+	if held.Steps == 0 {
+		return 0, []dialog.Question{{Index: 1, Question: held.Question()}}
+	}
+	questions := dialog.Questions(raw, nil)
+	return slices.IndexFunc(questions, func(q dialog.Question) bool { return q.OnScreen }), questions
 }
 
 // answerHeld answers the question held is, on pane, and reads back what the
@@ -247,7 +282,13 @@ func (r *runtime) child(caller store.Session, targetID string) (store.Session, e
 	if err != nil {
 		return store.Session{}, err
 	}
-	if owner := store.SpawnerOf(target); owner != caller.ID {
+	if owner := store.TrackerOf(target); owner != caller.ID {
+		if store.Detached(target) {
+			return store.Session{}, fmt.Errorf(
+				"session %s was detached (nest false) when it was created, so its dialogs are for the "+
+					"person at its pane, not for the session that created it; a person answers it on the "+
+					"board, or send_session asks it something", target.ID)
+		}
 		if owner == "" {
 			return store.Session{}, fmt.Errorf(
 				"session %s is nobody's child, so no session owns its screen; a person answers it "+

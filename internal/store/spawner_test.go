@@ -78,3 +78,50 @@ func TestInsertKeepsSpawnerWhileFlatteningPlacement(t *testing.T) {
 		t.Fatalf("SpawnerOf = %q, want the session that spawned it", got)
 	}
 }
+
+// A detached spawn keeps its spawner on record and is tracked by nobody, so
+// it drops out of its creator's descendants, while a nested spawn stays in.
+// Placing it under a session hands it to that session.
+func TestADetachedSpawnIsRecordedButNotTracked(t *testing.T) {
+	st, err := Open(filepath.Join(tmuxtest.ScratchDir(t), "state.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+	for _, sess := range []Session{
+		{ID: "parent01", Name: "creator", Tool: "claude"},
+		{ID: "child001", Name: "nested", Tool: "claude", ParentID: "parent01", SpawnedBy: "parent01"},
+		{ID: "child002", Name: "detached", Tool: "claude", SpawnedBy: "parent01"},
+	} {
+		if err := st.CreateSession(sess); err != nil {
+			t.Fatalf("create %s: %v", sess.ID, err)
+		}
+	}
+	detached, err := st.Get("child002")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if SpawnerOf(detached) != "parent01" || !Detached(detached) || TrackerOf(detached) != "" {
+		t.Fatalf("detached row: spawner %q, detached %v, tracker %q; want parent01, true, empty",
+			SpawnerOf(detached), Detached(detached), TrackerOf(detached))
+	}
+	rows, err := st.ListSessions(true)
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	below := Descendants(rows, "parent01")
+	if len(below) != 1 || below[0].ID != "child001" {
+		t.Fatalf("descendants = %+v, want only the nested child", below)
+	}
+
+	if err := st.PlaceSession("child002", "", "parent01"); err != nil {
+		t.Fatalf("PlaceSession: %v", err)
+	}
+	placed, err := st.Get("child002")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if Detached(placed) || TrackerOf(placed) != "parent01" {
+		t.Fatalf("placed row: detached %v, tracker %q; want false, parent01", Detached(placed), TrackerOf(placed))
+	}
+}

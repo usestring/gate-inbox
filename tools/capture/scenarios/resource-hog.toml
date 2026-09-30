@@ -1,0 +1,15 @@
+# Thresholds low enough that a demo agent's own tree trips them, so the
+# capture shows the badge and the notice without burning a core for ten
+# minutes. Every other tier is off so only the memory notice fires.
+[hogs]
+sample_every = "2s"
+
+[hogs.cpu]
+notice = []
+warn = []
+stop = []
+
+[hogs.memory]
+notice = [{ gib = 0.0005 }]
+warn = []
+stop = []

@@ -90,7 +90,8 @@ var errDialogMoved = errors.New("the dialog changed under the answer")
 
 // AnswerAll answers several questions of the dialog targetID is holding, and
 // submits it when every question then has an answer and submit is set.
-func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswer, submit bool) (AnsweredQuestion, error) {
+// relay keys the answers as the caller's user's own: see relay.go.
+func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswer, submit, relay bool) (AnsweredQuestion, error) {
 	if len(answers) == 0 {
 		return AnsweredQuestion{}, errors.New("answers is empty; give one entry per question to answer")
 	}
@@ -117,13 +118,26 @@ func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswe
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
+	guard := s.guard(runtime.store, caller, target, relay)
 	questions := dialog.Questions(raw, s.asked(target))
 	if len(questions) == 0 {
 		// The single-answer path has the words for every shape that is not a
 		// question dialog; one answer there gets the same refusal.
-		return runtime.answer(target, answers[0].Answer, "parent", caller.ID)
+		return runtime.answer(target, answers[0].Answer, "parent", caller.ID, guard)
+	}
+	planned := make([]plannedAnswer, 0, len(answers))
+	for _, answer := range answers {
+		index, err := dialog.Resolve(questions, answer.Question)
+		if err != nil {
+			return AnsweredQuestion{}, err
+		}
+		planned = append(planned, plannedAnswer{index, strings.TrimSpace(answer.Answer)})
+	}
+	if err := guard.admit(planned, questions); err != nil {
+		return AnsweredQuestion{}, fmt.Errorf("session %s: %w", target.ID, err)
 	}
 	answered, err := fillDialog(pane, questions, answers, submit)
+	guard.finish(err)
 	answered.SessionID, answered.Name = target.ID, target.Name
 	if err != nil {
 		return answered, err

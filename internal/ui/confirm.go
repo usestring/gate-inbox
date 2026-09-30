@@ -36,6 +36,8 @@ func (m *Model) confirmTitle() string {
 		return "◆ Revive " + subject
 	case actionResume:
 		return "↻ Restart " + subject
+	case actionDelete:
+		return "◇ Delete " + subject
 	default:
 		// Unreachable: every builder sets an action, and the dispatch refuses
 		// one that does not. Named rather than left blank so a dialog that
@@ -47,7 +49,8 @@ func (m *Model) confirmTitle() string {
 // confirmDestructive reports whether the pending answer takes something
 // away, which decides whether the dialog reads as an alarm or as a move.
 func (m *Model) confirmDestructive() bool {
-	return m.confirm.action == actionRestart || m.confirm.action == actionArchive
+	return m.confirm.action == actionRestart || m.confirm.action == actionArchive ||
+		m.confirm.action == actionDelete
 }
 
 // confirmAdopted counts the panes in the pending answer that the manager
@@ -122,6 +125,8 @@ func (m *Model) viewConfirm() string {
 		answer = "revive"
 	case actionResume:
 		answer = "restart"
+	case actionDelete:
+		answer = "delete"
 	}
 	hint := [][2]string{{"y/↵", answer}, {"n/esc", "cancel"}}
 	if m.confirm.ack != "" {

@@ -626,6 +626,9 @@ func (n *noop) StartBoard(ctx context.Context, board extension.BoardHost) (func(
 			return
 		}
 		record("replaced.txt", fmt.Sprintf("%s %s %s %s %s replaced-by %s", fresh.ID, fresh.Name, fresh.Role, fresh.ParentID, retired.Status, retired.ReplacedBy))
+		// The test reads the forwarded inbox before the kill below drops it
+		// as the queue of a recipient that ended.
+		waitFor(filepath.Join(dir, "go-kill"))
 		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
 			if _, err := os.Stat(filepath.Join(dir, "env-"+fresh.ID+".txt")); err == nil {
 				break

@@ -5,13 +5,10 @@
 #   tools/capture/capture.sh --no-seed --foreign waiting \
 #     --scenario tools/capture/scenarios/dialog-refuses-approve.tape
 #
-# The worked example of both rules in the README: dismiss the take-over offer a
-# --foreign board opens with, then reach the row by name rather than by walking
-# to it.
+# The row is reached by name rather than by walking to it. A waiting pane is
+# not idle, so the board leaves it adopted.
 
 Sleep 5s
-Escape
-Sleep 1s
 Screenshot {{SHOTS}}/01-board.png
 Sleep 1s
 

@@ -14,7 +14,7 @@ import (
 // left both a server and the control client its capture opened.
 func TestADriverLeavesNoControlClientBehind(t *testing.T) {
 	tmuxtest.AssertNoLeakOnItsOwnSocket(t, func(t *testing.T) string {
-		socket := tmuxtest.NewSocket("launch")
+		socket := tmuxtest.Socket(t, "launch")
 		driver, err := tmux.NewWithSocket(socket)
 		if err != nil {
 			t.Fatalf("driver: %v", err)

@@ -53,7 +53,10 @@ type Session struct {
 	// child, because the tree carries one level: such a row is drawn beside
 	// its spawner, under their shared root, and answered by its spawner.
 	ParentID  string `json:"parent_id,omitempty" jsonschema:"session this row is drawn under on the board; empty for a top-level session"`
-	SpawnedBy string `json:"spawned_by,omitempty" jsonschema:"session that spawned this one, which is the only session that can answer its questions or reach it with send_children; empty for a session nobody spawned"`
+	SpawnedBy string `json:"spawned_by,omitempty" jsonschema:"session that spawned this one, which is the only session that can answer its questions or reach it with send_children unless it is detached; empty for a session nobody spawned"`
+	// Detached is a spawn made with nest false: SpawnedBy says who made it,
+	// and that session follows it no further. See store.TrackerOf.
+	Detached bool `json:"detached,omitempty" jsonschema:"whether this session was created detached (nest false): its creator, in spawned_by, is told nothing of its questions or finishes and cannot answer its dialogs, and the two talk only through send_session"`
 	// Role is the extension's, and reaches extensions only: no tool's output
 	// carries it, so it costs a session's context nothing.
 	Role string `json:"-"`
@@ -221,6 +224,7 @@ func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 		Self:      self,
 		ParentID:  sess.ParentID,
 		SpawnedBy: store.SpawnerOf(sess),
+		Detached:  store.Detached(sess),
 		Role:      sess.Role,
 
 		AgentSessionID: sess.AgentSessionID,
@@ -613,7 +617,10 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	// A detached spawn has nothing to flatten: it is a top-level row in the
 	// group asked for, whatever depth the caller sits at. Filing it under the
 	// caller's parent would put it back into that parent's fan-out and group,
-	// which is the one thing nest false asks for not to happen.
+	// which is the one thing nest false asks for not to happen. It keeps
+	// spawned_by, as a record of who made it, but with no parent nobody
+	// tracks it: store.TrackerOf is empty for it, so the caller hears none
+	// of its rests or questions and cannot answer its dialogs.
 	parentID := ""
 	create := runtime.store.LaunchSession
 	if nest {
@@ -671,7 +678,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		return Session{}, err
 	}
 
-	account, err := runtime.accountOr(opts.Account, tool, id)
+	account, err := runtime.accountOr(opts.Account, toolName, tool, id, extension.LaunchSpawn)
 	if err != nil {
 		return Session{}, err
 	}
@@ -712,7 +719,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		}
 		return Session{}, err
 	}
-	accounts.RecordLaunch(runtime.store, sess.ID, sess.Tool, sess.Account)
+	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account)
 	if opts.Keep {
 		if err := runtime.store.SetKeepChild(sess.ID, true); err != nil {
 			return Session{}, err

@@ -67,6 +67,41 @@ func TestTheKeyMapNamesTheReboundKey(t *testing.T) {
 	}
 }
 
+// ctrl+h opens the key map from the list and from inside a session, and
+// closes it again: the one help key that works on either screen.
+func TestCtrlHOpensAndClosesTheKeyMap(t *testing.T) {
+	m := buildModel(t)
+	ctrlH := tea.KeyPressMsg{Code: 'h', Mod: tea.ModCtrl}
+	m.handleKey(ctrlH)
+	if m.mode != modeHelp {
+		t.Fatalf("ctrl+h left the board in mode %v, want the key map", m.mode)
+	}
+	m.handleHelpKey(ctrlH)
+	if m.mode == modeHelp {
+		t.Fatal("ctrl+h did not close the key map it opened")
+	}
+
+	createSession(t, m, "focusedhelp", t.TempDir(), "")
+	m.selectSessionRow(t, "focusedhelp")
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	*m = *updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("after enter, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+	updated, _ = m.handleKey(ctrlH)
+	*m = *updated.(*Model)
+	if m.mode != modeHelp {
+		t.Fatalf("ctrl+h in focus left mode = %v, want the key map", m.mode)
+	}
+	if m.help.returnMode != modeFocus {
+		t.Fatalf("the key map returns to %v, want focus", m.help.returnMode)
+	}
+	m.handleHelpKey(ctrlH)
+	if m.mode != modeFocus {
+		t.Fatalf("closing the key map left mode = %v, want focus", m.mode)
+	}
+}
+
 // H opens the full key map and closes the screen it opened.
 func TestHOpensAndClosesTheKeyMap(t *testing.T) {
 	m := buildModel(t)

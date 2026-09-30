@@ -139,14 +139,12 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 		ReadAction:    words.Read,
 		SendAction:    words.Send,
 	})
-	// The source's model comes across when the destination can take one,
-	// and so does its account, else the board's default.
-	named := ""
-	if source.Account != "" && tool.AccountEnv != "" {
-		named = source.Account
-	}
+	// The source's model comes across when the destination can take one.
+	// The account is the build's extension's choice, never the source's:
+	// see accounts.Route. Only the switch-account card, which has already
+	// chosen, arrives with one.
 	id := newID()
-	// Before an account is borrowed, so a refusal leaves nothing behind.
+	// Before an account is chosen, so a refusal leaves nothing behind.
 	shape, err := sessionhooks.Shape(migrate.NewSession(id, name, toolName, source, launch.Plan{Model: source.Model}), extension.LaunchMigrate, source.ID)
 	if err != nil {
 		m.reportLaunchError(err)
@@ -156,9 +154,8 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 	var account string
 	if m.migrate.account != nil {
 		account = *m.migrate.account
-		err = accounts.CarryBorrower(m.store, source.ID, id)
 	} else {
-		account, err = accounts.Select(m.store, tool, named, id)
+		account, err = accounts.Route(tool, accounts.Request{SessionID: id, ToolName: toolName, Reason: extension.LaunchMigrate, From: source.ID})
 	}
 	if err != nil {
 		m.reportLaunchError(err)

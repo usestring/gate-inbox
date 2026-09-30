@@ -1,11 +1,18 @@
 package ui
 
 import (
+	"context"
+	"errors"
+	"maps"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -38,10 +45,14 @@ const (
 	// newSessionAgentDefault skips the box and starts the settings default
 	// tool.
 	newSessionAgentDefault = "default tool"
+	// newSessionAgentAuto skips the box and starts the CLI the build's
+	// extension chooses (see extension.ToolChooser); settings offers it only
+	// in a build that has one.
+	newSessionAgentAuto = "auto"
 )
 
 // newSessionAgentModes is the setting's cycle order.
-var newSessionAgentModes = []string{newSessionAgentAsk, newSessionAgentLast, newSessionAgentDefault}
+var newSessionAgentModes = []string{newSessionAgentAsk, newSessionAgentLast, newSessionAgentDefault, newSessionAgentAuto}
 
 func storedNewSessionAgent(st *store.Store) string {
 	chosen, err := st.Setting(newSessionAgentSetting)
@@ -73,9 +84,170 @@ func (m *Model) startNewSession() (tea.Model, tea.Cmd) {
 		return m.spawnInstant(m.lastTool())
 	case newSessionAgentDefault:
 		return m.spawnInstant(m.defaultTool())
+	case newSessionAgentAuto:
+		return m.startAutoRoute()
 	}
 	m.openAgentPick()
 	return m, nil
+}
+
+type autoRouteMsg struct {
+	name     string
+	request  extension.ToolRequest
+	group    string
+	row      treeRow
+	selected bool
+	mode     string
+	err      error
+}
+
+// toolChooser is the build's chooser for a new session's CLI, when its
+// account chooser offers one. Without it "auto" has nobody to ask, and n
+// opens the box instead.
+func toolChooser() (extension.ToolChooser, bool) {
+	chooser, err := accounts.Chooser()
+	if err != nil || chooser == nil {
+		return nil, false
+	}
+	tools, ok := chooser.(extension.ToolChooser)
+	return tools, ok
+}
+
+func (m *Model) startAutoRoute() (tea.Model, tea.Cmd) {
+	if m.autoRouting {
+		return m, nil
+	}
+	if _, ok := toolChooser(); !ok {
+		m.openAgentPick()
+		m.errBar.text = "no extension chooses a CLI: choose one"
+		return m, nil
+	}
+	mode, err := accounts.Mode(m.store)
+	if err != nil {
+		m.openAgentPick()
+		m.errBar.text = "launch accounts unavailable: choose a CLI"
+		return m, nil
+	}
+	var candidates []extension.ToolCandidate
+	for _, name := range m.enabledToolNames() {
+		candidate := extension.ToolCandidate{Name: name}
+		if tool := m.cfg.Tools[name]; tool.AccountEnv != "" {
+			account := accounts.Tool(tool)
+			candidate.Account = &account
+		}
+		candidates = append(candidates, candidate)
+	}
+	if len(candidates) == 0 {
+		m.openAgentPick()
+		m.errBar.text = "no CLI to choose from: choose a CLI"
+		return m, nil
+	}
+	row, selected := m.selectedRow()
+	req := extension.ToolRequest{Candidates: candidates, Active: m.activeByTool(), ChoosingAccounts: mode == accounts.Extension}
+	return m, m.autoRouteCmd(autoRouteMsg{request: req, group: m.contextGroup(), row: row, selected: selected, mode: mode})
+}
+
+// activeByTool counts the sessions each CLI already has in flight, which a
+// chooser may weigh.
+func (m *Model) activeByTool() map[string]int {
+	active := map[string]int{}
+	for _, session := range m.sessions {
+		if !session.Archived && (session.Status == status.Working || session.Status == status.Starting || session.Status == status.Waiting) {
+			active[session.Tool]++
+		}
+	}
+	return active
+}
+
+// autoRouteCmd asks the build's chooser for a CLI off the event loop, handing
+// the rest of req back with the answer.
+func (m *Model) autoRouteCmd(req autoRouteMsg) tea.Cmd {
+	m.autoRouting = true
+	return func() tea.Msg {
+		msg := req
+		chooser, ok := toolChooser()
+		if !ok {
+			msg.err = errors.New("no extension chooses a CLI")
+			return msg
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		msg.name, msg.err = chooser.ChooseTool(ctx, req.request)
+		return msg
+	}
+}
+
+func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
+	if !m.autoRouting {
+		return m, nil
+	}
+	m.autoRouting = false
+	if m.mode != modeList && m.mode != modeFocus {
+		return m, nil
+	}
+	// Checked before anything pins to the captured group, so neither a launch
+	// nor a fallback picker can reach a group renamed or archived meanwhile.
+	if !m.groupStillOpen(msg.group) {
+		m.openAgentPick()
+		m.errBar.text = "group changed: choose a CLI"
+		return m, nil
+	}
+	if msg.err != nil || msg.name == "" {
+		m.openPinnedAgentPick(msg)
+		m.errBar.text = "no CLI chosen: choose one"
+		return m, nil
+	}
+	// The chooser answered for the launch-account mode read when n was
+	// pressed; a mode changed in settings since then may launch this CLI on
+	// an account it was not asked about.
+	if mode, err := accounts.Mode(m.store); err != nil || mode != msg.mode {
+		m.openPinnedAgentPick(msg)
+		m.errBar.text = "launch accounts changed: choose a CLI"
+		return m, nil
+	}
+	// Work that started while the chooser was answering changes what it was
+	// told, so it is asked again against the counts as they are now.
+	if active := m.activeByTool(); !maps.Equal(active, msg.request.Active) {
+		msg.request.Active = active
+		return m, m.autoRouteCmd(msg)
+	}
+	for _, name := range m.enabledToolNames() {
+		if name == msg.name {
+			return m.spawnInstantIn(name, msg.group)
+		}
+	}
+	m.openPinnedAgentPick(msg)
+	m.errBar.text = "chosen CLI is disabled: choose another"
+	return m, nil
+}
+
+// groupStillOpen reports whether group can still take a new session: the top
+// level, or a group that exists and is not archived. The store is read rather
+// than the last poll, because a rename or archive finished while the chooser
+// was answering may not have reached the model yet.
+func (m *Model) groupStillOpen(group string) bool {
+	if group == "" {
+		return true
+	}
+	groups, err := m.store.Groups()
+	if err != nil {
+		return false
+	}
+	names := make([]string, len(groups))
+	archived := make(map[string]bool, len(groups))
+	for i, g := range groups {
+		names[i] = g.Name
+		archived[g.Name] = g.Archived
+	}
+	return groupClosure(names, m.sessions)[group] && !store.EffectivelyArchived(archived, group)
+}
+
+func (m *Model) openPinnedAgentPick(msg autoRouteMsg) {
+	m.openAgentPick()
+	if m.mode == modeAgentPick {
+		m.agentPick.group, m.agentPick.pinned = msg.group, true
+		m.agentPick.row, m.agentPick.rowSelected = msg.row, msg.selected
+	}
 }
 
 // agentPick is the one question n asks: which agent starts here.
@@ -98,6 +270,12 @@ type agentPick struct {
 	// against fresh text replaces the whole of it, which is what makes a
 	// prefilled box overridable without a backspace per character.
 	fresh bool
+	// group and row pin the launch to what an auto choice captured when n was
+	// pressed, so a fallback picker does not follow a cursor moved meanwhile.
+	group       string
+	row         treeRow
+	rowSelected bool
+	pinned      bool
 }
 
 func (m *Model) openAgentPick() {
@@ -285,9 +463,40 @@ func (m *Model) submitAgentPick() (tea.Model, tea.Cmd) {
 		m.mode = modeList
 		return m, nil
 	}
+	// The picker can stay open long enough for another agent to delete or
+	// archive the pinned group, and launching into it would recreate it.
+	if m.agentPick.pinned && !m.groupStillOpen(m.agentPick.group) {
+		m.agentPick.pinned = false
+		m.errBar.text = "group changed: enter starts it here"
+		return m, nil
+	}
 	m.mode = modeList
 	if m.isShell(name) {
+		if m.agentPick.pinned {
+			return m.openPinnedTerminal()
+		}
 		return m.openTerminal()
 	}
+	if m.agentPick.pinned {
+		return m.spawnInstantIn(name, m.agentPick.group)
+	}
 	return m.spawnInstant(name)
+}
+
+// openPinnedTerminal opens the fallback shell beside the row captured when n
+// was pressed, read fresh so a moved pane directory is followed. A session
+// closed or archived meanwhile leaves only its group to open in.
+func (m *Model) openPinnedTerminal() (tea.Model, tea.Cmd) {
+	row := m.agentPick.row
+	if !m.agentPick.rowSelected {
+		return m.openTerminalIn(m.agentPick.group)
+	}
+	if !row.isGroup {
+		sess, ok := m.sessionByID(row.sess.ID)
+		if !ok || sess.Archived {
+			return m.openTerminalIn(m.agentPick.group)
+		}
+		row.sess = sess
+	}
+	return m.openTerminalAt(row, true)
 }

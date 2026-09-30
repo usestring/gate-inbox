@@ -18,7 +18,7 @@ func chainServer(t *testing.T, panes int) (string, []string) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
-	socket := tmuxtest.NewSocket("chain")
+	socket := tmuxtest.Socket(t, "chain")
 	command := "sh -c \"printf 'pane-marker-%s\\n' \\$N; exec cat\""
 	first := strings.Replace(command, "\\$N", "0", 1)
 	if out, err := tmuxOn(socket, "new-session", "-d", "-s", "user", "-x", "80", "-y", "24", first).CombinedOutput(); err != nil {

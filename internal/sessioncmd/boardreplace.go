@@ -93,7 +93,7 @@ func (s *Sessions) BoardReplace(targetID, rolePrefix string, opts BoardLaunchOpt
 		}
 		return Session{}, err
 	}
-	accounts.RecordLaunch(runtime.store, sess.ID, sess.Tool, sess.Account)
+	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account)
 	sessionhooks.Spawned(prepared.hooks, sess, extension.SpawnByExtension)
 	if stored, err := runtime.store.Get(sess.ID); err == nil {
 		sess.Group, sess.ParentID = stored.Group, stored.ParentID
@@ -245,7 +245,7 @@ type BoardLaunchPlan struct {
 
 // BoardPlanReplace is what BoardReplace would launch in targetID's place,
 // composed by the same code with nothing written: no row, no pane, no
-// account turn or borrower, no hook file. The spawn policies and launch
+// account committed to, no hook file. The spawn policies and launch
 // contributors are asked as for the replace itself. The id is minted for the
 // plan alone; a replace that follows mints its own, which is the one
 // difference between the two.

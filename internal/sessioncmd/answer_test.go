@@ -157,7 +157,7 @@ func TestAnswerPicksTheOptionTheParentNamed(t *testing.T) {
 	h := newSessionHarness(t)
 	child := childAnswering(t, h, h.caller.ID, "child001", "sampleapp-reach-census", answerPane,
 		"Which storefront should the census cover?", "Germany only", "Every storefront")
-	answered, err := h.sessions.Answer(h.caller.ID, child.ID, "Every storefront")
+	answered, err := h.sessions.Answer(h.caller.ID, child.ID, "Every storefront", false)
 	if err != nil {
 		t.Fatalf("Answer: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestAnswerPicksTheOptionTheParentNamed(t *testing.T) {
 func TestAnswerRefusesWordsWithNowhereToTypeThem(t *testing.T) {
 	h := newSessionHarness(t)
 	child := childOn(t, h, h.caller.ID)
-	_, err := h.sessions.Answer(h.caller.ID, child.ID, "cover de and kr, skip the rest")
+	_, err := h.sessions.Answer(h.caller.ID, child.ID, "cover de and kr, skip the rest", false)
 	if err == nil || !strings.Contains(err.Error(), "no free-text row") {
 		t.Fatalf("Answer err = %v, want a refusal naming the missing free-text row", err)
 	}
@@ -187,7 +187,7 @@ func TestAnswerRefusesWordsWithNowhereToTypeThem(t *testing.T) {
 func TestAnswerFailsWhenTheAnswerCannotBeReadBack(t *testing.T) {
 	h := newSessionHarness(t)
 	child := childOn(t, h, h.caller.ID)
-	_, err := h.sessions.Answer(h.caller.ID, child.ID, "Every storefront")
+	_, err := h.sessions.Answer(h.caller.ID, child.ID, "Every storefront", false)
 	if err == nil || !strings.Contains(err.Error(), "cannot be confirmed") || !strings.Contains(err.Error(), `"Every storefront"`) {
 		t.Fatalf("Answer err = %v, want one saying the answer cannot be confirmed", err)
 	}
@@ -199,7 +199,7 @@ func TestAnswerFailsWhenTheAnswerCannotBeReadBack(t *testing.T) {
 func TestAnswerRefusesASessionThatIsNotTheCallersChild(t *testing.T) {
 	h := newSessionHarness(t)
 	stranger := childOn(t, h, "")
-	_, err := h.sessions.Answer(h.caller.ID, stranger.ID, "Germany only")
+	_, err := h.sessions.Answer(h.caller.ID, stranger.ID, "Germany only", false)
 	if err == nil || !strings.Contains(err.Error(), "nobody's child") {
 		t.Fatalf("Answer err = %v, want a refusal naming who owns the row", err)
 	}
@@ -208,7 +208,7 @@ func TestAnswerRefusesASessionThatIsNotTheCallersChild(t *testing.T) {
 func TestAnswerRefusesAnEmptyAnswer(t *testing.T) {
 	h := newSessionHarness(t)
 	child := childOn(t, h, h.caller.ID)
-	if _, err := h.sessions.Answer(h.caller.ID, child.ID, "   "); err == nil {
+	if _, err := h.sessions.Answer(h.caller.ID, child.ID, "   ", false); err == nil {
 		t.Fatal("an empty answer was accepted")
 	}
 }
@@ -226,7 +226,7 @@ func TestAnswerSaysSoWhenTheQuestionIsGone(t *testing.T) {
 	if err := h.store.CreateSession(child); err != nil {
 		t.Fatalf("create child row: %v", err)
 	}
-	_, err := h.sessions.Answer(h.caller.ID, child.ID, "Germany only")
+	_, err := h.sessions.Answer(h.caller.ID, child.ID, "Germany only", false)
 	if err == nil || !strings.Contains(err.Error(), "may already have been answered") {
 		t.Fatalf("Answer err = %v, want it to say the question is gone", err)
 	}
@@ -251,7 +251,7 @@ const codexAskPane = `  Choose an option.
 func TestAnswerClearsACodexQuestionDialog(t *testing.T) {
 	h := newSessionHarness(t)
 	child := childShowing(t, h, h.caller.ID, "child004", "codex-census", codexAskPane)
-	answered, err := h.sessions.Answer(h.caller.ID, child.ID, "Every storefront")
+	answered, err := h.sessions.Answer(h.caller.ID, child.ID, "Every storefront", false)
 	if err != nil {
 		t.Fatalf("Answer: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestAnswerNamesTheShapeItWillNotAnswer(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newSessionHarness(t)
 			child := childShowing(t, h, h.caller.ID, tc.id, "stalled-child", tc.pane)
-			_, err := h.sessions.Answer(h.caller.ID, child.ID, "Yes, proceed")
+			_, err := h.sessions.Answer(h.caller.ID, child.ID, "Yes, proceed", false)
 			if err == nil {
 				t.Fatal("the dialog was answered; a keystroke cannot answer this one")
 			}
@@ -390,7 +390,7 @@ func TestAnswerReadsADialogDrawnInColour(t *testing.T) {
 	// The pane is a still capture, so the tab never ticks; the answer reaching
 	// that check at all is the dialog read through its colour, the question
 	// on the screen resolved, and the option keyed.
-	_, err := h.sessions.Answer(h.caller.ID, child.ID, "Square")
+	_, err := h.sessions.Answer(h.caller.ID, child.ID, "Square", false)
 	if err == nil || !strings.Contains(err.Error(), "question 1 was keyed but its tab never ticked") {
 		t.Fatalf("Answer err = %v, want the keyed question reported unconfirmed", err)
 	}

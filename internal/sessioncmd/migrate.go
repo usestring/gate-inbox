@@ -22,11 +22,9 @@ type MigrateOptions struct {
 	Tool string
 	// Name names the new session; empty takes "<source name>-<tool>".
 	Name string
-	// Account is the named subscription the new session runs on; empty
-	// keeps the source's, which is how a conversation that has hit one
-	// person's limit is moved onto another's window.
-	Account string
-	// An account switch can explicitly select own login, unlike an ordinary migration's empty default.
+	// accountOverride is the account a switch_account relaunch has already
+	// chosen. An ordinary migration has none and takes none from its
+	// caller: the build's account chooser picks (see accounts.Route).
 	accountOverride *string
 }
 
@@ -97,18 +95,10 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 		SendAction:    words.Send,
 		FilterNote:    filterNote,
 	})
-	// A migration carries the source's model and account across when the
-	// destination can take them, and refuses rather than quietly dropping
-	// either when it cannot.
-	// The named account, else the source's, else the board's default -- on
-	// a destination that can take one; a move to a CLI that cannot runs on
-	// that CLI's own login rather than refusing.
-	named := opts.Account
-	if opts.Account == "" && source.Account != "" && tool.AccountEnv != "" {
-		named = source.Account
-	}
+	// A migration carries the source's model across. Its account is the
+	// build's account chooser's, or the CLI's own login without one.
 	id := uuid.NewString()[:8]
-	// Before an account is borrowed, so a refusal leaves nothing behind.
+	// Before an account is chosen, so a refusal leaves nothing behind.
 	shape, err := sessionhooks.Shape(migrate.NewSession(id, name, toolName, source, launch.Plan{Model: source.Model}), extension.LaunchMigrate, source.ID)
 	if err != nil {
 		return Session{}, err
@@ -117,9 +107,8 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	var account string
 	if opts.accountOverride != nil {
 		account = *opts.accountOverride
-		err = accounts.CarryBorrower(runtime.store, source.ID, id)
 	} else {
-		account, err = runtime.accountOr(named, tool, id)
+		account, err = accounts.Route(tool, accounts.Request{SessionID: id, ToolName: toolName, Reason: extension.LaunchMigrate, From: source.ID})
 	}
 	if err != nil {
 		return Session{}, err
@@ -161,7 +150,7 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 		_ = runtime.store.Delete(sess.ID)
 		return Session{}, err
 	}
-	accounts.RecordLaunch(runtime.store, sess.ID, sess.Tool, sess.Account)
+	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account)
 	_ = runtime.driver.SetLabel(sess.ID, sessionLabel(sess.Group, sess.Name))
 	return runtime.sessionInfo(sess, true, false), nil
 }

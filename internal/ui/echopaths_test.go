@@ -38,7 +38,7 @@ func TestFocusedReadPathCosts(t *testing.T) {
 	// A private socket standing in for the operator's own server: the pane
 	// is one the manager did not create, which is the case the whole design
 	// turns on.
-	socket := newTestSocket()
+	socket := newTestSocket(t)
 	t.Cleanup(func() { tmuxOnSocket(socket, "kill-server").Run() })
 	if out, err := tmuxOnSocket(socket, "new-session", "-d", "-s", "user-main", "cat").CombinedOutput(); err != nil {
 		t.Fatalf("new-session: %v: %s", err, out)
@@ -162,7 +162,7 @@ func TestDriverReadsGoOverThePooledPipe(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
-	socket := newTestSocket()
+	socket := newTestSocket(t)
 	t.Cleanup(func() { tmuxOnSocket(socket, "kill-server").Run() })
 	for _, name := range []string{"user-one", "user-two"} {
 		if out, err := tmuxOnSocket(socket, "new-session", "-d", "-s", name, "cat").CombinedOutput(); err != nil {

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -34,8 +35,9 @@ const (
 const shellGlyph = "❯"
 
 // viewListFrame is the session content beside the sessions rail, both
-// painted surfaces rather than drawn panels. The rail sits on the right, so
-// the agent's pane keeps the left edge the eye starts a line from.
+// painted surfaces rather than drawn panels. The rail sits on the right by
+// default, so the agent's pane keeps the left edge the eye starts a line
+// from; the sidebar setting puts it on the left instead (see sidebar.go).
 func (m *Model) viewListFrame() string {
 	leftWidth, rightWidth := m.splitWidths()
 	footer := m.viewFooter()
@@ -58,7 +60,13 @@ func (m *Model) viewListFrame() string {
 	// and the fill's corners land exactly on the cell grid.
 	bleedWidth := contentWidth - 2
 	railWidth := leftWidth - 1
+	// Set before the content is laid out: the pane box it records for hit
+	// testing starts here. With the rail on the left the content starts
+	// past the edge, the rail, the seam and the bleed.
 	m.pane.columnX = 1
+	if m.railOnLeft() {
+		m.pane.columnX = leftWidth + 2
+	}
 	railRows := m.railLines(railWidth, bodyHeight)
 	contentRows := m.contentLines(bleedWidth, bodyHeight)
 	seam := make([]string, bodyHeight)
@@ -72,14 +80,27 @@ func (m *Model) viewListFrame() string {
 		edge[i] = railEdgeCell(tone)
 	}
 	frame = append(frame, m.topRule(leftWidth+1, m.width))
-	frame = append(frame, joinColumns(
-		m.focusLeftColumn(bodyHeight),
-		paintContent(contentRows, bleedWidth, bodyHeight, backdropHex()),
-		m.bleedColumn(bodyHeight),
-		seam,
-		paintContent(railRows, railWidth, bodyHeight, panelHex()),
-		edge,
-	)...)
+	if m.railOnLeft() {
+		// The mirror image: the rail's edge column opens the row, and the
+		// content ends on the ring's right upright.
+		frame = append(frame, joinColumns(
+			edge,
+			paintContent(railRows, railWidth, bodyHeight, panelHex()),
+			seam,
+			m.bleedColumn(bodyHeight),
+			paintContent(contentRows, bleedWidth, bodyHeight, backdropHex()),
+			m.focusRightColumn(bodyHeight),
+		)...)
+	} else {
+		frame = append(frame, joinColumns(
+			m.focusLeftColumn(bodyHeight),
+			paintContent(contentRows, bleedWidth, bodyHeight, backdropHex()),
+			m.bleedColumn(bodyHeight),
+			seam,
+			paintContent(railRows, railWidth, bodyHeight, panelHex()),
+			edge,
+		)...)
+	}
 	bottom := m.boundedRuleRow(leftWidth+1, m.width, "▄")
 	if m.mode == modeFocus && m.pane.box.ok {
 		bottom = m.focusBottomRule(leftWidth+1, m.width)
@@ -615,10 +636,14 @@ func (m *Model) entryHeight(entry treeRow) int {
 	if entry.isArtifact() {
 		return 1
 	}
+	height := 1
 	if m.stackedRows() {
-		return 2
+		height = 2
 	}
-	return 1
+	if !entry.isGroup && m.promptRow(entry.sess) != "" {
+		height++
+	}
+	return height
 }
 
 // lineWindow keeps the cursor's entry fully visible inside a line budget,
@@ -826,6 +851,9 @@ func (m *Model) renderTreeRowContent(entry treeRow, selected bool, width, index 
 		if m.stackedRows() {
 			row += "\n" + paint(pad+trail, width, selectedHex())
 		}
+		if !entry.isGroup {
+			row += m.promptLine(entry.sess, metaIndent(pad, trail)+spaces(m.railFoldReserve()), width, subtleText, selectedHex())
+		}
 		return row
 	}
 
@@ -970,6 +998,12 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	if m.isStale(sess) {
 		state += " " + statusTint(status.Errored, "stale")
 	}
+	// The board has told this session its processes are holding the
+	// machine. Beside the label for the same reason as stale: the status is
+	// still true, and this says what else is going on.
+	if badge := hogBadge(m.hogBadges[sess.ID]); badge != "" {
+		state += " " + badge
+	}
 	state += metaText(" · " + sess.Tool)
 	// An archived row is on a clock, and the clock is the one thing about it
 	// that is not recoverable by looking. It goes after the age, in the same
@@ -1041,10 +1075,90 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 		head = head[:nameEnd] + after + head[nameEnd:] + slot
 	}
 
-	if m.stackedRows() {
-		return stackedRow(head, indent+meta, width, bg)
+	// The summary takes whatever the name, its marks and the meta leave, and
+	// is the first thing to go: the name is still what a row is found by.
+	summaryRoom := width - railGutter - textfmt.Width(head) - 2
+	if !m.stackedRows() {
+		summaryRoom -= textfmt.Width(meta) + 2
 	}
-	return paint(rowColumns(head, meta, width-railGutter), width, bg)
+	head += m.summaryTag(sess, summaryRoom, metaText)
+
+	row := paint(rowColumns(head, meta, width-railGutter), width, bg)
+	if m.stackedRows() {
+		row = stackedRow(head, indent+meta, width, bg)
+	}
+	return row + m.promptLine(sess, indent, width, metaText, bg)
+}
+
+// promptRowWidth caps the opening prompt a row carries under its name: enough
+// to say which task the row is, short enough to stay one line on any rail.
+const promptRowWidth = 60
+
+// promptRow is the opening prompt a session row carries on a line of its own,
+// flattened and cut to promptRowWidth. Nothing for a session with no prompt on
+// file, or one still waiting on its name, which already wears the prompt.
+func (m *Model) promptRow(sess store.Session) string {
+	if m.awaitingRename(sess) {
+		return ""
+	}
+	opening := m.openingPrompts(sess)
+	if len(opening) == 0 {
+		return ""
+	}
+	return textfmt.TruncateWidth(promptPlain(opening[0]), promptRowWidth, "…")
+}
+
+// promptLine paints promptRow under the row at its meta's indent, trimmed
+// again to whatever the rail leaves beside that indent.
+func (m *Model) promptLine(sess store.Session, indent string, width int, style func(string) string, bg string) string {
+	text := m.promptRow(sess)
+	if text == "" {
+		return ""
+	}
+	room := width - railGutter - textfmt.Width(indent)
+	if room < 1 {
+		return "\n" + paint(indent, width, bg)
+	}
+	return "\n" + paint(indent+style(textfmt.TruncateWidth(text, room, "…")), width, bg)
+}
+
+// minSummary is the fewest cells of a summary worth drawing: any shorter and
+// the row wears a word or two that says less than the name beside it.
+const minSummary = 12
+
+// summaryTag is what the session is about, set after its name: the title its
+// own CLI wrote for the conversation. The prompt it was opened with has a line
+// of its own under the row. Nothing when there is not room for it, or when it
+// would only repeat the name.
+func (m *Model) summaryTag(sess store.Session, room int, style func(string) string) string {
+	if room < minSummary {
+		return ""
+	}
+	text := m.sessionSummary(sess)
+	if text == "" {
+		return ""
+	}
+	return "  " + style(textfmt.TruncateWidth(text, room-2, "…"))
+}
+
+func (m *Model) sessionSummary(sess store.Session) string {
+	// A row still waiting on its name already wears the prompt as one.
+	if m.awaitingRename(sess) {
+		return ""
+	}
+	text := strings.TrimSpace(m.titles[sess.ID])
+	if text == "" || sameWords(text, sess.Name) {
+		return ""
+	}
+	return text
+}
+
+// sameWords reports whether two labels say the same thing once case and
+// separators are set aside, as "Fix login bug" and fix-login-bug do.
+func sameWords(a, b string) bool {
+	split := func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }
+	x, y := strings.FieldsFunc(strings.ToLower(a), split), strings.FieldsFunc(strings.ToLower(b), split)
+	return strings.Join(x, " ") == strings.Join(y, " ")
 }
 
 // renderArtifactEntry paints one pull request or ticket under the session

@@ -9,99 +9,94 @@ import (
 	"github.com/usestring/gate-inbox/extension"
 )
 
-// lender is a stub that shares accounts.
-type lender struct{ stub }
+// chooser is a stub that chooses accounts.
+type chooser struct{ stub }
 
-func (l *lender) AccountPool() extension.AccountPool { return l }
+func (l *chooser) AccountChooser() extension.AccountChooser { return l }
 
-func (*lender) Borrower(context.Context) (string, error) { return "OWNER", nil }
-func (*lender) Owns(account, borrower string) bool       { return account == borrower }
-func (*lender) Members(context.Context, extension.AccountTool) ([]string, error) {
-	return nil, nil
-}
-func (*lender) Usage(context.Context, extension.AccountTool, string) (extension.AccountUsage, error) {
-	return extension.AccountUsage{}, errors.New("no usage")
+func (*chooser) ChooseAccount(context.Context, extension.AccountRequest) (string, error) {
+	return "", errors.New("nothing to choose")
 }
 
-func TestABuildWithNoLenderHasNoPool(t *testing.T) {
+func TestABuildWithNoChooserHasNone(t *testing.T) {
 	registry := mustRegistry(t, &stub{id: "plain"})
-	pool, err := registry.AccountPool("", nil)
-	if err != nil || pool != nil {
-		t.Fatalf("pool = %v, %v; want none", pool, err)
+	chooser, err := registry.AccountChooser("", nil)
+	if err != nil || chooser != nil {
+		t.Fatalf("chooser = %v, %v; want none", chooser, err)
 	}
 }
 
-func TestTheEnabledLenderIsThePool(t *testing.T) {
-	on := &lender{stub{id: "on"}}
-	registry := mustRegistry(t, &stub{id: "plain"}, &lender{stub{id: "off", off: true}}, on)
-	pool, err := registry.AccountPool("", nil)
-	if err != nil || pool != on {
-		t.Fatalf("pool = %v, %v; want the enabled lender", pool, err)
+func TestTheEnabledChooserIsTheOne(t *testing.T) {
+	on := &chooser{stub{id: "on"}}
+	registry := mustRegistry(t, &stub{id: "plain"}, &chooser{stub{id: "off", off: true}}, on)
+	chooser, err := registry.AccountChooser("", nil)
+	if err != nil || chooser != on {
+		t.Fatalf("chooser = %v, %v; want the enabled chooser", chooser, err)
 	}
 }
 
-func TestTwoEnabledLendersAreRefused(t *testing.T) {
-	registry := mustRegistry(t, &lender{stub{id: "a"}}, &lender{stub{id: "b"}})
-	if _, err := registry.AccountPool("", nil); err == nil || !strings.Contains(err.Error(), "a, b") {
-		t.Fatalf("got %v, want both lenders named", err)
+func TestTwoEnabledChoosersAreRefused(t *testing.T) {
+	registry := mustRegistry(t, &chooser{stub{id: "a"}}, &chooser{stub{id: "b"}})
+	if _, err := registry.AccountChooser("", nil); err == nil || !strings.Contains(err.Error(), "a, b") {
+		t.Fatalf("got %v, want both choosers named", err)
 	}
 }
 
-// A CLI command routing one launch configures the lender and nothing else.
-func TestAnUnconfiguredRegistryConfiguresOnlyTheLender(t *testing.T) {
-	plain, pooled := &stub{id: "plain"}, &lender{stub{id: "pooled"}}
-	registry, err := extension.NewRegistry([]extension.Extension{plain, pooled})
+// A CLI command routing one launch configures the chooser and nothing else.
+func TestAnUnconfiguredRegistryConfiguresOnlyTheChooser(t *testing.T) {
+	plain, choosing := &stub{id: "plain"}, &chooser{stub{id: "choosing"}}
+	registry, err := extension.NewRegistry([]extension.Extension{plain, choosing})
 	if err != nil {
 		t.Fatal(err)
 	}
-	sections := map[string]map[string]any{"pooled": {"greeting": "hi"}, "plain": {"greeting": "no"}}
-	pool, err := registry.AccountPool(t.TempDir(), sections)
-	if err != nil || pool != pooled {
-		t.Fatalf("pool = %v, %v", pool, err)
+	sections := map[string]map[string]any{"choosing": {"greeting": "hi"}, "plain": {"greeting": "no"}}
+	chooser, err := registry.AccountChooser(t.TempDir(), sections)
+	if err != nil || chooser != choosing {
+		t.Fatalf("chooser = %v, %v", chooser, err)
 	}
 	if plain.configured != nil {
-		t.Fatal("an extension that shares no accounts was configured")
+		t.Fatal("an extension that chooses no accounts was configured")
 	}
-	if pooled.settings.Greeting != "hi" {
-		t.Fatalf("lender configured with %q, want its own section", pooled.settings.Greeting)
+	if choosing.settings.Greeting != "hi" {
+		t.Fatalf("chooser configured with %q, want its own section", choosing.settings.Greeting)
 	}
-	if _, err := pooled.configured.DataDir(); err != nil {
-		t.Fatalf("lender has no data directory: %v", err)
+	if _, err := choosing.configured.DataDir(); err != nil {
+		t.Fatalf("chooser has no data directory: %v", err)
 	}
 }
 
-func TestALenderThatRefusesItsConfigIsNoPool(t *testing.T) {
-	registry, err := extension.NewRegistry([]extension.Extension{&lender{stub{id: "pooled"}}})
+func TestAChooserThatRefusesItsConfigIsNone(t *testing.T) {
+	registry, err := extension.NewRegistry([]extension.Extension{&chooser{stub{id: "choosing"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = registry.AccountPool("", map[string]map[string]any{"pooled": {"nope": 1}})
-	if err == nil || !strings.Contains(err.Error(), `extension "pooled" is disabled`) || !strings.Contains(err.Error(), "nope") {
-		t.Fatalf("a lender with an unknown key: %v; want the reason it is disabled", err)
+	_, err = registry.AccountChooser("", map[string]map[string]any{"choosing": {"nope": 1}})
+	if err == nil || !strings.Contains(err.Error(), `extension "choosing" is disabled`) || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("a chooser with an unknown key: %v; want the reason it is disabled", err)
 	}
 }
 
-// Once the board has configured everything, a lender its section disabled
-// supplies no pool, and asking for one says why.
-func TestAConfiguredRegistryReportsADisabledLender(t *testing.T) {
-	registry, err := extension.NewRegistry([]extension.Extension{&lender{stub{id: "pooled"}}, &stub{id: "plain"}})
+// Once the board has configured everything, a chooser its section disabled
+// supplies no chooser, and asking for one says why.
+func TestAConfiguredRegistryReportsADisabledChooser(t *testing.T) {
+	registry, err := extension.NewRegistry([]extension.Extension{&chooser{stub{id: "choosing"}}, &stub{id: "plain"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry.Configure("", map[string]map[string]any{"pooled": {"nope": 1}})
-	if pool, err := registry.AccountPool("", nil); pool != nil || err == nil || !strings.Contains(err.Error(), "nope") {
-		t.Fatalf("pool = %v, %v", pool, err)
+	registry.Configure("", map[string]map[string]any{"choosing": {"nope": 1}})
+	if chooser, err := registry.AccountChooser("", nil); chooser != nil || err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("chooser = %v, %v", chooser, err)
 	}
 }
 
-// nilLender is enabled but hands back a typed nil.
-type nilLender struct{ stub }
+// nilChooser is enabled but hands back a typed nil.
+type nilChooser struct{ stub }
 
-func (*nilLender) AccountPool() extension.AccountPool { return (*lender)(nil) }
+func (*nilChooser) AccountChooser() extension.AccountChooser { return (*chooser)(nil) }
 
-func TestAnEnabledLenderWithANilPoolIsAnError(t *testing.T) {
-	registry := mustRegistry(t, &nilLender{stub{id: "empty"}})
-	if pool, err := registry.AccountPool("", nil); err == nil || !strings.Contains(err.Error(), "empty") {
-		t.Fatalf("pool = %v, %v; want an error naming the extension", pool, err)
+func TestAnEnabledChooserThatIsNilIsAnError(t *testing.T) {
+	registry := mustRegistry(t, &nilChooser{stub{id: "empty"}})
+	if chooser, err := registry.AccountChooser("", nil); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("chooser = %v, %v; want an error naming the extension", chooser, err)
 	}
 }

@@ -112,6 +112,9 @@ type fakeSessionCommands struct {
 	err            error
 	answeredID     string
 	answeredWith   string
+	answeredAll    []sessioncmd.QuestionAnswer
+	answeredSubmit bool
+	answeredRelay  bool
 	answerSelected string
 
 	// What switch_account forwarded. Kept apart from the run above so the
@@ -187,9 +190,14 @@ func (f *fakeSessionCommands) ReleaseSession(_ string, id string) (sessioncmd.Se
 	return sessioncmd.Session{ID: id, Name: "child"}, f.err
 }
 
-func (f *fakeSessionCommands) Answer(_ string, id, reply string) (sessioncmd.AnsweredQuestion, error) {
-	f.answeredID, f.answeredWith = id, reply
+func (f *fakeSessionCommands) Answer(_ string, id, reply string, relay bool) (sessioncmd.AnsweredQuestion, error) {
+	f.answeredID, f.answeredWith, f.answeredRelay = id, reply, relay
 	return sessioncmd.AnsweredQuestion{SessionID: id, Name: "child", Answer: reply, Selected: f.answerSelected}, f.err
+}
+
+func (f *fakeSessionCommands) AnswerAll(_ string, id string, answers []sessioncmd.QuestionAnswer, submit, relay bool) (sessioncmd.AnsweredQuestion, error) {
+	f.answeredID, f.answeredAll, f.answeredSubmit, f.answeredRelay = id, answers, submit, relay
+	return sessioncmd.AnsweredQuestion{SessionID: id, Name: "child", Submitted: submit}, f.err
 }
 
 func (f *fakeSessionCommands) Revive(_ string, id string) (sessioncmd.Session, error) {
@@ -1005,6 +1013,55 @@ func TestSessionToolErrorsAreToolErrors(t *testing.T) {
 		if !isError || !strings.Contains(text, "not running") {
 			t.Fatalf("%s = %q, isError=%v", call.name, text, isError)
 		}
+	}
+}
+
+// answers reaches the batch path with submit defaulting to true, answer the
+// single one, and both at once is refused rather than guessed between.
+func TestAnswerSessionRoutesAnswersToTheBatch(t *testing.T) {
+	fake := &fakeSessionCommands{}
+	session := connectServer(t, serverWithFakes(t, fake))
+	_, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1",
+		"answers": []map[string]any{
+			{"question": "Tooling", "answer": "pnpm"},
+			{"question": "2", "answer": "Warn for a month, then block"},
+		},
+	})
+	if isError {
+		t.Fatal("answer_session with answers failed")
+	}
+	want := []sessioncmd.QuestionAnswer{{Question: "Tooling", Answer: "pnpm"}, {Question: "2", Answer: "Warn for a month, then block"}}
+	if fake.answeredID != "c1" || !reflect.DeepEqual(fake.answeredAll, want) || !fake.answeredSubmit {
+		t.Errorf("batch got id %q answers %+v submit %v", fake.answeredID, fake.answeredAll, fake.answeredSubmit)
+	}
+	if _, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1", "answers": []map[string]any{{"question": "1", "answer": "Bun"}}, "submit": false,
+	}); isError || fake.answeredSubmit {
+		t.Errorf("submit false was not passed through (isError=%v)", isError)
+	}
+	if _, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1", "answers": []map[string]any{{"question": "1", "answer": "Bun"}}, "relay": true,
+	}); isError || !fake.answeredRelay {
+		t.Errorf("relay was not passed through to the batch (isError=%v)", isError)
+	}
+	if _, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1", "answer": "Bun",
+	}); isError || fake.answeredRelay {
+		t.Errorf("relay defaulted to true on the single path (isError=%v)", isError)
+	}
+	if _, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1", "answer": "Bun", "relay": true,
+	}); isError || !fake.answeredRelay {
+		t.Errorf("relay was not passed through to the single path (isError=%v)", isError)
+	}
+	if text, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1", "answer": "Bun", "answers": []map[string]any{{"question": "1", "answer": "Bun"}},
+	}); !isError || !strings.Contains(text, "not both") {
+		t.Errorf("both at once = %q, isError=%v", text, isError)
+	}
+	if _, isError := callText(t, session, "answer_session", map[string]any{"session_id": "c1", "answer": "Bun"}); isError || fake.answeredWith != "Bun" {
+		t.Errorf("the single answer did not reach Answer (isError=%v)", isError)
 	}
 }
 

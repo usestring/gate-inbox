@@ -23,11 +23,13 @@ import (
 // rather than skipped, so that refusal can name it; Guarded is what keeps it
 // unanswered.
 
-// askLegend is the line AskUserQuestion draws under its options. The middle
-// segment varies by dialog ("↑/↓ to navigate", "Tab/Arrow keys to navigate"),
-// which is why it is matched rather than spelled.
+// askLegend is the line AskUserQuestion draws under its options. Only its
+// ends are spelled. The middle varies by dialog and by where the cursor is:
+// "↑/↓ to navigate", "Tab/Arrow keys to navigate", and on the free-text row
+// Claude Code 2.1.283 adds "ctrl+g to edit in nano" -- a legend that matched
+// three segments exactly read that row as no dialog at all.
 var askLegend = regexp.MustCompile(
-	`(?m)^[ \x{A0}]*Enter to select \x{B7} [^\x{B7}\n]+ to navigate \x{B7} Esc to cancel[ \x{A0}]*$`)
+	`(?m)^[ \x{A0}]*Enter to select(?: \x{B7} [^\x{B7}\n]+)*? \x{B7} Esc to cancel[ \x{A0}]*$`)
 
 // askOption matches one numbered choice, with or without the cursor on it.
 // Two marker glyphs, because two harnesses draw one: Claude Code's heavy
@@ -39,7 +41,12 @@ var askOption = regexp.MustCompile(`(?m)^[ \x{A0}]*([\x{276F}\x{203A}][ \x{A0}]+
 // choices. It is chrome, not part of the choice: left on, "[ ] Build" matches
 // no answer any manager or operator would write, so the option could not be
 // selected and the answer was typed at a pane that takes keystrokes.
-var askCheckbox = regexp.MustCompile(`^\[[ xX*\x{2713}]?\][ \x{A0}]+`)
+var askCheckbox = regexp.MustCompile(`^\[([ xX*\x{2713}\x{2714}]?)\][ \x{A0}]+`)
+
+// askPicked is the tick Claude Code draws after the choice already made on a
+// question of a several-question dialog, when that question is visited
+// again: "2. pnpm ✔". It is not part of the choice's text.
+var askPicked = regexp.MustCompile(`[ \x{A0}]+\x{2714}$`)
 
 // askStepper is the row a multi-question dialog draws above its options: one
 // box per question, ticked as each is answered, then Submit. Its presence is
@@ -72,6 +79,16 @@ type Dialog struct {
 	// the ordinary single question.
 	Steps    int
 	Answered int
+	// Picked is the 1-based option already chosen on a question being
+	// visited again, read off its tick; 0 when none is drawn.
+	Picked int
+	// Ticked are the 1-based options of a multi-select whose box is checked.
+	Ticked []int
+	// FreeText is the 1-based row that takes typed words, AskUserQuestion's
+	// "Type something.", or 0 for a dialog that draws none. Words pasted
+	// anywhere else are dropped by the dialog, and the Enter that follows
+	// them then picks whatever option the cursor was on.
+	FreeText int
 }
 
 // Standing is how many of the dialog's questions are still unanswered: 1 for
@@ -108,6 +125,7 @@ func Parse(pane string) (Dialog, bool) {
 // person -- and one refusal covering both sent every caller down the path that
 // does not work. Kind has what that cost.
 func Inspect(pane string) (Dialog, bool) {
+	pane = unwrapLegend(pane)
 	kind, legend := dialogLegend(pane)
 	if legend == nil {
 		return Dialog{}, false
@@ -116,7 +134,7 @@ func Inspect(pane string) (Dialog, bool) {
 	// older dialog's text below it, and the choices being answered are the
 	// ones this legend belongs to.
 	head := pane[:legend[0]]
-	matches := askOption.FindAllStringSubmatch(head, -1)
+	matches, first := dialogOptions(head)
 	if len(matches) < 2 {
 		// One choice is not a choice, and none means the options scrolled
 		// away. Either way there is nothing here to select.
@@ -140,9 +158,21 @@ func Inspect(pane string) (Dialog, bool) {
 			}
 		}
 		option := strings.TrimSpace(match[3])
+		if box := askCheckbox.FindStringSubmatch(option); box != nil {
+			if strings.TrimSpace(box[1]) != "" {
+				dialog.Ticked = append(dialog.Ticked, len(dialog.Options)+1)
+			}
+		}
 		if stripped := askCheckbox.ReplaceAllString(option, ""); stripped != option {
 			dialog.MultiSelect = true
 			option = strings.TrimSpace(stripped)
+		}
+		if unticked := askPicked.ReplaceAllString(option, ""); unticked != option {
+			dialog.Picked = len(dialog.Options) + 1
+			option = unticked
+		}
+		if kind == KindAsk && freeTextRows[normalise(option)] {
+			dialog.FreeText = len(dialog.Options) + 1
 		}
 		dialog.Options = append(dialog.Options, option)
 	}
@@ -150,8 +180,46 @@ func Inspect(pane string) (Dialog, bool) {
 		dialog.Cursor = 0
 	}
 	dialog.Steps, dialog.Answered = countSteps(head)
-	dialog.Prompt = dialogPrompt(head, askOption.FindStringIndex(head))
+	dialog.Prompt = dialogPrompt(head, first)
 	return dialog, true
+}
+
+// dialogOptions is the numbered rows the dialog itself draws above its
+// legend, and where the first of them starts.
+//
+// A numbered row is the dialog's only when it continues a run counted from
+// "1." down to the legend. The pane above a dialog is the turn that asked it,
+// and a child that lays its choices out as a numbered list before asking puts
+// "1. Hold for staged UI until the rework ships" on the screen over the
+// dialog's own "1. Hold for staged UI". Read as options, those shifted every
+// index: the cursor is the digit on the marker row, the option is a position
+// in the list, and "Do both" at position 9 was keyed as eight Downs from row
+// 1 of a five-row dialog. A new "1." starts the run again, and a number out of
+// sequence is a description's text, not a row.
+func dialogOptions(head string) ([][]string, []int) {
+	var (
+		run   [][]string
+		first []int
+	)
+	for _, at := range askOption.FindAllStringSubmatchIndex(head, -1) {
+		match := make([]string, 4)
+		for i := range match {
+			if at[2*i] >= 0 {
+				match[i] = head[at[2*i]:at[2*i+1]]
+			}
+		}
+		n, err := strconv.Atoi(match[2])
+		if err != nil {
+			continue
+		}
+		if n == 1 {
+			run, first = run[:0], at[:2]
+		}
+		if n == len(run)+1 {
+			run = append(run, match)
+		}
+	}
+	return run, first
 }
 
 // countSteps reads the stepper row: how many questions this dialog is asking
@@ -183,7 +251,18 @@ func dialogPrompt(head string, first []int) string {
 	}
 	kept := make([]string, 0, len(lines))
 	for _, line := range lines {
-		if line = strings.TrimSpace(line); line != "" {
+		// A several-question dialog draws a bar down the left of the first
+		// question's text; it is chrome, like the checkbox on a choice.
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "\u2502"))
+		// The rule a dialog draws across the pane, and its row of tabs -- a
+		// one-question dialog draws a single "☐ Header" -- are its top edge:
+		// what is above them is the conversation, not the question.
+		if askStepper.MatchString(line) || strings.HasPrefix(line, "\u2610 ") ||
+			(line != "" && strings.Trim(line, "\u2500") == "") {
+			kept = kept[:0]
+			continue
+		}
+		if line != "" {
 			kept = append(kept, line)
 		}
 	}
@@ -237,6 +316,66 @@ var harnessEscapes = map[string]bool{
 	"type something":  true,
 	"type something.": true,
 	"chat about this": true,
+}
+
+// freeTextRows are the spellings of the row that takes typed words: with the
+// full stop on a pick-one question, without it on a multi-select.
+var freeTextRows = map[string]bool{
+	"type something":  true,
+	"type something.": true,
+}
+
+// unwrapLegend joins a dialog legend the pane wrapped back onto one line.
+//
+// A legend is one line only on a pane wide enough for it. At 50 columns
+// Claude Code 2.1.283 draws "Enter to select · Tab/Arrow keys to navigate ·
+// Esc" and puts "to cancel" on the next line, and on the free-text row it
+// wraps at 80. The legend regexes anchor both ends of one line, so a wrapped
+// legend read as no dialog at all -- which is how a child on an ordinary
+// four-question AskUserQuestion was refused as "no numbered options under a
+// legend it knows". A line is joined to the one or two after it only when the
+// join is a legend, so prose that happens to begin "Enter to" is left alone.
+func unwrapLegend(pane string) string {
+	lines := strings.Split(pane, "\n")
+	changed := false
+	for i := 0; i < len(lines); i++ {
+		head := strings.TrimSpace(lines[i])
+		if !strings.HasPrefix(head, "Enter to ") && !strings.HasPrefix(strings.ToLower(head), "press enter to") {
+			continue
+		}
+		if isLegend(head) {
+			continue
+		}
+		joined := head
+		for extra := 1; extra <= 2 && i+extra < len(lines); extra++ {
+			next := strings.TrimSpace(lines[i+extra])
+			if next == "" {
+				break
+			}
+			joined += " " + next
+			if isLegend(joined) {
+				lines[i] = joined
+				lines = append(lines[:i+1], lines[i+1+extra:]...)
+				changed = true
+				break
+			}
+		}
+	}
+	if !changed {
+		return pane
+	}
+	return strings.Join(lines, "\n")
+}
+
+// isLegend reports whether one line, on its own, is a closing legend of any
+// dialog this package reads.
+func isLegend(line string) bool {
+	for _, legend := range []*regexp.Regexp{askLegend, codexAskLegend, codexTrustLegend, approvalLegend} {
+		if legend.MatchString(line) {
+			return true
+		}
+	}
+	return false
 }
 
 // Choices is the worker's own choices, which are the only answers that answer
@@ -299,10 +438,10 @@ var ErrNotKeyAnswerable = errors.New("dialog: this dialog cannot be answered by 
 // first, or the session is resting at its own input line.
 var ErrNoDialog = errors.New("dialog: the pane is not holding a dialog")
 
-// selectKeys is the keys that move the cursor from at to want and choose it.
+// SelectKeys is the keys that move the cursor from at to want and choose it.
 // An unknown cursor position returns nothing, because moving blind would
 // answer a question with whatever it landed on.
-func selectKeys(at, want int) []string {
+func SelectKeys(at, want int) []string {
 	if at <= 0 || want <= 0 {
 		return nil
 	}
@@ -343,5 +482,5 @@ func AnswerKeys(dialog Dialog, answer string) ([]string, error) {
 	if dialog.Refusal() != "" {
 		return nil, ErrNotKeyAnswerable
 	}
-	return selectKeys(dialog.Cursor, dialog.Choose(answer)), nil
+	return SelectKeys(dialog.Cursor, dialog.Choose(answer)), nil
 }

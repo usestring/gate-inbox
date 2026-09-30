@@ -130,8 +130,8 @@ func TestSelectKeysWalksToTheOption(t *testing.T) {
 		{"cursor unknown", 0, 2, nil},
 	} {
 		t.Run(that.name, func(t *testing.T) {
-			if got := selectKeys(that.at, that.want); !reflect.DeepEqual(got, that.keys) {
-				t.Fatalf("selectKeys(%d, %d) = %v, want %v", that.at, that.want, got, that.keys)
+			if got := SelectKeys(that.at, that.want); !reflect.DeepEqual(got, that.keys) {
+				t.Fatalf("SelectKeys(%d, %d) = %v, want %v", that.at, that.want, got, that.keys)
 			}
 		})
 	}

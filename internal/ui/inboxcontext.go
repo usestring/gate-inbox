@@ -48,6 +48,9 @@ type messageContext struct {
 	// NewerQueued is how many later messages from the same sender are
 	// already waiting behind this one.
 	NewerQueued int
+	// FromSpawner is set when the sender is the session that spawned the
+	// recipient: its instruction is the recipient's task.
+	FromSpawner bool
 }
 
 // inboxContextScan is how far back the two context reads look. A recipient's
@@ -86,6 +89,7 @@ func (p *poller) messageContext(sess store.Session, msg store.InboxMessage, now 
 	}
 	ctx.LastSentToSender = p.lastSentTo(msg.SenderID, sess.ID)
 	ctx.NewerQueued = p.newerQueuedFrom(sess.ID, msg)
+	ctx.FromSpawner = store.SpawnerOf(sess) == msg.SenderID
 	return ctx
 }
 

@@ -23,7 +23,7 @@ const (
 	usageRead          = "read <session-id> [--since <cursor>] [--json]"
 	usageSendChildren  = "send-children \"<message>\" [--json]"
 	usagePlace         = "place <session-id> [--release] [--json]"
-	usageAnswer        = "answer <session-id> \"<answer>\" [--json]"
+	usageAnswer        = "answer <session-id> \"<answer>\" [--relay] [--json]"
 	usageWait          = "wait [<session-id>...] [--children] [--until <state>] [--timeout <duration>] [--json]"
 	usageMessageStatus = "message-status <message-id> [--json]"
 	usageKill          = "kill <session-id> [--json]"
@@ -48,7 +48,7 @@ type sessionCommands interface {
 	Read(sessionID, targetID, since string) (sessioncmd.SessionScreen, error)
 	AdoptSession(sessionID, targetID string) (sessioncmd.Session, error)
 	ReleaseSession(sessionID, targetID string) (sessioncmd.Session, error)
-	Answer(sessionID, targetID, reply string) (sessioncmd.AnsweredQuestion, error)
+	Answer(sessionID, targetID, reply string, relay bool) (sessioncmd.AnsweredQuestion, error)
 	Wait(ctx context.Context, sessionID string, opts sessioncmd.WaitOptions) (sessioncmd.WaitResult, error)
 	MessageStatus(sessionID string, messageID int64) (sessioncmd.MessageState, error)
 	Kill(sessionID, targetID string, via extension.KillSource) (sessioncmd.Session, error)
@@ -227,12 +227,13 @@ func runPlace(out io.Writer, sessions sessionCommands, args []string, sessionID 
 
 func runAnswer(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
 	set := cmdline.NewFlagSet(usageAnswer)
+	relay := set.Bool("relay", false, "the answer is your user's own, given to the same question word for word in your own dialog; required for a question headed Approval")
 	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 2, 2)
 	if err != nil {
 		return err
 	}
-	answered, err := sessions.Answer(sessionID, operands[0], operands[1])
+	answered, err := sessions.Answer(sessionID, operands[0], operands[1], *relay)
 	if err != nil {
 		return err
 	}

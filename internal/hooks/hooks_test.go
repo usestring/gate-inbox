@@ -60,6 +60,17 @@ func TestEnsureSettingsWritesValidHookJSON(t *testing.T) {
 			}
 		}
 	}
+	// The ledger lookup sits beside the status writer on AskUserQuestion, and
+	// the approval note beside SessionStart's; neither touches the status file.
+	if post := parsed.Hooks["PostToolUse"]; len(post) != 2 || post[1].Matcher != blockingTool ||
+		post[1].Hooks[0].Command != askAnsweredCommand() || !strings.Contains(askAnsweredCommand(), `hook ask-answered`) ||
+		!strings.HasSuffix(askAnsweredCommand(), "exit 0") {
+		t.Fatalf("PostToolUse = %+v, want the status writer then the ask-answered hook", post)
+	}
+	if start := parsed.Hooks["SessionStart"]; len(start) != 2 || start[1].Hooks[0].Command != sessionStartCommand() ||
+		!strings.Contains(start[1].Matcher, "compact") {
+		t.Fatalf("SessionStart = %+v, want the status writer then the session-start hook", start)
+	}
 	for _, event := range []string{"PreToolUse", "PostToolUse"} {
 		if got := parsed.Hooks[event][0].Matcher; got != "*" {
 			t.Fatalf("%s matcher = %q, want *", event, got)

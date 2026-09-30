@@ -182,6 +182,25 @@ func sessionEndCommand() string {
 		`exit 0`
 }
 
+// askAnsweredCommand runs the ledger lookup after every AskUserQuestion, so
+// an answer Gate Inbox keyed on a parent agent's behalf reaches the child's
+// auto-mode classifier marked as not the user's (sessioncmd.AskAnsweredHook).
+// It sits beside the "*" status writer rather than inside it: it writes no
+// status file, so running in parallel with it races on nothing. It is
+// synchronous, since the note has to land with the answer, and always exits
+// 0 so a fault here never blocks the child.
+func askAnsweredCommand() string { return hookCommandLine("ask-answered") }
+
+// sessionStartCommand tells a spawned child how to ask for its user's
+// approval (sessioncmd.SessionStartHook). compact is matched too, so the
+// note survives a compaction.
+func sessionStartCommand() string { return hookCommandLine("session-start") }
+
+func hookCommandLine(verb string) string {
+	return statusFileVar + `[ -z "$f" ] || { [ -z "$` + EnvExecutable + `" ] || [ -z "$` + EnvSessionID +
+		`" ] || "$` + EnvExecutable + `" hook ` + verb + ` 2>/dev/null; }; exit 0`
+}
+
 func settingsContent() ([]byte, error) {
 	run := func(matcher, command string) []hookMatcher {
 		return []hookMatcher{{Matcher: matcher, Hooks: []hookCommand{{Type: "command", Command: command}}}}
@@ -192,12 +211,14 @@ func settingsContent() ([]byte, error) {
 	content := settingsFile{Hooks: map[string][]hookMatcher{
 		"UserPromptSubmit": report("UserPromptSubmit", "", status.Working),
 		"PreToolUse":       run("*", preToolUseCommand()),
-		"PostToolUse":      report("PostToolUse", "*", status.Working),
-		"Notification":     report("Notification", blockingNotifications, status.Waiting),
-		"Stop":             report("Stop", "", status.Finished),
-		"StopFailure":      run("", stopFailureCommand()),
+		"PostToolUse": append(report("PostToolUse", "*", status.Working),
+			run(blockingTool, askAnsweredCommand())...),
+		"Notification": report("Notification", blockingNotifications, status.Waiting),
+		"Stop":         report("Stop", "", status.Finished),
+		"StopFailure":  run("", stopFailureCommand()),
 		// compact fires SessionStart in the middle of an active turn
-		"SessionStart": report("SessionStart", "startup|resume|clear", status.Idle),
+		"SessionStart": append(report("SessionStart", "startup|resume|clear", status.Idle),
+			run("startup|resume|clear|compact", sessionStartCommand())...),
 		"SessionEnd": {{Hooks: []hookCommand{{
 			Type:    "command",
 			Command: sessionEndCommand(),

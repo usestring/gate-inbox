@@ -1,0 +1,45 @@
+[48;5;237m  [38;5;231mPlan:[39m
+  [38;5;231m1. Hold for staged UI until the [39m
+  [38;5;231mrework ships[39m
+  [38;5;231m2. Only region #4021, leave the rest[39m
+  [38;5;231m3. Do both in parallel[39m
+  [38;5;231m   Question 1: question "Which [39m
+  [38;5;231mrollout path should I take?", header [39m
+  [38;5;231m"Rollout", multiSelect false, options[39m
+  [38;5;231min this order (labels verbatim, [39m
+  [38;5;231mone-line descriptions): "Hold for [39m
+  [38;5;231mstaged UI", "Only region #4021", "Do [39m
+  [38;5;231mboth".[39m
+  [38;5;231m   Question 2: question "Should I [39m
+  [38;5;231mnotify the channel when it lands?", [39m
+  [38;5;231mheader "Notify", multiSelect false, [39m
+  [38;5;231moptions: "Yes, post in the channel", [39m
+  [38;5;231m"No".[39m
+  [38;5;231m   After you get the answers, reply [39m
+  [38;5;231mwith only DONE and stop.[39m
+
+[38;5;231m[49m●[39m Plan:
+  1. Hold for staged UI until the rework
+     ships
+  2. Only region #4021, leave the rest
+  3. Do both in parallel
+[38;5;246m────────────────────────────────────────
+← [38;5;16m[48;5;153m ☐ Rollout [39m[49m ☐ Notify  ✔ Submit  →
+
+[1m[38;5;231mWhich rollout path should I take?[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mHold for staged UI[39m
+     [38;5;246mWait for staged platform experience
+[39m     [38;5;246mto ship first[39m
+  [38;5;246m2.[39m Only region #4021
+     [38;5;246mDeploy only to region #4021, leave
+[39m     [38;5;246mthe rest[39m
+  [38;5;246m3.[39m Do both
+     [38;5;246mDeploy to both region #4021 and [39m
+     [38;5;246mothers in parallel[39m
+  [38;5;246m4. Type something.[39m
+[38;5;246m────────────────────────────────────────
+[39m  5. Chat about this
+
+[38;5;246mEnter to select · Tab/Arrow keys to [39m
+[38;5;246mnavigate · Esc to cancel[39m

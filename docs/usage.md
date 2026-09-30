@@ -44,9 +44,9 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `R` | Restart the selected session on an empty context: same name, group, directory and tool |
 | `u` | Restore a session or group out of the archive, resuming what it held. The act is `kill`; the archive is where the row lands, the way a deleted file lands in a trash can |
 | `U` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed kill as well as a silent one |
-| `space` | Quick prompt: answer the selected session, or spawn an agent in the selected group |
+| `space` | Hotkey menu: send one of your snippets to the selected session |
 | `F` | Fold / unfold every group |
-| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, ask before killing, sort, key hints, on leaving a session, after quick send, session keys, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
+| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, ask before killing, sort, key hints, on leaving a session, after hotkey send, session keys, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
 | `\|` | Resize the split: `←→` nudge the divider, `enter` commits, `esc` cancels |
 | `\` | Hide / show the list beside the pane: the `board` layout under a key, and `alt+\` does it from inside a focused session. The layout you had comes back on the second press |
 | `t` | Toggle archived view. A row there counts down its retention: seven days after it was archived the manager deletes it for good, with its hook files, and the countdown is on the row |
@@ -84,22 +84,20 @@ new one in its group, `alt+y` copies the agent's session id, `alt+l` steps back 
 left. Each of your own `ctrl+alt+`*letter* snippets
 answers the session in front of you.
 
-## Quick prompt
+## Hotkey menu
 
-Press `space` to dock a prompt bar at the bottom of the sidebar. The target follows the cursor while the bar is open: `↑↓` still navigate the list from a one-row prompt, and in a taller one `↑` navigates from the top row and `↓` from the bottom row. Anywhere else they move the caret, so a prompt that wrapped or was pasted with line breaks edits like a multi-line editor:
+Press `space` to dock the hotkey menu at the bottom of the sidebar. It lists your snippets and nothing else: there is no text box, because typing a message is what focusing a session (`enter`) is for. The target follows the cursor while the menu is open, and `↑↓` still move it.
 
-- On a **session** row, `enter` sends the typed text straight into the session's pane, so the agent gets it as a user message without you attaching. The bar clears and stays open, ready for the next answer; Settings (`s`) can make it close instead.
-- On a **group** row, `enter` spawns a new agent in that group and submits the prompt at startup, using the group's default path. This is the shortest path to a fresh agent: `space`, type the task, `enter`, with no form and no name to invent. The spawn tool starts at the Settings default and `tab` (or `alt+m`) cycles it (claude ↔ opencode ↔ any configured tool); the footer shows the current pick. The agent starts working on the prompt immediately.
+- On a **session** row, each snippet's key sends it straight into that session's pane, so the agent gets it as a user message without you attaching. In the menu the key works without its chord: `c` sends what `ctrl+alt+c` sends, `§` what `alt+§` sends, and the chord itself still works too. The menu stays open, ready for the next session; Settings (`s`) can make it close after a send instead.
+- On a **group** row there is no pane to send to, so the menu says to select a session. `n` and `ctrl+n` start a new agent in the group.
 
-`ctrl+v` pastes an image from the system clipboard as an `[Image #1]` chip at the caret. The image is saved under `gate-inbox-pastes` in your temp directory, and on send each chip is swapped back for its path, so the paths reach the agent in the order and the places you pasted them. `backspace` next to a chip removes the whole chip, and an edit that swallows one releases its image. A clipboard holding text rather than an image pastes as text. Pasted images older than seven days are cleared at startup and once a day while the manager runs, so an agent can still open one from an earlier session while temp stays tidy.
+`space` or `esc` closes the menu. Snippets that do not fit on its lines are counted on the last one, and the key map (`?`) lists them all.
 
-`esc` closes the bar.
-
-The new-session form's optional `prompt` field launches an agent the same way, and its `↑↓` move the caret between rows the same way, `↑` leaving the field only from its top row and `↓` only from its bottom row. It takes `ctrl+v` and its chips too, since a first task is often the screenshot that explains it: paste the design to match or the crash to read, and the agent opens the file on its first turn. Leaving the form without creating the session releases the images it was holding, the way closing the bar does. Tools whose CLI takes the prompt behind a flag declare it with `prompt_flag`, while a persistent CLI with no startup-prompt argument uses `prompt_mode = "send"` (see [Configuration](configuration.md)).
+The new-session form's optional `prompt` field launches an agent with a first task, and its `↑↓` move the caret between rows, `↑` leaving the field only from its top row and `↓` only from its bottom row. It takes `ctrl+v` and its chips too, since a first task is often the screenshot that explains it: paste the design to match or the crash to read, and the agent opens the file on its first turn. Leaving the form without creating the session releases the images it was holding. Tools whose CLI takes the prompt behind a flag declare it with `prompt_flag`, while a persistent CLI with no startup-prompt argument uses `prompt_mode = "send"` (see [Configuration](configuration.md)).
 
 ## Which CLIs you get offered
 
-Every configured tool is offered when you create a session, which is more than most people run. Settings (`s`) has a `CLIs` row: `enter` opens a checklist, `space` or `enter` unchecks the tool under the cursor, `esc` saves, and the ones left checked are what the `ctrl+n` form's `tool` picker and the quick prompt's `tab` cycle through. The last checked tool cannot be unchecked, since a picker with nothing in it could not create a session. It only narrows the pickers, so a session already on an unchecked tool keeps running and revives on that same tool. The last row, `request CLI support`, opens an issue for a CLI we do not ship rules for yet.
+Every configured tool is offered when you create a session, which is more than most people run. Settings (`s`) has a `CLIs` row: `enter` opens a checklist, `space` or `enter` unchecks the tool under the cursor, `esc` saves, and the ones left checked are what the `ctrl+n` form's `tool` picker cycles through. The last checked tool cannot be unchecked, since a picker with nothing in it could not create a session. It only narrows the pickers, so a session already on an unchecked tool keeps running and revives on that same tool. The last row, `request CLI support`, opens an issue for a CLI we do not ship rules for yet.
 
 ## Terminal tabs
 

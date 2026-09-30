@@ -10,7 +10,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/snippets"
 	"github.com/usestring/gate-inbox/internal/status"
 )
@@ -191,10 +190,9 @@ func TestSnippetClearsTheAckedFlag(t *testing.T) {
 	}
 }
 
-// The quick bar is a place a session is on screen, so the chord acts there
-// too -- and it leaves the half-written prompt alone, because sending a
-// snippet is not abandoning what is being composed.
-func TestSnippetFromTheQuickBarKeepsTheTypedPrompt(t *testing.T) {
+// The hotkey menu is a place a session is on screen, so the chord acts there
+// as well as the bare key, and reaches the pane.
+func TestSnippetChordFromTheHotkeyMenuReachesThePane(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
@@ -203,15 +201,10 @@ func TestSnippetFromTheQuickBarKeepsTheTypedPrompt(t *testing.T) {
 	sess := sessionNamed(t, m, "ask")
 
 	m.openQuickMode()
-	m.quick.input.SetValue("half written")
-
 	updated, cmd := m.handleKey(chordMsg('d'))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
-	}
-	if got := m.quick.input.Value(); got != "half written" {
-		t.Fatalf("the quick prompt now reads %q, want the typed text untouched", got)
 	}
 	waitForPaneText(t, m, sess.ID, "ship it now")
 }
@@ -367,9 +360,8 @@ func TestSurfacesSpellTheSectionKeyAsAltAlone(t *testing.T) {
 		help += row.key + " " + row.text + "\n"
 	}
 	surfaces := map[string]string{
-		"footer":    strings.Join(legend, " "),
-		"key map":   help,
-		"quick bar": ansi.Strip(m.quickSnippetLine(120)),
+		"footer":  strings.Join(legend, " "),
+		"key map": help,
 	}
 	section, chord := keymap.Display("alt+§"), "^"+keymap.Display("alt+d")
 	for name, got := range surfaces {
@@ -390,59 +382,6 @@ func TestNoSnippetsAddsNothingToTheFooter(t *testing.T) {
 
 	if pairs := m.snippetLegend().pairs; len(pairs) != 0 {
 		t.Fatalf("footer offered %v with no snippets defined", pairs)
-	}
-	if rows := m.snippetQuickRows(); len(rows) != 0 {
-		t.Fatalf("the quick bar offered %v with no snippets defined", rows)
-	}
-}
-
-// The quick bar lists them so the operator sees the message is already on a
-// key before typing it out.
-func TestQuickBarListsSnippetsForASession(t *testing.T) {
-	m := buildModel(t)
-	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Text: "ship it now"}})
-	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
-	m.rebuildRows()
-	m.selectSessionRow(t, "ask")
-
-	line := ansi.Strip(m.quickSnippetLine(120))
-	if !strings.Contains(line, "^"+keymap.Display("alt+d")) || !strings.Contains(line, "deploy") {
-		t.Fatalf("the quick bar does not list the snippet: %q", line)
-	}
-}
-
-// On a group the bar spawns rather than answers, so a snippet has no pane to
-// reach: listing them there would offer keys that refuse.
-func TestQuickBarListsNothingOnAGroup(t *testing.T) {
-	m := buildModel(t)
-	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
-	groupAt(t, m, "work", t.TempDir())
-
-	if line := m.quickSnippetLine(120); line != "" {
-		t.Fatalf("the quick bar offered snippets on a group row: %q", line)
-	}
-}
-
-// The bar's height is measured from what it renders, so the suggestion line
-// must never wrap: a long set would push the live pane down by however many
-// snippets the operator happened to define.
-func TestQuickBarSuggestionStaysOneLine(t *testing.T) {
-	m := buildModel(t)
-	var many []snippets.Snippet
-	for _, key := range []string{"a", "b", "c", "d", "e", "f", "g", "h"} {
-		many = append(many, snippets.Snippet{Key: key, Label: strings.Repeat(key, 30), Text: "x"})
-	}
-	writeSnippets(t, m, many)
-	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
-	m.rebuildRows()
-	m.selectSessionRow(t, "ask")
-
-	line := m.quickSnippetLine(80)
-	if strings.Contains(line, "\n") {
-		t.Fatalf("the suggestion line wrapped:\n%s", line)
-	}
-	if got := textfmt.Width(ansi.Strip(line)); got > 80 {
-		t.Fatalf("suggestion line is %d cells wide, want at most 80", got)
 	}
 }
 

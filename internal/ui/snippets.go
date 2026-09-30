@@ -11,7 +11,7 @@ package ui
 // session, and a chord that acted on some off-screen row would be a key that
 // answers an agent you are not looking at.
 //
-// Advertised on the list footer, in the key map and under the quick prompt.
+// Advertised on the list footer, in the key map and in the hotkey menu.
 // The focused footer leaves them to the key map: its row is already full, and
 // a tier of its own would move the box and resize every session's pane. It is the same trade the § exit
 // makes there, resolved the same way: the key map names what the footer has
@@ -101,7 +101,7 @@ func (m *Model) sendSnippetToSelected(snip snippets.Snippet) (tea.Model, tea.Cmd
 // It is quiet and it goes last, where a narrow footer drops it first -- the
 // same place the row legend puts the priority mark, and for the same reason.
 // The keys that act on the session under the cursor are what a three-row
-// budget must keep; a snippet is a shortcut for a message the quick prompt
+// budget must keep; a snippet is a shortcut the hotkey menu also lists, and
 // can always send by hand.
 func (m *Model) snippetLegend() legendSection {
 	if len(m.snips.Snippets) == 0 {
@@ -169,21 +169,4 @@ func (m *Model) snippetHelpSection() helpSection {
 		rows = append(rows, note("✕ "+problem))
 	}
 	return helpSection{title: "snippets", rows: rows}
-}
-
-// snippetQuickRows are the lines the quick prompt bar lists under its input:
-// what you could send with one key instead of typing it.
-//
-// Only when there are snippets, and never the refusals -- the bar is a place
-// to write a message, not to debug a config file, and the key map carries
-// those. Empty when nothing is bound, so the bar is exactly what it was.
-func (m *Model) snippetQuickRows() []string {
-	if len(m.snips.Snippets) == 0 {
-		return nil
-	}
-	rows := make([]string, 0, len(m.snips.Snippets))
-	for _, snip := range m.snips.Snippets {
-		rows = append(rows, snippetCap(snip)+"  "+snip.Title())
-	}
-	return rows
 }

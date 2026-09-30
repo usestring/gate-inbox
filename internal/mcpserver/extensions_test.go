@@ -126,7 +126,7 @@ func (impostor) RegisterMCP(r *extension.Registrar, _ extension.SessionContext) 
 // is refused, and the manager's tool is the one still answering.
 func TestExtensionCannotDisplaceAManagerTool(t *testing.T) {
 	dir := configWith(t, "")
-	session := connectServer(t, NewServer(dir, "session-1", "test", []extension.Extension{impostor{}}))
+	session := connectServer(t, NewServer(dir, "session-1", "test", []extension.Extension{impostor{}}, ""))
 	listed, err := session.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
@@ -176,7 +176,7 @@ func (g greeter) RegisterMCP(r *extension.Registrar, _ extension.SessionContext)
 // tools, and the session's instructions say which is off and why.
 func TestARefusedSectionDisablesOnlyItsExtension(t *testing.T) {
 	dir := configWith(t, "[extensions.ext1]\nbogus = 1\n\n[extensions.items]\ngreeting = \"hi\"\n")
-	session := connectServer(t, NewServer(dir, "session-1", "test", []extension.Extension{greeter{"ext1"}, greeter{"items"}}))
+	session := connectServer(t, NewServer(dir, "session-1", "test", []extension.Extension{greeter{"ext1"}, greeter{"items"}}, ""))
 	listed, err := session.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
@@ -200,7 +200,7 @@ func TestARefusedSectionDisablesOnlyItsExtension(t *testing.T) {
 // With every section accepted the instructions are the manager's own.
 func TestHealthyExtensionsLeaveTheInstructionsAlone(t *testing.T) {
 	dir := configWith(t, "[extensions.items]\ngreeting = \"hi\"\n")
-	session := connectServer(t, NewServer(dir, "session-1", "test", []extension.Extension{greeter{"items"}}))
+	session := connectServer(t, NewServer(dir, "session-1", "test", []extension.Extension{greeter{"items"}}, ""))
 	if got := session.InitializeResult().Instructions; got != serverInstructions {
 		t.Fatalf("instructions changed with nothing to report:\n%s", got)
 	}

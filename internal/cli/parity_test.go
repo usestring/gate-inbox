@@ -80,7 +80,7 @@ func (w *parityWorkspace) mcpText(t *testing.T, sessionID, tool string, args map
 func (w *parityWorkspace) mcpSession(t *testing.T, sessionID string) *mcp.ClientSession {
 	t.Helper()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	if _, err := mcpserver.NewServer(w.configDir, sessionID, "test", all.Extensions()).Connect(context.Background(), serverTransport, nil); err != nil {
+	if _, err := mcpserver.NewServer(w.configDir, sessionID, "test", all.Extensions(), "").Connect(context.Background(), serverTransport, nil); err != nil {
 		t.Fatalf("serve: %v", err)
 	}
 	client := mcp.NewClient(&mcp.Implementation{Name: "parity-client", Version: "test"}, nil)

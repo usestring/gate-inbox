@@ -29,6 +29,9 @@ func (codexDriver) answer(r *runtime, s *Sessions, target store.Session, raw str
 	lost := func() (asks.Result, bool) { return asks.Unanswered(t) }
 	answered, err := answerCodex(tmuxPane{r.driver, target.ID}, call, pending, record, lost, raw, answers, submit, guard)
 	answered.SessionID, answered.Name = target.ID, target.Name
+	if pending {
+		answered.readFrom = "Codex's rollout"
+	}
 	if err != nil {
 		logging.Warn(by+"'s answer to a Codex child's question did not land as given",
 			by, byID, "session", target.ID, "err", err)

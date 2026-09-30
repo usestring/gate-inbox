@@ -54,6 +54,7 @@ type AnsweredQuestion struct {
 	Verified bool `json:"verified" jsonschema:"true when what the child registered was read back after answering (its screen, or its CLI's own record of the call) and is exactly the answers given; false when the answers were keyed but the child has not registered them yet, such as a dialog still waiting on other questions"`
 	// Questions is every question of the dialog as it stands after the call.
 	Questions []dialog.Question `json:"questions,omitempty" jsonschema:"every question of the dialog after this call, with which are answered"`
+	readFrom  string
 }
 
 // Answer picks or types reply into the question dialog targetID is holding.

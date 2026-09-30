@@ -7,8 +7,6 @@ import (
 	"github.com/usestring/gate-inbox/internal/convo"
 )
 
-// CodexExpiry is how long Codex 0.157 lets request_user_input wait before it
-// resolves the call itself with no answers (measured at 120-123s).
 const CodexExpiry = 2 * time.Minute
 
 type codex struct{}
@@ -125,8 +123,6 @@ func (c codex) Answered(t Target, since time.Time) ([]convo.AnsweredAsk, error) 
 	return out, nil
 }
 
-// codexAnswerText is an answer as the words it gave: the option picked, or the
-// note typed under None of the above.
 func codexAnswerText(given codexq.Answer) string {
 	if len(given.Labels) == 1 && given.Labels[0] == codexq.NoneOfTheAbove && given.Note != "" {
 		return given.Note

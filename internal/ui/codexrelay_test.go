@@ -12,8 +12,6 @@ import (
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-// codexChild is a Codex session whose rollout holds the first lines of the
-// real fixture: keep=3 stops right after the first question was asked.
 func codexChild(t *testing.T, fixture string, keep int) store.Session {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("..", "codexq", "testdata", fixture))

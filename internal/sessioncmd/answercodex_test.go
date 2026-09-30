@@ -13,9 +13,6 @@ import (
 	"github.com/usestring/gate-inbox/internal/dialog"
 )
 
-// codexModel is a Codex 0.157 request_user_input dialog driven by keys, drawn
-// the way the captures in internal/dialog/testdata/codex show it, keeping
-// what it registered the way the rollout records it.
 type codexModel struct {
 	questions []convo.AskQuestion
 	index     int
@@ -27,8 +24,7 @@ type codexModel struct {
 	answered  map[int]asks.Registered
 	done      bool
 	keys      []string
-	// lie makes the record hold a different answer than the one keyed.
-	lie func(map[int]asks.Registered)
+	lie       func(map[int]asks.Registered)
 }
 
 func newCodexModel(questions ...convo.AskQuestion) *codexModel {

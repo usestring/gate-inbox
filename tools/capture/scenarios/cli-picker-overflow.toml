@@ -1,0 +1,97 @@
+[integrations.github]
+enabled = false
+[integrations.linear]
+enabled = false
+
+[tools.agent-01]
+command = "true"
+
+[tools.agent-02]
+command = "true"
+
+[tools.agent-03]
+command = "true"
+
+[tools.agent-04]
+command = "true"
+
+[tools.agent-05]
+command = "true"
+
+[tools.agent-06]
+command = "true"
+
+[tools.agent-07]
+command = "true"
+
+[tools.agent-08]
+command = "true"
+
+[tools.agent-09]
+command = "true"
+
+[tools.agent-10]
+command = "true"
+
+[tools.agent-11]
+command = "true"
+
+[tools.agent-12]
+command = "true"
+
+[tools.agent-13]
+command = "true"
+
+[tools.agent-14]
+command = "true"
+
+[tools.agent-15]
+command = "true"
+
+[tools.agent-16]
+command = "true"
+
+[tools.agent-17]
+command = "true"
+
+[tools.agent-18]
+command = "true"
+
+[tools.agent-19]
+command = "true"
+
+[tools.agent-20]
+command = "true"
+
+[tools.agent-21]
+command = "true"
+
+[tools.agent-22]
+command = "true"
+
+[tools.agent-23]
+command = "true"
+
+[tools.agent-24]
+command = "true"
+
+[tools.agent-25]
+command = "true"
+
+[tools.agent-26]
+command = "true"
+
+[tools.agent-27]
+command = "true"
+
+[tools.agent-28]
+command = "true"
+
+[tools.agent-29]
+command = "true"
+
+[tools.agent-30]
+command = "true"
+
+[tools."claude-界界界"]
+command = "true"

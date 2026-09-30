@@ -203,24 +203,24 @@ func TestDefaultRulesRealPanes(t *testing.T) {
 			"✻ Waiting for 2 background agents to finish\n⏺ all agents reported\n✻ Worked for 5s\n────\n❯ \n────", Finished},
 		// 2026-08-14 and 2026-09-07 real captures: a turn that leaves shells,
 		// monitors, MCP tasks or background tasks running names them in a tail
-		// on its own summary line. None of that is the agent working -- a
-		// monitor can sit armed for hours while the prompt takes input -- so
-		// the turn reads as ended. Background agents never reach this tail:
-		// while any are pending Claude draws the wait line instead.
+		// on its own summary line. The process is still running in the
+		// terminal, so the gate stays working rather than reading finished.
+		// Background agents never reach this tail: while any are pending
+		// Claude draws the wait line instead.
 		{"claude turn end with one background shell (real capture)", "claude",
-			"⏺ ok\n✻ Worked for 3s · 1 shell still running\n────\n❯ \n────\n  ⏵⏵ bypass permissions on · 1 shell", Finished},
+			"⏺ ok\n✻ Worked for 3s · 1 shell still running\n────\n❯ \n────\n  ⏵⏵ bypass permissions on · 1 shell", Working},
 		{"claude turn end with two background shells (real capture)", "claude",
-			"  Ran 2 shell commands\n⏺ ok\n✻ Cooked for 4s · 2 shells still running\n────\n❯ \n────\n  ⏵⏵ bypass permissions on · 2 shells", Finished},
+			"  Ran 2 shell commands\n⏺ ok\n✻ Cooked for 4s · 2 shells still running\n────\n❯ \n────\n  ⏵⏵ bypass permissions on · 2 shells", Working},
 		{"claude turn end with an MCP task running (real capture)", "claude",
-			"⏺ ok\n✻ Crunched for 1h 11m 30s · done 5:37 AM · 1 MCP task still running\n────\n❯ \n────", Finished},
+			"⏺ ok\n✻ Crunched for 1h 11m 30s · done 5:37 AM · 1 MCP task still running\n────\n❯ \n────", Working},
 		{"claude turn end with background tasks running (real capture)", "claude",
-			"⏺ ok\n✻ Worked for 4m 13s · done 5:44 AM · 2 background tasks still running\n────\n❯ \n────", Finished},
+			"⏺ ok\n✻ Worked for 4m 13s · done 5:44 AM · 2 background tasks still running\n────\n❯ \n────", Working},
 		{"claude turn end with shells and monitors running (real capture)", "claude",
-			"⏺ ok\n✻ Worked for 0s · done 4:28 AM · 8 shells, 2 monitors still running\n────\n❯ \n────", Finished},
+			"⏺ ok\n✻ Worked for 0s · done 4:28 AM · 8 shells, 2 monitors still running\n────\n❯ \n────", Working},
 		// 2026-09-08 board capture: the session sat at its prompt with a
-		// drafted message while the board read working for two monitors.
+		// drafted message while background work was still running.
 		{"claude turn end with monitors running and a drafted prompt (real capture)", "claude",
-			"⏺ done\n✻ Cogitated for 2m 44s · done 8:14 PM · 2 monitors still running\n────\n❯ run another 100 with the unreachable fallback\n────\n  ⏵⏵ auto mode on · 2 monitors", Finished},
+			"⏺ done\n✻ Cogitated for 2m 44s · done 8:14 PM · 2 monitors still running\n────\n❯ run another 100 with the unreachable fallback\n────\n  ⏵⏵ auto mode on · 2 monitors", Working},
 		{"claude wait on agents and a dynamic workflow", "claude",
 			"⏺ ok\n✻ Waiting for 1 background agent and 1 dynamic workflow to finish\n────\n❯ \n────", Working},
 		// A bullet opens with "·", itself one of the summary glyphs, and any

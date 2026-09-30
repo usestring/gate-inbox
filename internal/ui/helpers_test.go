@@ -62,7 +62,7 @@ func buildModelWithStorePath(t testing.TB) (*Model, string) {
 				DefaultStatus:  status.Idle,
 				ActivityCutoff: "(?m)^❯",
 				TurnEnd:        `^[✻✳✶✽✢·✦✧+*] \S+ for \d.*$`,
-				BusyLine:       `^[✻✳✶✽✢·✦✧+*] (?:Waiting for \d+ background agents? to finish|.*· \d+ shells? still running)`,
+				BusyLine:       `^[✻✳✶✽✢·✦✧+*] (?:Waiting for \d+ (?:background agents?|dynamic workflows?)|\S+ for \d.*· \d+ [^·]*still running)`,
 				LimitLine:      `(?m)You've hit your .+limit`,
 				ScrolledLine:   `Jump to bottom \(ctrl\+End\)`,
 				Rules: []config.Rule{

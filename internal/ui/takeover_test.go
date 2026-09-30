@@ -78,21 +78,17 @@ func TestAutoTakeoverWaitsForAnAttachedTmuxClient(t *testing.T) {
 	if out, err := tmuxOnSocket(terminal, "new-session", "-d", "-s", "terminal", "-x", "80", "-y", "24", command).CombinedOutput(); err != nil {
 		t.Fatalf("attach foreign client: %v: %s", err, out)
 	}
-	waitAttached := func(want string) {
-		t.Helper()
-		deadline := time.Now().Add(5 * time.Second)
-		for {
-			attached, err := m.tmux.PaneState("borrowed", "#{session_attached}")
-			if err == nil && strings.TrimSpace(attached) == want {
-				return
-			}
-			if time.Now().After(deadline) {
-				t.Fatalf("session_attached = %q, %v, want %s", attached, err, want)
-			}
-			time.Sleep(20 * time.Millisecond)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		attached, err := m.tmux.PaneState("borrowed", "#{session_attached}")
+		if err == nil && strings.TrimSpace(attached) == "1" {
+			break
 		}
+		if time.Now().After(deadline) {
+			t.Fatalf("foreign client did not attach: %q, %v", attached, err)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	waitAttached("1")
 	m.applyCmd(t, nil)
 	setStatus(t, m, "borrowed", status.Idle)
 	m.restoreArmed = true
@@ -106,8 +102,6 @@ func TestAutoTakeoverWaitsForAnAttachedTmuxClient(t *testing.T) {
 	if err := tmuxOnSocket(terminal, "kill-server").Run(); err != nil {
 		t.Fatalf("detach foreign client: %v", err)
 	}
-	// The foreign server drops the client only once it reads the hangup.
-	waitAttached("0")
 	if result := m.takeoverPass(); result.taken != 1 || result.owed != 0 {
 		t.Fatalf("detached idle pane was not taken: %+v", result)
 	}

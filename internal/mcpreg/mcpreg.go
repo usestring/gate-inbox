@@ -103,31 +103,31 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model st
 		if err != nil {
 			return "", err
 		}
-		return command + " --mcp-config " + tmux.ShellQuote(path), nil
+		steering, err := config(claudeSteeringFile, []byte(delegationSteering(style)))
+		if err != nil {
+			return "", err
+		}
+		return withClaudeSteering(command+" --mcp-config "+tmux.ShellQuote(path), steering), nil
 	case "codex":
 		overrides := []string{
 			fmt.Sprintf(`mcp_servers.%s.command=%q`, serverName, exe),
 			fmt.Sprintf(`mcp_servers.%s.args=["mcp"]`, serverName),
 			fmt.Sprintf(`mcp_servers.%s.env_vars=[%q]`, serverName, hooks.EnvSessionID),
+			// A developer message beside codex's own instructions, where
+			// model_instructions_file would replace them. It overrides a
+			// developer_instructions the operator's config.toml sets.
+			fmt.Sprintf(`developer_instructions=%q`, delegationSteering(style)),
 		}
 		for _, override := range overrides {
 			command += " -c " + tmux.ShellQuote(override)
 		}
 		return command, nil
 	case "opencode":
-		// The rename steering rides a file of its own rather than living
-		// inside the JSON: instructions are markdown, and the generated
-		// config references it by absolute path. Written only when the
-		// launch is real -- a dry run must not touch the shared directory.
-		steering, err := config(renameSteeringFile, renameSteering())
-		if err != nil {
-			return "", err
-		}
-		name, content := generatedPrefix+"mcp-opencode.json", opencodeConfig(exe, steering, "")
+		name, content := generatedPrefix+"mcp-opencode.json", opencodeConfig(exe, "")
 		if model != "" {
 			// v2's TUI has no model flag; the config's model key is where a
 			// chosen model goes, so a session on one gets a config of its own.
-			name, content = generatedPrefix+"mcp-opencode-"+env[hooks.EnvSessionID]+".json", opencodeConfig(exe, steering, model)
+			name, content = generatedPrefix+"mcp-opencode-"+env[hooks.EnvSessionID]+".json", opencodeConfig(exe, model)
 		}
 		path, err := config(name, content)
 		if err != nil {
@@ -213,34 +213,43 @@ func claudeConfig(exe string) []byte {
 }
 
 // opencodeConfig is the generated config a managed opencode session runs
-// with. model, when set, is the model the session was asked for; v2 reads
-// it from here because its TUI has no flag for one.
-func opencodeConfig(exe, steering, model string) []byte {
+// with, in the v2 schema: servers under mcp.servers and slash commands under
+// commands. v2 still takes a v1 mcp.<name> entry, but serves its tools only
+// through code mode, and drops a v1 command block, so /rename went missing.
+// model, when set, is the model the session was asked for; v2 reads it from
+// here because its TUI has no flag for one.
+//
+// v2 accepts a config instructions list but loads nothing from it: its only
+// standing instructions are AGENTS.md files and each MCP server's own
+// instructions. So the silent naming and delegation steering ride the
+// server, which appends them to its block when started with SteeringFlag.
+// Nothing lands in the user message the session's own title is eventually
+// written from, and the steering arrives only where the tools it names do.
+func opencodeConfig(exe string, model string) []byte {
 	config := map[string]any{
 		"$schema": "https://opencode.ai/config.json",
 		"mcp": map[string]any{
-			serverName: map[string]any{
-				"type":        "local",
-				"command":     []string{exe, "mcp"},
-				"enabled":     true,
-				"environment": forwardedSessionID("{env:", "}"),
+			"servers": map[string]any{
+				serverName: map[string]any{
+					"type":        "local",
+					"command":     []string{exe, "mcp", SteeringFlag, "opencode"},
+					"environment": forwardedSessionID("{env:", "}"),
+					// Code mode, v2's default, hides a server's tools behind
+					// its exec tool; the steering and every tool description
+					// name them as tools the model calls directly.
+					"codemode": false,
+				},
 			},
 		},
 		// /rename for the r key: the template runs as a durable user prompt
 		// in the current session and schedules normal model execution.
 		// Config sources merge, so every other source's commands are kept.
-		"command": map[string]any{
+		"commands": map[string]any{
 			"rename": map[string]any{
 				"description": "Name this session after the work it is doing",
 				"template":    renameCommandTemplate,
 			},
 		},
-		// Silent naming steering, loaded into system context at session
-		// start. It replaces the visible rename directive other tools carry
-		// in their first prompt: nothing here lands in the user message the
-		// session's own title is eventually written from. Config sources
-		// merge, so the project's own instructions are kept alongside this.
-		"instructions": []string{steering},
 	}
 	if model != "" {
 		config["model"] = model
@@ -262,10 +271,6 @@ If $ARGUMENTS is non-empty, that is the name — kebab-case it and use it verbat
 Otherwise take the name from this conversation: 2-4 words, kebab-case, describing the broad feature or theme of the whole session, not the subtask in front of you right now. Prefer what the session has been about across its turns to whatever was said in the last one.
 
 Report the result, never your intention: an error from the tool, or a non-zero exit or any error on the command's output, is a rename that did not happen. Never invent a fallback: renaming anything else leaves the manager's own name behind.`
-
-// renameSteeringFile is the instructions file the generated opencode config
-// points at, written beside it under the manager's own home.
-const renameSteeringFile = generatedPrefix + "opencode-rename-instructions.md"
 
 // renameSteering is the silent half of opencode naming: guidance the model
 // reads in system context from session start, instead of a directive

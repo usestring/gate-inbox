@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -344,6 +345,71 @@ func TestOrphanParentIDPaintsUnnested(t *testing.T) {
 		}
 	}
 	t.Fatalf("orphan should sit un-nested in backend: %+v", m.rows)
+}
+
+// A terminal a child agent opens hangs under that child, two levels down.
+// The tree used to walk one level of children and paint anything deeper
+// loose in its group, as if nobody owned it.
+func TestTerminalUnderChildAgentNestsUnderIt(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	if err := m.store.CreateGroup("backend", dir); err != nil {
+		t.Fatalf("group: %v", err)
+	}
+	for _, sess := range []store.Session{
+		{ID: "mgr", Name: "manager", Tool: "claude", Cwd: dir, Group: "backend", Status: status.Idle},
+		{ID: "kid", Name: "worker", Tool: "claude", Cwd: dir, Group: "backend", ParentID: "mgr", Status: status.Idle},
+	} {
+		if err := m.store.CreateSession(sess); err != nil {
+			t.Fatalf("%s: %v", sess.Name, err)
+		}
+	}
+	if err := m.store.CreateSessionLeaf(store.Session{
+		ID: "sh1", Name: "terminal-worker", Tool: "terminal", Cwd: dir,
+		Group: "backend", ParentID: "kid", Status: status.Idle,
+	}); err != nil {
+		t.Fatalf("terminal: %v", err)
+	}
+	m.setChildrenFolded("mgr", false)
+	m.applyCmd(t, m.refreshCmd())
+	var got []string
+	for _, row := range m.rows {
+		if row.isSession() {
+			got = append(got, fmt.Sprintf("%s@%d", row.sess.Name, row.depth))
+		}
+	}
+	want := []string{"manager@1", "worker@2", "terminal-worker@3"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("rows = %v, want %v", got, want)
+	}
+
+	// With the fold left undecided, the cursor on the terminal opens every
+	// fold above it, not only its parent's.
+	m.selectSessionRow(t, "terminal-worker")
+	m.clearChildFold("mgr")
+	m.rebuildRows()
+	got = nil
+	for _, row := range m.rows {
+		if row.isSession() {
+			got = append(got, fmt.Sprintf("%s@%d", row.sess.Name, row.depth))
+		}
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("cursor rows = %v, want %v", got, want)
+	}
+
+	m.search = "terminal-worker"
+	m.rebuildRows()
+	got = nil
+	for _, row := range m.rows {
+		if row.isSession() {
+			got = append(got, fmt.Sprintf("%s@%d", row.sess.Name, row.depth))
+		}
+	}
+	want = []string{"manager@0", "worker@1", "terminal-worker@2"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("search rows = %v, want %v", got, want)
+	}
 }
 
 func TestArchiveViewShowsNestedShellWhenParentLive(t *testing.T) {

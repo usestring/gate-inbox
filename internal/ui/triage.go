@@ -131,7 +131,7 @@ func (m *Model) triageLess(a, b store.Session) bool {
 	if ka, kb := m.triageKeyOf(a), m.triageKeyOf(b); ka != kb {
 		return ka.before(kb)
 	}
-	return triageLessWithin(a, b)
+	return m.triageLessWithin(a, b, time.Now())
 }
 
 // triageKey is everything the queue orders by before it falls back to who has
@@ -211,13 +211,42 @@ func (m *Model) sortTriageWithChildren(sessions []store.Session, kids map[string
 		if ka, kb := keys[a.ID], keys[b.ID]; ka != kb {
 			return ka.before(kb)
 		}
-		return triageLessWithin(waited[a.ID], waited[b.ID])
+		return m.triageLessWithin(waited[a.ID], waited[b.ID], now)
 	})
 }
 
-// triageLessWithin breaks a tie inside a tier: oldest first, then the two
-// fields that only keep the order total.
-func triageLessWithin(a, b store.Session) bool {
+// triageLessWithin breaks a tie inside a tier: the session with the earliest
+// deadline an extension set still ahead of it first (see
+// extension.BoardHost.SetQueueDeadline), those with none after; then oldest
+// first, then the two fields that only keep the order total. A deadline is
+// compared against now on every rebuild, so one running out moves its row
+// without waiting for anything else about it to change.
+func (m *Model) triageLessWithin(a, b store.Session, now time.Time) bool {
+	if da, db := m.deadlineAhead(a.ID, now), m.deadlineAhead(b.ID, now); !da.Equal(db) {
+		switch {
+		case da.IsZero():
+			return false
+		case db.IsZero():
+			return true
+		}
+		return da.Before(db)
+	}
+	return triageLessByAge(a, b)
+}
+
+// deadlineAhead is the session's deadline, zero when it has none still
+// ahead.
+func (m *Model) deadlineAhead(id string, now time.Time) time.Time {
+	at := m.queueDeadlines[id]
+	if !at.After(now) {
+		return time.Time{}
+	}
+	return at
+}
+
+// triageLessByAge is the tie-break under the deadline: oldest first, then
+// the two fields that only keep the order total.
+func triageLessByAge(a, b store.Session) bool {
 	if !a.LastStatusAt.Equal(b.LastStatusAt) {
 		return a.LastStatusAt.Before(b.LastStatusAt)
 	}
@@ -460,6 +489,21 @@ func (m *Model) triageHandable(row treeRow, leftID string, tried map[string]bool
 	// stays idle after a handover too, so the same mark is what moves the
 	// walk past it. See mute.go.
 	if m.isMuted(row.sess) {
+		return false
+	}
+	// A submission in flight is one this drain has just answered. It still
+	// reads waiting, finished or idle on paper -- the answer counts once the
+	// agent is seen to have taken it, which is what the landing waits for --
+	// so without this the advance walks back into the session it just came
+	// from. The walk keeps going past it the way it walks past a muted row,
+	// whatever its mark. A refused or timed-out answer lapses the skip with
+	// the landing; a seen one holds it until a poll listed after the landing
+	// has been applied, since until then the row still reads the state the
+	// answer moved it on from. See landing.go.
+	if _, pending := m.landings[row.sess.ID]; pending {
+		return false
+	}
+	if _, settling := m.settling[row.sess.ID]; settling {
 		return false
 	}
 	// A pane that will not act on input cannot be answered, so handing it

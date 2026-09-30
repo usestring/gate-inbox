@@ -135,7 +135,7 @@ func signalFixture(t *testing.T, cases []signalCase) (string, map[string]string)
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
-	socket := newTestSocket()
+	socket := newTestSocket(t)
 	t.Cleanup(func() { killFixtureServer(t, socket) })
 
 	dirs := map[string]string{}

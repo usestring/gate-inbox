@@ -59,7 +59,7 @@ var restRelay = map[string]string{
 func (p *poller) relayChildRest(sess store.Session, newStatus string) error {
 	ending, atRest := restRelay[newStatus]
 	// The spawner hears, not the row's parent: see relayChildQuestion.
-	spawner := store.SpawnerOf(sess)
+	spawner := store.TrackerOf(sess)
 	if !atRest || spawner == "" || sess.Archived {
 		return nil
 	}

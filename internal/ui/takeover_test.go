@@ -5,11 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/x/ansi"
-
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 // adoptPane puts a pane on a foreign server on the board the way the scan
@@ -45,73 +44,157 @@ func setStatus(t *testing.T, m *Model, id, state string) {
 	}
 }
 
-// The startup offer is the reopen card: once, on a refresh that finds a pane
-// started outside the board, with adopting as-is as the answer it starts on.
-// Leaving it as it is keeps the pane and settles it, so the next start does
-// not ask about it again.
-func TestOutsidePanesAreOfferedOnceAtStartupOnTheReopenCard(t *testing.T) {
+// A real startup takes an adopted pane over without asking: no card, the idle
+// pane ended in its own window and back as a board session, and the line on
+// the status bar says so.
+func TestAnAdoptedPaneIsTakenOverAtStartupWithoutAsking(t *testing.T) {
 	m := buildModel(t)
-	adoptForeignPane(t, m, "borrowed", "borrowed", status.Idle)
+	socket, pane := adoptForeignPane(t, m, "borrowed", "borrowed", status.Idle)
 	m.restoreArmed = true
 	m.adoptFirstDone = true
 
 	m.applyCmd(t, nil)
-	if m.mode != modeRestorePrompt || len(m.restore.panes) != 1 {
-		t.Fatalf("after the first refresh mode = %v panes = %d, want the reopen card", m.mode, len(m.restore.panes))
-	}
-	out := ansi.Strip(m.frame())
-	for _, want := range []string{"Panes started outside the board", "1 agent pane was started outside the board",
-		"[adopt as-is]", "misses:", "MCP tools", "flags and model", "never ask"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("card missing %q:\n%s", want, out)
-		}
-	}
-
-	pressKey(t, m, key("n"))
 	if m.mode != modeList {
-		t.Fatalf("after n mode = %v, want the list", m.mode)
+		t.Fatalf("mode = %v, want the list: panes are not asked about", m.mode)
 	}
-	m.applyCmd(t, nil)
-	if m.mode != modeList {
-		t.Fatalf("a dismissed card was raised again on the next refresh")
+	if foreignPaneAlive(t, socket, pane) {
+		t.Fatal("the idle adopted pane is still up in its own window")
 	}
-	if got, _ := m.store.Get("borrowed"); got.TmuxPaneID == "" {
-		t.Fatal("dismissing the card promoted the row")
+	if got, _ := m.store.Get("borrowed"); got.TmuxPaneID != "" || !m.tmux.Exists("borrowed") {
+		t.Fatalf("the pane is not a board session now: %+v", got)
 	}
-	if decided := loadPaneDecisions(m.store); decided["borrowed"] != paneAdopt {
-		t.Fatalf("dismissing should settle the pane as kept, ledger = %v", decided)
-	}
-	// The next start: the answered pane is not asked about again.
-	m.restoreAsked = false
-	m.applyCmd(t, nil)
-	if m.mode != modeList {
-		t.Fatalf("an answered pane was offered again on the next start, mode = %v", m.mode)
+	if !strings.Contains(m.errBar.text, "took over 1 adopted session") {
+		t.Fatalf("status = %q, want the takeover reported", m.errBar.text)
 	}
 }
 
-// A model built without Init never asks: a test board, or a headless one.
-func TestOutsidePanesAreNotOfferedUnlessArmed(t *testing.T) {
+func TestAutoTakeoverWaitsForAnAttachedTmuxClient(t *testing.T) {
 	m := buildModel(t)
-	adoptForeignPane(t, m, "borrowed", "borrowed", status.Idle)
+	socket, pane := adoptForeignPane(t, m, "borrowed", "borrowed", status.Idle)
+	terminal := tmuxtest.Socket(t, "takeoverterminal")
+	tmuxOnSocket(terminal, "kill-server").Run()
+	t.Cleanup(func() { tmuxOnSocket(terminal, "kill-server").Run() })
+	command := "tmux -L " + socket + " attach-session -t user"
+	if out, err := tmuxOnSocket(terminal, "new-session", "-d", "-s", "terminal", "-x", "80", "-y", "24", command).CombinedOutput(); err != nil {
+		t.Fatalf("attach foreign client: %v: %s", err, out)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		attached, err := m.tmux.PaneState("borrowed", "#{session_attached}")
+		if err == nil && strings.TrimSpace(attached) == "1" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("foreign client did not attach: %q, %v", attached, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	m.applyCmd(t, nil)
-	if m.mode != modeList {
-		t.Fatalf("an unarmed model raised the offer, mode = %v", m.mode)
+	setStatus(t, m, "borrowed", status.Idle)
+	m.restoreArmed = true
+	m.adoptFirstDone = true
+	if result := m.takeoverPass(); result.taken != 0 || result.owed != 1 {
+		t.Fatalf("attached pane was taken: %+v", result)
+	}
+	if !foreignPaneAlive(t, socket, pane) {
+		t.Fatal("attached pane was ended")
+	}
+	if err := tmuxOnSocket(terminal, "kill-server").Run(); err != nil {
+		t.Fatalf("detach foreign client: %v", err)
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		result := m.takeoverPass()
+		if result.taken == 1 && result.owed == 0 {
+			break
+		}
+		if time.Now().After(deadline) || len(result.failed) > 0 {
+			t.Fatalf("detached idle pane was not taken: %+v", result)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
-// Saying yes ends the idle pane in its own window and brings the row back as
-// a gi_ session the manager owns, on the same id, name and directory.
+// A model built without Init takes nothing on its own: a test board, or a
+// headless one.
+func TestAdoptedPanesAreNotTakenOverUnlessArmed(t *testing.T) {
+	m := buildModel(t)
+	socket, pane := adoptForeignPane(t, m, "borrowed", "borrowed", status.Idle)
+	m.applyCmd(t, nil)
+	if m.mode != modeList || !foreignPaneAlive(t, socket, pane) {
+		t.Fatalf("an unarmed model acted on the pane, mode = %v", m.mode)
+	}
+}
+
+// A pane busy at startup is left alone until it rests, and a pane adopted
+// later in the run is taken the same way, with no answer from anybody.
+func TestAutoTakeoverWaitsForBusyPanesAndCoversLaterOnes(t *testing.T) {
+	m := buildModel(t)
+	m.adoptFirstDone = true
+	// Each refresh reads the panes' screens, so it runs disarmed and the
+	// status the test means is pinned before the armed pass.
+	refresh := func(id, state string) {
+		m.restoreArmed = false
+		m.applyCmd(t, nil)
+		setStatus(t, m, id, state)
+		m.restoreArmed = true
+	}
+	socket, pane := adoptForeignPane(t, m, "busy", "busy", status.Working)
+	refresh("busy", status.Working)
+	if result := m.takeoverPass(); result.taken != 0 || result.owed != 1 {
+		t.Fatalf("a working pane was taken: %+v", result)
+	}
+	if !foreignPaneAlive(t, socket, pane) {
+		t.Fatal("a working pane was ended")
+	}
+	setStatus(t, m, "busy", status.Idle)
+	if result := m.takeoverPass(); result.taken != 1 || result.owed != 0 {
+		t.Fatalf("the busy pane was not taken once idle: %+v", result)
+	}
+	if foreignPaneAlive(t, socket, pane) || !m.tmux.Exists("busy") {
+		t.Fatal("the pane that went idle is not a board session")
+	}
+
+	// A pane the scan brings in later is taken the same way, unasked.
+	socket, pane = adoptForeignPane(t, m, "late", "late", status.Idle)
+	refresh("late", status.Idle)
+	if result := m.takeoverPass(); result.taken != 1 {
+		t.Fatalf("a pane adopted later in the run was not taken: %+v", result)
+	}
+	if foreignPaneAlive(t, socket, pane) || !m.tmux.Exists("late") {
+		t.Fatal("the late pane is not a board session")
+	}
+}
+
+// Keeping panes as they are is still a setting, and then nothing is taken
+// until O asks for it.
+func TestKeepAsIsSettingLeavesPanesForO(t *testing.T) {
+	m := buildModel(t)
+	m.restoreArmed = true
+	m.adoptFirstDone = true
+	setMode(t, m, outsidePanesSetting, paneAdopt)
+	socket, pane := adoptForeignPane(t, m, "kept", "kept", status.Idle)
+	m.applyCmd(t, nil)
+	if !foreignPaneAlive(t, socket, pane) {
+		t.Fatal("keep as-is should leave the pane where it is")
+	}
+	pressKey(t, m, key("O"))
+	if foreignPaneAlive(t, socket, pane) || !m.tmux.Exists("kept") {
+		t.Fatal("O should take the kept pane over")
+	}
+}
+
+// O ends the idle pane in its own window and brings the row back as a gi_
+// session the manager owns, on the same id, name and directory.
 func TestTakeoverRestartsAnIdlePaneAsAManagedSession(t *testing.T) {
 	m := buildModel(t)
 	socket, pane := adoptForeignPane(t, m, "borrowed", "borrowed", status.Idle)
 	m.applyCmd(t, nil)
 
 	pressKey(t, m, key("O"))
-	if m.mode != modeRestorePrompt || m.restore.paneDefault != paneRelaunch {
-		t.Fatalf("O did not open the card on relaunch: mode = %v, err = %q", m.mode, m.errBar.text)
+	if m.mode != modeList {
+		t.Fatalf("O opened %v, want the pass to run without a card", m.mode)
 	}
-	pressKey(t, m, key("y"))
-
 	if foreignPaneAlive(t, socket, pane) {
 		t.Fatal("the adopted pane is still up in its own window")
 	}
@@ -139,8 +222,8 @@ func TestTakeoverRestartsAnIdlePaneAsAManagedSession(t *testing.T) {
 	}
 }
 
-// A busy pane is not restarted on the yes: it is owed, and the refresh that
-// first finds it idle is what takes it.
+// A busy pane is not restarted on O: it is owed, and the refresh that first
+// finds it idle is what takes it.
 func TestTakeoverWaitsForABusyPaneToGoIdle(t *testing.T) {
 	m := buildModel(t)
 	socket, pane := adoptForeignPane(t, m, "busy", "busy", status.Working)
@@ -148,18 +231,13 @@ func TestTakeoverWaitsForABusyPaneToGoIdle(t *testing.T) {
 	setStatus(t, m, "busy", status.Working)
 
 	pressKey(t, m, key("O"))
-	out := ansi.Strip(m.frame())
-	if !strings.Contains(out, "[relaunch into the board]") || !strings.Contains(out, "once it is idle") {
-		t.Fatalf("the card should say relaunching waits for idle:\n%s", out)
-	}
-	pressKey(t, m, key("y"))
 	if !foreignPaneAlive(t, socket, pane) {
-		t.Fatal("a working pane was ended by the yes")
+		t.Fatal("a working pane was ended by O")
 	}
 	if !m.takeover.pending["busy"] {
 		t.Fatal("the busy pane is not owed to the background pass")
 	}
-	if !strings.Contains(m.errBar.text, "1 follows as it goes idle") {
+	if !strings.Contains(m.errBar.text, "1 waits until its pane is idle and unattended") {
 		t.Fatalf("status = %q, want the owed count", m.errBar.text)
 	}
 
@@ -196,7 +274,6 @@ func TestTakeoverLeavesAPaneWhoseConversationCannotBeRead(t *testing.T) {
 	m.applyCmd(t, nil)
 
 	pressKey(t, m, key("O"))
-	pressKey(t, m, key("y"))
 	if !foreignPaneAlive(t, socket, pane) {
 		t.Fatal("a pane with no readable conversation was ended")
 	}
@@ -209,6 +286,12 @@ func TestTakeoverLeavesAPaneWhoseConversationCannotBeRead(t *testing.T) {
 	}
 	if m.takeover.pending["unread"] {
 		t.Fatal("a refused pane must not be retried on every pass")
+	}
+	// Armed, the automatic pass does not queue it again either.
+	m.restoreArmed = true
+	m.takeoverPass()
+	if m.takeover.pending["unread"] || !foreignPaneAlive(t, socket, pane) {
+		t.Fatal("the automatic pass retried a pane the takeover refused")
 	}
 }
 

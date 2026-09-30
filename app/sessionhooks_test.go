@@ -33,7 +33,7 @@ func TestExternalBuildHasASayInLaunches(t *testing.T) {
 		t.Skip("a spawn launches a tmux pane")
 	}
 	bin := buildFixture(t)
-	socket := tmuxtest.NewSocket("hooks")
+	socket := tmuxtest.Socket(t, "hooks")
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+envEchoTool)
 	home := envValue(env, "GATE_INBOX_HOME")
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })
@@ -212,7 +212,7 @@ func TestExternalBuildRefusesSpawnsWhileAPolicyIsDisabled(t *testing.T) {
 		t.Skip("a migration launches a tmux pane")
 	}
 	bin := buildFixture(t)
-	socket := tmuxtest.NewSocket("failclosed")
+	socket := tmuxtest.Socket(t, "failclosed")
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+envEchoTool+"\n[extensions.extra]\nbogus = 1\n")
 	home := envValue(env, "GATE_INBOX_HOME")
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })

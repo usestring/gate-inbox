@@ -125,3 +125,12 @@ func procDirNames(path string, each func(name string)) bool {
 	procBufs.Put(buf)
 	return true
 }
+
+// ReadProcFile is the same raw read for another package walking /proc: it
+// hands parse the bytes of path, which parse must not keep, and reports false
+// when the file could not be opened.
+func ReadProcFile(path string, parse func([]byte)) bool { return withProcFile(path, parse) }
+
+// ListProcDir lists a /proc directory's entries the same way, without a stat
+// per entry and without sorting them.
+func ListProcDir(path string, each func(name string)) bool { return procDirNames(path, each) }

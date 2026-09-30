@@ -1,0 +1,18 @@
+[38;5;246m[49m────────────────────────────────────────────
+[39m←  ☐ Toolc… [38;5;16m[48;5;153m ☐ Checks [39m[49m ☐ Relea…  ✔ Submit  →
+
+[1m[38;5;231mWhich checks must pass before merge?[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [ ] [38;5;153mBuild[39m
+         [38;5;246mCompile[39m
+  [38;5;246m2.[39m [ ] Unit tests
+         [38;5;246mFast suite[39m
+  [38;5;246m3.[39m [ ] Lint
+         [38;5;246mStatic analysis[39m
+  [38;5;246m4. [39m[ ] [38;5;246mType something[39m
+     [1mNext[0m
+[38;5;246m────────────────────────────────────────────
+[39m  5. Chat about this
+
+[38;5;246mEnter to select · Tab/Arrow keys to navigate
+· Esc to cancel[39m

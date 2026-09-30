@@ -73,7 +73,6 @@ type scratch struct {
 
 // synthetic identities and credentials. None of them names a real account.
 const (
-	fakeBorrower   = "ada"
 	fakeSecretStem = "EXAMPLE_TOKEN_"
 	fakeTokenStem  = "fake-token-for-"
 )
@@ -198,7 +197,7 @@ esac
 
 // accountConfig gives claude a synthetic account setup on the fake secret
 // store. The built-in config names no secret store, so without it every
-// account scenario would record an empty pool.
+// account scenario would record no accounts at all.
 const accountConfig = `[tools.claude]
 account_env = "CLAUDE_CODE_OAUTH_TOKEN"
 account_secret = "` + fakeSecretStem + `{account}"

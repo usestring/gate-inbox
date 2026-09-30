@@ -876,7 +876,7 @@ func (m *Model) spawnSessionAs(toolName, model, name, dir, group, prompt string,
 func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt string, autoNamed bool, nameSource string, form map[string]string) (string, error) {
 	tool := m.cfg.Tools[toolName]
 	id := newID()
-	account, err := accounts.Select(m.store, tool, "", id)
+	account, err := accounts.Select(m.store, tool, "", accounts.Request{SessionID: id, ToolName: toolName, Reason: extension.LaunchSpawn})
 	if err != nil {
 		return "", err
 	}

@@ -306,7 +306,7 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		if _, err := exec.LookPath("tmux"); err != nil {
 			t.Skip("ending a terminal ends a tmux pane")
 		}
-		socket := tmuxtest.NewSocket("endterm")
+		socket := tmuxtest.Socket(t, "endterm")
 		env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+shellTool)
 		home := envValue(env, "GATE_INBOX_HOME")
 		tmuxDir := envValue(env, "TMUX_TMPDIR")
@@ -372,7 +372,7 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		if _, err := exec.LookPath("tmux"); err != nil {
 			t.Skip("the board reads a tmux pane")
 		}
-		socket := tmuxtest.NewSocket("board")
+		socket := tmuxtest.Socket(t, "board")
 		env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n")
 		home := envValue(env, "GATE_INBOX_HOME")
 		tmuxDir := envValue(env, "TMUX_TMPDIR")
@@ -382,7 +382,8 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		// scratch directory as the fixture's.
 		t.Setenv("TMUX_TMPDIR", tmuxDir)
 		t.Cleanup(func() { killTestServer(t, tmuxDir, socket) })
-		paintSession(t, filepath.Join(home, "state.db"), socket, "d1a10001", boardAskPane)
+		paintAnswering(t, filepath.Join(home, "state.db"), socket, "d1a10001", boardAskPane,
+			"Which region should the survey cover?", "North only", "South only")
 		paintSession(t, filepath.Join(home, "state.db"), socket, "d1a10002", boardPermissionPane)
 
 		session := connectFixture(t, bin, env)
@@ -730,7 +731,7 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 		t.Skip("the board polls a tmux server")
 	}
 	bin := buildFixture(t)
-	socket := tmuxtest.NewSocket("lifecycle")
+	socket := tmuxtest.Socket(t, "lifecycle")
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+envEchoTool+shellTool+envDumpTool)
 	home := envValue(env, "GATE_INBOX_HOME")
 	logFile := filepath.Join(home, "board.log")
@@ -958,9 +959,6 @@ func checkPlanWasLaunched(t *testing.T, home, data, helper, fresh string) {
 	if _, err := st.Get(plan.SessionID); err == nil {
 		t.Fatalf("the plan filed a row for %s", plan.SessionID)
 	}
-	if borrower, _ := st.Setting("account_borrower:" + plan.SessionID); borrower != "" {
-		t.Fatalf("the plan recorded a borrower for %s", plan.SessionID)
-	}
 	asLaunched := func(s string) string { return strings.ReplaceAll(s, plan.SessionID, fresh) }
 	fields := func(path string) []string {
 		body, err := os.ReadFile(path)
@@ -1112,7 +1110,7 @@ func TestExternalBuildRunsExtensionCommands(t *testing.T) {
 		if _, err := exec.LookPath("tmux"); err != nil {
 			t.Skip("the session services open a tmux driver")
 		}
-		env := fixtureHome(t, "tmux_socket = \""+tmuxtest.NewSocket("operator")+"\"\n")
+		env := fixtureHome(t, "tmux_socket = \""+tmuxtest.Socket(t, "operator")+"\"\n")
 		seedSessions(t, filepath.Join(envValue(env, "GATE_INBOX_HOME"), "state.db"))
 		operator := slices.DeleteFunc(slices.Clone(env), func(entry string) bool {
 			return strings.HasPrefix(entry, "GATE_INBOX_SESSION_ID=")
@@ -1134,7 +1132,7 @@ func TestExternalBuildRunsExtensionCommands(t *testing.T) {
 		if _, err := exec.LookPath("tmux"); err != nil {
 			t.Skip("the session services open a tmux driver")
 		}
-		env := fixtureHome(t, "tmux_socket = \""+tmuxtest.NewSocket("plan")+"\"\n"+envEchoTool)
+		env := fixtureHome(t, "tmux_socket = \""+tmuxtest.Socket(t, "plan")+"\"\n"+envEchoTool)
 		state := filepath.Join(envValue(env, "GATE_INBOX_HOME"), "state.db")
 		seedSessions(t, state)
 		out, code := run(t, append(env, "GATE_INBOX_SESSION_ID=ca11e400"), "noop-plan", "c41d0001")
@@ -1265,6 +1263,48 @@ func killTestServer(t *testing.T, dir, socket string) {
 // on socket, showing pane, and waits for the paint to land.
 func paintSession(t *testing.T, path, socket, id, pane string) {
 	t.Helper()
+	paintRunning(t, path, socket, id, pane, "cat %s; sleep 60")
+}
+
+// answeringScript paints a one-question dialog, follows the arrows from the
+// first row, and on Enter prints the record Claude Code prints of the answer
+// it took, which is what an answer is read back from.
+const answeringScript = `cat "$1"
+opts=(%s)
+cur=1
+while IFS= read -rsn1 key; do
+  if [[ $key == $'\e' ]]; then
+    read -rsn2 rest
+    case $rest in
+      '[A') ((cur > 1)) && cur=$((cur - 1)) ;;
+      '[B') ((cur < ${#opts[@]})) && cur=$((cur + 1)) ;;
+    esac
+  elif [[ -z $key ]]; then
+    printf '\n● User answered Claude'"'"'s questions:\n  ⎿  · %%s → %%s\n\n' %q "${opts[cur-1]}"
+    break
+  fi
+done
+sleep 60
+`
+
+// paintAnswering is paintSession over a pane that takes its answer.
+func paintAnswering(t *testing.T, path, socket, id, pane, question string, options ...string) {
+	t.Helper()
+	quoted := make([]string, len(options))
+	for i, option := range options {
+		quoted[i] = strconv.Quote(option)
+	}
+	script := filepath.Join(t.TempDir(), "answering.sh")
+	if err := os.WriteFile(script, []byte(fmt.Sprintf(answeringScript, strings.Join(quoted, " "), question)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paintRunning(t, path, socket, id, pane, "bash "+script+" %s")
+}
+
+// paintRunning files a session whose pane runs command, formatted with the
+// path of a file holding pane.
+func paintRunning(t *testing.T, path, socket, id, pane, command string) {
+	t.Helper()
 	dir := t.TempDir()
 	fixture := filepath.Join(dir, "pane.txt")
 	if err := os.WriteFile(fixture, []byte(pane), 0o644); err != nil {
@@ -1274,7 +1314,7 @@ func paintSession(t *testing.T, path, socket, id, pane string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := driver.Create(id, dir, "cat "+fixture+"; sleep 60", nil, 80, 24); err != nil {
+	if err := driver.Create(id, dir, fmt.Sprintf(command, fixture), nil, 80, 24); err != nil {
 		t.Fatalf("create %s: %v", id, err)
 	}
 	t.Cleanup(func() { _ = driver.Kill(id) })

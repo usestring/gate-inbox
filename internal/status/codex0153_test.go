@@ -52,15 +52,20 @@ func TestCodexStaleErrorDoesNotOutliveItsTurn(t *testing.T) {
 	frame := codexFrame(t)
 	// Put a codex error banner into the FIRST turn, above the rule that
 	// closes it. The newest turn below is an ordinary settled exchange.
-	withError := strings.Replace(frame,
-		"  └ zsh:1: command not found: nonexistent-binary-xyz",
-		"  └ zsh:1: command not found: nonexistent-binary-xyz\n■ stream error: unexpected status 500; retrying",
-		1)
-	if withError == frame {
-		t.Fatal("fixture did not take the injected error line")
-	}
-	if got, _ := engine.Match("codex", withError); got == Errored {
-		t.Fatal("an error from a finished turn still reads as the session's status")
+	for _, banner := range []string{
+		"■ stream error: unexpected status 500; retrying",
+		"■ app-server session could not be restored",
+	} {
+		withError := strings.Replace(frame,
+			"  └ zsh:1: command not found: nonexistent-binary-xyz",
+			"  └ zsh:1: command not found: nonexistent-binary-xyz\n"+banner,
+			1)
+		if withError == frame {
+			t.Fatal("fixture did not take the injected error line")
+		}
+		if got, _ := engine.Match("codex", withError); got == Errored {
+			t.Fatalf("an error from a finished turn still reads as the session's status: %q", banner)
+		}
 	}
 }
 

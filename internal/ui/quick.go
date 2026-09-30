@@ -15,16 +15,14 @@ import (
 // operator is typing into the agent itself.
 func (m *Model) openQuickMode() {
 	m.errBar.text = ""
-	if m.showsConversation() {
-		m.conversation.compact, m.conversation.dirty, m.conversation.offset = true, true, 0
-	}
 	m.quick = quickState{active: true, closeAfterSend: m.quickCloseAfterSend()}
 }
 
 // handleQuickKey runs while the hotkey menu is docked in the sidebar: arrows
 // keep moving the selection on the list, a snippet's key sends it, and the
-// key that opened the menu, or esc, closes it. Nothing is typed, so a key that names no snippet
-// does nothing rather than reaching some other binding behind the menu.
+// key that opened the menu, or esc, closes it. Nothing is typed, so a key
+// that names no snippet does nothing rather than reaching some other binding
+// behind the menu.
 func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	context := keymap.ContextList
 	if action, bound := m.action(context, msg); bound {

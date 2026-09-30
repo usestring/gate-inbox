@@ -32,7 +32,7 @@ func fleetFixture(tb testing.TB) (*Driver, []string) {
 	}
 	var ids []string
 	for server := 0; server < fleetServers; server++ {
-		socket := tmuxtest.NewSocket("fleet")
+		socket := tmuxtest.Socket(tb, "fleet")
 		tmuxOn(socket, "kill-server").Run()
 		tb.Cleanup(func() { tmuxOn(socket, "kill-server").Run() })
 		for i := server; i < fleetSize; i += fleetServers {

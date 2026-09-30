@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -35,8 +36,9 @@ const (
 const shellGlyph = "❯"
 
 // viewListFrame is the session content beside the sessions rail, both
-// painted surfaces rather than drawn panels. The rail sits on the right, so
-// the agent's pane keeps the left edge the eye starts a line from.
+// painted surfaces rather than drawn panels. The rail sits on the right by
+// default, so the agent's pane keeps the left edge the eye starts a line
+// from; the sidebar setting puts it on the left instead (see sidebar.go).
 func (m *Model) viewListFrame() string {
 	leftWidth, rightWidth := m.splitWidths()
 	footer := m.viewFooter()
@@ -59,7 +61,13 @@ func (m *Model) viewListFrame() string {
 	// and the fill's corners land exactly on the cell grid.
 	bleedWidth := contentWidth - 2
 	railWidth := leftWidth - 1
+	// Set before the content is laid out: the pane box it records for hit
+	// testing starts here. With the rail on the left the content starts
+	// past the edge, the rail, the seam and the bleed.
 	m.pane.columnX = 1
+	if m.railOnLeft() {
+		m.pane.columnX = leftWidth + 2
+	}
 	railRows := m.railLines(railWidth, bodyHeight)
 	contentRows := m.contentLines(bleedWidth, bodyHeight)
 	seam := make([]string, bodyHeight)
@@ -73,14 +81,27 @@ func (m *Model) viewListFrame() string {
 		edge[i] = railEdgeCell(tone)
 	}
 	frame = append(frame, m.topRule(leftWidth+1, m.width))
-	frame = append(frame, joinColumns(
-		m.focusLeftColumn(bodyHeight),
-		paintContent(contentRows, bleedWidth, bodyHeight, backdropHex()),
-		m.bleedColumn(bodyHeight),
-		seam,
-		paintContent(railRows, railWidth, bodyHeight, panelHex()),
-		edge,
-	)...)
+	if m.railOnLeft() {
+		// The mirror image: the rail's edge column opens the row, and the
+		// content ends on the ring's right upright.
+		frame = append(frame, joinColumns(
+			edge,
+			paintContent(railRows, railWidth, bodyHeight, panelHex()),
+			seam,
+			m.bleedColumn(bodyHeight),
+			paintContent(contentRows, bleedWidth, bodyHeight, backdropHex()),
+			m.focusRightColumn(bodyHeight),
+		)...)
+	} else {
+		frame = append(frame, joinColumns(
+			m.focusLeftColumn(bodyHeight),
+			paintContent(contentRows, bleedWidth, bodyHeight, backdropHex()),
+			m.bleedColumn(bodyHeight),
+			seam,
+			paintContent(railRows, railWidth, bodyHeight, panelHex()),
+			edge,
+		)...)
+	}
 	bottom := m.boundedRuleRow(leftWidth+1, m.width, "▄")
 	if m.mode == modeFocus && m.pane.box.ok {
 		bottom = m.focusBottomRule(leftWidth+1, m.width)
@@ -210,9 +231,9 @@ func (m *Model) railLines(width, height int) []contentLine {
 	}
 	// The opening block only rides a rail with the full dock, and only while
 	// the list keeps the rows the full dock itself promises it. The selected
-	// row's own identity sits right above the prompt it was launched with,
-	// since both answer "what is this" before the dock answers "how loaded
-	// is the machine".
+	// row's facts sit right above the prompt it was launched with, since both
+	// answer "what is this" before the dock answers "how loaded is the
+	// machine".
 	var opening []string
 	if tier == dockFull {
 		block := append(m.sessionDetailLines(width), m.promptLines(width)...)
@@ -384,10 +405,12 @@ func railFact(pad, label, value string) string {
 	return pad + labelStyle.Render(padRight(label, railFactLabelWidth)) + value
 }
 
-// sessionDetailLines is the selected session's or group's identity — name,
-// state, and the facts that place it — moved out of the content column and
-// into the rail, right above the prompt block it now sits beside. Freeing
-// the content column of its own head leaves nothing there but the live pane.
+// sessionDetailLines is the selected session's or group's identity: the
+// facts that place it, right above the prompt block it sits beside. A
+// session's name, its queued-message badge, its state and its age are left
+// to the cursor row, which already draws them one glance away, so the block
+// carries only what the row does not. Its start time goes too, so the only
+// clock on the rail is the row's.
 func (m *Model) sessionDetailLines(width int) []string {
 	pad := spaces(railInset)
 	room := width - railInset - 2
@@ -417,14 +440,6 @@ func (m *Model) sessionDetailLines(width int) []string {
 	if sess.Account != "" {
 		tool += " as " + sess.Account
 	}
-	name := lipgloss.NewStyle().Foreground(colorBright).Bold(true).Render(m.displayName(sess))
-	if queued := m.queuedMessages[sess.ID]; queued > 0 {
-		name = inboxBadge(queued) + " " + name
-	}
-	head := name + "  " + chipStyle.Render(tool)
-	state := lipgloss.NewStyle().Foreground(statusColor(sess.Status)).
-		Render(statusGlyph(sess.Status)+" "+statusLabel(sess.Status)) +
-		subtleStyle.Render(" · "+relSince(lastActivity(sess)))
 	factRoom := max(room-railFactLabelWidth, 1)
 	usage := ""
 	if m.procFor == sess.ID && m.proc.OK {
@@ -436,10 +451,8 @@ func (m *Model) sessionDetailLines(width int) []string {
 	}
 	lines := []string{
 		pad + subtleStyle.Render("session"),
-		pad + textfmt.TruncateWidth(head, room, "…"),
-		pad + textfmt.TruncateWidth(state, room, "…"),
+		railFact(pad, "cli", chipStyle.Render(textfmt.TruncateWidth(tool, max(factRoom-2, 1), "…"))),
 		railFact(pad, "group", lipgloss.NewStyle().Foreground(colorAccent2).Render(textfmt.TruncateWidth(displayGroup(sess.Group), factRoom, "…"))),
-		railFact(pad, "started", subtleStyle.Render(textfmt.TruncateWidth(relSince(sess.CreatedAt), factRoom, "…"))),
 		railFact(pad, "dir", mutedStyle.Render(truncateTail(sess.Cwd, factRoom))),
 	}
 	if usage != "" {
@@ -971,6 +984,12 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	if m.isStale(sess) {
 		state += " " + statusTint(status.Errored, "stale")
 	}
+	// The board has told this session its processes are holding the
+	// machine. Beside the label for the same reason as stale: the status is
+	// still true, and this says what else is going on.
+	if badge := hogBadge(m.hogBadges[sess.ID]); badge != "" {
+		state += " " + badge
+	}
 	state += metaText(" · " + sess.Tool)
 	// An archived row is on a clock, and the clock is the one thing about it
 	// that is not recoverable by looking. It goes after the age, in the same
@@ -1042,10 +1061,62 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 		head = head[:nameEnd] + after + head[nameEnd:] + slot
 	}
 
+	// The summary takes whatever the name, its marks and the meta leave, and
+	// is the first thing to go: the name is still what a row is found by.
+	summaryRoom := width - railGutter - textfmt.Width(head) - 2
+	if !m.stackedRows() {
+		summaryRoom -= textfmt.Width(meta) + 2
+	}
+	head += m.summaryTag(sess, summaryRoom, metaText)
+
 	if m.stackedRows() {
 		return stackedRow(head, indent+meta, width, bg)
 	}
 	return paint(rowColumns(head, meta, width-railGutter), width, bg)
+}
+
+// minSummary is the fewest cells of a summary worth drawing: any shorter and
+// the row wears a word or two that says less than the name beside it.
+const minSummary = 12
+
+// summaryTag is what the session is about, set after its name: the title its
+// own CLI wrote for the conversation, or the prompt it was opened with until
+// it has one. Nothing when there is not room for it, or when it would only
+// repeat the name.
+func (m *Model) summaryTag(sess store.Session, room int, style func(string) string) string {
+	if room < minSummary {
+		return ""
+	}
+	text := m.sessionSummary(sess)
+	if text == "" {
+		return ""
+	}
+	return "  " + style(textfmt.TruncateWidth(text, room-2, "…"))
+}
+
+func (m *Model) sessionSummary(sess store.Session) string {
+	// A row still waiting on its name already wears the prompt as one.
+	if m.awaitingRename(sess) {
+		return ""
+	}
+	text := strings.TrimSpace(m.titles[sess.ID])
+	if text == "" {
+		if opening := m.openingPrompts(sess); len(opening) > 0 {
+			text = promptPlain(opening[0])
+		}
+	}
+	if text == "" || sameWords(text, sess.Name) {
+		return ""
+	}
+	return text
+}
+
+// sameWords reports whether two labels say the same thing once case and
+// separators are set aside, as "Fix login bug" and fix-login-bug do.
+func sameWords(a, b string) bool {
+	split := func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }
+	x, y := strings.FieldsFunc(strings.ToLower(a), split), strings.FieldsFunc(strings.ToLower(b), split)
+	return strings.Join(x, " ") == strings.Join(y, " ")
 }
 
 // renderArtifactEntry paints one pull request or ticket under the session

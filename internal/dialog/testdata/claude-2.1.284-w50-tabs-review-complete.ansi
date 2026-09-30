@@ -1,0 +1,45 @@
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mHaiku 4.5 · Claude Max[39m
+[38;5;174m ▝▝   ▝▝ [39m  [38;5;246m/tmp/sample-9000/gia/work[39m
+
+
+[38;5;239m[48;5;237m❯ [38;5;231mThis is a UI test. First write exactly this [39m
+  [38;5;231mprose, then call the AskUserQuestion tool once [39m
+  [38;5;231mwith TWO questions. Prose:[39m
+  [38;5;231mPlan:[39m
+  [38;5;231m1. Hold for staged UI until the rework ships[39m
+  [38;5;231m2. Only region #4021, leave the rest[39m
+  [38;5;231m3. Do both in parallel[39m
+  [38;5;231m   Question 1: question "Which rollout path [39m
+  [38;5;231mshould I take?", header "Rollout", multiSelect [39m
+  [38;5;231mfalse, options in this order (labels verbatim, [39m
+  [38;5;231mone-line descriptions): "Hold for staged UI", [39m
+  [38;5;231m"Only region #4021", "Do both".[39m
+  [38;5;231m   Question 2: question "Should I notify the [39m
+  [38;5;231mchannel when it lands?", header "Notify", [39m
+  [38;5;231mmultiSelect false, options: "Yes, post in the [39m
+  [38;5;231mchannel", "No".[39m
+  [38;5;231m   After you get the answers, reply with only [39m
+  [38;5;231mDONE and stop.[39m
+
+[38;5;231m[49m●[39m Plan:
+  1. Hold for staged UI until the rework ships
+  2. Only region #4021, leave the rest
+  3. Do both in parallel
+
+[38;5;246m──────────────────────────────────────────────────
+[39m←  ☒ Rollout  ☒ Notify [38;5;16m[48;5;153m ✔ Submit [38;5;246m[49m →[39m
+
+[1m[38;5;231mReview your answers[0m
+
+ ● Which rollout path should I take?
+   [38;5;114m→ Do both[39m
+ ● Should I notify the channel when it lands?
+   [38;5;114m→ Only after the deploy is verified in prod, [39m
+   [38;5;114mthen post[39m
+
+[38;5;246mReady to submit your answers?[39m
+
+[38;5;153m❯[39m [38;5;246m1. [38;5;153mSubmit answers[39m
+  [38;5;246m2. [39mCancel
+
+

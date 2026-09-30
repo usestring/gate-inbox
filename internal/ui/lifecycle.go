@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -329,7 +330,7 @@ func (m *Model) relaunchSession(sess store.Session, tool config.Tool, baseComman
 	if err := m.store.UpdateStatus(sess.ID, newStatus); err != nil {
 		return err
 	}
-	accounts.RecordLaunch(m.store, sess.ID, sess.Tool, sess.Account)
+	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account)
 	// A leftover ack from the previous life must not swallow the relaunched
 	// agent's first finished alert.
 	return m.store.SetAcked(sess.ID, false)
@@ -456,6 +457,24 @@ func (m *Model) archiveSelected() (tea.Model, tea.Cmd) {
 			m.errBar.text = "root is the top level; kill the groups under it instead"
 			return m, nil
 		}
+		// A group with nothing filed under it, live or archived, has nothing
+		// for the archive to keep. Archiving it would only hold its name
+		// until the retention sweep, so it is deleted instead.
+		held, err := m.store.GroupHoldsSessions(entry.group)
+		if err != nil {
+			m.errBar.text = err.Error()
+			return m, nil
+		}
+		if !held {
+			m.confirm = confirmTarget{
+				isGroup: true,
+				path:    entry.group,
+				action:  actionDelete,
+				label:   fmt.Sprintf("delete group %s? nothing is filed in it, so it goes for good.", entry.group),
+			}
+			m.mode = modeConfirmDelete
+			return m, nil
+		}
 		// Adopted panes stay in the set here, unlike the whole-view sweep:
 		// their rows go where the group row goes, so leaving the panes up
 		// would strand an agent nothing on the board still points at. The
@@ -465,8 +484,8 @@ func (m *Model) archiveSelected() (tea.Model, tea.Cmd) {
 		label := fmt.Sprintf("kill group %s (%d sessions)? frees their RAM, t finds them, %s.%s",
 			entry.group, len(subtree), archiveWindowPhrase, adoptedSetNote(len(adopted)))
 		if len(subtree) == 0 {
-			// An empty group is still worth filing away, and saying it holds
-			// no sessions beats an "(0 sessions)" the reader has to decode.
+			// Only archived rows are left under it. Filing the group away
+			// with them beats an "(0 sessions)" the reader has to decode.
 			label = fmt.Sprintf("kill group %s? nothing is running in it, t finds it.", entry.group)
 		}
 		m.confirm = confirmTarget{
@@ -1033,13 +1052,39 @@ func (m *Model) sweepArchivesBefore(cutoff time.Time) tea.Cmd {
 }
 
 func (m *Model) sessionAndChildren(sess store.Session) ([]store.Session, error) {
-	kids, err := m.store.Children(sess.ID)
+	rows, err := m.store.ListSessions(true)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]store.Session, 0, 1+len(kids))
-	out = append(out, sess)
-	return append(out, kids...), nil
+	return withNested(sess, rows), nil
+}
+
+// withNested is sess and everything filed under it: its children, and the
+// terminals nested under each child. A terminal is a leaf, so it may hang
+// off a session that is itself a child; leaving it out let x end the child
+// and strand its shell running under a row that had gone. Each terminal
+// comes ahead of the child it hangs under, so a teardown that walks the set
+// in order never leaves a row pointing at a parent that is already gone.
+func withNested(sess store.Session, rows []store.Session) []store.Session {
+	under := map[string][]store.Session{}
+	for _, row := range rows {
+		if row.ParentID != "" {
+			under[row.ParentID] = append(under[row.ParentID], row)
+		}
+	}
+	out := []store.Session{sess}
+	for _, kid := range under[sess.ID] {
+		if kid.ID == sess.ID {
+			continue
+		}
+		for _, leaf := range under[kid.ID] {
+			if leaf.ID != sess.ID && leaf.ID != kid.ID {
+				out = append(out, leaf)
+			}
+		}
+		out = append(out, kid)
+	}
+	return out
 }
 
 // childrenFirst orders a follow-set so terminals go before the agent they
@@ -1313,6 +1358,15 @@ func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.errBar.text = ""
+		case actionDelete:
+			removed, err := m.store.DeleteEmptyGroup(m.confirm.path)
+			if err != nil {
+				m.errBar.text = err.Error()
+				return m, nil
+			}
+			m.forgetGroupsLocally(removed)
+			m.rebuildRows()
+			m.reportDone("deleted group " + displayGroup(m.confirm.path))
 		case actionRevive:
 			for _, sess := range m.confirm.sessions {
 				if m.tmux.Exists(sess.ID) {
@@ -1334,6 +1388,22 @@ func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	m.confirm = confirmTarget{}
 	return m, nil
+}
+
+// forgetGroupsLocally drops deleted groups from the tree on screen, so they
+// leave on this frame rather than on the next poll. Their folds go too: a
+// group created later under the same name starts open.
+func (m *Model) forgetGroupsLocally(paths []string) {
+	gone := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		gone[path] = true
+		delete(m.groupPaths, path)
+		delete(m.archivedGroups, path)
+		delete(m.priorityGroups, path)
+		delete(m.collapsed, path)
+	}
+	m.groups = slices.DeleteFunc(slices.Clone(m.groups), func(g string) bool { return gone[g] })
+	m.persistCollapsed()
 }
 
 // deleteSessions takes every session given off the board for good: its pane,
@@ -1399,7 +1469,9 @@ func (m *Model) markRestoredLocally(id string) {
 }
 
 // withoutSessions drops a set of rows from a batch, for the archive that was
-// told to leave the children where they are.
+// told to leave the children where they are. A terminal nested under a
+// child that stays stays with it: ending the shell of an agent the operator
+// just chose to keep running is not what k asked for.
 func withoutSessions(sessions, drop []store.Session) []store.Session {
 	if len(drop) == 0 {
 		return sessions
@@ -1410,7 +1482,7 @@ func withoutSessions(sessions, drop []store.Session) []store.Session {
 	}
 	kept := make([]store.Session, 0, len(sessions))
 	for _, sess := range sessions {
-		if !dropped[sess.ID] {
+		if !dropped[sess.ID] && !dropped[sess.ParentID] {
 			kept = append(kept, sess)
 		}
 	}

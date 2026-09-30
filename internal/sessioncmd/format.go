@@ -61,6 +61,9 @@ func FormatSession(session Session) string {
 	if session.ParentID != "" {
 		line += " under " + session.ParentID
 	}
+	if session.Detached {
+		line += " detached from " + session.SpawnedBy
+	}
 	return line
 }
 
@@ -377,12 +380,48 @@ func FormatUnparkResult(result UnparkResult) string {
 // on, or that it was typed. A caller that picked an option nobody offered
 // gets to see that its words went in as words.
 func FormatAnswer(answered AnsweredQuestion) string {
+	if len(answered.Answers) > 1 || (len(answered.Answers) == 1 && answered.Submitted) {
+		parts := make([]string, 0, len(answered.Answers))
+		for _, filled := range answered.Answers {
+			how := "typed"
+			if filled.Selected != "" {
+				how = "picked"
+			}
+			label := fmt.Sprint(filled.Index)
+			if filled.Header != "" {
+				label += " " + filled.Header
+			}
+			parts = append(parts, fmt.Sprintf("%s: %s %q", label, how, filled.Answer))
+		}
+		line := fmt.Sprintf("answered %d question(s) of %s (%s) -- %s", len(answered.Answers),
+			answered.Name, answered.SessionID, strings.Join(parts, "; "))
+		if answered.Verified {
+			line += "; read back from its screen as given"
+		}
+		switch {
+		case answered.Submitted:
+			line += "; submitted, so it has its answers"
+		case answered.Standing > 0:
+			line += fmt.Sprintf("; not submitted: %d question(s) still stand", answered.Standing)
+		default:
+			line += "; every question has an answer but it was not submitted"
+		}
+		return line
+	}
 	line := fmt.Sprintf("answered %s (%s) by typing", answered.Name, answered.SessionID)
 	if answered.Selected != "" {
 		line = fmt.Sprintf("answered %s (%s) with option %q", answered.Name, answered.SessionID, answered.Selected)
 	}
+	if answered.Verified {
+		line += "; read back from its screen as given"
+	} else {
+		line += "; not read back, because this dialog draws no record of the answer it took"
+	}
 	if answered.Standing > 0 {
 		line += fmt.Sprintf("; %d more question(s) in the same dialog still stand", answered.Standing)
+	}
+	if answered.Submitted {
+		line += "; that was the last question, so the dialog was submitted"
 	}
 	return line
 }

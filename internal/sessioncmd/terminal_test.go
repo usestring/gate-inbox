@@ -39,7 +39,7 @@ default_status = "idle"
 	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(configText), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-	driver, err := tmux.NewWithSocket(tmuxtest.NewSocket("term"))
+	driver, err := tmux.NewWithSocket(tmuxtest.Socket(t, "term"))
 	if err != nil {
 		t.Fatalf("tmux driver: %v", err)
 	}

@@ -1,0 +1,45 @@
+
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude Code[0m [38;5;246mv2.1.284[39m
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mHaiku 4.5 · Claude Max[39m
+[38;5;174m ▝▝   ▝▝ [39m  [38;5;246m/tmp/sample-9000/gia/work[39m
+
+
+[38;5;239m[48;5;237m❯ [38;5;231mThis is a UI test. First write exactly this prose, then [39m
+  [38;5;231mcall the AskUserQuestion tool once with TWO questions. [39m
+  [38;5;231mProse:[39m
+  [38;5;231mPlan:[39m
+  [38;5;231m1. Hold for staged UI until the rework ships[39m
+  [38;5;231m2. Only region #4021, leave the rest[39m
+  [38;5;231m3. Do both in parallel[39m
+  [38;5;231m   Question 1: question "Which rollout path should I [39m
+  [38;5;231mtake?", header "Rollout", multiSelect false, options in [39m
+  [38;5;231mthis order (labels verbatim, one-line descriptions): [39m
+  [38;5;231m"Hold for staged UI", "Only region #4021", "Do both".[39m
+  [38;5;231m   Question 2: question "Should I notify the channel when[39m
+  [38;5;231mit lands?", header "Notify", multiSelect false, options:[39m
+  [38;5;231m"Yes, post in the channel", "No".[39m
+  [38;5;231m   After you get the answers, reply with only DONE and [39m
+  [38;5;231mstop.[39m
+
+[38;5;231m[49m●[39m Plan:
+  1. Hold for staged UI until the rework ships
+  2. Only region #4021, leave the rest
+  3. Do both in parallel
+[38;5;246m────────────────────────────────────────────────────────────
+← [38;5;16m[48;5;153m ☐ Rollout [39m[49m ☐ Notify  ✔ Submit  →
+
+[1m[38;5;231mWhich rollout path should I take?[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mHold for staged UI[39m
+     [38;5;246mWait for the staged UI to ship before rolling out[39m
+  [38;5;246m2.[39m Only region #4021
+     [38;5;246mRoll out only to region #4021, leave the rest[39m
+  [38;5;246m3.[39m Do both
+     [38;5;246mExecute both in parallel[39m
+  [38;5;246m4. Type something.[39m
+[38;5;246m────────────────────────────────────────────────────────────
+[39m  5. Chat about this
+
+[38;5;246mEnter to select · Tab/Arrow keys to navigate · Esc to cancel
+[39m
+

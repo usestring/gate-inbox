@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -39,6 +41,19 @@ type AnsweredQuestion struct {
 	// in the dialog's own text field.
 	Selected string `json:"selected,omitempty" jsonschema:"option the answer picked; empty when the answer was typed instead"`
 	Standing int    `json:"standing_questions,omitempty" jsonschema:"questions still unanswered in the same dialog after this one"`
+	// Answers is each answer a call filled in, for a dialog asking several
+	// questions; Question, Answer and Selected above repeat the last of them.
+	Answers []FilledAnswer `json:"answers,omitempty" jsonschema:"each question this call answered, in order"`
+	// Submitted is a several-question dialog sent: every question had an
+	// answer, the review page showed them, and Submit was pressed.
+	Submitted bool `json:"submitted,omitempty" jsonschema:"true when the dialog was submitted and the child has its answers; false with standing_questions above zero means it is still waiting on the rest"`
+	// Verified is the child's screen read back after the answer and found to
+	// hold exactly the answer given: the Submit page or the answered-questions
+	// record Claude Code prints. An answer that reads back as anything else is
+	// an error, never a result.
+	Verified bool `json:"verified" jsonschema:"true when the child's screen was read back after answering and shows exactly the answers given; false only for a Codex dialog, which draws no record to read"`
+	// Questions is every question of the dialog as it stands after the call.
+	Questions []dialog.Question `json:"questions,omitempty" jsonschema:"every question of the dialog after this call, with which are answered"`
 }
 
 // Answer picks or types reply into the question dialog targetID is holding.
@@ -49,10 +64,15 @@ type AnsweredQuestion struct {
 // from that placement refused every spawner its own children's dialogs while
 // putting the root in front of questions it never assigned.
 //
+// Nor may the spawner of a detached session. Detaching hands the session to
+// whoever is at its pane, and a dialog is theirs to answer; see TrackerOf.
+//
 // One call answers one question. A dialog asking several reports the rest as
 // Standing and is answered by calling again; AnswerKeys holds why that is not
 // a list.
-func (s *Sessions) Answer(sessionID, targetID, reply string) (AnsweredQuestion, error) {
+//
+// relay keys the answer as the caller's user's own: see relay.go.
+func (s *Sessions) Answer(sessionID, targetID, reply string, relay bool) (AnsweredQuestion, error) {
 	reply = strings.TrimSpace(reply)
 	if reply == "" {
 		return AnsweredQuestion{}, errEmptyAnswer
@@ -70,7 +90,7 @@ func (s *Sessions) Answer(sessionID, targetID, reply string) (AnsweredQuestion, 
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
-	return runtime.answer(target, reply, "parent", caller.ID)
+	return runtime.answer(target, reply, "parent", caller.ID, s.guard(runtime.store, caller, target, relay))
 }
 
 var errEmptyAnswer = errors.New(
@@ -78,8 +98,11 @@ var errEmptyAnswer = errors.New(
 
 // answer keys or types reply into the dialog target's pane is holding, once
 // the caller has settled who may. by and byID name who answered, in the log.
-func (r *runtime) answer(target store.Session, reply, by, byID string) (AnsweredQuestion, error) {
-	pane, err := r.driver.CapturePane(target.ID)
+// A parent's answer carries a guard, which admits it and records it before
+// the first keystroke; the board's, a person's, carries none.
+func (r *runtime) answer(target store.Session, reply, by, byID string, guard *answerGuard) (AnsweredQuestion, error) {
+	pane := tmuxPane{r.driver, target.ID}
+	raw, err := pane.Capture()
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
@@ -91,8 +114,19 @@ func (r *runtime) answer(target store.Session, reply, by, byID string) (Answered
 	// precisely because they have to be refused, and a refusal that cannot say
 	// which shape it saw is the defect this path had. See the two messages
 	// below -- they send the caller to two different places.
-	held, ok := dialog.Inspect(ansi.Strip(pane))
+	plain := ansi.Strip(raw)
+	held, ok := dialog.Inspect(plain)
 	if !ok {
+		if _, onReview := dialog.ParseReview(plain); onReview {
+			return r.submitReview(target, raw, reply, by, byID)
+		}
+		if dialog.Standing(plain) {
+			return AnsweredQuestion{}, wrapped(dialog.ErrNotKeyAnswerable, fmt.Sprintf(
+				"session %s is on a dialog this cannot read, so no keystroke is sent to it; what it "+
+					"asks is a person's call: put it to your user word for word (read_session shows it), "+
+					"or ask the operator to answer it on the board. %s is held while a dialog stands",
+				target.ID, r.words.Send))
+		}
 		// Not an error about the answer: there is no dialog on the screen. The
 		// question was answered by somebody who got there first, or the child
 		// is resting at its own input line having ended a turn on a question in
@@ -105,45 +139,115 @@ func (r *runtime) answer(target store.Session, reply, by, byID string) (Answered
 				"answered, or be resting at its own input line. Use %s to send it words instead",
 			target.ID, r.words.Send))
 	}
-	chosen := held.Choose(reply)
-	keys, err := dialog.AnswerKeys(held, reply)
-	if errors.Is(err, dialog.ErrNotKeyAnswerable) {
+	if _, err := dialog.AnswerKeys(held, reply); errors.Is(err, dialog.ErrNotKeyAnswerable) {
 		// Named rather than described. Two of these four want a person on the
 		// board and two want this caller to look again in a moment, and one
 		// sentence covering all of them told a manager neither.
 		return AnsweredQuestion{}, wrapped(err, fmt.Sprintf(
 			"session %s is on %s", target.ID, held.Refusal()))
 	}
+	answered, err := answerGuarded(pane, raw, held, reply, guard)
+	answered.SessionID, answered.Name = target.ID, target.Name
 	if err != nil {
-		return AnsweredQuestion{}, err
+		logging.Warn(by+"'s answer to a child's question did not land as given",
+			by, byID, "session", target.ID, "err", err)
+		return AnsweredQuestion{}, fmt.Errorf("session %s: %w", target.ID, err)
 	}
-	answered := AnsweredQuestion{
-		SessionID: target.ID,
-		Name:      target.Name,
-		Question:  held.Question(),
-		Answer:    reply,
-	}
-	if standing := held.Standing(); standing > 1 {
-		answered.Standing = standing - 1
-	}
-	// len(keys) > 0 is exactly the case where an option was named: selectKeys
-	// sends nothing for a want of 0, which is Choose's answer for words that
-	// are nobody's option.
-	if len(keys) > 0 {
-		answered.Selected = held.Options[chosen-1]
-		logging.Info(by+" answered a child's question by selection",
-			by, byID, "session", target.ID, "option", answered.Selected)
-		if err := r.driver.SendKeys(target.ID, keys...); err != nil {
+	logging.Info(by+" answered a child's question",
+		by, byID, "session", target.ID, "option", answered.Selected, "verified", answered.Verified)
+	return answered, nil
+}
+
+// answerGuarded is answerHeld behind guard: the answer is admitted and
+// ledgered before the first keystroke and marked once the keys are in. A nil
+// guard, the board's, keys it as it stands.
+func answerGuarded(pane dialogPane, raw string, held dialog.Dialog, reply string, guard *answerGuard) (AnsweredQuestion, error) {
+	if guard != nil {
+		index, screen := heldIndex(raw, held)
+		if err := guard.admit([]plannedAnswer{{index, reply}}, screen); err != nil {
 			return AnsweredQuestion{}, err
 		}
+	}
+	answered, err := answerHeld(pane, raw, held, reply)
+	guard.finish(err)
+	return answered, err
+}
+
+// heldIndex is the 0-based question held is showing, or -1 when it is not an
+// AskUserQuestion dialog, with the dialog's questions as the screen draws them.
+func heldIndex(raw string, held dialog.Dialog) (int, []dialog.Question) {
+	if held.Kind != dialog.KindAsk {
+		return -1, nil
+	}
+	if held.Steps == 0 {
+		return 0, []dialog.Question{{Index: 1, Question: held.Question()}}
+	}
+	questions := dialog.Questions(raw, nil)
+	return slices.IndexFunc(questions, func(q dialog.Question) bool { return q.OnScreen }), questions
+}
+
+// answerHeld answers the question held is, on pane, and reads back what the
+// child took.
+func answerHeld(pane dialogPane, raw string, held dialog.Dialog, reply string) (AnsweredQuestion, error) {
+	answered := AnsweredQuestion{Question: held.Question(), Answer: reply}
+	switch {
+	case held.Kind == dialog.KindAsk && held.Steps > 0:
+		questions := dialog.Questions(raw, nil)
+		on := slices.IndexFunc(questions, func(q dialog.Question) bool { return q.OnScreen })
+		if on < 0 {
+			return answered, errors.New("cannot tell which of the dialog's questions is on the screen, so nothing was keyed")
+		}
+		filled, err := fillDialog(pane, questions, []QuestionAnswer{{Question: strconv.Itoa(on + 1), Answer: reply}}, true)
+		filled.Question = answered.Question
+		return filled, err
+	case held.Kind == dialog.KindAsk:
+		before := len(dialog.ParseAnswered(ansi.Strip(raw)))
+		question := dialog.Question{Index: 1, Question: strings.Join(strings.Fields(held.Prompt), " ")}
+		filled, err := answerOnScreen(pane, raw, question, reply, false)
+		answered.Selected = filled.Selected
+		if err != nil {
+			return answered, err
+		}
+		if err := confirmEcho(pane, before, []FilledAnswer{filled}); err != nil {
+			return answered, err
+		}
+		answered.Verified = true
 		return answered, nil
 	}
-	logging.Info(by+" answered a child's question by typing",
-		by, byID, "session", target.ID)
-	if err := r.driver.SendText(target.ID, reply); err != nil {
+	// Codex's request_user_input draws no record of the answer it took, so
+	// there is nothing on its screen to read back.
+	keys, _ := dialog.AnswerKeys(held, reply)
+	if len(keys) > 0 {
+		answered.Selected = held.Options[held.Choose(reply)-1]
+		return answered, pane.Keys(keys...)
+	}
+	return answered, pane.Type(reply)
+}
+
+// submitReview answers the Submit page a several-question dialog ends on:
+// "Submit answers" sends it, and anything else is refused, because the page
+// holds no question to put words to.
+func (r *runtime) submitReview(target store.Session, pane, reply, by, byID string) (AnsweredQuestion, error) {
+	switch strings.ToLower(strings.Join(strings.Fields(reply), " ")) {
+	case "submit", "submit answers":
+	default:
+		return AnsweredQuestion{}, fmt.Errorf("session %s is on the Submit page of a dialog asking several "+
+			"questions, where there is nothing to answer; answer \"Submit answers\" to send it, or pass "+
+			"answers naming a question to change one first", target.ID)
+	}
+	stepper, _ := dialog.ParseStepper(pane)
+	if err := submitDialog(tmuxPane{r.driver, target.ID}, len(stepper.Steps), nil); err != nil {
 		return AnsweredQuestion{}, err
 	}
-	return answered, nil
+	logging.Info(by+" submitted a child's dialog", by, byID, "session", target.ID)
+	return AnsweredQuestion{
+		SessionID: target.ID,
+		Name:      target.Name,
+		Question:  "Review your answers",
+		Answer:    reply,
+		Selected:  "Submit answers",
+		Submitted: true,
+	}, nil
 }
 
 // wrapped is err under a message of its own, so the words a caller reads
@@ -178,7 +282,13 @@ func (r *runtime) child(caller store.Session, targetID string) (store.Session, e
 	if err != nil {
 		return store.Session{}, err
 	}
-	if owner := store.SpawnerOf(target); owner != caller.ID {
+	if owner := store.TrackerOf(target); owner != caller.ID {
+		if store.Detached(target) {
+			return store.Session{}, fmt.Errorf(
+				"session %s was detached (nest false) when it was created, so its dialogs are for the "+
+					"person at its pane, not for the session that created it; a person answers it on the "+
+					"board, or send_session asks it something", target.ID)
+		}
 		if owner == "" {
 			return store.Session{}, fmt.Errorf(
 				"session %s is nobody's child, so no session owns its screen; a person answers it "+

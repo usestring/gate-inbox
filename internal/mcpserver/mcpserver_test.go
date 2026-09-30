@@ -4,6 +4,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/extension/all"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
@@ -110,6 +112,9 @@ type fakeSessionCommands struct {
 	err            error
 	answeredID     string
 	answeredWith   string
+	answeredAll    []sessioncmd.QuestionAnswer
+	answeredSubmit bool
+	answeredRelay  bool
 	answerSelected string
 
 	// What switch_account forwarded. Kept apart from the run above so the
@@ -185,9 +190,14 @@ func (f *fakeSessionCommands) ReleaseSession(_ string, id string) (sessioncmd.Se
 	return sessioncmd.Session{ID: id, Name: "child"}, f.err
 }
 
-func (f *fakeSessionCommands) Answer(_ string, id, reply string) (sessioncmd.AnsweredQuestion, error) {
-	f.answeredID, f.answeredWith = id, reply
+func (f *fakeSessionCommands) Answer(_ string, id, reply string, relay bool) (sessioncmd.AnsweredQuestion, error) {
+	f.answeredID, f.answeredWith, f.answeredRelay = id, reply, relay
 	return sessioncmd.AnsweredQuestion{SessionID: id, Name: "child", Answer: reply, Selected: f.answerSelected}, f.err
+}
+
+func (f *fakeSessionCommands) AnswerAll(_ string, id string, answers []sessioncmd.QuestionAnswer, submit, relay bool) (sessioncmd.AnsweredQuestion, error) {
+	f.answeredID, f.answeredAll, f.answeredSubmit, f.answeredRelay = id, answers, submit, relay
+	return sessioncmd.AnsweredQuestion{SessionID: id, Name: "child", Submitted: submit}, f.err
 }
 
 func (f *fakeSessionCommands) Revive(_ string, id string) (sessioncmd.Session, error) {
@@ -289,7 +299,7 @@ func (f *fakeSessionCommands) DeleteGroup(_ string, path string) (sessioncmd.Gro
 
 func connect(t *testing.T, configDir, sessionID string) *mcp.ClientSession {
 	t.Helper()
-	return connectServer(t, NewServer(configDir, sessionID, "test", all.Extensions()))
+	return connectServer(t, NewServer(configDir, sessionID, "test", all.Extensions(), ""))
 }
 
 func connectServer(t *testing.T, server *mcp.Server) *mcp.ClientSession {
@@ -682,14 +692,37 @@ func TestServerTeachesDelegationWorkflow(t *testing.T) {
 		// nest false, and its whole fan-out landed flat with nothing relayed
 		// to it; the block has to say the opposite.
 		"never make a group for one",
+		// Every CLI offers its own subagents, and a model reads its own
+		// tool as the default unless the block names it and says why not.
+		"not your CLI's built-in subagent tool",
+		"Agent/Task", "spawn_agent", "opencode's subagent",
+		"on the user's board",
+		"quick read-only lookups",
 		// Finished children are filed away on their own now, and the bulk
 		// call is how a parent clears the rest without one call per child.
-		"archived for you after a grace period",
+		"auto-archive after a grace period",
 		"cleanup_children",
 	} {
 		if !strings.Contains(instructions, want) {
 			t.Fatalf("server instructions do not teach %q:\n%s", want, instructions)
 		}
+	}
+}
+
+// OpenCode v2 loads no instruction file a launch can name, so its generated
+// config starts this server with the steering flag, and the naming and
+// delegation steering arrive inside this block. Every other launch carries
+// its own and gets the shared block alone, which keeps it under Claude
+// Code's cap.
+func TestServerCarriesSteeringOnlyWhenAskedTo(t *testing.T) {
+	steered := connectServer(t, NewServer(t.TempDir(), "abc123", "test", all.Extensions(), "opencode")).InitializeResult().Instructions
+	want, _ := mcpreg.ServerSteering("opencode")
+	if !strings.HasPrefix(steered, serverInstructions) || !strings.Contains(steered, want) {
+		t.Fatalf("steered instructions are not the shared block plus the opencode steering:\n%s", steered)
+	}
+	plain := connect(t, t.TempDir(), "abc123").InitializeResult().Instructions
+	if strings.Contains(plain, "# Session naming") || strings.Contains(plain, "# Delegating work") {
+		t.Fatalf("an unsteered server carries launch steering:\n%s", plain)
 	}
 }
 
@@ -723,7 +756,7 @@ func TestSessionDescriptionsTeachWhenAndHowToChainTools(t *testing.T) {
 	}
 	for tool, wants := range map[string][]string{
 		"list_sessions":    {"Call first", "create_session"},
-		"create_session":   {"without waiting for the user", "own checkout", "cannot see this conversation", "read_session", "never create a group for one", "nest false is a detach"},
+		"create_session":   {"instead of your CLI's built-in subagent tool", "quick read-only lookup", "without waiting for the user", "own checkout", "cannot see this conversation", "read_session", "never create a group for one", "nest false is a detach"},
 		"read_session":     {"after create_session", "current screen"},
 		"send_session":     {"self-contained instruction", "read_session", "at rest", "another agent rather than from the user"},
 		"message_status":   {"delivered", "queued"},
@@ -983,6 +1016,55 @@ func TestSessionToolErrorsAreToolErrors(t *testing.T) {
 	}
 }
 
+// answers reaches the batch path with submit defaulting to true, answer the
+// single one, and both at once is refused rather than guessed between.
+func TestAnswerSessionRoutesAnswersToTheBatch(t *testing.T) {
+	fake := &fakeSessionCommands{}
+	session := connectServer(t, serverWithFakes(t, fake))
+	_, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1",
+		"answers": []map[string]any{
+			{"question": "Tooling", "answer": "pnpm"},
+			{"question": "2", "answer": "Warn for a month, then block"},
+		},
+	})
+	if isError {
+		t.Fatal("answer_session with answers failed")
+	}
+	want := []sessioncmd.QuestionAnswer{{Question: "Tooling", Answer: "pnpm"}, {Question: "2", Answer: "Warn for a month, then block"}}
+	if fake.answeredID != "c1" || !reflect.DeepEqual(fake.answeredAll, want) || !fake.answeredSubmit {
+		t.Errorf("batch got id %q answers %+v submit %v", fake.answeredID, fake.answeredAll, fake.answeredSubmit)
+	}
+	if _, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1", "answers": []map[string]any{{"question": "1", "answer": "Bun"}}, "submit": false,
+	}); isError || fake.answeredSubmit {
+		t.Errorf("submit false was not passed through (isError=%v)", isError)
+	}
+	if _, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1", "answers": []map[string]any{{"question": "1", "answer": "Bun"}}, "relay": true,
+	}); isError || !fake.answeredRelay {
+		t.Errorf("relay was not passed through to the batch (isError=%v)", isError)
+	}
+	if _, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1", "answer": "Bun",
+	}); isError || fake.answeredRelay {
+		t.Errorf("relay defaulted to true on the single path (isError=%v)", isError)
+	}
+	if _, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1", "answer": "Bun", "relay": true,
+	}); isError || !fake.answeredRelay {
+		t.Errorf("relay was not passed through to the single path (isError=%v)", isError)
+	}
+	if text, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1", "answer": "Bun", "answers": []map[string]any{{"question": "1", "answer": "Bun"}},
+	}); !isError || !strings.Contains(text, "not both") {
+		t.Errorf("both at once = %q, isError=%v", text, isError)
+	}
+	if _, isError := callText(t, session, "answer_session", map[string]any{"session_id": "c1", "answer": "Bun"}); isError || fake.answeredWith != "Bun" {
+		t.Errorf("the single answer did not reach Answer (isError=%v)", isError)
+	}
+}
+
 func serverWithFakes(t *testing.T, sessions sessionCommands) *mcp.Server {
 	t.Helper()
 	return newServer(t.TempDir(), "abc123", "test", &fakeTerminalCommands{}, sessions)
@@ -1181,5 +1263,37 @@ func TestCleanupChildrenForwardsItsFilters(t *testing.T) {
 	}
 	if _, isError := callText(t, session, "cleanup_children", map[string]any{"all": true}); isError || !fake.cleanup.All {
 		t.Fatalf("all = %+v, isError=%v", fake.cleanup, isError)
+	}
+}
+
+// migrate_session offers no account: the new session's account is the
+// build's extension's choice, so an agent cannot pin a move to one.
+func TestMigrateSessionTakesNoAccount(t *testing.T) {
+	fake := &fakeSessionCommands{created: sessioncmd.Session{ID: "e5f6a7b8", Name: "worker-claude"}}
+	session := connectServer(t, serverWithFakes(t, fake))
+	tools, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools.Tools {
+		if tool.Name != "migrate_session" {
+			continue
+		}
+		schema, err := json.Marshal(tool.InputSchema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(schema), `"account"`) {
+			t.Fatalf("migrate_session still offers an account: %s", schema)
+		}
+	}
+	if _, isError := callText(t, session, "migrate_session", map[string]any{"session_id": "a1b2c3d4", "tool": "claude"}); isError {
+		t.Fatal("migrate_session errored")
+	}
+	if fake.migratedID != "a1b2c3d4" || fake.migratedOpts != (sessioncmd.MigrateOptions{Tool: "claude"}) {
+		t.Fatalf("migrate args = %q %+v", fake.migratedID, fake.migratedOpts)
+	}
+	if _, isError := callText(t, session, "migrate_session", map[string]any{"session_id": "a1b2c3d4", "tool": "claude", "account": "ALICE1"}); !isError {
+		t.Fatal("migrate_session accepted an account")
 	}
 }

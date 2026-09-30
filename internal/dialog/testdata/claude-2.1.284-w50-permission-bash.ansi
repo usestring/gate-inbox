@@ -1,0 +1,30 @@
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude Code[0m [38;5;246mv2.1.284[39m
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mOpus 5.5 · Claude Max[39m
+[38;5;174m ▝▝   ▝▝ [39m  [38;5;246m/home/dev/work/release-toolkits[39m
+
+
+[38;5;239m[48;5;237m❯ [38;5;231mUse the Bash tool to run exactly this one [39m
+  [38;5;231mcommand and nothing else: curl -s [39m
+  [38;5;231mhttps://example.com/ -o out.html[39m
+
+[38;5;246m[49m●[39m Downloading example.com homepage to out.html
+[38;5;246m  ⎿  $ curl -s https://example.com/ -o out.html[39m
+
+[38;5;153m──────────────────────────────────────────────────
+[39m [1m[38;5;153mBash command[0m
+ [1mTip: auto mode handles these prompts for you — [0m
+ [1mchoose "switch to auto mode" below[0m
+
+   curl -s https://example.com/ -o out.html
+   [38;5;246mDownload example.com homepage to out.html[39m
+
+ This command requires approval
+
+ Do you want to proceed?
+ [38;5;153m❯[39m [38;5;246m1. [38;5;153mYes[39m
+   [38;5;246m2. [39mYes, and don’t ask again for: curl *
+   [38;5;246m3. [39mYes, and switch to auto mode[38;5;246m · auto mode [39m
+      [38;5;246mhandles these prompts for you[39m
+   [38;5;246m4. [39mNo
+
+ [38;5;246mEsc to cancel · Tab to amend[39m

@@ -1,13 +1,451 @@
 package ui
 
 import (
+	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
 )
+
+var errNoChoice = errors.New("nothing to choose")
+
+// toolChooserFake answers ChooseTool with choose, and ChooseAccount with
+// the CLI's own login.
+type toolChooserFake struct {
+	choose func(extension.ToolRequest) (string, error)
+}
+
+func (f toolChooserFake) ChooseAccount(context.Context, extension.AccountRequest) (string, error) {
+	return "", nil
+}
+
+func (f toolChooserFake) ChooseTool(_ context.Context, req extension.ToolRequest) (string, error) {
+	return f.choose(req)
+}
+
+func useToolChooser(t *testing.T, choose func(extension.ToolRequest) (string, error)) {
+	t.Helper()
+	fake := toolChooserFake{choose: choose}
+	t.Cleanup(accounts.UseChooser(func() (extension.AccountChooser, error) { return fake, nil }))
+}
+
+func TestAutoRouteStartsAnEnabledCLI(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
+	m.newSessionAgent = newSessionAgentAuto
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "ready-tool", nil })
+	_, cmd := m.startNewSession()
+	if cmd == nil {
+		t.Fatal("auto route did not ask the chooser")
+	}
+	msg := cmd()
+	m.update(msg)
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || rows[0].Tool != "ready-tool" {
+		t.Fatalf("auto route launched %+v, want ready-tool (msg %+v, mode %v, error %q)", rows, msg, m.mode, m.errBar.text)
+	}
+}
+
+func TestAutoRouteLaunchesInTheGroupSelectedWhenNWasPressed(t *testing.T) {
+	m := buildModel(t)
+	origin := filepath.Join(t.TempDir(), "origin-repo")
+	groupAt(t, m, "origin", origin)
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	m.selectGroupRow(t, "origin")
+	m.newSessionAgent = newSessionAgentAuto
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "ready-tool", nil })
+	_, cmd := m.startNewSession()
+	if cmd == nil {
+		t.Fatal("auto route did not ask the chooser")
+	}
+	m.selectGroupRow(t, "elsewhere")
+	m.update(cmd())
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || rows[0].Group != "origin" || rows[0].Cwd != origin {
+		t.Fatalf("auto route launched %+v, want it in the origin group (error %q)", rows, m.errBar.text)
+	}
+}
+
+func TestAutoRouteLaunchesFromAFocusedSession(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
+	m.newSessionAgent = newSessionAgentAuto
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "ready-tool", nil })
+	m.mode = modeFocus
+	_, cmd := m.startNewSession()
+	if cmd == nil {
+		t.Fatal("auto route did not ask the chooser from focus")
+	}
+	m.update(cmd())
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || rows[0].Tool != "ready-tool" {
+		t.Fatalf("auto route from focus launched %+v, want ready-tool (mode %v, error %q)", rows, m.mode, m.errBar.text)
+	}
+}
+
+func TestAutoRouteFallbackPickerKeepsTheGroupSelectedWhenNWasPressed(t *testing.T) {
+	m := buildModel(t)
+	origin := filepath.Join(t.TempDir(), "origin-repo")
+	groupAt(t, m, "origin", origin)
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	m.selectGroupRow(t, "origin")
+	m.newSessionAgent = newSessionAgentAuto
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "", errNoChoice })
+	_, cmd := m.startNewSession()
+	m.selectGroupRow(t, "elsewhere")
+	m.update(cmd())
+	if m.mode != modeAgentPick {
+		t.Fatalf("no choice left mode %v, want picker", m.mode)
+	}
+	typeInto(t, m, "ready-tool")
+	pressKey(t, m, enterKey())
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || rows[0].Group != "origin" || rows[0].Cwd != origin {
+		t.Fatalf("fallback picker launched %+v, want it in the origin group (error %q)", rows, m.errBar.text)
+	}
+}
+
+func TestAutoRouteFallbackTerminalKeepsTheGroupSelectedWhenNWasPressed(t *testing.T) {
+	m := buildModel(t)
+	origin := filepath.Join(t.TempDir(), "origin-repo")
+	groupAt(t, m, "origin", origin)
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	m.selectGroupRow(t, "origin")
+	m.newSessionAgent = newSessionAgentAuto
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "", errNoChoice })
+	_, cmd := m.startNewSession()
+	m.selectGroupRow(t, "elsewhere")
+	m.update(cmd())
+	typeInto(t, m, "term")
+	pressKey(t, m, enterKey())
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || !m.isShell(rows[0].Tool) || rows[0].Group != "origin" || rows[0].Cwd != origin {
+		t.Fatalf("fallback terminal launched %+v, want a shell in the origin group (error %q)", rows, m.errBar.text)
+	}
+}
+
+func TestAutoRouteFallbackTerminalKeepsTheSessionSelectedWhenNWasPressed(t *testing.T) {
+	m := buildModel(t)
+	groupDir, sessionDir := t.TempDir(), t.TempDir()
+	if err := m.store.CreateGroup("backend", groupDir); err != nil {
+		t.Fatal(err)
+	}
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	createSession(t, m, "agent", sessionDir, "backend")
+	m.selectSessionRow(t, "agent")
+	agent, _ := m.selected()
+	m.newSessionAgent = newSessionAgentAuto
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "", errNoChoice })
+	_, cmd := m.startNewSession()
+	m.selectGroupRow(t, "elsewhere")
+	m.update(cmd())
+	typeInto(t, m, "term")
+	pressKey(t, m, enterKey())
+	m.leaveFocusForFixture(t)
+	var shell store.Session
+	for _, sess := range m.sessionRows() {
+		if m.isShell(sess.Tool) {
+			shell = sess
+		}
+	}
+	if shell.ParentID != agent.ID || shell.Group != "backend" || shell.Cwd != resolved(t, sessionDir) {
+		t.Fatalf("fallback terminal = %+v, want nested under %q in %q (error %q)", shell, agent.ID, sessionDir, m.errBar.text)
+	}
+}
+
+func TestAutoRouteRefusesALaunchAfterLaunchAccountsChanged(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
+	m.newSessionAgent = newSessionAgentAuto
+	tool := m.cfg.Tools["ready-tool"]
+	tool.AccountEnv = "SHARED_TOKEN"
+	m.cfg.Tools["ready-tool"] = tool
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "ready-tool", nil })
+	_, cmd := m.startNewSession()
+	if cmd == nil {
+		t.Fatal("auto route did not ask the chooser")
+	}
+	if err := m.store.SetSetting(store.AccountRoutingSetting, accounts.Extension); err != nil {
+		t.Fatal(err)
+	}
+	m.update(cmd())
+	if m.mode != modeAgentPick || len(m.sessionRows()) != 0 {
+		t.Fatalf("launch-account change left mode %v with %d sessions, want the picker and none", m.mode, len(m.sessionRows()))
+	}
+	if !strings.Contains(m.errBar.text, "launch accounts changed") {
+		t.Fatalf("missing launch-account-change explanation: %q", m.errBar.text)
+	}
+}
+
+func TestAutoRouteRefusesAGroupChangedWhileTheChooserAnswers(t *testing.T) {
+	for _, change := range []struct {
+		name  string
+		apply func(*testing.T, *Model)
+	}{
+		{"renamed", func(t *testing.T, m *Model) {
+			if err := m.store.RenameGroup("origin", "renamed"); err != nil {
+				t.Fatal(err)
+			}
+			m.renameGroupLocally("origin", "renamed", m.groupPaths["origin"])
+		}},
+		{"archived", func(t *testing.T, m *Model) {
+			if err := m.store.SetGroupArchived("origin", true); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			m := buildModel(t)
+			groupAt(t, m, "origin", filepath.Join(t.TempDir(), "origin-repo"))
+			m.newSessionAgent = newSessionAgentAuto
+			useToolChooser(t, func(extension.ToolRequest) (string, error) { return "ready-tool", nil })
+			_, cmd := m.startNewSession()
+			if cmd == nil {
+				t.Fatal("auto route did not ask the chooser")
+			}
+			change.apply(t, m)
+			m.update(cmd())
+			if m.mode != modeAgentPick || len(m.sessionRows()) != 0 {
+				t.Fatalf("%s group left mode %v with %d sessions, want the picker and none", change.name, m.mode, len(m.sessionRows()))
+			}
+			if !strings.Contains(m.errBar.text, "group changed") {
+				t.Fatalf("missing group-change explanation: %q", m.errBar.text)
+			}
+		})
+	}
+}
+
+func TestAutoRouteFallbackPickerDropsAGroupArchivedWhileTheChooserAnswers(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	groupAt(t, m, "origin", filepath.Join(t.TempDir(), "origin-repo"))
+	m.newSessionAgent = newSessionAgentAuto
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "", errNoChoice })
+	_, cmd := m.startNewSession()
+	if err := m.store.SetGroupArchived("origin", true); err != nil {
+		t.Fatal(err)
+	}
+	m.selectGroupRow(t, "elsewhere")
+	m.update(cmd())
+	if m.mode != modeAgentPick || m.agentPick.pinned {
+		t.Fatalf("archived group left mode %v pinned=%v, want an unpinned picker", m.mode, m.agentPick.pinned)
+	}
+	if !strings.Contains(m.errBar.text, "group changed") {
+		t.Fatalf("missing group-change explanation: %q", m.errBar.text)
+	}
+	typeInto(t, m, "ready-tool")
+	pressKey(t, m, enterKey())
+	m.leaveFocusForFixture(t)
+	for _, sess := range m.sessionRows() {
+		if sess.Group == "origin" {
+			t.Fatalf("fallback picker launched %+v into the archived group", sess)
+		}
+	}
+}
+
+func TestAutoRouteFallbackPickerRechecksTheGroupOnSubmit(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "elsewhere", filepath.Join(t.TempDir(), "elsewhere-repo"))
+	groupAt(t, m, "origin", filepath.Join(t.TempDir(), "origin-repo"))
+	m.selectGroupRow(t, "origin")
+	m.newSessionAgent = newSessionAgentAuto
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "", errNoChoice })
+	_, cmd := m.startNewSession()
+	m.update(cmd())
+	if m.mode != modeAgentPick || !m.agentPick.pinned {
+		t.Fatalf("no choice left mode %v pinned=%v, want a pinned picker", m.mode, m.agentPick.pinned)
+	}
+	if _, _, err := m.store.RemoveGroup("origin"); err != nil {
+		t.Fatal(err)
+	}
+	m.selectGroupRow(t, "elsewhere")
+	typeInto(t, m, "ready-tool")
+	pressKey(t, m, enterKey())
+	if m.mode != modeAgentPick || m.agentPick.pinned || len(m.sessionRows()) != 0 {
+		t.Fatalf("deleted group left mode %v pinned=%v rows %+v, want an unpinned picker and no launch", m.mode, m.agentPick.pinned, m.sessionRows())
+	}
+	if !strings.Contains(m.errBar.text, "group changed") {
+		t.Fatalf("missing group-change explanation: %q", m.errBar.text)
+	}
+	pressKey(t, m, enterKey())
+	m.leaveFocusForFixture(t)
+	groups, err := m.store.Groups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range groups {
+		if g.Name == "origin" {
+			t.Fatal("fallback picker recreated the deleted group")
+		}
+	}
+	rows := m.sessionRows()
+	if len(rows) != 1 || rows[0].Group != "elsewhere" {
+		t.Fatalf("fallback picker launched %+v, want it in the current group", rows)
+	}
+}
+
+func TestAutoRouteFallbackTerminalLeavesASessionArchivedWhileTheChooserAnswers(t *testing.T) {
+	m := buildModel(t)
+	groupDir, sessionDir := t.TempDir(), t.TempDir()
+	if err := m.store.CreateGroup("backend", groupDir); err != nil {
+		t.Fatal(err)
+	}
+	loadStoredRows(t, m)
+	createSession(t, m, "agent", sessionDir, "backend")
+	m.selectSessionRow(t, "agent")
+	agent, _ := m.selected()
+	m.newSessionAgent = newSessionAgentAuto
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "", errNoChoice })
+	_, cmd := m.startNewSession()
+	if err := m.store.SetArchived(agent.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	for i := range m.sessions {
+		if m.sessions[i].ID == agent.ID {
+			m.sessions[i].Archived = true
+		}
+	}
+	m.update(cmd())
+	typeInto(t, m, "term")
+	pressKey(t, m, enterKey())
+	var shell store.Session
+	for _, sess := range m.sessions {
+		if m.isShell(sess.Tool) {
+			shell = sess
+		}
+	}
+	if shell.ID == "" || shell.ParentID != "" || shell.Group != "backend" || shell.Cwd != resolved(t, groupDir) {
+		t.Fatalf("fallback terminal = %+v, want an unnested shell in the backend group at %q (error %q)", shell, groupDir, m.errBar.text)
+	}
+}
+
+func TestAutoRouteAsksAgainWhenWorkStartsWhileTheChooserAnswers(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
+	m.newSessionAgent = newSessionAgentAuto
+	// The chooser takes ready-tool only while nothing is running on it.
+	useToolChooser(t, func(req extension.ToolRequest) (string, error) {
+		if req.Active["ready-tool"] > 0 {
+			return "", errNoChoice
+		}
+		return "ready-tool", nil
+	})
+	_, cmd := m.startNewSession()
+	if cmd == nil {
+		t.Fatal("auto route did not ask the chooser")
+	}
+	m.sessions = append(m.sessions, store.Session{ID: "busy", Tool: "ready-tool", Status: status.Working})
+	_, again := m.update(cmd())
+	if again == nil {
+		t.Fatalf("new in-flight work did not ask the chooser again (mode %v, error %q)", m.mode, m.errBar.text)
+	}
+	m.update(again())
+	for _, sess := range m.sessions {
+		if sess.ID != "busy" && sess.Tool == "ready-tool" {
+			t.Fatalf("auto route launched %+v on an answer given before the work started", sess)
+		}
+	}
+	if m.mode != modeAgentPick || !strings.Contains(m.errBar.text, "no CLI chosen") {
+		t.Fatalf("second answer left mode %v with error %q, want the fallback picker", m.mode, m.errBar.text)
+	}
+}
+
+func TestAutoRouteFallsBackToCLIPickerWhenNothingIsChosen(t *testing.T) {
+	m := buildModel(t)
+	m.newSessionAgent = newSessionAgentAuto
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "", errNoChoice })
+	_, cmd := m.startNewSession()
+	m.update(cmd())
+	if m.mode != modeAgentPick || len(m.sessionRows()) != 0 {
+		t.Fatalf("no choice left mode %v with %d sessions", m.mode, len(m.sessionRows()))
+	}
+	if !strings.Contains(m.errBar.text, "no CLI chosen") {
+		t.Fatalf("missing fallback explanation: %q", m.errBar.text)
+	}
+}
+
+func TestAutoRouteNeverOffersAHiddenCLI(t *testing.T) {
+	m := buildModel(t)
+	m.newSessionAgent = newSessionAgentAuto
+	if err := m.store.SetSetting(hiddenToolsSetting, "ready-tool"); err != nil {
+		t.Fatal(err)
+	}
+	useToolChooser(t, func(req extension.ToolRequest) (string, error) {
+		for _, c := range req.Candidates {
+			if c.Name == "ready-tool" {
+				t.Error("hidden CLI was offered to the chooser")
+			}
+		}
+		return "", errNoChoice
+	})
+	_, cmd := m.startNewSession()
+	m.update(cmd())
+	if m.mode != modeAgentPick {
+		t.Fatalf("no choice left mode %v, want picker", m.mode)
+	}
+}
+
+// The chooser is told which CLIs take a named account and whether the
+// extension is choosing accounts, which is what it needs to leave those CLIs
+// out when their own login is not what the launch would run on.
+func TestAutoRouteTellsTheChooserAboutAccounts(t *testing.T) {
+	m := buildModel(t)
+	m.newSessionAgent = newSessionAgentAuto
+	if err := m.store.SetSetting(store.AccountRoutingSetting, accounts.Extension); err != nil {
+		t.Fatal(err)
+	}
+	tool := m.cfg.Tools["ready-tool"]
+	tool.AccountEnv = "SHARED_TOKEN"
+	m.cfg.Tools["ready-tool"] = tool
+	var got extension.ToolRequest
+	useToolChooser(t, func(req extension.ToolRequest) (string, error) {
+		got = req
+		return "", errNoChoice
+	})
+	_, cmd := m.startNewSession()
+	m.update(cmd())
+	if !got.ChoosingAccounts {
+		t.Fatal("the chooser was not told the extension chooses accounts")
+	}
+	for _, c := range got.Candidates {
+		if (c.Account != nil) != (c.Name == "ready-tool") {
+			t.Fatalf("candidate %+v: only ready-tool takes an account", c)
+		}
+		if c.Name == "ready-tool" && c.Account.Env != "SHARED_TOKEN" {
+			t.Fatalf("candidate %+v lost its account settings", c)
+		}
+	}
+}
+
+// A build whose extension chooses no CLI has nobody to ask: n opens the box,
+// and settings does not offer auto.
+func TestAutoWithNoChooserOpensTheBox(t *testing.T) {
+	m := buildModel(t)
+	t.Cleanup(accounts.UseChooser(func() (extension.AccountChooser, error) { return nil, nil }))
+	m.newSessionAgent = newSessionAgentAuto
+	if _, cmd := m.startNewSession(); cmd != nil || m.mode != modeAgentPick {
+		t.Fatalf("auto with no chooser: cmd %v, mode %v", cmd != nil, m.mode)
+	}
+	m.settings.field = settingsFieldNewSessionAgent
+	m.settings.newSessionAgent = newSessionAgentDefault
+	m.cycleSetting(1)
+	if m.settings.newSessionAgent == newSessionAgentAuto {
+		t.Fatal("settings offered auto with no chooser")
+	}
+}
 
 func typeInto(t *testing.T, m *Model, text string) {
 	t.Helper()
@@ -458,6 +896,25 @@ func TestSettingsCyclesTheNewSessionAgent(t *testing.T) {
 	}
 	if got := storedNewSessionAgent(m.store); got != newSessionAgentLast {
 		t.Errorf("stored mode = %q, want %q", got, newSessionAgentLast)
+	}
+}
+
+func TestSettingsCanSelectAutoRouting(t *testing.T) {
+	m := buildModel(t)
+	useToolChooser(t, func(extension.ToolRequest) (string, error) { return "", errNoChoice })
+	m.openSettings()
+	for i := 0; i < settingsFieldNewSessionAgent; i++ {
+		m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	}
+	for range 3 {
+		m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	}
+	if m.settings.newSessionAgent != newSessionAgentAuto {
+		t.Fatalf("settings selected %q, want auto", m.settings.newSessionAgent)
+	}
+	m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if got := storedNewSessionAgent(m.store); got != newSessionAgentAuto {
+		t.Fatalf("saved mode %q, want auto", got)
 	}
 }
 

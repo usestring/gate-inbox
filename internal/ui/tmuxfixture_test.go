@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"testing"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
@@ -13,7 +14,7 @@ import (
 // testSocketPrefix names the sockets this package's tests create. It is
 // registered in tmuxtest, which is what puts them in reach of the shared
 // stray sweep.
-func newTestSocket() string { return tmuxtest.NewSocket("ui") }
+func newTestSocket(tb testing.TB) string { return tmuxtest.Socket(tb, "ui") }
 
 func clientsOn(socket string) []tmuxtest.Client { return tmuxtest.ClientsOn(socket) }
 

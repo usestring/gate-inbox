@@ -37,6 +37,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/extensionhost"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/mcpserver"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
@@ -128,7 +129,7 @@ func Run(ctx context.Context, args []string, opts Options) error {
 	if err := defaultsOwnedBy(registry); err != nil {
 		return err
 	}
-	accounts.UsePool(poolOf(registry))
+	accounts.UseChooser(chooserOf(registry))
 	sessionhooks.Use(sessionHooksOf(registry))
 	sessionhooks.UseSessions(&spawnReader{})
 	table := subcommands(ctx, version, opts.Extensions)
@@ -171,13 +172,13 @@ func Run(ctx context.Context, args []string, opts Options) error {
 	return nil
 }
 
-// poolOf finds the build's account pool the first time a launch needs one.
-// The board has configured every extension by then; a CLI command or the
-// MCP server has not, and configures only the one supplying the pool.
-func poolOf(registry *extension.Registry) func() (extension.AccountPool, error) {
-	return sync.OnceValues(func() (extension.AccountPool, error) {
+// chooserOf finds the build's account chooser the first time a launch needs
+// one. The board has configured every extension by then; a CLI command or
+// the MCP server has not, and configures only the one supplying the chooser.
+func chooserOf(registry *extension.Registry) func() (extension.AccountChooser, error) {
+	return sync.OnceValues(func() (extension.AccountChooser, error) {
 		if registry.Configured() {
-			return registry.AccountPool("", nil)
+			return registry.AccountChooser("", nil)
 		}
 		dir, err := config.Dir()
 		if err != nil {
@@ -187,13 +188,13 @@ func poolOf(registry *extension.Registry) func() (extension.AccountPool, error) 
 		if err != nil {
 			return nil, err
 		}
-		return registry.AccountPool(dir, cfg.Extensions)
+		return registry.AccountChooser(dir, cfg.Extensions)
 	})
 }
 
 // sessionHooksOf finds the build's spawn policies, launch contributors and
 // migration observers the first time a launch asks, configuring only those
-// when nothing has configured the rest, as poolOf does.
+// when nothing has configured the rest, as chooserOf does.
 func sessionHooksOf(registry *extension.Registry) func() (*extension.SessionHooks, error) {
 	return sync.OnceValues(func() (*extension.SessionHooks, error) {
 		if registry.Configured() {
@@ -235,7 +236,7 @@ func defaultsOwnedBy(registry *extension.Registry) error {
 }
 
 // driversOf finds the build's tool drivers the first time a tool block
-// names a style the core does not implement, configuring as poolOf does.
+// names a style the core does not implement, configuring as chooserOf does.
 func driversOf(registry *extension.Registry) func() (map[string]extension.ToolDriver, error) {
 	return sync.OnceValues(func() (map[string]extension.ToolDriver, error) {
 		if registry.Configured() {
@@ -339,15 +340,42 @@ func logSettings(cfg config.Config) logging.Settings {
 	}
 }
 
+// mcpSteering reads the mcp verb's only flag: the CLI whose standing
+// instructions the server carries, which a generated config names. A style
+// the server has no steering for is refused, so a typo fails the server's
+// start where the operator sees it rather than serving without the steering.
+func mcpSteering(args []string) (string, error) {
+	flags := flag.NewFlagSet("mcp", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	steering := flags.String(strings.TrimPrefix(mcpreg.SteeringFlag, "--"), "", "")
+	if err := flags.Parse(args); err != nil {
+		return "", fmt.Errorf("mcp: %w", err)
+	}
+	if *steering == "" {
+		return "", nil
+	}
+	if _, ok := mcpreg.ServerSteering(*steering); !ok {
+		return "", fmt.Errorf("mcp: %s %q is not a CLI this build steers", mcpreg.SteeringFlag, *steering)
+	}
+	return *steering, nil
+}
+
 // subcommands is every verb other than the board itself. "mcp" is the one
 // extensions reach today: it is handed the build's set and registers the
 // tools of whichever ones the operator's config switches on.
 func subcommands(ctx context.Context, version string, extensions []extension.Extension) map[string]func(args []string) error {
 	table := map[string]func(args []string) error{
 		"mcp": withConfigDir(func(args []string, sessionID, configDir string) error {
-			return mcpserver.Run(ctx, configDir, sessionID, version, extensions)
+			steering, err := mcpSteering(args)
+			if err != nil {
+				return err
+			}
+			return mcpserver.Run(ctx, configDir, sessionID, version, extensions, steering)
 		}),
 	}
+	table["hook"] = withConfigDir(func(args []string, sessionID, configDir string) error {
+		return cli.RunHook(os.Stdin, os.Stdout, args, sessionID, configDir)
+	})
 	for name, command := range cli.Commands() {
 		if name != "spawn" && name != "migrate" && name != "revive" && name != "unpark" {
 			table[name] = withConfigDir(command)

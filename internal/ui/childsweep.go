@@ -112,9 +112,24 @@ func (m *Model) sweepFinishedChildren() tea.Cmd {
 					"session", child.ID)
 				continue
 			}
+			// The terminals nested under the child go with it, as they do
+			// under x. This sweep ends nothing that is still running, so a
+			// live one holds the child back until its shell exits; filing
+			// the child alone would strand that shell under a row that had
+			// gone.
+			shellsUnder, held := nestedShells(rows, child.ID, shells, driver.Exists)
+			if held {
+				logging.Info("child sweep left an exited child whose terminal is still up",
+					"session", child.ID)
+				continue
+			}
 			logging.Info("child sweep archived an exited child",
-				"session", child.ID, "reason", child.Reason, "window", window)
-			filed = append(filed, child.ID)
+				"session", child.ID, "reason", child.Reason, "window", window, "terminals", len(shellsUnder))
+			for _, id := range append(shellsUnder, child.ID) {
+				if !slices.Contains(filed, id) {
+					filed = append(filed, id)
+				}
+			}
 		}
 		if len(filed) == 0 {
 			return childSweptMsg{retire: retiring}
@@ -202,6 +217,22 @@ func retireHeld(rows []store.Session, id string, shells map[string]bool) bool {
 		}
 	}
 	return false
+}
+
+// nestedShells is the active terminals nested directly under id, and whether
+// any of them still has a pane up.
+func nestedShells(rows []store.Session, id string, shells map[string]bool, exists func(string) bool) ([]string, bool) {
+	var ids []string
+	for _, row := range rows {
+		if row.ParentID != id || row.Archived || !shells[row.Tool] {
+			continue
+		}
+		if exists(row.ID) {
+			return nil, true
+		}
+		ids = append(ids, row.ID)
+	}
+	return ids, false
 }
 
 // liveBelow is every session under id, by who spawned it, still on the

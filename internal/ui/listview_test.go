@@ -755,7 +755,6 @@ func TestEveryReadingOfASessionStandsInForAnAwaitedName(t *testing.T) {
 	m.selectGroupRow(t, "backend")
 	readings := []reading{{"roster", ansi.Strip(m.viewGroupAgents("backend", 112, 10))}}
 	m.selectSessionRow(t, generated)
-	readings = append(readings, reading{"detail", ansi.Strip(strings.Join(m.sessionDetailLines(60), "\n"))})
 	m.openQuickMode()
 	readings = append(readings, reading{"hotkey menu", ansi.Strip(m.viewQuickBar(112, quickBarMaxRows))})
 

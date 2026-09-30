@@ -247,6 +247,7 @@ func startExtensions(dir string, registry *extension.Registry, model *ui.Model, 
 	})
 	model.ObserveBoard(events)
 	events.OnPinChange(model.PinStatuses(events))
+	model.UseQueueDeadlines(events)
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := startUI(ctx, registry, model, send); err != nil {
 		cancel()

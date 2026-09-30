@@ -8,6 +8,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 // adoptPane puts a pane on a foreign server on the board the way the scan
@@ -64,6 +65,45 @@ func TestAnAdoptedPaneIsTakenOverAtStartupWithoutAsking(t *testing.T) {
 	}
 	if !strings.Contains(m.errBar.text, "took over 1 adopted session") {
 		t.Fatalf("status = %q, want the takeover reported", m.errBar.text)
+	}
+}
+
+func TestAutoTakeoverWaitsForAnAttachedTmuxClient(t *testing.T) {
+	m := buildModel(t)
+	socket, pane := adoptForeignPane(t, m, "borrowed", "borrowed", status.Idle)
+	terminal := tmuxtest.Socket(t, "takeoverterminal")
+	tmuxOnSocket(terminal, "kill-server").Run()
+	t.Cleanup(func() { tmuxOnSocket(terminal, "kill-server").Run() })
+	command := "tmux -L " + socket + " attach-session -t user"
+	if out, err := tmuxOnSocket(terminal, "new-session", "-d", "-s", "terminal", "-x", "80", "-y", "24", command).CombinedOutput(); err != nil {
+		t.Fatalf("attach foreign client: %v: %s", err, out)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		attached, err := m.tmux.PaneState("borrowed", "#{session_attached}")
+		if err == nil && strings.TrimSpace(attached) == "1" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("foreign client did not attach: %q, %v", attached, err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	m.applyCmd(t, nil)
+	setStatus(t, m, "borrowed", status.Idle)
+	m.restoreArmed = true
+	m.adoptFirstDone = true
+	if result := m.takeoverPass(); result.taken != 0 || result.owed != 1 {
+		t.Fatalf("attached pane was taken: %+v", result)
+	}
+	if !foreignPaneAlive(t, socket, pane) {
+		t.Fatal("attached pane was ended")
+	}
+	if err := tmuxOnSocket(terminal, "kill-server").Run(); err != nil {
+		t.Fatalf("detach foreign client: %v", err)
+	}
+	if result := m.takeoverPass(); result.taken != 1 || result.owed != 0 {
+		t.Fatalf("detached idle pane was not taken: %+v", result)
 	}
 }
 
@@ -189,7 +229,7 @@ func TestTakeoverWaitsForABusyPaneToGoIdle(t *testing.T) {
 	if !m.takeover.pending["busy"] {
 		t.Fatal("the busy pane is not owed to the background pass")
 	}
-	if !strings.Contains(m.errBar.text, "1 follows as it goes idle") {
+	if !strings.Contains(m.errBar.text, "1 waits until its pane is idle and unattended") {
 		t.Fatalf("status = %q, want the owed count", m.errBar.text)
 	}
 

@@ -40,7 +40,7 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `X` | Archive every session in view. The confirmation carries a tick box (`space`) as well as the `y`, because one keystroke is the wrong price for every session on screen |
 | `v` | Revive a dead session, or every dead session under a group. On a session that is still running it restarts the agent on the conversation it is already on |
 | `V` | Revive every dead session in view |
-| `O` | Take over the adopted panes: restart each idle one as a managed session on its own conversation now, and the busy ones as they go idle. Asks first |
+| `O` | Take over the adopted panes now: restart each idle one as a managed session on its own conversation, and the busy ones as they go idle. The board does this by itself unless "outside panes" says to keep them as-is |
 | `R` | Restart the selected session on an empty context: same name, group, directory and tool |
 | `u` | Restore a session or group out of the archive, resuming what it held. The act is `kill`; the archive is where the row lands, the way a deleted file lands in a trash can |
 | `U` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed kill as well as a silent one |
@@ -178,18 +178,18 @@ An agent you start by hand in tmux (plain `claude`, `codex` or `opencode` in any
 
 Relaunching it into the board fixes all of that. The pane is ended once it is idle, and the same conversation is resumed as a `gi_*` session on the board's tmux server; a busy pane is taken on the first pass that finds it idle. The flags and `--model` it was started with are not kept, and its environment becomes the board's. A pane whose conversation cannot be read is left where it is and the status line says so, because relaunching a tool that resumes by id on its continue command would pick the directory's most recent conversation instead.
 
-The reopen card asks once per start about panes you have not answered for: `←`/`→` picks **adopt as-is**, **relaunch into the board** or **ignore** (take it off the board without touching the pane, and never take it again), `c` answers per pane, and `esc` keeps them as they are. An answered pane is not asked about again. `O` opens the same card over every adopted pane, starting on relaunch. A pane found while the board is up is added as-is with a one-line pointer to `O`.
+The board takes every adopted pane over without asking: an idle one on the first pass after startup, a busy one on the first pass that finds it idle, and a pane found while the board is up the same way. A pane is never ended while it is working or while you are in it. A pane that fails to relaunch is left as-is until `O`, which runs the same takeover by hand. The "outside panes" setting can keep them as-is instead (`O` still takes them over), or ignore them: take them off the board without touching the panes, and never take them again.
 
 If a pane runs the same conversation as a dead row on the board (you resumed a board session by hand), the dead row is never offered back and `v` refuses it: reviving it would start a second agent on one conversation.
 
 ### Never asking again
 
-`N` on the reopen card applies the answer on screen and makes it the default. Settings (`s`) holds both defaults and is where the questions are turned back on:
+`N` on the reopen card applies the answer on screen and makes it the default. Settings (`s`) holds it and is where the question is turned back on, beside what happens to outside panes:
 
 | Setting | Values |
 |---|---|
 | on reopen | ask; always resume the ones that died (an unclear one is left for `V`); never offer |
-| outside panes | ask; always adopt as-is; always relaunch into the board; ignore them (the scan takes no outside pane) |
+| outside panes | take them over once idle (the default); keep them as-is; ignore them (the scan takes no outside pane) |
 
 Whatever a default does on the way in is said in one line on the status bar.
 

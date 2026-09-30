@@ -261,6 +261,10 @@ type Model struct {
 	// empty for a session whose pane could not be captured, which leaves the
 	// row with the operator where a missing reading belongs.
 	answerableWait map[string]bool
+	// askQuestions mirrors refreshMsg.askQuestions, and questionCard is the
+	// preview's card drawn from it. See previewquestions.go.
+	askQuestions map[string][]convo.AskQuestion
+	questionCard questionCard
 	// hookless mirrors refreshMsg.hookless: the rows whose status is
 	// pane-derived because nothing is writing their hook file. See
 	// hooklessGlyph for what the row does with it.
@@ -831,6 +835,7 @@ const (
 	settingsFieldSnippets
 	settingsFieldCLIs
 	settingsFieldGuide
+	settingsFieldKeys
 	settingsFieldVersion
 	settingsFieldCount
 )
@@ -866,6 +871,9 @@ type refreshMsg struct {
 	archivedChildren map[string]int
 	searchText       map[string]string
 	answerableWait   map[string]bool
+	// askQuestions is each Claude session's pending AskUserQuestion call,
+	// for a pane standing on a several-question dialog.
+	askQuestions map[string][]convo.AskQuestion
 	// hookless is every session whose agent no longer carries the hook
 	// settings flag, so its status is coming off the pane rather than out of
 	// its status file. Replaced whole each pass like queuedMessages, which is
@@ -2064,6 +2072,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.archivedChildren = msg.archivedChildren
 		m.searchText = msg.searchText
 		m.answerableWait = msg.answerableWait
+		m.askQuestions = msg.askQuestions
 		m.hookless = msg.hookless
 		m.stale = msg.stale
 		m.hogBadges = msg.hogBadges

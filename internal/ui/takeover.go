@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -20,8 +21,8 @@ import (
 // already knows how to make such a row the manager's own: read the
 // conversation off the agent's process, end the pane, relaunch it as a gi_
 // session on that conversation. This does the same thing while the board is
-// up, one pane at a time and only when the pane is idle, so no turn is lost
-// to it.
+// up, one pane at a time once it is idle and no client is attached, so no
+// turn or unsubmitted input is lost to it.
 //
 // Nothing asks first. With outside panes on their default, every adopted
 // pane is owed to the takeover the moment the board sees it, whether it was
@@ -33,11 +34,18 @@ import (
 
 type takeoverState struct {
 	// pending is the set the background pass is still owed: adopted rows
-	// that were busy when they were queued, by id.
+	// that were busy or attached when they were queued, by id.
 	pending map[string]bool
 	// tried is every row a pass has already attempted in this run, so a
 	// pane the takeover refuses is queued once, not again on every pass.
 	tried map[string]bool
+}
+
+var errTakeoverWaiting = errors.New("adopted pane is still attached to a tmux client")
+
+func (m *Model) paneUnattended(id string) bool {
+	attached, err := m.tmux.PaneState(id, "#{session_attached}")
+	return err == nil && strings.TrimSpace(attached) == "0"
 }
 
 // adoptedCandidates is every live adopted agent pane on the board, idle
@@ -115,17 +123,15 @@ type takeoverResult struct {
 	failed []string
 }
 
-// takeoverPass moves every pending row whose pane is idle right now, and
-// reports what it did. The refresh calls it on each pass while anything is
-// owed, which is how a busy pane is taken the moment it rests.
+// takeoverPass moves every pending row whose pane is idle and unattended,
+// and reports what it did. The refresh retries rows still in use.
 func (m *Model) takeoverPass() takeoverResult {
 	var result takeoverResult
 	m.autoTakeover()
 	if len(m.takeover.pending) == 0 {
 		return result
 	}
-	// The pane the operator is typing into is never pulled out from under
-	// them: it waits for the next pass, when they have left it.
+	// A pane focused inside the board also waits for the operator to leave it.
 	focused := ""
 	if m.mode == modeFocus {
 		if sess, ok := m.selected(); ok {
@@ -142,7 +148,7 @@ func (m *Model) takeoverPass() takeoverResult {
 			delete(m.takeover.pending, sess.ID)
 			continue
 		}
-		if takeoverReady(sess) {
+		if takeoverReady(sess) && m.paneUnattended(sess.ID) {
 			due = append(due, sess)
 		}
 	}
@@ -158,16 +164,18 @@ func (m *Model) takeoverPass() takeoverResult {
 		m.takeover.tried = map[string]bool{}
 	}
 	for _, sess := range due {
-		// Dropped from the set and marked tried before the attempt, so a pane
-		// the takeover refuses is not ended, or refused again, on every later
-		// pass.
-		delete(m.takeover.pending, sess.ID)
-		m.takeover.tried[sess.ID] = true
 		if err := m.takeOver(sess, procs, claude); err != nil {
+			if errors.Is(err, errTakeoverWaiting) {
+				continue
+			}
+			delete(m.takeover.pending, sess.ID)
+			m.takeover.tried[sess.ID] = true
 			result.failed = append(result.failed, fmt.Sprintf("%s: %v", sess.Name, err))
 			logging.Warn("takeover failed", "session", sess.ID, "name", sess.Name, logging.Err(err))
 			continue
 		}
+		delete(m.takeover.pending, sess.ID)
+		m.takeover.tried[sess.ID] = true
 		result.taken++
 		logging.Info("took over an adopted pane", "session", sess.ID, "name", sess.Name, "tool", sess.Tool)
 	}
@@ -189,7 +197,7 @@ func (m *Model) reportTakeover(result takeoverResult) {
 		parts = append(parts, fmt.Sprintf("took over %d adopted %s", result.taken, plural(result.taken, "session", "sessions")))
 	}
 	if result.owed > 0 {
-		parts = append(parts, fmt.Sprintf("%d %s as %s idle", result.owed, plural(result.owed, "follows", "follow"), plural(result.owed, "it goes", "they go")))
+		parts = append(parts, fmt.Sprintf("%d %s until %s idle and unattended", result.owed, plural(result.owed, "waits", "wait"), plural(result.owed, "its pane is", "their panes are")))
 	}
 	if len(result.failed) > 0 {
 		parts = append(parts, fmt.Sprintf("%d left in %s pane (%s)", len(result.failed), plural(len(result.failed), "its", "their"), result.failed[0]))
@@ -241,7 +249,12 @@ func (m *Model) takeOver(sess store.Session, procs *adopt.ProcTable, claude []co
 	if !isDir(cwd) {
 		return fmt.Errorf("working directory no longer exists: %s", cwd)
 	}
-	if err := m.endSession(sess, m.tmux.KillAdopted); err != nil {
+	if err := m.endSession(sess, func(id string) error {
+		if !m.paneUnattended(id) {
+			return errTakeoverWaiting
+		}
+		return m.tmux.KillAdopted(id)
+	}); err != nil {
 		return err
 	}
 	m.tmux.Release(sess.ID)

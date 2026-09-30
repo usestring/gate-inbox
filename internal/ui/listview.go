@@ -230,9 +230,9 @@ func (m *Model) railLines(width, height int) []contentLine {
 	}
 	// The opening block only rides a rail with the full dock, and only while
 	// the list keeps the rows the full dock itself promises it. The selected
-	// row's own identity sits right above the prompt it was launched with,
-	// since both answer "what is this" before the dock answers "how loaded
-	// is the machine".
+	// row's facts sit right above the prompt it was launched with, since both
+	// answer "what is this" before the dock answers "how loaded is the
+	// machine".
 	var opening []string
 	if tier == dockFull {
 		block := append(m.sessionDetailLines(width), m.promptLines(width)...)
@@ -404,10 +404,12 @@ func railFact(pad, label, value string) string {
 	return pad + labelStyle.Render(padRight(label, railFactLabelWidth)) + value
 }
 
-// sessionDetailLines is the selected session's or group's identity — name,
-// state, and the facts that place it — moved out of the content column and
-// into the rail, right above the prompt block it now sits beside. Freeing
-// the content column of its own head leaves nothing there but the live pane.
+// sessionDetailLines is the selected session's or group's identity: the
+// facts that place it, right above the prompt block it sits beside. A
+// session's name, its queued-message badge, its state and its age are left
+// to the cursor row, which already draws them one glance away, so the block
+// carries only what the row does not. Its start time goes too, so the only
+// clock on the rail is the row's.
 func (m *Model) sessionDetailLines(width int) []string {
 	pad := spaces(railInset)
 	room := width - railInset - 2
@@ -437,14 +439,6 @@ func (m *Model) sessionDetailLines(width int) []string {
 	if sess.Account != "" {
 		tool += " as " + sess.Account
 	}
-	name := lipgloss.NewStyle().Foreground(colorBright).Bold(true).Render(m.displayName(sess))
-	if queued := m.queuedMessages[sess.ID]; queued > 0 {
-		name = inboxBadge(queued) + " " + name
-	}
-	head := name + "  " + chipStyle.Render(tool)
-	state := lipgloss.NewStyle().Foreground(statusColor(sess.Status)).
-		Render(statusGlyph(sess.Status)+" "+statusLabel(sess.Status)) +
-		subtleStyle.Render(" · "+relSince(lastActivity(sess)))
 	factRoom := max(room-railFactLabelWidth, 1)
 	usage := ""
 	if m.procFor == sess.ID && m.proc.OK {
@@ -456,10 +450,8 @@ func (m *Model) sessionDetailLines(width int) []string {
 	}
 	lines := []string{
 		pad + subtleStyle.Render("session"),
-		pad + textfmt.TruncateWidth(head, room, "…"),
-		pad + textfmt.TruncateWidth(state, room, "…"),
+		railFact(pad, "cli", chipStyle.Render(textfmt.TruncateWidth(tool, max(factRoom-2, 1), "…"))),
 		railFact(pad, "group", lipgloss.NewStyle().Foreground(colorAccent2).Render(textfmt.TruncateWidth(displayGroup(sess.Group), factRoom, "…"))),
-		railFact(pad, "started", subtleStyle.Render(textfmt.TruncateWidth(relSince(sess.CreatedAt), factRoom, "…"))),
 		railFact(pad, "dir", mutedStyle.Render(truncateTail(sess.Cwd, factRoom))),
 	}
 	if usage != "" {

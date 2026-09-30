@@ -451,6 +451,7 @@ func (m *Model) viewSettings() string {
 		actionRow(settingsFieldSnippets, "snippets", "edit quick replies") + "\n" +
 		actionRow(settingsFieldCLIs, "CLIs", "show or hide for new sessions") + "\n" +
 		actionRow(settingsFieldGuide, "welcome guide", "read the first-run introduction again") + "\n" +
+		actionRow(settingsFieldKeys, "keys", "see and rebind every key") + "\n" +
 		m.settingsVersionRow(lead)
 	hint := [][2]string{{"↑↓", "field"}, {"←→", "change"}, {"↵/esc", "save"}}
 	switch m.settings.field {
@@ -460,6 +461,8 @@ func (m *Model) viewSettings() string {
 		hint = [][2]string{{"↑↓", "field"}, {"↵", "manage CLIs"}, {"esc", "save"}}
 	case settingsFieldGuide:
 		hint = [][2]string{{"↑↓", "field"}, {"↵", "show the guide"}, {"esc", "save"}}
+	case settingsFieldKeys:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "rebind keys"}, {"esc", "save"}}
 	}
 	return m.cardFlex("▣ Settings", body, hint)
 }

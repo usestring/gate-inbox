@@ -311,30 +311,6 @@ func TestPlusMinusSnippetOnAGroupSaysWhatToSelect(t *testing.T) {
 	}
 }
 
-// In the quick prompt a bare ± is a character the operator is typing, so it
-// lands in the input rather than firing the snippet on it.
-func TestPlusMinusTypesIntoTheQuickPrompt(t *testing.T) {
-	m := buildModel(t)
-	bindPlusMinus(t, m)
-	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
-	m.rebuildRows()
-	m.selectSessionRow(t, "ask")
-
-	m.openQuickMode()
-	m.quick.input.SetValue("5 ")
-	updated, cmd := m.handleKey(plusMinusMsg())
-	m = updated.(*Model)
-	if cmd != nil {
-		m.applyCmd(t, cmd)
-	}
-	if got := m.quick.input.Value(); got != "5 ±" {
-		t.Fatalf("the quick prompt reads %q, want the ± typed", got)
-	}
-	if strings.Contains(m.errBar.text, plusMinusText) {
-		t.Fatalf("± in the quick prompt fired the snippet: %q", m.errBar.text)
-	}
-}
-
 // With autoSubmit off the key types the line and stops: nothing is submitted,
 // so the session is not handed over even with auto-proceed on.
 func TestSnippetWithoutAutoSubmitOnlyTypesTheLine(t *testing.T) {

@@ -10,9 +10,64 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/adopt"
 	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
+
+func TestCodexOpeningReachesTheRailFromTheResolvedRollout(t *testing.T) {
+	m := buildModel(t)
+	m.width, m.height = 160, 45
+	const prompt = "Fix the Codex opening prompt"
+	const id = "codex-opening"
+	m.sessions = []store.Session{{ID: id, Name: "my-codex", Tool: "codex", NameSource: store.SourceUser, AgentSessionID: "codex-agent"}}
+	m.rebuildRows()
+	m.placeCursor(1)
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	writePrompt := func(text string, appendFile bool) {
+		t.Helper()
+		flag := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+		if appendFile {
+			flag = os.O_APPEND | os.O_WRONLY
+		}
+		f, err := os.OpenFile(path, flag, 0600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if _, err := fmt.Fprintf(f, "{\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":%q}}\n", text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writePrompt(prompt, false)
+	m.poller.setHistoryTargets([]search.Target{{Key: id, Tool: search.ToolCodex, AgentID: "codex-agent", Path: path}})
+	runSweep := func() {
+		t.Helper()
+		cmd := m.autoNameScan()
+		if cmd == nil {
+			t.Fatal("named Codex row was excluded from the opening sweep")
+		}
+		msg := cmd().(autoNamedMsg)
+		if msg.err != nil {
+			t.Fatal(msg.err)
+		}
+		updated, _ := m.Update(msg)
+		m = updated.(*Model)
+	}
+	runSweep()
+	if block := strings.Join(promptBlock(t, m, 59), "\n"); !strings.Contains(block, prompt) {
+		t.Fatalf("Codex opening is missing from the rail: %s", block)
+	}
+	writePrompt("Run the tests", true)
+	writePrompt("Open the PR", true)
+	runSweep()
+	if got := m.firstPrompts[id]; len(got) != 3 || got[0] != prompt || got[2] != "Open the PR" {
+		t.Fatalf("opening did not grow with the rollout: %q", got)
+	}
+	if cmd := m.autoNameScan(); cmd != nil {
+		t.Fatal("a complete Codex opening still costs a sweep")
+	}
+}
 
 // A row somebody named rides the sweep only for its opening prompts: once
 // those are on file, or the tool keeps no transcript the index can read, the

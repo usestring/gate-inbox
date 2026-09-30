@@ -97,9 +97,7 @@ func TestSessionWorkArrivesFolded(t *testing.T) {
 	if want := statusGlyph(status.Waiting) + " 1 pr · 1 issue"; !strings.Contains(rail, want) {
 		t.Fatalf("folded row lost its badge (want %q):\n%s", want, rail)
 	}
-	// The prompt line under the row quotes the prompt that named the work;
-	// only a row of the tree's own may name it apart from that.
-	if strings.Contains(strings.ReplaceAll(rail, "finish PR #838 for ABC-100001", ""), "#838") {
+	if strings.Contains(rail, "#838") {
 		t.Fatalf("a folded row names an artifact the tree should name:\n%s", rail)
 	}
 	if !strings.Contains(rail, "▸ ") {
@@ -469,12 +467,10 @@ func TestARailWithNoWorkReservesNoFoldColumn(t *testing.T) {
 // point when the thing under test is an escape.
 func railRawLine(t *testing.T, m *Model, width int, name string) string {
 	t.Helper()
-	// The last line naming it: a session's prompt line can name the same
-	// artifact, and the artifact's own row is drawn after it.
 	lines := m.railLines(width, m.listBodyHeight())
-	for i := len(lines) - 1; i >= 0; i-- {
-		if strings.Contains(ansi.Strip(lines[i].text), name) {
-			return lines[i].text
+	for _, line := range lines {
+		if strings.Contains(ansi.Strip(line.text), name) {
+			return line.text
 		}
 	}
 	t.Fatalf("no rail line names %s:\n%s", name, railLinesText(lines))
@@ -486,6 +482,9 @@ func railRawLine(t *testing.T, m *Model, width int, name string) string {
 // as it already is on the work card.
 func TestAnUnfoldedRailRowLinksItsPullRequestAndTicket(t *testing.T) {
 	m := railWorkModel(t)
+	// The row's summary is its title, so the only line naming #838 is the
+	// pull request's own.
+	m.titles = map[string]string{"add-rate-limiting": "Rate limit the public API"}
 	m.setWorkFolded("add-rate-limiting", false)
 	m.rebuildRows()
 

@@ -3,8 +3,7 @@ Sleep 1s
 
 Type " "
 Sleep 500ms
-Type "Run the final verification"
-Enter
+Type "c"
 Sleep 500ms
 Screenshot {{SHOTS}}/02-rescind-available.png
 Sleep 500ms

@@ -23,6 +23,7 @@ import (
 type Option struct {
 	Label       string `json:"label" jsonschema:"the choice's text; pass it as the answer to pick it"`
 	Description string `json:"description,omitempty" jsonschema:"what the child said the choice means"`
+	Checked     bool   `json:"checked,omitempty" jsonschema:"on a multi-select question on the screen, whether its box is ticked"`
 }
 
 // Question is one question of the dialog a session is holding.
@@ -50,7 +51,9 @@ func Questions(pane string, asked []convo.AskQuestion) []Question {
 		return nil
 	}
 	if isDialog && held.Kind != KindAsk {
-		return []Question{screenQuestion(1, "", held)}
+		question := screenQuestion(1, "", held)
+		markTicked(&question, held)
+		return []Question{question}
 	}
 	stepper, tabbed := ParseStepper(pane)
 	count := 1
@@ -115,7 +118,23 @@ func Questions(pane string, asked []convo.AskQuestion) []Question {
 	if held.Picked > 0 && held.Picked <= len(held.Options) {
 		out[on].Answer, out[on].Answered = held.Options[held.Picked-1], true
 	}
+	markTicked(&out[on], held)
 	return out
+}
+
+// markTicked copies a multi-select's checked boxes off the screen onto the
+// question's options, matched by label.
+func markTicked(question *Question, held Dialog) {
+	for _, n := range held.Ticked {
+		if n < 1 || n > len(held.Options) {
+			continue
+		}
+		for i := range question.Options {
+			if normalise(question.Options[i].Label) == normalise(held.Options[n-1]) {
+				question.Options[i].Checked = true
+			}
+		}
+	}
 }
 
 // screenQuestion is the question on the screen, read off the pane alone.
@@ -218,7 +237,14 @@ func RenderQuestions(questions []Question) string {
 			out.WriteString("(not on the screen, and no transcript to read it from)\n")
 		}
 		for n, option := range q.Options {
-			fmt.Fprintf(&out, "  %d. %s", n+1, option.Label)
+			box := ""
+			if q.MultiSelect && q.OnScreen {
+				box = "[ ] "
+				if option.Checked {
+					box = "[x] "
+				}
+			}
+			fmt.Fprintf(&out, "  %d. %s%s", n+1, box, option.Label)
 			if option.Description != "" {
 				fmt.Fprintf(&out, " -- %s", option.Description)
 			}

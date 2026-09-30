@@ -131,12 +131,29 @@ func (c *conversationView) wrapped(width int) []string {
 	}
 	oldHeight := len(c.lines)
 	c.lines = nil
-	userStyle := newFastStyle(lipgloss.NewStyle().Foreground(colorAccent2).Bold(true))
+	// You renders in the errored (red) tone against the assistant's teal
+	// accent: Accent vs Accent2 differed only in the blue channel and read
+	// as the same box. Sequential turns from one speaker share one box.
+	userStyle := newFastStyle(lipgloss.NewStyle().Foreground(colorErrored).Bold(true))
+	type convoGroup struct {
+		role  string
+		label string
+		style fastStyle
+		texts []string
+	}
+	var groups []convoGroup
 	for _, message := range c.messages {
 		label, style := "Assistant", sectionStyle
 		if message.Role == "user" {
 			label, style = "You", userStyle
 		}
+		if n := len(groups); n > 0 && groups[n-1].role == message.Role {
+			groups[n-1].texts = append(groups[n-1].texts, message.Text)
+			continue
+		}
+		groups = append(groups, convoGroup{role: message.Role, label: label, style: style, texts: []string{message.Text}})
+	}
+	for _, group := range groups {
 		inner := max(1, width-4)
 		text := strings.Map(func(r rune) rune {
 			if r == '\t' {
@@ -146,17 +163,17 @@ func (c *conversationView) wrapped(width int) []string {
 				return -1
 			}
 			return r
-		}, ansi.Strip(message.Text))
-		heading := textfmt.TruncateWidth(" "+label+" ", max(1, width-2), "")
-		c.lines = append(c.lines, style.Render("╭"+heading+strings.Repeat("─", max(0, width-2-textfmt.Width(heading)))+"╮"))
+		}, ansi.Strip(strings.Join(group.texts, "\n\n")))
+		heading := textfmt.TruncateWidth(" "+group.label+" ", max(1, width-2), "")
+		c.lines = append(c.lines, group.style.Render("╭"+heading+strings.Repeat("─", max(0, width-2-textfmt.Width(heading)))+"╮"))
 		messageLines := markdownLines(text, inner)
 		if c.compact && len(messageLines) > 4 {
 			messageLines = append(messageLines[:4:4], mutedStyle.Render(textfmt.TruncateWidth(fmt.Sprintf("… %d more lines", len(messageLines)-4), inner, "…")))
 		}
 		for _, line := range messageLines {
-			c.lines = append(c.lines, style.Render("│")+" "+padRight(line, inner)+" "+style.Render("│"))
+			c.lines = append(c.lines, group.style.Render("│")+" "+padRight(line, inner)+" "+group.style.Render("│"))
 		}
-		c.lines = append(c.lines, style.Render("╰"+strings.Repeat("─", max(0, width-2))+"╯"), "")
+		c.lines = append(c.lines, group.style.Render("╰"+strings.Repeat("─", max(0, width-2))+"╯"), "")
 	}
 	if c.offset > 0 && c.width == width {
 		c.offset += max(0, len(c.lines)-oldHeight)

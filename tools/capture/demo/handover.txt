@@ -1,0 +1,6 @@
+Waiting for handover evidence.
+Which release check should run?
+❯ 1. Build
+  2. Tests
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

@@ -462,6 +462,9 @@ CREATE TABLE IF NOT EXISTS settings (
 		)`,
 		`CREATE INDEX IF NOT EXISTS dialog_answers_target ON dialog_answers (target_session, target_tool_use_id)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS dialog_answers_evidence ON dialog_answers (evidence_tool_use_id, question_hash) WHERE evidence_tool_use_id != ''`,
+		// When GitHub last saw a pull request change, which orders the rail's
+		// rows of one rank newest first. Zero on rows saved before it existed.
+		`ALTER TABLE forge_prs ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {

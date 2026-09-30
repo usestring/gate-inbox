@@ -256,7 +256,8 @@ func (m *Model) viewToolField() string {
 	if len(others) == 0 {
 		return field
 	}
-	if rows := agentPickRows(others, "", m.formValueWidth()-lipgloss.Width(field)-2); len(rows) == 1 {
+	inlineRoom := m.formValueWidth() - lipgloss.Width(field) - 2
+	if rows := agentPickRows(others, "", inlineRoom); len(rows) == 1 && lipgloss.Width(rows[0]) <= inlineRoom {
 		return field + "  " + rows[0]
 	}
 	return field + "\n" + strings.Join(agentPickRows(others, "", m.formValueWidth()), "\n")
@@ -443,7 +444,7 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldListSort, "sort", normalizeListSort(m.settings.listSort)) + "\n" +
 		row(settingsFieldChrome, "key hints", normalizeChrome(m.settings.chrome)) + "\n" +
 		row(settingsFieldLeave, "on leaving a session", normalizeLeaveMode(m.settings.leaveMode)) + "\n" +
-		row(settingsFieldQuickClose, "after quick send", quickClose) + "\n" +
+		row(settingsFieldQuickClose, "after hotkey send", quickClose) + "\n" +
 		row(settingsFieldFocusKey, "session keys", focusKey) + "\n" +
 		row(settingsFieldAutoProceed, "triage auto proceed", autoProceed) + "\n" +
 		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +
@@ -560,26 +561,54 @@ func (m *Model) viewAgentPick() string {
 	m.agentPick.input.SetWidth(max(4, inner-3))
 	m.agentPick.input.SetCursor(m.agentPick.input.Position())
 
+	hint := [][2]string{{"type", "pick a CLI"}, {"←→", "change"}, {"↵", "start"}, {"esc", "cancel"}}
+	hintRows := lipgloss.Height(legendInline(hint, cardInnerWidth(m.cardWidth())))
+	room := m.height - 6 - hintRows
+	if m.errBar.text != "" {
+		room -= 2
+	}
+	if room < 1 {
+		hint = [][2]string{{"←→", "pick"}, {"↵", "start"}, {"esc", "cancel"}}
+		room += hintRows - lipgloss.Height(legendInline(hint, cardInnerWidth(m.cardWidth())))
+	}
 	var b strings.Builder
 	b.WriteString(formField("agent", m.agentPick.input.View(), true))
 	matches := m.agentPickMatches()
 	if len(matches) == 0 {
 		b.WriteString(spaces(formLabelColumn) + mutedStyle.Render("(no CLI matches)") + "\n")
 	} else {
-		for _, row := range agentPickRows(matches, m.agentPickName(), inner) {
+		for _, row := range agentPickWindow(matches, m.agentPickName(), inner, room) {
 			b.WriteString(spaces(formLabelColumn) + row + "\n")
 		}
 	}
-	return m.card("◆ New Session", strings.TrimRight(b.String(), "\n"),
-		[][2]string{{"type", "pick a CLI"}, {"←→", "change"}, {"↵", "start"}, {"esc", "cancel"}})
+	return m.card("◆ New Session", strings.TrimRight(b.String(), "\n"), hint)
+}
+
+func agentPickWindow(names []string, selected string, width, room int) []string {
+	rows := agentPickRows(names, selected, width)
+	room = max(1, room)
+	if len(rows) <= room {
+		return rows
+	}
+	selectedRow := 0
+	for i, name := range names {
+		if name == selected {
+			selectedRow = len(agentPickRows(names[:i+1], selected, width)) - 1
+			break
+		}
+	}
+	visible := max(1, room-1)
+	start := min(max(0, selectedRow-visible/2), len(rows)-visible)
+	window := append([]string(nil), rows[start:start+visible]...)
+	if room > 1 {
+		window = append(window, subtleStyle.Render(fmt.Sprintf("↑ %d · ↓ %d rows", start, len(rows)-start-visible)))
+	}
+	return window
 }
 
 // agentPickRows lays the matching CLIs out in reading order, the selected one
 // in the value tone and the rest muted, starting a new line wherever the next
 // name would run past budget columns.
-//
-// Every match is drawn: a cut list hid whichever CLIs sorted last, and the
-// only way to learn they existed was to arrow into them.
 func agentPickRows(names []string, selected string, budget int) []string {
 	sep := mutedStyle.Render(" \u00b7 ")
 	var lines []string

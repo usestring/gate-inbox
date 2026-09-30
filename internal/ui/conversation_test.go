@@ -3,6 +3,7 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -164,5 +165,70 @@ func TestConversationShowsWorkingSpinnerBelowNewestMessage(t *testing.T) {
 	m.conversation.messages, m.conversation.dirty = nil, true
 	if got := last(); !strings.HasPrefix(got, startupFrames[1]+" working") {
 		t.Fatalf("empty conversation hides the spinner: %q", got)
+	}
+}
+
+func TestConversationGroupsSequentialSameRoleMessages(t *testing.T) {
+	c := conversationView{dirty: true, messages: []search.Message{
+		{Role: "user", Text: "first question"},
+		{Role: "user", Text: "second question"},
+		{Role: "assistant", Text: "reply one"},
+		{Role: "assistant", Text: "reply two"},
+		{Role: "user", Text: "follow-up"},
+	}}
+	rows := c.wrapped(40)
+	plain := ansi.Strip(strings.Join(rows, "\n"))
+	if got := strings.Count(plain, "╭"); got != 3 {
+		t.Fatalf("boxes = %d, want 3 (one per speaker run)", got)
+	}
+	for _, want := range []string{"first question", "second question", "reply one", "reply two", "follow-up"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("missing %q: %s", want, plain)
+		}
+	}
+	if got := strings.Count(plain, "You"); got != 2 {
+		t.Fatalf("You headings = %d, want 2", got)
+	}
+	if got := strings.Count(plain, "Assistant"); got != 1 {
+		t.Fatalf("Assistant headings = %d, want 1", got)
+	}
+	for _, row := range rows {
+		if textfmt.Width(row) > 40 {
+			t.Fatalf("row exceeds 40 columns: %q", row)
+		}
+	}
+}
+
+func TestConversationUserAndAssistantBoxesUseDistinctColors(t *testing.T) {
+	c := conversationView{dirty: true, messages: []search.Message{
+		{Role: "user", Text: "hello"},
+		{Role: "assistant", Text: "hi"},
+	}}
+	rows := c.wrapped(40)
+	var youHead, assistantHead string
+	for _, row := range rows {
+		stripped := ansi.Strip(row)
+		switch {
+		case strings.Contains(stripped, "You"):
+			if youHead == "" {
+				youHead = row
+			}
+		case strings.Contains(stripped, "Assistant"):
+			if assistantHead == "" {
+				assistantHead = row
+			}
+		}
+	}
+	if youHead == "" || assistantHead == "" {
+		t.Fatal("missing a speaker heading")
+	}
+	seqRe := regexp.MustCompile("\x1b\\[[0-9;]*m")
+	youSeq := strings.Join(seqRe.FindAllString(youHead, -1), ",")
+	assistantSeq := strings.Join(seqRe.FindAllString(assistantHead, -1), ",")
+	if youSeq == "" || assistantSeq == "" {
+		t.Fatal("headings carry no style sequences")
+	}
+	if youSeq == assistantSeq {
+		t.Fatal("user and assistant boxes render in the same color")
 	}
 }

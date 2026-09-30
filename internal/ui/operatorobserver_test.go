@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,10 +15,11 @@ func operatorInputs(r *recordingObserver) []extension.OperatorInput {
 	return append([]extension.OperatorInput(nil), r.inputs...)
 }
 
-// A line sent from the prompt bar is reported once it has reached the pane,
-// with the words the operator wrote.
-func TestQuickPromptSendIsReportedAsTheOperatorsInput(t *testing.T) {
+// A snippet sent from the hotkey menu is reported once it has reached the
+// pane, with the words the snippet sends.
+func TestHotkeyMenuSendIsReportedAsTheOperatorsInput(t *testing.T) {
 	m := buildModel(t)
+	bindMenuSnippet(t, m, "carry on with the plan")
 	createSession(t, m, "answer-me", t.TempDir(), "")
 	sess := m.sessionRows()[0]
 	observer := &recordingObserver{}
@@ -25,42 +27,20 @@ func TestQuickPromptSendIsReportedAsTheOperatorsInput(t *testing.T) {
 	m.selectSessionRow(t, "answer-me")
 
 	m.openQuickMode()
-	m.quick.input.SetValue("carry on with the plan")
-	if _, _ = m.submitQuick(); m.errBar.text != "" {
+	if _, _ = m.handleQuickKey(letter('c')); !strings.HasPrefix(m.errBar.text, "sent ") {
 		t.Fatalf("send: %q", m.errBar.text)
 	}
 	if got := operatorInputs(observer); len(got) != 0 {
-		t.Fatalf("the prompt was reported before it landed: %+v", got)
+		t.Fatalf("the snippet was reported before it landed: %+v", got)
 	}
 	landAnswer(t, m, sess.ID)
 	got := operatorInputs(observer)
 	if len(got) != 1 {
 		t.Fatalf("reported %+v, want one input", got)
 	}
-	if got[0].SessionID != sess.ID || got[0].Via != extension.OperatorPrompt ||
+	if got[0].SessionID != sess.ID || got[0].Via != extension.OperatorSnippet ||
 		got[0].Text != "carry on with the plan" || got[0].Dialog || got[0].At.IsZero() {
-		t.Fatalf("reported %+v, want the prompt line to %s", got[0], sess.ID)
-	}
-}
-
-// A send the board refuses reached nobody, so nobody is told a person
-// answered.
-func TestRefusedQuickPromptIsNotReported(t *testing.T) {
-	m := buildModel(t)
-	createSession(t, m, "gone", t.TempDir(), "")
-	sess := m.sessionRows()[0]
-	if err := m.tmux.Kill(sess.ID); err != nil {
-		t.Fatalf("kill: %v", err)
-	}
-	observer := &recordingObserver{}
-	m.ObserveBoard(observer)
-	m.selectSessionRow(t, "gone")
-
-	m.openQuickMode()
-	m.quick.input.SetValue("hello?")
-	m.submitQuick()
-	if got := operatorInputs(observer); len(got) != 0 {
-		t.Fatalf("a refused send was reported: %+v", got)
+		t.Fatalf("reported %+v, want the snippet to %s", got[0], sess.ID)
 	}
 }
 
@@ -116,7 +96,7 @@ func TestFocusedDialogAnswerIsReportedAsADialogAnswer(t *testing.T) {
 	if got := operatorInputs(observer); len(got) != 0 {
 		t.Fatalf("the key was reported before the answer landed: %+v", got)
 	}
-	logHookEvent(t, m, id, "working PostToolUse")
+	recordDialogResult(t, m, id, "answered")
 	lookForLanding(t, m)
 	got := operatorInputs(observer)
 	if len(got) != 1 || got[0].SessionID != id || got[0].Via != extension.OperatorPane || !got[0].Dialog || got[0].Text != "" {

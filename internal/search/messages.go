@@ -1,6 +1,7 @@
 package search
 
 import (
+	"bufio"
 	"bytes"
 	"database/sql"
 	"encoding/json"
@@ -8,12 +9,33 @@ import (
 	"os"
 	"strings"
 
+	"github.com/usestring/gate-inbox/internal/band"
 	"github.com/usestring/gate-inbox/internal/opencode"
 )
 
 type Message struct {
 	Role string
 	Text string
+}
+
+// ReadFirstPrompts shares the conversation filter so injected instructions
+// and Codex's duplicate event records cannot become the opening prompt.
+func ReadFirstPrompts(target Target, count int) ([]string, error) {
+	f, err := os.Open(target.Path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	const limit = 16 << 20
+	scanner := bufio.NewScanner(io.LimitReader(f, limit))
+	scanner.Buffer(make([]byte, 64<<10), limit)
+	var prompts []string
+	for len(prompts) < count && scanner.Scan() {
+		if message, ok := parseMessage(scanner.Bytes(), target.Tool); ok && message.Role == "user" && !band.Has(message.Text) {
+			prompts = append(prompts, message.Text)
+		}
+	}
+	return prompts, scanner.Err()
 }
 
 // ReadMessages reads a bounded tail without admitting tool or harness traffic.

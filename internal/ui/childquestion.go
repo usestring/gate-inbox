@@ -191,6 +191,9 @@ func (p *poller) pingOperator(sess, parent store.Session, why string) {
 // and whether it cannot wait for the parent's next pause.
 func childDialogBody(sess store.Session, pane string) (body, key string, urgent bool) {
 	call, _ := asks.Pending(childAskTarget(sess))
+	if call.Async && len(call.Questions) > 0 {
+		return childAsyncMessage(sess, call), "a:" + call.ID, false
+	}
 	if reading, ok := dialog.ReadQuestions(sess.Tool, pane, call.Questions); ok && len(reading.Questions) > 0 {
 		var id strings.Builder
 		for _, q := range reading.Questions {
@@ -207,6 +210,26 @@ func childDialogBody(sess store.Session, pane string) (body, key string, urgent 
 		return childLostMessage(sess, lost), "x:" + lost.Call.ID, true
 	}
 	return childWaitMessage(sess), "wait", false
+}
+
+func childAsyncMessage(sess store.Session, call asks.Call) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "%s (session %s), which you spawned, asked a question without a dialog: %s drew nothing to "+
+		"answer on its screen and carries on, and it reads the next message it is sent as the answer. It asked:\n\n",
+		sess.Name, sess.ID, asks.TraitsOf(sess.Tool).Name)
+	questions := make([]dialog.Question, 0, len(call.Questions))
+	for i, q := range call.Questions {
+		question := dialog.Question{Index: i + 1, ID: q.ID, Header: q.Header, Question: q.Question}
+		for _, option := range q.Options {
+			question.Options = append(question.Options, dialog.Option{Label: option.Label, Description: option.Description})
+		}
+		questions = append(questions, question)
+	}
+	out.WriteString(strings.TrimRight(logging.ScrubWrapped(dialog.RenderQuestions(questions)), "\n"))
+	fmt.Fprintf(&out, "\n\nSettle it yourself if your task or your user's standing decisions already do, else put it "+
+		"to your user word for word. Then answer with answer_session on session %s, which sends your answer as "+
+		"that message and reads it back from the child's own record.", sess.ID)
+	return out.String()
 }
 
 func childLostMessage(sess store.Session, lost asks.Result) string {

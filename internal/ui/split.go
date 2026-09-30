@@ -178,6 +178,9 @@ func (m *Model) onDivider(x int) bool {
 }
 
 func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if m.mode == modePaneJump {
+		return m, nil
+	}
 	// Focus mode owns the mouse: clicks build a selection over the pane
 	// instead of moving the list cursor, which would silently retarget
 	// every following keystroke.

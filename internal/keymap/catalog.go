@@ -20,6 +20,7 @@ const (
 	StepIn          Action = "step_in"
 	StepOut         Action = "step_out"
 	LastPane        Action = "last_pane"
+	PaneJump        Action = "pane_jump"
 	JumpAttention   Action = "jump_attention"
 	JumpWaiting     Action = "jump_waiting"
 	JumpFinished    Action = "jump_finished"
@@ -123,6 +124,7 @@ var Catalog = []Binding{
 	{ContextList, Open, []string{"enter"}, "focus the session, or fold the group", true},
 	{ContextList, StepIn, []string{"right"}, "step in: a session's work, then focus it", false},
 	{ContextList, StepOut, []string{"left"}, "step out: fold the work, close the group", false},
+	{ContextList, PaneJump, []string{"alt+p"}, "jump to a pane by session metadata", false},
 	{ContextList, LastPane, []string{"l"}, "focus the session you were on before this one; l again swaps back", false},
 	{ContextList, Rescind, []string{"ctrl+z"}, "undo the latest submission while its turn is active", false},
 	{ContextList, JumpAttention, []string{"tab"}, "enter the next session waiting on you", false},
@@ -207,6 +209,7 @@ var Catalog = []Binding{
 	// ui package's focusactions.go.
 	{ContextFocus, NewSession, []string{"alt+n"}, "new session in this one's group", false},
 	{ContextFocus, CopySessionID, []string{"alt+y"}, "copy the agent's session id", false},
+	{ContextFocus, PaneJump, []string{"alt+p"}, "jump to a pane by session metadata", false},
 	{ContextFocus, LastPane, []string{"alt+l"}, "back to the previous session; alt+l again swaps back", false},
 	{ContextFocus, BackAtPrompt, []string{"right", "left"}, "at a prompt edge, leave or advance triage", false},
 	{ContextFocus, PreviewUp, []string{"alt+up"}, "scroll the pane up", false},

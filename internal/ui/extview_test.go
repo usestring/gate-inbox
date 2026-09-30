@@ -226,9 +226,9 @@ func TestAPanickingViewIsClosed(t *testing.T) {
 // An extension may not add keys to one of the board's own screens other
 // than the list: those answer every key themselves.
 func TestExtensionKeysStayOffTheBoardsOwnScreens(t *testing.T) {
-	m, _, _ := viewModel(t, ExtensionKey{Screen: string(keymap.ContextFocus), Action: "peek", Keys: []string{"alt+p"}})
-	if action, ok := m.km().Action(keymap.ContextFocus, "alt+p"); ok {
-		t.Fatalf("alt+p in focus answers %s", action)
+	m, _, _ := viewModel(t, ExtensionKey{Screen: string(keymap.ContextFocus), Action: "peek", Keys: []string{"alt+s"}})
+	if action, ok := m.km().Action(keymap.ContextFocus, "alt+s"); ok {
+		t.Fatalf("alt+s in focus answers %s", action)
 	}
 	if len(m.extScreens) != 0 {
 		t.Fatalf("screens: %v", m.extScreens)

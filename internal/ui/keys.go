@@ -76,6 +76,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleAgentPickKey(msg)
 	case modeExtensionView:
 		return m.handleExtensionViewKey(msg)
+	case modePaneJump:
+		return m.handlePaneJumpKey(msg)
 	case modeQuickActions:
 		return m.handleQuickActionsKey(msg)
 	}
@@ -312,6 +314,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m, m.toggleEmptyGroups()
 	case keymap.Triage:
 		return m, m.toggleTriage()
+	case keymap.PaneJump:
+		return m, m.openPaneJump()
 	case keymap.Search:
 		m.searching = true
 		m.errBar.text = ""
@@ -391,8 +395,8 @@ var artifactRowActions = map[keymap.Action]bool{
 	keymap.FoldAll: true, keymap.Quit: true, keymap.ShowAllWork: true,
 	keymap.NewSession: true, keymap.NewSessionForm: true, keymap.NewGroup: true,
 	keymap.Search: true, keymap.ClearSearch: true, keymap.LegendPeek: true, keymap.Help: true,
-	keymap.QuickActions: true,
-	keymap.NameSweep:    true, keymap.TakeOver: true, keymap.Settings: true, keymap.Resize: true,
+	keymap.QuickActions: true, keymap.PaneJump: true,
+	keymap.NameSweep: true, keymap.TakeOver: true, keymap.Settings: true, keymap.Resize: true,
 	keymap.ArchivedView: true, keymap.StatusFilter: true,
 	keymap.EmptyGroups: true, keymap.Triage: true, keymap.ToggleChrome: true,
 	keymap.ToggleRail: true,

@@ -77,6 +77,7 @@ const (
 	// modeQuickActions holds the palette that runs any list action by name
 	// and shows the key it is on. See quickactions.go.
 	modeQuickActions
+	modePaneJump
 )
 
 type treeRow struct {
@@ -533,6 +534,7 @@ type Model struct {
 	heldAckID string
 
 	form      form
+	paneJump  paneJump
 	agentPick agentPick
 	actions   quickActions
 	groupForm groupForm

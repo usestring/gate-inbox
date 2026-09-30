@@ -118,6 +118,8 @@ func (m *Model) paint() (string, bool) {
 		frame = m.viewAgentPick()
 	case modeExtensionView:
 		frame = m.viewExtension()
+	case modePaneJump:
+		frame = m.viewPaneJump()
 	case modeQuickActions:
 		frame = m.viewQuickActions()
 	default:
@@ -769,6 +771,7 @@ func (m *Model) viewLegend() legendSection {
 		{keymap.LastPane, "last pane"}, {keymap.Rescind, "undo"},
 		{keymap.NewSession, "new"}, {keymap.NewSessionForm, "new…"},
 		{keymap.NewTerminal, "terminal"}, {keymap.NewGroup, "group"}, {keymap.Search, "search"},
+		{keymap.PaneJump, "pane jump"},
 		{keymap.ArchivedView, "archived"}, {keymap.StatusFilter, "attention"},
 		{keymap.Triage, "triage"}, {keymap.EmptyGroups, "hide empty"},
 		{keymap.Help, "full key map"}, {keymap.Quit, "quit"},

@@ -95,7 +95,9 @@ it. Agents name their own sessions after the task.
 **See status.** Every row shows whether its agent is working, waiting on you, finished or idle,
 read from the pane itself. The preview beside the list shows the conversation as **You** and
 **Assistant** messages, without the tool noise. `w` filters the list to what needs attention, and
-`/` searches names, groups, statuses and what the sessions have said.
+`/` searches names, groups, statuses and what the sessions have said. `alt+p` opens a pane
+picker from the list or a focused pane: search session metadata, then press `enter` to focus the
+match, even inside a folded group. `esc` returns to the view you left.
 
 **Triage.** `i` flattens the groups into one queue ordered by what needs a person: waiting first,
 then errored, then finished, longest-blocked first inside each. Picking an option in a dialog, or
@@ -125,6 +127,7 @@ selected agent for builds and one-off commands.
 | `i` | Triage queue; `\` hides the list for a full-width drain |
 | `w` | Show only what needs attention |
 | `/` | Fuzzy search; `esc` clears it |
+| `alt+p` | Search and jump to a live pane from the list or a focused pane |
 | `p` | Priority tier for a session or group; higher tiers go first in triage |
 | `T` | Shell tab under the selected agent |
 | `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |

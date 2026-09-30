@@ -46,6 +46,8 @@ func (m mode) String() string {
 		return "agent-pick"
 	case modeExtensionView:
 		return "extension-view"
+	case modePaneJump:
+		return "pane-jump"
 	case modeQuickActions:
 		return "quick-actions"
 	}

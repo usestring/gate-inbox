@@ -640,6 +640,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.startNewSession()
 		case action == keymap.CopySessionID:
 			return m.copySessionID(sess)
+		case action == keymap.PaneJump:
+			return m, m.openPaneJump()
 		case action == keymap.LastPane:
 			return m.focusBack()
 		case action == keymap.Dismiss:

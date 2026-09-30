@@ -30,12 +30,12 @@ identity_command = "printf ada@example.test"
 func TestMCPSurface(t *testing.T) {
 	s := newScratch(t)
 	s.writeFile(t, "config.toml", "")
-	core := listTools(t, mcpserver.NewServer(s.home, "cafe0001", "compat", all.Extensions()))
+	core := listTools(t, mcpserver.NewServer(s.home, "cafe0001", "compat", all.Extensions(), ""))
 	golden(t, "mcp/server.golden", s.redact(core.server))
 	golden(t, "mcp/tools-core.golden", s.redact(renderTools(t, core.tools)))
 
 	s.writeFile(t, "config.toml", artifactsOn)
-	withArtifacts := listTools(t, mcpserver.NewServer(s.home, "cafe0001", "compat", all.Extensions()))
+	withArtifacts := listTools(t, mcpserver.NewServer(s.home, "cafe0001", "compat", all.Extensions(), ""))
 	var added []*mcp.Tool
 	coreNames := map[string]bool{}
 	for _, tool := range core.tools {

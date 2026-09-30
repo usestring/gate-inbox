@@ -135,45 +135,27 @@ If the gate-inbox tools are not available in this session, delegate with the bui
 === hooks/gate-inbox-mcp-opencode.json
 {
   "$schema": "https://opencode.ai/config.json",
-  "command": {
+  "commands": {
     "rename": {
       "description": "Name this session after the work it is doing",
       "template": "Call the \"rename\" tool on the \"gate-inbox\" MCP server with the name, then report in one line what it actually did and stop. Do not resume the previous task in this turn; the operator asked for a name, not for work.\n\nUse the shell only when that tool is not available in this session: run \"$GATE_INBOX_BIN\" rename \"\u003cname\u003e\" once, bare, with no pipe after it so the exit status is the command's own. $GATE_INBOX_BIN is the path this session was launched with, because the manager runs from its own checkout and is not on PATH. If it fails with \"read-only file system\", that is the Bash sandbox refusing the manager's state directory, not the manager: run the same command once more with the sandbox disabled and report that result.\n\nIf $ARGUMENTS is non-empty, that is the name — kebab-case it and use it verbatim, without second-guessing the operator's wording.\n\nOtherwise take the name from this conversation: 2-4 words, kebab-case, describing the broad feature or theme of the whole session, not the subtask in front of you right now. Prefer what the session has been about across its turns to whatever was said in the last one.\n\nReport the result, never your intention: an error from the tool, or a non-zero exit or any error on the command's output, is a rename that did not happen. Never invent a fallback: renaming anything else leaves the manager's own name behind."
     }
   },
-  "instructions": [
-    "<scratch>/home/hooks/gate-inbox-opencode-rename-instructions.md",
-    "<scratch>/home/hooks/gate-inbox-opencode-delegation-instructions.md"
-  ],
   "mcp": {
-    "gate-inbox": {
-      "command": [
-        "<scratch>/home/bin/gate-inbox",
-        "mcp"
-      ],
-      "enabled": true,
-      "environment": {
-        "GATE_INBOX_SESSION_ID": "{env:GATE_INBOX_SESSION_ID}"
-      },
-      "type": "local"
+    "servers": {
+      "gate-inbox": {
+        "codemode": false,
+        "command": [
+          "<scratch>/home/bin/gate-inbox",
+          "mcp",
+          "--steering",
+          "opencode"
+        ],
+        "environment": {
+          "GATE_INBOX_SESSION_ID": "{env:GATE_INBOX_SESSION_ID}"
+        },
+        "type": "local"
+      }
     }
   }
 }
-=== hooks/gate-inbox-opencode-delegation-instructions.md
-# Delegating work: use Gate Inbox sessions
-
-This session runs under Gate Inbox, which gives you the gate-inbox MCP tools: create_session, list_sessions, read_session, send_session, wait_for_session, archive_session and task. When you hand work to another agent, start a Gate Inbox session with create_session instead of using the built-in task tool (the general, explore and other subagents). That covers any unit of real work: an investigation, an implementation, a review, a multi-step search, or anything else the user would want to see on their board.
-
-Why: a Gate Inbox session is on the user's board, where they can watch it, answer it and take it over. It works in a full context of its own instead of spending yours, it survives this conversation ending or being compacted, and its questions are relayed to you. Work done by a built-in subagent is invisible to the user and ends with this conversation.
-
-The built-in tool is still right for a quick read-only lookup that returns a single conclusion within seconds, such as finding where a symbol is defined. When in doubt, use a session.
-
-How: call list_sessions first and reuse a relevant idle session. Give create_session a descriptive name and a prompt that states the whole task, since the new agent cannot see this conversation; for repository work beside other agents, give it a directory that is its own checkout. Track shared plans with the task tool. Use read_session to check on it, send_session to redirect it, wait_for_session when your next step needs its result, and archive_session once it is done. Sessions cost the user tokens: create one per workstream, not one per trivial step.
-
-If the gate-inbox tools are not available in this session, delegate with the built-in task tool (the general, explore and other subagents) as usual.
-
-=== hooks/gate-inbox-opencode-rename-instructions.md
-# Session naming
-
-This session is managed by Gate Inbox, which lists it under a short name. After you understand what the session is about — not as your first action — name it once by calling the "rename" tool on the "gate-inbox" MCP server with a short 2-4 word kebab-case name for the broad feature or theme of the whole session (not one subtask of a larger feature). If that tool is not available in this session, run "$GATE_INBOX_BIN" rename "<name>" once in the shell instead. Rename only this once, then carry on with what you were doing. Do not rename again later unless the user explicitly asks.
-

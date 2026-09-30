@@ -596,6 +596,9 @@ func (m *Model) viewFooter() string {
 			}
 		}
 		pairs := append([][2]string{}, exits...)
+		if key := m.fullCap(keymap.ContextFocus, keymap.Dismiss); key != "" {
+			pairs = append(pairs, [2]string{key, "skip"})
+		}
 		if m.canRescindLatestSubmission() {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextFocus, keymap.Rescind), "undo"})
 		}
@@ -664,6 +667,9 @@ func (m *Model) defaultRowLegend() legendSection {
 		pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, keymap.QuickInput), "prompt"})
 	} else if m.isShell(row.sess.Tool) {
 		title = "Shell"
+	}
+	if m.applies(keymap.ContextList, keymap.Dismiss, row) {
+		pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, keymap.Dismiss), "skip"})
 	}
 	if m.showsConversation() {
 		pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, keymap.ToggleConversation), m.conversationToggleLabel()})

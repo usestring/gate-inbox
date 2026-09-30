@@ -51,7 +51,9 @@ type Result struct {
 	Call    Call
 	Outcome Outcome
 	Answers []Registered
-	At      time.Time
+	// Reply is the message that answered a call asked without a dialog.
+	Reply string
+	At    time.Time
 }
 
 type Registered struct {

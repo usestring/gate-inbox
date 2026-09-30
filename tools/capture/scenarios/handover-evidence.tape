@@ -7,10 +7,18 @@ Sleep 3s
 Screenshot {{SHOTS}}/01-unanswered-dialog.png
 Sleep 1s
 Enter
+Sleep 300ms
+Alt+\
 Sleep 1s
+Alt+\
+Sleep 1500ms
 Screenshot {{SHOTS}}/02-background-call-keeps-focus.png
 Sleep 1s
 Enter
 Sleep 3s
+Alt+\
+Sleep 1s
+Alt+\
+Sleep 1500ms
 Screenshot {{SHOTS}}/03-answer-opens-next-session.png
 Sleep 2s

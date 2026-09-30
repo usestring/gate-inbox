@@ -183,7 +183,7 @@ func TestAutoProceedHandsOverOnceTheAnswerLands(t *testing.T) {
 	if got := focusedName(t, m); got != "ask" {
 		t.Fatalf("the key alone handed the session over to %q", got)
 	}
-	logHookEvent(t, m, askID, "working PostToolUse")
+	recordDialogResult(t, m, askID, "answered")
 	lookForLanding(t, m)
 	if m.mode != modeFocus {
 		t.Fatalf("answering dropped out of the queue: %s", m.errBar.text)
@@ -249,7 +249,7 @@ func TestWithoutAutoProceedAnsweringStaysPut(t *testing.T) {
 	m := drainOnDialog(t, false)
 	askID := focusedID(t, m)
 	m = pressEnter(m)
-	logHookEvent(t, m, askID, "working PostToolUse")
+	recordDialogResult(t, m, askID, "answered")
 	lookForLanding(t, m)
 	if got := focusedName(t, m); got != "ask" {
 		t.Fatalf("without the setting the answer moved to %q", got)
@@ -267,7 +267,7 @@ func TestAutoProceedStaysWhenTheOperatorKeepsTyping(t *testing.T) {
 	m = pressEnter(m)
 	updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(*Model)
-	logHookEvent(t, m, askID, "working PostToolUse")
+	recordDialogResult(t, m, askID, "answered")
 	lookForLanding(t, m)
 	if got := focusedName(t, m); got != "ask" {
 		t.Fatalf("an answer the operator typed on past handed the session over to %q", got)
@@ -307,7 +307,7 @@ func TestLandedMuteLapsesWithTheFirstPollAfterIt(t *testing.T) {
 	m := drainOnDialog(t, true)
 	askID := focusedID(t, m)
 	m = pressEnter(m)
-	logHookEvent(t, m, askID, "working PostToolUse")
+	recordDialogResult(t, m, askID, "answered")
 	lookForLanding(t, m)
 	ask, ok := m.sessionByID(askID)
 	if !ok {

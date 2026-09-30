@@ -116,7 +116,7 @@ func TestFocusedDialogAnswerIsReportedAsADialogAnswer(t *testing.T) {
 	if got := operatorInputs(observer); len(got) != 0 {
 		t.Fatalf("the key was reported before the answer landed: %+v", got)
 	}
-	logHookEvent(t, m, id, "working PostToolUse")
+	recordDialogResult(t, m, id, "answered")
 	lookForLanding(t, m)
 	got := operatorInputs(observer)
 	if len(got) != 1 || got[0].SessionID != id || got[0].Via != extension.OperatorPane || !got[0].Dialog || got[0].Text != "" {

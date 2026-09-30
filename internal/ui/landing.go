@@ -11,6 +11,7 @@ import (
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/codexq"
 	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -26,9 +27,9 @@ import (
 // a pane the drain had already walked away from, Enter on a stepper question
 // moved the stepper along, and a declined permission left the agent stopped
 // with nobody watching it. What the agent does next is not a guess. Claude's
-// hooks log UserPromptSubmit for a prompt it took and PostToolUse for a call
-// it ran, its transcript and Codex's rollout record the message or the
-// answer, and a pane that had a dialog up and now shows the agent working has
+// hooks log UserPromptSubmit for a prompt it took, its transcript and
+// Codex's rollout identify the call whose answer arrived or record the typed
+// message, and a pane that had a dialog up and now shows the agent working has
 // had the dialog answered. So the key snapshots where each of those stood, and
 // a short run of looks decides.
 //
@@ -92,6 +93,7 @@ type landingProbe struct {
 	// typed message, a dialog as a tool result or the agent going back to
 	// work.
 	dialog bool
+	toolID string
 
 	hooks      *hooks.Manager
 	hookID     string
@@ -99,9 +101,12 @@ type landingProbe struct {
 
 	transcript       string
 	transcriptOffset int64
+	transcriptFile   os.FileInfo
 
-	rollout       string
-	rolloutOffset int64
+	rollout          string
+	rolloutOffset    int64
+	rolloutFile      os.FileInfo
+	rolloutQuestions *codexq.Tracker
 
 	// paneWorking reports the pane showing the agent at work. It is nil
 	// where the pane cannot confirm: a composer on a tool with a better
@@ -109,30 +114,46 @@ type landingProbe struct {
 	paneWorking func() bool
 }
 
-// look reads each source once. Refusal wins over landing within a look, so a
-// declined call is never read as answered because something else moved too.
+// look reads each source once. A matched refusal wins over completion; an
+// anonymous hook boundary only rules out the pane fallback. A matched result
+// can precede the next question's waiting hook in the same look.
 func (p *landingProbe) look() landingVerdict {
-	seen, refused := false, false
+	if landingSourceChanged(p.transcript, p.transcriptFile, p.transcriptOffset) ||
+		landingSourceChanged(p.rollout, p.rolloutFile, p.rolloutOffset) {
+		return landingRefused
+	}
+	seen, refused, boundary := false, false, false
 	if p.hooks != nil {
 		if events, next, ok := p.hooks.Events(p.hookID, p.hookOffset); ok {
 			p.hookOffset = next
 			s, r := p.hookVerdict(events)
-			seen, refused = seen || s, refused || r
+			seen, boundary = seen || s, boundary || r
 		}
 	}
 	if p.transcript != "" {
 		if delta, err := convo.Since(p.transcript, p.transcriptOffset); err == nil {
+			if delta.Rewound {
+				return landingRefused
+			}
 			p.transcriptOffset = delta.Next
 			s, r := p.transcriptVerdict(delta)
 			seen, refused = seen || s, refused || r
 		}
 	}
 	if p.rollout != "" {
-		if act, err := codexq.Since(p.rollout, p.rolloutOffset); err == nil {
-			p.rolloutOffset = act.Next
-			if p.dialog {
-				seen = seen || len(act.Answered) > 0
-			} else {
+		if p.rolloutQuestions != nil {
+			if questions, err := p.rolloutQuestions.Update(p.rollout); err == nil {
+				for _, q := range questions {
+					if p.toolID != "" && q.CallID == p.toolID {
+						seen = seen || q.State == codexq.Answered
+						refused = refused || q.State == codexq.Expired || q.State == codexq.Superseded
+					}
+				}
+				p.rolloutOffset = fileSize(p.rollout)
+			}
+		} else if !p.dialog {
+			if act, err := codexq.Since(p.rollout, p.rolloutOffset); err == nil {
+				p.rolloutOffset = act.Next
 				seen = seen || act.UserMessage
 			}
 		}
@@ -142,21 +163,18 @@ func (p *landingProbe) look() landingVerdict {
 		return landingRefused
 	case seen:
 		return landingSeen
+	case boundary:
+		return landingRefused
 	case p.paneWorking != nil && p.paneWorking():
 		return landingSeen
 	}
 	return landingPending
 }
 
-// hookVerdict reads the events logged since the key. The first one that
-// decides, decides: a new dialog after the answer landed is the next
-// question, not a refusal of this one.
-//
 // A composer key lands only on UserPromptSubmit. A built-in command such as
 // /model is not a prompt to the agent, so it never lands and the drain stays
-// on the picker it opens. A dialog key lands on PostToolUse, the call it
-// allowed having run; a waiting event first is another dialog, and a stop
-// first is the turn ending without the call.
+// on the picker it opens. Hooks carry no tool ID, so background calls cannot
+// confirm a dialog answer; a wait or stop only closes its fallback window.
 func (p *landingProbe) hookVerdict(events []hooks.Event) (seen, refused bool) {
 	for _, ev := range events {
 		if !p.dialog {
@@ -166,8 +184,6 @@ func (p *landingProbe) hookVerdict(events []hooks.Event) (seen, refused bool) {
 			continue
 		}
 		switch {
-		case ev.State == status.Working && ev.Name == "PostToolUse":
-			return true, false
 		case ev.State == status.Waiting, ev.State == status.Finished, ev.State == status.Errored:
 			return false, true
 		}
@@ -186,12 +202,16 @@ func (p *landingProbe) transcriptVerdict(delta convo.Delta) (seen, refused bool)
 		}
 	}
 	for _, result := range delta.Results {
+		if !p.dialog || p.toolID == "" || result.ToolUseID != p.toolID {
+			continue
+		}
 		if result.Rejected {
 			return false, true
 		}
+		seen = true
 	}
 	if p.dialog {
-		return len(delta.Results) > 0, false
+		return seen, false
 	}
 	return len(delta.Prompts) > 0, false
 }
@@ -236,14 +256,38 @@ func (m *Model) landingProbeFor(sess store.Session, dialog bool) *landingProbe {
 		if target, ok := m.landingLocator.Target(sess.ID, format, sess.Cwd, sess.AgentSessionID); ok {
 			if format == search.ToolClaude {
 				p.transcript, p.transcriptOffset = target.Path, fileSize(target.Path)
+				if dialog {
+					if name, ok := landingToolName(m.preview); ok {
+						if id, next, err := convo.PendingTool(target.Path, name); err == nil {
+							p.toolID, p.transcriptOffset = id, next
+						}
+					}
+				}
+				p.transcriptFile, _ = os.Stat(target.Path)
 			} else {
 				p.rollout, p.rolloutOffset = target.Path, fileSize(target.Path)
+				if dialog && landingCodexQuestion(m.preview) {
+					p.rolloutQuestions = &codexq.Tracker{}
+					if questions, err := p.rolloutQuestions.Update(target.Path); err == nil {
+						for _, q := range questions {
+							if q.CallID == "" || q.State != codexq.Outstanding || q.Async {
+								continue
+							}
+							if p.toolID != "" {
+								p.toolID = ""
+								break
+							}
+							p.toolID = q.CallID
+						}
+					}
+				}
+				p.rolloutFile, _ = os.Stat(target.Path)
 			}
 		}
 	}
 	// The pane is the fallback source. A dialog that gives way to the agent
 	// working has been answered however long the call it allowed then runs,
-	// which the hooks and the transcript only report once the call ends. On
+	// which the transcript and rollout only report once the call ends. On
 	// a composer it is the only source a tool without hooks or a transcript
 	// has. Either way it counts only as a change: a pane that already read
 	// working says nothing about this key.
@@ -263,11 +307,35 @@ func (m *Model) landingProbeFor(sess store.Session, dialog bool) *landingProbe {
 
 func paneWorks(engine *status.Engine, tool, pane string) bool {
 	text := ansi.Strip(pane)
+	if _, up := dialog.Inspect(text); up {
+		return false
+	}
 	if engine.ViewportDisplaced(tool, text) {
 		return false
 	}
 	state, matched := engine.Match(tool, text)
 	return matched && state == status.Working
+}
+
+func landingToolName(pane string) (string, bool) {
+	held, ok := dialog.Inspect(ansi.Strip(pane))
+	if ok && held.Kind == dialog.KindAsk {
+		return "AskUserQuestion", true
+	}
+	return "", ok && held.Kind == dialog.KindApproval
+}
+
+func landingCodexQuestion(pane string) bool {
+	held, ok := dialog.Inspect(ansi.Strip(pane))
+	return ok && held.Kind == dialog.KindCodexAsk
+}
+
+func landingSourceChanged(path string, before os.FileInfo, offset int64) bool {
+	if path == "" || before == nil {
+		return false
+	}
+	now, err := os.Stat(path)
+	return err != nil || !os.SameFile(before, now) || now.Size() < offset
 }
 
 func fileSize(path string) int64 {

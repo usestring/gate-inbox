@@ -27,7 +27,7 @@ func TestResolvedStateSurvivesAReopen(t *testing.T) {
 			Key: "pr:example-org/sample-repo#7674", Repo: "example-org/sample-repo", Number: 7674,
 			Title: "Retry truncated status lines", State: "open", Checks: "failing",
 			Review: "changes-requested", URL: "https://example.invalid/7674", Mergeable: true,
-			HeadRef: "abc-1-fix", FailingChecks: 2, FetchedAt: at,
+			HeadRef: "abc-1-fix", FailingChecks: 2, UpdatedAt: at.Add(-time.Hour), FetchedAt: at,
 		}},
 		[]StoredTicket{{
 			Key: "ticket:ABC-100004", Identifier: "ABC-100004", Title: "Quota",
@@ -51,7 +51,7 @@ func TestResolvedStateSurvivesAReopen(t *testing.T) {
 	if got.Repo != "example-org/sample-repo" || got.Number != 7674 || got.Title != "Retry truncated status lines" ||
 		got.State != "open" || got.Checks != "failing" || got.Review != "changes-requested" ||
 		got.URL != "https://example.invalid/7674" || !got.Mergeable || got.HeadRef != "abc-1-fix" ||
-		got.FailingChecks != 2 || !got.FetchedAt.Equal(at) {
+		got.FailingChecks != 2 || !got.UpdatedAt.Equal(at.Add(-time.Hour)) || !got.FetchedAt.Equal(at) {
 		t.Errorf("pr round-tripped as %+v", got)
 	}
 	ticket := tickets[0]

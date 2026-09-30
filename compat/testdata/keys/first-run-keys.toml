@@ -70,7 +70,8 @@
 # toggle_chrome       = [","]  # hide / show the key hints along the foot
 # toggle_rail         = ["\\"]  # hide / show the list beside the pane
 # legend_peek         = ["?"]  # peek at every available key
-# help                = ["h", "H", "shift+h"]  # this key map (cannot be unbound)
+# quick_actions       = [":", "ctrl+p"]  # quick actions: find any action by name, run it, see its key
+# help                = ["h", "H", "shift+h", "ctrl+h"]  # this key map (cannot be unbound)
 # quit                = ["q"]  # quit (sessions keep running) (cannot be unbound)
 
 # [focus]
@@ -82,6 +83,7 @@
 # toggle_chrome       = ["alt+,"]  # hide / show the key hints along the foot
 # toggle_rail         = ["alt+\\"]  # hide / show the list beside the pane
 # archive             = ["ctrl+x"]  # kill it, asking first
+# help                = ["ctrl+h"]  # this key map
 # new_session         = ["alt+n"]  # new session in this one's group
 # copy_session_id     = ["alt+y"]  # copy the agent's session id
 # last_pane           = ["alt+l"]  # back to the previous session; alt+l again swaps back
@@ -115,7 +117,7 @@
 
 # [welcome]
 # close       = ["enter", "esc", "q", " ", "space"]  # close the guide (cannot be unbound)
-# help        = ["h", "H", "?", "shift+h"]  # the key map
+# help        = ["h", "H", "?", "shift+h", "ctrl+h"]  # the key map
 # cursor_up   = ["up", "k"]  # move up (cannot be unbound)
 # cursor_down = ["down", "j"]  # move down (cannot be unbound)
 # page_up     = ["ctrl+u", "pgup"]  # a page up

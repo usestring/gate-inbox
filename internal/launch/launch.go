@@ -594,7 +594,8 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		}
 		env[tool.AccountEnv] = token
 	} else if tool.AccountEnv != "" {
-		// A spawning agent may itself be borrowing a subscription.
+		// A spawning agent may itself run on a named account, whose token
+		// it would otherwise pass on.
 		env[tool.AccountEnv] = ""
 	}
 	register := mcpreg.Preview

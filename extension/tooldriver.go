@@ -14,7 +14,7 @@ import (
 // code, supplied by the build rather than copied into it.
 //
 // The host asks for drivers after configuring the extension, and only while
-// it is enabled. Like an AccountPoolProvider, it may be configured a second
+// it is enabled. Like an AccountChooserProvider, it may be configured a second
 // time by a process that also serves its MCP tools.
 type ToolDriverProvider interface {
 	ToolDrivers() []ToolDriver

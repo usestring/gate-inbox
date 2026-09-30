@@ -76,6 +76,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleAgentPickKey(msg)
 	case modeExtensionView:
 		return m.handleExtensionViewKey(msg)
+	case modeQuickActions:
+		return m.handleQuickActionsKey(msg)
 	}
 
 	// A pending open waits for the open key again on the same row. esc
@@ -144,38 +146,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// should mean on a pull request. Written as actions rather than as keys,
 	// so a rebound key is still refused, or still allowed, for the reason it
 	// always was.
-	if entry, ok := m.cursorRow(); ok && entry.isArtifact() {
-		if entry.art.more > 0 {
-			// The row stands for what the cap took off, so opening it is
-			// lifting the cap: the rows it names come back in its place.
-			switch action {
-			case keymap.Open, keymap.StepIn, keymap.ShowAllWork:
-				return m, m.toggleShowAllWork()
-			}
-		}
-		switch action {
-		case keymap.Open:
-			if entry.art.url == "" {
-				m.errBar.text = entry.art.label + " has no link to open"
-				return m, nil
-			}
-			return m, openLink(entry.art.url)
-		case keymap.StepIn:
-			// Nothing nests under an artifact, and stepping into the pane
-			// from here would be aimed at the session, which is not the row.
-			return m, nil
-		case keymap.StepOut:
-			m.toggleRailWork()
-			return m, nil
-		}
-		// An unbound key is refused here too: the row says what it is rather
-		// than swallowing the press, which is what it did when every key was
-		// a literal.
-		if !bound || !artifactRowActions[action] {
-			m.errBar.text = entry.art.label + " is work, not a session — select " +
-				m.displayName(entry.sess) + " to act on it"
-			return m, nil
-		}
+	if model, cmd, answered := m.artifactRowAction(action, bound); answered {
+		return model, cmd
 	}
 
 	// Snippets are read before the list's own bindings and not inside them:
@@ -189,6 +161,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if !bound {
 		return m, nil
 	}
+	return m.runListAction(action, msg)
+}
+
+// runListAction does what a list action does once the press has been read
+// as one. It is split from handleKey so the quick actions palette can run an
+// action by name through the same switch its key reaches.
+func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if ext, ok := m.extKeys[keymap.ContextList][action]; ok {
 		return m, m.runExtensionKey(ext)
 	}
@@ -354,10 +333,53 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.toggleRail()
 	case keymap.LegendPeek:
 		return m, m.beginLegendPeek(msg)
+	case keymap.QuickActions:
+		m.openQuickActions()
 	case keymap.Help:
 		m.openHelp()
 	}
 	return m, nil
+}
+
+// artifactRowAction answers an action pressed while the cursor is on a pull
+// request or ticket row, and reports whether it did. See handleKey.
+func (m *Model) artifactRowAction(action keymap.Action, bound bool) (tea.Model, tea.Cmd, bool) {
+	entry, ok := m.cursorRow()
+	if !ok || !entry.isArtifact() {
+		return m, nil, false
+	}
+	if entry.art.more > 0 {
+		// The row stands for what the cap took off, so opening it is
+		// lifting the cap: the rows it names come back in its place.
+		switch action {
+		case keymap.Open, keymap.StepIn, keymap.ShowAllWork:
+			return m, m.toggleShowAllWork(), true
+		}
+	}
+	switch action {
+	case keymap.Open:
+		if entry.art.url == "" {
+			m.errBar.text = entry.art.label + " has no link to open"
+			return m, nil, true
+		}
+		return m, openLink(entry.art.url), true
+	case keymap.StepIn:
+		// Nothing nests under an artifact, and stepping into the pane
+		// from here would be aimed at the session, which is not the row.
+		return m, nil, true
+	case keymap.StepOut:
+		m.toggleRailWork()
+		return m, nil, true
+	}
+	// An unbound key is refused here too: the row says what it is rather
+	// than swallowing the press, which is what it did when every key was
+	// a literal.
+	if !bound || !artifactRowActions[action] {
+		m.errBar.text = entry.art.label + " is work, not a session — select " +
+			m.displayName(entry.sess) + " to act on it"
+		return m, nil, true
+	}
+	return m, nil, false
 }
 
 // artifactRowActions is what an artifact row lets through to the list: the
@@ -369,7 +391,8 @@ var artifactRowActions = map[keymap.Action]bool{
 	keymap.FoldAll: true, keymap.Quit: true, keymap.ShowAllWork: true,
 	keymap.NewSession: true, keymap.NewSessionForm: true, keymap.NewGroup: true,
 	keymap.Search: true, keymap.ClearSearch: true, keymap.LegendPeek: true, keymap.Help: true,
-	keymap.NameSweep: true, keymap.TakeOver: true, keymap.Settings: true, keymap.Resize: true,
+	keymap.QuickActions: true,
+	keymap.NameSweep:    true, keymap.TakeOver: true, keymap.Settings: true, keymap.Resize: true,
 	keymap.ArchivedView: true, keymap.StatusFilter: true,
 	keymap.EmptyGroups: true, keymap.Triage: true, keymap.ToggleChrome: true,
 	keymap.ToggleRail: true,

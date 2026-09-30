@@ -329,7 +329,7 @@ func (m *Model) relaunchSession(sess store.Session, tool config.Tool, baseComman
 	if err := m.store.UpdateStatus(sess.ID, newStatus); err != nil {
 		return err
 	}
-	accounts.RecordLaunch(m.store, sess.ID, sess.Tool, sess.Account)
+	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account)
 	// A leftover ack from the previous life must not swallow the relaunched
 	// agent's first finished alert.
 	return m.store.SetAcked(sess.ID, false)

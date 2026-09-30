@@ -61,7 +61,7 @@ func (r *Registry) IDs() []string {
 // and its own data directory under configDir.
 //
 // A section an extension refuses disables that extension alone: it
-// registers no tools, supplies no account pool, starts nothing on the
+// registers no tools, supplies no account chooser, starts nothing on the
 // board, and its launch hooks are skipped; the report names it with the
 // reason, while every other extension carries on. The one hook that is not
 // skipped is a SpawnPolicy, which fails closed: see SessionHooks. A section no
@@ -165,21 +165,21 @@ func (c ConfigReport) Notes() []string {
 	return notes
 }
 
-// AccountPool is the pool the enabled AccountPoolProvider supplies, or nil
-// when no extension in this build supplies one. On a registry nothing has
-// configured yet, only the providers are configured, from sections and under
-// configDir: a CLI command routing one launch has no use for the rest.
-// Two enabled providers are refused rather than one silently winning. When
-// no provider supplies a pool because its config disabled it, the error
-// says so, so a routed launch fails with the reason rather than as though
-// the build had no pool at all.
-func (r *Registry) AccountPool(configDir string, sections map[string]map[string]any) (AccountPool, error) {
+// AccountChooser is the chooser the enabled AccountChooserProvider
+// supplies, or nil when no extension in this build supplies one. On a
+// registry nothing has configured yet, only the providers are configured,
+// from sections and under configDir: a CLI command launching one session
+// has no use for the rest. Two enabled providers are refused rather than one
+// silently winning. When no provider supplies a chooser because its config
+// disabled it, the error says so, so a launch that needed one fails with
+// the reason rather than as though the build had none.
+func (r *Registry) AccountChooser(configDir string, sections map[string]map[string]any) (AccountChooser, error) {
 	found := r.providers(func(ext Extension) bool {
-		_, ok := ext.(AccountPoolProvider)
+		_, ok := ext.(AccountChooserProvider)
 		return ok
 	})
 	disabled := r.configureOnly(found, configDir, sections)
-	var pool AccountPool
+	var chooser AccountChooser
 	var owners []string
 	var refused []error
 	for _, i := range found {
@@ -190,23 +190,23 @@ func (r *Registry) AccountPool(configDir string, sections map[string]map[string]
 		if !enabled(r.extensions[i]) {
 			continue
 		}
-		pool = r.extensions[i].(AccountPoolProvider).AccountPool()
-		if v := reflect.ValueOf(pool); pool == nil || (v.Kind() == reflect.Pointer && v.IsNil()) {
-			return nil, fmt.Errorf("extension %q is enabled but supplied no account pool", r.ids[i])
+		chooser = r.extensions[i].(AccountChooserProvider).AccountChooser()
+		if v := reflect.ValueOf(chooser); chooser == nil || (v.Kind() == reflect.Pointer && v.IsNil()) {
+			return nil, fmt.Errorf("extension %q is enabled but supplied no account chooser", r.ids[i])
 		}
 		owners = append(owners, r.ids[i])
 	}
 	if len(owners) > 1 {
-		return nil, fmt.Errorf("more than one extension supplies an account pool: %s", strings.Join(owners, ", "))
+		return nil, fmt.Errorf("more than one extension supplies an account chooser: %s", strings.Join(owners, ", "))
 	}
 	if len(owners) == 0 && len(refused) > 0 {
 		return nil, errors.Join(refused...)
 	}
-	return pool, nil
+	return chooser, nil
 }
 
 // ToolDrivers are the drivers every enabled ToolDriverProvider supplies,
-// keyed by style. As with AccountPool, a registry nothing has configured yet
+// keyed by style. As with AccountChooser, a registry nothing has configured yet
 // configures only the providers, and a provider its section disabled
 // supplies none. reserved names the styles the host implements itself; a
 // driver can take none of them, nor a style another driver took first.

@@ -118,6 +118,8 @@ func (m *Model) paint() (string, bool) {
 		frame = m.viewAgentPick()
 	case modeExtensionView:
 		frame = m.viewExtension()
+	case modeQuickActions:
+		frame = m.viewQuickActions()
 	default:
 		frame = m.viewListFrame()
 	}

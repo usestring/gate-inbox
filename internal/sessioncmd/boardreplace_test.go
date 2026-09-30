@@ -149,9 +149,6 @@ func TestBoardPlanReplaceChangesNothing(t *testing.T) {
 	if counts, _ := h.store.QueuedCounts(); counts[old.ID] != 1 {
 		t.Fatalf("queued = %v, want the old session's message left where it was", counts)
 	}
-	if borrower, _ := h.store.Setting("account_borrower:" + plan.SessionID); borrower != "" {
-		t.Fatalf("a plan recorded a borrower %q", borrower)
-	}
 	if len(watcher.spawned) != 0 {
 		t.Fatalf("spawned = %+v, want no spawn reported for a plan", watcher.spawned)
 	}

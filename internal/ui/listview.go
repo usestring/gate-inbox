@@ -408,7 +408,8 @@ func railFact(pad, label, value string) string {
 // facts that place it, right above the prompt block it sits beside. A
 // session's name, its queued-message badge, its state and its age are left
 // to the cursor row, which already draws them one glance away, so the block
-// carries only what the row does not.
+// carries only what the row does not. Its start time goes too, so the only
+// clock on the rail is the row's.
 func (m *Model) sessionDetailLines(width int) []string {
 	pad := spaces(railInset)
 	room := width - railInset - 2
@@ -451,7 +452,6 @@ func (m *Model) sessionDetailLines(width int) []string {
 		pad + subtleStyle.Render("session"),
 		railFact(pad, "cli", chipStyle.Render(textfmt.TruncateWidth(tool, max(factRoom-2, 1), "…"))),
 		railFact(pad, "group", lipgloss.NewStyle().Foreground(colorAccent2).Render(textfmt.TruncateWidth(displayGroup(sess.Group), factRoom, "…"))),
-		railFact(pad, "started", subtleStyle.Render(textfmt.TruncateWidth(relSince(sess.CreatedAt), factRoom, "…"))),
 		railFact(pad, "dir", mutedStyle.Render(truncateTail(sess.Cwd, factRoom))),
 	}
 	if usage != "" {

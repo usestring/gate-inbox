@@ -53,7 +53,7 @@ func (p *poller) relayChildQuestion(sess store.Session, newStatus, pane string) 
 	// The session that spawned it, not the row it is drawn under: the tree
 	// carries one level, so a grandchild's questions all went to a root that
 	// had not assigned the work and could not answer them either.
-	spawner := store.SpawnerOf(sess)
+	spawner := store.TrackerOf(sess)
 	if newStatus != status.Waiting || spawner == "" || sess.Archived {
 		return nil
 	}

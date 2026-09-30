@@ -92,7 +92,7 @@ func scrollbackServer(t *testing.T) (string, []string) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
-	socket := tmuxtest.NewSocket("scrollback")
+	socket := tmuxtest.Socket(t, "scrollback")
 	command := "sh -c \"printf 'scrolled-off-marker-%s\\n' \\$N; " +
 		"for n in \\$(seq 1 60); do printf 'filler-%s\\n' \\$n; done; exec cat\""
 

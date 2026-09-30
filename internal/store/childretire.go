@@ -126,11 +126,12 @@ func (s *Store) NoteSpawnerRead(id string, at time.Time) error {
 // Descendants is every row under id by ownership rather than by drawing:
 // what id spawned, what those spawned, and so on, nearest first. parent_id is
 // one level deep on purpose, so a grandchild is filed under the root and only
-// spawned_by says whose it is; see spawner.go.
+// spawned_by says whose it is; see spawner.go. A detached spawn is nobody's
+// descendant, so archiving its creator leaves it running.
 func Descendants(sessions []Session, id string) []Session {
 	byOwner := make(map[string][]Session, len(sessions))
 	for _, sess := range sessions {
-		if owner := SpawnerOf(sess); owner != "" {
+		if owner := TrackerOf(sess); owner != "" {
 			byOwner[owner] = append(byOwner[owner], sess)
 		}
 	}

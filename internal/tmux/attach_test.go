@@ -41,7 +41,7 @@ func TestAttachDoesNotMoveTheOperatorsWindow(t *testing.T) {
 	}
 	// A real terminal for the attach to land in: a nested tmux is the only
 	// way a test can hand a command a pty.
-	terminal := tmuxtest.NewSocket("attachterm")
+	terminal := tmuxtest.Socket(t, "attachterm")
 	tmuxOn(terminal, "kill-server").Run()
 	t.Cleanup(func() { tmuxOn(terminal, "kill-server").Run() })
 	if out, err := tmuxOn(terminal, "new-session", "-d", "-s", "term", "-x", "80", "-y", "24",
@@ -162,7 +162,7 @@ func TestAttachLandsOnTheAdoptedPaneWhenNobodyIsWatching(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
-	socket := tmuxtest.NewSocket("detached")
+	socket := tmuxtest.Socket(t, "detached")
 	tmuxOn(socket, "kill-server").Run()
 	t.Cleanup(func() { tmuxOn(socket, "kill-server").Run() })
 	for _, args := range [][]string{
@@ -184,7 +184,7 @@ func TestAttachLandsOnTheAdoptedPaneWhenNobodyIsWatching(t *testing.T) {
 	if err := driver.Adopt(id, Target{Socket: socket, Name: pane}); err != nil {
 		t.Fatalf("Adopt: %v", err)
 	}
-	terminal := tmuxtest.NewSocket("soloterm")
+	terminal := tmuxtest.Socket(t, "soloterm")
 	tmuxOn(terminal, "kill-server").Run()
 	t.Cleanup(func() { tmuxOn(terminal, "kill-server").Run() })
 	if out, err := tmuxOn(terminal, "new-session", "-d", "-s", "term", "-x", "80", "-y", "24",

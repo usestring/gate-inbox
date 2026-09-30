@@ -46,6 +46,8 @@ func (m mode) String() string {
 		return "agent-pick"
 	case modeExtensionView:
 		return "extension-view"
+	case modeQuickActions:
+		return "quick-actions"
 	}
 	return fmt.Sprintf("mode(%d)", int(m))
 }

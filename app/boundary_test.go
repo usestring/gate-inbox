@@ -306,7 +306,7 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		if _, err := exec.LookPath("tmux"); err != nil {
 			t.Skip("ending a terminal ends a tmux pane")
 		}
-		socket := tmuxtest.NewSocket("endterm")
+		socket := tmuxtest.Socket(t, "endterm")
 		env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+shellTool)
 		home := envValue(env, "GATE_INBOX_HOME")
 		tmuxDir := envValue(env, "TMUX_TMPDIR")
@@ -372,7 +372,7 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		if _, err := exec.LookPath("tmux"); err != nil {
 			t.Skip("the board reads a tmux pane")
 		}
-		socket := tmuxtest.NewSocket("board")
+		socket := tmuxtest.Socket(t, "board")
 		env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n")
 		home := envValue(env, "GATE_INBOX_HOME")
 		tmuxDir := envValue(env, "TMUX_TMPDIR")
@@ -731,7 +731,7 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 		t.Skip("the board polls a tmux server")
 	}
 	bin := buildFixture(t)
-	socket := tmuxtest.NewSocket("lifecycle")
+	socket := tmuxtest.Socket(t, "lifecycle")
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+envEchoTool+shellTool+envDumpTool)
 	home := envValue(env, "GATE_INBOX_HOME")
 	logFile := filepath.Join(home, "board.log")
@@ -843,11 +843,19 @@ func TestExternalBuildRunsOnTheBoard(t *testing.T) {
 	if counts := queuedCounts(t, filepath.Join(home, "state.db")); counts[fresh] != 3 || counts[helper] != 0 {
 		t.Fatalf("queued = %v, want the helper's message forwarded at the commit", counts)
 	}
+	if err := os.WriteFile(filepath.Join(data, "go-kill"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if got := waitForFile(t, filepath.Join(data, "env-"+fresh+".txt"), "", exited, &out); got != "replace "+helper {
 		t.Fatalf("the replacement's pane saw NOOP_LAUNCH=%q, want a replace from the helper", got)
 	}
 	checkPlanWasLaunched(t, home, data, helper, fresh)
 	waitForFile(t, filepath.Join(data, "killed.txt"), fresh+" dead false\n", exited, &out)
+	// Ending the replacement drops what was forwarded to it, as the queue
+	// of a recipient that ended.
+	if counts := queuedCounts(t, filepath.Join(home, "state.db")); counts[fresh] != 0 {
+		t.Fatalf("queued = %v, want the replacement's queue dropped with it", counts)
+	}
 	waitForFile(t, filepath.Join(data, "archived.txt"), fresh+" archived true\n", exited, &out)
 	pendingLine := waitForFile(t, filepath.Join(data, "pending.txt"), " held-under "+helper+"\n", exited, &out)
 	pending, _, _ := strings.Cut(pendingLine, " ")
@@ -950,9 +958,6 @@ func checkPlanWasLaunched(t *testing.T, home, data, helper, fresh string) {
 	defer st.Close()
 	if _, err := st.Get(plan.SessionID); err == nil {
 		t.Fatalf("the plan filed a row for %s", plan.SessionID)
-	}
-	if borrower, _ := st.Setting("account_borrower:" + plan.SessionID); borrower != "" {
-		t.Fatalf("the plan recorded a borrower for %s", plan.SessionID)
 	}
 	asLaunched := func(s string) string { return strings.ReplaceAll(s, plan.SessionID, fresh) }
 	fields := func(path string) []string {
@@ -1105,7 +1110,7 @@ func TestExternalBuildRunsExtensionCommands(t *testing.T) {
 		if _, err := exec.LookPath("tmux"); err != nil {
 			t.Skip("the session services open a tmux driver")
 		}
-		env := fixtureHome(t, "tmux_socket = \""+tmuxtest.NewSocket("operator")+"\"\n")
+		env := fixtureHome(t, "tmux_socket = \""+tmuxtest.Socket(t, "operator")+"\"\n")
 		seedSessions(t, filepath.Join(envValue(env, "GATE_INBOX_HOME"), "state.db"))
 		operator := slices.DeleteFunc(slices.Clone(env), func(entry string) bool {
 			return strings.HasPrefix(entry, "GATE_INBOX_SESSION_ID=")
@@ -1127,7 +1132,7 @@ func TestExternalBuildRunsExtensionCommands(t *testing.T) {
 		if _, err := exec.LookPath("tmux"); err != nil {
 			t.Skip("the session services open a tmux driver")
 		}
-		env := fixtureHome(t, "tmux_socket = \""+tmuxtest.NewSocket("plan")+"\"\n"+envEchoTool)
+		env := fixtureHome(t, "tmux_socket = \""+tmuxtest.Socket(t, "plan")+"\"\n"+envEchoTool)
 		state := filepath.Join(envValue(env, "GATE_INBOX_HOME"), "state.db")
 		seedSessions(t, state)
 		out, code := run(t, append(env, "GATE_INBOX_SESSION_ID=ca11e400"), "noop-plan", "c41d0001")

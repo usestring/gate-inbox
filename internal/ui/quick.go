@@ -36,9 +36,6 @@ func (m *Model) openQuickMode() {
 	input.SetHeight(1)
 	input.Focus()
 	m.errBar.text = ""
-	if m.showsConversation() {
-		m.conversation.compact, m.conversation.dirty, m.conversation.offset = true, true, 0
-	}
 	m.quick = quickState{
 		active:         true,
 		composer:       composer{input: input, maxRows: quickBarMaxRows, gen: m.nextComposerGen()},

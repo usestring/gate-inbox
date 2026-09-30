@@ -83,7 +83,7 @@ func (m *Model) launchNewSessionWith(sess store.Session, tool config.Tool, baseC
 	} else if !shell {
 		sessionhooks.Spawned(sessionHooks, sess, extension.SpawnByOperator)
 	}
-	accounts.RecordLaunch(m.store, sess.ID, sess.Tool, sess.Account)
+	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account)
 	labelErr := m.tmux.SetLabel(sess.ID, sessionLabel(sess.Group, sess.Name))
 	if m.launched == nil {
 		m.launched = map[string]time.Time{}

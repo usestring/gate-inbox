@@ -20,7 +20,7 @@ exit 0
 --- stdout
 usage: gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--nest] [--keep] [--json]
   -account string
-    	named subscription it runs on, read from Secret Manager at launch; omit for the board's default account
+    	named account it runs on, read from its secret at launch; omit for the board's launch-account setting
   -directory string
     	existing directory it works in; defaults to yours, or to the group's inherited path
   -group string
@@ -125,8 +125,6 @@ $ gate-inbox migrate -h
 exit 0
 --- stdout
 usage: gate-inbox migrate <session-id> --tool <cli> [--name <name>] [--json]
-  -account string
-    	named subscription the new session runs on; defaults to the source's own, then the board's default
   -json
     	print the raw result as JSON instead of a sentence
   -name string

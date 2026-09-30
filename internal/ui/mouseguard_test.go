@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/tmux"
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 func TestGuardedMouseCommandWrapsTheSend(t *testing.T) {
@@ -32,7 +33,7 @@ func TestGuardedMouseCommandFollowsTheLiveFlag(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
-	driver, err := tmux.NewWithSocket("gateguard")
+	driver, err := tmux.NewWithSocket(tmuxtest.Socket(t, "guard"))
 	if err != nil {
 		t.Fatalf("driver: %v", err)
 	}

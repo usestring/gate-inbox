@@ -25,7 +25,7 @@ func TestExternalBuildAddsANewSessionFormField(t *testing.T) {
 		t.Skip("the board launches a tmux pane")
 	}
 	bin := buildFixture(t)
-	socket := tmuxtest.NewSocket("formfield")
+	socket := tmuxtest.Socket(t, "formfield")
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+envEchoTool)
 	home := envValue(env, "GATE_INBOX_HOME")
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })

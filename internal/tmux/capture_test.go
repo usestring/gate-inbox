@@ -121,7 +121,7 @@ func TestCapturePanesReadsEveryServerWithOneForkEach(t *testing.T) {
 func TestCapturePanesReportsAnUnreachableServer(t *testing.T) {
 	driver := requireTmux(t)
 	id := uniqueID("stranded")
-	adopt(t, driver, id, tmuxtest.NewSocket("gone"), "%0")
+	adopt(t, driver, id, tmuxtest.Socket(t, "gone"), "%0")
 	t.Cleanup(driver.CloseCaptureClients)
 
 	capture, listed := driver.CapturePanes([]string{id})[id]
@@ -238,7 +238,7 @@ func TestControlClientLeavesAWatchedWindowAlone(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
-	socket := tmuxtest.NewSocket("watched")
+	socket := tmuxtest.Socket(t, "watched")
 	tmuxOn(socket, "kill-server").Run()
 	if out, err := tmuxOn(socket, "new-session", "-d", "-s", "user", "-x", "200", "-y", "50", "cat").CombinedOutput(); err != nil {
 		t.Fatalf("watched new-session: %v: %s", err, out)
@@ -249,7 +249,7 @@ func TestControlClientLeavesAWatchedWindowAlone(t *testing.T) {
 	}
 	// A real terminal on the pane, at a size of its own: a nested tmux is
 	// the one way to give a test a client with a pty behind it.
-	watcher := tmuxtest.NewSocket("watcher")
+	watcher := tmuxtest.Socket(t, "watcher")
 	tmuxOn(watcher, "kill-server").Run()
 	if out, err := tmuxOn(watcher, "new-session", "-d", "-s", "term", "-x", "132", "-y", "43",
 		"tmux -L "+socket+" attach -t user").CombinedOutput(); err != nil {

@@ -278,7 +278,7 @@ func TestRowDirRefusesADirectoryThatIsGone(t *testing.T) {
 		t.Fatalf("remove dir: %v", err)
 	}
 
-	dir, ok := m.rowDir()
+	dir, ok := m.rowDir(m.selectedRow())
 	if ok {
 		t.Fatalf("rowDir accepted a directory that is gone: %q", dir)
 	}

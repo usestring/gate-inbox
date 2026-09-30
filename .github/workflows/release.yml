@@ -2,15 +2,28 @@
 
 name: Release
 
+# A push to main runs release-please over the conventional squash-commit
+# subjects since the last release. It keeps one Release PR open that bumps
+# .release-please-manifest.json and CHANGELOG.md. Merging that PR makes
+# release-please tag the merge commit and publish a GitHub Release with the
+# notes; goreleaser then attaches the binaries to that release.
+#
+# A tag pushed by hand still releases through the goreleaser job alone. The
+# tag release-please creates with GITHUB_TOKEN does not start a second run.
 on:
   push:
+    branches: [main]
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
+# One release run at a time across main and hand-pushed tags, and a run is
+# never cancelled mid-release. A newer push can replace an older queued run,
+# which is safe because release-please reads every commit since the last
+# release.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 env:
@@ -18,13 +31,42 @@ env:
   LC_ALL: C.UTF-8
 
 jobs:
+  release-please:
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
   goreleaser:
+    needs: release-please
+    # always() lets a tag push run this job although release-please was
+    # skipped.
+    if: >-
+      always() &&
+      (github.ref_type == 'tag' ||
+       (needs.release-please.result == 'success' &&
+        needs.release-please.outputs.release_created == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: ${{ needs.release-please.outputs.tag_name || github.ref }}
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -35,5 +77,5 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # The pushed tag, not whichever tag git describe reaches first.
-          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+          # The released tag, not whichever tag git describe reaches first.
+          GORELEASER_CURRENT_TAG: ${{ needs.release-please.outputs.tag_name || github.ref_name }}

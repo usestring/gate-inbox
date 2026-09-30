@@ -117,8 +117,8 @@ func TestWelcomeCardSaysWhenNoCLIIsInstalled(t *testing.T) {
 	}
 }
 
-// Agents already running in tmux are named on the card, and the reopen card
-// that follows is where they are answered for.
+// Agents already running in tmux are named on the card, with what the board
+// does about them.
 func TestWelcomeCardCountsAgentsAlreadyRunning(t *testing.T) {
 	m := buildModel(t)
 	adoptForeignPane(t, m, "byhand", "byhand", "idle")
@@ -126,13 +126,12 @@ func TestWelcomeCardCountsAgentsAlreadyRunning(t *testing.T) {
 	m.adoptFirstDone = true
 	m.openWelcome()
 	body := ansi.Strip(m.viewWelcome())
-	if !strings.Contains(body, "1 found in tmux") || !strings.Contains(body, "relaunch it into the board") {
+	if !strings.Contains(body, "1 found in tmux") || !strings.Contains(body, "takes it over") {
 		t.Fatalf("the card should count the running agent:\n%s", body)
 	}
-	// Once answered it is still running, and O is the way back to it.
-	m.applyPaneChoices(m.outsidePaneCandidates(false), func(store.Session) string { return paneAdopt })
-	if body = ansi.Strip(m.viewWelcome()); !strings.Contains(body, "1 found in tmux and shown on the board as-is. O relaunches") {
-		t.Fatalf("an answered pane should still be counted:\n%s", body)
+	setMode(t, m, outsidePanesSetting, paneAdopt)
+	if body = ansi.Strip(m.viewWelcome()); !strings.Contains(body, "1 found in tmux and shown on the board as-is. O takes it over") {
+		t.Fatalf("a kept pane should point at O:\n%s", body)
 	}
 }
 

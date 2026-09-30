@@ -140,7 +140,7 @@ func TestSupersededPaneIsClosed(t *testing.T) {
 		t.Skip("tmux not installed")
 	}
 	dir := t.TempDir()
-	socket := tmuxtest.NewSocket("singleton")
+	socket := tmuxtest.Socket(t, "singleton")
 	t.Cleanup(func() { tmuxtest.KillServer(socket) })
 	tmux := func(args ...string) (string, error) {
 		out, err := exec.Command("tmux", append([]string{"-L", socket}, args...)...).Output()

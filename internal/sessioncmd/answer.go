@@ -64,6 +64,9 @@ type AnsweredQuestion struct {
 // from that placement refused every spawner its own children's dialogs while
 // putting the root in front of questions it never assigned.
 //
+// Nor may the spawner of a detached session. Detaching hands the session to
+// whoever is at its pane, and a dialog is theirs to answer; see TrackerOf.
+//
 // One call answers one question. A dialog asking several reports the rest as
 // Standing and is answered by calling again; AnswerKeys holds why that is not
 // a list.
@@ -279,7 +282,13 @@ func (r *runtime) child(caller store.Session, targetID string) (store.Session, e
 	if err != nil {
 		return store.Session{}, err
 	}
-	if owner := store.SpawnerOf(target); owner != caller.ID {
+	if owner := store.TrackerOf(target); owner != caller.ID {
+		if store.Detached(target) {
+			return store.Session{}, fmt.Errorf(
+				"session %s was detached (nest false) when it was created, so its dialogs are for the "+
+					"person at its pane, not for the session that created it; a person answers it on the "+
+					"board, or send_session asks it something", target.ID)
+		}
 		if owner == "" {
 			return store.Session{}, fmt.Errorf(
 				"session %s is nobody's child, so no session owns its screen; a person answers it "+

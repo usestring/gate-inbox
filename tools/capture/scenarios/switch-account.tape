@@ -18,7 +18,7 @@ Sleep 2500ms
 Screenshot {{SHOTS}}/02-switch-account-card.png
 Sleep 1s
 
-# One step right: the first pooled account.
+# One step right: the first named account.
 Right
 Sleep 1500ms
 Screenshot {{SHOTS}}/03-picked-alice1.png

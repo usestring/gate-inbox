@@ -98,6 +98,32 @@ func TestShortenedConversationWrapsWithinNarrowScreens(t *testing.T) {
 	}
 }
 
+func TestConversationViewChoiceSurvivesQuickPrompt(t *testing.T) {
+	m := drainFleet(t)
+	sess, _ := m.selected()
+	m.applyConversation(conversationMsg{key: conversationKey(sess.ID, sess.AgentSessionID), messages: []search.Message{
+		{Role: "assistant", Text: "first\nsecond\nthird\nfourth\nexpanded detail\nlast detail"},
+	}})
+	view := func() string {
+		return ansi.Strip(strings.Join(m.conversationRows(80, 20), "\n"))
+	}
+	if !m.conversation.compact || !strings.Contains(view(), "more lines") {
+		t.Fatal("conversation did not start shortened")
+	}
+	m.toggleConversation()
+	if m.conversation.compact || !strings.Contains(view(), "expanded detail") {
+		t.Fatal("F3 did not expand the conversation")
+	}
+	m.openQuickMode()
+	if !m.quick.active || m.conversation.compact || !strings.Contains(view(), "expanded detail") {
+		t.Fatal("quick prompt changed the chosen full view")
+	}
+	m.toggleConversation()
+	if !m.conversation.compact || !strings.Contains(view(), "more lines") {
+		t.Fatal("F3 did not shorten the conversation with the prompt open")
+	}
+}
+
 func TestConversationShowsWorkingSpinnerBelowNewestMessage(t *testing.T) {
 	m := drainFleet(t)
 	sess, _ := m.selected()

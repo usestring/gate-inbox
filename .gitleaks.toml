@@ -15,3 +15,14 @@ description = "internal/logging redaction test: fake GITHUB_TOKEN value"
 paths = ['''^internal/logging/redact_test\.go$''']
 regexTarget = "match"
 regexes = ['''GITHUB_TOKEN=0123456789abcdef''']
+
+# The child-question relay test puts a made-up value under a credential
+# variable name in a fake permission prompt, to prove the relay strips it.
+# Scoped to the one commit that carries it, rather than the value, so the
+# config does not repeat it.
+[[allowlists]]
+description = "internal/ui child-question relay test: fake API_TOKEN value"
+condition = "AND"
+targetRules = ["generic-api-key"]
+commits = ["e8200eb2bb8d1e8cf6ec799fcd0443978e51cade"]
+paths = ['''^internal/ui/childquestion_test\.go$''']

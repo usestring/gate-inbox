@@ -61,6 +61,9 @@ func FormatSession(session Session) string {
 	if session.ParentID != "" {
 		line += " under " + session.ParentID
 	}
+	if session.Detached {
+		line += " detached from " + session.SpawnedBy
+	}
 	return line
 }
 

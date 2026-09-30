@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/launch"
@@ -64,8 +65,8 @@ func accountsFor(name string, spec config.Tool) string {
 	return fmt.Sprintf("%s (%d, from %q):\n%s\n", name, len(names), spec.AccountsCommand, strings.Join(names, "\n"))
 }
 
-func (r *runtime) accountOr(named string, tool config.Tool, sessionID string) (string, error) {
-	return accounts.Select(r.store, tool, named, sessionID)
+func (r *runtime) accountOr(named, toolName string, tool config.Tool, sessionID string, reason extension.LaunchReason) (string, error) {
+	return accounts.Select(r.store, tool, named, accounts.Request{SessionID: sessionID, ToolName: toolName, Reason: reason})
 }
 
 // SwitchAccount migrates Claude contexts over 200k to avoid replaying them on a new account.
@@ -95,19 +96,27 @@ func (s *Sessions) SwitchAccount(sessionID, targetID, account string) (Session, 
 	if target.ID == sessionID {
 		return Session{}, errors.New("a session cannot switch its own account: the restart would end this call; ask the operator or a sibling session")
 	}
+	return s.switchAccount(runtime, target, account, func(account string) (Session, error) {
+		return s.Migrate(sessionID, targetID, MigrateOptions{Tool: target.Tool, accountOverride: &account})
+	})
+}
+
+// switchAccount re-points target at account and resumes it there. A context
+// too large to resume on another account goes to large instead.
+func (s *Sessions) switchAccount(runtime *runtime, target store.Session, account string, large func(string) (Session, error)) (Session, error) {
 	tool, known := runtime.cfg.Tools[target.Tool]
 	if !known {
 		return Session{}, fmt.Errorf("tool %s is no longer configured", target.Tool)
 	}
-	account, err = launch.AccountForSwitch(tool, target.TmuxPaneID != "", account)
+	account, err := launch.AccountForSwitch(tool, target.TmuxPaneID != "", account)
 	if err != nil {
 		return Session{}, err
 	}
 	if account == target.Account {
 		return runtime.sessionInfo(target, runtime.driver.Exists(target.ID), false), nil
 	}
-	if _, large := migrate.AccountSwitchTranscript(s.roots, tool, target); large {
-		return s.Migrate(sessionID, targetID, MigrateOptions{Tool: target.Tool, accountOverride: &account})
+	if _, over := migrate.AccountSwitchTranscript(s.roots, tool, target); over {
+		return large(account)
 	}
 	if err := runtime.store.SetAccount(target.ID, account); err != nil {
 		return Session{}, err
@@ -125,4 +134,43 @@ func (s *Sessions) SwitchAccount(sessionID, targetID, account string) (Session, 
 	}
 	target.Status = relaunched.DefaultStatus
 	return runtime.sessionInfo(target, true, false), nil
+}
+
+// BoardAccount is the account an agent session runs on, "" for its CLI's
+// own login, and that CLI's account settings, read with the operator's
+// reach.
+func (s *Sessions) BoardAccount(targetID string) (string, extension.AccountTool, error) {
+	runtime, err := s.open()
+	if err != nil {
+		return "", extension.AccountTool{}, err
+	}
+	defer runtime.store.Close()
+	target, err := runtime.agent(targetID)
+	if err != nil {
+		return "", extension.AccountTool{}, err
+	}
+	tool, known := runtime.cfg.Tools[target.Tool]
+	if !known {
+		return "", extension.AccountTool{}, fmt.Errorf("tool %s is no longer configured", target.Tool)
+	}
+	return target.Account, accounts.Tool(tool), nil
+}
+
+// BoardSwitchAccount is SwitchAccount on the board's behalf, for a board
+// extension. It has no calling session to file a migration under, so a
+// context too large to resume on another account is refused rather than
+// moved to a new conversation.
+func (s *Sessions) BoardSwitchAccount(targetID, account string) (Session, error) {
+	runtime, err := s.open()
+	if err != nil {
+		return Session{}, err
+	}
+	defer runtime.store.Close()
+	target, err := runtime.agent(targetID)
+	if err != nil {
+		return Session{}, err
+	}
+	return s.switchAccount(runtime, target, account, func(string) (Session, error) {
+		return Session{}, fmt.Errorf("%s's context is too large to resume on another account; switch_account moves it to a new conversation instead", target.Name)
+	})
 }

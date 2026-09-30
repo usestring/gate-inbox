@@ -449,3 +449,27 @@ func TestRetiredGateStillLoads(t *testing.T) {
 		t.Errorf("saving the map kept a retired action:\n%s", saved)
 	}
 }
+
+// A key file that moved the reopen card's pane answer still loads once the
+// card stops asking: each stale line points at the setting, and saving drops it.
+func TestRetiredPaneChoiceStillLoads(t *testing.T) {
+	overrides, err := Decode("[restore]\nnext_choice = [\"L\"]\nprev_choice = [\"H\"]\nmore = [\"C\"]\n")
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	m, problems := New(overrides)
+	if len(problems) != 2 {
+		t.Fatalf("got problems %v, want one per stale line", problems)
+	}
+	for _, problem := range problems {
+		if !strings.Contains(problem.Reason, "outside panes") {
+			t.Errorf("problem %q does not point at the outside panes setting", problem.Error())
+		}
+	}
+	if got := m.Key(ContextRestore, More); got != "C" {
+		t.Errorf("the stale lines cost the override beside them: more on %q", got)
+	}
+	if strings.Contains(Encode(m.Overrides()), "choice") {
+		t.Error("saving the map kept a retired action")
+	}
+}

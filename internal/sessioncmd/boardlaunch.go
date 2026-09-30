@@ -120,7 +120,7 @@ func (s *Sessions) BoardLaunch(opts BoardLaunchOptions) (created Session, err er
 		}
 		return Session{}, err
 	}
-	accounts.RecordLaunch(runtime.store, sess.ID, sess.Tool, sess.Account)
+	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account)
 	sessionhooks.Spawned(prepared.hooks, sess, extension.SpawnByExtension)
 	_ = runtime.driver.SetLabel(sess.ID, sessionLabel(sess.Group, sess.Name))
 	return runtime.sessionInfo(sess, true, false), nil
@@ -140,18 +140,22 @@ type boardLaunch struct {
 // is the session a replacement stands in for, and empty for a launch.
 //
 // rehearse composes the same pane without its side effects: the account is
-// previewed rather than taken from the pool's rotation, and no hook file or
+// previewed, so the account chooser commits to nothing, and no hook file or
 // tool registration is written.
 func (s *Sessions) prepareBoardLaunch(runtime *runtime, sess store.Session, tool config.Tool, prompt string, args []string, from string, rehearse bool) (boardLaunch, error) {
 	sessionHooks, err := sessionhooks.CheckSpawn(sess, extension.SpawnByExtension)
 	if err != nil {
 		return boardLaunch{}, err
 	}
+	reason := extension.LaunchSpawn
+	if from != "" {
+		reason = extension.LaunchReplace
+	}
 	var account string
 	if rehearse {
-		account, err = accounts.Preview(runtime.store, tool, sess.Account)
+		account, err = accounts.Preview(runtime.store, tool, sess.Account, accounts.Request{ToolName: sess.Tool, Reason: reason, From: from})
 	} else {
-		account, err = runtime.accountOr(sess.Account, tool, sess.ID)
+		account, err = runtime.accountOr(sess.Account, sess.Tool, tool, sess.ID, reason)
 	}
 	if err != nil {
 		return boardLaunch{}, err
@@ -168,10 +172,6 @@ func (s *Sessions) prepareBoardLaunch(runtime *runtime, sess store.Session, tool
 	sess.LaunchPrompt = plan.LaunchPrompt
 	sess.Model = plan.Model
 	sess.Account = plan.Account
-	reason := extension.LaunchSpawn
-	if from != "" {
-		reason = extension.LaunchReplace
-	}
 	contributed, err := sessionhooks.Env(sessionHooks, sess, reason, from, nil)
 	if err != nil {
 		return boardLaunch{}, err

@@ -159,9 +159,6 @@ done
     printf '\n[tools.%s]\ncommand = "%s/demo-agent.sh %s"\nresume_by_id_command = "%s/demo-agent.sh {id}"\nrevive_command = "%s/demo-agent.sh %s"\n' \
       "${tools[$i]}" "$here" "${transcripts[$i % ${#transcripts[@]}]}" "$here" "$here" "${transcripts[$i % ${#transcripts[@]}]}"
     printf 'account_command = "echo demo-token"\naccounts_command = "printf '"'"'%%s\\\\n'"'"' CLAUDE_OAUTH_TOKEN_ALICE1 CLAUDE_OAUTH_TOKEN_BOB2"\n'
-    # A demo CLI must not read the operator's subscription credentials when
-    # a scenario exercises Auto's quota-unavailable picker fallback.
-    printf 'quota_command = "false"\n'
   done
   # A scenario's own settings go last, so a run can shorten a window the
   # board measures in days to one a recording can wait out.

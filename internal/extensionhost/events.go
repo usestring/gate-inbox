@@ -36,6 +36,9 @@ type Events struct {
 	supervising map[string]string
 	pins        map[string]string
 	refresh     func()
+	// deadlines is each extension's queue deadlines by session. See
+	// accounts.go.
+	deadlines map[string]map[string]time.Time
 }
 
 // NewEvents fans the poll pass out beside board, which every BoardHost it
@@ -261,6 +264,7 @@ func (v *boardView) release() {
 		unsubscribe()
 	}
 	v.events.dropSupervision(v.owner)
+	v.events.dropDeadlines(v.owner)
 }
 
 // subscription is one callback and the goroutine that calls it. latest

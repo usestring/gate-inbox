@@ -14,28 +14,22 @@ import (
 )
 
 func TestContextSnapshotsDeduplicateAndUseExactConversation(t *testing.T) {
-	st, _ := routingStore(t)
+	st := testStore(t)
 	reader := promptcache.NewReader(t.TempDir())
 	dir := reader.ProjectDir("/fixture")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	for _, session := range []store.Session{
-		{ID: "live", Tool: "claude", Cwd: "/fixture", AgentSessionID: "exact", Account: "LENDER"},
-		{ID: "unknown", Tool: "claude", Cwd: "/fixture", Account: "LENDER"},
-		{ID: "dead", Tool: "claude", Cwd: "/fixture", AgentSessionID: "exact", Account: "LENDER"},
-		{ID: "other-tool", Tool: "codex", Cwd: "/fixture", AgentSessionID: "exact", Account: "LENDER"},
+		{ID: "live", Tool: "claude", Cwd: "/fixture", AgentSessionID: "exact", Account: "NAMED"},
+		{ID: "unknown", Tool: "claude", Cwd: "/fixture", Account: "NAMED"},
+		{ID: "dead", Tool: "claude", Cwd: "/fixture", AgentSessionID: "exact", Account: "NAMED"},
+		{ID: "other-tool", Tool: "codex", Cwd: "/fixture", AgentSessionID: "exact", Account: "NAMED"},
 	} {
 		session.CreatedAt = time.Now().Add(-2 * time.Minute)
 		if err := st.CreateSession(session); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if err := st.SetSetting("account_borrower:live", "ORIGINAL_OWNER"); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.SetSetting(store.DefaultAccountSetting, "NEW_OWNER"); err != nil {
-		t.Fatal(err)
 	}
 	at := time.Now().Add(-time.Minute).Format(time.RFC3339Nano)
 	write := func(name string, output int) {
@@ -75,7 +69,7 @@ func TestContextSnapshotsDeduplicateAndUseExactConversation(t *testing.T) {
 		t.Fatalf("got %d context snapshots, want three changed samples from the current launch", len(spans))
 	}
 	for i, span := range spans {
-		for key, want := range map[string]any{"session": "live", "account.borrower": "ORIGINAL_OWNER", "account.lender": "LENDER", "account.attributed": true, "model": "claude-test", "usage.context_tokens": int64(1240), "usage.input_tokens": int64(40), "usage.cache_read_input_tokens": int64(1000), "usage.cache_creation_input_tokens": int64(200)} {
+		for key, want := range map[string]any{"session": "live", "account.name": "NAMED", "model": "claude-test", "usage.context_tokens": int64(1240), "usage.input_tokens": int64(40), "usage.cache_read_input_tokens": int64(1000), "usage.cache_creation_input_tokens": int64(200)} {
 			if span.Attr(key) != want {
 				t.Errorf("%s = %v, want %v", key, span.Attr(key), want)
 			}
@@ -91,8 +85,8 @@ func TestContextSnapshotsDeduplicateAndUseExactConversation(t *testing.T) {
 	}
 }
 
-func TestOwnLoginContextDoesNotInventAccountAttribution(t *testing.T) {
-	st, _ := routingStore(t)
+func TestOwnLoginContextNamesNoAccount(t *testing.T) {
+	st := testStore(t)
 	reader := promptcache.NewReader(t.TempDir())
 	dir := reader.ProjectDir("/fixture")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -110,7 +104,7 @@ func TestOwnLoginContextDoesNotInventAccountAttribution(t *testing.T) {
 		t.Fatal(err)
 	}
 	span := tracetest.One(t, capture(), "account.context")
-	if span.Attr("usage.context_tokens") != int64(25) || span.Attr("account.attributed") != false || span.Attr("account.lender") != "" {
+	if span.Attr("usage.context_tokens") != int64(25) || span.Attr("account.name") != "" {
 		t.Fatalf("incorrect local-login snapshot: %+v", span.Attrs)
 	}
 }

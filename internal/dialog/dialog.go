@@ -132,7 +132,7 @@ func Inspect(pane string) (Dialog, bool) {
 	// older dialog's text below it, and the choices being answered are the
 	// ones this legend belongs to.
 	head := pane[:legend[0]]
-	matches := askOption.FindAllStringSubmatch(head, -1)
+	matches, first := dialogOptions(head)
 	if len(matches) < 2 {
 		// One choice is not a choice, and none means the options scrolled
 		// away. Either way there is nothing here to select.
@@ -173,8 +173,46 @@ func Inspect(pane string) (Dialog, bool) {
 		dialog.Cursor = 0
 	}
 	dialog.Steps, dialog.Answered = countSteps(head)
-	dialog.Prompt = dialogPrompt(head, askOption.FindStringIndex(head))
+	dialog.Prompt = dialogPrompt(head, first)
 	return dialog, true
+}
+
+// dialogOptions is the numbered rows the dialog itself draws above its
+// legend, and where the first of them starts.
+//
+// A numbered row is the dialog's only when it continues a run counted from
+// "1." down to the legend. The pane above a dialog is the turn that asked it,
+// and a child that lays its choices out as a numbered list before asking puts
+// "1. Hold for staged UI until the rework ships" on the screen over the
+// dialog's own "1. Hold for staged UI". Read as options, those shifted every
+// index: the cursor is the digit on the marker row, the option is a position
+// in the list, and "Do both" at position 9 was keyed as eight Downs from row
+// 1 of a five-row dialog. A new "1." starts the run again, and a number out of
+// sequence is a description's text, not a row.
+func dialogOptions(head string) ([][]string, []int) {
+	var (
+		run   [][]string
+		first []int
+	)
+	for _, at := range askOption.FindAllStringSubmatchIndex(head, -1) {
+		match := make([]string, 4)
+		for i := range match {
+			if at[2*i] >= 0 {
+				match[i] = head[at[2*i]:at[2*i+1]]
+			}
+		}
+		n, err := strconv.Atoi(match[2])
+		if err != nil {
+			continue
+		}
+		if n == 1 {
+			run, first = run[:0], at[:2]
+		}
+		if n == len(run)+1 {
+			run = append(run, match)
+		}
+	}
+	return run, first
 }
 
 // countSteps reads the stepper row: how many questions this dialog is asking
@@ -209,10 +247,11 @@ func dialogPrompt(head string, first []int) string {
 		// A several-question dialog draws a bar down the left of the first
 		// question's text; it is chrome, like the checkbox on a choice.
 		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "\u2502"))
-		// The rule a dialog draws across the pane, and a several-question
-		// dialog's row of tabs, are its top edge: what is above them is the
-		// conversation, not the question.
-		if askStepper.MatchString(line) || (line != "" && strings.Trim(line, "\u2500") == "") {
+		// The rule a dialog draws across the pane, and its row of tabs -- a
+		// one-question dialog draws a single "☐ Header" -- are its top edge:
+		// what is above them is the conversation, not the question.
+		if askStepper.MatchString(line) || strings.HasPrefix(line, "\u2610 ") ||
+			(line != "" && strings.Trim(line, "\u2500") == "") {
 			kept = kept[:0]
 			continue
 		}

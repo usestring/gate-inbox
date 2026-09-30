@@ -1,0 +1,45 @@
+
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude Code[0m [38;5;246mv2.1.284[39m
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mHaiku 4.5 · Claude Max[39m
+[38;5;174m ▝▝   ▝▝ [39m  [38;5;246m/tmp/sample-9000/gia/work[39m
+
+
+[38;5;239m[48;5;237m❯ [38;5;231mThis is a UI test. First write exactly this prose, then [39m
+  [38;5;231mcall the AskUserQuestion tool once with ONE question. [39m
+  [38;5;231mProse:[39m
+  [38;5;231mOptions on the table:[39m
+  [38;5;231m1. Hold for staged UI until the rework ships[39m
+  [38;5;231m2. Only region #4021, leave the rest[39m
+  [38;5;231m3. Do both in parallel[39m
+  [38;5;231m   Then call AskUserQuestion with question "Which rollout[39m
+  [38;5;231mpath should I take?", header "Rollout", multiSelect [39m
+  [38;5;231mfalse, and exactly these options in this order (labels [39m
+  [38;5;231mverbatim, each with a one-line description): "Hold for [39m
+  [38;5;231mstaged UI", "Only region #4021", "Do both". After you get[39m
+  [38;5;231mthe answer, reply with only the word DONE and the [39m
+  [38;5;231manswer, and stop.[39m
+
+[38;5;231m[49m●[39m Options on the table:
+  1. Hold for staged UI until the rework ships
+  2. Only region #4021, leave the rest
+  3. Do both in parallel
+
+[38;5;246m● [39mUser answered Claude's questions:
+[38;5;246m  ⎿  · Which rollout path should I take? → Do both[39m
+
+[38;5;231m●[39m DONE: Do both
+
+[38;5;246m✻[39m [38;5;246mChurned for 13s · done 22:36[39m
+
+
+
+
+
+
+
+[38;5;244m────────────────────────────────────────────────────────────
+[39m❯ 
+[38;5;244m────────────────────────────────────────────────────────────
+[39m  [38;5;220m⚠ Transcript saving is off — inherited CLAUDE_CODE_CHIL…[39m
+  [38;5;246mwork | Haiku 4.5 | 18%[39m
+  [38;5;246m⏸ manual mode on[39m

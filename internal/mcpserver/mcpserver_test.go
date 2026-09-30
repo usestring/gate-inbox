@@ -112,6 +112,7 @@ type fakeSessionCommands struct {
 	answeredWith   string
 	answeredAll    []sessioncmd.QuestionAnswer
 	answeredSubmit bool
+	answeredRelay  bool
 	answerSelected string
 
 	// What switch_account forwarded. Kept apart from the run above so the
@@ -187,13 +188,13 @@ func (f *fakeSessionCommands) ReleaseSession(_ string, id string) (sessioncmd.Se
 	return sessioncmd.Session{ID: id, Name: "child"}, f.err
 }
 
-func (f *fakeSessionCommands) Answer(_ string, id, reply string) (sessioncmd.AnsweredQuestion, error) {
-	f.answeredID, f.answeredWith = id, reply
+func (f *fakeSessionCommands) Answer(_ string, id, reply string, relay bool) (sessioncmd.AnsweredQuestion, error) {
+	f.answeredID, f.answeredWith, f.answeredRelay = id, reply, relay
 	return sessioncmd.AnsweredQuestion{SessionID: id, Name: "child", Answer: reply, Selected: f.answerSelected}, f.err
 }
 
-func (f *fakeSessionCommands) AnswerAll(_ string, id string, answers []sessioncmd.QuestionAnswer, submit bool) (sessioncmd.AnsweredQuestion, error) {
-	f.answeredID, f.answeredAll, f.answeredSubmit = id, answers, submit
+func (f *fakeSessionCommands) AnswerAll(_ string, id string, answers []sessioncmd.QuestionAnswer, submit, relay bool) (sessioncmd.AnsweredQuestion, error) {
+	f.answeredID, f.answeredAll, f.answeredSubmit, f.answeredRelay = id, answers, submit, relay
 	return sessioncmd.AnsweredQuestion{SessionID: id, Name: "child", Submitted: submit}, f.err
 }
 
@@ -1013,6 +1014,21 @@ func TestAnswerSessionRoutesAnswersToTheBatch(t *testing.T) {
 		"session_id": "c1", "answers": []map[string]any{{"question": "1", "answer": "Bun"}}, "submit": false,
 	}); isError || fake.answeredSubmit {
 		t.Errorf("submit false was not passed through (isError=%v)", isError)
+	}
+	if _, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1", "answers": []map[string]any{{"question": "1", "answer": "Bun"}}, "relay": true,
+	}); isError || !fake.answeredRelay {
+		t.Errorf("relay was not passed through to the batch (isError=%v)", isError)
+	}
+	if _, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1", "answer": "Bun",
+	}); isError || fake.answeredRelay {
+		t.Errorf("relay defaulted to true on the single path (isError=%v)", isError)
+	}
+	if _, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1", "answer": "Bun", "relay": true,
+	}); isError || !fake.answeredRelay {
+		t.Errorf("relay was not passed through to the single path (isError=%v)", isError)
 	}
 	if text, isError := callText(t, session, "answer_session", map[string]any{
 		"session_id": "c1", "answer": "Bun", "answers": []map[string]any{{"question": "1", "answer": "Bun"}},

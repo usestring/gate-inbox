@@ -1,6 +1,7 @@
 package dialog
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -179,5 +180,53 @@ func TestTheLiveLegendDecidesRatherThanTheOldestOne(t *testing.T) {
 	}
 	if dialog.Kind != KindAsk {
 		t.Fatalf("kind = %q, want the topmost legend on the pane", dialog.Kind)
+	}
+}
+
+// Claude Code 2.1.284 closes its permission prompt with "Esc to cancel · Tab
+// to amend" and no Enter, which read as no dialog at all: answer_session told
+// its caller to send words to a child standing on a permission prompt.
+// Captured by the end-to-end rig at 40, 50 and 60 columns.
+func TestA2284PermissionPromptIsReadAndGuarded(t *testing.T) {
+	for _, width := range []int{40, 50, 60} {
+		t.Run(fmt.Sprint(width), func(t *testing.T) {
+			pane := fixture(t, fmt.Sprintf("claude-2.1.284-w%d-permission-touch.txt", width))
+			held, ok := Inspect(pane)
+			if !ok {
+				t.Fatal("no dialog read")
+			}
+			if held.Kind != KindApproval || !held.Guarded() {
+				t.Fatalf("kind = %q guarded = %v", held.Kind, held.Guarded())
+			}
+			if len(held.Options) != 4 || held.Options[0] != "Yes" || held.Cursor != 1 {
+				t.Errorf("options = %q cursor = %d", held.Options, held.Cursor)
+			}
+			if _, err := AnswerKeys(held, "Yes"); err != ErrNotKeyAnswerable {
+				t.Errorf("AnswerKeys = %v", err)
+			}
+			if _, ok := Parse(pane); ok {
+				t.Error("Parse offered a permission prompt as answerable")
+			}
+			why := held.Refusal()
+			for _, want := range []string{"permission prompt", "person's", "word for word", "operator", "held while a dialog stands"} {
+				if !strings.Contains(why, want) {
+					t.Errorf("refusal %q does not say %q", why, want)
+				}
+			}
+			if !Standing(pane) {
+				t.Error("Standing = false on a pane holding a dialog")
+			}
+		})
+	}
+}
+
+func TestStandingIsFalseAtTheInputLine(t *testing.T) {
+	for _, width := range []int{40, 50, 60} {
+		if Standing(fixture(t, fmt.Sprintf("claude-2.1.284-w%d-approval-answered.txt", width))) {
+			t.Errorf("%d: Standing = true on a pane resting at its input line", width)
+		}
+	}
+	if !Standing("  Trust this folder?\n ❯ No, exit\n   Yes, I trust this folder\n\n Enter to confirm · Esc to cancel\n\n") {
+		t.Error("Standing = false under an unnumbered dialog's legend")
 	}
 }

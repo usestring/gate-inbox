@@ -298,3 +298,18 @@ func TestRelayOfAPermissionPromptNamesItAndNotThePane(t *testing.T) {
 		t.Errorf("the message carries the pane:\n%s", head.Body)
 	}
 }
+
+func TestChildQuestionMessageFlagsAnApprovalForRelay(t *testing.T) {
+	questions := []dialog.Question{
+		{Index: 1, Header: "Approval", Question: "May I append the allowlist entry?"},
+		{Index: 2, Header: "Scope", Question: "Which files?"},
+	}
+	body := childQuestionsMessage(store.Session{ID: "child005", Name: "gitleaks"}, questions)
+	if !strings.Contains(body, "Question 1 is headed Approval") || !strings.Contains(body, "relay: true") {
+		t.Fatalf("an Approval question was not flagged for relay:\n%s", body)
+	}
+	questions[0].Header = "Tooling"
+	if body := childQuestionsMessage(store.Session{ID: "child005", Name: "gitleaks"}, questions); strings.Contains(body, "relay: true") {
+		t.Fatalf("a message with no Approval question names relay:\n%s", body)
+	}
+}

@@ -80,8 +80,8 @@ func Questions(pane string, asked []convo.AskQuestion) []Question {
 			out[i].Answered = stepper.Steps[i].Answered
 		}
 		for _, answer := range review.Answers {
-			if out[i].Question != "" && normalise(answer.Question) == normalise(out[i].Question) {
-				out[i].Answer, out[i].Answered = answer.Answer, true
+			if out[i].Question != "" && SameText(answer.Question, out[i].Question) {
+				out[i].Answer, out[i].Answered = Readable(answer.Answer), true
 			}
 		}
 	}

@@ -1,0 +1,45 @@
+
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude Code[0m [38;5;246mv2.1.284[39m
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mHaiku 4.5 · Claude Max[39m
+[38;5;174m ▝▝   ▝▝ [39m  [38;5;246m/tmp/sample-9000/gia/work[39m
+
+
+[38;5;239m[48;5;237m❯ [38;5;231mThis is a UI test. First write exactly this [39m
+  [38;5;231mprose, then call the AskUserQuestion tool once [39m
+  [38;5;231mwith ONE question. Prose:[39m
+  [38;5;231mMy options:[39m
+  [38;5;231m1. Hold for staged UI[39m
+  [38;5;231m2. Only region #4021[39m
+  [38;5;231m3. Do both[39m
+  [38;5;231m   Then call AskUserQuestion with question [39m
+  [38;5;231m"Which rollout path should I take?", header [39m
+  [38;5;231m"Rollout", multiSelect false, and exactly these[39m
+  [38;5;231moptions in this order (labels verbatim, each [39m
+  [38;5;231mwith a one-line description): "Hold for staged [39m
+  [38;5;231mUI", "Only region #4021", "Do both". After you [39m
+  [38;5;231mget the answer, reply with only the word DONE [39m
+  [38;5;231mand the answer, and stop.[39m
+
+[38;5;231m[49m●[39m My options:
+  1. Hold for staged UI
+  2. Only region #4021
+  3. Do both
+[38;5;246m──────────────────────────────────────────────────
+[38;5;16m[48;5;153m ☐ Rollout [39m[49m
+
+[1m[38;5;231mWhich rollout path should I take?[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mHold for staged UI[39m
+     [38;5;246mWait for staged experience development before
+[39m     [38;5;246mrollout[39m
+  [38;5;246m2.[39m Only region #4021
+     [38;5;246mDeploy only to region #4021 for initial [39m
+     [38;5;246mtesting[39m
+  [38;5;246m3.[39m Do both
+     [38;5;246mDeploy to both staged UI and region #4021 [39m
+     [38;5;246msimultaneously[39m
+  [38;5;246m4. Type something.[39m
+[38;5;246m──────────────────────────────────────────────────
+[39m  5. Chat about this
+
+[38;5;246mEnter to select · ↑/↓ to navigate · Esc to cancel[39m

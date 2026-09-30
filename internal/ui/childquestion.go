@@ -145,6 +145,17 @@ func childQuestionsMessage(sess store.Session, questions []dialog.Question) stri
 			"giving the option's text, or your own words to type instead. It presses Submit once every "+
 			"question has an answer.", sess.ID)
 	}
+	var approvals []string
+	for _, q := range questions {
+		if !q.Answered && dialog.IsApproval(q.Header) {
+			approvals = append(approvals, fmt.Sprint(q.Index))
+		}
+	}
+	if len(approvals) > 0 {
+		fmt.Fprintf(&out, "\n\nQuestion %s is headed Approval: the child is asking for your user's approval. "+
+			"Never answer it yourself. Ask your user verbatim, then answer with relay: true; any other answer "+
+			"is refused.", strings.Join(approvals, ", "))
+	}
 	if len(person) > 0 {
 		fmt.Fprintf(&out, "\n\nQuestion %s is a multi-select, which answer_session cannot tick: only a "+
 			"person at its pane can answer it, so tell your user it is waiting.", strings.Join(person, ", "))

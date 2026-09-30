@@ -18,7 +18,7 @@ Agent sessions
       queue one message for every session you spawned, for a correction about the work rather than about one worker
   gate-inbox place <session-id> [--release] [--json]
       file a session under this one when a spawn of yours landed with no parent, or --release one of your own children back to the top level
-  gate-inbox answer <session-id> "<answer>" [--json]
+  gate-inbox answer <session-id> "<answer>" [--relay] [--json]
       answer a question one of the sessions you spawned has stopped on, a question at a time; send queues a message and a session on a dialog never reads it
   gate-inbox wait [<session-id>...] [--children] [--until <state>] [--timeout <duration>] [--json]
       park until a session stops working, instead of reading its screen in a loop; name several or pass --children to park on a whole fan-out and return on the first one to arrive; exits non-zero when none of them did

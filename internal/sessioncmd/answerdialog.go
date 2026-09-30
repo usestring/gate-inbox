@@ -44,6 +44,18 @@ type FilledAnswer struct {
 	Header   string `json:"header,omitempty" jsonschema:"that question's header"`
 	Answer   string `json:"answer" jsonschema:"the answer given"`
 	Selected string `json:"selected,omitempty" jsonschema:"option it picked; empty when the answer was typed"`
+	// question is the question's text as its tab drew it, which is what the
+	// readback finds the answer under.
+	question string
+}
+
+// want is the text the child should show for this answer: the option's
+// label, or the words typed.
+func (f FilledAnswer) want() string {
+	if f.Selected != "" {
+		return f.Selected
+	}
+	return f.Answer
 }
 
 // dialogPane is the three things answering needs from a pane, so the
@@ -78,7 +90,8 @@ var errDialogMoved = errors.New("the dialog changed under the answer")
 
 // AnswerAll answers several questions of the dialog targetID is holding, and
 // submits it when every question then has an answer and submit is set.
-func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswer, submit bool) (AnsweredQuestion, error) {
+// relay keys the answers as the caller's user's own: see relay.go.
+func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswer, submit, relay bool) (AnsweredQuestion, error) {
 	if len(answers) == 0 {
 		return AnsweredQuestion{}, errors.New("answers is empty; give one entry per question to answer")
 	}
@@ -105,13 +118,26 @@ func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswe
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
+	guard := s.guard(runtime.store, caller, target, relay)
 	questions := dialog.Questions(raw, s.asked(target))
 	if len(questions) == 0 {
 		// The single-answer path has the words for every shape that is not a
 		// question dialog; one answer there gets the same refusal.
-		return runtime.answer(target, answers[0].Answer, "parent", caller.ID)
+		return runtime.answer(target, answers[0].Answer, "parent", caller.ID, guard)
+	}
+	planned := make([]plannedAnswer, 0, len(answers))
+	for _, answer := range answers {
+		index, err := dialog.Resolve(questions, answer.Question)
+		if err != nil {
+			return AnsweredQuestion{}, err
+		}
+		planned = append(planned, plannedAnswer{index, strings.TrimSpace(answer.Answer)})
+	}
+	if err := guard.admit(planned, questions); err != nil {
+		return AnsweredQuestion{}, fmt.Errorf("session %s: %w", target.ID, err)
 	}
 	answered, err := fillDialog(pane, questions, answers, submit)
+	guard.finish(err)
 	answered.SessionID, answered.Name = target.ID, target.Name
 	if err != nil {
 		return answered, err
@@ -177,12 +203,17 @@ func fillDialog(pane dialogPane, questions []dialog.Question, answers []Question
 				return finish(pane, result, err)
 			}
 		}
+		before := len(dialog.ParseAnswered(ansi.Strip(raw)))
 		filled, err := answerOnScreen(pane, raw, questions[step.index], step.answer, tabbed)
 		if err != nil {
 			return finish(pane, result, err)
 		}
 		if !tabbed {
+			if err := confirmEcho(pane, before, []FilledAnswer{filled}); err != nil {
+				return finish(pane, result, err)
+			}
 			result.Answers = append(result.Answers, filled)
+			result.Verified = true
 			return finish(pane, result, nil)
 		}
 		// Recorded only once its tab ticks, so a batch that stops here does not
@@ -195,15 +226,26 @@ func fillDialog(pane dialogPane, questions []dialog.Question, answers []Question
 		}
 		result.Answers = append(result.Answers, filled)
 	}
-	if submit {
-		stepper, _ := dialog.ParseStepper(raw)
-		if stepper.AllAnswered() {
-			if err := submitDialog(pane, len(stepper.Steps), result.Answers, questions); err != nil {
+	stepper, _ := dialog.ParseStepper(raw)
+	switch {
+	case submit && stepper.AllAnswered():
+		if err := submitDialog(pane, len(stepper.Steps), result.Answers); err != nil {
+			return finish(pane, result, err)
+		}
+		result.Submitted = true
+	default:
+		if _, err := checkReview(pane, len(stepper.Steps), result.Answers); err != nil {
+			return finish(pane, result, err)
+		}
+		// Back to the first question still standing, where the dialog would
+		// have gone by itself had the review page not been looked at.
+		if next := slices.IndexFunc(stepper.Steps, func(s dialog.Step) bool { return !s.Answered }); next >= 0 {
+			if _, err := navigateTo(pane, next); err != nil {
 				return finish(pane, result, err)
 			}
-			result.Submitted = true
 		}
 	}
+	result.Verified = true
 	return finish(pane, result, nil)
 }
 
@@ -274,10 +316,13 @@ func navigateTo(pane dialogPane, index int) (string, error) {
 
 // answerOnScreen keys one answer into the question the pane is showing.
 func answerOnScreen(pane dialogPane, raw string, question dialog.Question, answer string, tabbed bool) (FilledAnswer, error) {
-	filled := FilledAnswer{Index: question.Index, Header: question.Header, Answer: answer}
+	filled := FilledAnswer{Index: question.Index, Header: question.Header, Answer: answer, question: question.Question}
 	held, ok := dialog.Inspect(ansi.Strip(raw))
 	if !ok {
 		return filled, fmt.Errorf("%w: question %d is not on the screen", errDialogMoved, question.Index)
+	}
+	if held.Prompt != "" {
+		filled.question = strings.Join(strings.Fields(held.Prompt), " ")
 	}
 	if question.Question != "" && tabbed && !strings.EqualFold(
 		strings.Join(strings.Fields(held.Prompt), " "), strings.Join(strings.Fields(question.Question), " ")) {
@@ -341,40 +386,52 @@ func harnessEscape(option string) bool {
 	return false
 }
 
-// submitDialog goes to the Submit tab, checks the review page holds every
-// answer this call gave, and presses Submit.
-func submitDialog(pane dialogPane, submitTab int, filled []FilledAnswer, questions []dialog.Question) error {
+// How long a child is given to print its record of an answer once the dialog
+// has taken it.
+var readbackTimeout = 10 * time.Second
+
+// checkReview goes to the Submit tab and checks its review page shows every
+// answer in filled under its own question, word for word. This is the
+// readback for a several-question dialog: what the page lists is what Submit
+// sends.
+func checkReview(pane dialogPane, submitTab int, filled []FilledAnswer) (dialog.Review, error) {
 	raw, err := navigateTo(pane, submitTab)
 	if err != nil {
-		return err
+		return dialog.Review{}, err
 	}
 	review, ok := dialog.ParseReview(ansi.Strip(raw))
 	if !ok {
-		return fmt.Errorf("%w: the Submit tab is not showing its review page", errDialogMoved)
+		return review, fmt.Errorf("%w: the Submit tab is not showing its review page, so the answers "+
+			"could not be read back", errDialogMoved)
+	}
+	for _, answer := range filled {
+		got, found := registered(review.Answers, answer)
+		if !found {
+			return review, fmt.Errorf("question %d was answered %q, but the review page lists no answer "+
+				"for it, so it cannot be confirmed and nothing was submitted", answer.Index, answer.want())
+		}
+		if !dialog.SameText(got, answer.want()) {
+			return review, mismatch(answer, got, "nothing was submitted")
+		}
+	}
+	return review, nil
+}
+
+// submitDialog checks the review page, presses Submit, and reads the
+// answers back once more out of what the child prints on taking them.
+func submitDialog(pane dialogPane, submitTab int, filled []FilledAnswer) error {
+	review, err := checkReview(pane, submitTab, filled)
+	if err != nil {
+		return err
 	}
 	if !review.Complete {
 		return errors.New("the review page says not every question is answered, so it was not submitted")
 	}
-	for _, answer := range filled {
-		want := answer.Answer
-		if answer.Selected != "" {
-			want = answer.Selected
-		}
-		text := questions[answer.Index-1].Question
-		found := false
-		for _, got := range review.Answers {
-			if text != "" && !strings.EqualFold(strings.Join(strings.Fields(got.Question), " "), strings.Join(strings.Fields(text), " ")) {
-				continue
-			}
-			if strings.EqualFold(strings.Join(strings.Fields(got.Answer), " "), strings.Join(strings.Fields(want), " ")) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("the review page does not show %q for question %d, so it was not submitted", want, answer.Index)
-		}
+	raw, err := pane.Capture()
+	if err != nil {
+		return err
 	}
+	before := len(dialog.ParseAnswered(ansi.Strip(raw)))
 	keys := dialog.SelectKeys(review.Cursor, review.Submit)
 	if keys == nil {
 		return errors.New("cannot locate the cursor on the review page, so it was not submitted")
@@ -388,7 +445,74 @@ func submitDialog(pane dialogPane, submitTab int, filled []FilledAnswer, questio
 	}); err != nil {
 		return errors.New("Submit was pressed but the dialog is still standing")
 	}
+	return confirmEcho(pane, before, filled)
+}
+
+// confirmEcho waits for the record Claude Code prints once it takes a
+// dialog's answers -- a block more than the before the pane held -- and
+// checks every answer in filled is in it as given.
+func confirmEcho(pane dialogPane, before int, filled []FilledAnswer) error {
+	deadline := time.Now().Add(readbackTimeout)
+	var blocks [][]dialog.ReviewAnswer
+	for {
+		raw, err := pane.Capture()
+		if err != nil {
+			return err
+		}
+		if blocks = dialog.ParseAnswered(ansi.Strip(raw)); len(blocks) > before {
+			break
+		}
+		if time.Now().After(deadline) {
+			if len(filled) == 0 {
+				return nil
+			}
+			return fmt.Errorf("the child never printed which answer it took, so %s cannot be confirmed; "+
+				"read_session shows where it stands", describe(filled))
+		}
+		time.Sleep(settlePoll)
+	}
+	last := blocks[len(blocks)-1]
+	for _, answer := range filled {
+		got, found := registered(last, answer)
+		if !found {
+			return fmt.Errorf("the child's record of its answers does not list question %d, so %q cannot be "+
+				"confirmed; read_session shows what it took", answer.Index, answer.want())
+		}
+		if !dialog.SameText(got, answer.want()) {
+			return mismatch(answer, got, "the child has already taken it; send it a correction")
+		}
+	}
 	return nil
+}
+
+// registered finds the answer listed for filled's question.
+func registered(listed []dialog.ReviewAnswer, filled FilledAnswer) (string, bool) {
+	for _, entry := range listed {
+		if dialog.SameQuestion(entry.Question, filled.question) {
+			return entry.Answer, true
+		}
+	}
+	if filled.question == "" && len(listed) == 1 {
+		return listed[0].Answer, true
+	}
+	return "", false
+}
+
+func mismatch(answer FilledAnswer, got, then string) error {
+	return fmt.Errorf("%w: question %d was answered %q, but the child registered %q; %s",
+		errWrongAnswer, answer.Index, answer.want(), dialog.Readable(got), then)
+}
+
+// errWrongAnswer is a readback showing the child took something other than
+// what was answered.
+var errWrongAnswer = errors.New("the answer did not land as given")
+
+func describe(filled []FilledAnswer) string {
+	parts := make([]string, 0, len(filled))
+	for _, answer := range filled {
+		parts = append(parts, fmt.Sprintf("question %d's answer %q", answer.Index, answer.want()))
+	}
+	return strings.Join(parts, " and ")
 }
 
 // waitFor captures the pane until done holds, and returns that capture.

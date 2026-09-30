@@ -1,0 +1,45 @@
+   Shell command executi ! Shell command reques +
+
+  ┃
+  ┃  Run the shell command: echo hello-from-
+  ┃  probe. Then stop.
+  ┃
+
+     ┃ Thought: 269ms
+
+     ┃ Just run the command.
+
+  ┃
+  ┃  ⠼ echo hello-from-probe
+  ┃
+
+     Press ctrl+b to move running work to the
+     background
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  △ Permission required
+  ┃
+  ┃  $ echo hello-from-probe
+  ┃
+  ┃
+  ┃   Allow once   Always allow   Reject
+  ┃
+  ┃  ctrl+f fullscreen  ⇆ select  enter confirm
+  ┃
+

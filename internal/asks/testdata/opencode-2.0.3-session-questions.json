@@ -1,0 +1,349 @@
+[
+ {
+  "type": "user",
+  "time_created": 1790800320613,
+  "time_updated": 1790800320615,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "(prompt)"
+    }
+   ]
+  }
+ },
+ {
+  "type": "user",
+  "time_created": 1790800368830,
+  "time_updated": 1790800368831,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "(prompt)"
+    }
+   ]
+  }
+ },
+ {
+  "type": "user",
+  "time_created": 1790800411848,
+  "time_updated": 1790800411850,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "(prompt)"
+    }
+   ]
+  }
+ },
+ {
+  "type": "user",
+  "time_created": 1790800453608,
+  "time_updated": 1790800453608,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "(prompt)"
+    }
+   ]
+  }
+ },
+ {
+  "type": "user",
+  "time_created": 1790800499558,
+  "time_updated": 1790800499559,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "(prompt)"
+    }
+   ]
+  }
+ },
+ {
+  "type": "assistant",
+  "time_created": 1790800503240,
+  "time_updated": 1790800534002,
+  "data": {
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_f453bf51dd36472eadf69108",
+     "name": "question",
+     "executed": false,
+     "state": {
+      "status": "error",
+      "input": {
+       "questions": [
+        {
+         "header": "Deploy",
+         "question": "Which environment should the next deploy target?",
+         "options": [
+          {
+           "label": "Staging",
+           "description": "Deploy to the staging environment for pre-release validation."
+          },
+          {
+           "label": "Production",
+           "description": "Deploy to the live production environment serving real users."
+          },
+          {
+           "label": "Canary",
+           "description": "Deploy to a small canary slice of production for gradual rollout."
+          }
+         ]
+        }
+       ]
+      },
+      "error": {
+       "type": "aborted",
+       "message": "The user dismissed this question"
+      }
+     },
+     "time": {
+      "created": 1790800503599,
+      "ran": 1790800504675,
+      "completed": 1790800533982
+     }
+    }
+   ],
+   "time": {
+    "created": 1790800503240,
+    "streamed": 1790800504681,
+    "completed": 1790800534000
+   }
+  }
+ },
+ {
+  "type": "user",
+  "time_created": 1790800544588,
+  "time_updated": 1790800544589,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "(prompt)"
+    }
+   ]
+  }
+ },
+ {
+  "type": "assistant",
+  "time_created": 1790800564733,
+  "time_updated": 1790800592024,
+  "data": {
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_ccf235e4ca634f44a20c7f29",
+     "name": "question",
+     "executed": false,
+     "state": {
+      "status": "completed",
+      "input": {
+       "questions": [
+        {
+         "header": "Checks",
+         "question": "Which checks should CI run?",
+         "multiple": true,
+         "options": [
+          {
+           "label": "Lint",
+           "description": "Run code style and static analysis checks."
+          },
+          {
+           "label": "Unit tests",
+           "description": "Run fast, isolated unit test suites."
+          },
+          {
+           "label": "E2E tests",
+           "description": "Run full end-to-end integration tests."
+          }
+         ]
+        }
+       ]
+      },
+      "content": [
+       {
+        "type": "text",
+        "text": "User has answered your questions: \"Which checks should CI run?\"=\"Lint, E2E tests\". You can now continue with the user's answers in mind."
+       }
+      ],
+      "metadata": {
+       "answers": [
+        [
+         "Lint",
+         "E2E tests"
+        ]
+       ],
+       "truncated": false
+      }
+     },
+     "time": {
+      "created": 1790800565625,
+      "ran": 1790800566640,
+      "completed": 1790800592014
+     }
+    }
+   ],
+   "time": {
+    "created": 1790800564733,
+    "streamed": 1790800566643,
+    "completed": 1790800592023
+   }
+  }
+ },
+ {
+  "type": "user",
+  "time_created": 1790800606851,
+  "time_updated": 1790800606852,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "(prompt)"
+    }
+   ]
+  }
+ },
+ {
+  "type": "assistant",
+  "time_created": 1790800609590,
+  "time_updated": 1790800660615,
+  "data": {
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_c0f0ce695df24e33a79749be",
+     "name": "question",
+     "executed": false,
+     "state": {
+      "status": "error",
+      "input": {
+       "questions": [
+        {
+         "header": "Tier",
+         "question": "Which tier?",
+         "options": [
+          {
+           "label": "Free",
+           "description": "The no-cost tier with basic features."
+          },
+          {
+           "label": "Pro",
+           "description": "The paid professional tier with full features."
+          }
+         ]
+        },
+        {
+         "header": "Region",
+         "question": "Which region?",
+         "options": [
+          {
+           "label": "EU",
+           "description": "Deploy to the European region."
+          },
+          {
+           "label": "US",
+           "description": "Deploy to the United States region."
+          }
+         ]
+        }
+       ]
+      },
+      "error": {
+       "type": "aborted",
+       "message": "The user dismissed this question"
+      }
+     },
+     "time": {
+      "created": 1790800609797,
+      "ran": 1790800610964,
+      "completed": 1790800660596
+     }
+    }
+   ],
+   "time": {
+    "created": 1790800609590,
+    "streamed": 1790800610997,
+    "completed": 1790800660613
+   }
+  }
+ },
+ {
+  "type": "user",
+  "time_created": 1790801423751,
+  "time_updated": 1790801423752,
+  "data": {
+   "content": [
+    {
+     "type": "text",
+     "text": "(prompt)"
+    }
+   ]
+  }
+ },
+ {
+  "type": "assistant",
+  "time_created": 1790801427767,
+  "time_updated": 1790801429504,
+  "data": {
+   "content": [
+    {
+     "type": "tool",
+     "id": "call_fdadb6e4f7ba4763a47b4551",
+     "name": "question",
+     "executed": false,
+     "state": {
+      "status": "running",
+      "input": {
+       "questions": [
+        {
+         "header": "Tier",
+         "question": "Which tier?",
+         "options": [
+          {
+           "label": "Free",
+           "description": "The no-cost tier with basic features."
+          },
+          {
+           "label": "Pro",
+           "description": "The paid professional tier with full features."
+          }
+         ]
+        },
+        {
+         "header": "Region",
+         "question": "Which region?",
+         "options": [
+          {
+           "label": "EU",
+           "description": "Deploy to the European region."
+          },
+          {
+           "label": "US",
+           "description": "Deploy to the United States region."
+          }
+         ]
+        }
+       ]
+      },
+      "metadata": {}
+     },
+     "time": {
+      "created": 1790801428506,
+      "ran": 1790801429496
+     }
+    }
+   ],
+   "time": {
+    "created": 1790801427767,
+    "streamed": 1790801429502
+   }
+  }
+ }
+]

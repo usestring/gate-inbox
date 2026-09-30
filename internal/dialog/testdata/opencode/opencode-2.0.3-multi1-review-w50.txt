@@ -1,0 +1,45 @@
+   Shell command executi ? Shell command reques +
+
+     ┃ Thought: 1.4s
+
+     ┃ Call the question tool once.
+
+     Calling the question tool once, then
+     reporting the answer verbatim.
+
+     → Asked 1 question
+
+     Build · MiMo-V2.6-Pro · 34.4s · 84.0 tok/s
+     · interrupted
+
+  ┃
+  ┃  Call the question tool once with a single
+  ┃  question that allows multiple selections:
+  ┃  header 'Checks', question 'Which checks
+  ┃  should CI run?', options Lint / Unit tests
+  ┃  / E2E tests. Report the answer verbatim and
+  ┃  stop.
+  ┃
+
+     ┃ Thought: 1.9s
+
+     ┃ The previous question was dismissed/
+     ┃ aborted. The user now asks again for a
+     ┃ multi-select question. Let me just call
+     ┃ the question tool once.
+
+     Calling the question tool once with a
+     multi-select question.
+
+     → Asked 1 question
+
+  ┃
+  ┃  Questions
+  ┃
+  ┃  Checks  Submit
+  ┃
+  ┃  Checks: Lint, E2E tests
+  ┃
+  ┃  ⇆ tab  enter submit  esc dismiss
+  ┃
+

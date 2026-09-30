@@ -159,6 +159,10 @@
               "description": "the question's short header, drawn as its tab label; answer_session's answers accept it as question",
               "type": "string"
             },
+            "id": {
+              "description": "the question's id in the child's own record, when its CLI gives one",
+              "type": "string"
+            },
             "index": {
               "description": "1-based position in the dialog; answer_session's answers accept it as question",
               "type": "integer"
@@ -233,7 +237,7 @@
         "type": "boolean"
       },
       "verified": {
-        "description": "true when the child's screen was read back after answering and shows exactly the answers given; false only for a Codex dialog, which draws no record to read",
+        "description": "true when what the child registered was read back after answering (its screen, or its CLI's own record of the call) and is exactly the answers given; false when the answers were keyed but the child has not registered them yet, such as a dialog still waiting on other questions",
         "type": "boolean"
       }
     },
@@ -1664,6 +1668,10 @@
                 },
                 "header": {
                   "description": "the question's short header, drawn as its tab label; answer_session's answers accept it as question",
+                  "type": "string"
+                },
+                "id": {
+                  "description": "the question's id in the child's own record, when its CLI gives one",
                   "type": "string"
                 },
                 "index": {

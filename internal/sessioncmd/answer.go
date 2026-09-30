@@ -51,7 +51,7 @@ type AnsweredQuestion struct {
 	// hold exactly the answer given: the Submit page or the answered-questions
 	// record Claude Code prints. An answer that reads back as anything else is
 	// an error, never a result.
-	Verified bool `json:"verified" jsonschema:"true when the child's screen was read back after answering and shows exactly the answers given; false only for a Codex dialog, which draws no record to read"`
+	Verified bool `json:"verified" jsonschema:"true when what the child registered was read back after answering (its screen, or its CLI's own record of the call) and is exactly the answers given; false when the answers were keyed but the child has not registered them yet, such as a dialog still waiting on other questions"`
 	// Questions is every question of the dialog as it stands after the call.
 	Questions []dialog.Question `json:"questions,omitempty" jsonschema:"every question of the dialog after this call, with which are answered"`
 }
@@ -90,7 +90,15 @@ func (s *Sessions) Answer(sessionID, targetID, reply string, relay bool) (Answer
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
-	return runtime.answer(target, reply, "parent", caller.ID, s.guard(runtime.store, caller, target, relay))
+	guard := s.guard(runtime.store, caller, target, relay)
+	if driver, ok := answerDriverFor(target.Tool); ok {
+		raw, err := tmuxPane{runtime.driver, target.ID}.Capture()
+		if err != nil {
+			return AnsweredQuestion{}, err
+		}
+		return driver.answer(runtime, s, target, raw, []QuestionAnswer{{Answer: reply}}, true, guard, "parent", caller.ID)
+	}
+	return runtime.answer(target, reply, "parent", caller.ID, guard)
 }
 
 var errEmptyAnswer = errors.New(

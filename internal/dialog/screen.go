@@ -32,6 +32,8 @@ const (
 	ScreenWorkspaceTrust ScreenKind = "workspace-trust dialog"
 	ScreenMCPTrust       ScreenKind = "MCP-server trust dialog"
 	ScreenQuestion       ScreenKind = "question dialog"
+	ScreenElicitation    ScreenKind = "MCP server input form"
+	ScreenUpdate         ScreenKind = "update prompt"
 	ScreenOther          ScreenKind = "dialog"
 )
 

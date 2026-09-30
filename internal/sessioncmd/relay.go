@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/logging"
@@ -56,17 +57,11 @@ type answerGuard struct {
 
 func (s *Sessions) guard(st *store.Store, caller, target store.Session, relay bool) *answerGuard {
 	g := &answerGuard{sessions: s, store: st, caller: caller, target: target, relay: relay}
-	if path := s.transcriptOf(target); path != "" {
-		g.call, g.haveCall = convo.PendingAskCall(path)
+	if call, ok := asks.Pending(s.askTarget(target)); ok {
+		g.call = convo.AskCall{ToolUseID: call.ID, Questions: call.Questions, AskedAt: call.AskedAt}
+		g.haveCall = len(call.Questions) > 0
 	}
 	return g
-}
-
-func (s *Sessions) transcriptOf(sess store.Session) string {
-	if sess.AgentSessionID == "" {
-		return ""
-	}
-	return convo.TranscriptFor(s.claudeHome, sess.AgentSessionID, sess.Cwd)
 }
 
 // plannedAnswer is one answer about to be keyed: the 0-based index of the
@@ -177,11 +172,10 @@ func (g *answerGuard) verify(child convo.AskQuestion, answer string) (string, er
 	if g.call.AskedAt.IsZero() {
 		return refuse("the child's question carries no time, so your user's answer cannot be shown to come after it")
 	}
-	path := g.sessions.transcriptOf(g.caller)
-	if path == "" {
+	if !asks.Located(g.sessions.askTarget(g.caller)) {
 		return refuse("this session's own transcript cannot be found, so there is no dialog of your user's to match")
 	}
-	asks, err := convo.AnsweredAsks(path, time.Time{})
+	answered, err := asks.AnsweredSince(g.sessions.askTarget(g.caller), time.Time{})
 	if err != nil {
 		return refuse("cannot read this session's own transcript: %v", err)
 	}
@@ -192,8 +186,8 @@ func (g *answerGuard) verify(child convo.AskQuestion, answer string) (string, er
 			reason = r
 		}
 	}
-	for i := len(asks) - 1; i >= 0; i-- {
-		ask := asks[i]
+	for i := len(answered) - 1; i >= 0; i-- {
+		ask := answered[i]
 		for _, q := range ask.Questions {
 			if !sameAsk(q, child) {
 				continue

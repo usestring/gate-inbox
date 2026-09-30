@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/extension/textfmt"
-	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/notify"
@@ -69,7 +69,7 @@ func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, no
 	if err != nil || !ok {
 		return err
 	}
-	body, key := childDialogBody(sess, pane)
+	body, key, urgent := childDialogBody(sess, pane)
 	if p.childDialogs == nil {
 		p.childDialogs = map[string]*childDialogRelay{}
 	}
@@ -77,7 +77,7 @@ func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, no
 	if relay == nil || relay.key != key {
 		relay = &childDialogRelay{key: key}
 		p.childDialogs[sess.ID] = relay
-		return p.sendChildDialog(sess, parent, relay, body, false, now)
+		return p.sendChildDialog(sess, parent, relay, body, urgent, now)
 	}
 	if relay.msgID == 0 {
 		if now.Sub(relay.sentAt) >= childDialogRetry {
@@ -125,8 +125,8 @@ func (p *poller) relayChildQuestion(sess store.Session, newStatus, pane string) 
 	if err != nil || !ok {
 		return err
 	}
-	body, key := childDialogBody(sess, pane)
-	return p.sendChildDialog(sess, parent, &childDialogRelay{key: key}, body, false, time.Now())
+	body, key, urgent := childDialogBody(sess, pane)
+	return p.sendChildDialog(sess, parent, &childDialogRelay{key: key}, body, urgent, time.Now())
 }
 
 // relayTarget is the session a child's dialog is relayed to: the one that
@@ -186,39 +186,67 @@ func (p *poller) pingOperator(sess, parent store.Session, why string) {
 	})
 }
 
-// childDialogBody is the relay for whatever sess's pane is holding, and a key
-// that names the dialog regardless of where its cursor is or what is ticked.
-func childDialogBody(sess store.Session, pane string) (body, key string) {
-	if questions := dialog.Questions(pane, childAsked(sess)); len(questions) > 0 {
+// childDialogBody is the relay for whatever sess's pane is holding, a key
+// that names the dialog regardless of where its cursor is or what is ticked,
+// and whether it cannot wait for the parent's next pause.
+func childDialogBody(sess store.Session, pane string) (body, key string, urgent bool) {
+	call, _ := asks.Pending(childAskTarget(sess))
+	if reading, ok := dialog.ReadQuestions(sess.Tool, pane, call.Questions); ok && len(reading.Questions) > 0 {
 		var id strings.Builder
-		for _, q := range questions {
+		for _, q := range reading.Questions {
 			id.WriteString(q.Header + "\x00" + q.Question + "\x00")
 		}
-		return childQuestionsMessage(sess, questions), "q:" + textfmt.Fingerprint(id.String())
+		traits := asks.TraitsOf(sess.Tool)
+		return childQuestionsMessageFor(sess, reading.Questions, traits, call.AskedAt), "q:" + textfmt.Fingerprint(id.String()),
+			traits.Expires > 0
 	}
-	if screen, ok := dialog.ReadScreen(pane); ok {
-		return childScreenMessage(sess, screen), "s:" + textfmt.Fingerprint(screen.Identity())
+	if screen, ok := dialog.ReadScreenFor(sess.Tool, pane); ok {
+		return childScreenMessage(sess, screen), "s:" + textfmt.Fingerprint(screen.Identity()), false
 	}
-	return childWaitMessage(sess), "wait"
+	if lost, ok := asks.Unanswered(childAskTarget(sess)); ok {
+		return childLostMessage(sess, lost), "x:" + lost.Call.ID, true
+	}
+	return childWaitMessage(sess), "wait", false
 }
 
-// childAsked is the pending AskUserQuestion call in sess's transcript, which
-// spells out every question of a dialog whose pane shows one at a time.
-func childAsked(sess store.Session) []convo.AskQuestion {
-	if sess.Tool != "claude" || sess.AgentSessionID == "" {
-		return nil
+func childLostMessage(sess store.Session, lost asks.Result) string {
+	traits := asks.TraitsOf(sess.Tool)
+	var out strings.Builder
+	what := "expired with no answer: " + traits.Name + " resolved it by itself"
+	if lost.Outcome == asks.Dismissed {
+		what = "was dismissed at its pane without an answer"
 	}
-	path := convo.TranscriptFor(convo.ClaudeHome(), sess.AgentSessionID, sess.Cwd)
-	if path == "" {
-		return nil
+	fmt.Fprintf(&out, "%s (session %s), which you spawned, asked a question that %s", sess.Name, sess.ID, what)
+	if !lost.At.IsZero() {
+		fmt.Fprintf(&out, " at %s UTC", lost.At.UTC().Format("15:04:05"))
 	}
-	questions, _ := convo.PendingAsk(path)
-	return questions
+	out.WriteString(", and carried on without it. It was never answered, and answer_session can no longer reach it. " +
+		"What it asked:\n\n")
+	questions := make([]dialog.Question, 0, len(lost.Call.Questions))
+	for i, q := range lost.Call.Questions {
+		question := dialog.Question{Index: i + 1, ID: q.ID, Header: q.Header, Question: q.Question, MultiSelect: q.MultiSelect}
+		for _, option := range q.Options {
+			question.Options = append(question.Options, dialog.Option{Label: option.Label, Description: option.Description})
+		}
+		questions = append(questions, question)
+	}
+	out.WriteString(strings.TrimRight(logging.ScrubWrapped(dialog.RenderQuestions(questions)), "\n"))
+	fmt.Fprintf(&out, "\n\nIf the answer still matters, settle it (with your user if it is theirs) and tell the child "+
+		"with send_session, which it reads as an ordinary message.")
+	return out.String()
+}
+
+func childAskTarget(sess store.Session) asks.Target {
+	return asks.Target{Tool: sess.Tool, AgentSessionID: sess.AgentSessionID, Cwd: sess.Cwd}
 }
 
 // childQuestionsMessage is every question of the dialog in the child's words
 // and how to settle them.
 func childQuestionsMessage(sess store.Session, questions []dialog.Question) string {
+	return childQuestionsMessageFor(sess, questions, asks.TraitsOf("claude"), time.Time{})
+}
+
+func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, traits asks.Traits, askedAt time.Time) string {
 	var out strings.Builder
 	noun := "a question"
 	if len(questions) > 1 {
@@ -227,11 +255,16 @@ func childQuestionsMessage(sess store.Session, questions []dialog.Question) stri
 	fmt.Fprintf(&out, "%s (session %s), which you spawned, has stopped on %s and is waiting for an "+
 		"answer:\n\n", sess.Name, sess.ID, noun)
 	out.WriteString(strings.TrimRight(logging.ScrubWrapped(dialog.RenderQuestions(questions)), "\n"))
+	if traits.Expires > 0 && !askedAt.IsZero() {
+		fmt.Fprintf(&out, "\n\n%s resolves this question by itself, with no answer, about %s after asking it: "+
+			"at about %s UTC. The child then carries on without your answer, so answer before then.",
+			traits.Name, traits.Expires.Round(time.Second), askedAt.Add(traits.Expires).UTC().Format("15:04:05"))
+	}
 	var person []string
 	open := 0
 	for _, q := range questions {
 		switch {
-		case q.MultiSelect && (!q.Answered || q.OnScreen):
+		case q.MultiSelect && !traits.MultiSelectAnswerable && (!q.Answered || q.OnScreen):
 			person = append(person, fmt.Sprint(q.Index))
 		case !q.Answered:
 			open++
@@ -242,8 +275,15 @@ func childQuestionsMessage(sess store.Session, questions []dialog.Question) stri
 			"decisions already settle. Put the rest to your user with your own question tool, copying the "+
 			"header, question and options (and any recommendation) word for word. Then answer on session %s "+
 			"with one answer_session call: answers, one entry per question, naming it by number or header and "+
-			"giving the option's text, or your own words to type instead. It presses Submit once every "+
-			"question has an answer.", sess.ID)
+			"giving the option's text, or your own words to %s.", sess.ID, traits.FreeText)
+		if traits.MultiSelectAnswerable {
+			out.WriteString(" For a multi-select, give every option to tick, separated by commas.")
+		}
+		if traits.Name == asks.TraitsOf("claude").Name {
+			out.WriteString(" It presses Submit once every question has an answer.")
+		} else {
+			out.WriteString(" It submits the dialog once every question has an answer.")
+		}
 	}
 	var approvals []string
 	for _, q := range questions {
@@ -260,9 +300,12 @@ func childQuestionsMessage(sess store.Session, questions []dialog.Question) stri
 		fmt.Fprintf(&out, "\n\nQuestion %s is a multi-select, which answer_session cannot tick: only a "+
 			"person at its pane can answer it. Put it to your user with your own question tool, options "+
 			"and ticks word for word as above, then either have them answer at the pane of %s or ask the "+
-			"operator for the keystrokes: on that question, Up/Down moves the ❯ marker, Enter ticks or "+
-			"unticks the box under it, and Right (or Tab) moves on to the next question.",
-			strings.Join(person, ", "), sess.Name)
+			"operator for the keystrokes", strings.Join(person, ", "), sess.Name)
+		if traits.Name == asks.TraitsOf("claude").Name {
+			out.WriteString(": on that question, Up/Down moves the ❯ marker, Enter ticks or " +
+				"unticks the box under it, and Right (or Tab) moves on to the next question")
+		}
+		out.WriteString(".")
 	}
 	if open == 0 && len(person) == 0 {
 		fmt.Fprintf(&out, "\n\nEvery question has an answer and the dialog is waiting on its Submit page: "+

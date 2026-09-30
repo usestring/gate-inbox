@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/logging"
@@ -119,6 +120,9 @@ func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswe
 		return AnsweredQuestion{}, err
 	}
 	guard := s.guard(runtime.store, caller, target, relay)
+	if driver, ok := answerDriverFor(target.Tool); ok {
+		return driver.answer(runtime, s, target, raw, answers, submit, guard, "parent", caller.ID)
+	}
 	questions := dialog.Questions(raw, s.asked(target))
 	if len(questions) == 0 {
 		// The single-answer path has the words for every shape that is not a
@@ -147,18 +151,19 @@ func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswe
 	return answered, nil
 }
 
-// asked is the pending AskUserQuestion call in target's transcript, or nil
-// when there is none to read.
 func (s *Sessions) asked(target store.Session) []convo.AskQuestion {
-	if target.Tool != "claude" || target.AgentSessionID == "" {
+	if target.Tool == "" {
 		return nil
 	}
-	path := convo.TranscriptFor(s.claudeHome, target.AgentSessionID, target.Cwd)
-	if path == "" {
-		return nil
+	return asks.PendingQuestions(s.askTarget(target))
+}
+
+func (s *Sessions) askTarget(sess store.Session) asks.Target {
+	tool := sess.Tool
+	if _, ok := asks.For(tool); !ok {
+		tool = "claude"
 	}
-	questions, _ := convo.PendingAsk(path)
-	return questions
+	return asks.Target{Tool: tool, AgentSessionID: sess.AgentSessionID, Cwd: sess.Cwd, ClaudeHome: s.claudeHome}
 }
 
 // planned is one answer resolved to the question it answers.

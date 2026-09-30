@@ -29,6 +29,7 @@ type Option struct {
 // Question is one question of the dialog a session is holding.
 type Question struct {
 	Index       int      `json:"index" jsonschema:"1-based position in the dialog; answer_session's answers accept it as question"`
+	ID          string   `json:"id,omitempty" jsonschema:"the question's id in the child's own record, when its CLI gives one"`
 	Header      string   `json:"header,omitempty" jsonschema:"the question's short header, drawn as its tab label; answer_session's answers accept it as question"`
 	Question    string   `json:"question" jsonschema:"the full question; empty only for a question not on the screen when no transcript could be read"`
 	Options     []Option `json:"options,omitempty" jsonschema:"the child's own choices in order, without the dialog's Type something and Chat about this rows"`
@@ -63,7 +64,7 @@ func Questions(pane string, asked []convo.AskQuestion) []Question {
 	var out []Question
 	if len(asked) == count {
 		for i, q := range asked {
-			question := Question{Index: i + 1, Header: q.Header, Question: q.Question, MultiSelect: q.MultiSelect}
+			question := Question{Index: i + 1, ID: q.ID, Header: q.Header, Question: q.Question, MultiSelect: q.MultiSelect}
 			for _, option := range q.Options {
 				question.Options = append(question.Options, Option{Label: option.Label, Description: option.Description})
 			}

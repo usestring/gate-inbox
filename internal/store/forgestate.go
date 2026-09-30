@@ -46,6 +46,7 @@ type StoredPR struct {
 	Mergeable     bool
 	HeadRef       string
 	FailingChecks int
+	UpdatedAt     time.Time
 	FetchedAt     time.Time
 }
 
@@ -79,8 +80,8 @@ func (s *Store) SaveForgeState(prs []StoredPR, tickets []StoredTicket) error {
 
 	if len(prs) > 0 {
 		stmt, err := tx.Prepare(`INSERT OR REPLACE INTO forge_prs
-			(key, repo, number, title, state, checks, review, url, mergeable, head_ref, failing_checks, fetched_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+			(key, repo, number, title, state, checks, review, url, mergeable, head_ref, failing_checks, updated_at, fetched_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 		if err != nil {
 			return err
 		}
@@ -88,7 +89,7 @@ func (s *Store) SaveForgeState(prs []StoredPR, tickets []StoredTicket) error {
 		for _, pr := range prs {
 			if _, err := stmt.Exec(pr.Key, pr.Repo, pr.Number, pr.Title, pr.State, pr.Checks,
 				pr.Review, pr.URL, pr.Mergeable, pr.HeadRef, pr.FailingChecks,
-				pr.FetchedAt.UnixMilli()); err != nil {
+				encodeTime(pr.UpdatedAt), pr.FetchedAt.UnixMilli()); err != nil {
 				return err
 			}
 		}
@@ -127,7 +128,7 @@ func (s *Store) ForgeState(now time.Time) ([]StoredPR, []StoredTicket, error) {
 	}
 
 	prRows, err := s.db.Query(`SELECT key, repo, number, title, state, checks, review, url,
-		mergeable, head_ref, failing_checks, fetched_at FROM forge_prs`)
+		mergeable, head_ref, failing_checks, updated_at, fetched_at FROM forge_prs`)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -135,11 +136,12 @@ func (s *Store) ForgeState(now time.Time) ([]StoredPR, []StoredTicket, error) {
 	var prs []StoredPR
 	for prRows.Next() {
 		var pr StoredPR
-		var at int64
+		var updated, at int64
 		if err := prRows.Scan(&pr.Key, &pr.Repo, &pr.Number, &pr.Title, &pr.State, &pr.Checks,
-			&pr.Review, &pr.URL, &pr.Mergeable, &pr.HeadRef, &pr.FailingChecks, &at); err != nil {
+			&pr.Review, &pr.URL, &pr.Mergeable, &pr.HeadRef, &pr.FailingChecks, &updated, &at); err != nil {
 			return nil, nil, err
 		}
+		pr.UpdatedAt = decodeTime(updated)
 		pr.FetchedAt = time.UnixMilli(at)
 		prs = append(prs, pr)
 	}

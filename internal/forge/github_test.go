@@ -92,6 +92,18 @@ func TestPullRequestStatesAreRead(t *testing.T) {
 	}
 }
 
+// updatedAt rides in the same query, so ordering the rail newest first costs no extra call.
+func TestLastActivityIsRead(t *testing.T) {
+	gh, queries := githubReturning(t, response(`"number":1,"state":"OPEN","updatedAt":"2026-09-30T12:00:00Z"`))
+	resolved, _ := gh.PRs([]workspec.Ref{pr(1)})
+	if want := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC); !resolved[pr(1).Key()].UpdatedAt.Equal(want) {
+		t.Errorf("UpdatedAt = %v, want %v", resolved[pr(1).Key()].UpdatedAt, want)
+	}
+	if len(*queries) != 1 || !strings.Contains((*queries)[0], "updatedAt") {
+		t.Errorf("queries = %v, want one asking for updatedAt", *queries)
+	}
+}
+
 // A row must never say green about something that has not reported. Anything that is not an
 // explicit success reads as pending, including states GitHub has not invented yet.
 func TestUnreportedChecksAreNeverGreen(t *testing.T) {
@@ -169,6 +181,38 @@ func TestWhatNeedsYou(t *testing.T) {
 		if got := test.pr.NeedsYou(); got != test.want {
 			t.Errorf("%s: NeedsYou = %v, want %v", test.name, got, test.want)
 		}
+	}
+}
+
+// Rank is the rail's order: what a person can unblock, then what they can finish, then what a
+// reviewer owes, and only then what is in flight or over.
+func TestRankOrdersByWhatWantsAPerson(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		pr   PR
+		want PRRank
+	}{
+		{"failing checks", PR{State: PROpen, Checks: ChecksFailing, Mergeable: true}, RankNeedsYou},
+		{"changes requested", PR{State: PROpen, Review: ReviewChangesRequested, Checks: ChecksPassing, Mergeable: true}, RankNeedsYou},
+		{"conflicting", PR{State: PROpen, Checks: ChecksPassing, Mergeable: false}, RankNeedsYou},
+		{"approved and green", PR{State: PROpen, Review: ReviewApproved, Checks: ChecksPassing, Mergeable: true}, RankReadyToMerge},
+		{"approved, no checks", PR{State: PROpen, Review: ReviewApproved, Checks: ChecksNone, Mergeable: true}, RankReadyToMerge},
+		{"green, no verdict", PR{State: PROpen, Review: ReviewPending, Checks: ChecksPassing, Mergeable: true}, RankAwaitingReview},
+		// Approval does not make a pull request mergeable while its checks are still out.
+		{"approved, checks running", PR{State: PROpen, Review: ReviewApproved, Checks: ChecksPending, Mergeable: true}, RankChecksRunning},
+		{"checks running", PR{State: PROpen, Checks: ChecksPending, Mergeable: true}, RankChecksRunning},
+		{"draft with red checks", PR{State: PRDraft, Checks: ChecksFailing}, RankDraft},
+		{"merged", PR{State: PRMerged, Checks: ChecksFailing}, RankMerged},
+		{"closed", PR{State: PRClosed}, RankClosed},
+	} {
+		if got := test.pr.Rank(); got != test.want {
+			t.Errorf("%s: Rank = %d, want %d", test.name, got, test.want)
+		}
+	}
+	if !(RankNeedsYou < RankReadyToMerge && RankReadyToMerge < RankAwaitingReview &&
+		RankAwaitingReview < RankChecksRunning && RankChecksRunning < RankUnlooked &&
+		RankUnlooked < RankDraft && RankDraft < RankMerged && RankMerged < RankClosed) {
+		t.Error("ranks are out of order")
 	}
 }
 

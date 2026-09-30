@@ -596,7 +596,8 @@ func (t *Tracker) Restore() error {
 			Repo: pr.Repo, Number: pr.Number, Title: pr.Title,
 			State: forge.PRState(pr.State), Checks: forge.ChecksState(pr.Checks),
 			Review: forge.ReviewState(pr.Review), URL: pr.URL, Mergeable: pr.Mergeable,
-			HeadRef: pr.HeadRef, FailingChecks: pr.FailingChecks, FetchedAt: pr.FetchedAt,
+			HeadRef: pr.HeadRef, FailingChecks: pr.FailingChecks, UpdatedAt: pr.UpdatedAt,
+			FetchedAt: pr.FetchedAt,
 		}
 	}
 	for _, ticket := range tickets {
@@ -625,7 +626,7 @@ func (t *Tracker) remember(prs map[string]forge.PR, tickets map[string]forge.Tic
 			Key: key, Repo: pr.Repo, Number: pr.Number, Title: pr.Title,
 			State: string(pr.State), Checks: string(pr.Checks), Review: string(pr.Review),
 			URL: pr.URL, Mergeable: pr.Mergeable, HeadRef: pr.HeadRef,
-			FailingChecks: pr.FailingChecks, FetchedAt: pr.FetchedAt,
+			FailingChecks: pr.FailingChecks, UpdatedAt: pr.UpdatedAt, FetchedAt: pr.FetchedAt,
 		})
 	}
 	storedTickets := make([]store.StoredTicket, 0, len(tickets))

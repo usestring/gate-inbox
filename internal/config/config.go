@@ -504,20 +504,22 @@ func (c *Config) backfillToolDefaults() error {
 	return nil
 }
 
-// busyLineAgentsOnly, busyLineShellsOnly and busyLineEveryKind are the
-// busy_line patterns claude shipped with before this one. The first is the
-// agent wait line without dynamic workflows; the second added the bare "N
-// shells still running" tail to it; the third read every kind of work named
-// in that tail -- shells, monitors, MCP tasks, background tasks -- so a turn
-// that ended with a shell or a monitor parked pinned its row at working,
-// sometimes for good. A config carrying any of them verbatim was written by
-// an older release and takes the current pattern; one edited by hand keeps
-// what its author wrote.
+// busyLineAgentsOnly, busyLineShellsOnly, busyLineEveryKind and
+// busyLineWaitOnly are the busy_line patterns claude shipped with before the
+// still-running tail kept a turn busy. The first is the agent wait line
+// without dynamic workflows; the second added the bare "N shells still
+// running" tail to it; the third read every kind of work named in that tail
+// but predated dynamic workflows; the fourth is the wait line with dynamic
+// workflows but without the tail. A config carrying any of them verbatim was
+// written by an older release and takes the current pattern; one edited by
+// hand keeps what its author wrote.
 const busyLineAgentsOnly = `^[✻✳✶✽✢·✦✧+*] Waiting for \d+ background agents? to finish`
 
 const busyLineShellsOnly = `^[✻✳✶✽✢·✦✧+*] (?:Waiting for \d+ background agents? to finish|.*· \d+ shells? still running)`
 
 const busyLineEveryKind = `^[✻✳✶✽✢·✦✧+*] (?:Waiting for \d+ background agents? to finish|\S+ for \d.*· \d+ [^·]*still running)`
+
+const busyLineWaitOnly = `^[✻✳✶✽✢·✦✧+*] Waiting for \d+ (?:background agents?|dynamic workflows?)`
 
 // waitingEnterToConfirmBare is the waiting pattern claude shipped with before
 // the anchored one: the bare phrase, matching it anywhere in the turn. A
@@ -610,7 +612,7 @@ func mergeTool(name string, user, def Tool) Tool {
 			user.TurnEnd = def.TurnEnd
 		}
 	}
-	if name == "claude" && (user.BusyLine == busyLineAgentsOnly || user.BusyLine == busyLineShellsOnly || user.BusyLine == busyLineEveryKind) {
+	if name == "claude" && (user.BusyLine == busyLineAgentsOnly || user.BusyLine == busyLineShellsOnly || user.BusyLine == busyLineEveryKind || user.BusyLine == busyLineWaitOnly) {
 		user.BusyLine = def.BusyLine
 	}
 	if len(user.Rules) == 0 {
@@ -975,16 +977,16 @@ chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$"
 blocked_line = "Interrupted ·"
 # recap blocks ("※ recap: …") render below the turn-end summary
 trailing_note = "^※"
-# Only background subagents keep a turn busy. While any are pending, Claude
-# replaces the turn-end summary with its own wait line ("✻ Waiting for 2
-# background agents to finish", "✻ Waiting for 1 background agent and 1
-# dynamic workflow to finish") and drops the summary's "still running" tail
-# altogether, so agents never appear in that tail. What the tail does name --
-# shells, monitors, MCP tasks, background tasks ("✻ Worked for 0s · done 4:28
-# AM · 8 shells, 2 monitors still running") -- runs on while the prompt takes
-# input: a monitor can sit armed for hours, and a row pinned at working for it
-# hides a prompt that is ready. Such a turn is finished.
-busy_line = "^[✻✳✶✽✢·✦✧+*] Waiting for \\d+ (?:background agents?|dynamic workflows?)"
+# Background work outlives the turn that started it, so the newest turn
+# stays busy while any of it is pending. While background agents or dynamic
+# workflows are pending, Claude replaces the turn-end summary with its own
+# wait line ("✻ Waiting for 2 background agents to finish", "✻ Waiting for 1
+# background agent and 1 dynamic workflow to finish"). Shells, monitors, MCP
+# tasks and background tasks that keep running after the turn are named in a
+# tail on the summary itself ("✻ Worked for 0s · done 4:28 AM · 8 shells, 2
+# monitors still running"): the process is still running in the terminal, so
+# the gate stays working rather than reading finished.
+busy_line = "^[✻✳✶✽✢·✦✧+*] (?:Waiting for \\d+ (?:background agents?|dynamic workflows?)|\\S+ for \\d.*· \\d+ [^·]*still running)"
 # a usage/rate-limit banner sits above the turn-end summary
 limit_line = "(?m)You've hit your .+limit"
 # claude draws this over the last content row while its own viewport is

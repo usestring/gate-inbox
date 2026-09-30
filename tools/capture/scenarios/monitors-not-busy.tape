@@ -1,12 +1,12 @@
-# A turn that ended with monitors still armed is a finished turn, not a busy
-# one. Record with the first seeded tool playing the monitors transcript:
+# A turn that ended with background work still running stays working, not
+# finished. Record with the first seeded tool playing the monitors transcript:
 #
 #   tools/capture/capture.sh --scenario tools/capture/scenarios/monitors-not-busy.tape \
 #     --transcripts monitors,working,finished
 #
 # The driver leaves the cursor on the last session it created; the monitors
 # row is the first, so two steps up select it and the preview shows the
-# "· 2 monitors still running" tail beside a row that is not working.
+# "· 2 monitors still running" tail beside a row that is still working.
 
 Screenshot {{SHOTS}}/01-board.png
 Sleep 1500ms

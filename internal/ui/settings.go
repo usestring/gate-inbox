@@ -187,6 +187,13 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			model, cmd := m.saveAndCloseSettings()
 			m.openWelcome()
 			return model, cmd
+		case settingsFieldKeys:
+			// Saved first so anything cycled on the way here survives the
+			// detour: the key map returns to settings rather than to the
+			// list, so the operator lands back where they left off.
+			m.persistSettings()
+			m.openHelp()
+			return m, nil
 		}
 		return m.saveAndCloseSettings()
 	case "esc":

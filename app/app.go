@@ -37,6 +37,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/extensionhost"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/mcpserver"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
@@ -339,13 +340,37 @@ func logSettings(cfg config.Config) logging.Settings {
 	}
 }
 
+// mcpSteering reads the mcp verb's only flag: the CLI whose standing
+// instructions the server carries, which a generated config names. A style
+// the server has no steering for is refused, so a typo fails the server's
+// start where the operator sees it rather than serving without the steering.
+func mcpSteering(args []string) (string, error) {
+	flags := flag.NewFlagSet("mcp", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	steering := flags.String(strings.TrimPrefix(mcpreg.SteeringFlag, "--"), "", "")
+	if err := flags.Parse(args); err != nil {
+		return "", fmt.Errorf("mcp: %w", err)
+	}
+	if *steering == "" {
+		return "", nil
+	}
+	if _, ok := mcpreg.ServerSteering(*steering); !ok {
+		return "", fmt.Errorf("mcp: %s %q is not a CLI this build steers", mcpreg.SteeringFlag, *steering)
+	}
+	return *steering, nil
+}
+
 // subcommands is every verb other than the board itself. "mcp" is the one
 // extensions reach today: it is handed the build's set and registers the
 // tools of whichever ones the operator's config switches on.
 func subcommands(ctx context.Context, version string, extensions []extension.Extension) map[string]func(args []string) error {
 	table := map[string]func(args []string) error{
 		"mcp": withConfigDir(func(args []string, sessionID, configDir string) error {
-			return mcpserver.Run(ctx, configDir, sessionID, version, extensions)
+			steering, err := mcpSteering(args)
+			if err != nil {
+				return err
+			}
+			return mcpserver.Run(ctx, configDir, sessionID, version, extensions, steering)
 		}),
 	}
 	for name, command := range cli.Commands() {

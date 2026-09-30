@@ -19,7 +19,7 @@ import (
 var builtinDelegation = map[string]string{
 	"claude":   "the built-in Agent tool (also called Task: general-purpose, Explore, Plan, fork and custom agents) or the Workflow tool",
 	"codex":    "the built-in spawn_agent tool (with send_input, wait_agent and close_agent)",
-	"opencode": "the built-in task tool (the general, explore and other subagents)",
+	"opencode": "the built-in subagent tool (the general, explore and other subagents)",
 }
 
 // delegationSteering is the standing instruction for style's CLI. It is
@@ -47,9 +47,21 @@ func delegationSteering(style string) string {
 // system prompt with --append-system-prompt-file.
 const claudeSteeringFile = generatedPrefix + "claude-delegation.md"
 
-// opencodeSteeringFile joins the rename steering in the generated opencode
-// config's instructions list.
-const opencodeSteeringFile = generatedPrefix + "opencode-delegation-instructions.md"
+// SteeringFlag is the `gate-inbox mcp` flag naming the CLI whose standing
+// instructions the server carries in its own block, for a CLI with nowhere
+// else to put them. Its value is a style ServerSteering knows.
+const SteeringFlag = "--steering"
+
+// ServerSteering is what the MCP server appends to its instructions for
+// style's CLI, and false for a style whose launch carries its steering
+// itself. OpenCode v2 loads no instruction file a launch can name, so its
+// naming and delegation steering both ride the server.
+func ServerSteering(style string) (string, bool) {
+	if style != "opencode" {
+		return "", false
+	}
+	return string(renameSteering()) + "\n" + delegationSteering(style), true
+}
 
 // claudeAppendFlag is the flag the claude launch carries. Claude Code keeps
 // only the last --append-system-prompt-file it is given, so a command that

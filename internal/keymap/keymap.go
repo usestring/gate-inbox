@@ -586,6 +586,8 @@ var retired = map[Action]string{
 	"editor":              "was removed; open the directory from your own editor",
 	"gate":                "was removed; triage with i, and hide the list with \\ and the key hints with ,",
 	"jump_attention_back": "was removed; tab walks down the sessions waiting on you and wraps",
+	"next_choice":         "was removed; the board takes outside panes over itself (settings: outside panes)",
+	"prev_choice":         "was removed; the board takes outside panes over itself (settings: outside panes)",
 	"toggle_gate_input":   "was removed with the gate",
 }
 

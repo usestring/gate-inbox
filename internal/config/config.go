@@ -1218,7 +1218,7 @@ rules = [
   # active status row is the final row above the input box; anchoring its full
   # shape keeps an answer that quotes "esc to interrupt" from looking active
   { state = "working", pattern = "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?(?:[ \\t]*\\n|[ \\t]+(?:⚠|↓|Tip: |Copied )[^\\n]*\\n)*[ \\t\\n]*\\z" },
-  { state = "errored", pattern = "(?im)^\\s*■.*\\berror\\b" },
+  { state = "errored", pattern = "(?im)^\\s*■(?:.*\\berror\\b| (?:Automatic reconnect could not restore this session|app-server session could not be restored)\\b)" },
 ]
 
 # The terminal tab "T" spawns: a shell in the group's directory, listed

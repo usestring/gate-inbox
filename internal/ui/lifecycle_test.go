@@ -214,11 +214,9 @@ func TestArchiveSweepRemovesAnEmptyArchivedGroup(t *testing.T) {
 	if err := m.store.CreateGroup("empty", ""); err != nil {
 		t.Fatalf("create group: %v", err)
 	}
-	m.applyCmd(t, m.refreshCmd())
-	m.selectGroupRow(t, "empty")
-	m.archiveSelected()
-	_, cmd := m.handleConfirmKey(tea.KeyPressMsg{Code: 'y', Text: "y"})
-	m.applyCmd(t, cmd)
+	if err := m.store.SetGroupArchived("empty", true); err != nil {
+		t.Fatalf("archive group: %v", err)
+	}
 
 	m.showArchived = true
 	m.applyCmd(t, m.refreshCmd())
@@ -1048,26 +1046,76 @@ func TestArchiveGroupMovesWholeSubtree(t *testing.T) {
 	}
 }
 
-func TestArchiveGroupKeepsEmptyGroupInArchivedView(t *testing.T) {
+// A group with nothing filed under it has nothing for the archive to keep,
+// so x deletes it with its subtree. It leaves the list on this frame, and
+// the name is free at once rather than after the retention sweep.
+func TestKillEmptyGroupDeletesIt(t *testing.T) {
 	m := buildModel(t)
-	if err := m.store.CreateGroup("empty", ""); err != nil {
-		t.Fatalf("create group: %v", err)
+	for _, group := range []string{"empty", "empty/child"} {
+		if err := m.store.CreateGroup(group, ""); err != nil {
+			t.Fatalf("create %s: %v", group, err)
+		}
 	}
 	m.applyCmd(t, m.refreshCmd())
 
 	m.selectGroupRow(t, "empty")
 	m.archiveSelected()
+	if m.confirm.action != actionDelete || m.confirmTitle() != "◇ Delete group" {
+		t.Fatalf("empty group dialog = %q %q, want a delete", m.confirm.action, m.confirmTitle())
+	}
+	_, cmd := m.handleConfirmKey(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	if paths := m.groupRowPaths(); len(paths) != 0 {
+		t.Fatalf("deleted groups still listed before the poll: %v", paths)
+	}
+	m.applyCmd(t, cmd)
+
+	groups, err := m.store.Groups()
+	if err != nil {
+		t.Fatalf("groups: %v", err)
+	}
+	if len(groups) != 0 {
+		t.Fatalf("deleted groups still stored: %+v", groups)
+	}
+	m.showArchived = true
+	m.applyCmd(t, m.refreshCmd())
+	if paths := m.groupRowPaths(); len(paths) != 0 {
+		t.Fatalf("deleted groups in the archived view: %v", paths)
+	}
+	if err := m.store.AddGroup("empty", ""); err != nil {
+		t.Fatalf("the name should be free again: %v", err)
+	}
+}
+
+// A group whose only rows are archived still has something to keep, so x
+// files it away with them rather than deleting it.
+func TestKillGroupHoldingOnlyArchivedRowsArchivesIt(t *testing.T) {
+	m := buildModel(t)
+	if err := m.store.CreateGroup("shelf", ""); err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+	m.applyCmd(t, m.refreshCmd())
+	createSession(t, m, "old", t.TempDir(), "shelf")
+	sessions, err := m.store.SessionsInSubtree("shelf")
+	if err != nil || len(sessions) != 1 {
+		t.Fatalf("sessions in shelf = %+v, %v", sessions, err)
+	}
+	if err := m.store.SetArchived(sessions[0].ID, true); err != nil {
+		t.Fatalf("archive session: %v", err)
+	}
+	m.applyCmd(t, m.refreshCmd())
+
+	m.selectGroupRow(t, "shelf")
+	m.archiveSelected()
+	if m.confirm.action != actionArchive {
+		t.Fatalf("group dialog action = %q, want archive", m.confirm.action)
+	}
 	_, cmd := m.handleConfirmKey(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	m.applyCmd(t, cmd)
 
-	if paths := m.groupRowPaths(); len(paths) != 0 {
-		t.Fatalf("archived empty group still in active view: %v", paths)
-	}
-
 	m.showArchived = true
 	m.applyCmd(t, m.refreshCmd())
-	if paths := m.groupRowPaths(); len(paths) != 1 || paths[0] != "empty" {
-		t.Fatalf("archived view groups = %v want [empty]", paths)
+	if paths := m.groupRowPaths(); len(paths) != 1 || paths[0] != "shelf" {
+		t.Fatalf("archived view groups = %v want [shelf]", paths)
 	}
 }
 

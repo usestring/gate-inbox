@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -20,19 +21,31 @@ import (
 // already knows how to make such a row the manager's own: read the
 // conversation off the agent's process, end the pane, relaunch it as a gi_
 // session on that conversation. This does the same thing while the board is
-// up, one pane at a time and only when the pane is idle, so no turn is lost
-// to it.
+// up, one pane at a time once it is idle and no client is attached, so no
+// turn or unsubmitted input is lost to it.
 //
-// The offer is the reopen card's panes section (reopenpanes.go): once per
-// start for panes nobody has answered for, and on O at any time for every
-// adopted pane. The idle panes go at once, the busy ones follow on their own
-// as each goes idle. The set is fixed when the operator answers; a pane
-// adopted after that is not taken behind their back.
+// Nothing asks first. With outside panes on their default, every adopted
+// pane is owed to the takeover the moment the board sees it, whether it was
+// on the board at start or adopted later in the run: the idle ones go on the
+// next pass, the busy ones on the first pass that finds each idle. An owned
+// row is one the naming sweep can title, which an adopted pane on a tool it
+// cannot read, or with no conversation it can attribute, never is. O runs
+// the same pass by hand, for a board set to keep panes as they are.
 
 type takeoverState struct {
-	// pending is the set the operator agreed to and the background pass is
-	// still owed: adopted rows that were busy when the answer came, by id.
+	// pending is the set the background pass is still owed: adopted rows
+	// that were busy or attached when they were queued, by id.
 	pending map[string]bool
+	// tried is every row a pass has already attempted in this run, so a
+	// pane the takeover refuses is queued once, not again on every pass.
+	tried map[string]bool
+}
+
+var errTakeoverWaiting = errors.New("adopted pane is still attached to a tmux client")
+
+func (m *Model) paneUnattended(id string) bool {
+	attached, err := m.tmux.PaneState(id, "#{session_attached}")
+	return err == nil && strings.TrimSpace(attached) == "0"
 }
 
 // adoptedCandidates is every live adopted agent pane on the board, idle
@@ -62,19 +75,44 @@ func takeoverReady(sess store.Session) bool {
 	return sess.Status == status.Idle
 }
 
-// takeOverAdopted is the O key: the reopen card's panes section over every
-// adopted pane the board holds now, answered for or not, with relaunching
-// as the answer it starts on, since that is what the key is for.
+// takeOverAdopted is the O key: every adopted pane on the board now, owed
+// to the takeover at once whatever the setting says, including one an
+// earlier pass refused, since pressing the key is asking again.
 func (m *Model) takeOverAdopted() (tea.Model, tea.Cmd) {
-	candidates := m.outsidePaneCandidates(true)
+	candidates := m.adoptedCandidates()
 	if len(candidates) == 0 {
 		m.errBar.text = "no adopted panes to take over: every session on the board is already the manager's"
 		return m, nil
 	}
 	m.errBar.text = ""
-	m.restore = restorePromptState{panes: candidates, paneDefault: paneRelaunch}
-	m.mode = modeRestorePrompt
+	for _, sess := range candidates {
+		delete(m.takeover.tried, sess.ID)
+		m.oweTakeover(sess.ID)
+	}
+	m.reportTakeover(m.takeoverPass())
 	return m, nil
+}
+
+// oweTakeover adds one row to the set the background pass is owed.
+func (m *Model) oweTakeover(id string) {
+	if m.takeover.pending == nil {
+		m.takeover.pending = map[string]bool{}
+	}
+	m.takeover.pending[id] = true
+}
+
+// autoTakeover owes the pass every adopted pane it has not tried yet, when
+// outside panes are set to be taken over, which is the default. Only a real
+// startup does this: a Model built without Init takes nothing on its own.
+func (m *Model) autoTakeover() {
+	if !m.restoreArmed || m.outsidePanesMode() != paneRelaunch {
+		return
+	}
+	for _, sess := range m.adoptedCandidates() {
+		if !m.takeover.tried[sess.ID] {
+			m.oweTakeover(sess.ID)
+		}
+	}
 }
 
 // takeoverResult is what one pass did: rows moved, rows still owed, and
@@ -85,16 +123,15 @@ type takeoverResult struct {
 	failed []string
 }
 
-// takeoverPass moves every pending row whose pane is idle right now, and
-// reports what it did. The refresh calls it on each pass while anything is
-// owed, which is how a busy pane is taken the moment it rests.
+// takeoverPass moves every pending row whose pane is idle and unattended,
+// and reports what it did. The refresh retries rows still in use.
 func (m *Model) takeoverPass() takeoverResult {
 	var result takeoverResult
+	m.autoTakeover()
 	if len(m.takeover.pending) == 0 {
 		return result
 	}
-	// The pane the operator is typing into is never pulled out from under
-	// them: it waits for the next pass, when they have left it.
+	// A pane focused inside the board also waits for the operator to leave it.
 	focused := ""
 	if m.mode == modeFocus {
 		if sess, ok := m.selected(); ok {
@@ -111,7 +148,7 @@ func (m *Model) takeoverPass() takeoverResult {
 			delete(m.takeover.pending, sess.ID)
 			continue
 		}
-		if takeoverReady(sess) {
+		if takeoverReady(sess) && m.paneUnattended(sess.ID) {
 			due = append(due, sess)
 		}
 	}
@@ -123,15 +160,22 @@ func (m *Model) takeoverPass() takeoverResult {
 	// the whole batch: both are the same for every pane in it.
 	procs := adopt.NewProcTable()
 	claude := convo.LiveClaudeSessions(convo.ClaudeHome())
+	if m.takeover.tried == nil {
+		m.takeover.tried = map[string]bool{}
+	}
 	for _, sess := range due {
-		delete(m.takeover.pending, sess.ID)
-		// Dropped from the set before the attempt, so a pane the takeover
-		// refuses is not ended, or refused again, on every later pass.
 		if err := m.takeOver(sess, procs, claude); err != nil {
+			if errors.Is(err, errTakeoverWaiting) {
+				continue
+			}
+			delete(m.takeover.pending, sess.ID)
+			m.takeover.tried[sess.ID] = true
 			result.failed = append(result.failed, fmt.Sprintf("%s: %v", sess.Name, err))
 			logging.Warn("takeover failed", "session", sess.ID, "name", sess.Name, logging.Err(err))
 			continue
 		}
+		delete(m.takeover.pending, sess.ID)
+		m.takeover.tried[sess.ID] = true
 		result.taken++
 		logging.Info("took over an adopted pane", "session", sess.ID, "name", sess.Name, "tool", sess.Tool)
 	}
@@ -153,7 +197,7 @@ func (m *Model) reportTakeover(result takeoverResult) {
 		parts = append(parts, fmt.Sprintf("took over %d adopted %s", result.taken, plural(result.taken, "session", "sessions")))
 	}
 	if result.owed > 0 {
-		parts = append(parts, fmt.Sprintf("%d %s as %s idle", result.owed, plural(result.owed, "follows", "follow"), plural(result.owed, "it goes", "they go")))
+		parts = append(parts, fmt.Sprintf("%d %s until %s idle and unattended", result.owed, plural(result.owed, "waits", "wait"), plural(result.owed, "its pane is", "their panes are")))
 	}
 	if len(result.failed) > 0 {
 		parts = append(parts, fmt.Sprintf("%d left in %s pane (%s)", len(result.failed), plural(len(result.failed), "its", "their"), result.failed[0]))
@@ -205,7 +249,12 @@ func (m *Model) takeOver(sess store.Session, procs *adopt.ProcTable, claude []co
 	if !isDir(cwd) {
 		return fmt.Errorf("working directory no longer exists: %s", cwd)
 	}
-	if err := m.endSession(sess, m.tmux.KillAdopted); err != nil {
+	if err := m.endSession(sess, func(id string) error {
+		if !m.paneUnattended(id) {
+			return errTakeoverWaiting
+		}
+		return m.tmux.KillAdopted(id)
+	}); err != nil {
 		return err
 	}
 	m.tmux.Release(sess.ID)

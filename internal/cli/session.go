@@ -125,7 +125,7 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 	account := set.String("account", "", "named account it runs on, read from its secret at launch; omit for the board's launch-account setting")
 	group := set.String("group", "", "existing group path for a detached (--nest=false) session; a nested one is always in yours")
 	directory := set.String("directory", "", "existing directory it works in; defaults to yours, or to the group's inherited path")
-	nest := set.Bool("nest", true, "file it under this session, where its questions and rests reach you; --nest=false detaches it, for work that is not yours")
+	nest := set.Bool("nest", true, "file it under this session, where its questions and rests reach you; --nest=false detaches it: the user's, not yours, and nothing about it is relayed to you")
 	keep := set.Bool("keep", false, "keep it on the list after it finishes, where Gate Inbox would otherwise archive it once you have read its finish and the grace period has passed")
 	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {

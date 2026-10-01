@@ -185,6 +185,11 @@ func (m *Model) viewForm() string {
 	// Chips are tokens inside the typed text, so they wrap and reflow with
 	// the words around them; painting happens on the rendered prompt.
 	b.WriteString(formField("prompt", m.form.prompt.renderChips(m.form.prompt.input.View()), m.form.focus == fieldPrompt))
+	if m.form.focus == fieldPrompt {
+		if line := m.promptSuggestionLine(&m.form.prompt, m.formValueWidth()); line != "" {
+			b.WriteString(formField("suggest", line, false))
+		}
+	}
 	b.WriteString(formField("group", groupBadge(displayGroup(m.form.groups[m.form.groupIndex].path)), m.form.focus == fieldGroup))
 
 	// The picker trims its own trailing newline, so the break belongs here:

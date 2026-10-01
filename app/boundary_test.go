@@ -1020,7 +1020,7 @@ func checkPlanWasLaunched(t *testing.T, home, data, helper, fresh string) {
 // waitForFile waits for path to exist and hold want, and returns what it
 // holds. It fails early if the board exits without writing it, and reads
 // once more after the exit: the board writes and exits between two polls.
-func waitForFile(t *testing.T, path, want string, exited <-chan struct{}, out *strings.Builder) string {
+func waitForFile(t *testing.T, path, want string, exited <-chan struct{}, out fmt.Stringer) string {
 	t.Helper()
 	holds := func() (string, bool) {
 		body, err := os.ReadFile(path)

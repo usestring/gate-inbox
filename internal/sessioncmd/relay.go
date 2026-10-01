@@ -33,6 +33,8 @@ import (
 //     approval, so only a relayed answer is keyed into it.
 //
 // The child's PostToolUse hook reads the ledger back (see HookAskAnswered).
+// The same ledger spends an answer relayed by message (attest.go), and
+// docs/parent-channel.md holds the threat model for both.
 
 var (
 	errApprovalNeedsRelay = errors.New("this is the child asking for your user's approval; put it to your " +

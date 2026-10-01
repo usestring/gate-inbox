@@ -2,19 +2,19 @@
 $ gate-inbox help
 exit 0
 --- stdout
-(6879 bytes of help text)
+(6909 bytes of help text)
 --- left in home: 
 
 $ gate-inbox --help
 exit 0
 --- stdout
-(6879 bytes of help text)
+(6909 bytes of help text)
 --- left in home: 
 
 $ gate-inbox -h
 exit 0
 --- stdout
-(6879 bytes of help text)
+(6909 bytes of help text)
 --- left in home: 
 
 $ gate-inbox --version
@@ -74,13 +74,13 @@ gate-inbox: task has no "bogus" command; it takes list, create, claim, finish, r
 $ gate-inbox send
 exit 1
 --- stderr
-gate-inbox: usage: gate-inbox send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--json]
+gate-inbox: usage: gate-inbox send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--relay_question <question>] [--json]
 --- left in home: 
 
 $ gate-inbox send cafe0001
 exit 1
 --- stderr
-gate-inbox: usage: gate-inbox send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--json]
+gate-inbox: usage: gate-inbox send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--relay_question <question>] [--json]
 --- left in home: 
 
 $ gate-inbox sessions --no-such-flag

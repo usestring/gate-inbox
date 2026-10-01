@@ -115,7 +115,7 @@ func TestApplyCodexCarriesTheSteeringAsDeveloperInstructions(t *testing.T) {
 	if _, err := toml.Decode(override, &parsed); err != nil {
 		t.Fatalf("override %q is not TOML: %v", override, err)
 	}
-	if parsed.DeveloperInstructions != delegationSteering("codex") {
+	if parsed.DeveloperInstructions != launchSteering("codex") {
 		t.Fatalf("developer_instructions = %q, want the codex steering", parsed.DeveloperInstructions)
 	}
 }

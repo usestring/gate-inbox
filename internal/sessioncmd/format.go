@@ -154,6 +154,10 @@ func FormatSendResult(result SendResult, targetID string) string {
 	for _, handled := range result.Handled {
 		text += fmt.Sprintf(". Extension %s: %s", handled.Extension, handled.Result)
 	}
+	if result.Attestation != "" {
+		text += fmt.Sprintf(". It carries relay attestation %s: your user's answer, checked in your own transcript; "+
+			"the child's hook spends it once", result.Attestation)
+	}
 	// Last, because it is the part a sender has to act on: everything above
 	// says the send worked, and this says the message is not going anywhere
 	// yet and what would move it.

@@ -125,11 +125,12 @@ type readSessionArgs struct {
 }
 
 type sendSessionArgs struct {
-	SessionID   string `json:"session_id" jsonschema:"session id returned by list_sessions or create_session"`
-	Message     string `json:"message,omitempty" jsonschema:"message typed into that agent's prompt as its next turn; write it as a full instruction, since the other agent does not see this conversation; or name a file in message_file"`
-	MessageFile string `json:"message_file,omitempty" jsonschema:"absolute path of a file holding the message, used instead of message; the same size limit applies to what it holds"`
-	Subject     string `json:"subject,omitempty" jsonschema:"short label for what this message is about, such as which-branch or stand-down; a later message you send to the same agent under the same label replaces this one if it has not been read yet, so a correction arrives instead of queueing behind what it corrects"`
-	Interrupt   bool   `json:"interrupt,omitempty" jsonschema:"true stops the agent's running turn first (Escape for Claude Code) so this message is its next turn right away; false, the default, lets it finish the step in hand and read the message after. Refused for a CLI with no safe interrupt; never sent while a dialog is showing"`
+	SessionID     string `json:"session_id" jsonschema:"session id returned by list_sessions or create_session"`
+	Message       string `json:"message,omitempty" jsonschema:"message typed into that agent's prompt as its next turn; write it as a full instruction, since the other agent does not see this conversation; or name a file in message_file"`
+	MessageFile   string `json:"message_file,omitempty" jsonschema:"absolute path of a file holding the message, used instead of message; the same size limit applies to what it holds"`
+	Subject       string `json:"subject,omitempty" jsonschema:"short label for what this message is about, such as which-branch or stand-down; a later message you send to the same agent under the same label replaces this one if it has not been read yet, so a correction arrives instead of queueing behind what it corrects"`
+	Interrupt     bool   `json:"interrupt,omitempty" jsonschema:"true stops the agent's running turn first (Escape for Claude Code) so this message is its next turn right away; false, the default, lets it finish the step in hand and read the message after. Refused for a CLI with no safe interrupt; never sent while a dialog is showing"`
+	RelayQuestion string `json:"relay_question,omitempty" jsonschema:"relays your user's approval to a child you spawned: the question you put to your user with your own question tool, word for word. Gate Inbox checks your transcript holds your user's own answer to it, given after the child was spawned, within 30 minutes and never relayed before, and attaches an attestation quoting both that the child's hook verifies once. Refused while the child holds its own Approval dialog: answer that with answer_session relay: true"`
 }
 
 type migrateSessionArgs struct {
@@ -267,6 +268,7 @@ type sessionCommands interface {
 	List(sessionID string, opts sessioncmd.ListOptions) (sessioncmd.SessionList, error)
 	Create(sessionID string, opts sessioncmd.CreateSessionOptions) (sessioncmd.Session, error)
 	Send(sessionID, targetID, message, subject string, interrupt bool) (sessioncmd.SendResult, error)
+	SendAttested(sessionID, targetID, message, subject string, interrupt bool, question string) (sessioncmd.SendResult, error)
 	SendChildren(sessionID, message string) (sessioncmd.ChildSend, error)
 	CleanupChildren(sessionID string, opts sessioncmd.CleanupOptions) (sessioncmd.ChildCleanup, error)
 	Wait(ctx context.Context, sessionID string, opts sessioncmd.WaitOptions) (sessioncmd.WaitResult, error)
@@ -691,7 +693,13 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		if err != nil {
 			return nil, sessioncmd.SendResult{}, err
 		}
-		result, err := sessions.Send(sessionID, args.SessionID, message, args.Subject, args.Interrupt)
+		send := sessions.Send
+		if args.RelayQuestion != "" {
+			send = func(sessionID, targetID, message, subject string, interrupt bool) (sessioncmd.SendResult, error) {
+				return sessions.SendAttested(sessionID, targetID, message, subject, interrupt, args.RelayQuestion)
+			}
+		}
+		result, err := send(sessionID, args.SessionID, message, args.Subject, args.Interrupt)
 		if err != nil {
 			return nil, sessioncmd.SendResult{}, err
 		}

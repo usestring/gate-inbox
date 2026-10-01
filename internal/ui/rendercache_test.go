@@ -15,7 +15,6 @@ func themeStyles() map[string]fastStyle {
 		"section": sectionStyle, "selectedRow": selectedRowStyle,
 		"muted": mutedStyle, "subtle": subtleStyle, "value": valueStyle,
 		"label": labelStyle, "err": errStyle, "done": doneStyle, "key": keyStyle,
-		"undo":       undoStyle,
 		"annotation": annotationStyle, "scopeBadge": scopeBadgeStyle,
 		"inboxBadge": inboxBadgeStyle,
 		"focusEdge":  focusEdgeStyle, "accent": accentStyle, "chip": chipStyle,

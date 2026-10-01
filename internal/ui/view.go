@@ -694,6 +694,24 @@ func (m *Model) defaultRowLegend() legendSection {
 	if key := m.tightCap(keymap.ContextList, keymap.Archive); key != "" {
 		pairs = append(pairs, [2]string{key, "kill"})
 	}
+	// The rest of the daily loop rides the same row: starting, finding,
+	// and the palette that runs everything without a key. The row holds
+	// one terminal line, so a narrow window cuts from this end first and
+	// the pairs above always survive.
+	for _, extra := range []struct {
+		action keymap.Action
+		text   string
+	}{
+		{keymap.NewSession, "new"}, {keymap.Search, "search"},
+		{keymap.LastPane, "last pane"}, {keymap.QuickActions, "quick actions"},
+	} {
+		if !m.applies(keymap.ContextList, extra.action, row) {
+			continue
+		}
+		if key := m.tightCap(keymap.ContextList, extra.action); key != "" {
+			pairs = append(pairs, [2]string{key, extra.text})
+		}
+	}
 	return legendSection{title: title, pairs: pairs}
 }
 

@@ -147,7 +147,7 @@ func (m *Model) helpBodyLines(sections []resolvedSection, width int, query strin
 			}
 			// The description wraps rather than truncating: on a narrow card
 			// the half that gets cut is the half that says what the key does.
-			style := keyStyleFor(cap)
+			style := keyStyle
 			if !row.available {
 				style = subtleStyle
 			}

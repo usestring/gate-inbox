@@ -49,10 +49,6 @@ var (
 	errStyle    fastStyle
 	doneStyle   fastStyle
 	keyStyle    fastStyle
-	// undoStyle is the one key that renders outside the accent: ctrl+z
-	// undoes a live submission, and a key that takes text back should
-	// never read as another hotkey.
-	undoStyle fastStyle
 
 	// The key map's own selection: the row the rebind cursor is on. It is a
 	// band rather than a tint because the card has no gutter to put a marker
@@ -99,7 +95,6 @@ func rebuildStyles() {
 	errStyle = newFastStyle(lipgloss.NewStyle().Foreground(colorErrored).Bold(true))
 	doneStyle = newFastStyle(lipgloss.NewStyle().Foreground(colorFinished))
 	keyStyle = newFastStyle(lipgloss.NewStyle().Foreground(colorAccent).Bold(true))
-	undoStyle = newFastStyle(lipgloss.NewStyle().Foreground(colorWaiting).Bold(true))
 	selectedKeyStyle = newFastStyle(lipgloss.NewStyle().Background(colorSelBg).Foreground(colorBright).Bold(true))
 	selectedTextStyle = newFastStyle(lipgloss.NewStyle().Background(colorSelBg).Foreground(colorBright))
 
@@ -260,16 +255,6 @@ func keyPill(key, text string, fg color.Color) string {
 	return subtleStyle.Render(key+" ") + pill(text, fg)
 }
 
-// keyStyleFor picks the style a key renders in. Undo is the only
-// exception: ^z / ctrl+z takes a live submission back, so it wears the
-// waiting tint instead of the accent every other key wears.
-func keyStyleFor(key string) fastStyle {
-	if key == "^z" || key == "ctrl+z" {
-		return undoStyle
-	}
-	return keyStyle
-}
-
 // keyCap renders one binding: the key in accent, its action beside it. The
 // key stays plain text; the legend's badge carries the visual weight, so a
 // row of bindings reads as prose under a header rather than as buttons.
@@ -278,7 +263,7 @@ func keyCap(key, label string) string {
 	if out, ok := keyCapCache[cache]; ok {
 		return out
 	}
-	out := keyStyleFor(key).Render(key) + " " + legendLabelStyle.Render(label)
+	out := keyStyle.Render(key) + " " + legendLabelStyle.Render(label)
 	keyCapCache[cache] = out
 	return out
 }
@@ -290,7 +275,7 @@ func keyCapQuiet(key, label string) string {
 	if out, ok := keyCapQuietCache[cache]; ok {
 		return out
 	}
-	out := keyStyleFor(key).Render(key) + " " + mutedStyle.Render(label)
+	out := keyStyle.Render(key) + " " + mutedStyle.Render(label)
 	keyCapQuietCache[cache] = out
 	return out
 }

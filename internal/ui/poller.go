@@ -97,6 +97,9 @@ type poller struct {
 	// pane. It lives under mu rather than runMu because the UI stamps it and
 	// a pass holds runMu for its whole duration.
 	operatorInputAt map[string]time.Time
+	// draftHeldSince is when a draft in each session's composer began
+	// holding its queue. See draftHoldLimit.
+	draftHeldSince map[string]time.Time
 	// forkDialogs holds, per session the fork key created, the resume-dialog
 	// option that fork wants and the keys that pick it. Armed at launch and
 	// dropped once answered, so it never outlives the launch it belongs to.
@@ -378,6 +381,7 @@ func newPoller(st *store.Store, driver *tmux.Driver, engine *status.Engine, hook
 		hookCursor:      map[string]int64{},
 		goneAdopted:     map[string]int{},
 		operatorInputAt: map[string]time.Time{},
+		draftHeldSince:  map[string]time.Time{},
 		forkDialogs:     map[string]forkDialog{},
 		childDialogs:    map[string]*childDialogRelay{},
 		escalate:        notify.Post,
@@ -1432,6 +1436,7 @@ const (
 	// that is milliseconds old belongs to a paste in flight; only one this
 	// old belongs to a manager that died between the two.
 	inboxClaimGrace = 30 * time.Second
+	draftHoldLimit  = 5 * time.Minute
 )
 
 // inboxDeliverable is the set of derived statuses a message may land on.
@@ -1513,11 +1518,23 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 		return false, fmt.Errorf("dropped an unconfirmed message to %s from %s to avoid delivering it twice", sess.Name, msg.SenderName)
 	}
 	if p.operatorTyping(sess, capture.State) {
+		p.restartDraftHold(sess.ID)
 		return false, nil
 	}
 	typing, err := p.composerCarriesDraft(sess, capture)
-	if err != nil || typing {
+	if err != nil {
 		return false, err
+	}
+	text := p.envelope(sess, msg)
+	switch {
+	case !typing:
+		p.restartDraftHold(sess.ID)
+	case !p.draftAbandoned(sess, msg, capture.State):
+		return false, nil
+	default:
+		// Pasted after the draft, not over it: the draft is submitted with
+		// the message, still ahead of the sender's words, rather than lost.
+		text = "\n\n" + text
 	}
 	// Reserved before the claim: a pass that has no slot left has written
 	// nothing, so the message simply stays queued for the next one.
@@ -1536,7 +1553,7 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 	// paste, off this pass; until it does the claim above is what holds the
 	// message, and the in-flight check higher up is what keeps the claim
 	// from being read as an abandoned one.
-	p.runSend(sess.ID, key, p.envelope(sess, msg), func(err error) error {
+	p.runSend(sess.ID, key, text, func(err error) error {
 		// Same opencode paste-submit gap as pending inputs: the first Enter
 		// can be consumed by the bracketed paste, so submit again. Scoped
 		// to opencode so other tools never see a double submit.
@@ -1576,6 +1593,51 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 		return nil
 	})
 	return true, nil
+}
+
+// draftAbandoned reports whether the draft now in a session's composer has
+// held its queue past draftHoldLimit with no keystroke into it. The hold
+// protects a line someone is writing, but nothing ever ended it: a stray
+// key left in a composer held every message to that session until someone
+// next typed there, which on this board was three and a half hours.
+func (p *poller) draftAbandoned(sess store.Session, msg store.InboxMessage, state tmux.CaptureState) bool {
+	now := time.Now()
+	p.mu.Lock()
+	since, held := p.draftHeldSince[sess.ID]
+	// A keystroke after the stamp is a person back at the line, whichever
+	// route it took in, and it was not seen only because it fell between
+	// two passes.
+	if forwarded, ok := p.operatorInputAt[sess.ID]; held && ok && forwarded.After(since) {
+		held = false
+	}
+	if held && state.Read && state.InputAt.After(since) {
+		held = false
+	}
+	if !held {
+		since = now
+		p.draftHeldSince[sess.ID] = since
+	}
+	p.mu.Unlock()
+	if !held {
+		logging.Info("a draft in the composer is holding a queued message",
+			"session", sess.ID, "message", msg.ID, "sender", msg.SenderID, "limit", draftHoldLimit)
+		return false
+	}
+	if now.Sub(since) < draftHoldLimit {
+		return false
+	}
+	logging.Info("delivering a queued message after a draft left in the composer",
+		"session", sess.ID, "message", msg.ID, "sender", msg.SenderID, "heldFor", now.Sub(since).Round(time.Second))
+	p.restartDraftHold(sess.ID)
+	return true
+}
+
+// restartDraftHold forgets when the session's draft began holding its queue,
+// so a keystroke gives the person writing it the whole limit again.
+func (p *poller) restartDraftHold(id string) {
+	p.mu.Lock()
+	delete(p.draftHeldSince, id)
+	p.mu.Unlock()
 }
 
 // interruptGrace is how long a message sent with interrupt waits, after its

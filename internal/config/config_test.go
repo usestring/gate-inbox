@@ -291,6 +291,23 @@ func TestLoadDirBackfillsCodexEchoBudgetAndKeepsACustomOne(t *testing.T) {
 	}
 }
 
+func TestLoadDirLaunchesCodexInPlaceAndKeepsClaudeDiverted(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[tools.codex]\ncommand = \"codex\"\n\n[tools.claude]\ncommand = \"claude\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	if !cfg.Tools["codex"].LaunchInPlace {
+		t.Fatal("an existing codex block was not backfilled with launch_in_place")
+	}
+	if cfg.Tools["claude"].LaunchInPlace || cfg.Tools["opencode"].LaunchInPlace {
+		t.Fatal("claude or opencode launch in place; their spawns must keep the trust divert")
+	}
+}
+
 func TestLoadDirPreservesCustomClaudeBusyLine(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")

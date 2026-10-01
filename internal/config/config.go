@@ -81,6 +81,13 @@ type Tool struct {
 	// about the first write there. Left unset, such a launch carries only
 	// the change-directory note, which is all a tool without the flag gets.
 	AddDirFlag string `toml:"add_dir_flag"`
+	// LaunchInPlace opens a spawn's pane in the directory it asked for even
+	// when that lies outside the caller's tree. Set it for a CLI whose
+	// first-run trust dialog defaults to continuing: diverting such a CLI
+	// buys nothing, and Codex in a directory it does not trust runs read-only
+	// and exits on the add_dir_flag the divert hands it. Its trust dialog is
+	// then a waiting dialog like any other, relayed to the spawner.
+	LaunchInPlace bool `toml:"launch_in_place"`
 	// ModelFlag launches a session on a chosen model rather than the CLI's
 	// own default (claude/codex/opencode "--model <name>"). Left unset, this
 	// tool has no way to be told, and a session asking for a model on it is
@@ -593,6 +600,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	fill(&user.RenameCommand, def.RenameCommand)
 	user.SkipRenameDirective = user.SkipRenameDirective || def.SkipRenameDirective
 	user.TypeAhead = user.TypeAhead || def.TypeAhead
+	user.LaunchInPlace = user.LaunchInPlace || def.LaunchInPlace
 	fill(&user.MCP, def.MCP)
 	fill(&user.StatusSource, def.StatusSource)
 	fill(&user.DefaultStatus, def.DefaultStatus)
@@ -1172,6 +1180,10 @@ command = "codex"
 model_flag = "--model"
 # codex-cli 0.157.0: --add-dir <DIR>, writable alongside the primary workspace
 add_dir_flag = "--add-dir"
+# Codex's trust dialog defaults to "Trust and continue", while a codex started
+# in an untrusted directory runs read-only and exits on --add-dir. A spawn
+# outside the caller's tree therefore opens where it asked to work.
+launch_in_place = true
 # codex repaints a typed character in 27-45ms against Claude Code's 10-25ms,
 # so the default chase gives up mid-repaint and the key waits for a tick
 echo_budget = "90ms"

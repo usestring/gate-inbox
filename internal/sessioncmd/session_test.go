@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/git"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -69,6 +70,13 @@ command = "printf 'Do you want to proceed?\\n  1. Yes\\n  2. No\\nEnter to confi
 default_status = "idle"
 activity_cutoff = "(?m)^❯"
 rules = [{ state = "waiting", pattern = "Enter to confirm" }]
+
+[tools.inplace]
+command = "echo"
+add_dir_flag = "--add-dir"
+launch_in_place = true
+default_status = "idle"
+activity_cutoff = "(?m)^\u276f"
 
 [tools.resting]
 command = "printf '❯ ' && cat"
@@ -1249,6 +1257,34 @@ func TestCreateOutsideTheCallersTreeLaunchesWhereTheCallerDid(t *testing.T) {
 	}
 }
 
+// A launch_in_place CLI (Codex) opens where it was asked even outside the
+// caller's tree, with no change-directory note and no add_dir_flag: Codex in an
+// untrusted directory runs read-only and exits on that flag.
+func TestCreateOutsideTheCallersTreeLaunchesInPlaceWhenTheToolAsks(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	elsewhere := t.TempDir()
+	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{
+		Tool:      "inplace",
+		Prompt:    "fix the retry backoff",
+		Directory: elsewhere,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	pane, err := h.driver.PaneCurrentPath(created.ID)
+	if err != nil {
+		t.Fatalf("pane path: %v", err)
+	}
+	if !sameTerminalPath(pane, elsewhere) {
+		t.Fatalf("pane opened in %q, want the requested %q", pane, elsewhere)
+	}
+	screen := waitForSessionOutput(t, h.sessions, h.caller.ID, created.ID, "fix the retry backoff")
+	if strings.Contains(screen.Output, launch.WorkdirDirectivePrefix) || strings.Contains(screen.Output, "--add-dir") {
+		t.Fatalf("an in-place launch was diverted: %q", screen.Output)
+	}
+}
+
 // A spawn inside the caller's tree inherits its trust, so nothing is diverted
 // and no directive is added.
 func TestCreateInsideTheCallersTreeOpensThereUndirected(t *testing.T) {
@@ -1281,18 +1317,22 @@ func TestCreateInsideTheCallersTreeOpensThereUndirected(t *testing.T) {
 func TestLaunchDirectoryFallsBackToTheRequestedDirectory(t *testing.T) {
 	caller := t.TempDir()
 	outside := t.TempDir()
-	if got := launchDirectory(caller, outside); got != caller {
+	var tool config.Tool
+	if got := launchDirectory(config.Tool{LaunchInPlace: true}, caller, outside); got != outside {
+		t.Fatalf("a launch_in_place tool outside the caller's tree = %q, want the requested %q", got, outside)
+	}
+	if got := launchDirectory(tool, caller, outside); got != caller {
 		t.Fatalf("a spawn outside the caller's tree = %q, want %q", got, caller)
 	}
-	if got := launchDirectory(caller, caller); got != caller {
+	if got := launchDirectory(tool, caller, caller); got != caller {
 		t.Fatalf("the caller's own directory = %q, want %q", got, caller)
 	}
-	if got := launchDirectory("", outside); got != outside {
+	if got := launchDirectory(tool, "", outside); got != outside {
 		t.Fatalf("a caller with no directory = %q, want %q", got, outside)
 	}
 	// A caller whose own directory has gone vouches for nothing, and opening
 	// no pane at all would be worse than the dialog this avoids.
-	if got := launchDirectory(filepath.Join(caller, "gone"), outside); got != outside {
+	if got := launchDirectory(tool, filepath.Join(caller, "gone"), outside); got != outside {
 		t.Fatalf("a caller directory that does not exist = %q, want %q", got, outside)
 	}
 }

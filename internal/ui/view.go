@@ -526,8 +526,8 @@ func padToHeight(s string, height int) string {
 	return s
 }
 
-// viewFooter is the app's legend: one tier of keys for whatever the cursor
-// is on. A transient mode (hotkey menu, rename, resize) owns the legend
+// viewFooter is the app's legend: the row tier, then the snippets tier,
+// then the peek key. A transient mode (hotkey menu, rename, resize) owns the legend
 // alone while it is up.
 func (m *Model) viewFooter() string {
 	// A half-typed group number is the one piece of state with no home on a
@@ -609,7 +609,19 @@ func (m *Model) viewFooter() string {
 }
 
 func (m *Model) listFooter() string {
-	footer := legendBar([]legendSection{m.defaultRowLegend()}, m.width, min(m.legendRows(), 1))
+	row := m.defaultRowLegend()
+	footer := legendBar([]legendSection{row}, m.width, min(m.legendRows(), 1))
+	if len(row.pairs) > 0 && m.legendRows() > 1 {
+		if snips := m.snippetLegend(); len(snips.pairs) > 0 {
+			if line := legendBar([]legendSection{snips}, m.width, 1); line != "" {
+				if footer == "" {
+					footer = line
+				} else {
+					footer += "\n" + line
+				}
+			}
+		}
+	}
 	peekCap := m.tightCap(keymap.ContextList, keymap.LegendPeek)
 	if footer == "" || peekCap == "" {
 		return footer

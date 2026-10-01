@@ -112,8 +112,10 @@ type Model struct {
 
 	// snips are the operator's canned answers on ctrl+alt keys, read once at
 	// startup; snipErr is why there are none, when the file would not be read.
-	snips   snippets.Set
-	snipErr string
+	snips          snippets.Set
+	snipErr        string
+	jevAutoSuggest bool
+	autoSuggestSeq int
 
 	// keys is the resolved key map: the catalog with the operator's keys.toml
 	// applied, read once at startup for the reason snips are. keyProblems is
@@ -769,32 +771,36 @@ type renameTarget struct {
 // cursor moves, so the target follows the selection. It lists the snippets
 // and takes no text.
 type quickState struct {
-	active         bool
-	closeAfterSend bool
+	active             bool
+	closeAfterSend     bool
+	suggestions        []string
+	suggestionIdentity string
 }
 
 type settingsState struct {
-	toolNames        []string
-	toolIndex        int
-	accountRouting   string
-	chooserAvailable bool
-	themeIndex       int
-	field            int
-	quickCloseSend   bool
-	enterFocuses     bool
-	comfortableRows  bool
-	layout           string
-	sidebar          string
-	palette          string
-	glyphs           string
-	archiveConfirm   string
-	listSort         string
-	chrome           string
-	leaveMode        string
-	newSessionAgent  string
-	autoProceed      bool
-	reopenSessions   string
-	outsidePanes     string
+	toolNames          []string
+	toolIndex          int
+	accountRouting     string
+	chooserAvailable   bool
+	themeIndex         int
+	field              int
+	quickCloseSend     bool
+	enterFocuses       bool
+	comfortableRows    bool
+	layout             string
+	sidebar            string
+	palette            string
+	glyphs             string
+	archiveConfirm     string
+	listSort           string
+	chrome             string
+	leaveMode          string
+	newSessionAgent    string
+	autoProceed        bool
+	reopenSessions     string
+	outsidePanes       string
+	experimentalPicker bool
+	jevAutoSuggest     bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -825,6 +831,7 @@ const (
 	settingsFieldAutoProceed
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
+	settingsFieldExperimental
 	settingsFieldSnippets
 	settingsFieldCLIs
 	settingsFieldGuide
@@ -1124,6 +1131,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		collapsed:       loadCollapsed(st),
 		split:           splitState{ratio: loadSplitRatio(st)},
 		focusOnEnter:    storedFocusOnEnter(st),
+		jevAutoSuggest:  storedJevAutoSuggest(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),
 		sidebar:         storedSidebar(st, cfg.Board.Sidebar),
@@ -1987,6 +1995,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.readConversation(), conversationTick(), m.startStartupTick())
 	case conversationMsg:
 		m.applyConversation(msg)
+		return m, m.scheduleAutoSuggestion()
+	case autoSuggestTickMsg:
+		return m, m.runAutoSuggestion(msg.seq)
+	case autoSuggestResultMsg:
+		m.applyAutoSuggestion(msg)
 		return m, nil
 	case historyIndexedMsg:
 		return m, m.historySearchCmd()
@@ -2450,7 +2463,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMsg:
-		return m.handleMouse(msg)
+		model, cmd := m.handleMouse(msg)
+		return model, tea.Batch(cmd, m.scheduleAutoSuggestion())
 
 	case tea.KeyboardEnhancementsMsg:
 		m.keyReleases = msg.SupportsEventTypes() && msg.SupportsAllKeysAsEscapeCodes()
@@ -2467,7 +2481,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		model, cmd := m.handleKey(msg)
 		m.syncPollInput()
-		return model, cmd
+		return model, tea.Batch(cmd, m.scheduleAutoSuggestion())
 
 	case tea.PasteMsg:
 		if m.mode == modeExtensionView {

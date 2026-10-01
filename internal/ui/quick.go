@@ -10,8 +10,8 @@ import (
 )
 
 // openQuickMode docks the hotkey menu under the preview. It has no input:
-// every row is a snippet, and the key beside it sends that snippet to the
-// selected session. Free text is the focused session's job, where the
+// snippet keys send saved replies to the selected session. Free text is
+// the focused session's job, where the
 // operator is typing into the agent itself.
 func (m *Model) openQuickMode() {
 	m.errBar.text = ""
@@ -37,6 +37,15 @@ func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			if m.canRescindLatestSubmission() {
 				return m.rescindLatestSubmission()
 			}
+		}
+	}
+	if candidates := m.autoSuggestions(); len(candidates) > 0 {
+		if msg.String() == "ctrl+y" {
+			no := false
+			model, cmd := m.sendSnippetToSelected(snippets.Snippet{Text: candidates[0], AutoSubmit: &no})
+			m.quick.suggestions = nil
+			m.autoSuggestSeq++
+			return model, cmd
 		}
 	}
 	switch msg.String() {

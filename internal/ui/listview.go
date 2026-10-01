@@ -1684,7 +1684,12 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 	if m.mode == modeFocus {
 		limit = min(limit, max(1, m.listBodyHeight()-6))
 	}
-	return target + "\n" + strings.Join(m.quickMenuLines(width, limit), "\n")
+	lines := m.quickMenuLines(width, limit)
+	if suggestion := m.selectedAutoSuggestion(); suggestion != "" && limit > 1 {
+		lines = m.quickMenuLines(width, limit-1)
+		lines = append(lines, subtleStyle.Render(truncateTail("ctrl+y insert · "+suggestion, width)))
+	}
+	return target + "\n" + strings.Join(lines, "\n")
 }
 
 // quickMenuLines lays the snippets out as the menu's body: each key beside

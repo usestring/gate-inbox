@@ -47,7 +47,7 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `U` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed kill as well as a silent one |
 | `space` | Hotkey menu: send one of your snippets to the selected session |
 | `F` | Fold / unfold every group |
-| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, ask before killing, sort, key hints, on leaving a session, after hotkey send, session keys, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
+| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, ask before killing, sort, key hints, on leaving a session, after hotkey send, session keys, experimental features, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
 | `\|` | Resize the split: `←→` nudge the divider, `enter` commits, `esc` cancels |
 | `\` | Hide / show the list beside the pane: the `board` layout under a key, and `alt+\` does it from inside a focused session. The layout you had comes back on the second press |
 | `t` | Toggle archived view. A row there counts down its retention: seven days after it was archived the manager deletes it for good, with its hook files, and the countdown is on the row |
@@ -87,10 +87,12 @@ answers the session in front of you.
 
 ## Hotkey menu
 
-Press `space` to dock the hotkey menu at the bottom of the sidebar. It lists your snippets and nothing else: there is no text box, because typing a message is what focusing a session (`enter`) is for. The target follows the cursor while the menu is open, and `↑↓` still move it.
+Press `space` to dock the hotkey menu at the bottom of the sidebar. It lists your snippets without a text box, because typing a message is what focusing a session (`enter`) is for. The target follows the cursor while the menu is open, and `↑↓` still move it.
 
 - On a **session** row, each snippet's key sends it straight into that session's pane, so the agent gets it as a user message without you attaching. In the menu the key works without its chord: `c` sends what `ctrl+alt+c` sends, `§` what `alt+§` sends, and the chord itself still works too. The menu stays open, ready for the next session; Settings (`s`) can make it close after a send instead.
 - On a **group** row there is no pane to send to, so the menu says to select a session. `n` and `ctrl+n` start a new agent in the group.
+
+Settings → **experimental** contains **JEV Auto Suggest**, off by default. With `TYPESAFE_API_KEY` set, it ranks up to eight earlier submissions from the selected existing session against its last four messages. The suggestion appears beneath the snippets; `ctrl+y` inserts it into the session's prompt without submitting it. Close the menu and focus the session to edit or send it. It never suggests a starting prompt on a group row. When enabled, each ranking request sends up to four messages (500 characters each) and eight submissions (300 characters each) to TypeSafe. A missing key, failed request, or JEV's “none” choice leaves the menu without a suggestion.
 
 `space` or `esc` closes the menu. Snippets that do not fit on its lines are counted on the last one, and the key map (`?`) lists them all.
 

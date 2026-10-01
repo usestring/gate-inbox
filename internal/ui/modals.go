@@ -372,6 +372,13 @@ func (m *Model) viewSettings() string {
 	if m.settings.cliPicker {
 		return m.viewCLIPicker()
 	}
+	if m.settings.experimentalPicker {
+		state := "off"
+		if m.settings.jevAutoSuggest {
+			state = "on"
+		}
+		return m.cardFlex("▣ Experimental features", "JEV Auto Suggest  ◂ "+state+" ▸\nSuggest the next reply in an existing session.\nRequires TYPESAFE_API_KEY; sends bounded text to TypeSafe.", [][2]string{{"←→/↵", "toggle"}, {"esc", "back"}})
+	}
 	density := "compact"
 	if m.settings.comfortableRows {
 		density = "comfortable"
@@ -449,6 +456,7 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldAutoProceed, "triage auto proceed", autoProceed) + "\n" +
 		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +
 		row(settingsFieldOutsidePanes, "outside panes", outsidePanesLabel(m.settings.outsidePanes)) + "\n" +
+		actionRow(settingsFieldExperimental, "experimental", "features (default off)") + "\n" +
 		actionRow(settingsFieldSnippets, "snippets", "edit quick replies") + "\n" +
 		actionRow(settingsFieldCLIs, "CLIs", "show or hide for new sessions") + "\n" +
 		actionRow(settingsFieldGuide, "welcome guide", "read the first-run introduction again") + "\n" +
@@ -456,6 +464,8 @@ func (m *Model) viewSettings() string {
 		m.settingsVersionRow(lead)
 	hint := [][2]string{{"↑↓", "field"}, {"←→", "change"}, {"↵/esc", "save"}}
 	switch m.settings.field {
+	case settingsFieldExperimental:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "experimental features"}, {"esc", "save"}}
 	case settingsFieldSnippets:
 		hint = [][2]string{{"↑↓", "field"}, {"↵", "edit snippets"}, {"esc", "save"}}
 	case settingsFieldCLIs:

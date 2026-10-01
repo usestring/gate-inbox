@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/usestring/gate-inbox/internal/search"
 )
 
 func chainFixture(t testing.TB) *Model {
@@ -102,14 +105,42 @@ func TestFocusPaneScrollChainsOutToAdjacentRow(t *testing.T) {
 }
 
 func TestListConversationScrollChainsToAdjacentRow(t *testing.T) {
+	longConversation := func(m *Model) {
+		sess, _ := m.selected()
+		m.applyConversation(conversationMsg{key: conversationKey(sess.ID, sess.AgentSessionID), messages: []search.Message{
+			{Role: "user", Text: "My question"},
+			{Role: "assistant", Text: strings.Repeat("Reply line\n", 60)},
+		}})
+		if m.conversation.compact {
+			m.toggleConversation()
+		}
+	}
+
 	m := chainFixture(t)
 	m.selectSessionRow(t, "chain-one")
 	if !m.showsConversation() {
 		t.Skip("fixture is not showing a conversation")
 	}
+	longConversation(m)
 	before := m.cursor
 	m.keyScrollFocus(focusScrollDown)
 	if m.cursor == before {
 		t.Fatal("alt+down at the conversation bottom did not move to the next row")
+	}
+
+	m = chainFixture(t)
+	m.selectSessionRow(t, "chain-two")
+	if !m.showsConversation() {
+		t.Skip("fixture is not showing a conversation")
+	}
+	longConversation(m)
+	before = m.cursor
+	m.keyScrollFocus(focusScrollTop)
+	if m.cursor != before {
+		t.Fatal("alt+home moved the cursor instead of scrolling to the top")
+	}
+	m.keyScrollFocus(focusScrollUp)
+	if m.cursor == before {
+		t.Fatal("alt+up at the conversation top did not move to the previous row")
 	}
 }

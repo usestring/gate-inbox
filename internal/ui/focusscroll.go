@@ -389,6 +389,9 @@ func (m *Model) chainConversationScroll(lines, delta int) (tea.Cmd, bool) {
 		height = m.pane.box.height
 	}
 	maxOff := max(0, len(body)-height)
+	if maxOff == 0 {
+		return nil, false
+	}
 	atEdge := (lines < 0 && m.conversation.offset >= maxOff) ||
 		(lines > 0 && m.conversation.offset <= 0)
 	if !atEdge {

@@ -12,7 +12,7 @@ import (
 )
 
 // exitTailLines is how much of an exited child's pane its spawner is shown.
-const exitTailLines = 12
+const exitTailLines = 20
 
 // agentExit reports whether sess's agent has exited in a pane that is still
 // up, read from the record the launch script leaves when the agent returns,

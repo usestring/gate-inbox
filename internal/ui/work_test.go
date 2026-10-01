@@ -560,17 +560,73 @@ func TestPullRequestsSortAboveTickets(t *testing.T) {
 
 func TestSortWorkRowsPutsKindBeforeBlocker(t *testing.T) {
 	rows := []workRow{
-		{kind: "TICKET", label: "ABC-1"},
-		{kind: "PR", label: "quiet"},
-		{kind: "TICKET", label: "ABC-2"},
-		{kind: "PR", label: "blocked", needsYou: true},
+		{kind: "TICKET", label: "ABC-1", rank: ticketRankTodo},
+		{kind: "PR", label: "quiet", rank: int(forge.RankAwaitingReview)},
+		{kind: "TICKET", label: "ABC-2", rank: ticketRankStarted},
+		{kind: "PR", label: "blocked", rank: int(forge.RankNeedsYou), needsYou: true},
 	}
 	sortWorkRows(rows)
-	var got []string
+	if want := "blocked quiet ABC-2 ABC-1"; strings.Join(rowLabels(rows), " ") != want {
+		t.Errorf("order = %v, want %s", rowLabels(rows), want)
+	}
+}
+
+// Open pull requests sort above merged and closed ones, and within the open ones what a person
+// can act on leads: a blocked row, then one ready to merge, then one a reviewer owes. Within a
+// rank the newest activity leads, and a row with no timestamp keeps its place behind those.
+func TestSortWorkRowsRanksPullRequestsByImportance(t *testing.T) {
+	at := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	rows := []workRow{
+		{kind: "PR", label: "closed", rank: int(forge.RankClosed), updated: at},
+		{kind: "PR", label: "merged-old", rank: int(forge.RankMerged), updated: at.Add(-2 * time.Hour)},
+		{kind: "PR", label: "draft", rank: int(forge.RankDraft), updated: at},
+		{kind: "TICKET", label: "ABC-1", rank: ticketRankDone},
+		{kind: "PR", label: "merged-new", rank: int(forge.RankMerged), updated: at},
+		{kind: "PR", label: "running", rank: int(forge.RankChecksRunning), updated: at},
+		{kind: "PR", label: "unlooked", rank: int(forge.RankUnlooked)},
+		{kind: "PR", label: "review", rank: int(forge.RankAwaitingReview), updated: at},
+		{kind: "PR", label: "blocked-undated", rank: int(forge.RankNeedsYou), needsYou: true},
+		{kind: "PR", label: "ready", rank: int(forge.RankReadyToMerge), updated: at},
+		{kind: "PR", label: "blocked-new", rank: int(forge.RankNeedsYou), needsYou: true, updated: at},
+	}
+	sortWorkRows(rows)
+	want := "blocked-new blocked-undated ready review running unlooked draft merged-new merged-old closed ABC-1"
+	if got := strings.Join(rowLabels(rows), " "); got != want {
+		t.Errorf("order = %s\nwant    %s", got, want)
+	}
+}
+
+// The ranking reaches the rail through the tracker, not only through sortWorkRows: one session on
+// a merged, an open and a blocked pull request lists them blocked, open, merged.
+func TestRailListsOpenPullRequestsAboveMergedOnes(t *testing.T) {
+	ref := func(n int) string {
+		return workspec.Ref{Kind: workspec.KindPR, Repo: "example-org/sample-repo", Number: n}.Key()
+	}
+	at := time.Now()
+	prs := fakePRs{health: forge.Health{OK: true}, prs: map[string]forge.PR{
+		ref(1): {Repo: "example-org/sample-repo", Number: 1, State: forge.PRMerged, Checks: forge.ChecksPassing, Mergeable: true, UpdatedAt: at},
+		ref(2): {Repo: "example-org/sample-repo", Number: 2, State: forge.PROpen, Checks: forge.ChecksPassing, Mergeable: true, UpdatedAt: at},
+		ref(3): {Repo: "example-org/sample-repo", Number: 3, State: forge.PROpen, Checks: forge.ChecksFailing, Mergeable: true, UpdatedAt: at.Add(-time.Hour)},
+	}}
+	m := &Model{
+		width: 100, height: 30,
+		work: worktracker.New(fakeGit{remote: "git@github.com:example-org/sample-repo.git"}, prs, fakeTickets{health: forge.Health{OK: true}}),
+		sessions: []store.Session{{
+			ID: "s1", Name: "mixed", Tool: "claude", Status: status.Waiting, Cwd: "/repo",
+			LaunchPrompt: "https://github.com/example-org/sample-repo/pull/1 https://github.com/example-org/sample-repo/pull/2 https://github.com/example-org/sample-repo/pull/3",
+			CreatedAt:    time.Now(),
+		}},
+	}
+	m.runWork(t)
+	if got, want := strings.Join(rowLabels(m.workRowsFor("s1")), " "), "example-org/sample-repo#3 example-org/sample-repo#2 example-org/sample-repo#1"; got != want {
+		t.Errorf("rail = %s, want %s", got, want)
+	}
+}
+
+func rowLabels(rows []workRow) []string {
+	labels := make([]string, 0, len(rows))
 	for _, row := range rows {
-		got = append(got, row.label)
+		labels = append(labels, row.label)
 	}
-	if want := "blocked quiet ABC-1 ABC-2"; strings.Join(got, " ") != want {
-		t.Errorf("order = %v, want %s", got, want)
-	}
+	return labels
 }

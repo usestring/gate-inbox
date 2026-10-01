@@ -381,6 +381,10 @@ func marksInRoom(room int) int { return (room + 1) / 2 }
 // workRow is one artifact a session is on: a pull request, or a ticket.
 type workRow struct {
 	needsYou bool
+	// rank is where the row sorts among its kind, most wanting a person first,
+	// and updated breaks a tie newest first. See sortWorkRows.
+	rank    int
+	updated time.Time
 	// key is the tracker's name for the reference, which is what a sighting
 	// is recorded against.
 	key string
@@ -522,7 +526,7 @@ func (m *Model) ownWorkRows(sessID string) []workRow {
 				colour = colorIdle
 			}
 			rows = append(rows, workRow{
-				needsYou: pr.NeedsYou(), key: key, kind: "PR",
+				needsYou: pr.NeedsYou(), rank: int(pr.Rank()), updated: pr.UpdatedAt, key: key, kind: "PR",
 				label: pr.Repo + "#" + strconv.Itoa(pr.Number), short: "#" + strconv.Itoa(pr.Number),
 				detail: detail, url: pr.URL, glyph: prGlyph(pr), stateHint: colour,
 			})
@@ -539,7 +543,7 @@ func (m *Model) ownWorkRows(sessID string) []workRow {
 				colour = colorIdle
 			}
 			rows = append(rows, workRow{
-				key: key, kind: "TICKET", label: ticket.Identifier, short: ticket.Identifier,
+				rank: ticketRank(ticket), key: key, kind: "TICKET", label: ticket.Identifier, short: ticket.Identifier,
 				detail: detail, url: ticket.URL, glyph: ticketGlyph(ticket), stateHint: colour,
 			})
 			continue
@@ -551,17 +555,45 @@ func (m *Model) ownWorkRows(sessID string) []workRow {
 	return rows
 }
 
-// sortWorkRows puts pull requests above tickets, then whatever wants a person
-// first. A pull request is the thing the operator acts on and a ticket is the
-// trail it leaves, so the kind outranks the blocker; only a pull request can
-// be blocked on a person anyway.
+// sortWorkRows puts pull requests above tickets, then orders each kind by how
+// much it wants a person: forge.PR.Rank for a pull request -- blocked, ready to
+// merge, awaiting review, checks running, draft, merged, closed -- and open
+// before done for a ticket. A pull request is the thing the operator acts on
+// and a ticket is the trail it leaves, so the kind outranks the blocker.
+//
+// Within a rank the newest activity leads. A row with no timestamp, one
+// restored from before the column existed, keeps its evidence order behind
+// the rows that have one.
 func sortWorkRows(rows []workRow) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		if iPR, jPR := rows[i].kind == "PR", rows[j].kind == "PR"; iPR != jPR {
 			return iPR
 		}
-		return rows[i].needsYou && !rows[j].needsYou
+		if rows[i].rank != rows[j].rank {
+			return rows[i].rank < rows[j].rank
+		}
+		return rows[i].updated.After(rows[j].updated)
 	})
+}
+
+const (
+	ticketRankStarted = iota
+	ticketRankTodo
+	ticketRankDone
+)
+
+// ticketRank puts a ticket still being worked above one that is not started,
+// and both above a done one. A ticket Linear has not answered for sorts as not
+// started.
+func ticketRank(ticket forge.Ticket) int {
+	switch {
+	case ticket.Done():
+		return ticketRankDone
+	case ticket.StateType == "started":
+		return ticketRankStarted
+	default:
+		return ticketRankTodo
+	}
 }
 
 // noteWorkSeen records that these rows were on a screen the operator had
@@ -612,9 +644,11 @@ func unlookedRow(ref workspec.Ref) workRow {
 	if ref.Kind == workspec.KindTicket {
 		row.kind, row.label, row.short = "TICKET", ref.Identifier, ref.Identifier
 		row.glyph = currentGlyphs.ticketTodo
+		row.rank = ticketRankTodo
 		return row
 	}
 	row.kind = "PR"
+	row.rank = int(forge.RankUnlooked)
 	row.glyph = currentGlyphs.prPending
 	row.label = ref.Repo + "#" + strconv.Itoa(ref.Number)
 	row.short = "#" + strconv.Itoa(ref.Number)

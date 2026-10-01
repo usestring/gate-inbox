@@ -77,6 +77,7 @@ const (
 	// modeQuickActions holds the palette that runs any list action by name
 	// and shows the key it is on. See quickactions.go.
 	modeQuickActions
+	modePanePicker
 )
 
 type treeRow struct {
@@ -493,6 +494,7 @@ type Model struct {
 	jump          groupJump
 	search        string
 	searching     bool
+	panePicker    panePicker
 	// triage mirrors the persisted status-ordered queue: the rail drops its
 	// group structure and sorts by what needs a person, and ctrl+q walks on
 	// to the next such session instead of returning to the list.

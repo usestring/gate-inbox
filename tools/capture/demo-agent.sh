@@ -29,6 +29,17 @@ else
   printf 'demo-agent: no transcript %s\n' "$transcript"
 fi
 
+if [[ "$transcript" == "handover" ]]; then
+  stty -echo -icanon 2>/dev/null || true
+  printf '\033[4A\033[1G'
+  IFS= read -r -n 1 _key
+  printf 'working PostToolUse\n' >> "${GATE_INBOX_STATUS_FILE:?}"
+  IFS= read -r -n 1 _key
+  printf '\033[2J\033[H✻ Working… (esc to interrupt)\n'
+  cat >/dev/null
+  exit 0
+fi
+
 # Hold the pane open: the board reads a session's state from its pane, and a
 # command that exits would read as a dead session rather than a live one.
 # "working" keeps emitting, because the board derives that state from a region

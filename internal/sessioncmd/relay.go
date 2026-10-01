@@ -67,9 +67,6 @@ func (s *Sessions) guard(st *store.Store, caller, target store.Session, relay bo
 // its transcript or, while the transcript does not hold it yet, from what
 // its ask-pending hook saved.
 func (s *Sessions) pendingCall(target store.Session) (convo.AskCall, bool) {
-	if target.Tool != "" && target.Tool != "claude" {
-		return convo.AskCall{}, false
-	}
 	return convo.PendingAskFile(s.transcriptOf(target), hooks.NewManager(s.configDir).PendingAskFile(target.ID))
 }
 

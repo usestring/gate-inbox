@@ -210,6 +210,9 @@ func inOptionOrder(question dialog.Question, ticks []string) []string {
 // asked is the pending AskUserQuestion call in target's transcript, or nil
 // when there is none to read.
 func (s *Sessions) asked(target store.Session) []convo.AskQuestion {
+	if target.Tool != "claude" {
+		return nil
+	}
 	call, _ := s.pendingCall(target)
 	return call.Questions
 }

@@ -1,6 +1,9 @@
 package dialog
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 // Which dialog a pane is holding.
 //
@@ -48,9 +51,19 @@ var (
 	codexTrustLegend = regexp.MustCompile(`(?m)^[ \x{A0}]*Press enter to continue[ \x{A0}]*$`)
 	// approvalLegend closes a permission prompt on either harness. The verb is
 	// what separates it from askLegend: a permission prompt confirms, and
-	// AskUserQuestion selects.
+	// AskUserQuestion selects. Claude Code 2.1.284 closes its permission prompt
+	// with "Esc to cancel · Tab to amend" and no Enter at all; amending is
+	// something only a command awaiting approval offers.
 	approvalLegend = regexp.MustCompile(
-		`(?m)^[ \x{A0}]*(?:Enter to confirm\b[^\n]*Esc to cancel|Press enter to confirm or esc to cancel)[ \x{A0}]*$`)
+		`(?m)^[ \x{A0}]*(?:Enter to confirm\b[^\n]*Esc to cancel|Press enter to confirm or esc to cancel|` +
+			`Esc to cancel \x{B7} Tab to amend\b[^\n]*)[ \x{A0}]*$`)
+
+	// standingLegend is the closing legend of any dialog, read or not: key
+	// segments joined by middle dots, one of them Esc or Enter doing what a
+	// dialog's keys do.
+	standingLegend = regexp.MustCompile(`(?i)^[ \x{A0}]*(?:[^\x{B7}\n]+ \x{B7} )*` +
+		`(?:esc to (?:cancel|exit|reject|interrupt)|enter to (?:confirm|select|continue|submit)|press enter to [^\n]+)` +
+		`(?: \x{B7} [^\x{B7}\n]+)*[ \x{A0}]*$`)
 )
 
 // dialogLegend finds the closing legend a pane's dialog is drawn with, and
@@ -84,6 +97,27 @@ func dialogLegend(pane string) (Kind, []int) {
 	return kind, at
 }
 
+// Standing reports whether a stripped pane ends in a dialog's closing legend,
+// whether or not Inspect can read the dialog above it. A pane that does is
+// not at its input line, and words sent to it would land on the dialog.
+func Standing(pane string) bool {
+	lines := strings.Split(strings.ReplaceAll(pane, "\r", ""), "\n")
+	end := len(lines) - 1
+	for end >= 0 && strings.TrimSpace(lines[end]) == "" {
+		end--
+	}
+	for back := 0; back <= 2 && end-back >= 0; back++ {
+		joined := strings.TrimSpace(lines[end-back])
+		for _, next := range lines[end-back+1 : end+1] {
+			joined += " " + strings.TrimSpace(next)
+		}
+		if standingLegend.MatchString(joined) || isLegend(joined) {
+			return true
+		}
+	}
+	return false
+}
+
 // Guarded marks a dialog that belongs to a person whatever it says and
 // wherever the cursor is: the answer is not this program's to give.
 //
@@ -106,7 +140,8 @@ func (d Dialog) Refusal() string {
 	switch {
 	case d.Kind == KindApproval:
 		return "a permission prompt -- whether the agent may take that action is a person's " +
-			"to answer, on the board"
+			"call: put the prompt to your user word for word, or ask the operator to press the key " +
+			"on the board; send_session is held while a dialog stands"
 	case d.Kind == KindCodexTrust:
 		return "Codex's first-run directory-trust prompt -- whether to work on contents nobody " +
 			"has vouched for is a person's to answer, and the standing fix is the child's launch " +

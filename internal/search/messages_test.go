@@ -5,8 +5,33 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
+
+func TestReadFirstPromptsSkipsCodexHarnessAndDuplicateEvents(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rollout.jsonl")
+	data := `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /repo"}]}}` + "\n" +
+		`{"type":"response_item","payload":{"type":"message","role":"developer","content":"` + strings.Repeat("x", 70<<10) + `"}}` + "\n" +
+		`{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Fix the parser"}]}}` + "\n" +
+		`{"type":"event_msg","payload":{"type":"user_message","message":"Fix the parser"}}` + "\n" +
+		`{"type":"response_item","payload":{"type":"message","role":"user","content":"[gate-inbox] Name this session"}}` + "\n" +
+		`{"type":"response_item","payload":{"type":"function_call_output","output":"tool output"}}` + "\n" +
+		`{"type":"response_item","payload":{"type":"message","role":"user","content":"Run the tests"}}` + "\n" +
+		`{"type":"response_item","payload":{"type":"message","role":"user","content":"Open the PR"}}` + "\n" +
+		`{"type":"response_item","payload":{"type":"message","role":"user","content":"Later task"}}` + "\n"
+	if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadFirstPrompts(Target{Tool: ToolCodex, Path: path}, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Fix the parser", "Run the tests", "Open the PR"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
 
 func TestMessagesOnlyIncludeOperatorConversation(t *testing.T) {
 	for _, tc := range []struct{ tool, data string }{

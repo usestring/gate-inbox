@@ -1,15 +1,144 @@
 package ui
 
 import (
-	tea "charm.land/bubbletea/v2"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/usestring/gate-inbox/internal/codexq"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
 )
+
+func recordDialogResult(t *testing.T, m *Model, id, callID string) {
+	t.Helper()
+	p := m.landings[id].probe
+	if p.transcript == "" {
+		p.transcript = filepath.Join(t.TempDir(), "transcript.jsonl")
+		p.toolID = "answered"
+	}
+	appendLandingRecord(t, p.transcript, `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"`+callID+`","content":"ok"}]}}`)
+}
+
+func appendLandingRecord(t *testing.T, path, record string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(record + "\n"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBackgroundActivityCannotHandOverAnUnansweredDialog(t *testing.T) {
+	m := drainOnDialog(t, true)
+	id := focusedID(t, m)
+	m = pressEnter(m)
+	logHookEvent(t, m, id, "working PostToolUse")
+	recordDialogResult(t, m, id, "background")
+	lookForLanding(t, m)
+	if focusedName(t, m) != "ask" || m.latestSubmission.sessionID != "" || len(m.landings) != 1 {
+		t.Fatal("background activity handed over or recorded the unanswered dialog")
+	}
+	recordDialogResult(t, m, id, "answered")
+	logHookEvent(t, m, id, "waiting PreToolUse")
+	lookForLanding(t, m)
+	if focusedName(t, m) != "next" || m.latestSubmission.sessionID != id {
+		t.Fatal("the matching answer did not land before the next question")
+	}
+}
+
+func TestDialogNeedsAKnownTargetToTrustATranscriptResult(t *testing.T) {
+	p := &landingProbe{dialog: true}
+	if seen, refused := p.transcriptVerdict(convo.Delta{Results: []convo.Result{{ToolUseID: "unknown"}}}); seen || refused {
+		t.Fatal("a result identified a dialog whose target is unknown")
+	}
+}
+
+func TestCodexLandingRequiresTheOutstandingCallID(t *testing.T) {
+	for _, tc := range []struct {
+		name, id, answers string
+		want              landingVerdict
+	}{
+		{"another question", "other", `{"choice":"yes"}`, landingPending},
+		{"auto-expired question", "ask", `{}`, landingRefused},
+		{"matching question", "ask", `{"choice":"yes"}`, landingSeen},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "rollout.jsonl")
+			appendLandingRecord(t, path, `{"payload":{"type":"function_call","name":"request_user_input","call_id":"ask","arguments":"{}"}}`)
+			tracker := &codexq.Tracker{}
+			if _, err := tracker.Update(path); err != nil {
+				t.Fatal(err)
+			}
+			p := &landingProbe{dialog: true, toolID: "ask", rollout: path, rolloutQuestions: tracker}
+			appendLandingRecord(t, path, `{"payload":{"type":"function_call_output","call_id":"`+tc.id+`","output":{"answers":`+tc.answers+`}}}`)
+			if tc.want == landingRefused {
+				p.paneWorking = func() bool { return true }
+			}
+			if got := p.look(); got != tc.want {
+				t.Fatalf("verdict = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLandingSnapshotSelectsTheDialogCall(t *testing.T) {
+	m := buildModel(t)
+	root := t.TempDir()
+	dir := filepath.Join(root, "projects", "project")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "conversation.jsonl")
+	appendLandingRecord(t, path, `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"background","name":"Bash"},{"type":"tool_use","id":"ask","name":"AskUserQuestion"}]}}`)
+	m.landingLocator = search.NewLocator(root, "")
+	m.preview = askPane
+	p := m.landingProbeFor(store.Session{ID: "row", Tool: "claude", AgentSessionID: "conversation"}, true)
+	if p.toolID != "ask" {
+		t.Fatalf("target = %q, want ask", p.toolID)
+	}
+	appendLandingRecord(t, path, `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"background","content":"ok"}]}}`)
+	if got := p.look(); got != landingPending {
+		t.Fatalf("background result = %v", got)
+	}
+	appendLandingRecord(t, path, `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"ask","content":"yes"}]}}`)
+	if got := p.look(); got != landingSeen {
+		t.Fatalf("matching result = %v", got)
+	}
+}
+
+func TestAReplacedLandingSourceCannotReplayOldCompletion(t *testing.T) {
+	for _, source := range []string{"transcript", "rollout"} {
+		t.Run(source, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "source.jsonl")
+			appendLandingRecord(t, path, "original")
+			before, _ := os.Stat(path)
+			p := &landingProbe{dialog: true, toolID: "ask", paneWorking: func() bool { return true }}
+			if source == "transcript" {
+				p.transcript, p.transcriptFile = path, before
+			} else {
+				p.rollout, p.rolloutFile = path, before
+			}
+			if err := os.Rename(path, path+".old"); err != nil {
+				t.Fatal(err)
+			}
+			appendLandingRecord(t, path, "replacement")
+			if got := p.look(); got != landingRefused {
+				t.Fatalf("a replacement source landed the answer: %v", got)
+			}
+		})
+	}
+}
 
 func TestHookVerdictReadsAComposerAndADialogDifferently(t *testing.T) {
 	ev := func(state, name string) hooks.Event { return hooks.Event{State: state, Name: name} }
@@ -24,10 +153,10 @@ func TestHookVerdictReadsAComposerAndADialogDifferently(t *testing.T) {
 		// the picker they open.
 		{"a built-in command", false, nil, false, false},
 		{"a tool call is not a prompt", false, []hooks.Event{ev(status.Working, "PostToolUse")}, false, false},
-		{"the allowed call ran", true, []hooks.Event{ev(status.Working, "PostToolUse")}, true, false},
+		{"an unidentified call ran", true, []hooks.Event{ev(status.Working, "PostToolUse")}, false, false},
 		{"another dialog came up", true, []hooks.Event{ev(status.Waiting, "Notification"), ev(status.Working, "PostToolUse")}, false, true},
 		{"the turn stopped without the call", true, []hooks.Event{ev(status.Finished, "Stop")}, false, true},
-		{"the next question after this one landed", true, []hooks.Event{ev(status.Working, "PostToolUse"), ev(status.Waiting, "PreToolUse")}, true, false},
+		{"background call before a new question", true, []hooks.Event{ev(status.Working, "PostToolUse"), ev(status.Waiting, "PreToolUse")}, false, true},
 		{"the agent only started to work", true, []hooks.Event{ev(status.Working, "PreToolUse")}, false, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -50,12 +179,14 @@ func TestTranscriptVerdictReadsRefusalsBeforeLanding(t *testing.T) {
 		{"a typed prompt", false, convo.Delta{Prompts: []string{"go on"}}, true, false},
 		{"a tool result is not a prompt", false, convo.Delta{Results: []convo.Result{{ToolUseID: "t1"}}}, false, false},
 		{"a dialog answered", true, convo.Delta{Results: []convo.Result{{ToolUseID: "t1"}}}, true, false},
+		{"another call answered", true, convo.Delta{Results: []convo.Result{{ToolUseID: "background"}}}, false, false},
+		{"another call declined", true, convo.Delta{Results: []convo.Result{{ToolUseID: "background", Rejected: true}}}, false, false},
 		{"a dialog declined", true, convo.Delta{Results: []convo.Result{{ToolUseID: "t1", Rejected: true}}}, false, true},
 		{"a turn interrupted", false, convo.Delta{Prompts: []string{"[Request interrupted by user]", "go on"}}, false, true},
 		{"nothing yet", true, convo.Delta{}, false, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			p := &landingProbe{dialog: c.dialog}
+			p := &landingProbe{dialog: c.dialog, toolID: "t1"}
 			seen, refused := p.transcriptVerdict(c.delta)
 			if seen != c.seen || refused != c.refused {
 				t.Fatalf("transcriptVerdict = seen %v refused %v, want %v %v", seen, refused, c.seen, c.refused)
@@ -106,7 +237,7 @@ func TestPasteKeepsALandedAnswerOnItsSession(t *testing.T) {
 	askID := focusedID(t, m)
 	m = pressEnter(m)
 	m.handleFocusPaste(tea.PasteMsg{Content: "one more thing"})
-	logHookEvent(t, m, askID, "working PostToolUse")
+	recordDialogResult(t, m, askID, "answered")
 	lookForLanding(t, m)
 	if got := focusedName(t, m); got != "ask" {
 		t.Fatalf("paste handed the session over to %q", got)
@@ -116,14 +247,14 @@ func TestPasteKeepsALandedAnswerOnItsSession(t *testing.T) {
 	}
 }
 
-// A quick prompt that is never seen landing records nothing and moves the
-// drain nowhere.
-func TestAQuickPromptThatNeverLandsStaysPut(t *testing.T) {
+// A snippet from the hotkey menu that is never seen landing records nothing
+// and moves the drain nowhere.
+func TestAHotkeyMenuSendThatNeverLandsStaysPut(t *testing.T) {
 	m := enterDrain(t, drainFleet(t))
+	bindMenuSnippet(t, m, "Please continue")
 	sess, _ := m.selected()
 	m.openQuickMode()
-	m.quick.input.SetValue("Please continue")
-	if _, _ = m.submitQuick(); m.errBar.text != "" {
+	if _, _ = m.handleQuickKey(letter('c')); !strings.HasPrefix(m.errBar.text, "sent ") {
 		t.Fatal(m.errBar.text)
 	}
 	m.landings[sess.ID].deadline = time.Now().Add(-time.Millisecond)
@@ -170,7 +301,7 @@ func TestRescindingALandedAnswerUnmutesItsSession(t *testing.T) {
 	m := drainOnDialog(t, true)
 	askID := focusedID(t, m)
 	m = pressEnter(m)
-	logHookEvent(t, m, askID, "working PostToolUse")
+	recordDialogResult(t, m, askID, "answered")
 	lookForLanding(t, m)
 	ask, _ := m.sessionByID(askID)
 	if !m.isMuted(ask) {

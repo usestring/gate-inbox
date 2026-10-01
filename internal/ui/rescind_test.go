@@ -17,10 +17,10 @@ func TestRescindTargetsTheLatestSubmissionInsteadOfTheSelectedRow(t *testing.T) 
 	m := buildModel(t)
 	createSession(t, m, "submitted", t.TempDir(), "")
 	createSession(t, m, "selected", t.TempDir(), "")
+	bindMenuSnippet(t, m, "start this")
 	m.selectSessionRow(t, "submitted")
 	m.openQuickMode()
-	m.quick.input.SetValue("start this")
-	m.submitQuick()
+	m.handleQuickKey(letter('c'))
 	if m.latestSubmission.sessionID != "" {
 		t.Fatal("a prompt was rescindable before it landed")
 	}
@@ -75,7 +75,7 @@ func TestFocusedAnswerRemainsRescindableAfterAutoProceed(t *testing.T) {
 	stageDialog(m, answeredID)
 	updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(*Model)
-	logHookEvent(t, m, answeredID, "working PostToolUse")
+	recordDialogResult(t, m, answeredID, "answered")
 	lookForLanding(t, m)
 	if got := focusedName(t, m); got != "next" {
 		t.Fatalf("after answering, focused %q want next", got)

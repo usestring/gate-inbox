@@ -44,7 +44,6 @@ type autoSuggestTickMsg struct{ seq int }
 type autoSuggestResultMsg struct {
 	seq         int
 	identity    string
-	draft       string
 	suggestions []string
 }
 
@@ -203,15 +202,13 @@ func (m *Model) scheduleAutoSuggestion() tea.Cmd {
 	if !ok {
 		m.quick.suggestions = nil
 		m.quick.suggestionIdentity = ""
-		m.quick.suggestionDraft = ""
 		m.autoSuggestSeq++
 		return nil
 	}
-	draft := m.quick.input.Value()
-	if m.quick.suggestionIdentity == identity && m.quick.suggestionDraft == draft {
+	if m.quick.suggestionIdentity == identity {
 		return nil
 	}
-	m.quick.suggestionIdentity, m.quick.suggestionDraft = identity, draft
+	m.quick.suggestionIdentity = identity
 	m.quick.suggestions = nil
 	m.autoSuggestSeq++
 	seq := m.autoSuggestSeq
@@ -223,8 +220,7 @@ func (m *Model) runAutoSuggestion(seq int) tea.Cmd {
 	if !ok || seq != m.autoSuggestSeq {
 		return nil
 	}
-	draft := m.quick.input.Value()
-	input := newSuggestInput(m.conversation.messages, draft)
+	input := newSuggestInput(m.conversation.messages, "")
 	if len(input.Candidates) == 0 {
 		return nil
 	}
@@ -232,20 +228,20 @@ func (m *Model) runAutoSuggestion(seq int) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 		defer cancel()
-		return autoSuggestResultMsg{seq: seq, identity: identity, draft: draft,
+		return autoSuggestResultMsg{seq: seq, identity: identity,
 			suggestions: rankNextSubmissions(ctx, jevHTTPClient, jevEndpoint, key, input)}
 	}
 }
 
 func (m *Model) applyAutoSuggestion(msg autoSuggestResultMsg) {
 	identity, ok := m.suggestIdentity()
-	if ok && msg.seq == m.autoSuggestSeq && msg.identity == identity && msg.draft == m.quick.input.Value() {
+	if ok && msg.seq == m.autoSuggestSeq && msg.identity == identity {
 		m.quick.suggestions = msg.suggestions
 	}
 }
 
 func (m *Model) autoSuggestions() []string {
-	if identity, ok := m.suggestIdentity(); ok && identity == m.quick.suggestionIdentity && m.quick.input.Value() == m.quick.suggestionDraft {
+	if identity, ok := m.suggestIdentity(); ok && identity == m.quick.suggestionIdentity {
 		return m.quick.suggestions
 	}
 	return nil

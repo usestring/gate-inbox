@@ -42,8 +42,9 @@ func TestBoardReadsAnyAgentSessionsDialog(t *testing.T) {
 
 func TestBoardAnswersASessionNobodySpawned(t *testing.T) {
 	h := newSessionHarness(t)
-	child := childShowing(t, h, "", "child102", "orphan", boardAskPane)
-	if _, err := h.sessions.Answer(h.caller.ID, child.ID, "South only"); err == nil {
+	child := childAnswering(t, h, "", "child102", "orphan", boardAskPane,
+		"Which region should the survey cover?", "North only", "South only")
+	if _, err := h.sessions.Answer(h.caller.ID, child.ID, "South only", false); err == nil {
 		t.Fatal("a session answered a dialog it does not own; the board test below means nothing")
 	}
 	answered, err := h.sessions.BoardAnswer(child.ID, "South only")

@@ -446,6 +446,25 @@ CREATE TABLE IF NOT EXISTS settings (
 		// or waited on it. See childretire.go.
 		`ALTER TABLE sessions ADD COLUMN keep_child INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE sessions ADD COLUMN spawner_read_at INTEGER NOT NULL DEFAULT 0`,
+		// Every answer Gate Inbox keys into a child's dialog, written before
+		// the first keystroke. See dialoganswers.go.
+		`CREATE TABLE IF NOT EXISTS dialog_answers (
+			id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+			target_session       TEXT NOT NULL,
+			target_tool_use_id   TEXT NOT NULL,
+			question_hash        TEXT NOT NULL,
+			answer               TEXT NOT NULL,
+			by_session           TEXT NOT NULL,
+			mode                 TEXT NOT NULL,
+			evidence_tool_use_id TEXT NOT NULL DEFAULT '',
+			created_at           INTEGER NOT NULL,
+			state                TEXT NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS dialog_answers_target ON dialog_answers (target_session, target_tool_use_id)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS dialog_answers_evidence ON dialog_answers (evidence_tool_use_id, question_hash) WHERE evidence_tool_use_id != ''`,
+		// When GitHub last saw a pull request change, which orders the rail's
+		// rows of one rank newest first. Zero on rows saved before it existed.
+		`ALTER TABLE forge_prs ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {

@@ -1,5 +1,0 @@
-❯ Uploads fail whenever the storage bucket times out. Retry them with backoff.
-
-● I will wrap the upload call in a retry with exponential backoff.
-
-❯ 

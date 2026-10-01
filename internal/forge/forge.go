@@ -65,12 +65,15 @@ type PR struct {
 	// FailingChecks is how many are red, for a row that says "2 checks failing" rather than
 	// just that something is.
 	FailingChecks int
-	FetchedAt     time.Time
+	// UpdatedAt is when GitHub last saw anything happen on the pull request, which orders rows
+	// of the same rank newest first.
+	UpdatedAt time.Time
+	FetchedAt time.Time
 }
 
 // NeedsYou reports whether this pull request is waiting on a person.
 //
-// This is the ordering key for the work view, and it is deliberately the same promise the board
+// It is the head of Rank, the work view's ordering, and deliberately the same promise the board
 // makes: whatever wants you is at the top. Merged and closed want nothing; a draft is the author
 // saying it is not ready, so it does not want a reviewer either.
 func (p PR) NeedsYou() bool {
@@ -83,6 +86,54 @@ func (p PR) NeedsYou() bool {
 // Done reports whether the pull request is over: merged, or closed without
 // merging. Nothing about a done pull request can want a person again.
 func (p PR) Done() bool { return p.State == PRMerged || p.State == PRClosed }
+
+// PRRank is how much a pull request wants looking at, most first. The order is the
+// question a person scanning the board is asking: what can I unblock, what can I
+// finish, what is someone waiting for, and only then what is merely in flight or over.
+type PRRank int
+
+const (
+	// RankNeedsYou is red CI, changes requested, or a conflict: nothing moves until a
+	// person does something.
+	RankNeedsYou PRRank = iota
+	// RankReadyToMerge is approved, green and mergeable: one click from done.
+	RankReadyToMerge
+	// RankAwaitingReview is green and mergeable with no verdict yet: a reviewer is the
+	// person it is waiting on.
+	RankAwaitingReview
+	// RankChecksRunning is open with CI still out, which a person can do nothing about yet.
+	RankChecksRunning
+	// RankUnlooked is a reference GitHub has not answered for yet, which Rank never returns.
+	// It could be anything, and an open pull request that has answered is a surer call on a
+	// person's attention than one that has not.
+	RankUnlooked
+	// RankDraft is the author saying it is not ready.
+	RankDraft
+	// RankMerged is over and landed, still worth a glance until it settles off the board.
+	RankMerged
+	// RankClosed is over without landing, the least there is to do.
+	RankClosed
+)
+
+// Rank places the pull request in that order.
+func (p PR) Rank() PRRank {
+	switch {
+	case p.State == PRMerged:
+		return RankMerged
+	case p.State == PRClosed:
+		return RankClosed
+	case p.State == PRDraft:
+		return RankDraft
+	case p.NeedsYou():
+		return RankNeedsYou
+	case p.Checks == ChecksPending:
+		return RankChecksRunning
+	case p.Review == ReviewApproved:
+		return RankReadyToMerge
+	default:
+		return RankAwaitingReview
+	}
+}
 
 // Ticket is a Linear issue as of the last successful look.
 type Ticket struct {

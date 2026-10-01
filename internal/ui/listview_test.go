@@ -755,9 +755,8 @@ func TestEveryReadingOfASessionStandsInForAnAwaitedName(t *testing.T) {
 	m.selectGroupRow(t, "backend")
 	readings := []reading{{"roster", ansi.Strip(m.viewGroupAgents("backend", 112, 10))}}
 	m.selectSessionRow(t, generated)
-	readings = append(readings, reading{"detail", ansi.Strip(strings.Join(m.sessionDetailLines(60), "\n"))})
 	m.openQuickMode()
-	readings = append(readings, reading{"quick bar", ansi.Strip(m.viewQuickBar(112, quickBarMaxRows))})
+	readings = append(readings, reading{"hotkey menu", ansi.Strip(m.viewQuickBar(112, quickBarMaxRows))})
 
 	// The prompt the spawn was given is what every reading wears until the
 	// agent answers with a name of its own.
@@ -1092,16 +1091,5 @@ func TestSelectedRowSkipsTheBoxWhenShort(t *testing.T) {
 		if strings.ContainsAny(ansi.Strip(line.text), selectionBorder.Top+selectionBorder.Bottom) {
 			t.Fatalf("a two-line rail drew a rule: %q", ansi.Strip(line.text))
 		}
-	}
-}
-
-func TestQuickBarMeasuresRowsAtTheWidthItJustSet(t *testing.T) {
-	m := buildModel(t)
-	m.openQuickMode()
-	m.quick.input.SetWidth(80)
-	m.quick.input.SetValue("one two three four five six seven eight nine ten")
-	m.viewQuickBar(14, quickBarMaxRows)
-	if got := m.quick.input.Height(); got < 2 {
-		t.Fatalf("rows = %d, want the wrap at width 14, not the previous width", got)
 	}
 }

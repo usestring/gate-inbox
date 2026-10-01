@@ -3,255 +3,95 @@
 package ui
 
 import (
-	"strings"
-
-	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
-	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/keymap"
-	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/snippets"
 )
 
+// openQuickMode docks the hotkey menu under the preview. It has no input:
+// snippet keys send saved replies to the selected session. Free text is
+// the focused session's job, where the
+// operator is typing into the agent itself.
 func (m *Model) openQuickMode() {
-	names, index := m.defaultToolSelection()
-	if len(names) == 0 {
-		m.errBar.text = "no CLIs enabled: open settings (s), then CLIs, to turn some on"
-		return
-	}
-	input := textarea.New()
-	input.CharLimit = 2000
-	input.Placeholder = "type and press enter"
-	input.ShowLineNumbers = false
-	input.SetPromptFunc(2, func(info textarea.PromptInfo) string {
-		if info.LineNumber == 0 {
-			return keyStyle.Render("❯ ")
-		}
-		return "  "
-	})
-	styles := input.Styles()
-	styles.Focused.CursorLine = lipgloss.NewStyle()
-	input.SetStyles(styles)
-	input.SetHeight(1)
-	input.Focus()
 	m.errBar.text = ""
-	m.quick = quickState{
-		active:         true,
-		composer:       composer{input: input, maxRows: quickBarMaxRows, gen: m.nextComposerGen()},
-		toolNames:      names,
-		toolIndex:      index,
-		closeAfterSend: m.quickCloseAfterSend(),
-	}
+	m.quick = quickState{active: true, closeAfterSend: m.quickCloseAfterSend()}
 }
 
-// defaultToolSelection returns enabled tool names with the index of
-// the configured default, ready to seed a tool picker.
-func (m *Model) defaultToolSelection() ([]string, int) {
-	names := m.enabledToolNames()
-	current := m.defaultTool()
-	index := 0
-	for i, name := range names {
-		if name == current {
-			index = i
-		}
-	}
-	return names, index
-}
-
-// handleQuickKey runs while the quick bar is docked in the sidebar: arrows
-// keep moving the selection on the list unless the caret has a prompt row
-// to move to. Enter submits against whatever is selected, and every other
-// key is typed text.
+// handleQuickKey runs while the hotkey menu is docked in the sidebar: arrows
+// keep moving the selection on the list, a snippet's key sends it, and the
+// key that opened the menu, or esc, closes it. Nothing is typed, so a key
+// that names no snippet does nothing rather than reaching some other binding
+// behind the menu.
 func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	context := keymap.ContextList
-	if action, bound := m.action(context, msg); bound && action == keymap.ToggleConversation {
-		m.toggleConversation()
-		return m, nil
-	}
-	if m.quick.message() == "" && m.canRescindLatestSubmission() {
-		if action, bound := m.action(context, msg); bound && action == keymap.Rescind {
-			return m.rescindLatestSubmission()
+	if action, bound := m.action(context, msg); bound {
+		switch action {
+		case keymap.ToggleConversation:
+			m.toggleConversation()
+			return m, nil
+		case keymap.QuickInput:
+			m.quick.active = false
+			return m, nil
+		case keymap.Rescind:
+			if m.canRescindLatestSubmission() {
+				return m.rescindLatestSubmission()
+			}
 		}
 	}
 	if candidates := m.autoSuggestions(); len(candidates) > 0 {
 		if msg.String() == "ctrl+y" {
-			m.quick.input.SetValue(candidates[0])
-			return m, nil
+			no := false
+			model, cmd := m.sendSnippetToSelected(snippets.Snippet{Text: candidates[0], AutoSubmit: &no})
+			m.quick.suggestions = nil
+			m.autoSuggestSeq++
+			return model, cmd
 		}
 	}
 	switch msg.String() {
 	case "esc":
 		m.quick.active = false
-		// Reopening the bar starts a fresh prompt, so the images this one
-		// was holding have nowhere left to be referenced from.
-		m.quick.release()
 		return m, nil
 	case "up":
-		if cmd, stepped := m.quick.stepRow(msg); stepped {
-			return m, cmd
-		}
 		return m, m.moveCursor(-1)
 	case "down":
-		if cmd, stepped := m.quick.stepRow(msg); stepped {
-			return m, cmd
-		}
 		return m, m.moveCursor(1)
-	case "tab", "alt+m":
-		if len(m.quick.toolNames) > 0 {
-			m.quick.toolIndex = (m.quick.toolIndex + 1) % len(m.quick.toolNames)
-		}
-		return m, nil
-	case "enter":
-		return m.submitQuick()
 	}
-	// A snippet is the bar's own shortcut: the same message, without typing
-	// it. Read before the composer so the chord is not swallowed as text --
-	// it carries none, so it would type nothing and look like a dead key --
-	// and it leaves whatever is half-written in the input alone, because
-	// sending a snippet is not abandoning the prompt being composed. A bare
-	// ± is the exception: it is a character, and in an input it types one.
-	if snip, ok := m.snippetFor(msg.String()); ok && !snip.Bare() {
-		return m.sendSnippetToSelected(snip)
-	}
-	if cmd, handled := m.composerKey(composerQuick, msg); handled {
-		return m, cmd
-	}
-	return m, m.quick.typeKey(msg)
-}
-
-// submitQuick answers the selected session, or spawns a new session with
-// the prompt embedded when a group is selected. The bar stays active by
-// default so consecutive prompts flow without re-arming; the "after quick
-// send" setting closes it instead.
-func (m *Model) submitQuick() (tea.Model, tea.Cmd) {
-	entry, ok := m.selectedRow()
+	snip, ok := m.snippetFor(msg.String())
 	if !ok {
-		m.errBar.text = "nothing selected"
-		return m, nil
+		snip, ok = m.quickSnippetFor(msg.String())
 	}
-	if m.quick.pasting() {
-		m.errBar.text = "still reading the pasted image - try again in a moment"
-		return m, nil
-	}
-	text := m.quick.message()
-	if text == "" {
-		m.errBar.text = "prompt cannot be empty"
-		return m, nil
-	}
-	if entry.isGroup {
-		return m.quickSpawn(entry.group, text)
-	}
-	if m.isShell(entry.sess.Tool) {
-		m.errBar.text = shellPromptHint(entry.sess.Name)
-		return m, nil
-	}
-	if !m.tmux.Exists(entry.sess.ID) {
-		m.errBar.text = m.deadSessionHint()
-		return m, nil
-	}
-	// The quick prompt pastes and presses Enter exactly as a snippet does, so a dialog
-	// on the pane eats it the same way. See dialogHold.
-	if hold := m.dialogHold(entry.sess); hold != "" {
-		m.errBar.text = hold
-		return m, nil
-	}
-	// Armed before the send, like every answer: the prompt counts as
-	// submitted, and auto-proceed moves on, once the agent is seen to take
-	// it. See landing.go.
-	landing := m.armLanding(entry.sess, extension.OperatorPrompt, text, false, m.autoProceeds())
-	if err := m.tmux.SendText(entry.sess.ID, text); err != nil {
-		m.dropLanding(entry.sess.ID)
-		m.errBar.text = err.Error()
-		return m, nil
-	}
-	// The prompt is delivered: clear the input before anything else can
-	// fail, so a retry cannot send it twice.
-	m.clearQuickAfterSend()
-	m.errBar.text = ""
-	// A queued answer means the user expects a fresh finished alert.
-	if err := m.store.SetAcked(entry.sess.ID, false); err != nil {
-		m.errBar.text = "prompt sent, but clearing the alert ack failed: " + err.Error()
-	}
-	m.requestRefresh()
-	return m, landing
-}
-
-func (m *Model) quickSpawn(group, prompt string) (tea.Model, tea.Cmd) {
-	if strings.HasPrefix(prompt, "-") {
-		m.errBar.text = `prompt cannot start with "-": the tool would read it as a flag`
-		return m, nil
-	}
-	toolName := m.quickTool()
-	if toolName == "" {
-		m.errBar.text = "no tools configured"
-		return m, nil
-	}
-	dir, ok := resolveExistingDir(m.groupPaths[group], m.groupDefaultDir(group))
 	if !ok {
-		m.errBar.text = "group has no valid default path: " + dir
 		return m, nil
 	}
-	name := toolName + "-" + newID()[:4]
-	// The quick prompt has no model field: it is the one-key spawn, and the
-	// card is where a session is configured.
-	var id string
-	spawn := func() error {
-		var err error
-		id, err = m.spawnSessionAs(toolName, "", name, dir, group, prompt, true, store.SourceUser)
-		return err
-	}
-	if err := spawn(); err != nil {
-		m.reportLaunchError(err, spawn)
-		// A spawn the hint dialog refused leaves nothing to send, so the
-		// bar closes instead of swallowing the list keys behind the dialog;
-		// the dialog releases its images once no install can still spawn it.
-		if m.mode == modeLaunchHint {
-			m.quick.active = false
-		}
-		return m, nil
-	}
-	// Spawned sessions start outside the attention set; clear so the new row shows.
-	m.statusFilter = statusFilterAll
-	m.clearQuickAfterSend()
-	// And then it goes whatever the "after quick send" setting says. That
-	// setting governs answering an existing session, where staying open lets
-	// consecutive prompts flow; a spawn hands the keyboard to the agent it
-	// just made, and a bar left armed behind a focused pane would take the
-	// first keystroke meant for that agent. release frees the images the
-	// prompt was holding, which nothing can reference once the bar is gone.
-	m.quick.active = false
-	m.quick.release()
-	m.errBar.text = ""
-	return m.landInNewSession(id)
-}
-
-// clearQuickAfterSend empties the bar for the next prompt, and dismisses it
-// entirely when the settings toggle asks for that.
-func (m *Model) clearQuickAfterSend() {
-	m.quick.input.SetValue("")
-	m.quick.attachments = nil
+	// Closing costs nothing even when the send was refused: there is no
+	// half-written text to lose, and the refusal stays in the error bar.
 	if m.quick.closeAfterSend {
 		m.quick.active = false
 	}
+	return m.sendSnippetToSelected(snip)
 }
 
-// quickTool is the spawn CLI for the current quick-mode run: the settings
-// default until tab cycles it.
-func (m *Model) quickTool() string {
-	if len(m.quick.toolNames) == 0 {
-		return ""
+// quickSnippetFor reads a key pressed in the menu as the snippet it names
+// without its chord: c for ^alt+c, § for alt+§. The menu is the one place a
+// bare letter is free to mean a snippet, because nothing else there is
+// listening for it.
+func (m *Model) quickSnippetFor(key string) (snippets.Snippet, bool) {
+	for _, snip := range m.snips.Snippets {
+		if snip.Key == key {
+			return snip, true
+		}
 	}
-	return m.quick.toolNames[m.quick.toolIndex]
+	return snippets.Snippet{}, false
 }
 
-// quickCloseAfterSend reports whether the quick bar should dismiss itself
-// once a prompt is delivered. Staying open is the default; a stored "close"
+// quickCloseAfterSend reports whether the hotkey menu should dismiss itself
+// once a snippet is sent. Staying open is the default; a stored "close"
 // choice opts in. A store error is surfaced but still yields the default.
 func (m *Model) quickCloseAfterSend() bool {
 	chosen, err := m.store.Setting(quickCloseSetting)
 	if err != nil {
-		m.errBar.text = "reading quick prompt setting: " + err.Error()
+		m.errBar.text = "reading hotkey menu setting: " + err.Error()
 		return false
 	}
 	return chosen == "close"

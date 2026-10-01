@@ -37,7 +37,7 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 		return nil
 	}
 	// SendText pastes and presses Enter, so on a shell row the sentence
-	// would run as a command. Same guard, same reason as the quick prompt.
+	// would run as a command. Same guard, same reason as a snippet.
 	if m.isShell(sess.Tool) {
 		m.errBar.text = shellPromptHint(sess.Name)
 		return nil

@@ -18,6 +18,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/git"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
@@ -1195,6 +1196,7 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 			return SessionScreen{}, err
 		}
 	}
+	raw := pane
 	pane = strings.TrimRight(ansi.Strip(pane), "\r\n")
 	noteSpawnerRead(runtime, sessionID, target)
 
@@ -1203,6 +1205,9 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 		Session: runtime.sessionInfo(target, running, target.ID == sessionID),
 		Cursor:  cursor,
 		Digest:  runtime.digest(target, pane, running, delta),
+	}
+	if running {
+		screen.Digest.withQuestions(dialog.Questions(raw, s.asked(target)))
 	}
 	if since != "" && readable {
 		screen.Mode, screen.Output, screen.Degraded = "delta", renderDelta(delta), note

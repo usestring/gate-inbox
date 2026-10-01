@@ -19,9 +19,9 @@ import (
 // composer is a prompt box that can hold pasted images. A paste lands at
 // the caret as an "[Image #N]" token that renders as a chip and steps,
 // deletes and wraps as one unit; on send each token becomes the path of
-// the file the clipboard read wrote. The quick bar and the New Session
-// form both compose prompts this way, so a first task can open with the
-// screenshot that explains it.
+// the file the clipboard read wrote. The New Session form composes its
+// prompt this way, so a first task can open with the screenshot that
+// explains it.
 type composer struct {
 	input       textarea.Model
 	attachments []imageAttachment
@@ -54,8 +54,7 @@ type imageAttachment struct {
 type composerID int
 
 const (
-	composerQuick composerID = iota
-	composerForm
+	composerForm composerID = iota
 )
 
 // pasteImageMsg is the result of an async clipboard image read started by
@@ -483,19 +482,13 @@ func (m *Model) nextComposerGen() int {
 
 // composerFor is the prompt box a target names, whatever screen is up.
 func (m *Model) composerFor(target composerID) *composer {
-	if target == composerForm {
-		return &m.form.prompt
-	}
-	return &m.quick.composer
+	return &m.form.prompt
 }
 
 // composerOpen reports whether that prompt box is still on screen, which
 // is what says an image still has somewhere to land.
 func (m *Model) composerOpen(target composerID) bool {
-	if target == composerForm {
-		return m.mode == modeForm
-	}
-	return m.quick.active
+	return target == composerForm && m.mode == modeForm
 }
 
 // composerKey handles the keys a prompt box with chips owns: pasting an

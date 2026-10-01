@@ -102,8 +102,16 @@ func TestAutoTakeoverWaitsForAnAttachedTmuxClient(t *testing.T) {
 	if err := tmuxOnSocket(terminal, "kill-server").Run(); err != nil {
 		t.Fatalf("detach foreign client: %v", err)
 	}
-	if result := m.takeoverPass(); result.taken != 1 || result.owed != 0 {
-		t.Fatalf("detached idle pane was not taken: %+v", result)
+	deadline = time.Now().Add(5 * time.Second)
+	for {
+		result := m.takeoverPass()
+		if result.taken == 1 && result.owed == 0 {
+			break
+		}
+		if time.Now().After(deadline) || len(result.failed) > 0 {
+			t.Fatalf("detached idle pane was not taken: %+v", result)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

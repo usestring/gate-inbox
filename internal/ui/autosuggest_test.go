@@ -15,6 +15,7 @@ import (
 	"charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/search"
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 func TestRecentSubmissionAutocompleteExcludesCurrentTurn(t *testing.T) {
@@ -49,6 +50,7 @@ func TestAutoSuggestIsOffAndNeverTargetsNewSessions(t *testing.T) {
 		{Role: "user", Text: "Add the keyboard shortcuts"},
 		{Role: "assistant", Text: "Done"},
 	}
+	bindMenuSnippet(t, m, menuText)
 	m.openQuickMode()
 	if got := m.autoSuggestions(); len(got) != 0 {
 		t.Fatalf("default-off feature offered %q", got)
@@ -61,18 +63,32 @@ func TestAutoSuggestIsOffAndNeverTargetsNewSessions(t *testing.T) {
 		t.Fatal("existing session did not schedule a suggestion")
 	}
 	m.applyAutoSuggestion(autoSuggestResultMsg{seq: m.autoSuggestSeq, identity: m.quick.suggestionIdentity,
-		draft: "", suggestions: []string{"Add the search box"}})
+		suggestions: []string{"Add the search box"}})
 	if got := m.selectedAutoSuggestion(); got != "Add the search box" {
 		t.Fatalf("existing session suggestion = %q", got)
 	}
-	if bar := ansi.Strip(m.viewQuickBar(80, 4)); !strings.Contains(bar, "ctrl+y insert · Add the search box") {
+	if bar := ansi.Strip(m.viewQuickBar(80, 4)); !strings.Contains(bar, "ctrl+y insert · Add the search box") || !strings.Contains(bar, "carry on") {
 		t.Fatalf("quick bar omitted the JEV suggestion: %q", bar)
 	}
-	m.handleQuickKey(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
-	if got := m.quick.input.Value(); got != "Add the search box" {
-		t.Fatalf("insertion = %q", got)
+	var pastedID, pastedText string
+	restore := pasteFocused
+	pasteFocused = func(_ *tmux.Driver, id, text string) error {
+		pastedID, pastedText = id, text
+		return nil
 	}
-	m.quick.input.SetValue("")
+	t.Cleanup(func() { pasteFocused = restore })
+	m.handleQuickKey(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl})
+	if pastedID != sess.ID || pastedText != "Add the search box" {
+		t.Fatalf("pasted %q into %q", pastedText, pastedID)
+	}
+	if len(m.landings) != 0 || !strings.Contains(m.errBar.text, "press enter to send") {
+		t.Fatalf("suggestion was submitted instead of left for editing: %q", m.errBar.text)
+	}
+	if len(m.autoSuggestions()) != 0 {
+		t.Fatal("accepted suggestion stayed available for duplicate insertion")
+	}
+	m.applyAutoSuggestion(autoSuggestResultMsg{seq: m.autoSuggestSeq, identity: m.quick.suggestionIdentity,
+		suggestions: []string{"Add the search box"}})
 	m.conversation.key = "other session"
 	if got := m.autoSuggestions(); len(got) != 0 {
 		t.Fatalf("another session's history was offered: %q", got)

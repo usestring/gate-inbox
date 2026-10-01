@@ -1,0 +1,13 @@
+────────────────────────────────────────────────
+←  ☐ Too…  ☐ Compliance  ☐ npm…  ☐ Run…  ✔ Submit  →
+Should the release pipeline block on the
+licence compliance scan?
+❯ 1. Block
+     Fail the release
+  2. Warn
+     Annotate only
+  3. Type something.
+────────────────────────────────────────────────
+  4. Chat about this
+Enter to select · Tab/Arrow keys to navigate ·
+Esc to cancel

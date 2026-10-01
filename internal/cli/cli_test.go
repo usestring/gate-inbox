@@ -113,7 +113,7 @@ func (f *fakeSessions) ReleaseSession(sessionID, targetID string) (sessioncmd.Se
 	return sessioncmd.Session{ID: targetID, Name: "child"}, f.failWith
 }
 
-func (f *fakeSessions) Answer(sessionID, targetID, reply string) (sessioncmd.AnsweredQuestion, error) {
+func (f *fakeSessions) Answer(sessionID, targetID, reply string, _ bool) (sessioncmd.AnsweredQuestion, error) {
 	f.callerID, f.targetID, f.answer = sessionID, targetID, reply
 	return sessioncmd.AnsweredQuestion{SessionID: targetID, Name: "child", Answer: reply, Selected: reply}, f.failWith
 }

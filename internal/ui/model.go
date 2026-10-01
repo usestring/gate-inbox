@@ -77,6 +77,7 @@ const (
 	// modeQuickActions holds the palette that runs any list action by name
 	// and shows the key it is on. See quickactions.go.
 	modeQuickActions
+	modePanePicker
 )
 
 type treeRow struct {
@@ -490,6 +491,7 @@ type Model struct {
 	jump          groupJump
 	search        string
 	searching     bool
+	panePicker    panePicker
 	// triage mirrors the persisted status-ordered queue: the rail drops its
 	// group structure and sorts by what needs a person, and ctrl+q walks on
 	// to the next such session instead of returning to the list.
@@ -765,20 +767,14 @@ type renameTarget struct {
 	toolIndex int
 }
 
-// quickState is the inline prompt bar docked under the preview: active
-// across cursor moves, so the target follows the selection. The tool is
-// the spawn CLI for group targets, cycled with tab. A pasted image lands
-// at the caret as an "[Image #N]" token that renders as a chip and steps,
-// deletes, and wraps as one unit; on submit each token becomes its path.
+// quickState is the hotkey menu docked under the preview: active across
+// cursor moves, so the target follows the selection. It lists the snippets
+// and takes no text.
 type quickState struct {
-	active bool
-	composer
-	toolNames          []string
-	toolIndex          int
+	active             bool
 	closeAfterSend     bool
 	suggestions        []string
 	suggestionIdentity string
-	suggestionDraft    string
 }
 
 type settingsState struct {
@@ -2490,10 +2486,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		if m.mode == modeExtensionView {
 			return m, m.pasteIntoView(msg)
-		}
-		if m.quick.active && (m.mode == modeList || m.showsConversation()) {
-			m.quick.input.InsertString(msg.Content)
-			return m, m.scheduleAutoSuggestion()
 		}
 		if m.mode == modeFocus {
 			return m.handleFocusPaste(msg)

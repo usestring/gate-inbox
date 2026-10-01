@@ -418,6 +418,8 @@ The Computer block in the sessions panel shows machine gauges:
 - **Battery**: charge percent, with `charging` while plugged in and filling. On macOS it is the figure the menu bar shows. It stays hidden when the machine has no battery, and peripheral batteries that report no charge (a wireless mouse on Linux) are ignored.
 - **Temperature**: `cpu`, `gpu` and `soc` readings in °C, each the hottest sensor in its category, sampled every 5s. Apple Silicon draws no CPU/GPU line, so its dies report as one `soc` figure. A reading appears when the machine exposes that sensor.
 
+The **context** section above these meters shows the selected agent’s latest reported context-token use. Claude counts input, cached input and output from its latest assistant record; Codex uses its latest turn usage and shows a gauge against the reported context window. Sessions without a usage record, including unsupported tools, show `n/a`. Selecting a group or terminal hides the section.
+
 Under WSL2 the board runs inside the Linux guest, whose `/proc` describes the VM rather than the machine. There the CPU, memory, disk and agent-usage figures come from the Windows host instead, sampled through PowerShell interop every 30 seconds; swap, network and temperatures stay the guest's own. Without interop the guest's numbers show unchanged.
 
 ## Quiet colour

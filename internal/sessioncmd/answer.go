@@ -125,7 +125,7 @@ func (r *runtime) answer(target store.Session, reply, by, byID string, guard *an
 		// answer. See answerscreen.go.
 		if screen, isScreen := dialog.ReadScreen(plain); isScreen && screen.Kind != dialog.ScreenQuestion &&
 			len(screen.Choices) >= 2 {
-			return r.answerScreen(target, pane, screen, reply, by, byID, guard)
+			return r.answerScreen(target, pane, screen.WithExact(guard.pendingStrings()...), reply, by, byID, guard)
 		}
 	}
 	if !ok {

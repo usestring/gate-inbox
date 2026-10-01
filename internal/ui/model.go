@@ -26,6 +26,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/priority"
+	"github.com/usestring/gate-inbox/internal/promptsnips"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/sessname"
 	"github.com/usestring/gate-inbox/internal/snippets"
@@ -115,7 +116,10 @@ type Model struct {
 	snips          snippets.Set
 	snipErr        string
 	jevAutoSuggest bool
+	promptSuggest  bool
+	promptSnipsSeq int
 	autoSuggestSeq int
+	promptSnips    []promptsnips.Snippet
 
 	// keys is the resolved key map: the catalog with the operator's keys.toml
 	// applied, read once at startup for the reason snips are. keyProblems is
@@ -805,7 +809,9 @@ type settingsState struct {
 	reopenSessions     string
 	outsidePanes       string
 	experimentalPicker bool
+	experimentalCursor int
 	jevAutoSuggest     bool
+	promptSuggest      bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -1141,6 +1147,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		focusOnEnter:    storedFocusOnEnter(st),
 		focusView:       storedFocusView(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
+		promptSuggest:   storedPromptSuggestions(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),
 		sidebar:         storedSidebar(st, cfg.Board.Sidebar),
@@ -1362,7 +1369,7 @@ func (m *Model) Init() tea.Cmd {
 	// read any session state, and a first run has none to wait for.
 	m.maybeOpenWelcome()
 	m.syncPollInput()
-	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.autoNameTick(), m.checkTmuxConfig)
+	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips())
 }
 
 // pasteSweepMsg carries the result of one pass over the pastes directory.
@@ -2417,6 +2424,23 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pasteTextMsg:
 		return m.handlePasteTextMsg(msg)
+
+	case promptSnipsLoadedMsg:
+		if !m.promptSuggest || msg.seq != m.promptSnipsSeq {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.errBar.text = "reading prompt history: " + msg.err.Error()
+		} else {
+			m.promptSnips = msg.snips
+		}
+		return m, promptSnipsTick(m.promptSnipsSeq)
+
+	case promptSnipsTickMsg:
+		if msg.seq != m.promptSnipsSeq {
+			return m, nil
+		}
+		return m, m.refreshPromptSnips()
 
 	case attachDoneMsg:
 		// An agent that repainted the terminal background for itself leaves

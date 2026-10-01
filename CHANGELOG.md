@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.9.0](https://github.com/usestring/gate-inbox/compare/v0.8.0...v0.9.0) (2026-10-01)
+
+
+### Features
+
+* answer every child dialog kind through answer_session (S-145287) ([8651cc6](https://github.com/usestring/gate-inbox/commit/8651cc6c5fbc4e1b51d52d09951ab30714514861))
+* clarify priority levels with directional triangles ([#182](https://github.com/usestring/gate-inbox/issues/182)) ([45b6e68](https://github.com/usestring/gate-inbox/commit/45b6e6861a1c237570422db09e98f63faefb06b6))
+* **ui:** chain scroll keys into list navigation at pane edges ([b32a9f1](https://github.com/usestring/gate-inbox/commit/b32a9f1f80d7f8ac2fc788122a906d880e74cf5b))
+* **ui:** suggest recurring prompts in New Session ([#183](https://github.com/usestring/gate-inbox/issues/183)) ([dd5c265](https://github.com/usestring/gate-inbox/commit/dd5c26523dbe6c21e6fb30a746671b62f3c39aae))
+* verify a child's parent and attest relayed approvals (S-145286) ([#174](https://github.com/usestring/gate-inbox/issues/174)) ([1bc1571](https://github.com/usestring/gate-inbox/commit/1bc157133beaec2157265d080b68930d9001af15))
+
+
+### Bug Fixes
+
+* label / search as fuzzy session search, caret before placeholder ([#185](https://github.com/usestring/gate-inbox/issues/185)) ([cb50659](https://github.com/usestring/gate-inbox/commit/cb50659863fab8c2ac7436586c13953f152d3e18))
+* **sessioncmd:** name the option a free-text answer landed on in a multi-question result (S-145331) ([#176](https://github.com/usestring/gate-inbox/issues/176)) ([38146a3](https://github.com/usestring/gate-inbox/commit/38146a36bfdac6e33d915e82a2b22e7111b72870))
+
 ## [0.8.0](https://github.com/usestring/gate-inbox/compare/v0.7.0...v0.8.0) (2026-10-01)
 
 

@@ -171,7 +171,7 @@ func (m *Model) searchFieldLine(width int) string {
 	chrome := railInset + textfmt.Width(glyph) + textfmt.Width(caret)
 
 	if m.search == "" {
-		field := glyph + subtleStyle.Render("fuzzy session search") + caret
+		field := glyph + caret + subtleStyle.Render("fuzzy session search")
 		if gap := width - railInset - textfmt.Width(field) - textfmt.Width(hint) - 1; gap >= 2 {
 			return indent + field + spaces(gap) + hint
 		}

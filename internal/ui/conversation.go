@@ -232,6 +232,7 @@ func (m *Model) conversationRows(width, height int) []string {
 		// rather than the next conversation tick.
 		rows = c.wrapped(width)
 	}
+	rows = m.withQuestionCard(rows, width, height)
 	if len(rows) == 0 {
 		text := "No user-facing messages yet. Open the terminal to interact."
 		if c.key == identity && c.err != nil {
@@ -265,7 +266,17 @@ func (m *Model) withWorkingRow(rows []string, width int) []string {
 }
 
 func (m *Model) conversationBody(width int) []string {
-	return m.withWorkingRow(m.conversation.wrapped(width), width)
+	return m.withWorkingRow(m.withQuestionCard(m.conversation.wrapped(width), width, m.previewPaneHeight()), width)
+}
+
+// withQuestionCard copies rows for the same reason withWorkingRow does: they
+// are the wrapped cache.
+func (m *Model) withQuestionCard(rows []string, width, height int) []string {
+	card := m.previewQuestions(width, height)
+	if len(card) == 0 {
+		return rows
+	}
+	return append(rows[:len(rows):len(rows)], card...)
 }
 
 func (m *Model) toggleConversation() tea.Cmd {

@@ -9,11 +9,13 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/clipboard"
+	"github.com/usestring/gate-inbox/internal/promptsnips"
 )
 
 // composer is a prompt box that can hold pasted images. A paste lands at
@@ -35,7 +37,8 @@ type composer struct {
 	// it. A clipboard read outlives the prompt that started it, and closing
 	// a form and opening another is fast enough to beat one home; without
 	// an identity, that read would type into a box its user never pasted in.
-	gen int
+	gen             int
+	suggestionIndex int
 }
 
 // imageAttachment is one pasted image: the id its token carries, and the
@@ -268,6 +271,7 @@ func (c *composer) updateInput(msg tea.Msg) tea.Cmd {
 // binding, and CursorStart is the start of the caret's own row rather than
 // of the value.
 func (c *composer) setValue(value string, cursor int) tea.Cmd {
+	c.suggestionIndex = 0
 	runes := []rune(value)
 	cursor = max(0, min(cursor, len(runes)))
 	c.input.SetValue(string(runes[cursor:]))
@@ -276,6 +280,35 @@ func (c *composer) setValue(value string, cursor int) tea.Cmd {
 	cmd := c.updateInput(tea.KeyPressMsg{Code: '<', Mod: tea.ModAlt})
 	c.input.InsertString(string(runes[:cursor]))
 	return cmd
+}
+
+func (c *composer) suggestions(snips []promptsnips.Snippet) []promptsnips.Snippet {
+	if len(snips) == 0 || len(c.attachments) > 0 {
+		return nil
+	}
+	return promptsnips.Suggest(snips, c.input.Value(), time.Now(), 3)
+}
+
+func (c *composer) suggestionKey(msg tea.KeyPressMsg, snips []promptsnips.Snippet) (tea.Cmd, bool) {
+	suggestions := c.suggestions(snips)
+	if len(suggestions) == 0 {
+		return nil, false
+	}
+	switch msg.String() {
+	case "ctrl+n":
+		c.suggestionIndex = (c.suggestionIndex + 1) % len(suggestions)
+		return nil, true
+	case "ctrl+p":
+		c.suggestionIndex = (c.suggestionIndex + len(suggestions) - 1) % len(suggestions)
+		return nil, true
+	case "ctrl+y":
+		chosen := suggestions[c.suggestionIndex%len(suggestions)].Text
+		if c.input.CharLimit > 0 && utf8.RuneCountInString(chosen) > c.input.CharLimit {
+			return nil, true
+		}
+		return c.setValue(chosen, utf8.RuneCountInString(chosen)), true
+	}
+	return nil, false
 }
 
 // removeToken cuts a chip out of the text and releases its image.
@@ -414,6 +447,7 @@ func (c *composer) typeKey(msg tea.KeyPressMsg) tea.Cmd {
 	c.input, cmd = c.input.Update(msg)
 	c.prune()
 	c.snapCursorOutOfToken(snapNearest)
+	c.suggestionIndex = 0
 	return cmd
 }
 
@@ -451,6 +485,7 @@ func (c *composer) paste(target composerID) (tea.Cmd, bool) {
 		return nil, false
 	}
 	c.lastImageID++
+	c.suggestionIndex = 0
 	id := c.lastImageID
 	c.attachments = append(c.attachments, imageAttachment{id: id})
 	c.insertToken(&c.attachments[len(c.attachments)-1])
@@ -496,6 +531,11 @@ func (m *Model) composerOpen(target composerID) bool {
 // every other key, which the caller types into the input itself.
 func (m *Model) composerKey(target composerID, msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	c := m.composerFor(target)
+	if m.promptSuggest {
+		if cmd, handled := c.suggestionKey(msg, m.promptSnips); handled {
+			return cmd, true
+		}
+	}
 	switch msg.String() {
 	case "ctrl+v":
 		if c.pasting() {
@@ -583,5 +623,6 @@ func (m *Model) handlePasteTextMsg(msg pasteTextMsg) (tea.Model, tea.Cmd) {
 	cmd := c.updateInput(msg.inner)
 	c.prune()
 	c.snapCursorOutOfToken(snapNearest)
+	c.suggestionIndex = 0
 	return m, cmd
 }

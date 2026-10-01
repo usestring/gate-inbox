@@ -245,9 +245,17 @@ func (m *Model) dropLanding(id string) {
 }
 
 // landingProbeFor snapshots the sources sess's tool offers.
+//
+// A hookless session is one the poller has found reading its pane because
+// nothing is writing its hook file -- an adopted pane whose agent never
+// carried the manager's hook flag, most often. Its tool may still be
+// configured for claude-hooks, but arming that source would take the pane
+// fallback off a submit nothing will ever write an event for, and a composer
+// key into it would never be seen to land. So the dead source is left out and
+// the pane answers, exactly as it does for a tool whose rules carry no hooks.
 func (m *Model) landingProbeFor(sess store.Session, dialog bool) *landingProbe {
 	p := &landingProbe{dialog: dialog}
-	if m.hooks != nil && m.poller != nil && m.poller.statusSources[sess.Tool] == hooks.StatusSourceClaude {
+	if m.hooks != nil && m.poller != nil && m.poller.statusSources[sess.Tool] == hooks.StatusSourceClaude && !m.isHookless(sess) {
 		p.hooks, p.hookID = m.hooks, sess.ID
 		p.hookOffset = fileSize(m.hooks.StatusFile(sess.ID))
 	}

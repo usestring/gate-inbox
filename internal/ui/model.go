@@ -26,6 +26,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/priority"
+	"github.com/usestring/gate-inbox/internal/promptsnips"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/sessname"
 	"github.com/usestring/gate-inbox/internal/snippets"
@@ -115,7 +116,10 @@ type Model struct {
 	snips          snippets.Set
 	snipErr        string
 	jevAutoSuggest bool
+	promptSuggest  bool
+	promptSnipsSeq int
 	autoSuggestSeq int
+	promptSnips    []promptsnips.Snippet
 
 	// keys is the resolved key map: the catalog with the operator's keys.toml
 	// applied, read once at startup for the reason snips are. keyProblems is
@@ -264,6 +268,10 @@ type Model struct {
 	// empty for a session whose pane could not be captured, which leaves the
 	// row with the operator where a missing reading belongs.
 	answerableWait map[string]bool
+	// askQuestions mirrors refreshMsg.askQuestions, and questionCard is the
+	// preview's card drawn from it. See previewquestions.go.
+	askQuestions map[string][]convo.AskQuestion
+	questionCard questionCard
 	// hookless mirrors refreshMsg.hookless: the rows whose status is
 	// pane-derived because nothing is writing their hook file. See
 	// hooklessGlyph for what the row does with it.
@@ -805,7 +813,9 @@ type settingsState struct {
 	reopenSessions     string
 	outsidePanes       string
 	experimentalPicker bool
+	experimentalCursor int
 	jevAutoSuggest     bool
+	promptSuggest      bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -877,6 +887,9 @@ type refreshMsg struct {
 	archivedChildren map[string]int
 	searchText       map[string]string
 	answerableWait   map[string]bool
+	// askQuestions is each Claude session's pending AskUserQuestion call,
+	// for a pane standing on a several-question dialog.
+	askQuestions map[string][]convo.AskQuestion
 	// hookless is every session whose agent no longer carries the hook
 	// settings flag, so its status is coming off the pane rather than out of
 	// its status file. Replaced whole each pass like queuedMessages, which is
@@ -1141,6 +1154,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		focusOnEnter:    storedFocusOnEnter(st),
 		focusView:       storedFocusView(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
+		promptSuggest:   storedPromptSuggestions(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),
 		sidebar:         storedSidebar(st, cfg.Board.Sidebar),
@@ -1362,7 +1376,7 @@ func (m *Model) Init() tea.Cmd {
 	// read any session state, and a first run has none to wait for.
 	m.maybeOpenWelcome()
 	m.syncPollInput()
-	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.autoNameTick(), m.checkTmuxConfig)
+	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips())
 }
 
 // pasteSweepMsg carries the result of one pass over the pastes directory.
@@ -2085,6 +2099,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.archivedChildren = msg.archivedChildren
 		m.searchText = msg.searchText
 		m.answerableWait = msg.answerableWait
+		m.askQuestions = msg.askQuestions
 		m.hookless = msg.hookless
 		m.stale = msg.stale
 		m.hogBadges = msg.hogBadges
@@ -2417,6 +2432,23 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pasteTextMsg:
 		return m.handlePasteTextMsg(msg)
+
+	case promptSnipsLoadedMsg:
+		if !m.promptSuggest || msg.seq != m.promptSnipsSeq {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.errBar.text = "reading prompt history: " + msg.err.Error()
+		} else {
+			m.promptSnips = msg.snips
+		}
+		return m, promptSnipsTick(m.promptSnipsSeq)
+
+	case promptSnipsTickMsg:
+		if msg.seq != m.promptSnipsSeq {
+			return m, nil
+		}
+		return m, m.refreshPromptSnips()
 
 	case attachDoneMsg:
 		// An agent that repainted the terminal background for itself leaves

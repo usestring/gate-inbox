@@ -2,8 +2,8 @@ package ui
 
 import (
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/usestring/gate-inbox/internal/priority"
-	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -95,25 +95,16 @@ func (m *Model) cyclePrioritySelected() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// priorityBadge is a tier's mark as a row draws it.
-//
-// Urgent takes the errored tint and High the waiting one -- the two colours
-// the rail already spends on "look here" -- while the tiers at and below
-// the middle stay subtle. A tier is a ranking rather than a state, so
-// nothing below High may compete with a status dot for the eye.
 func priorityBadge(tier priority.Tier) string {
 	glyph := tier.Glyph()
 	if glyph == "" {
 		return ""
 	}
-	switch tier {
-	case priority.Urgent:
-		return statusTint(status.Errored, glyph)
-	case priority.High:
-		return statusTint(status.Waiting, glyph)
-	default:
-		return subtleText(glyph)
+	color := lipgloss.Color("#22c55e")
+	if tier.Rank() > priority.Unset.Rank() {
+		color = lipgloss.Color("#ef4444")
 	}
+	return lipgloss.NewStyle().Foreground(color).Render(glyph)
 }
 
 // priorityMarker is the badge a session row wears, or nothing. A session

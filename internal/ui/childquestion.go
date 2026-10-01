@@ -201,6 +201,7 @@ func childDialogBody(sess store.Session, pane, saved string) (body, key string) 
 		return childQuestionsMessage(sess, questions), "q:" + textfmt.Fingerprint(id.String())
 	}
 	if screen, ok := dialog.ReadScreen(pane); ok {
+		screen = screen.WithExact(childPendingStrings(sess)...)
 		return childScreenMessage(sess, screen), "s:" + textfmt.Fingerprint(screen.Identity())
 	}
 	return childWaitMessage(sess), "wait"
@@ -220,6 +221,16 @@ func childAsked(sess store.Session, saved string) []convo.AskQuestion {
 	}
 	call, _ := convo.PendingAskFile(transcript, saved)
 	return call.Questions
+}
+
+// childPendingStrings is what sess's one unresolved tool call was given, so a
+// permission prompt is relayed with its command as written rather than as the
+// pane wrapped it.
+func childPendingStrings(sess store.Session) []string {
+	if sess.Tool != "claude" || sess.AgentSessionID == "" {
+		return nil
+	}
+	return convo.PendingToolStrings(convo.TranscriptFor(convo.ClaudeHome(), sess.AgentSessionID, sess.Cwd))
 }
 
 // pendingAskFile is where sess's ask-pending hook saves its dialog's call,

@@ -48,8 +48,9 @@ rules[0] waiting "(?m)^\\s*›\\s+\\d+\\."
 rules[1] waiting "(?m)Press enter to (confirm|continue)\\b"
 rules[2] waiting "(?m)enter to submit answer\\b"
 rules[3] waiting "(?m)^\\s*enter select · esc back\\b"
-rules[4] working "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?(?:[ \\t]*\\n|[ \\t]+(?:⚠|↓|Tip: |Copied )[^\\n]*\\n)*[ \\t\\n]*\\z"
-rules[5] errored "(?im)^\\s*■(?:.*\\berror\\b| (?:Automatic reconnect could not restore this session|app-server session could not be restored)\\b)"
+rules[4] waiting "(?m)^\\s*enter continue · esc (?:quit|back)\\b"
+rules[5] working "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?(?:[ \\t]*\\n|[ \\t]+(?:⚠|↓|Tip: |Copied )[^\\n]*\\n)*[ \\t\\n]*\\z"
+rules[6] errored "(?im)^\\s*■(?:.*\\berror\\b| (?:Automatic reconnect could not restore this session|app-server session could not be restored)\\b)"
 
 [opencode]
 status_source = ""

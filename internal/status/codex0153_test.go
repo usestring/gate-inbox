@@ -108,3 +108,16 @@ func TestCodexMCPStartupWarningsDoNotHideCompletedTurn(t *testing.T) {
 		}
 	}
 }
+
+// Codex 0.157's folder-trust dialog draws its first option as "› 1. Trust and
+// continue", which the activity cutoff takes for the composer. Its legend is
+// what says a person is being asked.
+func TestCodexTrustPromptReadsWaiting(t *testing.T) {
+	raw, err := os.ReadFile("testdata/codex-0157-trust-prompt.txt")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if got, _ := codexEngine(t).Match("codex", string(raw)); got != Waiting {
+		t.Fatalf("codex trust prompt = %q, want %q", got, Waiting)
+	}
+}

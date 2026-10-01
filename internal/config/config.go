@@ -639,6 +639,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	} else if name == "opencode" {
 		user.Rules = withDialogRules(user.Rules, def.Rules, opencodeDialogSamples)
 	} else if name == "codex" {
+		user.Rules = withDialogRules(user.Rules, def.Rules, codexDialogSamples)
 		for i, rule := range user.Rules {
 			if rule.State != "working" || (rule.Pattern != `(?m)esc to interrupt\b` && rule.Pattern != codexWorkingNoHints) {
 				continue
@@ -682,6 +683,13 @@ func upgradeBareEnterToConfirm(user, def []Rule) {
 			break
 		}
 	}
+}
+
+// codexDialogSamples is the legend of codex's first-run folder-trust dialog,
+// recognized after the tool block shipped.
+var codexDialogSamples = []string{
+	"enter continue \u00b7 esc quit",
+	"enter continue \u00b7 esc back",
 }
 
 // opencodeDialogSamples are the rows of opencode's two blocking overlays: the
@@ -1240,6 +1248,9 @@ rules = [
   { state = "waiting", pattern = "(?m)enter to submit answer\\b" },
   # the 0.157 rate-limit model-switch dialog
   { state = "waiting", pattern = "(?m)^\\s*enter select · esc back\\b" },
+  # the 0.157 first-run folder-trust dialog, whose "› 1. Trust and continue"
+  # row reads as the composer line
+  { state = "waiting", pattern = "(?m)^\\s*enter continue · esc (?:quit|back)\\b" },
   # active status row is the final row above the input box; anchoring its full
   # shape keeps an answer that quotes "esc to interrupt" from looking active
   { state = "working", pattern = "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?(?:[ \\t]*\\n|[ \\t]+(?:⚠|↓|Tip: |Copied )[^\\n]*\\n)*[ \\t\\n]*\\z" },

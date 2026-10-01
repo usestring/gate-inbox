@@ -117,7 +117,7 @@ rules = [
 	if err != nil {
 		t.Fatalf("LoadDir: %v", err)
 	}
-	rule := cfg.Tools["codex"].Rules[0]
+	rule := firstRule(cfg.Tools["codex"].Rules, "working")
 	if rule.Pattern == `(?m)esc to interrupt\b` {
 		t.Fatal("legacy Codex working rule was not upgraded")
 	}
@@ -308,6 +308,29 @@ func TestLoadDirLaunchesCodexInPlaceAndKeepsClaudeDiverted(t *testing.T) {
 	}
 }
 
+func TestLoadDirBackfillsTheCodexTrustDialogRule(t *testing.T) {
+	dir := t.TempDir()
+	block := "[tools.codex]\ncommand = \"codex\"\nrules = [{ state = \"waiting\", pattern = \"(?m)^\\\\s*›\\\\s+\\\\d+\\\\.\" }]\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(block), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	for _, legend := range codexDialogSamples {
+		read := false
+		for _, rule := range cfg.Tools["codex"].Rules {
+			if rule.State == "waiting" && regexp.MustCompile(rule.Pattern).MatchString(legend) {
+				read = true
+			}
+		}
+		if !read {
+			t.Errorf("no waiting rule reads %q in %+v", legend, cfg.Tools["codex"].Rules)
+		}
+	}
+}
+
 func TestLoadDirPreservesCustomClaudeBusyLine(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -345,7 +368,7 @@ rules = [
 	if err != nil {
 		t.Fatalf("LoadDir: %v", err)
 	}
-	if got := cfg.Tools["codex"].Rules[0].Pattern; got != "my private status signal" {
+	if got := firstRule(cfg.Tools["codex"].Rules, "working").Pattern; got != "my private status signal" {
 		t.Fatalf("custom Codex working rule = %q", got)
 	}
 }
@@ -919,4 +942,13 @@ func TestFinishedChildCleanupDefaultsOnWithATenMinuteGrace(t *testing.T) {
 	if loaded.Children.FinishedGrace.Duration != 45*time.Minute || !loaded.Children.KeepFinished {
 		t.Fatalf("children = %+v, want the file's grace and opt-out", loaded.Children)
 	}
+}
+
+func firstRule(rules []Rule, state string) Rule {
+	for _, rule := range rules {
+		if rule.State == state {
+			return rule
+		}
+	}
+	return Rule{}
 }

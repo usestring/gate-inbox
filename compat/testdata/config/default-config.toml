@@ -355,6 +355,10 @@ command = "codex"
 model_flag = "--model"
 # codex-cli 0.157.0: --add-dir <DIR>, writable alongside the primary workspace
 add_dir_flag = "--add-dir"
+# Codex's trust dialog defaults to "Trust and continue", while a codex started
+# in an untrusted directory runs read-only and exits on --add-dir. A spawn
+# outside the caller's tree therefore opens where it asked to work.
+launch_in_place = true
 # codex repaints a typed character in 27-45ms against Claude Code's 10-25ms,
 # so the default chase gives up mid-repaint and the key waits for a tick
 echo_budget = "90ms"
@@ -411,6 +415,9 @@ rules = [
   { state = "waiting", pattern = "(?m)enter to submit answer\\b" },
   # the 0.157 rate-limit model-switch dialog
   { state = "waiting", pattern = "(?m)^\\s*enter select · esc back\\b" },
+  # the 0.157 first-run folder-trust dialog, whose "› 1. Trust and continue"
+  # row reads as the composer line
+  { state = "waiting", pattern = "(?m)^\\s*enter continue · esc (?:quit|back)\\b" },
   # active status row is the final row above the input box; anchoring its full
   # shape keeps an answer that quotes "esc to interrupt" from looking active
   { state = "working", pattern = "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?(?:[ \\t]*\\n|[ \\t]+(?:⚠|↓|Tip: |Copied )[^\\n]*\\n)*[ \\t\\n]*\\z" },

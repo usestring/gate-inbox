@@ -290,3 +290,31 @@ func TestSettingsKeysRowOpensKeyMap(t *testing.T) {
 		t.Fatalf("leaving the key map left mode %v, want settings", m.mode)
 	}
 }
+
+// The focused-view row cycles the two choices and persists the one stepped
+// to, so a session kept on its conversation is remembered across restarts.
+func TestSettingsCyclesTheFocusedView(t *testing.T) {
+	m := buildModel(t)
+	if m.focusView != focusViewTerminal {
+		t.Fatalf("focusView = %q, want the terminal default", m.focusView)
+	}
+	m.openSettings()
+	m.settings.field = settingsFieldFocusView
+	if card := ansi.Strip(m.viewSettings()); !strings.Contains(card, "focused view") {
+		t.Fatalf("settings is missing the focused view row: %s", card)
+	}
+	m.cycleSetting(1)
+	if m.settings.focusView != focusViewConversation {
+		t.Fatalf("step left the picker on %q", m.settings.focusView)
+	}
+	m.saveAndCloseSettings()
+	if m.focusView != focusViewConversation {
+		t.Fatalf("saving did not apply the focused view: %q", m.focusView)
+	}
+	if got, _ := m.store.Setting(focusViewSetting); got != focusViewConversation {
+		t.Fatalf("stored focus view = %q, want %q", got, focusViewConversation)
+	}
+	if got := storedFocusView(m.store); got != focusViewConversation {
+		t.Fatalf("storedFocusView = %q, want %q", got, focusViewConversation)
+	}
+}

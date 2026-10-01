@@ -156,6 +156,7 @@ func (m *Model) openSettings() {
 		themeIndex:       themeIndex(current.Name),
 		quickCloseSend:   m.quickCloseAfterSend(),
 		enterFocuses:     m.enterFocuses(),
+		focusView:        normalizeFocusView(m.focusView),
 		comfortableRows:  m.comfortableRows,
 		layout:           normalizeLayout(m.layout),
 		sidebar:          normalizeSidebar(m.sidebar),
@@ -275,6 +276,9 @@ func (m *Model) persistSettings() {
 	if err := m.store.SetSetting(focusKeySetting, focusKey); err != nil {
 		m.errBar.text = err.Error()
 	}
+	if err := m.store.SetSetting(focusViewSetting, normalizeFocusView(m.settings.focusView)); err != nil {
+		m.errBar.text = err.Error()
+	}
 	density := "compact"
 	if m.settings.comfortableRows {
 		density = "comfortable"
@@ -332,6 +336,7 @@ func (m *Model) persistSettings() {
 	m.jevAutoSuggest = m.settings.jevAutoSuggest
 	m.autoProceed = m.settings.autoProceed
 	m.focusOnEnter = m.settings.enterFocuses
+	m.focusView = normalizeFocusView(m.settings.focusView)
 	m.comfortableRows = m.settings.comfortableRows
 	m.layout = normalizeLayout(m.settings.layout)
 	m.sidebar = normalizeSidebar(m.settings.sidebar)
@@ -571,6 +576,8 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		m.settings.quickCloseSend = !m.settings.quickCloseSend
 	case settingsFieldFocusKey:
 		m.settings.enterFocuses = !m.settings.enterFocuses
+	case settingsFieldFocusView:
+		m.settings.focusView = cycleMode(focusViewModes, normalizeFocusView(m.settings.focusView), step)
 	case settingsFieldAutoProceed:
 		m.settings.autoProceed = !m.settings.autoProceed
 	case settingsFieldReopenSessions:

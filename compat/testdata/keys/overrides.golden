@@ -76,6 +76,7 @@ hand_over = ["§"]  # ctrl+q's one-press alias
 leave_stop = ["ctrl+\\"]  # back to the manager, always stopping there (required)
 rescind_submission = ["ctrl+z"]  # undo the latest submission while its turn is active
 dismiss = ["alt+."]  # skip
+toggle_conversation = ["f3"]  # show the conversation or the terminal
 toggle_chrome = ["alt+,"]  # hide / show the key hints along the foot
 toggle_rail = ["alt+\\"]  # hide / show the list beside the pane
 archive = ["ctrl+x"]  # kill it, asking first

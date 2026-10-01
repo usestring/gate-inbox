@@ -171,6 +171,7 @@ func helpSections() []helpSection {
 			bound(focus, keymap.HandOver, "the one-press alias for leaving, in triage and out"),
 			bound(focus, keymap.BackAtPrompt, "Right at prompt's end: list; triage: Left list, finished Right next"),
 			bound(focus, keymap.Dismiss, "skip"),
+			bound(focus, keymap.ToggleConversation, "show the conversation instead of the terminal, and back"),
 			bound(focus, keymap.LastPane, "back to the previous session"),
 			bound(focus, keymap.JumpPane, "find a listed pane and focus it"),
 			bound(focus, keymap.ToggleChrome, "hide / show the key hints along the foot; the pane takes the rows"),

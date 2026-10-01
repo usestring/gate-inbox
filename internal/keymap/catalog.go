@@ -204,6 +204,11 @@ var Catalog = []Binding{
 	// A chord for the same reason alt+, is one: a plain "." is a character
 	// the agent was owed. It mirrors the list's own dismiss key.
 	{ContextFocus, Dismiss, []string{"alt+."}, "skip", false},
+	// The focused-view setting under a key, and the same list binding the
+	// operator already has: a session kept on its conversation with the
+	// setting toggles back to the terminal here. A plain letter is a
+	// character the agent was owed, so it stays F3, the key the list uses.
+	{ContextFocus, ToggleConversation, []string{"f3"}, "show the conversation or the terminal", false},
 	// A chord, like every other key this screen claims: a plain comma is a
 	// character the agent was owed.
 	{ContextFocus, ToggleChrome, []string{"alt+,"}, "hide / show the key hints along the foot", false},

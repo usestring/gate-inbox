@@ -114,7 +114,7 @@ func (m *Model) jumpToStatus(jump statusJump) (tea.Model, tea.Cmd) {
 	// left the preview cleared behind it, and nothing else will fill it
 	// until the next poll: the row the walk gave up on is the one the
 	// operator is now looking at, so it is the one to capture.
-	return m, m.schedulePreview()
+	return m, tea.Batch(m.schedulePreview(), m.readConversation())
 }
 
 // enterJumpRow puts the cursor on a row and focuses it, reporting whether the
@@ -129,6 +129,7 @@ func (m *Model) enterJumpRow(index int) (tea.Model, tea.Cmd, bool) {
 	if m.mode != modeFocus {
 		return m, nil, false
 	}
+	// focusSelected already put its own conversation read in the batch.
 	return m, tea.Batch(cmd, m.schedulePreview()), true
 }
 

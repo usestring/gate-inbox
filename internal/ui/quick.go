@@ -28,8 +28,7 @@ func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if action, bound := m.action(context, msg); bound {
 		switch action {
 		case keymap.ToggleConversation:
-			m.toggleConversation()
-			return m, nil
+			return m, m.toggleConversation()
 		case keymap.QuickInput:
 			m.quick.active = false
 			return m, nil

@@ -671,9 +671,10 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	key := msg.Key()
-	// The arrow pointing at the rail leaves at its prompt edge. When a
-	// session is finished in triage, either spare edge arrow hands it over
-	// so the drain continues, independent of the sidebar's side.
+	// The arrow pointing at the rail leaves at its prompt edge. Triage reads
+	// the arrows as a drain rather than as directions, whichever side the
+	// rail is on: Right hands a finished session over to the next one, and
+	// Left is back, to the list, with the queue still armed.
 	if bound && action == keymap.BackAtPrompt && key.Mod == 0 {
 		if key.Code == tea.KeyRight && m.rightLeavesFocus(sess.ID, sess.Tool) {
 			if m.triage && sess.Status == status.Finished {
@@ -684,10 +685,7 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if key.Code == tea.KeyLeft && m.leftLeavesFocus(sess.ID, sess.Tool) {
-			if m.triage && sess.Status == status.Finished {
-				return m, m.handOverFocused(sess)
-			}
-			if !m.railOnRight() {
+			if m.triage || !m.railOnRight() {
 				return m, m.leaveFocus()
 			}
 		}

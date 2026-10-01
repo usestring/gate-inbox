@@ -147,25 +147,41 @@ func TestTriageDrainHoldsTheRowStillWhileTheOperatorAnswersIt(t *testing.T) {
 	}
 }
 
-func TestTriageFinishedPromptArrowHandsOverToNextFinished(t *testing.T) {
+// At a prompt edge in triage, Right walks the drain and Left is back: it
+// lands on the list with the queue still armed, whichever side the rail is
+// on. Outside triage only the arrow toward the rail leaves.
+func TestTriagePromptEdgeArrows(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		side string
-		code rune
+		name   string
+		side   string
+		triage bool
+		status string
+		code   rune
+		// want is "second" for a handover, "list" for leaving, and "first"
+		// for a key that stays with the pane.
+		want string
 	}{
-		{"right sidebar, left arrow", config.SidebarRight, tea.KeyLeft},
-		{"right sidebar, right arrow", config.SidebarRight, tea.KeyRight},
-		{"left sidebar, left arrow", config.SidebarLeft, tea.KeyLeft},
-		{"left sidebar, right arrow", config.SidebarLeft, tea.KeyRight},
+		{"triage finished, right sidebar, right arrow", config.SidebarRight, true, status.Finished, tea.KeyRight, "second"},
+		{"triage finished, left sidebar, right arrow", config.SidebarLeft, true, status.Finished, tea.KeyRight, "second"},
+		{"triage finished, right sidebar, left arrow", config.SidebarRight, true, status.Finished, tea.KeyLeft, "list"},
+		{"triage finished, left sidebar, left arrow", config.SidebarLeft, true, status.Finished, tea.KeyLeft, "list"},
+		{"triage waiting, right sidebar, left arrow", config.SidebarRight, true, status.Waiting, tea.KeyLeft, "list"},
+		{"triage waiting, left sidebar, left arrow", config.SidebarLeft, true, status.Waiting, tea.KeyLeft, "list"},
+		{"triage waiting, right sidebar, right arrow", config.SidebarRight, true, status.Waiting, tea.KeyRight, "list"},
+		{"triage waiting, left sidebar, right arrow", config.SidebarLeft, true, status.Waiting, tea.KeyRight, "first"},
+		{"no triage, right sidebar, left arrow", config.SidebarRight, false, status.Finished, tea.KeyLeft, "first"},
+		{"no triage, left sidebar, left arrow", config.SidebarLeft, false, status.Finished, tea.KeyLeft, "list"},
+		{"no triage, right sidebar, right arrow", config.SidebarRight, false, status.Finished, tea.KeyRight, "list"},
+		{"no triage, left sidebar, right arrow", config.SidebarLeft, false, status.Finished, tea.KeyRight, "first"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := buildModel(t)
 			m.sidebar = tc.side
 			liveTriageFleet(t, m, map[string]string{
-				"first":  status.Finished,
+				"first":  tc.status,
 				"second": status.Finished,
 			})
-			m.triage = true
+			m.triage = tc.triage
 			m.rebuildRows()
 			m.enterFocusOn(t, "first")
 			m.engine = liveEngine(t)
@@ -176,8 +192,17 @@ func TestTriageFinishedPromptArrowHandsOverToNextFinished(t *testing.T) {
 			updated, cmd := m.handleFocusKey(tea.KeyPressMsg{Code: tc.code})
 			m = updated.(*Model)
 			runStoreCmd(t, cmd)
-			if m.mode != modeFocus || focusedName(t, m) != "second" {
-				t.Fatalf("%s from finished focused %q in mode %v, want second", tc.name, focusedName(t, m), m.mode)
+			if m.triage != tc.triage {
+				t.Fatalf("triage = %v after the arrow, want %v", m.triage, tc.triage)
+			}
+			if tc.want == "list" {
+				if m.mode != modeList {
+					t.Fatalf("mode %v after the arrow, want the list", m.mode)
+				}
+				return
+			}
+			if m.mode != modeFocus || focusedName(t, m) != tc.want {
+				t.Fatalf("focused %q in mode %v after the arrow, want %s", focusedName(t, m), m.mode, tc.want)
 			}
 		})
 	}

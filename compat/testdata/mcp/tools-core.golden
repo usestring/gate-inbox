@@ -2379,6 +2379,10 @@
         "description": "absolute path of a file holding the message, used instead of message; the same size limit applies to what it holds",
         "type": "string"
       },
+      "relay_question": {
+        "description": "relays your user's approval to a child you spawned: the question you put to your user with your own question tool, word for word. Gate Inbox checks your transcript holds your user's own answer to it, given after the child was spawned, within 30 minutes and never relayed before, and attaches an attestation quoting both that the child's hook verifies once. Refused while the child holds its own Approval dialog: answer that with answer_session relay: true",
+        "type": "string"
+      },
       "session_id": {
         "description": "session id returned by list_sessions or create_session",
         "type": "string"
@@ -2397,6 +2401,10 @@
   "outputSchema": {
     "additionalProperties": false,
     "properties": {
+      "attestation": {
+        "description": "nonce of the relay attestation attached to this message: your user's answer, verified in your own transcript, which the child's hook spends once",
+        "type": "string"
+      },
       "handled": {
         "description": "what the build's extensions made of an operator's send, each under its extension's id; the message is queued and delivered either way",
         "items": {

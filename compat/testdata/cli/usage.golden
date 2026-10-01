@@ -43,13 +43,15 @@ usage: gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--mode
 $ gate-inbox send -h
 exit 0
 --- stdout
-usage: gate-inbox send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--json]
+usage: gate-inbox send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--relay_question <question>] [--json]
   -as-human
     	deliver as your own words rather than fenced as a message from another agent; for a person at a terminal, and refused from an agent's shell
   -interrupt
     	stop the session's running turn first so this is its next turn; refused for a CLI with no interrupt_keys, and never sent over a dialog
   -json
     	print the raw result as JSON instead of a sentence
+  -relay_question string
+    	relay your user's approval to a child you spawned: the question you put to your user, word for word; Gate Inbox attaches an attestation of their answer from your own transcript
   -subject string
     	label for what this message is about; your next message to the same session under the same label replaces this one while it is still unread
 

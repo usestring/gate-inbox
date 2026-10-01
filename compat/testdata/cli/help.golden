@@ -10,7 +10,7 @@ Agent sessions
       list every agent session with its id, CLI, group, directory and status; call it before delegating anything
   gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--nest] [--keep] [--json]
       start another agent CLI on a task of its own, so independent work runs beside you instead of queued behind you
-  gate-inbox send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--json]
+  gate-inbox send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--relay_question <question>] [--json]
       queue a message for another agent; it is typed in once that agent is at rest, so it never lands on an approval prompt
   gate-inbox read <session-id> [--since <cursor>] [--json]
       read what another agent is doing: its status, any question it is holding, its last words, and either its whole screen or only what it has added --since a previous read's cursor

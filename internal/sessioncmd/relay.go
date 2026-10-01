@@ -5,11 +5,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -33,6 +35,7 @@ import (
 //     approval, so only a relayed answer is keyed into it.
 //
 // The child's PostToolUse hook reads the ledger back (see HookAskAnswered).
+// docs/dialog-relay-threat-model.md has what each dialog kind admits and why.
 
 var (
 	errApprovalNeedsRelay = errors.New("this is the child asking for your user's approval; put it to your " +
@@ -56,10 +59,28 @@ type answerGuard struct {
 
 func (s *Sessions) guard(st *store.Store, caller, target store.Session, relay bool) *answerGuard {
 	g := &answerGuard{sessions: s, store: st, caller: caller, target: target, relay: relay}
-	if path := s.transcriptOf(target); path != "" {
-		g.call, g.haveCall = convo.PendingAskCall(path)
-	}
+	g.call, g.haveCall = s.pendingCall(target)
 	return g
+}
+
+// recorder reads the child's own record of the answers its pending call
+// returned, or is nil when there is no call to read one for.
+func (g *answerGuard) recorder() func() (map[string]string, bool) {
+	if g == nil || !g.haveCall || g.call.ToolUseID == "" {
+		return nil
+	}
+	path, id := g.sessions.transcriptOf(g.target), g.call.ToolUseID
+	if path == "" {
+		return nil
+	}
+	return func() (map[string]string, bool) { return convo.AnswersTo(path, id) }
+}
+
+// pendingCall is the AskUserQuestion call target's dialog is showing, from
+// its transcript or, while the transcript does not hold it yet, from what
+// its ask-pending hook saved.
+func (s *Sessions) pendingCall(target store.Session) (convo.AskCall, bool) {
+	return convo.PendingAskFile(s.transcriptOf(target), hooks.NewManager(s.configDir).PendingAskFile(target.ID))
 }
 
 func (s *Sessions) transcriptOf(sess store.Session) string {
@@ -94,12 +115,28 @@ func (g *answerGuard) admit(planned []plannedAnswer, screen []dialog.Question) e
 		}
 		r := row{question: question, answer: p.answer}
 		if g.relay {
-			if !known || !g.haveCall {
-				return fmt.Errorf("%w: session %s's own transcript does not show the question it is holding, "+
-					"so there is nothing to match your user's answer against; a person answers it at its pane",
-					errRelayRefused, g.target.ID)
+			var (
+				evidence string
+				err      error
+			)
+			switch {
+			case known && g.haveCall:
+				evidence, err = g.verify(question, p.answer)
+			case question.Question != "" && len(question.Options) > 0:
+				// No transcript to read the child's call from (a Codex child, or
+				// one whose transcript moved): its screen spells the question and
+				// the options, and the time it stopped stands in for when it asked.
+				evidence, err = g.evidence(g.since(), questionHash(question),
+					func(q convo.AskQuestion) bool { return sameAsk(q, question) },
+					func(given string) bool { return sameAnswer(given, p.answer, question.MultiSelect) },
+					p.answer,
+					"no dialog of yours asks the child's question with its options word for word; put it to "+
+						"your user verbatim (same question and options) and relay what they choose")
+			default:
+				return fmt.Errorf("%w: neither session %s's transcript nor its screen shows the question in full, "+
+					"so there is nothing to match your user's answer against; call read_session on it and answer "+
+					"again once the question is on its screen", errRelayRefused, g.target.ID)
 			}
-			evidence, err := g.verify(question, p.answer)
 			if err != nil {
 				return err
 			}
@@ -160,7 +197,12 @@ func (g *answerGuard) question(index int, screen []dialog.Question) (convo.AskQu
 		return g.call.Questions[index], true
 	}
 	if index >= 0 && index < len(screen) {
-		return convo.AskQuestion{Header: screen[index].Header, Question: screen[index].Question}, false
+		asked := convo.AskQuestion{Header: screen[index].Header, Question: screen[index].Question,
+			MultiSelect: screen[index].MultiSelect}
+		for _, option := range screen[index].Options {
+			asked.Options = append(asked.Options, convo.AskOption{Label: option.Label})
+		}
+		return asked, false
 	}
 	if index < 0 && g.haveCall && len(g.call.Questions) == 1 {
 		return g.call.Questions[0], true
@@ -171,11 +213,27 @@ func (g *answerGuard) question(index int, screen []dialog.Question) (convo.AskQu
 // verify finds the parent's own dialog that settles the child's question
 // with answer, and returns its tool_use id.
 func (g *answerGuard) verify(child convo.AskQuestion, answer string) (string, error) {
+	if g.call.AskedAt.IsZero() {
+		return "", fmt.Errorf("%w: the child's question carries no time, so your user's answer cannot be shown "+
+			"to come after it", errRelayRefused)
+	}
+	return g.evidence(g.call.AskedAt, questionHash(child),
+		func(q convo.AskQuestion) bool { return sameAsk(q, child) },
+		func(given string) bool { return sameAnswer(given, answer, child.MultiSelect) },
+		answer,
+		"no dialog of yours asks the child's question with its options word for word; put it to "+
+			"your user verbatim (same question and options) and relay what they choose")
+}
+
+// evidence finds, newest first, the parent's own answered dialog asking a
+// question matches accepts whose answer accepts takes, answered after since,
+// not already relayed for hash, and not typed into the parent by an agent.
+// It returns that dialog's tool_use id, or the most telling reason none
+// qualifies; missing is the reason when no question matches at all.
+func (g *answerGuard) evidence(since time.Time, hash string, matches func(convo.AskQuestion) bool,
+	accepts func(given string) bool, answer, missing string) (string, error) {
 	refuse := func(format string, args ...any) (string, error) {
 		return "", fmt.Errorf("%w: "+format, append([]any{errRelayRefused}, args...)...)
-	}
-	if g.call.AskedAt.IsZero() {
-		return refuse("the child's question carries no time, so your user's answer cannot be shown to come after it")
 	}
 	path := g.sessions.transcriptOf(g.caller)
 	if path == "" {
@@ -185,7 +243,6 @@ func (g *answerGuard) verify(child convo.AskQuestion, answer string) (string, er
 	if err != nil {
 		return refuse("cannot read this session's own transcript: %v", err)
 	}
-	hash := questionHash(child)
 	var reason string
 	note := func(r string) {
 		if reason == "" {
@@ -195,16 +252,16 @@ func (g *answerGuard) verify(child convo.AskQuestion, answer string) (string, er
 	for i := len(asks) - 1; i >= 0; i-- {
 		ask := asks[i]
 		for _, q := range ask.Questions {
-			if !sameAsk(q, child) {
+			if !matches(q) {
 				continue
 			}
 			given, ok := answerFor(ask.Answers, q.Question)
 			switch {
 			case !ok:
 				note("your dialog asking it holds no answer to it")
-			case !ask.AnsweredAt.After(g.call.AskedAt):
+			case !ask.AnsweredAt.After(since):
 				note("your user answered that question before the child asked it; ask them again")
-			case normalise(given) != normalise(answer):
+			case !accepts(given):
 				note(fmt.Sprintf("your user answered %q, not %q", given, answer))
 			default:
 				used, err := g.store.EvidenceUsed(ask.ToolUseID, hash)
@@ -229,10 +286,31 @@ func (g *answerGuard) verify(child convo.AskQuestion, answer string) (string, er
 		}
 	}
 	if reason == "" {
-		reason = "no dialog of yours asks the child's question with its options word for word; put it to " +
-			"your user verbatim (same question and options) and relay what they choose"
+		reason = missing
 	}
 	return refuse("%s", reason)
+}
+
+// sameAnswer is the user's answer and the one being keyed matching: as
+// words, or for a multi-select as the same set of labels in any order.
+func sameAnswer(given, answer string, multi bool) bool {
+	if normalise(given) == normalise(answer) {
+		return true
+	}
+	if !multi {
+		return false
+	}
+	split := func(text string) []string {
+		var out []string
+		for _, part := range strings.Split(text, ",") {
+			if part = normalise(part); part != "" {
+				out = append(out, strings.ToLower(part))
+			}
+		}
+		slices.Sort(out)
+		return out
+	}
+	return slices.Equal(split(given), split(answer))
 }
 
 func answerFor(answers map[string]string, question string) (string, bool) {

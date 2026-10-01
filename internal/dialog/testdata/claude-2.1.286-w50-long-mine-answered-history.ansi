@@ -1,0 +1,50 @@
+     [38;5;246m/home/sampleusr/work/sampledirs/s-145287-gi-[39m
+     [38;5;246manswer-every-dialog-20260930-234259/gate-inbo
+[39m     [38;5;246mx: (1) git push -u origin [39m
+     [38;5;246ms-145287-answer-every-dialog (4 signed [39m
+     [38;5;246mcommits plus a signed merge of origin/main: [39m
+     [38;5;246m86eebc4, 4af9e1e, d6cc358, 43c34c3); (2) gh [39m
+     [38;5;246mpr create --repo usestring/gate-inbox --base
+[39m     [38;5;246mmain --head s-145287-answer-every-dialog [39m
+     [38;5;246m--title "T-005287: answer every child dialog
+[39m     [38;5;246mkind through answer_session" --body-file [39m
+     [38;5;246m/var/sample-0000/-home-sampleusr-repos-repo/g
+[39m     [38;5;246m2e06ce4-72e5-4e3c-a3e7-a9a2cbd48d89/notesfile
+[39m     [38;5;246ms/pr-body.md. The body file's full text is [39m
+     [38;5;246mprinted in the session just above this [39m
+     [38;5;246mquestion. → Push and open the PR[39m
+
+[38;5;231m●[39m Approved. Running both commands now.
+
+[38;5;246m●[39m Open PR with specified details
+[38;5;246m  ⎿  $ cd [39m
+     [38;5;246m/home/sampleusr/work/sampledirs/s-145287-gi-a
+[39m     [38;5;246mnswer-every-dialog-20260930-234259/gate-inbox
+[39m     [38;5;246m&& gh pr create --repo usestring/gate-inbox [39m
+     [38;5;246m--base main --head [39m
+     [38;5;246ms-145287-answer-every-dialog --title [39m
+     [38;5;246m"T-005287: answer every child dialog kind [39m
+     [38;5;246mthrough answer_session" --body-file [39m
+     [38;5;246m/var/sample-0000/-home-de…[39m
+
+[38;5;153m──────────────────────────────────────────────────
+[39m [1m[38;5;153mBash command[0m
+ [38;5;246mPush branch to remote origin[39m
+[38;5;239m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+[39m [2m│[0m cd
+ [2m│[0m /home/sampleusr/work/sampledirs/s-145287-gi-an
+ [2m│[0m swer-every-dialog-20260930-234259/gate-inbox
+ [2m│[0m && git push -u origin
+ [2m│[0m s-145287-answer-every-dialog
+[38;5;239m╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+[39m [2m│[0m This command changes directory before running
+ [2m│[0m a version-control command, which can pick up
+ [2m│[0m untrusted hooks or repository configuration
+ [2m│[0m from the target directory. Approve only if you
+ [2m│[0m trust it.
+
+ Do you want to proceed?
+ [38;5;153m❯[39m [38;5;246m1. [38;5;153mYes[39m
+   [38;5;246m2. [39mNo
+
+ [38;5;246mEsc to cancel · Tab to amend[39m

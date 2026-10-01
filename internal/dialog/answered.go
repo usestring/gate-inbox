@@ -127,10 +127,21 @@ func SameText(a, b string) bool {
 	return anyReading(a, b, func(a, b string) bool { return a == b })
 }
 
+// solid is text with every space and wrap mark removed, the one reading two
+// renderings of a long question share however differently each pane broke
+// its words: a dialog at 50 columns and the record under it break a path at
+// different places, and a record can hold far more breaks than readings can
+// try. It only finds which question a record entry is; an answer is still
+// compared word for word, spaces included.
+func solid(text string) string { return Compact(strings.ReplaceAll(text, wrapJoin, "")) }
+
 // SameQuestion reports whether a question as one part of the screen draws it
 // is the one another part draws: equal words, or one cut short of the other,
 // because a dialog's prompt is read off its last few lines.
 func SameQuestion(a, b string) bool {
+	if x, y := solid(a), solid(b); x != "" && y != "" && (x == y || strings.HasSuffix(x, y) || strings.HasSuffix(y, x)) {
+		return true
+	}
 	return anyReading(a, b, func(a, b string) bool {
 		if a == "" || b == "" {
 			return false

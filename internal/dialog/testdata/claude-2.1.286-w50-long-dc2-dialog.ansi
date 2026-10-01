@@ -1,0 +1,50 @@
+[48;5;237m  [38;5;231m(T-005286)\" plus a signed merge of [39m
+  [38;5;231morigin/main. (2) [38;5;153mgh pr create --repo [39m
+  [38;5;153musestring/gate-inbox --base main --head [39m
+  [38;5;153mfeat/s-145286-gi-parent-channel --title \"feat:[39m
+  [38;5;153mverify a child's parent and attest relayed [39m
+  [38;5;153mapprovals (T-005286)\" --body-file [39m
+  [38;5;153m/var/sample-0000/-home-sampleusr-repos-repo/gae[39m
+  [38;5;153m12c11-491f-47ab-a28a-0ab70fad1648/notesfiles/pr[39m
+  [38;5;153m-body-s145286.md[38;5;231m, opened ready for review. That[39m
+  [38;5;231mfile holds the full final body; internal-repo [39m
+  [38;5;231mreferences have been removed.", "header": [39m
+  [38;5;231m"Approval", "multiSelect": false, "options": [39m
+  [38;5;231m[{"label": "Yes, push and open the PR", [39m
+  [38;5;231m"description": "Run both commands exactly as [39m
+  [38;5;231mwritten, with that body file."}, {"label": "No,[39m
+  [38;5;231mhold it", "description": "Push nothing; the [39m
+  [38;5;231msigned commits stay local in the [39m
+  [38;5;231mworktree."}]}]} After the answer, reply DONE.[39m
+[38;5;246m[49m──────────────────────────────────────────────────
+[38;5;16m[48;5;153m ☐ Approval [39m[49m
+
+[2m│[0m [1m[38;5;231mMay I make these two public writes to [0m
+[2m│[0m [1m[38;5;231musestring/gate-inbox? (1) `git -C [0m
+[2m│[0m [1m[38;5;231m/home/sampleusr/work/sampledirs/s-145286-gi-pare
+[0;2m│[0m [1m[38;5;231mnt-channel-20260930-234253/gate-inbox push -u [0m
+[2m│[0m [1m[38;5;231morigin feat/s-145286-gi-parent-channel`: 2 [0m
+[2m│[0m [1m[38;5;231msigned commits, d598a62 "feat: verify a child's
+[0;2m│[0m [1m[38;5;231mparent and attest relayed approvals (T-005286)"
+[0;2m│[0m [1m[38;5;231mplus a signed merge of origin/main. (2) `gh pr [0m
+[2m│[0m [1m[38;5;231mcreate --repo usestring/gate-inbox --base main [0m
+[2m│[0m [1m[38;5;231m--head feat/s-145286-gi-parent-channel --title [0m
+[2m│[0m [1m[38;5;231m"feat: verify a child's parent and attest [0m
+[2m│[0m [1m[38;5;231mrelayed approvals (T-005286)" --body-file [0m
+[2m│[0m [1m[38;5;231m/var/sample-0000/-home-sampleusr-repos-repo/gae1
+[0;2m│[0m [1m[38;5;231m2c11-491f-47ab-a28a-0ab70fad1648/notesfiles/pr-b
+[0;2m│[0m [1m[38;5;231mody-s145286.md`, opened ready for review. That [0m
+[2m│[0m [1m[38;5;231mfile holds the full final body; internal-repo [0m
+[2m│[0m [1m[38;5;231mreferences have been removed.[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mYes, push and open the PR[39m
+     [38;5;246mRun both commands exactly as written, with [39m
+     [38;5;246mthat body file.[39m
+  [38;5;246m2.[39m No, hold it
+     [38;5;246mPush nothing; the signed commits stay local [39m
+     [38;5;246min the worktree.[39m
+  [38;5;246m3. Type something.[39m
+[38;5;246m──────────────────────────────────────────────────
+[39m  4. Chat about this
+
+[38;5;246mEnter to select · ↑/↓ to navigate · Esc to cancel[39m

@@ -45,6 +45,13 @@ type tabbedDialog struct {
 	shift int
 	// silent is a fault: the dialog closes without printing its record.
 	silent bool
+	// ticked is each multi-select question's checked boxes, by 1-based row.
+	// A multi-select is drawn as Claude Code 2.1.286 draws one: checkboxes,
+	// "[ ] Type something", an unnumbered Submit row, then Chat about this.
+	ticked map[int]map[int]bool
+	// stuck is a fault: Enter on this 1-based box of a multi-select does not
+	// toggle it.
+	stuck int
 }
 
 func newTabbedDialog(questions []convo.AskQuestion) *tabbedDialog {
@@ -61,8 +68,17 @@ func (d *tabbedDialog) rows() int {
 	if d.active == len(d.questions) {
 		return 2
 	}
+	if d.multi() {
+		return len(d.questions[d.active].Options) + 3
+	}
 	return len(d.questions[d.active].Options) + 2
 }
+
+func (d *tabbedDialog) multi() bool {
+	return d.active < len(d.questions) && d.questions[d.active].MultiSelect
+}
+
+func (d *tabbedDialog) box(n int) bool { return d.ticked[d.active][n] }
 
 func (d *tabbedDialog) freeText() int { return len(d.questions[d.active].Options) + 1 }
 
@@ -189,6 +205,30 @@ func (d *tabbedDialog) Capture() (string, error) {
 		}
 		out.WriteString(d.wrap(fmt.Sprintf("%s%d. ", marker, n), "     ", label))
 	}
+	if q.MultiSelect {
+		for n, option := range q.Options {
+			box := "[ ] "
+			if d.box(n + 1) {
+				box = "[✔] "
+			}
+			row(n+1, box+option.Label)
+			out.WriteString(d.wrap("         ", "         ", option.Description))
+		}
+		row(d.freeText(), "[ ] Type something")
+		marker := "  "
+		if d.cursor == d.freeText()+1 {
+			marker = "❯ "
+		}
+		out.WriteString(marker + "   Submit\n")
+		out.WriteString(d.rule())
+		marker = "  "
+		if d.cursor == d.freeText()+2 {
+			marker = "❯ "
+		}
+		out.WriteString(d.wrap(fmt.Sprintf("%s%d. ", marker, d.freeText()+1), "     ", "Chat about this"))
+		out.WriteString(d.wrap("", "", "Enter to select · ↑/↓ to navigate · Esc to cancel"))
+		return out.String(), nil
+	}
 	for n, option := range q.Options {
 		label := option.Label
 		if d.answers[d.active] == option.Label {
@@ -249,6 +289,36 @@ func (d *tabbedDialog) enter() {
 		return
 	}
 	q := d.questions[d.active]
+	if q.MultiSelect {
+		switch {
+		case d.cursor <= len(q.Options):
+			if d.cursor == d.stuck {
+				return
+			}
+			if d.ticked == nil {
+				d.ticked = map[int]map[int]bool{}
+			}
+			if d.ticked[d.active] == nil {
+				d.ticked[d.active] = map[int]bool{}
+			}
+			d.ticked[d.active][d.cursor] = !d.ticked[d.active][d.cursor]
+			return
+		case d.cursor == d.freeText()+1:
+			var picked []string
+			for n, option := range q.Options {
+				if d.box(n + 1) {
+					picked = append(picked, option.Label)
+				}
+			}
+			if len(picked) == 0 {
+				return
+			}
+			d.answers[d.active] = strings.Join(picked, ", ")
+			d.active++
+			d.cursor, d.typing = 1, ""
+		}
+		return
+	}
 	switch {
 	case d.cursor <= len(q.Options):
 		d.answers[d.active] = q.Options[min(d.cursor+d.shift, len(q.Options))-1].Label

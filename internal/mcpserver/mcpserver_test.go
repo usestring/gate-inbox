@@ -113,6 +113,7 @@ type fakeSessionCommands struct {
 	answeredID     string
 	answeredWith   string
 	answeredAll    []sessioncmd.QuestionAnswer
+	answeredKeys   []string
 	answeredSubmit bool
 	answeredRelay  bool
 	answerSelected string
@@ -198,6 +199,11 @@ func (f *fakeSessionCommands) Answer(_ string, id, reply string, relay bool) (se
 func (f *fakeSessionCommands) AnswerAll(_ string, id string, answers []sessioncmd.QuestionAnswer, submit, relay bool) (sessioncmd.AnsweredQuestion, error) {
 	f.answeredID, f.answeredAll, f.answeredSubmit, f.answeredRelay = id, answers, submit, relay
 	return sessioncmd.AnsweredQuestion{SessionID: id, Name: "child", Submitted: submit}, f.err
+}
+
+func (f *fakeSessionCommands) AnswerKeys(_ string, id string, keys []string, relay bool) (sessioncmd.AnsweredQuestion, error) {
+	f.answeredID, f.answeredKeys, f.answeredRelay = id, keys, relay
+	return sessioncmd.AnsweredQuestion{SessionID: id, Name: "child", Changed: true}, f.err
 }
 
 func (f *fakeSessionCommands) Revive(_ string, id string) (sessioncmd.Session, error) {
@@ -1057,11 +1063,38 @@ func TestAnswerSessionRoutesAnswersToTheBatch(t *testing.T) {
 	}
 	if text, isError := callText(t, session, "answer_session", map[string]any{
 		"session_id": "c1", "answer": "Bun", "answers": []map[string]any{{"question": "1", "answer": "Bun"}},
-	}); !isError || !strings.Contains(text, "not both") {
+	}); !isError || !strings.Contains(text, "one of answer, answers, ticks or keys") {
 		t.Errorf("both at once = %q, isError=%v", text, isError)
 	}
 	if _, isError := callText(t, session, "answer_session", map[string]any{"session_id": "c1", "answer": "Bun"}); isError || fake.answeredWith != "Bun" {
 		t.Errorf("the single answer did not reach Answer (isError=%v)", isError)
+	}
+}
+
+// ticks answers the multi-select on the screen through the batch, and keys
+// reach the relayed keys path; either beside another answer is refused.
+func TestAnswerSessionRoutesTicksAndKeys(t *testing.T) {
+	fake := &fakeSessionCommands{}
+	session := connectServer(t, serverWithFakes(t, fake))
+	if _, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1", "ticks": []string{"Cheese", "Peppers"}, "relay": true,
+	}); isError {
+		t.Fatal("answer_session with ticks failed")
+	}
+	want := []sessioncmd.QuestionAnswer{{Ticks: []string{"Cheese", "Peppers"}}}
+	if !reflect.DeepEqual(fake.answeredAll, want) || !fake.answeredSubmit || !fake.answeredRelay {
+		t.Errorf("ticks reached the batch as %+v submit %v relay %v", fake.answeredAll, fake.answeredSubmit, fake.answeredRelay)
+	}
+	fake.answeredRelay = false
+	if _, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c2", "keys": []string{"Down", "Enter"}, "relay": true,
+	}); isError || fake.answeredID != "c2" || !reflect.DeepEqual(fake.answeredKeys, []string{"Down", "Enter"}) || !fake.answeredRelay {
+		t.Errorf("keys reached AnswerKeys as %q relay %v (isError=%v)", fake.answeredKeys, fake.answeredRelay, isError)
+	}
+	if text, isError := callText(t, session, "answer_session", map[string]any{
+		"session_id": "c1", "answer": "Yes", "keys": []string{"Enter"},
+	}); !isError || !strings.Contains(text, "one of answer, answers, ticks or keys") {
+		t.Errorf("answer and keys at once = %q, isError=%v", text, isError)
 	}
 }
 

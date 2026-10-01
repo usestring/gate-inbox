@@ -130,7 +130,7 @@ func TestNumberedLinesWithNoLegendAreNotADialog(t *testing.T) {
 }
 
 // Four refusals, four different things to do about them, and for four days
-// they were one sentence. Two send the caller to a person and two mean look
+// they were one sentence. Two take the user's answer relayed and two mean look
 // again in a moment; a caller told only "cannot be answered" does neither.
 func TestEveryRefusalNamesItsOwnShape(t *testing.T) {
 	seen := map[string]bool{}
@@ -208,7 +208,7 @@ func TestA2284PermissionPromptIsReadAndGuarded(t *testing.T) {
 				t.Error("Parse offered a permission prompt as answerable")
 			}
 			why := held.Refusal()
-			for _, want := range []string{"permission prompt", "person's", "word for word", "operator", "held while a dialog stands"} {
+			for _, want := range []string{"permission prompt", "your user's", "word for word", "relay: true", "held while a dialog stands"} {
 				if !strings.Contains(why, want) {
 					t.Errorf("refusal %q does not say %q", why, want)
 				}

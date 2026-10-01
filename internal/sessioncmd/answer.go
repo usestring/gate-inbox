@@ -52,6 +52,9 @@ type AnsweredQuestion struct {
 	// record Claude Code prints. An answer that reads back as anything else is
 	// an error, never a result.
 	Verified bool `json:"verified" jsonschema:"true when the child's screen was read back after answering and shows exactly the answers given; false only for a Codex dialog, which draws no record to read"`
+	// Changed is a keys answer's readback: the screen was seen to change after
+	// the keys went in. What it changed to is read_session's to show.
+	Changed bool `json:"screen_changed,omitempty" jsonschema:"for keys: true when the child's screen was seen to change after the keys were sent"`
 	// Questions is every question of the dialog as it stands after the call.
 	Questions []dialog.Question `json:"questions,omitempty" jsonschema:"every question of the dialog after this call, with which are answered"`
 }
@@ -101,7 +104,7 @@ var errEmptyAnswer = errors.New(
 // A parent's answer carries a guard, which admits it and records it before
 // the first keystroke; the board's, a person's, carries none.
 func (r *runtime) answer(target store.Session, reply, by, byID string, guard *answerGuard) (AnsweredQuestion, error) {
-	pane := tmuxPane{r.driver, target.ID}
+	pane := tmuxPane{r.driver, target.ID, guard.recorder()}
 	raw, err := pane.Capture()
 	if err != nil {
 		return AnsweredQuestion{}, err
@@ -116,15 +119,25 @@ func (r *runtime) answer(target store.Session, reply, by, byID string, guard *an
 	// below -- they send the caller to two different places.
 	plain := ansi.Strip(raw)
 	held, ok := dialog.Inspect(plain)
+	if guard != nil && (!ok || held.Guarded()) {
+		// A permission prompt, a trust dialog, or any other dialog drawn as
+		// choices: picked by its text, and only as the caller's user's own
+		// answer. See answerscreen.go.
+		if screen, isScreen := dialog.ReadScreen(plain); isScreen && screen.Kind != dialog.ScreenQuestion &&
+			len(screen.Choices) >= 2 {
+			return r.answerScreen(target, pane, screen, reply, by, byID, guard)
+		}
+	}
 	if !ok {
 		if _, onReview := dialog.ParseReview(plain); onReview {
 			return r.submitReview(target, raw, reply, by, byID)
 		}
 		if dialog.Standing(plain) {
 			return AnsweredQuestion{}, wrapped(dialog.ErrNotKeyAnswerable, fmt.Sprintf(
-				"session %s is on a dialog this cannot read, so no keystroke is sent to it; what it "+
-					"asks is a person's call: put it to your user word for word (read_session shows it), "+
-					"or ask the operator to answer it on the board. %s is held while a dialog stands",
+				"session %s is on a dialog this cannot read as choices, so no answer was keyed. It is still "+
+					"yours to answer: read_session shows the screen; ask your user with your own question tool, "+
+					"quoting it word for word and offering the keys to press as the options, then call "+
+					"answer_session with keys set to what they chose and relay: true. %s is held while a dialog stands",
 				target.ID, r.words.Send))
 		}
 		// Not an error about the answer: there is no dialog on the screen. The
@@ -133,16 +146,18 @@ func (r *runtime) answer(target store.Session, reply, by, byID string, guard *an
 		// prose -- which takes words, not keystrokes. Saying which shapes are
 		// read at all is what stops a caller retrying this one forever.
 		return AnsweredQuestion{}, wrapped(dialog.ErrNoDialog, fmt.Sprintf(
-			"session %s is not on a dialog this can read: no numbered options under a legend it "+
-				"knows (Claude Code's AskUserQuestion or permission prompt; Codex's command "+
-				"approval, first-run trust or request_user_input). It may already have been "+
+			"session %s is not on a dialog this can read: no question, permission prompt or trust "+
+				"dialog (Claude Code's or Codex's) and no dialog legend. It may already have been "+
 				"answered, or be resting at its own input line. Use %s to send it words instead",
 			target.ID, r.words.Send))
 	}
+	if held.MultiSelect {
+		return AnsweredQuestion{}, wrapped(dialog.ErrNotKeyAnswerable, fmt.Sprintf("session %s is on a "+
+			"multi-select: pass ticks, the labels of every option to leave ticked, instead of answer", target.ID))
+	}
 	if _, err := dialog.AnswerKeys(held, reply); errors.Is(err, dialog.ErrNotKeyAnswerable) {
-		// Named rather than described. Two of these four want a person on the
-		// board and two want this caller to look again in a moment, and one
-		// sentence covering all of them told a manager neither.
+		// Named rather than described: each shape wants something different
+		// done about it, and the phrase says what.
 		return AnsweredQuestion{}, wrapped(err, fmt.Sprintf(
 			"session %s is on %s", target.ID, held.Refusal()))
 	}
@@ -236,7 +251,7 @@ func (r *runtime) submitReview(target store.Session, pane, reply, by, byID strin
 			"answers naming a question to change one first", target.ID)
 	}
 	stepper, _ := dialog.ParseStepper(pane)
-	if err := submitDialog(tmuxPane{r.driver, target.ID}, len(stepper.Steps), nil); err != nil {
+	if err := submitDialog(tmuxPane{driver: r.driver, id: target.ID}, len(stepper.Steps), nil); err != nil {
 		return AnsweredQuestion{}, err
 	}
 	logging.Info(by+" submitted a child's dialog", by, byID, "session", target.ID)
@@ -285,14 +300,14 @@ func (r *runtime) child(caller store.Session, targetID string) (store.Session, e
 	if owner := store.TrackerOf(target); owner != caller.ID {
 		if store.Detached(target) {
 			return store.Session{}, fmt.Errorf(
-				"session %s was detached (nest false) when it was created, so its dialogs are for the "+
-					"person at its pane, not for the session that created it; a person answers it on the "+
-					"board, or send_session asks it something", target.ID)
+				"session %s was created detached (nest false), so it is not your child and answer_session "+
+					"does not reach its dialogs; it belongs to your user, so tell them what it is waiting on, "+
+					"or send_session asks it something once it is at rest", target.ID)
 		}
 		if owner == "" {
 			return store.Session{}, fmt.Errorf(
-				"session %s is nobody's child, so no session owns its screen; a person answers it "+
-					"on the board", target.ID)
+				"session %s is nobody's child, so no session answers its dialogs; it belongs to your "+
+					"user, so tell them what it is waiting on", target.ID)
 		}
 		return store.Session{}, fmt.Errorf(
 			"session %s was spawned by session %s, not by this one; only the session that spawned "+

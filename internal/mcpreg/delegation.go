@@ -30,15 +30,11 @@ func delegationSteering(style string) string {
 	return strings.Join([]string{
 		"# Delegating work: use Gate Inbox sessions",
 		"",
-		"This session runs under Gate Inbox, which gives you the gate-inbox MCP tools: create_session, list_sessions, read_session, send_session, wait_for_session, archive_session and task. When you hand work to another agent, start a Gate Inbox session with create_session instead of using " + builtin + ". That covers any unit of real work: an investigation, an implementation, a review, a multi-step search, or anything else the user would want to see on their board.",
+		"Hand any unit of real work (an investigation, implementation, review or multi-step search) to a Gate Inbox session with create_session instead of using " + builtin + ". A session is on the user's board, and its questions are relayed to you. Keep the built-in tool for a quick read-only lookup.",
 		"",
-		"Why: a Gate Inbox session is on the user's board, where they can watch it, answer it and take it over. It works in a full context of its own instead of spending yours, it survives this conversation ending or being compacted, and its questions are relayed to you. Work done by a built-in subagent is invisible to the user and ends with this conversation.",
+		"Call list_sessions first and reuse an idle session. Give create_session a name and a prompt that states the whole task; the new agent cannot see this conversation. Track shared plans with the task tool. Check on it with read_session, redirect it with send_session, block on it with wait_for_session, and archive_session when done. One session per workstream.",
 		"",
-		"The built-in tool is still right for a quick read-only lookup that returns a single conclusion within seconds, such as finding where a symbol is defined. When in doubt, use a session.",
-		"",
-		"How: call list_sessions first and reuse a relevant idle session. Give create_session a descriptive name and a prompt that states the whole task, since the new agent cannot see this conversation; for repository work beside other agents, give it a directory that is its own checkout. Track shared plans with the task tool. Use read_session to check on it, send_session to redirect it, wait_for_session when your next step needs its result, and archive_session once it is done. Sessions cost the user tokens: create one per workstream, not one per trivial step.",
-		"",
-		"If the gate-inbox tools are not available in this session, delegate with " + builtin + " as usual.",
+		"If the gate-inbox tools are missing, use " + builtin + " as usual.",
 		"",
 	}, "\n") + "\n" + childDialogSteering
 }

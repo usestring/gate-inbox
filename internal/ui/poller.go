@@ -56,6 +56,8 @@ type poller struct {
 	// interruptKeys is each tool's configured interrupt_keys, what stops a
 	// running turn for a message sent with interrupt.
 	interruptKeys map[string][]string
+	// clearInputKeys is each tool's configured clear_input_keys.
+	clearInputKeys map[string][]string
 	// interrupts records when each interrupting message had its keys sent,
 	// under mu. The keys go once per message: see interruptGrace.
 	interrupts map[int64]time.Time
@@ -1436,7 +1438,11 @@ const (
 	// that is milliseconds old belongs to a paste in flight; only one this
 	// old belongs to a manager that died between the two.
 	inboxClaimGrace = 30 * time.Second
-	draftHoldLimit  = 5 * time.Minute
+	draftHoldLimit  = 2 * time.Minute
+	// draftClearWait is how long a composer has to redraw empty after its
+	// clear keys before the draft counts as not having left.
+	draftClearWait = time.Second
+	draftClearPoll = 25 * time.Millisecond
 )
 
 // inboxDeliverable is the set of derived statuses a message may land on.
@@ -1521,20 +1527,15 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 		p.restartDraftHold(sess.ID)
 		return false, nil
 	}
-	typing, err := p.composerCarriesDraft(sess, capture)
+	draft, err := p.composerDraft(sess, capture)
 	if err != nil {
 		return false, err
 	}
-	text := p.envelope(sess, msg)
 	switch {
-	case !typing:
+	case draft == "":
 		p.restartDraftHold(sess.ID)
-	case !p.draftAbandoned(sess, msg, capture.State):
+	case len(p.clearInputKeys[sess.Tool]) == 0 || !p.draftAbandoned(sess, msg, capture.State):
 		return false, nil
-	default:
-		// Pasted after the draft, not over it: the draft is submitted with
-		// the message, still ahead of the sender's words, rather than lost.
-		text = "\n\n" + text
 	}
 	// Reserved before the claim: a pass that has no slot left has written
 	// nothing, so the message simply stays queued for the next one.
@@ -1542,10 +1543,17 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 	if !p.reserveSend(key) {
 		return false, nil
 	}
+	if draft != "" {
+		cleared, err := p.setDraftAside(sess, msg, draft)
+		if !cleared || err != nil {
+			p.releaseSend(key)
+			return false, err
+		}
+	}
 	claimed, err := p.store.ClaimMessage(msg.ID, time.Now())
 	if err != nil || !claimed {
 		p.releaseSend(key)
-		return false, err
+		return false, errors.Join(err, p.restoreDraft(sess, draft))
 	}
 	// The claim already keeps this message from being typed again, so
 	// recording the drop is the only thing that stops its sender being told
@@ -1553,7 +1561,7 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 	// paste, off this pass; until it does the claim above is what holds the
 	// message, and the in-flight check higher up is what keeps the claim
 	// from being read as an abandoned one.
-	p.runSend(sess.ID, key, text, func(err error) error {
+	settle := func(err error) error {
 		// Same opencode paste-submit gap as pending inputs: the first Enter
 		// can be consumed by the bracketed paste, so submit again. Scoped
 		// to opencode so other tools never see a double submit.
@@ -1591,6 +1599,9 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 			})
 		}
 		return nil
+	}
+	p.runSend(sess.ID, key, p.envelope(sess, msg), func(err error) error {
+		return errors.Join(settle(err), p.restoreDraft(sess, draft))
 	})
 	return true, nil
 }
@@ -1599,7 +1610,9 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 // held its queue past draftHoldLimit with no keystroke into it. The hold
 // protects a line someone is writing, but nothing ever ended it: a stray
 // key left in a composer held every message to that session until someone
-// next typed there, which on this board was three and a half hours.
+// next typed there, which on this board was three and a half hours. The
+// stamp stands once the limit passes, so every message queued behind the
+// first goes in the same way until someone types again.
 func (p *poller) draftAbandoned(sess store.Session, msg store.InboxMessage, state tmux.CaptureState) bool {
 	now := time.Now()
 	p.mu.Lock()
@@ -1623,13 +1636,52 @@ func (p *poller) draftAbandoned(sess store.Session, msg store.InboxMessage, stat
 			"session", sess.ID, "message", msg.ID, "sender", msg.SenderID, "limit", draftHoldLimit)
 		return false
 	}
-	if now.Sub(since) < draftHoldLimit {
-		return false
+	return now.Sub(since) >= draftHoldLimit
+}
+
+// setDraftAside empties the composer of a draft nobody is typing into, so a
+// queued message can go in on its own; restoreDraft types the draft back
+// once the message is submitted. The draft is logged in full, since a
+// failed restore leaves the log as the only copy. It reports false, and the
+// message keeps waiting, when the composer still shows the draft after the
+// keys: a draft that never left must not be typed in a second time.
+func (p *poller) setDraftAside(sess store.Session, msg store.InboxMessage, draft string) (bool, error) {
+	logging.Info("setting a draft aside for a queued message",
+		"session", sess.ID, "message", msg.ID, "sender", msg.SenderID, "draft", draft)
+	if err := p.tmux.SendKeys(sess.ID, p.clearInputKeys[sess.Tool]...); err != nil {
+		return false, fmt.Errorf("clear the composer of %s for a message from %s: %w", sess.Name, msg.SenderName, err)
 	}
-	logging.Info("delivering a queued message after a draft left in the composer",
-		"session", sess.ID, "message", msg.ID, "sender", msg.SenderID, "heldFor", now.Sub(since).Round(time.Second))
-	p.restartDraftHold(sess.ID)
-	return true
+	deadline := time.Now().Add(draftClearWait)
+	for {
+		left, err := p.composerDraft(sess, tmux.Capture{})
+		if err != nil {
+			return false, errors.Join(err, p.restoreDraft(sess, draft))
+		}
+		if left == "" {
+			return true, nil
+		}
+		if left != draft || time.Now().After(deadline) {
+			// Typing the whole draft back over a part that stayed would
+			// double that part, so whatever is left stands and the message
+			// waits; the log keeps the draft as it was.
+			logging.Warn("the composer kept a draft after its clear keys",
+				"session", sess.ID, "message", msg.ID, "left", left)
+			return false, nil
+		}
+		time.Sleep(draftClearPoll)
+	}
+}
+
+// restoreDraft types a draft setDraftAside lifted back into the composer,
+// without submitting it.
+func (p *poller) restoreDraft(sess store.Session, draft string) error {
+	if draft == "" {
+		return nil
+	}
+	if err := p.tmux.Paste(sess.ID, draft); err != nil {
+		return fmt.Errorf("type back the draft set aside in %s (logged in full): %w", sess.Name, err)
+	}
+	return nil
 }
 
 // restartDraftHold forgets when the session's draft began holding its queue,
@@ -1767,17 +1819,23 @@ func (p *poller) operatorTyping(sess store.Session, state tmux.CaptureState) boo
 // is every caller outside the pass and any pane whose state line tmux did
 // not expand.
 func (p *poller) composerCarriesDraft(sess store.Session, capture tmux.Capture) (bool, error) {
+	draft, err := p.composerDraft(sess, capture)
+	return draft != "", err
+}
+
+// composerDraft is composerCarriesDraft returning the draft's text.
+func (p *poller) composerDraft(sess store.Session, capture tmux.Capture) (string, error) {
 	pane, caretX, caretY := capture.Text, capture.State.CursorX, capture.State.CursorY
 	if !capture.State.Read {
 		var err error
 		if pane, err = p.tmux.CapturePane(sess.ID); err != nil {
-			return false, p.unlessPaneGone(sess, "read the pane of", err)
+			return "", p.unlessPaneGone(sess, "read the pane of", err)
 		}
 		if caretX, caretY, err = p.tmux.Cursor(sess.ID); err != nil {
-			return false, p.unlessPaneGone(sess, "read the caret in", err)
+			return "", p.unlessPaneGone(sess, "read the caret in", err)
 		}
 	}
-	return p.engine.DraftInComposer(sess.Tool, ansi.Strip(pane), caretX, caretY), nil
+	return p.engine.DraftText(sess.Tool, ansi.Strip(pane), caretX, caretY), nil
 }
 
 // unlessPaneGone turns a read failure into no error when the session died

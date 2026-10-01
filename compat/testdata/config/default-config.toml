@@ -108,6 +108,9 @@ type_ahead = true
 # Escape stops a running turn; a second one opens the rewind menu, so
 # Gate Inbox never sends it twice for one message
 interrupt_keys = ["Escape"]
+# ctrl+l empties the composer (chat:clearInput), so a draft left standing
+# is set aside while a queued message goes in, then typed back
+clear_input_keys = ["C-l"]
 # claude 2.1.263: --model <model>
 model_flag = "--model"
 # Named subscriptions are off: a session runs on claude's own stored login.

@@ -113,6 +113,8 @@ func buildModelWithStorePath(t testing.TB) (*Model, string) {
 				Command:        `printf '❯ ' && cat` + soleWriter,
 				DefaultStatus:  status.Idle,
 				ActivityCutoff: "(?m)^❯",
+				// The tty's line kill, which erases the line it kills.
+				ClearInputKeys: []string{"C-u"},
 			},
 			// ready-tool drawing its own input. The line discipline's
 			// echo is dropped on macOS once tmux falls behind reading the

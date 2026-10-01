@@ -458,6 +458,12 @@ func (m *Model) sessionDetailLines(width int) []string {
 	if usage != "" {
 		lines = append(lines, railFact(pad, "usage", usage))
 	}
+	// What its spawner granted it on its user's approval, one line each:
+	// a widened permission is the one fact about a session nobody should
+	// have to go looking for.
+	for _, granted := range m.granted[sess.ID] {
+		lines = append(lines, railFact(pad, "grant", annotationStyle.Render(textfmt.TruncateWidth(granted, factRoom, "…"))))
+	}
 	return lines
 }
 

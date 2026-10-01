@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"syscall"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/extension"
@@ -249,6 +250,7 @@ func startExtensions(dir string, registry *extension.Registry, model *ui.Model, 
 	events.OnPinChange(model.PinStatuses(events))
 	model.UseQueueDeadlines(events)
 	ctx, cancel := context.WithCancel(context.Background())
+	go expireGrants(ctx, cmds, grantSweep)
 	if err := startUI(ctx, registry, model, send); err != nil {
 		cancel()
 		return nil, err
@@ -272,6 +274,33 @@ func startExtensions(dir string, registry *extension.Registry, model *ui.Model, 
 			logging.Warn("extension did not stop cleanly", logging.Err(err))
 		}
 	}, nil
+}
+
+// grantSweep is how often the board looks for a permission grant whose window
+// has closed. A grant outlives its window by up to this much, and by however
+// long its session's turn runs on: see ExpireGrants.
+const grantSweep = 30 * time.Second
+
+// expireGrants revokes lapsed permission grants until ctx ends. It runs on
+// the board because the board is the one process that is always up while
+// sessions are; a grant made while no board runs lapses when one starts.
+func expireGrants(ctx context.Context, cmds *sessioncmd.Sessions, every time.Duration) {
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		revoked, err := cmds.ExpireGrants(time.Now())
+		if err != nil {
+			logging.Warn("could not expire every lapsed permission grant", logging.Err(err))
+		}
+		if revoked > 0 {
+			logging.Info("expired permission grants", "count", revoked)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
 }
 
 // exitHangup is the conventional status for a process ending on SIGHUP,

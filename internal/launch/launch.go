@@ -454,6 +454,9 @@ func Environment(manager *hooks.Manager, toolName string, tool config.Tool, base
 		if err := manager.Remove(id); err != nil {
 			return "", nil, err
 		}
+		if err := manager.RefreshSessionSettings(id); err != nil {
+			return "", nil, err
+		}
 	}
 	return compose(manager, toolName, tool, baseCommand, id, model, account, contributed, true)
 }
@@ -619,5 +622,5 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	// looks for in a running process's argv to tell a wired session from one
 	// somebody restarted by hand inside its pane. One spelling, so the check
 	// cannot go quietly false by this line changing.
-	return command + " " + hooks.SettingsArgv(tmux.ShellQuote(manager.SettingsPath())), env, nil
+	return command + " " + hooks.SettingsArgv(tmux.ShellQuote(manager.LaunchSettingsPath(id))), env, nil
 }

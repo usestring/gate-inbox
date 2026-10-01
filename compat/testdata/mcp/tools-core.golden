@@ -1,4 +1,4 @@
-31 tools
+32 tools
   answer_session
   archive_session
   cleanup_children
@@ -7,6 +7,7 @@
   create_session
   create_terminal
   delete_group
+  grant_permission
   kill_session
   list_accounts
   list_groups
@@ -316,6 +317,16 @@
       "parent_id": {
         "description": "session this row is drawn under on the board; empty for a top-level session",
         "type": "string"
+      },
+      "permissions": {
+        "description": "permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
       },
       "running": {
         "description": "whether the session currently has a live tmux pane",
@@ -647,6 +658,16 @@
         "description": "session this row is drawn under on the board; empty for a top-level session",
         "type": "string"
       },
+      "permissions": {
+        "description": "permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
       "running": {
         "description": "whether the session currently has a live tmux pane",
         "type": "boolean"
@@ -821,6 +842,242 @@
   }
 }
 
+=== grant_permission
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "readOnlyHint": false
+  },
+  "description": "Give one of your own spawned sessions a permission your user approved, when its permission system refused a step your brief needs -- a command that has to run outside the sandbox, a rule its auto-mode classifier will not pass, a host its sandbox cannot reach. An answer you key into the child is not its user's approval, so neither answer_session nor send_session can do this; this writes the one permission into that child's own settings file, never a shared one, and restarts it on its own conversation so it takes effect. Every grant is temporary: it lasts expires_in_minutes (default 120) and the board revokes it when the window closes. Call it first with the kind, value and window: unless your user already approved exactly that, it refuses with the exact question to put to them -- header Approval, the question naming the child, the window and the permission, options Grant and Don't grant. Ask your user that word for word with your own question tool, then call again; Gate Inbox checks your transcript for their Grant and spends it on this one grant. Prefer soft_command: it is enough for the classifier to pass a refused step, including one run with dangerouslyDisableSandbox, and the classifier still judges each call. Use rule or unsandboxed_command only when a soft grant is still refused. Wildcards, whole tools, and anything touching settings files, sudo or credentials are refused with no way past. Only Claude Code children can be granted to. revoke true takes a permission back; list_sessions shows what a session holds. After a restart the child is idle: tell it with send_session to retry.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "expires_in_minutes": {
+        "description": "how long the child keeps it, 1 to 1440 minutes; omit for 120. The approval question names the window, so ask for the one the work needs",
+        "type": "integer"
+      },
+      "kind": {
+        "description": "what to widen: soft_command (prefer it: tells the child's auto-mode classifier the user approved commands starting with an exact prefix, sandboxed or not, while the classifier still judges each call), rule (one permission rule written Tool(pattern), such as Bash(./bin/fetch:*), which skips the classifier for what it matches), unsandboxed_command (an exact prefix that runs outside the sandbox without asking), or domain (one host the sandbox's network proxy lets through)",
+        "type": "string"
+      },
+      "restart": {
+        "description": "restart the child now even if it is working; without it a working child picks the change up at its next restart",
+        "type": "boolean"
+      },
+      "revoke": {
+        "description": "true takes a permission back instead; no approval needed",
+        "type": "boolean"
+      },
+      "session_id": {
+        "description": "child session to grant to, one this session spawned",
+        "type": "string"
+      },
+      "value": {
+        "description": "the command prefix, rule or host name, exactly as the approval question names it",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id",
+      "kind",
+      "value"
+    ],
+    "type": "object"
+  },
+  "name": "grant_permission",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "action": {
+        "type": "string"
+      },
+      "grant": {
+        "additionalProperties": false,
+        "properties": {
+          "by": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": "string"
+          },
+          "granted": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "revoked_at": {
+            "type": "string"
+          },
+          "revoked_by": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "value",
+          "granted",
+          "by",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "grants": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "by": {
+              "type": "string"
+            },
+            "created_at": {
+              "type": "string"
+            },
+            "expires_at": {
+              "type": "string"
+            },
+            "granted": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "revoked_at": {
+              "type": "string"
+            },
+            "revoked_by": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value",
+            "granted",
+            "by",
+            "created_at"
+          ],
+          "type": "object"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
+      "note": {
+        "type": "string"
+      },
+      "restarted": {
+        "type": "boolean"
+      },
+      "settings_file": {
+        "type": "string"
+      },
+      "target": {
+        "additionalProperties": false,
+        "properties": {
+          "account": {
+            "description": "named subscription the session runs on; empty is the CLI's own login",
+            "type": "string"
+          },
+          "archived": {
+            "description": "whether the session is archived out of the active list",
+            "type": "boolean"
+          },
+          "detached": {
+            "description": "whether this session was created detached (nest false): its creator, in spawned_by, is told nothing of its questions or finishes and cannot answer its dialogs, and the two talk only through send_session",
+            "type": "boolean"
+          },
+          "directory": {
+            "description": "session's current working directory, or its launch directory when stopped",
+            "type": "string"
+          },
+          "group": {
+            "description": "group path holding the session; empty is the root",
+            "type": "string"
+          },
+          "id": {
+            "description": "agent session id",
+            "type": "string"
+          },
+          "model": {
+            "description": "model that CLI runs on; empty is the CLI's own default",
+            "type": "string"
+          },
+          "name": {
+            "description": "session name shown in Gate Inbox",
+            "type": "string"
+          },
+          "parent_id": {
+            "description": "session this row is drawn under on the board; empty for a top-level session",
+            "type": "string"
+          },
+          "permissions": {
+            "description": "permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "running": {
+            "description": "whether the session currently has a live tmux pane",
+            "type": "boolean"
+          },
+          "self": {
+            "description": "whether this row is the calling session itself",
+            "type": "boolean"
+          },
+          "spawned_by": {
+            "description": "session that spawned this one, which is the only session that can answer its questions or reach it with send_children unless it is detached; empty for a session nobody spawned",
+            "type": "string"
+          },
+          "status": {
+            "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+            "type": "string"
+          },
+          "tool": {
+            "description": "agent CLI the session runs",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "tool",
+          "group",
+          "directory",
+          "status",
+          "running",
+          "archived",
+          "self"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "target",
+      "action",
+      "grant",
+      "restarted",
+      "note",
+      "grants"
+    ],
+    "type": "object"
+  }
+}
+
 === kill_session
 {
   "annotations": {
@@ -882,6 +1139,16 @@
       "parent_id": {
         "description": "session this row is drawn under on the board; empty for a top-level session",
         "type": "string"
+      },
+      "permissions": {
+        "description": "permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
       },
       "running": {
         "description": "whether the session currently has a live tmux pane",
@@ -1194,6 +1461,16 @@
               "description": "session this row is drawn under on the board; empty for a top-level session",
               "type": "string"
             },
+            "permissions": {
+              "description": "permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
             "running": {
               "description": "whether the session currently has a live tmux pane",
               "type": "boolean"
@@ -1461,6 +1738,16 @@
         "description": "session this row is drawn under on the board; empty for a top-level session",
         "type": "string"
       },
+      "permissions": {
+        "description": "permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
       "running": {
         "description": "whether the session currently has a live tmux pane",
         "type": "boolean"
@@ -1566,6 +1853,16 @@
       "parent_id": {
         "description": "session this row is drawn under on the board; empty for a top-level session",
         "type": "string"
+      },
+      "permissions": {
+        "description": "permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
       },
       "running": {
         "description": "whether the session currently has a live tmux pane",
@@ -1783,6 +2080,16 @@
           "parent_id": {
             "description": "session this row is drawn under on the board; empty for a top-level session",
             "type": "string"
+          },
+          "permissions": {
+            "description": "permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
           },
           "running": {
             "description": "whether the session currently has a live tmux pane",
@@ -2187,6 +2494,16 @@
         "description": "session this row is drawn under on the board; empty for a top-level session",
         "type": "string"
       },
+      "permissions": {
+        "description": "permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
       "running": {
         "description": "whether the session currently has a live tmux pane",
         "type": "boolean"
@@ -2549,6 +2866,16 @@
       "parent_id": {
         "description": "session this row is drawn under on the board; empty for a top-level session",
         "type": "string"
+      },
+      "permissions": {
+        "description": "permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
       },
       "running": {
         "description": "whether the session currently has a live tmux pane",
@@ -2925,6 +3252,16 @@
             "description": "session this row is drawn under on the board; empty for a top-level session",
             "type": "string"
           },
+          "permissions": {
+            "description": "permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
           "running": {
             "description": "whether the session currently has a live tmux pane",
             "type": "boolean"
@@ -3007,6 +3344,16 @@
                 "parent_id": {
                   "description": "session this row is drawn under on the board; empty for a top-level session",
                   "type": "string"
+                },
+                "permissions": {
+                  "description": "permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
                 },
                 "running": {
                   "description": "whether the session currently has a live tmux pane",

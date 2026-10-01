@@ -72,6 +72,9 @@ type Session struct {
 	ArchivedAt time.Time `json:"-"`
 	// ReplacedBy reaches extensions only, as Role does.
 	ReplacedBy string `json:"-"`
+	// Permissions is only filled in by a list, which reads every grant in
+	// one query; see grant.go.
+	Permissions []string `json:"permissions,omitempty" jsonschema:"permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true"`
 }
 
 type SessionScreen struct {
@@ -417,6 +420,16 @@ func (r *runtime) list(callerID string, opts ListOptions) (SessionList, error) {
 		_, running := panes[sess.ID]
 		sessions = append(sessions, r.sessionInfo(sess, running, callerID != "" && sess.ID == callerID))
 		last = keys[i]
+	}
+	granted, err := r.store.ActiveGrants()
+	if err != nil {
+		return SessionList{}, err
+	}
+	for i := range sessions {
+		for _, g := range granted[sessions[i].ID] {
+			sessions[i].Permissions = append(sessions[i].Permissions,
+				fmt.Sprintf("%s %s until %s", g.Kind, g.Value, g.ExpiresAt.Format("15:04")))
+		}
 	}
 	list := SessionList{
 		Sessions:  sessions,

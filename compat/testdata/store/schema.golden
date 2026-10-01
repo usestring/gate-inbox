@@ -20,6 +20,9 @@ CREATE INDEX forge_prs_age ON forge_prs (fetched_at)
 === index forge_tickets_age on forge_tickets
 CREATE INDEX forge_tickets_age ON forge_tickets (fetched_at)
 
+=== index permission_grants_active on permission_grants
+CREATE UNIQUE INDEX permission_grants_active ON permission_grants (session_id, kind, value) WHERE revoked_at = 0
+
 === index session_inbox_queue on session_inbox
 CREATE INDEX session_inbox_queue ON session_inbox (session_id, delivered_at, id)
 
@@ -104,6 +107,20 @@ CREATE INDEX tasks_claimable ON tasks (state, created_at)
    5 priority                     INTEGER  notnull=1 default=0 pk=0
    6 priority_tier                TEXT     notnull=1 default='' pk=0
   index sqlite_autoindex_groups_1 unique=1 origin=pk partial=0 (name)
+
+=== table permission_grants
+   0 id                           INTEGER  notnull=0 default=NULL pk=1
+   1 session_id                   TEXT     notnull=1 default=NULL pk=0
+   2 kind                         TEXT     notnull=1 default=NULL pk=0
+   3 value                        TEXT     notnull=1 default=NULL pk=0
+   4 by_session                   TEXT     notnull=1 default=NULL pk=0
+   5 evidence_tool_use_id         TEXT     notnull=1 default=NULL pk=0
+   6 created_at                   INTEGER  notnull=1 default=NULL pk=0
+   7 revoked_at                   INTEGER  notnull=1 default=0 pk=0
+   8 revoked_by                   TEXT     notnull=1 default='' pk=0
+   9 question_hash                TEXT     notnull=1 default='' pk=0
+  10 expires_at                   INTEGER  notnull=1 default=0 pk=0
+  index permission_grants_active unique=1 origin=c partial=1 (session_id, kind, value)
 
 === table replace_holds
    0 fresh_id                     TEXT     notnull=0 default=NULL pk=1

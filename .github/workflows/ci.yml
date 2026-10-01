@@ -62,11 +62,11 @@ jobs:
           go-version-file: go.mod
           go-package: ./...
 
-  # internal/ui is over a third of the suite's test time and ran last, behind
-  # every other package's compile. It gets runners of its own, split by test
-  # name, while the rest of the module runs beside it. Separate runners rather
-  # than more processes on one: the ui tests assert latencies, and
-  # scripts/shard-test.sh records them failing under in-box concurrency.
+  # internal/ui is the longest package, and in one `go test ./...` it started
+  # last, behind every other package's compile and run. It gets a runner of
+  # its own. It is not split further by -run: a plain run of the package
+  # already shards itself across one process per core (internal/ui's
+  # shard_test.go), and any test selection turns that off.
   test:
     name: test (${{ matrix.shard }})
     runs-on: ubuntu-latest
@@ -74,19 +74,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - shard: rest
-            cache: rest
-            save-cache: true
-          - shard: ui-0
-            cache: ui
-            save-cache: true
-          - shard: ui-1
-            cache: ui
-            save-cache: false
+        shard: [rest, ui]
     env:
       SHARD: ${{ matrix.shard }}
-      UI_SHARDS: 2
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # setup-go's own cache is keyed on go.sum alone, so once an entry exists
@@ -108,10 +98,10 @@ jobs:
           path: |
             ${{ steps.go-cache.outputs.build }}
             ${{ steps.go-cache.outputs.mod }}
-          key: go-test-${{ runner.os }}-${{ matrix.cache }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          key: go-test-${{ runner.os }}-${{ matrix.shard }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
           restore-keys: |
-            go-test-${{ runner.os }}-${{ matrix.cache }}-${{ hashFiles('go.sum') }}-
-            go-test-${{ runner.os }}-${{ matrix.cache }}-
+            go-test-${{ runner.os }}-${{ matrix.shard }}-${{ hashFiles('go.sum') }}-
+            go-test-${{ runner.os }}-${{ matrix.shard }}-
             go-test-${{ runner.os }}-
       - name: Install tmux
         run: |
@@ -134,69 +124,47 @@ jobs:
           printf '#!/bin/sh\necho "stub claude invoked in CI: $*" >&2\nexit 1\n' > "$RUNNER_TEMP/bin/claude"
           chmod +x "$RUNNER_TEMP/bin/claude"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      # A ui shard takes every UI_SHARDS-th name of the sorted test list,
-      # dealt round-robin as scripts/shard-test.sh does, because neighbouring
-      # names usually share a file and a slow file would otherwise land on one
-      # runner. Each shard uploads the whole list so the report job can prove
-      # the shards between them ran all of it.
-      - name: Select tests
-        run: |
-          set -o pipefail
-          out="$RUNNER_TEMP/out"
-          mkdir -p "$out"
-          case "$SHARD" in
-          rest)
-            go list ./... | grep -vx 'github.com/usestring/gate-inbox/internal/ui' > "$out/packages.txt"
-            ;;
-          ui-*)
-            # Listing runs TestMain, which starts a tmux server, so it is
-            # isolated like the run itself.
-            scripts/test-tmux-isolation.sh -- go test -list '.*' ./internal/ui |
-              grep '^Test' | sort > "$out/ui-tests.txt"
-            awk -v k="$UI_SHARDS" -v i="${SHARD#ui-}" 'NR % k == i' "$out/ui-tests.txt" > "$RUNNER_TEMP/mine.txt"
-            test -s "$RUNNER_TEMP/mine.txt"
-            echo "$(wc -l < "$RUNNER_TEMP/mine.txt") of $(wc -l < "$out/ui-tests.txt") internal/ui tests"
-            ;;
-          esac
       # The suite runs with TMUX pointed at a sentinel server, the environment
       # a test run inherits inside an operator's tmux pane, and the step fails
       # if that server loses or gains anything: internal/tmuxtest gives every
       # test binary its own TMUX_TMPDIR, and this proves nothing escaped it.
       # The sqlite fixtures go to /dev/shm through tmuxtest.ScratchDir.
       #
-      # This step fails on go test's own verdict. The skip verdict needs every
-      # shard's stream at once, so it belongs to the report job.
+      # This step fails on go test's own verdict. The skip verdict needs both
+      # streams at once, so it belongs to the report job.
       - name: Test
         run: |
-          out="$RUNNER_TEMP/out"
+          set -o pipefail
+          ui=github.com/usestring/gate-inbox/internal/ui
           case "$SHARD" in
-          rest) mapfile -t args < "$out/packages.txt" ;;
-          ui-*) args=(-run "^($(paste -sd'|' "$RUNNER_TEMP/mine.txt"))\$" ./internal/ui) ;;
+          rest) mapfile -t packages < <(go list ./... | grep -vx "$ui") ;;
+          ui) packages=("$ui") ;;
           esac
+          mkdir -p "$RUNNER_TEMP/out"
           scripts/test-tmux-isolation.sh -- \
-            go test -json -count=1 -timeout 15m "${args[@]}" > "$out/test.json"
+            go test -json -count=1 -timeout 15m "${packages[@]}" > "$RUNNER_TEMP/out/test.json"
       # A failing test leaves the compiled binaries just as reusable, and with
       # the suite this flaky, saving only after a green run would leave the
-      # cache days old. The two ui shards compile the same thing, so one saves.
+      # cache days old.
       - name: Save Go build cache
-        if: ${{ !cancelled() && matrix.save-cache && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ${{ steps.go-cache.outputs.build }}
             ${{ steps.go-cache.outputs.mod }}
-          key: go-test-${{ runner.os }}-${{ matrix.cache }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          key: go-test-${{ runner.os }}-${{ matrix.shard }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
       - name: Upload test stream
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: test-json-${{ matrix.shard }}
-          path: ${{ runner.temp }}/out
+          path: ${{ runner.temp }}/out/test.json
           retention-days: 7
 
-  # One verdict over the union of the shards' streams. testreport has to see
-  # every test at once: an allowlisted skip that ran in another shard would
-  # otherwise read as never seen.
+  # One verdict over both streams. ci-allowed-skips.txt is a whole-suite
+  # contract: checked per job, every allowlisted test the other job ran would
+  # read as never seen.
   #
   # Both verdicts have to be clean: go test alone would call a suite that
   # passed by skipping a success, and testreport alone would miss a failure
@@ -220,25 +188,13 @@ jobs:
         env:
           TEST_RESULT: ${{ needs.test.result }}
         run: |
-          streams="$RUNNER_TEMP/streams"
-          cat "$streams"/test-json-*/test.json > "$RUNNER_TEMP/test.json"
-
-          # The shards' selections are checked rather than trusted: a test
-          # that no shard ran is coverage lost with no skip to report it.
-          covered=0
-          lists=("$streams"/test-json-ui-*/ui-tests.txt)
-          if [ "${#lists[@]}" -eq 2 ] && cmp -s "${lists[0]}" "${lists[1]}"; then
-            jq -r 'select(.Action == "run" and .Package == "github.com/usestring/gate-inbox/internal/ui" and (.Test | contains("/") | not)) | .Test' \
-              "$RUNNER_TEMP/test.json" | sort -u > "$RUNNER_TEMP/ui-ran.txt"
-            if comm -23 "${lists[0]}" "$RUNNER_TEMP/ui-ran.txt" | grep .; then
-              echo "::error::the internal/ui tests above ran in no shard"
-              covered=1
-            fi
-          else
-            echo "::error::expected two identical internal/ui test lists, found ${#lists[@]}"
-            covered=1
-          fi
-
+          streams=("$RUNNER_TEMP"/streams/test-json-*/test.json)
+          echo "streams: ${#streams[@]}"
+          # A job that died before uploading would otherwise leave a report
+          # over half the suite. The allowlist check catches most of that,
+          # this catches all of it.
+          test "${#streams[@]}" -eq 2 || { echo "::error::expected 2 test streams"; exit 1; }
+          cat "${streams[@]}" > "$RUNNER_TEMP/test.json"
           go build -o "$RUNNER_TEMP/testreport" ./tools/testreport
           report=0
           "$RUNNER_TEMP/testreport" \
@@ -246,7 +202,7 @@ jobs:
             -summary "$GITHUB_STEP_SUMMARY" \
             < "$RUNNER_TEMP/test.json" || report=$?
           echo "test jobs: $TEST_RESULT"
-          test "$TEST_RESULT" = success -a "$covered" -eq 0 -a "$report" -eq 0
+          test "$TEST_RESULT" = success -a "$report" -eq 0
 
   secrets:
     runs-on: ubuntu-latest

@@ -111,8 +111,8 @@ type Model struct {
 	gitDrv *git.Driver
 	engine *status.Engine
 
-	// snips are the operator's canned answers on ctrl+alt keys, read once at
-	// startup; snipErr is why there are none, when the file would not be read.
+	// snips are the operator's canned answers, read once at startup;
+	// snipErr is why there are none, when the file would not be read.
 	snips          snippets.Set
 	snipErr        string
 	jevAutoSuggest bool
@@ -781,9 +781,12 @@ type renameTarget struct {
 
 // quickState is the hotkey menu docked under the preview: active across
 // cursor moves, so the target follows the selection. It lists the snippets
-// and takes no text.
+// and takes no text. From inside a focused session it answers that session;
+// fromFocus remembers which, because the cursor it would otherwise follow is
+// not what is on screen there.
 type quickState struct {
 	active             bool
+	fromFocus          bool
 	closeAfterSend     bool
 	suggestions        []string
 	suggestionIdentity string

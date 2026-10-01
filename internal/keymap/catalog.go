@@ -162,7 +162,7 @@ var Catalog = []Binding{
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
 	{ContextList, Dismiss, []string{"."}, "skip", false},
 	{ContextList, Priority, []string{"p"}, "cycle priority: urgent → high → medium → low → none", false},
-	{ContextList, QuickInput, []string{" ", "space"}, "hotkey menu", false},
+	{ContextList, QuickInput, []string{" ", "space", "ctrl+]"}, "hotkey menu", false},
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{}, "rename it yourself, and re-pick its tool", false},
 	{ContextList, NameSweep, []string{}, "name sweep over idle adopted panes", false},
@@ -218,6 +218,12 @@ var Catalog = []Binding{
 	// reach the agent as readline's backward-delete, and backspace still sends
 	// that edit under its own name.
 	{ContextFocus, Help, []string{"ctrl+h"}, "this key map", false},
+	// The hotkey menu from inside the pane: the same snippet menu the list
+	// opens, answering the focused session. One more claimed ctrl key, and
+	// ctrl+] is the cheapest one left: no agent CLI binds it, and readline
+	// only spends it on character search. It is rebindable like every other
+	// action for an operator who misses it.
+	{ContextFocus, QuickInput, []string{"ctrl+]"}, "hotkey menu: send a snippet without leaving the session", false},
 	// Session controls reached from inside the pane: a drain that had to leave
 	// the queue to spawn, copy an id or step back was not one queue. See the
 	// ui package's focusactions.go.

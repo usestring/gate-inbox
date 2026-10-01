@@ -28,11 +28,11 @@ func TestDistributionEntryBindsBesideTheOperatorsFile(t *testing.T) {
 	if len(set.Snippets) != 2 || len(set.Problems) != 0 {
 		t.Fatalf("got %+v, want the operator's entry and the distribution's", set)
 	}
-	if got, ok := set.Get("ctrl+alt+r"); !ok || got != sample {
-		t.Fatalf("ctrl+alt+r = %+v, %v; want the distribution's entry", got, ok)
+	if got, ok := set.Get("r"); !ok || got != sample {
+		t.Fatalf("r = %+v, %v; want the distribution's entry", got, ok)
 	}
-	if got, _ := set.Get("ctrl+alt+d"); got.Text != "ship it" {
-		t.Fatalf("ctrl+alt+d = %+v, want the operator's entry", got)
+	if got, _ := set.Get("d"); got.Text != "ship it" {
+		t.Fatalf("d = %+v, want the operator's entry", got)
 	}
 }
 
@@ -59,7 +59,7 @@ func TestOperatorEntryThatCannotBindStillClaimsItsKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if _, ok := set.Get("ctrl+alt+r"); ok || len(set.Problems) != 1 {
+	if _, ok := set.Get("r"); ok || len(set.Problems) != 1 {
 		t.Fatalf("got %+v, want r unbound with one problem", set)
 	}
 }
@@ -72,11 +72,11 @@ func TestFirstRunDoesNotWriteTheDistribution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got, _ := set.Get("ctrl+alt+c"); got != override {
-		t.Fatalf("ctrl+alt+c = %+v, want the distribution's entry over the built-in", got)
+	if got, _ := set.Get("c"); got != override {
+		t.Fatalf("c = %+v, want the distribution's entry over the built-in", got)
 	}
-	if got, _ := set.Get("ctrl+alt+r"); got != sample {
-		t.Fatalf("ctrl+alt+r = %+v, want the distribution's entry", got)
+	if got, _ := set.Get("r"); got != sample {
+		t.Fatalf("r = %+v, want the distribution's entry", got)
 	}
 	if len(set.Snippets) != len(Defaults())+1 {
 		t.Fatalf("got %d snippets, want the built-ins with c replaced plus r", len(set.Snippets))
@@ -121,8 +121,8 @@ func TestADefaultTheOperatorNeverBoundFollowsTheDistribution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got, _ := set.Get("ctrl+alt+r"); got.Text != changed.Text {
-		t.Fatalf("ctrl+alt+r = %+v, want the distribution's current text", got)
+	if got, _ := set.Get("r"); got.Text != changed.Text {
+		t.Fatalf("r = %+v, want the distribution's current text", got)
 	}
 }
 
@@ -145,10 +145,9 @@ func TestEmptyDistributionIsANoOp(t *testing.T) {
 
 func TestUseDistributionRefusesAnEntryThatCannotBind(t *testing.T) {
 	for name, entries := range map[string][]Snippet{
-		"digit":     {{Key: "1", Text: "x"}},
-		"no text":   {{Key: "r"}},
-		"unreached": {{Key: "i", Text: "x"}},
-		"repeat":    {sample, sample},
+		"digit":   {{Key: "1", Text: "x"}},
+		"no text": {{Key: "r"}},
+		"repeat":  {sample, sample},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := UseDistribution(entries); err == nil || !strings.Contains(err.Error(), "snippet defaults") {

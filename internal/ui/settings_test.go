@@ -224,7 +224,7 @@ func TestSettingsReloadsEditedSnippetsWhenItCloses(t *testing.T) {
 
 	updated, _ := m.handleSettingsKey(key("esc"))
 	m = updated.(*Model)
-	loaded, ok := m.snippetFor("ctrl+alt+d")
+	loaded, ok := m.menuSnippetFor("d")
 	if !ok || loaded.Text != "ship it now" {
 		t.Fatalf("edited snippet was not reloaded: %+v, found=%v", loaded, ok)
 	}

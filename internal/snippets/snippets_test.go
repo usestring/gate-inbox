@@ -42,8 +42,8 @@ func TestLoadLeavesAnEditedFileAlone(t *testing.T) {
 	if len(set.Snippets) != 1 || set.Snippets[0].Text != "ship it" {
 		t.Fatalf("got %+v, want only the edited entry", set.Snippets)
 	}
-	if set.Snippets[0].Binding() != "ctrl+alt+d" {
-		t.Fatalf("binding %q, want ctrl+alt+d", set.Snippets[0].Binding())
+	if set.Snippets[0].Binding() != "d" {
+		t.Fatalf("binding %q, want d", set.Snippets[0].Binding())
 	}
 }
 
@@ -67,8 +67,6 @@ func TestRejectedEntriesAreReportedNotDropped(t *testing.T) {
 	write(t, dir, `[
 		{"key":"d","text":"ship it"},
 		{"key":"1","text":"a digit"},
-		{"key":"i","text":"unreachable"},
-		{"key":"m","text":"also unreachable"},
 		{"key":"","text":"no key"},
 		{"key":"z","text":""},
 		{"key":"d","text":"a repeat"}
@@ -81,26 +79,26 @@ func TestRejectedEntriesAreReportedNotDropped(t *testing.T) {
 	if len(set.Snippets) != 1 || set.Snippets[0].Key != "d" || set.Snippets[0].Text != "ship it" {
 		t.Fatalf("got %+v, want only the first d entry", set.Snippets)
 	}
-	if len(set.Problems) != 6 {
-		t.Fatalf("got %d problems, want 6: %v", len(set.Problems), set.Problems)
+	if len(set.Problems) != 4 {
+		t.Fatalf("got %d problems, want 4: %v", len(set.Problems), set.Problems)
 	}
 	joined := strings.Join(set.Problems, "\n")
-	for _, want := range []string{"single letter", "alt+tab", "alt+enter", "has no key", "sends nothing", "repeats"} {
+	for _, want := range []string{"single letter", "has no key", "sends nothing", "repeats"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("problems do not explain %q:\n%s", want, joined)
 		}
 	}
 }
 
-func TestGetMatchesOnlyTheFullChord(t *testing.T) {
+func TestGetMatchesOnlyTheBareKey(t *testing.T) {
 	set := validate([]Snippet{{Key: "d", Text: "ship it"}})
-	if _, ok := set.Get("ctrl+alt+d"); !ok {
-		t.Fatal("ctrl+alt+d should match")
+	if _, ok := set.Get("d"); !ok {
+		t.Fatal("d should match")
 	}
-	// The bare letter is what a focused agent is being typed at.
-	for _, key := range []string{"d", "alt+d", "ctrl+d"} {
+	// No chord exists anymore: a modifier on the key is a different key.
+	for _, key := range []string{"alt+d", "ctrl+d", "ctrl+alt+d"} {
 		if _, ok := set.Get(key); ok {
-			t.Errorf("%q must not match a snippet: it belongs to the pane", key)
+			t.Errorf("%q must not match a snippet: the menu reads bare keys", key)
 		}
 	}
 }
@@ -154,7 +152,7 @@ func write(t *testing.T, dir, body string) {
 	}
 }
 
-func TestSectionKeyBindsOnAltAlone(t *testing.T) {
+func TestSectionKeyBindsBare(t *testing.T) {
 	set := validate([]Snippet{{Key: SectionKey, Text: "summarise"}, {Key: "d", Text: "ship it"}})
 	if len(set.Snippets) != 2 {
 		t.Fatalf("got %+v, want both entries to bind: %v", set.Snippets, set.Problems)
@@ -163,12 +161,11 @@ func TestSectionKeyBindsOnAltAlone(t *testing.T) {
 	for _, snip := range set.Snippets {
 		got[snip.Key] = snip.Binding()
 	}
-	if got[SectionKey] != "alt+"+SectionKey {
-		t.Errorf("%s binds %q, want alt+%s — ctrl cannot carry it", SectionKey, got[SectionKey], SectionKey)
+	if got[SectionKey] != SectionKey {
+		t.Errorf("%s binds %q, want a bare %s — the menu reads bare keys", SectionKey, got[SectionKey], SectionKey)
 	}
-	// The exception must not have moved the chord underneath the letters.
-	if got["d"] != "ctrl+alt+d" {
-		t.Errorf("d binds %q, want ctrl+alt+d", got["d"])
+	if got["d"] != "d" {
+		t.Errorf("d binds %q, want d", got["d"])
 	}
 }
 
@@ -178,7 +175,7 @@ func TestRepeatedSectionKeyNamesItsRealBinding(t *testing.T) {
 	if len(set.Problems) != 1 {
 		t.Fatalf("got problems %v, want the repeat reported once", set.Problems)
 	}
-	if !strings.Contains(set.Problems[0], "repeats alt+"+SectionKey+",") {
+	if !strings.Contains(set.Problems[0], "repeats "+SectionKey+",") {
 		t.Errorf("the repeat names the wrong key: %q", set.Problems[0])
 	}
 }
@@ -197,14 +194,13 @@ func TestSectionKeyDoesNotLoosenTheKeyRule(t *testing.T) {
 	}
 }
 
-func TestGetMatchesTheSectionKeyOnlyOnAlt(t *testing.T) {
+func TestGetMatchesTheSectionKeyBare(t *testing.T) {
 	set := validate([]Snippet{{Key: SectionKey, Text: "summarise"}})
-	if _, ok := set.Get("alt+" + SectionKey); !ok {
-		t.Fatalf("alt+%s should match", SectionKey)
+	if _, ok := set.Get(SectionKey); !ok {
+		t.Fatalf("%s should match", SectionKey)
 	}
-	// A bare § hands the session over and ctrl+§ never arrives; neither may
-	// reach the snippet.
-	for _, key := range []string{SectionKey, "ctrl+" + SectionKey, "ctrl+alt+" + SectionKey} {
+	// A modifier on § is a different key: the menu reads bare keys.
+	for _, key := range []string{"alt+" + SectionKey, "ctrl+" + SectionKey} {
 		if _, ok := set.Get(key); ok {
 			t.Errorf("%q must not match the § snippet", key)
 		}
@@ -231,22 +227,20 @@ func TestPlusMinusBindsBare(t *testing.T) {
 	}
 }
 
-func TestIsBindingAdmitsEveryForm(t *testing.T) {
-	for _, key := range []string{"ctrl+alt+c", "alt+" + SectionKey, PlusMinusKey} {
-		if !IsBinding(key) {
-			t.Errorf("IsBinding(%q) = false, want true", key)
-		}
+func TestIsBindingAdmitsOnlyTheBareKey(t *testing.T) {
+	if !IsBinding(PlusMinusKey) {
+		t.Errorf("IsBinding(%q) = false, want true — it is the one key that fires outside the menu", PlusMinusKey)
 	}
-	// Everything else is the pane's, and must be settled without walking the set.
-	for _, key := range []string{"c", "alt+c", "ctrl+c", SectionKey, "alt+w"} {
+	// Everything else answers in the menu, never where the operator types.
+	for _, key := range []string{"c", "alt+c", "ctrl+c", "ctrl+alt+c", SectionKey, "alt+" + SectionKey} {
 		if IsBinding(key) {
-			t.Errorf("IsBinding(%q) = true, want false — that key belongs to the pane", key)
+			t.Errorf("IsBinding(%q) = true, want false — that key belongs to the pane or the menu", key)
 		}
 	}
 }
 
-// The default on § is the whole reason the alt binding exists, so it is pinned
-// by what it has to ask for rather than by its exact wording.
+// The default on § is pinned by what it has to ask for rather than by its
+// exact wording.
 func TestDefaultsCarryTheProgressSummaryOnTheSectionKey(t *testing.T) {
 	var found *Snippet
 	for _, snip := range Defaults() {

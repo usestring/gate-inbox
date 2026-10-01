@@ -578,6 +578,12 @@ func (m *Model) releaseHeldAck() tea.Cmd {
 // down a pipe the manager already holds. TestFocusedKeystrokeLatencyBreakdown
 // is the measurement.
 func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The hotkey menu owns the keyboard while it is up, answering the
+	// focused session from its bare snippet keys. Anything that is not a
+	// key press -- a paste -- falls through to the pane below it.
+	if press, ok := msg.(tea.KeyPressMsg); ok && m.quick.active {
+		return m.handleQuickKey(press)
+	}
 	action, bound := m.sideAction(keymap.ContextFocus, msg)
 	if bound && (action == keymap.Leave || action == keymap.LeaveHard || action == keymap.HandOver) {
 		leftID := ""
@@ -609,9 +615,9 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if bound && action == keymap.Rescind {
 		return m.rescindLatestSubmission()
 	}
-	// A snippet answers the pane the same way. This handler is why they are
-	// confined to one chord -- everything it does not claim is forwarded to
-	// the agent -- and the snippets package doc has that reasoning in full.
+	// The one snippet key outside the menu answers the pane the same way.
+	// Everything else this handler does not claim is forwarded to the
+	// agent, and the snippets package doc has that reasoning in full.
 	if snip, ok := m.snippetFor(msg.String()); ok {
 		m.noteFocusActivity()
 		// A snippet is a whole answer -- the sentence the drain exists to
@@ -668,6 +674,9 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, m.toggleRail()
 		case action == keymap.Help:
 			m.openHelp()
+			return m, nil
+		case action == keymap.QuickInput:
+			m.openQuickMode()
 			return m, nil
 		case isScrollAction(action):
 			// The pane scrolls for the operator with no wheel: a phone, or a

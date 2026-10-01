@@ -5,11 +5,13 @@ package ui
 // file is the manager's side of it -- when the set is read, which keys reach
 // it, and where the bindings are advertised.
 //
-// They fire from the list, from triage and from inside a focused session,
-// because those are the three places a session is the thing in front of you.
-// A form and the settings screen are not: nothing there is a
-// session, and a chord that acted on some off-screen row would be a key that
-// answers an agent you are not looking at.
+// They fire from the hotkey menu, opened from the list and from inside a
+// focused session, because those are the two places a session is the thing in
+// front of you. A form and the settings screen are not: nothing there is a
+// session, and a key that acted on some off-screen row would be a key that
+// answers an agent you are not looking at. The one exception is the bare ±
+// key, which fires anywhere a session is in front of you: it is a character
+// no agent CLI wants, so taking it costs the pane nothing.
 //
 // Advertised on the list footer, in the key map and in the hotkey menu.
 // The focused footer leaves them to the key map: its row is already full, and
@@ -69,7 +71,9 @@ func (m *Model) openSnippetEditor() (tea.Model, tea.Cmd) {
 	return m.launchEditor(snippets.Path(dir))
 }
 
-// snippetFor returns the snippet a keypress names, if any.
+// snippetFor returns the snippet a keypress names outside the menu, if any.
+// Only the bare ± key binds there; every other snippet answers to its bare
+// key in the menu alone.
 //
 // The IsBinding test is not redundant with Get's own comparison: this runs on
 // every keypress the manager sees, and it settles the overwhelmingly common
@@ -96,6 +100,20 @@ func (m *Model) sendSnippetToSelected(snip snippets.Snippet) (tea.Model, tea.Cmd
 	return m, m.sendSentence(entry.sess, snip.Text, snip.Quoted(), snip.Submits(), false)
 }
 
+// sendSnippetToFocused answers the focused session from the hotkey menu: the
+// same whole-answer send a snippet is on the list, with the drain's
+// auto-proceed, so a submitted snippet hands over exactly as one sent from
+// the pane would.
+func (m *Model) sendSnippetToFocused(snip snippets.Snippet) (tea.Model, tea.Cmd) {
+	sess, ok := m.selected()
+	if !ok {
+		m.errBar.text = "nothing selected"
+		return m, nil
+	}
+	m.noteFocusActivity()
+	return m, m.sendSentence(sess, snip.Text, snip.Quoted(), snip.Submits(), m.autoProceeds())
+}
+
 // snippetLegend is the footer's tier for the snippets that exist.
 //
 // It is quiet and it goes last, where a narrow footer drops it first -- the
@@ -114,42 +132,23 @@ func (m *Model) snippetLegend() legendSection {
 	return legendSection{title: "Snippets", quiet: true, pairs: pairs}
 }
 
-// snippetCap is a snippet's key as every surface prints it.
-//
-// Every chord entry repeats ctrl, so it compresses to ^ with the OS's own alt
-// spelling. The § key is on alt alone and ± on nothing, and compressing either
-// the same way would claim a ctrl it does not have -- a key the operator would
-// press and never see arrive.
+// snippetCap is a snippet's menu key as every surface prints it.
 func snippetCap(snip snippets.Snippet) string {
-	if snip.Key == snippets.SectionKey || snip.Bare() {
-		return keymap.Display(snip.Binding())
-	}
-	return "^" + keymap.Display("alt+"+snip.Key)
+	return keymap.Display(snip.Binding())
 }
 
-// snippetHelpSection is the key map's tier for the snippets: the bindings
-// that exist, where they are written, and every entry that would not bind.
+// snippetHelpSection is the key map's tier for the snippets: how the menu
+// opens, the keys that exist in it, where they are written, and every entry
+// that would not bind.
 //
 // This is the in-app viewer. The file is named on screen because editing it is
-// the whole interface for now: a key map that lists three chords without
-// saying what writes them leaves the reader with no way to add a fourth. The
+// the whole interface for now: a key map that lists bare keys without saying
+// what writes them leaves the reader with no way to add another. The
 // refusals are here for the same reason -- an entry that did not bind is
 // otherwise a key that does nothing, with the explanation sitting in a
 // process nobody can see.
-//
-// Keys read as ^alt+c rather than ctrl+alt+c, matching the footer, and because
-// helpKeyColumn measures the static catalog: the spelled-out chord is wider
-// than anything in it and would render clipped against its own description.
-// The chord is spelled out once, in the tier's opening row. When § is bound a
-// second row says it is on alt alone: a reader who saw only "^alt+ is
-// ctrl+alt" would read alt+§ as a typo for it, and it has a row of its own
-// because the opening one is already as wide as the card allows.
 func (m *Model) snippetHelpSection() helpSection {
-	rows := []helpRow{note("^" + keymap.Display("alt+") + " is " + keymap.Display("ctrl+alt+") + ". Sends to the selected or focused session.")}
-	section := snippets.SectionChord + snippets.SectionKey
-	if _, ok := m.snips.Get(section); ok {
-		rows = append(rows, note(keymap.Display(section)+" has no ctrl: ctrl+"+snippets.SectionKey+" never gets through tmux"))
-	}
+	rows := []helpRow{note("hotkey menu, then the key. Sends to the session in front of you.")}
 	for _, snip := range m.snips.Snippets {
 		verb := "send "
 		if !snip.Submits() {

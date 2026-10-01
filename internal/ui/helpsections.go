@@ -86,6 +86,7 @@ func helpSections() []helpSection {
 			note("typing goes straight to the agent, every letter of it"),
 			bound(focus, keymap.Leave, "back to the list; in triage, on to the next"),
 			bound(focus, keymap.LeaveHard, "back to the list, always stopping there"),
+			bound(focus, keymap.QuickInput, "hotkey menu: send a snippet without leaving"),
 			bound(focus, keymap.Dismiss, "skip"),
 			bound(focus, keymap.Rescind, "undo the latest submission while its turn is active"),
 			bound(focus, keymap.Archive, "kill it, asking first"),
@@ -164,8 +165,8 @@ func helpSections() []helpSection {
 		}},
 		{title: "advanced: hotkey menu", rows: []helpRow{
 			note("Snippets only, no text box: type in a focused session."),
-			lit("a-z § ±", "send the snippet on that key, without its chord"),
-			lit("↑↓", "switch the target session"),
+			lit("a-z § ±", "send the snippet on that key"),
+			lit("↑↓", "on the list, switch the target session"),
 			lit("space esc", "close"),
 		}},
 		{title: "advanced: inside a session", rows: []helpRow{

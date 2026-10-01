@@ -11,6 +11,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -58,10 +59,18 @@ type answerGuard struct {
 
 func (s *Sessions) guard(st *store.Store, caller, target store.Session, relay bool) *answerGuard {
 	g := &answerGuard{sessions: s, store: st, caller: caller, target: target, relay: relay}
-	if path := s.transcriptOf(target); path != "" {
-		g.call, g.haveCall = convo.PendingAskCall(path)
-	}
+	g.call, g.haveCall = s.pendingCall(target)
 	return g
+}
+
+// pendingCall is the AskUserQuestion call target's dialog is showing, from
+// its transcript or, while the transcript does not hold it yet, from what
+// its ask-pending hook saved.
+func (s *Sessions) pendingCall(target store.Session) (convo.AskCall, bool) {
+	if target.Tool != "" && target.Tool != "claude" {
+		return convo.AskCall{}, false
+	}
+	return convo.PendingAskFile(s.transcriptOf(target), hooks.NewManager(s.configDir).PendingAskFile(target.ID))
 }
 
 func (s *Sessions) transcriptOf(sess store.Session) string {

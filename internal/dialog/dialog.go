@@ -144,7 +144,7 @@ func Inspect(pane string) (Dialog, bool) {
 	// Only what is above the legend: a pane can carry an input line and an
 	// older dialog's text below it, and the choices being answered are the
 	// ones this legend belongs to.
-	head := pane[:legend[0]]
+	head := unboxPreview(pane[:legend[0]])
 	matches, first := dialogOptions(head)
 	if len(matches) < 2 {
 		// One choice is not a choice, and none means the options scrolled

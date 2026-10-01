@@ -216,6 +216,10 @@
                   "label": {
                     "description": "the choice's text; pass it as the answer to pick it",
                     "type": "string"
+                  },
+                  "preview": {
+                    "description": "the markdown the dialog shows beside this option when it is focused, read whole from the child's call",
+                    "type": "string"
                   }
                 },
                 "required": [
@@ -1726,6 +1730,10 @@
                       },
                       "label": {
                         "description": "the choice's text; pass it as the answer to pick it",
+                        "type": "string"
+                      },
+                      "preview": {
+                        "description": "the markdown the dialog shows beside this option when it is focused, read whole from the child's call",
                         "type": "string"
                       }
                     },

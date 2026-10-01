@@ -24,6 +24,9 @@ type Option struct {
 	Label       string `json:"label" jsonschema:"the choice's text; pass it as the answer to pick it"`
 	Description string `json:"description,omitempty" jsonschema:"what the child said the choice means"`
 	Checked     bool   `json:"checked,omitempty" jsonschema:"on a multi-select question on the screen, whether its box is ticked"`
+	// Preview is the markdown the dialog draws beside the option, whole: the
+	// pane clips it to a box.
+	Preview string `json:"preview,omitempty" jsonschema:"the markdown the dialog shows beside this option when it is focused, read whole from the child's call"`
 }
 
 // Question is one question of the dialog a session is holding.
@@ -65,7 +68,7 @@ func Questions(pane string, asked []convo.AskQuestion) []Question {
 		for i, q := range asked {
 			question := Question{Index: i + 1, Header: q.Header, Question: q.Question, MultiSelect: q.MultiSelect}
 			for _, option := range q.Options {
-				question.Options = append(question.Options, Option{Label: option.Label, Description: option.Description})
+				question.Options = append(question.Options, Option{Label: option.Label, Description: option.Description, Preview: option.Preview})
 			}
 			out = append(out, question)
 		}
@@ -249,6 +252,12 @@ func RenderQuestions(questions []Question) string {
 				fmt.Fprintf(&out, " -- %s", option.Description)
 			}
 			out.WriteString("\n")
+			if option.Preview != "" {
+				out.WriteString("     preview:\n")
+				for _, line := range strings.Split(strings.TrimRight(option.Preview, "\n"), "\n") {
+					out.WriteString("     | " + line + "\n")
+				}
+			}
 		}
 	}
 	return out.String()

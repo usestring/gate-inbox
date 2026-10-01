@@ -1,0 +1,45 @@
+[48;5;237m  [38;5;231mmultiSelect false, options: 'Yes, push and open[39m
+  [38;5;231mthe PR' (description 'Push s-1 and open the [39m
+  [38;5;231mPR', preview: a markdown code block of 8 lines [39m
+  [38;5;231mshowing a git push command, a gh pr create [39m
+  [38;5;231mcommand with --title and --body-file flags, and[39m
+  [38;5;231mthe body text), 'No, hold' (description 'Keep [39m
+  [38;5;231mit local', preview: one line 'Nothing is [39m
+  [38;5;231mpushed.'). After the answer, reply with [39m
+  [38;5;231mexactly: GOT <answer>.[39m
+
+[38;5;246m[49m──────────────────────────────────────────────────
+[38;5;16m[48;5;153m ☐ Approval [39m[49m
+
+[1m[38;5;231mMay I push the branch and open the PR?[0m
+
+[38;5;153m❯[38;5;246m [39m [1m[38;5;153m Yes, push and open [0m     [38;5;246m┌──────────────┐[39m
+ [38;5;246m1.[1m[38;5;153mthe PR[0m                   [38;5;246m│ [39mgit push -u [38;5;246m │[39m
+ [38;5;246m 2.[39m No, hold               [38;5;246m│ [39morigin s-1[38;5;246m   │[39m
+                            [38;5;246m│ [39mgh [36mpr[39m create[38;5;246m │[39m
+                            [38;5;246m│ [39m --title [31m"PR[38;5;246m │[39m
+                            [38;5;246m│ [31m Title"[39m \[38;5;246m    │[39m
+                            [38;5;246m│ [39m  [38;5;246m           │[39m
+                            [38;5;246m│ [39m--body-file [38;5;246m │[39m
+                            [38;5;246m│ [39mbody.txt[38;5;246m     │[39m
+                            [38;5;246m│              │[39m
+                            [38;5;246m│ [32m## Summary[38;5;246m   │[39m
+                            [38;5;246m│ [39mChanges made[38;5;246m │[39m
+                            [38;5;246m│ [39m to the [38;5;246m     │[39m
+                            [38;5;246m│ [39mcodebase[38;5;246m     │[39m
+                            [38;5;246m│              │[39m
+                            [38;5;246m│ [32m## Test plan[38;5;246m │[39m
+                            [38;5;246m│ [39m- Verify the[38;5;246m │[39m
+                            [38;5;246m│ [39m changes [38;5;246m    │[39m
+                            [38;5;246m│ [39mwork as [38;5;246m     │[39m
+                            [38;5;246m│ [39mexpected[38;5;246m     │[39m
+                            [38;5;246m└──────────────┘[39m
+
+                            [38;5;153mNotes[39m [3m[38;5;246mpress n to add [0m
+                            [38;5;153m:[39m     [3m[38;5;246mnotes[0m
+
+[38;5;246m──────────────────────────────────────────────────
+[39m  Chat about this
+
+[38;5;246mEnter to select · ↑/↓ to navigate · n to add notes
+· Esc to cancel[39m

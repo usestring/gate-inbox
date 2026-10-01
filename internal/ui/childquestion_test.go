@@ -323,7 +323,7 @@ func TestNoRelayHandsTheDialogOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		body, _ := childDialogBody(child, readDialogFixture(t, entry.Name()))
+		body, _ := childDialogBody(child, readDialogFixture(t, entry.Name()), "")
 		bodies[entry.Name()] = body
 	}
 	for name, body := range bodies {

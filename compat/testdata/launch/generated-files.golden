@@ -41,6 +41,15 @@
             "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || { if grep -q '\"tool_name\"[[:space:]]*:[[:space:]]*\"AskUserQuestion\"'; then printf 'waiting PreToolUse\\n' \u003e\u003e \"$f\"; else printf 'working PreToolUse\\n' \u003e\u003e \"$f\"; fi; }"
           }
         ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || { [ -z \"$GATE_INBOX_BIN\" ] || [ -z \"$GATE_INBOX_SESSION_ID\" ] || \"$GATE_INBOX_BIN\" hook ask-pending 2\u003e/dev/null; }; exit 0"
+          }
+        ]
       }
     ],
     "SessionEnd": [

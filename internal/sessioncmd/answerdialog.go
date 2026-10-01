@@ -210,15 +210,8 @@ func inOptionOrder(question dialog.Question, ticks []string) []string {
 // asked is the pending AskUserQuestion call in target's transcript, or nil
 // when there is none to read.
 func (s *Sessions) asked(target store.Session) []convo.AskQuestion {
-	if target.Tool != "claude" || target.AgentSessionID == "" {
-		return nil
-	}
-	path := convo.TranscriptFor(s.claudeHome, target.AgentSessionID, target.Cwd)
-	if path == "" {
-		return nil
-	}
-	questions, _ := convo.PendingAsk(path)
-	return questions
+	call, _ := s.pendingCall(target)
+	return call.Questions
 }
 
 // planned is one answer resolved to the question it answers.

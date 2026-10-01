@@ -72,7 +72,7 @@ func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, no
 	if err != nil || !ok {
 		return err
 	}
-	body, key := childDialogBody(sess, pane)
+	body, key := childDialogBody(sess, pane, p.pendingAskFile(sess))
 	if p.childDialogs == nil {
 		p.childDialogs = map[string]*childDialogRelay{}
 	}
@@ -129,7 +129,7 @@ func (p *poller) relayChildQuestion(sess store.Session, newStatus, pane string) 
 	if err != nil || !ok {
 		return err
 	}
-	body, key := childDialogBody(sess, pane)
+	body, key := childDialogBody(sess, pane, p.pendingAskFile(sess))
 	return p.sendChildDialog(sess, parent, &childDialogRelay{key: key}, body, false, time.Now())
 }
 
@@ -192,8 +192,8 @@ func (p *poller) pingOperator(sess, parent store.Session, why string) {
 
 // childDialogBody is the relay for whatever sess's pane is holding, and a key
 // that names the dialog regardless of where its cursor is or what is ticked.
-func childDialogBody(sess store.Session, pane string) (body, key string) {
-	if questions := dialog.Questions(pane, childAsked(sess)); len(questions) > 0 {
+func childDialogBody(sess store.Session, pane, saved string) (body, key string) {
+	if questions := dialog.Questions(pane, childAsked(sess, saved)); len(questions) > 0 {
 		var id strings.Builder
 		for _, q := range questions {
 			id.WriteString(q.Header + "\x00" + q.Question + "\x00")
@@ -206,18 +206,29 @@ func childDialogBody(sess store.Session, pane string) (body, key string) {
 	return childWaitMessage(sess), "wait"
 }
 
-// childAsked is the pending AskUserQuestion call in sess's transcript, which
-// spells out every question of a dialog whose pane shows one at a time.
-func childAsked(sess store.Session) []convo.AskQuestion {
-	if sess.Tool != "claude" || sess.AgentSessionID == "" {
+// childAsked is the pending AskUserQuestion call in sess's transcript, or
+// the one its ask-pending hook saved at saved while the transcript does not
+// hold it yet. It spells out every question of a dialog whose pane shows one
+// at a time, and every option's preview whole.
+func childAsked(sess store.Session, saved string) []convo.AskQuestion {
+	if sess.Tool != "claude" {
 		return nil
 	}
-	path := convo.TranscriptFor(convo.ClaudeHome(), sess.AgentSessionID, sess.Cwd)
-	if path == "" {
-		return nil
+	transcript := ""
+	if sess.AgentSessionID != "" {
+		transcript = convo.TranscriptFor(convo.ClaudeHome(), sess.AgentSessionID, sess.Cwd)
 	}
-	questions, _ := convo.PendingAsk(path)
-	return questions
+	call, _ := convo.PendingAskFile(transcript, saved)
+	return call.Questions
+}
+
+// pendingAskFile is where sess's ask-pending hook saves its dialog's call,
+// or "" for a poller with no hooks manager.
+func (p *poller) pendingAskFile(sess store.Session) string {
+	if p.hooks == nil {
+		return ""
+	}
+	return p.hooks.PendingAskFile(sess.ID)
 }
 
 // childQuestionsMessage is every question of the dialog in the child's words

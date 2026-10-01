@@ -25,6 +25,9 @@ import (
 type AskOption struct {
 	Label       string `json:"label"`
 	Description string `json:"description,omitempty"`
+	// Preview is the markdown a dialog draws beside the option when it is
+	// focused, clipped there to the pane; the call carries it whole.
+	Preview string `json:"preview,omitempty"`
 }
 
 // AskQuestion is one question of an AskUserQuestion call, as the model wrote
@@ -100,6 +103,45 @@ func PendingAskCall(path string) (AskCall, bool) {
 		return AskCall{}, false
 	}
 	return pending, true
+}
+
+// PendingAskFile is the pending call the ask-pending hook saved, for a
+// transcript that does not hold it yet: Claude Code 2.1.286 writes an
+// AskUserQuestion call to the transcript only once it is answered, so while
+// its dialog stands only the PreToolUse hook has seen it. The saved call
+// counts while the transcript records no result for it.
+func PendingAskFile(transcript, saved string) (AskCall, bool) {
+	if transcript != "" {
+		if call, ok := PendingAskCall(transcript); ok {
+			return call, true
+		}
+	}
+	raw, err := os.ReadFile(saved)
+	if err != nil {
+		return AskCall{}, false
+	}
+	var call AskCall
+	if json.Unmarshal(raw, &call) != nil || call.ToolUseID == "" || len(call.Questions) == 0 {
+		return AskCall{}, false
+	}
+	if transcript != "" && answeredIn(transcript, call.ToolUseID) {
+		return AskCall{}, false
+	}
+	return call, true
+}
+
+// answeredIn reports whether path records a tool_result for id.
+func answeredIn(path, id string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	start := max(info.Size()-askWindow, 0)
+	raw, err := readRange(path, start, info.Size())
+	if err != nil {
+		return false
+	}
+	return bytes.Contains(raw, []byte(`"tool_use_id":"`+id+`"`))
 }
 
 // AnsweredAsk is an AskUserQuestion call and the answers its dialog returned.

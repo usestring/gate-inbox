@@ -476,10 +476,12 @@ type Model struct {
 	newSessionAgent string
 	autoRouting     bool
 	// focusedID is the session focus mode is on or was last on, and
-	// prevFocusID the one before it: the pair l swaps between. See
-	// lastpane.go.
+	// focusHistory the sessions focused before it, newest last: what l
+	// walks back through. prevFocusID is the newest entry, kept for
+	// callers that read one step. See lastpane.go.
 	focusedID         string
 	prevFocusID       string
+	focusHistory      []string
 	previewBodyOffset int
 	cursor            int
 	mode              mode

@@ -35,7 +35,7 @@ func (m *Model) viewExperimentalSettings() string {
 	for i, feature := range features {
 		cursor, state := "  ", "off"
 		if i == m.settings.experimentalCursor {
-			cursor = "› "
+			cursor = "> "
 		}
 		if feature.enabled {
 			state = "on"

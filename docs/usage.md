@@ -362,7 +362,7 @@ Each session's tmux pane is polled (default every 2s) to derive a status:
 | `✕` | `dead` | The tmux session is gone |
 | `◌` | `starting` | The pane is still launching |
 
-Every row carries its mark, and each state has its own color from the active theme, so a glance down the rail tells you who needs you. The key map (`h`) lists the marks under "the mark on a session row".
+Every row carries its mark, and each state has its own color from the active theme, so a glance down the rail tells you who needs you. The key map (`h`) keeps bindings; its legend (`l` from the key map) lists the marks in those same colors.
 
 A session stuck on the wrong mark is usually a rules question: the `[tools.<name>]` block in your own config is what the poller matches, and it keeps the rules it already has when a release ships better ones. [Configuration](configuration.md) has the two-line reset and how to read the pane the poller reads.
 

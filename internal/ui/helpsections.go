@@ -153,22 +153,6 @@ func helpSections() []helpSection {
 			listRow(keymap.Restore, "restore it out of the archive (and revive it)"),
 			note("a row left in the archive is deleted for good after 7 days"),
 		}},
-		{title: "advanced: the mark on a session row", rows: []helpRow{
-			lit("◐ working", "the agent is busy on a turn"),
-			lit("◆ waiting", "blocked on you: a dialog, a permission ask, a question"),
-			lit("● finished", "the turn ended; entering the session clears it to idle"),
-			lit("○ idle", "nothing running"),
-			lit("✕ errored", "the tool reported an error, or the session is dead"),
-			lit("◌ starting", "the pane is still launching"),
-		}},
-		{title: "advanced: a pull request or ticket under a session", rows: []helpRow{
-			listRow(keymap.Open, "open it in the browser"),
-			note("the session keys act on sessions, so they are refused here"),
-			lit("■ ◧ ◰", "a pull request: merged, open, checks running"),
-			lit("▢ □", "a pull request: draft, closed"),
-			lit("▣", "a pull request blocked on you"),
-			lit("▲ ◭ △", "a ticket: done, started, not started"),
-		}},
 		{title: "advanced: group under the cursor", rows: []helpRow{
 			listRow(keymap.Open, "fold / unfold"),
 			listRow(keymap.RenameSelf, "edit it: name, parent, default path"),
@@ -246,6 +230,30 @@ func helpSections() []helpSection {
 			lit("ctrl+v", "in a prompt field, paste an image as a chip"),
 			lit("↵", "confirm"),
 			lit("esc", "cancel"),
+		}},
+	}
+}
+
+// legendSections is the glyph map the key map used to carry: the marks on a
+// session row and the marks under it. It lives on its own screen now, one key
+// off the key map, so readers hunting a binding stop reading past glyphs and
+// readers hunting a glyph stop reading past bindings. Every row is literal:
+// none of these is a binding anybody can move.
+func legendSections() []helpSection {
+	return []helpSection{
+		{title: "legend: the mark on a session row", rows: []helpRow{
+			lit("◐ working", "the agent is busy on a turn"),
+			lit("◆ waiting", "blocked on you: a dialog, a permission ask, a question"),
+			lit("● finished", "the turn ended; entering the session clears it to idle"),
+			lit("○ idle", "nothing running"),
+			lit("✕ errored", "the tool reported an error, or the session is dead"),
+			lit("◌ starting", "the pane is still launching"),
+		}},
+		{title: "legend: a pull request or ticket under a session", rows: []helpRow{
+			lit("■ ◧ ◰", "a pull request: merged, open, checks running"),
+			lit("▢ □", "a pull request: draft, closed"),
+			lit("▣", "a pull request blocked on you"),
+			lit("▲ ◭ △", "a ticket: done, started, not started"),
 		}},
 	}
 }

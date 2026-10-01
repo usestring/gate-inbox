@@ -158,7 +158,7 @@ func (m *Model) viewOnePaneFrame(bodyHeight int, footer string) string {
 // searchFieldLine is the live filter at the head of the rail: the typed
 // query with a caret, and the key that closes it when there is room. With
 // the field closed and a query still applied it drops the caret and offers
-// to clear instead, so the rail always accounts for the entries it is
+// to edit instead, so the rail always accounts for the entries it is
 // holding back.
 func (m *Model) searchFieldLine(width int) string {
 	indent := spaces(railInset)
@@ -166,7 +166,7 @@ func (m *Model) searchFieldLine(width int) string {
 	caret := lipgloss.NewStyle().Foreground(colorAccent).Render("▏")
 	hint := keyCapQuiet("esc", "close")
 	if !m.searching {
-		caret, hint = "", keyCapQuiet("esc", "clear")
+		caret, hint = "", keyCapQuiet("/", "edit")
 	}
 	chrome := railInset + textfmt.Width(glyph) + textfmt.Width(caret)
 
@@ -1684,7 +1684,12 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 	if m.mode == modeFocus {
 		limit = min(limit, max(1, m.listBodyHeight()-6))
 	}
-	return target + "\n" + strings.Join(m.quickMenuLines(width, limit), "\n")
+	lines := m.quickMenuLines(width, limit)
+	if suggestion := m.selectedAutoSuggestion(); suggestion != "" && limit > 1 {
+		lines = m.quickMenuLines(width, limit-1)
+		lines = append(lines, subtleStyle.Render(truncateTail("ctrl+y insert · "+suggestion, width)))
+	}
+	return target + "\n" + strings.Join(lines, "\n")
 }
 
 // quickMenuLines lays the snippets out as the menu's body: each key beside

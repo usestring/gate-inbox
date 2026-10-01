@@ -27,7 +27,7 @@ func (opencodeDriver) answer(r *runtime, s *Sessions, target store.Session, raw 
 	call, pending := asks.Pending(t)
 	record := func(id string) (asks.Result, bool) { return asks.ResultOf(t, id) }
 	lost := func() (asks.Result, bool) { return asks.Unanswered(t) }
-	answered, err := answerOpencode(tmuxPane{r.driver, target.ID}, call, pending, record, lost, raw, answers, submit, guard)
+	answered, err := answerOpencode(tmuxPane{driver: r.driver, id: target.ID}, call, pending, record, lost, raw, answers, submit, guard)
 	answered.SessionID, answered.Name = target.ID, target.Name
 	if pending {
 		answered.readFrom = "OpenCode's session store"
@@ -131,7 +131,10 @@ func planOpencode(questions []dialog.Question, ask dialog.OpencodeAsk, asked []c
 			return nil, fmt.Errorf("question %d is answered twice in answers", index+1)
 		}
 		seen[index] = true
-		text := strings.TrimSpace(answer.Answer)
+		if len(answer.Ticks) > 0 && !questions[index].MultiSelect {
+			return nil, fmt.Errorf("question %d is not a multi-select; give it an answer, not ticks", index+1)
+		}
+		text := answer.reply()
 		step := opencodeStep{index: index, answer: text, question: questions[index]}
 		if n := step.question.Choose(text); n > 0 {
 			step.options = []int{n}

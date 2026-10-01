@@ -383,15 +383,18 @@ func FormatAnswer(answered AnsweredQuestion) string {
 	if len(answered.Answers) > 1 || (len(answered.Answers) == 1 && answered.Submitted) {
 		parts := make([]string, 0, len(answered.Answers))
 		for _, filled := range answered.Answers {
-			how := "typed"
-			if filled.Selected != "" {
-				how = "picked"
-			}
 			label := fmt.Sprint(filled.Index)
 			if filled.Header != "" {
 				label += " " + filled.Header
 			}
-			parts = append(parts, fmt.Sprintf("%s: %s %q", label, how, filled.Answer))
+			part := fmt.Sprintf("%s: typed %q", label, filled.Answer)
+			if filled.Selected != "" {
+				part = fmt.Sprintf("%s: picked %q", label, filled.Selected)
+				if !strings.EqualFold(strings.Join(strings.Fields(filled.Answer), " "), filled.Selected) {
+					part += fmt.Sprintf(" for %q", filled.Answer)
+				}
+			}
+			parts = append(parts, part)
 		}
 		line := fmt.Sprintf("answered %d question(s) of %s (%s) -- %s", len(answered.Answers),
 			answered.Name, answered.SessionID, strings.Join(parts, "; "))

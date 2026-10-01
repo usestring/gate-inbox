@@ -172,7 +172,7 @@ func Wait(t Target, id string, timeout, every time.Duration) (Result, bool) {
 type claude struct{}
 
 func (claude) Traits() Traits {
-	return Traits{Name: "Claude Code", FreeText: "type instead"}
+	return Traits{Name: "Claude Code", MultiSelectAnswerable: true, FreeText: "type instead"}
 }
 
 func (c claude) Located(t Target) bool { return c.transcript(t) != "" }

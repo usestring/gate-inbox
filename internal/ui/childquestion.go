@@ -8,6 +8,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/asks"
+	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/notify"
@@ -21,13 +22,16 @@ import (
 // The message goes through the inbox every agent already reads, so the parent
 // is told, not left to poll. It carries the dialog in full: every question of
 // a several-question dialog, a multi-select's boxes and which are ticked, and
-// a permission or trust prompt as drawn, credentials scrubbed. What
-// answer_session cannot answer says so, and what the parent can do instead.
+// a permission or trust prompt as drawn, credentials scrubbed. Every kind
+// comes with the answer_session call that settles it, because every kind is
+// the parent's to settle: by answering, or by asking its own user word for
+// word and relaying their choice. None is handed to whoever is at the pane.
 //
 // A child that stays in its dialog is followed up, not left silently
 // waiting: a relay the parent has not taken in time is sent again as an
 // interrupt and the operator is pinged; one it took and left unanswered is
-// repeated a bounded number of times, then handed to the operator.
+// repeated a bounded number of times, and the operator is pinged with the
+// last.
 
 const (
 	// childDialogSubject labels every relay about one child's dialog, so a
@@ -69,7 +73,7 @@ func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, no
 	if err != nil || !ok {
 		return err
 	}
-	body, key, urgent := childDialogBody(sess, pane)
+	body, key, urgent := childDialogBody(sess, pane, p.pendingAskFile(sess))
 	if p.childDialogs == nil {
 		p.childDialogs = map[string]*childDialogRelay{}
 	}
@@ -111,7 +115,8 @@ func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, no
 		p.pingOperator(sess, parent, "has not answered it")
 	}
 	again := fmt.Sprintf("Reminder %d of %d: %s is still stopped on the dialog below, %s after it was relayed "+
-		"to you. Answer it, put it to your user, or tell them it is waiting.\n\n",
+		"to you. Answer it with answer_session, or ask your user word for word with your own question tool "+
+		"and then answer it.\n\n",
 		relay.reminders, childDialogReminders, sess.Name, now.Sub(relay.sentAt).Round(time.Minute))
 	return p.sendChildDialog(sess, parent, relay, again+body, false, now)
 }
@@ -125,7 +130,7 @@ func (p *poller) relayChildQuestion(sess store.Session, newStatus, pane string) 
 	if err != nil || !ok {
 		return err
 	}
-	body, key, urgent := childDialogBody(sess, pane)
+	body, key, urgent := childDialogBody(sess, pane, p.pendingAskFile(sess))
 	return p.sendChildDialog(sess, parent, &childDialogRelay{key: key}, body, urgent, time.Now())
 }
 
@@ -189,8 +194,14 @@ func (p *poller) pingOperator(sess, parent store.Session, why string) {
 // childDialogBody is the relay for whatever sess's pane is holding, a key
 // that names the dialog regardless of where its cursor is or what is ticked,
 // and whether it cannot wait for the parent's next pause.
-func childDialogBody(sess store.Session, pane string) (body, key string, urgent bool) {
+func childDialogBody(sess store.Session, pane string, saved ...string) (body, key string, urgent bool) {
 	call, _ := asks.Pending(childAskTarget(sess))
+	if sess.Tool == "claude" && len(saved) > 0 {
+		pending, ok := convo.PendingAskFile(convo.TranscriptFor(convo.ClaudeHome(), sess.AgentSessionID, sess.Cwd), saved[0])
+		if ok {
+			call = asks.Call{Tool: "claude", ID: pending.ToolUseID, AskedAt: pending.AskedAt, Questions: pending.Questions}
+		}
+	}
 	if call.Async && len(call.Questions) > 0 {
 		return childAsyncMessage(sess, call), "a:" + call.ID, false
 	}
@@ -263,6 +274,13 @@ func childAskTarget(sess store.Session) asks.Target {
 	return asks.Target{Tool: sess.Tool, AgentSessionID: sess.AgentSessionID, Cwd: sess.Cwd}
 }
 
+func (p *poller) pendingAskFile(sess store.Session) string {
+	if p.hooks == nil {
+		return ""
+	}
+	return p.hooks.PendingAskFile(sess.ID)
+}
+
 // childQuestionsMessage is every question of the dialog in the child's words
 // and how to settle them.
 func childQuestionsMessage(sess store.Session, questions []dialog.Question) string {
@@ -283,7 +301,7 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 			"at about %s UTC. The child then carries on without your answer, so answer before then.",
 			traits.Name, traits.Expires.Round(time.Second), askedAt.Add(traits.Expires).UTC().Format("15:04:05"))
 	}
-	var person []string
+	var person, multi []string
 	open := 0
 	for _, q := range questions {
 		switch {
@@ -291,6 +309,9 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 			person = append(person, fmt.Sprint(q.Index))
 		case !q.Answered:
 			open++
+		}
+		if q.MultiSelect && traits.MultiSelectAnswerable && (!q.Answered || q.OnScreen) {
+			multi = append(multi, fmt.Sprint(q.Index))
 		}
 	}
 	if open > 0 {
@@ -300,13 +321,22 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 			"with one answer_session call: answers, one entry per question, naming it by number or header and "+
 			"giving the option's text, or your own words to %s.", sess.ID, traits.FreeText)
 		if traits.MultiSelectAnswerable {
-			out.WriteString(" For a multi-select, give every option to tick, separated by commas.")
+			if traits.Name != asks.TraitsOf("claude").Name {
+				out.WriteString(" For a multi-select, give every option to tick, separated by commas.")
+			}
 		}
 		if traits.Name == asks.TraitsOf("claude").Name {
 			out.WriteString(" It presses Submit once every question has an answer.")
 		} else {
 			out.WriteString(" It submits the dialog once every question has an answer.")
 		}
+	}
+	if len(multi) > 0 {
+		fmt.Fprintf(&out, "\n\nQuestion %s is a multi-select: give its answers entry ticks, the labels of every "+
+			"option to leave ticked, instead of an answer (or pass ticks alone when it is the question on the "+
+			"screen). answer_session ticks and unticks the boxes, reads them back and submits it, and fails "+
+			"if the boxes read back differently. If your user decides it, ask them with a multi-select of "+
+			"your own, options word for word as above.", strings.Join(multi, ", "))
 	}
 	var approvals []string
 	for _, q := range questions {
@@ -320,15 +350,7 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 			"is refused.", strings.Join(approvals, ", "))
 	}
 	if len(person) > 0 {
-		fmt.Fprintf(&out, "\n\nQuestion %s is a multi-select, which answer_session cannot tick: only a "+
-			"person at its pane can answer it. Put it to your user with your own question tool, options "+
-			"and ticks word for word as above, then either have them answer at the pane of %s or ask the "+
-			"operator for the keystrokes", strings.Join(person, ", "), sess.Name)
-		if traits.Name == asks.TraitsOf("claude").Name {
-			out.WriteString(": on that question, Up/Down moves the ❯ marker, Enter ticks or " +
-				"unticks the box under it, and Right (or Tab) moves on to the next question")
-		}
-		out.WriteString(".")
+		fmt.Fprintf(&out, "\n\nQuestion %s is a multi-select, which answer_session cannot tick: only a person at its pane can answer it. Put it to your user word for word, then ask the operator for the keystrokes.", strings.Join(person, ", "))
 	}
 	if open == 0 && len(person) == 0 {
 		fmt.Fprintf(&out, "\n\nEvery question has an answer and the dialog is waiting on its Submit page: "+
@@ -337,8 +359,9 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 	return out.String()
 }
 
-// childScreenMessage is a dialog answer_session does not answer, relayed as
-// drawn with credentials scrubbed, and what the parent can do about it.
+// childScreenMessage is a permission prompt, a trust dialog or any other
+// dialog that is not a question, relayed as drawn with credentials scrubbed,
+// and the relayed answer_session call that settles it.
 func childScreenMessage(sess store.Session, screen dialog.Screen) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "%s (session %s), which you spawned, has stopped on a %s and is waiting. "+
@@ -346,69 +369,54 @@ func childScreenMessage(sess store.Session, screen dialog.Screen) string {
 	for _, line := range strings.Split(logging.ScrubWrapped(screen.Text()), "\n") {
 		out.WriteString("  | " + line + "\n")
 	}
-	if len(screen.Choices) > 0 {
-		out.WriteString("\nThe choices (current = where the ❯ marker is):\n")
-		for i, choice := range screen.Choices {
-			label := logging.ScrubWrapped(choice.Label)
-			if choice.Number > 0 {
-				label = fmt.Sprintf("%d. %s", choice.Number, label)
-			} else {
-				label = fmt.Sprintf("%d) %s", i+1, label)
-			}
-			if choice.Cursor {
-				label += " (current)"
-			}
-			out.WriteString("  " + label + "\n")
-		}
+	if screen.Legend != "" {
+		fmt.Fprintf(&out, "\nKeys: %s\n", screen.Legend)
 	}
-	fmt.Fprintf(&out, "\nKeys: %s\n\n", screen.Legend)
-	switch screen.Kind {
-	case dialog.ScreenPermission:
-		out.WriteString("answer_session cannot answer a permission prompt: whether the child may do this " +
-			"is your user's call, never an agent's. Put it to your user word for word -- the tool, the " +
-			"command or path, and the choices -- and have them answer at its pane, or ask the operator for " +
-			"the one keystroke. ")
-	case dialog.ScreenWorkspaceTrust, dialog.ScreenMCPTrust:
-		out.WriteString("answer_session cannot answer a trust dialog: whether to trust this folder or " +
-			"MCP server is your user's call. Put it to your user word for word and have them answer at its " +
-			"pane, or ask the operator for the one keystroke. ")
-	default:
-		out.WriteString("answer_session cannot answer this dialog. Put it to your user word for word and " +
-			"have them answer at its pane, or ask the operator for the keystroke. ")
+	if len(screen.Choices) < 2 {
+		fmt.Fprintf(&out, "\nanswer_session cannot read this as choices, but it is still yours to settle. Ask "+
+			"your user with your own question tool, quoting the lines above word for word and offering the "+
+			"keys to press as the options (for example \"Enter\", or \"Down Enter\"). Then call answer_session "+
+			"on session %s with keys set to the keys they chose and relay: true; it sends them and reads back "+
+			"that the screen changed.", sess.ID)
+		return out.String()
 	}
-	out.WriteString(screenKeystroke(screen))
-	out.WriteString(" If you are not blocked on it, carry on with other work, but tell your user it is waiting.")
+	labels := make([]string, len(screen.Choices))
+	for i, choice := range screen.Choices {
+		labels[i] = fmt.Sprintf("%q", logging.ScrubWrapped(choice.Label))
+	}
+	fmt.Fprintf(&out, "\nWhether %s is your user's call, never yours. Ask your user with your own question "+
+		"tool, copying word for word:\n\n  question: %q\n  options: %s\n\nThen call answer_session on session "+
+		"%s with answer set to the option they chose and relay: true. It picks that choice by its text and "+
+		"reads back that the dialog cleared; it keys nothing unless your transcript holds that question and "+
+		"their answer.", screenDecision(screen.Kind), logging.ScrubWrapped(screen.Prompt()),
+		strings.Join(labels, ", "), sess.ID)
+	if len(labels) > 4 {
+		out.WriteString(" Your question tool takes four options: give the four likeliest, and your user can " +
+			"type any other choice word for word.")
+	}
 	return out.String()
 }
 
-// screenKeystroke says which key picks each choice.
-func screenKeystroke(screen dialog.Screen) string {
-	if len(screen.Choices) == 0 {
-		return "The keys it takes are listed above."
+// screenDecision is what a dialog of kind asks the user to decide.
+func screenDecision(kind dialog.ScreenKind) string {
+	switch kind {
+	case dialog.ScreenPermission:
+		return "the child may do this"
+	case dialog.ScreenWorkspaceTrust:
+		return "to trust this folder"
+	case dialog.ScreenMCPTrust:
+		return "to use this MCP server"
 	}
-	if screen.Choices[0].Number > 0 {
-		return "Pressing a choice's number at its pane picks that choice."
-	}
-	sideways := strings.ContainsRune(screen.Legend, rune(0x21c6))
-	if cursor := screen.Cursor(); cursor >= 0 {
-		if sideways {
-			return fmt.Sprintf("Enter picks the selected choice; Left/Right moves the selection first (it is on "+
-				"choice %d of %d).", cursor+1, len(screen.Choices))
-		}
-		return fmt.Sprintf("Enter picks the current choice; Up/Down moves the ❯ marker first (it is on "+
-			"choice %d of %d).", cursor+1, len(screen.Choices))
-	}
-	if sideways {
-		return "Left/Right moves the selection and Enter picks."
-	}
-	return "Up/Down moves the ❯ marker and Enter picks."
+	return "to make this choice"
 }
 
 // childWaitMessage is a stop on nothing this can read as a dialog.
 func childWaitMessage(sess store.Session) string {
 	return fmt.Sprintf("%s (session %s), which you spawned, has stopped and is waiting for input, but not "+
-		"on a dialog Gate Inbox can read, so answer_session cannot answer it. Call read_session on it to see "+
-		"what it is showing: a question it asked in prose at its input line takes send_session, and a "+
-		"prompt asking permission is your user's to answer at its pane.",
-		sess.Name, sess.ID)
+		"on a dialog Gate Inbox can read. Call read_session on it to see what it is showing. A question it "+
+		"asked in prose at its input line takes send_session. Any other screen waiting on a choice is still "+
+		"yours to settle: ask your user with your own question tool, quoting it word for word and offering "+
+		"the keys to press as the options, then call answer_session on session %s with keys set to what they "+
+		"chose and relay: true.",
+		sess.Name, sess.ID, sess.ID)
 }

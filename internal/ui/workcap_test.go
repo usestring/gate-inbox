@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 
 	"github.com/usestring/gate-inbox/internal/forge"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -66,7 +67,7 @@ func TestTheRailCapsASessionsWorkAndCountsTheRest(t *testing.T) {
 		t.Errorf("the last row does not count the rest: %+v", last)
 	}
 	line := ansi.Strip(m.renderTreeRow(treeRow{sess: m.sessions[0], depth: 1, art: &last}, false, 80, 0, panelHex()))
-	if !strings.Contains(line, "… 8 more") || !strings.Contains(line, "W shows all") {
+	if !strings.Contains(line, "… 8 more") || !strings.Contains(line, "↵ shows all") {
 		t.Errorf("the more row does not read as one: %q", line)
 	}
 
@@ -82,6 +83,7 @@ func TestTheRailCapsASessionsWorkAndCountsTheRest(t *testing.T) {
 // A second W puts the cap back.
 func TestWOnAWideSessionHangsAllOfItsWorkOnTheRail(t *testing.T) {
 	m := wideWorkModel(t, 12)
+	bindTestKey(t, m, keymap.ShowAllWork, "W")
 	for i, row := range m.rows {
 		if row.isSession() && row.sess.ID == "s1" {
 			m.cursor = i

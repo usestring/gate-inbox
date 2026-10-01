@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.8.0](https://github.com/usestring/gate-inbox/compare/v0.7.0...v0.8.0) (2026-10-01)
+
+
+### Features
+
+* add experimental JEV suggestions for existing sessions ([#161](https://github.com/usestring/gate-inbox/issues/161)) ([b282645](https://github.com/usestring/gate-inbox/commit/b282645fae55772a59222422c78077f246172d40))
+* **ui:** separate the legend from the key map ([#175](https://github.com/usestring/gate-inbox/issues/175)) ([1c5cb4f](https://github.com/usestring/gate-inbox/commit/1c5cb4f12a238ad57e0b48484833672d51d11086))
+* **ui:** show snippets in the list footer ([#169](https://github.com/usestring/gate-inbox/issues/169)) ([643db20](https://github.com/usestring/gate-inbox/commit/643db20ac248e8f14d2f4c33cbf1e1663ef96a02))
+
+
+### Bug Fixes
+
+* set an abandoned draft aside so queued messages reach the session ([#167](https://github.com/usestring/gate-inbox/issues/167)) ([3f3a987](https://github.com/usestring/gate-inbox/commit/3f3a98745ac84d452b06bb57975150b4e4770438))
+* **ui:** make Left leave focus in triage instead of advancing ([#166](https://github.com/usestring/gate-inbox/issues/166)) ([b76dc6d](https://github.com/usestring/gate-inbox/commit/b76dc6d7780a2da6da023db62de3d9471a2c576d))
+
+## [0.7.0](https://github.com/usestring/gate-inbox/compare/v0.6.0...v0.7.0) (2026-09-30)
+
+
+### Features
+
+* **ui:** group conversation messages by speaker [split 2/2] ([#163](https://github.com/usestring/gate-inbox/issues/163)) ([c7857cf](https://github.com/usestring/gate-inbox/commit/c7857cf24c1d14bc67ade18cafb9a0a444e903ca))
+* **ui:** order a session's pull requests by what needs a person ([#160](https://github.com/usestring/gate-inbox/issues/160)) ([dbef576](https://github.com/usestring/gate-inbox/commit/dbef576273216d255147f74c6a3992c5df0fcb80))
+
+
+### Bug Fixes
+
+* display Codex opening prompts in the session rail ([#162](https://github.com/usestring/gate-inbox/issues/162)) ([34c807f](https://github.com/usestring/gate-inbox/commit/34c807f09ce3bda64626b961f54625ca5c9d5b55))
+* keep sessions working while background work remains [split 1/2] ([#164](https://github.com/usestring/gate-inbox/issues/164)) ([2cd797f](https://github.com/usestring/gate-inbox/commit/2cd797f705a0bab791428eae659d0731c250850d))
+* Require dialog-specific evidence before triage handover ([#156](https://github.com/usestring/gate-inbox/issues/156)) ([d513397](https://github.com/usestring/gate-inbox/commit/d513397da2b670adb16274fece570211943ebd2b))
+
+## [0.6.0](https://github.com/usestring/gate-inbox/compare/v0.5.3...v0.6.0) (2026-09-30)
+
+
+### Features
+
+* relay every child dialog to its parent in full, and follow up while it stands (S-144508) ([#125](https://github.com/usestring/gate-inbox/issues/125)) ([ff1ae61](https://github.com/usestring/gate-inbox/commit/ff1ae614c985c1620cbb2ec169228835eb1ec104))
+* **ui:** make space a hotkey-only snippet menu ([#118](https://github.com/usestring/gate-inbox/issues/118)) ([feb6158](https://github.com/usestring/gate-inbox/commit/feb6158c718b92d8a8ad035119d91d35d301fbdf))
+
 ## [0.5.3](https://github.com/usestring/gate-inbox/compare/v0.5.2...v0.5.3) (2026-09-30)
 
 

@@ -158,23 +158,23 @@ func TestLoadDirUpgradesCodexComposerPatterns(t *testing.T) {
 func TestLoadDirUpgradesLegacyClaudeBusyLine(t *testing.T) {
 	// Every shipped pattern is upgraded when a config carries it verbatim.
 	// The assertion is what the pattern has to see rather than how it is
-	// written: real summary lines captured off the board. Only the agent wait
-	// line is busy; a turn-end summary whose tail names shells, monitors, MCP
-	// tasks or background tasks is a turn that ended.
+	// written: real summary lines captured off the board. The agent wait line
+	// is busy, and so is a turn-end summary whose tail names still-running
+	// background work -- shells, monitors, MCP tasks or background tasks --
+	// since the process is still running in the terminal.
 	busy := []string{
 		"✻ Waiting for 2 background agents to finish",
 		"✻ Waiting for 1 background agent to finish · 13 messages hidden (/focus to show)",
 		"✻ Waiting for 1 background agent and 1 dynamic workflow to finish",
 		"✻ Waiting for 2 dynamic workflows to finish",
-	}
-	ended := []string{
 		"✻ Crunched for 1h 11m 30s · done 5:37 AM · 1 MCP task still running",
 		"✻ Worked for 4m 13s · done 5:44 AM · 2 background tasks still running",
 		"✻ Worked for 0s · done 4:28 AM · 8 shells, 2 monitors still running",
 		"✻ Cogitated for 2m 44s · done 8:14 PM · 2 monitors still running",
 		"✻ Cooked for 4s · 2 shells still running",
+		"✻ Worked for 3s · 1 shell still running",
 	}
-	for _, legacyPattern := range []string{busyLineAgentsOnly, busyLineShellsOnly, busyLineEveryKind} {
+	for _, legacyPattern := range []string{busyLineAgentsOnly, busyLineShellsOnly, busyLineEveryKind, busyLineWaitOnly} {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.toml")
 		legacy := `
@@ -197,11 +197,6 @@ busy_line = '` + legacyPattern + `'
 		for _, line := range busy {
 			if !re.MatchString(line) {
 				t.Errorf("upgraded claude busy_line %q does not see %q", got, line)
-			}
-		}
-		for _, line := range ended {
-			if re.MatchString(line) {
-				t.Errorf("upgraded claude busy_line %q reads %q as busy", got, line)
 			}
 		}
 	}

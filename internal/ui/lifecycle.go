@@ -25,9 +25,17 @@ import (
 // conversation it held, restart drops it. It reads the keys off the map
 // rather than spelling them, because a hint that names a key the operator
 // rebound is worse than no hint: it sends them to a key that does nothing.
+// Restart ships unbound, so the hint points at quick actions when the map
+// has no key for it.
 func (m *Model) deadSessionHint() string {
-	return "session is dead - press " + m.cap(keymap.ContextList, keymap.Revive) +
-		" to revive or " + m.cap(keymap.ContextList, keymap.Restart) + " to restart"
+	revive := m.cap(keymap.ContextList, keymap.Revive)
+	restart := m.cap(keymap.ContextList, keymap.Restart)
+	if restart == "" {
+		restart = "restart in quick actions"
+	} else {
+		restart = restart + " to restart"
+	}
+	return "session is dead - press " + revive + " to revive or " + restart
 }
 
 // archiveRetention is how long a row waits in the archived view before the

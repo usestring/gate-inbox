@@ -79,6 +79,7 @@ CREATE INDEX tasks_claimable ON tasks (state, created_at)
    9 head_ref                     TEXT     notnull=1 default='' pk=0
   10 failing_checks               INTEGER  notnull=1 default=0 pk=0
   11 fetched_at                   INTEGER  notnull=1 default=0 pk=0
+  12 updated_at                   INTEGER  notnull=1 default=0 pk=0
   index forge_prs_age unique=0 origin=c partial=0 (fetched_at)
   index sqlite_autoindex_forge_prs_1 unique=1 origin=pk partial=0 (key)
 

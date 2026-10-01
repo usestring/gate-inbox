@@ -20,6 +20,7 @@ const (
 	StepIn          Action = "step_in"
 	StepOut         Action = "step_out"
 	LastPane        Action = "last_pane"
+	JumpPane        Action = "jump_pane"
 	JumpAttention   Action = "jump_attention"
 	JumpWaiting     Action = "jump_waiting"
 	JumpFinished    Action = "jump_finished"
@@ -118,65 +119,75 @@ var Catalog = []Binding{
 	// ---- the list ----
 	{ContextList, CursorUp, []string{"up", "k"}, "move the cursor up", true},
 	{ContextList, CursorDown, []string{"down", "j"}, "move the cursor down", true},
-	{ContextList, CursorTop, []string{"home"}, "jump to the top of the list", false},
-	{ContextList, CursorBottom, []string{"end"}, "jump to the bottom", false},
+	// Rarely-run actions ship unbound: they stay runnable from quick
+	// actions (:) and rebindable from the key map (h), but they hold no
+	// key by default. A key nobody presses often is a key hit by accident.
+	{ContextList, CursorTop, []string{}, "jump to the top of the list", false},
+	{ContextList, CursorBottom, []string{}, "jump to the bottom", false},
 	{ContextList, Open, []string{"enter"}, "focus the session, or fold the group", true},
 	{ContextList, StepIn, []string{"right"}, "step in: a session's work, then focus it", false},
 	{ContextList, StepOut, []string{"left"}, "step out: fold the work, close the group", false},
 	{ContextList, LastPane, []string{"l"}, "focus the session you were on before this one; l again swaps back", false},
+	{ContextList, JumpPane, []string{"ctrl+g"}, "find a pane by name and focus it", false},
 	{ContextList, Rescind, []string{"ctrl+z"}, "undo the latest submission while its turn is active", false},
 	{ContextList, JumpAttention, []string{"tab"}, "enter the next session waiting on you", false},
-	{ContextList, JumpWaiting, []string{"alt+w"}, "enter the next waiting session", false},
-	{ContextList, JumpFinished, []string{"alt+f"}, "enter the next finished session", false},
-	{ContextList, JumpErrored, []string{"alt+e"}, "enter the next errored or dead session", false},
-	{ContextList, JumpIdle, []string{"alt+i"}, "enter the next idle session", false},
-	{ContextList, JumpWorking, []string{"alt+k"}, "enter the next working session", false},
+	{ContextList, JumpWaiting, []string{}, "enter the next waiting session", false},
+	{ContextList, JumpFinished, []string{}, "enter the next finished session", false},
+	{ContextList, JumpErrored, []string{}, "enter the next errored or dead session", false},
+	{ContextList, JumpIdle, []string{}, "enter the next idle session", false},
+	{ContextList, JumpWorking, []string{}, "enter the next working session", false},
 	{ContextList, Attach, []string{"A", "shift+a"}, "attach: the pane takes the terminal", false},
 	{ContextList, ReorderUp, []string{"K", "shift+k", "shift+up"}, "reorder the row up", false},
 	{ContextList, ReorderDown, []string{"J", "shift+j", "shift+down"}, "reorder the row down", false},
 	{ContextList, PreviewUp, []string{"alt+up"}, "scroll the preview up", false},
 	{ContextList, PreviewDown, []string{"alt+down"}, "scroll the preview down", false},
-	{ContextList, PreviewPageUp, []string{"alt+u", "alt+pgup"}, "scroll the preview a page up", false},
-	{ContextList, PreviewPageDown, []string{"alt+d", "alt+pgdown"}, "scroll the preview a page down", false},
-	{ContextList, PreviewTop, []string{"alt+home"}, "scroll the preview to its oldest", false},
-	{ContextList, PreviewBottom, []string{"alt+end"}, "scroll the preview back to live", false},
+	{ContextList, PreviewPageUp, []string{}, "scroll the preview a page up", false},
+	{ContextList, PreviewPageDown, []string{}, "scroll the preview a page down", false},
+	{ContextList, PreviewTop, []string{}, "scroll the preview to its oldest", false},
+	{ContextList, PreviewBottom, []string{}, "scroll the preview back to live", false},
 
 	{ContextList, NewSession, []string{"n"}, "new session: asks which agent, unless settings names one", false},
 	{ContextList, NewSessionForm, []string{"ctrl+n"}, "new session, asking name, CLI, directory, task", false},
 	{ContextList, NewGroup, []string{"g"}, "new group", false},
 	{ContextList, NewTerminal, []string{"T", "shift+t"}, "new terminal tab", false},
-	{ContextList, Fork, []string{"f"}, "fork the session into a new one", false},
-	{ContextList, Migrate, []string{"M", "shift+m"}, "migrate it to another CLI", false},
+	{ContextList, Fork, []string{}, "fork the session into a new one", false},
+	{ContextList, Migrate, []string{}, "migrate it to another CLI", false},
 
 	{ContextList, Revive, []string{"v"}, "revive it, or restart a live one on its own conversation", false},
-	{ContextList, ReviveAll, []string{"V", "shift+v"}, "revive every dead session", false},
-	{ContextList, SwitchAccount, []string{"a"}, "switch its account: restarts it on its own conversation", false},
-	{ContextList, Restart, []string{"R", "shift+r"}, "restart it on an empty context", false},
+	{ContextList, ReviveAll, []string{}, "revive every dead session", false},
+	{ContextList, SwitchAccount, []string{}, "switch its account: restarts it on its own conversation", false},
+	{ContextList, Restart, []string{}, "restart it on an empty context", false},
 	{ContextList, Archive, []string{"x"}, "kill it and file the row", false},
-	{ContextList, ArchiveAll, []string{"X", "shift+x"}, "kill every session listed", false},
+	{ContextList, ArchiveAll, []string{}, "kill every session listed", false},
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
 	{ContextList, Dismiss, []string{"."}, "skip", false},
-	{ContextList, Priority, []string{"p"}, "toggle priority (priority panes show first)", false},
+	{ContextList, Priority, []string{"p"}, "cycle priority: urgent → high → medium → low → none", false},
 	{ContextList, QuickInput, []string{" ", "space"}, "hotkey menu", false},
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
-	{ContextList, Rename, []string{"alt+r"}, "rename it yourself, and re-pick its tool", false},
-	{ContextList, NameSweep, []string{"N", "shift+n"}, "name sweep over idle adopted panes", false},
-	{ContextList, TakeOver, []string{"O", "shift+o"}, "take over the adopted panes now; busy ones once they go idle", false},
+	{ContextList, Rename, []string{}, "rename it yourself, and re-pick its tool", false},
+	{ContextList, NameSweep, []string{}, "name sweep over idle adopted panes", false},
+	{ContextList, TakeOver, []string{}, "take over the adopted panes now; busy ones once they go idle", false},
 	{ContextList, Move, []string{"m"}, "move it to a group", false},
 
-	{ContextList, ShowAllWork, []string{"W", "shift+w"}, "show every pull request and ticket, not the first few", false},
+	{ContextList, ShowAllWork, []string{}, "show every pull request and ticket, not the first few", false},
 	{ContextList, StatusFilter, []string{"w"}, "filter to what needs attention", false},
 	{ContextList, Triage, []string{"i"}, "triage this group as one queue", false},
 	{ContextList, ToggleConversation, []string{"f3"}, "show full / shortened conversation", false},
-	{ContextList, EmptyGroups, []string{"e"}, "hide / show empty groups", false},
-	{ContextList, FoldAll, []string{"F", "shift+f"}, "fold / unfold everything", false},
-	{ContextList, ArchivedView, []string{"t"}, "archived view", false},
+	{ContextList, EmptyGroups, []string{}, "hide / show empty groups", false},
+	{ContextList, FoldAll, []string{}, "fold / unfold everything", false},
+	// No key: the archive is where killed rows wait out their 7-day
+	// retention, visited deliberately rather than toggled past. Quick
+	// actions (:) opens it, and u restores from it.
+	{ContextList, ArchivedView, []string{}, "archived view", false},
 	{ContextList, Search, []string{"/"}, "search the list by name", false},
-	{ContextList, ClearSearch, []string{"esc"}, "clear the search", false},
-	{ContextList, Resize, []string{"|"}, "resize the split", false},
+	// No key: esc closes the search field and keeps the filter; the text
+	// itself is cleared by deleting it (ctrl+u wipes the field). A
+	// filter with no visible field used to read as sessions gone missing.
+	{ContextList, ClearSearch, []string{}, "clear the search", false},
+	{ContextList, Resize, []string{}, "resize the split", false},
 	{ContextList, Settings, []string{"s"}, "settings", false},
-	{ContextList, ToggleChrome, []string{","}, "hide / show the key hints along the foot", false},
-	{ContextList, ToggleRail, []string{`\`}, "hide / show the list beside the pane", false},
+	{ContextList, ToggleChrome, []string{}, "hide / show the key hints along the foot", false},
+	{ContextList, ToggleRail, []string{}, "hide / show the list beside the pane", false},
 	{ContextList, LegendPeek, []string{"?"}, "peek at every available key", false},
 	{ContextList, QuickActions, []string{":", "ctrl+p"}, "quick actions: find any action by name, run it, see its key", false},
 	{ContextList, Help, []string{"h", "H", "shift+h", "ctrl+h"}, "this key map", true},
@@ -193,6 +204,11 @@ var Catalog = []Binding{
 	// A chord for the same reason alt+, is one: a plain "." is a character
 	// the agent was owed. It mirrors the list's own dismiss key.
 	{ContextFocus, Dismiss, []string{"alt+."}, "skip", false},
+	// The focused-view setting under a key, and the same list binding the
+	// operator already has: a session kept on its conversation with the
+	// setting toggles back to the terminal here. A plain letter is a
+	// character the agent was owed, so it stays F3, the key the list uses.
+	{ContextFocus, ToggleConversation, []string{"f3"}, "show the conversation or the terminal", false},
 	// A chord, like every other key this screen claims: a plain comma is a
 	// character the agent was owed.
 	{ContextFocus, ToggleChrome, []string{"alt+,"}, "hide / show the key hints along the foot", false},
@@ -208,7 +224,8 @@ var Catalog = []Binding{
 	{ContextFocus, NewSession, []string{"alt+n"}, "new session in this one's group", false},
 	{ContextFocus, CopySessionID, []string{"alt+y"}, "copy the agent's session id", false},
 	{ContextFocus, LastPane, []string{"alt+l"}, "back to the previous session; alt+l again swaps back", false},
-	{ContextFocus, BackAtPrompt, []string{"right", "left"}, "at a prompt edge, leave or advance triage", false},
+	{ContextFocus, JumpPane, []string{"ctrl+g"}, "find a pane by name and focus it", false},
+	{ContextFocus, BackAtPrompt, []string{"right", "left"}, "at a prompt edge, leave; in triage Right advances a finished one", false},
 	{ContextFocus, PreviewUp, []string{"alt+up"}, "scroll the pane up", false},
 	{ContextFocus, PreviewDown, []string{"alt+down"}, "scroll the pane down", false},
 	{ContextFocus, PreviewPageUp, []string{"alt+u", "alt+pgup"}, "scroll a page up", false},

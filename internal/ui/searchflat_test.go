@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -214,11 +215,15 @@ func TestClearingTheSearchRestoresTheTree(t *testing.T) {
 	before := rowKeys(m)
 	m.typeSearch("gate")
 	m.handleSearchKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	// Through handleKey rather than clearSearch: the list-level binding is
-	// half of what brings the tree back.
-	m.handleKey(tea.KeyPressMsg{Code: tea.KeyEsc})
+	// Through runListAction rather than clearSearch: the palette is the half
+	// that brings the tree back now that no key clears from the list.
+	updated, cmd := m.runListAction(keymap.ClearSearch, tea.KeyPressMsg{})
+	m = updated.(*Model)
+	if cmd != nil {
+		m.applyCmd(t, cmd)
+	}
 	if m.search != "" {
-		t.Fatalf("esc should clear the query, got %q", m.search)
+		t.Fatalf("clearing should drop the query, got %q", m.search)
 	}
 	if got := rowKeys(m); strings.Join(got, ",") != strings.Join(before, ",") {
 		t.Fatalf("cleared rows = %v, want the tree back %v", got, before)

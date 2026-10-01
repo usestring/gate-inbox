@@ -306,6 +306,7 @@ func TestAltROpensTheRenameForm(t *testing.T) {
 	createSession(t, m, "sample-repo", t.TempDir(), "")
 	m.applyCmd(t, nil)
 	m.selectSessionRow(t, "sample-repo")
+	bindTestKey(t, m, keymap.Rename, "alt+r")
 
 	updated, _ := m.handleKey(keyAltR)
 	m = updated.(*Model)
@@ -386,8 +387,15 @@ func TestRDoesNoWorkOnTheEventLoop(t *testing.T) {
 // Both keys have to be findable. A rebind nobody can read about is a
 // regression, and ? is what the README calls the complete and current list.
 func TestTheKeyMapShowsBothRenameKeys(t *testing.T) {
+	// The manual rename ships unbound, so the suite binds it the way an
+	// operator would before asking the map about it.
+	m := helpModel()
+	m.rebind(keymap.ContextList, keymap.Rename, []string{"alt+r"})
+	if got := m.km().Keys(keymap.ContextList, keymap.Rename); len(got) != 1 || got[0] != "alt+r" {
+		t.Fatalf("rebind rename left %q", got)
+	}
 	rows := map[string]string{}
-	for _, section := range helpModel().resolvedHelp() {
+	for _, section := range m.resolvedHelp() {
 		for _, row := range section.rows {
 			if rows[row.key] == "" {
 				rows[row.key] = row.text
@@ -404,7 +412,6 @@ func TestTheKeyMapShowsBothRenameKeys(t *testing.T) {
 	// And the rows actually paint. The catalog overflows a 30-row terminal,
 	// so this needs a frame tall enough to reach them rather than the default
 	// help model, or it would pass on a screen that simply scrolled past.
-	m := helpModel()
 	m.height = 200
 	frame := ansi.Strip(m.frame())
 	for _, want := range []string{keymap.Display("alt+r"), "conversation running in it"} {

@@ -101,8 +101,8 @@ func TestAnOpencodePermissionAskIsRelayedAsAPersonsCall(t *testing.T) {
 		t.Run(capture, func(t *testing.T) {
 			sess := opencodeChild(t, 2)
 			body, key, _ := childDialogBody(sess, opencodePane(t, capture))
-			for _, want := range []string{"has stopped on a permission prompt", "Permission required", "1) Allow once (current)",
-				"3) Reject", "answer_session cannot answer a permission prompt", "Left/Right moves the selection"} {
+			for _, want := range []string{"has stopped on a permission prompt", "Permission required", "Allow once",
+				"Reject", "relay: true", "It picks that choice by its text"} {
 				if !strings.Contains(body, want) {
 					t.Errorf("relay does not say %q:\n%s", want, body)
 				}

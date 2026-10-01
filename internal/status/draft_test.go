@@ -78,3 +78,71 @@ func TestDraftInComposerStopsShortOfTheTranscript(t *testing.T) {
 		t.Fatal("a prompt in the transcript was read as the composer")
 	}
 }
+
+// DraftText is what a draft set aside for a message is typed back as, so
+// it has to be the person's words and nothing of the tool's: not the
+// marker, not the indent a continuation row is drawn with, not a box's bar.
+func TestDraftTextReadsBackWhatWasWritten(t *testing.T) {
+	engine, err := NewEngine(config.Config{Tools: map[string]config.Tool{
+		"claude": {ActivityCutoff: `(?m)^❯`},
+		"boxed":  {ActivityCutoff: `(?m)^\s*╹`, InputLine: `^[ \x{A0}]*┃`},
+		"barred": {InputLine: `^│ > `},
+	}})
+	if err != nil {
+		t.Fatalf("engine: %v", err)
+	}
+	cases := []struct {
+		name           string
+		tool           string
+		caretX, caretY int
+		rows           []string
+		want           string
+	}{
+		{"one key", "claude", 3, 1, []string{"output", "❯ 1"}, "1"},
+		{"empty prompt", "claude", 2, 1, []string{"output", "❯"}, ""},
+		{"placeholder only", "claude", 2, 0, []string{"❯ Try \"fix the test\""}, ""},
+		{"caret mid-line keeps the rest", "claude", 4, 0, []string{"❯ hello there"}, "hello there"},
+		{"continuation under the marker", "claude", 9, 1, []string{"❯ a long line that", "  wrapped"}, "a long line that\nwrapped"},
+		{"indented past the marker", "claude", 6, 1, []string{"❯ list:", "    - one"}, "list:\n  - one"},
+		{"newline under a written line", "claude", 0, 1, []string{"❯ first line", ""}, "first line"},
+		{"boxed", "boxed", 13, 1, []string{"  ┃", "  ┃  first line", "  ┃", "  ╹▀▀▀"}, "first line"},
+		{"closing bar", "barred", 8, 0, []string{"│ > draft      │"}, "draft"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := engine.DraftText(c.tool, strings.Join(c.rows, "\n"), c.caretX, c.caretY); got != c.want {
+				t.Fatalf("DraftText = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// The stray key from the incident, in the composer Claude Code draws, read
+// with the rules Gate Inbox ships for it.
+func TestDraftTextReadsClaudesComposerWithShippedDefaults(t *testing.T) {
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatalf("engine: %v", err)
+	}
+	rule := strings.Repeat("─", 80)
+	rows := []string{
+		"✻ Crunched for 28s · done Friday 23:16",
+		"",
+		rule,
+		"❯ 1",
+		rule,
+		"  dsrc | main (!11) | Opus 5 (1M context) | 33%",
+		"  ⏵⏵ auto mode on (shift+tab to cycle)",
+	}
+	if got := engine.DraftText("claude", strings.Join(rows, "\n"), 3, 3); got != "1" {
+		t.Fatalf("DraftText = %q, want %q", got, "1")
+	}
+	rows[3] = "❯ "
+	if got := engine.DraftText("claude", strings.Join(rows, "\n"), 2, 3); got != "" {
+		t.Fatalf("an empty composer read as %q", got)
+	}
+}

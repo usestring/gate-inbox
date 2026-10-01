@@ -615,7 +615,7 @@ func (m *Model) moveOnFromClosedFocus() tea.Cmd {
 			m.cursor = i
 			m.clearPreviewState()
 			m.previewGen++
-			return m.schedulePreview()
+			return tea.Batch(m.schedulePreview(), m.readConversation())
 		}
 	}
 	return nil

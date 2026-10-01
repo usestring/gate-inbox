@@ -175,8 +175,11 @@ func TestHelpNeverAdvertisesReview(t *testing.T) {
 
 func TestGlobalHelpShowsAgentManagementGuidance(t *testing.T) {
 	frame := ansi.Strip(helpModel().frame())
-	if !strings.Contains(frame, "Tell your agent to manage sessions and terminals in Gate Inbox") {
-		t.Fatalf("global help is missing agent-management guidance:\n%s", frame)
+	if strings.Contains(frame, "Tell your agent to manage sessions and terminals in Gate Inbox") {
+		t.Fatalf("global help still carries the agent-management note:\n%s", frame)
+	}
+	if !strings.Contains(frame, "common: the list") {
+		t.Fatalf("global help should still open on the common list:\n%s", frame)
 	}
 }
 

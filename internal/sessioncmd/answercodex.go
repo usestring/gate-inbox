@@ -27,7 +27,7 @@ func (codexDriver) answer(r *runtime, s *Sessions, target store.Session, raw str
 	call, pending := asks.Pending(t)
 	record := func(id string) (asks.Result, bool) { return asks.ResultOf(t, id) }
 	lost := func() (asks.Result, bool) { return asks.Unanswered(t) }
-	answered, err := answerCodex(tmuxPane{r.driver, target.ID}, call, pending, record, lost, raw, answers, submit, guard)
+	answered, err := answerCodex(tmuxPane{driver: r.driver, id: target.ID}, call, pending, record, lost, raw, answers, submit, guard)
 	answered.SessionID, answered.Name = target.ID, target.Name
 	if pending {
 		answered.readFrom = "Codex's rollout"
@@ -90,6 +90,9 @@ func planCodex(questions []dialog.Question, ask dialog.CodexAsk, answers []Quest
 	var steps []codexStep
 	seen := map[int]bool{}
 	for _, answer := range answers {
+		if len(answer.Ticks) > 0 {
+			return nil, errors.New("Codex questions take an answer, not multi-select ticks")
+		}
 		index := ask.Index - 1
 		if strings.TrimSpace(answer.Question) != "" {
 			var err error

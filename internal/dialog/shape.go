@@ -131,28 +131,33 @@ func (d Dialog) Guarded() bool {
 	return d.Kind == KindApproval || d.Kind == KindCodexTrust
 }
 
-// Refusal is why no keystroke this program sends may answer the dialog, or ""
-// when one may.
+// Refusal is why one keystroke chosen from an answer's text may not answer the
+// dialog, or "" when one may.
 //
 // A phrase rather than a sentence, because callers frame it differently: a
-// parent gets it back as why its call was refused. The four are worded apart because they want four different things done about them.
+// parent gets it back as why its call was refused. Each names the path that
+// does answer that shape, because every one of them has one: the two that are
+// a person's decision take the user's own answer relayed, a multi-select takes
+// ticks, and an unlocated cursor wants a fresh look in a moment.
 func (d Dialog) Refusal() string {
 	switch {
 	case d.Kind == KindApproval:
-		return "a permission prompt -- whether the agent may take that action is a person's " +
-			"call: put the prompt to your user word for word, or ask the operator to press the key " +
-			"on the board; send_session is held while a dialog stands"
+		return "a permission prompt -- whether the agent may take that action is your user's " +
+			"call, never an agent's: ask your user with your own question tool, copying the prompt " +
+			"and its choices word for word, then call answer_session with their choice and relay: true; " +
+			"send_session is held while a dialog stands"
 	case d.Kind == KindCodexTrust:
 		return "Codex's first-run directory-trust prompt -- whether to work on contents nobody " +
-			"has vouched for is a person's to answer, and the standing fix is the child's launch " +
-			"configuration rather than a keystroke"
+			"has vouched for is your user's call: ask them word for word with your own question tool, " +
+			"then call answer_session with their choice and relay: true"
 	case d.MultiSelect:
-		return "a multi-select -- Enter ticks a box rather than answering, and nothing is " +
-			"submitted until Submit is reached, so one keystroke cannot answer it"
+		return "a multi-select -- Enter ticks a box rather than answering, so one keystroke " +
+			"cannot answer it: pass ticks, the labels to leave ticked, and answer_session ticks and " +
+			"unticks them, reads the boxes back and submits"
 	case d.Cursor == 0:
 		return "a dialog whose selection this cannot locate -- the marker is on no row or on " +
 			"more than one, and arrows counted from a position the pane never held would answer " +
-			"with whatever they landed on"
+			"with whatever they landed on; read it again in a moment"
 	}
 	return ""
 }

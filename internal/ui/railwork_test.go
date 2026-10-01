@@ -8,6 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/forge"
@@ -221,6 +222,7 @@ func TestFoldAllReachesSessionWork(t *testing.T) {
 	*m = *updated.(*Model)
 	m.cursor = m.artifactRowIndexes()[0]
 
+	bindTestKey(t, m, keymap.FoldAll, "F")
 	updated, _ = m.handleKey(tea.KeyPressMsg{Code: 'F', Text: "F"})
 	*m = *updated.(*Model)
 	if got := m.artifactRowIndexes(); len(got) != 0 {

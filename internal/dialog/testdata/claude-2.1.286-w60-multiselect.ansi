@@ -1,0 +1,45 @@
+
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude Code[0m [38;5;246mv2.1.286[39m
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mHaiku 4.5 · Claude Max[39m
+[38;5;174m ▝▝   ▝▝ [39m  [38;5;246m/…/gie287/measure/work/ms1-w60-1718d6[39m
+
+
+[38;5;239m[48;5;237m❯ [38;5;231mCall the AskUserQuestion tool exactly once with ONE [39m
+  [38;5;231mquestion: header 'Toppings', question 'Which toppings do [39m
+  [38;5;231myou want?', multiSelect true, options: 'Cheese' (desc [39m
+  [38;5;231m'Melted mozzarella'), 'Olives' (desc 'Black olives'), [39m
+  [38;5;231m'Peppers' (desc 'Green peppers'), 'Onions' (desc 'Red [39m
+  [38;5;231monions'). After the answer, reply with exactly: GOT [39m
+  [38;5;231m<answer>.[39m
+[38;5;246m[49m────────────────────────────────────────────────────────────
+← [38;5;16m[48;5;153m ☐ Toppings [39m[49m ✔ Submit  →
+
+[1m[38;5;231mWhich toppings do you want?[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [ ] [38;5;153mCheese
+[39m         [38;5;246mMelted mozzarella[39m
+  [38;5;246m2.[39m [ ] Olives
+         [38;5;246mBlack olives[39m
+  [38;5;246m3.[39m [ ] Peppers
+         [38;5;246mGreen peppers[39m
+  [38;5;246m4.[39m [ ] Onions
+         [38;5;246mRed onions[39m
+  [38;5;246m5. [39m[ ] [38;5;246mType something[39m
+     [1mSubmit[0m
+[38;5;246m────────────────────────────────────────────────────────────
+[39m  6. Chat about this
+
+[38;5;246mEnter to select · ↑/↓ to navigate · Esc to cancel[39m
+
+
+
+
+
+
+
+
+
+
+
+
+

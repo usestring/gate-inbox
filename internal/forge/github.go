@@ -99,7 +99,7 @@ func prQuery(refs []workspec.Ref) (string, map[string]workspec.Ref, bool) {
 }
 
 const prFields = `
-	number title url isDraft state mergeable headRefName
+	number title url isDraft state mergeable headRefName updatedAt
 	reviewDecision
 	commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(last: 100) {
 		nodes { ... on CheckRun { conclusion } ... on StatusContext { state } }
@@ -108,14 +108,15 @@ const prFields = `
 `
 
 type prNode struct {
-	Number         int    `json:"number"`
-	Title          string `json:"title"`
-	URL            string `json:"url"`
-	IsDraft        bool   `json:"isDraft"`
-	State          string `json:"state"`
-	Mergeable      string `json:"mergeable"`
-	ReviewDecision string `json:"reviewDecision"`
-	HeadRefName    string `json:"headRefName"`
+	Number         int       `json:"number"`
+	Title          string    `json:"title"`
+	URL            string    `json:"url"`
+	IsDraft        bool      `json:"isDraft"`
+	State          string    `json:"state"`
+	Mergeable      string    `json:"mergeable"`
+	ReviewDecision string    `json:"reviewDecision"`
+	HeadRefName    string    `json:"headRefName"`
+	UpdatedAt      time.Time `json:"updatedAt"`
 	Repository     struct {
 		NameWithOwner string `json:"nameWithOwner"`
 	} `json:"repository"`
@@ -309,6 +310,7 @@ func prFrom(node prNode, at time.Time) PR {
 		Title:     node.Title,
 		URL:       node.URL,
 		HeadRef:   node.HeadRefName,
+		UpdatedAt: node.UpdatedAt,
 		FetchedAt: at,
 		// MERGEABLE / CONFLICTING / UNKNOWN. UNKNOWN means GitHub is still computing it, and
 		// treating that as a conflict would flash every freshly pushed branch as needing you.

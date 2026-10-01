@@ -335,3 +335,12 @@ func TestCodexAsyncQuestionIsAnsweredAsAMessage(t *testing.T) {
 		t.Fatalf("err = %v, want a mismatch when the recorded message is not the answer", err)
 	}
 }
+
+func TestCodexTicksAreRefusedBeforeKeys(t *testing.T) {
+	m := newCodexModel(convo.AskQuestion{Header: "Theme", Question: "Which theme?", Options: []convo.AskOption{{Label: "Light"}}})
+	raw, _ := m.Capture()
+	_, err := answerCodex(m, asks.Call{Questions: m.questions}, true, nil, noLoss, raw, []QuestionAnswer{{Ticks: []string{"Light"}}}, true, nil)
+	if err == nil || len(m.keys) != 0 {
+		t.Fatalf("error %v, keys %q", err, m.keys)
+	}
+}

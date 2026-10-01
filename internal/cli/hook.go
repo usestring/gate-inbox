@@ -20,11 +20,15 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 		}
 		return nil
 	}
-	if args[0] != "ask-answered" {
+	if args[0] != "ask-answered" && args[0] != "ask-pending" {
 		return nil
 	}
 	payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
 	if err != nil {
+		return nil
+	}
+	if args[0] == "ask-pending" {
+		sessioncmd.AskPendingHook(configDir, sessionID, payload)
 		return nil
 	}
 	if note := sessioncmd.AskAnsweredHook(configDir, sessionID, payload); note != "" {

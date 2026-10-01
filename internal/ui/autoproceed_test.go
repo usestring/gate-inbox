@@ -183,7 +183,7 @@ func TestAutoProceedHandsOverOnceTheAnswerLands(t *testing.T) {
 	if got := focusedName(t, m); got != "ask" {
 		t.Fatalf("the key alone handed the session over to %q", got)
 	}
-	logHookEvent(t, m, askID, "working PostToolUse")
+	recordDialogResult(t, m, askID, "answered")
 	lookForLanding(t, m)
 	if m.mode != modeFocus {
 		t.Fatalf("answering dropped out of the queue: %s", m.errBar.text)
@@ -249,7 +249,7 @@ func TestWithoutAutoProceedAnsweringStaysPut(t *testing.T) {
 	m := drainOnDialog(t, false)
 	askID := focusedID(t, m)
 	m = pressEnter(m)
-	logHookEvent(t, m, askID, "working PostToolUse")
+	recordDialogResult(t, m, askID, "answered")
 	lookForLanding(t, m)
 	if got := focusedName(t, m); got != "ask" {
 		t.Fatalf("without the setting the answer moved to %q", got)
@@ -267,7 +267,7 @@ func TestAutoProceedStaysWhenTheOperatorKeepsTyping(t *testing.T) {
 	m = pressEnter(m)
 	updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(*Model)
-	logHookEvent(t, m, askID, "working PostToolUse")
+	recordDialogResult(t, m, askID, "answered")
 	lookForLanding(t, m)
 	if got := focusedName(t, m); got != "ask" {
 		t.Fatalf("an answer the operator typed on past handed the session over to %q", got)
@@ -307,7 +307,7 @@ func TestLandedMuteLapsesWithTheFirstPollAfterIt(t *testing.T) {
 	m := drainOnDialog(t, true)
 	askID := focusedID(t, m)
 	m = pressEnter(m)
-	logHookEvent(t, m, askID, "working PostToolUse")
+	recordDialogResult(t, m, askID, "answered")
 	lookForLanding(t, m)
 	ask, ok := m.sessionByID(askID)
 	if !ok {
@@ -336,4 +336,60 @@ func focusedID(t *testing.T, m *Model) string {
 		t.Fatal("nothing is selected")
 	}
 	return sess.ID
+}
+
+func TestSubmissionHonorsNextSessionOutsideTriage(t *testing.T) {
+	for _, state := range []string{status.Idle, status.Waiting} {
+		for _, tc := range []struct {
+			name  string
+			auto  bool
+			leave string
+			want  string
+		}{
+			{"advance enabled", true, leaveToNext, "next"},
+			{"auto proceed disabled", false, leaveToNext, "answered"},
+			{"return to list selected", true, leaveToList, "answered"},
+		} {
+			t.Run(state+"/"+tc.name, func(t *testing.T) {
+				m := buildModel(t)
+				m.autoProceed, m.leaveMode = tc.auto, tc.leave
+				liveTriageFleet(t, m, map[string]string{
+					"answered": state,
+					"next":     status.Waiting,
+					"busy":     status.Working,
+				})
+				m.rebuildRows()
+				m.enterFocusOn(t, "answered")
+				id := focusedID(t, m)
+				stageDialog(m, id)
+				if state == status.Idle {
+					m.preview = "❯ go on\n"
+					m.pane.cursor = paneCursor{x: 7, y: 0, ok: true}
+				}
+				if m.triage {
+					t.Fatal("the fixture armed triage")
+				}
+
+				m = pressEnter(m)
+				if focusedName(t, m) != "answered" {
+					t.Fatal("Enter advanced before the answer landed")
+				}
+				if state == status.Waiting {
+					recordDialogResult(t, m, id, "answered")
+				} else {
+					logHookEvent(t, m, id, "working UserPromptSubmit")
+				}
+				lookForLanding(t, m)
+				if m.latestSubmission.sessionID != id {
+					t.Fatal("the submitted answer was not accepted")
+				}
+				if m.mode != modeFocus || focusedName(t, m) != tc.want {
+					t.Fatalf("after submission focused %q in mode %v, want %q", focusedName(t, m), m.mode, tc.want)
+				}
+				if m.triage {
+					t.Fatal("submitting enabled triage")
+				}
+			})
+		}
+	}
 }

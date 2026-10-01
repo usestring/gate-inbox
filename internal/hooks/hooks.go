@@ -191,6 +191,14 @@ func sessionEndCommand() string {
 // 0 so a fault here never blocks the child.
 func askAnsweredCommand() string { return hookCommandLine("ask-answered") }
 
+// askPendingCommand saves the AskUserQuestion call a dialog is about to
+// show (sessioncmd.AskPendingHook). Claude Code 2.1.286 writes the call to
+// its transcript only once it is answered, so without this nothing outside
+// the child can read the questions, options and previews while the dialog
+// stands. It writes its own file, so running beside the "*" status writer
+// races on nothing, and it always exits 0.
+func askPendingCommand() string { return hookCommandLine("ask-pending") }
+
 // sessionStartCommand tells a spawned child how to ask for its user's
 // approval (sessioncmd.SessionStartHook). compact is matched too, so the
 // note survives a compaction.
@@ -210,7 +218,8 @@ func settingsContent() ([]byte, error) {
 	}
 	content := settingsFile{Hooks: map[string][]hookMatcher{
 		"UserPromptSubmit": report("UserPromptSubmit", "", status.Working),
-		"PreToolUse":       run("*", preToolUseCommand()),
+		"PreToolUse": append(run("*", preToolUseCommand()),
+			run(blockingTool, askPendingCommand())...),
 		"PostToolUse": append(report("PostToolUse", "*", status.Working),
 			run(blockingTool, askAnsweredCommand())...),
 		"Notification": report("Notification", blockingNotifications, status.Waiting),
@@ -543,6 +552,12 @@ func (m *Manager) RemoveExit(id string) error {
 
 func (m *Manager) Remove(id string) error {
 	return removeIfExists(m.StatusFile(id))
+}
+
+// PendingAskFile is where the ask-pending hook keeps the AskUserQuestion
+// call a session's dialog is showing (convo.PendingAskFile).
+func (m *Manager) PendingAskFile(id string) string {
+	return filepath.Join(m.dir, id+".ask.json")
 }
 
 // NameFile is the mailbox the rename subcommand writes a session's

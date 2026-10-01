@@ -123,11 +123,10 @@ selected agent for builds and one-off commands.
 | `enter` | Focus the session; `ctrl+q` returns to the list |
 | `i` | Triage queue; `\` hides the list for a full-width drain |
 | `w` | Show only what needs attention |
-| `/` | Fuzzy search; `esc` clears it |
-| `p` | Priority tier for a session or group; higher tiers go first in triage |
+| `/` | Fuzzy search; `esc` closes the field, deleting the text clears it |
+| `p` | Priority tier for a session or group; each press steps urgent → high → medium → low → none |
 | `T` | Shell tab under the selected agent |
 | `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |
-| `f` | Fork the conversation into a new session |
 | `:` / `ctrl+p` | Quick actions: type what you want, `enter` runs it, and each row shows its key |
 | `h` / `s` | Key map for the current screen / settings |
 

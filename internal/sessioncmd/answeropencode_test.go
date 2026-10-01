@@ -279,3 +279,15 @@ func TestOpencodePermissionAskIsRefused(t *testing.T) {
 		t.Fatalf("err = %v, want the dismissed question named", err)
 	}
 }
+
+func TestOpencodeMultiSelectAcceptsTicks(t *testing.T) {
+	quickSettle(t)
+	m := newOpencodeModel(ocFeatures)
+	got, err := runOpencode(t, m, []QuestionAnswer{{Ticks: []string{"Sharing", "Export"}}}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Verified || !got.Submitted || strings.Join(m.answer(0), "|") != "Export|Sharing" {
+		t.Fatalf("result %+v, registered %q", got, m.answer(0))
+	}
+}

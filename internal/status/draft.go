@@ -87,6 +87,67 @@ func (e *Engine) DraftInComposer(tool, clean string, caretX, caretY int) bool {
 	return false
 }
 
+// DraftText is the draft DraftInComposer sees, read back off the screen so
+// it can be cleared and typed in again: each composer row past its marker,
+// down to the caret's, one line each. The screen cannot tell a line the
+// tool wrapped from one the person broke, so a wrapped draft comes back
+// broken at the wrap; its words survive. Text after the caret is kept,
+// since a tool draws its placeholder only into an empty composer.
+func (e *Engine) DraftText(tool, clean string, caretX, caretY int) string {
+	if !e.DraftInComposer(tool, clean, caretX, caretY) {
+		return ""
+	}
+	rows := strings.Split(clean, "\n")
+	// The same walk DraftInComposer makes, which has just found a marker.
+	top := -1
+	for y := caretY; y >= 0 && y >= caretY-composerReach; y-- {
+		if _, ok := e.InputPrefix(tool, rows[y]); ok {
+			top = y
+			continue
+		}
+		if y == caretY {
+			continue
+		}
+		if top >= 0 || strings.TrimSpace(rows[y]) == "" {
+			break
+		}
+	}
+	// Each row is read as the column its text starts at and the text, so
+	// a marker row and the continuation rows drawn under it line up; the
+	// indent the composer itself adds is the one every row shares.
+	type line struct {
+		column int
+		text   string
+	}
+	lines := make([]line, 0, caretY-top+1)
+	base := -1
+	for y := top; y <= caretY; y++ {
+		row, column := rows[y], 0
+		if prefix, ok := e.InputPrefix(tool, row); ok {
+			row = strings.TrimPrefix(row, prefix)
+			column = ansi.StringWidth(prefix)
+			// A boxed composer closes each row with the bar it opened.
+			if strings.Contains(prefix, "│") {
+				row = strings.TrimSuffix(strings.TrimRightFunc(row, unicode.IsSpace), "│")
+			}
+		}
+		text := strings.TrimRightFunc(row, unicode.IsSpace)
+		trimmed := strings.TrimLeft(text, " \u00a0")
+		column += ansi.StringWidth(text) - ansi.StringWidth(trimmed)
+		lines = append(lines, line{column, trimmed})
+		if trimmed != "" && (base < 0 || column < base) {
+			base = column
+		}
+	}
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		if l.text != "" {
+			out[i] = strings.Repeat(" ", l.column-base) + l.text
+		}
+	}
+	return strings.Trim(strings.Join(out, "\n"), "\n")
+}
+
 // TextBetweenCells reports whether anything but blanks sits in the row
 // between two display columns, to the end of the row when to is negative.
 // Columns are what tmux reports a caret in, so the walk is in cells.

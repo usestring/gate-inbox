@@ -88,7 +88,7 @@ Your own session
       name this session for the broad feature it is about, once, while it still carries a placeholder name
 
 How much this session matters
-  gate-inbox priority <urgent|high|medium|low|lower|lowest|none|-3..3>
+  gate-inbox priority <urgent|high|medium|low|none|-1..3>
       declare the tier of the work in this session, so triage hands it over ahead of the sessions that matter less
 
 Options:

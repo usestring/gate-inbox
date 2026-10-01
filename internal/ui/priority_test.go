@@ -111,7 +111,7 @@ func TestPriorityKeyCyclesTheSession(t *testing.T) {
 	seedTriageFleet(t, m)
 	id := sessionID(t, m, "napping")
 
-	for _, want := range []priority.Tier{priority.Urgent, priority.High, priority.Medium, priority.Low, priority.Lower, priority.Lowest, priority.Unset} {
+	for _, want := range []priority.Tier{priority.Urgent, priority.High, priority.Medium, priority.Low, priority.Unset} {
 		m.selectSessionRow(t, "napping")
 		pressKey(t, m, key("p"))
 		got, err := m.store.Get(id)
@@ -236,7 +236,7 @@ func TestARaisedTierNeverJumpsAMorePressingState(t *testing.T) {
 func TestNegativePrioritiesSortBelowDefault(t *testing.T) {
 	m := buildModel(t)
 	seedTriageFleet(t, m)
-	for name, tier := range map[string]priority.Tier{"new-block": priority.Lowest, "old-block": priority.Unset} {
+	for name, tier := range map[string]priority.Tier{"new-block": priority.Low, "old-block": priority.Unset} {
 		if err := m.store.SetPriority(sessionID(t, m, name), tier); err != nil {
 			t.Fatal(err)
 		}
@@ -247,7 +247,7 @@ func TestNegativePrioritiesSortBelowDefault(t *testing.T) {
 	if slices.Index(names, "old-block") >= slices.Index(names, "new-block") {
 		t.Fatalf("negative priority sorts before default: %v", names)
 	}
-	if rail := triageRail(m); !strings.Contains(rail, "new-block ▼▼▼") {
+	if rail := triageRail(m); !strings.Contains(rail, "new-block ▼") {
 		t.Fatalf("negative marker missing: %s", rail)
 	}
 }

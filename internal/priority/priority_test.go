@@ -3,7 +3,7 @@ package priority
 import "testing"
 
 func TestPriorityOrdering(t *testing.T) {
-	tiers := []Tier{Urgent, High, Medium, Unset, Low, Lower, Lowest}
+	tiers := []Tier{Urgent, High, Medium, Unset, Low}
 	for i := 1; i < len(tiers); i++ {
 		if tiers[i-1].Rank() >= tiers[i].Rank() {
 			t.Fatalf("%q does not rank above %q", tiers[i-1], tiers[i])
@@ -24,15 +24,15 @@ func TestParse(t *testing.T) {
 		{"  High ", High, true},
 		{"MEDIUM", Medium, true},
 		{"low", Low, true},
-		{"lower", Lower, true},
-		{"lowest", Lowest, true},
+		{"lower", Unset, false},
+		{"lowest", Unset, false},
 		{"3", Urgent, true},
 		{"+2", High, true},
 		{"1", Medium, true},
 		{"0", Unset, true},
 		{"-1", Low, true},
-		{"-2", Lower, true},
-		{"-3", Lowest, true},
+		{"-2", Unset, false},
+		{"-3", Unset, false},
 		{"-4", Unset, false},
 		{"4", Unset, false},
 		{"none", Unset, true},
@@ -58,7 +58,7 @@ func TestNextCyclesThroughUnset(t *testing.T) {
 		tier = Next(tier)
 		seen = append(seen, tier)
 	}
-	want := []Tier{Urgent, High, Medium, Low, Lower, Lowest, Unset}
+	want := []Tier{Urgent, High, Medium, Low, Unset}
 	for i := range want {
 		if seen[i] != want[i] {
 			t.Fatalf("cycle = %v, want %v", seen, want)
@@ -83,7 +83,7 @@ func TestBetter(t *testing.T) {
 }
 
 func TestGlyphs(t *testing.T) {
-	for tier, want := range map[Tier]string{Unset: "", Medium: "▲", High: "▲▲", Urgent: "▲▲▲", Low: "▼", Lower: "▼▼", Lowest: "▼▼▼"} {
+	for tier, want := range map[Tier]string{Unset: "", Medium: "▲", High: "▲▲", Urgent: "▲▲▲", Low: "▼"} {
 		if got := tier.Glyph(); got != want {
 			t.Fatalf("%q draws %q, want %q", tier, got, want)
 		}
@@ -91,9 +91,7 @@ func TestGlyphs(t *testing.T) {
 }
 
 func TestNegativePrioritySurvivesUnset(t *testing.T) {
-	for _, tier := range []Tier{Low, Lower, Lowest} {
-		if Better(tier, Unset) != tier || Better(Unset, tier) != tier {
-			t.Fatalf("unset overrides negative tier %q", tier)
-		}
+	if Better(Low, Unset) != Low || Better(Unset, Low) != Low {
+		t.Fatal("unset overrides negative priority")
 	}
 }

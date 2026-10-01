@@ -39,7 +39,7 @@ func (m *Model) tierOf(sess store.Session) priority.Tier {
 
 // cyclePrioritySelected walks the row under the cursor one step around the
 // tier cycle: the session, or the group whose subtree it should cover.
-// Pressing past Lowest clears it. The tier is written to the store rather than
+// Pressing past Low clears it. The tier is written to the store rather than
 // kept on the model because it outlives the pass, the process and the
 // operator's memory of setting it.
 func (m *Model) cyclePrioritySelected() (tea.Model, tea.Cmd) {

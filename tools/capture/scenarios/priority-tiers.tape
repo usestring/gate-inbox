@@ -22,19 +22,11 @@ Screenshot {{SHOTS}}/05-low.png
 Sleep 1s
 Type "p"
 Sleep 1500ms
-Screenshot {{SHOTS}}/06-lower.png
-Sleep 1s
-Type "p"
-Sleep 1500ms
-Screenshot {{SHOTS}}/07-lowest.png
-Sleep 1s
-Type "p"
-Sleep 1500ms
-Screenshot {{SHOTS}}/08-default.png
+Screenshot {{SHOTS}}/06-default.png
 Sleep 1s
 Type "i"
 Sleep 2s
-Screenshot {{SHOTS}}/09-triage.png
+Screenshot {{SHOTS}}/07-triage.png
 Sleep 1s
 Ctrl+\
 Sleep 1s

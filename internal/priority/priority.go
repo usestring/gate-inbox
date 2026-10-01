@@ -23,16 +23,14 @@ const (
 	High   Tier = "high"
 	Medium Tier = "medium"
 	Low    Tier = "low"
-	Lower  Tier = "lower"
-	Lowest Tier = "lowest"
 	Unset  Tier = ""
 )
 
 // Order is highest-first: the tier cycle, and the order a queue walks.
-var Order = []Tier{Urgent, High, Medium, Low, Lower, Lowest}
+var Order = []Tier{Urgent, High, Medium, Low}
 
 // ranks are the sort keys, lower first. Unset is the neutral default.
-var ranks = map[Tier]int{Urgent: 0, High: 1, Medium: 2, Unset: 3, Low: 4, Lower: 5, Lowest: 6}
+var ranks = map[Tier]int{Urgent: 0, High: 1, Medium: 2, Unset: 3, Low: 4}
 
 // Rank is the sort key. An unknown value ranks with the default rather than
 // sorting first, so a tier that reaches here from a hand-edited goal file
@@ -61,10 +59,6 @@ func (t Tier) Glyph() string {
 		return "▲"
 	case Low:
 		return "▼"
-	case Lower:
-		return "▼▼"
-	case Lowest:
-		return "▼▼▼"
 	}
 	return ""
 }
@@ -131,11 +125,7 @@ func Parse(s string) (Tier, bool) {
 		return Medium, true
 	case "-1":
 		return Low, true
-	case "-2":
-		return Lower, true
-	case "-3":
-		return Lowest, true
-	case "urgent", "high", "medium", "low", "lower", "lowest":
+	case "urgent", "high", "medium", "low":
 		return Tier(text), true
 	default:
 		return Unset, false

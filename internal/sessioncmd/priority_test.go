@@ -71,14 +71,14 @@ func TestPriorityOutsideASessionSaysSo(t *testing.T) {
 
 func TestNumericNegativePriorityWritesTheTier(t *testing.T) {
 	configDir := t.TempDir()
-	if _, err := Priority(configDir, "cafe0001", "-3"); err != nil {
+	if _, err := Priority(configDir, "cafe0001", "-1"); err != nil {
 		t.Fatal(err)
 	}
 	raw, err := os.ReadFile(hooks.NewManager(configDir).PriorityFile("cafe0001"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(raw) != string(priority.Lowest) {
+	if string(raw) != string(priority.Low) {
 		t.Fatalf("mailbox holds %q", raw)
 	}
 }

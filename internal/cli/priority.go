@@ -7,7 +7,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
-const usagePriority = `priority <urgent|high|medium|low|lower|lowest|none|-3..3>`
+const usagePriority = `priority <urgent|high|medium|low|none|-1..3>`
 
 func prioritySection() section {
 	return section{

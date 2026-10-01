@@ -32,7 +32,7 @@ type Question struct {
 	Header      string   `json:"header,omitempty" jsonschema:"the question's short header, drawn as its tab label; answer_session's answers accept it as question"`
 	Question    string   `json:"question" jsonschema:"the full question; empty only for a question not on the screen when no transcript could be read"`
 	Options     []Option `json:"options,omitempty" jsonschema:"the child's own choices in order, without the dialog's Type something and Chat about this rows"`
-	MultiSelect bool     `json:"multi_select,omitempty" jsonschema:"true for a question answered by ticking several boxes; answer_session refuses these and a person answers them"`
+	MultiSelect bool     `json:"multi_select,omitempty" jsonschema:"true for a question answered by ticking several boxes; answer it with ticks, the labels to leave ticked"`
 	Answered    bool     `json:"answered" jsonschema:"whether this question already has an answer in the dialog"`
 	Answer      string   `json:"answer,omitempty" jsonschema:"the answer it has, when the pane shows it"`
 	OnScreen    bool     `json:"on_screen,omitempty" jsonschema:"the question the dialog is showing now"`
@@ -228,7 +228,7 @@ func RenderQuestions(questions []Question) string {
 			out.WriteString(" -- already answered")
 		}
 		if q.MultiSelect {
-			out.WriteString(" -- multi-select, a person's to answer")
+			out.WriteString(" -- multi-select: answer with ticks")
 		}
 		out.WriteString("\n")
 		if q.Question != "" {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,8 +35,20 @@ import (
 
 // QuestionAnswer is one answer in a call answering several questions.
 type QuestionAnswer struct {
-	Question string `json:"question" jsonschema:"which question: its 1-based index, its header, or its text, as read_session's digest.questions lists them"`
-	Answer   string `json:"answer" jsonschema:"the option's text to pick it, or your own words to type into that question's free-text row"`
+	Question string `json:"question" jsonschema:"which question: its 1-based index, its header, or its text, as read_session's digest.questions lists them; empty for the question on the screen"`
+	Answer   string `json:"answer,omitempty" jsonschema:"the option's text to pick it, or your own words to type into that question's free-text row; give this or ticks"`
+	// Ticks answers a multi-select: the boxes to leave ticked, every other
+	// box unticked.
+	Ticks []string `json:"ticks,omitempty" jsonschema:"for a multi-select question only: the labels of every option to leave ticked; every other box is unticked, the boxes are read back, and the question is submitted"`
+}
+
+// reply is the answer as one string: the words, or a multi-select's ticks
+// joined the way Claude Code records them.
+func (a QuestionAnswer) reply() string {
+	if len(a.Ticks) > 0 {
+		return strings.Join(a.Ticks, ", ")
+	}
+	return strings.TrimSpace(a.Answer)
 }
 
 // FilledAnswer is what one answer did.
@@ -96,7 +109,10 @@ func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswe
 		return AnsweredQuestion{}, errors.New("answers is empty; give one entry per question to answer")
 	}
 	for _, answer := range answers {
-		if strings.TrimSpace(answer.Answer) == "" {
+		switch {
+		case len(answer.Ticks) > 0 && strings.TrimSpace(answer.Answer) != "":
+			return AnsweredQuestion{}, fmt.Errorf("question %q has both an answer and ticks; give ticks for a multi-select and an answer otherwise", answer.Question)
+		case len(answer.Ticks) == 0 && strings.TrimSpace(answer.Answer) == "":
 			return AnsweredQuestion{}, fmt.Errorf("the answer for question %q is empty", answer.Question)
 		}
 	}
@@ -123,15 +139,20 @@ func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswe
 	if len(questions) == 0 {
 		// The single-answer path has the words for every shape that is not a
 		// question dialog; one answer there gets the same refusal.
-		return runtime.answer(target, answers[0].Answer, "parent", caller.ID, guard)
+		return runtime.answer(target, answers[0].reply(), "parent", caller.ID, guard)
 	}
+	answers = onScreen(questions, answers)
 	planned := make([]plannedAnswer, 0, len(answers))
 	for _, answer := range answers {
 		index, err := dialog.Resolve(questions, answer.Question)
 		if err != nil {
 			return AnsweredQuestion{}, err
 		}
-		planned = append(planned, plannedAnswer{index, strings.TrimSpace(answer.Answer)})
+		reply := answer.reply()
+		if len(answer.Ticks) > 0 {
+			reply = strings.Join(inOptionOrder(questions[index], answer.Ticks), ", ")
+		}
+		planned = append(planned, plannedAnswer{index, reply})
 	}
 	if err := guard.admit(planned, questions); err != nil {
 		return AnsweredQuestion{}, fmt.Errorf("session %s: %w", target.ID, err)
@@ -145,6 +166,45 @@ func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswe
 	logging.Info("parent answered a child's dialog",
 		"parent", caller.ID, "session", target.ID, "answers", len(answered.Answers), "submitted", answered.Submitted)
 	return answered, nil
+}
+
+// onScreen names the question on the screen in every answer that names no
+// question.
+func onScreen(questions []dialog.Question, answers []QuestionAnswer) []QuestionAnswer {
+	on := slices.IndexFunc(questions, func(q dialog.Question) bool { return q.OnScreen })
+	out := slices.Clone(answers)
+	for i := range out {
+		if strings.TrimSpace(out[i].Question) == "" && on >= 0 {
+			out[i].Question = strconv.Itoa(on + 1)
+		}
+	}
+	return out
+}
+
+// inOptionOrder is ticks as the option labels they name, in the question's
+// own order, which is how Claude Code lists a multi-select's answer. A tick
+// naming no option is kept as given, at the end, for the screen to refuse.
+func inOptionOrder(question dialog.Question, ticks []string) []string {
+	labels := make([]string, len(question.Options))
+	for i, option := range question.Options {
+		labels[i] = option.Label
+	}
+	picked := map[int]bool{}
+	var unknown []string
+	for _, tick := range ticks {
+		if n := (dialog.Dialog{Options: labels}).ChooseLabel(tick); n > 0 {
+			picked[n] = true
+		} else {
+			unknown = append(unknown, tick)
+		}
+	}
+	var out []string
+	for i, label := range labels {
+		if picked[i+1] {
+			out = append(out, label)
+		}
+	}
+	return append(out, unknown...)
 }
 
 // asked is the pending AskUserQuestion call in target's transcript, or nil
@@ -165,6 +225,7 @@ func (s *Sessions) asked(target store.Session) []convo.AskQuestion {
 type planned struct {
 	index  int
 	answer string
+	ticks  []string
 }
 
 // fillDialog is the sequence, over any pane. It validates every answer before
@@ -183,12 +244,15 @@ func fillDialog(pane dialogPane, questions []dialog.Question, answers []Question
 		}
 		seen[index] = true
 		question := questions[index]
-		if question.MultiSelect {
+		switch {
+		case question.MultiSelect && len(answer.Ticks) == 0:
 			return result, fmt.Errorf("question %d (%s) is a multi-select -- Enter ticks a box rather than "+
-				"answering, so it is a person's to answer on the board; leave it out of answers and "+
-				"answer the rest", index+1, question.Header)
+				"answering -- so give it ticks: the labels of every option to leave ticked", index+1, question.Header)
+		case !question.MultiSelect && len(answer.Ticks) > 0:
+			return result, fmt.Errorf("question %d (%s) is not a multi-select; give it an answer, not ticks",
+				index+1, question.Header)
 		}
-		plan = append(plan, planned{index, strings.TrimSpace(answer.Answer)})
+		plan = append(plan, planned{index, strings.TrimSpace(answer.Answer), answer.Ticks})
 	}
 	slices.SortFunc(plan, func(a, b planned) int { return a.index - b.index })
 
@@ -204,7 +268,12 @@ func fillDialog(pane dialogPane, questions []dialog.Question, answers []Question
 			}
 		}
 		before := len(dialog.ParseAnswered(ansi.Strip(raw)))
-		filled, err := answerOnScreen(pane, raw, questions[step.index], step.answer, tabbed)
+		var filled FilledAnswer
+		if len(step.ticks) > 0 {
+			filled, err = tickOnScreen(pane, raw, questions[step.index], step.ticks)
+		} else {
+			filled, err = answerOnScreen(pane, raw, questions[step.index], step.answer, tabbed)
+		}
 		if err != nil {
 			return finish(pane, result, err)
 		}

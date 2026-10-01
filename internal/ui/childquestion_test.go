@@ -131,7 +131,7 @@ func TestRelayChildQuestionIgnoresWhatIsNotItsToRelay(t *testing.T) {
 
 func TestChildWaitMessageNamesTheChildAndNotThePane(t *testing.T) {
 	body := childWaitMessage(store.Session{ID: "child003", Name: "retailer-shell-probe"})
-	for _, want := range []string{"retailer-shell-probe", "child003", "answer_session cannot answer it"} {
+	for _, want := range []string{"retailer-shell-probe", "child003", "read_session", "send_session", "keys", "relay: true"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("relayed message does not mention %q:\n%s", want, body)
 		}
@@ -157,7 +157,7 @@ func TestRelayChildQuestionRelaysAPermissionPromptWhole(t *testing.T) {
 	if !found {
 		t.Fatal("the parent was told nothing about its child's stop")
 	}
-	for _, want := range []string{"permission prompt", "Do you want to proceed?", "answer_session cannot answer"} {
+	for _, want := range []string{"permission prompt", "Do you want to proceed?", `question: "Do you want to proceed?"`, `options: "Yes", "No"`, "relay: true"} {
 		if !strings.Contains(head.Body, want) {
 			t.Errorf("the message does not carry %q:\n%s", want, head.Body)
 		}
@@ -265,10 +265,10 @@ func TestRelayOfATabbedDialogIsAQuestion(t *testing.T) {
 	}
 }
 
-func TestRelayOfAMultiSelectSaysAPersonAnswersIt(t *testing.T) {
+func TestRelayOfAMultiSelectSaysToAnswerItWithTicks(t *testing.T) {
 	body := childQuestionsMessage(store.Session{ID: "child004", Name: "ci-checks"},
 		dialog.Questions(readDialogFixture(t, "claude-2.1.283-tabs-w44-multiselect.ansi"), nil))
-	for _, want := range []string{"Which checks must pass before merge?", "multi-select", "only a person"} {
+	for _, want := range []string{"Which checks must pass before merge?", "Question 2 is a multi-select", "ticks"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("relayed message does not mention %q:\n%s", want, body)
 		}
@@ -310,5 +310,31 @@ func TestChildQuestionMessageFlagsAnApprovalForRelay(t *testing.T) {
 	questions[0].Header = "Tooling"
 	if body := childQuestionsMessage(store.Session{ID: "child005", Name: "gitleaks"}, questions); strings.Contains(body, "relay: true") {
 		t.Fatalf("a message with no Approval question names relay:\n%s", body)
+	}
+}
+
+// No relay hands a dialog to whoever is at the child's pane or to the
+// operator: every kind names the call the parent makes itself.
+func TestNoRelayHandsTheDialogOff(t *testing.T) {
+	child := store.Session{ID: "child005", Name: "probe", Tool: "claude"}
+	bodies := map[string]string{"no dialog": childWaitMessage(child)}
+	entries, err := os.ReadDir(filepath.Join("..", "dialog", "testdata"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		body, _ := childDialogBody(child, readDialogFixture(t, entry.Name()))
+		bodies[entry.Name()] = body
+	}
+	for name, body := range bodies {
+		lower := strings.ToLower(body)
+		for _, banned := range []string{"at its pane", "at the pane", "operator", "keystroke", "person at", "a person's"} {
+			if strings.Contains(lower, banned) {
+				t.Errorf("%s: the relay says %q:\n%s", name, banned, body)
+			}
+		}
+		if !strings.Contains(body, "answer_session") && !strings.Contains(body, "send_session") {
+			t.Errorf("%s: the relay names no call to make:\n%s", name, body)
+		}
 	}
 }

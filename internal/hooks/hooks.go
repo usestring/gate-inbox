@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/envname"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
@@ -87,7 +88,35 @@ type hookMatcher struct {
 }
 
 type settingsFile struct {
-	Hooks map[string][]hookMatcher `json:"hooks"`
+	Hooks       map[string][]hookMatcher `json:"hooks"`
+	Permissions *permissionRules         `json:"permissions,omitempty"`
+	Sandbox     *sandboxSettings         `json:"sandbox,omitempty"`
+}
+
+type permissionRules struct {
+	Deny []string `json:"deny"`
+}
+
+type sandboxSettings struct {
+	Filesystem sandboxFilesystem `json:"filesystem"`
+}
+
+type sandboxFilesystem struct {
+	DenyRead []string `json:"denyRead"`
+}
+
+// KeyDirDenials are the settings that keep a managed session away from the
+// sealing keys (parentseal.KeyDir): its sandboxed shell may not read the
+// directory and its Read and Edit tools may not touch it. They only take
+// away: Claude Code merges these lists with the operator's own, so no
+// session loses a rule it had and none gains a permission.
+//
+// Every managed session gets them, not only children: a top-level session
+// holds no key of its own, but the keys it could read are its children's.
+func KeyDirDenials(keyDir string) (*permissionRules, *sandboxSettings) {
+	pattern := "/" + filepath.ToSlash(keyDir) + "/**"
+	return &permissionRules{Deny: []string{"Read(" + pattern + ")", "Edit(" + pattern + ")"}},
+		&sandboxSettings{Filesystem: sandboxFilesystem{DenyRead: []string{keyDir}}}
 }
 
 // statusCommand always exits 0 and no-ops outside managed sessions, so
@@ -176,7 +205,7 @@ func stopFailureCommand() string {
 // repository that moved, and a session ending outside a git tree is
 // normal, not an error.
 func sessionEndCommand() string {
-	return statusFileVar + `[ -z "$f" ] || rm -f "$f"; ` +
+	return statusFileVar + `[ -z "$f" ] || rm -f "$f" "$f` + AttestPendingSuffix + `"; ` +
 		`git rev-parse --git-dir >/dev/null 2>&1 && { git worktree prune >/dev/null 2>&1; ` +
 		`git submodule --quiet foreach --recursive 'git worktree prune >/dev/null 2>&1 || true' >/dev/null 2>&1; }; ` +
 		`exit 0`
@@ -204,12 +233,30 @@ func askPendingCommand() string { return hookCommandLine("ask-pending") }
 // note survives a compaction.
 func sessionStartCommand() string { return hookCommandLine("session-start") }
 
+// promptSubmitCommand checks the seal on a message Gate Inbox typed into the
+// session and tells it who the message is from (sessioncmd.PromptSubmitHook).
+// It is synchronous, since the note has to land with the prompt.
+func promptSubmitCommand() string { return hookCommandLine("prompt-submit") }
+
+// AttestPendingSuffix names the flag file beside a session's status file that
+// says a relay attestation is waiting to reach its auto-mode classifier.
+const AttestPendingSuffix = ".attest"
+
+// attestNoteCommand hands a spent relay attestation to the auto-mode
+// classifier as classifierContext on the next tool result
+// (sessioncmd.AttestNoteHook). The flag test is shell, so the tool calls with
+// nothing to say, which is nearly all of them, start no process.
+func attestNoteCommand() string {
+	return statusFileVar + `[ -z "$f" ] || [ ! -f "$f` + AttestPendingSuffix + `" ] || { [ -z "$` + EnvExecutable +
+		`" ] || [ -z "$` + EnvSessionID + `" ] || "$` + EnvExecutable + `" hook attest-note 2>/dev/null; }; exit 0`
+}
+
 func hookCommandLine(verb string) string {
 	return statusFileVar + `[ -z "$f" ] || { [ -z "$` + EnvExecutable + `" ] || [ -z "$` + EnvSessionID +
 		`" ] || "$` + EnvExecutable + `" hook ` + verb + ` 2>/dev/null; }; exit 0`
 }
 
-func settingsContent() ([]byte, error) {
+func settingsContent(keyDir string) ([]byte, error) {
 	run := func(matcher, command string) []hookMatcher {
 		return []hookMatcher{{Matcher: matcher, Hooks: []hookCommand{{Type: "command", Command: command}}}}
 	}
@@ -217,11 +264,12 @@ func settingsContent() ([]byte, error) {
 		return run(matcher, statusCommand(state, event))
 	}
 	content := settingsFile{Hooks: map[string][]hookMatcher{
-		"UserPromptSubmit": report("UserPromptSubmit", "", status.Working),
+		"UserPromptSubmit": append(report("UserPromptSubmit", "", status.Working),
+			run("", promptSubmitCommand())...),
 		"PreToolUse": append(run("*", preToolUseCommand()),
 			run(blockingTool, askPendingCommand())...),
 		"PostToolUse": append(report("PostToolUse", "*", status.Working),
-			run(blockingTool, askAnsweredCommand())...),
+			append(run(blockingTool, askAnsweredCommand()), run("*", attestNoteCommand())...)...),
 		"Notification": report("Notification", blockingNotifications, status.Waiting),
 		"Stop":         report("Stop", "", status.Finished),
 		"StopFailure":  run("", stopFailureCommand()),
@@ -233,6 +281,7 @@ func settingsContent() ([]byte, error) {
 			Command: sessionEndCommand(),
 		}}}},
 	}}
+	content.Permissions, content.Sandbox = KeyDirDenials(keyDir)
 	return json.MarshalIndent(content, "", "  ")
 }
 
@@ -298,7 +347,7 @@ func (m *Manager) EnsureSettings() (settings string, err error) {
 	if err := os.MkdirAll(m.dir, 0o755); err != nil {
 		return "", err
 	}
-	wanted, err := settingsContent()
+	wanted, err := settingsContent(parentseal.KeyDir(m.root))
 	if err != nil {
 		return "", err
 	}

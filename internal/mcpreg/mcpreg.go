@@ -103,7 +103,7 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model st
 		if err != nil {
 			return "", err
 		}
-		steering, err := config(claudeSteeringFile, []byte(delegationSteering(style)))
+		steering, err := config(claudeSteeringFile, []byte(launchSteering(style)))
 		if err != nil {
 			return "", err
 		}
@@ -116,7 +116,7 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model st
 			// A developer message beside codex's own instructions, where
 			// model_instructions_file would replace them. It overrides a
 			// developer_instructions the operator's config.toml sets.
-			fmt.Sprintf(`developer_instructions=%q`, delegationSteering(style)),
+			fmt.Sprintf(`developer_instructions=%q`, launchSteering(style)),
 		}
 		for _, override := range overrides {
 			command += " -c " + tmux.ShellQuote(override)

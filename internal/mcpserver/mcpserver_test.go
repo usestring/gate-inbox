@@ -68,6 +68,7 @@ func (f *fakeTerminalCommands) Close(_ string, id string) error {
 }
 
 type fakeSessionCommands struct {
+	relayQuestion  string
 	cleanup        sessioncmd.CleanupOptions
 	listed         []sessioncmd.Session
 	listOpts       sessioncmd.ListOptions
@@ -132,6 +133,11 @@ func (f *fakeSessionCommands) List(_ string, opts sessioncmd.ListOptions) (sessi
 func (f *fakeSessionCommands) Create(_ string, opts sessioncmd.CreateSessionOptions) (sessioncmd.Session, error) {
 	f.createdOpts = opts
 	return f.created, f.err
+}
+
+func (f *fakeSessionCommands) SendAttested(_ string, id, message, subject string, interrupt bool, question string) (sessioncmd.SendResult, error) {
+	f.relayQuestion = question
+	return f.Send("", id, message, subject, interrupt)
 }
 
 func (f *fakeSessionCommands) Send(_ string, id, message, subject string, interrupt bool) (sessioncmd.SendResult, error) {

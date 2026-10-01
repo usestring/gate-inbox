@@ -1,7 +1,6 @@
 package app
 
 import (
-	"io"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -9,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
@@ -66,25 +64,19 @@ func TestExternalBuildAddsANewSessionFormField(t *testing.T) {
 		board.Process.Kill()
 		<-exited
 	})
-	// The extension starts before the board reads its terminal, so the
-	// list's first polled row is what says a key will land.
-	waitForOutput(t, out, "noop:dead", exited, func() {})
+	// The extension starts before the board reads its terminal, so a key
+	// typed on started.txt can be lost. A frame with the seeded row is drawn
+	// by the running program, which reads keys before it draws; the first
+	// poll is not waited for, as nothing the form does depends on it. The
+	// board skips unchanged cells, so the name is matched without spaces.
+	waitForOutput(t, out, "caller", exited, func() {})
 
 	// ctrl+n opens the form on the CLI picker; typing picks envecho, up
 	// wraps onto the extension's field after the form's own, space turns
-	// it on, and enter launches. Each key waits for the frame the one
-	// before it drew. The board redraws only the cells that changed, so
-	// space's frame is the "n" of "on".
-	for _, step := range []struct{ key, drawn string }{
-		{"\x0e", "items ◂ off ▸"},
-		{"envecho", "envecho ▸"},
-		{"\x1b[A", "❯ items"},
-		{" ", "n ▸"},
-	} {
-		typeAndWait(t, keys, out, step.key, step.drawn, exited)
-	}
-	if _, err := keys.Write([]byte("\r")); err != nil {
-		t.Fatalf("type enter: %v", err)
+	// it on, and enter launches. The board applies each key in order as it
+	// reads it, so none waits on the frame before it.
+	if _, err := keys.Write([]byte("\x0e" + "envecho" + "\x1b[A" + " " + "\r")); err != nil {
+		t.Fatalf("type the form: %v", err)
 	}
 	got := waitForFile(t, filepath.Join(data, "form.txt"), "envecho-", exited, out)
 	if strings.TrimSpace(got) == "" || !strings.HasSuffix(strings.TrimSpace(got), " items=on") || strings.Count(got, "\n") != 1 {
@@ -94,26 +86,6 @@ func TestExternalBuildAddsANewSessionFormField(t *testing.T) {
 	id := sessionNamed(t, filepath.Join(home, "state.db"), name)
 	if spawned := waitForFile(t, filepath.Join(data, "formspawned.txt"), id, exited, out); spawned != id+" items=on\n" {
 		t.Fatalf("formspawned.txt = %q, want %q once", spawned, id+" items=on")
-	}
-}
-
-// typeAndWait types key and waits for the board to draw drawn after it.
-func typeAndWait(t *testing.T, keys io.Writer, out *syncBuffer, key, drawn string, exited <-chan struct{}) {
-	t.Helper()
-	from := len(out.String())
-	if _, err := keys.Write([]byte(key)); err != nil {
-		t.Fatalf("type %q: %v", key, err)
-	}
-	deadline := time.Now().Add(20 * time.Second)
-	for !strings.Contains(ansi.Strip(out.String()[from:]), drawn) {
-		select {
-		case <-exited:
-			t.Fatalf("the board exited before drawing %q after %q:\n%s", drawn, key, ansi.Strip(out.String()))
-		case <-time.After(50 * time.Millisecond):
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the board never drew %q after %q:\n%s", drawn, key, ansi.Strip(out.String()))
-		}
 	}
 }
 

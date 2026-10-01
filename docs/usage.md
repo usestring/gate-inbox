@@ -33,7 +33,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | `←` / `→` | Focused, at a prompt edge: the arrow toward the list returns to the manager. In triage, `←` always returns to the manager, and `→` on a finished session opens the next item instead, whichever side the list is on. The tool's prompt marker (`activity_cutoff`) must be on the caret's row; elsewhere in the prompt, the arrow moves the caret as usual. |
 | `K` / `J` (or `shift+↑` / `shift+↓`) | Reorder the row among its visible siblings: swap this session (or group) with the neighbour above or below. Manual order only — triage and sorted views refuse it |
 | `m` | Move a session to a group, a terminal into a session, or a group under another group |
-| `p` | Priority: each press steps the tier up — `urgent`, `high`, `medium`, `low`, then none. Higher tiers sort first in the list and in triage, within the same status |
+| `p` | Priority: each press cycles the tier — `urgent`, `high`, `medium`, `low`, then none. Higher tiers sort first in the list and in triage, within the same status |
 | `r` | Name a session: ask its agent to name itself (`/rename`, or the same request in prose). On an adopted pane, derive the name from its conversation. On a group, open the group card on it: name, parent and default path |
 | `x` | Kill the selected session, or the whole subtree under a group: kills the pane, frees the RAM its agent held, and files the row in the archive. A group with no session filed under it, live or archived, is deleted instead, so its name is free straight away |
 | `v` | Revive a dead session. On a session that is still running it restarts the agent on the conversation it is already on |
@@ -47,6 +47,8 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | `h` / `ctrl+h` | The key map for the current screen (`H` also works), split into common and advanced keys. It scrolls (`↑↓`/`jk`, `ctrl+u`/`ctrl+d`, `g`/`G`) and `/` searches it down to one line. `ctrl+h` opens it from anywhere, including inside a session, and closes it again. Inside a session only the `ctrl+h` chord reaches the key map — plain `h` and `?` go to the agent |
 | `:` / `ctrl+p` | Quick actions: type what you want to do, `↑↓` pick, `enter` runs it. Each row shows the action's current key, what it does, and the name `keys.toml` gives it, and running one leaves a note with the key that would have done it in one press. Recently run actions lead the list |
 | `q` | Quit (sessions keep running) |
+
+Priority defaults to 0 with no marker. Positive levels use green `▲`, `▲▲`, and `▲▲▲`; the negative level (-1) uses a red `▼`. Set a level with `gate-inbox priority <level>` using a number from -1 to 3 or its tier name.
 
 One-off and destructive actions — fork, migrate, restart, revive all, account switch, kill-all, fold-all, resize, the archived view, per-state jumps — ship with no key. They all run from quick actions (`:`), which shows each action's current key, and the key map (`h`) puts any of them back on a key.
 

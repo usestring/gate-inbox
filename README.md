@@ -139,6 +139,8 @@ selected agent for builds and one-off commands.
 | `:` / `ctrl+p` | Quick actions: type what you want, `enter` runs it, and each row shows its key |
 | `h` / `s` | Key map for the current screen / settings |
 
+Priority defaults to 0 with no marker. Positive levels use green `▲`, `▲▲`, and `▲▲▲`; the negative level (-1) uses a red `▼`. Set a level with `gate-inbox priority <level>` using a number from -1 to 3 or its tier name.
+
 Every binding is a default, and `h` is where you rebind one. [`docs/usage.md`](docs/usage.md) is
 the complete reference.
 

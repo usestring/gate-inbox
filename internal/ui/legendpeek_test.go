@@ -17,10 +17,10 @@ func TestDefaultLegendIsTheSessionRowAndThePeekKey(t *testing.T) {
 	m.applyCmd(t, m.refreshCmd())
 
 	footer := ansi.Strip(m.viewFooter())
-	if got := lipgloss.Height(footer); got != 2 {
-		t.Fatalf("default footer takes %d rows, want the row tier and the peek key:\n%s", got, footer)
+	if got := lipgloss.Height(footer); got != 3 {
+		t.Fatalf("default footer takes %d rows, want the row tier, the snippets tier and the peek key:\n%s", got, footer)
 	}
-	for _, want := range []string{"Session", "focus", "hotkeys", "f3 full view", "kill", "? more"} {
+	for _, want := range []string{"Session", "focus", "hotkeys", "f3 full view", "kill", "Snippets", "? more"} {
 		if !strings.Contains(footer, want) {
 			t.Errorf("default footer is missing %q:\n%s", want, footer)
 		}

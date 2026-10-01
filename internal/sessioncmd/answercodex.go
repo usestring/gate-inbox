@@ -112,6 +112,15 @@ func planCodex(questions []dialog.Question, ask dialog.CodexAsk, answers []Quest
 	return steps, nil
 }
 
+// sameCodexPrompt is the question on the screen read against the one in the
+// rollout. Codex wraps a long word at a slash or hyphen without a space, so
+// the screen's rows, joined with spaces, can split a path the rollout holds
+// whole.
+func sameCodexPrompt(screen, asked string) bool {
+	squash := func(text string) string { return strings.Join(strings.Fields(text), "") }
+	return dialog.SameText(screen, asked) || dialog.SameText(squash(screen), squash(asked))
+}
+
 func fillCodex(pane dialogPane, questions []dialog.Question, steps []codexStep) (AnsweredQuestion, error) {
 	result := AnsweredQuestion{Questions: questions}
 	for _, step := range steps {
@@ -120,7 +129,7 @@ func fillCodex(pane dialogPane, questions []dialog.Question, steps []codexStep) 
 			return codexFinish(pane, result, err)
 		}
 		ask, _ := dialog.ParseCodexAsk(raw)
-		if step.question.Question != "" && !dialog.SameText(ask.Prompt, step.question.Question) {
+		if step.question.Question != "" && !sameCodexPrompt(ask.Prompt, step.question.Question) {
 			return codexFinish(pane, result, fmt.Errorf("%w: question %d on the screen reads %q, not %q",
 				errDialogMoved, step.index+1, ask.Prompt, step.question.Question))
 		}

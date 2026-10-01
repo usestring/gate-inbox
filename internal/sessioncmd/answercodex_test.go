@@ -25,6 +25,7 @@ type codexModel struct {
 	done      bool
 	keys      []string
 	lie       func(map[int]asks.Registered)
+	wrapAfter string
 }
 
 func newCodexModel(questions ...convo.AskQuestion) *codexModel {
@@ -62,7 +63,11 @@ func (m *codexModel) Capture() (string, error) {
 		if unanswered > 0 {
 			fmt.Fprintf(&b, " (%d unanswered)", unanswered)
 		}
-		fmt.Fprintf(&b, "\n  %s\n\n", m.questions[m.index].Question)
+		question := m.questions[m.index].Question
+		if m.wrapAfter != "" {
+			question = strings.Replace(question, m.wrapAfter, m.wrapAfter+"\n  ", 1)
+		}
+		fmt.Fprintf(&b, "\n  %s\n\n", question)
 		for i, label := range m.options() {
 			marker := "  "
 			if m.cursor == i+1 {
@@ -233,6 +238,17 @@ func TestCodexSingleAnswerPicksANonDefaultOption(t *testing.T) {
 	got, err := runCodex(t, m, []QuestionAnswer{{Answer: "green"}})
 	if err != nil || !got.Verified || got.Selected != "Green" {
 		t.Fatalf("answer = %+v, %v; want Green verified", got, err)
+	}
+}
+
+func TestCodexQuestionWrappedInsideAPathIsStillItsOwn(t *testing.T) {
+	quickSettle(t)
+	m := newCodexModel(convo.AskQuestion{ID: "approval", Header: "Pick", Question: "May I delete the directory /tmp/sample-9000/gij/work/cache-w50?",
+		Options: []convo.AskOption{{Label: "Approve"}, {Label: "Deny"}}})
+	m.wrapAfter = "/tmp/sample-9000/"
+	got, err := runCodex(t, m, []QuestionAnswer{{Answer: "Deny"}})
+	if err != nil || !got.Verified || got.Selected != "Deny" {
+		t.Fatalf("answer = %+v, %v; want Deny verified", got, err)
 	}
 }
 

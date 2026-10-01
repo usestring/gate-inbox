@@ -1094,12 +1094,14 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	mcpStyles := make(map[string]string, len(cfg.Tools))
 	shellTools := make(map[string]bool, len(cfg.Tools))
 	interruptKeys := make(map[string][]string, len(cfg.Tools))
+	clearInputKeys := make(map[string][]string, len(cfg.Tools))
 	for name, tool := range cfg.Tools {
 		statusSources[name] = tool.StatusSource
 		sessionStores[name] = tool.SessionStore
 		mcpStyles[name] = mcpreg.Style(name, tool.MCP)
 		shellTools[name] = tool.Shell
 		interruptKeys[name] = tool.InterruptKeys
+		clearInputKeys[name] = tool.ClearInputKeys
 	}
 	// A missing git binary only disables what reads a repository's root;
 	// everything else works without it, so the error surfaces on first use.
@@ -1155,6 +1157,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		visible: true,
 	}
 	model.poller.interruptKeys = interruptKeys
+	model.poller.clearInputKeys = clearInputKeys
 	model.poller.staleAfter = cfg.StaleStatusAfter.Duration
 	model.poller.hogWatch = newHogWatch(cfg.Hogs, "", func(msg store.InboxMessage) error {
 		_, _, err := st.Enqueue(msg, store.DefaultInboxLimits)

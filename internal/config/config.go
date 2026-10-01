@@ -56,6 +56,11 @@ type Tool struct {
 	// the pane, as prompt_mode "send" does, instead of riding the command line.
 	TypedPromptPrefixes []string `toml:"typed_prompt_prefixes"`
 	InterruptKeys       []string `toml:"interrupt_keys"`
+	// ClearInputKeys empty the tool's composer. With them, a draft nobody
+	// is typing into is lifted out of the way of a queued message and typed
+	// back afterwards; without them it holds the queue for as long as it
+	// stands.
+	ClearInputKeys []string `toml:"clear_input_keys"`
 	// EchoBudget bounds the after-keystroke chase on this tool's panes: how
 	// long the focused view keeps looking for the repaint a key caused before
 	// leaving it to the tick. It is per tool because agent TUIs differ by
@@ -569,6 +574,9 @@ func mergeTool(name string, user, def Tool) Tool {
 	if len(user.InterruptKeys) == 0 {
 		user.InterruptKeys = def.InterruptKeys
 	}
+	if len(user.ClearInputKeys) == 0 {
+		user.ClearInputKeys = def.ClearInputKeys
+	}
 	if user.EchoBudget.Duration <= 0 {
 		user.EchoBudget = def.EchoBudget
 	}
@@ -917,6 +925,9 @@ type_ahead = true
 # Escape stops a running turn; a second one opens the rewind menu, so
 # Gate Inbox never sends it twice for one message
 interrupt_keys = ["Escape"]
+# ctrl+l empties the composer (chat:clearInput), so a draft left standing
+# is set aside while a queued message goes in, then typed back
+clear_input_keys = ["C-l"]
 # claude 2.1.263: --model <model>
 model_flag = "--model"
 # Named subscriptions are off: a session runs on claude's own stored login.

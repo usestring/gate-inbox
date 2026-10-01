@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/usestring/gate-inbox/internal/envname"
 )
 
@@ -181,6 +183,35 @@ func TestFleetFramesAreUnchanged(t *testing.T) {
 				t.Fatalf("frame differs\n got: %q\nwant: %q", frame, expected[name])
 			}
 		})
+	}
+}
+
+// TestGoldenFramesFillTheirSize holds every recorded frame, on every OS, to the
+// width and height in its case name. Only one OS can re-record each golden
+// file, so a frame patched by hand on the other one fails here first instead
+// of only in that OS's CI.
+func TestGoldenFramesFillTheirSize(t *testing.T) {
+	for _, path := range []string{goldenFrames, "testdata/fleet_frames_darwin.txt"} {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for name, frame := range goldenSections(string(body)) {
+			var w, h int
+			size := strings.Split(name, "/")[1]
+			if _, err := fmt.Sscanf(size, "%dx%d", &w, &h); err != nil {
+				t.Fatalf("%s: case %q names no size: %v", path, name, err)
+			}
+			lines := strings.Split(strings.TrimSuffix(frame, "\n"), "\n")
+			if len(lines) != h {
+				t.Errorf("%s %s: %d lines, want %d", path, name, len(lines), h)
+			}
+			for i, line := range lines {
+				if got := ansi.StringWidth(line); got != w {
+					t.Errorf("%s %s: line %d is %d cells, want %d", path, name, i+1, got, w)
+				}
+			}
+		}
 	}
 }
 

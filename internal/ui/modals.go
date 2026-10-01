@@ -378,11 +378,7 @@ func (m *Model) viewSettings() string {
 		return m.viewCLIPicker()
 	}
 	if m.settings.experimentalPicker {
-		state := "off"
-		if m.settings.jevAutoSuggest {
-			state = "on"
-		}
-		return m.cardFlex("▣ Experimental features", "JEV Auto Suggest  ◂ "+state+" ▸\nSuggest the next reply in an existing session.\nRequires TYPESAFE_API_KEY; sends bounded text to TypeSafe.", [][2]string{{"←→/↵", "toggle"}, {"esc", "back"}})
+		return m.viewExperimentalSettings()
 	}
 	density := "compact"
 	if m.settings.comfortableRows {

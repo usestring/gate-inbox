@@ -91,8 +91,9 @@ picks them back up.
 **Spawn.** `n` starts a session in the selected group. `ctrl+n` opens the full form (tool, name,
 directory, first prompt, group). Agents name their own sessions after the task.
 
-**Reuse prompts.** In the New Session form's prompt field, matching suggestions appear as you
-type. `ctrl+n` / `ctrl+p` choose among them and `ctrl+y` inserts the chosen text for editing;
+**Reuse prompts (experimental).** Enable **Prompt suggestions** under Settings → Experimental
+(default off). In the New Session form's prompt field, matching suggestions appear as you type.
+`ctrl+n` / `ctrl+p` choose among them and `ctrl+y` inserts the chosen text for editing;
 accepting does not launch the session. Suggestions come from the newest 16 MiB of each CLI's
 submission log within the past 30 days. A whole prompt or a line in a multi-line prompt must occur
 at least four times to qualify. Counting ignores case and repeated whitespace, and each submission

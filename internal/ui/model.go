@@ -116,6 +116,8 @@ type Model struct {
 	snips          snippets.Set
 	snipErr        string
 	jevAutoSuggest bool
+	promptSuggest  bool
+	promptSnipsSeq int
 	autoSuggestSeq int
 	promptSnips    []promptsnips.Snippet
 
@@ -807,7 +809,9 @@ type settingsState struct {
 	reopenSessions     string
 	outsidePanes       string
 	experimentalPicker bool
+	experimentalCursor int
 	jevAutoSuggest     bool
+	promptSuggest      bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -1143,6 +1147,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		focusOnEnter:    storedFocusOnEnter(st),
 		focusView:       storedFocusView(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
+		promptSuggest:   storedPromptSuggestions(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),
 		sidebar:         storedSidebar(st, cfg.Board.Sidebar),
@@ -1364,7 +1369,7 @@ func (m *Model) Init() tea.Cmd {
 	// read any session state, and a first run has none to wait for.
 	m.maybeOpenWelcome()
 	m.syncPollInput()
-	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.autoNameTick(), m.checkTmuxConfig, loadPromptSnips)
+	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips())
 }
 
 // pasteSweepMsg carries the result of one pass over the pastes directory.
@@ -2421,15 +2426,21 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handlePasteTextMsg(msg)
 
 	case promptSnipsLoadedMsg:
+		if !m.promptSuggest || msg.seq != m.promptSnipsSeq {
+			return m, nil
+		}
 		if msg.err != nil {
 			m.errBar.text = "reading prompt history: " + msg.err.Error()
 		} else {
 			m.promptSnips = msg.snips
 		}
-		return m, promptSnipsTick()
+		return m, promptSnipsTick(m.promptSnipsSeq)
 
 	case promptSnipsTickMsg:
-		return m, loadPromptSnips
+		if msg.seq != m.promptSnipsSeq {
+			return m, nil
+		}
+		return m, m.refreshPromptSnips()
 
 	case attachDoneMsg:
 		// An agent that repainted the terminal background for itself leaves

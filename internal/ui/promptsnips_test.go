@@ -41,7 +41,7 @@ func TestPromptSnipsLoadBothSubmissionLogs(t *testing.T) {
 	if msg.err != nil || len(msg.snips) != 2 {
 		t.Fatalf("loaded %v snippets, want both tools", msg.snips)
 	}
-	m := &Model{}
+	m := &Model{promptSuggest: true}
 	_, cmd := m.update(msg)
 	if m.promptSnips == nil || cmd == nil {
 		t.Fatal("loaded snippets should be cached and schedule a refresh")
@@ -78,6 +78,7 @@ func TestNewSessionPromptSuggestionAcceptsEditableTextForBothTools(t *testing.T)
 	for _, tool := range []string{"claude", "codex"} {
 		t.Run(tool, func(t *testing.T) {
 			m := buildModel(t)
+			m.promptSuggest = true
 			m.openForm()
 			m.form.toolNames = []string{tool}
 			m.form.toolIndex = 0
@@ -125,7 +126,7 @@ func TestPromptHistoryErrorSurfacesAndRefreshes(t *testing.T) {
 	if msg.err == nil {
 		t.Fatal("unreadable history was silently accepted")
 	}
-	m := &Model{}
+	m := &Model{promptSuggest: true}
 	_, cmd := m.update(msg)
 	if !strings.Contains(m.errBar.text, "reading prompt history") || cmd == nil {
 		t.Fatal("history failure must surface and schedule a retry")
@@ -151,4 +152,80 @@ func usePromptHistoryRoots(t *testing.T, claudeHome, codexHome string) {
 		return search.NewLocator(claudeHome, filepath.Join(codexHome, "sessions"))
 	}
 	t.Cleanup(func() { promptHistoryRoots = before })
+}
+
+func TestPromptSuggestionsDefaultOffStopsReadsAndAcceptance(t *testing.T) {
+	m := buildModel(t)
+	if m.promptSuggest || storedPromptSuggestions(m.store) || m.refreshPromptSnips() != nil {
+		t.Fatal("prompt suggestions must default off without reading history")
+	}
+	m.openForm()
+	focusFormPrompt(t, m)
+	m.form.prompt.input.SetValue("Review the")
+	m.promptSnips = []promptsnips.Snippet{{Text: "Review the tests", Count: 4}}
+	if strings.Contains(m.viewForm(), "^Y") {
+		t.Fatal("disabled suggestions are visible")
+	}
+	if _, handled := m.composerKey(composerForm, tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl}); handled {
+		t.Fatal("disabled suggestions intercept the insertion key")
+	}
+	if got := m.form.prompt.input.Value(); got != "Review the" {
+		t.Fatalf("disabled feature inserted %q", got)
+	}
+	m.promptSnips = nil
+	_, cmd := m.update(promptSnipsLoadedMsg{snips: []promptsnips.Snippet{{Text: "Review the tests"}}})
+	if cmd != nil || m.promptSnips != nil {
+		t.Fatal("disabled feature accepted an in-flight history read")
+	}
+	_, cmd = m.update(promptSnipsTickMsg{})
+	if cmd != nil {
+		t.Fatal("disabled feature continued history refresh")
+	}
+}
+
+func TestPromptSuggestionsExperimentalTogglePersistsAndCancels(t *testing.T) {
+	m := buildModel(t)
+	m.openSettings()
+	m.settings.field = settingsFieldExperimental
+	m.handleSettingsKey(key("enter"))
+	m.handleSettingsKey(key("down"))
+	if !strings.Contains(m.viewSettings(), "Prompt suggestions") {
+		t.Fatal("missing experimental toggle")
+	}
+	m.handleSettingsKey(key("right"))
+	m.handleSettingsKey(key("esc"))
+	_, cmd := m.handleSettingsKey(key("esc"))
+	if !m.promptSuggest || !storedPromptSuggestions(m.store) || cmd == nil || m.jevAutoSuggest {
+		t.Fatal("prompt suggestions did not enable independently and start history loading")
+	}
+	enabledSeq := m.promptSnipsSeq
+	m.openSettings()
+	m.settings.field = settingsFieldExperimental
+	m.handleSettingsKey(key("enter"))
+	m.handleSettingsKey(key("down"))
+	m.handleSettingsKey(key("right"))
+	m.handleSettingsKey(key("esc"))
+	_, cmd = m.handleSettingsKey(key("esc"))
+	if m.promptSuggest || storedPromptSuggestions(m.store) || cmd != nil || m.promptSnips != nil {
+		t.Fatal("turning the feature off did not persist and stop history loading")
+	}
+	m.openSettings()
+	m.settings.promptSuggest = true
+	_, cmd = m.saveAndCloseSettings()
+	if cmd == nil {
+		t.Fatal("re-enabling did not reload history")
+	}
+	_, cmd = m.update(promptSnipsTickMsg{seq: enabledSeq})
+	if cmd != nil {
+		t.Fatal("old refresh chain survived disabling and re-enabling")
+	}
+	_, cmd = m.update(promptSnipsLoadedMsg{seq: enabledSeq, snips: []promptsnips.Snippet{{Text: "stale prompt"}}})
+	if cmd != nil || m.promptSnips != nil {
+		t.Fatal("old history read survived disabling and re-enabling")
+	}
+	m.openSettings()
+	_, cmd = m.saveAndCloseSettings()
+	if cmd != nil {
+		t.Fatal("saving unrelated settings started a duplicate refresh chain")
+	}
 }

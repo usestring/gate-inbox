@@ -531,8 +531,10 @@ func (m *Model) composerOpen(target composerID) bool {
 // every other key, which the caller types into the input itself.
 func (m *Model) composerKey(target composerID, msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	c := m.composerFor(target)
-	if cmd, handled := c.suggestionKey(msg, m.promptSnips); handled {
-		return cmd, true
+	if m.promptSuggest {
+		if cmd, handled := c.suggestionKey(msg, m.promptSnips); handled {
+			return cmd, true
+		}
 	}
 	switch msg.String() {
 	case "ctrl+v":

@@ -15,10 +15,11 @@ import (
 const promptSnipsRefreshInterval = time.Minute
 
 type promptSnipsLoadedMsg struct {
+	seq   int
 	snips []promptsnips.Snippet
 	err   error
 }
-type promptSnipsTickMsg struct{}
+type promptSnipsTickMsg struct{ seq int }
 
 var promptHistoryRoots = newHistoryLocator
 
@@ -34,11 +35,26 @@ func loadPromptSnips() tea.Msg {
 	return promptSnipsLoadedMsg{snips: promptsnips.Build(subs, time.Now())}
 }
 
-func promptSnipsTick() tea.Cmd {
-	return tea.Tick(promptSnipsRefreshInterval, func(time.Time) tea.Msg { return promptSnipsTickMsg{} })
+func (m *Model) refreshPromptSnips() tea.Cmd {
+	if !m.promptSuggest {
+		return nil
+	}
+	seq := m.promptSnipsSeq
+	return func() tea.Msg {
+		msg := loadPromptSnips().(promptSnipsLoadedMsg)
+		msg.seq = seq
+		return msg
+	}
+}
+
+func promptSnipsTick(seq int) tea.Cmd {
+	return tea.Tick(promptSnipsRefreshInterval, func(time.Time) tea.Msg { return promptSnipsTickMsg{seq: seq} })
 }
 
 func (m *Model) promptSuggestionLine(c *composer, width int) string {
+	if !m.promptSuggest {
+		return ""
+	}
 	suggestions := c.suggestions(m.promptSnips)
 	if len(suggestions) == 0 {
 		return ""

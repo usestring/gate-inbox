@@ -526,8 +526,8 @@ func padToHeight(s string, height int) string {
 	return s
 }
 
-// viewFooter is the app's legend: one tier of keys for whatever the cursor
-// is on. A transient mode (hotkey menu, rename, resize) owns the legend
+// viewFooter is the app's legend: the row tier, then the snippets tier,
+// then the peek key. A transient mode (hotkey menu, rename, resize) owns the legend
 // alone while it is up.
 func (m *Model) viewFooter() string {
 	// A half-typed group number is the one piece of state with no home on a
@@ -597,6 +597,16 @@ func (m *Model) viewFooter() string {
 		if m.canRescindLatestSubmission() {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextFocus, keymap.Rescind), "undo"})
 		}
+		if sess, ok := m.selected(); ok && !m.isShell(sess.Tool) {
+			// The focused view can be the conversation rather than the
+			// terminal, and this is the only place the key back is named
+			// for somebody who arrived on the setting rather than on the
+			// list. It is dropped first at a narrow width, where the
+			// footer's own note says the key map has it.
+			if key := m.fullCap(keymap.ContextFocus, keymap.ToggleConversation); key != "" {
+				pairs = append(pairs, [2]string{key, m.focusConversationLabel()})
+			}
+		}
 		pairs = append(pairs,
 			// Named on the footer rather than left to the key map: it is
 			// destructive, and a key nobody knows about is a key nobody
@@ -609,7 +619,19 @@ func (m *Model) viewFooter() string {
 }
 
 func (m *Model) listFooter() string {
-	footer := legendBar([]legendSection{m.defaultRowLegend()}, m.width, min(m.legendRows(), 1))
+	row := m.defaultRowLegend()
+	footer := legendBar([]legendSection{row}, m.width, min(m.legendRows(), 1))
+	if len(row.pairs) > 0 && m.legendRows() > 1 {
+		if snips := m.snippetLegend(); len(snips.pairs) > 0 {
+			if line := legendBar([]legendSection{snips}, m.width, 1); line != "" {
+				if footer == "" {
+					footer = line
+				} else {
+					footer += "\n" + line
+				}
+			}
+		}
+	}
 	peekCap := m.tightCap(keymap.ContextList, keymap.LegendPeek)
 	if footer == "" || peekCap == "" {
 		return footer
@@ -638,7 +660,13 @@ func (m *Model) defaultRowLegend() legendSection {
 		}
 		pairs := [][2]string{{openKey, action}}
 		if m.applies(keymap.ContextList, keymap.Archive, row) {
-			pairs = append(pairs, [2]string{m.capJoin(keymap.ContextList, "/", keymap.Archive, keymap.ArchiveAll), "kill / all"})
+			if key := m.capJoin(keymap.ContextList, "/", keymap.Archive, keymap.ArchiveAll); key != "" {
+				text := "kill"
+				if m.km().Bound(keymap.ContextList, keymap.ArchiveAll) {
+					text = "kill / all"
+				}
+				pairs = append(pairs, [2]string{key, text})
+			}
 		}
 		return legendSection{title: "Group", pairs: pairs}
 	}
@@ -657,21 +685,55 @@ func (m *Model) defaultRowLegend() legendSection {
 	}
 
 	title := "Session"
-	pairs := [][2]string{{openKey, enterHint}, {m.tightCap(keymap.ContextList, keymap.Attach), attachHint}}
+	// Priority leads the toolbar: it is the one key that reorders the
+	// queue, and the footer names what the next press sets.
+	var pairs [][2]string
+	if key := m.tightCap(keymap.ContextList, keymap.Priority); key != "" {
+		pairs = append(pairs, [2]string{key, priorityLegend(row.sess.Priority)})
+	}
+	pairs = append(pairs,
+		[2]string{openKey, enterHint}, [2]string{m.tightCap(keymap.ContextList, keymap.Attach), attachHint})
 	if m.applies(keymap.ContextList, keymap.QuickInput, row) {
-		pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, keymap.QuickInput), "hotkeys"})
+		if key := m.tightCap(keymap.ContextList, keymap.QuickInput); key != "" {
+			pairs = append(pairs, [2]string{key, "hotkeys"})
+		}
 	} else if m.isShell(row.sess.Tool) {
 		title = "Shell"
 	}
 	if m.applies(keymap.ContextList, keymap.Dismiss, row) {
-		pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, keymap.Dismiss), "skip"})
+		if key := m.tightCap(keymap.ContextList, keymap.Dismiss); key != "" {
+			pairs = append(pairs, [2]string{key, "skip"})
+		}
+	}
+	if m.applies(keymap.ContextList, keymap.Rescind, row) {
+		if key := m.tightCap(keymap.ContextList, keymap.Rescind); key != "" {
+			pairs = append(pairs, [2]string{key, "undo"})
+		}
 	}
 	if m.showsConversation() {
 		pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, keymap.ToggleConversation), m.conversationToggleLabel()})
 	}
-	pairs = append(pairs,
-		[2]string{m.tightCap(keymap.ContextList, keymap.Archive), "kill"},
-	)
+	if key := m.tightCap(keymap.ContextList, keymap.Archive); key != "" {
+		pairs = append(pairs, [2]string{key, "kill"})
+	}
+	// The rest of the daily loop rides the same row: starting, finding,
+	// and the palette that runs everything without a key. The row holds
+	// one terminal line, so a narrow window cuts from this end first and
+	// the pairs above always survive.
+	for _, extra := range []struct {
+		action keymap.Action
+		text   string
+	}{
+		{keymap.NewSession, "new"}, {keymap.Search, "search"},
+		{keymap.LastPane, "last pane"}, {keymap.QuickActions, "quick actions"},
+	} {
+		if !m.applies(keymap.ContextList, extra.action, row) {
+			continue
+		}
+		if key := m.tightCap(keymap.ContextList, extra.action); key != "" {
+			pairs = append(pairs, [2]string{key, extra.text})
+		}
+	}
 	return legendSection{title: title, pairs: pairs}
 }
 
@@ -714,7 +776,9 @@ func (m *Model) rowLegend() legendSection {
 			{keymap.Archive, "kill"}, {keymap.Revive, "revive"}, {keymap.Restore, "restore"},
 		} {
 			if m.applies(keymap.ContextList, candidate.action, row) {
-				pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, candidate.action), candidate.text})
+				if key := m.tightCap(keymap.ContextList, candidate.action); key != "" {
+					pairs = append(pairs, [2]string{key, candidate.text})
+				}
 			}
 		}
 		return legendSection{title: "Group", pairs: pairs}
@@ -741,10 +805,13 @@ func (m *Model) rowLegend() legendSection {
 		{keymap.Revive, "revive"}, {keymap.ReviveAll, "revive all"},
 		{keymap.SwitchAccount, "account"}, {keymap.Restart, "restart"},
 		{keymap.ArchiveAll, "kill all"},
-		{keymap.Priority, priorityLegend(row.sess.Priority)},
+		// Priority is not repeated here: the row tier above already leads
+		// with it.
 	} {
 		if m.applies(keymap.ContextList, candidate.action, row) {
-			pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, candidate.action), candidate.text})
+			if key := m.tightCap(keymap.ContextList, candidate.action); key != "" {
+				pairs = append(pairs, [2]string{key, candidate.text})
+			}
 		}
 	}
 	if len(m.undo.sessions) > 0 {
@@ -761,7 +828,7 @@ func (m *Model) viewLegend() legendSection {
 		action keymap.Action
 		text   string
 	}{
-		{keymap.LastPane, "last pane"}, {keymap.Rescind, "undo"},
+		{keymap.LastPane, "last pane"},
 		{keymap.NewSession, "new"}, {keymap.NewSessionForm, "new…"},
 		{keymap.NewTerminal, "terminal"}, {keymap.NewGroup, "group"}, {keymap.Search, "search"},
 		{keymap.ArchivedView, "archived"}, {keymap.StatusFilter, "attention"},
@@ -770,6 +837,12 @@ func (m *Model) viewLegend() legendSection {
 		{keymap.FoldAll, "fold all"}, {keymap.Resize, "resize"}, {keymap.Settings, "settings"},
 	} {
 		if !m.applies(list, candidate.action, row) {
+			continue
+		}
+		key := m.tightCap(list, candidate.action)
+		if key == "" {
+			// Unbound by default: the key map (h) still offers the
+			// row for rebinding, but the peek names only keys that work.
 			continue
 		}
 		text := candidate.text
@@ -798,7 +871,7 @@ func (m *Model) viewLegend() legendSection {
 				text = "unfold all"
 			}
 		}
-		pairs = append(pairs, [2]string{m.tightCap(list, candidate.action), text})
+		pairs = append(pairs, [2]string{key, text})
 	}
 	if m.applies(list, keymap.ReorderUp, row) || m.applies(list, keymap.ReorderDown, row) {
 		pairs = append(pairs, [2]string{m.capJoin(list, "/", keymap.ReorderUp, keymap.ReorderDown), "reorder"})

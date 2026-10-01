@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -57,6 +58,7 @@ func TestForkSelectedSessionCreatesNamedSibling(t *testing.T) {
 	}
 	m.cfg.Tools[source.Tool] = tool
 
+	bindTestKey(t, m, keymap.Fork, "f")
 	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'f', Text: "f"})
 	m = updated.(*Model)
 	if m.mode != modeFork || m.fork.source.ID != source.ID {

@@ -14,18 +14,15 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 
 ## Keys
 
-Tell your agent to manage sessions and terminals in Gate Inbox; it can set them up and control them for you.
-
 | Key | Action |
 |-----|--------|
-| `n` | New session: one question, which agent, in a box already holding the CLI you last spawned — then no form, no name, no prompt, in the group under the cursor. Type over the box to pick another — `terminal` among them, for a plain shell — `←→` to cycle, `esc` to back out. Settings → CLIs sets which appear and their order (`J`/`K` moves one). **new session agent** can use `last used`, `default tool`, or `auto`. Auto asks the build's extension which enabled CLI to start, is offered only when it can answer, and opens the ordinary picker when it does not. |
-| `ctrl+n` | New session, asking first (tool, name, directory, optional starting prompt, group picker). The card opens on the tool: type to pick a CLI by name, or arrow through the matches |
+| `n` | New session: one question, which agent, in a box already holding the CLI you last spawned — then no form, no name, no prompt, in the group under the cursor. Type over the box to pick another — `terminal` among them, for a plain shell — `←→` to cycle, `esc` to back out. Settings → CLIs sets which appear and their order. **new session agent** can use `last used`, `default tool`, or `auto`. Auto asks the build's extension which enabled CLI to start, is offered only when it can answer, and opens the ordinary picker when it does not. |
+| `ctrl+n` | New session, asking first (tool, name, directory, optional starting prompt, group picker). The card opens on the tool: type to pick a CLI by name, or arrow through the matches. `n` is the fast path for this same form; inside a focused session only `alt+n` is left, because plain letters there go to the agent |
 | `T` | New terminal tab: a shell under the selected agent, or in the selected group |
-| `f` | Fork the selected conversation into a named session in the same group and directory |
-| `M` | Migrate the selected conversation to another CLI: a new session there reads the transcript and carries on |
 | `g` | New group (name, parent, default path) |
 | `enter` | Focus session in place (keys go to the agent, list stays) / fold group. An archived session has no live pane to focus, so the row offers attach and `u` instead |
-| `A` | Attach session full screen (Settings can swap it with `enter`) |
+| `A` | Attach: leave the list and fill the whole terminal with this session's pane (Settings can swap it with `enter`) |
+| `F3` | Switch the selected row between the shortened and the full conversation; inside a session, between the conversation and the terminal |
 | `l` | Focus the session you were on before this one; `l` again swaps back. The pair is held by session, so a poll, a fold or a filter reordering the board does not move it |
 | `ctrl+g` | Jump to a pane: search listed sessions by name, group, tool or status, then press `enter` to focus one. Works from the list or a focused pane; `esc` returns without switching. Folded groups are opened when you jump into them. |
 | `.` | Skip it for now (mute, or mark finished idle); `alt+.` does it from inside |
@@ -34,33 +31,24 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | `←` (`→` with the list on the left) | Step into the row, toward the pane: open the session's work, then focus the session; on a group, open it |
 | `→` (`←` with the list on the left) | Step out, toward the list: fold the work, or close the group |
 | `←` / `→` | Focused, at a prompt edge: the arrow toward the list returns to the manager. In triage, `←` always returns to the manager, and `→` on a finished session opens the next item instead, whichever side the list is on. The tool's prompt marker (`activity_cutoff`) must be on the caret's row; elsewhere in the prompt, the arrow moves the caret as usual. |
-| `K` / `J` (or `shift+↑` / `shift+↓`) | Reorder session or group among its visible siblings |
+| `K` / `J` (or `shift+↑` / `shift+↓`) | Reorder the row among its visible siblings: swap this session (or group) with the neighbour above or below. Manual order only — triage and sorted views refuse it |
 | `m` | Move a session to a group, a terminal into a session, or a group under another group |
+| `p` | Priority: each press steps the tier up — `urgent`, `high`, `medium`, `low`, then none. Higher tiers sort first in the list and in triage, within the same status |
 | `r` | Name a session: ask its agent to name itself (`/rename`, or the same request in prose). On an adopted pane, derive the name from its conversation. On a group, open the group card on it: name, parent and default path |
-| `x` | Kill the selected session, or the whole subtree under a group: kills the pane, frees the RAM its agent held, and files the row in the archive under `t`. A group with no session filed under it, live or archived, is deleted instead, so its name is free straight away |
-| `X` | Archive every session in view. The confirmation carries a tick box (`space`) as well as the `y`, because one keystroke is the wrong price for every session on screen |
-| `v` | Revive a dead session, or every dead session under a group. On a session that is still running it restarts the agent on the conversation it is already on |
-| `V` | Revive every dead session in view |
-| `O` | Take over the adopted panes now: restart each idle one as a managed session on its own conversation, and the busy ones as they go idle. The board does this by itself unless "outside panes" says to keep them as-is |
-| `R` | Restart the selected session on an empty context: same name, group, directory and tool |
-| `u` | Restore a session or group out of the archive, resuming what it held. The act is `kill`; the archive is where the row lands, the way a deleted file lands in a trash can |
+| `x` | Kill the selected session, or the whole subtree under a group: kills the pane, frees the RAM its agent held, and files the row in the archive. A group with no session filed under it, live or archived, is deleted instead, so its name is free straight away |
+| `v` | Revive a dead session. On a session that is still running it restarts the agent on the conversation it is already on |
+| `u` | Restore a session or group out of the archive, resuming what it held. The act is `kill`; the archive is where the row lands, the way a deleted file lands in a trash can. A row left in the archive is deleted for good after 7 days |
 | `U` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed kill as well as a silent one |
 | `space` | Hotkey menu: send one of your snippets to the selected session |
-| `F` | Fold / unfold every group |
-| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, ask before killing, sort, key hints, on leaving a session, after hotkey send, session keys, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
-| `\|` | Resize the split: `←→` nudge the divider, `enter` commits, `esc` cancels |
-| `\` | Hide / show the list beside the pane: the `board` layout under a key, and `alt+\` does it from inside a focused session. The layout you had comes back on the second press |
-| `t` | Toggle archived view. A row there counts down its retention: seven days after it was archived the manager deletes it for good, with its hook files, and the countdown is on the row |
+| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, ask before killing, sort, key hints, on leaving a session, after hotkey send, session keys, focused view, experimental features, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
 | `w` | Filter to sessions that need attention (`waiting`, stuck, `finished`, `errored`); press again to show all |
-| `tab` | Enter the next session that needs you, wherever it is in the list |
-| `alt+w` `alt+f` | Enter the next `waiting` / `finished` session |
-| `alt+e` `alt+i` `alt+k` | Enter the next `errored` (or dead) / `idle` / `working` one |
-| `M` | Messages (updates, tips; `x` dismisses one for good). The welcome message points at Settings for a bug or an idea. |
-| `e` | Hide / show empty groups |
-| `/` | Search: session name, tool, group, status, what the pane is showing, and what the session has said or run |
-| `h` / `ctrl+h` | The key map for the current screen (`H` also works), split into common and advanced keys. It scrolls (`↑↓`/`jk`, `ctrl+u`/`ctrl+d`, `g`/`G`) and `/` searches it down to one line. `ctrl+h` opens it from anywhere, including inside a session, and closes it again. |
+| `tab` | Enter the next session that needs you, wherever it is in the list. One key per state (waiting, finished, errored, idle, working) ships unbound — rebind one from the key map (`h`), or run it from quick actions (`:`) |
+| `/` | Search: session name, tool, group, status, what the pane is showing, and what the session has said or run. `esc` closes the field and keeps the filter; delete the text (`ctrl+u` wipes the field) to clear it |
+| `h` / `ctrl+h` | The key map for the current screen (`H` also works), split into common and advanced keys. It scrolls (`↑↓`/`jk`, `ctrl+u`/`ctrl+d`, `g`/`G`) and `/` searches it down to one line. `ctrl+h` opens it from anywhere, including inside a session, and closes it again. Inside a session only the `ctrl+h` chord reaches the key map — plain `h` and `?` go to the agent |
 | `:` / `ctrl+p` | Quick actions: type what you want to do, `↑↓` pick, `enter` runs it. Each row shows the action's current key, what it does, and the name `keys.toml` gives it, and running one leaves a note with the key that would have done it in one press. Recently run actions lead the list |
 | `q` | Quit (sessions keep running) |
+
+One-off and destructive actions — fork, migrate, restart, revive all, account switch, kill-all, fold-all, resize, the archived view, per-state jumps — ship with no key. They all run from quick actions (`:`), which shows each action's current key, and the key map (`h`) puts any of them back on a key.
 
 Navigation is keyboard-driven. The manager claims mouse reporting so the wheel stays inside the app and cannot scroll the TUI out of view: in a focused session it walks that pane's scrollback, where click-drag also selects pane text and copies it. In a focused agent that tracks the mouse, a click passes straight through to its own clickable UI while a drag still selects and copies; hold `alt` to pass a whole drag through instead, for the agent's own text selection or sliders. In the list the wheel does nothing, since moving the selection with it retargets every key that follows.
 
@@ -71,6 +59,8 @@ Over SSH a browser started on the remote host would open out of sight, so a link
 Answer a session, leave it, land in the next one that needs a person: `ctrl+q` does this, and until now it only did it inside triage, so someone who answered a session and pressed `ctrl+q` landed back on the board every time.
 
 Settings (`s`) has an `on leaving a session` row for it — `list` (the default, today's behaviour) or `next`, which gives `ctrl+q` the same walk without a queue having to be armed with `i` first. Leaving a session mutes it, which is what makes the walk converge: answering a session does not clear its status until the poller sees the pane change, so without the mute the walk hands the same session straight back. `ctrl+\` is still the way out whatever the setting says, and the focused footer names whichever the key is about to do.
+
+With auto-proceed enabled, a confirmed submission also opens the next session when `on leaving a session` is `next`, even outside triage. Enter alone does not advance: the agent must be seen taking the prompt or dialog answer first.
 
 ### Draining full-width
 
@@ -87,10 +77,12 @@ answers the session in front of you.
 
 ## Hotkey menu
 
-Press `space` to dock the hotkey menu at the bottom of the sidebar. It lists your snippets and nothing else: there is no text box, because typing a message is what focusing a session (`enter`) is for. The target follows the cursor while the menu is open, and `↑↓` still move it.
+Press `space` to dock the hotkey menu at the bottom of the sidebar. It lists your snippets without a text box, because typing a message is what focusing a session (`enter`) is for. The target follows the cursor while the menu is open, and `↑↓` still move it.
 
 - On a **session** row, each snippet's key sends it straight into that session's pane, so the agent gets it as a user message without you attaching. In the menu the key works without its chord: `c` sends what `ctrl+alt+c` sends, `§` what `alt+§` sends, and the chord itself still works too. The menu stays open, ready for the next session; Settings (`s`) can make it close after a send instead.
 - On a **group** row there is no pane to send to, so the menu says to select a session. `n` and `ctrl+n` start a new agent in the group.
+
+Settings → **experimental** contains **JEV Auto Suggest**, off by default. With `TYPESAFE_API_KEY` set, it ranks up to eight earlier submissions from the selected existing session against its last four messages. The suggestion appears beneath the snippets; `ctrl+y` inserts it into the session's prompt without submitting it. Close the menu and focus the session to edit or send it. It never suggests a starting prompt on a group row. When enabled, each ranking request sends up to four messages (500 characters each) and eight submissions (300 characters each) to TypeSafe. A missing key, failed request, or JEV's “none” choice leaves the menu without a suggestion.
 
 `space` or `esc` closes the menu. Snippets that do not fit on its lines are counted on the last one, and the key map (`?`) lists them all.
 
@@ -102,13 +94,13 @@ Every configured tool is offered when you create a session, which is more than m
 
 ## Terminal tabs
 
-`T` opens a shell tab: a session like any other (same list, same row keys, same `enter`, `x`, `v` and `R`) with your shell in the pane instead of an agent. On an agent, the new shell nests under that session, in that agent's group and directory. On a group, it lands in the group as an un-nested sibling, in the group's default path. On a nested shell it joins the same parent; on an un-nested shell it stays un-nested in that shell's group. Either way it opens in that shell's own directory, so a shell you have `cd`'d somewhere hands the next one the same place. A nested shell is named after the session it hangs under, `terminal-review-done` rather than `terminal-0ab5`, and the next one under that session counts up to `terminal-review-done-2`; a shell with no session over it keeps the generated name, and `r` renames any of them. Its status rests at idle throughout: turn tracking belongs to agents, and a shell has no turns.
+`T` opens a shell tab: a session like any other (same list, same row keys, same `enter`, `x` and `v`) with your shell in the pane instead of an agent. On an agent, the new shell nests under that session, in that agent's group and directory. On a group, it lands in the group as an un-nested sibling, in the group's default path. On a nested shell it joins the same parent; on an un-nested shell it stays un-nested in that shell's group. Either way it opens in that shell's own directory, so a shell you have `cd`'d somewhere hands the next one the same place. A nested shell is named after the session it hangs under, `terminal-review-done` rather than `terminal-0ab5`, and the next one under that session counts up to `terminal-review-done-2`; a shell with no session over it keeps the generated name, and `r` renames any of them. Its status rests at idle throughout: turn tracking belongs to agents, and a shell has no turns.
 
 The shell is the `[tools.terminal]` block in [config.toml](configuration.md). It ships with no command, which leaves the pane on `$SHELL`; set one to open a different shell. What marks it as a shell is `shell = true`, not its name, so a `[tools.terminal]` block you wrote yourself stays the agent CLI you meant it to be.
 
 Shells live in the tree with the agents they belong to, marked with `❯` where an agent carries its status dot. `m` on a terminal moves it onto an agent (nests under that session) or onto a group (un-nests into that group). A group's dots and counts describe its agents, so only agent work shows as in progress.
 
-**The keys that write into a pane refuse a shell.** `space` pastes its text and presses Enter, so on a shell a sentence meant for an agent would run as a command. It says the row is a shell and sends nothing; enter the session (`↵`) to type there, where what you type is plainly a command. `f` says the same, since a shell has no conversation to fork.
+**The keys that write into a pane refuse a shell.** `space` pastes its text and presses Enter, so on a shell a sentence meant for an agent would run as a command. It says the row is a shell and sends nothing; enter the session (`↵`) to type there, where what you type is plainly a command. Forking says the same, since a shell has no conversation to fork.
 
 A shell left on its empty command carries no session id, so `gate-inbox rename` run inside one cannot find its session. Rename it from the list with `r`. Give the block a command and the pane gets an id like any other session.
 
@@ -130,13 +122,13 @@ Gate Inbox does not create git worktrees. A session that should edit a checkout 
 
 ## Killing and reviving sessions
 
-`x` kills a session that is holding RAM you want back, and on a group row it kills every live session under it; `X` kills every live session in view. Each asks to confirm first, and what it kills is the tmux session, not the record: the row stays in the tree, marked `dead`, with its name, group, and conversation id intact.
+`x` kills a session that is holding RAM you want back, and on a group row it kills every live session under it; killing every live session in view runs from quick actions (`:`). Each asks to confirm first, and what it kills is the tmux session, not the record: the row stays in the tree, marked `dead`, with its name, group, and conversation id intact.
 
 `v` relaunches a dead session under its old id, keeping its name, group, and history. When the manager holds that session's own conversation id, revive resumes **that exact conversation** through the tool's `resume_by_id_command`: `claude --resume {id}`, `codex resume {id}`, `opencode --session {id}`.
 
-The id arrives one of two ways: tools with a `session_id_flag` launch under an id the manager mints, and tools that mint their own are read back by a `session_store` capturer (`codex`, `opencode`). Without an id, a tool with a `resume_picker_command` opens its own session picker in the pane on revive (`claude --resume`, `codex resume`), so you pick the conversation. A tool without one falls back to `revive_command` (`opencode --continue`), which resumes the working directory's most recent conversation, and the manager says so in the status line, since sessions sharing a directory would otherwise land on the wrong one. On a group row `v` revives every dead session under it, and `V` revives every dead session in view; both revive what they can and name the first failure rather than stopping.
+The id arrives one of two ways: tools with a `session_id_flag` launch under an id the manager mints, and tools that mint their own are read back by a `session_store` capturer (`codex`, `opencode`). Without an id, a tool with a `resume_picker_command` opens its own session picker in the pane on revive (`claude --resume`, `codex resume`), so you pick the conversation. A tool without one falls back to `revive_command` (`opencode --continue`), which resumes the working directory's most recent conversation, and the manager says so in the status line, since sessions sharing a directory would otherwise land on the wrong one. On a group row `v` revives every dead session under it, and revive-all in quick actions (`:`) revives every dead session in view; both revive what they can and name the first failure rather than stopping.
 
-A start that finds panes gone offers back the sessions that stopped without you ending them, on the reopen card, before you have to notice the dead rows: `enter` restores every one of them, `c` opens a picker to take part of it, and `esc` leaves them alone. Whichever you answer, those rows are settled: the next start does not ask about them again, and `v` and `V` are still there for the ones you left. A session you revive by hand and lose again is a new loss, and that one is offered.
+A start that finds panes gone offers back the sessions that stopped without you ending them, on the reopen card, before you have to notice the dead rows: `enter` restores every one of them, `c` opens a picker to take part of it, and `esc` leaves them alone. Whichever you answer, those rows are settled: the next start does not ask about them again, and `v` is still there for the ones you left, with revive-all in quick actions (`:`). A session you revive by hand and lose again is a new loss, and that one is offered.
 
 Only a session that died is offered, never one you ended. The board tells them apart from what it records as it happens:
 
@@ -150,17 +142,17 @@ The exit status comes from the pane's launch script, which records the agent's s
 
 Archiving ends the agent, so `x` asks first. It asks every time because until now nothing could take the answer back — a dialog is the price of an act with no undo. Settings (`s`) has an `ask before archiving` row that drops the dialog for `x` on a single session, and `U` is what pays for it: the last archive out of the archive and running again, offered whether the archive was silent or confirmed.
 
-The wide gestures keep their dialog whatever the setting says. `x` on a group takes its whole subtree and `X` takes every row on screen, and neither is a keystroke aimed at something you picked out — which is what makes a silent answer safe. `X` keeps its tick for the same reason it has one.
+The wide gestures keep their dialog whatever the setting says. `x` on a group takes its whole subtree and killing every row on screen (quick actions) takes all of it, and neither is a keystroke aimed at something you picked out — which is what makes a silent answer safe. The wide kill keeps its tick for the same reason it has one.
 
 ## Restarting a session on the conversation it is on
 
-`v` on a running session ends the agent and brings it straight back on the same conversation, so the history is there and the process is new. That is the difference that matters: a session reads its skills, its settings and its MCP servers when the CLI starts, so an agent that has been up since before any of those changed is answering with the old ones and has no way to reload them from inside. `R` below buys the same fresh process by throwing the conversation away, which was never the answer to "the tools are stale". It asks first, and `n` leaves the agent running.
+`v` on a running session ends the agent and brings it straight back on the same conversation, so the history is there and the process is new. That is the difference that matters: a session reads its skills, its settings and its MCP servers when the CLI starts, so an agent that has been up since before any of those changed is answering with the old ones and has no way to reload them from inside. Restarting from quick actions (`:`) buys the same fresh process by throwing the conversation away, which was never the answer to "the tools are stale". It asks first, and `n` leaves the agent running.
 
 A running session with a dead child under it keeps the older meaning: that press is about the child, and `v` revives what is dead beneath it.
 
 ## Restarting a session on an empty context
 
-`R` keeps the row and drops the context: same name, group, tool, and working directory, launched on a conversation the agent has never seen. It is what you want when a session has piled up context you are done with, where reviving it would spend the budget re-reading history or land straight in a compact.
+Restart (quick actions) keeps the row and drops the context: same name, group, tool, and working directory, launched on a conversation the agent has never seen. It is what you want when a session has piled up context you are done with, where reviving it would spend the budget re-reading history or land straight in a compact.
 
 It asks to confirm first, and it works on a live session too: the running agent ends, then the fresh one launches. The conversation it was on is retired rather than resumed: the manager mints a new id for tools that take one (`session_id_flag`) and captures the new one for tools that mint their own (`session_store`). The retired conversation is left on disk untouched, and the row stops pointing at it, so a later `v` resumes the conversation the restart started rather than the context it dropped. The row changes hands only once the new agent is up, so a launch that cannot start (a tool gone from `PATH`, a directory that moved) leaves the session on the conversation it had, still there for `v`.
 
@@ -177,7 +169,7 @@ An agent you start by hand in tmux (plain `claude`, `codex` or `opencode` in any
 
 Relaunching it into the board fixes all of that. The pane is ended once it is idle, and the same conversation is resumed as a `gi_*` session on the board's tmux server; a busy pane is taken on the first pass that finds it idle. The flags and `--model` it was started with are not kept, and its environment becomes the board's. A pane whose conversation cannot be read is left where it is and the status line says so, because relaunching a tool that resumes by id on its continue command would pick the directory's most recent conversation instead.
 
-The board takes every adopted pane over without asking: an idle one on the first pass after startup, a busy one on the first pass that finds it idle, and a pane found while the board is up the same way. A pane is never ended while it is working or while you are in it. A pane that fails to relaunch is left as-is until `O`, which runs the same takeover by hand. The "outside panes" setting can keep them as-is instead (`O` still takes them over), or ignore them: take them off the board without touching the panes, and never take them again.
+The board takes every adopted pane over without asking: an idle one on the first pass after startup, a busy one on the first pass that finds it idle, and a pane found while the board is up the same way. A pane is never ended while it is working or while you are in it. A pane that fails to relaunch is left as-is until takeover runs from quick actions (`:`), which runs the same takeover by hand. The "outside panes" setting can keep them as-is instead (quick actions still takes them over), or ignore them: take them off the board without touching the panes, and never take them again.
 
 If a pane runs the same conversation as a dead row on the board (you resumed a board session by hand), the dead row is never offered back and `v` refuses it: reviving it would start a second agent on one conversation.
 
@@ -187,14 +179,14 @@ If a pane runs the same conversation as a dead row on the board (you resumed a b
 
 | Setting | Values |
 |---|---|
-| on reopen | ask; always resume the ones that died (an unclear one is left for `V`); never offer |
+| on reopen | ask; always resume the ones that died (an unclear one is left for revive-all in quick actions); never offer |
 | outside panes | take them over once idle (the default); keep them as-is; ignore them (the scan takes no outside pane) |
 
 Whatever a default does on the way in is said in one line on the status bar.
 
 ## Forking sessions
 
-1. Select a session and press `f`.
+1. Select a session and run fork from quick actions (`:`).
 2. Enter a name.
 3. Press `enter`.
 
@@ -208,7 +200,7 @@ OpenCode's TUI has no fork flag, so Gate Inbox forks through OpenCode's own API 
 
 ## Migrating a session to another CLI
 
-1. Select a session and press `M`.
+1. Select a session and run migrate from quick actions (`:`).
 2. `tab` picks the CLI it moves to; the proposed name follows the pick until you type one.
 3. Press `enter`.
 
@@ -270,7 +262,7 @@ That server is started once by its CLI and then lives as long as the conversatio
 
 ### Spawning and steering other agents
 
-`list_models` answers what a CLI's `model` argument accepts before a spawn asks for one: the CLI's own listing command where the tool config has a `models_command` (opencode prints several hundred provider/model pairs, so the answer is capped and takes a `filter`), otherwise the names written into the tool's `models`, which are marked as possibly lagging the CLI. A tool with no `model_flag` (and no generated config to carry the model, as opencode has) says so here rather than at spawn time, where the same fact arrives as a refused launch. `migrate_session` moves a session's conversation to another CLI the way `M` does. `create_session` gives an agent the spawn the `ctrl+n` form gives a human: a name, a CLI, a group, a working directory and a first prompt. A session created this way is a normal row in the list, and the manager picks it up on its next poll, so it attaches, revives and forks like any other.
+`list_models` answers what a CLI's `model` argument accepts before a spawn asks for one: the CLI's own listing command where the tool config has a `models_command` (opencode prints several hundred provider/model pairs, so the answer is capped and takes a `filter`), otherwise the names written into the tool's `models`, which are marked as possibly lagging the CLI. A tool with no `model_flag` (and no generated config to carry the model, as opencode has) says so here rather than at spawn time, where the same fact arrives as a refused launch. `migrate_session` moves a session's conversation to another CLI the way migrating from the board does. `create_session` gives an agent the spawn the `ctrl+n` form gives a human: a name, a CLI, a group, a working directory and a first prompt. A session created this way is a normal row in the list, and the manager picks it up on its next poll, so it attaches, revives and forks like any other.
 
 Each field falls back the way the form does. The CLI defaults to the one the calling agent runs. A terminal runs a shell and has no agent CLI to pass on, so a spawn from one must name its tool (`tool` on `create_session`, `gate-inbox spawn --tool <cli>` from a shell) and is refused otherwise, with the configured tools listed. The group and directory default to the caller's, an explicit group uses that group's nearest inherited default path, and an explicit directory wins over both. A name is the agent's to choose and should describe the work; leaving it empty generates a placeholder and asks the new session to rename itself, exactly as a promptless spawn from the form does. Several agents working in one project each get a checkout of their own by being spawned into one: make it with the repository's tooling and pass it as the directory.
 
@@ -344,7 +336,7 @@ Triage and search are unaffected — each already answers with its own order (wh
 
 ## Groups
 
-Groups are paths (`backend/api/auth`) forming a tree of unlimited depth. Sessions can live at any node, including the root. Create subgroups inline with `g`, reorder both groups and sessions with `K` / `J` (or `shift+↑↓`; the order persists), fold a subtree with `enter` on its row, fold or unfold the whole tree with `F`, hide or restore empty groups visually with `e`, and edit a group with `r`, which reopens the card that created it — name, parent and default path, so renaming and re-parenting are the same save. On a session, `r` renames it and `tab` cycles the tool (status rules and revive follow the new tool; useful when you quit one agent in the pane and start another).
+Groups are paths (`backend/api/auth`) forming a tree of unlimited depth. Sessions can live at any node, including the root. Create subgroups inline with `g`, reorder both groups and sessions with `K` / `J` (or `shift+↑↓`; the order persists), fold a subtree with `enter` on its row, fold or unfold the whole tree and hide or restore empty groups from quick actions (`:`), and edit a group with `r`, which reopens the card that created it — name, parent and default path, so renaming and re-parenting are the same save. On a session, `r` renames it and `tab` cycles the tool (status rules and revive follow the new tool; useful when you quit one agent in the pane and start another).
 
 ## Status
 
@@ -360,11 +352,11 @@ Each session's tmux pane is polled (default every 2s) to derive a status:
 | `✕` | `dead` | The tmux session is gone |
 | `◌` | `starting` | The pane is still launching |
 
-Every row carries its mark, and each state has its own color from the active theme, so a glance down the rail tells you who needs you. The key map (`h`) lists the marks under "the mark on a session row".
+Every row carries its mark, and each state has its own color from the active theme, so a glance down the rail tells you who needs you. The key map (`h`) keeps bindings; its legend (`l` from the key map) lists the marks in those same colors.
 
 A session stuck on the wrong mark is usually a rules question: the `[tools.<name>]` block in your own config is what the poller matches, and it keeps the rules it already has when a release ships better ones. [Configuration](configuration.md) has the two-line reset and how to read the pane the poller reads.
 
-`w` narrows the list to sessions that need attention (`waiting`, stuck, `finished`, `errored`). Press again to show every status. An `ATTENTION` badge sits over the list with the key that clears it, and the session counts follow the filter; folds open so matches are not hidden. The archived view (`t`) and hidden empty groups (`e`) label themselves the same way. The badges take whatever room the rail has: padded away from the entries on a tall terminal, tight against them on a short one, and yielding to the entries once the list is down to its last rows.
+`w` narrows the list to sessions that need attention (`waiting`, stuck, `finished`, `errored`). Press again to show every status. An `ATTENTION` badge sits over the list with the key that clears it, and the session counts follow the filter; folds open so matches are not hidden. The archived view and the hide-empty-groups filter (both in quick actions) label themselves the same way. The badges take whatever room the rail has: padded away from the entries on a tall terminal, tight against them on a short one, and yielding to the entries once the list is down to its last rows.
 
 `/` filters the list to the rows a query appears on. A query matches a row's own name, tool, group, and status; the text its pane is showing; and, from three characters up, the session's transcript — every prompt, reply, command, tool result and edited file since the session began, read from Claude Code's JSONL, Codex's rollout, or opencode's database, whichever the row's tool keeps — so the session that mentioned a hostname three hours ago is findable by that hostname. `*` stands for any run of characters (`db-*-07`), in the transcript and on the rows alike. The rows come best first: those named for the query, then those showing it on screen, then those that said it, ordered by how often, how recently, and who said it — a session still talking about it outranks one that mentioned it once, a mention in the newest turns outranks one hours back, and a term you typed outranks the same term the agent said, which outranks it in a command, which outranks it in a tool's output; text the harness injected into your turns counts least. A row the query is on only in the pane or only in the transcript says so with a `≡pane` or `≡hist` badge (`≡hist·12` when it said it twelve times), since the query is nowhere the row itself prints. Transcript hits arrive a beat after the keystroke and never make the list flicker: the metadata and pane matches show at once, the history answer joins them. The index is the sessions' text held in memory (plus a quarter as much again in per-block trigram filters, so a term that is not there costs a few bit tests rather than a scan), built in the background from the transcripts of the sessions on the board and nothing else; a fleet of long sessions catches up within a few seconds of the manager starting, a row that leaves the board leaves the index, and every byte of prose, command and tool output is kept up to 64MB per session and 512MB in all, past which the largest session gives up its oldest turns first. `GATE_INBOX_HISTORY_SEARCH=off` turns the transcript half off.
 
@@ -384,6 +376,12 @@ A status is a reading of a screen, and a reading can be wrong. When a session ha
 
 **Resource hogs.** On Linux the board also reads each live session's whole process tree -- the agent CLI and everything under it: background jobs, builds, test runners, browsers -- straight from `/proc` every `sample_every` (default 10 s). CPU is summed across the tree, counting short-lived children through their parent's reaped time, and memory is the tree's PSS (RSS where `smaps_rollup` is unreadable) beside the host's `MemAvailable`. When a session stays over one of the `[hogs]` tiers (see [Configuration](configuration.md#resource-hogs)) the board queues it a notice through its inbox, so it is typed in under the same gates as any message: never over a dialog, a line you are writing, or a paste still on its way. The notice is fenced under its own `GATE-INBOX-NOTICE` band, names the heaviest processes by pid and command with their share, the threshold and how long it has held, and asks by tier: *notice* to confirm the work is intended and cap it, *warn* to stop or cap it now unless it is the task's deliverable, *stop* to stop it at once and say what was stopped. A stop notice also interrupts a running turn where the tool has `interrupt_keys`. CPU and memory are separate episodes, merged into one notice when both fire together; within an episode a session is only ever told something firmer, a tier is not repeated inside `cooldown`, and an episode ends once every rule has stayed below for `reset_after`. The row adds `cpu hog`, `mem hog` or `cpu+mem hog` beside the label while an episode it was told about is open, in the waiting tint at notice and the errored tint from warn. Gate Inbox never signals a process itself; a terminal tab is badged but not messaged, since nothing in it reads a notice.
 
+## The conversation preview
+
+The panel beside the list is not the raw terminal: it is the session's **conversation**, drawn as `You` and `Assistant` turns with the commands and tool calls folded into the turns that produced them. A turn too tall for the panel is shortened to its first lines with a `… N more lines` note. `F3` switches the selected row between that shortened transcript and the full one, and the choice is held as you move down the list. `enter` still opens the live terminal — keys reach the agent and the caret is where you type — and leaving it comes back to the conversation.
+
+Settings (`s`) has a **focused view** row. `terminal` is the default: a focused session shows its live pane. `conversation` keeps the transcript on screen inside the session too, so a drain can read each session's turns without the terminal's own chrome, and `F3` then switches that session to the terminal and back. The setting is remembered, so a session kept on its transcript stays that way on the next start. A shell has no conversation to show, so the row stays on the terminal there.
+
 ## The board layout
 
 The manager normally shares the frame with a preview of the selected session. Settings (`s`) has a `layout` row, and its `board` mode gives the whole width to the list instead: the names, groups, statuses and work marks get the full terminal rather than thirty percent of it, which is the view to read when you want to see everything running at once.
@@ -392,7 +390,7 @@ The preview is not lost. Focusing a session still opens its pane, full width, an
 
 `\` is that setting under a key, for the times you want the width for a moment rather than for good: it puts the rail away and brings back the layout you were on, and `alt+\` does the same from inside a focused session, where the rail is the only thing between the pane and the whole terminal. A `WIDE` badge on the board names the key back. The setting is persisted either way, so a rail put away with the key is still away after a restart.
 
-The list sits on the right of the pane by default. Settings (`s`) has a `sidebar` row that moves it to the left, or back: the rail moves as you step the row, so the board behind the panel is the preview, and closing Settings keeps it. Only the side changes. The split keeps its size, because the stored ratio is the list's share whichever side it is on, so the agents' panes keep their width and nothing is redrawn inside them. The divider (`|`) drags the same way on either side, and the arrow that leaves a focused session is the one pointing at the list: `→` at the end of the prompt with it on the right, `←` at the head of the prompt with it on the left. The list's own arrows follow the same rule: stepping into a row, which opens its work and then focuses its pane, is the arrow pointing at the pane (`←` with the list on the right, `→` with it on the left), and folding is the other one. The footer and the key map (`h`) name whichever key works on the side you are on, and a key you rebind is taken as the key for the side the list is on. The divider's arrows move it the way they point on either side. To set the side in the config file instead, `[board] sidebar = "left"` in [config.toml](configuration.md); the Settings row outranks the file on the machine it was changed on, and picking the file's side there again hands the choice back to the file.
+The list sits on the right of the pane by default. Settings (`s`) has a `sidebar` row that moves it to the left, or back: the rail moves as you step the row, so the board behind the panel is the preview, and closing Settings keeps it. Only the side changes. The split keeps its size, because the stored ratio is the list's share whichever side it is on, so the agents' panes keep their width and nothing is redrawn inside them. The divider drags the same way on either side, and the arrow that leaves a focused session is the one pointing at the list: `→` at the end of the prompt with it on the right, `←` at the head of the prompt with it on the left. The list's own arrows follow the same rule: stepping into a row, which opens its work and then focuses its pane, is the arrow pointing at the pane (`←` with the list on the right, `→` with it on the left), and folding is the other one. The footer and the key map (`h`) name whichever key works on the side you are on, and a key you rebind is taken as the key for the side the list is on. The divider's arrows move it the way they point on either side. To set the side in the config file instead, `[board] sidebar = "left"` in [config.toml](configuration.md); the Settings row outranks the file on the machine it was changed on, and picking the file's side there again hands the choice back to the file.
 
 In triage the prompt-edge arrows are fixed, whichever side the list is on: `←` returns to the list with triage still on, and `→` on a finished session opens the next item.
 

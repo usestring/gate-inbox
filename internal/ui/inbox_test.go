@@ -630,6 +630,101 @@ func TestInboxHoldsAMessageWhileTheOperatorHasJustTyped(t *testing.T) {
 	}
 }
 
+// A draft protects a line someone is writing, but one nobody touches again
+// held every message to its session for as long as it stood: a stray key
+// left in a Claude Code composer kept a child's finished notice from its
+// parent for an hour and a half. Once the draft has sat untouched past
+// draftHoldLimit it is cleared out of the way, the message goes in on its
+// own, and the draft is typed back without being submitted.
+func TestInboxSetsAnAbandonedDraftAsideForAMessage(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "ready-tool")
+	queueMessage(t, m, sess.ID, "rebase on main")
+	if err := m.tmux.Paste(sess.ID, "USERTEXT-stray"); err != nil {
+		t.Fatalf("paste: %v", err)
+	}
+	pane := settledPane(t, m, sess.ID, "USERTEXT-stray")
+
+	if err := deliverInbox(t, m, sess, queuedHeads(t, m), pane, status.Idle, true); err != nil {
+		t.Fatalf("maybeDeliverInbox: %v", err)
+	}
+	if queued, _ := m.store.QueuedCount(sess.ID); queued != 1 {
+		t.Fatal("a message was typed on top of a draft the moment it was seen")
+	}
+
+	m.poller.mu.Lock()
+	m.poller.draftHeldSince[sess.ID] = time.Now().Add(-draftHoldLimit)
+	m.poller.mu.Unlock()
+	if err := deliverInbox(t, m, sess, queuedHeads(t, m), pane, status.Idle, true); err != nil {
+		t.Fatalf("maybeDeliverInbox: %v", err)
+	}
+	if queued, _ := m.store.QueuedCount(sess.ID); queued != 0 {
+		t.Fatal("a draft nobody had touched for the hold limit still held the queue")
+	}
+	after := settledPane(t, m, sess.ID, "rebase on main", "USERTEXT-stray")
+	rows := strings.Split(strings.TrimRight(after, "\n"), "\n")
+	for _, row := range rows {
+		if strings.Contains(row, "rebase on main") && strings.Contains(row, "USERTEXT-stray") {
+			t.Fatalf("the draft was submitted with the message:\n%s", after)
+		}
+	}
+	if strings.Count(after, "USERTEXT-stray") != 1 || !strings.Contains(rows[len(rows)-1], "USERTEXT-stray") {
+		t.Fatalf("the draft was not typed back, once, after the message:\n%s", after)
+	}
+}
+
+// Without keys that empty its composer, a tool's draft cannot be set aside,
+// and holding is the only way to keep it out of the message.
+func TestInboxHoldsBehindADraftItCannotClear(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "ready-tool")
+	delete(m.poller.clearInputKeys, "ready-tool")
+	queueMessage(t, m, sess.ID, "rebase on main")
+	if err := m.tmux.Paste(sess.ID, "USERTEXT-stray"); err != nil {
+		t.Fatalf("paste: %v", err)
+	}
+	pane := settledPane(t, m, sess.ID, "USERTEXT-stray")
+
+	m.poller.mu.Lock()
+	m.poller.draftHeldSince[sess.ID] = time.Now().Add(-draftHoldLimit)
+	m.poller.mu.Unlock()
+	if err := deliverInbox(t, m, sess, queuedHeads(t, m), pane, status.Idle, true); err != nil {
+		t.Fatalf("maybeDeliverInbox: %v", err)
+	}
+	if queued, _ := m.store.QueuedCount(sess.ID); queued != 1 {
+		t.Fatal("a draft with no way to clear it was typed over")
+	}
+}
+
+// Every keystroke restarts the limit: a person pausing mid-line is still
+// writing it.
+func TestInboxDraftHoldRestartsWhenTheOperatorTypes(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "ready-tool")
+	queueMessage(t, m, sess.ID, "rebase on main")
+	if err := m.tmux.Paste(sess.ID, "USERTEXT-in-progress"); err != nil {
+		t.Fatalf("paste: %v", err)
+	}
+	pane := settledPane(t, m, sess.ID, "USERTEXT-in-progress")
+
+	m.poller.mu.Lock()
+	m.poller.draftHeldSince[sess.ID] = time.Now().Add(-draftHoldLimit)
+	m.poller.mu.Unlock()
+	m.poller.noteOperatorInput(sess.ID)
+	if err := deliverInbox(t, m, sess, queuedHeads(t, m), pane, status.Idle, true); err != nil {
+		t.Fatalf("maybeDeliverInbox: %v", err)
+	}
+	m.poller.mu.Lock()
+	m.poller.operatorInputAt[sess.ID] = time.Now().Add(-status.OperatorQuiet)
+	m.poller.mu.Unlock()
+	if err := deliverInbox(t, m, sess, queuedHeads(t, m), pane, status.Idle, true); err != nil {
+		t.Fatalf("maybeDeliverInbox: %v", err)
+	}
+	if queued, _ := m.store.QueuedCount(sess.ID); queued != 1 {
+		t.Fatal("a draft the operator had just typed into was submitted under a message")
+	}
+}
+
 // A draft on a row under the marker -- a wrapped line, a newline -- leaves
 // the caret on a row that carries no prompt, which is where the old check
 // read an empty prompt and pasted on top of the draft.

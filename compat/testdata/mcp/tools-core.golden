@@ -39,12 +39,12 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Answer a question one of your own spawned sessions has stopped on, so the fan-out you started keeps moving instead of waiting on a person who did not set the task. You are told a child has stopped by a message from it; this is how you reply to the dialog itself, which send_session cannot do -- a message is held until the recipient is at rest, and a session on a question never is. It reads Claude Code's AskUserQuestion, including one asking several questions drawn as tabs, and Codex's request_user_input. Read every question first: the relayed message lists them, and read_session's digest.questions has each one's index, header, full text, options and whether it is answered. Then pass answers, one entry per question, naming it by index or header and giving the option's text to pick it or your own words to type into its free-text row; the call fills them in, checks the review page, and presses Submit once every question has an answer (submit false stops before that). answer alone answers just the question on the screen, and answering the last one submits the dialog; standing_questions says how many are left. After answering it reads back what the child registered -- the Submit page's review, or the record Claude Code prints once it takes the answers -- and returns an error naming the answer given and the one registered if they differ or the answer cannot be confirmed; a result means the child holds exactly your answer (verified). Your own words are typed into the question's \"Type something.\" row, which is also the way to talk a question over: the child reads them as the answer. Its \"Chat about this\" row is refused, because it drops the dialog without answering. Decide each question in turn: answer it yourself where your brief to that child or your user's standing decisions already settle it; otherwise ask your own user with your own question tool, copying the header, the question, every option and any recommendation word for word, and answer the child with what they choose. Collect every answer before calling, so the child gets them in one call. A question headed Approval is the child asking for your user's approval of one action: never answer it yourself; ask your user verbatim, then answer with relay: true, which checks your own transcript for their answer and refuses a paraphrase, an answer given before the child asked, or one already relayed. Every answer is recorded as yours or your user's, and the child is told when an answer was yours. Only the session that spawned it may answer it. A permission prompt, Codex's first-run directory-trust prompt and a multi-select question are still a person's to answer at the child's pane -- tell your user which child is waiting -- and the refusal says which of them it saw rather than leaving you to guess.",
+  "description": "Answer the dialog one of your own spawned sessions has stopped on -- a question, a multi-select, a permission prompt, a workspace or MCP-server trust dialog, or any other screen -- so the fan-out you started keeps moving. Every dialog a child stops on is yours to settle: answer it, or ask your user and answer with what they chose. You are told a child has stopped by a message relaying the dialog in full; this is how you reply to it, which send_session cannot do -- a message is held until the recipient is at rest, and a session on a dialog never is. Questions (Claude Code's AskUserQuestion, one or several drawn as tabs, and Codex's request_user_input): pass answers, one entry per question, naming it by index or header and giving the option's text, or your own words to type into its free-text row; for a multi-select give ticks, the labels to leave ticked. The call fills them in, checks the review page and presses Submit once every question has an answer (submit false stops before that). answer or ticks alone answers the question on the screen. After answering it reads back what the child registered -- the boxes, the review page, the record Claude Code prints -- and returns an error naming what was given and what registered if they differ; a result means the child holds exactly your answer (verified). Its \"Chat about this\" row is refused, because it drops the dialog without answering. Decide each question in turn: answer it yourself where your brief to that child or your user's standing decisions already settle it; otherwise ask your user with your own question tool, copying the header, the question, every option and any recommendation word for word, and answer with what they choose. Permission prompts, trust dialogs, Codex's directory-trust prompt and questions headed Approval are always your user's call, never yours: ask your user with your own question tool, copying the dialog's text and its choices word for word as the relayed message gives them, then pass answer set to the choice they picked and relay: true. The choice is picked by its text, never by position, and the dialog is read back as cleared. relay: true checks your own transcript for that dialog and your user's answer, and refuses a paraphrase, an answer given before the child stopped, or one already relayed; the refusal says exactly what to ask. Every answer is recorded as yours or your user's, and the child is told when an answer was yours. A screen it cannot read as choices takes keys, also only with relay: true: quote the screen to your user, offer the keys as the options, and pass the keys they chose; the screen is read back as changed. Only the session that spawned a child may answer it.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "answer": {
-        "description": "one answer, for the question on the child's screen: the text of the option to pick, or your own words to type into the dialog instead. Give this or answers",
+        "description": "one answer, for the dialog on the child's screen: the text of the option or choice to pick, or your own words to type into a question instead. Give one of answer, answers, ticks or keys",
         "type": "string"
       },
       "answers": {
@@ -53,17 +53,26 @@
           "additionalProperties": false,
           "properties": {
             "answer": {
-              "description": "the option's text to pick it, or your own words to type into that question's free-text row",
+              "description": "the option's text to pick it, or your own words to type into that question's free-text row; give this or ticks",
               "type": "string"
             },
             "question": {
-              "description": "which question: its 1-based index, its header, or its text, as read_session's digest.questions lists them",
+              "description": "which question: its 1-based index, its header, or its text, as read_session's digest.questions lists them; empty for the question on the screen",
               "type": "string"
+            },
+            "ticks": {
+              "description": "for a multi-select question only: the labels of every option to leave ticked; every other box is unticked, the boxes are read back, and the question is submitted",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
             }
           },
           "required": [
-            "question",
-            "answer"
+            "question"
           ],
           "type": "object"
         },
@@ -72,8 +81,18 @@
           "array"
         ]
       },
+      "keys": {
+        "description": "for a screen answer_session cannot read as choices: the keys your user chose, such as [\"Down\", \"Enter\"] (Up, Down, Left, Right, Enter, Tab, BTab, Escape, Space, BSpace, or one letter or digit). Requires relay: true",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
       "relay": {
-        "description": "true when every answer is your user's own: you put the child's question to them word for word with your own question tool after the child asked, and pass exactly what they chose. Gate Inbox checks your transcript for that dialog and refuses a mismatch. Required for a question headed Approval",
+        "description": "true when every answer is your user's own: you put the child's dialog to them word for word with your own question tool after the child stopped on it, and pass exactly what they chose. Gate Inbox checks your transcript for that dialog and refuses a mismatch. Required for a question headed Approval, a permission prompt, a trust dialog and keys",
         "type": "boolean"
       },
       "session_id": {
@@ -85,6 +104,16 @@
         "type": [
           "null",
           "boolean"
+        ]
+      },
+      "ticks": {
+        "description": "for a multi-select question on the child's screen: the labels of every option to leave ticked; every other box is unticked, the boxes are read back and the question is submitted",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
         ]
       }
     },
@@ -164,7 +193,7 @@
               "type": "integer"
             },
             "multi_select": {
-              "description": "true for a question answered by ticking several boxes; answer_session refuses these and a person answers them",
+              "description": "true for a question answered by ticking several boxes; answer it with ticks, the labels to leave ticked",
               "type": "boolean"
             },
             "on_screen": {
@@ -186,6 +215,10 @@
                   },
                   "label": {
                     "description": "the choice's text; pass it as the answer to pick it",
+                    "type": "string"
+                  },
+                  "preview": {
+                    "description": "the markdown the dialog shows beside this option when it is focused, read whole from the child's call",
                     "type": "string"
                   }
                 },
@@ -215,6 +248,10 @@
           "null",
           "array"
         ]
+      },
+      "screen_changed": {
+        "description": "for keys: true when the child's screen was seen to change after the keys were sent",
+        "type": "boolean"
       },
       "selected": {
         "description": "option the answer picked; empty when the answer was typed instead",
@@ -1671,7 +1708,7 @@
                   "type": "integer"
                 },
                 "multi_select": {
-                  "description": "true for a question answered by ticking several boxes; answer_session refuses these and a person answers them",
+                  "description": "true for a question answered by ticking several boxes; answer it with ticks, the labels to leave ticked",
                   "type": "boolean"
                 },
                 "on_screen": {
@@ -1693,6 +1730,10 @@
                       },
                       "label": {
                         "description": "the choice's text; pass it as the answer to pick it",
+                        "type": "string"
+                      },
+                      "preview": {
+                        "description": "the markdown the dialog shows beside this option when it is focused, read whole from the child's call",
                         "type": "string"
                       }
                     },

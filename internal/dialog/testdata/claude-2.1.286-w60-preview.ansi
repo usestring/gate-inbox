@@ -1,0 +1,45 @@
+[38;5;174m ▝▝   ▝▝ [39m  [38;5;246m/…/gie287/measure/work/pv-w60-f6a81c[39m
+
+
+[38;5;239m[48;5;237m❯ [38;5;231mCall the AskUserQuestion tool exactly once with ONE [39m
+  [38;5;231mquestion: header 'Approval', question 'May I push the [39m
+  [38;5;231mbranch and open the PR?', multiSelect false, options: [39m
+  [38;5;231m'Yes, push and open the PR' (description 'Push s-1 and [39m
+  [38;5;231mopen the PR', preview: a markdown code block of 8 lines [39m
+  [38;5;231mshowing a git push command, a gh pr create command with [39m
+  [38;5;231m--title and --body-file flags, and the body text), 'No, [39m
+  [38;5;231mhold' (description 'Keep it local', preview: one line [39m
+  [38;5;231m'Nothing is pushed.'). After the answer, reply with [39m
+  [38;5;231mexactly: GOT <answer>.[39m
+
+[38;5;246m[49m────────────────────────────────────────────────────────────
+[38;5;16m[48;5;153m ☐ Approval [39m[49m
+
+[1m[38;5;231mMay I push the branch and open the PR?[0m
+
+[38;5;153m❯[38;5;246m 1.[1m[38;5;153m Yes, push and open the [0m     [38;5;246m┌────────────────────────┐[39m
+    [1m[38;5;153mPR[0m                           [38;5;246m│ [38;5;153m$ git push -u origin [38;5;246m  │[39m
+ [38;5;246m 2.[39m No, hold                    [38;5;246m│ [38;5;153ms-1[38;5;246m                    │[39m
+                                 [38;5;246m│ [38;5;153mEnumerating objects: [38;5;246m  │[39m
+                                 [38;5;246m│ [38;5;153m5, done.[38;5;246m               │[39m
+                                 [38;5;246m│ [38;5;153mCounting objects: 100%[38;5;246m │[39m
+                                 [38;5;246m│ [38;5;153m (5/5), done.[38;5;246m          │[39m
+                                 [38;5;246m│ [38;5;153mWriting objects: 100% [38;5;246m │[39m
+                                 [38;5;246m│ [38;5;153m(5/5)[38;5;246m                  │[39m
+                                 [38;5;246m│ [38;5;153m$ gh pr create --title[38;5;246m │[39m
+                                 [38;5;246m│ [38;5;153m "Feature: add new [38;5;246m    │[39m
+                                 [38;5;246m│ [38;5;153mfunctionality" \[38;5;246m       │[39m
+                                 [38;5;246m│ [39m  [38;5;153m--body-file [38;5;246m         │[39m
+                                 [38;5;246m│ [38;5;153m/tmp/body.md[38;5;246m           │[39m
+                                 [38;5;246m│ [38;5;153mhttps://github.com/own[38;5;246m │[39m
+                                 [38;5;246m│ [38;5;153mer/repo/pull/42[38;5;246m        │[39m
+                                 [38;5;246m│ [38;5;153mCreated PR #42[38;5;246m         │[39m
+                                 [38;5;246m└────────────────────────┘[39m
+
+                                 [38;5;153mNotes:[39m [3m[38;5;246mpress n to add notes
+[0m
+[38;5;246m────────────────────────────────────────────────────────────
+[39m  Chat about this
+
+[38;5;246mEnter to select · ↑/↓ to navigate · n to add notes · Esc to
+cancel[39m

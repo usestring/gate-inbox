@@ -87,12 +87,18 @@ func TestEnsureSettingsWritesValidHookJSON(t *testing.T) {
 			t.Fatalf("%s matcher = %q, want *", event, got)
 		}
 	}
-	// PreToolUse carries the one command that tells AskUserQuestion apart
-	// from ordinary work. Two matchers under one event would run in parallel
-	// and race on the file, and matchers cannot exclude a tool, so the
-	// single "*" entry has to be the branching one.
-	if pre := parsed.Hooks["PreToolUse"]; len(pre) != 1 || pre[0].Hooks[0].Command != preToolUseCommand() {
-		t.Fatalf("PreToolUse = %+v, want the single tool-aware command", pre)
+	// PreToolUse carries the one status command that tells AskUserQuestion
+	// apart from ordinary work. Two status writers under one event would run
+	// in parallel and race on the file, and matchers cannot exclude a tool, so
+	// the single "*" entry has to be the branching one. The ask-pending hook
+	// beside it writes a file of its own, so it races on nothing.
+	pre := parsed.Hooks["PreToolUse"]
+	if len(pre) != 2 || pre[0].Hooks[0].Command != preToolUseCommand() ||
+		pre[1].Matcher != blockingTool || pre[1].Hooks[0].Command != askPendingCommand() {
+		t.Fatalf("PreToolUse = %+v, want the tool-aware status command, then ask-pending on AskUserQuestion", pre)
+	}
+	if strings.Contains(askPendingCommand(), statusFileVar+`[ -z "$f" ] || `+"printf") {
+		t.Fatal("the ask-pending hook writes the status file")
 	}
 	notification := parsed.Hooks["Notification"][0]
 	if notification.Matcher != blockingNotifications {

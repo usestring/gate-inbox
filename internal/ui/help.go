@@ -5,6 +5,7 @@ package ui
 import (
 	"fmt"
 	"github.com/usestring/gate-inbox/internal/keymap"
+	"github.com/usestring/gate-inbox/internal/status"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -23,6 +24,9 @@ type helpState struct {
 	query      string
 	searching  bool
 	returnMode mode
+	// legend shows the glyph map instead of the key map: the same card, its
+	// own sections, its own colors. Toggled with l from either side.
+	legend bool
 	// cursor is which binding the screen is on, as an index into the rows a
 	// search leaves visible. The key map is where a binding is changed now,
 	// so it needs a selection: capturing is set while it is waiting for the
@@ -44,7 +48,7 @@ type helpState struct {
 // replaced.
 func (m *Model) helpKeyColumn() int {
 	width := 0
-	for _, section := range m.resolvedHelp() {
+	for _, section := range m.helpCatalogSections() {
 		for _, row := range section.rows {
 			if w := textfmt.Width(row.key); w > width {
 				width = w
@@ -222,8 +226,12 @@ func (m *Model) helpBodyRoom() int {
 		room -= 2
 	}
 	// The notes under the body are drawn after it, so they come off the
-	// body's own budget rather than off the bottom of the terminal.
-	room -= len(m.help.notes) + len(m.keyProblems)
+	// body's own budget rather than off the bottom of the terminal. The
+	// legend shows neither note: rebinds and refused overrides belong to
+	// the key map, not to the glyphs.
+	if !m.help.legend {
+		room -= len(m.help.notes) + len(m.keyProblems)
+	}
 	return max(room, 1)
 }
 
@@ -304,12 +312,143 @@ func (m *Model) resolvedHelp() []resolvedSection {
 	return out
 }
 
+// helpCatalogSections is whichever catalog the card is showing: the key
+// map, or the glyph legend one key off it.
+func (m *Model) helpCatalogSections() []resolvedSection {
+	if m.help.legend {
+		return m.resolvedLegend()
+	}
+	return m.resolvedHelp()
+}
+
+// resolvedLegend is the glyph map as this run shows it. Every row is
+// literal, so there is nothing to resolve and nothing to rebind; it is kept
+// in resolved shape so search, layout and scroll read the same code as the
+// key map.
+func (m *Model) resolvedLegend() []resolvedSection {
+	out := make([]resolvedSection, 0, len(legendSections()))
+	for _, section := range legendSections() {
+		rows := make([]resolvedRow, 0, len(section.rows))
+		for _, row := range section.rows {
+			rows = append(rows, resolvedRow{key: row.key, text: row.text})
+		}
+		out = append(out, resolvedSection{title: section.title, rows: rows})
+	}
+	return out
+}
+
+// legendDivider is divider in the legend's colors: the tick runs on the
+// secondary accent rather than the primary, so the glyph map reads as its
+// own screen rather than as more key map.
+func legendDivider(label string, width int) string {
+	head := lipgloss.NewStyle().Foreground(colorAccent2).Bold(true).Render("▍"+label) + " "
+	dashes := width - textfmt.Width(label) - 2
+	if dashes < 0 {
+		dashes = 0
+	}
+	return head + lipgloss.NewStyle().Foreground(colorBorder).Render(strings.Repeat("─", dashes))
+}
+
+// legendGlyph renders one legend symbol in the colors the board itself uses:
+// a session mark in its status tint, a pull request or ticket mark in the
+// secondary accent. The key map paints every key in the primary accent, so
+// the legend's palette tells the two screens apart at a glance.
+func legendGlyph(key string) string {
+	if state, ok := legendMarkStatus(key); ok {
+		return statusTint(state, key)
+	}
+	return lipgloss.NewStyle().Foreground(colorAccent2).Bold(true).Render(key)
+}
+
+// legendMarkStatus names the session status a legend symbol stands for, for
+// the rows that carry one. A pull request or ticket glyph names no status,
+// so it falls through to the accent.
+func legendMarkStatus(key string) (string, bool) {
+	fields := strings.Fields(key)
+	if len(fields) == 0 {
+		return "", false
+	}
+	switch fields[len(fields)-1] {
+	case status.Working:
+		return status.Working, true
+	case status.Waiting:
+		return status.Waiting, true
+	case status.Finished:
+		return status.Finished, true
+	case status.Idle:
+		return status.Idle, true
+	case status.Errored:
+		return status.Errored, true
+	case status.Starting:
+		return status.Starting, true
+	}
+	return "", false
+}
+
+// highlightLegendMatch renders a legend description with the matched run
+// picked out. The key map's base is dim prose; the legend's is full body
+// text on the same bright hit, so a search lands the same way on a screen
+// that otherwise sits one tone up.
+func highlightLegendMatch(text, query string, width int) string {
+	text = textfmt.TruncateWidth(text, max(width, 1), "…")
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return valueStyle.Render(text)
+	}
+	folded := strings.ToLower(query)
+	at := strings.Index(strings.ToLower(text), folded)
+	if at < 0 || at+len(folded) > len(text) {
+		return valueStyle.Render(text)
+	}
+	hit := lipgloss.NewStyle().Foreground(colorBright).Bold(true)
+	return valueStyle.Render(text[:at]) + hit.Render(text[at:at+len(folded)]) +
+		valueStyle.Render(text[at+len(folded):])
+}
+
+// legendBodyLines lays the glyph map out the way helpBodyLines lays the key
+// map: a titled rule per section, then its symbols in two aligned columns.
+// The legend has no rebind cursor, so every row is prose and nothing lands
+// an anchor.
+func (m *Model) legendBodyLines(sections []resolvedSection, width int, query string) ([]string, []int) {
+	keyColumn := m.helpKeyColumn()
+	if room := width / 3; keyColumn > room {
+		keyColumn = max(room, 4)
+	}
+	var lines []string
+	for i, section := range sections {
+		if i > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, legendDivider(section.title, width))
+		for _, row := range section.rows {
+			indent := spaces(keyColumn)
+			room := max(width-keyColumn, 1)
+			if row.key == "" {
+				for _, line := range textfmt.Wrap(row.text, room) {
+					lines = append(lines, indent+subtleStyle.Render(line))
+				}
+				continue
+			}
+			symbol := padRight(legendGlyph(row.key), keyColumn)
+			for i, line := range textfmt.Wrap(row.text, room) {
+				prefix := symbol
+				if i > 0 {
+					prefix = indent
+				}
+				lines = append(lines, prefix+highlightLegendMatch(line, query, room))
+			}
+		}
+	}
+	return lines, nil
+}
+
 // helpBindings is every rebindable row on screen, in the order the cursor
 // walks them. Read off the same narrowed sections the body renders, so a
-// search that hides a row also takes it out of the cursor's way.
+// search that hides a row also takes it out of the cursor's way. The legend
+// binds nothing, so it walks nowhere.
 func (m *Model) helpBindings() []resolvedRow {
 	var rows []resolvedRow
-	for _, section := range matchHelp(m.resolvedHelp(), m.help.query) {
+	for _, section := range matchHelp(m.helpCatalogSections(), m.help.query) {
 		for _, row := range section.rows {
 			if row.rebindable {
 				rows = append(rows, row)
@@ -324,36 +463,58 @@ func (m *Model) helpSearchActive() bool {
 }
 
 func (m *Model) helpScrollLimit() int {
-	sections := matchHelp(m.resolvedHelp(), m.help.query)
-	body, _ := m.helpBodyLines(sections, cardInnerWidth(helpCardWidth(m.width)), m.help.query)
+	sections := matchHelp(m.helpCatalogSections(), m.help.query)
+	inner := cardInnerWidth(helpCardWidth(m.width))
+	var body []string
+	if m.help.legend {
+		body, _ = m.legendBodyLines(sections, inner, m.help.query)
+	} else {
+		body, _ = m.helpBodyLines(sections, inner, m.help.query)
+	}
 	return max(0, len(body)-m.helpBodyRoom())
 }
 
 func (m *Model) viewHelp() string {
 	width := helpCardWidth(m.width)
 	inner := cardInnerWidth(width)
-	sections := matchHelp(m.resolvedHelp(), m.help.query)
+	sections := matchHelp(m.helpCatalogSections(), m.help.query)
 
 	var head []string
 	if m.helpSearchActive() {
 		head = append(head, m.helpSearchLine(sections), "")
 	}
 
-	body, anchors := m.helpBodyLines(sections, inner, m.help.query)
+	var body []string
+	var anchors []int
+	if m.help.legend {
+		body, anchors = m.legendBodyLines(sections, inner, m.help.query)
+	} else {
+		body, anchors = m.helpBodyLines(sections, inner, m.help.query)
+	}
 	m.followHelpCursor(anchors, len(body))
 	if len(body) == 0 {
-		body = []string{subtleStyle.Render("no key matches that")}
+		empty := "no key matches that"
+		if m.help.legend {
+			empty = "no symbol matches that"
+		}
+		body = []string{subtleStyle.Render(empty)}
 	}
 	lines := append(head, fitBody(body, m.helpBodyRoom(), m.help.scroll)...)
-	// What the last rebind had to say, and anything keys.toml asked for and
-	// did not get. Both belong on this screen and nowhere else: a refused
-	// override is otherwise a key that does nothing with its explanation in
-	// a process nobody can see.
-	for _, note := range append(append([]string{}, m.help.notes...), m.keyProblems...) {
-		lines = append(lines, subtleStyle.Render(textfmt.TruncateWidth("· "+note, inner, "…")))
+	if !m.help.legend {
+		// What the last rebind had to say, and anything keys.toml asked for and
+		// did not get. Both belong on the key map and nowhere else: a refused
+		// override is otherwise a key that does nothing with its explanation in
+		// a process nobody can see.
+		for _, note := range append(append([]string{}, m.help.notes...), m.keyProblems...) {
+			lines = append(lines, subtleStyle.Render(textfmt.TruncateWidth("· "+note, inner, "…")))
+		}
 	}
 
-	return m.cardSized(width, m.helpTitleCap()+" Keys", strings.Join(lines, "\n"), m.helpHint())
+	title := " Keys"
+	if m.help.legend {
+		title = " Legend"
+	}
+	return m.cardSized(width, m.helpTitleCap()+title, strings.Join(lines, "\n"), m.helpHint())
 }
 
 // helpSearchLine is the search's own row: what was typed, and how much of
@@ -368,10 +529,28 @@ func (m *Model) helpSearchLine(sections []resolvedSection) string {
 	if count == 1 {
 		label = " key"
 	}
+	if m.help.legend {
+		label = " symbols"
+		if count == 1 {
+			label = " symbol"
+		}
+	}
 	return line + subtleStyle.Render(fmt.Sprintf("   %d%s", count, label))
 }
 
 func (m *Model) helpHint() [][2]string {
+	if m.help.legend {
+		if m.help.searching {
+			return [][2]string{{"type", "search"}, {"↵", "done"}, {"↑↓", "scroll"}, {"esc", "clear"}}
+		}
+		if m.help.query != "" {
+			return [][2]string{{"↑↓", "scroll"}, {"ctrl+u/d", "page"}, {"l", "keys"},
+				{"esc", "clear search"}, {"q/h/^h", "close"}}
+		}
+		return [][2]string{
+			{"↑↓", "scroll"}, {"ctrl+u/d", "page"}, {"/", "search"}, {"l", "keys"}, {"esc/q/h/^h", "close"},
+		}
+	}
 	if m.help.capturing {
 		return [][2]string{{"any key", "bind it"}, {"esc", "cancel"}}
 	}
@@ -380,11 +559,11 @@ func (m *Model) helpHint() [][2]string {
 	}
 	if m.help.query != "" {
 		return [][2]string{{m.navCap(keymap.ContextList), "select"}, {"↵", "rebind"}, {"r", "default"},
-			{"esc", "clear search"}, {"q/h/^h", "close"}}
+			{"l", "legend"}, {"esc", "clear search"}, {"q/h/^h", "close"}}
 	}
 	return [][2]string{
 		{m.navCap(keymap.ContextList), "select"}, {"↵", "rebind"}, {"r", "default"},
-		{"ctrl+u/d", "page"}, {"/", "search"}, {"w", "welcome guide"}, {"esc/q/h/^h", "close"},
+		{"ctrl+u/d", "page"}, {"/", "search"}, {"l", "legend"}, {"w", "welcome guide"}, {"esc/q/h/^h", "close"},
 	}
 }
 
@@ -484,6 +663,47 @@ func (m *Model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.help.capturing {
 		return m.captureRebind(msg)
 	}
+	// The legend binds nothing, so its keys scroll rather than select: up
+	// and down move the page the cursor would have pulled along, and l
+	// walks back to the key map it came from.
+	if m.help.legend {
+		switch msg.String() {
+		case "esc":
+			if m.help.query != "" {
+				m.help.query = ""
+				m.help.scroll = 0
+				return m, nil
+			}
+			m.closeHelp()
+			return m, m.startStartupTick()
+		case "q", "?", "h", "H", "shift+h", "ctrl+h":
+			m.closeHelp()
+			return m, m.startStartupTick()
+		case "l":
+			m.help.legend = false
+			m.help.scroll = 0
+			m.help.cursor = 0
+		case "w":
+			m.closeHelp()
+			m.openWelcome()
+			return m, nil
+		case "/":
+			m.help.searching = true
+		case "up", "k":
+			m.scrollHelp(-1)
+		case "down", "j":
+			m.scrollHelp(1)
+		case "pgup", "ctrl+u":
+			m.scrollHelp(-m.helpPage())
+		case "pgdown", "ctrl+d":
+			m.scrollHelp(m.helpPage())
+		case "g", "home":
+			m.help.scroll = 0
+		case "G", "end":
+			m.help.scroll = m.helpScrollLimit()
+		}
+		return m, nil
+	}
 	switch msg.String() {
 	case "esc":
 		if m.help.query != "" {
@@ -506,6 +726,12 @@ func (m *Model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.armRebind()
 	case "r":
 		return m.resetSelectedBinding()
+	case "l":
+		// The glyph map, off the key map: session marks and work marks in
+		// their own colors, back with the same key.
+		m.help.legend = true
+		m.help.scroll = 0
+		m.help.cursor = 0
 	case "/":
 		m.help.searching = true
 	case "up", "k":

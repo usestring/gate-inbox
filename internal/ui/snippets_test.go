@@ -336,6 +336,13 @@ func TestFooterAdvertisesSnippets(t *testing.T) {
 	if !section.quiet {
 		t.Fatal("the snippets tier must be quiet: it recedes behind the row's own keys")
 	}
+	createSession(t, m, "footer-snippet", t.TempDir(), "")
+	m.applyCmd(t, m.refreshCmd())
+	m.width = 100
+	footer := ansi.Strip(m.viewFooter())
+	if !strings.Contains(footer, "Snippets") || !strings.Contains(footer, "deploy") {
+		t.Fatalf("list footer does not advertise snippets:\n%s", footer)
+	}
 }
 
 // Every surface prints the § binding as alt+§. The ^alt+ compression would
@@ -382,6 +389,12 @@ func TestNoSnippetsAddsNothingToTheFooter(t *testing.T) {
 
 	if pairs := m.snippetLegend().pairs; len(pairs) != 0 {
 		t.Fatalf("footer offered %v with no snippets defined", pairs)
+	}
+	createSession(t, m, "footer-empty", t.TempDir(), "")
+	m.applyCmd(t, m.refreshCmd())
+	m.width = 100
+	if footer := ansi.Strip(m.viewFooter()); strings.Contains(footer, "Snippets") {
+		t.Fatalf("list footer advertises a snippets tier with none defined:\n%s", footer)
 	}
 }
 

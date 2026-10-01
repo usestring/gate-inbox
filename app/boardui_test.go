@@ -296,6 +296,11 @@ func TestExternalBuildConfirmsBeforeOpening(t *testing.T) {
 	paintSession(t, db, socket, "0be0a002", "the free pane\n")
 	skipWelcome(t, db)
 	sortByName(t, db)
+	// Home and End ship unbound; the suite drives them here, so it binds
+	// them the way an operator would.
+	if err := os.WriteFile(filepath.Join(home, "keys.toml"), []byte("[list]\ncursor_top = [\"home\"]\ncursor_bottom = [\"end\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	sized := "stty cols 200 rows 40 && exec " + bin
 	board := exec.Command(script, "-qec", sized, "/dev/null")

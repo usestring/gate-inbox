@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -181,6 +182,7 @@ func TestToggleEmptyGroupsFiltersTreeWithoutDeletingGroups(t *testing.T) {
 	createSession(t, m, "nested", t.TempDir(), "work/leaf")
 
 	m.selectGroupRow(t, "empty")
+	bindTestKey(t, m, keymap.EmptyGroups, "e")
 	_, cmd := m.handleKey(tea.KeyPressMsg{Code: 'e', Text: "e"})
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -224,6 +226,7 @@ func TestEmptyGroupsKeyIsRefusedInTheArchivedView(t *testing.T) {
 	}
 	m.applyCmd(t, m.refreshCmd())
 	createSession(t, m, "alpha", dir, "work")
+	bindTestKey(t, m, keymap.EmptyGroups, "e")
 
 	press := func(key rune) {
 		_, cmd := m.handleKey(tea.KeyPressMsg{Code: key, Text: string(key)})

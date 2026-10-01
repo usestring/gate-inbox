@@ -1,0 +1,50 @@
+[48;5;237m  [38;5;231m--repo usestring/gate-inbox --base main --head [39m
+  [38;5;231ms-145287-answer-every-dialog --title [39m
+  [38;5;231m\"T-005287: answer every child dialog kind [39m
+  [38;5;231mthrough answer_session\" --body-file /var/sampl[39m
+  [38;5;231me-0000/-home-sampleusr-repos-repo/g2e06ce4-72e5[39m
+  [38;5;231m-4e3c-a3e7-a9a2cbd48d89/notesfiles/pr-body.md. [39m
+  [38;5;231mThe body file's full text is printed in the [39m
+  [38;5;231msession just above this question.", "header": [39m
+  [38;5;231m"Approval", "multiSelect": false, "options": [39m
+  [38;5;231m[{"label": "Push and open the PR", [39m
+  [38;5;231m"description": "Run both commands exactly as [39m
+  [38;5;231mwritten"}, {"label": "Push only", [39m
+  [38;5;231m"description": "Push the branch; don't open the[39m
+  [38;5;231mPR yet"}, {"label": "Hold", "description": [39m
+  [38;5;231m"Nothing goes to the public repo; the work [39m
+  [38;5;231mstays local and committed"}]}]} After the [39m
+  [38;5;231manswer, reply DONE.[39m
+[38;5;246m[49m──────────────────────────────────────────────────
+[38;5;16m[48;5;153m ☐ Approval [39m[49m
+
+[2m│[0m [1m[38;5;231mMay I push branch s-145287-answer-every-dialog [0m
+[2m│[0m [1m[38;5;231mto the PUBLIC repo usestring/gate-inbox and open
+[0;2m│[0m [1m[38;5;231ma ready-for-review PR? Exact commands, run from[0m
+[2m│[0m [1m[38;5;231m/home/sampleusr/work/sampledirs/s-145287-gi-ans[0m
+[2m│[0m [1m[38;5;231mwer-every-dialog-20260930-234259/gate-inbox: (1)
+[0;2m│[0m [1m[38;5;231mgit push -u origin s-145287-answer-every-dialog[0m
+[2m│[0m [1m[38;5;231m(4 signed commits plus a signed merge of [0m
+[2m│[0m [1m[38;5;231morigin/main: 86eebc4, 4af9e1e, d6cc358, [0m
+[2m│[0m [1m[38;5;231m43c34c3); (2) gh pr create --repo [0m
+[2m│[0m [1m[38;5;231musestring/gate-inbox --base main --head [0m
+[2m│[0m [1m[38;5;231ms-145287-answer-every-dialog --title "T-005287:
+[0;2m│[0m [1m[38;5;231manswer every child dialog kind through [0m
+[2m│[0m [1m[38;5;231manswer_session" --body-file /var/sample-0000/-ho
+[0;2m│[0m [1m[38;5;231mme-sampleusr-repos-repo/g2e06ce4-72e5-4e3c-a3e7-
+[0;2m│[0m [1m[38;5;231ma9a2cbd48d89/notesfiles/pr-body.md. The body [0m
+[2m│[0m [1m[38;5;231mfile's full text is printed in the session just
+[0;2m│[0m [1m[38;5;231mabove this question.[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mPush and open the PR[39m
+     [38;5;246mRun both commands exactly as written[39m
+  [38;5;246m2.[39m Push only
+     [38;5;246mPush the branch; don't open the PR yet[39m
+  [38;5;246m3.[39m Hold
+     [38;5;246mNothing goes to the public repo; the work [39m
+     [38;5;246mstays local and committed[39m
+  [38;5;246m4. Type something.[39m
+[38;5;246m──────────────────────────────────────────────────
+[39m  5. Chat about this
+
+[38;5;246mEnter to select · ↑/↓ to navigate · Esc to cancel[39m

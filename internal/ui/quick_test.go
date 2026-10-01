@@ -247,7 +247,7 @@ func TestHotkeyMenuDeadSessionSetsError(t *testing.T) {
 	m.selectSessionRow(t, "gone")
 
 	m = pressInMenu(t, m, letter('c'))
-	if m.errBar.text != "session is dead - press v to revive or R to restart" {
+	if m.errBar.text != "session is dead - press v to revive or restart in quick actions" {
 		t.Fatalf("err = %q", m.errBar.text)
 	}
 	if !m.quick.active {

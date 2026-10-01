@@ -197,7 +197,7 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 	// a taller panel. Pinning is now tied to being previewed rather than
 	// done to every session up front, so this is where a focused pane earns
 	// its size.
-	return m, tea.Batch(m.cursorBlink(), m.resizeSessions(), m.paneStateCmd(sess.ID))
+	return m, tea.Batch(m.cursorBlink(), m.resizeSessions(), m.paneStateCmd(sess.ID), m.readConversation())
 }
 
 // caretAtInputStart reports whether the agent's caret sits at the head of
@@ -651,6 +651,11 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// rather than left first and dismissed from its row. See
 			// focusactions.go.
 			return m, m.dismissFocused(sess)
+		case action == keymap.ToggleConversation:
+			// The focused-view setting under a key: a session kept on its
+			// conversation goes back to the terminal here, and one on the
+			// terminal goes back to the conversation the list was showing.
+			return m, m.toggleConversation()
 		case action == keymap.ToggleChrome:
 			// The footer is the manager's own row, not the agent's: hiding
 			// it from here gives the pane the rows back without leaving

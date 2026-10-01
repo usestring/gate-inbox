@@ -31,6 +31,12 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 		if note := sessioncmd.AskAnsweredHook(configDir, sessionID, payload); note != "" {
 			fmt.Fprintln(out, note)
 		}
+	case "ask-pending":
+		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
+		if err != nil {
+			return nil
+		}
+		sessioncmd.AskPendingHook(configDir, sessionID, payload)
 	case "prompt-submit":
 		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
 		if err != nil {

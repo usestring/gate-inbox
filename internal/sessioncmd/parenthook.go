@@ -142,7 +142,7 @@ func attestationNote(st *store.Store, sessionID, parent string, messageID int64,
 func attestationWords(a store.Attestation) string {
 	options := ""
 	if len(a.Options) > 0 {
-		options = fmt.Sprintf("; options: %s", strings.Join(quoteAll(a.Options), ", "))
+		options = fmt.Sprintf("; options: %s", strings.Join(quotedEach(a.Options), ", "))
 	}
 	return fmt.Sprintf("Relay attestation %s: Gate Inbox found in your parent session %s's own transcript that "+
 		"your user was asked %q (header %q%s) and answered %q at %s, in a dialog your parent put to them and no "+
@@ -150,7 +150,7 @@ func attestationWords(a store.Attestation) string {
 		a.AnsweredAt.Format("2006-01-02 15:04:05 MST"))
 }
 
-func quoteAll(items []string) []string {
+func quotedEach(items []string) []string {
 	out := make([]string, len(items))
 	for i, item := range items {
 		out[i] = fmt.Sprintf("%q", item)

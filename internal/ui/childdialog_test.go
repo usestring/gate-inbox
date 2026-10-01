@@ -62,8 +62,8 @@ func TestChildWaitingOnADialogNotifiesTheParentWithItsFullContent(t *testing.T) 
 			want: []string{
 				"Which checks should block a merge?",
 				"1. [x] Lint", "2. [ ] Unit tests", "3. [ ] Licence scan",
-				"multi-select, which answer_session cannot tick",
-				"Enter ticks or unticks the box",
+				"is a multi-select: give its answers entry ticks",
+				"reads them back and submits it",
 			},
 		},
 		{
@@ -77,9 +77,9 @@ func TestChildWaitingOnADialogNotifiesTheParentWithItsFullContent(t *testing.T) 
 			want: []string{
 				"stopped on a permission prompt",
 				"Bash command", "curl -s https://example.com/ -o out.html", "Do you want to proceed?",
-				"1. Yes (current)", "2. Yes, and don’t ask again for: curl *", "4. No",
-				"answer_session cannot answer a permission prompt", "never an agent's",
-				"ask the operator for the one keystroke", "Pressing a choice's number",
+				`options: "Yes", "Yes, and don’t ask again for: curl *"`, `"No"`,
+				"Whether the child may do this is your user's call, never yours",
+				"answer set to the option they chose and relay: true", "reads back that the dialog cleared",
 			},
 		},
 		{
@@ -87,7 +87,8 @@ func TestChildWaitingOnADialogNotifiesTheParentWithItsFullContent(t *testing.T) 
 			fixture: "claude-2.1.284-w50-workspace-trust.ansi",
 			want: []string{
 				"stopped on a workspace-trust dialog", "/home/dev/work/release-toolkits",
-				"1) No, exit (current)", "2) Yes, I trust this folder", "choice 1 of 2",
+				`options: "No, exit", "Yes, I trust this folder"`, "Whether to trust this folder is your user's call",
+				"relay: true",
 			},
 		},
 		{
@@ -95,8 +96,8 @@ func TestChildWaitingOnADialogNotifiesTheParentWithItsFullContent(t *testing.T) 
 			fixture: "claude-2.1.284-w50-mcp-trust.ansi",
 			want: []string{
 				"stopped on a MCP-server trust dialog", "demo-files",
-				"2) Use this and all future MCP servers in this project",
-				"3) Continue without using this MCP server (current)",
+				`"Use this and all future MCP servers in this project"`,
+				`"Continue without using this MCP server"`, "Whether to use this MCP server is your user's call",
 			},
 		},
 		{

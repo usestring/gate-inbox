@@ -140,3 +140,20 @@ func TestServerSteeringCarriesOpencodeNamingAndDelegation(t *testing.T) {
 		}
 	}
 }
+
+// Every CLI Gate Inbox launches carries the rule that a parent owns its
+// children's dialogs, wherever that CLI reads its standing instructions.
+func TestEveryCLISteeringCarriesTheChildDialogRule(t *testing.T) {
+	for style := range builtinDelegation {
+		text := delegationSteering(style)
+		for _, want := range []string{"Your children's dialogs are yours", "word for word", "answer_session",
+			"relay: true", "Never tell your user to answer at the child's pane"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s steering lacks %q", style, want)
+			}
+		}
+	}
+	if text, _ := ServerSteering("opencode"); !strings.Contains(text, childDialogSteering) {
+		t.Error("OpenCode's server-carried steering lacks the child-dialog rule")
+	}
+}

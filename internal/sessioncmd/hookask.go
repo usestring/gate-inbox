@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
+	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -111,4 +114,36 @@ func SessionStartHook(configDir, sessionID string) string {
 		return ""
 	}
 	return string(out)
+}
+
+// AskPendingHook saves the AskUserQuestion call in the child's PreToolUse
+// payload, so its questions, options and previews can be read while its
+// dialog stands; see hooks.askPendingCommand. Every failure saves nothing.
+func AskPendingHook(configDir, sessionID string, payload []byte) {
+	if sessionID == "" {
+		return
+	}
+	var event struct {
+		ToolName  string `json:"tool_name"`
+		ToolUseID string `json:"tool_use_id"`
+		ToolInput struct {
+			Questions []convo.AskQuestion `json:"questions"`
+		} `json:"tool_input"`
+	}
+	if json.Unmarshal(payload, &event) != nil || event.ToolName != "AskUserQuestion" ||
+		event.ToolUseID == "" || len(event.ToolInput.Questions) == 0 {
+		return
+	}
+	raw, err := json.Marshal(convo.AskCall{ToolUseID: event.ToolUseID, Questions: event.ToolInput.Questions, AskedAt: time.Now()})
+	if err != nil {
+		return
+	}
+	path := hooks.NewManager(configDir).PendingAskFile(sessionID)
+	if os.MkdirAll(filepath.Dir(path), 0o700) != nil {
+		return
+	}
+	tmp := path + ".tmp"
+	if os.WriteFile(tmp, raw, 0o600) == nil {
+		_ = os.Rename(tmp, path)
+	}
 }

@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/migrate"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -58,6 +59,7 @@ func TestMigrateKeyIncludesSameToolAndFollowsItInTheName(t *testing.T) {
 	m.cfg.Tools["codex"] = config.Tool{Command: "cat", DefaultStatus: status.Idle}
 	m.cfg.Tools["gemini"] = config.Tool{Command: "cat", DefaultStatus: status.Idle}
 
+	bindTestKey(t, m, keymap.Migrate, "M")
 	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'M', Text: "M", Mod: tea.ModShift})
 	m = updated.(*Model)
 	if m.mode != modeMigrate || m.migrate.source.ID != source.ID {

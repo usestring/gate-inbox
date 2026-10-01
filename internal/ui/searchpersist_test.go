@@ -45,8 +45,8 @@ func TestSearchFieldOutlivesTheOpenField(t *testing.T) {
 	if !strings.Contains(rail, "≡") {
 		t.Fatalf("a query still filtering should stay in the rail:\n%s", rail)
 	}
-	if !strings.Contains(rail, "clear") {
-		t.Fatalf("a closed field should offer the way out:\n%s", rail)
+	if !strings.Contains(rail, "edit") {
+		t.Fatalf("a closed field should offer the way back in:\n%s", rail)
 	}
 }
 
@@ -56,7 +56,7 @@ func TestSearchRailIsCleanWithNoQuery(t *testing.T) {
 	}
 }
 
-func TestEnterKeepsTheQueryAndEscClearsIt(t *testing.T) {
+func TestEnterKeepsTheQueryAndEscKeepsItToo(t *testing.T) {
 	m := searchModel()
 	m.searching, m.search = true, "api"
 	m.rebuildRows()
@@ -68,26 +68,34 @@ func TestEnterKeepsTheQueryAndEscClearsIt(t *testing.T) {
 			m.searching, m.search, len(m.rows))
 	}
 
-	// Through handleKey rather than clearSearch: the binding is half of what
-	// this covers, so a test that skips it would pass with esc unbound.
+	// esc on the list reaches no clearing: the query outlives the field,
+	// and only deleting the text takes it back.
 	m.handleKey(tea.KeyPressMsg{Code: tea.KeyEsc})
-	if m.search != "" {
-		t.Fatalf("esc should clear the query, got %q", m.search)
+	if m.search != "api" || len(m.rows) != filtered {
+		t.Fatalf("esc on the list should leave the filter alone, got query=%q rows=%d", m.search, len(m.rows))
 	}
+
+	// Deleting the text is what clears: reopen the field, wipe it, close it.
+	m.handleKey(tea.KeyPressMsg{Code: '/', Text: "/"})
+	m.handleSearchKey(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	if m.search != "" {
+		t.Fatalf("ctrl+u should wipe the field, got %q", m.search)
+	}
+	m.handleSearchKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if len(m.rows) <= filtered {
 		t.Fatalf("clearing should bring the sessions back, still %d rows", len(m.rows))
 	}
 }
 
-func TestEscInTheFieldClearsIt(t *testing.T) {
+func TestEscInTheFieldKeepsTheQuery(t *testing.T) {
 	m := searchModel()
 	m.searching, m.search = true, "api"
 	m.rebuildRows()
 	m.handleSearchKey(tea.KeyPressMsg{Code: tea.KeyEsc})
-	if m.searching || m.search != "" {
-		t.Fatalf("esc should close and clear, got searching=%v query=%q", m.searching, m.search)
+	if m.searching || m.search != "api" {
+		t.Fatalf("esc should close the field and keep the query, got searching=%v query=%q", m.searching, m.search)
 	}
-	if strings.Contains(railHead(m), "≡") {
-		t.Fatal("a cleared search should leave no field behind")
+	if !strings.Contains(railHead(m), "≡") {
+		t.Fatal("a kept query should leave its field behind")
 	}
 }

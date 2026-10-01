@@ -297,8 +297,7 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 	case keymap.LastPane:
 		return m.focusLastPane()
 	case keymap.ToggleConversation:
-		m.toggleConversation()
-		return m, nil
+		return m, m.toggleConversation()
 	case keymap.QuickInput:
 		m.openQuickMode()
 	case keymap.FoldAll:
@@ -788,7 +787,7 @@ func (m *Model) afterListFilter(previousKey string) tea.Cmd {
 	m.previewGen++
 	m.syncPollInput()
 	if _, ok := m.selected(); ok {
-		return m.schedulePreview()
+		return tea.Batch(m.schedulePreview(), m.readConversation())
 	}
 	return nil
 }

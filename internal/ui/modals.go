@@ -453,6 +453,7 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldLeave, "on leaving a session", normalizeLeaveMode(m.settings.leaveMode)) + "\n" +
 		row(settingsFieldQuickClose, "after hotkey send", quickClose) + "\n" +
 		row(settingsFieldFocusKey, "session keys", focusKey) + "\n" +
+		row(settingsFieldFocusView, "focused view", normalizeFocusView(m.settings.focusView)) + "\n" +
 		row(settingsFieldAutoProceed, "triage auto proceed", autoProceed) + "\n" +
 		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +
 		row(settingsFieldOutsidePanes, "outside panes", outsidePanesLabel(m.settings.outsidePanes)) + "\n" +

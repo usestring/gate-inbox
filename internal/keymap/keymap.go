@@ -592,12 +592,10 @@ var retired = map[Action]string{
 }
 
 // retiredOn are actions that left one screen but still work on another, so
-// they cannot go in retired, which would drop them everywhere.
-var retiredOn = map[Context]map[Action]string{
-	ContextFocus: {
-		"toggle_conversation": "was removed from inside a session with the gate; the list keeps its own",
-	},
-}
+// they cannot go in retired, which would drop them everywhere. It is empty
+// today: the last entry was the focused conversation toggle, which works
+// again now that the focused view can be the conversation.
+var retiredOn = map[Context]map[Action]string{}
 
 // required reports whether an action is one this screen cannot be worked
 // without, which is what forbids unbinding it.

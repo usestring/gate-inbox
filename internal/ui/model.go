@@ -423,6 +423,10 @@ type Model struct {
 	// focusOnEnter mirrors the persisted focus-key setting; the footer
 	// reads it every frame, so it lives here instead of the store.
 	focusOnEnter bool
+	// focusView mirrors the persisted focused-view setting: the live
+	// terminal, or the conversation transcript. The content column reads it
+	// every frame, so it lives here instead of the store. See focusview.go.
+	focusView string
 	// comfortableRows mirrors the persisted list density: entries paint
 	// their meta on a second line instead of alongside the name. Every
 	// rail frame reads it, so it lives here instead of the store.
@@ -786,6 +790,7 @@ type settingsState struct {
 	field              int
 	quickCloseSend     bool
 	enterFocuses       bool
+	focusView          string
 	comfortableRows    bool
 	layout             string
 	sidebar            string
@@ -828,6 +833,7 @@ const (
 	settingsFieldLeave
 	settingsFieldQuickClose
 	settingsFieldFocusKey
+	settingsFieldFocusView
 	settingsFieldAutoProceed
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
@@ -1133,6 +1139,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		collapsed:       loadCollapsed(st),
 		split:           splitState{ratio: loadSplitRatio(st)},
 		focusOnEnter:    storedFocusOnEnter(st),
+		focusView:       storedFocusView(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),
@@ -2253,7 +2260,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// taking over. Doing it here rather than on every cursor move is
 		// what keeps a held j from reflowing twenty of the operator's
 		// windows on its way past them.
-		return m, tea.Batch(m.resizeSessions(), m.previewCmd(sess, msg.gen, m.procDue()))
+		//
+		// The conversation read rides the same settle for the same reason:
+		// a read per keystroke would fork a stat per row a held key walks
+		// past, and the cursor coming to rest is the row whose turns the
+		// operator is about to read. Until it lands, the last conversation
+		// stands in rather than flashing the empty placeholder. See
+		// conversationRows.
+		return m, tea.Batch(m.resizeSessions(), m.previewCmd(sess, msg.gen, m.procDue()), m.readConversation())
 
 	case cursorBlinkMsg:
 		if msg.gen != m.blinkGen || m.mode != modeFocus {
@@ -2518,6 +2532,14 @@ func (m *Model) clearPreviewState() {
 	m.pane.sgr = false
 	m.pane.history = 0
 	m.pane.cursor = paneCursor{}
+	if m.conversation != nil {
+		// A read in flight for the row just left must not hold the
+		// preload for the row arriving behind it: its answer carries its
+		// own key and is dropped on arrival when the selection has moved
+		// on, so releasing the flag here only ever unblocks the new row.
+		// See readConversation and applyConversation.
+		m.conversation.busy, m.conversation.pendingKey = false, ""
+	}
 }
 
 // trailingEcho is the chase owed to input that reached the pane while another

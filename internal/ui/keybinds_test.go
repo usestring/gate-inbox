@@ -59,7 +59,7 @@ func TestTheFooterNamesTheReboundKey(t *testing.T) {
 // And so does the key map.
 func TestTheKeyMapNamesTheReboundKey(t *testing.T) {
 	m := buildModel(t)
-	m.width, m.height = 200, 60
+	m.width, m.height = 200, 200
 	m.mode = modeHelp
 	writeKeys(t, m, "[list]\nnew_group = [\"alt+g\"]\n")
 	if frame := ansi.Strip(m.frame()); !strings.Contains(frame, keymap.Display("alt+g")) {
@@ -203,7 +203,7 @@ func TestEscDuringACaptureChangesNothing(t *testing.T) {
 	if m.help.capturing {
 		t.Fatal("esc left the capture armed")
 	}
-	if got := m.km().Key(keymap.ContextList, keymap.ShowAllWork); got != "W" {
+	if got := m.km().Key(keymap.ContextList, keymap.ShowAllWork); got != "" {
 		t.Fatalf("esc rebound show_all_work to %q", got)
 	}
 }
@@ -217,7 +217,7 @@ func TestResetPutsABindingBackFromTheKeyMap(t *testing.T) {
 	m.help.query = "show all of a session"
 	m.frame()
 	m.handleHelpKey(runeKey("r"))
-	if got := m.km().Key(keymap.ContextList, keymap.ShowAllWork); got != "W" {
+	if got := m.km().Key(keymap.ContextList, keymap.ShowAllWork); got != "" {
 		t.Fatalf("reset left show_all_work on %q", got)
 	}
 	raw, err := os.ReadFile(keymap.Path(m.configDir()))

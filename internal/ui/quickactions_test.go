@@ -42,7 +42,7 @@ func TestQuickActionsRunsTheActionTypedAndTeachesItsKey(t *testing.T) {
 	if m.hideEmptyGroups == hidden {
 		t.Fatal("the palette did not run empty_groups")
 	}
-	want := "next time press " + m.cap(keymap.ContextList, keymap.EmptyGroups) + " for empty_groups"
+	want := "empty_groups has no key: bind one from the key map (" + m.cap(keymap.ContextList, keymap.Help) + ")"
 	if m.errBar.text != want || !m.errBar.worked() {
 		t.Fatalf("status reads %q (worked %v), want %q", m.errBar.text, m.errBar.worked(), want)
 	}

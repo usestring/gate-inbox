@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
 // listWithHistory is focusedWithHistory backed out to the list: the same
@@ -221,6 +222,7 @@ func TestAltArrowsScrollTheListPreview(t *testing.T) {
 	m, sessID := listWithHistory(t, "listaltkeys")
 	rows := m.previewPaneHeight()
 	before := m.cursor
+	bindTestKey(t, m, keymap.PreviewBottom, "alt+end")
 
 	updated, cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyUp, Mod: tea.ModAlt})
 	m = updated.(*Model)

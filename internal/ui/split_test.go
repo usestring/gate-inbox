@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
@@ -91,6 +92,7 @@ func TestSetSplitFromXClampsAndUpdatesRatio(t *testing.T) {
 
 func TestResizeModeKeyArmsDrag(t *testing.T) {
 	m := &Model{mode: modeList, split: splitState{ratio: defaultSplitRatio}, width: 120, height: 40}
+	bindTestKey(t, m, keymap.Resize, "|")
 	updated, cmd := m.handleKey(tea.KeyPressMsg{Code: '|', Text: "|"})
 	m = updated.(*Model)
 	if !m.split.resizeMode {
@@ -134,6 +136,7 @@ func TestArrowNudgeAndPipeCommits(t *testing.T) {
 		height: 40,
 		split:  splitState{ratio: 0.34},
 	}
+	bindTestKey(t, m, keymap.Resize, "|")
 	updated, _ := m.enterResizeMode()
 	m = updated.(*Model)
 	before, _ := m.splitWidths()

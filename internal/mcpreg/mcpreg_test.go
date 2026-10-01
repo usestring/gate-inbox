@@ -42,7 +42,7 @@ func TestApplyClaudeWritesConfigAndFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "gate-inbox-mcp-claude.json")
+	path := filepath.Join(dir, hooks.GeneratedName("gate-inbox-mcp-claude.json", claudeConfig("/opt/bin/gate-inbox")))
 	if !strings.Contains(command, "--mcp-config") || !strings.Contains(command, path) {
 		t.Fatalf("command = %q", command)
 	}
@@ -124,7 +124,7 @@ func TestApplyOpencodeV2RunsAPrivateServer(t *testing.T) {
 	if command != "opencode --prompt 'go' --standalone" {
 		t.Fatalf("v2 launch = %q, want --standalone appended", command)
 	}
-	if want := filepath.Join(dir, "gate-inbox-mcp-opencode.json"); env["OPENCODE_CONFIG"] != want {
+	if want := filepath.Join(dir, hooks.GeneratedName("gate-inbox-mcp-opencode.json", opencodeConfig("/opt/bin/gate-inbox", ""))); env["OPENCODE_CONFIG"] != want {
 		t.Fatalf("OPENCODE_CONFIG = %q, want the shared %q when no model is chosen", env["OPENCODE_CONFIG"], want)
 	}
 	content, err := os.ReadFile(env["OPENCODE_CONFIG"])
@@ -145,7 +145,7 @@ func TestApplyOpencodeV2PutsTheModelInASessionConfig(t *testing.T) {
 	if _, err := Apply("opencode", "/opt/bin/gate-inbox", dir, "opencode", env, "anthropic/claude-sonnet-5"); err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(dir, "gate-inbox-mcp-opencode-abcd1234.json"); env["OPENCODE_CONFIG"] != want {
+	if want := filepath.Join(dir, hooks.GeneratedName("gate-inbox-mcp-opencode-abcd1234.json", opencodeConfig("/opt/bin/gate-inbox", "anthropic/claude-sonnet-5"))); env["OPENCODE_CONFIG"] != want {
 		t.Fatalf("OPENCODE_CONFIG = %q, want %q", env["OPENCODE_CONFIG"], want)
 	}
 	content, err := os.ReadFile(env["OPENCODE_CONFIG"])
@@ -180,7 +180,7 @@ func TestPreviewOpencodeV2NamesTheSessionConfigWithoutWriting(t *testing.T) {
 	if command != "opencode --standalone" {
 		t.Fatalf("preview command = %q", command)
 	}
-	if want := filepath.Join(dir, "gate-inbox-mcp-opencode-abcd1234.json"); env["OPENCODE_CONFIG"] != want {
+	if want := filepath.Join(dir, hooks.GeneratedName("gate-inbox-mcp-opencode-abcd1234.json", opencodeConfig("/opt/bin/gate-inbox", "anthropic/claude-sonnet-5"))); env["OPENCODE_CONFIG"] != want {
 		t.Fatalf("OPENCODE_CONFIG = %q, want %q", env["OPENCODE_CONFIG"], want)
 	}
 	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
@@ -260,7 +260,7 @@ func TestPreviewOpencodeWritesNothing(t *testing.T) {
 	if _, err := Preview("opencode", "/opt/bin/gate-inbox", dir, "opencode", env, ""); err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(dir, "gate-inbox-mcp-opencode.json"); env["OPENCODE_CONFIG"] != want {
+	if want := filepath.Join(dir, hooks.GeneratedName("gate-inbox-mcp-opencode.json", opencodeConfig("/opt/bin/gate-inbox", ""))); env["OPENCODE_CONFIG"] != want {
 		t.Fatalf("OPENCODE_CONFIG = %q, want %q", env["OPENCODE_CONFIG"], want)
 	}
 	entries, err := os.ReadDir(dir)

@@ -1,9 +1,9 @@
 # The focused view. `enter` opens the session that owns this transcript, the
-# adopted claude pane, and it opens on its live terminal as focus always has.
-# Settings' "focused view" row is then set to `conversation`, and focusing the
-# session again keeps the same shortened transcript the list shows on screen
-# inside the session. F3 -- the same setting under a key -- is what switches a
-# session from one to the other from inside it.
+# adopted claude pane, and it opens on the same shortened conversation the list
+# shows -- the focused-view default. Settings' "focused view" row is then set
+# to `terminal`, and focusing the session again hands the pane to the agent.
+# F3 -- the same setting under a key -- is what switches a session from one to
+# the other from inside it.
 #
 # The transcript's sidecar is what gives the adopted pane a conversation to
 # draw, so this runs with --no-seed --foreign conversation.
@@ -22,15 +22,15 @@ Screenshot {{SHOTS}}/01-conversation-in-the-list.png
 Sleep 1s
 
 Enter
-Sleep 2s
-Screenshot {{SHOTS}}/02-focused-on-the-terminal.png
+Sleep 3s
+Screenshot {{SHOTS}}/02-focused-on-the-conversation.png
 Sleep 1s
 
 Ctrl+q
 Sleep 1s
 
 # Settings' focused-view row: 16 fields down from the tool row, then one step
-# right from the terminal to the conversation.
+# right from the conversation default to the terminal.
 Type "s"
 Sleep 1s
 Down
@@ -63,5 +63,5 @@ Enter
 Sleep 2s
 Enter
 Sleep 3s
-Screenshot {{SHOTS}}/03-focused-on-the-conversation.png
+Screenshot {{SHOTS}}/03-focused-on-the-terminal.png
 Sleep 1s

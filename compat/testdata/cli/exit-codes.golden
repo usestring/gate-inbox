@@ -32,7 +32,7 @@ gate-inbox compat
 $ gate-inbox --log-path
 exit 0
 --- stdout
-log file:   <scratch>/home/logs/gate-inbox.log
+log file:   <scratch>/gihome/logs/gate-inbox.log
 log level:  info
 rotation:   8 MB per file, 5 kept, 48 MB total, compressed=true
 no log files yet
@@ -41,7 +41,7 @@ no log files yet
 $ gate-inbox logs
 exit 0
 --- stdout
-log file:   <scratch>/home/logs/gate-inbox.log
+log file:   <scratch>/gihome/logs/gate-inbox.log
 log level:  info
 rotation:   8 MB per file, 5 kept, 48 MB total, compressed=true
 no log files yet

@@ -1,0 +1,18 @@
+❯ Set up the release workspace for the new packages.
+
+● A few decisions before I start: tooling, compliance, publishing and tests.
+
+[38;5;246m[49m────────────────────────────────────────────────────────────────────────────────
+[39m←  ☐ Tooling [38;5;16m[48;5;153m ☐ Compliance [39m[49m ☐ npm publish  ☐ Run tests  ✔ Submit  →
+
+[1m[38;5;231mShould the release pipeline block on the licence compliance scan?[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mBlock[39m
+     [38;5;246mFail the release[39m
+  [38;5;246m2.[39m Warn
+     [38;5;246mAnnotate only[39m
+  [38;5;246m3. Type something.[39m
+[38;5;246m────────────────────────────────────────────────────────────────────────────────
+[39m  4. Chat about this
+
+[38;5;246mEnter to select · Tab/Arrow keys to navigate · Esc to cancel[39m

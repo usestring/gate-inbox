@@ -1,0 +1,873 @@
+=== second tab on screen · 40 columns
+╭ 4 questions · 0 answered ────────────╮
+│ □ 1. Tooling                         │
+│    Which package manager should the  │
+│    new workspace standardise on for  │
+│    every JavaScript package?         │
+│    1. Bun                            │
+│       Fast, already used in CI       │
+│    2. pnpm                           │
+│       Strict hoisting                │
+│    3. npm                            │
+│       Default, slowest               │
+│                                      │
+│ □ 2. Compliance  ◂ on screen         │
+│    Should the release pipeline block │
+│    on the licence compliance scan?   │
+│    1. Block                          │
+│       Fail the release               │
+│    2. Warn                           │
+│       Annotate only                  │
+│                                      │
+│ □ 3. npm publish                     │
+│    Which registry should packages    │
+│    publish to?                       │
+│    1. Public npm                     │
+│       The default registry           │
+│    2. GitHub Packages                │
+│       Scoped, private                │
+│                                      │
+│ □ 4. Run tests                       │
+│    Where should the integration      │
+│    tests run?                        │
+│    1. CI only                        │
+│       On every push                  │
+│    2. Locally too                    │
+│       Also on dev machines           │
+│    3. Nightly                        │
+│       Scheduled job                  │
+│                                      │
+│ ▸ Submit                             │
+╰──────────────────────────────────────╯
+=== second tab on screen · 50 columns
+╭ 4 questions · 0 answered ──────────────────────╮
+│ □ 1. Tooling                                   │
+│    Which package manager should the new        │
+│    workspace standardise on for every          │
+│    JavaScript package?                         │
+│    1. Bun                                      │
+│       Fast, already used in CI                 │
+│    2. pnpm                                     │
+│       Strict hoisting                          │
+│    3. npm                                      │
+│       Default, slowest                         │
+│                                                │
+│ □ 2. Compliance  ◂ on screen                   │
+│    Should the release pipeline block on the    │
+│    licence compliance scan?                    │
+│    1. Block                                    │
+│       Fail the release                         │
+│    2. Warn                                     │
+│       Annotate only                            │
+│                                                │
+│ □ 3. npm publish                               │
+│    Which registry should packages publish to?  │
+│    1. Public npm                               │
+│       The default registry                     │
+│    2. GitHub Packages                          │
+│       Scoped, private                          │
+│                                                │
+│ □ 4. Run tests                                 │
+│    Where should the integration tests run?     │
+│    1. CI only                                  │
+│       On every push                            │
+│    2. Locally too                              │
+│       Also on dev machines                     │
+│    3. Nightly                                  │
+│       Scheduled job                            │
+│                                                │
+│ ▸ Submit                                       │
+╰────────────────────────────────────────────────╯
+=== second tab on screen · 60 columns
+╭ 4 questions · 0 answered ────────────────────────────────╮
+│ □ 1. Tooling                                             │
+│    Which package manager should the new workspace        │
+│    standardise on for every JavaScript package?          │
+│    1. Bun                                                │
+│       Fast, already used in CI                           │
+│    2. pnpm                                               │
+│       Strict hoisting                                    │
+│    3. npm                                                │
+│       Default, slowest                                   │
+│                                                          │
+│ □ 2. Compliance  ◂ on screen                             │
+│    Should the release pipeline block on the licence      │
+│    compliance scan?                                      │
+│    1. Block                                              │
+│       Fail the release                                   │
+│    2. Warn                                               │
+│       Annotate only                                      │
+│                                                          │
+│ □ 3. npm publish                                         │
+│    Which registry should packages publish to?            │
+│    1. Public npm                                         │
+│       The default registry                               │
+│    2. GitHub Packages                                    │
+│       Scoped, private                                    │
+│                                                          │
+│ □ 4. Run tests                                           │
+│    Where should the integration tests run?               │
+│    1. CI only                                            │
+│       On every push                                      │
+│    2. Locally too                                        │
+│       Also on dev machines                               │
+│    3. Nightly                                            │
+│       Scheduled job                                      │
+│                                                          │
+│ ▸ Submit                                                 │
+╰──────────────────────────────────────────────────────────╯
+=== second tab on screen · 100 columns
+╭ 4 questions · 0 answered ────────────────────────────────────────────────────────────────────────╮
+│ □ 1. Tooling                                                                                     │
+│    Which package manager should the new workspace standardise on for every JavaScript package?   │
+│    1. Bun                                                                                        │
+│       Fast, already used in CI                                                                   │
+│    2. pnpm                                                                                       │
+│       Strict hoisting                                                                            │
+│    3. npm                                                                                        │
+│       Default, slowest                                                                           │
+│                                                                                                  │
+│ □ 2. Compliance  ◂ on screen                                                                     │
+│    Should the release pipeline block on the licence compliance scan?                             │
+│    1. Block                                                                                      │
+│       Fail the release                                                                           │
+│    2. Warn                                                                                       │
+│       Annotate only                                                                              │
+│                                                                                                  │
+│ □ 3. npm publish                                                                                 │
+│    Which registry should packages publish to?                                                    │
+│    1. Public npm                                                                                 │
+│       The default registry                                                                       │
+│    2. GitHub Packages                                                                            │
+│       Scoped, private                                                                            │
+│                                                                                                  │
+│ □ 4. Run tests                                                                                   │
+│    Where should the integration tests run?                                                       │
+│    1. CI only                                                                                    │
+│       On every push                                                                              │
+│    2. Locally too                                                                                │
+│       Also on dev machines                                                                       │
+│    3. Nightly                                                                                    │
+│       Scheduled job                                                                              │
+│                                                                                                  │
+│ ▸ Submit                                                                                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+=== first answered, second on screen · 40 columns
+╭ 4 questions · 1 answered ────────────╮
+│ ■ 1. Tooling                         │
+│    → answered                        │
+│                                      │
+│ □ 2. Compliance  ◂ on screen         │
+│    Should the release pipeline block │
+│    on the licence compliance scan?   │
+│    1. Block                          │
+│       Fail the release               │
+│    2. Warn                           │
+│       Annotate only                  │
+│                                      │
+│ □ 3. npm publish                     │
+│    Which registry should packages    │
+│    publish to?                       │
+│    1. Public npm                     │
+│       The default registry           │
+│    2. GitHub Packages                │
+│       Scoped, private                │
+│                                      │
+│ □ 4. Run tests                       │
+│    Where should the integration      │
+│    tests run?                        │
+│    1. CI only                        │
+│       On every push                  │
+│    2. Locally too                    │
+│       Also on dev machines           │
+│    3. Nightly                        │
+│       Scheduled job                  │
+│                                      │
+│ ▸ Submit                             │
+╰──────────────────────────────────────╯
+=== first answered, second on screen · 50 columns
+╭ 4 questions · 1 answered ──────────────────────╮
+│ ■ 1. Tooling                                   │
+│    → answered                                  │
+│                                                │
+│ □ 2. Compliance  ◂ on screen                   │
+│    Should the release pipeline block on the    │
+│    licence compliance scan?                    │
+│    1. Block                                    │
+│       Fail the release                         │
+│    2. Warn                                     │
+│       Annotate only                            │
+│                                                │
+│ □ 3. npm publish                               │
+│    Which registry should packages publish to?  │
+│    1. Public npm                               │
+│       The default registry                     │
+│    2. GitHub Packages                          │
+│       Scoped, private                          │
+│                                                │
+│ □ 4. Run tests                                 │
+│    Where should the integration tests run?     │
+│    1. CI only                                  │
+│       On every push                            │
+│    2. Locally too                              │
+│       Also on dev machines                     │
+│    3. Nightly                                  │
+│       Scheduled job                            │
+│                                                │
+│ ▸ Submit                                       │
+╰────────────────────────────────────────────────╯
+=== first answered, second on screen · 60 columns
+╭ 4 questions · 1 answered ────────────────────────────────╮
+│ ■ 1. Tooling                                             │
+│    → answered                                            │
+│                                                          │
+│ □ 2. Compliance  ◂ on screen                             │
+│    Should the release pipeline block on the licence      │
+│    compliance scan?                                      │
+│    1. Block                                              │
+│       Fail the release                                   │
+│    2. Warn                                               │
+│       Annotate only                                      │
+│                                                          │
+│ □ 3. npm publish                                         │
+│    Which registry should packages publish to?            │
+│    1. Public npm                                         │
+│       The default registry                               │
+│    2. GitHub Packages                                    │
+│       Scoped, private                                    │
+│                                                          │
+│ □ 4. Run tests                                           │
+│    Where should the integration tests run?               │
+│    1. CI only                                            │
+│       On every push                                      │
+│    2. Locally too                                        │
+│       Also on dev machines                               │
+│    3. Nightly                                            │
+│       Scheduled job                                      │
+│                                                          │
+│ ▸ Submit                                                 │
+╰──────────────────────────────────────────────────────────╯
+=== first answered, second on screen · 100 columns
+╭ 4 questions · 1 answered ────────────────────────────────────────────────────────────────────────╮
+│ ■ 1. Tooling                                                                                     │
+│    → answered                                                                                    │
+│                                                                                                  │
+│ □ 2. Compliance  ◂ on screen                                                                     │
+│    Should the release pipeline block on the licence compliance scan?                             │
+│    1. Block                                                                                      │
+│       Fail the release                                                                           │
+│    2. Warn                                                                                       │
+│       Annotate only                                                                              │
+│                                                                                                  │
+│ □ 3. npm publish                                                                                 │
+│    Which registry should packages publish to?                                                    │
+│    1. Public npm                                                                                 │
+│       The default registry                                                                       │
+│    2. GitHub Packages                                                                            │
+│       Scoped, private                                                                            │
+│                                                                                                  │
+│ □ 4. Run tests                                                                                   │
+│    Where should the integration tests run?                                                       │
+│    1. CI only                                                                                    │
+│       On every push                                                                              │
+│    2. Locally too                                                                                │
+│       Also on dev machines                                                                       │
+│    3. Nightly                                                                                    │
+│       Scheduled job                                                                              │
+│                                                                                                  │
+│ ▸ Submit                                                                                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+=== answered tab revisited · 40 columns
+╭ 4 questions · 1 answered ────────────╮
+│ ■ 1. Tooling  ◂ on screen            │
+│    → pnpm                            │
+│                                      │
+│ □ 2. Compliance                      │
+│    Should the release pipeline block │
+│    on the licence compliance scan?   │
+│    1. Block                          │
+│       Fail the release               │
+│    2. Warn                           │
+│       Annotate only                  │
+│                                      │
+│ □ 3. npm publish                     │
+│    Which registry should packages    │
+│    publish to?                       │
+│    1. Public npm                     │
+│       The default registry           │
+│    2. GitHub Packages                │
+│       Scoped, private                │
+│                                      │
+│ □ 4. Run tests                       │
+│    Where should the integration      │
+│    tests run?                        │
+│    1. CI only                        │
+│       On every push                  │
+│    2. Locally too                    │
+│       Also on dev machines           │
+│    3. Nightly                        │
+│       Scheduled job                  │
+│                                      │
+│ ▸ Submit                             │
+╰──────────────────────────────────────╯
+=== answered tab revisited · 50 columns
+╭ 4 questions · 1 answered ──────────────────────╮
+│ ■ 1. Tooling  ◂ on screen                      │
+│    → pnpm                                      │
+│                                                │
+│ □ 2. Compliance                                │
+│    Should the release pipeline block on the    │
+│    licence compliance scan?                    │
+│    1. Block                                    │
+│       Fail the release                         │
+│    2. Warn                                     │
+│       Annotate only                            │
+│                                                │
+│ □ 3. npm publish                               │
+│    Which registry should packages publish to?  │
+│    1. Public npm                               │
+│       The default registry                     │
+│    2. GitHub Packages                          │
+│       Scoped, private                          │
+│                                                │
+│ □ 4. Run tests                                 │
+│    Where should the integration tests run?     │
+│    1. CI only                                  │
+│       On every push                            │
+│    2. Locally too                              │
+│       Also on dev machines                     │
+│    3. Nightly                                  │
+│       Scheduled job                            │
+│                                                │
+│ ▸ Submit                                       │
+╰────────────────────────────────────────────────╯
+=== answered tab revisited · 60 columns
+╭ 4 questions · 1 answered ────────────────────────────────╮
+│ ■ 1. Tooling  ◂ on screen                                │
+│    → pnpm                                                │
+│                                                          │
+│ □ 2. Compliance                                          │
+│    Should the release pipeline block on the licence      │
+│    compliance scan?                                      │
+│    1. Block                                              │
+│       Fail the release                                   │
+│    2. Warn                                               │
+│       Annotate only                                      │
+│                                                          │
+│ □ 3. npm publish                                         │
+│    Which registry should packages publish to?            │
+│    1. Public npm                                         │
+│       The default registry                               │
+│    2. GitHub Packages                                    │
+│       Scoped, private                                    │
+│                                                          │
+│ □ 4. Run tests                                           │
+│    Where should the integration tests run?               │
+│    1. CI only                                            │
+│       On every push                                      │
+│    2. Locally too                                        │
+│       Also on dev machines                               │
+│    3. Nightly                                            │
+│       Scheduled job                                      │
+│                                                          │
+│ ▸ Submit                                                 │
+╰──────────────────────────────────────────────────────────╯
+=== answered tab revisited · 100 columns
+╭ 4 questions · 1 answered ────────────────────────────────────────────────────────────────────────╮
+│ ■ 1. Tooling  ◂ on screen                                                                        │
+│    → pnpm                                                                                        │
+│                                                                                                  │
+│ □ 2. Compliance                                                                                  │
+│    Should the release pipeline block on the licence compliance scan?                             │
+│    1. Block                                                                                      │
+│       Fail the release                                                                           │
+│    2. Warn                                                                                       │
+│       Annotate only                                                                              │
+│                                                                                                  │
+│ □ 3. npm publish                                                                                 │
+│    Which registry should packages publish to?                                                    │
+│    1. Public npm                                                                                 │
+│       The default registry                                                                       │
+│    2. GitHub Packages                                                                            │
+│       Scoped, private                                                                            │
+│                                                                                                  │
+│ □ 4. Run tests                                                                                   │
+│    Where should the integration tests run?                                                       │
+│    1. CI only                                                                                    │
+│       On every push                                                                              │
+│    2. Locally too                                                                                │
+│       Also on dev machines                                                                       │
+│    3. Nightly                                                                                    │
+│       Scheduled job                                                                              │
+│                                                                                                  │
+│ ▸ Submit                                                                                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+=== multi-select on screen · 40 columns
+╭ 3 questions · 0 answered ────────────╮
+│ □ 1. Toolchain                       │
+│    Which build tool?                 │
+│    1. Make                           │
+│       Classic                        │
+│    2. Just                           │
+│       Simpler                        │
+│                                      │
+│ □ 2. Checks  ◂ on screen             │
+│    Which checks must pass before     │
+│    merge?                            │
+│    1. [ ] Build                      │
+│           Compile                    │
+│    2. [ ] Unit tests                 │
+│           Fast suite                 │
+│    3. [ ] Lint                       │
+│           Static analysis            │
+│                                      │
+│ □ 3. Release cadence                 │
+│    How often do we cut a release?    │
+│    1. Weekly                         │
+│       Every Monday                   │
+│    2. On demand                      │
+│       When ready                     │
+│                                      │
+│ ▸ Submit                             │
+╰──────────────────────────────────────╯
+=== multi-select on screen · 50 columns
+╭ 3 questions · 0 answered ──────────────────────╮
+│ □ 1. Toolchain                                 │
+│    Which build tool?                           │
+│    1. Make                                     │
+│       Classic                                  │
+│    2. Just                                     │
+│       Simpler                                  │
+│                                                │
+│ □ 2. Checks  ◂ on screen                       │
+│    Which checks must pass before merge?        │
+│    1. [ ] Build                                │
+│           Compile                              │
+│    2. [ ] Unit tests                           │
+│           Fast suite                           │
+│    3. [ ] Lint                                 │
+│           Static analysis                      │
+│                                                │
+│ □ 3. Release cadence                           │
+│    How often do we cut a release?              │
+│    1. Weekly                                   │
+│       Every Monday                             │
+│    2. On demand                                │
+│       When ready                               │
+│                                                │
+│ ▸ Submit                                       │
+╰────────────────────────────────────────────────╯
+=== multi-select on screen · 60 columns
+╭ 3 questions · 0 answered ────────────────────────────────╮
+│ □ 1. Toolchain                                           │
+│    Which build tool?                                     │
+│    1. Make                                               │
+│       Classic                                            │
+│    2. Just                                               │
+│       Simpler                                            │
+│                                                          │
+│ □ 2. Checks  ◂ on screen                                 │
+│    Which checks must pass before merge?                  │
+│    1. [ ] Build                                          │
+│           Compile                                        │
+│    2. [ ] Unit tests                                     │
+│           Fast suite                                     │
+│    3. [ ] Lint                                           │
+│           Static analysis                                │
+│                                                          │
+│ □ 3. Release cadence                                     │
+│    How often do we cut a release?                        │
+│    1. Weekly                                             │
+│       Every Monday                                       │
+│    2. On demand                                          │
+│       When ready                                         │
+│                                                          │
+│ ▸ Submit                                                 │
+╰──────────────────────────────────────────────────────────╯
+=== multi-select on screen · 100 columns
+╭ 3 questions · 0 answered ────────────────────────────────────────────────────────────────────────╮
+│ □ 1. Toolchain                                                                                   │
+│    Which build tool?                                                                             │
+│    1. Make                                                                                       │
+│       Classic                                                                                    │
+│    2. Just                                                                                       │
+│       Simpler                                                                                    │
+│                                                                                                  │
+│ □ 2. Checks  ◂ on screen                                                                         │
+│    Which checks must pass before merge?                                                          │
+│    1. [ ] Build                                                                                  │
+│           Compile                                                                                │
+│    2. [ ] Unit tests                                                                             │
+│           Fast suite                                                                             │
+│    3. [ ] Lint                                                                                   │
+│           Static analysis                                                                        │
+│                                                                                                  │
+│ □ 3. Release cadence                                                                             │
+│    How often do we cut a release?                                                                │
+│    1. Weekly                                                                                     │
+│       Every Monday                                                                               │
+│    2. On demand                                                                                  │
+│       When ready                                                                                 │
+│                                                                                                  │
+│ ▸ Submit                                                                                         │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+=== submit page, nothing answered · 40 columns
+╭ 4 questions · 0 answered ────────────╮
+│ □ 1. Tooling                         │
+│    Which package manager should the  │
+│    new workspace standardise on for  │
+│    every JavaScript package?         │
+│    1. Bun                            │
+│       Fast, already used in CI       │
+│    2. pnpm                           │
+│       Strict hoisting                │
+│    3. npm                            │
+│       Default, slowest               │
+│                                      │
+│ □ 2. Compliance                      │
+│    Should the release pipeline block │
+│    on the licence compliance scan?   │
+│    1. Block                          │
+│       Fail the release               │
+│    2. Warn                           │
+│       Annotate only                  │
+│                                      │
+│ □ 3. npm publish                     │
+│    Which registry should packages    │
+│    publish to?                       │
+│    1. Public npm                     │
+│       The default registry           │
+│    2. GitHub Packages                │
+│       Scoped, private                │
+│                                      │
+│ □ 4. Run tests                       │
+│    Where should the integration      │
+│    tests run?                        │
+│    1. CI only                        │
+│       On every push                  │
+│    2. Locally too                    │
+│       Also on dev machines           │
+│    3. Nightly                        │
+│       Scheduled job                  │
+│                                      │
+│ ▸ Submit · 4 unanswered  ◂ on screen │
+╰──────────────────────────────────────╯
+=== submit page, nothing answered · 50 columns
+╭ 4 questions · 0 answered ──────────────────────╮
+│ □ 1. Tooling                                   │
+│    Which package manager should the new        │
+│    workspace standardise on for every          │
+│    JavaScript package?                         │
+│    1. Bun                                      │
+│       Fast, already used in CI                 │
+│    2. pnpm                                     │
+│       Strict hoisting                          │
+│    3. npm                                      │
+│       Default, slowest                         │
+│                                                │
+│ □ 2. Compliance                                │
+│    Should the release pipeline block on the    │
+│    licence compliance scan?                    │
+│    1. Block                                    │
+│       Fail the release                         │
+│    2. Warn                                     │
+│       Annotate only                            │
+│                                                │
+│ □ 3. npm publish                               │
+│    Which registry should packages publish to?  │
+│    1. Public npm                               │
+│       The default registry                     │
+│    2. GitHub Packages                          │
+│       Scoped, private                          │
+│                                                │
+│ □ 4. Run tests                                 │
+│    Where should the integration tests run?     │
+│    1. CI only                                  │
+│       On every push                            │
+│    2. Locally too                              │
+│       Also on dev machines                     │
+│    3. Nightly                                  │
+│       Scheduled job                            │
+│                                                │
+│ ▸ Submit · 4 unanswered  ◂ on screen           │
+╰────────────────────────────────────────────────╯
+=== submit page, nothing answered · 60 columns
+╭ 4 questions · 0 answered ────────────────────────────────╮
+│ □ 1. Tooling                                             │
+│    Which package manager should the new workspace        │
+│    standardise on for every JavaScript package?          │
+│    1. Bun                                                │
+│       Fast, already used in CI                           │
+│    2. pnpm                                               │
+│       Strict hoisting                                    │
+│    3. npm                                                │
+│       Default, slowest                                   │
+│                                                          │
+│ □ 2. Compliance                                          │
+│    Should the release pipeline block on the licence      │
+│    compliance scan?                                      │
+│    1. Block                                              │
+│       Fail the release                                   │
+│    2. Warn                                               │
+│       Annotate only                                      │
+│                                                          │
+│ □ 3. npm publish                                         │
+│    Which registry should packages publish to?            │
+│    1. Public npm                                         │
+│       The default registry                               │
+│    2. GitHub Packages                                    │
+│       Scoped, private                                    │
+│                                                          │
+│ □ 4. Run tests                                           │
+│    Where should the integration tests run?               │
+│    1. CI only                                            │
+│       On every push                                      │
+│    2. Locally too                                        │
+│       Also on dev machines                               │
+│    3. Nightly                                            │
+│       Scheduled job                                      │
+│                                                          │
+│ ▸ Submit · 4 unanswered  ◂ on screen                     │
+╰──────────────────────────────────────────────────────────╯
+=== submit page, nothing answered · 100 columns
+╭ 4 questions · 0 answered ────────────────────────────────────────────────────────────────────────╮
+│ □ 1. Tooling                                                                                     │
+│    Which package manager should the new workspace standardise on for every JavaScript package?   │
+│    1. Bun                                                                                        │
+│       Fast, already used in CI                                                                   │
+│    2. pnpm                                                                                       │
+│       Strict hoisting                                                                            │
+│    3. npm                                                                                        │
+│       Default, slowest                                                                           │
+│                                                                                                  │
+│ □ 2. Compliance                                                                                  │
+│    Should the release pipeline block on the licence compliance scan?                             │
+│    1. Block                                                                                      │
+│       Fail the release                                                                           │
+│    2. Warn                                                                                       │
+│       Annotate only                                                                              │
+│                                                                                                  │
+│ □ 3. npm publish                                                                                 │
+│    Which registry should packages publish to?                                                    │
+│    1. Public npm                                                                                 │
+│       The default registry                                                                       │
+│    2. GitHub Packages                                                                            │
+│       Scoped, private                                                                            │
+│                                                                                                  │
+│ □ 4. Run tests                                                                                   │
+│    Where should the integration tests run?                                                       │
+│    1. CI only                                                                                    │
+│       On every push                                                                              │
+│    2. Locally too                                                                                │
+│       Also on dev machines                                                                       │
+│    3. Nightly                                                                                    │
+│       Scheduled job                                                                              │
+│                                                                                                  │
+│ ▸ Submit · 4 unanswered  ◂ on screen                                                             │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+=== submit page, every answer · 40 columns
+╭ 4 questions · 4 answered ────────────╮
+│ ■ 1. Tooling                         │
+│    → pnpm                            │
+│                                      │
+│ ■ 2. Compliance                      │
+│    → Warn for a month, then block    │
+│                                      │
+│ ■ 3. npm publish                     │
+│    → Public npm                      │
+│                                      │
+│ ■ 4. Run tests                       │
+│    → Nightly                         │
+│                                      │
+│ ▸ Submit  ◂ on screen                │
+╰──────────────────────────────────────╯
+=== submit page, every answer · 50 columns
+╭ 4 questions · 4 answered ──────────────────────╮
+│ ■ 1. Tooling                                   │
+│    → pnpm                                      │
+│                                                │
+│ ■ 2. Compliance                                │
+│    → Warn for a month, then block              │
+│                                                │
+│ ■ 3. npm publish                               │
+│    → Public npm                                │
+│                                                │
+│ ■ 4. Run tests                                 │
+│    → Nightly                                   │
+│                                                │
+│ ▸ Submit  ◂ on screen                          │
+╰────────────────────────────────────────────────╯
+=== submit page, every answer · 60 columns
+╭ 4 questions · 4 answered ────────────────────────────────╮
+│ ■ 1. Tooling                                             │
+│    → pnpm                                                │
+│                                                          │
+│ ■ 2. Compliance                                          │
+│    → Warn for a month, then block                        │
+│                                                          │
+│ ■ 3. npm publish                                         │
+│    → Public npm                                          │
+│                                                          │
+│ ■ 4. Run tests                                           │
+│    → Nightly                                             │
+│                                                          │
+│ ▸ Submit  ◂ on screen                                    │
+╰──────────────────────────────────────────────────────────╯
+=== submit page, every answer · 100 columns
+╭ 4 questions · 4 answered ────────────────────────────────────────────────────────────────────────╮
+│ ■ 1. Tooling                                                                                     │
+│    → pnpm                                                                                        │
+│                                                                                                  │
+│ ■ 2. Compliance                                                                                  │
+│    → Warn for a month, then block                                                                │
+│                                                                                                  │
+│ ■ 3. npm publish                                                                                 │
+│    → Public npm                                                                                  │
+│                                                                                                  │
+│ ■ 4. Run tests                                                                                   │
+│    → Nightly                                                                                     │
+│                                                                                                  │
+│ ▸ Submit  ◂ on screen                                                                            │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+=== submit page, one of two · 40 columns
+╭ 2 questions · 1 answered ────────────╮
+│ ■ 1. Rollout                         │
+│    → Do both                         │
+│                                      │
+│ □ 2. Notify                          │
+│    Should I notify the channel when  │
+│    it lands?                         │
+│    1. Yes, post in the channel       │
+│       Announce it                    │
+│    2. No                             │
+│       Stay quiet                     │
+│                                      │
+│ ▸ Submit · 1 unanswered  ◂ on screen │
+╰──────────────────────────────────────╯
+=== submit page, one of two · 50 columns
+╭ 2 questions · 1 answered ──────────────────────╮
+│ ■ 1. Rollout                                   │
+│    → Do both                                   │
+│                                                │
+│ □ 2. Notify                                    │
+│    Should I notify the channel when it lands?  │
+│    1. Yes, post in the channel                 │
+│       Announce it                              │
+│    2. No                                       │
+│       Stay quiet                               │
+│                                                │
+│ ▸ Submit · 1 unanswered  ◂ on screen           │
+╰────────────────────────────────────────────────╯
+=== submit page, one of two · 60 columns
+╭ 2 questions · 1 answered ────────────────────────────────╮
+│ ■ 1. Rollout                                             │
+│    → Do both                                             │
+│                                                          │
+│ □ 2. Notify                                              │
+│    Should I notify the channel when it lands?            │
+│    1. Yes, post in the channel                           │
+│       Announce it                                        │
+│    2. No                                                 │
+│       Stay quiet                                         │
+│                                                          │
+│ ▸ Submit · 1 unanswered  ◂ on screen                     │
+╰──────────────────────────────────────────────────────────╯
+=== submit page, one of two · 100 columns
+╭ 2 questions · 1 answered ────────────────────────────────────────────────────────────────────────╮
+│ ■ 1. Rollout                                                                                     │
+│    → Do both                                                                                     │
+│                                                                                                  │
+│ □ 2. Notify                                                                                      │
+│    Should I notify the channel when it lands?                                                    │
+│    1. Yes, post in the channel                                                                   │
+│       Announce it                                                                                │
+│    2. No                                                                                         │
+│       Stay quiet                                                                                 │
+│                                                                                                  │
+│ ▸ Submit · 1 unanswered  ◂ on screen                                                             │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+=== second tab on screen · 50x30
+╭ 4 questions · 0 answered ──────────────────────╮
+│ □ 1. Tooling                                   │
+│    Which package manager should the new        │
+│    workspace standardise on for every          │
+│    JavaScript package?                         │
+│    1. Bun                                      │
+│    2. pnpm                                     │
+│    3. npm                                      │
+│                                                │
+│ □ 2. Compliance  ◂ on screen                   │
+│    Should the release pipeline block on the    │
+│    licence compliance scan?                    │
+│    1. Block                                    │
+│       Fail the release                         │
+│    2. Warn                                     │
+│       Annotate only                            │
+│                                                │
+│ □ 3. npm publish                               │
+│    Which registry should packages publish to?  │
+│    1. Public npm                               │
+│    2. GitHub Packages                          │
+│                                                │
+│ □ 4. Run tests                                 │
+│    Where should the integration tests run?     │
+│    1. CI only                                  │
+│    2. Locally too                              │
+│    3. Nightly                                  │
+│                                                │
+│ ▸ Submit                                       │
+╰────────────────────────────────────────────────╯
+=== second tab on screen · 50x24
+╭ 4 questions · 0 answered ──────────────────────╮
+│ □ 1. Tooling                                   │
+│    1. Bun  2. pnpm  3. npm                     │
+│ □ 2. Compliance  ◂ on screen                   │
+│    Should the release pipeline block on the    │
+│    licence compliance scan?                    │
+│    1. Block                                    │
+│       Fail the release                         │
+│    2. Warn                                     │
+│       Annotate only                            │
+│ □ 3. npm publish                               │
+│    1. Public npm  2. GitHub Packages           │
+│ □ 4. Run tests                                 │
+│    1. CI only  2. Locally too  3. Nightly      │
+│                                                │
+│ ▸ Submit                                       │
+╰────────────────────────────────────────────────╯
+=== second tab on screen · 40x20
+╭ 4 questions · 0 answered ────────────╮
+│ □ 1. Tooling                         │
+│    1. Bun  2. pnpm  3. npm           │
+│ □ 2. Compliance  ◂ on screen         │
+│    Should the release pipeline block │
+│    on the licence compliance scan?   │
+│    1. Block                          │
+│       Fail the release               │
+│    2. Warn                           │
+│       Annotate only                  │
+│ □ 3. npm publish                     │
+│    1. Public npm  2. GitHub Packages │
+│ □ 4. Run tests                       │
+│    1. CI only  2. Locally too        │
+│    3. Nightly                        │
+│                                      │
+│ ▸ Submit                             │
+╰──────────────────────────────────────╯
+=== second tab on screen · 60x16
+│ □ 1. Tooling                                             │
+│    1. Bun  2. pnpm  3. npm                               │
+│ □ 2. Compliance  ◂ on screen                             │
+│    Should the release pipeline block on the licence      │
+│    compliance scan?                                      │
+│    1. Block                                              │
+│       Fail the release                                   │
+│    2. Warn                                               │
+│       Annotate only                                      │
+│ □ 3. npm publish                                         │
+│    1. Public npm  2. GitHub Packages                     │
+│ □ 4. Run tests                                           │
+│    1. CI only  2. Locally too  3. Nightly                │
+│                                                          │
+│ ▸ Submit                                                 │
+╰──────────────────────────────────────────────────────────╯

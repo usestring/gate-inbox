@@ -488,13 +488,10 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "list_sessions",
-		Description: "Call first whenever the work involves another agent: before delegating, which includes work you would otherwise give a built-in subagent, before reporting what the fleet is doing, and to find the id of a session to read, prompt, revive, kill or archive. " +
-			"Lists every agent session Gate Inbox knows with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, finished, idle, errored, dead) and which row is this session. " +
-			"These are separate CLI processes running on the user's machine, each with its own context and its own conversation, and any CLI the user configured: Claude Code, Codex, OpenCode and others, not only Claude. " +
-			"They are not this conversation's subagents, they outlive this conversation, and the user watches them all in one list; nothing else this session can call reports them. " +
+		Description: "Call first whenever the work involves another agent: before delegating, before reporting what the fleet is doing, and to find a session's id. " +
+			"Lists every agent session Gate Inbox knows (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, finished, idle, errored, dead) and which row is this session. " +
 			"Reuse a relevant idle session instead of creating another; otherwise call create_session. " +
-			"Ask for what you need rather than the board: parent \"me\" is your own children, status narrows to the states you care about, and archived rows are left out unless you ask for them. " +
-			"An unfiltered board is mostly history and can run to hundreds of kilobytes, so a parent checking on its fan-out should be calling it with parent \"me\".",
+			"Filter rather than reading the whole board, which can run to hundreds of kilobytes: parent \"me\" is your own children, status narrows by state, and archived rows are left out unless you ask for them.",
 		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args listSessionsArgs) (*mcp.CallToolResult, sessioncmd.SessionList, error) {
 		list, err := sessions.List(sessionID, sessioncmd.ListOptions{
@@ -555,14 +552,13 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "create_session",
-		Description: "Start another agent CLI in its own Gate Inbox session and hand it a task, so independent work runs beside this conversation instead of queued behind it. " +
-			"The new session is a full CLI process of its own on the user's machine, which the user can watch and type into, and it can run a different CLI than this one. " +
+		Description: "Start another agent CLI in its own Gate Inbox session and hand it a task. " +
+			"Use it instead of your CLI's built-in subagent tool (Agent/Task, spawn_agent, opencode's subagent) for any real work; keep the built-in tool for a quick read-only lookup. " +
+			"Call it without waiting for the user when a task splits into parallel parts or the user asks for another agent. " +
+			"Pass a descriptive name and a prompt stating the whole task, since the new agent cannot see this conversation; put a long brief in prompt_file. For repo work beside other agents, pass a directory that is its own checkout. " +
 			"Omit account to follow the board's launch-account setting; a child does not inherit its parent's account. " +
-			"Use it instead of your CLI's built-in subagent tool (Agent/Task, spawn_agent, opencode's subagent) for any unit of real work -- an investigation, an implementation, a review -- since the user can see and steer a session and never sees a subagent; keep the built-in tool for a quick read-only lookup. " +
-			"Call it without waiting for the user when a task splits into parallel parts, or the user asks for a second agent or an independent opinion. " +
-			"Pass a descriptive name and a prompt stating the whole task, since the new agent cannot see this conversation -- a long brief goes in a file named by prompt_file rather than in the call -- and, for repo work beside other agents, a directory that is its own checkout, made with the repository's own tooling first. " +
-			"The new session is this session's child: the user sees the fan-out as a tree under this session, and the child's questions, rests and finishes are relayed here, which is how they get answered. Leave nest alone for a fan-out and never create a group for one; nest false is a detach, for a standalone session that is not this session's work: it belongs to the user, and nothing about it is relayed here. " +
-			"Follow it with read_session and send_session; use create_terminal instead for a plain shell.",
+			"The new session is your child: its questions, rests and finishes are relayed here. Leave nest alone for a fan-out and never create a group for one; nest false is a detach, for a standalone session the user owns, with nothing relayed here. " +
+			"Follow it with read_session and send_session; use create_terminal for a plain shell.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args createSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
 		// Through the installed manager when this server is too old to file

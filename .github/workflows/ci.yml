@@ -11,9 +11,11 @@ permissions:
   contents: read
 
 # A pushed-again PR cancels its superseded run instead of spending Actions
-# minutes on a stale commit.
+# minutes on a stale commit. Pushes to main group by commit instead, so a
+# merge never cancels the run of the merge before it and every commit on
+# main keeps its own verdict.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 env:

@@ -144,6 +144,26 @@ func answeredIn(path, id string) bool {
 	return bytes.Contains(raw, []byte(`"tool_use_id":"`+id+`"`))
 }
 
+// AnswersTo is the answers path records for the AskUserQuestion call id,
+// keyed by question text, and false while it records none. It is the child's
+// own record of what its dialog returned, which a pane can no longer show
+// once Claude Code has redrawn a record taller than the screen.
+func AnswersTo(path, id string) (map[string]string, bool) {
+	if path == "" || id == "" {
+		return nil, false
+	}
+	asks, err := AnsweredAsks(path, time.Time{})
+	if err != nil {
+		return nil, false
+	}
+	for i := len(asks) - 1; i >= 0; i-- {
+		if asks[i].ToolUseID == id {
+			return asks[i].Answers, true
+		}
+	}
+	return nil, false
+}
+
 // AnsweredAsk is an AskUserQuestion call and the answers its dialog returned.
 type AnsweredAsk struct {
 	ToolUseID  string

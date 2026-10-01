@@ -84,6 +84,22 @@ type dialogPane interface {
 type tmuxPane struct {
 	driver *tmux.Driver
 	id     string
+	// record is the child's own record of the answers its pending call
+	// returned, or nil where there is no call to read one for.
+	record func() (map[string]string, bool)
+}
+
+// recordedPane is a pane whose child keeps a record of the answers its
+// dialog returned, read from its transcript.
+type recordedPane interface {
+	Recorded() (map[string]string, bool)
+}
+
+func (p tmuxPane) Recorded() (map[string]string, bool) {
+	if p.record == nil {
+		return nil, false
+	}
+	return p.record()
 }
 
 func (p tmuxPane) Capture() (string, error)  { return p.driver.CapturePane(p.id) }
@@ -129,12 +145,12 @@ func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswe
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
-	pane := tmuxPane{runtime.driver, target.ID}
+	guard := s.guard(runtime.store, caller, target, relay)
+	pane := tmuxPane{runtime.driver, target.ID, guard.recorder()}
 	raw, err := pane.Capture()
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
-	guard := s.guard(runtime.store, caller, target, relay)
 	questions := dialog.Questions(raw, s.asked(target))
 	if len(questions) == 0 {
 		// The single-answer path has the words for every shape that is not a
@@ -513,13 +529,26 @@ func submitDialog(pane dialogPane, submitTab int, filled []FilledAnswer) error {
 	return confirmEcho(pane, before, filled)
 }
 
-// confirmEcho waits for the record Claude Code prints once it takes a
-// dialog's answers -- a block more than the before the pane held -- and
-// checks every answer in filled is in it as given.
+// confirmEcho waits for the child's record of the answers it took and checks
+// every answer in filled is in it as given.
+//
+// The record is read from the child's transcript where there is one: Claude
+// Code writes the dialog's result there, keyed by each question's full text.
+// The pane is the fallback, for a child with no transcript to read: the
+// block Claude Code prints, more than the before the pane held. The pane
+// alone failed live on Claude Code 2.1.286 -- a record taller than the
+// screen is redrawn without its header, and none of it reaches scrollback --
+// so an answer the child had taken was reported unconfirmed.
 func confirmEcho(pane dialogPane, before int, filled []FilledAnswer) error {
 	deadline := time.Now().Add(readbackTimeout)
+	recorded, haveRecord := pane.(recordedPane)
 	var blocks [][]dialog.ReviewAnswer
 	for {
+		if haveRecord {
+			if answers, ok := recorded.Recorded(); ok {
+				return checkRecorded(answers, filled)
+			}
+		}
 		raw, err := pane.Capture()
 		if err != nil {
 			return err
@@ -541,6 +570,29 @@ func confirmEcho(pane dialogPane, before int, filled []FilledAnswer) error {
 		got, found := registered(last, answer)
 		if !found {
 			return fmt.Errorf("the child's record of its answers does not list question %d, so %q cannot be "+
+				"confirmed; read_session shows what it took", answer.Index, answer.want())
+		}
+		if !dialog.SameText(got, answer.want()) {
+			return mismatch(answer, got, "the child has already taken it; send it a correction")
+		}
+	}
+	return nil
+}
+
+// checkRecorded checks filled against the answers the child's transcript
+// records, keyed by question text.
+func checkRecorded(answers map[string]string, filled []FilledAnswer) error {
+	listed := make([]dialog.ReviewAnswer, 0, len(answers))
+	for question, answer := range answers {
+		listed = append(listed, dialog.ReviewAnswer{Question: question, Answer: answer})
+	}
+	for _, answer := range filled {
+		got, found := registered(listed, answer)
+		if !found && len(listed) == 1 && len(filled) == 1 {
+			got, found = listed[0].Answer, true
+		}
+		if !found {
+			return fmt.Errorf("the child's transcript records no answer to question %d, so %q cannot be "+
 				"confirmed; read_session shows what it took", answer.Index, answer.want())
 		}
 		if !dialog.SameText(got, answer.want()) {

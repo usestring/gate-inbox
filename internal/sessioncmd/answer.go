@@ -104,7 +104,7 @@ var errEmptyAnswer = errors.New(
 // A parent's answer carries a guard, which admits it and records it before
 // the first keystroke; the board's, a person's, carries none.
 func (r *runtime) answer(target store.Session, reply, by, byID string, guard *answerGuard) (AnsweredQuestion, error) {
-	pane := tmuxPane{r.driver, target.ID}
+	pane := tmuxPane{r.driver, target.ID, guard.recorder()}
 	raw, err := pane.Capture()
 	if err != nil {
 		return AnsweredQuestion{}, err
@@ -251,7 +251,7 @@ func (r *runtime) submitReview(target store.Session, pane, reply, by, byID strin
 			"answers naming a question to change one first", target.ID)
 	}
 	stepper, _ := dialog.ParseStepper(pane)
-	if err := submitDialog(tmuxPane{r.driver, target.ID}, len(stepper.Steps), nil); err != nil {
+	if err := submitDialog(tmuxPane{driver: r.driver, id: target.ID}, len(stepper.Steps), nil); err != nil {
 		return AnsweredQuestion{}, err
 	}
 	logging.Info(by+" submitted a child's dialog", by, byID, "session", target.ID)

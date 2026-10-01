@@ -69,7 +69,7 @@ func (s *Sessions) AnswerKeys(sessionID, targetID string, keys []string, relay b
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
-	pane := tmuxPane{runtime.driver, target.ID}
+	pane := tmuxPane{driver: runtime.driver, id: target.ID}
 	raw, err := pane.Capture()
 	if err != nil {
 		return AnsweredQuestion{}, err

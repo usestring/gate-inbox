@@ -63,6 +63,19 @@ func (s *Sessions) guard(st *store.Store, caller, target store.Session, relay bo
 	return g
 }
 
+// recorder reads the child's own record of the answers its pending call
+// returned, or is nil when there is no call to read one for.
+func (g *answerGuard) recorder() func() (map[string]string, bool) {
+	if g == nil || !g.haveCall || g.call.ToolUseID == "" {
+		return nil
+	}
+	path, id := g.sessions.transcriptOf(g.target), g.call.ToolUseID
+	if path == "" {
+		return nil
+	}
+	return func() (map[string]string, bool) { return convo.AnswersTo(path, id) }
+}
+
 // pendingCall is the AskUserQuestion call target's dialog is showing, from
 // its transcript or, while the transcript does not hold it yet, from what
 // its ask-pending hook saved.

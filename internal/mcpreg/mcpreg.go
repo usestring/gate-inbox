@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 
 	"github.com/usestring/gate-inbox/extension"
@@ -93,7 +92,7 @@ func Preview(style, exe, hooksDir, command string, env map[string]string, model 
 func apply(style, exe, hooksDir, command string, env map[string]string, model string, write bool) (string, error) {
 	config := func(name string, content []byte) (string, error) {
 		if !write {
-			return filepath.Join(hooksDir, name), nil
+			return filepath.Join(hooksDir, hooks.GeneratedName(name, content)), nil
 		}
 		return writeConfig(hooksDir, name, content)
 	}
@@ -283,18 +282,9 @@ This session is managed by Gate Inbox, which lists it under a short name. After 
 `)
 }
 
-// writeConfig writes content only when it changed, so concurrent spawns
-// reading the same path never observe a partial rewrite of identical bytes.
+// writeConfig writes content under a name stamped with it (see
+// hooks.GeneratedName), so a launcher running another build never rewrites
+// the file this build's sessions read.
 func writeConfig(dir, name string, content []byte) (string, error) {
-	path := filepath.Join(dir, name)
-	if existing, err := os.ReadFile(path); err == nil && string(existing) == string(content) {
-		return path, nil
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(path, content, 0o644); err != nil {
-		return "", err
-	}
-	return path, nil
+	return hooks.WriteGenerated(dir, name, content)
 }

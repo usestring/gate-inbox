@@ -1,0 +1,45 @@
+[1;2m› [0mTest harness: call the request_user_input tool once with
+  two questions. Q1 header 'Color', question 'Which color
+  should the banner use?', options Red / Green / Blue with
+  short descriptions. Q2 header 'Size', question 'How big
+  should the banner be?', options Small / Large. After the
+  answer, reply with the answers you received verbatim and
+  stop.
+
+
+[2m•[0m [1mQuestions[0;2m 2/2 answered[0m
+  • Which color should the banner use?
+[2m    answer: [0m[38;5;75mGreen[39m
+  • How big should the banner be?
+[2m    answer: [0m[38;5;75mLarge[39m
+[2m    note: [0m[38;5;75mkeep it subtle[39m
+
+[2m• [0m{"answers":{"size":{"answers":["Large","user_note: keep it
+  subtle"]},"color":{"answers":["Green"]}}}
+
+[2m  Worked for 1m 7s · 8:11 PM
+
+
+[1m› [0mNow call request_user_input again with exactly one
+  question: header 'Deploy', id 'deploy', question 'Which
+  environment should the next deploy target?', options
+  Staging / Production / Canary. Then report the answer
+  verbatim and stop. Also: list the exact names of every
+  tool you have available whose name contains 'request' or
+  'input' or 'elicit'.
+
+
+
+  [2mQuestion 1/1 (1 unanswered) · [0m[38;5;1mauto-resolves in 31s[39m
+  [38;5;75mWhich environment should the next deploy target?[39m
+
+  [1;7m› 1. Staging            [0;7mTarget the staging environment.[1m [0m
+    2. Production         [2mTarget the production[0m
+                          [2menvironment.[0m
+    3. Canary             [2mTarget the canary environment.[0m
+    4. None of the above  [2mOptionally, add details in notes[0m
+                          [2m(tab)[0m
+
+  [1mtab[0m to add notes[2m | [0;1menter[0m to submit answer
+  [1mesc[0m to interrupt
+

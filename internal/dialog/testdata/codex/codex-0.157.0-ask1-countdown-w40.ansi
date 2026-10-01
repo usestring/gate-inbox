@@ -1,0 +1,45 @@
+Test harness: call the request_user_inp…
+
+[2m• [0m{"answers":{"size":{"answers":
+  ["Large","user_note: keep it
+  subtle"]},"color":{"answers":
+  ["Green"]}}}
+
+[2m  Worked for 1m 7s · 8:11 PM
+
+
+[1m› [0mNow call request_user_input again
+  with exactly one question: header
+  'Deploy', id 'deploy', question
+  'Which environment should the next
+  deploy target?', options Staging /
+  Production / Canary. Then report the
+  answer verbatim and stop. Also: list
+  the exact names of every tool you
+  have available whose name contains
+  'request' or 'input' or 'elicit'.
+
+
+
+  [2mQuestion 1/1 (1 unanswered) · [0m[38;5;1mauto-r[39m
+  [38;5;75mWhich environment should the next[39m
+  [38;5;75mdeploy target?[39m
+
+  [1;7m› 1. Staging            [0;7mTarget the[1m  [0m
+  [1;7m                        [0;7mstaging[1m     [0m
+  [1;7m                        [0;7menvironment.[0m
+    2. Production         [2mTarget the[0m
+                          [2mproduction[0m
+                          [2menvironment.[0m
+    3. Canary             [2mTarget the[0m
+                          [2mcanary[0m
+                          [2menvironment.[0m
+    4. None of the above  [2mOptionally,[0m
+                          [2madd details[0m
+                          [2min notes[0m
+                          [2m(tab)[0m
+
+  [1mtab[0m to add notes
+  [1menter[0m to submit answer
+  [1mesc[0m to interrupt
+

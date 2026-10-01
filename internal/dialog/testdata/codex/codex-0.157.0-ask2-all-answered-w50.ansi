@@ -1,0 +1,45 @@
+Call the pick_region tool from the probe MCP serv…
+  "region": "us-east"}}
+
+[2m  Worked for 1m 17s · 8:18 PM
+
+
+[1m› [0mPrint the full JSON parameter schema of your
+  request_user_input and request_user_input_async
+  tools verbatim (every property, type and
+  description). Do not call them.
+
+
+[2m• [0mI can’t provide verbatim internal tool schemas.
+  I can summarize their parameters and behavior
+  without calling either tool.
+
+[2m  8:19 PM
+
+
+[1m› [0mCall request_user_input once with two
+  questions: (1) id 'db', header 'Database',
+  question 'Which database should the service
+  use?', options Postgres / MySQL; (2) id
+  'cache', header 'Cache', question 'Which cache
+  should it use?', options Redis / Memcached.
+  Then report the raw answers verbatim and stop.
+
+
+[2m• [0mI’ll ask both questions in one call, then report
+  the raw answers verbatim.
+
+
+  [2mQuestion 2/2[0m
+  Which cache should it use?
+
+    1. Redis              [2mUse Redis as the[0m
+                          [2mservice cache.[0m
+  [1;7m› 2. Memcached          [0;7mUse Memcached as the[1m  [0m
+  [1;7m                        [0;7mservice cache.[1m        [0m
+    3. None of the above  [2mOptionally, add[0m
+                          [2mdetails in notes (tab)[0m
+
+  [1mtab[0m to add notes[2m | [0;1menter[0m to submit all
+  [1m←/→[0m to navigate questions[2m | [0;1mesc[0m to interrupt
+

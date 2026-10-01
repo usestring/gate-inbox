@@ -396,7 +396,7 @@ func FormatAnswer(answered AnsweredQuestion) string {
 		line := fmt.Sprintf("answered %d question(s) of %s (%s) -- %s", len(answered.Answers),
 			answered.Name, answered.SessionID, strings.Join(parts, "; "))
 		if answered.Verified {
-			line += "; read back from its screen as given"
+			line += "; read back from " + answered.readSource() + " as given"
 		}
 		switch {
 		case answered.Submitted:
@@ -412,9 +412,12 @@ func FormatAnswer(answered AnsweredQuestion) string {
 	if answered.Selected != "" {
 		line = fmt.Sprintf("answered %s (%s) with option %q", answered.Name, answered.SessionID, answered.Selected)
 	}
-	if answered.Verified {
-		line += "; read back from its screen as given"
-	} else {
+	switch {
+	case answered.Verified:
+		line += "; read back from " + answered.readSource() + " as given"
+	case answered.readFrom != "":
+		line += "; not read back yet: " + answered.readFrom + " records the answers once the dialog is submitted"
+	default:
 		line += "; not read back, because this dialog draws no record of the answer it took"
 	}
 	if answered.Standing > 0 {
@@ -424,4 +427,11 @@ func FormatAnswer(answered AnsweredQuestion) string {
 		line += "; that was the last question, so the dialog was submitted"
 	}
 	return line
+}
+
+func (a AnsweredQuestion) readSource() string {
+	if a.readFrom != "" {
+		return a.readFrom
+	}
+	return "its screen"
 }

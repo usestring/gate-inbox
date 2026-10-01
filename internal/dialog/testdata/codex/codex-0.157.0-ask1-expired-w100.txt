@@ -1,0 +1,45 @@
+╰─────────────────────────────────────────────────╯
+
+╭───────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.157.0)                    │
+│                                               │
+│ model:     GPT-6-Astra low   /model to change │
+│ directory: /tmp/sbox-001000/gdx/work          │
+╰───────────────────────────────────────────────╯
+
+
+› Test harness: call the request_user_input tool once with two questions. Q1 header 'Color',
+  question 'Which color should the banner use?', options Red / Green / Blue with short
+  descriptions. Q2 header 'Size', question 'How big should the banner be?', options Small / Large.
+  After the answer, reply with the answers you received verbatim and stop.
+
+
+• Questions 2/2 answered
+  • Which color should the banner use?
+    answer: Green
+  • How big should the banner be?
+    answer: Large
+    note: keep it subtle
+
+• {"answers":{"size":{"answers":["Large","user_note: keep it subtle"]},"color":{"answers":
+  ["Green"]}}}
+
+  Worked for 1m 7s · 8:11 PM
+
+
+› Now call request_user_input again with exactly one question: header 'Deploy', id 'deploy',
+  question 'Which environment should the next deploy target?', options Staging / Production /
+  Canary. Then report the answer verbatim and stop. Also: list the exact names of every tool you
+  have available whose name contains 'request' or 'input' or 'elicit'.
+
+
+• Questions 0/1 answered
+  • Which environment should the next deploy target? (unanswered)
+
+◦ Working (6s • esc to interrupt)
+
+
+› Ask Codex to do anything
+
+  GPT-6-Astra low · /tmp/sbox-001000/gdx/work · Configure banner appearance
+  ? for shortcuts                                                         ⚠ 2 warnings · f2 to view

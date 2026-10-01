@@ -113,6 +113,7 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model st
 			fmt.Sprintf(`mcp_servers.%s.command=%q`, serverName, exe),
 			fmt.Sprintf(`mcp_servers.%s.args=["mcp"]`, serverName),
 			fmt.Sprintf(`mcp_servers.%s.env_vars=[%q]`, serverName, hooks.EnvSessionID),
+			`features.default_mode_request_user_input=true`,
 			// A developer message beside codex's own instructions, where
 			// model_instructions_file would replace them. It overrides a
 			// developer_instructions the operator's config.toml sets.

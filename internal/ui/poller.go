@@ -847,7 +847,10 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 		phases.rename += lap(&step)
 		newStatus := status.Dead
 		delivered := false
+		var exit endClass
+		exited := false
 		if pid := panes[sess.ID]; pid > 0 {
+			exit, exited = p.agentExit(sess)
 			stat := trees[pid]
 			if stat.OK {
 				nextTreeCPU[pid] = stat.CPUSeconds
@@ -877,7 +880,7 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 			// The pane pid is the shell; the agent runs as its child. A
 			// tree of one process means the agent is gone. A failed ps
 			// sample proves nothing, so it counts as alive.
-			agentAlive := !stat.OK || stat.Procs > 1
+			agentAlive := !exited && (!stat.OK || stat.Procs > 1)
 			if hooklessTree(sess, p.statusSources[sess.Tool], agentAlive, stat) {
 				p.hookless[sess.ID] = true
 			}
@@ -992,6 +995,9 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 				}
 				p.noteScreen(sess, newStatus, clean, now)
 			}
+			if exited {
+				newStatus = status.Errored
+			}
 		}
 		if sess.ParentID != "" && newStatus == status.Waiting {
 			if _, ok := dialog.Parse(ansi.Strip(childPane[sess.ID])); ok {
@@ -1017,7 +1023,11 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 			// And once when it comes to rest, for the same reason and in the
 			// same place: a parent that is not told its fan-out has landed
 			// waits on work that is already done.
-			if err := p.relayChildRest(sess, newStatus); err != nil {
+			relay := func() error { return p.relayChildRest(sess, newStatus) }
+			if exited {
+				relay = func() error { return p.relayChildExit(sess, exit, childPane[sess.ID]) }
+			}
+			if err := relay(); err != nil {
 				return errMsg{err}
 			}
 			if newStatus == status.Dead {

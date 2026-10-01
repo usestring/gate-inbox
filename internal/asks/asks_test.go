@@ -140,3 +140,22 @@ func TestRegisteredTextJoinsLabelsAndNote(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudePendingUsesTheSavedHookBeforeItsTranscriptExists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pending.json")
+	want := convo.AskCall{ToolUseID: "toolu_saved", AskedAt: time.Now(), Questions: []convo.AskQuestion{shape}}
+	raw, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	call, ok := Pending(Target{Tool: "claude", PendingAskFile: path})
+	if !ok || call.ID != want.ToolUseID || len(call.Questions) != 1 || call.Questions[0].Question != shape.Question {
+		t.Fatalf("Pending = %+v, %v; want the saved call", call, ok)
+	}
+	if !TraitsOf("claude").MultiSelectAnswerable {
+		t.Fatal("Claude Code's multi-selects are answered with ticks")
+	}
+}

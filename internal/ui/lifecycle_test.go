@@ -17,6 +17,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -1376,6 +1377,7 @@ func TestArchiveAllEndsEverySessionInView(t *testing.T) {
 	createSession(t, m, "alpha", dir, "work")
 	createSession(t, m, "outside", dir, "")
 
+	bindTestKey(t, m, keymap.ArchiveAll, "X")
 	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'X', Text: "X"})
 	m = updated.(*Model)
 	confirmArchive(t, m)
@@ -1399,6 +1401,7 @@ func TestArchiveAllNeedsTheTickFirst(t *testing.T) {
 	createSession(t, m, "alpha", dir, "")
 	createSession(t, m, "beta", dir, "")
 
+	bindTestKey(t, m, keymap.ArchiveAll, "X")
 	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'X', Text: "X"})
 	m = updated.(*Model)
 	if m.confirm.ack == "" {
@@ -1444,6 +1447,7 @@ func TestArchiveAllTickToggles(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "alpha", t.TempDir(), "")
 
+	bindTestKey(t, m, keymap.ArchiveAll, "X")
 	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'X', Text: "X"})
 	m = updated.(*Model)
 	m.handleConfirmKey(tea.KeyPressMsg{Code: ' ', Text: " "})
@@ -1871,6 +1875,7 @@ func TestArchiveAllLeavesAdoptedPanesAlone(t *testing.T) {
 		mine = m.sessionRows()[1]
 	}
 
+	bindTestKey(t, m, keymap.ArchiveAll, "X")
 	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'X', Text: "X"})
 	m = updated.(*Model)
 	if m.mode != modeConfirmDelete {
@@ -2125,6 +2130,7 @@ func namedSessionRow(t *testing.T, m *Model, name string) store.Session {
 func archivedRowNames(t *testing.T, m *Model) []string {
 	t.Helper()
 	if !m.showArchived {
+		bindTestKey(t, m, keymap.ArchivedView, "t")
 		updated, cmd := m.handleKey(tea.KeyPressMsg{Code: 't', Text: "t"})
 		m = updated.(*Model)
 		m.applyCmd(t, cmd)

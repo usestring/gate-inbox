@@ -112,8 +112,10 @@ type Model struct {
 
 	// snips are the operator's canned answers on ctrl+alt keys, read once at
 	// startup; snipErr is why there are none, when the file would not be read.
-	snips   snippets.Set
-	snipErr string
+	snips          snippets.Set
+	snipErr        string
+	jevAutoSuggest bool
+	autoSuggestSeq int
 
 	// keys is the resolved key map: the catalog with the operator's keys.toml
 	// applied, read once at startup for the reason snips are. keyProblems is
@@ -426,6 +428,10 @@ type Model struct {
 	// focusOnEnter mirrors the persisted focus-key setting; the footer
 	// reads it every frame, so it lives here instead of the store.
 	focusOnEnter bool
+	// focusView mirrors the persisted focused-view setting: the live
+	// terminal, or the conversation transcript. The content column reads it
+	// every frame, so it lives here instead of the store. See focusview.go.
+	focusView string
 	// comfortableRows mirrors the persisted list density: entries paint
 	// their meta on a second line instead of alongside the name. Every
 	// rail frame reads it, so it lives here instead of the store.
@@ -774,32 +780,37 @@ type renameTarget struct {
 // cursor moves, so the target follows the selection. It lists the snippets
 // and takes no text.
 type quickState struct {
-	active         bool
-	closeAfterSend bool
+	active             bool
+	closeAfterSend     bool
+	suggestions        []string
+	suggestionIdentity string
 }
 
 type settingsState struct {
-	toolNames        []string
-	toolIndex        int
-	accountRouting   string
-	chooserAvailable bool
-	themeIndex       int
-	field            int
-	quickCloseSend   bool
-	enterFocuses     bool
-	comfortableRows  bool
-	layout           string
-	sidebar          string
-	palette          string
-	glyphs           string
-	archiveConfirm   string
-	listSort         string
-	chrome           string
-	leaveMode        string
-	newSessionAgent  string
-	autoProceed      bool
-	reopenSessions   string
-	outsidePanes     string
+	toolNames          []string
+	toolIndex          int
+	accountRouting     string
+	chooserAvailable   bool
+	themeIndex         int
+	field              int
+	quickCloseSend     bool
+	enterFocuses       bool
+	focusView          string
+	comfortableRows    bool
+	layout             string
+	sidebar            string
+	palette            string
+	glyphs             string
+	archiveConfirm     string
+	listSort           string
+	chrome             string
+	leaveMode          string
+	newSessionAgent    string
+	autoProceed        bool
+	reopenSessions     string
+	outsidePanes       string
+	experimentalPicker bool
+	jevAutoSuggest     bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -827,9 +838,11 @@ const (
 	settingsFieldLeave
 	settingsFieldQuickClose
 	settingsFieldFocusKey
+	settingsFieldFocusView
 	settingsFieldAutoProceed
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
+	settingsFieldExperimental
 	settingsFieldSnippets
 	settingsFieldCLIs
 	settingsFieldGuide
@@ -1095,12 +1108,14 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	mcpStyles := make(map[string]string, len(cfg.Tools))
 	shellTools := make(map[string]bool, len(cfg.Tools))
 	interruptKeys := make(map[string][]string, len(cfg.Tools))
+	clearInputKeys := make(map[string][]string, len(cfg.Tools))
 	for name, tool := range cfg.Tools {
 		statusSources[name] = tool.StatusSource
 		sessionStores[name] = tool.SessionStore
 		mcpStyles[name] = mcpreg.Style(name, tool.MCP)
 		shellTools[name] = tool.Shell
 		interruptKeys[name] = tool.InterruptKeys
+		clearInputKeys[name] = tool.ClearInputKeys
 	}
 	// A missing git binary only disables what reads a repository's root;
 	// everything else works without it, so the error surfaces on first use.
@@ -1132,6 +1147,8 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		collapsed:       loadCollapsed(st),
 		split:           splitState{ratio: loadSplitRatio(st)},
 		focusOnEnter:    storedFocusOnEnter(st),
+		focusView:       storedFocusView(st),
+		jevAutoSuggest:  storedJevAutoSuggest(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),
 		sidebar:         storedSidebar(st, cfg.Board.Sidebar),
@@ -1155,6 +1172,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		visible: true,
 	}
 	model.poller.interruptKeys = interruptKeys
+	model.poller.clearInputKeys = clearInputKeys
 	model.poller.staleAfter = cfg.StaleStatusAfter.Duration
 	model.poller.hogWatch = newHogWatch(cfg.Hogs, "", func(msg store.InboxMessage) error {
 		_, _, err := st.Enqueue(msg, store.DefaultInboxLimits)
@@ -1995,6 +2013,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.readConversation(), conversationTick(), m.startStartupTick())
 	case conversationMsg:
 		m.applyConversation(msg)
+		return m, m.scheduleAutoSuggestion()
+	case autoSuggestTickMsg:
+		return m, m.runAutoSuggestion(msg.seq)
+	case autoSuggestResultMsg:
+		m.applyAutoSuggestion(msg)
 		return m, nil
 	case historyIndexedMsg:
 		return m, m.historySearchCmd()
@@ -2246,7 +2269,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// taking over. Doing it here rather than on every cursor move is
 		// what keeps a held j from reflowing twenty of the operator's
 		// windows on its way past them.
-		return m, tea.Batch(m.resizeSessions(), m.previewCmd(sess, msg.gen, m.procDue()))
+		//
+		// The conversation read rides the same settle for the same reason:
+		// a read per keystroke would fork a stat per row a held key walks
+		// past, and the cursor coming to rest is the row whose turns the
+		// operator is about to read. Until it lands, the last conversation
+		// stands in rather than flashing the empty placeholder. See
+		// conversationRows.
+		return m, tea.Batch(m.resizeSessions(), m.previewCmd(sess, msg.gen, m.procDue()), m.readConversation())
 
 	case cursorBlinkMsg:
 		if msg.gen != m.blinkGen || m.mode != modeFocus {
@@ -2459,7 +2489,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMsg:
-		return m.handleMouse(msg)
+		model, cmd := m.handleMouse(msg)
+		return model, tea.Batch(cmd, m.scheduleAutoSuggestion())
 
 	case tea.KeyboardEnhancementsMsg:
 		m.keyReleases = msg.SupportsEventTypes() && msg.SupportsAllKeysAsEscapeCodes()
@@ -2476,7 +2507,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		model, cmd := m.handleKey(msg)
 		m.syncPollInput()
-		return model, cmd
+		return model, tea.Batch(cmd, m.scheduleAutoSuggestion())
 
 	case tea.PasteMsg:
 		if m.mode == modeExtensionView {
@@ -2510,6 +2541,14 @@ func (m *Model) clearPreviewState() {
 	m.pane.sgr = false
 	m.pane.history = 0
 	m.pane.cursor = paneCursor{}
+	if m.conversation != nil {
+		// A read in flight for the row just left must not hold the
+		// preload for the row arriving behind it: its answer carries its
+		// own key and is dropped on arrival when the selection has moved
+		// on, so releasing the flag here only ever unblocks the new row.
+		// See readConversation and applyConversation.
+		m.conversation.busy, m.conversation.pendingKey = false, ""
+	}
 }
 
 // trailingEcho is the chase owed to input that reached the pane while another

@@ -156,6 +156,7 @@ func (m *Model) openSettings() {
 		themeIndex:       themeIndex(current.Name),
 		quickCloseSend:   m.quickCloseAfterSend(),
 		enterFocuses:     m.enterFocuses(),
+		focusView:        normalizeFocusView(m.focusView),
 		comfortableRows:  m.comfortableRows,
 		layout:           normalizeLayout(m.layout),
 		sidebar:          normalizeSidebar(m.sidebar),
@@ -169,6 +170,7 @@ func (m *Model) openSettings() {
 		autoProceed:      m.autoProceed,
 		reopenSessions:   m.reopenSessionsMode(),
 		outsidePanes:     m.outsidePanesMode(),
+		jevAutoSuggest:   m.jevAutoSuggest,
 		backdropSync:     storedBackdrop(m.store) == backdropSync,
 	}
 	m.mode = modeSettings
@@ -177,6 +179,15 @@ func (m *Model) openSettings() {
 func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.settings.cliPicker {
 		return m.handleCLIPickerKey(msg)
+	}
+	if m.settings.experimentalPicker {
+		switch msg.String() {
+		case "left", "right", "h", "l", "space", "enter":
+			m.settings.jevAutoSuggest = !m.settings.jevAutoSuggest
+		case "esc":
+			m.settings.experimentalPicker = false
+		}
+		return m, nil
 	}
 	switch msg.String() {
 	case "up", "k":
@@ -189,6 +200,9 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.cycleSetting(1)
 	case "enter":
 		switch m.settings.field {
+		case settingsFieldExperimental:
+			m.settings.experimentalPicker = true
+			return m, nil
 		case settingsFieldSnippets:
 			return m.openSnippetEditor()
 		case settingsFieldCLIs:
@@ -262,6 +276,9 @@ func (m *Model) persistSettings() {
 	if err := m.store.SetSetting(focusKeySetting, focusKey); err != nil {
 		m.errBar.text = err.Error()
 	}
+	if err := m.store.SetSetting(focusViewSetting, normalizeFocusView(m.settings.focusView)); err != nil {
+		m.errBar.text = err.Error()
+	}
 	density := "compact"
 	if m.settings.comfortableRows {
 		density = "comfortable"
@@ -309,8 +326,17 @@ func (m *Model) persistSettings() {
 	if err := m.store.SetSetting(outsidePanesSetting, normalizeOutsidePanes(m.settings.outsidePanes)); err != nil {
 		m.errBar.text = err.Error()
 	}
+	featureValue := "off"
+	if m.settings.jevAutoSuggest {
+		featureValue = "on"
+	}
+	if err := m.store.SetSetting(jevAutoSuggestSetting, featureValue); err != nil {
+		m.errBar.text = err.Error()
+	}
+	m.jevAutoSuggest = m.settings.jevAutoSuggest
 	m.autoProceed = m.settings.autoProceed
 	m.focusOnEnter = m.settings.enterFocuses
+	m.focusView = normalizeFocusView(m.settings.focusView)
 	m.comfortableRows = m.settings.comfortableRows
 	m.layout = normalizeLayout(m.settings.layout)
 	m.sidebar = normalizeSidebar(m.settings.sidebar)
@@ -550,6 +576,8 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		m.settings.quickCloseSend = !m.settings.quickCloseSend
 	case settingsFieldFocusKey:
 		m.settings.enterFocuses = !m.settings.enterFocuses
+	case settingsFieldFocusView:
+		m.settings.focusView = cycleMode(focusViewModes, normalizeFocusView(m.settings.focusView), step)
 	case settingsFieldAutoProceed:
 		m.settings.autoProceed = !m.settings.autoProceed
 	case settingsFieldReopenSessions:

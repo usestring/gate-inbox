@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
 // never means never: the footer goes on every terminal, including the tall
@@ -100,6 +101,7 @@ func TestChromeToggleKeyHidesAndRestoresTheFooter(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "chrometoggle", t.TempDir(), "")
 	m.selectSessionRow(t, "chrometoggle")
+	bindTestKey(t, m, keymap.ToggleChrome, ",")
 
 	updated, _ := m.handleKey(key(","))
 	*m = *updated.(*Model)

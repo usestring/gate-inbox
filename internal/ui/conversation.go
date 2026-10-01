@@ -20,6 +20,7 @@ type conversationView struct {
 	targets      map[string]search.Target
 	locator      *search.Locator
 	busy         bool
+	pendingKey   string
 	key, stamp   string
 	messages     []search.Message
 	err          error
@@ -44,8 +45,16 @@ func conversationTick() tea.Cmd {
 
 func (m *Model) showsConversation() bool {
 	sess, ok := m.selected()
-	return m.conversation != nil && ok && !m.isShell(sess.Tool) &&
-		(m.mode == modeList || m.mode == modeRename)
+	if m.conversation == nil || !ok || m.isShell(sess.Tool) {
+		return false
+	}
+	if m.mode == modeList || m.mode == modeRename {
+		return true
+	}
+	// Focused, the pane belongs to the agent, but the focused-view setting
+	// can keep the conversation on screen instead until F3 asks for the
+	// terminal back. See focusview.go.
+	return m.mode == modeFocus && m.focusView == focusViewConversation
 }
 
 func conversationKey(id, agentID string) string { return id + "\x00" + agentID }
@@ -59,13 +68,21 @@ func (m *Model) conversationIdentity(sess store.Session) string {
 }
 
 func (m *Model) readConversation() tea.Cmd {
-	if !m.showsConversation() || m.conversation.busy {
+	if !m.showsConversation() {
 		return nil
 	}
 	sess, _ := m.selected()
 	c := m.conversation
-	c.busy = true
 	key := m.conversationIdentity(sess)
+	// A read for this very row is already out; a read for a row the cursor
+	// has since left is superseded rather than blocking the new one. The
+	// guard is per row, not per view: a cursor walk must be free to fetch
+	// the row it lands on without waiting out the one before it.
+	if c.busy && c.pendingKey == key {
+		return nil
+	}
+	c.busy = true
+	c.pendingKey = key
 	matched := c.targets[sess.ID]
 	previousKey, previousStamp := c.key, c.stamp
 	locator := c.locator
@@ -109,7 +126,13 @@ func (m *Model) applyConversation(msg conversationMsg) {
 	if c == nil {
 		return
 	}
-	c.busy = false
+	// Only the read this view is still waiting on clears the pending mark. A
+	// frame for a row the cursor has since left must not: it would release
+	// the preload the new row is still owed, and the retention that keeps
+	// the last conversation on screen reads the mark to know a fetch is out.
+	if msg.key == c.pendingKey {
+		c.busy, c.pendingKey = false, ""
+	}
 	sess, ok := m.selected()
 	if !ok || msg.key != m.conversationIdentity(sess) || msg.unchanged {
 		return
@@ -195,14 +218,24 @@ func (m *Model) conversationLines(width, height int) []contentLine {
 func (m *Model) conversationRows(width, height int) []string {
 	c := m.conversation
 	sess, _ := m.selected()
+	identity := m.conversationIdentity(sess)
 	var rows []string
-	if c.key == m.conversationIdentity(sess) {
+	switch {
+	case c.key == identity:
+		rows = c.wrapped(width)
+	case c.busy:
+		// A read for the newly selected row is in flight. Keep the last
+		// conversation on screen rather than flashing the empty placeholder
+		// the key mismatch would draw: it is replaced by the new row's own
+		// messages the moment the read lands. The read rides the cursor
+		// move itself (see settleCursor), so this window is a message hop
+		// rather than the next conversation tick.
 		rows = c.wrapped(width)
 	}
 	rows = m.withQuestionCard(rows, width, height)
 	if len(rows) == 0 {
 		text := "No user-facing messages yet. Open the terminal to interact."
-		if c.key == m.conversationIdentity(sess) && c.err != nil {
+		if c.key == identity && c.err != nil {
 			text = "Conversation unavailable: " + c.err.Error()
 		}
 		return m.withWorkingRow([]string{mutedStyle.Render(textfmt.TruncateWidth(text, width, "…"))}, width)
@@ -246,13 +279,32 @@ func (m *Model) withQuestionCard(rows []string, width, height int) []string {
 	return append(rows[:len(rows):len(rows)], card...)
 }
 
-func (m *Model) toggleConversation() {
+func (m *Model) toggleConversation() tea.Cmd {
+	if m.mode == modeFocus {
+		// Focused, F3 switches between the conversation and the terminal
+		// itself rather than between the conversation's two densities: the
+		// choice is the focused-view setting, so a deliberate toggle sticks
+		// past this visit. Shells have no conversation to show.
+		sess, ok := m.selected()
+		if !ok || m.isShell(sess.Tool) {
+			return nil
+		}
+		value := focusViewTerminal
+		if m.focusView != focusViewConversation {
+			value = focusViewConversation
+		}
+		m.focusView = value
+		return deferStoreWrite(func() error {
+			return m.store.SetSetting(focusViewSetting, value)
+		})
+	}
 	if !m.showsConversation() {
-		return
+		return nil
 	}
 	c := m.conversation
 	c.compact, c.dirty, c.offset = !c.compact, true, 0
 	m.sel = focusSelection{}
+	return nil
 }
 
 func (m *Model) conversationToggleLabel() string {
@@ -260,6 +312,15 @@ func (m *Model) conversationToggleLabel() string {
 		return "full view"
 	}
 	return "shorten"
+}
+
+// focusConversationLabel names what F3 reaches for from inside a focused
+// session -- the other side of the focused-view setting.
+func (m *Model) focusConversationLabel() string {
+	if m.focusView == focusViewConversation {
+		return "terminal"
+	}
+	return "conversation"
 }
 
 func (m *Model) scrollConversation(lines int) tea.Cmd {

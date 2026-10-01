@@ -277,7 +277,7 @@ func TestAnswerNamesTheShapeItWillNotAnswer(t *testing.T) {
 		{"a Codex command approval", "child005",
 			codexApprovalFixture, "permission prompt"},
 		{"Codex's first-run trust prompt", "child006",
-			codexTrustFixture, "directory-trust"},
+			codexTrustFixture, "is on a workspace-trust dialog, and whether to allow it is your user's call"},
 		{"a multi-select", "child007",
 			multiSelectFixture, "multi-select"},
 		// Two rows wear the marker: Claude Code leaves a dim one where the
@@ -292,7 +292,7 @@ func TestAnswerNamesTheShapeItWillNotAnswer(t *testing.T) {
 		{"a Claude Code 2.1.284 permission prompt at 60 columns", "child011",
 			dialogFixture(t, "claude-2.1.284-w60-permission-touch.txt"), "is on a permission prompt"},
 		{"a dialog with no numbered choices", "child012",
-			unnumberedDialogFixture, "a dialog this cannot read"},
+			unnumberedDialogFixture, "relay: true"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newSessionHarness(t)

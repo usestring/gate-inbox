@@ -24,6 +24,9 @@ type Option struct {
 	Label       string `json:"label" jsonschema:"the choice's text; pass it as the answer to pick it"`
 	Description string `json:"description,omitempty" jsonschema:"what the child said the choice means"`
 	Checked     bool   `json:"checked,omitempty" jsonschema:"on a multi-select question on the screen, whether its box is ticked"`
+	// Preview is the markdown the dialog draws beside the option, whole: the
+	// pane clips it to a box.
+	Preview string `json:"preview,omitempty" jsonschema:"the markdown the dialog shows beside this option when it is focused, read whole from the child's call"`
 }
 
 // Question is one question of the dialog a session is holding.
@@ -33,7 +36,7 @@ type Question struct {
 	Header      string   `json:"header,omitempty" jsonschema:"the question's short header, drawn as its tab label; answer_session's answers accept it as question"`
 	Question    string   `json:"question" jsonschema:"the full question; empty only for a question not on the screen when no transcript could be read"`
 	Options     []Option `json:"options,omitempty" jsonschema:"the child's own choices in order, without the dialog's Type something and Chat about this rows"`
-	MultiSelect bool     `json:"multi_select,omitempty" jsonschema:"true for a question answered by ticking several boxes; answer_session refuses these and a person answers them"`
+	MultiSelect bool     `json:"multi_select,omitempty" jsonschema:"true for a question answered by ticking several boxes; answer it with ticks, the labels to leave ticked"`
 	Answered    bool     `json:"answered" jsonschema:"whether this question already has an answer in the dialog"`
 	Answer      string   `json:"answer,omitempty" jsonschema:"the answer it has, when the pane shows it"`
 	OnScreen    bool     `json:"on_screen,omitempty" jsonschema:"the question the dialog is showing now"`
@@ -66,7 +69,7 @@ func Questions(pane string, asked []convo.AskQuestion) []Question {
 		for i, q := range asked {
 			question := Question{Index: i + 1, ID: q.ID, Header: q.Header, Question: q.Question, MultiSelect: q.MultiSelect}
 			for _, option := range q.Options {
-				question.Options = append(question.Options, Option{Label: option.Label, Description: option.Description})
+				question.Options = append(question.Options, Option{Label: option.Label, Description: option.Description, Preview: option.Preview})
 			}
 			out = append(out, question)
 		}
@@ -229,7 +232,7 @@ func RenderQuestions(questions []Question) string {
 			out.WriteString(" -- already answered")
 		}
 		if q.MultiSelect {
-			out.WriteString(" -- multi-select, a person's to answer")
+			out.WriteString(" -- multi-select: answer with ticks")
 		}
 		out.WriteString("\n")
 		if q.Question != "" {
@@ -250,6 +253,12 @@ func RenderQuestions(questions []Question) string {
 				fmt.Fprintf(&out, " -- %s", option.Description)
 			}
 			out.WriteString("\n")
+			if option.Preview != "" {
+				out.WriteString("     preview:\n")
+				for _, line := range strings.Split(strings.TrimRight(option.Preview, "\n"), "\n") {
+					out.WriteString("     | " + line + "\n")
+				}
+			}
 		}
 	}
 	return out.String()

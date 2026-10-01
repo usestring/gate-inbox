@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
 // The whole feature from the list: one press puts the rail away and the
@@ -16,6 +17,7 @@ func TestRailToggleKeyHidesAndRestoresTheSplit(t *testing.T) {
 	createSession(t, m, "railtoggle", t.TempDir(), "")
 	m.selectSessionRow(t, "railtoggle")
 	m.width, m.height = 120, 40
+	bindTestKey(t, m, keymap.ToggleRail, `\`)
 
 	updated, _ := m.handleKey(key(`\`))
 	*m = *updated.(*Model)

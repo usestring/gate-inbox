@@ -17,13 +17,20 @@ func resolve(t *testing.T, overrides Overrides) *Map {
 	return m
 }
 
-// The defaults are what shipped: nothing is unbound, no two actions on one
-// screen hold the same key, and the map answers both ways.
+// The defaults are what shipped: everything the board cannot be worked
+// without is bound, no two actions on one screen hold the same key, and the
+// map answers both ways. Anything else may ship unbound -- a key nobody
+// presses often is a key hit by accident, and one-off actions run from
+// quick actions -- but an unbound action keeps its row in the key map so it
+// can be rebound there.
 func TestDefaultsResolveWithoutProblems(t *testing.T) {
 	m := resolve(t, nil)
 	for _, binding := range Catalog {
 		if !m.Bound(binding.Context, binding.Action) {
-			t.Errorf("%s.%s is unbound out of the box", binding.Context, binding.Action)
+			if binding.Required {
+				t.Errorf("%s.%s is required and unbound out of the box", binding.Context, binding.Action)
+			}
+			continue
 		}
 		for _, key := range binding.Keys {
 			action, ok := m.Action(binding.Context, key)
@@ -423,15 +430,16 @@ func TestRetiredEditorStillLoads(t *testing.T) {
 
 // A key file that bound the gate still loads once it is gone: each stale line
 // says where its job went, and saving the map drops them. The focused
-// conversation toggle went with it, while the list's stays bound.
+// conversation toggle is no longer one of those: it is a binding again, so
+// the focus line applies and only the gate lines are reported.
 func TestRetiredGateStillLoads(t *testing.T) {
 	overrides, err := Decode("[list]\ngate = [\"G\"]\ntoggle_conversation = [\"f4\"]\n\n[focus]\ntoggle_gate_input = [\"f2\"]\ntoggle_conversation = [\"f3\"]\n")
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	m, problems := New(overrides)
-	if len(problems) != 3 {
-		t.Fatalf("got problems %v, want one per stale line", problems)
+	if len(problems) != 2 {
+		t.Fatalf("got problems %v, want one per stale gate line", problems)
 	}
 	for _, problem := range problems {
 		if !strings.Contains(problem.Reason, "removed") {
@@ -442,10 +450,14 @@ func TestRetiredGateStillLoads(t *testing.T) {
 		}
 	}
 	if got := m.Key(ContextList, ToggleConversation); got != "f4" {
-		t.Errorf("retiring the focused toggle cost the list's: toggle_conversation on %q", got)
+		t.Errorf("the list's toggle_conversation is on %q, want f4", got)
+	}
+	// The focus binding is live again, resolved from the file's own line.
+	if got := m.Key(ContextFocus, ToggleConversation); got != "f3" {
+		t.Errorf("the focused toggle_conversation is on %q, want f3", got)
 	}
 	saved := Encode(m.Overrides())
-	if strings.Contains(saved, "gate") || strings.Contains(saved, "[focus]") {
+	if strings.Contains(saved, "gate") {
 		t.Errorf("saving the map kept a retired action:\n%s", saved)
 	}
 }

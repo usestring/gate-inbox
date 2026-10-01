@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -178,6 +179,7 @@ func TestKeepAsIsSettingLeavesPanesForO(t *testing.T) {
 	if !foreignPaneAlive(t, socket, pane) {
 		t.Fatal("keep as-is should leave the pane where it is")
 	}
+	bindTestKey(t, m, keymap.TakeOver, "O")
 	pressKey(t, m, key("O"))
 	if foreignPaneAlive(t, socket, pane) || !m.tmux.Exists("kept") {
 		t.Fatal("O should take the kept pane over")
@@ -191,6 +193,7 @@ func TestTakeoverRestartsAnIdlePaneAsAManagedSession(t *testing.T) {
 	socket, pane := adoptForeignPane(t, m, "borrowed", "borrowed", status.Idle)
 	m.applyCmd(t, nil)
 
+	bindTestKey(t, m, keymap.TakeOver, "O")
 	pressKey(t, m, key("O"))
 	if m.mode != modeList {
 		t.Fatalf("O opened %v, want the pass to run without a card", m.mode)
@@ -230,6 +233,7 @@ func TestTakeoverWaitsForABusyPaneToGoIdle(t *testing.T) {
 	m.applyCmd(t, nil)
 	setStatus(t, m, "busy", status.Working)
 
+	bindTestKey(t, m, keymap.TakeOver, "O")
 	pressKey(t, m, key("O"))
 	if !foreignPaneAlive(t, socket, pane) {
 		t.Fatal("a working pane was ended by O")
@@ -273,6 +277,7 @@ func TestTakeoverLeavesAPaneWhoseConversationCannotBeRead(t *testing.T) {
 	socket, pane := adoptForeignPane(t, m, "unread", "unread", status.Idle)
 	m.applyCmd(t, nil)
 
+	bindTestKey(t, m, keymap.TakeOver, "O")
 	pressKey(t, m, key("O"))
 	if !foreignPaneAlive(t, socket, pane) {
 		t.Fatal("a pane with no readable conversation was ended")
@@ -299,6 +304,7 @@ func TestTakeoverKeyWithNothingAdoptedSaysSo(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "own", t.TempDir(), "")
 	m.applyCmd(t, nil)
+	bindTestKey(t, m, keymap.TakeOver, "O")
 	pressKey(t, m, key("O"))
 	if m.mode != modeList || !strings.Contains(m.errBar.text, "no adopted panes") {
 		t.Fatalf("mode = %v status = %q", m.mode, m.errBar.text)

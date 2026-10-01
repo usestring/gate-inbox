@@ -48,6 +48,10 @@ var askCheckbox = regexp.MustCompile(`^\[([ xX*\x{2713}\x{2714}]?)\][ \x{A0}]+`)
 // again: "2. pnpm ✔". It is not part of the choice's text.
 var askPicked = regexp.MustCompile(`[ \x{A0}]+\x{2714}$`)
 
+// askSubmitRow is the row a multi-select draws under its free-text row:
+// "Submit", unnumbered, with the marker in front of it when it is selected.
+var askSubmitRow = regexp.MustCompile(`(?m)^[ \x{A0}]*([\x{276F}\x{203A}])?[ \x{A0}]*Submit[ \x{A0}]*$`)
+
 // askStepper is the row a multi-question dialog draws above its options: one
 // box per question, ticked as each is answered, then Submit. Its presence is
 // how this tells one question from several, and its boxes are how many are
@@ -89,6 +93,13 @@ type Dialog struct {
 	// anywhere else are dropped by the dialog, and the Enter that follows
 	// them then picks whatever option the cursor was on.
 	FreeText int
+	// SubmitRow is the unnumbered "Submit" row a multi-select draws under its
+	// free-text row (Claude Code 2.1.286), and OnSubmit that the marker is on
+	// it. Enter there records the ticked boxes as the question's answer.
+	// Down from the free-text row lands on it, so the rows after it are one
+	// further away than their numbers say.
+	SubmitRow bool
+	OnSubmit  bool
 }
 
 // Standing is how many of the dialog's questions are still unanswered: 1 for
@@ -133,7 +144,7 @@ func Inspect(pane string) (Dialog, bool) {
 	// Only what is above the legend: a pane can carry an input line and an
 	// older dialog's text below it, and the choices being answered are the
 	// ones this legend belongs to.
-	head := pane[:legend[0]]
+	head := unboxPreview(pane[:legend[0]])
 	matches, first := dialogOptions(head)
 	if len(matches) < 2 {
 		// One choice is not a choice, and none means the options scrolled
@@ -178,6 +189,11 @@ func Inspect(pane string) (Dialog, bool) {
 	}
 	if markers > 1 {
 		dialog.Cursor = 0
+	}
+	if dialog.MultiSelect {
+		if row := askSubmitRow.FindStringSubmatch(head[first[0]:]); row != nil {
+			dialog.SubmitRow, dialog.OnSubmit = true, row[1] != ""
+		}
 	}
 	dialog.Steps, dialog.Answered = countSteps(head)
 	dialog.Prompt = dialogPrompt(head, first)
@@ -421,6 +437,40 @@ func (d Dialog) Choose(answer string) int {
 		}
 		if count == 1 {
 			return found
+		}
+	}
+	return 0
+}
+
+// ChooseLabel finds the option an answer names by its label alone, 1-based,
+// or 0: the label itself, else the start of exactly one label, compared
+// without spaces or case. Unlike Choose it never finds an option inside a
+// longer answer, which is the reading wanted where an answer is a set of
+// labels or a decision about permission rather than words that may be typed.
+func (d Dialog) ChooseLabel(answer string) int {
+	return chooseLabel(d.Options, answer)
+}
+
+func chooseLabel(labels []string, answer string) int {
+	want := Compact(answer)
+	if want == "" {
+		return 0
+	}
+	for _, match := range []func(label string) bool{
+		func(label string) bool { return label == want },
+		func(label string) bool { return strings.HasPrefix(label, want) },
+	} {
+		found, count := 0, 0
+		for i, label := range labels {
+			if match(Compact(label)) {
+				found, count = i+1, count+1
+			}
+		}
+		if count == 1 {
+			return found
+		}
+		if count > 1 {
+			return 0
 		}
 	}
 	return 0

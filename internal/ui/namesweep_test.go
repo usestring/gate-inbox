@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/namesweep"
 	"github.com/usestring/gate-inbox/internal/promptcache"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -243,6 +244,7 @@ func TestTheResultCardReportsWhatWasAskedAndWhatWasHeld(t *testing.T) {
 func TestNPressOpensTheSweepFromTheList(t *testing.T) {
 	m := buildModel(t)
 	seedSweepBoard(m, sweepRowFor("a", status.Idle, "/repo/a"))
+	bindTestKey(t, m, keymap.NameSweep, "N")
 	m.handleKey(tea.KeyPressMsg{Code: 'N', Text: "N"})
 	if m.mode != modeNameSweep {
 		t.Fatalf("N must open the sweep, got mode %v", m.mode)

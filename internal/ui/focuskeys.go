@@ -197,7 +197,7 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 	// a taller panel. Pinning is now tied to being previewed rather than
 	// done to every session up front, so this is where a focused pane earns
 	// its size.
-	return m, tea.Batch(m.cursorBlink(), m.resizeSessions(), m.paneStateCmd(sess.ID))
+	return m, tea.Batch(m.cursorBlink(), m.resizeSessions(), m.paneStateCmd(sess.ID), m.readConversation())
 }
 
 // caretAtInputStart reports whether the agent's caret sits at the head of
@@ -651,6 +651,11 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// rather than left first and dismissed from its row. See
 			// focusactions.go.
 			return m, m.dismissFocused(sess)
+		case action == keymap.ToggleConversation:
+			// The focused-view setting under a key: a session kept on its
+			// conversation goes back to the terminal here, and one on the
+			// terminal goes back to the conversation the list was showing.
+			return m, m.toggleConversation()
 		case action == keymap.ToggleChrome:
 			// The footer is the manager's own row, not the agent's: hiding
 			// it from here gives the pane the rows back without leaving
@@ -671,9 +676,10 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	key := msg.Key()
-	// The arrow pointing at the rail leaves at its prompt edge. When a
-	// session is finished in triage, either spare edge arrow hands it over
-	// so the drain continues, independent of the sidebar's side.
+	// The arrow pointing at the rail leaves at its prompt edge. Triage reads
+	// the arrows as a drain rather than as directions, whichever side the
+	// rail is on: Right hands a finished session over to the next one, and
+	// Left is back, to the list, with the queue still armed.
 	if bound && action == keymap.BackAtPrompt && key.Mod == 0 {
 		if key.Code == tea.KeyRight && m.rightLeavesFocus(sess.ID, sess.Tool) {
 			if m.triage && sess.Status == status.Finished {
@@ -684,10 +690,7 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if key.Code == tea.KeyLeft && m.leftLeavesFocus(sess.ID, sess.Tool) {
-			if m.triage && sess.Status == status.Finished {
-				return m, m.handOverFocused(sess)
-			}
-			if !m.railOnRight() {
+			if m.triage || !m.railOnRight() {
 				return m, m.leaveFocus()
 			}
 		}

@@ -16,6 +16,7 @@ type Target struct {
 	AgentSessionID string
 	Cwd            string
 	ClaudeHome     string
+	PendingAskFile string
 }
 
 type Call struct {
@@ -108,7 +109,7 @@ func For(tool string) (Source, bool) {
 
 func Pending(t Target) (Call, bool) {
 	src, ok := For(t.Tool)
-	if !ok || t.AgentSessionID == "" {
+	if !ok || (t.AgentSessionID == "" && t.PendingAskFile == "") {
 		return Call{}, false
 	}
 	return src.Pending(t)
@@ -172,7 +173,7 @@ func Wait(t Target, id string, timeout, every time.Duration) (Result, bool) {
 type claude struct{}
 
 func (claude) Traits() Traits {
-	return Traits{Name: "Claude Code", FreeText: "type instead"}
+	return Traits{Name: "Claude Code", MultiSelectAnswerable: true, FreeText: "type instead"}
 }
 
 func (c claude) Located(t Target) bool { return c.transcript(t) != "" }
@@ -187,10 +188,7 @@ func (claude) transcript(t Target) string {
 
 func (c claude) Pending(t Target) (Call, bool) {
 	path := c.transcript(t)
-	if path == "" {
-		return Call{}, false
-	}
-	call, ok := convo.PendingAskCall(path)
+	call, ok := convo.PendingAskFile(path, t.PendingAskFile)
 	if !ok {
 		return Call{}, false
 	}

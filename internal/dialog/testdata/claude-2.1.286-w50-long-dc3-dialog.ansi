@@ -1,0 +1,50 @@
+[48;5;237m  [38;5;153mab70fad1648/notesfiles/pr-body-s145286.md [39m
+  [38;5;153m--head feat/s-145286-gi-parent-channel --base [39m
+  [38;5;153mmain[38;5;231m, opening it ready for review against [39m
+  [38;5;231musestring/gate-inbox with that body file as the[39m
+  [38;5;231mfinal body?", "header": "Approval", [39m
+  [38;5;231m"multiSelect": false, "options": [{"label": [39m
+  [38;5;231m"Yes, open it via the wrapper", "description": [39m
+  [38;5;231m"Open the PR with that title and body file, [39m
+  [38;5;231mplus the 'claude' label."}, {"label": "No, hold[39m
+  [38;5;231mthe PR", "description": "Leave the branch [39m
+  [38;5;231mpushed with no PR."}]}]} After the answer, [39m
+  [38;5;231mreply DONE.[39m
+[38;5;246m[49m──────────────────────────────────────────────────
+[38;5;16m[48;5;153m ☐ Approval [39m[49m
+
+[2m│[0m [1m[38;5;231mThe branch is pushed. The repo's hook blocks raw
+[0;2m│[0m [1m[38;5;231m`gh pr create`, so the PR must go through the [0m
+[2m│[0m [1m[38;5;231mcreate-pr wrapper, which differs from what you [0m
+[2m│[0m [1m[38;5;231mapproved in two ways. (a) It attaches an [0m
+[2m│[0m [1m[38;5;231magent-author label `claude` to the public PR and
+[0;2m│[0m [1m[38;5;231mcreates that label in usestring/gate-inbox if [0m
+[2m│[0m [1m[38;5;231mit doesn't exist. (b) It would redact the 'Fixes
+[0;2m│[0m [1m[38;5;231mT-005286. Related: T-004329.' line, so I [0m
+[2m│[0m [1m[38;5;231mremoved that line from the body file myself, and
+[0;2m│[0m [1m[38;5;231mI checked that its redaction now changes [0m
+[2m│[0m [1m[38;5;231mnothing. The title still carries T-005286, as [0m
+[2m│[0m [1m[38;5;231mearlier public PRs do. May I run, from the [0m
+[2m│[0m [1m[38;5;231mgate-inbox checkout: `/home/sampleusr/work/sampl
+[0;2m│[0m [1m[38;5;231medirs/s-145286-gi-parent-channel-20260930-234253
+[0;2m│[0m [1m[38;5;231m/skills/create-pr/scripts/gh-pr-create.sh [0m
+[2m│[0m [1m[38;5;231m--title "feat: verify a child's parent and [0m
+[2m│[0m [1m[38;5;231mattest relayed approvals (T-005286)" --body-file
+[0;2m│[0m [1m[38;5;231m/var/sample-0000/-home-sampleusr-repos-repo/gae[0m
+[2m│[0m [1m[38;5;231m12c11-491f-47ab-a28a-0ab70fad1648/notesfiles/pr-
+[0;2m│[0m [1m[38;5;231mbody-s145286.md --head [0m
+[2m│[0m [1m[38;5;231mfeat/s-145286-gi-parent-channel --base main`, [0m
+[2m│[0m [1m[38;5;231mopening it ready for review against [0m
+[2m│[0m [1m[38;5;231musestring/gate-inbox with that body file as the
+[0;2m│[0m [1m[38;5;231mfinal body?[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mYes, open it via the wrapper[39m
+     [38;5;246mOpen the PR with that title and body file, [39m
+     [38;5;246mplus the 'claude' label.[39m
+  [38;5;246m2.[39m No, hold the PR
+     [38;5;246mLeave the branch pushed with no PR.[39m
+  [38;5;246m3. Type something.[39m
+[38;5;246m──────────────────────────────────────────────────
+[39m  4. Chat about this
+
+[38;5;246mEnter to select · ↑/↓ to navigate · Esc to cancel[39m

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -35,8 +37,20 @@ import (
 
 // QuestionAnswer is one answer in a call answering several questions.
 type QuestionAnswer struct {
-	Question string `json:"question" jsonschema:"which question: its 1-based index, its header, or its text, as read_session's digest.questions lists them"`
-	Answer   string `json:"answer" jsonschema:"the option's text to pick it, or your own words to type into that question's free-text row"`
+	Question string `json:"question" jsonschema:"which question: its 1-based index, its header, or its text, as read_session's digest.questions lists them; empty for the question on the screen"`
+	Answer   string `json:"answer,omitempty" jsonschema:"the option's text to pick it, or your own words to type into that question's free-text row; give this or ticks"`
+	// Ticks answers a multi-select: the boxes to leave ticked, every other
+	// box unticked.
+	Ticks []string `json:"ticks,omitempty" jsonschema:"for a multi-select question only: the labels of every option to leave ticked; every other box is unticked, the boxes are read back, and the question is submitted"`
+}
+
+// reply is the answer as one string: the words, or a multi-select's ticks
+// joined the way Claude Code records them.
+func (a QuestionAnswer) reply() string {
+	if len(a.Ticks) > 0 {
+		return strings.Join(a.Ticks, ", ")
+	}
+	return strings.TrimSpace(a.Answer)
 }
 
 // FilledAnswer is what one answer did.
@@ -72,6 +86,22 @@ type dialogPane interface {
 type tmuxPane struct {
 	driver *tmux.Driver
 	id     string
+	// record is the child's own record of the answers its pending call
+	// returned, or nil where there is no call to read one for.
+	record func() (map[string]string, bool)
+}
+
+// recordedPane is a pane whose child keeps a record of the answers its
+// dialog returned, read from its transcript.
+type recordedPane interface {
+	Recorded() (map[string]string, bool)
+}
+
+func (p tmuxPane) Recorded() (map[string]string, bool) {
+	if p.record == nil {
+		return nil, false
+	}
+	return p.record()
 }
 
 func (p tmuxPane) Capture() (string, error)  { return p.driver.CapturePane(p.id) }
@@ -97,7 +127,10 @@ func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswe
 		return AnsweredQuestion{}, errors.New("answers is empty; give one entry per question to answer")
 	}
 	for _, answer := range answers {
-		if strings.TrimSpace(answer.Answer) == "" {
+		switch {
+		case len(answer.Ticks) > 0 && strings.TrimSpace(answer.Answer) != "":
+			return AnsweredQuestion{}, fmt.Errorf("question %q has both an answer and ticks; give ticks for a multi-select and an answer otherwise", answer.Question)
+		case len(answer.Ticks) == 0 && strings.TrimSpace(answer.Answer) == "":
 			return AnsweredQuestion{}, fmt.Errorf("the answer for question %q is empty", answer.Question)
 		}
 	}
@@ -114,12 +147,12 @@ func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswe
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
-	pane := tmuxPane{runtime.driver, target.ID}
+	guard := s.guard(runtime.store, caller, target, relay)
+	pane := tmuxPane{runtime.driver, target.ID, guard.recorder()}
 	raw, err := pane.Capture()
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
-	guard := s.guard(runtime.store, caller, target, relay)
 	if driver, ok := answerDriverFor(target.Tool); ok {
 		return driver.answer(runtime, s, target, raw, answers, submit, guard, "parent", caller.ID)
 	}
@@ -127,15 +160,20 @@ func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswe
 	if len(questions) == 0 {
 		// The single-answer path has the words for every shape that is not a
 		// question dialog; one answer there gets the same refusal.
-		return runtime.answer(target, answers[0].Answer, "parent", caller.ID, guard)
+		return runtime.answer(target, answers[0].reply(), "parent", caller.ID, guard)
 	}
+	answers = onScreen(questions, answers)
 	planned := make([]plannedAnswer, 0, len(answers))
 	for _, answer := range answers {
 		index, err := dialog.Resolve(questions, answer.Question)
 		if err != nil {
 			return AnsweredQuestion{}, err
 		}
-		planned = append(planned, plannedAnswer{index, strings.TrimSpace(answer.Answer)})
+		reply := answer.reply()
+		if len(answer.Ticks) > 0 {
+			reply = strings.Join(inOptionOrder(questions[index], answer.Ticks), ", ")
+		}
+		planned = append(planned, plannedAnswer{index, reply})
 	}
 	if err := guard.admit(planned, questions); err != nil {
 		return AnsweredQuestion{}, fmt.Errorf("session %s: %w", target.ID, err)
@@ -163,13 +201,53 @@ func (s *Sessions) askTarget(sess store.Session) asks.Target {
 	if _, ok := asks.For(tool); !ok {
 		tool = "claude"
 	}
-	return asks.Target{Tool: tool, AgentSessionID: sess.AgentSessionID, Cwd: sess.Cwd, ClaudeHome: s.claudeHome}
+	return asks.Target{Tool: tool, AgentSessionID: sess.AgentSessionID, Cwd: sess.Cwd, ClaudeHome: s.claudeHome, PendingAskFile: hooks.NewManager(s.configDir).PendingAskFile(sess.ID)}
+}
+
+// onScreen names the question on the screen in every answer that names no
+// question.
+func onScreen(questions []dialog.Question, answers []QuestionAnswer) []QuestionAnswer {
+	on := slices.IndexFunc(questions, func(q dialog.Question) bool { return q.OnScreen })
+	out := slices.Clone(answers)
+	for i := range out {
+		if strings.TrimSpace(out[i].Question) == "" && on >= 0 {
+			out[i].Question = strconv.Itoa(on + 1)
+		}
+	}
+	return out
+}
+
+// inOptionOrder is ticks as the option labels they name, in the question's
+// own order, which is how Claude Code lists a multi-select's answer. A tick
+// naming no option is kept as given, at the end, for the screen to refuse.
+func inOptionOrder(question dialog.Question, ticks []string) []string {
+	labels := make([]string, len(question.Options))
+	for i, option := range question.Options {
+		labels[i] = option.Label
+	}
+	picked := map[int]bool{}
+	var unknown []string
+	for _, tick := range ticks {
+		if n := (dialog.Dialog{Options: labels}).ChooseLabel(tick); n > 0 {
+			picked[n] = true
+		} else {
+			unknown = append(unknown, tick)
+		}
+	}
+	var out []string
+	for i, label := range labels {
+		if picked[i+1] {
+			out = append(out, label)
+		}
+	}
+	return append(out, unknown...)
 }
 
 // planned is one answer resolved to the question it answers.
 type planned struct {
 	index  int
 	answer string
+	ticks  []string
 }
 
 // fillDialog is the sequence, over any pane. It validates every answer before
@@ -188,12 +266,15 @@ func fillDialog(pane dialogPane, questions []dialog.Question, answers []Question
 		}
 		seen[index] = true
 		question := questions[index]
-		if question.MultiSelect {
+		switch {
+		case question.MultiSelect && len(answer.Ticks) == 0:
 			return result, fmt.Errorf("question %d (%s) is a multi-select -- Enter ticks a box rather than "+
-				"answering, so it is a person's to answer on the board; leave it out of answers and "+
-				"answer the rest", index+1, question.Header)
+				"answering -- so give it ticks: the labels of every option to leave ticked", index+1, question.Header)
+		case !question.MultiSelect && len(answer.Ticks) > 0:
+			return result, fmt.Errorf("question %d (%s) is not a multi-select; give it an answer, not ticks",
+				index+1, question.Header)
 		}
-		plan = append(plan, planned{index, strings.TrimSpace(answer.Answer)})
+		plan = append(plan, planned{index, strings.TrimSpace(answer.Answer), answer.Ticks})
 	}
 	slices.SortFunc(plan, func(a, b planned) int { return a.index - b.index })
 
@@ -209,7 +290,12 @@ func fillDialog(pane dialogPane, questions []dialog.Question, answers []Question
 			}
 		}
 		before := len(dialog.ParseAnswered(ansi.Strip(raw)))
-		filled, err := answerOnScreen(pane, raw, questions[step.index], step.answer, tabbed)
+		var filled FilledAnswer
+		if len(step.ticks) > 0 {
+			filled, err = tickOnScreen(pane, raw, questions[step.index], step.ticks)
+		} else {
+			filled, err = answerOnScreen(pane, raw, questions[step.index], step.answer, tabbed)
+		}
 		if err != nil {
 			return finish(pane, result, err)
 		}
@@ -453,13 +539,26 @@ func submitDialog(pane dialogPane, submitTab int, filled []FilledAnswer) error {
 	return confirmEcho(pane, before, filled)
 }
 
-// confirmEcho waits for the record Claude Code prints once it takes a
-// dialog's answers -- a block more than the before the pane held -- and
-// checks every answer in filled is in it as given.
+// confirmEcho waits for the child's record of the answers it took and checks
+// every answer in filled is in it as given.
+//
+// The record is read from the child's transcript where there is one: Claude
+// Code writes the dialog's result there, keyed by each question's full text.
+// The pane is the fallback, for a child with no transcript to read: the
+// block Claude Code prints, more than the before the pane held. The pane
+// alone failed live on Claude Code 2.1.286 -- a record taller than the
+// screen is redrawn without its header, and none of it reaches scrollback --
+// so an answer the child had taken was reported unconfirmed.
 func confirmEcho(pane dialogPane, before int, filled []FilledAnswer) error {
 	deadline := time.Now().Add(readbackTimeout)
+	recorded, haveRecord := pane.(recordedPane)
 	var blocks [][]dialog.ReviewAnswer
 	for {
+		if haveRecord {
+			if answers, ok := recorded.Recorded(); ok {
+				return checkRecorded(answers, filled)
+			}
+		}
 		raw, err := pane.Capture()
 		if err != nil {
 			return err
@@ -481,6 +580,29 @@ func confirmEcho(pane dialogPane, before int, filled []FilledAnswer) error {
 		got, found := registered(last, answer)
 		if !found {
 			return fmt.Errorf("the child's record of its answers does not list question %d, so %q cannot be "+
+				"confirmed; read_session shows what it took", answer.Index, answer.want())
+		}
+		if !dialog.SameText(got, answer.want()) {
+			return mismatch(answer, got, "the child has already taken it; send it a correction")
+		}
+	}
+	return nil
+}
+
+// checkRecorded checks filled against the answers the child's transcript
+// records, keyed by question text.
+func checkRecorded(answers map[string]string, filled []FilledAnswer) error {
+	listed := make([]dialog.ReviewAnswer, 0, len(answers))
+	for question, answer := range answers {
+		listed = append(listed, dialog.ReviewAnswer{Question: question, Answer: answer})
+	}
+	for _, answer := range filled {
+		got, found := registered(listed, answer)
+		if !found && len(listed) == 1 && len(filled) == 1 {
+			got, found = listed[0].Answer, true
+		}
+		if !found {
+			return fmt.Errorf("the child's transcript records no answer to question %d, so %q cannot be "+
 				"confirmed; read_session shows what it took", answer.Index, answer.want())
 		}
 		if !dialog.SameText(got, answer.want()) {

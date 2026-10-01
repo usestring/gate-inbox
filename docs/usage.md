@@ -384,9 +384,9 @@ A status is a reading of a screen, and a reading can be wrong. When a session ha
 
 ## The conversation preview
 
-The panel beside the list is not the raw terminal: it is the session's **conversation**, drawn as `You` and `Assistant` turns with the commands and tool calls folded into the turns that produced them. A turn too tall for the panel is shortened to its first lines with a `… N more lines` note. `F3` switches the selected row between that shortened transcript and the full one, and the choice is held as you move down the list. `enter` opens the same conversation, full width — keys reach the agent either way — and `F3` there hands the pane to the live terminal.
+The panel beside the list is not the raw terminal: it is the session's **conversation**, drawn as `You` and `Assistant` turns with the commands and tool calls folded into the turns that produced them. A turn too tall for the panel is shortened to its first lines with a `… N more lines` note. `F3` switches the selected row between that shortened transcript and the full one, and the choice is held as you move down the list. `enter` still opens the live terminal — keys reach the agent and the caret is where you type — and leaving it comes back to the conversation.
 
-Settings (`s`) has a **focused view** row. `conversation` is the default: a focused session keeps the transcript on screen, so a drain can read each session's turns without the terminal's own chrome, and `F3` hands the pane to the agent when it is time to type. `terminal` shows the live pane inside the session instead. The choice is remembered, so a session left on its terminal stays that way on the next start. A shell has no conversation to show, so it always stays on the terminal.
+Settings (`s`) has a **focused view** row. `terminal` is the default: a focused session shows its live pane. `conversation` keeps the transcript on screen inside the session too, so a drain can read each session's turns without the terminal's own chrome, and `F3` then switches that session to the terminal and back. The setting is remembered, so a session kept on its transcript stays that way on the next start. A shell has no conversation to show, so the row stays on the terminal there.
 
 ## The board layout
 

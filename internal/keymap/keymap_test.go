@@ -17,13 +17,20 @@ func resolve(t *testing.T, overrides Overrides) *Map {
 	return m
 }
 
-// The defaults are what shipped: nothing is unbound, no two actions on one
-// screen hold the same key, and the map answers both ways.
+// The defaults are what shipped: everything the board cannot be worked
+// without is bound, no two actions on one screen hold the same key, and the
+// map answers both ways. Anything else may ship unbound -- a key nobody
+// presses often is a key hit by accident, and one-off actions run from
+// quick actions -- but an unbound action keeps its row in the key map so it
+// can be rebound there.
 func TestDefaultsResolveWithoutProblems(t *testing.T) {
 	m := resolve(t, nil)
 	for _, binding := range Catalog {
 		if !m.Bound(binding.Context, binding.Action) {
-			t.Errorf("%s.%s is unbound out of the box", binding.Context, binding.Action)
+			if binding.Required {
+				t.Errorf("%s.%s is required and unbound out of the box", binding.Context, binding.Action)
+			}
+			continue
 		}
 		for _, key := range binding.Keys {
 			action, ok := m.Action(binding.Context, key)

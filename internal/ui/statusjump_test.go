@@ -37,6 +37,15 @@ func jumpKey(t *testing.T, name string) tea.KeyPressMsg {
 // name would pass over a family the map no longer reaches.
 func (m *Model) jumpFor(t *testing.T, name string) statusJump {
 	t.Helper()
+	// All but tab ship unbound, so the suite binds the key it drives: the
+	// lookup below is still the whole point.
+	if action, ok := map[string]keymap.Action{
+		"alt+w": keymap.JumpWaiting, "alt+f": keymap.JumpFinished,
+		"alt+e": keymap.JumpErrored, "alt+i": keymap.JumpIdle,
+		"alt+k": keymap.JumpWorking,
+	}[name]; ok {
+		bindTestKey(t, m, action, name)
+	}
 	action, bound := m.action(keymap.ContextList, jumpKey(t, name))
 	if !bound {
 		t.Fatalf("no action bound to %q", name)
@@ -208,6 +217,7 @@ func TestTheJumpKeyIsRoutedAndLandsOnTheRow(t *testing.T) {
 	seedTriageFleet(t, m)
 	m.selectSessionRow(t, "old-block")
 
+	bindTestKey(t, m, keymap.JumpFinished, "alt+f")
 	updated, _ := m.handleKey(jumpKey(t, "alt+f"))
 	m = updated.(*Model)
 	if got := m.rows[m.cursor].sess.Name; got != "reviewme" {
@@ -225,6 +235,7 @@ func TestAJumpWithNothingToFindSaysSo(t *testing.T) {
 	seedTriageFleet(t, m)
 	m.selectSessionRow(t, "reviewme")
 
+	bindTestKey(t, m, keymap.JumpFinished, "alt+f")
 	updated, _ := m.handleKey(jumpKey(t, "alt+f"))
 	m = updated.(*Model)
 	if m.errBar.text != "nothing listed is finished" {

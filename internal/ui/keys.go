@@ -817,12 +817,18 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		m.searching = false
 	case "esc":
+		// Close the field and keep the filter: esc used to wipe the
+		// query, so a key meant to back out read as sessions gone
+		// missing. Deleting the text clears it (ctrl+u wipes the field).
 		m.searching = false
-		return m, m.clearSearch()
 	case "backspace":
 		if runes := []rune(m.search); len(runes) > 0 {
 			m.search = string(runes[:len(runes)-1])
 		}
+		m.rebuildRows()
+		return m, m.scheduleHistorySearch()
+	case "ctrl+u":
+		m.search = ""
 		m.rebuildRows()
 		return m, m.scheduleHistorySearch()
 	default:
@@ -835,9 +841,10 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// clearSearch drops the query and re-lists. A query that outlives its field
-// with no way back is what makes filtered-away sessions read as sessions
-// that are gone, so esc answers from the list as well as from the field.
+// clearSearch drops the query and re-lists. It has no default key: the
+// search field's own deletions (backspace, ctrl+u) are what clear text,
+// and this stays behind quick actions for an applied filter whose field
+// is closed.
 func (m *Model) clearSearch() tea.Cmd {
 	if m.search == "" {
 		return nil

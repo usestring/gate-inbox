@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -29,6 +31,19 @@ import (
 // One writer is also what a real agent CLI looks like: it holds its tty in
 // raw mode and draws the composer itself.
 const soleWriter = " > /dev/null"
+
+// bindTestKey puts an action on keys the suite drives it with. Actions that
+// ship unbound stay runnable from quick actions, but tests that press keys
+// go through the map, so they bind first and fail loudly if the keys did
+// not take. A missing config directory only means the rebind is not saved,
+// which is the normal state of a test model.
+func bindTestKey(t testing.TB, m *Model, action keymap.Action, keys ...string) {
+	t.Helper()
+	m.rebind(keymap.ContextList, action, keys)
+	if got := m.km().Keys(keymap.ContextList, action); !slices.Equal(got, keys) {
+		t.Fatalf("rebind %s onto %q left %q", action, keys, got)
+	}
+}
 
 func buildModel(t testing.TB) *Model {
 	t.Helper()

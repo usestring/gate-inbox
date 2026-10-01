@@ -689,13 +689,14 @@ func TestFooterTogglesNameTheNextAction(t *testing.T) {
 	createSession(t, m, "toggles", dir, "work")
 	m.applyCmd(t, m.refreshCmd())
 
-	if footer := m.peekLegend(m.listBodyHeight()); !strings.Contains(footer, keyCapQuiet("F", "fold all")) {
-		t.Fatalf("an open tree should offer folding:\n%s", ansi.Strip(footer))
+	if footer := m.peekLegend(m.listBodyHeight()); !strings.Contains(footer, keyCapQuiet("w", "attention")) {
+		t.Fatalf("an open tree should offer the attention filter:\n%s", ansi.Strip(footer))
 	}
-	m.toggleCollapseAll()
-	if footer := m.peekLegend(m.listBodyHeight()); !strings.Contains(footer, keyCapQuiet("F", "unfold all")) {
-		t.Fatalf("a folded tree should offer unfolding:\n%s", ansi.Strip(footer))
+	m.cycleStatusFilter()
+	if footer := m.peekLegend(m.listBodyHeight()); !strings.Contains(footer, keyCapQuiet("w", "show all")) {
+		t.Fatalf("a filtered tree should offer the way back:\n%s", ansi.Strip(footer))
 	}
+	m.cycleStatusFilter()
 
 	group := -1
 	for i, row := range m.rows {
@@ -708,11 +709,13 @@ func TestFooterTogglesNameTheNextAction(t *testing.T) {
 		t.Fatalf("the fixture should list a group to fold, rows: %v", m.groupRowPaths())
 	}
 	m.cursor = group
+	m.toggleCollapse()
 	if footer := m.viewFooter(); !strings.Contains(footer, keyCap("↵", "unfold")) {
 		t.Fatalf("a collapsed group should offer unfolding:\n%s", ansi.Strip(footer))
 	}
 
 	m.showArchived = true
+	bindTestKey(t, m, keymap.ArchivedView, "t")
 	if legend := m.peekLegend(m.listBodyHeight()); !strings.Contains(legend, keyCapQuiet("t", "back to active")) {
 		t.Fatalf("the archived view should offer the way back:\n%s", ansi.Strip(legend))
 	}

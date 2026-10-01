@@ -184,7 +184,7 @@ func helpSections() []helpSection {
 		}},
 		{title: "advanced: inside a session", rows: []helpRow{
 			bound(focus, keymap.HandOver, "the one-press alias for leaving, in triage and out"),
-			bound(focus, keymap.BackAtPrompt, "Right at prompt's end: list; finished triage: Left/Right next"),
+			bound(focus, keymap.BackAtPrompt, "Right at prompt's end: list; triage: Left list, finished Right next"),
 			bound(focus, keymap.Dismiss, "skip"),
 			bound(focus, keymap.ToggleChrome, "hide / show the key hints along the foot; the pane takes the rows"),
 			bound(focus, keymap.ToggleRail, "hide / show the list beside the pane; the pane takes the columns"),

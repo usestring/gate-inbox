@@ -33,7 +33,7 @@ Tell your agent to manage sessions and terminals in Gate Inbox; it can set them 
 | tmux prefix, then `d` | Inside a full-screen attach: back to the manager when the prefix reaches the inner tmux |
 | `←` (`→` with the list on the left) | Step into the row, toward the pane: open the session's work, then focus the session; on a group, open it |
 | `→` (`←` with the list on the left) | Step out, toward the list: fold the work, or close the group |
-| `←` / `→` | Focused, at a prompt edge: the arrow toward the list returns to the manager, or opens the next item if this session is finished in triage. For a finished triage session, the other edge arrow also opens the next item. The tool's prompt marker (`activity_cutoff`) must be on the caret's row; elsewhere in the prompt, the arrow moves the caret as usual. |
+| `←` / `→` | Focused, at a prompt edge: the arrow toward the list returns to the manager. In triage, `←` always returns to the manager, and `→` on a finished session opens the next item instead, whichever side the list is on. The tool's prompt marker (`activity_cutoff`) must be on the caret's row; elsewhere in the prompt, the arrow moves the caret as usual. |
 | `K` / `J` (or `shift+↑` / `shift+↓`) | Reorder session or group among its visible siblings |
 | `m` | Move a session to a group, a terminal into a session, or a group under another group |
 | `r` | Name a session: ask its agent to name itself (`/rename`, or the same request in prose). On an adopted pane, derive the name from its conversation. On a group, open the group card on it: name, parent and default path |
@@ -394,7 +394,7 @@ The preview is not lost. Focusing a session still opens its pane, full width, an
 
 The list sits on the right of the pane by default. Settings (`s`) has a `sidebar` row that moves it to the left, or back: the rail moves as you step the row, so the board behind the panel is the preview, and closing Settings keeps it. Only the side changes. The split keeps its size, because the stored ratio is the list's share whichever side it is on, so the agents' panes keep their width and nothing is redrawn inside them. The divider (`|`) drags the same way on either side, and the arrow that leaves a focused session is the one pointing at the list: `→` at the end of the prompt with it on the right, `←` at the head of the prompt with it on the left. The list's own arrows follow the same rule: stepping into a row, which opens its work and then focuses its pane, is the arrow pointing at the pane (`←` with the list on the right, `→` with it on the left), and folding is the other one. The footer and the key map (`h`) name whichever key works on the side you are on, and a key you rebind is taken as the key for the side the list is on. The divider's arrows move it the way they point on either side. To set the side in the config file instead, `[board] sidebar = "left"` in [config.toml](configuration.md); the Settings row outranks the file on the machine it was changed on, and picking the file's side there again hands the choice back to the file.
 
-In triage, leaving a finished session at its prompt edge opens the next item. Either spare horizontal arrow does this, whichever side the list is on.
+In triage the prompt-edge arrows are fixed, whichever side the list is on: `←` returns to the list with triage still on, and `→` on a finished session opens the next item.
 
 ## Key hints
 

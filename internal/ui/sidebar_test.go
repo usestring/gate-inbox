@@ -278,7 +278,7 @@ func TestMirrorArrow(t *testing.T) {
 
 // Each horizontal binding on both sides. The list's step in is the arrow
 // pointing at the pane and its fold the other one; both prompt arrows bind
-// in focus, where only finished triage can use the one pointing away.
+// in focus, where only triage can use the one pointing away.
 func TestSideActionPerBinding(t *testing.T) {
 	press := func(code rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: code} }
 	for _, tc := range []struct {

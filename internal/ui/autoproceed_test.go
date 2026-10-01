@@ -337,3 +337,59 @@ func focusedID(t *testing.T, m *Model) string {
 	}
 	return sess.ID
 }
+
+func TestSubmissionHonorsNextSessionOutsideTriage(t *testing.T) {
+	for _, state := range []string{status.Idle, status.Waiting} {
+		for _, tc := range []struct {
+			name  string
+			auto  bool
+			leave string
+			want  string
+		}{
+			{"advance enabled", true, leaveToNext, "next"},
+			{"auto proceed disabled", false, leaveToNext, "answered"},
+			{"return to list selected", true, leaveToList, "answered"},
+		} {
+			t.Run(state+"/"+tc.name, func(t *testing.T) {
+				m := buildModel(t)
+				m.autoProceed, m.leaveMode = tc.auto, tc.leave
+				liveTriageFleet(t, m, map[string]string{
+					"answered": state,
+					"next":     status.Waiting,
+					"busy":     status.Working,
+				})
+				m.rebuildRows()
+				m.enterFocusOn(t, "answered")
+				id := focusedID(t, m)
+				stageDialog(m, id)
+				if state == status.Idle {
+					m.preview = "❯ go on\n"
+					m.pane.cursor = paneCursor{x: 7, y: 0, ok: true}
+				}
+				if m.triage {
+					t.Fatal("the fixture armed triage")
+				}
+
+				m = pressEnter(m)
+				if focusedName(t, m) != "answered" {
+					t.Fatal("Enter advanced before the answer landed")
+				}
+				if state == status.Waiting {
+					recordDialogResult(t, m, id, "answered")
+				} else {
+					logHookEvent(t, m, id, "working UserPromptSubmit")
+				}
+				lookForLanding(t, m)
+				if m.latestSubmission.sessionID != id {
+					t.Fatal("the submitted answer was not accepted")
+				}
+				if m.mode != modeFocus || focusedName(t, m) != tc.want {
+					t.Fatalf("after submission focused %q in mode %v, want %q", focusedName(t, m), m.mode, tc.want)
+				}
+				if m.triage {
+					t.Fatal("submitting enabled triage")
+				}
+			})
+		}
+	}
+}

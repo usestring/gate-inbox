@@ -59,6 +59,8 @@ Answer a session, leave it, land in the next one that needs a person: `ctrl+q` d
 
 Settings (`s`) has an `on leaving a session` row for it — `list` (the default, today's behaviour) or `next`, which gives `ctrl+q` the same walk without a queue having to be armed with `i` first. Leaving a session mutes it, which is what makes the walk converge: answering a session does not clear its status until the poller sees the pane change, so without the mute the walk hands the same session straight back. `ctrl+\` is still the way out whatever the setting says, and the focused footer names whichever the key is about to do.
 
+With auto-proceed enabled, a confirmed submission also opens the next session when `on leaving a session` is `next`, even outside triage. Enter alone does not advance: the agent must be seen taking the prompt or dialog answer first.
+
 ### Draining full-width
 
 Triage plus two keys is the whole drain. `i` turns triage on and opens the head of the queue,

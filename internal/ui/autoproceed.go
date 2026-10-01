@@ -65,14 +65,10 @@ func storedAutoProceed(st *store.Store) bool {
 	return chosen == "on"
 }
 
-// autoProceeds reports whether this keystroke is inside the one situation the
-// setting describes: a queue being drained, from inside a session.
-//
-// Outside triage there is no queue to proceed along -- advanceTriage walks
-// triage's own order -- and outside focus the keys this hooks do not reach a
-// pane at all.
+// autoProceeds uses the same queue choice as an explicit leave, so submitting
+// and skipping agree on whether the operator is walking the sessions.
 func (m *Model) autoProceeds() bool {
-	return m.autoProceed && m.triage && m.mode == modeFocus
+	return m.autoProceed && m.advancesOnLeave() && m.mode == modeFocus
 }
 
 // handOverFocused is the explicit handover: mute the session so the walk

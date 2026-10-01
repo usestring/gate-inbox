@@ -37,6 +37,8 @@ import (
 //
 // The child's PostToolUse hook reads the ledger back (see HookAskAnswered).
 // docs/dialog-relay-threat-model.md has what each dialog kind admits and why.
+// The same ledger spends an answer relayed by message (attest.go), and
+// docs/parent-channel.md holds that channel's threat model.
 
 var (
 	errApprovalNeedsRelay = errors.New("this is the child asking for your user's approval; put it to your " +

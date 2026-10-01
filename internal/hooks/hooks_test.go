@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
@@ -62,10 +63,20 @@ func TestEnsureSettingsWritesValidHookJSON(t *testing.T) {
 	}
 	// The ledger lookup sits beside the status writer on AskUserQuestion, and
 	// the approval note beside SessionStart's; neither touches the status file.
-	if post := parsed.Hooks["PostToolUse"]; len(post) != 2 || post[1].Matcher != blockingTool ||
+	if post := parsed.Hooks["PostToolUse"]; len(post) != 3 || post[1].Matcher != blockingTool ||
 		post[1].Hooks[0].Command != askAnsweredCommand() || !strings.Contains(askAnsweredCommand(), `hook ask-answered`) ||
-		!strings.HasSuffix(askAnsweredCommand(), "exit 0") {
-		t.Fatalf("PostToolUse = %+v, want the status writer then the ask-answered hook", post)
+		!strings.HasSuffix(askAnsweredCommand(), "exit 0") || post[2].Matcher != "*" ||
+		post[2].Hooks[0].Command != attestNoteCommand() {
+		t.Fatalf("PostToolUse = %+v, want the status writer, the ask-answered hook, then the attest-note hook", post)
+	}
+	// The attest-note hook starts no process unless an attestation is waiting.
+	if cmd := attestNoteCommand(); !strings.Contains(cmd, `[ ! -f "$f`+AttestPendingSuffix+`" ] ||`) ||
+		!strings.Contains(cmd, "hook attest-note") || !strings.HasSuffix(cmd, "exit 0") {
+		t.Fatalf("attest-note command = %q", cmd)
+	}
+	if prompt := parsed.Hooks["UserPromptSubmit"]; len(prompt) != 2 ||
+		prompt[1].Hooks[0].Command != promptSubmitCommand() || !strings.Contains(promptSubmitCommand(), "hook prompt-submit") {
+		t.Fatalf("UserPromptSubmit = %+v, want the status writer then the prompt-submit hook", prompt)
 	}
 	if start := parsed.Hooks["SessionStart"]; len(start) != 2 || start[1].Hooks[0].Command != sessionStartCommand() ||
 		!strings.Contains(start[1].Matcher, "compact") {
@@ -109,6 +120,53 @@ func TestEnsureSettingsWritesValidHookJSON(t *testing.T) {
 	// Every API error ends the turn, and only one of them is a limit.
 	if sf := parsed.Hooks["StopFailure"]; len(sf) != 1 || sf[0].Matcher != "" || sf[0].Hooks[0].Command != stopFailureCommand() {
 		t.Fatalf("StopFailure = %+v, want one unfiltered type-aware command", sf)
+	}
+}
+
+// Every managed session is denied the sealing keys, by its sandbox and by
+// its Read and Edit tools, and the settings grant nothing: no allow rule, no
+// other key.
+func TestSettingsDenyTheKeyDir(t *testing.T) {
+	configDir := t.TempDir()
+	path, err := NewManager(configDir).EnsureSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	for key := range parsed {
+		if key != "hooks" && key != "permissions" && key != "sandbox" {
+			t.Fatalf("settings carry %q; only hooks and the key-dir denials belong there", key)
+		}
+	}
+	var rules struct {
+		Permissions map[string][]string `json:"permissions"`
+		Sandbox     struct {
+			Filesystem map[string][]string `json:"filesystem"`
+		} `json:"sandbox"`
+	}
+	if err := json.Unmarshal(raw, &rules); err != nil {
+		t.Fatal(err)
+	}
+	keyDir := parentseal.KeyDir(configDir)
+	if len(rules.Permissions) != 1 || len(rules.Sandbox.Filesystem) != 1 {
+		t.Fatalf("permissions %v, sandbox %v: want deny rules only", rules.Permissions, rules.Sandbox.Filesystem)
+	}
+	want := []string{"Read(/" + keyDir + "/**)", "Edit(/" + keyDir + "/**)"}
+	if got := rules.Permissions["deny"]; len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("permissions.deny = %v, want %v", got, want)
+	}
+	if !strings.HasPrefix(want[0], "Read(//") {
+		t.Fatalf("an absolute path rule needs the // form: %s", want[0])
+	}
+	if got := rules.Sandbox.Filesystem["denyRead"]; len(got) != 1 || got[0] != keyDir {
+		t.Fatalf("sandbox.filesystem.denyRead = %v, want [%s]", got, keyDir)
 	}
 }
 

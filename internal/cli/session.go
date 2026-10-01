@@ -19,7 +19,7 @@ import (
 const (
 	usageSessions      = "sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json]"
 	usageSpawn         = "spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--nest] [--keep] [--json]"
-	usageSend          = `send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--json]`
+	usageSend          = `send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--relay_question <question>] [--json]`
 	usageRead          = "read <session-id> [--since <cursor>] [--json]"
 	usageSendChildren  = "send-children \"<message>\" [--json]"
 	usagePlace         = "place <session-id> [--release] [--json]"
@@ -45,6 +45,7 @@ type sessionCommands interface {
 	SendChildren(sessionID, message string) (sessioncmd.ChildSend, error)
 	CleanupChildren(sessionID string, opts sessioncmd.CleanupOptions) (sessioncmd.ChildCleanup, error)
 	SendAsHuman(sessionID, targetID, message, subject string, interrupt bool) (sessioncmd.SendResult, error)
+	SendAttested(sessionID, targetID, message, subject string, interrupt bool, question string) (sessioncmd.SendResult, error)
 	Read(sessionID, targetID, since string) (sessioncmd.SessionScreen, error)
 	AdoptSession(sessionID, targetID string) (sessioncmd.Session, error)
 	ReleaseSession(sessionID, targetID string) (sessioncmd.Session, error)
@@ -172,12 +173,22 @@ func runSend(out io.Writer, sessions sessionCommands, args []string, sessionID s
 		"stop the session's running turn first so this is its next turn; refused for a CLI with no interrupt_keys, and never sent over a dialog")
 	asHuman := set.Bool("as-human", false,
 		"deliver as your own words rather than fenced as a message from another agent; for a person at a terminal, and refused from an agent's shell")
+	relayQuestion := set.String("relay_question", "",
+		"relay your user's approval to a child you spawned: the question you put to your user, word for word; Gate Inbox attaches an attestation of their answer from your own transcript")
 	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 2, 2)
 	if err != nil {
 		return err
 	}
 	send := sessions.Send
+	if *relayQuestion != "" {
+		if *asHuman {
+			return errors.New("--relay_question relays your user's answer to your child; it cannot be sent --as-human")
+		}
+		send = func(sessionID, targetID, message, subject string, interrupt bool) (sessioncmd.SendResult, error) {
+			return sessions.SendAttested(sessionID, targetID, message, subject, interrupt, *relayQuestion)
+		}
+	}
 	if *asHuman {
 		if os.Getenv(agentEnv) != "" {
 			return fmt.Errorf("--as-human delivers a message as the operator's own words, which is not an agent's to claim: "+

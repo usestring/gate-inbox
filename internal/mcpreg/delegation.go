@@ -69,7 +69,7 @@ func ServerSteering(style string) (string, bool) {
 	if style != "opencode" {
 		return "", false
 	}
-	return string(renameSteering()) + "\n" + delegationSteering(style), true
+	return string(renameSteering()) + "\n" + launchSteering(style), true
 }
 
 // claudeAppendFlag is the flag the claude launch carries. Claude Code keeps

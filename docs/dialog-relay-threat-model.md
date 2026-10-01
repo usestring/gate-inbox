@@ -71,3 +71,12 @@ A refusal keys nothing and says exactly what to ask the user and how to call aga
   refused, which fails safe.
 - The relay path depends on Claude Code treating AskUserQuestion answers as user input, which is
   observed but not documented.
+
+## Relays by message
+
+A parent can also reach its child by message, and a user's answer can reach the child as a relay
+attestation on a message rather than in a dialog. That channel, the seal that tells a child its
+parent's messages from everyone else's, and its own threat model are in
+[parent-channel.md](parent-channel.md). That page also records what Claude Code 2.1.286's hook
+schema says the auto-mode classifier reads: tool results are stripped, and a PostToolUse
+`classifierContext` note is the documented way a relayed answer reaches it.

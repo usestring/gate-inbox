@@ -363,7 +363,7 @@ func newPoller(st *store.Store, driver *tmux.Driver, engine *status.Engine, hook
 	// manager newly required by a constructor that never needed it.
 	var argvMark string
 	if hookManager != nil {
-		argvMark = hooks.SettingsArgv(hookManager.SettingsPath())
+		argvMark = hookManager.SettingsArgvMark()
 	}
 	return &poller{
 		store:           st,

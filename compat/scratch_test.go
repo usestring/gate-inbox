@@ -106,7 +106,7 @@ func newScratch(t *testing.T) *scratch {
 	}
 	s := &scratch{
 		root:    root,
-		home:    filepath.Join(root, "home"),
+		home:    filepath.Join(root, "gihome"),
 		bin:     filepath.Join(root, "bin"),
 		callLog: filepath.Join(root, "calls.log"),
 	}
@@ -226,11 +226,17 @@ func isolateEnv(t *testing.T, env []string) {
 
 var uuidPattern = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`)
 
+// stampPattern is a generated file's content stamp (hooks.GeneratedName). The
+// content it hashes holds scratch paths, so the stamp changes every run.
+var stampPattern = regexp.MustCompile(`-[0-9a-f]{12}(\.json|\.md)\b`)
+
 // redact makes text independent of where and when it was produced: the
-// scratch root becomes <scratch> and a freshly minted id becomes <uuid>.
+// scratch root becomes <scratch>, a freshly minted id becomes <uuid> and a
+// generated file's content stamp becomes <stamp>.
 func (s *scratch) redact(text string) string {
 	text = strings.ReplaceAll(text, s.root, "<scratch>")
-	return uuidPattern.ReplaceAllString(text, "<uuid>")
+	text = uuidPattern.ReplaceAllString(text, "<uuid>")
+	return stampPattern.ReplaceAllString(text, "-<stamp>$1")
 }
 
 // secretName is a variable a golden prints as <redacted> rather than by

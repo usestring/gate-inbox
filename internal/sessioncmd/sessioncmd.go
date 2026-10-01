@@ -69,7 +69,7 @@ func Rename(configDir, sessionID, name string) (string, error) {
 func Priority(configDir, sessionID, tier string) (string, error) {
 	parsed, ok := priority.Parse(tier)
 	if !ok {
-		return "", fmt.Errorf("unknown priority %q (want one of: urgent, high, medium, low, none)", tier)
+		return "", fmt.Errorf("unknown priority %q (want one of: urgent, high, medium, low, lower, lowest, none, or -3..3)", tier)
 	}
 	if err := validSession(sessionID); err != nil {
 		return "", err

@@ -357,4 +357,4 @@ usage: gate-inbox rename "<name>"
 $ gate-inbox priority -h
 exit 0
 --- stdout
-usage: gate-inbox priority <urgent|high|medium|low|none>
+usage: gate-inbox priority <urgent|high|medium|low|lower|lowest|none|-3..3>

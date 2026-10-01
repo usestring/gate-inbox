@@ -124,11 +124,13 @@ selected agent for builds and one-off commands.
 | `i` | Triage queue; `\` hides the list for a full-width drain |
 | `w` | Show only what needs attention |
 | `/` | Fuzzy search; `esc` closes the field, deleting the text clears it |
-| `p` | Priority tier for a session or group; each press steps urgent → high → medium → low → none |
+| `p` | Priority tier for a session or group; each press steps urgent → high → medium → low → lower → lowest → none |
 | `T` | Shell tab under the selected agent |
 | `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |
 | `:` / `ctrl+p` | Quick actions: type what you want, `enter` runs it, and each row shows its key |
 | `h` / `s` | Key map for the current screen / settings |
+
+Priority defaults to 0 with no marker. Positive levels use green `▲`, `▲▲`, and `▲▲▲`; negative levels use red `▼`, `▼▼`, and `▼▼▼`. Set a level with `gate-inbox priority <level>` using a number from -3 to 3 or its tier name.
 
 Every binding is a default, and `h` is where you rebind one. [`docs/usage.md`](docs/usage.md) is
 the complete reference.

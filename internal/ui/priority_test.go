@@ -111,7 +111,7 @@ func TestPriorityKeyCyclesTheSession(t *testing.T) {
 	seedTriageFleet(t, m)
 	id := sessionID(t, m, "napping")
 
-	for _, want := range []priority.Tier{priority.Urgent, priority.High, priority.Medium, priority.Low, priority.Unset} {
+	for _, want := range []priority.Tier{priority.Urgent, priority.High, priority.Medium, priority.Low, priority.Lower, priority.Lowest, priority.Unset} {
 		m.selectSessionRow(t, "napping")
 		pressKey(t, m, key("p"))
 		got, err := m.store.Get(id)
@@ -230,5 +230,39 @@ func TestARaisedTierNeverJumpsAMorePressingState(t *testing.T) {
 		if got := focusedName(t, m); got != want {
 			t.Fatalf("ctrl+q landed on %q want %q", got, want)
 		}
+	}
+}
+
+func TestNegativePrioritiesSortBelowDefault(t *testing.T) {
+	m := buildModel(t)
+	seedTriageFleet(t, m)
+	for name, tier := range map[string]priority.Tier{"new-block": priority.Lowest, "old-block": priority.Unset} {
+		if err := m.store.SetPriority(sessionID(t, m, name), tier); err != nil {
+			t.Fatal(err)
+		}
+	}
+	loadStoredRows(t, m)
+	pressKey(t, m, key("i"))
+	names := sessionNames(m)
+	if slices.Index(names, "old-block") >= slices.Index(names, "new-block") {
+		t.Fatalf("negative priority sorts before default: %v", names)
+	}
+	if rail := triageRail(m); !strings.Contains(rail, "new-block ▼▼▼") {
+		t.Fatalf("negative marker missing: %s", rail)
+	}
+}
+
+func TestMediumPriorityJumpsTheTriageRing(t *testing.T) {
+	m := buildModel(t)
+	seedTriageFleet(t, m)
+	id := sessionID(t, m, "new-block")
+	if err := m.store.SetPriority(id, priority.Medium); err != nil {
+		t.Fatal(err)
+	}
+	loadStoredRows(t, m)
+	pressKey(t, m, key("i"))
+	row, ok := m.nextTriageInput(sessionID(t, m, "reviewme"), nil)
+	if !ok || m.rows[row].sess.ID != id {
+		t.Fatal("positive priority did not jump the default sessions")
 	}
 }

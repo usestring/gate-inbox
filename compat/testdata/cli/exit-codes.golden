@@ -2,19 +2,19 @@
 $ gate-inbox help
 exit 0
 --- stdout
-(6909 bytes of help text)
+(6928 bytes of help text)
 --- left in home: 
 
 $ gate-inbox --help
 exit 0
 --- stdout
-(6909 bytes of help text)
+(6928 bytes of help text)
 --- left in home: 
 
 $ gate-inbox -h
 exit 0
 --- stdout
-(6909 bytes of help text)
+(6928 bytes of help text)
 --- left in home: 
 
 $ gate-inbox --version
@@ -92,7 +92,7 @@ gate-inbox: usage: gate-inbox sessions [--parent <id|me>] [--status <state>] [--
 $ gate-inbox priority extreme
 exit 1
 --- stderr
-gate-inbox: unknown priority "extreme" (want one of: urgent, high, medium, low, none)
+gate-inbox: unknown priority "extreme" (want one of: urgent, high, medium, low, lower, lowest, none, or -3..3)
 --- left in home: 
 
 $ gate-inbox rename

@@ -138,3 +138,44 @@ func TestSetGroupPriorityRefusesRootAndUnknown(t *testing.T) {
 		t.Fatalf("unknown group: err = %v, want ErrGroupNotFound", err)
 	}
 }
+
+func TestNegativePrioritiesPersistAndInherit(t *testing.T) {
+	st := newTestStore(t)
+	if err := st.CreateGroup("proj", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateGroup("proj/sub", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CreateSession(sample("a", "proj/sub")); err != nil {
+		t.Fatal(err)
+	}
+	for _, tier := range []priority.Tier{priority.Low, priority.Lower, priority.Lowest} {
+		if err := st.SetPriority("a", tier); err != nil {
+			t.Fatal(err)
+		}
+		sess, err := st.Get("a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if sess.Priority != tier || EffectiveTier(nil, sess) != tier {
+			t.Fatalf("session lost negative priority %q", tier)
+		}
+		if err := st.SetPriority("a", priority.Unset); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SetGroupPriority("proj", tier); err != nil {
+			t.Fatal(err)
+		}
+		sess, err = st.Get("a")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := EffectiveTier(groupTiers(t, st), sess); got != tier {
+			t.Fatalf("inherited priority = %q, want %q", got, tier)
+		}
+		if err := st.SetGroupPriority("proj", priority.Unset); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

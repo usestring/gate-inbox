@@ -138,6 +138,7 @@ func newFixtureRun(t *testing.T, st *store.Store, socket string) *adoptRun {
 		names:    map[string]bool{},
 		stor:     st,
 		driver:   newTestDriver(t, socket),
+		home:     t.TempDir(),
 		rejected: map[string]int{},
 	}
 	rows, err := st.ListSessions(true)
@@ -600,6 +601,9 @@ func TestAdoptedRowsAreNamedFromTheirConversations(t *testing.T) {
 		// A row named from a conversation is recorded as title-named, so the
 		// periodic pass keeps it current instead of treating it as a
 		// placeholder to overwrite from scratch.
+		if len(sess.PendingInputs) != 0 {
+			t.Errorf("title-named row %q queued an unnecessary rename: %v", sess.Name, sess.PendingInputs)
+		}
 		if sess.NameSource != store.SourceTitle {
 			t.Errorf("row %q was recorded as %q, want %q", sess.Name, sess.NameSource, store.SourceTitle)
 		}
@@ -647,5 +651,31 @@ func writeClaudeConversation(t *testing.T, home string, pid int32, cwd, title st
 	}, "\n") + "\n"
 	if err := os.WriteFile(filepath.Join(project, id+".jsonl"), []byte(transcript), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestUntitledAdoptedRowsQueueOneRenameAcrossScans(t *testing.T) {
+	dir := t.TempDir()
+	socket := windowFixture(t, "main", 2, dir)
+	st := newFixtureStore(t)
+	run := newFixtureRun(t, st, socket)
+	if taken, err := run.take(adopt.Panes(socket), adopt.NewProcTable()); err != nil || taken != 2 {
+		t.Fatalf("take = %d, %v", taken, err)
+	}
+	restarted := newFixtureRun(t, st, socket)
+	if taken, err := restarted.take(adopt.Panes(socket), adopt.NewProcTable()); err != nil || taken != 0 {
+		t.Fatalf("repeat take = %d, %v", taken, err)
+	}
+	rows, err := st.ListSessions(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.NameSource != store.SourceDerived || len(row.PendingInputs) != 1 {
+			t.Fatalf("row %q: source %q, pending %v", row.Name, row.NameSource, row.PendingInputs)
+		}
+		if want := adoptedRenameInput(run.home, row.ID); row.PendingInputs[0] != want {
+			t.Errorf("pending request = %q, want %q", row.PendingInputs[0], want)
+		}
 	}
 }

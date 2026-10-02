@@ -18,7 +18,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-func TestFocusTypingVisibleThroughProductionNavigation(t *testing.T) {
+func TestFocusTypingVisibleEndToEnd(t *testing.T) {
 	for _, tool := range []string{"claude", "codex", "opencode"} {
 		for _, variant := range []string{"default", "legacy-conversation", "explicit-experiment"} {
 			t.Run(tool+"/"+variant, func(t *testing.T) {
@@ -57,7 +57,7 @@ func TestFocusTypingVisibleThroughProductionNavigation(t *testing.T) {
 					t.Fatal(err)
 				}
 				command := "GATE_INBOX_COMPOSER_STANDIN=" + tool + " GATE_INBOX_SUBMITTED=" + shellQuote(submitted) + " " + shellQuote(binary) + " -test.run=^TestFocusComposerStandin$"
-				sess := store.Session{ID: newID(), Name: "typing-intent", Tool: tool, Cwd: dir,
+				sess := store.Session{ID: newID(), Name: "typing-e2e", Tool: tool, Cwd: dir,
 					Status: status.Idle, CreatedAt: time.Now(), LastStatusAt: time.Now()}
 				if err := m.tmux.Create(sess.ID, dir, command, nil, 100, 35); err != nil {
 					t.Fatal(err)

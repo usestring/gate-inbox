@@ -307,6 +307,10 @@ type Model struct {
 	work *worktracker.Tracker
 	// clock is the wall clock, so a test can pin an elapsed-hours gauge.
 	clock func() time.Time
+	// echoClock is the clock a keystroke's chase reads and sleeps on. Nil is
+	// the wall clock; a test sets one so how many looks fit in a budget is a
+	// fact about the chase rather than about how fast the box forks.
+	echoClock chaseClock
 	// convos is what the agent CLIs recorded about their own conversations,
 	// which is where a row's name comes from once one can be attributed to it.
 	// Refresh does file and database I/O and only ever runs inside a command.
@@ -438,7 +442,8 @@ type Model struct {
 	// focusView mirrors the persisted focused-view setting: the live
 	// terminal, or the conversation transcript. The content column reads it
 	// every frame, so it lives here instead of the store. See focusview.go.
-	focusView string
+	focusView       string
+	compressedFocus bool
 	// comfortableRows mirrors the persisted list density: entries paint
 	// their meta on a second line instead of alongside the name. Every
 	// rail frame reads it, so it lives here instead of the store.
@@ -802,7 +807,6 @@ type settingsState struct {
 	field              int
 	quickCloseSend     bool
 	enterFocuses       bool
-	focusView          string
 	comfortableRows    bool
 	layout             string
 	sidebar            string
@@ -820,6 +824,7 @@ type settingsState struct {
 	experimentalCursor int
 	jevAutoSuggest     bool
 	promptSuggest      bool
+	compressedFocus    bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -847,7 +852,6 @@ const (
 	settingsFieldLeave
 	settingsFieldQuickClose
 	settingsFieldFocusKey
-	settingsFieldFocusView
 	settingsFieldAutoProceed
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
@@ -1139,7 +1143,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	// force here rather than read off the model on every paint.
 	applyGlyphSet(storedGlyphs(st))
 	model := &Model{
-		conversation:    &conversationView{locator: newHistoryLocator(), compact: true},
+		conversation:    &conversationView{locator: newHistoryLocator(), compact: true, hovered: -1},
 		landingLocator:  newHistoryLocator(),
 		cfg:             cfg,
 		store:           st,
@@ -1157,6 +1161,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		split:           splitState{ratio: loadSplitRatio(st)},
 		focusOnEnter:    storedFocusOnEnter(st),
 		focusView:       storedFocusView(st),
+		compressedFocus: storedCompressedFocus(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
 		promptSuggest:   storedPromptSuggestions(st),
 		comfortableRows: storedComfortableRows(st),

@@ -36,7 +36,7 @@ func promptBlock(t *testing.T, m *Model, width int) []string {
 	if len(blocks) != 3 {
 		t.Fatalf("rail has %d blocks, want list, opening and dock:\n%s", len(blocks), railLinesText(m.railLines(width, m.listBodyHeight())))
 	}
-	if !strings.Contains(blocks[2][0], "computer") {
+	if dock := strings.Join(blocks[2], "\n"); !strings.Contains(dock, " computer\n") {
 		t.Fatalf("the dock is not the last block: %q", blocks[2])
 	}
 	opening := blocks[1]

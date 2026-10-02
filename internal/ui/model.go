@@ -303,6 +303,10 @@ type Model struct {
 	work *worktracker.Tracker
 	// clock is the wall clock, so a test can pin an elapsed-hours gauge.
 	clock func() time.Time
+	// echoClock is the clock a keystroke's chase reads and sleeps on. Nil is
+	// the wall clock; a test sets one so how many looks fit in a budget is a
+	// fact about the chase rather than about how fast the box forks.
+	echoClock chaseClock
 	// convos is what the agent CLIs recorded about their own conversations,
 	// which is where a row's name comes from once one can be attributed to it.
 	// Refresh does file and database I/O and only ever runs inside a command.

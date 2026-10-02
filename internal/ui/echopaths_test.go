@@ -2,12 +2,14 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
@@ -28,10 +30,16 @@ import (
 //	echo, fork send + 300ms tick mean 302ms    <- what the operator had
 //	echo, pipe send + pipe chase mean 531µs    <- what replaced it
 //
-// Run it for the numbers:
+// Those are wall-clock means taken beside whatever else the box is doing, so
+// the ordering is measured on request rather than in every run; the default
+// suite holds the structural half in TestAFocusedKeyRidesThePipe. Run it for
+// the numbers:
 //
-//	go test ./internal/ui/ -run TestFocusedReadPathCosts -v
+//	ECHO_MEASURE=1 go test ./internal/ui/ -run TestFocusedReadPathCosts -v
 func TestFocusedReadPathCosts(t *testing.T) {
+	if os.Getenv("ECHO_MEASURE") == "" {
+		t.Skip("set ECHO_MEASURE=1 to measure")
+	}
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
@@ -131,6 +139,27 @@ func TestFocusedReadPathCosts(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Log(statLine("echo: pipe send + pipe chase", chase))
+}
+
+// What TestFocusedReadPathCosts measures, held without a clock: a key typed
+// into a focused pane goes down the pooled control pipe, not through a forked
+// send-keys. The gap that test times is only worth anything while the key
+// path takes the pipe, and a fall back to a fork on every key would pass
+// everything else here while costing each keystroke a process.
+func TestAFocusedKeyRidesThePipe(t *testing.T) {
+	m, socket, pane := adoptedFocus(t, "cat")
+	const keys = "pipe"
+	tmux.ResetExecCounts()
+	for _, c := range keys {
+		updated, cmd := m.Update(tea.KeyPressMsg{Code: c, Text: string(c)})
+		*m = *updated.(*Model)
+		runCmd(t, m, cmd)
+	}
+	foreignPaneContains(t, socket, pane, func(s string) bool { return strings.Contains(s, keys) })
+	if forks := tmux.ExecCounts()["send-keys"]; forks != 0 {
+		t.Fatalf("%d keys into a focused pane forked send-keys %d times: the key path has fallen "+
+			"off the pooled pipe and every keystroke is paying for a process", len(keys), forks)
+	}
 }
 
 func mean(d []time.Duration) time.Duration {

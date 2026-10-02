@@ -16,6 +16,7 @@
 # Opt-in probes. Each reports on the machine it runs on rather than asserting
 # anything, so there is nothing for CI to check.
 internal/adopt TestScanThisMachine          # needs ADOPT_PROBE=1
+internal/ui TestZZShot                      # needs GATE_INBOX_SHOT, renders a frame to look at
 internal/sysstat TestRealBoardProcsPhase        # needs PROCS_MEASURE=1 and a live tmux board
 internal/sysstat TestRealBoardProcsAlternatives # needs PROCS_MEASURE=1 and a live tmux board
 internal/sysstat TestRealBoardSamplerCost       # needs PROCS_MEASURE=1 and a live tmux board

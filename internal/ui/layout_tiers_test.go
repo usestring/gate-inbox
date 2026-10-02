@@ -6,6 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 // The full dock keeps its nine rows only while the list beside it keeps eight
@@ -120,16 +122,130 @@ func TestSettingsCycleTheLayout(t *testing.T) {
 		m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyRight})
 	}
 	m.handleSettingsKey(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if chosen, err := m.store.Setting(layoutSetting); err != nil || chosen != layoutMobile {
+	if chosen, err := m.store.Setting(m.layoutSettingKey()); err != nil || chosen != layoutMobile {
 		t.Fatalf("stored layout = %q, %v; want mobile", chosen, err)
 	}
 	if m.layout != layoutMobile || !m.tight() {
 		t.Fatalf("the saved override did not take: layout %q tight %v", m.layout, m.tight())
 	}
-	if storedLayout(m.store) != layoutMobile {
-		t.Fatal("storedLayout does not read the saved value back")
+	if chosen, err := m.deviceLayout(); err != nil || chosen != layoutMobile {
+		t.Fatal("deviceLayout does not read the saved value back")
 	}
 	if normalizeLayout("phone") != layoutAuto {
 		t.Fatal("an unknown stored value is not read as auto")
+	}
+}
+
+// A phone pinch-zoomed out keeps its screen but gains cells: 54x27 at one
+// font size is 90x45 at a smaller one. Auto measures, so it splits there;
+// mobile is the operator saying the screen is a phone's, and holds one panel.
+func TestMobileLayoutHoldsOnePanelWhenZoomedOut(t *testing.T) {
+	for _, tc := range []struct {
+		width, height int
+		layout        string
+		split         bool
+	}{
+		{54, 27, layoutAuto, false},
+		{90, 45, layoutAuto, true},
+		{54, 27, layoutMobile, false},
+		{90, 45, layoutMobile, false},
+		{180, 60, layoutMobile, false},
+		{90, 45, layoutDesktop, true},
+	} {
+		m := fleetModel(t, 6, tc.width, tc.height)
+		m.layout = tc.layout
+		_, right := m.splitWidths()
+		if split := right > 0; split != tc.split {
+			t.Errorf("%dx%d %s: split %v, want %v", tc.width, tc.height, tc.layout, split, tc.split)
+		}
+		if tc.layout == layoutMobile && !m.tight() {
+			t.Errorf("%dx%d mobile: chrome not tight", tc.width, tc.height)
+		}
+	}
+}
+
+// The layout follows the device attached, like the theme: mobile chosen on
+// the phone stays the phone's, and the laptop keeps the shared default.
+func TestDeviceLayoutsPersistAcrossHandoffs(t *testing.T) {
+	m := buildModel(t)
+	t.Cleanup(func() { applyTheme(themes[0]) })
+	attach := func(device string) {
+		t.Helper()
+		updated, _ := m.Update(visibleMsg{state: "1,1,1", device: device})
+		m = updated.(*Model)
+	}
+	attach("device:phone")
+	m.openSettings()
+	m.settings.field = settingsFieldLayout
+	for m.settings.layout != layoutMobile {
+		m.cycleSetting(1)
+	}
+	m.persistSettings()
+	if shared := storedLayout(m.store); shared != layoutAuto {
+		t.Fatalf("the phone changed the shared layout to %q", shared)
+	}
+	attach("device:laptop")
+	if m.layout != layoutAuto {
+		t.Fatalf("laptop layout = %q, want the shared auto", m.layout)
+	}
+	if m.settings.layout != layoutAuto {
+		t.Fatal("settings kept the phone's layout on the laptop")
+	}
+	attach("device:phone")
+	if m.layout != layoutMobile {
+		t.Fatalf("phone layout = %q, want mobile", m.layout)
+	}
+	if !strings.Contains(m.viewSettings(), "device:phone") {
+		t.Fatal("settings hide the layout's device")
+	}
+}
+
+// The layout is filed under the same device fingerprint as the theme, and
+// it survives what a phone does to a board: a detach, a reattach from a new
+// SSH connection, and a zoom. Another device does not inherit it.
+func TestDeviceLayoutFollowsTheFingerprint(t *testing.T) {
+	m := buildModel(t)
+	t.Cleanup(func() { applyTheme(themes[0]) })
+	attach := func(env ...string) {
+		t.Helper()
+		updated, _ := m.Update(visibleMsg{state: "1,1,1", device: tmux.DeviceIdentity(env)})
+		m = updated.(*Model)
+	}
+	phone := []string{"SSH_CONNECTION=100.64.0.2 1111 100.64.0.1 22", "TERM_PROGRAM=Termius"}
+	attach(phone...)
+	m.openSettings()
+	m.settings.layout = layoutMobile
+	m.persistSettings()
+	if m.layoutSettingKey() != "layout:ssh:100.64.0.2/Termius" ||
+		strings.TrimPrefix(m.themeSettingKey(), themeSetting) != strings.TrimPrefix(m.layoutSettingKey(), layoutSetting) {
+		t.Fatalf("layout key %q does not share the theme's device %q", m.layoutSettingKey(), m.themeSettingKey())
+	}
+
+	// Zoomed out: the terminal reports more cells, and nothing else changes.
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 45})
+	m = updated.(*Model)
+	if m.layout != layoutMobile || m.themeDevice != "ssh:100.64.0.2/Termius" {
+		t.Fatalf("zoom changed the device or layout: %q %q", m.themeDevice, m.layout)
+	}
+	if _, right := m.splitWidths(); right != 0 {
+		t.Fatal("zoomed-out phone split into two panels")
+	}
+
+	// Detached: no client to read, so the device and its layout hold.
+	attach()
+	if m.layout != layoutMobile {
+		t.Fatalf("detach changed the layout to %q", m.layout)
+	}
+
+	attach("SSH_CONNECTION=100.64.0.9 1111 100.64.0.1 22", "TERM_PROGRAM=ghostty")
+	if m.layout != layoutAuto {
+		t.Fatalf("another device inherited %q", m.layout)
+	}
+
+	// Back on the phone over a new connection: a new source port, the same
+	// fingerprint, the same layout.
+	attach("SSH_CONNECTION=100.64.0.2 2222 100.64.0.1 22", "TERM_PROGRAM=Termius")
+	if m.layout != layoutMobile {
+		t.Fatalf("reconnected phone layout = %q, want mobile", m.layout)
 	}
 }

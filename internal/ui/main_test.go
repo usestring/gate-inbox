@@ -28,6 +28,9 @@ var testSocket = tmuxtest.NewSocket("ui")
 // exit-empty shutdown that takes the next test's fresh session down with it
 // ("server exited unexpectedly").
 func TestMain(m *testing.M) {
+	if os.Getenv("GATE_INBOX_COMPOSER_STANDIN") != "" {
+		os.Exit(m.Run())
+	}
 	// A pane runs the launch script under $SHELL, and tmux answers
 	// #{pane_current_path} from that process's own working directory. An
 	// interactive shell chdirs while it sources its startup files -- an

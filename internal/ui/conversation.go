@@ -31,6 +31,9 @@ type conversationView struct {
 	width, theme int
 	dirty        bool
 	compact      bool
+	liveStart    int
+	liveTop      int
+	liveCount    int
 	// hovered is the group expanded under the pointer in compact mode,
 	// -1 when none.
 	hovered int
@@ -60,7 +63,7 @@ func (m *Model) showsConversation() bool {
 	// Focused, the pane belongs to the agent, but the focused-view setting
 	// can keep the conversation on screen instead until F3 asks for the
 	// terminal back. See focusview.go.
-	return m.mode == modeFocus && m.focusView == focusViewConversation
+	return m.mode == modeFocus && m.compressedFocus && m.focusView == focusViewConversation
 }
 
 func conversationKey(id, agentID string) string { return id + "\x00" + agentID }
@@ -222,7 +225,7 @@ func (c *conversationView) wrapped(width int) []string {
 
 func (m *Model) conversationLines(width, height int) []contentLine {
 	m.pane.box = paneBox{x: m.paneOriginX(), y: m.listChromeRows() + m.previewBodyOffset, width: width, height: height, ok: true}
-	rows := m.conversationRows(width, height)
+	rows := m.focusConversationRows(width, height)
 	lines := make([]contentLine, 0, height)
 	for i, row := range rows {
 		lines = append(lines, contentLine{text: m.renderPaneRow(i, row, width), raw: true})
@@ -296,6 +299,9 @@ func (m *Model) withQuestionCard(rows []string, width, height int) []string {
 
 func (m *Model) toggleConversation() tea.Cmd {
 	if m.mode == modeFocus {
+		if !m.compressedFocus {
+			return nil
+		}
 		// Focused, F3 switches between the conversation and the terminal
 		// itself rather than between the conversation's two densities: the
 		// choice is the focused-view setting, so a deliberate toggle sticks
@@ -383,9 +389,16 @@ func (m *Model) updateConversationHover(x, y int) bool {
 		return clear()
 	}
 	body := m.conversationBody(box.width)
-	offset := min(c.offset, max(0, len(body)-box.height))
+	height := box.height
+	if m.mode == modeFocus && c.liveCount > 0 {
+		height = c.liveTop
+		if y-box.y >= height {
+			return clear()
+		}
+	}
+	offset := min(c.offset, max(0, len(body)-height))
 	end := len(body) - offset
-	start := max(0, end-box.height)
+	start := max(0, end-height)
 	lineIdx := start + (y - box.y)
 	if lineIdx < 0 || lineIdx >= len(body) || lineIdx >= len(c.lines) {
 		return clear()

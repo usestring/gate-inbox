@@ -262,13 +262,36 @@ func (tr toolRules) isBusy(pane string) bool {
 	}
 	lines := strings.Split(region, "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
-		if !tr.busyLine.MatchString(strings.TrimRight(lines[i], " \t")) {
+		if !tr.busyLine.MatchString(unwrapLine(lines, i)) {
 			continue
 		}
 		return tr.turnEnd == nil || tr.lastTurnEndIndex(lines) <= i
 	}
 	return false
 }
+
+// unwrapLine is lines[i] with the indented rows the tool wrapped it onto
+// joined back on. Claude breaks a summary wider than the pane itself and
+// indents the rest, so in a narrow pane "· 2 shells still running" lands as
+// "· 2 shells still" over "  running" -- which on 2026-10-02 read a child
+// with two judge runs going as finished, and the sweep ended it.
+//
+// A summary line is short, so a few rows hold any wrap of it; past that the
+// indented rows are a reply's body, and joining them would only cost.
+func unwrapLine(lines []string, i int) string {
+	line := strings.TrimRight(lines[i], " \t")
+	for _, next := range lines[i+1 : min(len(lines), i+1+maxWrapRows)] {
+		rest := strings.TrimSpace(next)
+		if rest == "" || !strings.HasPrefix(next, "  ") {
+			break
+		}
+		line += " " + rest
+	}
+	return line
+}
+
+// maxWrapRows is how many rows unwrapLine joins back onto a line.
+const maxWrapRows = 4
 
 // matchScope narrows rule matching to the current turn: the text after
 // the newest turn_end marker in the content region. Completed turns can

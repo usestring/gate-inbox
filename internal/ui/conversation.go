@@ -32,7 +32,7 @@ type conversationView struct {
 	dirty        bool
 	compact      bool
 	// hovered is the group expanded under the pointer in compact mode,
-	// -1 when none. The newest group is always full, so it never hovers.
+	// -1 when none.
 	hovered int
 }
 

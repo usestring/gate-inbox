@@ -1,0 +1,6 @@
+❯ show me the shortened conversation
+
+● Reading the three turns back.
+● Older turns shorten; the newest stays full.
+✻ Ready in 4s
+❯

@@ -207,7 +207,7 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	}
 	if !m.split.resizeMode {
 		// A pointer drifting over the shortened conversation expands the
-		// group under it; anywhere else it just rests.
+		// group under it.
 		if motion, ok := msg.(tea.MouseMotionMsg); ok && m.showsConversation() {
 			if m.updateConversationHover(motion.X, motion.Y) {
 				return m, nil

@@ -186,12 +186,6 @@ func buildModelWithStorePath(t testing.TB) (*Model, string) {
 	m := New(cfg, st, driver, engine, hooks.NewManager(t.TempDir()), "dev")
 	m.width = 120
 	m.height = 40
-	// New resolves the real default -- the conversation -- but these fixtures
-	// exercise the focused session's terminal: the mouse, the wheel, the
-	// caret and the echo are all read off the live pane. A test that is
-	// about the conversation default sets it back, and focusview_test covers
-	// the setting itself.
-	m.focusView = focusViewTerminal
 	t.Cleanup(func() {
 		for _, s := range m.sessions {
 			driver.Kill(s.ID)

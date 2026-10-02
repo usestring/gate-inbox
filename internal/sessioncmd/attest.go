@@ -133,7 +133,7 @@ func (s *Sessions) attestable(st *store.Store, caller, target store.Session, que
 		return refuse("session %s is not a child you spawned and track, so you cannot relay your user's "+
 			"approval to it", target.ID)
 	}
-	if call, ok := s.pendingCall(target); ok {
+	if call, ok := asks.Pending(s.askTarget(target)); ok {
 		for _, q := range call.Questions {
 			if dialog.IsApproval(q.Header) {
 				return refuse("session %s is holding its own Approval dialog; put that question to your "+
@@ -144,7 +144,7 @@ func (s *Sessions) attestable(st *store.Store, caller, target store.Session, que
 	if !asks.Located(s.askTarget(caller)) {
 		return refuse("this session's own transcript cannot be found, so there is no dialog of your user's to cite")
 	}
-	answeredAsks, err := asks.AnsweredSince(s.askTarget(caller), time.Time{})
+	answered, err := asks.AnsweredSince(s.askTarget(caller), time.Time{})
 	if err != nil {
 		return refuse("cannot read this session's own transcript: %v", err)
 	}
@@ -154,8 +154,8 @@ func (s *Sessions) attestable(st *store.Store, caller, target store.Session, que
 			reason = r
 		}
 	}
-	for i := len(answeredAsks) - 1; i >= 0; i-- {
-		ask := answeredAsks[i]
+	for i := len(answered) - 1; i >= 0; i-- {
+		ask := answered[i]
 		for _, q := range ask.Questions {
 			if normalise(q.Question) != normalise(question) {
 				continue

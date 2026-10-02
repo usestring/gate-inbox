@@ -27,7 +27,7 @@ func TestRailToggleKeyHidesAndRestoresTheSplit(t *testing.T) {
 	if _, right := m.splitWidths(); right != 0 {
 		t.Errorf("the preview column kept %d cells with the rail toggled away", right)
 	}
-	if got := storedLayout(m.store); got != layoutBoard {
+	if got, _ := m.deviceLayout(); got != layoutBoard {
 		t.Errorf("stored layout %q, want %q", got, layoutBoard)
 	}
 
@@ -39,7 +39,7 @@ func TestRailToggleKeyHidesAndRestoresTheSplit(t *testing.T) {
 	if _, right := m.splitWidths(); right == 0 {
 		t.Errorf("the preview column did not come back on a %d-wide terminal", m.width)
 	}
-	if got := storedLayout(m.store); got != layoutAuto {
+	if got, _ := m.deviceLayout(); got != layoutAuto {
 		t.Errorf("stored layout %q, want %q", got, layoutAuto)
 	}
 }

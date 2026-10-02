@@ -81,7 +81,7 @@ func TestAnotherCLIsQuestionIsRelayedFromItsOwnRecord(t *testing.T) {
 		"a dialog asking 2 questions",
 		"Which color should the banner use?", "Red -- A bold banner", "How big should it be?",
 		"Fake CLI resolves this question by itself", "at about 20:12:39 UTC",
-		"type as its own answer instead", "give every option to tick, separated by commas",
+		"type as its own answer instead", "give its answers entry ticks",
 		"It submits the dialog once every question has an answer",
 	} {
 		if !strings.Contains(body, want) {

@@ -107,7 +107,7 @@ func TestACodexApprovalIsRelayedAsAPersonsCall(t *testing.T) {
 			sess := codexChild(t, "rollout-0.157.0-questions.jsonl", 2)
 			body, key, _ := childDialogBody(sess, codexPane(t, capture))
 			if !strings.HasPrefix(key, "s:") || !strings.Contains(body, "has stopped on a permission prompt") ||
-				!strings.Contains(body, "relay: true") || !strings.Contains(body, "1. ") {
+				!strings.Contains(body, "relay: true") || strings.Contains(body, "answer_session cannot answer a permission prompt") || !strings.Contains(body, "1. ") {
 				t.Fatalf("relay:\n%s", body)
 			}
 		})

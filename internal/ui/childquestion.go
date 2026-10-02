@@ -195,13 +195,11 @@ func (p *poller) pingOperator(sess, parent store.Session, why string) {
 // that names the dialog regardless of where its cursor is or what is ticked,
 // and whether it cannot wait for the parent's next pause.
 func childDialogBody(sess store.Session, pane string, saved ...string) (body, key string, urgent bool) {
-	call, _ := asks.Pending(childAskTarget(sess))
-	if sess.Tool == "claude" && len(saved) > 0 {
-		pending, ok := convo.PendingAskFile(convo.TranscriptFor(convo.ClaudeHome(), sess.AgentSessionID, sess.Cwd), saved[0])
-		if ok {
-			call = asks.Call{Tool: "claude", ID: pending.ToolUseID, AskedAt: pending.AskedAt, Questions: pending.Questions}
-		}
+	target := childAskTarget(sess)
+	if len(saved) > 0 {
+		target.PendingAskFile = saved[0]
 	}
+	call, _ := asks.Pending(target)
 	if call.Async && len(call.Questions) > 0 {
 		return childAsyncMessage(sess, call), "a:" + call.ID, false
 	}

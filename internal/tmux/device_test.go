@@ -22,6 +22,9 @@ func TestDeviceIdentitySurvivesReconnect(t *testing.T) {
 		{"ssh client", []string{"SSH_CLIENT=100.64.0.2 1111 22", "TERM=xterm-256color"}, "ssh:100.64.0.2/xterm-256color"},
 		{"local", []string{"TERM_PROGRAM=ghostty", "TERM=xterm-ghostty"}, "local:ghostty"},
 		{"unknown", nil, ""},
+		// A pinch-zoom resizes the terminal; the fingerprint holds no size,
+		// so a client that exported its new one reads as the same device.
+		{"zoomed", []string{"SSH_CONNECTION=100.64.0.2 1111 100.64.0.1 22", "TERM_PROGRAM=Termius", "COLUMNS=90", "LINES=45"}, "ssh:100.64.0.2/Termius"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

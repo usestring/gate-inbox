@@ -19,9 +19,11 @@ func focusRow(t testing.TB, m *Model, name string) {
 	m.applyCmd(t, cmd)
 }
 
-// The pair swaps: l from B lands on A, and l again comes back to B. An
-// operator crossing between two sessions presses one key each way rather
-// than walking a history that only goes one direction.
+// Pressing l steps back to the session focused before this one, and
+// pressing it again keeps walking further back through the ones before
+// that. An operator unwinding a run across several panes presses one key
+// per step rather than re-finding each row through the groups, the folds
+// and whatever the filter is doing.
 func TestLastPaneSwapsBetweenTheTwoSessions(t *testing.T) {
 	m := buildModel(t)
 	dir := t.TempDir()
@@ -40,16 +42,69 @@ func TestLastPaneSwapsBetweenTheTwoSessions(t *testing.T) {
 	}
 	m.leaveFocusForFixture(t)
 
-	forth, cmd := m.focusLastPane()
-	m.applyCmd(t, cmd)
-	if got := lastPaneName(t, forth.(*Model)); got != "beta" {
-		t.Errorf("l again focused %q, want beta (err %q)", got, m.errBar.text)
+	if _, cmd := m.focusLastPane(); cmd != nil {
+		m.applyCmd(t, cmd)
+	}
+	if m.mode == modeFocus {
+		t.Error("l again focused a session with nothing further behind it")
 	}
 }
 
-// Re-entering the session already focused does not make it its own
-// predecessor. Without this, leaving A and going straight back into it would
-// set the pair to A and A, and the key would stop crossing anywhere.
+// Five steps back across six panes: the walk remembers at least five.
+func TestLastPaneWalksBackThroughFiveSessions(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	names := []string{"one", "two", "three", "four", "five", "six"}
+	for _, name := range names {
+		createSession(t, m, name, dir, "")
+	}
+	for _, name := range names {
+		focusRow(t, m, name)
+		m.leaveFocusForFixture(t)
+	}
+
+	for i := len(names) - 2; i >= 0; i-- {
+		back, cmd := m.focusLastPane()
+		m.applyCmd(t, cmd)
+		if got := lastPaneName(t, back.(*Model)); got != names[i] {
+			t.Fatalf("step back focused %q, want %q (err %q)", got, names[i], m.errBar.text)
+		}
+		m.leaveFocusForFixture(t)
+	}
+}
+
+// A session that has left the board is skipped on the way back rather than
+// landed on: the walk continues to the nearest one still listed.
+func TestLastPaneSkipsSessionsThatLeftTheBoard(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	createSession(t, m, "alpha", dir, "")
+	createSession(t, m, "beta", dir, "")
+	createSession(t, m, "gamma", dir, "")
+
+	focusRow(t, m, "alpha")
+	m.leaveFocusForFixture(t)
+	focusRow(t, m, "beta")
+	m.leaveFocusForFixture(t)
+	focusRow(t, m, "gamma")
+	m.leaveFocusForFixture(t)
+
+	m.selectSessionRow(t, "beta")
+	if _, cmd := m.archiveSelected(); cmd != nil {
+		m.applyCmd(t, cmd)
+	}
+	m.applyCmd(t, m.confirmAnswer(t))
+
+	back, cmd := m.focusLastPane()
+	m.applyCmd(t, cmd)
+	if got := lastPaneName(t, back.(*Model)); got != "alpha" {
+		t.Fatalf("l from gamma focused %q, want alpha past archived beta (err %q)", got, m.errBar.text)
+	}
+}
+
+// Re-entering the session already focused does not add a step to the
+// walk. Without this, leaving A and going straight back into it would
+// record A behind itself, and the key would stop going anywhere.
 func TestRefocusingTheSameSessionKeepsThePair(t *testing.T) {
 	m := buildModel(t)
 	dir := t.TempDir()
@@ -71,7 +126,7 @@ func TestRefocusingTheSameSessionKeepsThePair(t *testing.T) {
 }
 
 // A refused focus is not a session the operator was on, so it must not
-// displace the one they actually came from.
+// enter the walk.
 func TestARefusedFocusDoesNotEnterThePair(t *testing.T) {
 	m := buildModel(t)
 	dir := t.TempDir()
@@ -100,11 +155,11 @@ func TestARefusedFocusDoesNotEnterThePair(t *testing.T) {
 		t.Fatal("an archived row accepted focus; the fixture no longer refuses")
 	}
 	if m.prevFocusID != m.sessionID(t, "alpha") {
-		t.Error("a refused focus rewrote the pair")
+		t.Error("a refused focus rewrote the walk")
 	}
 }
 
-// The pair is held as session ids, so a rail rebuilt under the operator --
+// The walk is held as session ids, so a rail rebuilt under the operator --
 // a poll reordering it, a fold, a filter -- still sends l to the same agent
 // rather than to whoever now sits at that row.
 func TestLastPaneSurvivesTheRowsBeingRebuilt(t *testing.T) {
@@ -150,8 +205,9 @@ func TestLastPaneRefusesWithNothingBehindIt(t *testing.T) {
 	}
 }
 
-// A previous session that has left the board -- archived, or gone -- is out
-// of the pair, and l says so instead of guessing.
+// A previous session that has left the board -- archived, or gone -- is
+// skipped on the way back, and l says so instead of guessing when nothing
+// behind it is left.
 func TestLastPaneRefusesWhenThePreviousSessionIsGone(t *testing.T) {
 	m := buildModel(t)
 	dir := t.TempDir()
@@ -180,8 +236,10 @@ func TestLastPaneRefusesWhenThePreviousSessionIsGone(t *testing.T) {
 	}
 }
 
-// The footer names the key only once there is a pair to swap between, so it
-// never advertises one that would refuse.
+// The footer names the key only once there is somewhere to go back to,
+// so it never advertises one that would refuse. The default row carries it
+// in the core pairs rather than the cut-first tail, and the focused footer
+// names its own chord where the keys are actually pressed.
 func TestTheFooterNamesLastPaneOnlyOnceItWorks(t *testing.T) {
 	m := buildModel(t)
 	dir := t.TempDir()
@@ -189,13 +247,36 @@ func TestTheFooterNamesLastPaneOnlyOnceItWorks(t *testing.T) {
 	if legendHasPair(m.viewLegend(), "l") {
 		t.Error("the footer named l with nothing behind it")
 	}
+	if legendHasPair(m.defaultRowLegend(), "l") {
+		t.Error("the default row named l with nothing behind it")
+	}
 	createSession(t, m, "beta", dir, "")
 	focusRow(t, m, "alpha")
 	m.leaveFocusForFixture(t)
 	focusRow(t, m, "beta")
 	m.leaveFocusForFixture(t)
 	if !legendHasPair(m.viewLegend(), "l") {
-		t.Error("the footer did not name l once a pair existed")
+		t.Error("the footer did not name l once history existed")
+	}
+	if !legendHasPair(m.defaultRowLegend(), "l") {
+		t.Error("the default row did not name l once history existed")
+	}
+}
+
+// Inside a pane the chord is named on the focused footer, where the keys
+// are actually pressed: every plain key there goes to the agent, so an
+// unlisted chord is an undiscoverable one.
+func TestFocusedFooterNamesLastPane(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	createSession(t, m, "alpha", dir, "")
+	createSession(t, m, "beta", dir, "")
+
+	focusRow(t, m, "alpha")
+	m.leaveFocusForFixture(t)
+	focusRow(t, m, "beta")
+	if !strings.Contains(m.viewFooter(), "last pane") {
+		t.Error("the focused footer did not name last pane")
 	}
 }
 

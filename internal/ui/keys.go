@@ -156,10 +156,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return model, cmd
 	}
 
-	// Snippets are read before the list's own bindings and not inside them:
-	// they live in a chord namespace nothing below claims, so the order costs
-	// nothing, and keeping them out of the switch means a snippet can never
-	// shadow a key the manager documents.
+	// The one snippet key outside the menu is read before the list's own
+	// bindings and not inside them, so it can never shadow a key the
+	// manager documents. Every other snippet answers in the hotkey menu.
 	if snip, ok := m.snippetFor(msg.String()); ok {
 		return m.sendSnippetToSelected(snip)
 	}
@@ -401,8 +400,8 @@ var artifactRowActions = map[keymap.Action]bool{
 	keymap.ArchivedView: true, keymap.StatusFilter: true,
 	keymap.EmptyGroups: true, keymap.Triage: true, keymap.ToggleChrome: true,
 	keymap.ToggleRail: true,
-	// LastPane reads the pair it swaps between, not the row under the
-	// cursor, so an artifact row is no reason to swallow it.
+	// LastPane reads the history it walks back through, not the row under
+	// the cursor, so an artifact row is no reason to swallow it.
 	keymap.LastPane: true,
 	keymap.Rescind:  true,
 }

@@ -2,7 +2,6 @@ package sessioncmd
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -133,39 +132,38 @@ func TestAttestedSendRefusals(t *testing.T) {
 	}
 }
 
-type attestedAskSource struct {
-	answered convo.AnsweredAsk
-	pending  bool
+type attestedToolSource struct {
+	asks.Source
+	pending  asks.Call
+	answered []convo.AnsweredAsk
 }
 
-func (attestedAskSource) Traits() asks.Traits      { return asks.Traits{} }
-func (attestedAskSource) Located(asks.Target) bool { return true }
-func (s attestedAskSource) Pending(target asks.Target) (asks.Call, bool) {
-	return asks.Call{ID: "child-approval", Questions: []convo.AskQuestion{pushApproval}}, s.pending && target.AgentSessionID == "conv-child"
+func (s *attestedToolSource) Located(asks.Target) bool { return true }
+func (s *attestedToolSource) Pending(asks.Target) (asks.Call, bool) {
+	return s.pending, s.pending.ID != ""
 }
-func (attestedAskSource) Result(asks.Target, string) (asks.Result, bool) { return asks.Result{}, false }
-func (s attestedAskSource) Answered(asks.Target, time.Time) ([]convo.AnsweredAsk, error) {
-	return []convo.AnsweredAsk{s.answered}, nil
+func (s *attestedToolSource) Answered(asks.Target, time.Time) ([]convo.AnsweredAsk, error) {
+	return s.answered, nil
 }
-func (attestedAskSource) Unanswered(asks.Target) (asks.Result, bool) { return asks.Result{}, false }
 
-func TestAttestationUsesSharedCliQuestionRecords(t *testing.T) {
-	for _, pending := range []bool{false, true} {
-		t.Run(fmt.Sprint(pending), func(t *testing.T) {
-			f := newAttestFixture(t, 20*time.Minute)
-			tool := t.Name()
-			asks.Register(tool, attestedAskSource{pending: pending, answered: convo.AnsweredAsk{ToolUseID: "parent-approval", Questions: []convo.AskQuestion{pushApproval}, Answers: map[string]string{pushApproval.Question: "Yes, push and open it"}, AnsweredAt: f.now.Add(-2 * time.Minute)}})
-			f.parent.Tool, f.child.Tool = tool, tool
-			answer, _, err := f.h.sessions.attestable(f.h.store, f.parent, f.child, pushApproval.Question, f.now)
-			if pending {
-				if !errors.Is(err, errRelayRefused) || !strings.Contains(err.Error(), "own Approval dialog") {
-					t.Fatalf("error %v", err)
-				}
-				return
-			}
-			if err != nil || answer.ToolUseID != "parent-approval" {
-				t.Fatalf("answer %+v, error %v", answer, err)
-			}
-		})
+func TestAttestationReadsEachCLIsRecordAndRefusesItsPendingApproval(t *testing.T) {
+	f := newAttestFixture(t, 20*time.Minute)
+	const tool = "attest-source-test"
+	base, _ := asks.For("claude")
+	source := &attestedToolSource{Source: base, answered: []convo.AnsweredAsk{{
+		ToolUseID: "parent-call", Questions: []convo.AskQuestion{pushApproval},
+		Answers:    map[string]string{pushApproval.Question: "Yes, push and open it"},
+		AnsweredAt: f.now.Add(-2 * time.Minute),
+	}}}
+	asks.Register(tool, source)
+	t.Cleanup(func() { asks.Register(tool, base) })
+	f.parent.Tool, f.child.Tool = tool, tool
+	ask, _, err := f.h.sessions.attestable(f.h.store, f.parent, f.child, pushApproval.Question, f.now)
+	if err != nil || ask.ToolUseID != "parent-call" {
+		t.Fatalf("attestable = %+v, %v; want the parent's CLI record", ask, err)
+	}
+	source.pending = asks.Call{ID: "child-call", Questions: []convo.AskQuestion{pushApproval}}
+	if _, _, err := f.h.sessions.attestable(f.h.store, f.parent, f.child, pushApproval.Question, f.now); !errors.Is(err, errRelayRefused) || !strings.Contains(err.Error(), "answer_session relay: true") {
+		t.Fatalf("pending Approval: %v; want its own dialog answered", err)
 	}
 }

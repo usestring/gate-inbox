@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+export CGO_ENABLED=0
+status=0
+
+echo "pre-push: running all Go tests (including E2E)"
+scripts/test-tmux-isolation.sh -- go test -count=1 -timeout 15m ./... || status=$?
+
+for test_script in scripts/*.test.sh; do
+    echo "pre-push: running $test_script"
+    bash "$test_script" || status=$?
+done
+
+echo "pre-push: running artifacts worker tests"
+(cd extension/artifacts/worker && bun test) || status=$?
+
+exit "$status"

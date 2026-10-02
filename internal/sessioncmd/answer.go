@@ -100,9 +100,6 @@ func (s *Sessions) Answer(sessionID, targetID, reply string, relay bool) (Answer
 		if err != nil {
 			return AnsweredQuestion{}, err
 		}
-		if screen, ok := dialog.ReadScreenFor(target.Tool, raw); ok && screen.Kind != dialog.ScreenQuestion && len(screen.Choices) >= 2 {
-			return runtime.answer(target, reply, "parent", caller.ID, guard)
-		}
 		return driver.answer(runtime, s, target, raw, []QuestionAnswer{{Answer: reply}}, true, guard, "parent", caller.ID)
 	}
 	return runtime.answer(target, reply, "parent", caller.ID, guard)

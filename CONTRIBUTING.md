@@ -11,13 +11,34 @@ You need Go (the version in `go.mod`), tmux 3.1 or newer, and git.
 go build ./...
 go vet ./...
 gofmt -l .                                   # must print nothing
-env -u TMUX CGO_ENABLED=0 go test ./...
+scripts/ci-test.sh                           # the suite exactly as CI runs it
 ```
+
+`scripts/ci-test.sh` is the command CI runs, so a green run here is a green run there. It pins the
+locale (UTF-8), `TERM` and `CGO_ENABLED=0`, runs `go test -json -count=1 ./...` inside
+`scripts/test-tmux-isolation.sh`, and fails if a test skips without being listed in
+`ci-allowed-skips.txt`. Give it packages to run part of the suite, with `--no-report` because the
+skip allowlist only holds for the whole suite. A plain `env -u TMUX CGO_ENABLED=0 go test ./...` is
+fine for quick iteration, but it uses your shell's locale and `TERM`, so it is not what CI runs.
 
 Many packages drive a real tmux server, so run the tests on a machine where tmux can open its
 socket. `internal/ui` is the slow one: `-short` skips its wall-clock tests, and
 `scripts/shard-test.sh` splits it across processes. [`README.md`](README.md#development) has the
 details.
+
+### Pre-push tests
+
+Enable the repository's hook once per clone (including when working in a submodule):
+
+```bash
+git config --local core.hooksPath .githooks
+```
+
+Every push runs the full Go suite without cached results or `-short`, including E2E tests,
+through the tmux isolation check. It then runs every `scripts/*.test.sh` suite and the artifacts
+worker's `bun test`, so Bun is also required. A failed command blocks the push. Tests that need
+live accounts, transcripts or other opt-in fixtures still require their documented environment
+variables; the hook does not enable them automatically. Run `.githooks/pre-push` to check locally.
 
 ### Tests and your live tmux server
 

@@ -62,7 +62,10 @@ type answerGuard struct {
 
 func (s *Sessions) guard(st *store.Store, caller, target store.Session, relay bool) *answerGuard {
 	g := &answerGuard{sessions: s, store: st, caller: caller, target: target, relay: relay}
-	g.call, g.haveCall = s.pendingCall(target)
+	if call, ok := asks.Pending(s.askTarget(target)); ok {
+		g.call = convo.AskCall{ToolUseID: call.ID, Questions: call.Questions, AskedAt: call.AskedAt}
+		g.haveCall = len(call.Questions) > 0
+	}
 	return g
 }
 
@@ -97,11 +100,7 @@ func (g *answerGuard) recorder() func() (map[string]string, bool) {
 // its transcript or, while the transcript does not hold it yet, from what
 // its ask-pending hook saved.
 func (s *Sessions) pendingCall(target store.Session) (convo.AskCall, bool) {
-	if target.Tool == "claude" || target.Tool == "" {
-		return convo.PendingAskFile(s.transcriptOf(target), hooks.NewManager(s.configDir).PendingAskFile(target.ID))
-	}
-	call, ok := asks.Pending(s.askTarget(target))
-	return convo.AskCall{ToolUseID: call.ID, Questions: call.Questions, AskedAt: call.AskedAt}, ok
+	return convo.PendingAskFile(s.transcriptOf(target), hooks.NewManager(s.configDir).PendingAskFile(target.ID))
 }
 
 func (s *Sessions) transcriptOf(sess store.Session) string {

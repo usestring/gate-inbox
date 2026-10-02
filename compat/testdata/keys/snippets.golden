@@ -1,9 +1,9 @@
 === absent
-ctrl+alt+y  "yes" -> "yes"
-ctrl+alt+c  "continue" -> "continue"
-ctrl+alt+e  "explain like I'm 5" -> "I'm confused, explain like I'm 5"
-ctrl+alt+w  "wake up" -> "Auto wake-up: the previous turn died on a transient API error. Continue where you left off."
-alt+§  "progress" -> "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so"
+y  "yes" -> "yes"
+c  "continue" -> "continue"
+e  "explain like I'm 5" -> "I'm confused, explain like I'm 5"
+w  "wake up" -> "Auto wake-up: the previous turn died on a transient API error. Continue where you left off."
+§  "progress" -> "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so"
 --- snippets.json as written
 [
   {
@@ -39,10 +39,10 @@ alt+§  "progress" -> "summarise all current progress in bullet points, includin
 ]
 
 === edited
-ctrl+alt+c  "continue" -> "continue"
-ctrl+alt+r  "review the diff for correctness" -> "review the diff for correctness"
-alt+§  "progress" -> "summarise where this stands"
-problem: entry 3 (duplicate): repeats ctrl+alt+c, already bound by entry 1
-problem: entry 4 (too long): key “ab” must be a single letter a-z, § or ±: the terminal sends no distinct code for ctrl+alt+ab
+c  "continue" -> "continue"
+r  "review the diff for correctness" -> "review the diff for correctness"
+§  "progress" -> "summarise where this stands"
+problem: entry 3 (duplicate): repeats c, already bound by entry 1
+problem: entry 4 (too long): key “ab” must be a single letter a-z, § or ±
 problem: entry 5 (empty): sends nothing
 

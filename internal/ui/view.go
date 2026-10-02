@@ -161,9 +161,11 @@ func (m *Model) splitWidths() (int, int) {
 		return 0, 0
 	}
 	// One panel, not two slivers. A zero right width is the signal to draw
-	// it -- which is also what the board layout asks for, on a terminal wide
-	// enough for two.
-	if m.width < minSplitWidth || m.layout == layoutBoard {
+	// it -- which is also what the board and mobile layouts ask for, on a
+	// terminal wide enough for two. Mobile holds it at any width because a
+	// phone zoomed out has the columns for two panels and the screen for one:
+	// measured, every pinch would swap the frame under the operator.
+	if m.width < minSplitWidth || m.layout == layoutBoard || m.layout == layoutMobile {
 		return m.width, 0
 	}
 	ratio := m.split.ratio
@@ -539,9 +541,25 @@ func (m *Model) viewFooter() string {
 			{"any other key", "done"},
 		}})
 	}
-	if m.quick.active && m.mode != modeFocus {
+	if m.quick.active {
+		closeCap := "space/esc"
+		if m.quick.fromFocus {
+			// Unbound by the operator's own rebind: the key map still
+			// offers the row, but a footer names only keys that work.
+			closeCap = "esc"
+			if key := m.tightCap(keymap.ContextFocus, keymap.QuickInput); key != "" {
+				closeCap = key + "/esc"
+			}
+		}
 		pairs := [][2]string{
-			{"key", "send snippet"}, {"↑↓", "switch target"}, {"space/esc", "close"},
+			{"key", "send snippet"}, {"↑↓", "switch target"}, {closeCap, "close"},
+		}
+		if m.quick.fromFocus {
+			// The focused menu answers the session on screen: the cursor
+			// the arrows would move is not the target.
+			pairs = [][2]string{
+				{"key", "send snippet"}, {closeCap, "close"},
+			}
 		}
 		if m.showsConversation() {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextList, keymap.ToggleConversation), m.conversationToggleLabel()})
@@ -594,6 +612,14 @@ func (m *Model) viewFooter() string {
 		if key := m.fullCap(keymap.ContextFocus, keymap.Dismiss); key != "" {
 			pairs = append(pairs, [2]string{key, "skip"})
 		}
+		// The way back to the pane just left, named where the keys are
+		// actually pressed: inside a session every plain key goes to the
+		// agent, so an unlisted chord is an undiscoverable one.
+		if len(m.focusHistory) > 0 {
+			if key := m.fullCap(keymap.ContextFocus, keymap.LastPane); key != "" {
+				pairs = append(pairs, [2]string{key, "last pane"})
+			}
+		}
 		if m.canRescindLatestSubmission() {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextFocus, keymap.Rescind), "undo"})
 		}
@@ -620,6 +646,16 @@ func (m *Model) viewFooter() string {
 
 func (m *Model) listFooter() string {
 	row := m.defaultRowLegend()
+	peekCap := m.tightCap(keymap.ContextList, keymap.LegendPeek)
+	// A one-row footer is a budget of one row, not one row and the peek's.
+	// The peek sits at the line's end, and the row tier is cut to the room
+	// it leaves, so the key that opens everything else is the last to go.
+	if m.legendRows() == 1 && peekCap != "" && len(row.pairs) > 0 {
+		peek := keyCapQuiet(peekCap, "more")
+		room := m.width - textfmt.Width(peek) - 1
+		line := legendBar([]legendSection{row}, room, 1)
+		return line + spaces(max(m.width-textfmt.Width(line)-textfmt.Width(peek)-1, 1)) + peek
+	}
 	footer := legendBar([]legendSection{row}, m.width, min(m.legendRows(), 1))
 	if len(row.pairs) > 0 && m.legendRows() > 1 {
 		if snips := m.snippetLegend(); len(snips.pairs) > 0 {
@@ -632,7 +668,6 @@ func (m *Model) listFooter() string {
 			}
 		}
 	}
-	peekCap := m.tightCap(keymap.ContextList, keymap.LegendPeek)
 	if footer == "" || peekCap == "" {
 		return footer
 	}
@@ -693,6 +728,14 @@ func (m *Model) defaultRowLegend() legendSection {
 	}
 	pairs = append(pairs,
 		[2]string{openKey, enterHint}, [2]string{m.tightCap(keymap.ContextList, keymap.Attach), attachHint})
+	// Last pane rides the core row rather than the cut-first tail: it is
+	// the way back to the session just left, and a key nobody sees is a
+	// key nobody presses.
+	if m.applies(keymap.ContextList, keymap.LastPane, row) {
+		if key := m.tightCap(keymap.ContextList, keymap.LastPane); key != "" {
+			pairs = append(pairs, [2]string{key, "last pane"})
+		}
+	}
 	if m.applies(keymap.ContextList, keymap.QuickInput, row) {
 		if key := m.tightCap(keymap.ContextList, keymap.QuickInput); key != "" {
 			pairs = append(pairs, [2]string{key, "hotkeys"})
@@ -725,7 +768,7 @@ func (m *Model) defaultRowLegend() legendSection {
 		text   string
 	}{
 		{keymap.NewSession, "new"}, {keymap.Search, "search"},
-		{keymap.LastPane, "last pane"}, {keymap.QuickActions, "quick actions"},
+		{keymap.QuickActions, "quick actions"},
 	} {
 		if !m.applies(keymap.ContextList, extra.action, row) {
 			continue

@@ -404,6 +404,11 @@ input_line = "^›"
 # "  done 2:41 AM", "  Worked for 1m 5s · 02:41", "  Sep 3 at 02:41"), with the
 # opt-in runtime metrics after it ("· Local tools: 2 calls (1.2s) • ...").
 turn_end = "(?m)^(?:─+ Worked for [\\dhms. ]+─.*|─{20,}\\s*|  (?:Worked for [\\dhms ]+ · )?(?:done )?(?:[A-Z][a-z]{2} \\d{1,2}(?:, \\d{4})? at )?\\d{1,2}:\\d{2}(?: [AP]M)?(?: · (?:Local tools: |Inference: |WebSocket: |Streams?: |\\d+ events received |Responses API |TTFT: |TBT: )[^\\n]*)?)$"
+# A command codex leaves running in a background terminal outlives the turn,
+# and codex names it on a row under the turn's closing label ("  1:15 AM" over
+# "  1 background terminal running · /ps to view · /stop to close", 0.157).
+# The turn stays working while that row shows.
+busy_line = "^\\s*\\d+ background terminals? running\\b"
 # Codex 0.157 parks right-aligned hint rows (usage warning, tip, scroll and
 # copy notices) between the transcript and the composer.
 chrome_line = '^\s*─*\s*$|^⚠ (?:The \S+ MCP server is not logged in\. Run \x60codex mcp login \S+\x60\.|MCP startup incomplete \(failed: [^)]+\))$|^\s+(?:⚠|↓|Tip: |Copied )'

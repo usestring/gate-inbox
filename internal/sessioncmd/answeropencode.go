@@ -23,6 +23,9 @@ func init() { registerAnswerDriver("opencode", opencodeDriver{}) }
 
 func (opencodeDriver) answer(r *runtime, s *Sessions, target store.Session, raw string, answers []QuestionAnswer,
 	submit bool, guard *answerGuard, by, byID string) (AnsweredQuestion, error) {
+	if screen, ok := dialog.ReadScreenFor(target.Tool, raw); ok && screen.Kind != dialog.ScreenQuestion && len(screen.Choices) >= 2 {
+		return r.answerScreen(target, tmuxPane{driver: r.driver, id: target.ID}, screen, answers[0].reply(), by, byID, guard)
+	}
 	t := s.askTarget(target)
 	call, pending := asks.Pending(t)
 	record := func(id string) (asks.Result, bool) { return asks.ResultOf(t, id) }

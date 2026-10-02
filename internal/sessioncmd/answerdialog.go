@@ -13,6 +13,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -153,9 +154,6 @@ func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswe
 		return AnsweredQuestion{}, err
 	}
 	if driver, ok := answerDriverFor(target.Tool); ok {
-		if screen, ok := dialog.ReadScreenFor(target.Tool, raw); ok && screen.Kind != dialog.ScreenQuestion && len(screen.Choices) >= 2 {
-			return runtime.answer(target, answers[0].reply(), "parent", caller.ID, guard)
-		}
 		return driver.answer(runtime, s, target, raw, answers, submit, guard, "parent", caller.ID)
 	}
 	questions := dialog.Questions(raw, s.asked(target))
@@ -195,8 +193,7 @@ func (s *Sessions) asked(target store.Session) []convo.AskQuestion {
 	if target.Tool == "" {
 		return nil
 	}
-	call, _ := s.pendingCall(target)
-	return call.Questions
+	return asks.PendingQuestions(s.askTarget(target))
 }
 
 func (s *Sessions) askTarget(sess store.Session) asks.Target {
@@ -204,7 +201,7 @@ func (s *Sessions) askTarget(sess store.Session) asks.Target {
 	if _, ok := asks.For(tool); !ok {
 		tool = "claude"
 	}
-	return asks.Target{Tool: tool, AgentSessionID: sess.AgentSessionID, Cwd: sess.Cwd, ClaudeHome: s.claudeHome}
+	return asks.Target{Tool: tool, AgentSessionID: sess.AgentSessionID, Cwd: sess.Cwd, ClaudeHome: s.claudeHome, PendingAskFile: hooks.NewManager(s.configDir).PendingAskFile(sess.ID)}
 }
 
 // onScreen names the question on the screen in every answer that names no

@@ -3,6 +3,8 @@ package dialog
 import (
 	"sync"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/usestring/gate-inbox/internal/convo"
 )
 
@@ -52,7 +54,7 @@ func ReadScreenFor(tool, pane string) (Screen, bool) {
 			return screen, true
 		}
 	}
-	return ReadScreen(pane)
+	return ReadScreen(ansi.Strip(pane))
 }
 
 func HasReader(tool string) bool {

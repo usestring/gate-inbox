@@ -294,7 +294,7 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(listDensitySetting, density); err != nil {
 		m.errBar.text = err.Error()
 	}
-	if err := m.store.SetSetting(layoutSetting, normalizeLayout(m.settings.layout)); err != nil {
+	if err := m.store.SetSetting(m.layoutSettingKey(), normalizeLayout(m.settings.layout)); err != nil {
 		m.errBar.text = err.Error()
 	}
 	if err := m.store.SetSetting(sidebarSetting, sidebarOverride(m.settings.sidebar, m.cfg.Board.Sidebar)); err != nil {

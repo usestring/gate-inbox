@@ -1186,6 +1186,9 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	})
 	model.ownPane, model.ownSocket = tmux.OwnPane()
 	model.initDeviceTheme()
+	if layout, err := model.deviceLayout(); err == nil {
+		model.layout = layout
+	}
 	model.loadKeys()
 	model.loadSnippets()
 	model.seedFromStore()
@@ -1911,7 +1914,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.deviceErr != nil {
 			m.errBar.text = msg.deviceErr.Error()
 		}
-		return m, tea.Batch(m.setVisible(visible), m.loadDeviceTheme(msg.device))
+		device := m.themeDevice
+		cmd := tea.Batch(m.setVisible(visible), m.loadDeviceTheme(msg.device))
+		if m.themeDevice != device {
+			cmd = tea.Batch(cmd, m.loadDeviceLayout())
+		}
+		return m, cmd
 
 	case browserOpenMsg:
 		m.handleBrowserOpen(msg)

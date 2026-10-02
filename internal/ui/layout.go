@@ -15,8 +15,10 @@ import (
 
 const (
 	// layoutSetting stores the operator's override: "auto" measures the
-	// terminal, "desktop" never tightens, "mobile" always does, "board"
-	// gives the whole width to the list.
+	// terminal, "desktop" never tightens, "mobile" always does and keeps one
+	// panel at any width, "board" gives the whole width to the list. Each
+	// device keeps its own under layoutSetting + ":" + device; see
+	// layoutSettingKey.
 	layoutSetting = "layout"
 	layoutAuto    = "auto"
 	layoutDesktop = "desktop"
@@ -68,6 +70,46 @@ func normalizeLayout(chosen string) string {
 	return layoutAuto
 }
 
+// layoutSettingKey is where this device's layout is stored. The layout is a
+// device's answer to its own screen, like the theme: one board is attached
+// from a desk and from a phone, and "mobile" chosen on the phone must not
+// fold the desk's frame to one panel.
+func (m *Model) layoutSettingKey() string {
+	if m.themeDevice == "" {
+		return layoutSetting
+	}
+	return layoutSetting + ":" + m.themeDevice
+}
+
+// deviceLayout reads the current device's layout, or the shared one when the
+// device has not chosen its own.
+func (m *Model) deviceLayout() (string, error) {
+	chosen, err := m.store.Setting(m.layoutSettingKey())
+	if err == nil && chosen == "" {
+		chosen, err = m.store.Setting(layoutSetting)
+	}
+	return normalizeLayout(chosen), err
+}
+
+// loadDeviceLayout switches to the layout of the device now attached. The
+// panels it moves are the pane's, so tmux is told the box moved.
+func (m *Model) loadDeviceLayout() tea.Cmd {
+	layout, err := m.deviceLayout()
+	if err != nil {
+		m.errBar.text = "reading device layout: " + err.Error()
+		return nil
+	}
+	if m.mode == modeSettings {
+		m.settings.layout = layout
+	}
+	if layout == m.layout {
+		return nil
+	}
+	m.layout = layout
+	m.lastFrame = ""
+	return m.resizeSessions()
+}
+
 // toggleRail hides the list beside the pane, or brings back the layout it
 // was hidden from. It is the layout setting's "board" under a key, and it
 // reads the same way toggleChrome does one panel down: the same persisted
@@ -86,7 +128,7 @@ func (m *Model) toggleRail() tea.Cmd {
 		m.layoutShown = m.layout
 		m.layout = layoutBoard
 	}
-	if err := m.store.SetSetting(layoutSetting, m.layout); err != nil {
+	if err := m.store.SetSetting(m.layoutSettingKey(), m.layout); err != nil {
 		m.errBar.text = err.Error()
 	}
 	// The columns the rail gives up are the pane's, so tmux has to be told

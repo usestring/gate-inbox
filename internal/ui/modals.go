@@ -433,18 +433,18 @@ func (m *Model) viewSettings() string {
 	actionRow := func(field int, name, action string) string {
 		return lead(field, name) + keyStyle.Render("↵") + mutedStyle.Render(" "+action)
 	}
-	themeScope := "shared default"
+	deviceScope := "shared default"
 	if m.themeDevice != "" {
-		themeScope = m.themeDevice
+		deviceScope = m.themeDevice
 	}
 	body := row(settingsFieldTool, "default tool", toolValue) + "\n" +
 		row(settingsFieldAccountRouting, "launch accounts", m.settings.launchAccountValue()) + "\n" +
 		row(settingsFieldNewSessionAgent, "new session agent", normalizeNewSessionAgent(m.settings.newSessionAgent)) + "\n" +
 		row(settingsFieldTheme, "theme", themes[m.settings.themeIndex].Name) + "  " +
-		themeSwatch(themes[m.settings.themeIndex]) + "  " + mutedStyle.Render(themeScope) + "\n" +
+		themeSwatch(themes[m.settings.themeIndex]) + "  " + mutedStyle.Render(deviceScope) + "\n" +
 		row(settingsFieldBackdrop, "terminal background", backdrop) + "\n" +
 		row(settingsFieldDensity, "list density", density) + "\n" +
-		row(settingsFieldLayout, "layout", normalizeLayout(m.settings.layout)) + "\n" +
+		row(settingsFieldLayout, "layout", normalizeLayout(m.settings.layout)) + "  " + mutedStyle.Render(deviceScope) + "\n" +
 		row(settingsFieldSidebar, "sidebar", normalizeSidebar(m.settings.sidebar)) + "\n" +
 		row(settingsFieldPalette, "colour", normalizePalette(m.settings.palette)) + "\n" +
 		row(settingsFieldGlyphs, "status marks", normalizeGlyphs(m.settings.glyphs)+"  "+statusGlyph("waiting")+statusGlyph("finished")+statusGlyph("errored")) + "\n" +

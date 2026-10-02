@@ -161,9 +161,11 @@ func (m *Model) splitWidths() (int, int) {
 		return 0, 0
 	}
 	// One panel, not two slivers. A zero right width is the signal to draw
-	// it -- which is also what the board layout asks for, on a terminal wide
-	// enough for two.
-	if m.width < minSplitWidth || m.layout == layoutBoard {
+	// it -- which is also what the board and mobile layouts ask for, on a
+	// terminal wide enough for two. Mobile holds it at any width because a
+	// phone zoomed out has the columns for two panels and the screen for one:
+	// measured, every pinch would swap the frame under the operator.
+	if m.width < minSplitWidth || m.layout == layoutBoard || m.layout == layoutMobile {
 		return m.width, 0
 	}
 	ratio := m.split.ratio

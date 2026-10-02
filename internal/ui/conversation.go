@@ -261,8 +261,17 @@ func (m *Model) conversationRows(width, height int) []string {
 	rows = m.withWorkingRow(rows, width)
 	c.offset = min(c.offset, max(0, len(rows)-height))
 	end := len(rows) - c.offset
+	working := m.conversationWorking()
+	if working {
+		end--
+		height--
+	}
 	start := max(0, end-height)
-	return rows[start:end]
+	visible := rows[start:end]
+	if working {
+		visible = append(visible[:len(visible):len(visible)], rows[len(rows)-1])
+	}
+	return visible
 }
 
 func (m *Model) conversationWorking() bool {
@@ -398,6 +407,13 @@ func (m *Model) updateConversationHover(x, y int) bool {
 	}
 	offset := min(c.offset, max(0, len(body)-height))
 	end := len(body) - offset
+	if m.conversationWorking() {
+		end--
+		height--
+		if y-box.y >= height {
+			return clear()
+		}
+	}
 	start := max(0, end-height)
 	lineIdx := start + (y - box.y)
 	if lineIdx < 0 || lineIdx >= len(body) || lineIdx >= len(c.lines) {

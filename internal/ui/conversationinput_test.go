@@ -10,6 +10,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/search"
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -189,5 +190,45 @@ func TestConversationFocusMouseTargetsOnlyTheLiveComposer(t *testing.T) {
 	m.handleFocusMouse(tea.MouseClickMsg{Button: tea.MouseLeft, X: box.x + 10, Y: box.y})
 	if m.pending.active || !m.sel.active {
 		t.Fatal("a transcript click was sent to the harness instead of selecting text")
+	}
+}
+
+func TestConversationFocusKeepsWorkingSpinnerWhileReadingOlderTurns(t *testing.T) {
+	m := conversationInputModel(t, "codex", "output\n\n› draft\n  model\n", paneCursor{x: 7, y: 2, ok: true})
+	m.rows[m.cursor].sess.Status = status.Working
+	c := m.conversation
+	c.compact, c.hovered, c.offset = true, -1, 30
+	c.messages = []search.Message{
+		{Role: "assistant", Text: strings.Repeat("older line\n", 12)},
+		{Role: "user", Text: strings.Repeat("middle line\n", 12)},
+		{Role: "assistant", Text: strings.Repeat("newest line\n", 20)},
+	}
+	lines := m.previewLines(50, 15, "")
+	spinnerRow := -1
+	for row, line := range lines {
+		if strings.HasPrefix(ansi.Strip(line.text), startupFrames[0]+" working") {
+			spinnerRow = row
+			break
+		}
+	}
+	if spinnerRow < 0 {
+		t.Fatalf("working spinner missing from scrolled focused conversation:\n%s", conversationInputText(lines))
+	}
+	if m.updateConversationHover(m.pane.box.x+2, m.pane.box.y+spinnerRow) || c.hovered != -1 {
+		t.Fatal("hovering the pinned spinner expands a transcript group")
+	}
+	if got := conversationInputText(lines); !strings.Contains(got, "› draft") {
+		t.Fatalf("spinner displaced the composer:\n%s", got)
+	}
+	if !m.updateConversationHover(m.pane.box.x+2, m.pane.box.y+1) || c.hovered != 0 {
+		t.Fatalf("hover no longer maps to the visible older turn: group %d", c.hovered)
+	}
+	m.Update(startupTickMsg{})
+	if got := conversationInputText(m.previewLines(50, 15, "")); !strings.Contains(got, startupFrames[1]+" working") {
+		t.Fatalf("focused working spinner did not animate:\n%s", got)
+	}
+	m.rows[m.cursor].sess.Status = status.Idle
+	if got := conversationInputText(m.previewLines(50, 15, "")); strings.Contains(got, " working") || m.needsLoaderTick() {
+		t.Fatalf("idle focused conversation retains a spinner:\n%s", got)
 	}
 }

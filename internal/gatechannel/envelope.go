@@ -1,3 +1,8 @@
+// Package gatechannel prepares revisioned snapshots of pending questions.
+// Revisions let desktop, web, mobile, or other delivery clients detect changed
+// content after reconnects or handoffs and bind an answer to what was presented.
+// A matching revision is not proof that a call is still pending; accepting an
+// answer also requires validating the current call identity and pending state.
 package gatechannel
 
 import (

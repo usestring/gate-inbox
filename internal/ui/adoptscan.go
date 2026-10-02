@@ -14,6 +14,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/adopt"
 	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/sessname"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -77,6 +78,7 @@ func (m *Model) adoptScan() tea.Cmd {
 		drift:    m.drift,
 		stor:     m.store,
 		driver:   m.tmux,
+		home:     filepath.Dir(m.hooks.Dir()),
 		rejected: map[string]int{},
 		// The operator's own answers: panes they left off the board, and
 		// whether outside panes are wanted at all. Orphaned sessions of
@@ -188,6 +190,7 @@ type adoptRun struct {
 	drift    *sessname.Drift
 	stor     *store.Store
 	driver   *tmux.Driver
+	home     string
 	rejected map[string]int
 	// ignored is the panes the operator left off the board, by
 	// paneDecisionKey. skipForeign refuses every pane the manager did not
@@ -291,10 +294,9 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 		name, fromTitle := titled[entry.id]
 		source := store.SourceTitle
 		if !fromTitle {
-			// No conversation could be attributed to this pane, so the
-			// directory basename is all there is. Recording it as derived is
-			// what lets the periodic naming pass replace it once the agent
-			// has written a title.
+			// Without a conversation title, the directory basename is only
+			// a temporary label. The pending request
+			// asks the agent for a name if the title sweep cannot supply one.
 			name, source = adoptName(candidate.Cwd, candidate.Session, r.names), store.SourceDerived
 		}
 		sess := store.Session{
@@ -307,6 +309,9 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 			TmuxSocket:     candidate.Socket,
 			TmuxPaneID:     candidate.PaneID,
 			AgentSessionID: entry.conversation,
+		}
+		if !fromTitle {
+			sess.PendingInputs = []string{adoptedRenameInput(r.home, sess.ID)}
 		}
 		if err := r.stor.CreateSession(sess); err != nil {
 			if entry.recovered {
@@ -790,4 +795,11 @@ func adoptName(cwd, session string, taken map[string]bool) string {
 		candidate = name + "-" + strconv.Itoa(i)
 	}
 	return candidate
+}
+
+const adoptedRenamePrefix = launch.ManagerBand + "This adopted session still has a placeholder name. "
+
+func adoptedRenameInput(configDir, id string) string {
+	directive := launch.AdoptedRenameDirective(launch.AdoptedRenameCommand(launch.Executable(), configDir, id))
+	return adoptedRenamePrefix + strings.TrimPrefix(directive, launch.ManagerBand)
 }

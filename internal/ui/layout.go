@@ -75,10 +75,7 @@ func normalizeLayout(chosen string) string {
 // from a desk and from a phone, and "mobile" chosen on the phone must not
 // fold the desk's frame to one panel.
 func (m *Model) layoutSettingKey() string {
-	if m.themeDevice == "" {
-		return layoutSetting
-	}
-	return layoutSetting + ":" + m.themeDevice
+	return m.deviceSettingKey(layoutSetting)
 }
 
 // deviceLayout reads the current device's layout, or the shared one when the

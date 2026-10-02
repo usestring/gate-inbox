@@ -6,6 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 // The full dock keeps its nine rows only while the list beside it keeps eight
@@ -195,5 +197,55 @@ func TestDeviceLayoutsPersistAcrossHandoffs(t *testing.T) {
 	}
 	if !strings.Contains(m.viewSettings(), "device:phone") {
 		t.Fatal("settings hide the layout's device")
+	}
+}
+
+// The layout is filed under the same device fingerprint as the theme, and
+// it survives what a phone does to a board: a detach, a reattach from a new
+// SSH connection, and a zoom. Another device does not inherit it.
+func TestDeviceLayoutFollowsTheFingerprint(t *testing.T) {
+	m := buildModel(t)
+	t.Cleanup(func() { applyTheme(themes[0]) })
+	attach := func(env ...string) {
+		t.Helper()
+		updated, _ := m.Update(visibleMsg{state: "1,1,1", device: tmux.DeviceIdentity(env)})
+		m = updated.(*Model)
+	}
+	phone := []string{"SSH_CONNECTION=100.64.0.2 1111 100.64.0.1 22", "TERM_PROGRAM=Termius"}
+	attach(phone...)
+	m.openSettings()
+	m.settings.layout = layoutMobile
+	m.persistSettings()
+	if m.layoutSettingKey() != "layout:ssh:100.64.0.2/Termius" ||
+		strings.TrimPrefix(m.themeSettingKey(), themeSetting) != strings.TrimPrefix(m.layoutSettingKey(), layoutSetting) {
+		t.Fatalf("layout key %q does not share the theme's device %q", m.layoutSettingKey(), m.themeSettingKey())
+	}
+
+	// Zoomed out: the terminal reports more cells, and nothing else changes.
+	updated, _ := m.Update(tea.WindowSizeMsg{Width: 90, Height: 45})
+	m = updated.(*Model)
+	if m.layout != layoutMobile || m.themeDevice != "ssh:100.64.0.2/Termius" {
+		t.Fatalf("zoom changed the device or layout: %q %q", m.themeDevice, m.layout)
+	}
+	if _, right := m.splitWidths(); right != 0 {
+		t.Fatal("zoomed-out phone split into two panels")
+	}
+
+	// Detached: no client to read, so the device and its layout hold.
+	attach()
+	if m.layout != layoutMobile {
+		t.Fatalf("detach changed the layout to %q", m.layout)
+	}
+
+	attach("SSH_CONNECTION=100.64.0.9 1111 100.64.0.1 22", "TERM_PROGRAM=ghostty")
+	if m.layout != layoutAuto {
+		t.Fatalf("another device inherited %q", m.layout)
+	}
+
+	// Back on the phone over a new connection: a new source port, the same
+	// fingerprint, the same layout.
+	attach("SSH_CONNECTION=100.64.0.2 2222 100.64.0.1 22", "TERM_PROGRAM=Termius")
+	if m.layout != layoutMobile {
+		t.Fatalf("reconnected phone layout = %q, want mobile", m.layout)
 	}
 }

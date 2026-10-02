@@ -22,7 +22,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | `g` | New group (name, parent, default path) |
 | `enter` | Focus session in place (keys go to the agent, list stays) / fold group. An archived session has no live pane to focus, so the row offers attach and `u` instead |
 | `A` | Attach: leave the list and fill the whole terminal with this session's pane (Settings can swap it with `enter`) |
-| `F3` | Switch the selected row between the shortened and the full conversation; inside a session, between the conversation and the terminal |
+| `F3` | Switch the selected row between the shortened and the full conversation; inside a session, between the conversation and the terminal when experimental compressed focus is enabled |
 | `l` | Focus the session you were on before this one; `l` again swaps back. The pair is held by session, so a poll, a fold or a filter reordering the board does not move it |
 | `ctrl+g` | Jump to a pane: search listed sessions by name, group, tool or status, then press `enter` to focus one. Works from the list or a focused pane; `esc` returns without switching. Folded groups are opened when you jump into them. |
 | `.` | Skip it for now (mute, or mark finished idle); `alt+.` does it from inside |
@@ -40,7 +40,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | `u` | Restore a session or group out of the archive, resuming what it held. The act is `kill`; the archive is where the row lands, the way a deleted file lands in a trash can. A row left in the archive is deleted for good after 7 days |
 | `U` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed kill as well as a silent one |
 | `space` | Hotkey menu: send one of your snippets to the selected session |
-| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, ask before killing, sort, key hints, on leaving a session, after hotkey send, session keys, focused view, experimental features, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
+| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, ask before killing, sort, key hints, on leaving a session, after hotkey send, session keys, experimental features, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
 | `w` | Filter to sessions that need attention (`waiting`, stuck, `finished`, `errored`); press again to show all |
 | `tab` | Enter the next session that needs you, wherever it is in the list. One key per state (waiting, finished, errored, idle, working) ships unbound — rebind one from the key map (`h`), or run it from quick actions (`:`) |
 | `/` | Search: session name, tool, group, status, what the pane is showing, and what the session has said or run. `esc` closes the field and keeps the filter; delete the text (`ctrl+u` wipes the field) to clear it |
@@ -84,7 +84,9 @@ Press `space` to dock the hotkey menu at the bottom of the sidebar. It lists you
 - On a **session** row, each snippet's key sends it straight into that session's pane, so the agent gets it as a user message without you attaching. In the menu the key works without its chord: `c` sends what `ctrl+alt+c` sends, `§` what `alt+§` sends, and the chord itself still works too. The menu stays open, ready for the next session; Settings (`s`) can make it close after a send instead.
 - On a **group** row there is no pane to send to, so the menu says to select a session. `n` and `ctrl+n` start a new agent in the group.
 
-Settings → **experimental** contains two independent features, both off by default.
+Settings → **experimental** contains three independent features, both off by default.
+
+**Compressed focus view** keeps the shortened conversation on screen in focus mode. It is off by default, including for existing users who previously chose the conversation view. Prompt and input mirroring is still experimental; use `F3` to return to the live terminal to see and submit input. Disabling it restores the live terminal whenever a session is focused.
 
 **Prompt suggestions** reads local Claude/Codex history to suggest recurring New Session prompts; it makes no network requests. Disable it to stop history reads and suggestions.
 
@@ -384,9 +386,9 @@ A status is a reading of a screen, and a reading can be wrong. When a session ha
 
 ## The conversation preview
 
-The panel beside the list is not the raw terminal: it is the session's **conversation**, drawn as `You` and `Assistant` turns with the commands and tool calls folded into the turns that produced them. A turn too tall for the panel is shortened to its first lines with a `… N more lines` note. `F3` switches the selected row between that shortened transcript and the full one, and the choice is held as you move down the list. `enter` opens the same conversation, full width — keys reach the agent either way — and `F3` there hands the pane to the live terminal.
+The panel beside the list is not the raw terminal: it is the session's **conversation**, drawn as `You` and `Assistant` turns with the commands and tool calls folded into the turns that produced them. A turn too tall for the panel is shortened to its first lines with a `… N more lines` note. `F3` switches the selected row between that shortened transcript and the full one, and the choice is held as you move down the list. `enter` focuses the live terminal so the agent's prompt, input and cursor stay visible.
 
-Settings (`s`) has a **focused view** row. `conversation` is the default: a focused session keeps the transcript on screen, so a drain can read each session's turns without the terminal's own chrome, and `F3` hands the pane to the agent when it is time to type. `terminal` shows the live pane inside the session instead. The choice is remembered, so a session left on its terminal stays that way on the next start. A shell has no conversation to show, so it always stays on the terminal.
+Settings (`s`) → **experimental** → **Compressed focus view** opts into showing the conversation in focus mode. With the experiment enabled, `F3` switches between the conversation and live terminal and remembers the choice. A shell always stays on the terminal.
 
 ## The board layout
 

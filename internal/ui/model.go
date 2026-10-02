@@ -434,7 +434,8 @@ type Model struct {
 	// focusView mirrors the persisted focused-view setting: the live
 	// terminal, or the conversation transcript. The content column reads it
 	// every frame, so it lives here instead of the store. See focusview.go.
-	focusView string
+	focusView       string
+	compressedFocus bool
 	// comfortableRows mirrors the persisted list density: entries paint
 	// their meta on a second line instead of alongside the name. Every
 	// rail frame reads it, so it lives here instead of the store.
@@ -798,7 +799,6 @@ type settingsState struct {
 	field              int
 	quickCloseSend     bool
 	enterFocuses       bool
-	focusView          string
 	comfortableRows    bool
 	layout             string
 	sidebar            string
@@ -816,6 +816,7 @@ type settingsState struct {
 	experimentalCursor int
 	jevAutoSuggest     bool
 	promptSuggest      bool
+	compressedFocus    bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -843,7 +844,6 @@ const (
 	settingsFieldLeave
 	settingsFieldQuickClose
 	settingsFieldFocusKey
-	settingsFieldFocusView
 	settingsFieldAutoProceed
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
@@ -1153,6 +1153,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		split:           splitState{ratio: loadSplitRatio(st)},
 		focusOnEnter:    storedFocusOnEnter(st),
 		focusView:       storedFocusView(st),
+		compressedFocus: storedCompressedFocus(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
 		promptSuggest:   storedPromptSuggestions(st),
 		comfortableRows: storedComfortableRows(st),

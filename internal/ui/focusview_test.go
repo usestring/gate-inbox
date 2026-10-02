@@ -8,23 +8,25 @@ import (
 	"github.com/usestring/gate-inbox/internal/search"
 )
 
-// A focused session shows its conversation by default: entering a session to
-// read what it said keeps the turns in front of you, and F3 hands the pane
-// back to the agent when it is time to type. The test fixtures pin the
-// terminal (see helpers_test), so this reads the default the way a fresh run
-// resolves it and then focuses a model carrying it.
-func TestFocusedViewDefaultsToTheConversation(t *testing.T) {
-	m := drainFleet(t)
-	if got := storedFocusView(m.store); got != focusViewConversation {
-		t.Fatalf("storedFocusView = %q, want the conversation default", got)
-	}
-	m.focusView = storedFocusView(m.store)
-	m = enterDrain(t, m)
-	if m.focusView != focusViewConversation {
-		t.Fatalf("focusView = %q, want the conversation", m.focusView)
-	}
-	if !m.showsConversation() {
-		t.Fatal("a session opened on the terminal, not the conversation")
+func TestFocusedViewDefaultsToTheTerminal(t *testing.T) {
+	for _, legacy := range []string{"", focusViewConversation, focusViewTerminal, "invalid"} {
+		t.Run(legacy, func(t *testing.T) {
+			m := drainFleet(t)
+			if err := m.store.SetSetting(focusViewSetting, legacy); err != nil {
+				t.Fatal(err)
+			}
+			m.focusView = storedFocusView(m.store)
+			m = enterDrain(t, m)
+			if m.focusView != focusViewTerminal || m.showsConversation() {
+				t.Fatalf("default focus = %q, conversation visible = %v", m.focusView, m.showsConversation())
+			}
+			if cmd := m.toggleConversation(); cmd != nil || m.focusView != focusViewTerminal {
+				t.Fatal("F3 enabled compressed focus without the experiment")
+			}
+			if strings.Contains(ansi.Strip(m.viewFooter()), "conversation") {
+				t.Fatal("disabled experiment advertised a focus toggle")
+			}
+		})
 	}
 }
 
@@ -33,6 +35,7 @@ func TestFocusedViewDefaultsToTheConversation(t *testing.T) {
 // terminal for this visit. The choice is persisted, so it is not a fluke.
 func TestFocusedViewKeepsTheConversationUntilToggled(t *testing.T) {
 	m := drainFleet(t)
+	m.compressedFocus = true
 	m.focusView = focusViewConversation
 	m = enterDrain(t, m)
 	if !m.showsConversation() {
@@ -76,6 +79,7 @@ func TestFocusedViewKeepsTheConversationUntilToggled(t *testing.T) {
 // nothing rather than switching the focused view to an empty transcript.
 func TestFocusedConversationToggleRefusesAShell(t *testing.T) {
 	m := drainFleet(t)
+	m.compressedFocus = true
 	m.focusView = focusViewConversation
 	m = enterDrain(t, m)
 	m.rows[m.cursor].sess.Tool = "terminal"

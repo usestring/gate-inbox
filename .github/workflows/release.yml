@@ -42,12 +42,34 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
+      # The release PR as JSON, set only when this run opened or updated it.
+      pr: ${{ steps.release.outputs.pr }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  # The release PR is opened and updated with GITHUB_TOKEN, so its pushes
+  # start no CI run of their own and it would otherwise merge with no checks
+  # at all. A dispatch is the one event GITHUB_TOKEN may start a run with; the
+  # run's checks land on the branch's head commit, which is the PR's.
+  release-pr-ci:
+    needs: release-please
+    if: needs.release-please.outputs.pr != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Run CI on the release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.release-please.outputs.pr }}
+        run: |
+          branch=$(jq -r .headBranchName <<< "$PR")
+          gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$branch"
 
   goreleaser:
     needs: release-please

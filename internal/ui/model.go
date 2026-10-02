@@ -237,6 +237,10 @@ type Model struct {
 	// read off the cursor per row because artifactRows is asked for every
 	// session a rebuild walks and the answer is one comparison.
 	railCursorSess string
+	// commonTool is the CLI most listed sessions run. A compact row names its
+	// CLI only when it is some other one: on a board that is nearly all one
+	// tool, the name on every row is a column that says nothing.
+	commonTool string
 
 	groups         []string
 	groupPaths     map[string]string
@@ -1858,8 +1862,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			SyncTerminalBackground()
 			return m, tea.ClearScreen
 		}
+		wasCompact := m.compactRail()
 		m.width = msg.Width
 		m.height = msg.Height
+		// The tree is built for a rail's width: a compact one keeps the
+		// cursor's work folded, so crossing the threshold reshapes it.
+		if m.compactRail() != wasCompact {
+			m.rebuildRows()
+		}
 		// Re-assert the terminal backdrop: a reattach or a fresh outer
 		// terminal delivers a size message and may carry stale colors.
 		SyncTerminalBackground()
@@ -2834,8 +2844,14 @@ func (m *Model) buildTree() {
 
 	listed := store.OrderLinkedSessions(m.listedSessions())
 	listedIDs := make(map[string]bool, len(listed))
+	toolCounts := map[string]int{}
+	m.commonTool = ""
 	for _, sess := range listed {
 		listedIDs[sess.ID] = true
+		toolCounts[sess.Tool]++
+		if n, best := toolCounts[sess.Tool], toolCounts[m.commonTool]; n > best || (n == best && sess.Tool < m.commonTool) {
+			m.commonTool = sess.Tool
+		}
 	}
 	byID := make(map[string]store.Session, len(m.sessions))
 	for _, sess := range m.sessions {

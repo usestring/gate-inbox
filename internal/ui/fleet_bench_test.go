@@ -117,7 +117,7 @@ func fleetWork(n int) *worktracker.Tracker {
 		tickets["ticket:"+id] = forge.Ticket{
 			Identifier: id, State: []string{"In Review", "In Progress", "Todo"}[i%3],
 			StateType: []string{"started", "started", "unstarted"}[i%3],
-			URL:       "https://linear.app/example/issue/" + id,
+			URL:       "https://tracker.example.com/issue/" + id,
 		}
 	}
 	return worktracker.New(

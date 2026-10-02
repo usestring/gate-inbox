@@ -172,6 +172,14 @@ func TestConversationShowsWorkingSpinnerBelowNewestMessage(t *testing.T) {
 		t.Fatalf("top of the scroll lost the first message: %q", top)
 	}
 
+	if got := last(); !strings.HasPrefix(got, startupFrames[1]+" working") {
+		t.Fatalf("scrolling back hides the working spinner: %q", got)
+	}
+	m.rows[m.cursor].sess.Status = status.Idle
+	if got := last(); strings.Contains(got, " working") || m.needsLoaderTick() {
+		t.Fatalf("idle conversation retains the working spinner: %q", got)
+	}
+	m.rows[m.cursor].sess.Status = status.Working
 	m.conversation.messages, m.conversation.dirty = nil, true
 	if got := last(); !strings.HasPrefix(got, startupFrames[1]+" working") {
 		t.Fatalf("empty conversation hides the spinner: %q", got)

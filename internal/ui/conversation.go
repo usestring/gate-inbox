@@ -31,6 +31,9 @@ type conversationView struct {
 	width, theme int
 	dirty        bool
 	compact      bool
+	liveStart    int
+	liveTop      int
+	liveCount    int
 	// hovered is the group expanded under the pointer in compact mode,
 	// -1 when none.
 	hovered int
@@ -222,7 +225,7 @@ func (c *conversationView) wrapped(width int) []string {
 
 func (m *Model) conversationLines(width, height int) []contentLine {
 	m.pane.box = paneBox{x: m.paneOriginX(), y: m.listChromeRows() + m.previewBodyOffset, width: width, height: height, ok: true}
-	rows := m.conversationRows(width, height)
+	rows := m.focusConversationRows(width, height)
 	lines := make([]contentLine, 0, height)
 	for i, row := range rows {
 		lines = append(lines, contentLine{text: m.renderPaneRow(i, row, width), raw: true})
@@ -386,9 +389,16 @@ func (m *Model) updateConversationHover(x, y int) bool {
 		return clear()
 	}
 	body := m.conversationBody(box.width)
-	offset := min(c.offset, max(0, len(body)-box.height))
+	height := box.height
+	if m.mode == modeFocus && c.liveCount > 0 {
+		height = c.liveTop
+		if y-box.y >= height {
+			return clear()
+		}
+	}
+	offset := min(c.offset, max(0, len(body)-height))
 	end := len(body) - offset
-	start := max(0, end-box.height)
+	start := max(0, end-height)
 	lineIdx := start + (y - box.y)
 	if lineIdx < 0 || lineIdx >= len(body) || lineIdx >= len(c.lines) {
 		return clear()

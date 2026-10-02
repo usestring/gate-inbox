@@ -75,12 +75,15 @@ func TestConversationReadsVerifiedAdoptedTranscriptAndRefreshes(t *testing.T) {
 		t.Fatal("unchanged file was reparsed")
 	}
 	m.applyConversation(msg)
-	if err := os.WriteFile(path, []byte(first+`{"type":"assistant","message":{"role":"assistant","content":"My reply"}}`+"\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(first+`{"type":"assistant","timestamp":"2026-10-01T12:00:00Z","message":{"role":"assistant","content":"My reply","usage":{"input_tokens":123}}}`+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	m.applyConversation(m.readConversation()().(conversationMsg))
 	if len(m.conversation.messages) != 2 {
 		t.Fatalf("appended reply missing: %#v", m.conversation.messages)
+	}
+	if usage := m.conversation.usage; !usage.Known || usage.Tokens != 123 {
+		t.Fatalf("appended usage missing: %+v", usage)
 	}
 }
 

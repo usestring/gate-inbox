@@ -23,6 +23,7 @@ type conversationView struct {
 	pendingKey   string
 	key, stamp   string
 	messages     []search.Message
+	usage        search.TokenUsage
 	err          error
 	offset       int
 	lines        []string
@@ -35,6 +36,7 @@ type conversationTickMsg struct{}
 type conversationMsg struct {
 	key, stamp string
 	messages   []search.Message
+	usage      search.TokenUsage
 	err        error
 	unchanged  bool
 }
@@ -117,6 +119,7 @@ func (m *Model) readConversation() tea.Cmd {
 			return msg
 		}
 		msg.messages, msg.err = search.ReadMessages(target, database)
+		msg.usage = search.ReadTokenUsage(target)
 		return msg
 	}
 }
@@ -142,6 +145,7 @@ func (m *Model) applyConversation(msg conversationMsg) {
 	}
 	m.sel = focusSelection{}
 	c.key, c.stamp, c.messages, c.err = msg.key, msg.stamp, msg.messages, msg.err
+	c.usage = msg.usage
 	if msg.err != nil {
 		c.stamp = ""
 	}

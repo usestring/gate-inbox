@@ -60,7 +60,7 @@ func (m *Model) showsConversation() bool {
 	// Focused, the pane belongs to the agent, but the focused-view setting
 	// can keep the conversation on screen instead until F3 asks for the
 	// terminal back. See focusview.go.
-	return m.mode == modeFocus && m.focusView == focusViewConversation
+	return m.mode == modeFocus && m.compressedFocus && m.focusView == focusViewConversation
 }
 
 func conversationKey(id, agentID string) string { return id + "\x00" + agentID }
@@ -296,6 +296,9 @@ func (m *Model) withQuestionCard(rows []string, width, height int) []string {
 
 func (m *Model) toggleConversation() tea.Cmd {
 	if m.mode == modeFocus {
+		if !m.compressedFocus {
+			return nil
+		}
 		// Focused, F3 switches between the conversation and the terminal
 		// itself rather than between the conversation's two densities: the
 		// choice is the focused-view setting, so a deliberate toggle sticks

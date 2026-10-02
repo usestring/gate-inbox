@@ -21,6 +21,7 @@ internal/sysstat TestRealBoardProcsPhase        # needs PROCS_MEASURE=1 and a li
 internal/sysstat TestRealBoardProcsAlternatives # needs PROCS_MEASURE=1 and a live tmux board
 internal/sysstat TestRealBoardSamplerCost       # needs PROCS_MEASURE=1 and a live tmux board
 internal/store TestInboxReadCost            # needs INBOX_MEASURE=1
+internal/ui TestFocusedReadPathCosts        # needs ECHO_MEASURE=1, times pipe vs fork reads on this machine
 internal/convo TestRealCorpusRefreshCost    # needs CONVO_MEASURE=1 and a real Claude Code corpus
 internal/search TestRealCorpus              # needs GATE_SEARCH_BENCH_SESSIONS and a real Claude Code corpus
 internal/search TestRealCodexRollout        # needs GATE_SEARCH_BENCH_SESSIONS and a real Codex rollout

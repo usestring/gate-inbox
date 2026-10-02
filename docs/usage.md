@@ -84,7 +84,7 @@ Press `space` to dock the hotkey menu at the bottom of the sidebar. It lists you
 - On a **session** row, each snippet's key sends it straight into that session's pane, so the agent gets it as a user message without you attaching. In the menu the key works without its chord: `c` sends what `ctrl+alt+c` sends, `§` what `alt+§` sends, and the chord itself still works too. The menu stays open, ready for the next session; Settings (`s`) can make it close after a send instead.
 - On a **group** row there is no pane to send to, so the menu says to select a session. `n` and `ctrl+n` start a new agent in the group.
 
-Settings → **experimental** contains three independent features, both off by default.
+Settings → **experimental** contains three independent features, all off by default.
 
 **Compressed focus view** keeps the shortened conversation on screen in focus mode. It is off by default, including for existing users who previously chose the conversation view. Prompt and input mirroring is still experimental; use `F3` to return to the live terminal to see and submit input. Disabling it restores the live terminal whenever a session is focused.
 

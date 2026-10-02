@@ -11,8 +11,15 @@ You need Go (the version in `go.mod`), tmux 3.1 or newer, and git.
 go build ./...
 go vet ./...
 gofmt -l .                                   # must print nothing
-env -u TMUX CGO_ENABLED=0 go test ./...
+scripts/ci-test.sh                           # the suite exactly as CI runs it
 ```
+
+`scripts/ci-test.sh` is the command CI runs, so a green run here is a green run there. It pins the
+locale (UTF-8), `TERM` and `CGO_ENABLED=0`, runs `go test -json -count=1 ./...` inside
+`scripts/test-tmux-isolation.sh`, and fails if a test skips without being listed in
+`ci-allowed-skips.txt`. Give it packages to run part of the suite, with `--no-report` because the
+skip allowlist only holds for the whole suite. A plain `env -u TMUX CGO_ENABLED=0 go test ./...` is
+fine for quick iteration, but it uses your shell's locale and `TERM`, so it is not what CI runs.
 
 Many packages drive a real tmux server, so run the tests on a machine where tmux can open its
 socket. `internal/ui` is the slow one: `-short` skips its wall-clock tests, and

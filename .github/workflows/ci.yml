@@ -130,8 +130,10 @@ jobs:
       # test binary its own TMUX_TMPDIR, and this proves nothing escaped it.
       # The sqlite fixtures go to /dev/shm through tmuxtest.ScratchDir.
       #
-      # This step fails on go test's own verdict. The skip verdict needs both
-      # streams at once, so it belongs to the report job.
+      # scripts/ci-test.sh is also the command CONTRIBUTING.md gives for a
+      # local run, so the two cannot drift. This step fails on go test's own
+      # verdict. The skip verdict needs both streams at once, so it belongs to
+      # the report job.
       - name: Test
         run: |
           set -o pipefail
@@ -144,8 +146,7 @@ jobs:
           # Built here, where Go is already set up and the build cache is
           # warm, so the report job on the critical path needs neither.
           go build -o "$RUNNER_TEMP/out/testreport" ./tools/testreport
-          scripts/test-tmux-isolation.sh -- \
-            go test -json -count=1 -timeout 15m "${packages[@]}" > "$RUNNER_TEMP/out/test.json"
+          scripts/ci-test.sh --no-report --stream "$RUNNER_TEMP/out/test.json" "${packages[@]}"
       # A failing test leaves the compiled binaries just as reusable, and with
       # the suite this flaky, saving only after a green run would leave the
       # cache days old.
@@ -180,7 +181,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          sparse-checkout: ci-allowed-skips.txt
+          sparse-checkout: |
+            ci-allowed-skips.txt
+            scripts/ci-test.sh
           sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -196,15 +199,12 @@ jobs:
           # over half the suite. The allowlist check catches most of that,
           # this catches all of it.
           test "${#streams[@]}" -eq 2 || { echo "::error::expected 2 test streams"; exit 1; }
-          cat "${streams[@]}" > "$RUNNER_TEMP/test.json"
           # Artifacts drop the executable bit.
-          testreport="$(dirname "${streams[0]}")/testreport"
-          chmod +x "$testreport"
+          TESTREPORT="$(dirname "${streams[0]}")/testreport"
+          chmod +x "$TESTREPORT"
+          export TESTREPORT
           report=0
-          "$testreport" \
-            -allow ci-allowed-skips.txt \
-            -summary "$GITHUB_STEP_SUMMARY" \
-            < "$RUNNER_TEMP/test.json" || report=$?
+          scripts/ci-test.sh --report "${streams[@]}" || report=$?
           echo "test jobs: $TEST_RESULT"
           test "$TEST_RESULT" = success -a "$report" -eq 0
 

@@ -216,7 +216,7 @@ reason, until its section is fixed.
 
 ```bash
 go build -o gate-inbox .
-CGO_ENABLED=0 go test ./...
+scripts/ci-test.sh       # the test suite exactly as CI runs it
 ```
 
 [`CONTRIBUTING.md`](CONTRIBUTING.md) covers sending a change, and [`SECURITY.md`](SECURITY.md) how

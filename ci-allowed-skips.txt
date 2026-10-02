@@ -71,6 +71,7 @@ internal/sysstat TestChildrenOfFindsAChildForkedByAWorkerThread?
 internal/tmux TestCaptureRetentionOverThePipe     # needs GATE_INBOX_ARENA_PROBE=1, thousands of captures over minutes
 internal/tmux TestClientDeviceLiveProbe           # needs GATE_INBOX_DEVICE_PROBE_SOCKET, an isolated attached client
 internal/ui TestOpencodeQuestionDialogLeavesFocusE2E # needs GATE_INBOX_E2E_OPENCODE_QUESTION and a working opencode
+internal/ui TestConversationFocusLiveHarnessSubmission # needs GATE_INBOX_E2E_COMPRESSED_INPUT and logged-in agent CLIs; submits model turns
 app TestHogNoticesE2E                        # needs GATE_INBOX_E2E_HOGS; burns a core and holds 1 GiB for a minute
 app TestHogStopReachesClaudeMidTurnE2E        # needs GATE_INBOX_E2E_HOGS_CLAUDE and a logged-in claude; spends two haiku turns
 app TestHogWatchOverheadE2E                   # needs GATE_INBOX_E2E_HOGS_OVERHEAD; holds a scratch board for two measured windows

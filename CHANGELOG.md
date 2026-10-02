@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.10.1](https://github.com/usestring/gate-inbox/compare/v0.10.0...v0.10.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* **dialog:** read a question off the screen when the pending call is another dialog's ([#201](https://github.com/usestring/gate-inbox/issues/201)) ([7be1a47](https://github.com/usestring/gate-inbox/commit/7be1a471d0dd59507aab23e25572d577b355fbd2))
+* **ui:** show the downstream TUI on focus by default ([#203](https://github.com/usestring/gate-inbox/issues/203)) ([13809b0](https://github.com/usestring/gate-inbox/commit/13809b0c91e74b772ff4e831b68dc775e9794270))
+
+## [0.10.0](https://github.com/usestring/gate-inbox/compare/v0.9.0...v0.10.0) (2026-10-01)
+
+
+### Features
+
+* **ui:** default a focused session to its conversation ([#191](https://github.com/usestring/gate-inbox/issues/191)) ([a7722cd](https://github.com/usestring/gate-inbox/commit/a7722cddcda71362edc2a60fea5e8aa74b0bb5a1))
+
+
+### Bug Fixes
+
+* **dialog:** relay a permission prompt's command as it was written ([#197](https://github.com/usestring/gate-inbox/issues/197)) ([1041b6a](https://github.com/usestring/gate-inbox/commit/1041b6a5620192c8c7162765710ca416a2145a22))
+* **hooks:** name each build's generated launch files after their content ([#192](https://github.com/usestring/gate-inbox/issues/192)) ([869cf65](https://github.com/usestring/gate-inbox/commit/869cf655e49db016ed5626fb031f9e9d4f844b32))
+* **ui:** advance the drain when a hookless pane takes a submission ([#196](https://github.com/usestring/gate-inbox/issues/196)) ([256a052](https://github.com/usestring/gate-inbox/commit/256a0527cbd57e985c88b7a4e6eaa75a001bbbc1))
+
+## [0.9.0](https://github.com/usestring/gate-inbox/compare/v0.8.0...v0.9.0) (2026-10-01)
+
+
+### Features
+
+* answer every child dialog kind through answer_session (S-145287) ([8651cc6](https://github.com/usestring/gate-inbox/commit/8651cc6c5fbc4e1b51d52d09951ab30714514861))
+* clarify priority levels with directional triangles ([#182](https://github.com/usestring/gate-inbox/issues/182)) ([45b6e68](https://github.com/usestring/gate-inbox/commit/45b6e6861a1c237570422db09e98f63faefb06b6))
+* **ui:** chain scroll keys into list navigation at pane edges ([b32a9f1](https://github.com/usestring/gate-inbox/commit/b32a9f1f80d7f8ac2fc788122a906d880e74cf5b))
+* **ui:** suggest recurring prompts in New Session ([#183](https://github.com/usestring/gate-inbox/issues/183)) ([dd5c265](https://github.com/usestring/gate-inbox/commit/dd5c26523dbe6c21e6fb30a746671b62f3c39aae))
+* verify a child's parent and attest relayed approvals (S-145286) ([#174](https://github.com/usestring/gate-inbox/issues/174)) ([1bc1571](https://github.com/usestring/gate-inbox/commit/1bc157133beaec2157265d080b68930d9001af15))
+
+
+### Bug Fixes
+
+* label / search as fuzzy session search, caret before placeholder ([#185](https://github.com/usestring/gate-inbox/issues/185)) ([cb50659](https://github.com/usestring/gate-inbox/commit/cb50659863fab8c2ac7436586c13953f152d3e18))
+* **sessioncmd:** name the option a free-text answer landed on in a multi-question result (S-145331) ([#176](https://github.com/usestring/gate-inbox/issues/176)) ([38146a3](https://github.com/usestring/gate-inbox/commit/38146a36bfdac6e33d915e82a2b22e7111b72870))
+
 ## [0.8.0](https://github.com/usestring/gate-inbox/compare/v0.7.0...v0.8.0) (2026-10-01)
 
 

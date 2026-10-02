@@ -8,15 +8,25 @@ import (
 	"github.com/usestring/gate-inbox/internal/search"
 )
 
-// A focused session shows the terminal by default: focus mode is where keys
-// reach the agent, and the pane is what those keys act on.
 func TestFocusedViewDefaultsToTheTerminal(t *testing.T) {
-	m := enterDrain(t, drainFleet(t))
-	if m.focusView != focusViewTerminal {
-		t.Fatalf("focusView = %q, want the terminal default", m.focusView)
-	}
-	if m.showsConversation() {
-		t.Fatal("focus defaulted to the conversation")
+	for _, legacy := range []string{"", focusViewConversation, focusViewTerminal, "invalid"} {
+		t.Run(legacy, func(t *testing.T) {
+			m := drainFleet(t)
+			if err := m.store.SetSetting(focusViewSetting, legacy); err != nil {
+				t.Fatal(err)
+			}
+			m.focusView = storedFocusView(m.store)
+			m = enterDrain(t, m)
+			if m.focusView != focusViewTerminal || m.showsConversation() {
+				t.Fatalf("default focus = %q, conversation visible = %v", m.focusView, m.showsConversation())
+			}
+			if cmd := m.toggleConversation(); cmd != nil || m.focusView != focusViewTerminal {
+				t.Fatal("F3 enabled compressed focus without the experiment")
+			}
+			if strings.Contains(ansi.Strip(m.viewFooter()), "conversation") {
+				t.Fatal("disabled experiment advertised a focus toggle")
+			}
+		})
 	}
 }
 
@@ -25,6 +35,7 @@ func TestFocusedViewDefaultsToTheTerminal(t *testing.T) {
 // terminal for this visit. The choice is persisted, so it is not a fluke.
 func TestFocusedViewKeepsTheConversationUntilToggled(t *testing.T) {
 	m := drainFleet(t)
+	m.compressedFocus = true
 	m.focusView = focusViewConversation
 	m = enterDrain(t, m)
 	if !m.showsConversation() {
@@ -68,6 +79,7 @@ func TestFocusedViewKeepsTheConversationUntilToggled(t *testing.T) {
 // nothing rather than switching the focused view to an empty transcript.
 func TestFocusedConversationToggleRefusesAShell(t *testing.T) {
 	m := drainFleet(t)
+	m.compressedFocus = true
 	m.focusView = focusViewConversation
 	m = enterDrain(t, m)
 	m.rows[m.cursor].sess.Tool = "terminal"

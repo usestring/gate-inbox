@@ -51,6 +51,9 @@ type Screen struct {
 	Legend string
 	// choiceLines are the indexes into Lines the choices were read from.
 	choiceLines map[int]bool
+	// exact is the text the gutter block was drawn from, when WithExact
+	// matched it, written in its place by Prompt.
+	exact string
 }
 
 // ScreenChoice is one choice of a held dialog.
@@ -87,19 +90,76 @@ func (s Screen) Identity() string {
 }
 
 // Prompt is what the dialog asks, without its choices: every line that is
-// not a choice, in order, joined with single spaces. A word the pane broke
-// across two lines comes back with a space inside it; Compact undoes that.
+// not a choice, in order, joined with single spaces. The gutter Claude Code
+// draws down the left of a command or path is left out. A word the pane broke
+// across two lines comes back with a space inside it; Compact undoes that,
+// and WithExact puts the block back as it was written.
 func (s Screen) Prompt() string {
 	var kept []string
+	wroteExact := false
 	for i, line := range s.Lines {
 		if s.choiceLines[i] {
 			continue
 		}
-		if line = strings.TrimSpace(line); line != "" {
-			kept = append(kept, line)
+		body, inGutter := gutterBody(line)
+		if inGutter && s.exact != "" {
+			if !wroteExact {
+				kept = append(kept, s.exact)
+				wroteExact = true
+			}
+			continue
+		}
+		if body != "" {
+			kept = append(kept, body)
 		}
 	}
 	return strings.Join(kept, " ")
+}
+
+// gutterRune is the bar Claude Code draws down the left of the command, path
+// or URL a permission prompt asks about.
+const gutterRune = '│'
+
+// gutterBody is line without its gutter, and whether it had one.
+func gutterBody(line string) (string, bool) {
+	line = strings.TrimSpace(line)
+	if rest, ok := strings.CutPrefix(line, string(gutterRune)); ok {
+		return strings.TrimSpace(rest), true
+	}
+	return line, false
+}
+
+// WithExact is the screen with its gutter block read as the one of
+// candidates it was drawn from -- the pending tool call's command, path or
+// URL, from the child's own transcript.
+//
+// The pane wraps that block at its width, and nothing on the screen says
+// whether a row ended between two words or inside one: at 40 columns a path
+// comes back as "/srv/wor k/file", and a person asked to approve it is
+// reading a command that does not exist. A candidate is taken only when it
+// is the block's text exactly, compared as Compact, so a transcript that has
+// moved on to another call changes nothing.
+func (s Screen) WithExact(candidates ...string) Screen {
+	if s.Kind != ScreenPermission {
+		return s
+	}
+	var block strings.Builder
+	for i, line := range s.Lines {
+		if body, ok := gutterBody(line); ok && !s.choiceLines[i] {
+			block.WriteString(body)
+		}
+	}
+	drawn := Compact(block.String())
+	if drawn == "" {
+		return s
+	}
+	for _, candidate := range candidates {
+		if candidate = strings.TrimSpace(candidate); candidate != "" && Compact(candidate) == drawn {
+			s.exact = candidate
+			return s
+		}
+	}
+	return s
 }
 
 // Labels are the choices' labels in screen order.
@@ -120,14 +180,15 @@ func (s Screen) Choose(answer string) int {
 	return chooseLabel(s.Labels(), answer)
 }
 
-// Compact is text with every space removed and folded to lower case, the
-// form two renderings of one dialog are compared in: the pane breaks a long
-// path or command inside a word wherever its row ends, and the width it ends
-// at is the pane's, not the dialog's.
+// Compact is text with every space and gutter bar removed and folded to lower
+// case, the form two renderings of one dialog are compared in: the pane breaks
+// a long path or command inside a word wherever its row ends, and the width it
+// ends at is the pane's, not the dialog's. The gutter goes too, so a question
+// copied from a relay that still drew it matches one that does not.
 func Compact(text string) string {
 	var out strings.Builder
 	for _, r := range strings.ToLower(text) {
-		if !unicode.IsSpace(r) {
+		if !unicode.IsSpace(r) && r != gutterRune {
 			out.WriteRune(r)
 		}
 	}

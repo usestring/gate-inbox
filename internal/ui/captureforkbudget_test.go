@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -181,18 +182,23 @@ const (
 	// expensive case and the one this bounds; a baseline capture on the key
 	// path is counted with it, because the keystroke pays for both.
 	//
-	// Measured between 9.3 and 10.7 -- it rises on an idle box, where a
-	// quicker fork fits more looks inside the same budget.
+	// The chase runs on forkClock, which charges every capture-pane fork a
+	// flat forkCostModel, so this is a fact about the budget and the backoff
+	// rather than about the box: it is 11 on every machine. Against the wall
+	// clock it moved with fork cost, 9.3 to 10.7 on the development box and
+	// past 13.5 on an idle CI runner.
 	//
 	// This is a ceiling on focusEchoBudgetDefault rather than on the backoff,
 	// which is worth being explicit about because the two are not equally
 	// visible here. What bounds a chase is that budget divided by the cost of
 	// one look, and a look is mostly its fork rather than its pause: dropping
-	// the backoff to a flat focusEchoPause only reaches about twelve, inside
-	// the spread this has to tolerate, while lengthening the budget to 200ms
-	// reaches forty-two. A chase that stopped backing off would have to be
-	// caught by the typing rate instead.
+	// the backoff to a flat focusEchoPause reaches 14, one over, while
+	// lengthening the budget to 200ms reaches far past it.
 	forkBudgetPerKeystroke = 13.0
+	// forkCostModel is what forkClock charges one capture-pane fork: the
+	// ~3ms BenchmarkCaptureExecFork measures, and what focusecho.go's budget
+	// and pauses are sized against.
+	forkCostModel = 3 * time.Millisecond
 	// A pane typed into once a second, which is the shape the live 54/s
 	// sample turned out to be. It measures at 25-30 now that the echo
 	// releases the keystroke hold; it measured 60 before.
@@ -348,8 +354,10 @@ func TestAChaseIsBoundedPerKeystroke(t *testing.T) {
 	// discipline echoes every key straight back, the chase's first look
 	// already differs, and the test measures the cheap case while claiming
 	// the expensive one.
-	m, _, _ := adoptedFocus(t, "sh -c 'stty -echo; sleep 600'")
-	time.Sleep(400 * time.Millisecond)
+	m, socket, pane := adoptedFocus(t, "sh -c 'stty -echo; echo deaf; sleep 600'")
+	foreignPaneContains(t, socket, pane, func(s string) bool { return strings.Contains(s, "deaf") })
+	clock := &forkClock{start: time.Now()}
+	m.echoClock = clock
 	const keys = 6
 	var forks int64
 	for i := 0; i < keys; i++ {
@@ -358,6 +366,7 @@ func TestAChaseIsBoundedPerKeystroke(t *testing.T) {
 		// clear rather than riding the last key's chase.
 		m.focusChasing, m.echoPending = false, false
 		tmux.ResetExecCounts()
+		clock.reset()
 		c := rune('a' + i)
 		updated, cmd := m.Update(tea.KeyPressMsg{Code: c, Text: string(c)})
 		*m = *updated.(*Model)
@@ -376,6 +385,25 @@ func TestAChaseIsBoundedPerKeystroke(t *testing.T) {
 			"plus one look: the chase is not running and this budget measures nothing", per)
 	}
 }
+
+// forkClock is a chase clock on which only sleeps and forks take time: a
+// sleep advances it by what was asked, and every capture-pane fork since the
+// last reset by forkCostModel. The forks are real and counted by tmux's own
+// counter; what they cost is the model's, so a chase fits the same looks into
+// its budget on any box, however loaded.
+type forkClock struct {
+	start time.Time
+	slept time.Duration
+}
+
+func (c *forkClock) reset() { c.slept = 0 }
+
+func (c *forkClock) Now() time.Time {
+	forks := time.Duration(tmux.ExecCounts()["capture-pane"])
+	return c.start.Add(c.slept + forks*forkCostModel)
+}
+
+func (c *forkClock) Sleep(d time.Duration) { c.slept += d }
 
 // The focused pane's whole bill, reported rather than asserted, so a change
 // that moves it shows up in the numbers even while every tier is still inside

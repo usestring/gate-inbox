@@ -156,7 +156,6 @@ func (m *Model) openSettings() {
 		themeIndex:       themeIndex(current.Name),
 		quickCloseSend:   m.quickCloseAfterSend(),
 		enterFocuses:     m.enterFocuses(),
-		focusView:        normalizeFocusView(m.focusView),
 		comfortableRows:  m.comfortableRows,
 		layout:           normalizeLayout(m.layout),
 		sidebar:          normalizeSidebar(m.sidebar),
@@ -171,6 +170,8 @@ func (m *Model) openSettings() {
 		reopenSessions:   m.reopenSessionsMode(),
 		outsidePanes:     m.outsidePanesMode(),
 		jevAutoSuggest:   m.jevAutoSuggest,
+		promptSuggest:    m.promptSuggest,
+		compressedFocus:  m.compressedFocus,
 		backdropSync:     storedBackdrop(m.store) == backdropSync,
 	}
 	m.mode = modeSettings
@@ -182,8 +183,19 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.settings.experimentalPicker {
 		switch msg.String() {
+		case "up", "k":
+			m.settings.experimentalCursor = (m.settings.experimentalCursor + 2) % 3
+		case "down", "j":
+			m.settings.experimentalCursor = (m.settings.experimentalCursor + 1) % 3
 		case "left", "right", "h", "l", "space", "enter":
-			m.settings.jevAutoSuggest = !m.settings.jevAutoSuggest
+			switch m.settings.experimentalCursor {
+			case 0:
+				m.settings.jevAutoSuggest = !m.settings.jevAutoSuggest
+			case 1:
+				m.settings.promptSuggest = !m.settings.promptSuggest
+			case 2:
+				m.settings.compressedFocus = !m.settings.compressedFocus
+			}
 		case "esc":
 			m.settings.experimentalPicker = false
 		}
@@ -219,9 +231,9 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Saved first so anything cycled on the way here survives the
 			// detour: the key map returns to settings rather than to the
 			// list, so the operator lands back where they left off.
-			m.persistSettings()
+			cmd := m.persistSettings()
 			m.openHelp()
-			return m, nil
+			return m, cmd
 		}
 		return m.saveAndCloseSettings()
 	case "esc":
@@ -231,17 +243,18 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) saveAndCloseSettings() (tea.Model, tea.Cmd) {
-	m.persistSettings()
+	cmd := m.persistSettings()
 	m.loadSnippets()
 	if m.snipErr != "" {
 		m.errBar.text = "snippets could not be read: " + m.snipErr
 	}
 	m.rebuildRows()
 	m.mode = modeList
-	return m, nil
+	return m, cmd
 }
 
-func (m *Model) persistSettings() {
+func (m *Model) persistSettings() tea.Cmd {
+	startPromptSnips := !m.promptSuggest && m.settings.promptSuggest
 	if m.settings.accountRouting != "" {
 		if err := m.store.SetSetting(store.AccountRoutingSetting, m.settings.accountRouting); err != nil {
 			m.errBar.text = err.Error()
@@ -274,9 +287,6 @@ func (m *Model) persistSettings() {
 		focusKey = "attach"
 	}
 	if err := m.store.SetSetting(focusKeySetting, focusKey); err != nil {
-		m.errBar.text = err.Error()
-	}
-	if err := m.store.SetSetting(focusViewSetting, normalizeFocusView(m.settings.focusView)); err != nil {
 		m.errBar.text = err.Error()
 	}
 	density := "compact"
@@ -333,10 +343,32 @@ func (m *Model) persistSettings() {
 	if err := m.store.SetSetting(jevAutoSuggestSetting, featureValue); err != nil {
 		m.errBar.text = err.Error()
 	}
+	promptValue := "off"
+	if m.settings.promptSuggest {
+		promptValue = "on"
+	}
+	if err := m.store.SetSetting(promptSuggestionsSetting, promptValue); err != nil {
+		m.errBar.text = err.Error()
+	}
+	if m.promptSuggest != m.settings.promptSuggest {
+		m.promptSnipsSeq++
+	}
+	m.promptSuggest = m.settings.promptSuggest
+	if !m.promptSuggest {
+		m.promptSnips = nil
+	}
 	m.jevAutoSuggest = m.settings.jevAutoSuggest
 	m.autoProceed = m.settings.autoProceed
 	m.focusOnEnter = m.settings.enterFocuses
-	m.focusView = normalizeFocusView(m.settings.focusView)
+	compressedValue := "off"
+	if m.settings.compressedFocus {
+		compressedValue = "on"
+	}
+	if err := m.store.SetSetting(compressedFocusSetting, compressedValue); err != nil {
+		m.errBar.text = err.Error()
+	}
+	m.compressedFocus = storedCompressedFocus(m.store)
+	m.focusView = storedFocusView(m.store)
 	m.comfortableRows = m.settings.comfortableRows
 	m.layout = normalizeLayout(m.settings.layout)
 	m.sidebar = normalizeSidebar(m.settings.sidebar)
@@ -348,6 +380,10 @@ func (m *Model) persistSettings() {
 	m.chrome = normalizeChrome(m.settings.chrome)
 	m.leaveMode = normalizeLeaveMode(m.settings.leaveMode)
 	m.newSessionAgent = normalizeNewSessionAgent(m.settings.newSessionAgent)
+	if startPromptSnips {
+		return m.refreshPromptSnips()
+	}
+	return nil
 }
 
 func (m *Model) openCLIPicker() {
@@ -576,8 +612,6 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		m.settings.quickCloseSend = !m.settings.quickCloseSend
 	case settingsFieldFocusKey:
 		m.settings.enterFocuses = !m.settings.enterFocuses
-	case settingsFieldFocusView:
-		m.settings.focusView = cycleMode(focusViewModes, normalizeFocusView(m.settings.focusView), step)
 	case settingsFieldAutoProceed:
 		m.settings.autoProceed = !m.settings.autoProceed
 	case settingsFieldReopenSessions:

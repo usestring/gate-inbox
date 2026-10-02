@@ -179,7 +179,7 @@ var Catalog = []Binding{
 	// retention, visited deliberately rather than toggled past. Quick
 	// actions (:) opens it, and u restores from it.
 	{ContextList, ArchivedView, []string{}, "archived view", false},
-	{ContextList, Search, []string{"/"}, "search the list by name", false},
+	{ContextList, Search, []string{"/"}, "fuzzy session search", false},
 	// No key: esc closes the search field and keeps the filter; the text
 	// itself is cleared by deleting it (ctrl+u wipes the field). A
 	// filter with no visible field used to read as sessions gone missing.

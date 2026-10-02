@@ -64,7 +64,7 @@
 # empty_groups        = []  # hide / show empty groups
 # fold_all            = []  # fold / unfold everything
 # archived_view       = []  # archived view
-# search              = ["/"]  # search the list by name
+# search              = ["/"]  # fuzzy session search
 # clear_search        = []  # clear the search
 # resize_split        = []  # resize the split
 # settings            = ["s"]  # settings

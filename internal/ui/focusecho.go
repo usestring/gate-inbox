@@ -211,8 +211,12 @@ func (m *Model) focusEchoCmd(sessID string, gen uint64, was string, budget time.
 	if driver == nil || sessID == "" {
 		return nil
 	}
+	now, sleep := time.Now, time.Sleep
+	if m.echoClock != nil {
+		now, sleep = m.echoClock.Now, m.echoClock.Sleep
+	}
 	return func() tea.Msg {
-		deadline := time.Now().Add(budget)
+		deadline := now().Add(budget)
 		pause := focusEchoPause
 		for {
 			pane, err := driver.CapturePane(sessID)
@@ -220,7 +224,7 @@ func (m *Model) focusEchoCmd(sessID string, gen uint64, was string, budget time.
 				return nil
 			}
 			echoed := pane != was
-			if echoed || time.Now().After(deadline) {
+			if echoed || now().After(deadline) {
 				return previewMsg{
 					sessID: sessID,
 					gen:    gen,
@@ -236,12 +240,18 @@ func (m *Model) focusEchoCmd(sessID string, gen uint64, was string, budget time.
 					preview: pane,
 				}
 			}
-			time.Sleep(pause)
+			sleep(pause)
 			if pause *= 2; pause > focusEchoPauseMax {
 				pause = focusEchoPauseMax
 			}
 		}
 	}
+}
+
+// chaseClock is what focusEchoCmd times its looks against.
+type chaseClock interface {
+	Now() time.Time
+	Sleep(time.Duration)
 }
 
 // readFacts asks tmux where the caret is and what the pane's application has

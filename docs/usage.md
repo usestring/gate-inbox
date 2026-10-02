@@ -22,7 +22,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | `g` | New group (name, parent, default path) |
 | `enter` | Focus session in place (keys go to the agent, list stays) / fold group. An archived session has no live pane to focus, so the row offers attach and `u` instead |
 | `A` | Attach: leave the list and fill the whole terminal with this session's pane (Settings can swap it with `enter`) |
-| `F3` | Switch the selected row between the shortened and the full conversation; inside a session, between the conversation and the terminal |
+| `F3` | Switch the selected row between the shortened and the full conversation; inside a session, between the conversation and the terminal when experimental compressed focus is enabled. Shortened keeps the newest turn full, and hovering a shortened turn with the pointer expands it |
 | `l` | Focus the session you were on before this one; `l` again swaps back. The pair is held by session, so a poll, a fold or a filter reordering the board does not move it |
 | `ctrl+g` | Jump to a pane: search listed sessions by name, group, tool or status, then press `enter` to focus one. Works from the list or a focused pane; `esc` returns without switching. Folded groups are opened when you jump into them. |
 | `.` | Skip it for now (mute, or mark finished idle); `alt+.` does it from inside |
@@ -33,20 +33,22 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | `←` / `→` | Focused, at a prompt edge: the arrow toward the list returns to the manager. In triage, `←` always returns to the manager, and `→` on a finished session opens the next item instead, whichever side the list is on. The tool's prompt marker (`activity_cutoff`) must be on the caret's row; elsewhere in the prompt, the arrow moves the caret as usual. |
 | `K` / `J` (or `shift+↑` / `shift+↓`) | Reorder the row among its visible siblings: swap this session (or group) with the neighbour above or below. Manual order only — triage and sorted views refuse it |
 | `m` | Move a session to a group, a terminal into a session, or a group under another group |
-| `p` | Priority: each press steps the tier up — `urgent`, `high`, `medium`, `low`, then none. Higher tiers sort first in the list and in triage, within the same status |
+| `p` | Priority: each press cycles the tier — `urgent`, `high`, `medium`, `low`, then none. Higher tiers sort first in the list and in triage, within the same status |
 | `r` | Name a session: ask its agent to name itself (`/rename`, or the same request in prose). On an adopted pane, derive the name from its conversation. On a group, open the group card on it: name, parent and default path |
 | `x` | Kill the selected session, or the whole subtree under a group: kills the pane, frees the RAM its agent held, and files the row in the archive. A group with no session filed under it, live or archived, is deleted instead, so its name is free straight away |
 | `v` | Revive a dead session. On a session that is still running it restarts the agent on the conversation it is already on |
 | `u` | Restore a session or group out of the archive, resuming what it held. The act is `kill`; the archive is where the row lands, the way a deleted file lands in a trash can. A row left in the archive is deleted for good after 7 days |
 | `U` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed kill as well as a silent one |
 | `space` | Hotkey menu: send one of your snippets to the selected session |
-| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, ask before killing, sort, key hints, on leaving a session, after hotkey send, session keys, focused view, experimental features, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
+| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, ask before killing, sort, key hints, on leaving a session, after hotkey send, session keys, experimental features, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
 | `w` | Filter to sessions that need attention (`waiting`, stuck, `finished`, `errored`); press again to show all |
 | `tab` | Enter the next session that needs you, wherever it is in the list. One key per state (waiting, finished, errored, idle, working) ships unbound — rebind one from the key map (`h`), or run it from quick actions (`:`) |
 | `/` | Search: session name, tool, group, status, what the pane is showing, and what the session has said or run. `esc` closes the field and keeps the filter; delete the text (`ctrl+u` wipes the field) to clear it |
 | `h` / `ctrl+h` | The key map for the current screen (`H` also works), split into common and advanced keys. It scrolls (`↑↓`/`jk`, `ctrl+u`/`ctrl+d`, `g`/`G`) and `/` searches it down to one line. `ctrl+h` opens it from anywhere, including inside a session, and closes it again. Inside a session only the `ctrl+h` chord reaches the key map — plain `h` and `?` go to the agent |
 | `:` / `ctrl+p` | Quick actions: type what you want to do, `↑↓` pick, `enter` runs it. Each row shows the action's current key, what it does, and the name `keys.toml` gives it, and running one leaves a note with the key that would have done it in one press. Recently run actions lead the list |
 | `q` | Quit (sessions keep running) |
+
+Priority defaults to 0 with no marker. Positive levels use green `▲`, `▲▲`, and `▲▲▲`; the negative level (-1) uses a red `▼`. Set a level with `gate-inbox priority <level>` using a number from -1 to 3 or its tier name.
 
 One-off and destructive actions — fork, migrate, restart, revive all, account switch, kill-all, fold-all, resize, the archived view, per-state jumps — ship with no key. They all run from quick actions (`:`), which shows each action's current key, and the key map (`h`) puts any of them back on a key.
 
@@ -82,7 +84,13 @@ Press `space` to dock the hotkey menu at the bottom of the sidebar. It lists you
 - On a **session** row, each snippet's key sends it straight into that session's pane, so the agent gets it as a user message without you attaching. In the menu the key works without its chord: `c` sends what `ctrl+alt+c` sends, `§` what `alt+§` sends, and the chord itself still works too. The menu stays open, ready for the next session; Settings (`s`) can make it close after a send instead.
 - On a **group** row there is no pane to send to, so the menu says to select a session. `n` and `ctrl+n` start a new agent in the group.
 
-Settings → **experimental** contains **JEV Auto Suggest**, off by default. With `TYPESAFE_API_KEY` set, it ranks up to eight earlier submissions from the selected existing session against its last four messages. The suggestion appears beneath the snippets; `ctrl+y` inserts it into the session's prompt without submitting it. Close the menu and focus the session to edit or send it. It never suggests a starting prompt on a group row. When enabled, each ranking request sends up to four messages (500 characters each) and eight submissions (300 characters each) to TypeSafe. A missing key, failed request, or JEV's “none” choice leaves the menu without a suggestion.
+Settings → **experimental** contains three independent features, all off by default.
+
+**Compressed focus view** keeps the shortened conversation on screen in focus mode. It is off by default, including for existing users who previously chose the conversation view. Prompt and input mirroring is still experimental; use `F3` to return to the live terminal to see and submit input. Disabling it restores the live terminal whenever a session is focused.
+
+**Prompt suggestions** reads local Claude/Codex history to suggest recurring New Session prompts; it makes no network requests. Disable it to stop history reads and suggestions.
+
+**JEV Auto Suggest** works in existing sessions. With `TYPESAFE_API_KEY` set, it ranks up to eight earlier submissions from the selected existing session against its last four messages. The suggestion appears beneath the snippets; `ctrl+y` inserts it into the session's prompt without submitting it. Close the menu and focus the session to edit or send it. It never suggests a starting prompt on a group row. When enabled, each ranking request sends up to four messages (500 characters each) and eight submissions (300 characters each) to TypeSafe. A missing key, failed request, or JEV's “none” choice leaves the menu without a suggestion.
 
 `space` or `esc` closes the menu. Snippets that do not fit on its lines are counted on the last one, and the key map (`?`) lists them all.
 
@@ -112,7 +120,7 @@ The line is run directly, never through a shell, so nothing in it is expanded an
 
 A known windowed editor (the six above, plus `open` and `xdg-open`) starts detached and the manager stays on screen, with the status line naming what opened. Everything else takes the terminal over the way an attach does and hands it back on exit — that way round because a terminal editor started detached would have nowhere to draw, while a windowed one launched this way only costs a repaint.
 
-Each entry is a `key`, an optional `label`, the `text` it types, and `autoSubmit`. With `autoSubmit` true the key presses Enter after the text, so the session is answered in one key; false types the text and leaves it in the prompt for you to finish and send. An entry without the field submits, which is how every snippet behaved before it was a choice. A first run writes `yes`, `continue`, `open a PR`, `anything else?`, `explain like I'm 5`, `wake up`, `nuke` and the `§` progress summary, all submitting.
+Each entry is a `key`, an optional `label`, the `text` it types, and `autoSubmit`. With `autoSubmit` true the key presses Enter after the text, so the session is answered in one key; false types the text and leaves it in the prompt for you to finish and send. An entry without the field submits, which is how every snippet behaved before it was a choice. A first run writes `yes`, `continue`, `explain like I'm 5`, `wake up` and the `§` progress summary, all submitting.
 
 Inside a session every `ctrl` combination reaches the program running there, `ctrl+o` included: Claude Code shows more lines with it, and in a [terminal tab](#terminal-tabs) `nano` writes the file out.
 
@@ -380,9 +388,9 @@ A status is a reading of a screen, and a reading can be wrong. When a session ha
 
 ## The conversation preview
 
-The panel beside the list is not the raw terminal: it is the session's **conversation**, drawn as `You` and `Assistant` turns with the commands and tool calls folded into the turns that produced them. A turn too tall for the panel is shortened to its first lines with a `… N more lines` note. `F3` switches the selected row between that shortened transcript and the full one, and the choice is held as you move down the list. `enter` still opens the live terminal — keys reach the agent and the caret is where you type — and leaving it comes back to the conversation.
+The panel beside the list is not the raw terminal: it is the session's **conversation**, drawn as `You` and `Assistant` turns with the commands and tool calls folded into the turns that produced them. A turn too tall for the panel is shortened to its first lines with a `… N more lines` note. `F3` switches the selected row between that shortened transcript and the full one, and the choice is held as you move down the list. `enter` focuses the live terminal so the agent's prompt, input and cursor stay visible.
 
-Settings (`s`) has a **focused view** row. `terminal` is the default: a focused session shows its live pane. `conversation` keeps the transcript on screen inside the session too, so a drain can read each session's turns without the terminal's own chrome, and `F3` then switches that session to the terminal and back. The setting is remembered, so a session kept on its transcript stays that way on the next start. A shell has no conversation to show, so the row stays on the terminal there.
+Settings (`s`) → **experimental** → **Compressed focus view** opts into showing the conversation in focus mode. With the experiment enabled, `F3` switches between the conversation and live terminal and remembers the choice. A shell always stays on the terminal.
 
 ## The board layout
 
@@ -413,6 +421,8 @@ The Computer block in the sessions panel shows machine gauges:
 - **Network**: up/down rates on real NICs only (loopback, utun, bridges, and similar virtual interfaces are excluded)
 - **Battery**: charge percent, with `charging` while plugged in and filling. On macOS it is the figure the menu bar shows. It stays hidden when the machine has no battery, and peripheral batteries that report no charge (a wireless mouse on Linux) are ignored.
 - **Temperature**: `cpu`, `gpu` and `soc` readings in °C, each the hottest sensor in its category, sampled every 5s. Apple Silicon draws no CPU/GPU line, so its dies report as one `soc` figure. A reading appears when the machine exposes that sensor.
+
+The **context** section above these meters shows the selected agent’s latest reported context-token use. Claude counts input, cached input and output from its latest assistant record; Codex uses its latest turn usage and shows a gauge against the reported context window. Sessions without a usage record, including unsupported tools, show `n/a`. Selecting a group or terminal hides the section.
 
 Under WSL2 the board runs inside the Linux guest, whose `/proc` describes the VM rather than the machine. There the CPU, memory, disk and agent-usage figures come from the Windows host instead, sampled through PowerShell interop every 30 seconds; swap, network and temperatures stay the guest's own. Without interop the guest's numbers show unchanged.
 

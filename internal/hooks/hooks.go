@@ -10,6 +10,7 @@ package hooks
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -51,7 +52,9 @@ const EnvExecutable = envname.Executable
 // package for a tool.
 const StatusSourceClaude = "claude-hooks"
 
-const settingsName = "claude-settings.json"
+// settingsStem is the settings file's name before its content stamp; see
+// GeneratedName.
+const settingsStem = "claude-settings"
 
 type Manager struct {
 	dir string
@@ -335,8 +338,61 @@ func recordWrite(name string, started time.Time, id string, err error) {
 	tracing.Record(name, started, time.Now(), err, attrs...)
 }
 
-// EnsureSettings writes the hook settings file, refreshing it when the
-// wanted content changed (e.g. after an upgrade), and returns its path.
+// GeneratedName stamps name with its content, so every build's generated
+// file has a path of its own: "claude-settings.json" holding some bytes is
+// "claude-settings-<12 hex>.json".
+//
+// The files these names belong to are shared by the whole board, and more
+// than the board writes them: every process that launches a session -- the
+// CLI and each session's MCP server as well -- writes what its own build
+// generates before the launch reads it. An MCP server is pinned to the build
+// that started it for the life of its session, weeks across many board
+// restarts, and revives, migrates and account switches in its own process, so
+// under one fixed name an old server put its old hooks and steering back, and
+// a current launch reading in that moment started without the current ones.
+// Under a stamped name each build writes and reads only its own bytes, and an
+// old build can only ever touch its own file.
+func GeneratedName(name string, content []byte) string {
+	sum := sha256.Sum256(content)
+	ext := filepath.Ext(name)
+	return strings.TrimSuffix(name, ext) + "-" + hex.EncodeToString(sum[:6]) + ext
+}
+
+// WriteGenerated puts content at dir/GeneratedName(name, content) and returns
+// that path. The name is the content's, so a file already there holds the
+// same bytes and is left alone; a new one is written beside it and renamed
+// into place, so a launch reading it never sees part of a write.
+func WriteGenerated(dir, name string, content []byte) (string, error) {
+	path := filepath.Join(dir, GeneratedName(name, content))
+	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, content) {
+		return path, nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	tmp, err := os.CreateTemp(dir, ".gen-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(content); err != nil {
+		tmp.Close()
+		return "", err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// EnsureSettings writes this build's hook settings file and returns its path.
 func (m *Manager) EnsureSettings() (settings string, err error) {
 	// Every launch waits on this, and a session cannot report its own status
 	// until the file it writes through exists.
@@ -344,32 +400,31 @@ func (m *Manager) EnsureSettings() (settings string, err error) {
 		started := time.Now()
 		defer func() { recordWrite("hooks.settings", started, "", err) }()
 	}
-	if err := os.MkdirAll(m.dir, 0o755); err != nil {
-		return "", err
-	}
 	wanted, err := settingsContent(parentseal.KeyDir(m.root))
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(m.dir, settingsName)
-	existing, err := os.ReadFile(path)
-	if err == nil && bytes.Equal(existing, wanted) {
-		return path, nil
-	}
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return "", err
-	}
-	if err := os.WriteFile(path, wanted, 0o644); err != nil {
-		return "", err
-	}
-	return path, nil
+	return WriteGenerated(m.dir, settingsStem+".json", wanted)
 }
 
 // SettingsPath is where EnsureSettings would write, without writing it. A dry
 // run needs the path the command line will carry; ensuring the file is a side
 // effect it must not have.
 func (m *Manager) SettingsPath() string {
-	return filepath.Join(m.dir, settingsName)
+	wanted, err := settingsContent(parentseal.KeyDir(m.root))
+	if err != nil {
+		return filepath.Join(m.dir, settingsStem+".json")
+	}
+	return filepath.Join(m.dir, GeneratedName(settingsStem+".json", wanted))
+}
+
+// SettingsArgvMark is what the poller looks for in a running process's argv:
+// the flag and the settings file's path up to its content stamp. A session
+// launched by any build carries it -- one from before the stamp, with the
+// bare claude-settings.json, included -- so a release does not report the
+// board's existing sessions unwired.
+func (m *Manager) SettingsArgvMark() string {
+	return SettingsArgv(filepath.Join(m.dir, settingsStem))
 }
 
 // SettingsArgv is how the settings file appears on a launched session's

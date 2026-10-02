@@ -615,7 +615,7 @@
         ]
       },
       "keep": {
-        "description": "keep this child on the list after it finishes: Gate Inbox otherwise archives a finished child on its own once you have read or been told of its finish and left it alone for the grace period (10 minutes by default)",
+        "description": "keep this child on the list after it finishes: Gate Inbox otherwise archives a finished child on its own once you have read or been told of its finish and left it alone for the grace period (10 minutes by default); a child with background work still running is not finished",
         "type": "boolean"
       },
       "model": {

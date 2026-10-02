@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/agentsession"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -72,6 +73,10 @@ func (m *Model) sweepFinishedChildren() tea.Cmd {
 	rows := slices.Clone(m.sessions)
 	owned := maps.Clone(m.extOwned)
 	shells := m.shellTools()
+	var tracker *agentsession.Background
+	if m.poller != nil {
+		tracker = m.poller.background
+	}
 	return func() tea.Msg {
 		var retiring []string
 		if retire {
@@ -90,6 +95,13 @@ func (m *Model) sweepFinishedChildren() tea.Cmd {
 				// which the query above files once the poller writes it dead.
 				if !driver.Exists(child.ID) {
 					continue
+				}
+				if row, ok := rowByID(rows, child.ID); ok {
+					if pending, live := childBackgroundWork(tracker, row, driver.PanePID); len(pending) > 0 || live > 0 {
+						logging.Info("child sweep held a finished child whose background work is still running",
+							"session", child.ID, "tasks", pending, "shells", live)
+						continue
+					}
 				}
 				logging.Info("child sweep retiring a finished child",
 					"session", child.ID, "absorbed", child.Via, "absorbedAt", child.AbsorbedAt, "grace", grace)

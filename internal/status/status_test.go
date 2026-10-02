@@ -221,6 +221,15 @@ func TestDefaultRulesRealPanes(t *testing.T) {
 		// drafted message while background work was still running.
 		{"claude turn end with monitors running and a drafted prompt (real capture)", "claude",
 			"⏺ done\n✻ Cogitated for 2m 44s · done 8:14 PM · 2 monitors still running\n────\n❯ run another 100 with the unreachable fallback\n────\n  ⏵⏵ auto mode on · 2 monitors", Working},
+		// 2026-10-02 real capture: in a pane 52 columns wide Claude wraps the
+		// summary itself, so the tail's last word sits on an indented row of
+		// its own. Read alone, the first row is a plain turn end.
+		{"claude turn end with shells running, wrapped (real capture)", "claude",
+			"⏺ The judges are still running; the final report\n  goes out once they finish.\n\n✻ Sautéed for 8m 35s · done 0:41 · 2 shells still \n  running\n\n────\n❯ \n────\n  repo | main\n  ⏵⏵ auto mode on · 2 shells", Working},
+		{"claude background wait, wrapped", "claude",
+			"⏺ ok\n✻ Waiting for 2 background\n  agents to finish\n────\n❯ \n────", Working},
+		{"claude indented row under a plain turn end is not busy", "claude",
+			"⏺ ok\n✻ Worked for 3s\n  Ran 2 shell commands\n────\n❯ \n────", Idle},
 		{"claude wait on agents and a dynamic workflow", "claude",
 			"⏺ ok\n✻ Waiting for 1 background agent and 1 dynamic workflow to finish\n────\n❯ \n────", Working},
 		// A bullet opens with "·", itself one of the summary glyphs, and any

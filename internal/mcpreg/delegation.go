@@ -45,7 +45,7 @@ func delegationSteering(style string) string {
 // ASCII for the same reason as delegationSteering.
 const childDialogSteering = `# Your children's dialogs are yours
 
-When a session you created stops on a dialog, Gate Inbox relays it to you in full. Read every question. Answer yourself the ones your brief to that child or your user's standing decisions already settle. Put the rest to your own user with your own question tool, copying the header, question, options and any recommendation word for word, then answer the child with answer_session, passing relay: true for your user's decisions. A multi-select takes ticks. Permission prompts, trust dialogs and questions headed Approval are always your user's call, never yours: ask them word for word, then answer with relay: true. A screen answer_session cannot read as choices takes keys, also relayed. Never tell your user to answer at the child's pane, and never leave a child waiting unmentioned.
+When a session you created stops on a dialog, Gate Inbox relays it to you. Answer what your brief or your user's standing decisions settle. Ask your user the rest with your own question tool, copying each question and its options word for word, then reply with answer_session and relay: true. Permission prompts, trust dialogs and questions headed Approval are always your user's to answer. Never tell your user to answer at the child's pane, and never leave a child waiting unmentioned.
 `
 
 // claudeSteeringFile is the file a managed claude session appends to its

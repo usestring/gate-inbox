@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -128,5 +129,41 @@ func TestAttestedSendRefusals(t *testing.T) {
 				t.Fatal("a refused relay still queued its message")
 			}
 		})
+	}
+}
+
+type attestedToolSource struct {
+	asks.Source
+	pending  asks.Call
+	answered []convo.AnsweredAsk
+}
+
+func (s *attestedToolSource) Located(asks.Target) bool { return true }
+func (s *attestedToolSource) Pending(asks.Target) (asks.Call, bool) {
+	return s.pending, s.pending.ID != ""
+}
+func (s *attestedToolSource) Answered(asks.Target, time.Time) ([]convo.AnsweredAsk, error) {
+	return s.answered, nil
+}
+
+func TestAttestationReadsEachCLIsRecordAndRefusesItsPendingApproval(t *testing.T) {
+	f := newAttestFixture(t, 20*time.Minute)
+	const tool = "attest-source-test"
+	base, _ := asks.For("claude")
+	source := &attestedToolSource{Source: base, answered: []convo.AnsweredAsk{{
+		ToolUseID: "parent-call", Questions: []convo.AskQuestion{pushApproval},
+		Answers:    map[string]string{pushApproval.Question: "Yes, push and open it"},
+		AnsweredAt: f.now.Add(-2 * time.Minute),
+	}}}
+	asks.Register(tool, source)
+	t.Cleanup(func() { asks.Register(tool, base) })
+	f.parent.Tool, f.child.Tool = tool, tool
+	ask, _, err := f.h.sessions.attestable(f.h.store, f.parent, f.child, pushApproval.Question, f.now)
+	if err != nil || ask.ToolUseID != "parent-call" {
+		t.Fatalf("attestable = %+v, %v; want the parent's CLI record", ask, err)
+	}
+	source.pending = asks.Call{ID: "child-call", Questions: []convo.AskQuestion{pushApproval}}
+	if _, _, err := f.h.sessions.attestable(f.h.store, f.parent, f.child, pushApproval.Question, f.now); !errors.Is(err, errRelayRefused) || !strings.Contains(err.Error(), "answer_session relay: true") {
+		t.Fatalf("pending Approval: %v; want its own dialog answered", err)
 	}
 }

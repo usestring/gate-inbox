@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/logging"
@@ -132,21 +133,18 @@ func (s *Sessions) attestable(st *store.Store, caller, target store.Session, que
 		return refuse("session %s is not a child you spawned and track, so you cannot relay your user's "+
 			"approval to it", target.ID)
 	}
-	if path := s.transcriptOf(target); path != "" {
-		if call, ok := convo.PendingAskCall(path); ok {
-			for _, q := range call.Questions {
-				if dialog.IsApproval(q.Header) {
-					return refuse("session %s is holding its own Approval dialog; put that question to your "+
-						"user verbatim and answer it with answer_session relay: true", target.ID)
-				}
+	if call, ok := asks.Pending(s.askTarget(target)); ok {
+		for _, q := range call.Questions {
+			if dialog.IsApproval(q.Header) {
+				return refuse("session %s is holding its own Approval dialog; put that question to your "+
+					"user verbatim and answer it with answer_session relay: true", target.ID)
 			}
 		}
 	}
-	path := s.transcriptOf(caller)
-	if path == "" {
+	if !asks.Located(s.askTarget(caller)) {
 		return refuse("this session's own transcript cannot be found, so there is no dialog of your user's to cite")
 	}
-	asks, err := convo.AnsweredAsks(path, time.Time{})
+	answered, err := asks.AnsweredSince(s.askTarget(caller), time.Time{})
 	if err != nil {
 		return refuse("cannot read this session's own transcript: %v", err)
 	}
@@ -156,8 +154,8 @@ func (s *Sessions) attestable(st *store.Store, caller, target store.Session, que
 			reason = r
 		}
 	}
-	for i := len(asks) - 1; i >= 0; i-- {
-		ask := asks[i]
+	for i := len(answered) - 1; i >= 0; i-- {
+		ask := answered[i]
 		for _, q := range ask.Questions {
 			if normalise(q.Question) != normalise(question) {
 				continue

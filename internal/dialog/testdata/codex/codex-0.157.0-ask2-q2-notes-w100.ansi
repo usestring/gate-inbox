@@ -1,0 +1,45 @@
+[2m╭─────────────────────────────────────────────────╮[0m
+[2m│ [0;1m[38;5;75m✨ Update available![0m [1m0.157.0 -> 0.159.2[0;2m         │[0m
+[2m│ [0mRun [38;5;75mnpm install -g @openai/codex[39m to update.[2m     │[0m
+[2m│                                                 │[0m
+[2m│ [0mSee full release notes:[2m                         │[0m
+[2m│ [0;4m[38;5;75m]8;;https://github.com/openai/codex/releases/latest\https://github.com/openai/codex/releases/latest[0;2m]8;;\ │[0m
+[2m╰─────────────────────────────────────────────────╯[0m
+
+[2m╭───────────────────────────────────────────────╮[0m
+[2m│ >_ [0;1mOpenAI Codex[0;2m (v0.157.0)                    │[0m
+[2m│                                               │[0m
+[2m│ model:     [0mGPT-6-Astra low[2m   [0m[38;5;75m/model[2m[39m to change │[0m
+[2m│ directory: [0m/tmp/sbox-001000/gdx/work[2m          │[0m
+[2m╰───────────────────────────────────────────────╯[0m
+
+
+[1;2m› [0mTest harness: call the request_user_input tool once with two questions. Q1 header 'Color',
+  question 'Which color should the banner use?', options Red / Green / Blue with short
+  descriptions. Q2 header 'Size', question 'How big should the banner be?', options Small / Large.
+  After the answer, reply with the answers you received verbatim and stop.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  [2mQuestion 2/2 (1 unanswered)[0m
+  [38;5;75mHow big should the banner be?[39m
+
+  [1;7m› 1. Small              [0;7mUse a small banner.[1m                                                     [0m
+    2. Large              [2mUse a large banner.[0m
+    3. None of the above  [2mOptionally, add details in notes (tab)[0m
+
+  [1m›[0m keep it subtle
+
+  [1mtab[0;2m or [0;1mesc[0;2m to clear notes | [0;1menter[0m to submit all
+

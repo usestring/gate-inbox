@@ -33,6 +33,7 @@ type AskOption struct {
 // AskQuestion is one question of an AskUserQuestion call, as the model wrote
 // it.
 type AskQuestion struct {
+	ID          string      `json:"id,omitempty"`
 	Header      string      `json:"header"`
 	Question    string      `json:"question"`
 	MultiSelect bool        `json:"multiSelect"`

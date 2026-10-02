@@ -276,6 +276,7 @@ type Model struct {
 	// preview's card drawn from it. See previewquestions.go.
 	askQuestions map[string][]convo.AskQuestion
 	questionCard questionCard
+	screenCard   screenCard
 	// hookless mirrors refreshMsg.hookless: the rows whose status is
 	// pane-derived because nothing is writing their hook file. See
 	// hooklessGlyph for what the row does with it.

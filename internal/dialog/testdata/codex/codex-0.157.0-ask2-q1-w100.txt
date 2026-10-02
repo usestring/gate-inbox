@@ -1,0 +1,45 @@
+╭─────────────────────────────────────────────────╮
+│ ✨ Update available! 0.157.0 -> 0.159.2         │
+│ Run npm install -g @openai/codex to update.     │
+│                                                 │
+│ See full release notes:                         │
+│ https://github.com/openai/codex/releases/latest │
+╰─────────────────────────────────────────────────╯
+
+╭───────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.157.0)                    │
+│                                               │
+│ model:     GPT-6-Astra low   /model to change │
+│ directory: /tmp/sbox-001000/gdx/work          │
+╰───────────────────────────────────────────────╯
+
+
+› Test harness: call the request_user_input tool once with two questions. Q1 header 'Color',
+  question 'Which color should the banner use?', options Red / Green / Blue with short
+  descriptions. Q2 header 'Size', question 'How big should the banner be?', options Small / Large.
+  After the answer, reply with the answers you received verbatim and stop.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  Question 1/2 (2 unanswered)
+  Which color should the banner use?
+
+  › 1. Red                Use a red banner.
+    2. Green              Use a green banner.
+    3. Blue               Use a blue banner.
+    4. None of the above  Optionally, add details in notes (tab)
+
+  tab to add notes | enter to submit answer | ←/→ to navigate questions | esc to interrupt
+

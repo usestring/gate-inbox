@@ -1005,6 +1005,8 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 		if sess.ParentID != "" && newStatus == status.Waiting {
 			if _, ok := dialog.Parse(ansi.Strip(childPane[sess.ID])); ok {
 				answerableWait[sess.ID] = true
+			} else if dialog.HasReader(sess.Tool) {
+				_, answerableWait[sess.ID] = dialog.ReadQuestions(sess.Tool, childPane[sess.ID], nil)
 			}
 		}
 		if newStatus != sess.Status {

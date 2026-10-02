@@ -1,0 +1,45 @@
+Now call request_user_input_async with one question: header 'Theme', id 'theme', question 'Which th…
+
+  8:15 PM
+
+
+› Run exactly this shell command and nothing else: curl -sS -o /dev/null -w '%{http_code}' https://
+  example.com  -- it needs network access, so request escalated permissions for it with the
+  justification 'test harness network check'. Report the output.
+
+
+• I’ll run the command with the requested escalated permissions and report its output.
+
+✔ You approved codex to run curl -sS -o /dev/null -w '%{http_code}' https://example.com this time
+
+• Ran curl -sS -o /dev/null -w '%{http_code}' https://example.com
+  └ 200
+
+• 200
+
+  8:16 PM
+
+
+› Use apply_patch (not a shell command) to create the file /var/tmp/gdx-cx/note.txt containing the
+  single line 'hello from codex'. That path is outside the workspace; request approval as needed.
+  Then stop.
+
+
+• I’ll use apply_patch to create the file.
+
+• Added /var/tmp/gdx-cx/note.txt (+1 -0)
+    1 +hello from codex
+    + Show details
+
+
+  Would you like to make the following edits?
+
+  Description: Apply proposed file edits
+  Destination: /var/tmp/gdx-cx/note.txt
+
+
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for these files (a)
+  3. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel

@@ -55,6 +55,9 @@ type poller struct {
 	// shellTools marks the config blocks that open a shell rather than an
 	// agent, so a pass can tell a session's own terminal from a session.
 	shellTools map[string]bool
+	// background follows each Claude transcript for the background work a
+	// Stop hook fires over; see backgroundPending.
+	background *agentsession.Background
 	// interruptKeys is each tool's configured interrupt_keys, what stops a
 	// running turn for a message sent with interrupt.
 	interruptKeys map[string][]string
@@ -393,6 +396,7 @@ func newPoller(st *store.Store, driver *tmux.Driver, engine *status.Engine, hook
 		childDialogs:    map[string]*childDialogRelay{},
 		escalate:        notify.Post,
 		trees:           sysstat.NewTreeSampler(argvMark),
+		background:      agentsession.NewBackground(),
 	}
 }
 
@@ -1005,6 +1009,8 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 		if sess.ParentID != "" && newStatus == status.Waiting {
 			if _, ok := dialog.Parse(ansi.Strip(childPane[sess.ID])); ok {
 				answerableWait[sess.ID] = true
+			} else if dialog.HasReader(sess.Tool) {
+				_, answerableWait[sess.ID] = dialog.ReadQuestions(sess.Tool, childPane[sess.ID], nil)
 			}
 		}
 		if newStatus != sess.Status {
@@ -1349,6 +1355,20 @@ func pendingDeliverable(derived string, typeAhead bool) bool {
 func (p *poller) maybeSendPendingInputWhenReady(sess store.Session, capture tmux.Capture, derived string, agentAlive bool) (bool, error) {
 	if len(sess.PendingInputs) == 0 {
 		return false, nil
+	}
+	if !sess.PendingInputClaimed && strings.HasPrefix(sess.PendingInputs[0], adoptedRenamePrefix) {
+		if sess.NameSource != store.SourceDerived {
+			claimed, err := p.store.ClaimPendingInput(sess.ID, sess.PendingInputs[0])
+			if err != nil || !claimed {
+				return false, err
+			}
+			return p.store.ConsumeClaimedPendingInput(sess.ID, sess.PendingInputs[0])
+		}
+		// Naming is housekeeping: even a tool with type-ahead must finish
+		// its turn before it is asked, and an error is not a resting prompt.
+		if derived != status.Idle && derived != status.Finished {
+			return false, nil
+		}
 	}
 	if !sess.PendingInputClaimed && !pendingDeliverable(derived, p.engine.TypeAhead(sess.Tool)) {
 		return false, nil
@@ -2359,7 +2379,11 @@ func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAli
 				if p.missedTurn(sess, hookStatus) {
 					return status.Working, nil
 				}
-				return p.applyHookStatus(sess, text, hookStatus, displaced), nil
+				derived := p.applyHookStatus(sess, text, hookStatus, displaced)
+				if hookStatus == status.Finished && (derived == status.Finished || derived == status.Idle) && p.backgroundPending(sess) {
+					return status.Working, nil
+				}
+				return derived, nil
 			}
 		}
 	}
@@ -2463,6 +2487,31 @@ func (p *poller) missedTurn(sess store.Session, hookStatus string) bool {
 		}
 	}
 	return false
+}
+
+// backgroundPending reports whether a Claude session's transcript names
+// background work that has not ended: a shell or monitor started in the
+// background, an agent launched async, an MCP call moved to the background.
+// Stop fires over all of them, and Claude wakes itself when one ends, so the
+// session is working, not finished. The pane says so too, but only in a line
+// the pane's width can wrap; the transcript names each task by id.
+func (p *poller) backgroundPending(sess store.Session) bool {
+	return claudeBackgroundPending(p.background, sess) != nil
+}
+
+// claudeBackgroundPending is the background tasks a Claude session's
+// transcript started and has not heard end, or nil when there are none or
+// the transcript cannot be read.
+func claudeBackgroundPending(tracker *agentsession.Background, sess store.Session) []string {
+	if tracker == nil || sess.AgentSessionID == "" {
+		return nil
+	}
+	path, err := agentsession.ClaudeTranscriptPath(sess.Cwd, sess.AgentSessionID)
+	if err != nil {
+		return nil
+	}
+	ids, _ := tracker.Pending(path)
+	return ids
 }
 
 // applyHookStatus trusts the hook-reported status over pane heuristics

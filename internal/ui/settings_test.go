@@ -224,7 +224,7 @@ func TestSettingsReloadsEditedSnippetsWhenItCloses(t *testing.T) {
 
 	updated, _ := m.handleSettingsKey(key("esc"))
 	m = updated.(*Model)
-	loaded, ok := m.snippetFor("ctrl+alt+d")
+	loaded, ok := m.menuSnippetFor("d")
 	if !ok || loaded.Text != "ship it now" {
 		t.Fatalf("edited snippet was not reloaded: %+v, found=%v", loaded, ok)
 	}
@@ -291,30 +291,39 @@ func TestSettingsKeysRowOpensKeyMap(t *testing.T) {
 	}
 }
 
-// The focused-view row cycles the two choices and persists the one stepped
-// to, so a session kept on its conversation is remembered across restarts.
-func TestSettingsCyclesTheFocusedView(t *testing.T) {
+func TestSettingsCompressedFocusIsDefaultOffAndPersists(t *testing.T) {
 	m := buildModel(t)
-	if m.focusView != focusViewTerminal {
-		t.Fatalf("focusView = %q, want the terminal default", m.focusView)
+	if storedCompressedFocus(m.store) || storedFocusView(m.store) != focusViewTerminal {
+		t.Fatal("compressed focus must default off")
 	}
 	m.openSettings()
-	m.settings.field = settingsFieldFocusView
-	if card := ansi.Strip(m.viewSettings()); !strings.Contains(card, "focused view") {
-		t.Fatalf("settings is missing the focused view row: %s", card)
+	if strings.Contains(ansi.Strip(m.viewSettings()), "focused view") {
+		t.Fatal("focused view should only be offered as an experiment")
 	}
-	m.cycleSetting(1)
-	if m.settings.focusView != focusViewConversation {
-		t.Fatalf("step left the picker on %q", m.settings.focusView)
+	m.settings.field = settingsFieldExperimental
+	m.handleSettingsKey(key("enter"))
+	m.handleSettingsKey(key("up"))
+	if m.settings.experimentalCursor != 2 {
+		t.Fatal("up should wrap to compressed focus")
 	}
-	m.saveAndCloseSettings()
-	if m.focusView != focusViewConversation {
-		t.Fatalf("saving did not apply the focused view: %q", m.focusView)
+	if card := ansi.Strip(m.viewSettings()); !strings.Contains(card, "Compressed focus view") || !strings.Contains(card, "mirroring is experimental") {
+		t.Fatalf("experiment is missing its description: %s", card)
 	}
-	if got, _ := m.store.Setting(focusViewSetting); got != focusViewConversation {
-		t.Fatalf("stored focus view = %q, want %q", got, focusViewConversation)
+	m.handleSettingsKey(key("right"))
+	m.handleSettingsKey(key("esc"))
+	m.handleSettingsKey(key("esc"))
+	if !m.compressedFocus || !storedCompressedFocus(m.store) || storedFocusView(m.store) != focusViewConversation {
+		t.Fatal("opt-in did not persist or show the conversation")
 	}
-	if got := storedFocusView(m.store); got != focusViewConversation {
-		t.Fatalf("storedFocusView = %q, want %q", got, focusViewConversation)
+	m.openSettings()
+	m.settings.field = settingsFieldExperimental
+	m.handleSettingsKey(key("enter"))
+	m.handleSettingsKey(key("down"))
+	m.handleSettingsKey(key("down"))
+	m.handleSettingsKey(key("enter"))
+	m.handleSettingsKey(key("esc"))
+	m.handleSettingsKey(key("esc"))
+	if m.compressedFocus || storedCompressedFocus(m.store) || m.focusView != focusViewTerminal || storedFocusView(m.store) != focusViewTerminal {
+		t.Fatal("disabling did not restore the terminal")
 	}
 }

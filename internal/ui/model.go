@@ -111,8 +111,8 @@ type Model struct {
 	gitDrv *git.Driver
 	engine *status.Engine
 
-	// snips are the operator's canned answers on ctrl+alt keys, read once at
-	// startup; snipErr is why there are none, when the file would not be read.
+	// snips are the operator's canned answers, read once at startup;
+	// snipErr is why there are none, when the file would not be read.
 	snips          snippets.Set
 	snipErr        string
 	jevAutoSuggest bool
@@ -237,6 +237,10 @@ type Model struct {
 	// read off the cursor per row because artifactRows is asked for every
 	// session a rebuild walks and the answer is one comparison.
 	railCursorSess string
+	// commonTool is the CLI most listed sessions run. A compact row names its
+	// CLI only when it is some other one: on a board that is nearly all one
+	// tool, the name on every row is a column that says nothing.
+	commonTool string
 
 	groups         []string
 	groupPaths     map[string]string
@@ -272,6 +276,7 @@ type Model struct {
 	// preview's card drawn from it. See previewquestions.go.
 	askQuestions map[string][]convo.AskQuestion
 	questionCard questionCard
+	screenCard   screenCard
 	// hookless mirrors refreshMsg.hookless: the rows whose status is
 	// pane-derived because nothing is writing their hook file. See
 	// hooklessGlyph for what the row does with it.
@@ -438,7 +443,8 @@ type Model struct {
 	// focusView mirrors the persisted focused-view setting: the live
 	// terminal, or the conversation transcript. The content column reads it
 	// every frame, so it lives here instead of the store. See focusview.go.
-	focusView string
+	focusView       string
+	compressedFocus bool
 	// comfortableRows mirrors the persisted list density: entries paint
 	// their meta on a second line instead of alongside the name. Every
 	// rail frame reads it, so it lives here instead of the store.
@@ -480,10 +486,12 @@ type Model struct {
 	newSessionAgent string
 	autoRouting     bool
 	// focusedID is the session focus mode is on or was last on, and
-	// prevFocusID the one before it: the pair l swaps between. See
-	// lastpane.go.
+	// focusHistory the sessions focused before it, newest last: what l
+	// walks back through. prevFocusID is the newest entry, kept for
+	// callers that read one step. See lastpane.go.
 	focusedID         string
 	prevFocusID       string
+	focusHistory      []string
 	previewBodyOffset int
 	cursor            int
 	mode              mode
@@ -785,9 +793,12 @@ type renameTarget struct {
 
 // quickState is the hotkey menu docked under the preview: active across
 // cursor moves, so the target follows the selection. It lists the snippets
-// and takes no text.
+// and takes no text. From inside a focused session it answers that session;
+// fromFocus remembers which, because the cursor it would otherwise follow is
+// not what is on screen there.
 type quickState struct {
 	active             bool
+	fromFocus          bool
 	closeAfterSend     bool
 	suggestions        []string
 	suggestionIdentity string
@@ -802,7 +813,6 @@ type settingsState struct {
 	field              int
 	quickCloseSend     bool
 	enterFocuses       bool
-	focusView          string
 	comfortableRows    bool
 	layout             string
 	sidebar            string
@@ -820,6 +830,7 @@ type settingsState struct {
 	experimentalCursor int
 	jevAutoSuggest     bool
 	promptSuggest      bool
+	compressedFocus    bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -847,7 +858,6 @@ const (
 	settingsFieldLeave
 	settingsFieldQuickClose
 	settingsFieldFocusKey
-	settingsFieldFocusView
 	settingsFieldAutoProceed
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
@@ -1139,7 +1149,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	// force here rather than read off the model on every paint.
 	applyGlyphSet(storedGlyphs(st))
 	model := &Model{
-		conversation:    &conversationView{locator: newHistoryLocator(), compact: true},
+		conversation:    &conversationView{locator: newHistoryLocator(), compact: true, hovered: -1},
 		landingLocator:  newHistoryLocator(),
 		cfg:             cfg,
 		store:           st,
@@ -1157,6 +1167,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		split:           splitState{ratio: loadSplitRatio(st)},
 		focusOnEnter:    storedFocusOnEnter(st),
 		focusView:       storedFocusView(st),
+		compressedFocus: storedCompressedFocus(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
 		promptSuggest:   storedPromptSuggestions(st),
 		comfortableRows: storedComfortableRows(st),
@@ -1190,6 +1201,9 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	})
 	model.ownPane, model.ownSocket = tmux.OwnPane()
 	model.initDeviceTheme()
+	if layout, err := model.deviceLayout(); err == nil {
+		model.layout = layout
+	}
 	model.loadKeys()
 	model.loadSnippets()
 	model.seedFromStore()
@@ -1852,8 +1866,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			SyncTerminalBackground()
 			return m, tea.ClearScreen
 		}
+		wasCompact := m.compactRail()
 		m.width = msg.Width
 		m.height = msg.Height
+		// The tree is built for a rail's width: a compact one keeps the
+		// cursor's work folded, so crossing the threshold reshapes it.
+		if m.compactRail() != wasCompact {
+			m.rebuildRows()
+		}
 		// Re-assert the terminal backdrop: a reattach or a fresh outer
 		// terminal delivers a size message and may carry stale colors.
 		SyncTerminalBackground()
@@ -1915,7 +1935,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.deviceErr != nil {
 			m.errBar.text = msg.deviceErr.Error()
 		}
-		return m, tea.Batch(m.setVisible(visible), m.loadDeviceTheme(msg.device))
+		device := m.themeDevice
+		cmd := tea.Batch(m.setVisible(visible), m.loadDeviceTheme(msg.device))
+		if m.themeDevice != device {
+			cmd = tea.Batch(cmd, m.loadDeviceLayout())
+		}
+		return m, cmd
 
 	case browserOpenMsg:
 		m.handleBrowserOpen(msg)
@@ -2828,8 +2853,14 @@ func (m *Model) buildTree() {
 
 	listed := store.OrderLinkedSessions(m.listedSessions())
 	listedIDs := make(map[string]bool, len(listed))
+	toolCounts := map[string]int{}
+	m.commonTool = ""
 	for _, sess := range listed {
 		listedIDs[sess.ID] = true
+		toolCounts[sess.Tool]++
+		if n, best := toolCounts[sess.Tool], toolCounts[m.commonTool]; n > best || (n == best && sess.Tool < m.commonTool) {
+			m.commonTool = sess.Tool
+		}
 	}
 	byID := make(map[string]store.Session, len(m.sessions))
 	for _, sess := range m.sessions {

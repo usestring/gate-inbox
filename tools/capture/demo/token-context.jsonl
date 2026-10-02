@@ -1,0 +1,3 @@
+{"type":"ai-title","sessionId":"token-context","aiTitle":"Context token usage"}
+{"type":"user","sessionId":"token-context","message":{"role":"user","content":"How much context is this session using?"}}
+{"type":"assistant","sessionId":"token-context","timestamp":"2026-10-01T12:00:00Z","message":{"role":"assistant","content":"The context reading is shown beside the computer gauges.","usage":{"input_tokens":1000,"cache_read_input_tokens":50000,"cache_creation_input_tokens":1000,"output_tokens":400}}}

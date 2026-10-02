@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/usestring/gate-inbox/extension/textfmt"
+	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -16,6 +17,7 @@ import (
 
 // askRead is one session's last read of its transcript for a pending call.
 type askRead struct {
+	at        time.Time
 	key       string
 	path      string
 	size      int64
@@ -28,7 +30,10 @@ type askRead struct {
 // pass's reads, which replace the previous pass's whole so a session that
 // left its dialog takes its read with it.
 func (p *poller) pendingAsk(sess store.Session, clean string, next map[string]*askRead) []convo.AskQuestion {
-	if sess.Tool != "claude" || sess.AgentSessionID == "" || !strings.ContainsRune(clean, '✔') {
+	if sess.Tool != "claude" {
+		return p.pendingToolAsk(sess, clean, next)
+	}
+	if sess.AgentSessionID == "" || !strings.ContainsRune(clean, '✔') {
 		return nil
 	}
 	if stepper, ok := dialog.ParseStepper(clean); !ok || len(stepper.Steps) < 2 {
@@ -53,6 +58,47 @@ func (p *poller) pendingAsk(sess store.Session, clean string, next map[string]*a
 		read.questions, _ = convo.PendingAsk(read.path)
 	}
 	return read.questions
+}
+
+const toolAskReread = 2 * time.Second
+
+func (p *poller) pendingToolAsk(sess store.Session, clean string, next map[string]*askRead) []convo.AskQuestion {
+	if sess.AgentSessionID == "" || !dialog.HasReader(sess.Tool) {
+		return nil
+	}
+	reading, ok := dialog.ReadQuestions(sess.Tool, clean, nil)
+	if !ok {
+		return nil
+	}
+	key := sess.Tool + "\x00" + sess.AgentSessionID + "\x00" + sess.Cwd
+	read := p.askReads[sess.ID]
+	if read == nil || read.key != key {
+		read = &askRead{key: key}
+	}
+	next[sess.ID] = read
+	if read.questions == nil || !coversScreen(read.questions, reading.Questions) || time.Since(read.at) > toolAskReread {
+		read.at = time.Now()
+		read.questions = asks.PendingQuestions(asks.Target{Tool: sess.Tool, AgentSessionID: sess.AgentSessionID, Cwd: sess.Cwd})
+	}
+	return read.questions
+}
+
+func coversScreen(asked []convo.AskQuestion, shown []dialog.Question) bool {
+	for _, q := range shown {
+		if !q.OnScreen || q.Question == "" {
+			continue
+		}
+		found := false
+		for _, a := range asked {
+			if dialog.SameText(a.Question, q.Question) {
+				found = true
+			}
+		}
+		if !found {
+			return false
+		}
+	}
+	return true
 }
 
 // questionCard is the rendered card, kept until the pane, the call or the
@@ -89,7 +135,14 @@ func (m *Model) previewQuestions(width, height int) []string {
 		return nil
 	}
 	asked := m.askQuestions[sess.ID]
-	if len(asked) < 2 {
+	least := 2
+	if sess.Tool != "claude" {
+		least = 1
+	}
+	if len(asked) < least {
+		if sess.Tool != "claude" {
+			return m.previewScreen(width, height)
+		}
 		return nil
 	}
 	c := &m.questionCard
@@ -98,13 +151,12 @@ func (m *Model) previewQuestions(width, height int) []string {
 		return c.lines
 	}
 	*c = questionCard{sessID: sess.ID, pane: m.preview, asked: &asked[0], count: len(asked), width: width, height: height, theme: renderGen}
-	questions := dialog.Questions(m.preview, asked)
-	if len(questions) != len(asked) {
+	reading, ok := dialog.ReadQuestions(sess.Tool, m.preview, asked)
+	if !ok || len(reading.Questions) != len(asked) {
 		return nil
 	}
-	stepper, _ := dialog.ParseStepper(m.preview)
 	for detail := cardFull; detail <= cardHeadersOnly; detail++ {
-		c.lines = questionCardLines(questions, stepper.OnSubmit(), width, detail)
+		c.lines = questionCardLines(reading.Questions, reading.OnSubmit, width, detail)
 		if len(c.lines) <= height {
 			break
 		}
@@ -194,6 +246,15 @@ func questionCardLines(questions []dialog.Question, onSubmit bool, width, detail
 			}
 		}
 	}
+	if len(questions) < 2 {
+		title := fmt.Sprintf(" 1 question · %d answered ", answered)
+		title = textfmt.TruncateWidth(title, max(1, width-2), "")
+		lines := []string{border.Render("╭" + title + strings.Repeat("─", max(0, width-2-textfmt.Width(title))) + "╮")}
+		for _, line := range body {
+			lines = append(lines, border.Render("│")+" "+padRight(line, inner)+" "+border.Render("│"))
+		}
+		return append(lines, border.Render("╰"+strings.Repeat("─", max(0, width-2))+"╯"))
+	}
 	body = append(body, "")
 	submit := "▸ Submit"
 	if left := len(questions) - answered; onSubmit && left > 0 {
@@ -243,4 +304,93 @@ func packItems(items []string, width int) []string {
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+func (m *Model) previewScreen(width, height int) []string {
+	sess, ok := m.selected()
+	if !ok {
+		return nil
+	}
+	c := &m.screenCard
+	if c.sessID == sess.ID && c.pane == m.preview && c.width == width && c.height == height && c.theme == renderGen {
+		return c.lines
+	}
+	*c = screenCard{sessID: sess.ID, pane: m.preview, width: width, height: height, theme: renderGen}
+	screen, ok := dialog.ReadScreenFor(sess.Tool, m.preview)
+	if !ok {
+		return nil
+	}
+	c.lines = screenCardLines(screen, width)
+	if len(c.lines) > height {
+		c.lines = append(c.lines[:max(0, height-1)], c.lines[len(c.lines)-1])
+	}
+	return c.lines
+}
+
+type screenCard struct {
+	sessID string
+	pane   string
+	width  int
+	height int
+	theme  int
+	lines  []string
+}
+
+func screenCardLines(screen dialog.Screen, width int) []string {
+	border := newFastStyle(lipgloss.NewStyle().Foreground(colorCard))
+	bold := newFastStyle(lipgloss.NewStyle().Foreground(colorText).Bold(true))
+	inner := max(1, width-4)
+	var body []string
+	add := func(style fastStyle, lead, text string) {
+		room := max(1, inner-textfmt.Width(lead))
+		for i, piece := range textfmt.Wrap(text, room) {
+			if i > 0 {
+				lead = strings.Repeat(" ", textfmt.Width(lead))
+			}
+			body = append(body, lead+style.Render(piece))
+		}
+	}
+	marked := len(screen.Choices) > 0
+	for _, line := range screen.Lines {
+		if marked && screenChoiceLine(screen, line) {
+			continue
+		}
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		add(valueStyle, "", textfmt.OneLine(line))
+	}
+	if marked {
+		body = append(body, "")
+		for i, choice := range screen.Choices {
+			lead := fmt.Sprintf("%d. ", i+1)
+			if choice.Cursor {
+				lead = "▸ " + lead
+			} else {
+				lead = "  " + lead
+			}
+			style := valueStyle
+			if choice.Cursor {
+				style = bold
+			}
+			add(style, lead, textfmt.OneLine(choice.Label))
+		}
+	}
+	title := textfmt.TruncateWidth(" "+string(screen.Kind)+" · a person's to answer ", max(1, width-2), "")
+	lines := []string{border.Render("╭" + title + strings.Repeat("─", max(0, width-2-textfmt.Width(title))) + "╮")}
+	for _, line := range body {
+		lines = append(lines, border.Render("│")+" "+padRight(line, inner)+" "+border.Render("│"))
+	}
+	return append(lines, border.Render("╰"+strings.Repeat("─", max(0, width-2))+"╯"))
+}
+
+func screenChoiceLine(screen dialog.Screen, line string) bool {
+	text := strings.TrimSpace(line)
+	for _, choice := range screen.Choices {
+		label := strings.TrimSpace(choice.Label)
+		if label != "" && strings.Contains(text, label) {
+			return true
+		}
+	}
+	return false
 }

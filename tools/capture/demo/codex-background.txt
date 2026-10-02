@@ -1,0 +1,12 @@
+› Run the shell command: sleep 240 . Start it so it keeps running in a background terminal; do not
+  wait for it to finish and do not poll it. Then reply with the single word started and end your
+  turn.
+
+• I’ll start the command in a background terminal.
+
+• started
+
+  1:15 AM
+  1 background terminal running · /ps to view · /stop to close
+
+› Ask Codex to do anything

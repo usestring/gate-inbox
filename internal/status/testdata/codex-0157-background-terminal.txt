@@ -1,0 +1,23 @@
+╭─────────────────────────────────────────────────╮
+│ ✨ Update available! 0.157.0 -> 0.159.3         │
+│ Run npm install -g @openai/codex to update.     │
+│                                                 │
+│ See full release notes:                         │
+│ https://github.com/openai/codex/releases/latest │
+╰─────────────────────────────────────────────────╯
+╭────────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.157.0)                     │
+│                                                │
+│ model:     gpt-5 high         /model to change │
+│ directory: ~/work                              │
+╰────────────────────────────────────────────────╯
+  Tip: New Use /fast to enable our fastest inference with increased plan usage.
+› Run the shell command: sleep 240 . Start it so it keeps running in a background terminal; do not
+  wait for it to finish and do not poll it. Then reply with the single word started and end your
+  turn.
+• I’ll start the command in a background terminal.
+• started
+  1:15 AM
+  1 background terminal running · /ps to view · /stop to close
+› Ask Codex to do anything
+  gpt-5 high · ~/work · Start background sleep command · ← for agents

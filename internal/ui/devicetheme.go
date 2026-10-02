@@ -7,11 +7,19 @@ import (
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
-func (m *Model) themeSettingKey() string {
+// deviceSettingKey is where a per-device setting lives for the device now
+// attached: setting + ":" + its tmux.DeviceIdentity fingerprint, or the shared
+// row when no device is known. The theme and the layout both go through it, so
+// the two can never be filed under different devices.
+func (m *Model) deviceSettingKey(setting string) string {
 	if m.themeDevice == "" {
-		return themeSetting
+		return setting
 	}
-	return themeSetting + ":" + m.themeDevice
+	return setting + ":" + m.themeDevice
+}
+
+func (m *Model) themeSettingKey() string {
+	return m.deviceSettingKey(themeSetting)
 }
 
 func (m *Model) loadDeviceTheme(device string) tea.Cmd {

@@ -101,7 +101,7 @@ type createSessionArgs struct {
 	Group      *string `json:"group,omitempty" jsonschema:"existing group path for a detached session (nest false) to sit in; pass an empty string for the root group; a nested session is always in this agent's group and refuses any other; call list_groups for the existing ones"`
 	Directory  string  `json:"directory,omitempty" jsonschema:"existing directory the session works in; defaults to this agent's own directory, or to the selected group's inherited path when group is set"`
 	Nest       *bool   `json:"nest,omitempty" jsonschema:"omit it: the new session is this session's child, drawn under it, and its questions, rests and finishes are relayed to this session, which is how a fan-out gets steered; false detaches it into a top-level session that belongs to the user, not to this session: it still records this session in spawned_by, but this session is not told of its questions, rests or finishes and cannot answer its dialogs, and the two talk only through send_session and read_session; only for work that is not this session's, such as a standalone session the user asked for"`
-	Keep       bool    `json:"keep,omitempty" jsonschema:"keep this child on the list after it finishes: Gate Inbox otherwise archives a finished child on its own once you have read or been told of its finish and left it alone for the grace period (10 minutes by default)"`
+	Keep       bool    `json:"keep,omitempty" jsonschema:"keep this child on the list after it finishes: Gate Inbox otherwise archives a finished child on its own once you have read or been told of its finish and left it alone for the grace period (10 minutes by default); a child with background work still running is not finished"`
 	// CallerSessionID carries the caller's own session id when the MCP
 	// server's startup value cannot be trusted: opencode multiplexes
 	// same-cwd conversations through one shared MCP server (serve daemon),
@@ -627,8 +627,9 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Name: "answer_session",
 		Description: "Answer the dialog one of your own spawned sessions has stopped on -- a question, a multi-select, a permission prompt, a workspace or MCP-server trust dialog, or any other screen -- so the fan-out you started keeps moving. Every dialog a child stops on is yours to settle: answer it, or ask your user and answer with what they chose. " +
 			"You are told a child has stopped by a message relaying the dialog in full; this is how you reply to it, which send_session cannot do -- a message is held until the recipient is at rest, and a session on a dialog never is. " +
-			"Questions (Claude Code's AskUserQuestion, one or several drawn as tabs, and Codex's request_user_input): pass answers, one entry per question, naming it by index or header and giving the option's text, or your own words to type into its free-text row; for a multi-select give ticks, the labels to leave ticked. The call fills them in, checks the review page and presses Submit once every question has an answer (submit false stops before that). answer or ticks alone answers the question on the screen. " +
-			"After answering it reads back what the child registered -- the boxes, the review page, the record Claude Code prints -- and returns an error naming what was given and what registered if they differ; a result means the child holds exactly your answer (verified). Its \"Chat about this\" row is refused, because it drops the dialog without answering. " +
+			"Questions (Claude Code's AskUserQuestion, one or several drawn as tabs, Codex's request_user_input and OpenCode's question): pass answers, one entry per question, naming it by index or header and giving the option's text, or your own words to type into its free-text row; for a multi-select give ticks, the labels to leave ticked. The call fills them in, checks the review page and presses Submit once every question has an answer (submit false stops before that). answer or ticks alone answers the question on the screen. " +
+			"After answering it reads back what the child registered -- the boxes, the review page, the record Claude Code prints, the answers Codex writes to its rollout or OpenCode records in its session store -- and returns an error naming what was given and what registered if they differ; a result means the child holds exactly your answer (verified). Its \"Chat about this\" row is refused, because it drops the dialog without answering. " +
+			"On Codex, free text goes in its None of the above note; a question asked without a dialog takes the next message, and an unanswered question expires after about two minutes. On OpenCode, give every multi-select option to tick separated by commas, or ticks, and free text goes in its Type your own answer row. " +
 			"Decide each question in turn: answer it yourself where your brief to that child or your user's standing decisions already settle it; otherwise ask your user with your own question tool, copying the header, the question, every option and any recommendation word for word, and answer with what they choose. " +
 			"Permission prompts, trust dialogs, Codex's directory-trust prompt and questions headed Approval are always your user's call, never yours: ask your user with your own question tool, copying the dialog's text and its choices word for word as the relayed message gives them, then pass answer set to the choice they picked and relay: true. The choice is picked by its text, never by position, and the dialog is read back as cleared. " +
 			"relay: true checks your own transcript for that dialog and your user's answer, and refuses a paraphrase, an answer given before the child stopped, or one already relayed; the refusal says exactly what to ask. Every answer is recorded as yours or your user's, and the child is told when an answer was yours. " +
@@ -766,7 +767,9 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Call when list_sessions or send_session reports a session is not running and its work should continue.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args sessionTargetArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
-		revived, err := sessions.Revive(sessionID, args.SessionID)
+		// Through the installed manager when this server is stale, so the
+		// pane comes back on today's hook settings; see reviveSession.
+		revived, err := reviveSession(configDir, sessionID, args.SessionID, sessions.Revive)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
@@ -780,7 +783,8 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"The source is left as it is, so archive it once the new session has taken over; only claude, codex and opencode sessions with a transcript can be moved.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args migrateSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
-		created, err := sessions.Migrate(sessionID, args.SessionID, sessioncmd.MigrateOptions{Tool: args.Tool, Name: args.Name})
+		created, err := migrateSession(configDir, sessionID, args.SessionID,
+			sessioncmd.MigrateOptions{Tool: args.Tool, Name: args.Name}, sessions.Migrate)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}

@@ -1,0 +1,14 @@
+❯ run the broken-SerpApi and degraded spot-check judges
+
+● The pull request is open. I re-checked the pooled table
+  numbers against the tune and holdout outputs, and
+  they match. Waiting on the judges to finish the
+  broken-SerpApi cases and the degraded spot-check.
+
+● The judges are still running; the final report
+  goes out once they finish.
+
+✻ Sautéed for 8m 35s · done 0:41 · 2 shells still
+  running
+
+❯ 

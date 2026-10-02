@@ -403,7 +403,9 @@ func TestTheSummaryReadsOnANarrowRail(t *testing.T) {
 	tight := undecidedFleet(t, fleetSize, 40, 50)
 	rail := ansi.Strip(railLinesText(tight.railLines(40, tight.listBodyHeight())))
 	t.Logf("40-column rail, one line per row:\n%s", rail)
-	if line := railRowLine(t, rail, "session-30"); !strings.Contains(line, "finished · claude") {
+	// The rail is compact here, so the row names no CLI the board is mostly
+	// running; the state and the age are the columns the counts must leave.
+	if line := railRowLine(t, rail, "session-30"); !strings.Contains(line, "finished · 1d") {
 		t.Fatalf("the counts crowded the row's own columns: %q", line)
 	}
 

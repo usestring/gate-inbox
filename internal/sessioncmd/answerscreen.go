@@ -155,7 +155,7 @@ func (r *runtime) answerScreen(target store.Session, pane dialogPane, screen dia
 			return AnsweredQuestion{}, fmt.Errorf("session %s: %w", target.ID, err)
 		}
 	}
-	answered, err := pickChoice(pane, screen, n)
+	answered, err := pickChoice(pane, screen, n, target.Tool)
 	guard.finish(err)
 	answered.SessionID, answered.Name = target.ID, target.Name
 	if err != nil {
@@ -179,7 +179,11 @@ func screenRelayRefusal(target store.Session, screen dialog.Screen) error {
 
 // pickChoice moves the marker to choice n, sees it there, presses Enter and
 // sees the dialog clear.
-func pickChoice(pane dialogPane, screen dialog.Screen, n int) (AnsweredQuestion, error) {
+func pickChoice(pane dialogPane, screen dialog.Screen, n int, tools ...string) (AnsweredQuestion, error) {
+	read := dialog.ReadScreen
+	if len(tools) > 0 {
+		read = func(raw string) (dialog.Screen, bool) { return dialog.ReadScreenFor(tools[0], raw) }
+	}
 	label := screen.Choices[n-1].Label
 	answered := AnsweredQuestion{Question: screen.Prompt(), Answer: label, Selected: label}
 	identity := screen.Identity()
@@ -194,13 +198,24 @@ func pickChoice(pane dialogPane, screen dialog.Screen, n int) (AnsweredQuestion,
 	case at < 0:
 		return answered, errors.New("cannot tell which choice the marker is on, so nothing was keyed; read it again in a moment")
 	default:
-		if keys := dialog.SelectKeys(at+1, n); len(keys) > 1 {
+		keys := dialog.SelectKeys(at+1, n)
+		if strings.ContainsRune(screen.Legend, rune(0x21c6)) {
+			for i, key := range keys {
+				if key == "Down" {
+					keys[i] = "Right"
+				}
+				if key == "Up" {
+					keys[i] = "Left"
+				}
+			}
+		}
+		if len(keys) > 1 {
 			if err := pane.Keys(keys[:len(keys)-1]...); err != nil {
 				return answered, err
 			}
 		}
 		if _, err := waitFor(pane, func(raw string) bool {
-			moved, ok := dialog.ReadScreen(raw)
+			moved, ok := read(raw)
 			return ok && moved.Identity() == identity && moved.Cursor() == n-1
 		}); err != nil {
 			return answered, fmt.Errorf("%w: the marker never reached %q, so Enter was not pressed", errDialogMoved, label)
@@ -210,7 +225,7 @@ func pickChoice(pane dialogPane, screen dialog.Screen, n int) (AnsweredQuestion,
 		}
 	}
 	if _, err := waitForLong(pane, func(raw string) bool {
-		now, ok := dialog.ReadScreen(raw)
+		now, ok := read(raw)
 		return !ok || now.Identity() != identity
 	}); err != nil {
 		return answered, fmt.Errorf("%q was chosen but the dialog is still standing; read_session shows it", label)

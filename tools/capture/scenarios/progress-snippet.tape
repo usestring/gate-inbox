@@ -1,10 +1,9 @@
-# The progress-summary snippet on alt+§, the one snippet key off the ctrl+alt
-# chord. The first-run snippets file carries it, so the key map names it -- as
-# alt+§, with no ^, because it has no ctrl.
+# The progress-summary snippet on the § menu key. The first-run snippets file
+# carries it, so the key map names it -- as a bare §, the key the hotkey
+# menu reads.
 #
-# Only the surface is recorded. vhs cannot deliver alt+§: it sends the ESC and
-# the § as two separate keys even inside one Type, so the board reads a bare §
-# instead. TestSectionKeyIsReachable and the ui tests cover delivery.
+# Only the surface is recorded. The ui tests cover delivery: the menu reads
+# bare keys, so there is no chord encoding for vhs to miss.
 #
 #   tools/capture/capture.sh --scenario tools/capture/scenarios/progress-snippet.tape
 
@@ -18,5 +17,5 @@ Type "progress"
 Sleep 1s
 Enter
 Sleep 1500ms
-Screenshot {{SHOTS}}/01-key-map-names-alt-section.png
+Screenshot {{SHOTS}}/01-key-map-names-section-menu-key.png
 Sleep 1s

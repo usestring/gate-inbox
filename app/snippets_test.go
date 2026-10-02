@@ -34,11 +34,11 @@ func TestRunLaysSnippetDefaultsUnderTheOperatorsFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	got, ok := set.Get("ctrl+alt+r")
+	got, ok := set.Get("r")
 	if !ok || got.Text != supplied.Text || got.Label != supplied.Label {
-		t.Fatalf("ctrl+alt+r = %+v, %v; want the build's snippet", got, ok)
+		t.Fatalf("r = %+v, %v; want the build's snippet", got, ok)
 	}
-	if _, ok := set.Get("ctrl+alt+d"); !ok {
+	if _, ok := set.Get("d"); !ok {
 		t.Fatal("the operator's own entry did not bind")
 	}
 	written, _ := os.ReadFile(snippets.Path(dir))

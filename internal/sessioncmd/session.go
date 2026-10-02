@@ -1210,7 +1210,9 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 		Digest:  runtime.digest(target, pane, running, delta),
 	}
 	if running {
-		screen.Digest.withQuestions(dialog.Questions(raw, s.asked(target)))
+		if reading, ok := dialog.ReadQuestions(target.Tool, raw, s.asked(target)); ok {
+			screen.Digest.withQuestions(reading.Questions)
+		}
 	}
 	if since != "" && readable {
 		screen.Mode, screen.Output, screen.Degraded = "delta", renderDelta(delta), note

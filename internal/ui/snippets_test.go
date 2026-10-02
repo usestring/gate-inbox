@@ -2,7 +2,6 @@ package ui
 
 import (
 	"encoding/json"
-	"github.com/usestring/gate-inbox/internal/keymap"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,13 +13,13 @@ import (
 	"github.com/usestring/gate-inbox/internal/status"
 )
 
-func chordMsg(letter rune) tea.KeyPressMsg {
-	return tea.KeyPressMsg{Code: letter, Mod: tea.ModCtrl | tea.ModAlt}
+func menuKey(letter rune) tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: letter, Text: string(letter)}
 }
 
-// sectionMsg is alt+§, the one snippet key off the chord.
-func sectionMsg() tea.KeyPressMsg {
-	return tea.KeyPressMsg{Code: '§', Mod: tea.ModAlt}
+// menuTrigger is the hotkey menu leader in a focused session.
+func menuTrigger() tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: ']', Mod: tea.ModCtrl}
 }
 
 // writeSnippets replaces the model's snippet file and reloads it, so a test
@@ -41,9 +40,9 @@ func writeSnippets(t testing.TB, m *Model, snips []snippets.Snippet) {
 	}
 }
 
-// The whole feature, from inside a session: one chord and the operator's own
-// sentence is in the pane, submitted.
-func TestSnippetKeySendsIntoTheFocusedPane(t *testing.T) {
+// The whole feature, from inside a focused pane: the leader opens the menu,
+// one bare key, and the operator's own sentence is in the pane, submitted.
+func TestMenuKeySendsIntoTheFocusedPane(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Text: "ship it now"}})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
@@ -51,7 +50,12 @@ func TestSnippetKeySendsIntoTheFocusedPane(t *testing.T) {
 	m.enterFocusOn(t, "ask")
 	sess := sessionNamed(t, m, "ask")
 
-	updated, _ := m.handleFocusKey(chordMsg('d'))
+	updated, _ := m.handleFocusKey(menuTrigger())
+	m = updated.(*Model)
+	if !m.quick.active || !m.quick.fromFocus {
+		t.Fatalf("the leader did not open the focused menu: active=%v fromFocus=%v", m.quick.active, m.quick.fromFocus)
+	}
+	updated, _ = m.handleFocusKey(menuKey('d'))
 	m = updated.(*Model)
 	if m.mode != modeFocus {
 		t.Fatalf("the snippet left the session, mode %v: %s", m.mode, m.errBar.text)
@@ -59,9 +63,9 @@ func TestSnippetKeySendsIntoTheFocusedPane(t *testing.T) {
 	waitForPaneText(t, m, sess.ID, "ship it now")
 }
 
-// The same chord from the list, so a queue is answered without entering each
+// The same menu from the list, so a queue is answered without entering each
 // session first -- and only the row under the cursor is answered.
-func TestSnippetKeyFromTheListSendsToTheCursorRow(t *testing.T) {
+func TestMenuKeyFromTheListSendsToTheCursorRow(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "other": status.Waiting})
@@ -69,7 +73,8 @@ func TestSnippetKeyFromTheListSendsToTheCursorRow(t *testing.T) {
 	m.selectSessionRow(t, "ask")
 	sess := sessionNamed(t, m, "ask")
 
-	updated, cmd := m.handleKey(chordMsg('d'))
+	m.openQuickMode()
+	updated, cmd := m.handleKey(menuKey('d'))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -89,10 +94,10 @@ func TestSnippetKeyFromTheListSendsToTheCursorRow(t *testing.T) {
 	}
 }
 
-// This is the reason the bindings are confined to one chord. Focused, every
-// key the manager does not claim is forwarded to the agent, so the letter on
-// its own has to keep reaching the pane -- otherwise a snippet on "d" would
-// eat that letter out of everything the operator types.
+// This is the reason snippets live in the menu. Focused, every key the
+// manager does not claim is forwarded to the agent, so the letter on its own
+// has to keep reaching the pane -- otherwise a snippet on "d" would eat that
+// letter out of everything the operator types.
 func TestPlainLetterStillReachesTheFocusedAgent(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
@@ -115,23 +120,59 @@ func TestPlainLetterStillReachesTheFocusedAgent(t *testing.T) {
 		t.Fatalf("capture: %v", err)
 	}
 	if strings.Contains(squashSpace(ansi.Strip(pane)), squashSpace("ship it now")) {
-		t.Fatalf("typing d fired the snippet bound to ctrl+alt+d:\n%s", pane)
+		t.Fatalf("typing d fired the snippet on d:\n%s", pane)
 	}
 }
 
-// An unbound chord must not be swallowed either way: it is not a snippet, and
-// the list has no other meaning for it.
-func TestUnboundChordDoesNothing(t *testing.T) {
+// An unbound menu key must not be swallowed either way: it is not a snippet,
+// and the list has no other meaning for it.
+func TestUnboundMenuKeyDoesNothing(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
 
-	updated, _ := m.handleKey(chordMsg('k'))
+	m.openQuickMode()
+	updated, _ := m.handleKey(menuKey('k'))
 	m = updated.(*Model)
 	if m.errBar.text != "" {
-		t.Fatalf("an unbound chord said %q", m.errBar.text)
+		t.Fatalf("an unbound menu key said %q", m.errBar.text)
+	}
+	if !m.quick.active {
+		t.Fatal("an unbound menu key closed the menu")
+	}
+}
+
+// The old chord is dead: outside the menu it reaches nothing, and inside the
+// menu it is a different key from the snippet's bare letter.
+func TestOldChordSendsNothing(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.selectSessionRow(t, "ask")
+	sess := sessionNamed(t, m, "ask")
+
+	old := tea.KeyPressMsg{Code: 'd', Mod: tea.ModCtrl | tea.ModAlt}
+	updated, _ := m.handleKey(old)
+	m = updated.(*Model)
+	if m.errBar.text != "" {
+		t.Fatalf("the old chord said %q", m.errBar.text)
+	}
+
+	m.openQuickMode()
+	updated, _ = m.handleKey(old)
+	m = updated.(*Model)
+	if !m.quick.active {
+		t.Fatal("the old chord closed the menu")
+	}
+	pane, err := m.tmux.CapturePane(sess.ID)
+	if err != nil {
+		t.Fatalf("capture: %v", err)
+	}
+	if strings.Contains(squashSpace(ansi.Strip(pane)), squashSpace("ship it now")) {
+		t.Fatalf("the old chord fired the snippet:\n%s", pane)
 	}
 }
 
@@ -144,9 +185,9 @@ func TestSnippetRefusesAShell(t *testing.T) {
 	sess := spawnTerminal(t, m)
 	m.selectSessionRow(t, sess.Name)
 
-	snip, ok := m.snippetFor("ctrl+alt+d")
+	snip, ok := m.menuSnippetFor("d")
 	if !ok {
-		t.Fatal("ctrl+alt+d did not resolve")
+		t.Fatal("d did not resolve")
 	}
 	if _, _ = m.sendSnippetToSelected(snip); m.errBar.text != shellPromptHint(sess.Name) {
 		t.Fatalf("err = %q, want the shell refusal", m.errBar.text)
@@ -159,7 +200,7 @@ func TestSnippetOnAGroupSaysWhatToSelect(t *testing.T) {
 	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
 	groupAt(t, m, "work", t.TempDir())
 
-	snip, _ := m.snippetFor("ctrl+alt+d")
+	snip, _ := m.menuSnippetFor("d")
 	if _, _ = m.sendSnippetToSelected(snip); m.errBar.text == "" {
 		t.Fatal("a snippet on a group said nothing")
 	}
@@ -177,7 +218,7 @@ func TestSnippetClearsTheAckedFlag(t *testing.T) {
 	}
 	m.selectSessionRow(t, "ask")
 
-	snip, _ := m.snippetFor("ctrl+alt+d")
+	snip, _ := m.menuSnippetFor("d")
 	if _, _ = m.sendSnippetToSelected(snip); m.errBar.text == "" {
 		t.Fatal("a send says so on the error bar")
 	}
@@ -190,9 +231,9 @@ func TestSnippetClearsTheAckedFlag(t *testing.T) {
 	}
 }
 
-// The hotkey menu is a place a session is on screen, so the chord acts there
-// as well as the bare key, and reaches the pane.
-func TestSnippetChordFromTheHotkeyMenuReachesThePane(t *testing.T) {
+// The leader opens the menu from the list too, under the same key as in a
+// focused pane, and the menu answers the row under the cursor.
+func TestLeaderOpensTheMenuFromTheList(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
@@ -200,8 +241,12 @@ func TestSnippetChordFromTheHotkeyMenuReachesThePane(t *testing.T) {
 	m.selectSessionRow(t, "ask")
 	sess := sessionNamed(t, m, "ask")
 
-	m.openQuickMode()
-	updated, cmd := m.handleKey(chordMsg('d'))
+	updated, _ := m.handleKey(menuTrigger())
+	m = updated.(*Model)
+	if !m.quick.active || m.quick.fromFocus {
+		t.Fatalf("the leader did not open the list menu: active=%v fromFocus=%v", m.quick.active, m.quick.fromFocus)
+	}
+	updated, cmd := m.handleKey(menuKey('d'))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
@@ -209,8 +254,8 @@ func TestSnippetChordFromTheHotkeyMenuReachesThePane(t *testing.T) {
 	waitForPaneText(t, m, sess.ID, "ship it now")
 }
 
-// The § snippet from inside a session: alt+§ answers the pane and leaves the
-// operator where they were, exactly as a chord snippet does.
+// The § snippet from inside a focused pane: the leader opens the menu and
+// the bare § answers the pane, leaving the operator where they were.
 func TestSectionSnippetSendsIntoTheFocusedPane(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{{Key: snippets.SectionKey, Label: "progress", Text: "summarise it"}})
@@ -219,17 +264,20 @@ func TestSectionSnippetSendsIntoTheFocusedPane(t *testing.T) {
 	m.enterFocusOn(t, "ask")
 	sess := sessionNamed(t, m, "ask")
 
-	updated, _ := m.handleFocusKey(sectionMsg())
+	updated, _ := m.handleFocusKey(menuTrigger())
+	m = updated.(*Model)
+	updated, _ = m.handleFocusKey(menuKey('§'))
 	m = updated.(*Model)
 	if m.mode != modeFocus {
-		t.Fatalf("alt+§ left the session, mode %v: %s", m.mode, m.errBar.text)
+		t.Fatalf("the § menu key left the session, mode %v: %s", m.mode, m.errBar.text)
 	}
 	waitForPaneText(t, m, sess.ID, "summarise it")
 }
 
-// A bare § is the handover key and must stay one. The snippet sits on the same
-// physical key and the alt is all that separates them: if the bare press also
-// reached the snippet, handing a session over would answer it on the way out.
+// A bare § outside the menu is the handover key and must stay one. The
+// snippet sits on the same physical key and answers only in the menu: if the
+// bare press also reached the snippet, handing a session over would answer it
+// on the way out.
 func TestBareSectionStillHandsOverAndSendsNothing(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{{Key: snippets.SectionKey, Text: "summarise it"}})
@@ -251,11 +299,12 @@ func TestBareSectionStillHandsOverAndSendsNothing(t *testing.T) {
 		t.Fatalf("capture: %v", err)
 	}
 	if strings.Contains(squashSpace(ansi.Strip(pane)), squashSpace("summarise it")) {
-		t.Fatalf("a bare § fired the snippet bound to alt+§:\n%s", pane)
+		t.Fatalf("a bare § outside the menu fired the snippet:\n%s", pane)
 	}
 }
 
-// From the list it answers the row under the cursor, like every snippet.
+// From the list the § menu key answers the row under the cursor, like every
+// snippet.
 func TestSectionSnippetFromTheListSendsToTheCursorRow(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{{Key: snippets.SectionKey, Text: "summarise it"}})
@@ -264,21 +313,93 @@ func TestSectionSnippetFromTheListSendsToTheCursorRow(t *testing.T) {
 	m.selectSessionRow(t, "ask")
 	sess := sessionNamed(t, m, "ask")
 
-	updated, cmd := m.handleKey(sectionMsg())
+	m.openQuickMode()
+	updated, cmd := m.handleKey(menuKey('§'))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)
 	}
 	if m.mode != modeList {
-		t.Fatalf("alt+§ changed mode to %v", m.mode)
+		t.Fatalf("§ changed mode to %v", m.mode)
 	}
 	waitForPaneText(t, m, sess.ID, "summarise it")
 }
 
+// The leader toggles the focused menu back off: there is no typing it, so
+// the same key is the way out besides esc.
+func TestLeaderTogglesTheFocusedMenuClosed(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.enterFocusOn(t, "ask")
+
+	updated, _ := m.handleFocusKey(menuTrigger())
+	m = updated.(*Model)
+	if !m.quick.active {
+		t.Fatal("the leader did not open the menu")
+	}
+	updated, _ = m.handleFocusKey(menuTrigger())
+	m = updated.(*Model)
+	if m.quick.active {
+		t.Fatal("the leader did not close the menu it opened")
+	}
+	if m.mode != modeFocus {
+		t.Fatalf("closing the menu left the session, mode %v", m.mode)
+	}
+}
+
+// The focused menu paints on screen: the snippets and how to leave.
+func TestFocusedMenuRendersInTheFrame(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Text: "ship it now"}})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.enterFocusOn(t, "ask")
+	m.width, m.height = 200, 60
+
+	updated, _ := m.handleFocusKey(menuTrigger())
+	m = updated.(*Model)
+	frame := ansi.Strip(m.frame())
+	for _, want := range []string{"Hotkeys", "d", "deploy", "send snippet", "close"} {
+		if !strings.Contains(frame, want) {
+			t.Errorf("the focused frame is missing %q:\n%s", want, frame)
+		}
+	}
+}
+
+// The arrows that retarget the menu on the list must not move the cursor
+// under a focused pane: the menu answers the pane on screen.
+func TestFocusedMenuArrowsDoNotMoveTheCursor(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "other": status.Waiting})
+	m.rebuildRows()
+	m.enterFocusOn(t, "ask")
+
+	updated, _ := m.handleFocusKey(menuTrigger())
+	m = updated.(*Model)
+	start := m.cursor
+	for _, code := range []rune{tea.KeyUp, tea.KeyDown} {
+		updated, _ = m.handleFocusKey(tea.KeyPressMsg{Code: code})
+		m = updated.(*Model)
+	}
+	if m.cursor != start {
+		t.Fatalf("arrows in the focused menu moved the cursor to %d", m.cursor)
+	}
+	if !m.quick.active {
+		t.Fatal("arrows closed the focused menu")
+	}
+	if got := focusedName(t, m); got != "ask" {
+		t.Fatalf("the menu moved focus to %q", got)
+	}
+}
+
 /* ------------------------------------------------------------------- surfaces */
 
-// The key map is the viewer: it lists what is bound and says which file to
-// edit, which is the whole interface for adding one.
+// The key map is the viewer: it names the menu opener, lists the bare keys
+// it takes, and says which file to edit, which is the whole interface for
+// adding one.
 func TestHelpListsSnippetsAndTheirFile(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Text: "ship it now"}})
@@ -288,7 +409,7 @@ func TestHelpListsSnippetsAndTheirFile(t *testing.T) {
 	for _, row := range section.rows {
 		flat += row.key + " " + row.text + "\n"
 	}
-	for _, want := range []string{"^" + keymap.Display("alt+d"), "ship it now", keymap.Display("ctrl+alt+"), snippets.Path(m.configDir())} {
+	for _, want := range []string{"hotkey menu", "d", "ship it now", snippets.Path(m.configDir())} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("the key map does not mention %q:\n%s", want, flat)
 		}
@@ -310,7 +431,7 @@ func TestHelpListsSnippetsAndTheirFile(t *testing.T) {
 func TestHelpExplainsARefusedEntry(t *testing.T) {
 	m := buildModel(t)
 	if err := os.WriteFile(snippets.Path(m.configDir()),
-		[]byte(`[{"key":"d","text":"ship it"},{"key":"m","text":"never fires"}]`), 0o644); err != nil {
+		[]byte(`[{"key":"d","text":"ship it"},{"key":"1","text":"never fires"}]`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	m.snips, m.snipErr = snippets.Set{}, ""
@@ -320,8 +441,8 @@ func TestHelpExplainsARefusedEntry(t *testing.T) {
 	for _, row := range m.snippetHelpSection().rows {
 		flat += row.text + "\n"
 	}
-	if !strings.Contains(flat, "alt+enter") {
-		t.Fatalf("the key map does not explain why ctrl+alt+m was refused:\n%s", flat)
+	if !strings.Contains(flat, "single letter") {
+		t.Fatalf("the key map does not explain why 1 was refused:\n%s", flat)
 	}
 }
 
@@ -330,7 +451,7 @@ func TestFooterAdvertisesSnippets(t *testing.T) {
 	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Text: "ship it now"}})
 
 	section := m.snippetLegend()
-	if len(section.pairs) != 1 || section.pairs[0][0] != "^"+keymap.Display("alt+d") || section.pairs[0][1] != "deploy" {
+	if len(section.pairs) != 1 || section.pairs[0][0] != "d" || section.pairs[0][1] != "deploy" {
 		t.Fatalf("legend pairs = %v", section.pairs)
 	}
 	if !section.quiet {
@@ -345,10 +466,9 @@ func TestFooterAdvertisesSnippets(t *testing.T) {
 	}
 }
 
-// Every surface prints the § binding as alt+§. The ^alt+ compression would
-// claim a ctrl it does not have, and an operator reading it would press a key
-// that never arrives.
-func TestSurfacesSpellTheSectionKeyAsAltAlone(t *testing.T) {
+// Every surface prints the menu keys bare: the letter, § and ± with no
+// chord, because the menu is what reads them.
+func TestSurfacesPrintMenuKeysBare(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{
 		{Key: "d", Label: "deploy", Text: "ship it now"},
@@ -370,13 +490,16 @@ func TestSurfacesSpellTheSectionKeyAsAltAlone(t *testing.T) {
 		"footer":  strings.Join(legend, " "),
 		"key map": help,
 	}
-	section, chord := keymap.Display("alt+§"), "^"+keymap.Display("alt+d")
 	for name, got := range surfaces {
-		if !strings.Contains(got, section) || strings.Contains(got, "^"+section) {
-			t.Errorf("the %s does not print the § snippet as %s: %q", name, section, got)
+		for _, want := range []string{"d", "§"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("the %s does not print the %s snippet bare: %q", name, want, got)
+			}
 		}
-		if !strings.Contains(got, chord) {
-			t.Errorf("the %s lost the chord spelling for the letters: %q", name, got)
+		for _, never := range []string{"ctrl+alt", "alt+§", "^"} {
+			if strings.Contains(got, never) {
+				t.Errorf("the %s still names the old chord %q: %q", name, never, got)
+			}
 		}
 	}
 }

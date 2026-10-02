@@ -120,16 +120,16 @@ func TestHOpensAndClosesTheKeyMap(t *testing.T) {
 // nobody can see.
 func TestARefusedOverrideIsReportedAndFallsBack(t *testing.T) {
 	m := buildModel(t)
-	writeKeys(t, m, "[list]\nnew_session = [\"ctrl+alt+d\"]\n")
+	writeKeys(t, m, "[list]\nnew_group = [\"±\"]\n")
 	if len(m.keyProblems) == 0 {
-		t.Fatal("binding into the snippets chord was accepted")
+		t.Fatal("binding onto the ± snippet key was accepted")
 	}
-	if got := m.km().Key(keymap.ContextList, keymap.NewSession); got != "n" {
-		t.Fatalf("new_session fell back to %q", got)
+	if got := m.km().Key(keymap.ContextList, keymap.NewGroup); got != "g" {
+		t.Fatalf("new_group fell back to %q", got)
 	}
 	m.mode = modeHelp
 	m.width, m.height = 200, 60
-	if frame := ansi.Strip(m.frame()); !strings.Contains(frame, "snippets file owns") {
+	if frame := ansi.Strip(m.frame()); !strings.Contains(frame, "fires a snippet") {
 		t.Errorf("the key map does not explain the refusal:\n%s", frame)
 	}
 }

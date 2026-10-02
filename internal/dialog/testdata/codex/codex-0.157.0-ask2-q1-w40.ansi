@@ -1,0 +1,45 @@
+[4m[38;5;75m]8;;https://github.com/openai/codex/releases/latest\releases/latest[0;2m]8;;\ │[0m
+[2m╰───────────────────────────────────────
+──────────╯[0m
+
+[2m╭──────────────────────────────────────╮
+│ >_ [0;1mOpenAI Codex[0;2m (v0.157.0)           │
+│                                      │
+│ model:     [0mGPT-6-Astra low[2m   [0m[38;5;75m/model…[2m[39m │
+│ directory: [0m/tmp/sbox-001000/gdx/work[2m │
+╰──────────────────────────────────────╯
+
+
+[1m› [0mTest harness: call the
+  request_user_input tool once with two
+  questions. Q1 header 'Color',
+  question 'Which color should the
+  banner use?', options Red / Green /
+  Blue with short descriptions. Q2
+  header 'Size', question 'How big
+  should the banner be?', options
+  Small / Large. After the answer,
+  reply with the answers you received
+  verbatim and stop.
+
+
+
+  [2mQuestion 1/2 (2 unanswered)[0m
+  [38;5;75mWhich color should the banner use?[39m
+
+  [1;7m› 1. Red                [0;7mUse a red[1m   [0m
+  [1;7m                        [0;7mbanner.[1m     [0m
+    2. Green              [2mUse a green[0m
+                          [2mbanner.[0m
+    3. Blue               [2mUse a blue[0m
+                          [2mbanner.[0m
+    4. None of the above  [2mOptionally,[0m
+                          [2madd details[0m
+                          [2min notes[0m
+                          [2m(tab)[0m
+
+  [1mtab[0m to add notes
+  [1menter[0m to submit answer
+  [1m←/→[0m to navigate questions
+  [1mesc[0m to interrupt
+

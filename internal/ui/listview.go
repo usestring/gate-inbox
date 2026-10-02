@@ -16,6 +16,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/launch"
+	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/snippets"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -218,7 +219,7 @@ func paneHitBadge() string {
 // meters docked under it.
 func (m *Model) railLines(width, height int) []contentLine {
 	meters := m.computerLines(width)
-	tier := dockTierFor(height, len(meters))
+	tier := m.dockTier(height, len(meters))
 	switch tier {
 	case dockBrief:
 		meters = []string{m.computerBrief(width)}
@@ -551,8 +552,9 @@ func (m *Model) filterBadgeLines() []string {
 // rather than rows. Each line carries the tone its entry painted, which the
 // edge column matches.
 func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentLine {
+	boxed := m.cursorBoxed()
 	render := func(entry treeRow, selected bool, index int, tone string) string {
-		if height < m.entryHeight(entry)+2 {
+		if !boxed || height < m.entryHeight(entry)+2 {
 			return m.renderTreeRowContent(entry, selected, width, index, tone)
 		}
 		return m.renderTreeRow(entry, selected, width, index, tone)
@@ -578,7 +580,7 @@ func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentL
 	for i := range heights {
 		headers[i] = m.extensionHeaderLines(rows[i], width, offset+i)
 		heights[i] = m.entryHeight(rows[i]) + len(headers[i])
-		if offset+i == m.cursor && height >= heights[i]+2 && width >= 4 {
+		if boxed && offset+i == m.cursor && height >= heights[i]+2 && width >= 4 {
 			heights[i] += 2
 		}
 	}
@@ -588,10 +590,11 @@ func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentL
 	for i := start; i < end; i++ {
 		selected := offset+i == m.cursor
 		entry := rows[i]
-		// The cursor's entry is marked by its box rather than a fill; only a
-		// row being renamed lifts onto the band, behind the field being typed.
+		// The cursor's entry is marked by its box rather than a fill; a row
+		// being renamed lifts onto the band, behind the field being typed, and
+		// so does the cursor's entry where there are no rows for the box.
 		tone := panelHex()
-		if m.renamingRow(entry) {
+		if m.renamingRow(entry) || (selected && !boxed) {
 			tone = selectedHex()
 		}
 		for _, line := range headers[i] {
@@ -745,20 +748,34 @@ func (m *Model) treeGuides(index int, trail bool) string {
 	if depth <= 0 {
 		return ""
 	}
+	// A compact rail spends one column on each slot but the row's own, which
+	// keeps two: a level still reads as a step to the right, each upright
+	// still lands under the corner it hangs from, and a row four deep keeps
+	// seven columns of its name that three-wide slots took.
+	compact := m.compactRail()
 	var guides strings.Builder
 	for slot := 1; slot <= depth; slot++ {
 		continues := m.slotContinues(index, slot)
-		glyph := "   "
 		branch := slot == depth || (entry.migrationHead && slot == entry.migrationDepth-1)
+		corner := " "
 		switch {
 		case !trail && entry.migrationHead && slot == entry.migrationDepth:
-			glyph = "╭─ "
+			corner = "╭"
 		case !trail && branch && continues:
-			glyph = "├─ "
+			corner = "├"
 		case !trail && branch:
-			glyph = "╰─ "
+			corner = "╰"
 		case continues:
-			glyph = "│  "
+			corner = "│"
+		}
+		glyph := corner + "  "
+		switch {
+		case compact && slot == depth:
+			glyph = corner + " "
+		case compact:
+			glyph = corner
+		case corner == "╭" || corner == "├" || corner == "╰":
+			glyph = corner + "─ "
 		}
 		if slot == entry.migrationDepth {
 			guides.WriteString(lipgloss.NewStyle().Foreground(colorAccent).Render(glyph))
@@ -802,6 +819,14 @@ func (m *Model) slotContinues(index, slot int) bool {
 var selectionBorder = lipgloss.Border{
 	Top: "▁", Bottom: "▔", Left: "▏", Right: "▕",
 	TopLeft: "▁", TopRight: "▁", BottomLeft: "▔", BottomRight: "▔",
+}
+
+// cursorBoxed reports whether the cursor's entry is framed in its box. The box
+// costs a row above the entry and one below it, which a short terminal cannot
+// spare, so there the entry lifts onto the selection band instead -- the same
+// band a row being renamed sits on.
+func (m *Model) cursorBoxed() bool {
+	return !m.short()
 }
 
 // renderTreeRow paints one entry: a status dot, the name, and what the
@@ -981,27 +1006,54 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	// Beside the label rather than in place of it: the board does not know
 	// what the session is really doing, only that the label has sat over a
 	// screen that has not moved for longer than any turn runs.
+	marks := ""
 	if m.isStale(sess) {
-		state += " " + statusTint(status.Errored, "stale")
+		marks += " " + statusTint(status.Errored, "stale")
 	}
 	// The board has told this session its processes are holding the
 	// machine. Beside the label for the same reason as stale: the status is
 	// still true, and this says what else is going on.
 	if badge := hogBadge(m.hogBadges[sess.ID]); badge != "" {
-		state += " " + badge
+		marks += " " + badge
 	}
-	state += metaText(" · " + sess.Tool)
+	state += marks
+	compact := m.compactRail()
+	label := state
+	if !compact || sess.Tool != m.commonTool {
+		state += metaText(" · " + sess.Tool)
+	}
 	// An archived row is on a clock, and the clock is the one thing about it
 	// that is not recoverable by looking. It goes after the age, in the same
 	// muted weight: it is a fact about the row, not a warning, right up
 	// until it is the last day. Both trail off one styling call rather than
 	// two, which is the whole cost of carrying it on every frame.
 	trailing := " · " + relSince(lastActivity(sess))
+	if compact {
+		trailing = " · " + textfmt.Age(time.Since(lastActivity(sess)))
+	}
 	if left := archiveTimeLeft(sess); left != "" {
 		trailing += " · " + left
 	}
 	age := metaText(trailing)
 	meta := state + age
+	// A compact row gives up its CLI, then its state word, before it gives up
+	// any of the name: the glyph ahead of the name is tinted with the same
+	// state, and a name cut short is a row nobody can find. What is left is
+	// the age alone, and the room the word gave back is the name's, so the
+	// summary does not move into it.
+	glyphOnly := false
+	if compact && !m.stackedRows() {
+		fits := func(meta string) bool {
+			return textfmt.Width(head)+2+textfmt.Width(meta) <= width-railGutter
+		}
+		if !fits(meta) {
+			meta = label + age
+		}
+		if !fits(meta) {
+			meta = strings.TrimPrefix(marks+" ", " ") + metaText(strings.TrimPrefix(trailing, " · "))
+			glyphOnly = true
+		}
+	}
 	indent := metaIndent(pad, trail) + spaces(m.railFoldReserve())
 
 	// The badge is the folded reading of the rows underneath; once they are
@@ -1067,10 +1119,23 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	if !m.stackedRows() {
 		summaryRoom -= textfmt.Width(meta) + 2
 	}
-	head += m.summaryTag(sess, summaryRoom, metaText)
+	if !glyphOnly {
+		head += m.summaryTag(sess, summaryRoom, metaText)
+	}
 
 	if m.stackedRows() {
 		return stackedRow(head, indent+meta, width, bg)
+	}
+	// Whatever still does not fit never comes off the meta, where paint would
+	// cut the age mid-word. A name that fits the row on its own keeps it and
+	// the age goes; one too long for the row either way is cut, and keeps
+	// the age beside it.
+	if room := width - railGutter - 2 - textfmt.Width(meta); compact && textfmt.Width(head) > room {
+		if textfmt.Width(head) <= width-railGutter {
+			meta = ""
+		} else {
+			head = ansi.Truncate(head, max(room, 1), "…")
+		}
 	}
 	return paint(rowColumns(head, meta, width-railGutter), width, bg)
 }
@@ -1133,8 +1198,10 @@ func (m *Model) renderArtifactEntry(entry treeRow, selected bool, width int, pad
 		metaText = mutedText
 	}
 	room := width - railGutter - textfmt.Width(guides) - 2 - textfmt.Width(art.detail) - 2
+	// A compact rail always takes the short form: the repository is the same
+	// on most rows under one session, and the number is what a thumb taps.
 	label := art.label
-	if textfmt.Width(label) > room {
+	if textfmt.Width(label) > room || m.compactRail() {
 		label = art.short
 	}
 	// The child a rolled-up row came from gives way before the number does:
@@ -1246,19 +1313,22 @@ func (m *Model) jumpTints(number string) bool {
 	return strings.HasPrefix(number, m.jump.buffer)
 }
 
-// meterKey is everything computerLines reads: the two samples, the width it
-// lays them out at, and the theme generation its styles came from.
+// meterKey includes every sample and the selected context so changing sessions
+// cannot leave the previous token reading in the dock.
 type meterKey struct {
-	gen   int
-	width int
-	snap  sysstat.Snapshot
-	net   netStats
+	gen        int
+	width      int
+	snap       sysstat.Snapshot
+	net        netStats
+	hasContext bool
+	usage      search.TokenUsage
 }
 
 // computerLines is the machine block docked at the rail's foot: a label
 // and one thin meter per resource.
 func (m *Model) computerLines(width int) []string {
-	key := meterKey{gen: renderGen, width: width, snap: m.snap, net: m.net}
+	usage, hasContext := m.selectedTokenUsage()
+	key := meterKey{gen: renderGen, width: width, snap: m.snap, net: m.net, hasContext: hasContext, usage: usage}
 	if m.meterMemoOK && m.meterMemoKey == key {
 		return m.meterMemo
 	}
@@ -1293,7 +1363,21 @@ func (m *Model) buildComputerLines(width int) []string {
 		return render(label, percent, extra, gauge(percent, barWidth, false))
 	}
 
-	lines := []string{pad + subtleStyle.Render("computer")}
+	var lines []string
+	if usage, ok := m.selectedTokenUsage(); ok {
+		lines = append(lines, pad+subtleStyle.Render("context"))
+		line := pad + labelStyle.Width(7).Render("tokens")
+		if !usage.Known {
+			line += subtleStyle.Render("n/a")
+		} else if usage.Capacity > 0 {
+			percent := float64(usage.Tokens) / float64(usage.Capacity) * 100
+			line += gauge(percent, barWidth, false) + valueStyle.Render(fmt.Sprintf(" %3.0f%%", percent)) + subtleStyle.Render(" "+humanTokens(usage.Tokens)+"/"+humanTokens(usage.Capacity))
+		} else {
+			line += valueStyle.Render(humanTokens(usage.Tokens))
+		}
+		lines = append(lines, line, "")
+	}
+	lines = append(lines, pad+subtleStyle.Render("computer"))
 	lines = append(lines,
 		meter("cpu", snap.CPUPercent, snap.CPUOK, ""),
 		meter("mem", snap.MemPercent, snap.MemOK, humanBytes(snap.MemUsed)+"/"+humanBytes(snap.MemTotal)),
@@ -1326,7 +1410,33 @@ func (m *Model) buildComputerLines(width int) []string {
 			valueStyle.Render("↓ "+humanBytes(m.net.down)+"/s")+
 			subtleStyle.Render("  ↑ "+humanBytes(m.net.up)+"/s"))
 	}
+
 	return append(lines, "")
+}
+
+func (m *Model) selectedTokenUsage() (search.TokenUsage, bool) {
+	sess, ok := m.selected()
+	if !ok || m.isShell(sess.Tool) {
+		return search.TokenUsage{}, false
+	}
+	c := m.conversation
+	if c == nil {
+		return search.TokenUsage{}, false
+	}
+	if c.key != m.conversationIdentity(sess) {
+		return search.TokenUsage{}, true
+	}
+	return c.usage, true
+}
+
+func humanTokens(n int) string {
+	if n >= 1_000_000 {
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	}
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return fmt.Sprint(n)
 }
 
 // computerBrief is the machine block folded to one line for a rail too short
@@ -1342,6 +1452,14 @@ func (m *Model) computerBrief(width int) string {
 		return labelStyle.Render(label+" ") + valueStyle.Render(fmt.Sprintf("%.0f%%", percent))
 	}
 	line := reading("cpu", snap.CPUPercent, snap.CPUOK) + sep + reading("mem", snap.MemPercent, snap.MemOK)
+	if usage, ok := m.selectedTokenUsage(); ok {
+		tokens := "n/a"
+		if usage.Known {
+			tokens = humanTokens(usage.Tokens)
+		}
+		compact := labelStyle.Render("tok ") + valueStyle.Render(tokens)
+		return spaces(railInset) + textfmt.TruncateWidth(line+sep+compact, width-railInset, "…")
+	}
 	if disk := reading("disk", snap.DiskPercent, snap.DiskOK); textfmt.Width(line)+textfmt.Width(sep)+textfmt.Width(disk)+railInset <= width {
 		line += sep + disk
 	}
@@ -1378,7 +1496,7 @@ func (m *Model) contentLines(width, height int) []contentLine {
 	}
 
 	var bar []contentLine
-	if m.quick.active && m.mode != modeFocus {
+	if m.quick.active {
 		bar = append([]contentLine{{}}, ours(splitLines(m.viewQuickBar(inner, quickBarMaxRows)))...)
 	}
 	var body []contentLine

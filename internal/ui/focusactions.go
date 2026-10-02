@@ -23,15 +23,15 @@ func (m *Model) dismissFocused(sess store.Session) tea.Cmd {
 	return tea.Batch(cmd, m.handOverFocused(sess))
 }
 
-// focusBack reopens the session the drain last stepped past. It is the pair
-// swap `l` uses, reached from inside the pane: a drain advances by muting and
+// focusBack reopens the session the drain last stepped past. It is the walk
+// `l` uses, reached from inside the pane: a drain advances by muting and
 // moving on, so coming back also lifts the mute, and a session skipped by
 // mistake is on the queue again rather than merely on screen.
 func (m *Model) focusBack() (tea.Model, tea.Cmd) {
-	target := m.prevFocusID
+	before := m.focusedID
 	next, cmd := m.focusLastPane()
-	if target != "" && m.focusedID == target {
-		m.unmute(target)
+	if m.focusedID != "" && m.focusedID != before {
+		m.unmute(m.focusedID)
 	}
 	return next, cmd
 }

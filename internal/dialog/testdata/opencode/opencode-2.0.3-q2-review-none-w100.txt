@@ -1,0 +1,45 @@
+   Shell command execution reque ? Shell command request: echo h +
+     Build · MiMo-V2.6-Pro · 49.6s · 63.1 tok/s
+
+  ┃
+  ┃  Call the question tool once with two questions: (1) header 'Tier', question 'Which tier?',
+  ┃  options Free / Pro; (2) header 'Region', question 'Which region?', options EU / US. Report
+  ┃  the answers verbatim and stop.
+  ┃
+
+     ┃ Thought: 1.3s
+
+     ┃ Call the question tool once with two questions.
+
+     Calling the question tool once with both questions.
+
+     → Asked 2 questions
+
+     Build · MiMo-V2.6-Pro · 53.8s · 95.2 tok/s · interrupted
+
+  ┃
+  ┃  Call the question tool once with two questions: (1) header 'Tier', question 'Which tier?',
+  ┃  options Free / Pro; (2) header 'Region', question 'Which region?', options EU / US. Report
+  ┃  the answers verbatim and stop.
+  ┃
+
+     ┃ Thought: 1.7s
+
+     ┃ The previous call was dismissed/aborted. The user is asking again. Let me retry the same
+     ┃ call.
+
+     Retrying the question tool call with both questions.
+
+     → Asked 2 questions
+
+  ┃
+  ┃  Questions
+  ┃
+  ┃  Tier  Region  Submit
+  ┃
+  ┃  Tier: (not answered)
+  ┃  Region: (not answered)
+  ┃
+  ┃  ⇆ tab  enter submit  esc dismiss
+  ┃
+

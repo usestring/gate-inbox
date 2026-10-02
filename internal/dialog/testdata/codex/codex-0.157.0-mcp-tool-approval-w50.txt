@@ -1,0 +1,45 @@
+│
+│ See full release notes:
+│
+│ https://github.com/openai/codex/releases/latest
+│
+╰─────────────────────────────────────────────────
+╯
+
+╭───────────────────────────────────────────────╮
+│ >_ OpenAI Codex (v0.157.0)                    │
+│                                               │
+│ model:     GPT-6-Astra low   /model to change │
+│ directory: /tmp/sbox-001000/gdx/work          │
+╰───────────────────────────────────────────────╯
+
+
+› Call the pick_region tool from the probe MCP
+  server once and report its result verbatim,
+  then stop.
+
+
+• I’ll call the probe server’s pick_region tool
+  once and report its result verbatim.
+
+• Calling probe.pick_region
+    + Show details
+
+
+  Field 1/1
+  Allow the probe MCP server to run tool
+  "pick_region"?
+  › 1. Allow                   Run the tool and
+                               continue
+    2. Allow for this session  Run the tool and
+                               remember this
+                               choice for this
+                               session
+    3. Always allow            Run the tool and
+                               remember this
+                               choice for future
+                               tool calls
+    4. Cancel                  Cancel this tool
+                               call
+  enter to submit | esc to cancel
+

@@ -25,3 +25,22 @@ Sleep 1s
 
 Escape
 Sleep 1s
+
+# The same menu opens inside a focused pane. Enter focuses, ctrl+] opens
+# the menu, and the bare key answers the pane in front of you.
+Enter
+Sleep 2s
+Ctrl+]
+Sleep 1500ms
+Screenshot {{SHOTS}}/03-hotkey-menu-in-focus.png
+Sleep 1s
+
+Type "c"
+Sleep 800ms
+Screenshot {{SHOTS}}/04-sent-in-focus.png
+Sleep 1s
+
+Escape
+Sleep 500ms
+Ctrl+q
+Sleep 1s

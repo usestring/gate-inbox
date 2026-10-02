@@ -605,7 +605,7 @@ func (m *Model) viewFooter() string {
 		if m.canRescindLatestSubmission() {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextFocus, keymap.Rescind), "undo"})
 		}
-		if sess, ok := m.selected(); ok && !m.isShell(sess.Tool) {
+		if sess, ok := m.selected(); ok && m.compressedFocus && !m.isShell(sess.Tool) {
 			// The focused view can be the conversation rather than the
 			// terminal, and this is the only place the key back is named
 			// for somebody who arrived on the setting rather than on the

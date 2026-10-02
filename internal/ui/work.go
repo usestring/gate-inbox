@@ -736,7 +736,7 @@ func (m *Model) clearWorkFold(sessID string) { delete(m.collapsed, workFoldPrefi
 // autoExpands reports whether a session's work is on screen only because the
 // cursor is on it, which is the one thing a step can add or take away.
 func (m *Model) autoExpands(sessID string) bool {
-	if sessID == "" || m.work == nil {
+	if sessID == "" || m.work == nil || m.compactRail() {
 		return false
 	}
 	if _, decided := m.workFoldDecision(sessID); decided {
@@ -752,11 +752,15 @@ func (m *Model) autoExpands(sessID string) bool {
 //
 // An explicit fold outranks that: → ← space and F are things a person did,
 // and a default only ever fills a cell nobody has written.
+//
+// A compact rail opens none by default. On a phone a pull request and its
+// ticket are two of the dozen rows the list has, and the cursor would spend
+// them on every session it crossed; the row's own badge already counts them.
 func (m *Model) railWorkExpanded(sessID string) bool {
 	if folded, decided := m.workFoldDecision(sessID); decided {
 		return !folded
 	}
-	return sessID != "" && sessID == m.railCursorSess
+	return sessID != "" && sessID == m.railCursorSess && !m.compactRail()
 }
 
 // railWorkCap is the most rows a session hangs on the rail. The rail is the

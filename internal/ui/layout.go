@@ -44,6 +44,10 @@ const (
 	// standing; under it the dock drops to one line, and under railListMin
 	// it goes entirely.
 	dockFullMinList = 8
+	// compactRailWidth is the widest rail that still lays its rows out for a
+	// phone. Under it a row's tree guides, CLI name, status word and "ago"
+	// cost more of the name than they say.
+	compactRailWidth = 64
 )
 
 // layoutModes is the setting's cycle order.
@@ -127,6 +131,27 @@ func (m *Model) stackedRows() bool {
 	return m.comfortableRows && !m.short()
 }
 
+// railWidth is the columns the sessions rail paints into: the left share of
+// a split, or the whole terminal less its edge column when there is one panel.
+func (m *Model) railWidth() int {
+	left, right := m.splitWidths()
+	if right == 0 {
+		return m.width - 1
+	}
+	return left - 1
+}
+
+// compactRail reports whether rows are laid out for a phone held upright: a
+// tight frame whose rail is narrow. There the tree indents one column a
+// level, the cursor's row is a band rather than a box, a row says its state
+// with the glyph alone when the word would cut the name, and the work under
+// the cursor stays folded into the row's badge rather than taking rows of
+// its own. Width alone does not make it so: a narrow rail beside a pane on a
+// tall desktop terminal is a layout chosen on purpose, with rows to spare.
+func (m *Model) compactRail() bool {
+	return m.width > 0 && m.tight() && m.railWidth() < compactRailWidth
+}
+
 // legendRows is the footer's height budget for this terminal: the full
 // legend, one row, or none. Focus mode never goes below one, because the row
 // it keeps is the one naming the key that gets back to the manager.
@@ -180,6 +205,18 @@ func dockTierFor(height, fullLines int) dockTier {
 	return dockNone
 }
 
+// dockTier is dockTierFor on this terminal. A short one never docks the full
+// block: with the keyboard up the rows it spends on gauges and the selected
+// session's facts are most of the list, and the one-line reading answers the
+// question the dock is there for.
+func (m *Model) dockTier(height, fullLines int) dockTier {
+	tier := dockTierFor(height, fullLines)
+	if tier == dockFull && m.short() {
+		return dockBrief
+	}
+	return tier
+}
+
 // dockShown reports whether any machine dock is on screen, which is what
 // decides whether the header carries the cpu and memory reading instead. A
 // one-panel terminal in focus mode draws no rail, so no dock. The meters are
@@ -193,7 +230,7 @@ func (m *Model) dockShown() bool {
 		}
 		railWidth = m.width - 1
 	}
-	return dockTierFor(m.listBodyHeight(), len(m.computerLines(railWidth))) != dockNone
+	return m.dockTier(m.listBodyHeight(), len(m.computerLines(railWidth))) != dockNone
 }
 
 // The chrome setting is the operator's answer to a frame that spends rows

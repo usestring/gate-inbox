@@ -620,6 +620,16 @@ func (m *Model) viewFooter() string {
 
 func (m *Model) listFooter() string {
 	row := m.defaultRowLegend()
+	peekCap := m.tightCap(keymap.ContextList, keymap.LegendPeek)
+	// A one-row footer is a budget of one row, not one row and the peek's.
+	// The peek sits at the line's end, and the row tier is cut to the room
+	// it leaves, so the key that opens everything else is the last to go.
+	if m.legendRows() == 1 && peekCap != "" && len(row.pairs) > 0 {
+		peek := keyCapQuiet(peekCap, "more")
+		room := m.width - textfmt.Width(peek) - 1
+		line := legendBar([]legendSection{row}, room, 1)
+		return line + spaces(max(m.width-textfmt.Width(line)-textfmt.Width(peek)-1, 1)) + peek
+	}
 	footer := legendBar([]legendSection{row}, m.width, min(m.legendRows(), 1))
 	if len(row.pairs) > 0 && m.legendRows() > 1 {
 		if snips := m.snippetLegend(); len(snips.pairs) > 0 {
@@ -632,7 +642,6 @@ func (m *Model) listFooter() string {
 			}
 		}
 	}
-	peekCap := m.tightCap(keymap.ContextList, keymap.LegendPeek)
 	if footer == "" || peekCap == "" {
 		return footer
 	}

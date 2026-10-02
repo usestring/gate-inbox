@@ -177,6 +177,10 @@ func TestExtensionBadgeRungsNarrowWithTheRow(t *testing.T) {
 		Text: "shorthand", Tone: ToneBad,
 	}})
 	m.Update(extensionBadgesMsg{})
+	// Held to one layout across the walk: under compactRailWidth a compact
+	// row drops its CLI name and hands the badge columns back, which is a
+	// different row, not a narrower one.
+	m.layout = layoutDesktop
 
 	row := func(width int) (plain, styled string) {
 		m.width = width

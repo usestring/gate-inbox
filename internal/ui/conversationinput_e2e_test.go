@@ -3,12 +3,16 @@ package ui
 import (
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/internal/agentsession"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -25,6 +29,11 @@ func TestConversationFocusLiveHarnessSubmission(t *testing.T) {
 			}
 			m := buildModel(t)
 			m.engine = liveEngine(t)
+			defaults, err := config.Default()
+			if err != nil {
+				t.Fatal(err)
+			}
+			m.cfg.Tools[tool] = defaults.Tools[tool]
 			m.focusView = focusViewConversation
 			m.compressedFocus = true
 			dir := t.TempDir()
@@ -35,7 +44,8 @@ func TestConversationFocusLiveHarnessSubmission(t *testing.T) {
 				command += " --no-daemon"
 			}
 			if tool == "claude" {
-				command += " --disable-slash-commands"
+				sess.AgentSessionID = uuid.NewString()
+				command += " --disable-slash-commands --session-id " + sess.AgentSessionID
 			}
 			if err := m.tmux.Create(sess.ID, dir, command, nil, 100, 35); err != nil {
 				t.Fatal(err)
@@ -98,9 +108,51 @@ func TestConversationFocusLiveHarnessSubmission(t *testing.T) {
 			*m = *updated.(*Model)
 			e2eWaitFor(t, 4*time.Minute, "submitted response", func(pane string) bool {
 				plain := ansi.Strip(pane)
-				return strings.Count(plain, "COMPRESSED-SUBMIT-OK") >= 2
+				return liveSubmissionResponse.MatchString(plain)
 			}, capture)
-			t.Logf("%s accepted Enter and displayed the requested response", tool)
+			e2eWaitFor(t, time.Minute, "response in compressed conversation", func(_ string) bool {
+				if sess.AgentSessionID == "" {
+					id, found := agentsession.Capture(tool, dir, sess.CreatedAt, nil)
+					if !found {
+						return false
+					}
+					sess.AgentSessionID = id
+					m.rows[m.cursor].sess.AgentSessionID = id
+				}
+				cmd := m.readConversation()
+				if cmd == nil {
+					return false
+				}
+				m.applyConversation(cmd().(conversationMsg))
+				answered := false
+				for _, message := range m.conversation.messages {
+					if message.Role == "assistant" && strings.TrimSpace(message.Text) == "COMPRESSED-SUBMIT-OK" {
+						answered = true
+					}
+				}
+				rendered := conversationInputText(m.previewLines(100, 30, ""))
+				return answered && strings.Contains(rendered, "COMPRESSED-SUBMIT-OK")
+			}, capture)
+			t.Logf("%s accepted Enter and displayed the assistant response in compressed focus", tool)
 		})
+	}
+}
+
+var liveSubmissionResponse = regexp.MustCompile(`(?m)^[ \t]*(?:[●•┃│][ \t]*)?COMPRESSED-SUBMIT-OK[ \t│]*$`)
+
+func TestLiveHarnessSubmissionRequiresAssistantResponse(t *testing.T) {
+	for _, pane := range []string{
+		"❯ Reply exactly COMPRESSED-SUBMIT-OK.\n❯ Reply exactly COMPRESSED-SUBMIT-OK.\n",
+		"› COMPRESSED-SUBMIT-OK\n",
+		"Waiting for COMPRESSED-SUBMIT-OK\n",
+	} {
+		if liveSubmissionResponse.MatchString(pane) {
+			t.Fatalf("draft/status accepted as a response: %q", pane)
+		}
+	}
+	for _, pane := range []string{"● COMPRESSED-SUBMIT-OK\n", "• COMPRESSED-SUBMIT-OK\n", "     COMPRESSED-SUBMIT-OK\n"} {
+		if !liveSubmissionResponse.MatchString(pane) {
+			t.Fatalf("assistant response missed: %q", pane)
+		}
 	}
 }

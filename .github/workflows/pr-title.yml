@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   conventional:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       # Reads the title through the API and never checks out the pull

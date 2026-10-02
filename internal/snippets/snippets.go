@@ -176,7 +176,7 @@ const progressText = "summarise all current progress in bullet points, " +
 
 // Defaults are written on first run and are then the user's to edit. They are
 // the answers the v1 inbox offered as one-tap shortcuts, plus the handful an
-// operator sends most -- yes, continue, open a PR, explain again -- because
+// operator sends most -- yes, continue, explain again -- because
 // the file exists to be rewritten, and an empty one would not show what an
 // entry looks like. § is the reason the alt binding exists at all.
 //
@@ -191,12 +191,9 @@ func Defaults() []Snippet {
 	return []Snippet{
 		submit("y", "yes", "yes"),
 		submit("c", "continue", "continue"),
-		submit("p", "open a PR", "open a pull request for this work"),
-		submit("a", "anything else?", "Anything else in this session?"),
 		submit("e", "explain like I'm 5", "I'm confused, explain like I'm 5"),
 		submit("w", "wake up", "Auto wake-up: the previous turn died on a transient API error. "+
 			"Continue where you left off."),
-		submit("n", "nuke", "Use the nuke skill to end this session."),
 		submit(SectionKey, "progress", progressText),
 	}
 }

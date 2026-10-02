@@ -34,6 +34,35 @@ func conversationInputText(lines []contentLine) string {
 	return ansi.Strip(strings.Join(rows, "\n"))
 }
 
+func TestConversationFocusHoverUsesVisibleTranscriptAboveComposer(t *testing.T) {
+	m := conversationInputModel(t, "codex", "output\n\n› draft\n  model\n", paneCursor{x: 7, y: 2, ok: true})
+	c := m.conversation
+	c.compact, c.hovered = true, -1
+	c.messages = []search.Message{
+		{Role: "assistant", Text: strings.Repeat("older line\n", 12)},
+		{Role: "user", Text: strings.Repeat("middle line\n", 12)},
+		{Role: "assistant", Text: "newest reply"},
+	}
+	lines := m.previewLines(50, 18, "")
+	middleRow := -1
+	for row, line := range lines {
+		if strings.Contains(ansi.Strip(line.text), "middle line") {
+			middleRow = row
+			break
+		}
+	}
+	if middleRow < 0 {
+		t.Fatal("middle turn is not visible")
+	}
+	if !m.updateConversationHover(m.pane.box.x+2, m.pane.box.y+middleRow) || c.hovered != 1 {
+		t.Fatalf("hovered group = %d, want the visible middle turn", c.hovered)
+	}
+	m.previewLines(50, 18, "")
+	if !m.updateConversationHover(m.pane.box.x+2, m.pane.box.y+c.liveTop) || c.hovered != -1 {
+		t.Fatalf("composer hover expanded transcript group %d", c.hovered)
+	}
+}
+
 func TestConversationFocusPinsEachHarnessComposerAndCaret(t *testing.T) {
 	cases := []struct {
 		tool, pane string

@@ -47,6 +47,7 @@ Sleep 1s
 Screenshot {{SHOTS}}/04-experiment-enabled.png
 Sleep 1s
 Escape
+Sleep 1s
 Escape
 Sleep 1s
 Enter
@@ -79,8 +80,11 @@ Down
 Enter
 Sleep 1s
 Up
+Sleep 1s
 Right
+Sleep 1s
 Escape
+Sleep 1s
 Escape
 Sleep 1s
 Enter

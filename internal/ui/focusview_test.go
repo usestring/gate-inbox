@@ -8,23 +8,15 @@ import (
 	"github.com/usestring/gate-inbox/internal/search"
 )
 
-// A focused session shows its conversation by default: entering a session to
-// read what it said keeps the turns in front of you, and F3 hands the pane
-// back to the agent when it is time to type. The test fixtures pin the
-// terminal (see helpers_test), so this reads the default the way a fresh run
-// resolves it and then focuses a model carrying it.
-func TestFocusedViewDefaultsToTheConversation(t *testing.T) {
-	m := drainFleet(t)
-	if got := storedFocusView(m.store); got != focusViewConversation {
-		t.Fatalf("storedFocusView = %q, want the conversation default", got)
+// A focused session shows the terminal by default: focus mode is where keys
+// reach the agent, and the pane is what those keys act on.
+func TestFocusedViewDefaultsToTheTerminal(t *testing.T) {
+	m := enterDrain(t, drainFleet(t))
+	if m.focusView != focusViewTerminal {
+		t.Fatalf("focusView = %q, want the terminal default", m.focusView)
 	}
-	m.focusView = storedFocusView(m.store)
-	m = enterDrain(t, m)
-	if m.focusView != focusViewConversation {
-		t.Fatalf("focusView = %q, want the conversation", m.focusView)
-	}
-	if !m.showsConversation() {
-		t.Fatal("a session opened on the terminal, not the conversation")
+	if m.showsConversation() {
+		t.Fatal("focus defaulted to the conversation")
 	}
 }
 

@@ -199,6 +199,16 @@ func (m *Model) handleFocusMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			m.beginSelection(m.pending.row, m.pending.col)
 			m.pending = pendingClick{}
 		}
+		// Over the shortened conversation the pointer expands the group
+		// under it instead of selecting. A drag in progress keeps its
+		// layout, so hover waits until the gesture lands.
+		if m.showsConversation() && !m.sel.dragging {
+			if m.updateConversationHover(mouse.X, mouse.Y) {
+				return m, nil
+			}
+			m.frameUnchanged()
+			return m, nil
+		}
 		if !m.sel.dragging {
 			return m, nil
 		}

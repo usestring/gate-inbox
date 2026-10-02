@@ -16,6 +16,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/launch"
+	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/snippets"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -1246,19 +1247,22 @@ func (m *Model) jumpTints(number string) bool {
 	return strings.HasPrefix(number, m.jump.buffer)
 }
 
-// meterKey is everything computerLines reads: the two samples, the width it
-// lays them out at, and the theme generation its styles came from.
+// meterKey includes every sample and the selected context so changing sessions
+// cannot leave the previous token reading in the dock.
 type meterKey struct {
-	gen   int
-	width int
-	snap  sysstat.Snapshot
-	net   netStats
+	gen        int
+	width      int
+	snap       sysstat.Snapshot
+	net        netStats
+	hasContext bool
+	usage      search.TokenUsage
 }
 
 // computerLines is the machine block docked at the rail's foot: a label
 // and one thin meter per resource.
 func (m *Model) computerLines(width int) []string {
-	key := meterKey{gen: renderGen, width: width, snap: m.snap, net: m.net}
+	usage, hasContext := m.selectedTokenUsage()
+	key := meterKey{gen: renderGen, width: width, snap: m.snap, net: m.net, hasContext: hasContext, usage: usage}
 	if m.meterMemoOK && m.meterMemoKey == key {
 		return m.meterMemo
 	}
@@ -1293,7 +1297,21 @@ func (m *Model) buildComputerLines(width int) []string {
 		return render(label, percent, extra, gauge(percent, barWidth, false))
 	}
 
-	lines := []string{pad + subtleStyle.Render("computer")}
+	var lines []string
+	if usage, ok := m.selectedTokenUsage(); ok {
+		lines = append(lines, pad+subtleStyle.Render("context"))
+		line := pad + labelStyle.Width(7).Render("tokens")
+		if !usage.Known {
+			line += subtleStyle.Render("n/a")
+		} else if usage.Capacity > 0 {
+			percent := float64(usage.Tokens) / float64(usage.Capacity) * 100
+			line += gauge(percent, barWidth, false) + valueStyle.Render(fmt.Sprintf(" %3.0f%%", percent)) + subtleStyle.Render(" "+humanTokens(usage.Tokens)+"/"+humanTokens(usage.Capacity))
+		} else {
+			line += valueStyle.Render(humanTokens(usage.Tokens))
+		}
+		lines = append(lines, line, "")
+	}
+	lines = append(lines, pad+subtleStyle.Render("computer"))
 	lines = append(lines,
 		meter("cpu", snap.CPUPercent, snap.CPUOK, ""),
 		meter("mem", snap.MemPercent, snap.MemOK, humanBytes(snap.MemUsed)+"/"+humanBytes(snap.MemTotal)),
@@ -1326,7 +1344,33 @@ func (m *Model) buildComputerLines(width int) []string {
 			valueStyle.Render("↓ "+humanBytes(m.net.down)+"/s")+
 			subtleStyle.Render("  ↑ "+humanBytes(m.net.up)+"/s"))
 	}
+
 	return append(lines, "")
+}
+
+func (m *Model) selectedTokenUsage() (search.TokenUsage, bool) {
+	sess, ok := m.selected()
+	if !ok || m.isShell(sess.Tool) {
+		return search.TokenUsage{}, false
+	}
+	c := m.conversation
+	if c == nil {
+		return search.TokenUsage{}, false
+	}
+	if c.key != m.conversationIdentity(sess) {
+		return search.TokenUsage{}, true
+	}
+	return c.usage, true
+}
+
+func humanTokens(n int) string {
+	if n >= 1_000_000 {
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	}
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return fmt.Sprint(n)
 }
 
 // computerBrief is the machine block folded to one line for a rail too short
@@ -1342,6 +1386,14 @@ func (m *Model) computerBrief(width int) string {
 		return labelStyle.Render(label+" ") + valueStyle.Render(fmt.Sprintf("%.0f%%", percent))
 	}
 	line := reading("cpu", snap.CPUPercent, snap.CPUOK) + sep + reading("mem", snap.MemPercent, snap.MemOK)
+	if usage, ok := m.selectedTokenUsage(); ok {
+		tokens := "n/a"
+		if usage.Known {
+			tokens = humanTokens(usage.Tokens)
+		}
+		compact := labelStyle.Render("tok ") + valueStyle.Render(tokens)
+		return spaces(railInset) + textfmt.TruncateWidth(line+sep+compact, width-railInset, "…")
+	}
 	if disk := reading("disk", snap.DiskPercent, snap.DiskOK); textfmt.Width(line)+textfmt.Width(sep)+textfmt.Width(disk)+railInset <= width {
 		line += sep + disk
 	}

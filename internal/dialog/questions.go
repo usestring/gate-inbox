@@ -2,6 +2,7 @@ package dialog
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -63,6 +64,9 @@ func Questions(pane string, asked []convo.AskQuestion) []Question {
 	if tabbed {
 		count = len(stepper.Steps)
 	}
+	if isDialog && !callShows(asked, held, stepper, tabbed) {
+		asked = nil
+	}
 	var out []Question
 	if len(asked) == count {
 		for i, q := range asked {
@@ -123,6 +127,53 @@ func Questions(pane string, asked []convo.AskQuestion) []Question {
 	}
 	markTicked(&out[on], held)
 	return out
+}
+
+// callShows reports whether asked is the call behind the dialog on the
+// screen: the question it puts where the screen's question is reads as the
+// prompt, and offers every choice the screen draws. A call is read from the
+// transcript or the ask-pending hook's file, and either can belong to another
+// dialog -- an earlier one whose file nothing replaced, or another process
+// resumed onto the same conversation -- and a call that is not this dialog's
+// would be relayed and answered as if it were the one standing.
+func callShows(asked []convo.AskQuestion, held Dialog, stepper Stepper, tabbed bool) bool {
+	shows := func(q convo.AskQuestion) bool { return askShown(q, held) }
+	switch {
+	case len(asked) == 0:
+		return false
+	case !tabbed:
+		return shows(asked[0])
+	case stepper.Active == len(asked):
+		// The Submit tab draws no question to hold the call against.
+		return true
+	case stepper.Active >= 0 && stepper.Active < len(asked):
+		return shows(asked[stepper.Active])
+	}
+	return slices.ContainsFunc(asked, shows)
+}
+
+// askShown reports whether q is the question held draws.
+func askShown(q convo.AskQuestion, held Dialog) bool {
+	if strings.TrimSpace(held.Prompt) != "" && !SameQuestion(held.Prompt, q.Question) {
+		return false
+	}
+	for _, choice := range held.Choices(len(held.Options)) {
+		if !slices.ContainsFunc(q.Options, func(option convo.AskOption) bool { return sameLabel(choice, option.Label) }) {
+			return false
+		}
+	}
+	return true
+}
+
+// sameLabel reports whether a choice as the pane draws it is label, however
+// the pane wrapped it or cut it short with "…".
+func sameLabel(drawn, label string) bool {
+	cut, truncated := strings.CutSuffix(strings.TrimSpace(drawn), "…")
+	cut, label = solid(cut), solid(label)
+	if truncated {
+		return cut != "" && strings.HasPrefix(label, cut)
+	}
+	return cut == label
 }
 
 // markTicked copies a multi-select's checked boxes off the screen onto the

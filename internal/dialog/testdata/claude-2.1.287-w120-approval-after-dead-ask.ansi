@@ -1,0 +1,40 @@
+[38;5;174m ▐[48;5;16m▛███▛█[39m[49m   [1mClaude[0m [1mCode[0m [38;5;246mv2.1.287[39m
+[38;5;174m▝▜[48;5;16m█████[49m█▀[39m  [38;5;246mHaiku[39m [38;5;246m4.5[39m [38;5;246m·[39m [38;5;246mClaude[39m [38;5;246mMax[39m
+[38;5;174m ▝▝[39m   [38;5;174m▝▝[39m   [38;5;246mwork[39m
+
+
+[38;5;246m[48;5;237m❯ [38;5;231mCall the AskUserQuestion tool exactly once now, with exactly one question: header "Decision", question "PR #190 is [39m
+  [38;5;231mgreen; how should I proceed with it?", options: "Merge it" (squash merge now), "Wait for review" (leave it open), [39m
+  [38;5;231m"Close it" (abandon the PR). Do nothing else.[39m
+
+[38;5;246m[49m● [39mUser declined to answer questions
+[38;5;246m [39m [38;5;246m⎿[39m [38;5;246m ·[39m [38;5;246mPR[39m [38;5;246m#190[39m [38;5;246mis[39m [38;5;246mgreen;[39m [38;5;246mhow[39m [38;5;246mshould[39m [38;5;246mI[39m [38;5;246mproceed[39m [38;5;246mwith[39m [38;5;246mit?[39m [38;5;246m(Merge[39m [38;5;246mit[39m [38;5;246m/[39m [38;5;246mWait[39m [38;5;246mfor[39m [38;5;246mreview[39m [38;5;246m/[39m [38;5;246mClose[39m [38;5;246mit)[39m
+
+[38;5;246m[48;5;237m❯ [38;5;231mIgnore the earlier question. Call the AskUserQuestion tool exactly once now, with exactly one question: header [39m
+  [38;5;231m"Approval", question "May I run git push origin HEAD to push the merge?", options: "Push merge" (push it now), "Stop [39m
+  [38;5;231m/ defer" (do nothing). Do nothing else.[39m
+[38;5;246m[49m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[38;5;16m[48;5;153m ☐ Approval [39m[49m
+
+[1m[38;5;231mMay I run git push origin HEAD to push the merge?[0m
+
+[38;5;153m❯[39m [38;5;246m1.[39m [38;5;153mPush merge[39m
+     [38;5;246mpush it now[39m
+  [38;5;246m2.[39m Stop / defer
+     [38;5;246mdo nothing[39m
+  [38;5;246m3.[39m [38;5;246mType[39m [38;5;246msomething.[39m
+[38;5;246m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m  4. Chat about this
+
+[38;5;246mEnter[39m [38;5;246mto[39m [38;5;246mselect[39m [38;5;246m·[39m [38;5;246m↑/↓[39m [38;5;246mto[39m [38;5;246mnavigate[39m [38;5;246m·[39m [38;5;246mEsc[39m [38;5;246mto[39m [38;5;246mcancel[39m
+
+
+
+
+
+
+
+
+
+
+

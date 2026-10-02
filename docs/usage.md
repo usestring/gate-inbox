@@ -22,7 +22,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | `g` | New group (name, parent, default path) |
 | `enter` | Focus session in place (keys go to the agent, list stays) / fold group. An archived session has no live pane to focus, so the row offers attach and `u` instead |
 | `A` | Attach: leave the list and fill the whole terminal with this session's pane (Settings can swap it with `enter`) |
-| `F3` | Switch the selected row between the shortened and the full conversation; inside a session, between the conversation and the terminal |
+| `F3` | Switch the selected row between the shortened and the full conversation; inside a session, between the conversation and the terminal. Shortened keeps the newest turn full, and hovering a shortened turn with the pointer expands it |
 | `l` | Focus the session you were on before this one; `l` again swaps back. The pair is held by session, so a poll, a fold or a filter reordering the board does not move it |
 | `ctrl+g` | Jump to a pane: search listed sessions by name, group, tool or status, then press `enter` to focus one. Works from the list or a focused pane; `esc` returns without switching. Folded groups are opened when you jump into them. |
 | `.` | Skip it for now (mute, or mark finished idle); `alt+.` does it from inside |
@@ -117,7 +117,7 @@ The line is run directly, never through a shell, so nothing in it is expanded an
 
 A known windowed editor (the six above, plus `open` and `xdg-open`) starts detached and the manager stays on screen, with the status line naming what opened. Everything else takes the terminal over the way an attach does and hands it back on exit — that way round because a terminal editor started detached would have nowhere to draw, while a windowed one launched this way only costs a repaint.
 
-Each entry is a `key`, an optional `label`, the `text` it types, and `autoSubmit`. The key is a single letter a–z, `§` or `±`, pressed as-is in the hotkey menu. With `autoSubmit` true the key presses Enter after the text, so the session is answered in one key; false types the text and leaves it in the prompt for you to finish and send. An entry without the field submits, which is how every snippet behaved before it was a choice. A first run writes `yes`, `continue`, `open a PR`, `anything else?`, `explain like I'm 5`, `wake up`, `nuke` and the `§` progress summary, all submitting.
+Each entry is a `key`, an optional `label`, the `text` it types, and `autoSubmit`. The key is a single letter a–z, `§` or `±`, pressed as-is in the hotkey menu. With `autoSubmit` true the key presses Enter after the text, so the session is answered in one key; false types the text and leaves it in the prompt for you to finish and send. An entry without the field submits, which is how every snippet behaved before it was a choice. A first run writes `yes`, `continue`, `explain like I'm 5`, `wake up` and the `§` progress summary, all submitting.
 
 Inside a session every `ctrl` combination reaches the program running there, `ctrl+o` included: Claude Code shows more lines with it, and in a [terminal tab](#terminal-tabs) `nano` writes the file out.
 
@@ -383,9 +383,9 @@ A status is a reading of a screen, and a reading can be wrong. When a session ha
 
 ## The conversation preview
 
-The panel beside the list is not the raw terminal: it is the session's **conversation**, drawn as `You` and `Assistant` turns with the commands and tool calls folded into the turns that produced them. A turn too tall for the panel is shortened to its first lines with a `… N more lines` note. `F3` switches the selected row between that shortened transcript and the full one, and the choice is held as you move down the list. `enter` opens the same conversation, full width — keys reach the agent either way — and `F3` there hands the pane to the live terminal.
+The panel beside the list is not the raw terminal: it is the session's **conversation**, drawn as `You` and `Assistant` turns with the commands and tool calls folded into the turns that produced them. A turn too tall for the panel is shortened to its first lines with a `… N more lines` note. `F3` switches the selected row between that shortened transcript and the full one, and the choice is held as you move down the list. `enter` still opens the live terminal — keys reach the agent and the caret is where you type — and leaving it comes back to the conversation.
 
-Settings (`s`) has a **focused view** row. `conversation` is the default: a focused session keeps the transcript on screen, so a drain can read each session's turns without the terminal's own chrome, and `F3` hands the pane to the agent when it is time to type. `terminal` shows the live pane inside the session instead. The choice is remembered, so a session left on its terminal stays that way on the next start. A shell has no conversation to show, so it always stays on the terminal.
+Settings (`s`) has a **focused view** row. `terminal` is the default: a focused session shows its live pane. `conversation` keeps the transcript on screen inside the session too, so a drain can read each session's turns without the terminal's own chrome, and `F3` then switches that session to the terminal and back. The setting is remembered, so a session kept on its transcript stays that way on the next start. A shell has no conversation to show, so the row stays on the terminal there.
 
 ## The board layout
 
@@ -416,6 +416,8 @@ The Computer block in the sessions panel shows machine gauges:
 - **Network**: up/down rates on real NICs only (loopback, utun, bridges, and similar virtual interfaces are excluded)
 - **Battery**: charge percent, with `charging` while plugged in and filling. On macOS it is the figure the menu bar shows. It stays hidden when the machine has no battery, and peripheral batteries that report no charge (a wireless mouse on Linux) are ignored.
 - **Temperature**: `cpu`, `gpu` and `soc` readings in °C, each the hottest sensor in its category, sampled every 5s. Apple Silicon draws no CPU/GPU line, so its dies report as one `soc` figure. A reading appears when the machine exposes that sensor.
+
+The **context** section above these meters shows the selected agent’s latest reported context-token use. Claude counts input, cached input and output from its latest assistant record; Codex uses its latest turn usage and shows a gauge against the reported context window. Sessions without a usage record, including unsupported tools, show `n/a`. Selecting a group or terminal hides the section.
 
 Under WSL2 the board runs inside the Linux guest, whose `/proc` describes the VM rather than the machine. There the CPU, memory, disk and agent-usage figures come from the Windows host instead, sampled through PowerShell interop every 30 seconds; swap, network and temperatures stay the guest's own. Without interop the guest's numbers show unchanged.
 

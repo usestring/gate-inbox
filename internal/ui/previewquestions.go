@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/asks"
@@ -317,7 +316,7 @@ func (m *Model) previewScreen(width, height int) []string {
 		return c.lines
 	}
 	*c = screenCard{sessID: sess.ID, pane: m.preview, width: width, height: height, theme: renderGen}
-	screen, ok := dialog.ReadScreenFor(sess.Tool, ansi.Strip(m.preview))
+	screen, ok := dialog.ReadScreenFor(sess.Tool, m.preview)
 	if !ok {
 		return nil
 	}

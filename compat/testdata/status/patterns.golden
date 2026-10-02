@@ -73,9 +73,10 @@ interrupt_keys = []
 rules[0] waiting "\\x{25B3} Permission required"
 rules[1] waiting "\\x{21C6} select\\s+enter confirm"
 rules[2] waiting "(?m)^.*\\benter (?:submit|toggle|confirm)[ \\x{A0}]+esc dismiss[ \\x{A0}]*$"
-rules[3] errored "(?i)requires more credits"
-rules[4] errored "(?im)^\\s*error\\b"
-rules[5] working "esc interrupt"
+rules[3] waiting "(?m)^[ \\x{A0}]*\\x{2503}[ \\x{A0}]+Questions[ \\x{A0}]*$"
+rules[4] errored "(?i)requires more credits"
+rules[5] errored "(?im)^\\s*error\\b"
+rules[6] working "esc interrupt"
 
 [terminal]
 status_source = ""

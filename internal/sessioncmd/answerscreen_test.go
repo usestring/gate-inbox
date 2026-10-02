@@ -281,3 +281,56 @@ func TestKeysAreSentOnlyAsTheUsersChoice(t *testing.T) {
 		t.Fatal("the key allowlist lets through more than navigation and one character")
 	}
 }
+
+type opencodePermissionPane struct {
+	cursor int
+	closed bool
+	keys   []string
+}
+
+func (p *opencodePermissionPane) Capture() (string, error) {
+	if p.closed {
+		return "ready", nil
+	}
+	out := "┃  △ Permission required\n┃  $ echo hello\n┃  "
+	for i, label := range []string{"Allow once", "Always allow", "Reject"} {
+		background := "\x1b[48;5;0m"
+		if i == p.cursor {
+			background = "\x1b[48;5;1m"
+		}
+		out += background + label + "  "
+	}
+	return out + "\x1b[0m\n┃  ⇆ select enter confirm\n", nil
+}
+func (p *opencodePermissionPane) Keys(keys ...string) error {
+	for _, key := range keys {
+		p.keys = append(p.keys, key)
+		switch key {
+		case "Left":
+			p.cursor--
+		case "Right":
+			p.cursor++
+		case "Enter":
+			p.closed = true
+		}
+	}
+	return nil
+}
+func (p *opencodePermissionPane) Type(string) error { return errors.New("permission takes no text") }
+
+func TestOpencodePermissionChoiceMovesSidewaysAndReadsBack(t *testing.T) {
+	quickSettle(t)
+	pane := &opencodePermissionPane{}
+	raw, _ := pane.Capture()
+	screen, ok := dialog.ReadScreenFor("opencode", raw)
+	if !ok {
+		t.Fatal("permission not read")
+	}
+	got, err := pickChoice(pane, screen, 3, "opencode")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Verified || got.Selected != "Reject" || strings.Join(pane.keys, ",") != "Right,Right,Enter" {
+		t.Fatalf("result %+v, keys %q", got, pane.keys)
+	}
+}

@@ -312,13 +312,16 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 			"at about %s UTC. The child then carries on without your answer, so answer before then.",
 			traits.Name, traits.Expires.Round(time.Second), askedAt.Add(traits.Expires).UTC().Format("15:04:05"))
 	}
-	var multi []string
+	var person, multi []string
 	open := 0
 	for _, q := range questions {
-		if !q.Answered {
+		switch {
+		case q.MultiSelect && !traits.MultiSelectAnswerable && (!q.Answered || q.OnScreen):
+			person = append(person, fmt.Sprint(q.Index))
+		case !q.Answered:
 			open++
 		}
-		if q.MultiSelect && (!q.Answered || q.OnScreen) {
+		if q.MultiSelect && traits.MultiSelectAnswerable && (!q.Answered || q.OnScreen) {
 			multi = append(multi, fmt.Sprint(q.Index))
 		}
 	}
@@ -328,6 +331,11 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 			"header, question and options (and any recommendation) word for word. Then answer on session %s "+
 			"with one answer_session call: answers, one entry per question, naming it by number or header and "+
 			"giving the option's text, or your own words to %s.", sess.ID, traits.FreeText)
+		if traits.MultiSelectAnswerable {
+			if traits.Name != asks.TraitsOf("claude").Name {
+				out.WriteString(" For a multi-select, give every option to tick, separated by commas.")
+			}
+		}
 		if traits.Name == asks.TraitsOf("claude").Name {
 			out.WriteString(" It presses Submit once every question has an answer.")
 		} else {
@@ -352,7 +360,10 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 			"Never answer it yourself. Ask your user verbatim, then answer with relay: true; any other answer "+
 			"is refused.", strings.Join(approvals, ", "))
 	}
-	if open == 0 {
+	if len(person) > 0 {
+		fmt.Fprintf(&out, "\n\nQuestion %s is a multi-select, which answer_session cannot tick: only a person at its pane can answer it. Put it to your user word for word, then ask the operator for the keystrokes.", strings.Join(person, ", "))
+	}
+	if open == 0 && len(person) == 0 {
 		fmt.Fprintf(&out, "\n\nEvery question has an answer and the dialog is waiting on its Submit page: "+
 			"answer_session on session %s with the answer \"Submit answers\" sends it.", sess.ID)
 	}

@@ -1,0 +1,45 @@
+   Shell command execution re ! Shell command request: ec +
+
+  ┃
+  ┃  $ echo hello-from-probe
+  ┃
+  ┃  The user declined this tool call
+  ┃
+
+     Build · MiMo-V2.6-Pro · 40.0s · 77.7 tok/s ·
+     interrupted
+
+  ┃
+  ┃  Use your edit/write tool to create notes.txt in the
+  ┃  current directory containing the line 'hi'. Then
+  ┃  stop.
+  ┃
+
+     ┃ Thought: 1.8s
+
+     ┃ The user asked me to run a command earlier and it
+     ┃ was declined. Now they ask to create notes.txt with
+     ┃ 'hi'. This seems like a probe task. It's
+     ┃ straightforward and safe — create a file in the
+     ┃ working directory. I'll do it.
+
+     Just create the file and stop.
+
+     ← Write notes.txt
+
+  ┃
+  ┃  △ Permission required
+  ┃    → Edit notes.txt
+  ┃
+  ┃  1 + hi
+  ┃
+  ┃
+  ┃
+  ┃
+  ┃
+  ┃
+  ┃   Allow once   Always allow   Reject
+  ┃
+  ┃  ctrl+f fullscreen  ⇆ select  enter confirm
+  ┃
+

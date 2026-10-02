@@ -93,6 +93,9 @@ func planCodex(questions []dialog.Question, ask dialog.CodexAsk, answers []Quest
 	var steps []codexStep
 	seen := map[int]bool{}
 	for _, answer := range answers {
+		if len(answer.Ticks) > 0 {
+			return nil, errors.New("Codex questions take an answer, not multi-select ticks")
+		}
 		index := ask.Index - 1
 		if strings.TrimSpace(answer.Question) != "" {
 			var err error

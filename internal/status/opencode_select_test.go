@@ -84,3 +84,15 @@ func TestOpencodeSelectPromptLegendVariants(t *testing.T) {
 		})
 	}
 }
+
+// OpenCode 2's question dialog wraps its legend under about 60 columns and lays
+// it out in two rows under 50; its title row still says it is standing.
+func TestOpencodeV2QuestionDialogReadsWaitingAtEveryWidth(t *testing.T) {
+	engine := defaultEngine(t)
+	for _, name := range []string{"opencode-2.0.3-q3-t1-w40.txt", "opencode-2.0.3-q3-t1-w50.txt",
+		"opencode-2.0.3-q1-w50.txt", "opencode-2.0.3-multi1-w40.txt", "opencode-2.0.3-q3-review-w40.txt"} {
+		if got, _ := engine.Match("opencode", loadPane(t, name)); got != Waiting {
+			t.Errorf("Match(opencode, %s) = %q want %q", name, got, Waiting)
+		}
+	}
+}

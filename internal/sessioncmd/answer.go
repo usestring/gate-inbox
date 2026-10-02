@@ -132,7 +132,7 @@ func (r *runtime) answer(target store.Session, reply, by, byID string, guard *an
 		// A permission prompt, a trust dialog, or any other dialog drawn as
 		// choices: picked by its text, and only as the caller's user's own
 		// answer. See answerscreen.go.
-		if screen, isScreen := dialog.ReadScreen(plain); isScreen && screen.Kind != dialog.ScreenQuestion &&
+		if screen, isScreen := dialog.ReadScreenFor(target.Tool, plain); isScreen && screen.Kind != dialog.ScreenQuestion &&
 			len(screen.Choices) >= 2 {
 			return r.answerScreen(target, pane, screen.WithExact(guard.pendingStrings()...), reply, by, byID, guard)
 		}

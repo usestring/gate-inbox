@@ -1,0 +1,45 @@
+
+  ┃
+  ┃  Test harness: call the question tool exactly once
+  ┃  with three questions: (1) header 'Color', question
+  ┃  'Which color should the banner use?', options Red /
+  ┃  Green / Blue with short descriptions; (2) header
+  ┃  'Features', question 'Which features should ship?',
+  ┃  options Search / Export / Sharing, allowing multiple
+  ┃  selections; (3) header 'Name', question 'What should
+  ┃  the banner say?', options 'Welcome' / 'Hello'. Then
+  ┃  report the answers verbatim and stop.
+  ┃
+
+     ┃ Thought: 2.1s
+
+     ┃ Straightforward test harness request. Call question
+     ┃ tool once with three questions.
+
+     → Asked 3 questions
+
+
+
+
+
+
+
+
+  ┃
+  ┃  Questions
+  ┃
+  ┃  Color  Features  Name  Submit
+  ┃
+  ┃  Which color should the banner use?
+  ┃
+  ┃  1. Red
+  ┃     A bold red banner
+  ┃  2. Green
+  ┃     A fresh green banner
+  ┃  3. Blue
+  ┃     A calm blue banner
+  ┃  4. Type your own answer
+  ┃
+  ┃  ⇆ tab  ↑↓ select  enter confirm  esc dismiss
+  ┃
+

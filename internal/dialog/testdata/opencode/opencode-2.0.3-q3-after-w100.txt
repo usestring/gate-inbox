@@ -1,0 +1,45 @@
+
+  ┃
+  ┃  Test harness: call the question tool exactly once with three questions: (1) header 'Color',
+  ┃  question 'Which color should the banner use?', options Red / Green / Blue with short
+  ┃  descriptions; (2) header 'Features', question 'Which features should ship?', options Search /
+  ┃  Export / Sharing, allowing multiple selections; (3) header 'Name', question 'What should the
+  ┃  banner say?', options 'Welcome' / 'Hello'. Then report the answers verbatim and stop.
+  ┃
+
+     ┃ Thought: 2.1s
+
+     ┃ Straightforward test harness request. Call question tool once with three questions.
+
+  ┃
+  ┃  # Questions
+  ┃
+  ┃  Which color should the banner use?
+  ┃  Green
+  ┃
+  ┃  Which features should ship?
+  ┃  Export, Sharing, Dark mode
+  ┃
+  ┃  What should the banner say?
+  ┃  Howdy, team
+  ┃
+
+     ┃ Thought: 673ms
+
+     ┃ Report answers verbatim and stop.
+
+     Answers verbatim:
+
+     1. **Color** — "Which color should the banner use?"=`Green`
+     2. **Features** — "Which features should ship?"=`Export, Sharing, Dark mode`
+     3. **Name** — "What should the banner say?"=`Howdy, team`
+
+     Build · MiMo-V2.6-Pro · 1m 38s · 91.9 tok/s
+
+  ┃
+  ┃
+  ┃
+  ┃  Build auto · MiMo-V2.6-Pro OpenCode Go
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/sbox-001000/gdx/work:main                               16.3K (2%) · $0.01  ctrl+p commands
+

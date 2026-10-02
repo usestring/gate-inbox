@@ -138,7 +138,7 @@ func TestConversationFocusLiveHarnessSubmission(t *testing.T) {
 	}
 }
 
-var liveSubmissionResponse = regexp.MustCompile(`(?m)^[ \t]*(?:[●•┃│][ \t]*)?COMPRESSED-SUBMIT-OK[ \t│]*$`)
+var liveSubmissionResponse = regexp.MustCompile(`(?m)^[ \t]*(?:[⏺●•┃│][ \t]*)?COMPRESSED-SUBMIT-OK[ \t│]*$`)
 
 func TestLiveHarnessSubmissionRequiresAssistantResponse(t *testing.T) {
 	for _, pane := range []string{
@@ -150,7 +150,7 @@ func TestLiveHarnessSubmissionRequiresAssistantResponse(t *testing.T) {
 			t.Fatalf("draft/status accepted as a response: %q", pane)
 		}
 	}
-	for _, pane := range []string{"● COMPRESSED-SUBMIT-OK\n", "• COMPRESSED-SUBMIT-OK\n", "     COMPRESSED-SUBMIT-OK\n"} {
+	for _, pane := range []string{"⏺ COMPRESSED-SUBMIT-OK\n", "● COMPRESSED-SUBMIT-OK\n", "• COMPRESSED-SUBMIT-OK\n", "     COMPRESSED-SUBMIT-OK\n"} {
 		if !liveSubmissionResponse.MatchString(pane) {
 			t.Fatalf("assistant response missed: %q", pane)
 		}

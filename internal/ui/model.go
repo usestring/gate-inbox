@@ -1139,7 +1139,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	// force here rather than read off the model on every paint.
 	applyGlyphSet(storedGlyphs(st))
 	model := &Model{
-		conversation:    &conversationView{locator: newHistoryLocator(), compact: true},
+		conversation:    &conversationView{locator: newHistoryLocator(), compact: true, hovered: -1},
 		landingLocator:  newHistoryLocator(),
 		cfg:             cfg,
 		store:           st,

@@ -174,3 +174,122 @@ func TestWithSessionIDReplacesTheServersOwn(t *testing.T) {
 		t.Errorf("session id entries = %v, want only the caller's", found)
 	}
 }
+
+// The 2026-10-02 regression: a stale server revived a child in process, on
+// its own build's hook settings, which had no prompt-submit hook, so every
+// message its parent sent afterwards reached it with no verifying note. A
+// stale server's revive runs on the installed manager, which writes today's.
+func TestReviveSessionDelegatesWhenTheServerIsStale(t *testing.T) {
+	home := staleHome(t)
+	argvFile := filepath.Join(t.TempDir(), "argv")
+	installFakeManager(t, home, argvFile)
+	t.Setenv(config.HomeEnv, home)
+
+	revived, err := reviveSession(home, "parent01", "child001",
+		func(string, string) (sessioncmd.Session, error) {
+			t.Error("a stale server revived the session on its own hook settings instead of delegating")
+			return sessioncmd.Session{ID: "child001"}, nil
+		})
+	if err != nil {
+		t.Fatalf("reviveSession failed: %v", err)
+	}
+	if revived.ID != "delegated1" {
+		t.Errorf("revived = %+v, want the delegate's row", revived)
+	}
+	lines := delegateArgv(t, argvFile)
+	if lines[0] != "parent01" {
+		t.Errorf("the delegate ran as %q, want the caller", lines[0])
+	}
+	if got := strings.Join(lines[1:], " "); got != "revive --json -- child001" {
+		t.Errorf("delegate argv = %q", got)
+	}
+}
+
+func TestReviveSessionRunsInProcessWhenTheServerIsCurrent(t *testing.T) {
+	dir := t.TempDir()
+	if err := managerbuild.Record(dir); err != nil {
+		t.Fatalf("record build: %v", err)
+	}
+	revived, err := reviveSession(dir, "parent01", "child001",
+		func(caller, target string) (sessioncmd.Session, error) {
+			if caller != "parent01" || target != "child001" {
+				t.Errorf("in-process revive got (%q, %q)", caller, target)
+			}
+			return sessioncmd.Session{ID: target}, nil
+		})
+	if err != nil || revived.ID != "child001" {
+		t.Errorf("reviveSession returned %+v, %v; want the in-process row", revived, err)
+	}
+}
+
+func TestReviveSessionFallsBackWhenTheDelegateCannotRun(t *testing.T) {
+	home := staleHome(t)
+	t.Setenv(config.HomeEnv, home)
+	t.Setenv("PATH", t.TempDir())
+
+	revived, err := reviveSession(home, "parent01", "child001",
+		func(_, target string) (sessioncmd.Session, error) { return sessioncmd.Session{ID: target}, nil })
+	if err != nil || revived.ID != "child001" {
+		t.Errorf("reviveSession returned %+v, %v; want the in-process row", revived, err)
+	}
+}
+
+func TestMigrateSessionDelegatesWhenTheServerIsStale(t *testing.T) {
+	home := staleHome(t)
+	argvFile := filepath.Join(t.TempDir(), "argv")
+	installFakeManager(t, home, argvFile)
+	t.Setenv(config.HomeEnv, home)
+
+	migrated, err := migrateSession(home, "parent01", "child001",
+		sessioncmd.MigrateOptions{Tool: "codex", Name: "child-codex"},
+		func(string, string, sessioncmd.MigrateOptions) (sessioncmd.Session, error) {
+			t.Error("a stale server migrated the session on its own hook settings instead of delegating")
+			return sessioncmd.Session{ID: "inproc"}, nil
+		})
+	if err != nil {
+		t.Fatalf("migrateSession failed: %v", err)
+	}
+	if migrated.ID != "delegated1" {
+		t.Errorf("migrated = %+v, want the delegate's row", migrated)
+	}
+	lines := delegateArgv(t, argvFile)
+	if got := strings.Join(lines, " "); got != "parent01 migrate --json --tool codex --name child-codex -- child001" {
+		t.Errorf("delegate caller and argv = %q", got)
+	}
+}
+
+func TestMigrateArgsLeaveOutWhatWasNotAskedFor(t *testing.T) {
+	if got := strings.Join(migrateArgs("child001", sessioncmd.MigrateOptions{}), " "); got != "migrate --json -- child001" {
+		t.Errorf("migrate args = %q", got)
+	}
+}
+
+func delegateArgv(t *testing.T, argvFile string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("read argv: %v", err)
+	}
+	return strings.Split(strings.TrimSpace(string(raw)), "\n")
+}
+
+// The handler is wired through the delegate: a stale server's revive_session
+// reaches the installed manager and never the in-process revive.
+func TestReviveSessionToolDelegatesWhenTheServerIsStale(t *testing.T) {
+	home := staleHome(t)
+	argvFile := filepath.Join(t.TempDir(), "argv")
+	installFakeManager(t, home, argvFile)
+	t.Setenv(config.HomeEnv, home)
+	fake := &fakeSessionCommands{created: sessioncmd.Session{ID: "child001"}}
+	client := connectServer(t, newServer(home, "parent01", "test", &fakeTerminalCommands{}, fake))
+
+	if text, isError := callText(t, client, "revive_session", map[string]any{"session_id": "child001"}); isError {
+		t.Fatalf("revive_session failed: %s", text)
+	}
+	if fake.revivedID != "" {
+		t.Error("a stale server revived the session in process")
+	}
+	if got := strings.Join(delegateArgv(t, argvFile), " "); got != "parent01 revive --json -- child001" {
+		t.Errorf("delegate caller and argv = %q", got)
+	}
+}

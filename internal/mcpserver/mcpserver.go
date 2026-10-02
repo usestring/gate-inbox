@@ -771,7 +771,9 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Call when list_sessions or send_session reports a session is not running and its work should continue.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args sessionTargetArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
-		revived, err := sessions.Revive(sessionID, args.SessionID)
+		// Through the installed manager when this server is stale, so the
+		// pane comes back on today's hook settings; see reviveSession.
+		revived, err := reviveSession(configDir, sessionID, args.SessionID, sessions.Revive)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
@@ -785,7 +787,8 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"The source is left as it is, so archive it once the new session has taken over; only claude, codex and opencode sessions with a transcript can be moved.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args migrateSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
-		created, err := sessions.Migrate(sessionID, args.SessionID, sessioncmd.MigrateOptions{Tool: args.Tool, Name: args.Name})
+		created, err := migrateSession(configDir, sessionID, args.SessionID,
+			sessioncmd.MigrateOptions{Tool: args.Tool, Name: args.Name}, sessions.Migrate)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}

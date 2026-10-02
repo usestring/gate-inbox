@@ -23,18 +23,24 @@ type conversationView struct {
 	pendingKey   string
 	key, stamp   string
 	messages     []search.Message
+	usage        search.TokenUsage
 	err          error
 	offset       int
 	lines        []string
+	starts       []int
 	width, theme int
 	dirty        bool
 	compact      bool
+	// hovered is the group expanded under the pointer in compact mode,
+	// -1 when none.
+	hovered int
 }
 
 type conversationTickMsg struct{}
 type conversationMsg struct {
 	key, stamp string
 	messages   []search.Message
+	usage      search.TokenUsage
 	err        error
 	unchanged  bool
 }
@@ -117,6 +123,7 @@ func (m *Model) readConversation() tea.Cmd {
 			return msg
 		}
 		msg.messages, msg.err = search.ReadMessages(target, database)
+		msg.usage = search.ReadTokenUsage(target)
 		return msg
 	}
 }
@@ -138,12 +145,17 @@ func (m *Model) applyConversation(msg conversationMsg) {
 		return
 	}
 	if c.key != msg.key {
-		c.offset, c.lines = 0, nil
+		c.offset, c.lines, c.starts = 0, nil, nil
+		c.hovered = -1
 	}
 	m.sel = focusSelection{}
 	c.key, c.stamp, c.messages, c.err = msg.key, msg.stamp, msg.messages, msg.err
+	c.usage = msg.usage
 	if msg.err != nil {
 		c.stamp = ""
+	}
+	if len(c.messages) == 0 || c.hovered >= len(c.messages) {
+		c.hovered = -1
 	}
 	c.dirty = true
 }
@@ -153,7 +165,7 @@ func (c *conversationView) wrapped(width int) []string {
 		return c.lines
 	}
 	oldHeight := len(c.lines)
-	c.lines = nil
+	c.lines, c.starts = nil, nil
 	// You renders in the errored (red) tone against the assistant's teal
 	// accent: Accent vs Accent2 differed only in the blue channel and read
 	// as the same box. Sequential turns from one speaker share one box.
@@ -176,7 +188,7 @@ func (c *conversationView) wrapped(width int) []string {
 		}
 		groups = append(groups, convoGroup{role: message.Role, label: label, style: style, texts: []string{message.Text}})
 	}
-	for _, group := range groups {
+	for gi, group := range groups {
 		inner := max(1, width-4)
 		text := strings.Map(func(r rune) rune {
 			if r == '\t' {
@@ -188,9 +200,12 @@ func (c *conversationView) wrapped(width int) []string {
 			return r
 		}, ansi.Strip(strings.Join(group.texts, "\n\n")))
 		heading := textfmt.TruncateWidth(" "+group.label+" ", max(1, width-2), "")
+		c.starts = append(c.starts, len(c.lines))
 		c.lines = append(c.lines, group.style.Render("╭"+heading+strings.Repeat("─", max(0, width-2-textfmt.Width(heading)))+"╮"))
 		messageLines := markdownLines(text, inner)
-		if c.compact && len(messageLines) > 4 {
+		// Shortened mode keeps every older group to four lines. The newest
+		// group stays full, as does whichever group the pointer is over.
+		if c.compact && len(messageLines) > 4 && gi != len(groups)-1 && gi != c.hovered {
 			messageLines = append(messageLines[:4:4], mutedStyle.Render(textfmt.TruncateWidth(fmt.Sprintf("… %d more lines", len(messageLines)-4), inner, "…")))
 		}
 		for _, line := range messageLines {
@@ -297,6 +312,9 @@ func (m *Model) toggleConversation() tea.Cmd {
 			value = focusViewConversation
 		}
 		m.focusView = value
+		if m.conversation != nil {
+			m.conversation.hovered, m.conversation.dirty = -1, true
+		}
 		return deferStoreWrite(func() error {
 			return m.store.SetSetting(focusViewSetting, value)
 		})
@@ -305,7 +323,7 @@ func (m *Model) toggleConversation() tea.Cmd {
 		return nil
 	}
 	c := m.conversation
-	c.compact, c.dirty, c.offset = !c.compact, true, 0
+	c.compact, c.dirty, c.offset, c.hovered = !c.compact, true, 0, -1
 	m.sel = focusSelection{}
 	return nil
 }
@@ -334,5 +352,61 @@ func (m *Model) scrollConversation(lines int) tea.Cmd {
 		height = m.pane.box.height
 	}
 	c.offset = min(max(0, c.offset-lines), max(0, len(rows)-height))
+	// Scrolling moves the text under a still pointer, so the hovered group
+	// would no longer sit under it. Drop it until the pointer moves again.
+	if c.hovered != -1 {
+		c.hovered, c.dirty = -1, true
+	}
 	return nil
+}
+
+// updateConversationHover expands the shortened group under the pointer,
+// reporting whether anything changed. Terminal coordinates map onto the
+// same windowed rows the paint used, so the hovered group is the one the
+// operator actually sees there. The newest group is already full and the
+// question card and spinner own no group, so hovering those clears.
+func (m *Model) updateConversationHover(x, y int) bool {
+	c := m.conversation
+	if c == nil {
+		return false
+	}
+	clear := func() bool {
+		if c.hovered != -1 {
+			c.hovered, c.dirty = -1, true
+			return true
+		}
+		return false
+	}
+	if !m.showsConversation() || !c.compact {
+		return clear()
+	}
+	box := m.pane.box
+	if !box.ok || box.width <= 0 || box.height <= 0 ||
+		x < box.x || x >= box.x+box.width || y < box.y || y >= box.y+box.height {
+		return clear()
+	}
+	body := m.conversationBody(box.width)
+	offset := min(c.offset, max(0, len(body)-box.height))
+	end := len(body) - offset
+	start := max(0, end-box.height)
+	lineIdx := start + (y - box.y)
+	if lineIdx < 0 || lineIdx >= len(body) || lineIdx >= len(c.lines) {
+		return clear()
+	}
+	group := -1
+	for i, s := range c.starts {
+		if s <= lineIdx {
+			group = i
+		} else {
+			break
+		}
+	}
+	if group < 0 || group == len(c.starts)-1 {
+		return clear()
+	}
+	if group == c.hovered {
+		return false
+	}
+	c.hovered, c.dirty = group, true
+	return true
 }

@@ -75,21 +75,30 @@ func TestConversationReadsVerifiedAdoptedTranscriptAndRefreshes(t *testing.T) {
 		t.Fatal("unchanged file was reparsed")
 	}
 	m.applyConversation(msg)
-	if err := os.WriteFile(path, []byte(first+`{"type":"assistant","message":{"role":"assistant","content":"My reply"}}`+"\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(first+`{"type":"assistant","timestamp":"2026-10-01T12:00:00Z","message":{"role":"assistant","content":"My reply","usage":{"input_tokens":123}}}`+"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	m.applyConversation(m.readConversation()().(conversationMsg))
 	if len(m.conversation.messages) != 2 {
 		t.Fatalf("appended reply missing: %#v", m.conversation.messages)
 	}
+	if usage := m.conversation.usage; !usage.Known || usage.Tokens != 123 {
+		t.Fatalf("appended usage missing: %+v", usage)
+	}
 }
 
 func TestShortenedConversationWrapsWithinNarrowScreens(t *testing.T) {
 	for _, width := range []int{12, 40, 80} {
-		c := conversationView{dirty: true, compact: true, messages: []search.Message{{Role: "assistant", Text: strings.Repeat("界 long reply\n", 40)}}}
+		// The older group shortens; the newest stays full even when long.
+		c := conversationView{dirty: true, compact: true, hovered: -1, messages: []search.Message{
+			{Role: "assistant", Text: strings.Repeat("界 long reply\n", 40)},
+			{Role: "user", Text: "ok"},
+		}}
 		rows := c.wrapped(width)
-		if len(rows) != 8 {
-			t.Fatalf("shortened message uses %d rows", len(rows))
+		// Shortened older box (heading + 4 lines + more + footer + gap) plus
+		// the full newest box (heading + 1 line + footer + gap).
+		if len(rows) != 12 {
+			t.Fatalf("shortened conversation uses %d rows", len(rows))
 		}
 		for _, row := range rows {
 			if textfmt.Width(row) > width {
@@ -104,6 +113,7 @@ func TestConversationViewChoiceSurvivesQuickPrompt(t *testing.T) {
 	sess, _ := m.selected()
 	m.applyConversation(conversationMsg{key: conversationKey(sess.ID, sess.AgentSessionID), messages: []search.Message{
 		{Role: "assistant", Text: "first\nsecond\nthird\nfourth\nexpanded detail\nlast detail"},
+		{Role: "user", Text: "looks good"},
 	}})
 	view := func() string {
 		return ansi.Strip(strings.Join(m.conversationRows(80, 20), "\n"))
@@ -230,5 +240,93 @@ func TestConversationUserAndAssistantBoxesUseDistinctColors(t *testing.T) {
 	}
 	if youSeq == assistantSeq {
 		t.Fatal("user and assistant boxes render in the same color")
+	}
+}
+
+func TestCompactConversationShowsNewestGroupInFull(t *testing.T) {
+	m := drainFleet(t)
+	sess, _ := m.selected()
+	m.applyConversation(conversationMsg{key: conversationKey(sess.ID, sess.AgentSessionID), messages: []search.Message{
+		{Role: "user", Text: "first\nsecond\nthird\nfourth\nburied detail\nsixth"},
+		{Role: "assistant", Text: "alpha\nbeta\ngamma\ndelta\nvisible detail\nmore visible"},
+	}})
+	view := ansi.Strip(strings.Join(m.conversationRows(80, 40), "\n"))
+	if !strings.Contains(view, "visible detail") {
+		t.Fatalf("newest group is not full:\n%s", view)
+	}
+	if strings.Contains(view, "buried detail") {
+		t.Fatalf("older group is not shortened:\n%s", view)
+	}
+	if !strings.Contains(view, "more lines") {
+		t.Fatalf("shortened group hides its overflow marker:\n%s", view)
+	}
+}
+
+func TestConversationHoverExpandsShortenedGroup(t *testing.T) {
+	m := drainFleet(t)
+	sess, _ := m.selected()
+	m.applyConversation(conversationMsg{key: conversationKey(sess.ID, sess.AgentSessionID), messages: []search.Message{
+		{Role: "user", Text: "one\ntwo\nthree\nfour\nhover buried detail\nsixth"},
+		{Role: "assistant", Text: "alpha\nbeta\ngamma\ndelta\nmiddle detail\nzeta"},
+		{Role: "user", Text: "tail"},
+	}})
+	const width, height = 80, 40
+	m.conversationLines(width, height)
+	box := m.pane.box
+	if !box.ok {
+		t.Fatal("conversation did not record its pane box")
+	}
+	view := func() string {
+		return ansi.Strip(strings.Join(m.conversationRows(width, height), "\n"))
+	}
+	if strings.Contains(view(), "hover buried detail") {
+		t.Fatal("older group starts expanded")
+	}
+	if !m.updateConversationHover(box.x, box.y) {
+		t.Fatal("hover over the first group changed nothing")
+	}
+	if m.conversation.hovered != 0 {
+		t.Fatalf("hovered = %d, want the first group", m.conversation.hovered)
+	}
+	if !strings.Contains(view(), "hover buried detail") {
+		t.Fatal("hover did not expand the group under the pointer")
+	}
+	lastStart := m.conversation.starts[len(m.conversation.starts)-1]
+	m.updateConversationHover(box.x, box.y+lastStart)
+	if m.conversation.hovered != -1 {
+		t.Fatal("hovering the newest group kept an expansion it does not need")
+	}
+	if !m.updateConversationHover(box.x, box.y) || m.conversation.hovered != 0 {
+		t.Fatal("re-hover did not expand the first group again")
+	}
+	m.updateConversationHover(box.x+box.width, box.y)
+	if m.conversation.hovered != -1 {
+		t.Fatal("leaving the pane kept the expansion")
+	}
+	if strings.Contains(view(), "hover buried detail") {
+		t.Fatal("leaving the pane did not shorten the group again")
+	}
+}
+
+func TestConversationScrollDropsHoverExpansion(t *testing.T) {
+	m := drainFleet(t)
+	sess, _ := m.selected()
+	m.applyConversation(conversationMsg{key: conversationKey(sess.ID, sess.AgentSessionID), messages: []search.Message{
+		{Role: "user", Text: "one\ntwo\nthree\nfour\nhover buried detail\nsixth"},
+		{Role: "assistant", Text: strings.Repeat("middle detail\n", 30)},
+		{Role: "user", Text: "tail"},
+	}})
+	width := m.previewPaneWidth()
+	const height = 12
+	m.conversationLines(width, height)
+	box := m.pane.box
+	// Scroll to the top so the first group is under the pointer.
+	m.scrollConversation(-100)
+	if !m.updateConversationHover(box.x, box.y) || m.conversation.hovered != 0 {
+		t.Fatal("setup did not expand the first group")
+	}
+	m.scrollConversation(1)
+	if m.conversation.hovered != -1 {
+		t.Fatal("scroll kept the hovered expansion under a still pointer")
 	}
 }

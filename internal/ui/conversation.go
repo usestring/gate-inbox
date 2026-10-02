@@ -29,6 +29,9 @@ type conversationView struct {
 	width, theme int
 	dirty        bool
 	compact      bool
+	liveStart    int
+	liveTop      int
+	liveCount    int
 }
 
 type conversationTickMsg struct{}
@@ -207,7 +210,7 @@ func (c *conversationView) wrapped(width int) []string {
 
 func (m *Model) conversationLines(width, height int) []contentLine {
 	m.pane.box = paneBox{x: m.paneOriginX(), y: m.listChromeRows() + m.previewBodyOffset, width: width, height: height, ok: true}
-	rows := m.conversationRows(width, height)
+	rows := m.focusConversationRows(width, height)
 	lines := make([]contentLine, 0, height)
 	for i, row := range rows {
 		lines = append(lines, contentLine{text: m.renderPaneRow(i, row, width), raw: true})

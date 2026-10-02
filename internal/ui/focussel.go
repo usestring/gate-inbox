@@ -46,7 +46,7 @@ type paneCursor struct {
 // taller than the panel is shown from its bottom, so the row shifts by
 // exactly the lines the panel dropped.
 func (m *Model) cursorCell(paneLines int) (row, col int, ok bool) {
-	if m.showsConversation() {
+	if m.showsConversation() && m.mode != modeFocus {
 		return 0, 0, false
 	}
 	cursor := m.pane.cursor
@@ -56,6 +56,12 @@ func (m *Model) cursorCell(paneLines int) (row, col int, ok bool) {
 		return 0, 0, false
 	}
 	row = cursor.y - m.paneRowOffset(paneLines)
+	if m.showsConversation() {
+		c := m.conversation
+		if row < c.liveTop || row >= c.liveTop+c.liveCount {
+			return 0, 0, false
+		}
+	}
 	if row < 0 || row >= paneLines {
 		return 0, 0, false
 	}
@@ -67,6 +73,9 @@ func (m *Model) cursorCell(paneLines int) (row, col int, ok bool) {
 // It reads the same crop window the renderer paints, so caret and mouse
 // coordinates can never drift from what the user sees.
 func (m *Model) paneRowOffset(paneLines int) int {
+	if m.showsConversation() && m.mode == modeFocus {
+		return m.conversation.liveStart - m.conversation.liveTop
+	}
 	_, start := paneWindow(m.preview, paneLines, m.paneCaretRow())
 	return start
 }
@@ -122,7 +131,7 @@ func (m *Model) paneCell(x, y int) (row, col int, ok bool) {
 func (m *Model) paneTextLines() []string {
 	rows := paneExact(m.preview, m.pane.box.height, m.pane.box.width, m.paneCaretRow())
 	if m.showsConversation() {
-		rows = m.conversationRows(m.pane.box.width, m.pane.box.height)
+		rows = m.focusConversationRows(m.pane.box.width, m.pane.box.height)
 	}
 	out := make([]string, len(rows))
 	for i, row := range rows {
@@ -155,8 +164,8 @@ func (m *Model) handleFocusMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	if _, press := msg.(tea.MouseClickMsg); press && mouse.Mod.Contains(tea.ModAlt) && m.pane.mouse && !m.showsConversation() {
-		if row, col, inside := m.paneCell(mouse.X, mouse.Y); inside {
+	if _, press := msg.(tea.MouseClickMsg); press && mouse.Mod.Contains(tea.ModAlt) && m.pane.mouse {
+		if row, col, inside := m.paneCell(mouse.X, mouse.Y); inside && m.livePaneRow(row) {
 			m.clearSelection()
 			m.pending = pendingClick{}
 			m.forwardingMouse = true
@@ -184,7 +193,7 @@ func (m *Model) handleFocusMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		// A repeated press at the same cell is the user asking for a word or
 		// line: keep the click run on the selection path. The first press of
 		// the run has already reached the app; a lone click is harmless there.
-		if m.pane.mouse && !m.showsConversation() && !m.clickRunContinues(row, col) {
+		if m.pane.mouse && m.livePaneRow(row) && !m.clickRunContinues(row, col) {
 			m.deferClick(mouseButton(mouse.Button), row, col)
 			return m, nil
 		}

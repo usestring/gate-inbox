@@ -66,6 +66,20 @@ func (s *Sessions) guard(st *store.Store, caller, target store.Session, relay bo
 	return g
 }
 
+// pendingStrings is what the child's one unresolved tool call was given, from
+// its transcript, for reading a permission prompt's wrapped block back
+// exactly (dialog.Screen.WithExact).
+func (g *answerGuard) pendingStrings() []string {
+	if g == nil {
+		return nil
+	}
+	path := g.sessions.transcriptOf(g.target)
+	if path == "" {
+		return nil
+	}
+	return convo.PendingToolStrings(path)
+}
+
 // recorder reads the child's own record of the answers its pending call
 // returned, or is nil when there is no call to read one for.
 func (g *answerGuard) recorder() func() (map[string]string, bool) {

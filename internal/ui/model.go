@@ -26,6 +26,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/priority"
+	"github.com/usestring/gate-inbox/internal/promptsnips"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/sessname"
 	"github.com/usestring/gate-inbox/internal/snippets"
@@ -115,7 +116,10 @@ type Model struct {
 	snips          snippets.Set
 	snipErr        string
 	jevAutoSuggest bool
+	promptSuggest  bool
+	promptSnipsSeq int
 	autoSuggestSeq int
+	promptSnips    []promptsnips.Snippet
 
 	// keys is the resolved key map: the catalog with the operator's keys.toml
 	// applied, read once at startup for the reason snips are. keyProblems is
@@ -300,6 +304,10 @@ type Model struct {
 	work *worktracker.Tracker
 	// clock is the wall clock, so a test can pin an elapsed-hours gauge.
 	clock func() time.Time
+	// echoClock is the clock a keystroke's chase reads and sleeps on. Nil is
+	// the wall clock; a test sets one so how many looks fit in a budget is a
+	// fact about the chase rather than about how fast the box forks.
+	echoClock chaseClock
 	// convos is what the agent CLIs recorded about their own conversations,
 	// which is where a row's name comes from once one can be attributed to it.
 	// Refresh does file and database I/O and only ever runs inside a command.
@@ -431,7 +439,8 @@ type Model struct {
 	// focusView mirrors the persisted focused-view setting: the live
 	// terminal, or the conversation transcript. The content column reads it
 	// every frame, so it lives here instead of the store. See focusview.go.
-	focusView string
+	focusView       string
+	compressedFocus bool
 	// comfortableRows mirrors the persisted list density: entries paint
 	// their meta on a second line instead of alongside the name. Every
 	// rail frame reads it, so it lives here instead of the store.
@@ -795,7 +804,6 @@ type settingsState struct {
 	field              int
 	quickCloseSend     bool
 	enterFocuses       bool
-	focusView          string
 	comfortableRows    bool
 	layout             string
 	sidebar            string
@@ -810,7 +818,10 @@ type settingsState struct {
 	reopenSessions     string
 	outsidePanes       string
 	experimentalPicker bool
+	experimentalCursor int
 	jevAutoSuggest     bool
+	promptSuggest      bool
+	compressedFocus    bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -838,7 +849,6 @@ const (
 	settingsFieldLeave
 	settingsFieldQuickClose
 	settingsFieldFocusKey
-	settingsFieldFocusView
 	settingsFieldAutoProceed
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
@@ -1130,7 +1140,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	// force here rather than read off the model on every paint.
 	applyGlyphSet(storedGlyphs(st))
 	model := &Model{
-		conversation:    &conversationView{locator: newHistoryLocator(), compact: true},
+		conversation:    &conversationView{locator: newHistoryLocator(), compact: true, hovered: -1},
 		landingLocator:  newHistoryLocator(),
 		cfg:             cfg,
 		store:           st,
@@ -1148,7 +1158,9 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		split:           splitState{ratio: loadSplitRatio(st)},
 		focusOnEnter:    storedFocusOnEnter(st),
 		focusView:       storedFocusView(st),
+		compressedFocus: storedCompressedFocus(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
+		promptSuggest:   storedPromptSuggestions(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),
 		sidebar:         storedSidebar(st, cfg.Board.Sidebar),
@@ -1370,7 +1382,7 @@ func (m *Model) Init() tea.Cmd {
 	// read any session state, and a first run has none to wait for.
 	m.maybeOpenWelcome()
 	m.syncPollInput()
-	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.autoNameTick(), m.checkTmuxConfig)
+	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips())
 }
 
 // pasteSweepMsg carries the result of one pass over the pastes directory.
@@ -2426,6 +2438,23 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pasteTextMsg:
 		return m.handlePasteTextMsg(msg)
+
+	case promptSnipsLoadedMsg:
+		if !m.promptSuggest || msg.seq != m.promptSnipsSeq {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.errBar.text = "reading prompt history: " + msg.err.Error()
+		} else {
+			m.promptSnips = msg.snips
+		}
+		return m, promptSnipsTick(m.promptSnipsSeq)
+
+	case promptSnipsTickMsg:
+		if msg.seq != m.promptSnipsSeq {
+			return m, nil
+		}
+		return m, m.refreshPromptSnips()
 
 	case attachDoneMsg:
 		// An agent that repainted the terminal background for itself leaves

@@ -292,9 +292,7 @@ func TestDefaultsSpellOutAutoSubmit(t *testing.T) {
 	}
 }
 
-// The v1 inbox's one-tap answers are the starting set, alongside yes and the
-// explain-again ask.
-func TestDefaultsCarryTheV1Answers(t *testing.T) {
+func TestDefaultsCarryQuickReplies(t *testing.T) {
 	texts := map[string]bool{}
 	for _, snip := range Defaults() {
 		texts[snip.Text] = true
@@ -302,8 +300,6 @@ func TestDefaultsCarryTheV1Answers(t *testing.T) {
 	for _, want := range []string{
 		"yes",
 		"continue",
-		"Anything else in this session?",
-		"Use the nuke skill to end this session.",
 		"I'm confused, explain like I'm 5",
 	} {
 		if !texts[want] {

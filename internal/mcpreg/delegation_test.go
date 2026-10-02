@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/BurntSushi/toml"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
@@ -54,7 +55,7 @@ func TestApplyClaudeAppendsTheDelegationSteering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, claudeSteeringFile)
+	path := filepath.Join(dir, hooks.GeneratedName(claudeSteeringFile, []byte(launchSteering("claude"))))
 	if want := " --append-system-prompt-file " + tmux.ShellQuote(path); !strings.HasSuffix(command, want) {
 		t.Fatalf("command = %q, want it to end with %q", command, want)
 	}
@@ -84,7 +85,7 @@ func TestPreviewClaudeWritesNoSteeringFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(command, filepath.Join(dir, claudeSteeringFile)) {
+	if !strings.Contains(command, filepath.Join(dir, hooks.GeneratedName(claudeSteeringFile, []byte(launchSteering("claude"))))) {
 		t.Fatalf("preview command = %q, want the steering path a launch would carry", command)
 	}
 	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {

@@ -2169,10 +2169,11 @@ func flattenFrame(frame string) string {
 func TestRestartingALiveSessionRewritesItsMCPRegistration(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "alive", t.TempDir(), "")
-	mcpConfig := filepath.Join(m.hooks.Dir(), "gate-inbox-mcp-claude.json")
-	if _, err := os.Stat(mcpConfig); err != nil {
-		t.Fatalf("the spawn should have written %s: %v", mcpConfig, err)
+	configs, _ := filepath.Glob(filepath.Join(m.hooks.Dir(), "gate-inbox-mcp-claude-*.json"))
+	if len(configs) != 1 {
+		t.Fatalf("the spawn should have written one MCP config, found %v", configs)
 	}
+	mcpConfig := configs[0]
 	if err := os.Remove(mcpConfig); err != nil {
 		t.Fatal(err)
 	}

@@ -2,25 +2,15 @@ package priority
 
 import "testing"
 
-// An untiered session sorts with the mediums rather than ahead of or behind
-// every stated tier, which is what keeps adopting tiers from reordering a
-// board nobody has triaged.
-func TestUnsetRanksWithMedium(t *testing.T) {
-	if Unset.Rank() != Medium.Rank() {
-		t.Fatalf("unset ranks %d, medium %d", Unset.Rank(), Medium.Rank())
-	}
-	for i := 1; i < len(Order); i++ {
-		if Order[i-1].Rank() >= Order[i].Rank() {
-			t.Fatalf("%q does not rank above %q", Order[i-1], Order[i])
+func TestPriorityOrdering(t *testing.T) {
+	tiers := []Tier{Urgent, High, Medium, Unset, Low}
+	for i := 1; i < len(tiers); i++ {
+		if tiers[i-1].Rank() >= tiers[i].Rank() {
+			t.Fatalf("%q does not rank above %q", tiers[i-1], tiers[i])
 		}
 	}
-}
-
-// A tier that reaches Rank from a hand-edited goal file must not jump the
-// queue by being misspelled.
-func TestUnknownTierRanksWithTheMiddle(t *testing.T) {
-	if got := Tier("URGENT!!").Rank(); got != Medium.Rank() {
-		t.Fatalf("an unknown tier ranks %d, want the middle %d", got, Medium.Rank())
+	if Tier("URGENT!!").Rank() != Unset.Rank() {
+		t.Fatal("unknown tier does not rank with the default")
 	}
 }
 
@@ -34,6 +24,17 @@ func TestParse(t *testing.T) {
 		{"  High ", High, true},
 		{"MEDIUM", Medium, true},
 		{"low", Low, true},
+		{"lower", Unset, false},
+		{"lowest", Unset, false},
+		{"3", Urgent, true},
+		{"+2", High, true},
+		{"1", Medium, true},
+		{"0", Unset, true},
+		{"-1", Low, true},
+		{"-2", Unset, false},
+		{"-3", Unset, false},
+		{"-4", Unset, false},
+		{"4", Unset, false},
 		{"none", Unset, true},
 		{"clear", Unset, true},
 		{"unset", Unset, true},
@@ -65,8 +66,7 @@ func TestNextCyclesThroughUnset(t *testing.T) {
 	}
 }
 
-// Better keeps the higher tier, and on a tie keeps the stated one -- the
-// display has to be able to tell a stated middle from no statement at all.
+// An unset tier must not suppress a session or group declaration.
 func TestBetter(t *testing.T) {
 	if got := Better(Low, Urgent); got != Urgent {
 		t.Fatalf("Better(low, urgent) = %q", got)
@@ -82,24 +82,16 @@ func TestBetter(t *testing.T) {
 	}
 }
 
-// Unset draws nothing: no tier is not a tier. Every other glyph is one
-// column of geometry, because a terminal gives emoji two.
 func TestGlyphs(t *testing.T) {
-	if Unset.Glyph() != "" {
-		t.Fatalf("unset draws %q", Unset.Glyph())
+	for tier, want := range map[Tier]string{Unset: "", Medium: "▲", High: "▲▲", Urgent: "▲▲▲", Low: "▼"} {
+		if got := tier.Glyph(); got != want {
+			t.Fatalf("%q draws %q, want %q", tier, got, want)
+		}
 	}
-	seen := map[string]bool{}
-	for _, tier := range Order {
-		glyph := tier.Glyph()
-		if glyph == "" {
-			t.Fatalf("%q draws nothing", tier)
-		}
-		if seen[glyph] {
-			t.Fatalf("%q reuses the glyph %q", tier, glyph)
-		}
-		seen[glyph] = true
-		if runes := []rune(glyph); len(runes) != 1 {
-			t.Fatalf("%q draws %d runes, want one", tier, len(runes))
-		}
+}
+
+func TestNegativePrioritySurvivesUnset(t *testing.T) {
+	if Better(Low, Unset) != Low || Better(Unset, Low) != Low {
+		t.Fatal("unset overrides negative priority")
 	}
 }

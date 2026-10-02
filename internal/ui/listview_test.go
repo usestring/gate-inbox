@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/sysstat"
@@ -1091,5 +1092,37 @@ func TestSelectedRowSkipsTheBoxWhenShort(t *testing.T) {
 		if strings.ContainsAny(ansi.Strip(line.text), selectionBorder.Top+selectionBorder.Bottom) {
 			t.Fatalf("a two-line rail drew a rule: %q", ansi.Strip(line.text))
 		}
+	}
+}
+
+func TestSessionTokenMetersFollowSelectionAndUsage(t *testing.T) {
+	m := drainFleet(t)
+	sess, _ := m.selected()
+	c := m.conversation
+	c.key = m.conversationIdentity(sess)
+	c.usage = search.TokenUsage{Tokens: 50000, Capacity: 200000, Known: true}
+	draw := func() string { return ansi.Strip(strings.Join(m.computerLines(40), "\n")) }
+	if got := draw(); !strings.Contains(got, "25%") || !strings.Contains(got, "50.0k/200.0k") {
+		t.Fatalf("missing usage: %s", got)
+	}
+	if got := ansi.Strip(m.computerBrief(40)); !strings.Contains(got, "tok 50.0k") {
+		t.Fatalf("compact tokens missing: %s", got)
+	}
+	c.usage.Tokens = 100000
+	if got := draw(); !strings.Contains(got, "50%") {
+		t.Fatalf("cached old usage: %s", got)
+	}
+	c.key = "another-session"
+	if got := draw(); strings.Contains(got, "100.0k") || !strings.Contains(got, "n/a") {
+		t.Fatalf("stale usage after switching: %s", got)
+	}
+	c.key = m.conversationIdentity(sess)
+	c.usage = search.TokenUsage{Tokens: 2440, Known: true}
+	if got := draw(); !strings.Contains(got, "2.4k") {
+		t.Fatalf("count without capacity missing: %s", got)
+	}
+	m.rows = nil
+	if got := draw(); strings.Contains(got, "tokens") {
+		t.Fatalf("tokens without selection: %s", got)
 	}
 }

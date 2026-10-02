@@ -30,7 +30,7 @@ func (m *Model) applies(ctx keymap.Context, action keymap.Action, row treeRow) b
 	case keymap.Attach:
 		return row.sess.ID != ""
 	case keymap.LastPane:
-		return m.prevFocusID != ""
+		return len(m.focusHistory) > 0 || m.prevFocusID != ""
 	case keymap.Rescind:
 		return m.canRescindLatestSubmission()
 	case keymap.ReorderUp:

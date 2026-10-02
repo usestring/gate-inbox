@@ -23,7 +23,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | `enter` | Focus session in place (keys go to the agent, list stays) / fold group. An archived session has no live pane to focus, so the row offers attach and `u` instead |
 | `A` | Attach: leave the list and fill the whole terminal with this session's pane (Settings can swap it with `enter`) |
 | `F3` | Switch the selected row between the shortened and the full conversation; inside a session, between the conversation and the terminal when experimental compressed focus is enabled. Shortened keeps the newest turn full, and hovering a shortened turn with the pointer expands it |
-| `l` | Focus the session you were on before this one; `l` again swaps back. The pair is held by session, so a poll, a fold or a filter reordering the board does not move it |
+| `l` | Back to the previous pane; pressing it again walks further back through the last 10 panes. Sessions are held by id, so a poll, a fold or a filter reordering the board does not move it |
 | `ctrl+g` | Jump to a pane: search listed sessions by name, group, tool or status, then press `enter` to focus one. Works from the list or a focused pane; `esc` returns without switching. Folded groups are opened when you jump into them. |
 | `.` | Skip it for now (mute, or mark finished idle); `alt+.` does it from inside |
 | `ctrl+q` / `ctrl+\` | Inside a session: back to the manager when the terminal and tmux leave the key available |

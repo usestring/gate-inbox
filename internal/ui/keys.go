@@ -400,8 +400,8 @@ var artifactRowActions = map[keymap.Action]bool{
 	keymap.ArchivedView: true, keymap.StatusFilter: true,
 	keymap.EmptyGroups: true, keymap.Triage: true, keymap.ToggleChrome: true,
 	keymap.ToggleRail: true,
-	// LastPane reads the pair it swaps between, not the row under the
-	// cursor, so an artifact row is no reason to swallow it.
+	// LastPane reads the history it walks back through, not the row under
+	// the cursor, so an artifact row is no reason to swallow it.
 	keymap.LastPane: true,
 	keymap.Rescind:  true,
 }

@@ -127,7 +127,7 @@ var Catalog = []Binding{
 	{ContextList, Open, []string{"enter"}, "focus the session, or fold the group", true},
 	{ContextList, StepIn, []string{"right"}, "step in: a session's work, then focus it", false},
 	{ContextList, StepOut, []string{"left"}, "step out: fold the work, close the group", false},
-	{ContextList, LastPane, []string{"l"}, "focus the session you were on before this one; l again swaps back", false},
+	{ContextList, LastPane, []string{"l"}, "back to the previous pane; again walks further back", false},
 	{ContextList, JumpPane, []string{"ctrl+g"}, "find a pane by name and focus it", false},
 	{ContextList, Rescind, []string{"ctrl+z"}, "undo the latest submission while its turn is active", false},
 	{ContextList, JumpAttention, []string{"tab"}, "enter the next session waiting on you", false},
@@ -229,7 +229,7 @@ var Catalog = []Binding{
 	// ui package's focusactions.go.
 	{ContextFocus, NewSession, []string{"alt+n"}, "new session in this one's group", false},
 	{ContextFocus, CopySessionID, []string{"alt+y"}, "copy the agent's session id", false},
-	{ContextFocus, LastPane, []string{"alt+l"}, "back to the previous session; alt+l again swaps back", false},
+	{ContextFocus, LastPane, []string{"alt+l"}, "back to the previous pane; again walks further back", false},
 	{ContextFocus, JumpPane, []string{"ctrl+g"}, "find a pane by name and focus it", false},
 	{ContextFocus, BackAtPrompt, []string{"right", "left"}, "at a prompt edge, leave; in triage Right advances a finished one", false},
 	{ContextFocus, PreviewUp, []string{"alt+up"}, "scroll the pane up", false},

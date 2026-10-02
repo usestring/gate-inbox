@@ -610,6 +610,14 @@ func (m *Model) viewFooter() string {
 		if key := m.fullCap(keymap.ContextFocus, keymap.Dismiss); key != "" {
 			pairs = append(pairs, [2]string{key, "skip"})
 		}
+		// The way back to the pane just left, named where the keys are
+		// actually pressed: inside a session every plain key goes to the
+		// agent, so an unlisted chord is an undiscoverable one.
+		if len(m.focusHistory) > 0 {
+			if key := m.fullCap(keymap.ContextFocus, keymap.LastPane); key != "" {
+				pairs = append(pairs, [2]string{key, "last pane"})
+			}
+		}
 		if m.canRescindLatestSubmission() {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextFocus, keymap.Rescind), "undo"})
 		}
@@ -709,6 +717,14 @@ func (m *Model) defaultRowLegend() legendSection {
 	}
 	pairs = append(pairs,
 		[2]string{openKey, enterHint}, [2]string{m.tightCap(keymap.ContextList, keymap.Attach), attachHint})
+	// Last pane rides the core row rather than the cut-first tail: it is
+	// the way back to the session just left, and a key nobody sees is a
+	// key nobody presses.
+	if m.applies(keymap.ContextList, keymap.LastPane, row) {
+		if key := m.tightCap(keymap.ContextList, keymap.LastPane); key != "" {
+			pairs = append(pairs, [2]string{key, "last pane"})
+		}
+	}
 	if m.applies(keymap.ContextList, keymap.QuickInput, row) {
 		if key := m.tightCap(keymap.ContextList, keymap.QuickInput); key != "" {
 			pairs = append(pairs, [2]string{key, "hotkeys"})
@@ -741,7 +757,7 @@ func (m *Model) defaultRowLegend() legendSection {
 		text   string
 	}{
 		{keymap.NewSession, "new"}, {keymap.Search, "search"},
-		{keymap.LastPane, "last pane"}, {keymap.QuickActions, "quick actions"},
+		{keymap.QuickActions, "quick actions"},
 	} {
 		if !m.applies(keymap.ContextList, extra.action, row) {
 			continue

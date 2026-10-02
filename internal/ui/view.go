@@ -539,9 +539,25 @@ func (m *Model) viewFooter() string {
 			{"any other key", "done"},
 		}})
 	}
-	if m.quick.active && m.mode != modeFocus {
+	if m.quick.active {
+		closeCap := "space/esc"
+		if m.quick.fromFocus {
+			// Unbound by the operator's own rebind: the key map still
+			// offers the row, but a footer names only keys that work.
+			closeCap = "esc"
+			if key := m.tightCap(keymap.ContextFocus, keymap.QuickInput); key != "" {
+				closeCap = key + "/esc"
+			}
+		}
 		pairs := [][2]string{
-			{"key", "send snippet"}, {"↑↓", "switch target"}, {"space/esc", "close"},
+			{"key", "send snippet"}, {"↑↓", "switch target"}, {closeCap, "close"},
+		}
+		if m.quick.fromFocus {
+			// The focused menu answers the session on screen: the cursor
+			// the arrows would move is not the target.
+			pairs = [][2]string{
+				{"key", "send snippet"}, {closeCap, "close"},
+			}
 		}
 		if m.showsConversation() {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextList, keymap.ToggleConversation), m.conversationToggleLabel()})

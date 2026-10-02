@@ -39,7 +39,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | `v` | Revive a dead session. On a session that is still running it restarts the agent on the conversation it is already on |
 | `u` | Restore a session or group out of the archive, resuming what it held. The act is `kill`; the archive is where the row lands, the way a deleted file lands in a trash can. A row left in the archive is deleted for good after 7 days |
 | `U` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed kill as well as a silent one |
-| `space` | Hotkey menu: send one of your snippets to the selected session |
+| `space` / `ctrl+]` | Hotkey menu: send one of your snippets to the selected session (`ctrl+]` also opens it inside a focused session) |
 | `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, ask before killing, sort, key hints, on leaving a session, after hotkey send, session keys, experimental features, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
 | `w` | Filter to sessions that need attention (`waiting`, stuck, `finished`, `errored`); press again to show all |
 | `tab` | Enter the next session that needs you, wherever it is in the list. One key per state (waiting, finished, errored, idle, working) ships unbound — rebind one from the key map (`h`), or run it from quick actions (`:`) |
@@ -74,14 +74,13 @@ front of you, `.` skips the row under the cursor from the list, `ctrl+\` stops. 
 
 The rest of the session's controls work from inside it: `ctrl+x` ends the session, `alt+n` starts a
 new one in its group, `alt+y` copies the agent's session id, `alt+l` steps back to the one you just
-left. Each of your own `ctrl+alt+`*letter* snippets
-answers the session in front of you.
+left. `ctrl+]` opens your snippet menu over the session in front of you.
 
 ## Hotkey menu
 
-Press `space` to dock the hotkey menu at the bottom of the sidebar. It lists your snippets without a text box, because typing a message is what focusing a session (`enter`) is for. The target follows the cursor while the menu is open, and `↑↓` still move it.
+Press `space` on the list, or `ctrl+]` anywhere including inside a focused session, to dock the hotkey menu at the bottom of the sidebar. It lists your snippets without a text box, because typing a message is what focusing a session (`enter`) is for. Each snippet's bare key sends it: `c` for continue, `§` for the progress summary. The menu is the whole namespace, so no modifier chord is reserved and nothing you type can collide with a snippet. Both openers are rebindable in the key map (`?`), per screen.
 
-- On a **session** row, each snippet's key sends it straight into that session's pane, so the agent gets it as a user message without you attaching. In the menu the key works without its chord: `c` sends what `ctrl+alt+c` sends, `§` what `alt+§` sends, and the chord itself still works too. The menu stays open, ready for the next session; Settings (`s`) can make it close after a send instead.
+- On a **session** row, each snippet's key sends it straight into that session's pane, so the agent gets it as a user message without you attaching. Opened from inside a session, it answers that session instead and leaves you where you were. The menu stays open, ready for the next session; Settings (`s`) can make it close after a send instead. The one exception is `±`, which fires anywhere without the menu.
 - On a **group** row there is no pane to send to, so the menu says to select a session. `n` and `ctrl+n` start a new agent in the group.
 
 Settings → **experimental** contains three independent features, all off by default.
@@ -92,7 +91,7 @@ Settings → **experimental** contains three independent features, all off by de
 
 **JEV Auto Suggest** works in existing sessions. With `TYPESAFE_API_KEY` set, it ranks up to eight earlier submissions from the selected existing session against its last four messages. The suggestion appears beneath the snippets; `ctrl+y` inserts it into the session's prompt without submitting it. Close the menu and focus the session to edit or send it. It never suggests a starting prompt on a group row. When enabled, each ranking request sends up to four messages (500 characters each) and eight submissions (300 characters each) to TypeSafe. A missing key, failed request, or JEV's “none” choice leaves the menu without a suggestion.
 
-`space` or `esc` closes the menu. Snippets that do not fit on its lines are counted on the last one, and the key map (`?`) lists them all.
+`space`, `ctrl+]` or `esc` closes the menu. Snippets that do not fit on its lines are counted on the last one, and the key map (`?`) lists them all.
 
 The new-session form's optional `prompt` field launches an agent with a first task, and its `↑↓` move the caret between rows, `↑` leaving the field only from its top row and `↓` only from its bottom row. It takes `ctrl+v` and its chips too, since a first task is often the screenshot that explains it: paste the design to match or the crash to read, and the agent opens the file on its first turn. Leaving the form without creating the session releases the images it was holding. Tools whose CLI takes the prompt behind a flag declare it with `prompt_flag`, while a persistent CLI with no startup-prompt argument uses `prompt_mode = "send"` (see [Configuration](configuration.md)).
 
@@ -120,7 +119,7 @@ The line is run directly, never through a shell, so nothing in it is expanded an
 
 A known windowed editor (the six above, plus `open` and `xdg-open`) starts detached and the manager stays on screen, with the status line naming what opened. Everything else takes the terminal over the way an attach does and hands it back on exit — that way round because a terminal editor started detached would have nowhere to draw, while a windowed one launched this way only costs a repaint.
 
-Each entry is a `key`, an optional `label`, the `text` it types, and `autoSubmit`. With `autoSubmit` true the key presses Enter after the text, so the session is answered in one key; false types the text and leaves it in the prompt for you to finish and send. An entry without the field submits, which is how every snippet behaved before it was a choice. A first run writes `yes`, `continue`, `explain like I'm 5`, `wake up` and the `§` progress summary, all submitting.
+Each entry is a `key`, an optional `label`, the `text` it types, and `autoSubmit`. The key is a single letter a–z, `§` or `±`, pressed as-is in the hotkey menu. With `autoSubmit` true the key presses Enter after the text, so the session is answered in one key; false types the text and leaves it in the prompt for you to finish and send. An entry without the field submits, which is how every snippet behaved before it was a choice. A first run writes `yes`, `continue`, `explain like I'm 5`, `wake up` and the `§` progress summary, all submitting.
 
 Inside a session every `ctrl` combination reaches the program running there, `ctrl+o` included: Claude Code shows more lines with it, and in a [terminal tab](#terminal-tabs) `nano` writes the file out.
 

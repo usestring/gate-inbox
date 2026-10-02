@@ -1430,7 +1430,7 @@ func (m *Model) contentLines(width, height int) []contentLine {
 	}
 
 	var bar []contentLine
-	if m.quick.active && m.mode != modeFocus {
+	if m.quick.active {
 		bar = append([]contentLine{{}}, ours(splitLines(m.viewQuickBar(inner, quickBarMaxRows)))...)
 	}
 	var body []contentLine

@@ -172,8 +172,6 @@ func TestReservedKeysAreRefused(t *testing.T) {
 		name string
 		keys []string
 	}{
-		{"the snippets chord", []string{"ctrl+alt+d"}},
-		{"the § snippet", []string{"alt+§"}},
 		{"the ± snippet", []string{"±"}},
 		{"the interrupt", []string{"ctrl+c"}},
 		{"a group number", []string{"4"}},
@@ -188,6 +186,19 @@ func TestReservedKeysAreRefused(t *testing.T) {
 	}
 }
 
+// The old snippet chord owns nothing anymore: snippets answer in the hotkey
+// menu, so ctrl+alt and alt+§ are ordinary rebindable keys.
+func TestTheOldSnippetChordIsRebindable(t *testing.T) {
+	m := resolve(t, Overrides{ContextList: {NewGroup: {"ctrl+alt+d"}}})
+	if got := m.Key(ContextList, NewGroup); got != "ctrl+alt+d" {
+		t.Errorf("ctrl+alt+d bound as %q", got)
+	}
+	m = resolve(t, Overrides{ContextFocus: {Dismiss: {"alt+§"}}})
+	if got := m.Key(ContextFocus, Dismiss); got != "alt+§" {
+		t.Errorf("alt+§ bound as %q", got)
+	}
+}
+
 // Key files accept both the current Mac label and its legacy spelling.
 func TestOptionIsAcceptedAsAltInTheKeyFile(t *testing.T) {
 	m := resolve(t, Overrides{ContextFocus: {Dismiss: {"option+j"}}})
@@ -198,13 +209,12 @@ func TestOptionIsAcceptedAsAltInTheKeyFile(t *testing.T) {
 	if got := m.Key(ContextFocus, Dismiss); got != "alt+j" {
 		t.Errorf("⌥j bound as %q, want alt+j", got)
 	}
-	if _, problems := New(Overrides{ContextList: {NewSession: {"ctrl+⌥d"}}}); len(problems) == 0 {
-		t.Error("ctrl+⌥d was accepted into the snippets chord")
+	if _, problems := New(Overrides{ContextList: {NewGroup: {"ctrl+⌥d"}}}); len(problems) != 0 {
+		t.Errorf("ctrl+⌥d was refused: %v", problems)
 	}
-	// Normalizing before the reserved check keeps the snippets chord owned
-	// under either spelling.
-	if _, problems := New(Overrides{ContextList: {NewSession: {"ctrl+option+d"}}}); len(problems) == 0 {
-		t.Error("ctrl+option+d was accepted into the snippets chord")
+	// Normalizing still folds the legacy spellings onto one key.
+	if _, problems := New(Overrides{ContextList: {NewGroup: {"ctrl+option+d"}}}); len(problems) != 0 {
+		t.Errorf("ctrl+option+d was refused: %v", problems)
 	}
 }
 
@@ -340,7 +350,7 @@ func TestDisplayRendersKeysForReading(t *testing.T) {
 		t.Errorf("Compact(ctrl+n) = %q", got)
 	}
 	if got := Compact("ctrl+alt+d"); got != displayForOS("ctrl+alt+d", runtime.GOOS) {
-		t.Errorf("Compact should leave the snippets chord alone, got %q", got)
+		t.Errorf("Compact should leave a double-modifier chord spelled out, got %q", got)
 	}
 }
 

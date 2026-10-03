@@ -153,6 +153,46 @@ func attachTargetsOf(argv []string) []string {
 	return targets
 }
 
+// An adopted pane in the manager's own session is the self-attach case even
+// though the pane is not the manager's. It resolves to the manager's session
+// name, so the nested client starts in the session the manager is drawing and
+// lands on its current window -- usually the manager's own screen, rendered
+// recursively and unreadable. $TMUX has to stay on for that target so tmux
+// refuses it.
+//
+// The bug this covers: runningInside compared the target to the manager's own
+// pane, so a sibling pane of the manager's own session sailed through and the
+// board mirrored itself.
+func TestAttachRefusesAnAdoptedSiblingOfTheManagersSession(t *testing.T) {
+	driver := requireTmux(t)
+	socket := operatorServer(t)
+
+	out, err := tmuxOn(socket, "list-panes", "-t", operatorSession+":1", "-F", "#{pane_id}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("list-panes window 1: %v: %s", err, out)
+	}
+	adoptedPane := strings.TrimSpace(string(out))
+	out, err = tmuxOn(socket, "list-panes", "-t", operatorSession+":0", "-F", "#{pane_id}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("list-panes window 0: %v: %s", err, out)
+	}
+	managerPane := strings.TrimSpace(string(out))
+
+	id := uniqueID("sibling")
+	if err := driver.Adopt(id, Target{Socket: socket, Name: adoptedPane}); err != nil {
+		t.Fatalf("Adopt: %v", err)
+	}
+
+	// The manager runs in window 0 of the same session the adopted pane is in.
+	t.Setenv("TMUX", tmuxtest.SocketPath(socket)+",1,0")
+	t.Setenv("TMUX_PANE", managerPane)
+	cmd := driver.AttachCommand(id)
+	if cmd.Env != nil && !hasTmuxEnv(cmd.Env) {
+		t.Error("dropped $TMUX for an adopted pane in the manager's own session; " +
+			"tmux nests the attach and the board mirrors itself")
+	}
+}
+
 // The operator gets the pane they picked when nobody else is looking at the
 // session. The guard is if-shell inside tmux rather than a read this process
 // acts on, so the check and the select cannot straddle another client's

@@ -99,7 +99,7 @@ func TestMenuKeyFromTheListSendsToTheCursorRow(t *testing.T) {
 // no menu opened.
 func TestDirectChordSendsFromTheList(t *testing.T) {
 	m := buildModel(t)
-	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Chord: "alt+shift+d", Text: "ship it now"}})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
@@ -119,7 +119,7 @@ func TestDirectChordSendsFromTheList(t *testing.T) {
 // The same chord answers a focused session without leaving the pane.
 func TestDirectChordSendsFromAFocusedSession(t *testing.T) {
 	m := buildModel(t)
-	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Chord: "alt+shift+d", Text: "ship it now"}})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.rebuildRows()
 	m.enterFocusOn(t, "ask")
@@ -141,7 +141,7 @@ func TestDirectChordSendsFromAFocusedSession(t *testing.T) {
 // snippet.
 func TestDirectChordReadsShiftFromModifierOrCode(t *testing.T) {
 	m := buildModel(t)
-	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Text: "ship it now"}})
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Chord: "option+shift+d", Label: "deploy", Text: "ship it now"}})
 
 	if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'd', Mod: tea.ModAlt | tea.ModShift}); !ok || snip.Key != "d" {
 		t.Fatalf("option+shift+d did not name d: %v %v", snip, ok)
@@ -513,7 +513,7 @@ func TestHelpExplainsARefusedEntry(t *testing.T) {
 
 func TestFooterAdvertisesSnippets(t *testing.T) {
 	m := buildModel(t)
-	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Text: "ship it now"}})
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Chord: "alt+shift+d", Label: "deploy", Text: "ship it now"}})
 
 	section := m.snippetLegend()
 	if len(section.pairs) != 1 || section.pairs[0][0] != keymap.Display("alt+shift+d") || section.pairs[0][1] != "deploy" {
@@ -536,7 +536,7 @@ func TestFooterAdvertisesSnippets(t *testing.T) {
 func TestSurfacesPrintTheDirectChord(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{
-		{Key: "d", Label: "deploy", Text: "ship it now"},
+		{Key: "d", Chord: "alt+shift+d", Label: "deploy", Text: "ship it now"},
 		{Key: snippets.SectionKey, Label: "progress", Text: "summarise it"},
 	})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})

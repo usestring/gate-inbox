@@ -85,35 +85,36 @@ func (m *Model) snippetFor(key string) (snippets.Snippet, bool) {
 	return m.snips.Get(key)
 }
 
-// snippetChordFor returns the snippet an option+shift+<letter> press names, so
-// a lettered snippet can be sent in one press without opening the hotkey menu.
-// It reads the modifiers from the key itself rather than the printed name: an
-// enhanced keyboard protocol may report the shifted letter as its uppercase
-// text, and either spelling stands for the same chord.
+// snippetChordFor returns the snippet a direct chord press names, so it can be
+// sent in one press without opening the hotkey menu. The file names each
+// chord; this only has to spell the press the way the file might, so keyName
+// (rebuilt from the key code, what a chord binds under) and the terminal's own
+// name are both offered.
 func (m *Model) snippetChordFor(msg tea.KeyMsg) (snippets.Snippet, bool) {
-	key := msg.Key()
-	if key.Mod&tea.ModAlt == 0 || key.Mod&(tea.ModCtrl|tea.ModSuper|tea.ModMeta) != 0 {
-		return snippets.Snippet{}, false
+	for _, name := range chordNames(msg) {
+		if snip, ok := m.snips.Chord(name); ok {
+			return snip, true
+		}
 	}
-	letter, ok := chordLetter(key)
-	if !ok {
-		return snippets.Snippet{}, false
-	}
-	return m.snips.Chord("alt+shift+" + letter)
+	return snippets.Snippet{}, false
 }
 
-// chordLetter is the a-z letter a direct chord press stands for, or ok=false
-// when the press is not a shifted letter. Shift arrives either as a modifier
-// or folded into the key's uppercase code, depending on the terminal.
-func chordLetter(key tea.Key) (string, bool) {
-	r, shifted := key.Code, key.Mod&tea.ModShift != 0
-	if r >= 'A' && r <= 'Z' {
-		r, shifted = r+('a'-'A'), true
+// chordNames is the spellings a press might name a chord by. A terminal may
+// fold shift into the key's code rather than report the modifier -- option+
+// shift+c arrives as option+C -- so an uppercase code also offers the shifted
+// spelling. A plain lowercase chord stays unambiguous: shift that is nowhere
+// reported cannot be invented.
+func chordNames(msg tea.KeyMsg) []string {
+	key := msg.Key()
+	names := []string{keyName(msg), msg.String()}
+	if key.Mod&tea.ModShift == 0 {
+		if r := key.ShiftedCode; r >= 'A' && r <= 'Z' {
+			names = append(names, tea.Key{Code: r + ('a' - 'A'), Mod: key.Mod | tea.ModShift}.String())
+		} else if r := key.Code; r >= 'A' && r <= 'Z' {
+			names = append(names, tea.Key{Code: r + ('a' - 'A'), Mod: key.Mod | tea.ModShift}.String())
+		}
 	}
-	if !shifted || r < 'a' || r > 'z' {
-		return "", false
-	}
-	return string(r), true
+	return names
 }
 
 // sendSnippetToSelected answers the row the list cursor is on. A group has no
@@ -168,8 +169,8 @@ func (m *Model) snippetLegend() legendSection {
 // snippetCap is a snippet's direct chord as every surface prints it, falling
 // back to the bare menu key for a snippet that has no chord (§ and ±).
 func snippetCap(snip snippets.Snippet) string {
-	if chord := snip.Chord(); chord != "" {
-		return keymap.Display(chord)
+	if snip.Chord != "" {
+		return keymap.Display(snip.Chord)
 	}
 	return keymap.Display(snip.Binding())
 }
@@ -192,7 +193,7 @@ func (m *Model) snippetHelpSection() helpSection {
 			verb = "type "
 		}
 		text := verb + snip.Quoted()
-		if snip.Chord() != "" {
+		if snip.Chord != "" {
 			text += " (menu: " + snip.Key + ")"
 		}
 		rows = append(rows, lit(snippetCap(snip), text))

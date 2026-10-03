@@ -47,28 +47,51 @@ func TestLoadLeavesAnEditedFileAlone(t *testing.T) {
 	}
 }
 
-// A lettered snippet carries a direct chord; a key that is not a letter has
-// none and answers in the menu. The set resolves the chord back to its
-// snippet.
-func TestLetterSnippetsCarryADirectChord(t *testing.T) {
+// A snippet's chord is named in the file, not derived from its key; § and ±
+// can carry none. The set resolves a spelled chord back to its snippet, Mac
+// and alt spellings alike.
+func TestChordIsNamedInTheFile(t *testing.T) {
 	set := Set{Snippets: []Snippet{
-		{Key: "d", Text: "ship it"},
+		{Key: "d", Chord: "option+shift+d", Text: "ship it"},
 		{Key: PlusMinusKey, Text: "approve"},
 		{Key: SectionKey, Text: "progress"},
 	}}
-	if got := set.Snippets[0].Chord(); got != "alt+shift+d" {
-		t.Fatalf("d chord = %q, want alt+shift+d", got)
+	if got := set.Snippets[0].Chord; got != "option+shift+d" {
+		t.Fatalf("d chord = %q, want option+shift+d", got)
 	}
 	for _, snip := range set.Snippets[1:] {
-		if got := snip.Chord(); got != "" {
-			t.Errorf("%s chord = %q, want none", snip.Key, got)
+		if snip.Chord != "" {
+			t.Errorf("%s chord = %q, want none", snip.Key, snip.Chord)
 		}
 	}
-	if snip, ok := set.Chord("alt+shift+d"); !ok || snip.Key != "d" {
-		t.Fatalf("set did not resolve alt+shift+d to d: %v %v", snip, ok)
+	for _, spelling := range []string{"option+shift+d", "alt+shift+d", "alt+shift+D", "⌥shift+d"} {
+		if snip, ok := set.Chord(spelling); !ok || snip.Key != "d" {
+			t.Fatalf("set did not resolve %q to d: %v %v", spelling, snip, ok)
+		}
 	}
 	if _, ok := set.Chord("alt+shift+x"); ok {
 		t.Fatal("set resolved a chord no snippet carries")
+	}
+}
+
+// A chord must hold a modifier and be unique; a bare or repeated one is a
+// problem, not a silent no-op. The Mac and alt spellings of one chord collide.
+func TestAChordMustBeAUniqueModifiedChord(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `[
+	  {"key":"d","chord":"d","text":"ship it"},
+	  {"key":"e","chord":"alt+shift+d","text":"one"},
+	  {"key":"f","chord":"option+shift+d","text":"two"}
+	]`)
+	set, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(set.Snippets) != 1 || set.Snippets[0].Key != "e" {
+		t.Fatalf("bound %+v, want only e", set.Snippets)
+	}
+	if len(set.Problems) != 2 {
+		t.Fatalf("problems = %q, want two", set.Problems)
 	}
 }
 

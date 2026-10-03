@@ -10,25 +10,26 @@
 // The file lives in the config directory beside config.toml, is written once
 // with a starting set, and is then the user's to edit. Nothing rewrites it.
 //
-// A lettered snippet fires two ways. It answers to its bare key in the hotkey
-// menu, which a leader opens from the list and from inside a focused session
-// and which is the whole, discoverable namespace: it lists every snippet and
-// the key that sends it. It also carries a direct chord, option+shift+<key>
-// (alt+shift+<key> off a Mac), that sends it in one press without opening the
-// menu at all. The chord is the fast path an operator wants when the sentence
-// is known; the menu is where the keys are read and where § and ± live.
+// A snippet fires two ways, and the file names both. Its bare Key answers in
+// the hotkey menu, which a leader opens from the list and from inside a
+// focused session and which is the whole, discoverable namespace. Its optional
+// Chord is a direct binding, e.g. option+shift+c, that sends it in one press
+// without opening the menu at all. The chord is not derived from the key: the
+// file spells it out, so the two can differ, either can be absent, and § and ±
+// -- not letters a modifier can carry -- can stay menu-only. The chord is the
+// fast path an operator wants when the sentence is known.
 //
-// option+shift is the chord that survives the wire. ctrl+super never reaches a
-// terminal TUI at all -- macOS keeps Cmd for its own shortcuts, and the only
-// encoding is a kitty-protocol CSI-u tmux never forwards -- so option+command,
-// the obvious choice, is undeliverable. ctrl+alt collided with operator tooling
-// and ctrl+shift arrives with the shift stripped, as the plain ctrl key. An
+// The default chord is option+shift+<key> because option+shift is the
+// double-hold that survives the wire. ctrl+super never reaches a terminal TUI
+// at all -- macOS keeps Cmd for its own shortcuts, and the only encoding is a
+// kitty-protocol CSI-u tmux never forwards -- so option+command, the obvious
+// choice, is undeliverable. ctrl+alt collided with operator tooling and
+// ctrl+shift arrives with the shift stripped, as the plain ctrl key. An
 // option+shift letter reaches the pane as a Meta-modified shifted letter, and
 // no manager binding claims one: every chord the focused screen owns is a bare
 // option letter (alt+n, alt+y, ...), so the shift keeps the two apart. The
-// agent still loses whatever option+shift+letter it might have wanted; that is
-// the cost of a one-press snippet and the reason a key only binds when the
-// operator's own file names it.
+// agent still loses whatever chord an operator binds; that is the cost of a
+// one-press snippet and the reason a chord only binds when the file names it.
 //
 // One key sits outside both, on the physical key left of 1 where the
 // triage keys already are, so the sentence sent most often belongs under that
@@ -73,6 +74,11 @@ type Snippet struct {
 	// Label is what the key map, the footer and the quick bar call it. Empty
 	// falls back to the text itself, which is usually short enough to read.
 	Label string `json:"label,omitempty"`
+	// Chord is the direct binding that sends this snippet in one press from
+	// the list or a focused session, without opening the hotkey menu, e.g.
+	// "option+shift+c" (spelled "alt+shift+c" works too). Empty leaves the
+	// snippet on the menu alone, which is how § and ± stay.
+	Chord string `json:"chord,omitempty"`
 	// Text is what is typed into the session.
 	Text string `json:"text"`
 	// AutoSubmit says whether the key presses Enter after typing Text. Every
@@ -90,18 +96,6 @@ func (s Snippet) Submits() bool { return s.AutoSubmit == nil || *s.AutoSubmit }
 // keypress. Every snippet binds its bare key: the menu reads bare keys, and
 // ± binds bare everywhere.
 func (s Snippet) Binding() string { return s.Key }
-
-// Chord is the direct binding that sends this snippet in one press without
-// opening the hotkey menu: option+shift+<key>, or alt+shift+<key> off a Mac.
-// A snippet whose key is not a letter has no chord -- § and ± are not letters
-// a modifier can carry through every terminal -- and answers in the menu
-// alone (or, for ±, bare).
-func (s Snippet) Chord() string {
-	if !singleLetter(s.Key) {
-		return ""
-	}
-	return "alt+shift+" + s.Key
-}
 
 // Bare reports whether the binding is a plain character, which a text input
 // has to keep as the character it types.
@@ -148,14 +142,31 @@ func (s Set) Get(binding string) (Snippet, bool) {
 }
 
 // Chord returns the snippet a direct chord names, the counterpart to Get for
-// the binding Snippet.Chord writes.
+// the binding in Snippet.Chord. Both sides are normalized, so the file may
+// spell the modifier "option" and a keypress "alt" and still meet.
 func (s Set) Chord(chord string) (Snippet, bool) {
+	want := normalizeChord(chord)
+	if want == "" {
+		return Snippet{}, false
+	}
 	for _, snip := range s.Snippets {
-		if c := snip.Chord(); c != "" && c == chord {
+		if snip.Chord != "" && normalizeChord(snip.Chord) == want {
 			return snip, true
 		}
 	}
 	return Snippet{}, false
+}
+
+// normalizeChord is the form a chord is compared in: case folded, the Mac
+// spellings mapped to the names bubbletea reports, so option+shift+c and
+// alt+shift+C are one chord.
+func normalizeChord(chord string) string {
+	chord = strings.ToLower(strings.TrimSpace(chord))
+	chord = strings.ReplaceAll(chord, "⌥", "alt+")
+	chord = strings.ReplaceAll(chord, "option", "alt")
+	chord = strings.ReplaceAll(chord, "⌘", "super+")
+	chord = strings.ReplaceAll(chord, "cmd", "super")
+	return chord
 }
 
 // Path is the snippets file inside the config directory.
@@ -185,7 +196,7 @@ const progressText = "summarise all current progress in bullet points, " +
 func Defaults() []Snippet {
 	submit := func(key, label, text string) Snippet {
 		yes := true
-		return Snippet{Key: key, Label: label, Text: text, AutoSubmit: &yes}
+		return Snippet{Key: key, Chord: defaultChord(key), Label: label, Text: text, AutoSubmit: &yes}
 	}
 	return []Snippet{
 		submit("y", "yes", "yes"),
@@ -195,6 +206,16 @@ func Defaults() []Snippet {
 			"Continue where you left off."),
 		submit(SectionKey, "progress", progressText),
 	}
+}
+
+// defaultChord is the chord a first-run entry carries: option+shift+<key> for a
+// letter, none for § and ±. The file spells it out afterwards, so an operator
+// can change it or drop it.
+func defaultChord(key string) string {
+	if !singleLetter(key) {
+		return ""
+	}
+	return "alt+shift+" + key
 }
 
 // Load reads the snippets file, writing the defaults first when it does not
@@ -234,9 +255,11 @@ func Load(dir string) (Set, error) {
 func validate(parsed []Snippet) Set {
 	var set Set
 	taken := map[string]int{}
+	chords := map[string]int{}
 	for i, snip := range parsed {
 		snip.Key = strings.ToLower(strings.TrimSpace(snip.Key))
 		snip.Label = strings.TrimSpace(snip.Label)
+		snip.Chord = strings.TrimSpace(snip.Chord)
 		// Only the text's edges: a snippet is a message, and an operator who
 		// wrote one across several lines meant those lines.
 		snip.Text = strings.TrimSpace(snip.Text)
@@ -251,12 +274,27 @@ func validate(parsed []Snippet) Set {
 				entry(i, snip)+"key "+quote(snip.Key)+" must be a single letter a-z, "+SectionKey+" or "+PlusMinusKey)
 		case snip.Text == "":
 			set.Problems = append(set.Problems, entry(i, snip)+"sends nothing")
+		case snip.Chord != "" && !legalChord(snip.Chord):
+			// A direct chord must hold a modifier: a bare character is the
+			// menu's namespace and would be stolen from every pane it types
+			// into. The menu key is where a bare binding belongs.
+			set.Problems = append(set.Problems,
+				entry(i, snip)+"chord "+quote(snip.Chord)+" must hold a modifier, like option+shift+"+snip.Key)
 		default:
 			if first, dup := taken[snip.Key]; dup {
 				set.Problems = append(set.Problems,
 					entry(i, snip)+"repeats "+snip.Binding()+", already bound by entry "+
 						strconv.Itoa(first+1))
 				continue
+			}
+			if snip.Chord != "" {
+				if first, dup := chords[normalizeChord(snip.Chord)]; dup {
+					set.Problems = append(set.Problems,
+						entry(i, snip)+"repeats chord "+quote(snip.Chord)+", already bound by entry "+
+							strconv.Itoa(first+1))
+					continue
+				}
+				chords[normalizeChord(snip.Chord)] = i
 			}
 			taken[snip.Key] = i
 			set.Snippets = append(set.Snippets, snip)
@@ -285,6 +323,10 @@ func entry(index int, snip Snippet) string {
 func legalKey(key string) bool {
 	return singleLetter(key) || key == SectionKey || key == PlusMinusKey
 }
+
+// legalChord is what may bind directly: a modifier chord, so a direct binding
+// never takes a bare character the pane was owed.
+func legalChord(chord string) bool { return strings.Contains(chord, "+") }
 
 func singleLetter(key string) bool {
 	runes := []rune(key)

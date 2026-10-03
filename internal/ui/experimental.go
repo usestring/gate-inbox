@@ -37,6 +37,7 @@ func (m *Model) viewExperimentalSettings() string {
 		{"JEV Auto Suggest", m.settings.jevAutoSuggest, "Suggest the next reply in an existing session; rank New Session prompts.\nRequires TYPESAFE_API_KEY; sends bounded text to TypeSafe."},
 		{"Prompt suggestions", m.settings.promptSuggest, "Reuse recurring prompts in New Session.\nReads local history; sends matches to TypeSafe only with JEV on."},
 		{"Compressed focus view", m.settings.compressedFocus, "Show the shortened conversation in focus mode.\nPrompt and input mirroring is experimental; F3 returns to the terminal."},
+		{"JEV finish check", m.settings.jevFinishCheck, "On finish, relaunch a Claude session that stopped without Chrome, with --chrome.\nRequires TYPESAFE_API_KEY; sends its last turns to TypeSafe."},
 	}
 	var body strings.Builder
 	for i, feature := range features {

@@ -170,6 +170,7 @@ func (m *Model) openSettings() {
 		reopenSessions:   m.reopenSessionsMode(),
 		outsidePanes:     m.outsidePanesMode(),
 		jevAutoSuggest:   m.jevAutoSuggest,
+		jevFinishCheck:   m.jevFinishCheck,
 		promptSuggest:    m.promptSuggest,
 		compressedFocus:  m.compressedFocus,
 		backdropSync:     storedBackdrop(m.store) == backdropSync,
@@ -184,9 +185,9 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.settings.experimentalPicker {
 		switch msg.String() {
 		case "up", "k":
-			m.settings.experimentalCursor = (m.settings.experimentalCursor + 2) % 3
+			m.settings.experimentalCursor = (m.settings.experimentalCursor + 3) % 4
 		case "down", "j":
-			m.settings.experimentalCursor = (m.settings.experimentalCursor + 1) % 3
+			m.settings.experimentalCursor = (m.settings.experimentalCursor + 1) % 4
 		case "left", "right", "h", "l", "space", "enter":
 			switch m.settings.experimentalCursor {
 			case 0:
@@ -195,6 +196,8 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.settings.promptSuggest = !m.settings.promptSuggest
 			case 2:
 				m.settings.compressedFocus = !m.settings.compressedFocus
+			case 3:
+				m.settings.jevFinishCheck = !m.settings.jevFinishCheck
 			}
 		case "esc":
 			m.settings.experimentalPicker = false
@@ -343,6 +346,14 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(jevAutoSuggestSetting, featureValue); err != nil {
 		m.errBar.text = err.Error()
 	}
+	finishValue := "off"
+	if m.settings.jevFinishCheck {
+		finishValue = "on"
+	}
+	if err := m.store.SetSetting(jevFinishCheckSetting, finishValue); err != nil {
+		m.errBar.text = err.Error()
+	}
+	m.jevFinishCheck = m.settings.jevFinishCheck
 	promptValue := "off"
 	if m.settings.promptSuggest {
 		promptValue = "on"

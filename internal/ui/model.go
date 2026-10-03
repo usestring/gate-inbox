@@ -617,6 +617,8 @@ type Model struct {
 	welcome     welcomeState
 	tmuxHint    tmuxHintState
 	takeover    takeoverState
+	// adoptedHooks keeps the global hooks' markers for adopted panes.
+	adoptedHooks adoptedHooksState
 	// restoreArmed is set by Init, so only a real startup can raise the
 	// restore offer; a Model built directly never asks.
 	restoreArmed bool
@@ -2139,6 +2141,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if result := m.takeoverPass(); result.taken > 0 || len(result.failed) > 0 {
 			m.reportTakeover(result)
 		}
+		// After the takeover, so a pane it just relaunched as the manager's
+		// own is no longer marked as adopted.
+		m.syncAdoptedHooks(time.Now())
 		m.groups = msg.groups
 		m.groupPaths = msg.groupPaths
 		m.archivedGroups = msg.archivedGroups

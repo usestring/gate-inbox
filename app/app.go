@@ -259,7 +259,7 @@ func unknownCommand(arg string) error {
 }
 
 func printHelp(w io.Writer, extra []extensionCommand) error {
-	var sections []cli.HelpSection
+	sections := []cli.HelpSection{claudeHooksHelp}
 	for _, entry := range extra {
 		title := entry.command.Group
 		if title == "" {
@@ -375,6 +375,9 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 	}
 	table["hook"] = withConfigDir(func(args []string, sessionID, configDir string) error {
 		return cli.RunHook(os.Stdin, os.Stdout, args, sessionID, configDir)
+	})
+	table["claude-hooks"] = withConfigDir(func(args []string, _, configDir string) error {
+		return runClaudeHooks(os.Stdout, args, configDir)
 	})
 	for name, command := range cli.Commands() {
 		if name != "spawn" && name != "migrate" && name != "revive" && name != "unpark" {

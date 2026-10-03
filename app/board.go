@@ -152,6 +152,9 @@ func runBoard(version string, registry *extension.Registry) error {
 	// this is what lets a weeks-old session reach current code.
 	installed := launch.Install()
 	logging.Info("manager binary installed", "path", installed)
+	// The same hooks, in the user's own Claude Code settings, are what a
+	// claude started outside the board reports through once it is adopted.
+	registerGlobalHooks(dir)
 
 	// Record which build the board is, so a session whose MCP server was
 	// started weeks and many restarts ago can tell that it is answering

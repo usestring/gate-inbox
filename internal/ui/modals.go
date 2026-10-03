@@ -232,40 +232,68 @@ func (m *Model) viewForm() string {
 	return m.card("◆ New Session", strings.TrimRight(b.String(), "\n"), hint)
 }
 
-// viewToolField renders the CLI picker: the selection between its arrows,
-// then the filter the operator is typing and the CLIs it still allows. The
-// alternatives are shown rather than hidden because the field is now the
-// first thing the card focuses, and a picker whose other values are invisible
-// reads as a label.
+// viewToolField renders the CLI picker: every configured CLI in display
+// order, the selected one bracketed and bold, then the filter the operator is
+// typing. The list never reorders or drops a name as the selection moves, so
+// the field keeps its shape while ←→ walks it; a filter only dims the names it
+// rules out.
 func (m *Model) viewToolField() string {
 	if len(m.form.toolNames) == 0 {
 		return subtleStyle.Render("(none configured)")
 	}
-	field := subtleStyle.Render("\u25c2 ") + valueStyle.Render(m.selectedToolName()) + subtleStyle.Render(" \u25b8")
-	if m.form.focus != fieldTool {
-		return field
-	}
-	field += "  " + m.form.toolFilter.View()
 	matches := m.formToolMatches()
-	if len(matches) == 0 {
-		return field + "  " + mutedStyle.Render("(no CLI matches)")
-	}
-	// The alternatives stay on the row while they fit, and otherwise move to
-	// lines of their own under it, so no configured CLI is left unseen.
-	var others []string
+	allowed := make(map[string]bool, len(matches))
 	for _, name := range matches {
-		if name != m.selectedToolName() {
-			others = append(others, name)
+		allowed[name] = true
+	}
+	width := m.formValueWidth()
+	rows := toolPickerRows(m.form.toolNames, m.selectedToolName(), allowed, width)
+	if m.form.focus != fieldTool {
+		return strings.Join(rows, "\n")
+	}
+	filter := m.form.toolFilter.View()
+	if len(matches) == 0 {
+		filter += "  " + mutedStyle.Render("(no CLI matches)")
+	}
+	last := len(rows) - 1
+	if lipgloss.Width(rows[last])+2+lipgloss.Width(filter) <= width {
+		rows[last] += "  " + filter
+	} else {
+		rows = append(rows, filter)
+	}
+	return strings.Join(rows, "\n")
+}
+
+// toolPickerRows lays every CLI out as a fixed-width cell, "[name]" for the
+// selected one and " name " for the rest, wrapping wherever the next cell
+// would pass budget columns. Every cell is as wide selected as not, so where
+// the rows break depends on the names alone and never on the selection.
+func toolPickerRows(names []string, selected string, allowed map[string]bool, budget int) []string {
+	var lines []string
+	var line strings.Builder
+	width := 0
+	for _, name := range names {
+		w := lipgloss.Width(name) + 2
+		if width > 0 && width+1+w > budget {
+			lines = append(lines, line.String())
+			line.Reset()
+			width = 0
 		}
+		if width > 0 {
+			line.WriteString(" ")
+			width++
+		}
+		switch {
+		case name == selected:
+			line.WriteString(focusEdgeStyle.Render("[") + selectedNameStyle.Render(name) + focusEdgeStyle.Render("]"))
+		case allowed[name]:
+			line.WriteString(" " + subtleStyle.Render(name) + " ")
+		default:
+			line.WriteString(" " + mutedStyle.Render(name) + " ")
+		}
+		width += w
 	}
-	if len(others) == 0 {
-		return field
-	}
-	inlineRoom := m.formValueWidth() - lipgloss.Width(field) - 2
-	if rows := agentPickRows(others, "", inlineRoom); len(rows) == 1 && lipgloss.Width(rows[0]) <= inlineRoom {
-		return field + "  " + rows[0]
-	}
-	return field + "\n" + strings.Join(agentPickRows(others, "", m.formValueWidth()), "\n")
+	return append(lines, line.String())
 }
 
 func groupBadge(path string) string {

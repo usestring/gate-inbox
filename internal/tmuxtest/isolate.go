@@ -5,10 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
 
+	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/tmuxguard"
 )
 
@@ -23,6 +25,11 @@ import (
 // runs:
 //
 //   - TMUX and TMUX_PANE are unset, so nothing can follow them to a live pane;
+//   - the GATE_INBOX_* variables a managed session runs with are unset. Run
+//     from inside a board's session, a test inherited that session's exit and
+//     status files: a fake agent's launch script exiting 0 wrote the live
+//     board's record, and the board reported the session that ran the tests
+//     as exited while it was still working;
 //   - TMUX_TMPDIR is a fresh directory of this run's own, so every -L socket
 //     and every bare tmux resolves inside it and nowhere else;
 //   - the tmux found first on PATH is a shim that starts every server with
@@ -42,9 +49,15 @@ var (
 	ownsPrivateDir bool
 )
 
+// sessionEnv is the environment that ties a process to a live board session.
+var sessionEnv = []string{envname.SessionID, envname.Executable, envname.StatusFile, envname.ExitFile}
+
 func isolate() {
 	os.Unsetenv("TMUX")
 	os.Unsetenv("TMUX_PANE")
+	for _, name := range sessionEnv {
+		os.Unsetenv(name)
+	}
 	if privateDir != "" {
 		os.Setenv("TMUX_TMPDIR", privateDir)
 		prependShimDir()
@@ -191,6 +204,9 @@ func ScrubEnv(env []string) []string {
 		key, _, _ := strings.Cut(kv, "=")
 		switch key {
 		case "TMUX", "TMUX_PANE", "TMUX_TMPDIR", tmuxguard.PrivateDirEnv:
+			continue
+		}
+		if slices.Contains(sessionEnv, key) {
 			continue
 		}
 		kept = append(kept, kv)

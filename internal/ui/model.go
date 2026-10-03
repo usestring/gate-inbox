@@ -113,6 +113,8 @@ type Model struct {
 	snips          snippets.Set
 	snipErr        string
 	jevAutoSuggest bool
+	jevFinishCheck bool
+	jevFinish      jevFinishState
 	promptSuggest  bool
 	promptSnipsSeq int
 	autoSuggestSeq int
@@ -829,6 +831,7 @@ type settingsState struct {
 	experimentalPicker bool
 	experimentalCursor int
 	jevAutoSuggest     bool
+	jevFinishCheck     bool
 	promptSuggest      bool
 	compressedFocus    bool
 	// backdropSync is the backdrop mode as the picker holds it: true
@@ -1170,6 +1173,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		focusView:       storedFocusView(st),
 		compressedFocus: storedCompressedFocus(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
+		jevFinishCheck:  storedJevFinishCheck(st),
 		promptSuggest:   storedPromptSuggestions(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),
@@ -2058,6 +2062,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case autoSuggestResultMsg:
 		m.applyAutoSuggestion(msg)
 		return m, nil
+	case jevFinishResultMsg:
+		m.applyJevFinish(msg)
+		return m, nil
 	case promptJevTickMsg:
 		return m, m.runPromptJev(msg.seq)
 	case promptJevResultMsg:
@@ -2172,7 +2179,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sweep := m.sweepExpiredArchives()
 		// Off the loop, so a busy tmux server delays a child's filing rather
 		// than the board's next frame. What it finds lands as childSweptMsg.
-		childSweep := m.sweepFinishedChildren()
+		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev())
 		m.settleInstall()
 		m.rebuildRows()
 		if focusClosed {

@@ -58,9 +58,19 @@ var restRelay = map[string]string{
 // than one per turn.
 func (p *poller) relayChildRest(sess store.Session, newStatus string) error {
 	ending, atRest := restRelay[newStatus]
+	if !atRest {
+		return nil
+	}
+	return p.enqueueChildRest(sess, newStatus, childRestMessage(sess, ending))
+}
+
+// enqueueChildRest puts body in the queue of sess's spawner, under the
+// child's rest subject, unless nobody tracks the child or it is not one
+// whose rests are news.
+func (p *poller) enqueueChildRest(sess store.Session, newStatus, body string) error {
 	// The spawner hears, not the row's parent: see relayChildQuestion.
 	spawner := store.TrackerOf(sess)
-	if !atRest || spawner == "" || sess.Archived {
+	if spawner == "" || sess.Archived {
 		return nil
 	}
 	// Nor a silent role's rest: see relayChildQuestion.
@@ -81,7 +91,6 @@ func (p *poller) relayChildRest(sess store.Session, newStatus string) error {
 	if parent.Archived || parent.Status == status.Dead {
 		return nil
 	}
-	body := childRestMessage(sess, ending)
 	// Under this child's own subject: a child that finishes, is sent on and
 	// finishes again leaves its parent the current notice rather than a
 	// stale one queued ahead of it.

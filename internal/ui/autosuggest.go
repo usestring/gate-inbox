@@ -126,8 +126,22 @@ func rankNextSubmissions(ctx context.Context, client *http.Client, endpoint, key
 			return nil
 		}
 	}
-	criteria := map[string]string{"none": "None of these is a useful next user submission for this active session."}
-	for i, candidate := range input.Candidates {
+	choice := askJev(ctx, client, endpoint, key,
+		map[string]any{"messages": input.Messages, "draft": input.Draft},
+		"Choose the candidate that would be the most useful next user submission to the existing session after its latest assistant message. Choose none if these are old instructions that should not be repeated or the draft already says something better.",
+		"None of these is a useful next user submission for this active session.",
+		input.Candidates)
+	if choice < 0 {
+		return nil
+	}
+	return []string{input.Candidates[choice]}
+}
+
+// askJev posts one choice question to JEV and returns the index of the
+// chosen candidate, or -1 for "none" and for any failed request.
+func askJev(ctx context.Context, client *http.Client, endpoint, key string, state any, instructions, none string, candidates []string) int {
+	criteria := map[string]string{"none": none}
+	for i, candidate := range candidates {
 		criteria["c"+string(rune('1'+i))] = candidate
 	}
 	body, err := json.Marshal(struct {
@@ -136,29 +150,29 @@ func rankNextSubmissions(ctx context.Context, client *http.Client, endpoint, key
 		Questions any    `json:"questions"`
 	}{
 		Model: jevModel,
-		State: map[string]any{"messages": input.Messages, "draft": input.Draft},
+		State: state,
 		Questions: map[string]any{"next": map[string]any{
 			"type":         "choice",
-			"instructions": "Choose the candidate that would be the most useful next user submission to the existing session after its latest assistant message. Choose none if these are old instructions that should not be repeated or the draft already says something better.",
+			"instructions": instructions,
 			"criteria":     criteria,
 		}},
 	})
 	if err != nil {
-		return nil
+		return -1
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(body)))
 	if err != nil {
-		return nil
+		return -1
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+key)
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil
+		return -1
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil
+		return -1
 	}
 	var reply struct {
 		Model   string `json:"model"`
@@ -168,22 +182,18 @@ func rankNextSubmissions(ctx context.Context, client *http.Client, endpoint, key
 		} `json:"answers"`
 	}
 	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&reply) != nil || reply.Model != jevModel {
-		return nil
+		return -1
 	}
 	answer := reply.Answers["next"]
 	if answer.Type != "choice" {
-		return nil
+		return -1
 	}
-	choice := answer.Choice
-	if choice == "none" {
-		return nil
-	}
-	for i, candidate := range input.Candidates {
-		if choice == "c"+string(rune('1'+i)) {
-			return []string{candidate}
+	for i := range candidates {
+		if answer.Choice == "c"+string(rune('1'+i)) {
+			return i
 		}
 	}
-	return nil
+	return -1
 }
 
 func (m *Model) suggestIdentity() (string, bool) {

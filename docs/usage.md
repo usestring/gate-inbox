@@ -83,13 +83,15 @@ Press `space` on the list, or `ctrl+]` anywhere including inside a focused sessi
 - On a **session** row, each snippet's key sends it straight into that session's pane, so the agent gets it as a user message without you attaching. Opened from inside a session, it answers that session instead and leaves you where you were. The menu stays open, ready for the next session; Settings (`s`) can make it close after a send instead. The one exception is `±`, which fires anywhere without the menu.
 - On a **group** row there is no pane to send to, so the menu says to select a session. `n` and `ctrl+n` start a new agent in the group.
 
-Settings → **experimental** contains three independent features, all off by default.
+Settings → **experimental** contains three features, all off by default.
 
 **Compressed focus view** keeps the shortened conversation on screen in focus mode. It is off by default, including for existing users who previously chose the conversation view. Prompt and input mirroring is still experimental; use `F3` to return to the live terminal to see and submit input. Disabling it restores the live terminal whenever a session is focused.
 
-**Prompt suggestions** reads local Claude/Codex history to suggest recurring New Session prompts; it makes no network requests. Disable it to stop history reads and suggestions.
+**Prompt suggestions** reads local Claude/Codex history to suggest recurring New Session prompts. On its own it makes no network requests. Disable it to stop history reads and suggestions.
 
 **JEV Auto Suggest** works in existing sessions. With `TYPESAFE_API_KEY` set, it ranks up to eight earlier submissions from the selected existing session against its last four messages. The suggestion appears beneath the snippets; `ctrl+y` inserts it into the session's prompt without submitting it. Close the menu and focus the session to edit or send it. It never suggests a starting prompt on a group row. When enabled, each ranking request sends up to four messages (500 characters each) and eight submissions (300 characters each) to TypeSafe. A missing key, failed request, or JEV's “none” choice leaves the menu without a suggestion.
+
+With **Prompt suggestions** and **JEV Auto Suggest** both on and `TYPESAFE_API_KEY` set, JEV also ranks the New Session prompt's suggestions. Once at least two recurring prompts match the draft, it sends the draft and up to eight matching recurring prompts (300 characters each) to TypeSafe, and its pick moves to the front of the suggestion line, marked `jev`. Nothing else from your history is sent. Turning either feature off stops these requests, and a missing key, failed request, or “none” choice leaves the local order.
 
 `space`, `ctrl+]` or `esc` closes the menu. Snippets that do not fit on its lines are counted on the last one, and the key map (`?`) lists them all.
 

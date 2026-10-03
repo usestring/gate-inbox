@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -282,15 +283,23 @@ func (c *composer) setValue(value string, cursor int) tea.Cmd {
 	return cmd
 }
 
-func (c *composer) suggestions(snips []promptsnips.Snippet) []promptsnips.Snippet {
+// suggestions ranks the snippets matching the prompt, with preferred, the
+// Key JEV picked among them, moved to the front when it is one of them.
+func (c *composer) suggestions(snips []promptsnips.Snippet, preferred string) []promptsnips.Snippet {
 	if len(snips) == 0 || len(c.attachments) > 0 {
 		return nil
 	}
-	return promptsnips.Suggest(snips, c.input.Value(), time.Now(), 3)
+	matches := promptsnips.Suggest(snips, c.input.Value(), time.Now(), promptJevLimit)
+	if i := slices.IndexFunc(matches, func(s promptsnips.Snippet) bool { return preferred != "" && s.Key == preferred }); i > 0 {
+		chosen := matches[i]
+		copy(matches[1:i+1], matches[:i])
+		matches[0] = chosen
+	}
+	return matches[:min(promptJevShown, len(matches))]
 }
 
-func (c *composer) suggestionKey(msg tea.KeyPressMsg, snips []promptsnips.Snippet) (tea.Cmd, bool) {
-	suggestions := c.suggestions(snips)
+func (c *composer) suggestionKey(msg tea.KeyPressMsg, snips []promptsnips.Snippet, preferred string) (tea.Cmd, bool) {
+	suggestions := c.suggestions(snips, preferred)
 	if len(suggestions) == 0 {
 		return nil, false
 	}
@@ -532,7 +541,7 @@ func (m *Model) composerOpen(target composerID) bool {
 func (m *Model) composerKey(target composerID, msg tea.KeyPressMsg) (tea.Cmd, bool) {
 	c := m.composerFor(target)
 	if m.promptSuggest {
-		if cmd, handled := c.suggestionKey(msg, m.promptSnips); handled {
+		if cmd, handled := c.suggestionKey(msg, m.promptSnips, m.promptJevChoice()); handled {
 			return cmd, true
 		}
 	}
@@ -624,5 +633,5 @@ func (m *Model) handlePasteTextMsg(msg pasteTextMsg) (tea.Model, tea.Cmd) {
 	c.prune()
 	c.snapCursorOutOfToken(snapNearest)
 	c.suggestionIndex = 0
-	return m, cmd
+	return m, tea.Batch(cmd, m.schedulePromptJev())
 }

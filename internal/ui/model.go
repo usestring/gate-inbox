@@ -120,6 +120,7 @@ type Model struct {
 	promptSnipsSeq int
 	autoSuggestSeq int
 	promptSnips    []promptsnips.Snippet
+	promptJev      promptJevState
 
 	// keys is the resolved key map: the catalog with the operator's keys.toml
 	// applied, read once at startup for the reason snips are. keyProblems is
@@ -2054,6 +2055,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case autoSuggestResultMsg:
 		m.applyAutoSuggestion(msg)
 		return m, nil
+	case promptJevTickMsg:
+		return m, m.runPromptJev(msg.seq)
+	case promptJevResultMsg:
+		m.applyPromptJev(msg)
+		return m, nil
 	case historyIndexedMsg:
 		return m, m.historySearchCmd()
 	case historyDebounceMsg:
@@ -2471,7 +2477,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			m.promptSnips = msg.snips
 		}
-		return m, promptSnipsTick(m.promptSnipsSeq)
+		return m, tea.Batch(promptSnipsTick(m.promptSnipsSeq), m.schedulePromptJev())
 
 	case promptSnipsTickMsg:
 		if msg.seq != m.promptSnipsSeq {
@@ -2559,7 +2565,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		model, cmd := m.handleKey(msg)
 		m.syncPollInput()
-		return model, tea.Batch(cmd, m.scheduleAutoSuggestion())
+		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev())
 
 	case tea.PasteMsg:
 		if m.mode == modeExtensionView {

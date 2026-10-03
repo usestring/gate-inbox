@@ -358,6 +358,9 @@ func (m *Model) persistSettings() tea.Cmd {
 		m.promptSnips = nil
 	}
 	m.jevAutoSuggest = m.settings.jevAutoSuggest
+	if !m.promptSuggest || !m.jevAutoSuggest {
+		m.promptJev = promptJevState{seq: m.promptJev.seq + 1}
+	}
 	m.autoProceed = m.settings.autoProceed
 	m.focusOnEnter = m.settings.enterFocuses
 	compressedValue := "off"

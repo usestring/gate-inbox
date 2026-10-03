@@ -236,10 +236,11 @@ func TestLastPaneRefusesWhenThePreviousSessionIsGone(t *testing.T) {
 	}
 }
 
-// The footer names the key only once there is somewhere to go back to,
-// so it never advertises one that would refuse. The default row carries it
-// in the core pairs rather than the cut-first tail, and the focused footer
-// names its own chord where the keys are actually pressed.
+// The default row always names the key so the hotkey is discoverable
+// before the first walk exists; the peek names it only once there is
+// somewhere to go back to. The default row carries it in the core pairs
+// rather than the cut-first tail, and the focused footer names its own
+// chord where the keys are actually pressed.
 func TestTheFooterNamesLastPaneOnlyOnceItWorks(t *testing.T) {
 	m := buildModel(t)
 	dir := t.TempDir()
@@ -247,8 +248,8 @@ func TestTheFooterNamesLastPaneOnlyOnceItWorks(t *testing.T) {
 	if legendHasPair(m.viewLegend(), "l") {
 		t.Error("the footer named l with nothing behind it")
 	}
-	if legendHasPair(m.defaultRowLegend(), "l") {
-		t.Error("the default row named l with nothing behind it")
+	if !legendHasPair(m.defaultRowLegend(), "l") {
+		t.Error("the default row did not name l with nothing behind it")
 	}
 	createSession(t, m, "beta", dir, "")
 	focusRow(t, m, "alpha")

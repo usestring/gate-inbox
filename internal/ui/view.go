@@ -731,10 +731,8 @@ func (m *Model) defaultRowLegend() legendSection {
 	// Last pane rides the core row rather than the cut-first tail: it is
 	// the way back to the session just left, and a key nobody sees is a
 	// key nobody presses.
-	if m.applies(keymap.ContextList, keymap.LastPane, row) {
-		if key := m.tightCap(keymap.ContextList, keymap.LastPane); key != "" {
-			pairs = append(pairs, [2]string{key, "last pane"})
-		}
+	if key := m.tightCap(keymap.ContextList, keymap.LastPane); key != "" {
+		pairs = append(pairs, [2]string{key, "last pane"})
 	}
 	if m.applies(keymap.ContextList, keymap.QuickInput, row) {
 		if key := m.tightCap(keymap.ContextList, keymap.QuickInput); key != "" {

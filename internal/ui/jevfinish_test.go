@@ -3,14 +3,20 @@ package ui
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
 )
 
 func TestJevFinishVerdictDecides(t *testing.T) {
@@ -153,5 +159,116 @@ func TestJevFinishIgnoresAStaleVerdict(t *testing.T) {
 		verdict: jevFinishVerdict{finished: 0.05, missingChrome: 0.97}})
 	if m.errBar.text != "" {
 		t.Fatalf("a verdict about an earlier finish acted: %q", m.errBar.text)
+	}
+}
+
+func TestJevFinishCandidateRecognizesClaudeWrappers(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		tool config.Tool
+		want bool
+	}{
+		{"claude", config.Tool{Command: "wrapper"}, true},
+		{"cc", config.Tool{Command: "/usr/local/bin/claude --verbose"}, true},
+		{"custom", config.Tool{Command: "wrapper", SessionStore: search.ToolClaude}, true},
+		{"codex", config.Tool{Command: "codex"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &Model{cfg: config.Config{Tools: map[string]config.Tool{tc.name: tc.tool}},
+				sessions: []store.Session{{ID: "finished", Tool: tc.name, Status: status.Finished}}}
+			_, _, got := m.jevFinishCandidate()
+			if got != tc.want {
+				t.Fatalf("candidate = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestJevFinishLeavesOperatorInputAlone(t *testing.T) {
+	for _, leave := range []bool{false, true} {
+		t.Run(fmt.Sprintf("leave=%v", leave), func(t *testing.T) {
+			m := buildModel(t)
+			createSession(t, m, "draft", t.TempDir(), "")
+			sess := m.sessions[0]
+			m.sessions[0].Status = status.Finished
+			m.sessions[0].LastStatusAt = time.Now()
+			m.jevFinishCheck = true
+			m.jevFinish.busy = true
+			msg := jevFinishResultMsg{id: sess.ID, identity: jevFinishIdentity(m.sessions[0]), ok: true,
+				verdict: jevFinishVerdict{finished: 0.05, missingChrome: 0.97}}
+			m.triage = true
+			m.focusSession(sess.ID)
+			m.focusSelected()
+			m.typeInto(t, "keep this draft")
+			waitForPaneText(t, m, sess.ID, "keep this draft")
+			if leave {
+				m.typeInto(t, "\n")
+				m.mode = modeList
+			}
+			if m.sessions[0].Status != status.Finished || jevFinishIdentity(m.sessions[0]) != msg.identity {
+				t.Fatal("fixture must retain the pre-poll finished status")
+			}
+			m.applyJevFinish(msg)
+			if m.jevFinish.busy || m.errBar.text != "" || m.jevFinish.chromeRelaunched[sess.ID] {
+				t.Fatalf("verdict acted on operator input: %q", m.errBar.text)
+			}
+			waitForPaneText(t, m, sess.ID, "keep this draft")
+			if _, _, ok := m.jevFinishCandidate(); ok {
+				t.Fatal("an attended finish must not be checked again after leaving focus")
+			}
+			m.mode = modeList
+			m.sessions[0].LastStatusAt = m.sessions[0].LastStatusAt.Add(time.Minute)
+			if _, _, ok := m.jevFinishCandidate(); !ok {
+				t.Fatal("a later finish should still be eligible")
+			}
+		})
+	}
+}
+
+type jevFinishTransport func(*http.Request) (*http.Response, error)
+
+func (f jevFinishTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestJevFinishUsesAnIndependentLocator(t *testing.T) {
+	t.Setenv("TYPESAFE_API_KEY", "test-key")
+	home := t.TempDir()
+	locator := search.NewLocator(home, "")
+	sess := store.Session{ID: "finished", Tool: "claude", Status: status.Finished, AgentSessionID: "conversation"}
+	if _, ok := locator.Target(sess.ID, search.ToolClaude, "", sess.AgentSessionID); ok {
+		t.Fatal("the preview locator should cache a missing transcript")
+	}
+	path := filepath.Join(home, "projects", "project", sess.AgentSessionID+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"type":"assistant","message":{"role":"assistant","content":"Chrome is unavailable"}}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	previous := jevHTTPClient
+	t.Cleanup(func() { jevHTTPClient = previous })
+	jevHTTPClient = &http.Client{Transport: jevFinishTransport(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(
+			`{"model":"` + jevModel + `","answers":{"finished":{"type":"noul","noul":0.1},"missing_chrome":{"type":"noul","noul":0.9}}}`))}, nil
+	})}
+	m := &Model{cfg: config.Config{Tools: map[string]config.Tool{"claude": {Command: "claude"}}},
+		sessions: []store.Session{sess}, jevFinishCheck: true, conversation: &conversationView{locator: locator},
+		rows: []treeRow{{sess: sess}}}
+	preview := m.readConversation()
+	finish := m.checkFinishedWithJev()
+	if preview == nil || finish == nil {
+		t.Fatal("both transcript commands should be runnable")
+	}
+	previewDone := make(chan struct{})
+	go func() {
+		preview()
+		close(previewDone)
+	}()
+	msg := finish().(jevFinishResultMsg)
+	<-previewDone
+	if !msg.ok {
+		t.Fatal("the finish check reused the preview locator's miss cache")
+	}
+	if _, ok := locator.Target(sess.ID, search.ToolClaude, "", sess.AgentSessionID); ok {
+		t.Fatal("the finish check changed the preview locator's cache")
 	}
 }

@@ -61,6 +61,7 @@ func storedJevFinishCheck(st *store.Store) bool {
 type jevFinishState struct {
 	busy             bool
 	checked          map[string]string
+	attended         map[string]string
 	chromeRelaunched map[string]bool
 }
 
@@ -85,17 +86,36 @@ func jevFinishIdentity(sess store.Session) string {
 // jevFinishCandidate picks the next finished Claude row not yet asked about.
 // A pane the manager did not start is left alone, since the remedy kills it.
 func (m *Model) jevFinishCandidate() (store.Session, string, bool) {
+	formats := historyToolFormats(m.cfg)
 	for _, sess := range m.sessions {
-		if sess.Archived || sess.Tool != "claude" || sess.Status != status.Finished || sess.TmuxPaneID != "" {
+		if sess.Archived || formats[sess.Tool] != search.ToolClaude || sess.Status != status.Finished || sess.TmuxPaneID != "" {
 			continue
 		}
 		identity := jevFinishIdentity(sess)
-		if m.jevFinish.checked[sess.ID] == identity {
+		if m.jevFinish.checked[sess.ID] == identity || m.jevFinishAttended(sess) {
 			continue
 		}
 		return sess, identity, true
 	}
 	return store.Session{}, "", false
+}
+
+func (m *Model) noteJevFinishActivity() {
+	if !m.jevFinishCheck {
+		return
+	}
+	sess, ok := m.sessionByID(m.focusedID)
+	if !ok || sess.Status != status.Finished {
+		return
+	}
+	if m.jevFinish.attended == nil {
+		m.jevFinish.attended = map[string]string{}
+	}
+	m.jevFinish.attended[sess.ID] = jevFinishIdentity(sess)
+}
+
+func (m *Model) jevFinishAttended(sess store.Session) bool {
+	return m.mode == modeFocus && m.focusedID == sess.ID || m.jevFinish.attended[sess.ID] == jevFinishIdentity(sess)
 }
 
 // checkFinishedWithJev asks about one finished row per poll pass, off the
@@ -115,7 +135,7 @@ func (m *Model) checkFinishedWithJev() tea.Cmd {
 	}
 	m.jevFinish.checked[sess.ID] = identity
 	m.jevFinish.busy = true
-	locator := m.conversation.locator
+	locator := search.NewLocator(m.conversation.locator.ClaudeHome, m.conversation.locator.CodexRoot)
 	tool := historyToolFormats(m.cfg)[sess.Tool]
 	database := opencodeDBPath()
 	return func() tea.Msg {
@@ -240,7 +260,7 @@ func (m *Model) applyJevFinish(msg jevFinishResultMsg) {
 	sess, ok := m.sessionByID(msg.id)
 	// The row moved on while JEV read it: the verdict is about a finish that
 	// is no longer the one on screen.
-	if !ok || sess.Archived || sess.Status != status.Finished || jevFinishIdentity(sess) != msg.identity {
+	if !ok || sess.Archived || sess.Status != status.Finished || jevFinishIdentity(sess) != msg.identity || m.jevFinishAttended(sess) {
 		return
 	}
 	logging.Info("jev finish check", "session", sess.ID, "finished", msg.verdict.finished, "missing_chrome", msg.verdict.missingChrome)

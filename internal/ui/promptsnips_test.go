@@ -140,7 +140,7 @@ func TestPromptSuggestionDoesNotReplaceImages(t *testing.T) {
 		{Text: "Review the tests"}, {Text: "Review the tests"},
 		{Text: "Review the tests"}, {Text: "Review the tests"},
 	}, time.Now())
-	if _, handled := c.suggestionKey(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl}, snips); handled {
+	if _, handled := c.suggestionKey(tea.KeyPressMsg{Code: 'y', Mod: tea.ModCtrl}, snips, ""); handled {
 		t.Fatal("history suggestion intercepted a prompt with images")
 	}
 }

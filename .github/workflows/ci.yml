@@ -6,6 +6,10 @@ on:
   pull_request:
   push:
     branches: [main]
+  # release.yml dispatches this on the release PR's branch. That PR is opened
+  # with GITHUB_TOKEN, and nothing GITHUB_TOKEN pushes or opens starts a
+  # workflow run, except a dispatch.
+  workflow_dispatch:
 
 permissions:
   contents: read

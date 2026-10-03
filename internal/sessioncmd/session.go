@@ -685,7 +685,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	// The pane may have to open somewhere else to get past the CLI's trust
 	// dialog; the agent is told to change into dir either way, and the row
 	// below records dir, which is what work and git discovery read.
-	launchDir := launchDirectory(caller.Cwd, dir)
+	launchDir := launchDirectory(tool, caller.Cwd, dir)
 	workdir := ""
 	if launchDir != dir {
 		workdir = dir

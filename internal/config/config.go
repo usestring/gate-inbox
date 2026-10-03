@@ -81,6 +81,13 @@ type Tool struct {
 	// about the first write there. Left unset, such a launch carries only
 	// the change-directory note, which is all a tool without the flag gets.
 	AddDirFlag string `toml:"add_dir_flag"`
+	// LaunchInPlace opens a spawn's pane in the directory it asked for even
+	// when that lies outside the caller's tree. Set it for a CLI whose
+	// first-run trust dialog defaults to continuing: diverting such a CLI
+	// buys nothing, and Codex in a directory it does not trust runs read-only
+	// and exits on the add_dir_flag the divert hands it. Its trust dialog is
+	// then a waiting dialog like any other, relayed to the spawner.
+	LaunchInPlace bool `toml:"launch_in_place"`
 	// ModelFlag launches a session on a chosen model rather than the CLI's
 	// own default (claude/codex/opencode "--model <name>"). Left unset, this
 	// tool has no way to be told, and a session asking for a model on it is
@@ -593,6 +600,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	fill(&user.RenameCommand, def.RenameCommand)
 	user.SkipRenameDirective = user.SkipRenameDirective || def.SkipRenameDirective
 	user.TypeAhead = user.TypeAhead || def.TypeAhead
+	user.LaunchInPlace = user.LaunchInPlace || def.LaunchInPlace
 	fill(&user.MCP, def.MCP)
 	fill(&user.StatusSource, def.StatusSource)
 	fill(&user.DefaultStatus, def.DefaultStatus)
@@ -631,6 +639,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	} else if name == "opencode" {
 		user.Rules = withDialogRules(user.Rules, def.Rules, opencodeDialogSamples)
 	} else if name == "codex" {
+		user.Rules = withDialogRules(user.Rules, def.Rules, codexDialogSamples)
 		for i, rule := range user.Rules {
 			if rule.State != "working" || (rule.Pattern != `(?m)esc to interrupt\b` && rule.Pattern != codexWorkingNoHints) {
 				continue
@@ -674,6 +683,13 @@ func upgradeBareEnterToConfirm(user, def []Rule) {
 			break
 		}
 	}
+}
+
+// codexDialogSamples is the legend of codex's first-run folder-trust dialog,
+// recognized after the tool block shipped.
+var codexDialogSamples = []string{
+	"enter continue \u00b7 esc quit",
+	"enter continue \u00b7 esc back",
 }
 
 // opencodeDialogSamples are the rows of opencode's two blocking overlays: the
@@ -1178,6 +1194,10 @@ command = "codex"
 model_flag = "--model"
 # codex-cli 0.157.0: --add-dir <DIR>, writable alongside the primary workspace
 add_dir_flag = "--add-dir"
+# Codex's trust dialog defaults to "Trust and continue", while a codex started
+# in an untrusted directory runs read-only and exits on --add-dir. A spawn
+# outside the caller's tree therefore opens where it asked to work.
+launch_in_place = true
 # codex repaints a typed character in 27-45ms against Claude Code's 10-25ms,
 # so the default chase gives up mid-repaint and the key waits for a tick
 echo_budget = "90ms"
@@ -1239,6 +1259,9 @@ rules = [
   { state = "waiting", pattern = "(?m)enter to submit answer\\b" },
   # the 0.157 rate-limit model-switch dialog
   { state = "waiting", pattern = "(?m)^\\s*enter select · esc back\\b" },
+  # the 0.157 first-run folder-trust dialog, whose "› 1. Trust and continue"
+  # row reads as the composer line
+  { state = "waiting", pattern = "(?m)^\\s*enter continue · esc (?:quit|back)\\b" },
   # active status row is the final row above the input box; anchoring its full
   # shape keeps an answer that quotes "esc to interrupt" from looking active
   { state = "working", pattern = "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?(?:[ \\t]*\\n|[ \\t]+(?:⚠|↓|Tip: |Copied )[^\\n]*\\n)*[ \\t\\n]*\\z" },

@@ -475,9 +475,12 @@ func (r *runtime) createTarget(caller store.Session, requestedGroup *string, dir
 // This also takes createTarget's PaneCurrentPath fallback out of the trust
 // question: a manager that has cd-ed somewhere still hands its children that
 // directory to work in, but no longer hands them an untrusted one to start in.
-func launchDirectory(callerCwd, requested string) string {
+//
+// A tool marked launch_in_place is never diverted: its trust dialog defaults to
+// continuing, so opening where it was asked is the launch that survives.
+func launchDirectory(tool config.Tool, callerCwd, requested string) string {
 	caller := strings.TrimSpace(callerCwd)
-	if caller == "" || requested == "" || gitroot.Within(requested, caller) {
+	if tool.LaunchInPlace || caller == "" || requested == "" || gitroot.Within(requested, caller) {
 		return requested
 	}
 	if _, err := resolveTerminalDirectory(caller); err != nil {

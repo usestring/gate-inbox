@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.12.0](https://github.com/usestring/gate-inbox/compare/v0.11.0...v0.12.0) (2026-10-03)
+
+
+### Features
+
+* let a parent grant its child a scoped, temporary permission ([#181](https://github.com/usestring/gate-inbox/issues/181)) ([f17931e](https://github.com/usestring/gate-inbox/commit/f17931ed1aac028b3ef37853c4b9ac3cbe966a8f))
+* open the key map with its search on ([#230](https://github.com/usestring/gate-inbox/issues/230)) ([f2fa330](https://github.com/usestring/gate-inbox/commit/f2fa330e8efc8ee9858b280f2c91f1d000a84677))
+
+
+### Bug Fixes
+
+* **ui:** keep a turn raised during a triage visit ([#232](https://github.com/usestring/gate-inbox/issues/232)) ([2b34b0e](https://github.com/usestring/gate-inbox/commit/2b34b0eea760e39c4e307b606f163975342c7023))
+
 ## [0.11.0](https://github.com/usestring/gate-inbox/compare/v0.10.1...v0.11.0) (2026-10-03)
 
 

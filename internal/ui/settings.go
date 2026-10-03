@@ -182,24 +182,11 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleCLIPickerKey(msg)
 	}
 	if m.settings.experimentalPicker {
-		switch msg.String() {
-		case "up", "k":
-			m.settings.experimentalCursor = (m.settings.experimentalCursor + 2) % 3
-		case "down", "j":
-			m.settings.experimentalCursor = (m.settings.experimentalCursor + 1) % 3
-		case "left", "right", "h", "l", "space", "enter":
-			switch m.settings.experimentalCursor {
-			case 0:
-				m.settings.jevAutoSuggest = !m.settings.jevAutoSuggest
-			case 1:
-				m.settings.promptSuggest = !m.settings.promptSuggest
-			case 2:
-				m.settings.compressedFocus = !m.settings.compressedFocus
-			}
-		case "esc":
-			m.settings.experimentalPicker = false
-		}
+		m.handleExperimentalKey(msg)
 		return m, nil
+	}
+	if m.settings.jevPanel {
+		return m.handleJevSettingsKey(msg)
 	}
 	switch msg.String() {
 	case "up", "k":
@@ -212,6 +199,10 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.cycleSetting(1)
 	case "enter":
 		switch m.settings.field {
+		case settingsFieldJev:
+			m.settings.jevPanel = true
+			m.settings.jevCursor = 0
+			return m, nil
 		case settingsFieldExperimental:
 			m.settings.experimentalPicker = true
 			return m, nil
@@ -336,20 +327,7 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(outsidePanesSetting, normalizeOutsidePanes(m.settings.outsidePanes)); err != nil {
 		m.errBar.text = err.Error()
 	}
-	featureValue := "off"
-	if m.settings.jevAutoSuggest {
-		featureValue = "on"
-	}
-	if err := m.store.SetSetting(jevAutoSuggestSetting, featureValue); err != nil {
-		m.errBar.text = err.Error()
-	}
-	promptValue := "off"
-	if m.settings.promptSuggest {
-		promptValue = "on"
-	}
-	if err := m.store.SetSetting(promptSuggestionsSetting, promptValue); err != nil {
-		m.errBar.text = err.Error()
-	}
+	m.persistExperiments()
 	if m.promptSuggest != m.settings.promptSuggest {
 		m.promptSnipsSeq++
 	}
@@ -363,13 +341,6 @@ func (m *Model) persistSettings() tea.Cmd {
 	}
 	m.autoProceed = m.settings.autoProceed
 	m.focusOnEnter = m.settings.enterFocuses
-	compressedValue := "off"
-	if m.settings.compressedFocus {
-		compressedValue = "on"
-	}
-	if err := m.store.SetSetting(compressedFocusSetting, compressedValue); err != nil {
-		m.errBar.text = err.Error()
-	}
 	m.compressedFocus = storedCompressedFocus(m.store)
 	m.focusView = storedFocusView(m.store)
 	m.comfortableRows = m.settings.comfortableRows

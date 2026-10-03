@@ -118,7 +118,8 @@ and `alt+,` hides the key hints.
 **Focus.** `enter` focuses a session in place: keys go to the agent while the list stays beside
 it, and `ctrl+q` comes back. `alt+\` hides the list so the pane gets the full width, and
 `alt+u` / `alt+end` scroll back through its output and return to the live bottom. `space`
-opens the hotkey menu, which sends one of your snippets to the selected session without focusing it. `T` opens a shell tab under the
+opens the hotkey menu, which sends one of your snippets to the selected session without focusing it; a
+lettered snippet also sends on `option+shift+<key>` in one press, no menu. `T` opens a shell tab under the
 selected agent for builds and one-off commands.
 
 ![Focusing a session full-width, typing a three-line instruction, watching the agent answer, and scrolling back through the reply](docs/demo/focus.gif)

@@ -10,19 +10,27 @@
 // The file lives in the config directory beside config.toml, is written once
 // with a starting set, and is then the user's to edit. Nothing rewrites it.
 //
-// Snippets fire from one menu, the hotkey menu, which a leader key opens from
-// the list and from inside a focused session. The menu is the whole namespace:
-// a bare key there names its snippet, so no modifier chord is reserved
-// anywhere and nothing the operator presses while typing can shadow -- or be
-// shadowed by -- a snippet binding. That is the entire reason there is no
-// chord anymore: the old ctrl+alt namespace collided with operator tooling,
-// and every chord off it that a terminal can actually deliver through tmux
-// collides worse. ctrl+super never reaches a terminal TUI at all (macOS keeps
-// Cmd for its own shortcuts; the only encoding is a kitty-protocol CSI-u tmux
-// never forwards), and ctrl+shift arrives with the shift stripped, as the
-// plain ctrl key. A leader plus a visible menu is what survives the wire.
+// A lettered snippet fires two ways. It answers to its bare key in the hotkey
+// menu, which a leader opens from the list and from inside a focused session
+// and which is the whole, discoverable namespace: it lists every snippet and
+// the key that sends it. It also carries a direct chord, option+shift+<key>
+// (alt+shift+<key> off a Mac), that sends it in one press without opening the
+// menu at all. The chord is the fast path an operator wants when the sentence
+// is known; the menu is where the keys are read and where § and ± live.
 //
-// One key sits outside the menu, on the physical key left of 1 where the
+// option+shift is the chord that survives the wire. ctrl+super never reaches a
+// terminal TUI at all -- macOS keeps Cmd for its own shortcuts, and the only
+// encoding is a kitty-protocol CSI-u tmux never forwards -- so option+command,
+// the obvious choice, is undeliverable. ctrl+alt collided with operator tooling
+// and ctrl+shift arrives with the shift stripped, as the plain ctrl key. An
+// option+shift letter reaches the pane as a Meta-modified shifted letter, and
+// no manager binding claims one: every chord the focused screen owns is a bare
+// option letter (alt+n, alt+y, ...), so the shift keeps the two apart. The
+// agent still loses whatever option+shift+letter it might have wanted; that is
+// the cost of a one-press snippet and the reason a key only binds when the
+// operator's own file names it.
+//
+// One key sits outside both, on the physical key left of 1 where the
 // triage keys already are, so the sentence sent most often belongs under that
 // hand too. It is an exception rather than a second namespace.
 //
@@ -83,6 +91,18 @@ func (s Snippet) Submits() bool { return s.AutoSubmit == nil || *s.AutoSubmit }
 // ± binds bare everywhere.
 func (s Snippet) Binding() string { return s.Key }
 
+// Chord is the direct binding that sends this snippet in one press without
+// opening the hotkey menu: option+shift+<key>, or alt+shift+<key> off a Mac.
+// A snippet whose key is not a letter has no chord -- § and ± are not letters
+// a modifier can carry through every terminal -- and answers in the menu
+// alone (or, for ±, bare).
+func (s Snippet) Chord() string {
+	if !singleLetter(s.Key) {
+		return ""
+	}
+	return "alt+shift+" + s.Key
+}
+
 // Bare reports whether the binding is a plain character, which a text input
 // has to keep as the character it types.
 func (s Snippet) Bare() bool { return s.Key == PlusMinusKey }
@@ -121,6 +141,17 @@ type Set struct {
 func (s Set) Get(binding string) (Snippet, bool) {
 	for _, snip := range s.Snippets {
 		if snip.Binding() == binding {
+			return snip, true
+		}
+	}
+	return Snippet{}, false
+}
+
+// Chord returns the snippet a direct chord names, the counterpart to Get for
+// the binding Snippet.Chord writes.
+func (s Set) Chord(chord string) (Snippet, bool) {
+	for _, snip := range s.Snippets {
+		if c := snip.Chord(); c != "" && c == chord {
 			return snip, true
 		}
 	}

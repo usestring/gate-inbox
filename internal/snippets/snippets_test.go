@@ -47,6 +47,31 @@ func TestLoadLeavesAnEditedFileAlone(t *testing.T) {
 	}
 }
 
+// A lettered snippet carries a direct chord; a key that is not a letter has
+// none and answers in the menu. The set resolves the chord back to its
+// snippet.
+func TestLetterSnippetsCarryADirectChord(t *testing.T) {
+	set := Set{Snippets: []Snippet{
+		{Key: "d", Text: "ship it"},
+		{Key: PlusMinusKey, Text: "approve"},
+		{Key: SectionKey, Text: "progress"},
+	}}
+	if got := set.Snippets[0].Chord(); got != "alt+shift+d" {
+		t.Fatalf("d chord = %q, want alt+shift+d", got)
+	}
+	for _, snip := range set.Snippets[1:] {
+		if got := snip.Chord(); got != "" {
+			t.Errorf("%s chord = %q, want none", snip.Key, got)
+		}
+	}
+	if snip, ok := set.Chord("alt+shift+d"); !ok || snip.Key != "d" {
+		t.Fatalf("set did not resolve alt+shift+d to d: %v %v", snip, ok)
+	}
+	if _, ok := set.Chord("alt+shift+x"); ok {
+		t.Fatal("set resolved a chord no snippet carries")
+	}
+}
+
 // A broken file must not silently fall back to the defaults: that would bind
 // three keys the operator's own file had replaced, and hide the syntax error
 // behind bindings that look deliberate.

@@ -559,3 +559,45 @@ func TestSyncAdoptedKeepsExactlyTheGivenPanes(t *testing.T) {
 		t.Fatalf("markers left with nothing adopted: %v", got)
 	}
 }
+
+// A command an adopted claude runs speaks as the row its pane's marker names,
+// and only when that claude is above it: the pane, the server and the agent
+// all have to agree, as they do for the hook prelude.
+func TestAdoptedCallerNamesTheMarkedRowForTheAgentsDescendants(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.SyncAdopted([]AdoptedPane{{ID: "a1b2c3d4", ServerPID: 4242, PaneID: "%7", AgentPID: 900}}); err != nil {
+		t.Fatal(err)
+	}
+	under := func() []int { return []int{901, 900, 1} }
+	cases := []struct {
+		name, tmux, pane string
+		ancestors        func() []int
+		want             string
+	}{
+		{"agent's descendant", "/run/tmux-test/default,4242,0", "%7", under, "a1b2c3d4"},
+		{"another claude in the pane", "/run/tmux-test/default,4242,0", "%7", func() []int { return []int{77, 1} }, ""},
+		{"same pane id, another server", "/run/tmux-test/other,5151,0", "%7", under, ""},
+		{"another pane", "/run/tmux-test/default,4242,0", "%8", under, ""},
+		{"no server in $TMUX", "", "%7", under, ""},
+		{"pane id that is a path", "/run/tmux-test/default,4242,0", "/../7", under, ""},
+	}
+	for _, c := range cases {
+		got, ok := m.AdoptedCaller(c.tmux, c.pane, c.ancestors)
+		if got != c.want || ok != (c.want != "") {
+			t.Errorf("%s: AdoptedCaller = %q, %v; want %q", c.name, got, ok, c.want)
+		}
+	}
+}
+
+// Reading the process chain is the expensive half, so a pane with no marker
+// never asks for it.
+func TestAdoptedCallerWalksNoProcessesWithoutAMarker(t *testing.T) {
+	m := NewManager(t.TempDir())
+	_, ok := m.AdoptedCaller("/run/tmux-test/default,4242,0", "%7", func() []int {
+		t.Fatal("walked the process chain for a pane with no marker")
+		return nil
+	})
+	if ok {
+		t.Fatal("named a caller with no marker")
+	}
+}

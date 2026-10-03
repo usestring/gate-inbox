@@ -149,6 +149,36 @@ func (m *Manager) SyncAdopted(panes []AdoptedPane) error {
 	return errors.Join(errs...)
 }
 
+// AdoptedCaller names the board row a command speaks as when it runs inside
+// an adopted claude, from the same marker the hook prelude reads. tmuxEnv
+// and paneID are $TMUX and $TMUX_PANE, and ancestors lists the pids above
+// the command, asked for only once a marker is there to check. A hook is the
+// claude's own child; a command its Bash tool runs sits under a shell or
+// two, so the marker's pid only has to be among them.
+func (m *Manager) AdoptedCaller(tmuxEnv, paneID string, ancestors func() []int) (string, bool) {
+	_, rest, ok := strings.Cut(tmuxEnv, ",")
+	if !ok || !paneIDPattern.MatchString(paneID) {
+		return "", false
+	}
+	server, _, _ := strings.Cut(rest, ",")
+	if pid, err := strconv.Atoi(server); err != nil || pid <= 0 {
+		return "", false
+	}
+	raw, err := os.ReadFile(filepath.Join(m.AdoptedDir(), server+paneID))
+	if err != nil {
+		return "", false
+	}
+	fields := strings.Fields(string(raw))
+	if len(fields) != 2 || checkID(fields[0]) != nil {
+		return "", false
+	}
+	agent, err := strconv.Atoi(fields[1])
+	if err != nil || agent <= 0 || !slices.Contains(ancestors(), agent) {
+		return "", false
+	}
+	return fields[0], true
+}
+
 // shellQuote makes s one word for sh, whatever it holds.
 func shellQuote(s string) string {
 	return `'` + strings.ReplaceAll(s, `'`, `'\''`) + `'`

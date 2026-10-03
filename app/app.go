@@ -31,6 +31,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/adopt"
 	"github.com/usestring/gate-inbox/internal/cli"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/envname"
@@ -402,8 +403,26 @@ func withConfigDir(command func(args []string, sessionID, configDir string) erro
 		if err != nil {
 			return err
 		}
-		return command(args, envname.Get(hooks.EnvSessionID), dir)
+		return command(args, callerID(dir), dir)
 	}
+}
+
+// callerID is the board row a subcommand speaks as: the one a launch put in
+// the environment, or, for a claude the board adopted rather than launched,
+// the one its pane's adoption marker names. Without it an adopted agent
+// could not send, read or answer as itself from its shell.
+func callerID(configDir string) string {
+	if id := envname.Get(hooks.EnvSessionID); id != "" {
+		return id
+	}
+	pane := os.Getenv("TMUX_PANE")
+	if pane == "" {
+		return ""
+	}
+	id, _ := hooks.NewManager(configDir).AdoptedCaller(os.Getenv("TMUX"), pane, func() []int {
+		return adopt.Ancestors(int32(os.Getpid()))
+	})
+	return id
 }
 
 // extensionCommand is one command an extension adds, with the ID of the
@@ -482,7 +501,7 @@ func runExtensionCommand(ctx context.Context, registry *extension.Registry, entr
 		}
 		cmds := sessioncmd.NewSessions(dir, sessioncmd.CLIVocabulary())
 		base := extensionhost.NewOperator(dir, cmds)
-		if sessionID := envname.Get(hooks.EnvSessionID); sessionID != "" {
+		if sessionID := callerID(dir); sessionID != "" {
 			base = extensionhost.New(dir, sessionID, cmds)
 		}
 		host := base.ForExtension(entry.owner)

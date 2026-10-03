@@ -333,9 +333,8 @@ type Model struct {
 	// the first session load.
 	adoptRestored bool
 	// adoptFirstDone is set once the first adopt scan has answered.
-	adoptFirstDone    bool
-	adoptAwaitingRows []string
-	adoptFinishedAt   time.Time
+	adoptFirstDone  bool
+	adoptFinishedAt time.Time
 	// nameAfterRefresh asks the next sweep to run a naming pass, for rows an
 	// adopt scan has just created and the board has not seen yet.
 	nameAfterRefresh bool

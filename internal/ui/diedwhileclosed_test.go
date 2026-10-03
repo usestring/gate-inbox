@@ -8,6 +8,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 // restoreModel is a manager holding the given rows, with one tool that can
@@ -163,16 +164,17 @@ func indexOf(sessions []store.Session, id string) int {
 	return -1
 }
 
-func TestStartupCheckWaitsForAdoptionAndItsRows(t *testing.T) {
+func TestStartupCheckWaitsForAdoptionAndFreshPoll(t *testing.T) {
 	for _, mode := range []string{reopenMark, reopenResume} {
 		t.Run(mode, func(t *testing.T) {
 			m := reopening(t)
 			setMode(t, m, reopenSessionsSetting, mode)
 			m.sessions = []store.Session{deadSession("old", "old", "conversation")}
 			m.adoptFirstDone = false
+			listedAt := time.Now()
 			assertPending := func() {
 				t.Helper()
-				m.markDiedSessions(time.Now())
+				m.markDiedSessions(listedAt)
 				if m.restoreChecked || len(m.diedWhileClosed) != 0 || len(m.launched) != 0 {
 					t.Fatal("startup classified or resumed a row before adoption was visible")
 				}
@@ -229,5 +231,38 @@ func TestStartupCheckRejectsPollStartedBeforeAdoption(t *testing.T) {
 				t.Fatal("post-adoption poll did not exclude the conversation already running")
 			}
 		})
+	}
+}
+
+func TestStartupCheckContinuesAfterAdoptedRowIsPruned(t *testing.T) {
+	m := reopening(t)
+	lost := deadSession("lost", "lost", "conversation")
+	adopted := deadSession("outside", "outside", "other-conversation")
+	adopted.TmuxPaneID = "%1"
+	if err := m.store.CreateSession(adopted); err != nil {
+		t.Fatal(err)
+	}
+	listedAt := time.Now()
+	m.noteAdopted(adoptedMsg{taken: 1, ids: []string{adopted.ID}})
+	scan := tmux.PaneScan{Gone: map[string]bool{adopted.ID: true}}
+	var err error
+	m.sessions, err = m.poller.pruneGoneAdopted([]store.Session{lost, adopted}, scan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.markDiedSessions(listedAt)
+	if m.restoreChecked {
+		t.Fatal("startup classified the stale first missing pass")
+	}
+	m.sessions, err = m.poller.pruneGoneAdopted(m.sessions, scan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.sessions) != 1 || m.sessions[0].ID != lost.ID {
+		t.Fatalf("sessions after pruning = %v, want only lost", m.sessions)
+	}
+	m.markDiedSessions(m.adoptFinishedAt.Add(time.Nanosecond))
+	if !m.restoreChecked || !m.isDiedWhileClosed(lost) {
+		t.Fatal("pruned adopted row prevented startup from marking an unrelated lost row")
 	}
 }

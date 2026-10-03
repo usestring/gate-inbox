@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -74,7 +73,6 @@ func (m *Model) noteAdopted(msg adoptedMsg) {
 	m.adoptFirstDone = true
 	if !m.restoreChecked {
 		m.adoptFinishedAt = time.Now()
-		m.adoptAwaitingRows = append(m.adoptAwaitingRows, msg.ids...)
 	}
 	n := len(msg.ids)
 	if n == 0 {
@@ -93,7 +91,7 @@ func (m *Model) noteAdopted(msg adoptedMsg) {
 }
 
 // markDiedSessions runs once, on the first refresh that could see real
-// statuses and all adopted rows. Before the first poll every row reads dead,
+// statuses from a post-adoption poll. Before the first poll every row reads dead,
 // and before adoption finishes a running conversation can look lost.
 //
 // It never changes the screen. "mark" flags the rows and says so in one line;
@@ -104,12 +102,6 @@ func (m *Model) markDiedSessions(listedAt time.Time) {
 	if !m.restoreArmed || m.restoreChecked || !m.adoptFirstDone || !listedAt.After(m.adoptFinishedAt) {
 		return
 	}
-	for _, id := range m.adoptAwaitingRows {
-		if !slices.ContainsFunc(m.sessions, func(sess store.Session) bool { return sess.ID == id }) {
-			return
-		}
-	}
-	m.adoptAwaitingRows = nil
 	m.restoreChecked = true
 	candidates, ends := m.classifyDeadRows(m.loadEndEvidence())
 	var notices []string

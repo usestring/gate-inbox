@@ -37,8 +37,7 @@ type adoptTickMsg struct{}
 // adoptedMsg carries what a scan took, so the next frame shows it.
 type adoptedMsg struct {
 	taken int
-	// ids are the rows the scan created, so the startup check can wait
-	// until the board shows them before it marks anything.
+	// ids are the rows the scan created.
 	ids []string
 	err error
 }

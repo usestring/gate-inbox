@@ -95,6 +95,21 @@ func TestAChordMustBeAUniqueModifiedChord(t *testing.T) {
 	}
 }
 
+// A chord is parsed, not merely checked for a "+": the separator alone, shift
+// alone and an unknown modifier would all take a character the pane was owed.
+func TestLegalChordNeedsARealModifierAndKey(t *testing.T) {
+	for _, chord := range []string{"+", "d+", "+d", "shift+d", "foo+d", "alt+", "d"} {
+		if legalChord(chord) {
+			t.Errorf("legalChord(%q) = true, want false", chord)
+		}
+	}
+	for _, chord := range []string{"alt+shift+d", "option+shift+d", "⌥shift+d", "ctrl+p", "alt++"} {
+		if !legalChord(chord) {
+			t.Errorf("legalChord(%q) = false, want true", chord)
+		}
+	}
+}
+
 // A broken file must not silently fall back to the defaults: that would bind
 // three keys the operator's own file had replaced, and hide the syntax error
 // behind bindings that look deliberate.

@@ -324,9 +324,32 @@ func legalKey(key string) bool {
 	return singleLetter(key) || key == SectionKey || key == PlusMinusKey
 }
 
-// legalChord is what may bind directly: a modifier chord, so a direct binding
-// never takes a bare character the pane was owed.
-func legalChord(chord string) bool { return strings.Contains(chord, "+") }
+// legalChord is what may bind directly: known modifiers and a nonempty key, at
+// least one modifier beyond shift, so a direct binding never takes a character
+// the pane was owed -- "+" alone, or shift+d, which is just a typed D.
+func legalChord(chord string) bool {
+	chord = normalizeChord(chord)
+	key, mods := "", ""
+	if strings.HasSuffix(chord, "++") {
+		key, mods = "+", strings.TrimSuffix(chord, "++")
+	} else if i := strings.LastIndex(chord, "+"); i >= 0 {
+		key, mods = chord[i+1:], chord[:i]
+	}
+	if key == "" || mods == "" {
+		return false
+	}
+	held := false
+	for _, mod := range strings.Split(mods, "+") {
+		switch mod {
+		case "shift":
+		case "ctrl", "alt", "super", "meta", "hyper":
+			held = true
+		default:
+			return false
+		}
+	}
+	return held
+}
 
 func singleLetter(key string) bool {
 	runes := []rune(key)

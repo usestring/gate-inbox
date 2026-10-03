@@ -102,19 +102,19 @@ func (m *Model) snippetChordFor(msg tea.KeyMsg) (snippets.Snippet, bool) {
 // chordNames is the spellings a press might name a chord by. A terminal may
 // fold shift into the key's code rather than report the modifier -- option+
 // shift+c arrives as option+C -- so an uppercase code also offers the shifted
-// spelling. A plain lowercase chord stays unambiguous: shift that is nowhere
-// reported cannot be invented.
+// spelling -- and only that one, since chords compare case-folded and option+C
+// would otherwise also name an option+c snippet. A plain lowercase chord stays
+// unambiguous: shift that is nowhere reported cannot be invented.
 func chordNames(msg tea.KeyMsg) []string {
 	key := msg.Key()
-	names := []string{keyName(msg), msg.String()}
 	if key.Mod&tea.ModShift == 0 {
 		if r := key.ShiftedCode; r >= 'A' && r <= 'Z' {
-			names = append(names, tea.Key{Code: r + ('a' - 'A'), Mod: key.Mod | tea.ModShift}.String())
+			return []string{tea.Key{Code: r + ('a' - 'A'), Mod: key.Mod | tea.ModShift}.String()}
 		} else if r := key.Code; r >= 'A' && r <= 'Z' {
-			names = append(names, tea.Key{Code: r + ('a' - 'A'), Mod: key.Mod | tea.ModShift}.String())
+			return []string{tea.Key{Code: r + ('a' - 'A'), Mod: key.Mod | tea.ModShift}.String()}
 		}
 	}
-	return names
+	return []string{keyName(msg), msg.String()}
 }
 
 // sendSnippetToSelected answers the row the list cursor is on. A group has no

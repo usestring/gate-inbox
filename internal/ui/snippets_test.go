@@ -159,6 +159,50 @@ func TestDirectChordReadsShiftFromModifierOrCode(t *testing.T) {
 	}
 }
 
+// Shift folded into the code names the shifted chord only: chords compare
+// case-folded, so offering option+D as-is would fire an option+d snippet.
+func TestFoldedShiftPrefersTheShiftedChord(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{
+		{Key: "a", Chord: "alt+d", Text: "plain"},
+		{Key: "b", Chord: "alt+shift+d", Text: "shifted"},
+	})
+	if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'D', Mod: tea.ModAlt}); !ok || snip.Key != "b" {
+		t.Fatalf("option+shift+D folded into the code named %v %v, want b", snip, ok)
+	}
+	if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'd', Mod: tea.ModAlt}); !ok || snip.Key != "a" {
+		t.Fatalf("option+d named %v %v, want a", snip, ok)
+	}
+}
+
+// A chord the manager's own map binds stays the manager's on both screens, so
+// a snippet file cannot make a documented key behave differently by screen.
+func TestManagerBindingOutranksASnippetChord(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{
+		{Key: "p", Chord: "ctrl+p", Text: "list snippet"},
+		{Key: "c", Chord: "alt+,", Text: "focus snippet"},
+	})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.selectSessionRow(t, "ask")
+
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	m = updated.(*Model)
+	if m.mode != modeQuickActions {
+		t.Fatalf("ctrl+p left the board in %v, want quick actions over the snippet", m.mode)
+	}
+	pressKey(t, m, key("esc"))
+
+	m.enterFocusOn(t, "ask")
+	before := m.chrome
+	updated, _ = m.handleFocusKey(tea.KeyPressMsg{Code: ',', Mod: tea.ModAlt})
+	m = updated.(*Model)
+	if m.chrome == before {
+		t.Fatal("alt+, sent the snippet instead of toggling the key hints")
+	}
+}
+
 // This is the reason snippets live in the menu. Focused, every key the
 // manager does not claim is forwarded to the agent, so the letter on its own
 // has to keep reaching the pane -- otherwise a snippet on "d" would eat that

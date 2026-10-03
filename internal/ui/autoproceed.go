@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -103,4 +104,33 @@ func (m *Model) moveOnFrom(sess store.Session) tea.Cmd {
 		m.triageResume = true
 	}
 	return leave
+}
+
+// focusedStatus is the focused session's status as the board last had it,
+// read before a poll pass replaces the rows.
+func (m *Model) focusedStatus() (string, bool) {
+	if m.mode != modeFocus {
+		return "", false
+	}
+	sess, ok := m.selected()
+	return sess.Status, ok
+}
+
+// handOverOnWork moves the drain on once a poll shows the focused session
+// gone from before to working: the operator answered it and the agent took
+// the answer. The answer check watches for the same thing from the key and
+// usually gets there first, but it gives up after a few seconds and on any
+// hook it reads as a fresh dialog, and the session it gave up on then held
+// the operator for as long as the agent worked. The transition is not a
+// guess, so it hands over whatever the check decided. A session already
+// working when it was entered has not changed and keeps the operator.
+func (m *Model) handOverOnWork(before string) tea.Cmd {
+	if before == status.Working || !m.triage || !m.autoProceeds() {
+		return nil
+	}
+	sess, ok := m.selected()
+	if !ok || sess.Status != status.Working {
+		return nil
+	}
+	return m.handOverFocused(sess)
 }

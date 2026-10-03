@@ -9,7 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-const testJevKey = "ts-live-0123456789abcdWXYZ"
+const testJevKey = "fake-jev-key-for-tests-WXYZ"
 
 func openJevSettings(t *testing.T, m *Model) {
 	t.Helper()
@@ -41,7 +41,7 @@ func TestJevKeyComesFromEnvFirst(t *testing.T) {
 	if access, ok := m.jevAccess(); ok || !strings.Contains(access, "no access") {
 		t.Fatalf("access without a key = %q, %v", access, ok)
 	}
-	m.jevSavedKey = "saved-key-0123456789"
+	m.jevSavedKey = "fake-saved-jev-key"
 	t.Setenv(jevKeyEnv, testJevKey)
 	if key, source := m.jevKey(); key != testJevKey || source != jevKeyFromEnv {
 		t.Fatalf("env key lost to %q from %v", key, source)
@@ -51,7 +51,7 @@ func TestJevKeyComesFromEnvFirst(t *testing.T) {
 		t.Fatalf("summary = %q", summary)
 	}
 	t.Setenv(jevKeyEnv, "")
-	if key, source := m.jevKey(); key != "saved-key-0123456789" || source != jevKeySaved {
+	if key, source := m.jevKey(); key != "fake-saved-jev-key" || source != jevKeySaved {
 		t.Fatalf("saved key not used without env: %q from %v", key, source)
 	}
 }

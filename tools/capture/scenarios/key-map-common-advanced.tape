@@ -5,8 +5,6 @@ Sleep 2s
 Screenshot {{SHOTS}}/01-common-keys.png
 Sleep 1s
 
-Type "/"
-Sleep 600ms
 Type "enter the next"
 Sleep 1s
 Enter

@@ -140,6 +140,7 @@ func TestWelcomeCardCountsAgentsAlreadyRunning(t *testing.T) {
 func TestTheKeyMapReopensTheWelcomeCard(t *testing.T) {
 	m := welcomeModel(t)
 	m.openHelp()
+	m.help.searching = false
 	m.handleHelpKey(key("w"))
 	if m.mode != modeWelcome {
 		t.Fatalf("w on the key map should open the welcome card, mode=%v", m.mode)

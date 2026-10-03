@@ -13,9 +13,7 @@ Sleep 2s
 Screenshot {{SHOTS}}/02-key-map.png
 Sleep 1s
 
-# Search narrows it to the one binding this tape is about.
-Type "/"
-Sleep 600ms
+# Its search is already on: type to narrow it to the one binding this tape is about.
 Type "fork it into"
 Sleep 1s
 Enter

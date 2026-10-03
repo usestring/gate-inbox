@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.11.0](https://github.com/usestring/gate-inbox/compare/v0.10.1...v0.11.0) (2026-10-03)
+
+
+### Features
+
+* keep newest turn full and expand shortened turns on hover ([#220](https://github.com/usestring/gate-inbox/issues/220)) ([489e83a](https://github.com/usestring/gate-inbox/commit/489e83a1119de61016ecf2f8182d91979a607378))
+* read, relay, answer and preview child questions through each CLI's own record (S-145245) ([#171](https://github.com/usestring/gate-inbox/issues/171)) ([293baea](https://github.com/usestring/gate-inbox/commit/293baea21bb6dee4e97bce322b8df06ecea65437))
+* read, relay, answer and verify OpenCode questions from the parent (S-145234) ([#173](https://github.com/usestring/gate-inbox/issues/173)) ([16fe36f](https://github.com/usestring/gate-inbox/commit/16fe36f6d3fcbdcc9455b1612894fe3eed3d60cd))
+* **steering:** cut Gate Inbox's injected instructions to plain sentences ([#212](https://github.com/usestring/gate-inbox/issues/212)) ([05a129f](https://github.com/usestring/gate-inbox/commit/05a129ff38601dc7ec7e90d5e0762507d4c463a9))
+* **ui:** fit more sessions on a phone-sized board ([#209](https://github.com/usestring/gate-inbox/issues/209)) ([a4dd15f](https://github.com/usestring/gate-inbox/commit/a4dd15fb35639c3ae3e694b7771b433eafa01542))
+* **ui:** rank New Session prompt suggestions with JEV ([#227](https://github.com/usestring/gate-inbox/issues/227)) ([d09b9c9](https://github.com/usestring/gate-inbox/commit/d09b9c981fb1f9d86de402d7a3938a9f7ccab13f))
+* **ui:** show session context tokens beside resource gauges ([#195](https://github.com/usestring/gate-inbox/issues/195)) ([b337e30](https://github.com/usestring/gate-inbox/commit/b337e30199bb1aca5dd1ae806e488230d7520983))
+
+
+### Bug Fixes
+
+* Automatically name untitled adopted panes ([#223](https://github.com/usestring/gate-inbox/issues/223)) ([8fe8c6a](https://github.com/usestring/gate-inbox/commit/8fe8c6ad996b71f8f9217fb628572a9e5122d055))
+* keep children with background work running out of the auto-archive ([#218](https://github.com/usestring/gate-inbox/issues/218)) ([8884752](https://github.com/usestring/gate-inbox/commit/8884752b4b284032cc727df1b888362310fc6a2e))
+* **mcp:** revive and migrate on the installed manager when the server is stale ([#215](https://github.com/usestring/gate-inbox/issues/215)) ([844971c](https://github.com/usestring/gate-inbox/commit/844971c18259a25e0ba1839e50159acc1a39cf03))
+* open a Codex child in the directory it asked for ([#188](https://github.com/usestring/gate-inbox/issues/188)) ([72ef26f](https://github.com/usestring/gate-inbox/commit/72ef26fd97d0c6cb22ace117911b734ec1f92a33))
+* **snippets:** trim the default shortcut set ([#219](https://github.com/usestring/gate-inbox/issues/219)) ([b709395](https://github.com/usestring/gate-inbox/commit/b7093957a3b6c8b6dfbc67b5498373f6e83c89ea))
+* **ui:** keep live input visible in compressed focus [stack 3/3] ([#207](https://github.com/usestring/gate-inbox/issues/207)) ([2e4a5db](https://github.com/usestring/gate-inbox/commit/2e4a5db0dd7db7ec4b02342874ebe5434937d2e2))
+* **ui:** keep the mobile layout on one panel when a phone zooms out ([#211](https://github.com/usestring/gate-inbox/issues/211)) ([5ebea04](https://github.com/usestring/gate-inbox/commit/5ebea0495037c525bb67ef46d123ad92be53534a))
+* **ui:** keep the working spinner visible while reading older messages ([#225](https://github.com/usestring/gate-inbox/issues/225)) ([3c1ed63](https://github.com/usestring/gate-inbox/commit/3c1ed63758fa23e723f31c6ee54180d150cbe8f1))
+* **ui:** make compressed focus an explicit experiment [stack 2/3] ([#206](https://github.com/usestring/gate-inbox/issues/206)) ([42c1273](https://github.com/usestring/gate-inbox/commit/42c12737512fc8566524bb3394466a6fef254044))
+* **ui:** mark a child whose CLI exited and tell its spawner ([#189](https://github.com/usestring/gate-inbox/issues/189)) ([95b6887](https://github.com/usestring/gate-inbox/commit/95b6887cbad6ed292d91d392e7b64e6c4a336b66))
+
 ## [0.10.1](https://github.com/usestring/gate-inbox/compare/v0.10.0...v0.10.1) (2026-10-02)
 
 

@@ -76,8 +76,8 @@ type sideBinding struct {
 // session, on either side.
 //
 // Everything else horizontal is not here, on purpose. The divider's ← → move
-// it in screen columns, so they already follow what is on screen; Settings,
-// the reopen card and the pickers step through values.
+// it in screen columns, so they already follow what is on screen; Settings
+// and the pickers step through values.
 var sideBindings = map[keymap.Context]map[keymap.Action]sideBinding{
 	keymap.ContextList: {
 		keymap.StepIn:  {written: config.SidebarLeft},

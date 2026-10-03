@@ -61,9 +61,6 @@ const (
 	// modeNameSweep holds the bulk rename sweep: its dry run, its progress,
 	// and what it decided about every pane it looked at.
 	modeNameSweep
-	// modeRestorePrompt holds the startup offer to bring back sessions whose
-	// panes are gone: the count, and the picker behind it.
-	modeRestorePrompt
 	// modeWelcome holds the first-run introduction: what the program is, the
 	// keys the workflow is built out of, and the offer of a walkthrough.
 	modeWelcome
@@ -533,8 +530,7 @@ type Model struct {
 	// first poll enters the head of the queue the way turning triage on does.
 	// Restoring the mode without the entry leaves the operator on a list they
 	// still have to press enter on. It waits for the first poll because that
-	// pass carries the first real statuses, and for the restore prompt, which
-	// must win the screen when there is one.
+	// pass carries the first real statuses.
 	triageStartupEnter bool
 	// triageResume keeps a drained queue open: a handover that finds nothing
 	// left sets it, and the first poll that brings a session needing a
@@ -613,24 +609,18 @@ type Model struct {
 	legendPeek  legendPeekState
 	keyReleases bool
 	nameSweep   nameSweepState
-	restore     restorePromptState
 	welcome     welcomeState
 	tmuxHint    tmuxHintState
 	takeover    takeoverState
-	// restoreArmed is set by Init, so only a real startup can raise the
-	// restore offer; a Model built directly never asks.
+	// restoreArmed is set by Init, so only a real startup marks the sessions
+	// that died while the board was closed; a Model built directly never does.
 	restoreArmed bool
-	// restoreAsked marks the startup restore offer as spent, so a fleet the
-	// operator dismissed is not offered again on every later refresh.
-	restoreAsked bool
-	// restoreDecided is the ledger of answered offers, keyed by session id
-	// and holding the agent run the answer was about. Loaded from the store
-	// on the pass that decides whether to ask, so the answer outlives the run
-	// that gave it.
-	restoreDecided map[string]time.Time
-	// restoreEvidence is what the startup offer classified dead rows with,
-	// held only while the offer is open.
-	restoreEvidence endEvidence
+	// restoreChecked marks the startup check as spent, so it runs on the first
+	// pass with real statuses and never again in the same run.
+	restoreChecked bool
+	// diedWhileClosed is the rows that check marked, keyed by session id. See
+	// diedwhileclosed.go.
+	diedWhileClosed map[string]diedMark
 	// tmuxHintArmed is set by Init, so only a real startup reads the
 	// operator's tmux settings and only a real startup can raise the note.
 	tmuxHintArmed bool
@@ -2132,7 +2122,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// This is the first pass whose statuses came from a real pane scan,
 		// so it is the earliest point a dead row means a missing pane rather
 		// than a row the poller has not reached yet.
-		m.maybeOpenRestorePrompt()
+		m.markDiedSessions()
 		// An adopted pane is taken over on the pass that first sees it idle.
 		// Quiet unless something moved, so a busy pane waiting its turn does
 		// not repeat itself on every pass.
@@ -2191,9 +2181,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// A board that came up with triage already on enters the head of its
 		// queue once the first pass has settled it, the way turning triage on
-		// does. A startup card keeps the flag: welcome, the restore prompt
-		// and the tmux note all take the screen first, and the entry waits
-		// for the pass after they are gone. Anything else means the operator
+		// does. A startup card keeps the flag: welcome and the tmux note
+		// take the screen first, and the entry waits for the pass after
+		// they are gone. Anything else means the operator
 		// is already somewhere on purpose, and the entry stands down.
 		var triageEnter tea.Cmd
 		if m.triageStartupEnter {
@@ -2203,7 +2193,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					triageEnter = m.enterTriageHead()
 				}
 				m.triageStartupEnter = false
-			case modeWelcome, modeRestorePrompt, modeTmuxHint:
+			case modeWelcome, modeTmuxHint:
 			default:
 				m.triageStartupEnter = false
 			}

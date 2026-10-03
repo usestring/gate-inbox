@@ -108,8 +108,6 @@ func (m *Model) paint() (string, bool) {
 		frame = m.viewGroupForm()
 	case modeNameSweep:
 		frame = m.viewNameSweep()
-	case modeRestorePrompt:
-		frame = m.viewRestorePrompt()
 	case modeWelcome:
 		frame = m.viewWelcome()
 	case modeTmuxHint:

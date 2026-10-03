@@ -66,8 +66,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleHelpKey(msg)
 	case modeNameSweep:
 		return m.handleNameSweepKey(msg)
-	case modeRestorePrompt:
-		return m.handleRestorePromptKey(msg)
 	case modeWelcome:
 		return m.handleWelcomeKey(msg)
 	case modeTmuxHint:

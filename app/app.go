@@ -37,8 +37,10 @@ import (
 	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/extensionhost"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
+	"github.com/usestring/gate-inbox/internal/mcprelay"
 	"github.com/usestring/gate-inbox/internal/mcpserver"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
@@ -377,6 +379,17 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 	table["hook"] = withConfigDir(func(args []string, sessionID, configDir string) error {
 		return cli.RunHook(os.Stdin, os.Stdout, args, sessionID, configDir)
 	})
+	table["mcp-relay"] = func(args []string) error {
+		dir, err := config.Dir()
+		if err != nil {
+			return err
+		}
+		bin := os.Args[0]
+		if !filepath.IsAbs(bin) {
+			bin = launch.Executable()
+		}
+		return mcprelay.Serve(os.Stdin, os.Stdout, dir, bin, version)
+	}
 	table["claude-hooks"] = withConfigDir(func(args []string, _, configDir string) error {
 		return runClaudeHooks(os.Stdout, args, configDir)
 	})

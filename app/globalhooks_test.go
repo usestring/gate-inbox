@@ -17,6 +17,7 @@ func TestClaudeHooksCommandInstallsAndRemoves(t *testing.T) {
 	claudeDir, home := t.TempDir(), t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", claudeDir)
 	t.Setenv("GATE_INBOX_HOME", home)
+	calls := fakeClaude(t, filepath.Join(claudeDir, ".claude.json"))
 	settings := filepath.Join(claudeDir, "settings.json")
 	if err := os.WriteFile(settings, []byte(`{"theme":"dark"}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -39,15 +40,18 @@ func TestClaudeHooksCommandInstallsAndRemoves(t *testing.T) {
 	if got := run("install"); !strings.Contains(got, "already carries") {
 		t.Fatalf("second install = %q", got)
 	}
-	if got := run(); !strings.HasSuffix(got, ": registered\n") {
+	if got := run(); !strings.Contains(got, ": registered\n") || !strings.HasSuffix(got, ": MCP relay registered\n") {
 		t.Fatalf("status after install = %q", got)
+	}
+	if got := readCalls(t, calls); got != "mcp add-json -s user gate-inbox" {
+		t.Fatalf("claude calls after two installs = %q, want one add", got)
 	}
 	raw, _ := os.ReadFile(settings)
 	if !strings.HasPrefix(string(raw), `{"theme":"dark","hooks":`) || !strings.Contains(string(raw), "gate-inbox-global-hook") {
 		t.Fatalf("settings after install:\n%s", raw)
 	}
 
-	if got := run("uninstall"); !strings.Contains(got, "removed") {
+	if got := run("uninstall"); !strings.Contains(got, "removed Gate Inbox's hooks") || !strings.Contains(got, "removed the Gate Inbox MCP relay") {
 		t.Fatalf("uninstall = %q", got)
 	}
 	if !hooks.NewManager(home).GlobalDisabled() {
@@ -112,4 +116,33 @@ func TestBoardStartupLeavesAnUnusableSettingsFileAlone(t *testing.T) {
 			}
 		})
 	}
+}
+
+// fakeClaude puts a claude on PATH that records each call's first five
+// arguments and keeps the user-scope MCP entry in the state file at state the
+// way the real one does, for the two commands the relay registration runs.
+func fakeClaude(t *testing.T, state string) string {
+	t.Helper()
+	bin, calls := t.TempDir(), filepath.Join(t.TempDir(), "calls")
+	script := `#!/bin/sh
+printf '%s %s %s %s %s\n' "$1" "$2" "$3" "$4" "$5" >> ` + calls + `
+case "$2" in
+add-json) printf '{"mcpServers":{"%s":%s}}' "$5" "$6" > ` + state + `;;
+remove) printf '{}' > ` + state + `;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return calls
+}
+
+func readCalls(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(raw))
 }

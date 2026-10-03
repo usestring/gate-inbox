@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -929,5 +930,98 @@ func TestSettingsShowsTheNewSessionAgentRow(t *testing.T) {
 	}
 	if !strings.Contains(out, newSessionAgentAsk) {
 		t.Errorf("settings card missing the current mode: %q", out)
+	}
+}
+
+// quotaChooserFake is a chooser that also reports each CLI's quota.
+type quotaChooserFake struct {
+	toolChooserFake
+	quotas map[string]string
+}
+
+func (f quotaChooserFake) ToolQuotaSummaries(context.Context, []string) map[string]string {
+	return f.quotas
+}
+
+// The box lists what quota each CLI has left and marks the one auto would
+// start, so the operator choosing by hand sees what the chooser sees.
+func TestAgentBoxListsQuotaAndMarksTheRecommendedCLI(t *testing.T) {
+	m := buildModel(t)
+	fake := quotaChooserFake{
+		toolChooserFake: toolChooserFake{choose: func(extension.ToolRequest) (string, error) { return "ready-tool", nil }},
+		quotas:          map[string]string{"ready-tool": "5h 62% left, resets 1h30m"},
+	}
+	t.Cleanup(accounts.UseChooser(func() (extension.AccountChooser, error) { return fake, nil }))
+	m.openAgentPick()
+	cmd := m.agentPickQuotaCmd()
+	if cmd == nil {
+		t.Fatal("the box did not ask the chooser for quota")
+	}
+	m.update(cmd())
+	view := ansi.Strip(m.viewAgentPick())
+	if !strings.Contains(view, "ready-tool (auto)") || !strings.Contains(view, "5h 62% left, resets 1h30m") {
+		t.Fatalf("box does not list the quota and recommendation:\n%s", view)
+	}
+	if strings.Contains(view, "quota unread") {
+		t.Fatalf("a CLI the chooser could not read got a quota row:\n%s", view)
+	}
+}
+
+// A recommended CLI with no reading still shows, marked unread, so the mark
+// is never missing.
+func TestAgentBoxMarksAnUnreadRecommendation(t *testing.T) {
+	rows := agentPickQuotaRows([]string{"claude", "codex"}, map[string]string{"claude": "5h 10% left"}, "codex", 80)
+	got := ansi.Strip(strings.Join(rows, "\n"))
+	if !strings.Contains(got, "claude  5h 10% left") || !strings.Contains(got, "codex (auto)  quota unread") {
+		t.Fatalf("rows = %q", got)
+	}
+}
+
+// A build with no chooser shows the box as it always was.
+func TestAgentBoxWithNoChooserListsNoQuota(t *testing.T) {
+	m := buildModel(t)
+	m.openAgentPick()
+	if cmd := m.agentPickQuotaCmd(); cmd != nil {
+		t.Fatal("asked for quota with no chooser")
+	}
+	if view := ansi.Strip(m.viewAgentPick()); strings.Contains(view, "recommended") {
+		t.Fatalf("box lists a recommendation with no chooser:\n%s", view)
+	}
+}
+
+func TestAgentBoxIgnoresQuotaFromEarlierOpening(t *testing.T) {
+	for _, staleFirst := range []bool{true, false} {
+		t.Run(fmt.Sprintf("staleFirst=%t", staleFirst), func(t *testing.T) {
+			m := buildModel(t)
+			fake := quotaChooserFake{
+				toolChooserFake: toolChooserFake{choose: func(extension.ToolRequest) (string, error) { return "ready-tool", nil }},
+				quotas:          map[string]string{"ready-tool": "5h 10% left"},
+			}
+			t.Cleanup(accounts.UseChooser(func() (extension.AccountChooser, error) { return fake, nil }))
+			m.openAgentPick()
+			oldCmd := m.agentPickQuotaCmd()
+			m.handleAgentPickKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+			m.openAgentPick()
+			oldMsg := oldCmd()
+			fake.quotas = map[string]string{"ready-tool": "5h 80% left"}
+			fake.choose = func(extension.ToolRequest) (string, error) { return "claude", nil }
+			currentMsg := m.agentPickQuotaCmd()()
+			if staleFirst {
+				m.update(oldMsg)
+				if len(m.agentPick.quotas) != 0 || m.agentPick.recommended != "" {
+					t.Fatal("earlier opening populated the reopened picker")
+				}
+			}
+			m.update(currentMsg)
+			if !staleFirst {
+				m.update(oldMsg)
+			}
+			if got := m.agentPick.quotas["ready-tool"]; got != "5h 80% left" {
+				t.Fatalf("quota = %q, want current opening's quota", got)
+			}
+			if got := m.agentPick.recommended; got != "claude" {
+				t.Fatalf("recommendation = %q, want current opening's choice", got)
+			}
+		})
 	}
 }

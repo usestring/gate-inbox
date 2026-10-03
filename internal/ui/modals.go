@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/textfmt"
 )
@@ -582,6 +583,11 @@ func (m *Model) viewAgentPick() string {
 		hint = [][2]string{{"←→", "pick"}, {"↵", "start"}, {"esc", "cancel"}}
 		room += hintRows - lipgloss.Height(legendInline(hint, cardInnerWidth(m.cardWidth())))
 	}
+	quotaRows := agentPickQuotaRows(m.agentPick.names, m.agentPick.quotas, m.agentPick.recommended, inner)
+	if room-len(quotaRows) < 1 {
+		quotaRows = nil
+	}
+	room -= len(quotaRows)
 	var b strings.Builder
 	b.WriteString(formField("agent", m.agentPick.input.View(), true))
 	matches := m.agentPickMatches()
@@ -592,7 +598,38 @@ func (m *Model) viewAgentPick() string {
 			b.WriteString(spaces(formLabelColumn) + row + "\n")
 		}
 	}
+	for _, row := range quotaRows {
+		b.WriteString(spaces(formLabelColumn) + row + "\n")
+	}
 	return m.card("◆ New Session", strings.TrimRight(b.String(), "\n"), hint)
+}
+
+// agentPickQuotaRows lists each CLI's quota left under the names, in the box's
+// order, with the CLI auto would start marked. It is a blank line and then
+// one row per CLI the chooser could read, each cut to width.
+func agentPickQuotaRows(names []string, quotas map[string]string, recommended string, width int) []string {
+	if len(quotas) == 0 && recommended == "" {
+		return nil
+	}
+	rows := []string{""}
+	for _, name := range names {
+		quota, ok := quotas[name]
+		if !ok && name != recommended {
+			continue
+		}
+		if !ok {
+			quota = "quota unread"
+		}
+		label := mutedStyle.Render(name)
+		if name == recommended {
+			label = annotationStyle.Render(name + " (auto)")
+		}
+		rows = append(rows, ansi.Truncate(label+"  "+subtleStyle.Render(quota), width, "…"))
+	}
+	if recommended != "" {
+		rows = append(rows, subtleStyle.Render(ansi.Truncate("(auto): most quota left before reset", width, "…")))
+	}
+	return rows
 }
 
 func agentPickWindow(names []string, selected string, width, room int) []string {

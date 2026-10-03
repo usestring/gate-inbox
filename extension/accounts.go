@@ -66,6 +66,16 @@ type ToolChooser interface {
 	ChooseTool(ctx context.Context, req ToolRequest) (string, error)
 }
 
+// ToolQuotaReporter is implemented by a ToolChooser that can also say how
+// much quota each CLI has left. The board lists it under the CLIs in the
+// new-session box.
+type ToolQuotaReporter interface {
+	// ToolQuotaSummaries is one line for each named CLI it has a reading
+	// for; a CLI it cannot read is left out. It is called off the event
+	// loop, but the box waits on it, so it should answer from a cache.
+	ToolQuotaSummaries(ctx context.Context, names []string) map[string]string
+}
+
 // ToolRequest is a new session whose CLI the operator left to the build.
 type ToolRequest struct {
 	// Candidates are the enabled agent CLIs, in the board's order.

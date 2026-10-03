@@ -128,6 +128,19 @@ func (m *Model) startAutoRoute() (tea.Model, tea.Cmd) {
 		m.errBar.text = "launch accounts unavailable: choose a CLI"
 		return m, nil
 	}
+	req := m.toolRequest(mode)
+	if len(req.Candidates) == 0 {
+		m.openAgentPick()
+		m.errBar.text = "no CLI to choose from: choose a CLI"
+		return m, nil
+	}
+	row, selected := m.selectedRow()
+	return m, m.autoRouteCmd(autoRouteMsg{request: req, group: m.contextGroup(), row: row, selected: selected, mode: mode})
+}
+
+// toolRequest is what a chooser is asked about: every enabled CLI, with the
+// account settings of those that can run on a named account.
+func (m *Model) toolRequest(mode string) extension.ToolRequest {
 	var candidates []extension.ToolCandidate
 	for _, name := range m.enabledToolNames() {
 		candidate := extension.ToolCandidate{Name: name}
@@ -137,14 +150,56 @@ func (m *Model) startAutoRoute() (tea.Model, tea.Cmd) {
 		}
 		candidates = append(candidates, candidate)
 	}
-	if len(candidates) == 0 {
-		m.openAgentPick()
-		m.errBar.text = "no CLI to choose from: choose a CLI"
-		return m, nil
+	return extension.ToolRequest{Candidates: candidates, Active: m.activeByTool(), ChoosingAccounts: mode == accounts.Extension}
+}
+
+// agentPickQuotaMsg is what the build's chooser said about the CLIs in the
+// box: each one's quota left, and the one it would start.
+type agentPickQuotaMsg struct {
+	generation  uint64
+	quotas      map[string]string
+	recommended string
+}
+
+// agentPickQuotaCmd asks the build's chooser, off the event loop, how much
+// quota each CLI in the box has left and which it recommends, so the box can
+// show why auto would pick what it picks. A build with no chooser asks
+// nothing.
+func (m *Model) agentPickQuotaCmd() tea.Cmd {
+	chooser, ok := toolChooser()
+	if !ok {
+		return nil
 	}
-	row, selected := m.selectedRow()
-	req := extension.ToolRequest{Candidates: candidates, Active: m.activeByTool(), ChoosingAccounts: mode == accounts.Extension}
-	return m, m.autoRouteCmd(autoRouteMsg{request: req, group: m.contextGroup(), row: row, selected: selected, mode: mode})
+	reporter, _ := chooser.(extension.ToolQuotaReporter)
+	mode, err := accounts.Mode(m.store)
+	if err != nil {
+		return nil
+	}
+	generation := m.agentPick.generation
+	req := m.toolRequest(mode)
+	names := make([]string, 0, len(req.Candidates))
+	for _, candidate := range req.Candidates {
+		names = append(names, candidate.Name)
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		msg := agentPickQuotaMsg{generation: generation}
+		if reporter != nil {
+			msg.quotas = reporter.ToolQuotaSummaries(ctx, names)
+		}
+		if name, err := chooser.ChooseTool(ctx, req); err == nil {
+			msg.recommended = name
+		}
+		return msg
+	}
+}
+
+func (m *Model) finishAgentPickQuota(msg agentPickQuotaMsg) {
+	if m.mode != modeAgentPick || msg.generation != m.agentPick.generation {
+		return
+	}
+	m.agentPick.quotas, m.agentPick.recommended = msg.quotas, msg.recommended
 }
 
 // activeByTool counts the sessions each CLI already has in flight, which a
@@ -262,9 +317,10 @@ func (m *Model) openPinnedAgentPick(msg autoRouteMsg) {
 // selection to the best match; the arrows cycle the selection and write it back
 // into the box. So the box always shows what enter would start.
 type agentPick struct {
-	input textinput.Model
-	names []string
-	index int
+	generation uint64
+	input      textinput.Model
+	names      []string
+	index      int
 	// fresh marks the text as put there by this program rather than typed:
 	// the prefill, or a name an arrow key wrote. The first character typed
 	// against fresh text replaces the whole of it, which is what makes a
@@ -276,6 +332,10 @@ type agentPick struct {
 	row         treeRow
 	rowSelected bool
 	pinned      bool
+	// quotas and recommended are the build chooser's answer, once it lands:
+	// each CLI's quota left and the CLI auto would start.
+	quotas      map[string]string
+	recommended string
 }
 
 func (m *Model) openAgentPick() {
@@ -289,7 +349,7 @@ func (m *Model) openAgentPick() {
 	input.CharLimit = 40
 	input.SetWidth(28)
 	input.Focus()
-	m.agentPick = agentPick{input: input, names: names, fresh: true}
+	m.agentPick = agentPick{generation: m.agentPick.generation + 1, input: input, names: names, fresh: true}
 	m.setAgentPick(m.lastTool())
 	m.errBar.text = ""
 	m.mode = modeAgentPick

@@ -1853,6 +1853,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case autoRouteMsg:
 		return m.finishAutoRoute(msg)
+	case agentPickQuotaMsg:
+		m.finishAgentPickQuota(msg)
+		return m, nil
 	case tea.WindowSizeMsg:
 		// Resuming from a tmux attach re-sends the current size unchanged; only
 		// a real resize needs the per-session tmux resize calls, so an

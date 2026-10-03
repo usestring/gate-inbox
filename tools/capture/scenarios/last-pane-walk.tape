@@ -1,6 +1,5 @@
 # The last-pane walk: l rides the default row, one press steps back to the
-# pane just left, a second press keeps walking, and the footer drops the
-# pair once nothing is behind it.
+# pane just left, and a second press keeps walking.
 #
 # Seeding leaves the cursor on the last session it made, so the first Enter
 # focuses a session row with no search involved, and two steps up the rail

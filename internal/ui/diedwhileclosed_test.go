@@ -110,6 +110,49 @@ func TestAttentionFilterKeepsADiedRow(t *testing.T) {
 	}
 }
 
+func TestAttentionFilterKeepsParentOfDiedChild(t *testing.T) {
+	for _, state := range []string{"marked", "unmarked", "archived", "revived"} {
+		t.Run(state, func(t *testing.T) {
+			m := buildModel(t)
+			child := deadSession("child", "child", "id-child")
+			child.ParentID = "parent"
+			m.markDied([]store.Session{child})
+			switch state {
+			case "unmarked":
+				delete(m.diedWhileClosed, child.ID)
+			case "archived":
+				child.Archived = true
+			case "revived":
+				child.Status = status.Working
+			}
+			m.sessions = []store.Session{
+				{ID: "parent", Name: "parent", Tool: "claude", Status: status.Working},
+				child,
+			}
+			m.statusFilter = statusFilterAttention
+			m.rebuildRows()
+			if state != "marked" {
+				if got := sessionNames(m); len(got) != 0 {
+					t.Fatalf("attention list = %v, want no sessions", got)
+				}
+				return
+			}
+			if got := sessionNames(m); len(got) != 2 || got[0] != "parent" || got[1] != "child" {
+				t.Fatalf("attention list = %v, want parent followed by child", got)
+			}
+			parentDepth := -1
+			for _, row := range m.rows {
+				if row.sess.ID == "parent" {
+					parentDepth = row.depth
+				}
+				if row.sess.ID == "child" && row.depth != parentDepth+1 {
+					t.Fatalf("child depth = %d, parent depth = %d, want child nested under parent", row.depth, parentDepth)
+				}
+			}
+		})
+	}
+}
+
 func indexOf(sessions []store.Session, id string) int {
 	for i, sess := range sessions {
 		if sess.ID == id {

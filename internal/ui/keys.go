@@ -156,6 +156,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return model, cmd
 	}
 
+	// A snippet's direct chord sends it in one press, read before the list's
+	// own bindings the way ± is: the chord is unbound in the map, so nothing
+	// else can claim it and it never shadows a documented key.
+	if snip, ok := m.snippetChordFor(msg); ok {
+		return m.sendSnippetToSelected(snip)
+	}
+
 	// The one snippet key outside the menu is read before the list's own
 	// bindings and not inside them, so it can never shadow a key the
 	// manager documents. Every other snippet answers in the hotkey menu.

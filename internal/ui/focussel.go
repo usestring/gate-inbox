@@ -51,8 +51,10 @@ func (m *Model) cursorCell(paneLines int) (row, col int, ok bool) {
 	}
 	cursor := m.pane.cursor
 	// The caret belongs to the live bottom, and only to the lit half of
-	// the blink.
-	if !cursor.ok || m.mode != modeFocus || paneLines <= 0 || !m.cursorOn || m.scrolledBack() {
+	// the blink. It is also held off while the hotkey menu is up: that menu
+	// maps single keys to snippets, so the pane is not taking typing and a
+	// caret still blinking would say it was.
+	if !cursor.ok || m.mode != modeFocus || m.quick.active || paneLines <= 0 || !m.cursorOn || m.scrolledBack() {
 		return 0, 0, false
 	}
 	row = cursor.y - m.paneRowOffset(paneLines)

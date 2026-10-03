@@ -72,12 +72,12 @@ func (m *Model) attentionViaChild(sess store.Session) bool {
 	if m.statusFilter != statusFilterAttention {
 		return false
 	}
-	return m.extAttention[sess.ID].NeedsPerson || m.isDiedWhileClosed(sess) || m.hasChildNeedingSomebody(sess.ID)
+	return m.extAttention[sess.ID].NeedsPerson || m.isDiedWhileClosed(sess) || m.hasDescendantNeedingSomebody(sess.ID)
 }
 
-// hasChildNeedingSomebody reports a child of this session that a person has
-// to answer.
-func (m *Model) hasChildNeedingSomebody(parentID string) bool {
+// hasDescendantNeedingSomebody reports a descendant of this session that
+// a person has to answer.
+func (m *Model) hasDescendantNeedingSomebody(parentID string) bool {
 	if parentID == "" {
 		return false
 	}
@@ -85,7 +85,7 @@ func (m *Model) hasChildNeedingSomebody(parentID string) bool {
 		if sess.ParentID != parentID || sess.Archived {
 			continue
 		}
-		if m.needsPerson(sess) || m.isDiedWhileClosed(sess) {
+		if m.needsPerson(sess) || m.isDiedWhileClosed(sess) || m.hasDescendantNeedingSomebody(sess.ID) {
 			return true
 		}
 	}

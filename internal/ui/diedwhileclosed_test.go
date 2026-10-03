@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -150,6 +151,49 @@ func TestAttentionFilterKeepsParentOfDiedChild(t *testing.T) {
 				if row.sess.ID == "child" && row.depth != parentDepth+1 {
 					t.Fatalf("child depth = %d, parent depth = %d, want child nested under parent", row.depth, parentDepth)
 				}
+			}
+		})
+	}
+}
+
+func TestAttentionFilterKeepsAncestorsOfDiedGrandchild(t *testing.T) {
+	for _, state := range []string{"marked", "unmarked", "archived", "revived"} {
+		t.Run(state, func(t *testing.T) {
+			m := buildModel(t)
+			terminal := deadSession("terminal", "terminal", "id-terminal")
+			terminal.Tool = "shell"
+			terminal.ParentID = "child"
+			m.markDied([]store.Session{terminal})
+			switch state {
+			case "unmarked":
+				delete(m.diedWhileClosed, terminal.ID)
+			case "archived":
+				terminal.Archived = true
+			case "revived":
+				terminal.Status = status.Working
+			}
+			m.sessions = []store.Session{
+				{ID: "parent", Name: "parent", Tool: "claude", Status: status.Working},
+				{ID: "child", Name: "child", ParentID: "parent", Tool: "claude", Status: status.Working},
+				terminal,
+			}
+			m.statusFilter = statusFilterAttention
+			m.rebuildRows()
+			if state != "marked" {
+				if got := sessionNames(m); len(got) != 0 {
+					t.Fatalf("attention list = %v, want no sessions", got)
+				}
+				return
+			}
+			if got := sessionNames(m); !slices.Equal(got, []string{"parent", "child", "terminal"}) {
+				t.Fatalf("attention list = %v, want parent, child, and terminal", got)
+			}
+			depths := make(map[string]int)
+			for _, row := range m.rows {
+				depths[row.sess.ID] = row.depth
+			}
+			if depths["child"] != depths["parent"]+1 || depths["terminal"] != depths["child"]+1 {
+				t.Fatalf("attention tree depths = %v, want the full parent chain", depths)
 			}
 		})
 	}

@@ -170,13 +170,14 @@ It asks to confirm first, and it works on a live session too: the running agent 
 An agent you start by hand in tmux (plain `claude`, `codex` or `opencode` in any pane) is found by the board's scan, at start and every 45 seconds, and shown on the board as-is: an *adopted* pane. It is somebody else's window with an agent in it, so the board refuses to do to it what it does to its own sessions. Kept as-is, a pane keeps running where it is but misses:
 
 - the board's MCP tools inside the agent: spawning, messaging, tasks;
-- reach from other sessions and the CLI: `send`, `read`, `answer`, `wait` and `kill` treat it as not running;
 - guaranteed hook status (Claude Code): questions and permission prompts are read off the screen instead;
 - the board's launch environment: the `GATE_INBOX_*` variables, extension settings, a fresh account token;
 - a known conversation unless Claude Code names it in its session file: fork, migrate, resume, restart, account switch and revive need one;
 - the back-to-board keys and the pane's title and colours.
 
 Relaunching it into the board fixes all of that. The pane is ended once it is idle, and the same conversation is resumed as a `gi_*` session on the board's tmux server; a busy pane is taken on the first pass that finds it idle. The flags and `--model` it was started with are not kept, and its environment becomes the board's. A pane whose conversation cannot be read is left where it is and the status line says so, because relaunching a tool that resumes by id on its continue command would pick the directory's most recent conversation instead.
+
+Other sessions and the CLI still reach it from its row: `send`, `read`, `wait` and `kill` work on it as on a launched session, and `answer` from the session that tracks it.
 
 The board takes every adopted pane over without asking: an idle one on the first pass after startup, a busy one on the first pass that finds it idle, and a pane found while the board is up the same way. A pane is never ended while it is working or while you are in it. A pane that fails to relaunch is left as-is until takeover runs from quick actions (`:`), which runs the same takeover by hand. The "outside panes" setting can keep them as-is instead (quick actions still takes them over), or ignore them: take them off the board without touching the panes, and never take them again.
 

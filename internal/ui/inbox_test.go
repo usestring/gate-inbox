@@ -416,6 +416,29 @@ func TestTheEnvelopeSpellsTheReplyInTheRecipientsOwnFront(t *testing.T) {
 	}
 }
 
+// A claude somebody started in their own pane and the board adopted was never
+// given the board's MCP server, so it has no send_session tool, and its
+// envelope sends it to the subcommand its shell can run, as a CLI with no MCP
+// client is.
+func TestAnAdoptedPaneIsToldToReplyFromItsShell(t *testing.T) {
+	p, sess := newTestPollerWithSession(t)
+	p.mcpStyles = map[string]string{"claude": "claude"}
+	sess.Tool = "claude"
+	msg := store.InboxMessage{ID: 3, SessionID: sess.ID, SenderID: "sender01", SenderName: "lead",
+		Body: "rebase on main", SentAt: time.Now()}
+	if launched := p.envelope(sess, msg); strings.Contains(launched, "Reply by running") {
+		t.Fatalf("a launched claude, taught its tools by the server, was sent to the shell: %q", launched)
+	}
+	sess.TmuxSocket, sess.TmuxPaneID = "default", "%7"
+	adopted := p.envelope(sess, msg)
+	if !strings.Contains(adopted, `Reply by running: `+sessioncmd.CLIVocabulary().Send+` sender01 "<your reply>"`) {
+		t.Fatalf("an adopted claude was not pointed at the subcommand: %q", adopted)
+	}
+	if strings.Contains(adopted, "send_session") {
+		t.Fatalf("an adopted claude was named a tool it does not have: %q", adopted)
+	}
+}
+
 // The body is another agent's prose, written by an agent whose own context
 // may hold text from a page or a file nobody vetted. A reader can only tell
 // our framing from the sender's words if no body can produce the framing,

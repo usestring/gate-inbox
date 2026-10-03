@@ -591,8 +591,12 @@ type Model struct {
 	// transcripts they are read from; see landing.go. The locator is the
 	// event loop's own, since a Locator is not safe to share with the
 	// goroutines the other copies run on.
-	landings       map[string]*pendingLanding
-	landingGen     int
+	landings   map[string]*pendingLanding
+	landingGen int
+	// unseenAnswers are the sessions whose last answer would have moved the
+	// drain on but was never seen arriving: the check refused it or ran out of
+	// time. The poll's working transition is the evidence left to see.
+	unseenAnswers  map[string]bool
 	landingLocator *search.Locator
 	// settling are the sessions whose answer has been seen landing, by the
 	// instant it was, until a poll listed after that has been applied: the

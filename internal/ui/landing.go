@@ -235,6 +235,7 @@ func (m *Model) armLanding(sess store.Session, via extension.OperatorVia, text s
 		probe:    m.landingProbeFor(sess, dialog),
 	}
 	m.landings[sess.ID] = pending
+	delete(m.unseenAnswers, sess.ID)
 	return landingCheck(sess.ID, pending)
 }
 
@@ -242,6 +243,7 @@ func (m *Model) armLanding(sess store.Session, via extension.OperatorVia, text s
 // armed for failed, or it has been decided.
 func (m *Model) dropLanding(id string) {
 	delete(m.landings, id)
+	delete(m.unseenAnswers, id)
 }
 
 // landingProbeFor snapshots the sources sess's tool offers.
@@ -371,6 +373,7 @@ func (m *Model) keepLandingHere() {
 	for _, pending := range m.landings {
 		pending.handOver = false
 	}
+	clear(m.unseenAnswers)
 }
 
 // applyLandingCheck acts on one look.
@@ -386,6 +389,12 @@ func (m *Model) applyLandingCheck(msg landingCheckMsg) tea.Cmd {
 		return m.answerLanded(*pending)
 	case msg.verdict == landingRefused, !time.Now().Before(pending.deadline):
 		m.dropLanding(msg.id)
+		if pending.handOver {
+			if m.unseenAnswers == nil {
+				m.unseenAnswers = map[string]bool{}
+			}
+			m.unseenAnswers[msg.id] = true
+		}
 		return nil
 	}
 	return landingCheck(msg.id, pending)

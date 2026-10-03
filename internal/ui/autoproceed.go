@@ -117,13 +117,14 @@ func (m *Model) focusedStatus() (string, bool) {
 }
 
 // handOverOnWork moves the drain on once a poll shows the focused session
-// gone from before to working: the operator answered it and the agent took
-// the answer. The answer check watches for the same thing from the key and
-// usually gets there first, but it gives up after a few seconds and on any
-// hook it reads as a fresh dialog, and the session it gave up on then held
-// the operator for as long as the agent worked. The transition is not a
-// guess, so it hands over whatever the check decided. A session already
-// working when it was entered has not changed and keeps the operator.
+// gone from before to working after the operator submitted an answer that
+// would have handed it over. The answer check watches for the same thing from
+// the key and usually gets there first, but it gives up after a few seconds
+// and on any hook it reads as a fresh dialog, and the session it gave up on
+// then held the operator for as long as the agent worked. Work that follows
+// no such answer is the operator's own turn in progress -- a prompt still
+// being typed, a session already working when it was entered -- and keeps
+// them there.
 func (m *Model) handOverOnWork(before string) tea.Cmd {
 	if before == status.Working || !m.triage || !m.autoProceeds() {
 		return nil
@@ -132,5 +133,10 @@ func (m *Model) handOverOnWork(before string) tea.Cmd {
 	if !ok || sess.Status != status.Working {
 		return nil
 	}
+	pending, inFlight := m.landings[sess.ID]
+	if !m.unseenAnswers[sess.ID] && !(inFlight && pending.handOver) {
+		return nil
+	}
+	m.dropLanding(sess.ID)
 	return m.handOverFocused(sess)
 }

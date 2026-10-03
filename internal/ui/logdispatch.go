@@ -78,6 +78,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		snap = m.snapshotDispatch(key)
 	}
 	model, cmd := m.update(msg)
+	// The new-session box opens from many paths; whichever opened it, the
+	// chooser is asked once about the CLIs it lists.
+	if m.mode == modeAgentPick && before != modeAgentPick {
+		cmd = tea.Batch(cmd, m.agentPickQuotaCmd())
+	}
 	if traced {
 		m.traceDispatch(model, msg, key, isKey, started)
 	}

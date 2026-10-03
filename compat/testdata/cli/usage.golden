@@ -1,4 +1,4 @@
-37 commands and verbs
+38 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -113,6 +113,15 @@ $ gate-inbox kill -h
 exit 0
 --- stdout
 usage: gate-inbox kill <session-id> [--json]
+  -json
+    	print the raw result as JSON instead of a sentence
+
+$ gate-inbox stop -h
+exit 0
+--- stdout
+usage: gate-inbox stop [--dry-run] [--json]
+  -dry-run
+    	verify the calling session without ending it
   -json
     	print the raw result as JSON instead of a sentence
 

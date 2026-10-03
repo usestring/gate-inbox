@@ -26,6 +26,8 @@ Agent sessions
       check whether a message you sent is queued, held, delivered, dropped or answered
   gate-inbox kill <session-id> [--json]
       stop another agent's process, ending whatever it is doing; its row keeps the last screen
+  gate-inbox stop [--dry-run] [--json]
+      end this managed session intentionally, preserving its history and excluding it from crash restoration
   gate-inbox revive <session-id> [--json]
       bring a dead session back on its old row, resuming the conversation it held
   gate-inbox migrate <session-id> --tool <cli> [--name <name>] [--json]

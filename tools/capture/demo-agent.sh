@@ -40,6 +40,21 @@ if [[ "$transcript" == "handover" ]]; then
   exit 0
 fi
 
+# "handover-late" is an answer the check after the key cannot confirm: a late
+# Notification hook reads as a fresh dialog, and the agent only goes back to
+# work after the window has closed. Only the poll's transition is left to see.
+if [[ "$transcript" == "handover-late" ]]; then
+  stty -echo -icanon 2>/dev/null || true
+  printf '\033[4A\033[1G'
+  IFS= read -r -n 1 _key
+  printf 'waiting Notification\n' >> "${GATE_INBOX_STATUS_FILE:?}"
+  sleep 4
+  printf 'working PostToolUse\n' >> "${GATE_INBOX_STATUS_FILE:?}"
+  printf '\033[2J\033[H✻ Working… (esc to interrupt)\n'
+  cat >/dev/null
+  exit 0
+fi
+
 # Hold the pane open: the board reads a session's state from its pane, and a
 # command that exits would read as a dead session rather than a live one.
 # "working" keeps emitting, because the board derives that state from a region

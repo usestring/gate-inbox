@@ -2090,6 +2090,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				focusClosed = true
 			}
 		}
+		before, wasFocused := m.focusedStatus()
+		current := !msg.listedAt.Before(m.statusesAsOf)
 		m.sessions = sessions
 		if msg.listedAt.After(m.statusesAsOf) {
 			m.statusesAsOf = msg.listedAt
@@ -2171,6 +2173,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuildRows()
 		if focusClosed {
 			focusExit = tea.Batch(focusExit, m.moveOnFromClosedFocus())
+		} else if wasFocused && current {
+			focusExit = m.handOverOnWork(before)
 		}
 		// A board that came up with triage already on enters the head of its
 		// queue once the first pass has settled it, the way turning triage on

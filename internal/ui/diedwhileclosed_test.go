@@ -44,7 +44,7 @@ func TestStartupMarksDeadRowsAndStaysOnTheList(t *testing.T) {
 		store.Session{ID: "b", Name: "beta", Tool: "claude", Status: status.Working},
 		store.Session{ID: "c", Name: "gamma", Tool: "claude", Status: status.Dead, Archived: true},
 	)
-	m.markDiedSessions()
+	m.markDiedSessions(time.Now())
 	if m.mode != modeList {
 		t.Fatalf("mode = %v, want the list", m.mode)
 	}
@@ -61,10 +61,10 @@ func TestStartupMarksDeadRowsAndStaysOnTheList(t *testing.T) {
 
 func TestStartupCheckRunsOnce(t *testing.T) {
 	m := restoreModel(deadSession("a", "alpha", "id-a"))
-	m.markDiedSessions()
+	m.markDiedSessions(time.Now())
 	m.diedWhileClosed = nil
 	m.errBar.text = ""
-	m.markDiedSessions()
+	m.markDiedSessions(time.Now())
 	if len(m.diedWhileClosed) != 0 || m.errBar.text != "" {
 		t.Fatalf("the check ran twice: marks %v notice %q", m.diedWhileClosed, m.errBar.text)
 	}
@@ -72,7 +72,7 @@ func TestStartupCheckRunsOnce(t *testing.T) {
 
 func TestStartupCheckStaysQuietWhenNothingIsDead(t *testing.T) {
 	m := restoreModel(store.Session{ID: "a", Tool: "claude", Status: status.Working})
-	m.markDiedSessions()
+	m.markDiedSessions(time.Now())
 	if m.mode != modeList || m.errBar.text != "" {
 		t.Fatalf("mode = %v notice = %q", m.mode, m.errBar.text)
 	}
@@ -82,7 +82,7 @@ func TestStartupCheckStaysQuietWhenNothingIsDead(t *testing.T) {
 // and been lost again, the startup check has said nothing about it.
 func TestAMarkLapsesOnceTheRowIsRevived(t *testing.T) {
 	m := restoreModel(deadSession("a", "alpha", "id-a"))
-	m.markDiedSessions()
+	m.markDiedSessions(time.Now())
 	if !m.isDiedWhileClosed(m.sessions[0]) {
 		t.Fatal("the lost row was not marked")
 	}
@@ -100,7 +100,7 @@ func TestAMarkLapsesOnceTheRowIsRevived(t *testing.T) {
 
 func TestAttentionFilterKeepsADiedRow(t *testing.T) {
 	m := restoreModel(deadSession("a", "alpha", "id-a"), deadSession("b", "beta", "id-b"))
-	m.markDiedSessions()
+	m.markDiedSessions(time.Now())
 	delete(m.diedWhileClosed, "b")
 	m.statusFilter = statusFilterAttention
 	if !m.attentionViaChild(m.sessions[0]) {
@@ -172,7 +172,7 @@ func TestStartupCheckWaitsForAdoptionAndItsRows(t *testing.T) {
 			m.adoptFirstDone = false
 			assertPending := func() {
 				t.Helper()
-				m.markDiedSessions()
+				m.markDiedSessions(time.Now())
 				if m.restoreChecked || len(m.diedWhileClosed) != 0 || len(m.launched) != 0 {
 					t.Fatal("startup classified or resumed a row before adoption was visible")
 				}
@@ -184,7 +184,7 @@ func TestStartupCheckWaitsForAdoptionAndItsRows(t *testing.T) {
 				AgentSessionID: "conversation", Status: status.Working})
 			assertPending()
 			m.sessions = append(m.sessions, store.Session{ID: "other", Tool: "claude", Status: status.Working})
-			m.markDiedSessions()
+			m.markDiedSessions(time.Now())
 			if !m.restoreChecked || len(m.diedWhileClosed) != 0 || len(m.launched) != 0 {
 				t.Fatal("startup did not exclude the conversation already running in an adopted pane")
 			}
@@ -195,13 +195,39 @@ func TestStartupCheckWaitsForAdoptionAndItsRows(t *testing.T) {
 func TestStartupCheckContinuesAfterAdoptionFindsNoRows(t *testing.T) {
 	m := restoreModel(deadSession("lost", "lost", "conversation"))
 	m.adoptFirstDone = false
-	m.markDiedSessions()
+	m.markDiedSessions(time.Now())
 	if m.restoreChecked {
 		t.Fatal("startup check ran before adoption finished")
 	}
 	m.noteAdopted(adoptedMsg{})
-	m.markDiedSessions()
+	m.markDiedSessions(time.Now())
 	if !m.restoreChecked || !m.isDiedWhileClosed(m.sessions[0]) {
 		t.Fatal("startup did not mark a lost row after the empty adoption scan")
+	}
+}
+
+func TestStartupCheckRejectsPollStartedBeforeAdoption(t *testing.T) {
+	for _, mode := range []string{reopenMark, reopenResume} {
+		t.Run(mode, func(t *testing.T) {
+			m := reopening(t)
+			setMode(t, m, reopenSessionsSetting, mode)
+			stalePoll := time.Now()
+			m.sessions = []store.Session{
+				deadSession("old", "old", "conversation"),
+				deadSession("adopted", "adopted", "conversation"),
+			}
+			m.noteAdopted(adoptedMsg{taken: 1, ids: []string{"adopted"}})
+			for _, listedAt := range []time.Time{stalePoll, m.adoptFinishedAt} {
+				m.markDiedSessions(listedAt)
+				if m.restoreChecked || len(m.diedWhileClosed) != 0 || len(m.launched) != 0 {
+					t.Fatal("startup classified a poll that had not started after adoption")
+				}
+			}
+			m.sessions[1].Status = status.Working
+			m.markDiedSessions(m.adoptFinishedAt.Add(time.Nanosecond))
+			if !m.restoreChecked || len(m.diedWhileClosed) != 0 || len(m.launched) != 0 {
+				t.Fatal("post-adoption poll did not exclude the conversation already running")
+			}
+		})
 	}
 }

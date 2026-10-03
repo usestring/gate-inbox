@@ -335,6 +335,7 @@ type Model struct {
 	// adoptFirstDone is set once the first adopt scan has answered.
 	adoptFirstDone    bool
 	adoptAwaitingRows []string
+	adoptFinishedAt   time.Time
 	// nameAfterRefresh asks the next sweep to run a naming pass, for rows an
 	// adopt scan has just created and the board has not seen yet.
 	nameAfterRefresh bool
@@ -2123,7 +2124,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// This is the first pass whose statuses came from a real pane scan,
 		// so it is the earliest point a dead row means a missing pane rather
 		// than a row the poller has not reached yet.
-		m.markDiedSessions()
+		m.markDiedSessions(msg.listedAt)
 		// An adopted pane is taken over on the pass that first sees it idle.
 		// Quiet unless something moved, so a busy pane waiting its turn does
 		// not repeat itself on every pass.

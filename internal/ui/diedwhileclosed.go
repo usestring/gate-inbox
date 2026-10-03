@@ -73,6 +73,7 @@ func (m *Model) markDied(sessions []store.Session) {
 func (m *Model) noteAdopted(msg adoptedMsg) {
 	m.adoptFirstDone = true
 	if !m.restoreChecked {
+		m.adoptFinishedAt = time.Now()
 		m.adoptAwaitingRows = append(m.adoptAwaitingRows, msg.ids...)
 	}
 	n := len(msg.ids)
@@ -99,8 +100,8 @@ func (m *Model) noteAdopted(msg adoptedMsg) {
 // "resume" brings back the ones that clearly died and marks the unclear ones;
 // "never" leaves them unmarked with a line pointing at V. Panes started outside the board are the
 // takeover's unless the settings say to ignore them, which is applied here.
-func (m *Model) markDiedSessions() {
-	if !m.restoreArmed || m.restoreChecked || !m.adoptFirstDone {
+func (m *Model) markDiedSessions(listedAt time.Time) {
+	if !m.restoreArmed || m.restoreChecked || !m.adoptFirstDone || !listedAt.After(m.adoptFinishedAt) {
 		return
 	}
 	for _, id := range m.adoptAwaitingRows {

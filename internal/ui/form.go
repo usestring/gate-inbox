@@ -235,10 +235,15 @@ func (m *Model) syncFormFieldWidths() {
 	m.form.dir.SetCursor(m.form.dir.Position())
 	m.form.model.SetCursor(m.form.model.Position())
 	m.form.prompt.input.SetWidth(inner)
-	// The filter renders after the picker's arrows on the same row, so it
-	// gets what the card has left rather than a fixed width that would push
-	// the row past the border on a narrow terminal.
-	m.form.toolFilter.SetWidth(max(4, min(20, inner-lipgloss.Width(m.selectedToolName())-8)))
+	// The filter trails the CLI list on its last row, sized to what that row
+	// leaves, so focusing the field does not add a row to the card. Only a
+	// row too full for even a short filter pushes it onto a row of its own.
+	rows := toolPickerRows(m.form.toolNames, "", nil, inner)
+	room := inner - lipgloss.Width(rows[len(rows)-1]) - 3
+	if room < 4 {
+		room = inner - 1
+	}
+	m.form.toolFilter.SetWidth(min(20, room))
 	m.form.toolFilter.SetCursor(m.form.toolFilter.Position())
 }
 

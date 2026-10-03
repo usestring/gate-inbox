@@ -28,6 +28,9 @@ var testSocket = tmuxtest.NewSocket("ui")
 // exit-empty shutdown that takes the next test's fresh session down with it
 // ("server exited unexpectedly").
 func TestMain(m *testing.M) {
+	if os.Getenv(hookStandInEnv) == "1" {
+		os.Exit(runHookStandIn())
+	}
 	if os.Getenv("GATE_INBOX_COMPOSER_STANDIN") != "" {
 		os.Exit(m.Run())
 	}

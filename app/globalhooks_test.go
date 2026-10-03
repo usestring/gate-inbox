@@ -43,7 +43,7 @@ func TestClaudeHooksCommandInstallsAndRemoves(t *testing.T) {
 		t.Fatalf("status after install = %q", got)
 	}
 	raw, _ := os.ReadFile(settings)
-	if !strings.Contains(string(raw), `"theme": "dark"`) || !strings.Contains(string(raw), "gate-inbox-global-hook") {
+	if !strings.HasPrefix(string(raw), `{"theme":"dark","hooks":`) || !strings.Contains(string(raw), "gate-inbox-global-hook") {
 		t.Fatalf("settings after install:\n%s", raw)
 	}
 
@@ -57,7 +57,7 @@ func TestClaudeHooksCommandInstallsAndRemoves(t *testing.T) {
 		t.Fatalf("status after uninstall = %q", got)
 	}
 	raw, _ = os.ReadFile(settings)
-	if strings.TrimSpace(string(raw)) != "{\n  \"theme\": \"dark\"\n}" {
+	if string(raw) != `{"theme":"dark"}` {
 		t.Fatalf("settings after uninstall:\n%s", raw)
 	}
 	run("install")
@@ -84,7 +84,32 @@ func TestBoardStartupSkipsGlobalHooksForAScratchHome(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(claudeDir, "settings.json")); err == nil {
 		t.Fatal("a scratch board wrote the user's settings")
 	}
-	if underTempDir("/home/someone/.config/gate-inbox") {
+	if underTempDir("/var/lib/gate-inbox") {
 		t.Fatal("a real home was taken for scratch")
+	}
+}
+
+// A settings file the board cannot use costs a warning, never the startup,
+// and is left exactly as it was.
+func TestBoardStartupLeavesAnUnusableSettingsFileAlone(t *testing.T) {
+	for name, setup := range map[string]func(path string){
+		"malformed": func(path string) { os.WriteFile(path, []byte(`{"hooks": [`), 0o644) },
+		"read-only": func(path string) {
+			os.WriteFile(path, []byte(`{"theme": "dark"}`), 0o644)
+			os.Chmod(path, 0o444)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if name == "read-only" && os.Geteuid() == 0 {
+				t.Skip("root writes through any mode")
+			}
+			path := filepath.Join(t.TempDir(), "settings.json")
+			setup(path)
+			before, _ := os.ReadFile(path)
+			registerGlobalHooksAt(path, t.TempDir(), "/bin/gate-inbox")
+			if after, _ := os.ReadFile(path); !bytes.Equal(after, before) {
+				t.Fatalf("the settings file changed:\n%s", after)
+			}
+		})
 	}
 }

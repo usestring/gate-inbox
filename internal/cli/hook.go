@@ -15,6 +15,16 @@ import (
 // not a command an agent runs, so it is left out of the help. It always
 // exits 0: a hook that fails must not stand in the child's way.
 func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir string) error {
+	if len(args) == 2 && args[0] == "global" {
+		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
+		if err != nil || sessionID == "" {
+			return nil
+		}
+		if output := hooks.NewManager(configDir).DispatchGlobal(args[1], payload); output != "" {
+			fmt.Fprintln(out, output)
+		}
+		return nil
+	}
 	if len(args) != 1 {
 		return nil
 	}

@@ -48,6 +48,13 @@ func registerGlobalHooks(dir string) {
 		logging.Warn("global claude hooks not registered", logging.Err(err))
 		return
 	}
+	registerGlobalHooksAt(path, dir, bin)
+}
+
+// registerGlobalHooksAt is the write itself. A settings file that is
+// malformed, read-only or otherwise unwritable is left exactly as it was, and
+// the board starts anyway.
+func registerGlobalHooksAt(path, dir, bin string) {
 	changed, err := hooks.RegisterGlobal(path, dir, bin)
 	if err != nil {
 		logging.Warn("global claude hooks not registered", "settings", path, logging.Err(err))

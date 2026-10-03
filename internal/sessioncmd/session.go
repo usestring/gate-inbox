@@ -1307,6 +1307,10 @@ func (s *Sessions) kill(sessionID, targetID string, terminals bool, via extensio
 	if err := runtime.reach(target); err != nil {
 		return Session{}, err
 	}
+	return s.stopSession(runtime, target, via, sessionID)
+}
+
+func (s *Sessions) stopSession(runtime *runtime, target store.Session, via extension.KillSource, by string) (Session, error) {
 	if err := s.endSession(runtime, target, store.EndKilled); err != nil {
 		return Session{}, err
 	}
@@ -1315,7 +1319,7 @@ func (s *Sessions) kill(sessionID, targetID string, terminals bool, via extensio
 	}
 	target.Status = status.Dead
 	if !runtime.cfg.Tools[target.Tool].Shell {
-		sessionhooks.Killed(target, via, sessionID)
+		sessionhooks.Killed(target, via, by)
 	}
 	return runtime.sessionInfo(target, false, false), nil
 }

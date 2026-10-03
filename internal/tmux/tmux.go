@@ -1470,6 +1470,16 @@ func (d *Driver) OwnSessionID() string {
 	return id
 }
 
+func (d *Driver) PaneID(id string) (string, error) {
+	out, err := d.runAt(id, "display-message", "-p", "-t", d.TargetFor(id).Name, "#{pane_id}")
+	return strings.TrimSpace(out), err
+}
+
+func (d *Driver) RunOutsidePane(id, command string) error {
+	_, err := d.runAt(id, "run-shell", "-b", "-t", d.TargetFor(id).Name, command)
+	return err
+}
+
 func (d *Driver) runningInOwnPane(target Target) bool {
 	pane := os.Getenv("TMUX_PANE")
 	if pane == "" || target.Name != pane {

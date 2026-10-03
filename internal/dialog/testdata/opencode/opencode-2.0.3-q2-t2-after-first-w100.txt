@@ -1,0 +1,45 @@
+   Shell command execution reque ? Shell command request: echo h +
+  ┃  # Questions
+  ┃
+  ┃  Which checks should CI run?
+  ┃  Lint, E2E tests
+  ┃
+
+     ┃ Thought: 237ms
+
+     ┃ Report the answer verbatim and stop.
+
+     Answer verbatim: "Which checks should CI run?"="Lint, E2E tests"
+
+     Build · MiMo-V2.6-Pro · 49.6s · 63.1 tok/s
+
+  ┃
+  ┃  Call the question tool once with two questions: (1) header 'Tier', question 'Which tier?',
+  ┃  options Free / Pro; (2) header 'Region', question 'Which region?', options EU / US. Report
+  ┃  the answers verbatim and stop.
+  ┃
+
+     → Asked 2 questions
+
+     ┃ Thought: 1.3s
+
+     ┃ Call the question tool once with two questions.
+
+     Calling the question tool once with both questions.
+
+  ┃
+  ┃  Questions
+  ┃
+  ┃  Tier  Region  Submit
+  ┃
+  ┃  Which region?
+  ┃
+  ┃  1. EU
+  ┃     Deploy to the European region.
+  ┃  2. US
+  ┃     Deploy to the United States region.
+  ┃  3. Type your own answer
+  ┃
+  ┃  ⇆ tab  ↑↓ select  enter confirm  esc dismiss
+  ┃
+

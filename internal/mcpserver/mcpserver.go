@@ -46,7 +46,7 @@ type renameArgs struct {
 }
 
 type priorityArgs struct {
-	Tier string `json:"tier" jsonschema:"how much the work in this session matters: urgent, high, medium, low, or none to clear it"`
+	Tier string `json:"tier" jsonschema:"how much the work in this session matters: urgent (+3), high (+2), medium (+1), none (0), or low (-1)"`
 }
 
 type listTerminalsArgs struct{}
@@ -101,7 +101,7 @@ type createSessionArgs struct {
 	Group      *string `json:"group,omitempty" jsonschema:"existing group path for a detached session (nest false) to sit in; pass an empty string for the root group; a nested session is always in this agent's group and refuses any other; call list_groups for the existing ones"`
 	Directory  string  `json:"directory,omitempty" jsonschema:"existing directory the session works in; defaults to this agent's own directory, or to the selected group's inherited path when group is set"`
 	Nest       *bool   `json:"nest,omitempty" jsonschema:"omit it: the new session is this session's child, drawn under it, and its questions, rests and finishes are relayed to this session, which is how a fan-out gets steered; false detaches it into a top-level session that belongs to the user, not to this session: it still records this session in spawned_by, but this session is not told of its questions, rests or finishes and cannot answer its dialogs, and the two talk only through send_session and read_session; only for work that is not this session's, such as a standalone session the user asked for"`
-	Keep       bool    `json:"keep,omitempty" jsonschema:"keep this child on the list after it finishes: Gate Inbox otherwise archives a finished child on its own once you have read or been told of its finish and left it alone for the grace period (10 minutes by default)"`
+	Keep       bool    `json:"keep,omitempty" jsonschema:"keep this child on the list after it finishes: Gate Inbox otherwise archives a finished child on its own once you have read or been told of its finish and left it alone for the grace period (10 minutes by default); a child with background work still running is not finished"`
 	// CallerSessionID carries the caller's own session id when the MCP
 	// server's startup value cannot be trusted: opencode multiplexes
 	// same-cwd conversations through one shared MCP server (serve daemon),
@@ -125,11 +125,12 @@ type readSessionArgs struct {
 }
 
 type sendSessionArgs struct {
-	SessionID   string `json:"session_id" jsonschema:"session id returned by list_sessions or create_session"`
-	Message     string `json:"message,omitempty" jsonschema:"message typed into that agent's prompt as its next turn; write it as a full instruction, since the other agent does not see this conversation; or name a file in message_file"`
-	MessageFile string `json:"message_file,omitempty" jsonschema:"absolute path of a file holding the message, used instead of message; the same size limit applies to what it holds"`
-	Subject     string `json:"subject,omitempty" jsonschema:"short label for what this message is about, such as which-branch or stand-down; a later message you send to the same agent under the same label replaces this one if it has not been read yet, so a correction arrives instead of queueing behind what it corrects"`
-	Interrupt   bool   `json:"interrupt,omitempty" jsonschema:"true stops the agent's running turn first (Escape for Claude Code) so this message is its next turn right away; false, the default, lets it finish the step in hand and read the message after. Refused for a CLI with no safe interrupt; never sent while a dialog is showing"`
+	SessionID     string `json:"session_id" jsonschema:"session id returned by list_sessions or create_session"`
+	Message       string `json:"message,omitempty" jsonschema:"message typed into that agent's prompt as its next turn; write it as a full instruction, since the other agent does not see this conversation; or name a file in message_file"`
+	MessageFile   string `json:"message_file,omitempty" jsonschema:"absolute path of a file holding the message, used instead of message; the same size limit applies to what it holds"`
+	Subject       string `json:"subject,omitempty" jsonschema:"short label for what this message is about, such as which-branch or stand-down; a later message you send to the same agent under the same label replaces this one if it has not been read yet, so a correction arrives instead of queueing behind what it corrects"`
+	Interrupt     bool   `json:"interrupt,omitempty" jsonschema:"true stops the agent's running turn first (Escape for Claude Code) so this message is its next turn right away; false, the default, lets it finish the step in hand and read the message after. Refused for a CLI with no safe interrupt; never sent while a dialog is showing"`
+	RelayQuestion string `json:"relay_question,omitempty" jsonschema:"relays your user's approval to a child you spawned: the question you put to your user with your own question tool, word for word. Gate Inbox checks your transcript holds your user's own answer to it, given after the child was spawned, within 30 minutes and never relayed before, and attaches an attestation quoting both that the child's hook verifies once. Refused while the child holds its own Approval dialog: answer that with answer_session relay: true"`
 }
 
 type migrateSessionArgs struct {
@@ -244,11 +245,15 @@ type placeSessionArgs struct {
 
 type answerSessionArgs struct {
 	SessionID string `json:"session_id" jsonschema:"child session holding the question, as list_sessions or the relayed message names it"`
-	Answer    string `json:"answer,omitempty" jsonschema:"one answer, for the question on the child's screen: the text of the option to pick, or your own words to type into the dialog instead. Give this or answers"`
+	Answer    string `json:"answer,omitempty" jsonschema:"one answer, for the dialog on the child's screen: the text of the option or choice to pick, or your own words to type into a question instead. Give one of answer, answers, ticks or keys"`
+	// Ticks answers a multi-select question on the screen.
+	Ticks []string `json:"ticks,omitempty" jsonschema:"for a multi-select question on the child's screen: the labels of every option to leave ticked; every other box is unticked, the boxes are read back and the question is submitted"`
+	// Keys answers a screen this cannot read as choices.
+	Keys []string `json:"keys,omitempty" jsonschema:"for a screen answer_session cannot read as choices: the keys your user chose, such as [\"Down\", \"Enter\"] (Up, Down, Left, Right, Enter, Tab, BTab, Escape, Space, BSpace, or one letter or digit). Requires relay: true"`
 	// Answers fills in several questions of one dialog in a single call.
 	Answers []sessioncmd.QuestionAnswer `json:"answers,omitempty" jsonschema:"one entry per question to answer, each naming its question by 1-based index, header or text (as read_session's digest.questions lists them) and giving the option text or your own words. Questions left out keep standing"`
 	Submit  *bool                       `json:"submit,omitempty" jsonschema:"with answers: press Submit once every question has an answer. Defaults to true; false fills the answers in and leaves the review page for later"`
-	Relay   bool                        `json:"relay,omitempty" jsonschema:"true when every answer is your user's own: you put the child's question to them word for word with your own question tool after the child asked, and pass exactly what they chose. Gate Inbox checks your transcript for that dialog and refuses a mismatch. Required for a question headed Approval"`
+	Relay   bool                        `json:"relay,omitempty" jsonschema:"true when every answer is your user's own: you put the child's dialog to them word for word with your own question tool after the child stopped on it, and pass exactly what they chose. Gate Inbox checks your transcript for that dialog and refuses a mismatch. Required for a question headed Approval, a permission prompt, a trust dialog and keys"`
 }
 
 type grantPermissionArgs struct {
@@ -276,6 +281,7 @@ type sessionCommands interface {
 	List(sessionID string, opts sessioncmd.ListOptions) (sessioncmd.SessionList, error)
 	Create(sessionID string, opts sessioncmd.CreateSessionOptions) (sessioncmd.Session, error)
 	Send(sessionID, targetID, message, subject string, interrupt bool) (sessioncmd.SendResult, error)
+	SendAttested(sessionID, targetID, message, subject string, interrupt bool, question string) (sessioncmd.SendResult, error)
 	SendChildren(sessionID, message string) (sessioncmd.ChildSend, error)
 	CleanupChildren(sessionID string, opts sessioncmd.CleanupOptions) (sessioncmd.ChildCleanup, error)
 	Wait(ctx context.Context, sessionID string, opts sessioncmd.WaitOptions) (sessioncmd.WaitResult, error)
@@ -286,6 +292,7 @@ type sessionCommands interface {
 	Answer(sessionID, targetID, reply string, relay bool) (sessioncmd.AnsweredQuestion, error)
 	AnswerAll(sessionID, targetID string, answers []sessioncmd.QuestionAnswer, submit, relay bool) (sessioncmd.AnsweredQuestion, error)
 	Grant(sessionID, targetID string, req sessioncmd.GrantRequest) (sessioncmd.GrantResult, error)
+	AnswerKeys(sessionID, targetID string, keys []string, relay bool) (sessioncmd.AnsweredQuestion, error)
 	Revive(sessionID, targetID string) (sessioncmd.Session, error)
 	SwitchAccount(sessionID, targetID, account string) (sessioncmd.Session, error)
 	Migrate(sessionID, targetID string, opts sessioncmd.MigrateOptions) (sessioncmd.Session, error)
@@ -483,7 +490,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Name: "set_priority",
 		Description: "Declare how much the work in this session matters, so the user's triage queue hands it over ahead of the sessions that matter less. " +
 			"Call it when you know something the manager cannot see from outside: the user says this is urgent or can wait, or the task turns out to be a production incident, a release blocker, or a background experiment. " +
-			"Tiers are urgent, high, medium and low, on the same scale as the user's tickets and goals; none clears it. " +
+			"Tiers are urgent (+3), high (+2), medium (+1), and low (-1); none or 0 clears it. Numeric levels from -1 to 3 are also accepted. " +
 			"It orders this session within the queue it is already in, so it never puts a session that needs nobody ahead of one waiting on an answer, and the user can always override it.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args priorityArgs) (*mcp.CallToolResult, any, error) {
 		return textResult(sessioncmd.Priority(configDir, sessionID, args.Tier))
@@ -632,28 +639,38 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "answer_session",
-		Description: "Answer a question one of your own spawned sessions has stopped on, so the fan-out you started keeps moving instead of waiting on a person who did not set the task. " +
-			"You are told a child has stopped by a message from it; this is how you reply to the dialog itself, which send_session cannot do -- a message is held until the recipient is at rest, and a session on a question never is. " +
-			"It reads Claude Code's AskUserQuestion, including one asking several questions drawn as tabs, and Codex's request_user_input. " +
-			"Read every question first: the relayed message lists them, and read_session's digest.questions has each one's index, header, full text, options and whether it is answered. " +
-			"Then pass answers, one entry per question, naming it by index or header and giving the option's text to pick it or your own words to type into its free-text row; the call fills them in, checks the review page, and presses Submit once every question has an answer (submit false stops before that). " +
-			"answer alone answers just the question on the screen, and answering the last one submits the dialog; standing_questions says how many are left. " +
-			"After answering it reads back what the child registered -- the Submit page's review, or the record Claude Code prints once it takes the answers -- and returns an error naming the answer given and the one registered if they differ or the answer cannot be confirmed; a result means the child holds exactly your answer (verified). " +
-			"Your own words are typed into the question's \"Type something.\" row, which is also the way to talk a question over: the child reads them as the answer. Its \"Chat about this\" row is refused, because it drops the dialog without answering. " +
-			"Decide each question in turn: answer it yourself where your brief to that child or your user's standing decisions already settle it; otherwise ask your own user with your own question tool, copying the header, the question, every option and any recommendation word for word, and answer the child with what they choose. Collect every answer before calling, so the child gets them in one call. " +
-			"A question headed Approval is the child asking for your user's approval of one action: never answer it yourself; ask your user verbatim, then answer with relay: true, which checks your own transcript for their answer and refuses a paraphrase, an answer given before the child asked, or one already relayed. Every answer is recorded as yours or your user's, and the child is told when an answer was yours. " +
-			"Only the session that spawned it may answer it. A permission prompt, Codex's first-run directory-trust prompt and a multi-select question are still a person's to answer at the child's pane -- tell your user which child is waiting -- and the refusal says which of them it saw rather than leaving you to guess.",
+		Description: "Answer the dialog one of your own spawned sessions has stopped on -- a question, a multi-select, a permission prompt, a workspace or MCP-server trust dialog, or any other screen -- so the fan-out you started keeps moving. Every dialog a child stops on is yours to settle: answer it, or ask your user and answer with what they chose. " +
+			"You are told a child has stopped by a message relaying the dialog in full; this is how you reply to it, which send_session cannot do -- a message is held until the recipient is at rest, and a session on a dialog never is. " +
+			"Questions (Claude Code's AskUserQuestion, one or several drawn as tabs, Codex's request_user_input and OpenCode's question): pass answers, one entry per question, naming it by index or header and giving the option's text, or your own words to type into its free-text row; for a multi-select give ticks, the labels to leave ticked. The call fills them in, checks the review page and presses Submit once every question has an answer (submit false stops before that). answer or ticks alone answers the question on the screen. " +
+			"After answering it reads back what the child registered -- the boxes, the review page, the record Claude Code prints, the answers Codex writes to its rollout or OpenCode records in its session store -- and returns an error naming what was given and what registered if they differ; a result means the child holds exactly your answer (verified). Its \"Chat about this\" row is refused, because it drops the dialog without answering. " +
+			"On Codex, free text goes in its None of the above note; a question asked without a dialog takes the next message, and an unanswered question expires after about two minutes. On OpenCode, give every multi-select option to tick separated by commas, or ticks, and free text goes in its Type your own answer row. " +
+			"Decide each question in turn: answer it yourself where your brief to that child or your user's standing decisions already settle it; otherwise ask your user with your own question tool, copying the header, the question, every option and any recommendation word for word, and answer with what they choose. " +
+			"Permission prompts, trust dialogs, Codex's directory-trust prompt and questions headed Approval are always your user's call, never yours: ask your user with your own question tool, copying the dialog's text and its choices word for word as the relayed message gives them, then pass answer set to the choice they picked and relay: true. The choice is picked by its text, never by position, and the dialog is read back as cleared. " +
+			"relay: true checks your own transcript for that dialog and your user's answer, and refuses a paraphrase, an answer given before the child stopped, or one already relayed; the refusal says exactly what to ask. Every answer is recorded as yours or your user's, and the child is told when an answer was yours. " +
+			"A screen it cannot read as choices takes keys, also only with relay: true: quote the screen to your user, offer the keys as the options, and pass the keys they chose; the screen is read back as changed. " +
+			"Only the session that spawned a child may answer it.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args answerSessionArgs) (*mcp.CallToolResult, sessioncmd.AnsweredQuestion, error) {
 		var (
 			answered sessioncmd.AnsweredQuestion
 			err      error
 		)
+		given := 0
+		for _, set := range []bool{strings.TrimSpace(args.Answer) != "", len(args.Answers) > 0, len(args.Ticks) > 0, len(args.Keys) > 0} {
+			if set {
+				given++
+			}
+		}
 		switch {
-		case len(args.Answers) > 0 && strings.TrimSpace(args.Answer) != "":
-			err = errors.New("give answer or answers, not both")
+		case given > 1:
+			err = errors.New("give one of answer, answers, ticks or keys")
 		case len(args.Answers) > 0:
 			answered, err = sessions.AnswerAll(sessionID, args.SessionID, args.Answers, args.Submit == nil || *args.Submit, args.Relay)
+		case len(args.Ticks) > 0:
+			answered, err = sessions.AnswerAll(sessionID, args.SessionID,
+				[]sessioncmd.QuestionAnswer{{Ticks: args.Ticks}}, args.Submit == nil || *args.Submit, args.Relay)
+		case len(args.Keys) > 0:
+			answered, err = sessions.AnswerKeys(sessionID, args.SessionID, args.Keys, args.Relay)
 		default:
 			answered, err = sessions.Answer(sessionID, args.SessionID, args.Answer, args.Relay)
 		}
@@ -722,7 +739,13 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		if err != nil {
 			return nil, sessioncmd.SendResult{}, err
 		}
-		result, err := sessions.Send(sessionID, args.SessionID, message, args.Subject, args.Interrupt)
+		send := sessions.Send
+		if args.RelayQuestion != "" {
+			send = func(sessionID, targetID, message, subject string, interrupt bool) (sessioncmd.SendResult, error) {
+				return sessions.SendAttested(sessionID, targetID, message, subject, interrupt, args.RelayQuestion)
+			}
+		}
+		result, err := send(sessionID, args.SessionID, message, args.Subject, args.Interrupt)
 		if err != nil {
 			return nil, sessioncmd.SendResult{}, err
 		}
@@ -779,7 +802,9 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Call when list_sessions or send_session reports a session is not running and its work should continue.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args sessionTargetArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
-		revived, err := sessions.Revive(sessionID, args.SessionID)
+		// Through the installed manager when this server is stale, so the
+		// pane comes back on today's hook settings; see reviveSession.
+		revived, err := reviveSession(configDir, sessionID, args.SessionID, sessions.Revive)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
@@ -793,7 +818,8 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"The source is left as it is, so archive it once the new session has taken over; only claude, codex and opencode sessions with a transcript can be moved.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args migrateSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
-		created, err := sessions.Migrate(sessionID, args.SessionID, sessioncmd.MigrateOptions{Tool: args.Tool, Name: args.Name})
+		created, err := migrateSession(configDir, sessionID, args.SessionID,
+			sessioncmd.MigrateOptions{Tool: args.Tool, Name: args.Name}, sessions.Migrate)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}

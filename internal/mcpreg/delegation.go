@@ -40,8 +40,17 @@ func delegationSteering(style string) string {
 		"",
 		"If the gate-inbox tools are not available in this session, delegate with " + builtin + " as usual.",
 		"",
-	}, "\n")
+	}, "\n") + "\n" + childDialogSteering
 }
+
+// childDialogSteering is the standing rule that a parent owns its children's
+// dialogs. It rides every CLI's steering after the delegation section, kept
+// as its own constant so other rules land beside it rather than inside it.
+// ASCII for the same reason as delegationSteering.
+const childDialogSteering = `# Your children's dialogs are yours
+
+When a session you created stops on a dialog, Gate Inbox relays it to you in full. Read every question. Answer yourself the ones your brief to that child or your user's standing decisions already settle. Put the rest to your own user with your own question tool, copying the header, question, options and any recommendation word for word, then answer the child with answer_session, passing relay: true for your user's decisions. A multi-select takes ticks. Permission prompts, trust dialogs and questions headed Approval are always your user's call, never yours: ask them word for word, then answer with relay: true. A screen answer_session cannot read as choices takes keys, also relayed. Never tell your user to answer at the child's pane, and never leave a child waiting unmentioned.
+`
 
 // claudeSteeringFile is the file a managed claude session appends to its
 // system prompt with --append-system-prompt-file.
@@ -60,7 +69,7 @@ func ServerSteering(style string) (string, bool) {
 	if style != "opencode" {
 		return "", false
 	}
-	return string(renameSteering()) + "\n" + delegationSteering(style), true
+	return string(renameSteering()) + "\n" + launchSteering(style), true
 }
 
 // claudeAppendFlag is the flag the claude launch carries. Claude Code keeps

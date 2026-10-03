@@ -11,9 +11,11 @@ permissions:
   contents: read
 
 # A pushed-again PR cancels its superseded run instead of spending Actions
-# minutes on a stale commit.
+# minutes on a stale commit. Pushes to main group by commit instead, so a
+# merge never cancels the run of the merge before it and every commit on
+# main keeps its own verdict.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 env:
@@ -60,21 +62,54 @@ jobs:
           go-version-file: go.mod
           go-package: ./...
 
+  # internal/ui is the longest package, and in one `go test ./...` it started
+  # last, behind every other package's compile and run. It gets a runner of
+  # its own. It is not split further by -run: a plain run of the package
+  # already shards itself across one process per core (internal/ui's
+  # shard_test.go), and any test selection turns that off.
   test:
+    name: test (${{ matrix.shard }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [rest, ui]
+    env:
+      SHARD: ${{ matrix.shard }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # setup-go's own cache is keyed on go.sum alone, so once an entry exists
+      # it never saves again, and the check job saves it first, without any
+      # test binaries. This job keeps its own build cache instead: each push
+      # to main saves one keyed by commit, and every run restores the newest.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+          cache: false
+      - name: Locate Go caches
+        id: go-cache
+        run: |
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          echo "mod=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+      - name: Restore Go build cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.build }}
+            ${{ steps.go-cache.outputs.mod }}
+          key: go-test-${{ runner.os }}-${{ matrix.shard }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-test-${{ runner.os }}-${{ matrix.shard }}-${{ hashFiles('go.sum') }}-
+            go-test-${{ runner.os }}-${{ matrix.shard }}-
+            go-test-${{ runner.os }}-
       - name: Install tmux
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes tmux
       # Nearly every test that drives a pane skips itself when tmux is
       # missing, so without it the job would pass having run almost none of
-      # the suite. The skip report below is the other half of that guard.
+      # the suite. The report job's skip check is the other half of that guard.
       - name: Verify tmux and scratch space
         run: |
           tmux -V
@@ -95,28 +130,83 @@ jobs:
       # test binary its own TMUX_TMPDIR, and this proves nothing escaped it.
       # The sqlite fixtures go to /dev/shm through tmuxtest.ScratchDir.
       #
-      # Both verdicts have to be clean: go test alone would call a suite that
-      # passed by skipping a success, and testreport alone would miss a
-      # failure that never reached the stream.
+      # scripts/ci-test.sh is also the command CONTRIBUTING.md gives for a
+      # local run, so the two cannot drift. This step fails on go test's own
+      # verdict. The skip verdict needs both streams at once, so it belongs to
+      # the report job.
       - name: Test
         run: |
-          go build -o "$RUNNER_TEMP/testreport" ./tools/testreport
-          suite=0
-          scripts/test-tmux-isolation.sh -- \
-            go test -json -count=1 -timeout 15m ./... > "$RUNNER_TEMP/test.json" || suite=$?
-          report=0
-          "$RUNNER_TEMP/testreport" \
-            -allow ci-allowed-skips.txt \
-            -summary "$GITHUB_STEP_SUMMARY" \
-            < "$RUNNER_TEMP/test.json" || report=$?
-          test "$suite" -eq 0 -a "$report" -eq 0
+          set -o pipefail
+          ui=github.com/usestring/gate-inbox/internal/ui
+          case "$SHARD" in
+          rest) mapfile -t packages < <(go list ./... | grep -vx "$ui") ;;
+          ui) packages=("$ui") ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/out"
+          # Built here, where Go is already set up and the build cache is
+          # warm, so the report job on the critical path needs neither.
+          go build -o "$RUNNER_TEMP/out/testreport" ./tools/testreport
+          scripts/ci-test.sh --no-report --stream "$RUNNER_TEMP/out/test.json" "${packages[@]}"
+      # A failing test leaves the compiled binaries just as reusable, and with
+      # the suite this flaky, saving only after a green run would leave the
+      # cache days old.
+      - name: Save Go build cache
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.build }}
+            ${{ steps.go-cache.outputs.mod }}
+          key: go-test-${{ runner.os }}-${{ matrix.shard }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
       - name: Upload test stream
-        if: failure()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: test-json
-          path: ${{ runner.temp }}/test.json
+          name: test-json-${{ matrix.shard }}
+          path: ${{ runner.temp }}/out
           retention-days: 7
+
+  # One verdict over both streams. ci-allowed-skips.txt is a whole-suite
+  # contract: checked per job, every allowlisted test the other job ran would
+  # read as never seen.
+  #
+  # Both verdicts have to be clean: go test alone would call a suite that
+  # passed by skipping a success, and testreport alone would miss a failure
+  # that never reached the stream.
+  report:
+    needs: test
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            ci-allowed-skips.txt
+            scripts/ci-test.sh
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: test-json-*
+          path: ${{ runner.temp }}/streams
+      - name: Report
+        env:
+          TEST_RESULT: ${{ needs.test.result }}
+        run: |
+          streams=("$RUNNER_TEMP"/streams/test-json-*/test.json)
+          echo "streams: ${#streams[@]}"
+          # A job that died before uploading would otherwise leave a report
+          # over half the suite. The allowlist check catches most of that,
+          # this catches all of it.
+          test "${#streams[@]}" -eq 2 || { echo "::error::expected 2 test streams"; exit 1; }
+          # Artifacts drop the executable bit.
+          TESTREPORT="$(dirname "${streams[0]}")/testreport"
+          chmod +x "$TESTREPORT"
+          export TESTREPORT
+          report=0
+          scripts/ci-test.sh --report "${streams[@]}" || report=$?
+          echo "test jobs: $TEST_RESULT"
+          test "$TEST_RESULT" = success -a "$report" -eq 0
 
   secrets:
     runs-on: ubuntu-latest

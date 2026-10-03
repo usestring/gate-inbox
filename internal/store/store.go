@@ -465,6 +465,28 @@ CREATE TABLE IF NOT EXISTS settings (
 		// When GitHub last saw a pull request change, which orders the rail's
 		// rows of one rank newest first. Zero on rows saved before it existed.
 		`ALTER TABLE forge_prs ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0`,
+		// The verified parent channel: spent seals and relay attestations.
+		// The keys are kept out of this file. See parentchannel.go.
+		`CREATE TABLE IF NOT EXISTS seal_uses (
+			message_id INTEGER PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			used_at    INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS relay_attestations (
+			nonce                TEXT PRIMARY KEY,
+			message_id           INTEGER NOT NULL UNIQUE,
+			target_session       TEXT NOT NULL,
+			by_session           TEXT NOT NULL,
+			evidence_tool_use_id TEXT NOT NULL,
+			header               TEXT NOT NULL,
+			question             TEXT NOT NULL,
+			options              TEXT NOT NULL,
+			answer               TEXT NOT NULL,
+			answered_at          INTEGER NOT NULL,
+			created_at           INTEGER NOT NULL,
+			spent_at             INTEGER NOT NULL DEFAULT 0,
+			noted_at             INTEGER NOT NULL DEFAULT 0
+		)`,
 		// Permissions a parent granted its child on its user's approval. See
 		// grants.go.
 		`CREATE TABLE IF NOT EXISTS permission_grants (

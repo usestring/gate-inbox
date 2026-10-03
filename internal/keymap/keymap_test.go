@@ -17,13 +17,20 @@ func resolve(t *testing.T, overrides Overrides) *Map {
 	return m
 }
 
-// The defaults are what shipped: nothing is unbound, no two actions on one
-// screen hold the same key, and the map answers both ways.
+// The defaults are what shipped: everything the board cannot be worked
+// without is bound, no two actions on one screen hold the same key, and the
+// map answers both ways. Anything else may ship unbound -- a key nobody
+// presses often is a key hit by accident, and one-off actions run from
+// quick actions -- but an unbound action keeps its row in the key map so it
+// can be rebound there.
 func TestDefaultsResolveWithoutProblems(t *testing.T) {
 	m := resolve(t, nil)
 	for _, binding := range Catalog {
 		if !m.Bound(binding.Context, binding.Action) {
-			t.Errorf("%s.%s is unbound out of the box", binding.Context, binding.Action)
+			if binding.Required {
+				t.Errorf("%s.%s is required and unbound out of the box", binding.Context, binding.Action)
+			}
+			continue
 		}
 		for _, key := range binding.Keys {
 			action, ok := m.Action(binding.Context, key)
@@ -165,8 +172,6 @@ func TestReservedKeysAreRefused(t *testing.T) {
 		name string
 		keys []string
 	}{
-		{"the snippets chord", []string{"ctrl+alt+d"}},
-		{"the § snippet", []string{"alt+§"}},
 		{"the ± snippet", []string{"±"}},
 		{"the interrupt", []string{"ctrl+c"}},
 		{"a group number", []string{"4"}},
@@ -181,6 +186,19 @@ func TestReservedKeysAreRefused(t *testing.T) {
 	}
 }
 
+// The old snippet chord owns nothing anymore: snippets answer in the hotkey
+// menu, so ctrl+alt and alt+§ are ordinary rebindable keys.
+func TestTheOldSnippetChordIsRebindable(t *testing.T) {
+	m := resolve(t, Overrides{ContextList: {NewGroup: {"ctrl+alt+d"}}})
+	if got := m.Key(ContextList, NewGroup); got != "ctrl+alt+d" {
+		t.Errorf("ctrl+alt+d bound as %q", got)
+	}
+	m = resolve(t, Overrides{ContextFocus: {Dismiss: {"alt+§"}}})
+	if got := m.Key(ContextFocus, Dismiss); got != "alt+§" {
+		t.Errorf("alt+§ bound as %q", got)
+	}
+}
+
 // Key files accept both the current Mac label and its legacy spelling.
 func TestOptionIsAcceptedAsAltInTheKeyFile(t *testing.T) {
 	m := resolve(t, Overrides{ContextFocus: {Dismiss: {"option+j"}}})
@@ -191,13 +209,12 @@ func TestOptionIsAcceptedAsAltInTheKeyFile(t *testing.T) {
 	if got := m.Key(ContextFocus, Dismiss); got != "alt+j" {
 		t.Errorf("⌥j bound as %q, want alt+j", got)
 	}
-	if _, problems := New(Overrides{ContextList: {NewSession: {"ctrl+⌥d"}}}); len(problems) == 0 {
-		t.Error("ctrl+⌥d was accepted into the snippets chord")
+	if _, problems := New(Overrides{ContextList: {NewGroup: {"ctrl+⌥d"}}}); len(problems) != 0 {
+		t.Errorf("ctrl+⌥d was refused: %v", problems)
 	}
-	// Normalizing before the reserved check keeps the snippets chord owned
-	// under either spelling.
-	if _, problems := New(Overrides{ContextList: {NewSession: {"ctrl+option+d"}}}); len(problems) == 0 {
-		t.Error("ctrl+option+d was accepted into the snippets chord")
+	// Normalizing still folds the legacy spellings onto one key.
+	if _, problems := New(Overrides{ContextList: {NewGroup: {"ctrl+option+d"}}}); len(problems) != 0 {
+		t.Errorf("ctrl+option+d was refused: %v", problems)
 	}
 }
 
@@ -333,7 +350,7 @@ func TestDisplayRendersKeysForReading(t *testing.T) {
 		t.Errorf("Compact(ctrl+n) = %q", got)
 	}
 	if got := Compact("ctrl+alt+d"); got != displayForOS("ctrl+alt+d", runtime.GOOS) {
-		t.Errorf("Compact should leave the snippets chord alone, got %q", got)
+		t.Errorf("Compact should leave a double-modifier chord spelled out, got %q", got)
 	}
 }
 
@@ -423,15 +440,16 @@ func TestRetiredEditorStillLoads(t *testing.T) {
 
 // A key file that bound the gate still loads once it is gone: each stale line
 // says where its job went, and saving the map drops them. The focused
-// conversation toggle went with it, while the list's stays bound.
+// conversation toggle is no longer one of those: it is a binding again, so
+// the focus line applies and only the gate lines are reported.
 func TestRetiredGateStillLoads(t *testing.T) {
 	overrides, err := Decode("[list]\ngate = [\"G\"]\ntoggle_conversation = [\"f4\"]\n\n[focus]\ntoggle_gate_input = [\"f2\"]\ntoggle_conversation = [\"f3\"]\n")
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	m, problems := New(overrides)
-	if len(problems) != 3 {
-		t.Fatalf("got problems %v, want one per stale line", problems)
+	if len(problems) != 2 {
+		t.Fatalf("got problems %v, want one per stale gate line", problems)
 	}
 	for _, problem := range problems {
 		if !strings.Contains(problem.Reason, "removed") {
@@ -442,10 +460,14 @@ func TestRetiredGateStillLoads(t *testing.T) {
 		}
 	}
 	if got := m.Key(ContextList, ToggleConversation); got != "f4" {
-		t.Errorf("retiring the focused toggle cost the list's: toggle_conversation on %q", got)
+		t.Errorf("the list's toggle_conversation is on %q, want f4", got)
+	}
+	// The focus binding is live again, resolved from the file's own line.
+	if got := m.Key(ContextFocus, ToggleConversation); got != "f3" {
+		t.Errorf("the focused toggle_conversation is on %q, want f3", got)
 	}
 	saved := Encode(m.Overrides())
-	if strings.Contains(saved, "gate") || strings.Contains(saved, "[focus]") {
+	if strings.Contains(saved, "gate") {
 		t.Errorf("saving the map kept a retired action:\n%s", saved)
 	}
 }

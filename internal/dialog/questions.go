@@ -2,6 +2,7 @@ package dialog
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -24,15 +25,19 @@ type Option struct {
 	Label       string `json:"label" jsonschema:"the choice's text; pass it as the answer to pick it"`
 	Description string `json:"description,omitempty" jsonschema:"what the child said the choice means"`
 	Checked     bool   `json:"checked,omitempty" jsonschema:"on a multi-select question on the screen, whether its box is ticked"`
+	// Preview is the markdown the dialog draws beside the option, whole: the
+	// pane clips it to a box.
+	Preview string `json:"preview,omitempty" jsonschema:"the markdown the dialog shows beside this option when it is focused, read whole from the child's call"`
 }
 
 // Question is one question of the dialog a session is holding.
 type Question struct {
 	Index       int      `json:"index" jsonschema:"1-based position in the dialog; answer_session's answers accept it as question"`
+	ID          string   `json:"id,omitempty" jsonschema:"the question's id in the child's own record, when its CLI gives one"`
 	Header      string   `json:"header,omitempty" jsonschema:"the question's short header, drawn as its tab label; answer_session's answers accept it as question"`
 	Question    string   `json:"question" jsonschema:"the full question; empty only for a question not on the screen when no transcript could be read"`
 	Options     []Option `json:"options,omitempty" jsonschema:"the child's own choices in order, without the dialog's Type something and Chat about this rows"`
-	MultiSelect bool     `json:"multi_select,omitempty" jsonschema:"true for a question answered by ticking several boxes; answer_session refuses these and a person answers them"`
+	MultiSelect bool     `json:"multi_select,omitempty" jsonschema:"true for a question answered by ticking several boxes; answer it with ticks, the labels to leave ticked"`
 	Answered    bool     `json:"answered" jsonschema:"whether this question already has an answer in the dialog"`
 	Answer      string   `json:"answer,omitempty" jsonschema:"the answer it has, when the pane shows it"`
 	OnScreen    bool     `json:"on_screen,omitempty" jsonschema:"the question the dialog is showing now"`
@@ -60,12 +65,15 @@ func Questions(pane string, asked []convo.AskQuestion) []Question {
 	if tabbed {
 		count = len(stepper.Steps)
 	}
+	if isDialog && !callShows(asked, held, stepper, tabbed) {
+		asked = nil
+	}
 	var out []Question
 	if len(asked) == count {
 		for i, q := range asked {
-			question := Question{Index: i + 1, Header: q.Header, Question: q.Question, MultiSelect: q.MultiSelect}
+			question := Question{Index: i + 1, ID: q.ID, Header: q.Header, Question: q.Question, MultiSelect: q.MultiSelect}
 			for _, option := range q.Options {
-				question.Options = append(question.Options, Option{Label: option.Label, Description: option.Description})
+				question.Options = append(question.Options, Option{Label: option.Label, Description: option.Description, Preview: option.Preview})
 			}
 			out = append(out, question)
 		}
@@ -120,6 +128,53 @@ func Questions(pane string, asked []convo.AskQuestion) []Question {
 	}
 	markTicked(&out[on], held)
 	return out
+}
+
+// callShows reports whether asked is the call behind the dialog on the
+// screen: the question it puts where the screen's question is reads as the
+// prompt, and offers every choice the screen draws. A call is read from the
+// transcript or the ask-pending hook's file, and either can belong to another
+// dialog -- an earlier one whose file nothing replaced, or another process
+// resumed onto the same conversation -- and a call that is not this dialog's
+// would be relayed and answered as if it were the one standing.
+func callShows(asked []convo.AskQuestion, held Dialog, stepper Stepper, tabbed bool) bool {
+	shows := func(q convo.AskQuestion) bool { return askShown(q, held) }
+	switch {
+	case len(asked) == 0:
+		return false
+	case !tabbed:
+		return shows(asked[0])
+	case stepper.Active == len(asked):
+		// The Submit tab draws no question to hold the call against.
+		return true
+	case stepper.Active >= 0 && stepper.Active < len(asked):
+		return shows(asked[stepper.Active])
+	}
+	return slices.ContainsFunc(asked, shows)
+}
+
+// askShown reports whether q is the question held draws.
+func askShown(q convo.AskQuestion, held Dialog) bool {
+	if strings.TrimSpace(held.Prompt) != "" && !SameQuestion(held.Prompt, q.Question) {
+		return false
+	}
+	for _, choice := range held.Choices(len(held.Options)) {
+		if !slices.ContainsFunc(q.Options, func(option convo.AskOption) bool { return sameLabel(choice, option.Label) }) {
+			return false
+		}
+	}
+	return true
+}
+
+// sameLabel reports whether a choice as the pane draws it is label, however
+// the pane wrapped it or cut it short with "…".
+func sameLabel(drawn, label string) bool {
+	cut, truncated := strings.CutSuffix(strings.TrimSpace(drawn), "…")
+	cut, label = solid(cut), solid(label)
+	if truncated {
+		return cut != "" && strings.HasPrefix(label, cut)
+	}
+	return cut == label
 }
 
 // markTicked copies a multi-select's checked boxes off the screen onto the
@@ -228,7 +283,7 @@ func RenderQuestions(questions []Question) string {
 			out.WriteString(" -- already answered")
 		}
 		if q.MultiSelect {
-			out.WriteString(" -- multi-select, a person's to answer")
+			out.WriteString(" -- multi-select: answer with ticks")
 		}
 		out.WriteString("\n")
 		if q.Question != "" {
@@ -249,6 +304,12 @@ func RenderQuestions(questions []Question) string {
 				fmt.Fprintf(&out, " -- %s", option.Description)
 			}
 			out.WriteString("\n")
+			if option.Preview != "" {
+				out.WriteString("     preview:\n")
+				for _, line := range strings.Split(strings.TrimRight(option.Preview, "\n"), "\n") {
+					out.WriteString("     | " + line + "\n")
+				}
+			}
 		}
 	}
 	return out.String()

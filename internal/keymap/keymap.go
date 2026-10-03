@@ -19,9 +19,9 @@
 // backspace, tab and the arrows inside a text field are the shape of a form
 // rather than shortcuts over it, and an override that took esc away from a
 // dialog would leave it unanswerable. Same for the digits that name a group
-// and the ctrl+alt chord the snippets file owns, along with the one snippet key
-// that sits outside it: those namespaces are reserved, and an override that
-// reaches into them is refused.
+// and the bare ± key the snippets file owns: that key fires outside the
+// snippet menu, so the handlers read it before their own bindings and a
+// rebound action on it would simply never fire.
 package keymap
 
 import (
@@ -557,17 +557,13 @@ func validateKeys(ctx Context, action Action, keys []string) ([]string, []Proble
 
 // reserved names the keys no override may take, and says who holds them.
 //
-// The snippet keys are spelled out here rather than imported: this package is
+// The ± snippet key is spelled out here rather than imported: this package is
 // a leaf that the snippets file's format has no business reaching into, and an
-// override landing on one of them would not fail loudly -- the handlers read
-// snippets before their own bindings, so the rebound action would simply never
-// fire.
+// override claiming it would not fail loudly -- the handlers read snippets
+// before their own bindings, so the rebound action would simply never fire.
 func reserved(ctx Context, key string) (string, bool) {
-	if strings.HasPrefix(key, "ctrl+alt+") {
-		return "is in the chord the snippets file owns", true
-	}
-	if key == "alt+§" || key == "±" {
-		return "is a snippet key outside that chord", true
+	if key == "±" {
+		return "fires a snippet outside the hotkey menu", true
 	}
 	if key == "ctrl+c" {
 		return "quits from every screen and cannot be moved", true
@@ -592,12 +588,10 @@ var retired = map[Action]string{
 }
 
 // retiredOn are actions that left one screen but still work on another, so
-// they cannot go in retired, which would drop them everywhere.
-var retiredOn = map[Context]map[Action]string{
-	ContextFocus: {
-		"toggle_conversation": "was removed from inside a session with the gate; the list keeps its own",
-	},
-}
+// they cannot go in retired, which would drop them everywhere. It is empty
+// today: the last entry was the focused conversation toggle, which works
+// again now that the focused view can be the conversation.
+var retiredOn = map[Context]map[Action]string{}
 
 // required reports whether an action is one this screen cannot be worked
 // without, which is what forbids unbinding it.

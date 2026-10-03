@@ -10,22 +10,21 @@
 // The file lives in the config directory beside config.toml, is written once
 // with a starting set, and is then the user's to edit. Nothing rewrites it.
 //
-// Bindings live under one reserved chord, ctrl+alt. That is not decoration: in
-// a focused session every key the manager does not claim is forwarded to the
-// agent, so a snippet on a plain letter would eat that letter while you type.
-// ctrl+alt is a chord no agent CLI binds, so claiming the whole namespace at
-// once costs the pane nothing and leaves the operator the entire alphabet.
+// Snippets fire from one menu, the hotkey menu, which a leader key opens from
+// the list and from inside a focused session. The menu is the whole namespace:
+// a bare key there names its snippet, so no modifier chord is reserved
+// anywhere and nothing the operator presses while typing can shadow -- or be
+// shadowed by -- a snippet binding. That is the entire reason there is no
+// chord anymore: the old ctrl+alt namespace collided with operator tooling,
+// and every chord off it that a terminal can actually deliver through tmux
+// collides worse. ctrl+super never reaches a terminal TUI at all (macOS keeps
+// Cmd for its own shortcuts; the only encoding is a kitty-protocol CSI-u tmux
+// never forwards), and ctrl+shift arrives with the shift stripped, as the
+// plain ctrl key. A leader plus a visible menu is what survives the wire.
 //
-// Two keys sit outside that chord, both on the physical key left of 1, where
-// the triage keys already are, so the sentences sent most often belong under
-// that hand too. They are exceptions rather than a second namespace.
-//
-// § binds on alt alone. It is safe on the same terms the chord is -- no agent
-// CLI binds alt+§ either -- and the alt is what keeps it distinct from the
-// bare § that hands over. It cannot join the chord instead: ctrl+§ never
-// reaches the manager through tmux, and where tmux makes it up itself it
-// arrives as a bare §, the handover key. Why alt and not ctrl is measured, not
-// chosen: see SectionKey.
+// One key sits outside the menu, on the physical key left of 1 where the
+// triage keys already are, so the sentence sent most often belongs under that
+// hand too. It is an exception rather than a second namespace.
 //
 // ± binds bare. The manager claims no ± of its own, and it is a character no
 // agent CLI wants, so taking it costs the pane a key it was never sent. See
@@ -42,35 +41,12 @@ import (
 	"strings"
 )
 
-// Chord prefixes every snippet key. See the package comment for why the
-// namespace is reserved rather than picked per snippet.
-const Chord = "ctrl+alt+"
-
-// SectionKey is the one key that binds outside that chord, and SectionChord is
-// what it binds on instead.
-//
-// alt rather than ctrl because ctrl+§ cannot be delivered at all, which is
-// measured rather than reasoned about. There is no control byte for §, so a
-// terminal can report ctrl+§ only as an extended key -- CSI 167;5u, or
-// CSI 27;5;167~ under modifyOtherKeys -- and tmux 3.4 drops both, as it drops
-// every CSI-u event above ASCII. The manager always runs inside a pane, so
-// that is the whole path. Worse than silence: where tmux synthesises the key
-// itself, ctrl+§ comes out as a bare §, so reaching for the snippet would hand
-// the session over instead.
-//
-// alt survives on the one path a real keypress takes. alt+§ goes as ESC before
-// the key's own bytes, ESC C2 A7, which tmux forwards untouched and the decoder
-// reads back as alt+§, distinct from §. Its extended forms would not survive --
-// tmux reduces alt+§ in CSI-u or modifyOtherKeys to a lone ESC -- but tmux
-// never asks the outer terminal for either: it caps modifyOtherKeys at mode 1,
-// which leaves alt on printable keys to the legacy prefix, and it never
-// enables the kitty protocol. TestSectionKeyIsReachable pins the decoder's
-// half of this. The same holds for ± and for any other non-ASCII key: ctrl
-// cannot carry one, alt can.
-const (
-	SectionKey   = "§"
-	SectionChord = "alt+"
-)
+// SectionKey is the menu key for the progress summary, on the physical key
+// left of 1 where the triage keys already are, so the sentence sent most
+// often belongs under that hand too. It reads as a bare key in the menu like
+// every other snippet; a bare § outside the menu still hands over, which is
+// why the menu is the only place it answers.
+const SectionKey = "§"
 
 // PlusMinusKey is the one snippet key with no modifier at all: shifted §, so
 // the same physical key as the handover. It carries no chord because it needs
@@ -83,7 +59,8 @@ const PlusMinusKey = "±"
 
 // Snippet is one key and what it sends.
 type Snippet struct {
-	// Key is the bare key, without the chord: "c" binds ctrl+alt+c.
+	// Key is the menu key: a single letter a-z, or one of the two keys on
+	// the physical key left of 1, § and ±.
 	Key string `json:"key"`
 	// Label is what the key map, the footer and the quick bar call it. Empty
 	// falls back to the text itself, which is usually short enough to read.
@@ -102,29 +79,20 @@ type Snippet struct {
 func (s Snippet) Submits() bool { return s.AutoSubmit == nil || *s.AutoSubmit }
 
 // Binding is the key as the TUI reports it, ready to compare against a
-// keypress.
-func (s Snippet) Binding() string {
-	switch s.Key {
-	case SectionKey:
-		return SectionChord + SectionKey
-	case PlusMinusKey:
-		return PlusMinusKey
-	}
-	return Chord + s.Key
-}
+// keypress. Every snippet binds its bare key: the menu reads bare keys, and
+// ± binds bare everywhere.
+func (s Snippet) Binding() string { return s.Key }
 
 // Bare reports whether the binding is a plain character, which a text input
 // has to keep as the character it types.
 func (s Snippet) Bare() bool { return s.Key == PlusMinusKey }
 
-// IsBinding reports whether a keypress could name a snippet at all. The
-// manager asks this of every key it sees, so it settles the overwhelmingly
-// common answer -- an ordinary key, which is not ours -- without walking the
-// set.
-func IsBinding(binding string) bool {
-	return strings.HasPrefix(binding, Chord) || binding == SectionChord+SectionKey ||
-		binding == PlusMinusKey
-}
+// IsBinding reports whether a keypress could name a snippet outside the menu.
+// Only the bare ± key binds there; every other snippet answers to its bare
+// key in the menu alone, so an ordinary key is never a snippet anywhere the
+// operator is typing. The manager asks this of every key it sees, so it
+// settles that overwhelmingly common answer without walking the set.
+func IsBinding(binding string) bool { return binding == PlusMinusKey }
 
 // Title is what a surface should call this snippet.
 func (s Snippet) Title() string {
@@ -139,11 +107,11 @@ func (s Snippet) Quoted() string { return "“" + s.Text + "”" }
 
 // Set is a loaded file: the snippets that bound, and the entries that did not.
 //
-// Problems travel with the set rather than replacing it, because these are
-// bindings and a rejected one is otherwise a key that silently does nothing.
-// One typo must not cost the operator the other six snippets, and it must not
-// be invisible either: the viewer prints these, so "why did ctrl+alt+1 stop
-// working" is answered on the screen that lists the snippets.
+// Problems travel with the set rather than replacing it, because a rejected
+// key is otherwise one that silently does nothing. One typo must not cost the
+// operator the other six snippets, and it must not be invisible either: the
+// viewer prints these, so "why did 1 stop working" is answered on the screen
+// that lists the snippets.
 type Set struct {
 	Snippets []Snippet
 	Problems []string
@@ -176,9 +144,9 @@ const progressText = "summarise all current progress in bullet points, " +
 
 // Defaults are written on first run and are then the user's to edit. They are
 // the answers the v1 inbox offered as one-tap shortcuts, plus the handful an
-// operator sends most -- yes, continue, open a PR, explain again -- because
+// operator sends most -- yes, continue, explain again -- because
 // the file exists to be rewritten, and an empty one would not show what an
-// entry looks like. § is the reason the alt binding exists at all.
+// entry looks like.
 //
 // Nothing rewrites a file that already exists, so an operator who has one adds
 // a new default by hand. That is the same deliberate rule Load follows, and it
@@ -191,12 +159,9 @@ func Defaults() []Snippet {
 	return []Snippet{
 		submit("y", "yes", "yes"),
 		submit("c", "continue", "continue"),
-		submit("p", "open a PR", "open a pull request for this work"),
-		submit("a", "anything else?", "Anything else in this session?"),
 		submit("e", "explain like I'm 5", "I'm confused, explain like I'm 5"),
 		submit("w", "wake up", "Auto wake-up: the previous turn died on a transient API error. "+
 			"Continue where you left off."),
-		submit("n", "nuke", "Use the nuke skill to end this session."),
 		submit(SectionKey, "progress", progressText),
 	}
 }
@@ -248,26 +213,11 @@ func validate(parsed []Snippet) Set {
 		case snip.Key == "":
 			set.Problems = append(set.Problems, entry(i, snip)+"has no key")
 		case !legalKey(snip.Key):
-			// Letters, § and ±, and this is a terminal limit rather than a taste.
-			// A terminal has no distinct byte for ctrl+alt+1 or ctrl+alt+, and
-			// sends the digit or the comma unchanged, so such a binding would
-			// never fire and would take a plain key away from the agent if it
-			// did. Letters are delivered as an ESC-prefixed control byte; §
-			// and ± earn their places off the chord, and widen nothing else.
+			// Letters, § and ±. The menu reads bare keys, so every letter
+			// binds -- including i and m, which no chord could carry -- and
+			// § and ± earn their places on the physical key left of 1.
 			set.Problems = append(set.Problems,
-				entry(i, snip)+"key "+quote(snip.Key)+" must be a single letter a-z, "+SectionKey+" or "+PlusMinusKey+": "+
-					"the terminal sends no distinct code for "+Chord+snip.Key)
-		case unreachable[snip.Key] != "":
-			// Two letters are not reachable through this chord and never will
-			// be. ctrl+i and ctrl+m ARE the Tab and Enter bytes -- the same
-			// equivalence focusNamedKeys relies on to send them -- so the
-			// terminal writes ESC 0x09 and ESC 0x0d, and the decoder reads
-			// back alt+tab and alt+enter. There is no key press that produces
-			// ctrl+alt+i, so a binding on it would look correct in the file
-			// and never fire once.
-			set.Problems = append(set.Problems,
-				entry(i, snip)+Chord+snip.Key+" cannot be typed: the terminal sends it as "+
-					unreachable[snip.Key]+". Pick another letter.")
+				entry(i, snip)+"key "+quote(snip.Key)+" must be a single letter a-z, "+SectionKey+" or "+PlusMinusKey)
 		case snip.Text == "":
 			set.Problems = append(set.Problems, entry(i, snip)+"sends nothing")
 		default:
@@ -299,23 +249,8 @@ func entry(index int, snip Snippet) string {
 	return name + ": "
 }
 
-// unreachable are the letters this chord cannot carry, and what the terminal
-// sends instead. Verified against the decoder rather than reasoned about:
-// TestChordIsReachable walks all twenty-six.
-//
-// ctrl+§ belongs in the same list and is not in it, because the key rule never
-// lets it get this far. It fails for another reason: i and m arrive as the
-// wrong key, § does not arrive at all. There is no control byte for a non-ASCII
-// key, so ctrl+§ exists only as an extended key, and tmux 3.4 drops every
-// extended key above ASCII before the decoder sees it. That is why § binds on
-// alt, and SectionKey has the rest.
-var unreachable = map[string]string{
-	"i": "alt+tab",
-	"m": "alt+enter",
-}
-
-// legalKey is what may bind: the chord's alphabet, plus the two keys that bind
-// outside it.
+// legalKey is what may bind in the menu: the alphabet, plus the two keys on
+// the physical key left of 1.
 func legalKey(key string) bool {
 	return singleLetter(key) || key == SectionKey || key == PlusMinusKey
 }

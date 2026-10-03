@@ -37,16 +37,19 @@ import (
 // same engine this handler calls. So a stale server runs the spawn there
 // instead of in its own process, and the row is filed by today's rules.
 //
-// Only when stale, and only for this tool. An in-process call is a function
-// call and a delegated one is a process, so paying that on every spawn from
-// every server to fix the ones that are behind would be the wrong trade; and
-// a tool whose staleness costs only a missing argument is already served by
-// the notice.
+// revive_session and migrate_session go the same way, for the hook settings
+// they launch the pane on rather than the row they file: see reviveSession.
+//
+// Only when stale, and only for the tools that launch a pane. An in-process
+// call is a function call and a delegated one is a process, so paying that on
+// every launch from every server to fix the ones that are behind would be the
+// wrong trade; and a tool whose staleness costs only a missing argument is
+// already served by the notice.
 
-// delegatedSpawnTimeout bounds the child process. A spawn opens a pane,
+// delegatedLaunchTimeout bounds the child process. A launch opens a pane,
 // which takes real time -- but a delegate that never returns must fail the
 // call rather than hang the conversation.
-const delegatedSpawnTimeout = 3 * time.Minute
+const delegatedLaunchTimeout = 3 * time.Minute
 
 // createSession runs a spawn, through the installed manager when this server
 // is too old to file the row correctly itself and in process otherwise.
@@ -54,32 +57,58 @@ const delegatedSpawnTimeout = 3 * time.Minute
 // thing this function owns.
 func createSession(configDir, callerID string, opts sessioncmd.CreateSessionOptions,
 	inProcess func(string, sessioncmd.CreateSessionOptions) (sessioncmd.Session, error)) (sessioncmd.Session, error) {
-	if _, stale := managerbuild.StaleSince(configDir, time.Now()); !stale {
+	return delegateWhenStale(configDir, callerID, spawnArgs(opts), opts.Tool, func() (sessioncmd.Session, error) {
 		return inProcess(callerID, opts)
+	})
+}
+
+// reviveSession and migrateSession launch a pane the way a spawn does, so a
+// stale server running them in process launches it on its own build's hook
+// settings. A build from before the parent channel writes settings with no
+// prompt-submit hook, and the session it brings back then gets no note on any
+// sealed message: a revived child reads every message from its parent as
+// unverified. The installed manager writes today's settings.
+func reviveSession(configDir, callerID, targetID string,
+	inProcess func(string, string) (sessioncmd.Session, error)) (sessioncmd.Session, error) {
+	return delegateWhenStale(configDir, callerID, []string{"revive", "--json", "--", targetID}, "",
+		func() (sessioncmd.Session, error) { return inProcess(callerID, targetID) })
+}
+
+func migrateSession(configDir, callerID, targetID string, opts sessioncmd.MigrateOptions,
+	inProcess func(string, string, sessioncmd.MigrateOptions) (sessioncmd.Session, error)) (sessioncmd.Session, error) {
+	return delegateWhenStale(configDir, callerID, migrateArgs(targetID, opts), opts.Tool,
+		func() (sessioncmd.Session, error) { return inProcess(callerID, targetID, opts) })
+}
+
+// delegateWhenStale runs args on the installed manager when this server is
+// stale, and inProcess otherwise or when the delegate cannot run.
+func delegateWhenStale(configDir, callerID string, args []string, tool string,
+	inProcess func() (sessioncmd.Session, error)) (sessioncmd.Session, error) {
+	if _, stale := managerbuild.StaleSince(configDir, time.Now()); !stale {
+		return inProcess()
 	}
 	// Installed, not Executable: Executable falls back to this process's own
 	// path, and delegating to the stale binary that is asking is the one
 	// answer that cannot help.
 	installed := launch.Installed()
 	if installed == "" {
-		return inProcess(callerID, opts)
+		return inProcess()
 	}
-	created, err := delegateSpawn(installed, callerID, opts)
+	result, err := delegate(installed, callerID, args, tool)
 	if err != nil {
-		// The delegate is a repair, not a gate: a spawn that cannot be run
-		// through it still has to happen, and a flat row is worse than no
-		// row only by the parentage this was trying to keep.
-		logging.Info("spawn not delegated to the installed manager; running it here instead",
-			"caller", callerID, "manager", installed, logging.Err(err))
-		return inProcess(callerID, opts)
+		// The delegate is a repair, not a gate: a launch that cannot be run
+		// through it still has to happen, on whatever this build can give it.
+		logging.Info("launch not delegated to the installed manager; running it here instead",
+			"caller", callerID, "command", args[0], "manager", installed, logging.Err(err))
+		return inProcess()
 	}
-	return created, nil
+	return result, nil
 }
 
-// delegateSpawn runs `spawn --json` on the installed manager as this session,
-// and reads the row it filed back out of the JSON.
-func delegateSpawn(manager, callerID string, opts sessioncmd.CreateSessionOptions) (created sessioncmd.Session, err error) {
-	// A spawn that runs as a second process, on top of the spawn it is
+// delegate runs args on the installed manager as this session, and reads the
+// row it reports back out of the JSON.
+func delegate(manager, callerID string, args []string, tool string) (result sessioncmd.Session, err error) {
+	// A launch that runs as a second process, on top of the call it is
 	// delegating, and the agent waits for both. Worth its own span because it
 	// is invisible from everywhere else: the row it files names the installed
 	// manager as nothing at all, and the only sign this path ran is that the
@@ -87,31 +116,45 @@ func delegateSpawn(manager, callerID string, opts sessioncmd.CreateSessionOption
 	if tracing.Enabled() {
 		started := time.Now()
 		defer func() {
-			tracing.Record("mcp.delegated_spawn", started, time.Now(), err,
+			tracing.Record("mcp.delegated_"+args[0], started, time.Now(), err,
 				tracing.Attr{Key: "session", Value: callerID},
-				tracing.Attr{Key: "tool", Value: opts.Tool},
-				tracing.Attr{Key: "created", Value: created.ID})
+				tracing.Attr{Key: "tool", Value: tool},
+				tracing.Attr{Key: "created", Value: result.ID})
 		}()
 	}
-	cmd := exec.Command(manager, spawnArgs(opts)...)
+	cmd := exec.Command(manager, args...)
 	// The CLI takes its caller from the environment, and that caller is what
-	// the new row is filed under -- so this is the whole point of the call,
+	// a new row is filed under -- so this is the whole point of the call,
 	// not plumbing. Set rather than appended: this process already carries
 	// its own value of it, and which of two entries for one name a child
 	// reads is not something to leave to the platform.
 	cmd.Env = withSessionID(os.Environ(), callerID)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := runBounded(cmd, delegatedSpawnTimeout); err != nil {
+	if err := runBounded(cmd, delegatedLaunchTimeout); err != nil {
 		return sessioncmd.Session{}, fmt.Errorf("%w: %s", err, firstLine(stderr.String()))
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &created); err != nil {
-		return sessioncmd.Session{}, fmt.Errorf("reading the delegated spawn's result: %w", err)
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		return sessioncmd.Session{}, fmt.Errorf("reading the delegated %s's result: %w", args[0], err)
 	}
-	if created.ID == "" {
-		return sessioncmd.Session{}, fmt.Errorf("the delegated spawn reported no session")
+	if result.ID == "" {
+		return sessioncmd.Session{}, fmt.Errorf("the delegated %s reported no session", args[0])
 	}
-	return created, nil
+	return result, nil
+}
+
+// migrateArgs writes a migration's options as the CLI's flags, leaving out
+// what was not asked for. The target follows "--", since the CLI reads flags
+// wherever they sit and an id is the agent's to type.
+func migrateArgs(targetID string, opts sessioncmd.MigrateOptions) []string {
+	args := []string{"migrate", "--json"}
+	if opts.Tool != "" {
+		args = append(args, "--tool", opts.Tool)
+	}
+	if opts.Name != "" {
+		args = append(args, "--name", opts.Name)
+	}
+	return append(args, "--", targetID)
 }
 
 // spawnArgs writes the options as the CLI's flags. A pointer field is only
@@ -165,7 +208,7 @@ func runBounded(cmd *exec.Cmd, limit time.Duration) error {
 		return err
 	case <-time.After(limit):
 		_ = cmd.Process.Kill()
-		return fmt.Errorf("the installed manager did not finish the spawn within %s", limit)
+		return fmt.Errorf("the installed manager did not finish within %s", limit)
 	}
 }
 

@@ -36,6 +36,10 @@ var (
 	colorFinished color.Color
 	colorErrored  color.Color
 	colorIdle     color.Color
+
+	// colorCard is the preview's question card, kept apart from the focus
+	// accent and the selected row's frame. See cardColor.
+	colorCard color.Color
 )
 
 var (

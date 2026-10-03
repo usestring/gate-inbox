@@ -20,20 +20,30 @@ type conversationView struct {
 	targets      map[string]search.Target
 	locator      *search.Locator
 	busy         bool
+	pendingKey   string
 	key, stamp   string
 	messages     []search.Message
+	usage        search.TokenUsage
 	err          error
 	offset       int
 	lines        []string
+	starts       []int
 	width, theme int
 	dirty        bool
 	compact      bool
+	liveStart    int
+	liveTop      int
+	liveCount    int
+	// hovered is the group expanded under the pointer in compact mode,
+	// -1 when none.
+	hovered int
 }
 
 type conversationTickMsg struct{}
 type conversationMsg struct {
 	key, stamp string
 	messages   []search.Message
+	usage      search.TokenUsage
 	err        error
 	unchanged  bool
 }
@@ -44,8 +54,16 @@ func conversationTick() tea.Cmd {
 
 func (m *Model) showsConversation() bool {
 	sess, ok := m.selected()
-	return m.conversation != nil && ok && !m.isShell(sess.Tool) &&
-		(m.mode == modeList || m.mode == modeRename)
+	if m.conversation == nil || !ok || m.isShell(sess.Tool) {
+		return false
+	}
+	if m.mode == modeList || m.mode == modeRename {
+		return true
+	}
+	// Focused, the pane belongs to the agent, but the focused-view setting
+	// can keep the conversation on screen instead until F3 asks for the
+	// terminal back. See focusview.go.
+	return m.mode == modeFocus && m.compressedFocus && m.focusView == focusViewConversation
 }
 
 func conversationKey(id, agentID string) string { return id + "\x00" + agentID }
@@ -59,13 +77,21 @@ func (m *Model) conversationIdentity(sess store.Session) string {
 }
 
 func (m *Model) readConversation() tea.Cmd {
-	if !m.showsConversation() || m.conversation.busy {
+	if !m.showsConversation() {
 		return nil
 	}
 	sess, _ := m.selected()
 	c := m.conversation
-	c.busy = true
 	key := m.conversationIdentity(sess)
+	// A read for this very row is already out; a read for a row the cursor
+	// has since left is superseded rather than blocking the new one. The
+	// guard is per row, not per view: a cursor walk must be free to fetch
+	// the row it lands on without waiting out the one before it.
+	if c.busy && c.pendingKey == key {
+		return nil
+	}
+	c.busy = true
+	c.pendingKey = key
 	matched := c.targets[sess.ID]
 	previousKey, previousStamp := c.key, c.stamp
 	locator := c.locator
@@ -100,6 +126,7 @@ func (m *Model) readConversation() tea.Cmd {
 			return msg
 		}
 		msg.messages, msg.err = search.ReadMessages(target, database)
+		msg.usage = search.ReadTokenUsage(target)
 		return msg
 	}
 }
@@ -109,18 +136,29 @@ func (m *Model) applyConversation(msg conversationMsg) {
 	if c == nil {
 		return
 	}
-	c.busy = false
+	// Only the read this view is still waiting on clears the pending mark. A
+	// frame for a row the cursor has since left must not: it would release
+	// the preload the new row is still owed, and the retention that keeps
+	// the last conversation on screen reads the mark to know a fetch is out.
+	if msg.key == c.pendingKey {
+		c.busy, c.pendingKey = false, ""
+	}
 	sess, ok := m.selected()
 	if !ok || msg.key != m.conversationIdentity(sess) || msg.unchanged {
 		return
 	}
 	if c.key != msg.key {
-		c.offset, c.lines = 0, nil
+		c.offset, c.lines, c.starts = 0, nil, nil
+		c.hovered = -1
 	}
 	m.sel = focusSelection{}
 	c.key, c.stamp, c.messages, c.err = msg.key, msg.stamp, msg.messages, msg.err
+	c.usage = msg.usage
 	if msg.err != nil {
 		c.stamp = ""
+	}
+	if len(c.messages) == 0 || c.hovered >= len(c.messages) {
+		c.hovered = -1
 	}
 	c.dirty = true
 }
@@ -130,7 +168,7 @@ func (c *conversationView) wrapped(width int) []string {
 		return c.lines
 	}
 	oldHeight := len(c.lines)
-	c.lines = nil
+	c.lines, c.starts = nil, nil
 	// You renders in the errored (red) tone against the assistant's teal
 	// accent: Accent vs Accent2 differed only in the blue channel and read
 	// as the same box. Sequential turns from one speaker share one box.
@@ -153,7 +191,7 @@ func (c *conversationView) wrapped(width int) []string {
 		}
 		groups = append(groups, convoGroup{role: message.Role, label: label, style: style, texts: []string{message.Text}})
 	}
-	for _, group := range groups {
+	for gi, group := range groups {
 		inner := max(1, width-4)
 		text := strings.Map(func(r rune) rune {
 			if r == '\t' {
@@ -165,9 +203,12 @@ func (c *conversationView) wrapped(width int) []string {
 			return r
 		}, ansi.Strip(strings.Join(group.texts, "\n\n")))
 		heading := textfmt.TruncateWidth(" "+group.label+" ", max(1, width-2), "")
+		c.starts = append(c.starts, len(c.lines))
 		c.lines = append(c.lines, group.style.Render("╭"+heading+strings.Repeat("─", max(0, width-2-textfmt.Width(heading)))+"╮"))
 		messageLines := markdownLines(text, inner)
-		if c.compact && len(messageLines) > 4 {
+		// Shortened mode keeps every older group to four lines. The newest
+		// group stays full, as does whichever group the pointer is over.
+		if c.compact && len(messageLines) > 4 && gi != len(groups)-1 && gi != c.hovered {
 			messageLines = append(messageLines[:4:4], mutedStyle.Render(textfmt.TruncateWidth(fmt.Sprintf("… %d more lines", len(messageLines)-4), inner, "…")))
 		}
 		for _, line := range messageLines {
@@ -184,7 +225,7 @@ func (c *conversationView) wrapped(width int) []string {
 
 func (m *Model) conversationLines(width, height int) []contentLine {
 	m.pane.box = paneBox{x: m.paneOriginX(), y: m.listChromeRows() + m.previewBodyOffset, width: width, height: height, ok: true}
-	rows := m.conversationRows(width, height)
+	rows := m.focusConversationRows(width, height)
 	lines := make([]contentLine, 0, height)
 	for i, row := range rows {
 		lines = append(lines, contentLine{text: m.renderPaneRow(i, row, width), raw: true})
@@ -195,13 +236,24 @@ func (m *Model) conversationLines(width, height int) []contentLine {
 func (m *Model) conversationRows(width, height int) []string {
 	c := m.conversation
 	sess, _ := m.selected()
+	identity := m.conversationIdentity(sess)
 	var rows []string
-	if c.key == m.conversationIdentity(sess) {
+	switch {
+	case c.key == identity:
+		rows = c.wrapped(width)
+	case c.busy:
+		// A read for the newly selected row is in flight. Keep the last
+		// conversation on screen rather than flashing the empty placeholder
+		// the key mismatch would draw: it is replaced by the new row's own
+		// messages the moment the read lands. The read rides the cursor
+		// move itself (see settleCursor), so this window is a message hop
+		// rather than the next conversation tick.
 		rows = c.wrapped(width)
 	}
+	rows = m.withQuestionCard(rows, width, height)
 	if len(rows) == 0 {
 		text := "No user-facing messages yet. Open the terminal to interact."
-		if c.key == m.conversationIdentity(sess) && c.err != nil {
+		if c.key == identity && c.err != nil {
 			text = "Conversation unavailable: " + c.err.Error()
 		}
 		return m.withWorkingRow([]string{mutedStyle.Render(textfmt.TruncateWidth(text, width, "…"))}, width)
@@ -209,8 +261,17 @@ func (m *Model) conversationRows(width, height int) []string {
 	rows = m.withWorkingRow(rows, width)
 	c.offset = min(c.offset, max(0, len(rows)-height))
 	end := len(rows) - c.offset
+	working := m.conversationWorking()
+	if working {
+		end--
+		height--
+	}
 	start := max(0, end-height)
-	return rows[start:end]
+	visible := rows[start:end]
+	if working {
+		visible = append(visible[:len(visible):len(visible)], rows[len(rows)-1])
+	}
+	return visible
 }
 
 func (m *Model) conversationWorking() bool {
@@ -232,16 +293,51 @@ func (m *Model) withWorkingRow(rows []string, width int) []string {
 }
 
 func (m *Model) conversationBody(width int) []string {
-	return m.withWorkingRow(m.conversation.wrapped(width), width)
+	return m.withWorkingRow(m.withQuestionCard(m.conversation.wrapped(width), width, m.previewPaneHeight()), width)
 }
 
-func (m *Model) toggleConversation() {
+// withQuestionCard copies rows for the same reason withWorkingRow does: they
+// are the wrapped cache.
+func (m *Model) withQuestionCard(rows []string, width, height int) []string {
+	card := m.previewQuestions(width, height)
+	if len(card) == 0 {
+		return rows
+	}
+	return append(rows[:len(rows):len(rows)], card...)
+}
+
+func (m *Model) toggleConversation() tea.Cmd {
+	if m.mode == modeFocus {
+		if !m.compressedFocus {
+			return nil
+		}
+		// Focused, F3 switches between the conversation and the terminal
+		// itself rather than between the conversation's two densities: the
+		// choice is the focused-view setting, so a deliberate toggle sticks
+		// past this visit. Shells have no conversation to show.
+		sess, ok := m.selected()
+		if !ok || m.isShell(sess.Tool) {
+			return nil
+		}
+		value := focusViewTerminal
+		if m.focusView != focusViewConversation {
+			value = focusViewConversation
+		}
+		m.focusView = value
+		if m.conversation != nil {
+			m.conversation.hovered, m.conversation.dirty = -1, true
+		}
+		return deferStoreWrite(func() error {
+			return m.store.SetSetting(focusViewSetting, value)
+		})
+	}
 	if !m.showsConversation() {
-		return
+		return nil
 	}
 	c := m.conversation
-	c.compact, c.dirty, c.offset = !c.compact, true, 0
+	c.compact, c.dirty, c.offset, c.hovered = !c.compact, true, 0, -1
 	m.sel = focusSelection{}
+	return nil
 }
 
 func (m *Model) conversationToggleLabel() string {
@@ -249,6 +345,15 @@ func (m *Model) conversationToggleLabel() string {
 		return "full view"
 	}
 	return "shorten"
+}
+
+// focusConversationLabel names what F3 reaches for from inside a focused
+// session -- the other side of the focused-view setting.
+func (m *Model) focusConversationLabel() string {
+	if m.focusView == focusViewConversation {
+		return "terminal"
+	}
+	return "conversation"
 }
 
 func (m *Model) scrollConversation(lines int) tea.Cmd {
@@ -259,5 +364,75 @@ func (m *Model) scrollConversation(lines int) tea.Cmd {
 		height = m.pane.box.height
 	}
 	c.offset = min(max(0, c.offset-lines), max(0, len(rows)-height))
+	// Scrolling moves the text under a still pointer, so the hovered group
+	// would no longer sit under it. Drop it until the pointer moves again.
+	if c.hovered != -1 {
+		c.hovered, c.dirty = -1, true
+	}
 	return nil
+}
+
+// updateConversationHover expands the shortened group under the pointer,
+// reporting whether anything changed. Terminal coordinates map onto the
+// same windowed rows the paint used, so the hovered group is the one the
+// operator actually sees there. The newest group is already full and the
+// question card and spinner own no group, so hovering those clears.
+func (m *Model) updateConversationHover(x, y int) bool {
+	c := m.conversation
+	if c == nil {
+		return false
+	}
+	clear := func() bool {
+		if c.hovered != -1 {
+			c.hovered, c.dirty = -1, true
+			return true
+		}
+		return false
+	}
+	if !m.showsConversation() || !c.compact {
+		return clear()
+	}
+	box := m.pane.box
+	if !box.ok || box.width <= 0 || box.height <= 0 ||
+		x < box.x || x >= box.x+box.width || y < box.y || y >= box.y+box.height {
+		return clear()
+	}
+	body := m.conversationBody(box.width)
+	height := box.height
+	if m.mode == modeFocus && c.liveCount > 0 {
+		height = c.liveTop
+		if y-box.y >= height {
+			return clear()
+		}
+	}
+	offset := min(c.offset, max(0, len(body)-height))
+	end := len(body) - offset
+	if m.conversationWorking() {
+		end--
+		height--
+		if y-box.y >= height {
+			return clear()
+		}
+	}
+	start := max(0, end-height)
+	lineIdx := start + (y - box.y)
+	if lineIdx < 0 || lineIdx >= len(body) || lineIdx >= len(c.lines) {
+		return clear()
+	}
+	group := -1
+	for i, s := range c.starts {
+		if s <= lineIdx {
+			group = i
+		} else {
+			break
+		}
+	}
+	if group < 0 || group == len(c.starts)-1 {
+		return clear()
+	}
+	if group == c.hovered {
+		return false
+	}
+	c.hovered, c.dirty = group, true
+	return true
 }

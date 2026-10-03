@@ -784,6 +784,9 @@ type SendResult struct {
 	// told in the sending process so the sender learns it with no board
 	// running. The message is queued and delivered all the same.
 	Handled []extension.OperatorSendResult `json:"handled,omitempty" jsonschema:"what the build's extensions made of an operator's send, each under its extension's id; the message is queued and delivered either way"`
+	// Attestation is the nonce of the relay attestation attached to the
+	// message, set only for a send with relay_question.
+	Attestation string `json:"attestation,omitempty" jsonschema:"nonce of the relay attestation attached to this message: your user's answer, verified in your own transcript, which the child's hook spends once"`
 }
 
 // maxMessageBytes bounds one message. An instruction to another agent is
@@ -1220,7 +1223,9 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 		Digest:  runtime.digest(target, pane, running, delta),
 	}
 	if running {
-		screen.Digest.withQuestions(dialog.Questions(raw, s.asked(target)))
+		if reading, ok := dialog.ReadQuestions(target.Tool, raw, s.asked(target)); ok {
+			screen.Digest.withQuestions(reading.Questions)
+		}
 	}
 	if since != "" && readable {
 		screen.Mode, screen.Output, screen.Degraded = "delta", renderDelta(delta), note

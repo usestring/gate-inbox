@@ -122,12 +122,34 @@ CREATE INDEX tasks_claimable ON tasks (state, created_at)
   10 expires_at                   INTEGER  notnull=1 default=0 pk=0
   index permission_grants_active unique=1 origin=c partial=1 (session_id, kind, value)
 
+=== table relay_attestations
+   0 nonce                        TEXT     notnull=0 default=NULL pk=1
+   1 message_id                   INTEGER  notnull=1 default=NULL pk=0
+   2 target_session               TEXT     notnull=1 default=NULL pk=0
+   3 by_session                   TEXT     notnull=1 default=NULL pk=0
+   4 evidence_tool_use_id         TEXT     notnull=1 default=NULL pk=0
+   5 header                       TEXT     notnull=1 default=NULL pk=0
+   6 question                     TEXT     notnull=1 default=NULL pk=0
+   7 options                      TEXT     notnull=1 default=NULL pk=0
+   8 answer                       TEXT     notnull=1 default=NULL pk=0
+   9 answered_at                  INTEGER  notnull=1 default=NULL pk=0
+  10 created_at                   INTEGER  notnull=1 default=NULL pk=0
+  11 spent_at                     INTEGER  notnull=1 default=0 pk=0
+  12 noted_at                     INTEGER  notnull=1 default=0 pk=0
+  index sqlite_autoindex_relay_attestations_1 unique=1 origin=pk partial=0 (nonce)
+  index sqlite_autoindex_relay_attestations_2 unique=1 origin=u partial=0 (message_id)
+
 === table replace_holds
    0 fresh_id                     TEXT     notnull=0 default=NULL pk=1
    1 old_id                       TEXT     notnull=1 default=NULL pk=0
    2 owner                        TEXT     notnull=1 default=NULL pk=0
    3 created_at                   INTEGER  notnull=1 default=NULL pk=0
   index sqlite_autoindex_replace_holds_1 unique=1 origin=pk partial=0 (fresh_id)
+
+=== table seal_uses
+   0 message_id                   INTEGER  notnull=0 default=NULL pk=1
+   1 session_id                   TEXT     notnull=1 default=NULL pk=0
+   2 used_at                      INTEGER  notnull=1 default=NULL pk=0
 
 === table session_ends
    0 session_id                   TEXT     notnull=0 default=NULL pk=1

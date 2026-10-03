@@ -77,6 +77,10 @@ func (f *fakeSessions) Send(sessionID, targetID, message, subject string, interr
 	return sessioncmd.SendResult{MessageID: 7, QueuePosition: 1, ManagerAwake: true}, f.failWith
 }
 
+func (f *fakeSessions) SendAttested(sessionID, targetID, message, subject string, interrupt bool, question string) (sessioncmd.SendResult, error) {
+	return f.Send(sessionID, targetID, message, subject, interrupt)
+}
+
 func (f *fakeSessions) SendAsHuman(sessionID, targetID, message, subject string, interrupt bool) (sessioncmd.SendResult, error) {
 	f.sentHuman = true
 	return f.Send(sessionID, targetID, message, subject, interrupt)

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/BurntSushi/toml"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
@@ -54,7 +55,7 @@ func TestApplyClaudeAppendsTheDelegationSteering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, claudeSteeringFile)
+	path := filepath.Join(dir, hooks.GeneratedName(claudeSteeringFile, []byte(launchSteering("claude"))))
 	if want := " --append-system-prompt-file " + tmux.ShellQuote(path); !strings.HasSuffix(command, want) {
 		t.Fatalf("command = %q, want it to end with %q", command, want)
 	}
@@ -84,7 +85,7 @@ func TestPreviewClaudeWritesNoSteeringFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(command, filepath.Join(dir, claudeSteeringFile)) {
+	if !strings.Contains(command, filepath.Join(dir, hooks.GeneratedName(claudeSteeringFile, []byte(launchSteering("claude"))))) {
 		t.Fatalf("preview command = %q, want the steering path a launch would carry", command)
 	}
 	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
@@ -115,7 +116,7 @@ func TestApplyCodexCarriesTheSteeringAsDeveloperInstructions(t *testing.T) {
 	if _, err := toml.Decode(override, &parsed); err != nil {
 		t.Fatalf("override %q is not TOML: %v", override, err)
 	}
-	if parsed.DeveloperInstructions != delegationSteering("codex") {
+	if parsed.DeveloperInstructions != launchSteering("codex") {
 		t.Fatalf("developer_instructions = %q, want the codex steering", parsed.DeveloperInstructions)
 	}
 }
@@ -138,5 +139,22 @@ func TestServerSteeringCarriesOpencodeNamingAndDelegation(t *testing.T) {
 		if text, ok := ServerSteering(style); ok || text != "" {
 			t.Fatalf("ServerSteering(%q) = %q, %v; want nothing", style, text, ok)
 		}
+	}
+}
+
+// Every CLI Gate Inbox launches carries the rule that a parent owns its
+// children's dialogs, wherever that CLI reads its standing instructions.
+func TestEveryCLISteeringCarriesTheChildDialogRule(t *testing.T) {
+	for style := range builtinDelegation {
+		text := delegationSteering(style)
+		for _, want := range []string{"Your children's dialogs are yours", "word for word", "answer_session",
+			"relay: true", "Never tell your user to answer at the child's pane"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s steering lacks %q", style, want)
+			}
+		}
+	}
+	if text, _ := ServerSteering("opencode"); !strings.Contains(text, childDialogSteering) {
+		t.Error("OpenCode's server-carried steering lacks the child-dialog rule")
 	}
 }

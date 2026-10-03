@@ -59,7 +59,7 @@ func TestTheFooterNamesTheReboundKey(t *testing.T) {
 // And so does the key map.
 func TestTheKeyMapNamesTheReboundKey(t *testing.T) {
 	m := buildModel(t)
-	m.width, m.height = 200, 60
+	m.width, m.height = 200, 200
 	m.mode = modeHelp
 	writeKeys(t, m, "[list]\nnew_group = [\"alt+g\"]\n")
 	if frame := ansi.Strip(m.frame()); !strings.Contains(frame, keymap.Display("alt+g")) {
@@ -120,16 +120,16 @@ func TestHOpensAndClosesTheKeyMap(t *testing.T) {
 // nobody can see.
 func TestARefusedOverrideIsReportedAndFallsBack(t *testing.T) {
 	m := buildModel(t)
-	writeKeys(t, m, "[list]\nnew_session = [\"ctrl+alt+d\"]\n")
+	writeKeys(t, m, "[list]\nnew_group = [\"±\"]\n")
 	if len(m.keyProblems) == 0 {
-		t.Fatal("binding into the snippets chord was accepted")
+		t.Fatal("binding onto the ± snippet key was accepted")
 	}
-	if got := m.km().Key(keymap.ContextList, keymap.NewSession); got != "n" {
-		t.Fatalf("new_session fell back to %q", got)
+	if got := m.km().Key(keymap.ContextList, keymap.NewGroup); got != "g" {
+		t.Fatalf("new_group fell back to %q", got)
 	}
 	m.mode = modeHelp
 	m.width, m.height = 200, 60
-	if frame := ansi.Strip(m.frame()); !strings.Contains(frame, "snippets file owns") {
+	if frame := ansi.Strip(m.frame()); !strings.Contains(frame, "fires a snippet") {
 		t.Errorf("the key map does not explain the refusal:\n%s", frame)
 	}
 }
@@ -203,7 +203,7 @@ func TestEscDuringACaptureChangesNothing(t *testing.T) {
 	if m.help.capturing {
 		t.Fatal("esc left the capture armed")
 	}
-	if got := m.km().Key(keymap.ContextList, keymap.ShowAllWork); got != "W" {
+	if got := m.km().Key(keymap.ContextList, keymap.ShowAllWork); got != "" {
 		t.Fatalf("esc rebound show_all_work to %q", got)
 	}
 }
@@ -217,7 +217,7 @@ func TestResetPutsABindingBackFromTheKeyMap(t *testing.T) {
 	m.help.query = "show all of a session"
 	m.frame()
 	m.handleHelpKey(runeKey("r"))
-	if got := m.km().Key(keymap.ContextList, keymap.ShowAllWork); got != "W" {
+	if got := m.km().Key(keymap.ContextList, keymap.ShowAllWork); got != "" {
 		t.Fatalf("reset left show_all_work on %q", got)
 	}
 	raw, err := os.ReadFile(keymap.Path(m.configDir()))

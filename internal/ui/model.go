@@ -26,6 +26,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/priority"
+	"github.com/usestring/gate-inbox/internal/promptsnips"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/sessname"
 	"github.com/usestring/gate-inbox/internal/snippets"
@@ -110,12 +111,15 @@ type Model struct {
 	gitDrv *git.Driver
 	engine *status.Engine
 
-	// snips are the operator's canned answers on ctrl+alt keys, read once at
-	// startup; snipErr is why there are none, when the file would not be read.
+	// snips are the operator's canned answers, read once at startup;
+	// snipErr is why there are none, when the file would not be read.
 	snips          snippets.Set
 	snipErr        string
 	jevAutoSuggest bool
+	promptSuggest  bool
+	promptSnipsSeq int
 	autoSuggestSeq int
+	promptSnips    []promptsnips.Snippet
 
 	// keys is the resolved key map: the catalog with the operator's keys.toml
 	// applied, read once at startup for the reason snips are. keyProblems is
@@ -233,6 +237,10 @@ type Model struct {
 	// read off the cursor per row because artifactRows is asked for every
 	// session a rebuild walks and the answer is one comparison.
 	railCursorSess string
+	// commonTool is the CLI most listed sessions run. A compact row names its
+	// CLI only when it is some other one: on a board that is nearly all one
+	// tool, the name on every row is a column that says nothing.
+	commonTool string
 
 	groups         []string
 	groupPaths     map[string]string
@@ -268,6 +276,11 @@ type Model struct {
 	// empty for a session whose pane could not be captured, which leaves the
 	// row with the operator where a missing reading belongs.
 	answerableWait map[string]bool
+	// askQuestions mirrors refreshMsg.askQuestions, and questionCard is the
+	// preview's card drawn from it. See previewquestions.go.
+	askQuestions map[string][]convo.AskQuestion
+	questionCard questionCard
+	screenCard   screenCard
 	// hookless mirrors refreshMsg.hookless: the rows whose status is
 	// pane-derived because nothing is writing their hook file. See
 	// hooklessGlyph for what the row does with it.
@@ -299,6 +312,10 @@ type Model struct {
 	work *worktracker.Tracker
 	// clock is the wall clock, so a test can pin an elapsed-hours gauge.
 	clock func() time.Time
+	// echoClock is the clock a keystroke's chase reads and sleeps on. Nil is
+	// the wall clock; a test sets one so how many looks fit in a budget is a
+	// fact about the chase rather than about how fast the box forks.
+	echoClock chaseClock
 	// convos is what the agent CLIs recorded about their own conversations,
 	// which is where a row's name comes from once one can be attributed to it.
 	// Refresh does file and database I/O and only ever runs inside a command.
@@ -427,6 +444,11 @@ type Model struct {
 	// focusOnEnter mirrors the persisted focus-key setting; the footer
 	// reads it every frame, so it lives here instead of the store.
 	focusOnEnter bool
+	// focusView mirrors the persisted focused-view setting: the live
+	// terminal, or the conversation transcript. The content column reads it
+	// every frame, so it lives here instead of the store. See focusview.go.
+	focusView       string
+	compressedFocus bool
 	// comfortableRows mirrors the persisted list density: entries paint
 	// their meta on a second line instead of alongside the name. Every
 	// rail frame reads it, so it lives here instead of the store.
@@ -468,10 +490,12 @@ type Model struct {
 	newSessionAgent string
 	autoRouting     bool
 	// focusedID is the session focus mode is on or was last on, and
-	// prevFocusID the one before it: the pair l swaps between. See
-	// lastpane.go.
+	// focusHistory the sessions focused before it, newest last: what l
+	// walks back through. prevFocusID is the newest entry, kept for
+	// callers that read one step. See lastpane.go.
 	focusedID         string
 	prevFocusID       string
+	focusHistory      []string
 	previewBodyOffset int
 	cursor            int
 	mode              mode
@@ -773,9 +797,12 @@ type renameTarget struct {
 
 // quickState is the hotkey menu docked under the preview: active across
 // cursor moves, so the target follows the selection. It lists the snippets
-// and takes no text.
+// and takes no text. From inside a focused session it answers that session;
+// fromFocus remembers which, because the cursor it would otherwise follow is
+// not what is on screen there.
 type quickState struct {
 	active             bool
+	fromFocus          bool
 	closeAfterSend     bool
 	suggestions        []string
 	suggestionIdentity string
@@ -804,7 +831,10 @@ type settingsState struct {
 	reopenSessions     string
 	outsidePanes       string
 	experimentalPicker bool
+	experimentalCursor int
 	jevAutoSuggest     bool
+	promptSuggest      bool
+	compressedFocus    bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -876,6 +906,9 @@ type refreshMsg struct {
 	archivedChildren map[string]int
 	searchText       map[string]string
 	answerableWait   map[string]bool
+	// askQuestions is each Claude session's pending AskUserQuestion call,
+	// for a pane standing on a several-question dialog.
+	askQuestions map[string][]convo.AskQuestion
 	// hookless is every session whose agent no longer carries the hook
 	// settings flag, so its status is coming off the pane rather than out of
 	// its status file. Replaced whole each pass like queuedMessages, which is
@@ -1099,12 +1132,14 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	mcpStyles := make(map[string]string, len(cfg.Tools))
 	shellTools := make(map[string]bool, len(cfg.Tools))
 	interruptKeys := make(map[string][]string, len(cfg.Tools))
+	clearInputKeys := make(map[string][]string, len(cfg.Tools))
 	for name, tool := range cfg.Tools {
 		statusSources[name] = tool.StatusSource
 		sessionStores[name] = tool.SessionStore
 		mcpStyles[name] = mcpreg.Style(name, tool.MCP)
 		shellTools[name] = tool.Shell
 		interruptKeys[name] = tool.InterruptKeys
+		clearInputKeys[name] = tool.ClearInputKeys
 	}
 	// A missing git binary only disables what reads a repository's root;
 	// everything else works without it, so the error surfaces on first use.
@@ -1119,7 +1154,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	// force here rather than read off the model on every paint.
 	applyGlyphSet(storedGlyphs(st))
 	model := &Model{
-		conversation:    &conversationView{locator: newHistoryLocator(), compact: true},
+		conversation:    &conversationView{locator: newHistoryLocator(), compact: true, hovered: -1},
 		landingLocator:  newHistoryLocator(),
 		cfg:             cfg,
 		store:           st,
@@ -1136,7 +1171,10 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		collapsed:       loadCollapsed(st),
 		split:           splitState{ratio: loadSplitRatio(st)},
 		focusOnEnter:    storedFocusOnEnter(st),
+		focusView:       storedFocusView(st),
+		compressedFocus: storedCompressedFocus(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
+		promptSuggest:   storedPromptSuggestions(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),
 		sidebar:         storedSidebar(st, cfg.Board.Sidebar),
@@ -1160,6 +1198,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		visible: true,
 	}
 	model.poller.interruptKeys = interruptKeys
+	model.poller.clearInputKeys = clearInputKeys
 	model.poller.staleAfter = cfg.StaleStatusAfter.Duration
 	model.poller.hogWatch = newHogWatch(cfg.Hogs, "", func(msg store.InboxMessage) error {
 		_, _, err := st.Enqueue(msg, store.DefaultInboxLimits)
@@ -1167,6 +1206,9 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	})
 	model.ownPane, model.ownSocket = tmux.OwnPane()
 	model.initDeviceTheme()
+	if layout, err := model.deviceLayout(); err == nil {
+		model.layout = layout
+	}
 	model.loadKeys()
 	model.loadSnippets()
 	model.seedFromStore()
@@ -1357,7 +1399,7 @@ func (m *Model) Init() tea.Cmd {
 	// read any session state, and a first run has none to wait for.
 	m.maybeOpenWelcome()
 	m.syncPollInput()
-	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.autoNameTick(), m.checkTmuxConfig)
+	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips())
 }
 
 // pasteSweepMsg carries the result of one pass over the pastes directory.
@@ -1829,8 +1871,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			SyncTerminalBackground()
 			return m, tea.ClearScreen
 		}
+		wasCompact := m.compactRail()
 		m.width = msg.Width
 		m.height = msg.Height
+		// The tree is built for a rail's width: a compact one keeps the
+		// cursor's work folded, so crossing the threshold reshapes it.
+		if m.compactRail() != wasCompact {
+			m.rebuildRows()
+		}
 		// Re-assert the terminal backdrop: a reattach or a fresh outer
 		// terminal delivers a size message and may carry stale colors.
 		SyncTerminalBackground()
@@ -1892,7 +1940,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.deviceErr != nil {
 			m.errBar.text = msg.deviceErr.Error()
 		}
-		return m, tea.Batch(m.setVisible(visible), m.loadDeviceTheme(msg.device))
+		device := m.themeDevice
+		cmd := tea.Batch(m.setVisible(visible), m.loadDeviceTheme(msg.device))
+		if m.themeDevice != device {
+			cmd = tea.Batch(cmd, m.loadDeviceLayout())
+		}
+		return m, cmd
 
 	case browserOpenMsg:
 		m.handleBrowserOpen(msg)
@@ -2081,6 +2134,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.archivedChildren = msg.archivedChildren
 		m.searchText = msg.searchText
 		m.answerableWait = msg.answerableWait
+		m.askQuestions = msg.askQuestions
 		m.hookless = msg.hookless
 		m.stale = msg.stale
 		m.hogBadges = msg.hogBadges
@@ -2256,7 +2310,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// taking over. Doing it here rather than on every cursor move is
 		// what keeps a held j from reflowing twenty of the operator's
 		// windows on its way past them.
-		return m, tea.Batch(m.resizeSessions(), m.previewCmd(sess, msg.gen, m.procDue()))
+		//
+		// The conversation read rides the same settle for the same reason:
+		// a read per keystroke would fork a stat per row a held key walks
+		// past, and the cursor coming to rest is the row whose turns the
+		// operator is about to read. Until it lands, the last conversation
+		// stands in rather than flashing the empty placeholder. See
+		// conversationRows.
+		return m, tea.Batch(m.resizeSessions(), m.previewCmd(sess, msg.gen, m.procDue()), m.readConversation())
 
 	case cursorBlinkMsg:
 		if msg.gen != m.blinkGen || m.mode != modeFocus {
@@ -2407,6 +2468,23 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case pasteTextMsg:
 		return m.handlePasteTextMsg(msg)
 
+	case promptSnipsLoadedMsg:
+		if !m.promptSuggest || msg.seq != m.promptSnipsSeq {
+			return m, nil
+		}
+		if msg.err != nil {
+			m.errBar.text = "reading prompt history: " + msg.err.Error()
+		} else {
+			m.promptSnips = msg.snips
+		}
+		return m, promptSnipsTick(m.promptSnipsSeq)
+
+	case promptSnipsTickMsg:
+		if msg.seq != m.promptSnipsSeq {
+			return m, nil
+		}
+		return m, m.refreshPromptSnips()
+
 	case attachDoneMsg:
 		// An agent that repainted the terminal background for itself leaves
 		// it on ours; the resume's WindowSizeMsg skips its own sync when the
@@ -2521,6 +2599,14 @@ func (m *Model) clearPreviewState() {
 	m.pane.sgr = false
 	m.pane.history = 0
 	m.pane.cursor = paneCursor{}
+	if m.conversation != nil {
+		// A read in flight for the row just left must not hold the
+		// preload for the row arriving behind it: its answer carries its
+		// own key and is dropped on arrival when the selection has moved
+		// on, so releasing the flag here only ever unblocks the new row.
+		// See readConversation and applyConversation.
+		m.conversation.busy, m.conversation.pendingKey = false, ""
+	}
 }
 
 // trailingEcho is the chase owed to input that reached the pane while another
@@ -2773,8 +2859,14 @@ func (m *Model) buildTree() {
 
 	listed := store.OrderLinkedSessions(m.listedSessions())
 	listedIDs := make(map[string]bool, len(listed))
+	toolCounts := map[string]int{}
+	m.commonTool = ""
 	for _, sess := range listed {
 		listedIDs[sess.ID] = true
+		toolCounts[sess.Tool]++
+		if n, best := toolCounts[sess.Tool], toolCounts[m.commonTool]; n > best || (n == best && sess.Tool < m.commonTool) {
+			m.commonTool = sess.Tool
+		}
 	}
 	byID := make(map[string]store.Session, len(m.sessions))
 	for _, sess := range m.sessions {

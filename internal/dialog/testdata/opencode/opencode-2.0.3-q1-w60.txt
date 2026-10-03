@@ -1,0 +1,45 @@
+   Shell command execution re ? Shell command request: ec +
+
+     Just read the file and report.Contents of /var/tmp/
+     gdx-cx/ext.txt:
+
+     external hello
+
+     Build · MiMo-V2.6-Pro · 33.9s · 22.3 tok/s
+
+  ┃
+  ┃  Call the question tool once with a single question:
+  ┃  header 'Deploy', question 'Which environment should
+  ┃  the next deploy target?', options Staging /
+  ┃  Production / Canary with one-line descriptions.
+  ┃  Report the answer verbatim and stop.
+  ┃
+
+     ┃ Thought: 1.4s
+
+     ┃ Call the question tool once.
+
+     Calling the question tool once, then reporting the
+     answer verbatim.
+
+     → Asked 1 question
+
+  ┃
+  ┃  Questions
+  ┃
+  ┃  Which environment should the next deploy target?
+  ┃
+  ┃  1. Staging
+  ┃     Deploy to the staging environment for pre-
+  ┃     release validation.
+  ┃  2. Production
+  ┃     Deploy to the live production environment
+  ┃     serving real users.
+  ┃  3. Canary
+  ┃     Deploy to a small canary slice of production
+  ┃     for gradual rollout.
+  ┃  4. Type your own answer
+  ┃
+  ┃  ↑↓ select  enter submit  esc dismiss
+  ┃
+

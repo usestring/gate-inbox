@@ -10,6 +10,7 @@ package hooks
 import (
 	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/envname"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
@@ -50,7 +52,9 @@ const EnvExecutable = envname.Executable
 // package for a tool.
 const StatusSourceClaude = "claude-hooks"
 
-const settingsName = "claude-settings.json"
+// settingsStem is the settings file's name before its content stamp; see
+// GeneratedName.
+const settingsStem = "claude-settings"
 
 type Manager struct {
 	dir string
@@ -87,7 +91,35 @@ type hookMatcher struct {
 }
 
 type settingsFile struct {
-	Hooks map[string][]hookMatcher `json:"hooks"`
+	Hooks       map[string][]hookMatcher `json:"hooks"`
+	Permissions *permissionRules         `json:"permissions,omitempty"`
+	Sandbox     *sandboxSettings         `json:"sandbox,omitempty"`
+}
+
+type permissionRules struct {
+	Deny []string `json:"deny"`
+}
+
+type sandboxSettings struct {
+	Filesystem sandboxFilesystem `json:"filesystem"`
+}
+
+type sandboxFilesystem struct {
+	DenyRead []string `json:"denyRead"`
+}
+
+// KeyDirDenials are the settings that keep a managed session away from the
+// sealing keys (parentseal.KeyDir): its sandboxed shell may not read the
+// directory and its Read and Edit tools may not touch it. They only take
+// away: Claude Code merges these lists with the operator's own, so no
+// session loses a rule it had and none gains a permission.
+//
+// Every managed session gets them, not only children: a top-level session
+// holds no key of its own, but the keys it could read are its children's.
+func KeyDirDenials(keyDir string) (*permissionRules, *sandboxSettings) {
+	pattern := "/" + filepath.ToSlash(keyDir) + "/**"
+	return &permissionRules{Deny: []string{"Read(" + pattern + ")", "Edit(" + pattern + ")"}},
+		&sandboxSettings{Filesystem: sandboxFilesystem{DenyRead: []string{keyDir}}}
 }
 
 // statusCommand always exits 0 and no-ops outside managed sessions, so
@@ -176,7 +208,7 @@ func stopFailureCommand() string {
 // repository that moved, and a session ending outside a git tree is
 // normal, not an error.
 func sessionEndCommand() string {
-	return statusFileVar + `[ -z "$f" ] || rm -f "$f"; ` +
+	return statusFileVar + `[ -z "$f" ] || rm -f "$f" "$f` + AttestPendingSuffix + `"; ` +
 		`git rev-parse --git-dir >/dev/null 2>&1 && { git worktree prune >/dev/null 2>&1; ` +
 		`git submodule --quiet foreach --recursive 'git worktree prune >/dev/null 2>&1 || true' >/dev/null 2>&1; }; ` +
 		`exit 0`
@@ -191,17 +223,43 @@ func sessionEndCommand() string {
 // 0 so a fault here never blocks the child.
 func askAnsweredCommand() string { return hookCommandLine("ask-answered") }
 
+// askPendingCommand saves the AskUserQuestion call a dialog is about to
+// show (sessioncmd.AskPendingHook). Claude Code 2.1.286 writes the call to
+// its transcript only once it is answered, so without this nothing outside
+// the child can read the questions, options and previews while the dialog
+// stands. It writes its own file, so running beside the "*" status writer
+// races on nothing, and it always exits 0.
+func askPendingCommand() string { return hookCommandLine("ask-pending") }
+
 // sessionStartCommand tells a spawned child how to ask for its user's
 // approval (sessioncmd.SessionStartHook). compact is matched too, so the
 // note survives a compaction.
 func sessionStartCommand() string { return hookCommandLine("session-start") }
+
+// promptSubmitCommand checks the seal on a message Gate Inbox typed into the
+// session and tells it who the message is from (sessioncmd.PromptSubmitHook).
+// It is synchronous, since the note has to land with the prompt.
+func promptSubmitCommand() string { return hookCommandLine("prompt-submit") }
+
+// AttestPendingSuffix names the flag file beside a session's status file that
+// says a relay attestation is waiting to reach its auto-mode classifier.
+const AttestPendingSuffix = ".attest"
+
+// attestNoteCommand hands a spent relay attestation to the auto-mode
+// classifier as classifierContext on the next tool result
+// (sessioncmd.AttestNoteHook). The flag test is shell, so the tool calls with
+// nothing to say, which is nearly all of them, start no process.
+func attestNoteCommand() string {
+	return statusFileVar + `[ -z "$f" ] || [ ! -f "$f` + AttestPendingSuffix + `" ] || { [ -z "$` + EnvExecutable +
+		`" ] || [ -z "$` + EnvSessionID + `" ] || "$` + EnvExecutable + `" hook attest-note 2>/dev/null; }; exit 0`
+}
 
 func hookCommandLine(verb string) string {
 	return statusFileVar + `[ -z "$f" ] || { [ -z "$` + EnvExecutable + `" ] || [ -z "$` + EnvSessionID +
 		`" ] || "$` + EnvExecutable + `" hook ` + verb + ` 2>/dev/null; }; exit 0`
 }
 
-func settingsContent() ([]byte, error) {
+func settingsContent(keyDir string) ([]byte, error) {
 	run := func(matcher, command string) []hookMatcher {
 		return []hookMatcher{{Matcher: matcher, Hooks: []hookCommand{{Type: "command", Command: command}}}}
 	}
@@ -209,10 +267,12 @@ func settingsContent() ([]byte, error) {
 		return run(matcher, statusCommand(state, event))
 	}
 	content := settingsFile{Hooks: map[string][]hookMatcher{
-		"UserPromptSubmit": report("UserPromptSubmit", "", status.Working),
-		"PreToolUse":       run("*", preToolUseCommand()),
+		"UserPromptSubmit": append(report("UserPromptSubmit", "", status.Working),
+			run("", promptSubmitCommand())...),
+		"PreToolUse": append(run("*", preToolUseCommand()),
+			run(blockingTool, askPendingCommand())...),
 		"PostToolUse": append(report("PostToolUse", "*", status.Working),
-			run(blockingTool, askAnsweredCommand())...),
+			append(run(blockingTool, askAnsweredCommand()), run("*", attestNoteCommand())...)...),
 		"Notification": report("Notification", blockingNotifications, status.Waiting),
 		"Stop":         report("Stop", "", status.Finished),
 		"StopFailure":  run("", stopFailureCommand()),
@@ -224,6 +284,7 @@ func settingsContent() ([]byte, error) {
 			Command: sessionEndCommand(),
 		}}}},
 	}}
+	content.Permissions, content.Sandbox = KeyDirDenials(keyDir)
 	return json.MarshalIndent(content, "", "  ")
 }
 
@@ -277,8 +338,61 @@ func recordWrite(name string, started time.Time, id string, err error) {
 	tracing.Record(name, started, time.Now(), err, attrs...)
 }
 
-// EnsureSettings writes the hook settings file, refreshing it when the
-// wanted content changed (e.g. after an upgrade), and returns its path.
+// GeneratedName stamps name with its content, so every build's generated
+// file has a path of its own: "claude-settings.json" holding some bytes is
+// "claude-settings-<12 hex>.json".
+//
+// The files these names belong to are shared by the whole board, and more
+// than the board writes them: every process that launches a session -- the
+// CLI and each session's MCP server as well -- writes what its own build
+// generates before the launch reads it. An MCP server is pinned to the build
+// that started it for the life of its session, weeks across many board
+// restarts, and revives, migrates and account switches in its own process, so
+// under one fixed name an old server put its old hooks and steering back, and
+// a current launch reading in that moment started without the current ones.
+// Under a stamped name each build writes and reads only its own bytes, and an
+// old build can only ever touch its own file.
+func GeneratedName(name string, content []byte) string {
+	sum := sha256.Sum256(content)
+	ext := filepath.Ext(name)
+	return strings.TrimSuffix(name, ext) + "-" + hex.EncodeToString(sum[:6]) + ext
+}
+
+// WriteGenerated puts content at dir/GeneratedName(name, content) and returns
+// that path. The name is the content's, so a file already there holds the
+// same bytes and is left alone; a new one is written beside it and renamed
+// into place, so a launch reading it never sees part of a write.
+func WriteGenerated(dir, name string, content []byte) (string, error) {
+	path := filepath.Join(dir, GeneratedName(name, content))
+	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, content) {
+		return path, nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	tmp, err := os.CreateTemp(dir, ".gen-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(content); err != nil {
+		tmp.Close()
+		return "", err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// EnsureSettings writes this build's hook settings file and returns its path.
 func (m *Manager) EnsureSettings() (settings string, err error) {
 	// Every launch waits on this, and a session cannot report its own status
 	// until the file it writes through exists.
@@ -286,32 +400,31 @@ func (m *Manager) EnsureSettings() (settings string, err error) {
 		started := time.Now()
 		defer func() { recordWrite("hooks.settings", started, "", err) }()
 	}
-	if err := os.MkdirAll(m.dir, 0o755); err != nil {
-		return "", err
-	}
-	wanted, err := settingsContent()
+	wanted, err := settingsContent(parentseal.KeyDir(m.root))
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(m.dir, settingsName)
-	existing, err := os.ReadFile(path)
-	if err == nil && bytes.Equal(existing, wanted) {
-		return path, nil
-	}
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return "", err
-	}
-	if err := os.WriteFile(path, wanted, 0o644); err != nil {
-		return "", err
-	}
-	return path, nil
+	return WriteGenerated(m.dir, settingsStem+".json", wanted)
 }
 
 // SettingsPath is where EnsureSettings would write, without writing it. A dry
 // run needs the path the command line will carry; ensuring the file is a side
 // effect it must not have.
 func (m *Manager) SettingsPath() string {
-	return filepath.Join(m.dir, settingsName)
+	wanted, err := settingsContent(parentseal.KeyDir(m.root))
+	if err != nil {
+		return filepath.Join(m.dir, settingsStem+".json")
+	}
+	return filepath.Join(m.dir, GeneratedName(settingsStem+".json", wanted))
+}
+
+// SettingsArgvMark is what the poller looks for in a running process's argv:
+// the flag and the settings file's path up to its content stamp. A session
+// launched by any build carries it -- one from before the stamp, with the
+// bare claude-settings.json, included -- so a release does not report the
+// board's existing sessions unwired.
+func (m *Manager) SettingsArgvMark() string {
+	return SettingsArgv(filepath.Join(m.dir, settingsStem))
 }
 
 // SettingsArgv is how the settings file appears on a launched session's
@@ -543,6 +656,12 @@ func (m *Manager) RemoveExit(id string) error {
 
 func (m *Manager) Remove(id string) error {
 	return removeIfExists(m.StatusFile(id))
+}
+
+// PendingAskFile is where the ask-pending hook keeps the AskUserQuestion
+// call a session's dialog is showing (convo.PendingAskFile).
+func (m *Manager) PendingAskFile(id string) string {
+	return filepath.Join(m.dir, id+".ask.json")
 }
 
 // NameFile is the mailbox the rename subcommand writes a session's

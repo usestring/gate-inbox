@@ -6,8 +6,8 @@ import "github.com/usestring/gate-inbox/internal/snippets"
 // session in front of the operator, and submits unless AutoSubmit is false. Options.SnippetDefaults is a
 // list of them.
 type Snippet struct {
-	// Key is the bare key: a single letter a-z, bound under ctrl+alt, or one
-	// of the two keys that bind outside that chord, § and ±.
+	// Key is the menu key: a single letter a-z, or one of the two keys on
+	// the physical key left of 1, § and ±.
 	Key string
 	// Label is what the board calls the snippet. Empty falls back to Text.
 	Label string

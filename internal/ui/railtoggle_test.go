@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
 // The whole feature from the list: one press puts the rail away and the
@@ -16,6 +17,7 @@ func TestRailToggleKeyHidesAndRestoresTheSplit(t *testing.T) {
 	createSession(t, m, "railtoggle", t.TempDir(), "")
 	m.selectSessionRow(t, "railtoggle")
 	m.width, m.height = 120, 40
+	bindTestKey(t, m, keymap.ToggleRail, `\`)
 
 	updated, _ := m.handleKey(key(`\`))
 	*m = *updated.(*Model)
@@ -25,7 +27,7 @@ func TestRailToggleKeyHidesAndRestoresTheSplit(t *testing.T) {
 	if _, right := m.splitWidths(); right != 0 {
 		t.Errorf("the preview column kept %d cells with the rail toggled away", right)
 	}
-	if got := storedLayout(m.store); got != layoutBoard {
+	if got, _ := m.deviceLayout(); got != layoutBoard {
 		t.Errorf("stored layout %q, want %q", got, layoutBoard)
 	}
 
@@ -37,7 +39,7 @@ func TestRailToggleKeyHidesAndRestoresTheSplit(t *testing.T) {
 	if _, right := m.splitWidths(); right == 0 {
 		t.Errorf("the preview column did not come back on a %d-wide terminal", m.width)
 	}
-	if got := storedLayout(m.store); got != layoutAuto {
+	if got, _ := m.deviceLayout(); got != layoutAuto {
 		t.Errorf("stored layout %q, want %q", got, layoutAuto)
 	}
 }

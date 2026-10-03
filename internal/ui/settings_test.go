@@ -224,7 +224,7 @@ func TestSettingsReloadsEditedSnippetsWhenItCloses(t *testing.T) {
 
 	updated, _ := m.handleSettingsKey(key("esc"))
 	m = updated.(*Model)
-	loaded, ok := m.snippetFor("ctrl+alt+d")
+	loaded, ok := m.menuSnippetFor("d")
 	if !ok || loaded.Text != "ship it now" {
 		t.Fatalf("edited snippet was not reloaded: %+v, found=%v", loaded, ok)
 	}
@@ -288,5 +288,42 @@ func TestSettingsKeysRowOpensKeyMap(t *testing.T) {
 	m = updated.(*Model)
 	if m.mode != modeSettings {
 		t.Fatalf("leaving the key map left mode %v, want settings", m.mode)
+	}
+}
+
+func TestSettingsCompressedFocusIsDefaultOffAndPersists(t *testing.T) {
+	m := buildModel(t)
+	if storedCompressedFocus(m.store) || storedFocusView(m.store) != focusViewTerminal {
+		t.Fatal("compressed focus must default off")
+	}
+	m.openSettings()
+	if strings.Contains(ansi.Strip(m.viewSettings()), "focused view") {
+		t.Fatal("focused view should only be offered as an experiment")
+	}
+	m.settings.field = settingsFieldExperimental
+	m.handleSettingsKey(key("enter"))
+	m.handleSettingsKey(key("up"))
+	if m.settings.experimentalCursor != 2 {
+		t.Fatal("up should wrap to compressed focus")
+	}
+	if card := ansi.Strip(m.viewSettings()); !strings.Contains(card, "Compressed focus view") || !strings.Contains(card, "mirroring is experimental") {
+		t.Fatalf("experiment is missing its description: %s", card)
+	}
+	m.handleSettingsKey(key("right"))
+	m.handleSettingsKey(key("esc"))
+	m.handleSettingsKey(key("esc"))
+	if !m.compressedFocus || !storedCompressedFocus(m.store) || storedFocusView(m.store) != focusViewConversation {
+		t.Fatal("opt-in did not persist or show the conversation")
+	}
+	m.openSettings()
+	m.settings.field = settingsFieldExperimental
+	m.handleSettingsKey(key("enter"))
+	m.handleSettingsKey(key("down"))
+	m.handleSettingsKey(key("down"))
+	m.handleSettingsKey(key("enter"))
+	m.handleSettingsKey(key("esc"))
+	m.handleSettingsKey(key("esc"))
+	if m.compressedFocus || storedCompressedFocus(m.store) || m.focusView != focusViewTerminal || storedFocusView(m.store) != focusViewTerminal {
+		t.Fatal("disabling did not restore the terminal")
 	}
 }

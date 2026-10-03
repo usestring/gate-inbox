@@ -20,10 +20,9 @@ import (
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
-// The name sweep asks adopted agents to name themselves. It is the one thing
-// in the manager that types into panes it did not start, in bulk, so it is
-// opt-in, it shows its whole target list before it sends a keystroke, and it
-// re-asks both gates at the door. Nothing here runs on a timer.
+// The manual name sweep asks adopted agents to name themselves in bulk. It
+// shows its whole target list before sending a keystroke and re-asks both
+// gates at the door. Nothing here runs on a timer.
 
 type nameSweepState struct {
 	plan     namesweep.Plan

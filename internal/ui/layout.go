@@ -15,8 +15,10 @@ import (
 
 const (
 	// layoutSetting stores the operator's override: "auto" measures the
-	// terminal, "desktop" never tightens, "mobile" always does, "board"
-	// gives the whole width to the list.
+	// terminal, "desktop" never tightens, "mobile" always does and keeps one
+	// panel at any width, "board" gives the whole width to the list. Each
+	// device keeps its own under layoutSetting + ":" + device; see
+	// layoutSettingKey.
 	layoutSetting = "layout"
 	layoutAuto    = "auto"
 	layoutDesktop = "desktop"
@@ -44,6 +46,10 @@ const (
 	// standing; under it the dock drops to one line, and under railListMin
 	// it goes entirely.
 	dockFullMinList = 8
+	// compactRailWidth is the widest rail that still lays its rows out for a
+	// phone. Under it a row's tree guides, CLI name, status word and "ago"
+	// cost more of the name than they say.
+	compactRailWidth = 64
 )
 
 // layoutModes is the setting's cycle order.
@@ -68,6 +74,43 @@ func normalizeLayout(chosen string) string {
 	return layoutAuto
 }
 
+// layoutSettingKey is where this device's layout is stored. The layout is a
+// device's answer to its own screen, like the theme: one board is attached
+// from a desk and from a phone, and "mobile" chosen on the phone must not
+// fold the desk's frame to one panel.
+func (m *Model) layoutSettingKey() string {
+	return m.deviceSettingKey(layoutSetting)
+}
+
+// deviceLayout reads the current device's layout, or the shared one when the
+// device has not chosen its own.
+func (m *Model) deviceLayout() (string, error) {
+	chosen, err := m.store.Setting(m.layoutSettingKey())
+	if err == nil && chosen == "" {
+		chosen, err = m.store.Setting(layoutSetting)
+	}
+	return normalizeLayout(chosen), err
+}
+
+// loadDeviceLayout switches to the layout of the device now attached. The
+// panels it moves are the pane's, so tmux is told the box moved.
+func (m *Model) loadDeviceLayout() tea.Cmd {
+	layout, err := m.deviceLayout()
+	if err != nil {
+		m.errBar.text = "reading device layout: " + err.Error()
+		return nil
+	}
+	if m.mode == modeSettings {
+		m.settings.layout = layout
+	}
+	if layout == m.layout {
+		return nil
+	}
+	m.layout = layout
+	m.lastFrame = ""
+	return m.resizeSessions()
+}
+
 // toggleRail hides the list beside the pane, or brings back the layout it
 // was hidden from. It is the layout setting's "board" under a key, and it
 // reads the same way toggleChrome does one panel down: the same persisted
@@ -86,7 +129,7 @@ func (m *Model) toggleRail() tea.Cmd {
 		m.layoutShown = m.layout
 		m.layout = layoutBoard
 	}
-	if err := m.store.SetSetting(layoutSetting, m.layout); err != nil {
+	if err := m.store.SetSetting(m.layoutSettingKey(), m.layout); err != nil {
 		m.errBar.text = err.Error()
 	}
 	// The columns the rail gives up are the pane's, so tmux has to be told
@@ -125,6 +168,27 @@ func (m *Model) short() bool {
 // two-line entries on a twelve-row phone screen leave room for three.
 func (m *Model) stackedRows() bool {
 	return m.comfortableRows && !m.short()
+}
+
+// railWidth is the columns the sessions rail paints into: the left share of
+// a split, or the whole terminal less its edge column when there is one panel.
+func (m *Model) railWidth() int {
+	left, right := m.splitWidths()
+	if right == 0 {
+		return m.width - 1
+	}
+	return left - 1
+}
+
+// compactRail reports whether rows are laid out for a phone held upright: a
+// tight frame whose rail is narrow. There the tree indents one column a
+// level, the cursor's row is a band rather than a box, a row says its state
+// with the glyph alone when the word would cut the name, and the work under
+// the cursor stays folded into the row's badge rather than taking rows of
+// its own. Width alone does not make it so: a narrow rail beside a pane on a
+// tall desktop terminal is a layout chosen on purpose, with rows to spare.
+func (m *Model) compactRail() bool {
+	return m.width > 0 && m.tight() && m.railWidth() < compactRailWidth
 }
 
 // legendRows is the footer's height budget for this terminal: the full
@@ -180,6 +244,18 @@ func dockTierFor(height, fullLines int) dockTier {
 	return dockNone
 }
 
+// dockTier is dockTierFor on this terminal. A short one never docks the full
+// block: with the keyboard up the rows it spends on gauges and the selected
+// session's facts are most of the list, and the one-line reading answers the
+// question the dock is there for.
+func (m *Model) dockTier(height, fullLines int) dockTier {
+	tier := dockTierFor(height, fullLines)
+	if tier == dockFull && m.short() {
+		return dockBrief
+	}
+	return tier
+}
+
 // dockShown reports whether any machine dock is on screen, which is what
 // decides whether the header carries the cpu and memory reading instead. A
 // one-panel terminal in focus mode draws no rail, so no dock. The meters are
@@ -193,7 +269,7 @@ func (m *Model) dockShown() bool {
 		}
 		railWidth = m.width - 1
 	}
-	return dockTierFor(m.listBodyHeight(), len(m.computerLines(railWidth))) != dockNone
+	return m.dockTier(m.listBodyHeight(), len(m.computerLines(railWidth))) != dockNone
 }
 
 // The chrome setting is the operator's answer to a frame that spends rows

@@ -341,21 +341,28 @@ func (m *Model) keyScrollFocus(kind focusScrollKind) tea.Cmd {
 		whole = len(m.conversationBody(m.previewPaneWidth()))
 	}
 	var lines int
+	delta := 1
 	switch kind {
 	case focusScrollUp:
 		lines = -focusScrollStep
+		delta = -1
 	case focusScrollDown:
 		lines = focusScrollStep
 	case focusScrollPageUp:
 		lines = -max(1, rows-1)
+		delta = -1
 	case focusScrollPageDown:
 		lines = max(1, rows-1)
 	case focusScrollTop:
 		lines = -whole
+		delta = -1
 	case focusScrollBottom:
 		lines = whole
 	}
 	if m.showsConversation() {
+		if cmd, chained := m.chainConversationScroll(lines, delta); chained {
+			return cmd
+		}
 		return m.scrollConversation(lines)
 	}
 	if m.pane.mouse {
@@ -366,7 +373,65 @@ func (m *Model) keyScrollFocus(kind focusScrollKind) tea.Cmd {
 		notches := max(1, abs(lines)/focusScrollStep)
 		return m.forwardWheel(lines < 0, box.height/2, box.width/2, notches)
 	}
+	if cmd, chained := m.chainPaneScroll(lines, delta); chained {
+		return cmd
+	}
 	return m.scrollFocusLines(lines)
+}
+
+func (m *Model) chainConversationScroll(lines, delta int) (tea.Cmd, bool) {
+	if m.triage || m.mode != modeList || m.conversation == nil {
+		return nil, false
+	}
+	body := m.conversationBody(m.previewPaneWidth())
+	height := m.previewPaneHeight()
+	if m.pane.box.ok {
+		height = m.pane.box.height
+	}
+	maxOff := max(0, len(body)-height)
+	if maxOff == 0 {
+		return nil, false
+	}
+	atEdge := (lines < 0 && m.conversation.offset >= maxOff) ||
+		(lines > 0 && m.conversation.offset <= 0)
+	if !atEdge {
+		return nil, false
+	}
+	return m.moveCursor(delta), true
+}
+
+func (m *Model) chainPaneScroll(lines, delta int) (tea.Cmd, bool) {
+	if m.triage {
+		return nil, false
+	}
+	if lines == 0 {
+		return nil, false
+	}
+	if lines > 0 {
+		if m.focusScroll > 0 {
+			return nil, false
+		}
+	} else {
+		sess, ok := m.selected()
+		if ok && (m.pane.forID != sess.ID || m.focusScroll < m.pane.history) {
+			return nil, false
+		}
+	}
+	if m.mode == modeList {
+		return m.moveCursor(delta), true
+	}
+	if m.stepCursor(m.cursor, delta) == m.cursor {
+		return nil, true
+	}
+	leave := m.leaveFocus()
+	move := m.moveCursor(delta)
+	if leave == nil {
+		return move, true
+	}
+	if move == nil {
+		return leave, true
+	}
+	return tea.Batch(leave, move), true
 }
 
 func abs(n int) int {

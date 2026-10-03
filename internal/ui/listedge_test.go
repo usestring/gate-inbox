@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
 func homeKey() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyHome} }
@@ -39,6 +40,8 @@ func nonArtifactsBelow(m *Model) int {
 // which is what a held j on eighty-odd sessions is too slow to be.
 func TestHomeAndEndJumpToTheEndsOfTheList(t *testing.T) {
 	m := undecidedFleet(t, fleetSize, 120, 40)
+	bindTestKey(t, m, keymap.CursorTop, "home")
+	bindTestKey(t, m, keymap.CursorBottom, "end")
 	m.cursor = len(m.rows) / 2
 	m.rebuildRows()
 
@@ -91,6 +94,7 @@ func rowLabel(m *Model, row treeRow) string {
 // it already is, is not a move, and an empty list has no end to go to.
 func TestJumpToAnEndIsIdempotentAndSafeWhenEmpty(t *testing.T) {
 	m := undecidedFleet(t, fleetSize, 120, 40)
+	bindTestKey(t, m, keymap.CursorBottom, "end")
 
 	m.handleKey(endKey())
 	bottom := m.cursor
@@ -114,6 +118,7 @@ func TestJumpToAnEndIsIdempotentAndSafeWhenEmpty(t *testing.T) {
 // on an artifact, and the jump has the same rule.
 func TestEndStopsAboveTheWorkThatEndsTheTree(t *testing.T) {
 	m := undecidedFleet(t, fleetSize, 120, 40)
+	bindTestKey(t, m, keymap.CursorBottom, "end")
 	sess := firstWorkingSession(t, m)
 	m.search = sess.Name
 	m.rebuildRows()
@@ -155,6 +160,7 @@ func TestAnArtifactRowAnswersTheJumpKeys(t *testing.T) {
 	m.cursor = index
 	m.errBar.text = ""
 
+	bindTestKey(t, m, keymap.CursorBottom, "end")
 	m.handleKey(endKey())
 	if m.errBar.text != "" {
 		t.Fatalf("end on an artifact row was refused: %q", m.errBar.text)

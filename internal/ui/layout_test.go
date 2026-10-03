@@ -78,7 +78,7 @@ func TestHelpWrapsRatherThanTruncating(t *testing.T) {
 	m := layoutModel(40, 40)
 	m.mode = modeHelp
 	frame := ansi.Strip(m.frame())
-	for _, word := range []string{"focus the session:", "screen", "group"} {
+	for _, word := range []string{"focus the session:", "screen", "priority"} {
 		if !strings.Contains(frame, word) {
 			t.Errorf("help lost %q to truncation:\n%s", word, frame)
 		}

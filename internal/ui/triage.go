@@ -398,7 +398,7 @@ func (m *Model) toggleTriage() tea.Cmd {
 }
 
 // raisedTiers are the tiers that claim a pass of their own, highest first.
-var raisedTiers = []priority.Tier{priority.Urgent, priority.High}
+var raisedTiers = []priority.Tier{priority.Urgent, priority.High, priority.Medium}
 
 // nextTriageInput is the row index of the next session needing a person,
 // starting after leftID in triage order and wrapping past the end.
@@ -413,9 +413,9 @@ var raisedTiers = []priority.Tier{priority.Urgent, priority.High}
 // left -- killed or archived while focused -- scans from the top rather
 // than stranding the advance on a missing anchor.
 //
-// The walk is a pass per tier above the middle over the same ring -- urgent
-// then high -- for the sessions that need a person, then a catch-all for the
-// rest that do, then the same three passes over the idle ones. An idle
+// The walk is a pass per tier above the middle over the same ring -- urgent,
+// high, then medium -- for the sessions that need a person, then a catch-all
+// for the rest that do, then the same passes over the idle ones. An idle
 // session is never handed over ahead of one that is waiting, however the
 // ring happens to be ordered around leftID, and a drain that has answered
 // everything carries straight on into the idle sessions rather than dropping
@@ -426,9 +426,9 @@ var raisedTiers = []priority.Tier{priority.Urgent, priority.High}
 // need somebody while the drain was further down would otherwise wait for
 // the ring to wrap, which is the one thing tiering it was meant to prevent.
 // A raised pass takes only the sessions in the most pressing state left in
-// its bucket, the way the rail ranks the tier under the state. Medium and
-// Low need no pass of their own -- the ring is walked in rail order, which
-// already has them sorted, and a tier at or below the middle is not a claim
+// its bucket, the way the rail ranks the tier under the state. Neutral and
+// negative tiers need no pass of their own -- the ring is walked in rail
+// order, which already has them sorted, and a tier at or below the middle is not a claim
 // on jumping the rotation.
 func (m *Model) nextTriageInput(leftID string, tried map[string]bool) (int, bool) {
 	start := -1
@@ -615,7 +615,7 @@ func (m *Model) moveOnFromClosedFocus() tea.Cmd {
 			m.cursor = i
 			m.clearPreviewState()
 			m.previewGen++
-			return m.schedulePreview()
+			return tea.Batch(m.schedulePreview(), m.readConversation())
 		}
 	}
 	return nil

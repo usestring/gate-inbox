@@ -51,6 +51,9 @@ type messageContext struct {
 	// FromSpawner is set when the sender is the session that spawned the
 	// recipient: its instruction is the recipient's task.
 	FromSpawner bool
+	// Sealable is set for a message from another agent session, which Gate
+	// Inbox seals so the recipient's hook can say who sent it.
+	Sealable bool
 }
 
 // inboxContextScan is how far back the two context reads look. A recipient's
@@ -89,7 +92,8 @@ func (p *poller) messageContext(sess store.Session, msg store.InboxMessage, now 
 	}
 	ctx.LastSentToSender = p.lastSentTo(msg.SenderID, sess.ID)
 	ctx.NewerQueued = p.newerQueuedFrom(sess.ID, msg)
-	ctx.FromSpawner = store.SpawnerOf(sess) == msg.SenderID
+	ctx.FromSpawner = store.TrackerOf(sess) == msg.SenderID
+	ctx.Sealable = true
 	return ctx
 }
 

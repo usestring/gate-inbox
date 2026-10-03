@@ -3,7 +3,11 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
+	"time"
 
+	"github.com/usestring/gate-inbox/internal/envname"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
@@ -14,21 +18,61 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 	if len(args) != 1 {
 		return nil
 	}
-	if args[0] == "session-start" {
+	switch args[0] {
+	case "session-start":
 		if note := sessioncmd.SessionStartHook(configDir, sessionID); note != "" {
 			fmt.Fprintln(out, note)
 		}
-		return nil
-	}
-	if args[0] != "ask-answered" {
-		return nil
-	}
-	payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
-	if err != nil {
-		return nil
-	}
-	if note := sessioncmd.AskAnsweredHook(configDir, sessionID, payload); note != "" {
-		fmt.Fprintln(out, note)
+	case "ask-answered":
+		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
+		if err != nil {
+			return nil
+		}
+		if note := sessioncmd.AskAnsweredHook(configDir, sessionID, payload); note != "" {
+			fmt.Fprintln(out, note)
+		}
+	case "ask-pending":
+		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
+		if err != nil {
+			return nil
+		}
+		sessioncmd.AskPendingHook(configDir, sessionID, payload)
+	case "prompt-submit":
+		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
+		if err != nil {
+			return nil
+		}
+		note, attested := sessioncmd.PromptSubmitHook(configDir, sessionID, payload, time.Now())
+		if attested {
+			if flag := attestFlag(); flag != "" {
+				_ = os.WriteFile(flag, nil, 0o600)
+			}
+		}
+		if note != "" {
+			fmt.Fprintln(out, note)
+		}
+	case "attest-note":
+		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
+		if err != nil {
+			return nil
+		}
+		note, done := sessioncmd.AttestNoteHook(configDir, sessionID, payload, time.Now())
+		if done {
+			if flag := attestFlag(); flag != "" {
+				_ = os.Remove(flag)
+			}
+		}
+		if note != "" {
+			fmt.Fprintln(out, note)
+		}
 	}
 	return nil
+}
+
+func attestFlag() string {
+	status := os.Getenv(envname.StatusFile)
+	if status == "" {
+		return ""
+	}
+	return status + hooks.AttestPendingSuffix
 }

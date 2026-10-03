@@ -61,9 +61,13 @@ func TestFuzzyLiveSessionsEndToEnd(t *testing.T) {
 				t.Fatal("focused frame does not identify the requested tool")
 			}
 			m.leaveFocusForFixture(t)
-			press(tea.KeyPressMsg{Code: tea.KeyEsc})
+			// esc closes the field and keeps the filter now; deleting the
+			// text is what brings every session back.
+			press(tea.KeyPressMsg{Code: '/', Text: "/"})
+			press(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+			press(tea.KeyPressMsg{Code: tea.KeyEnter})
 			if m.search != "" || len(m.sessionRows()) != 3 {
-				t.Fatalf("Escape did not restore all sessions: %v", sessionNames(m))
+				t.Fatalf("deleting the query did not restore all sessions: %v", sessionNames(m))
 			}
 		})
 	}
@@ -72,7 +76,14 @@ func TestFuzzyLiveSessionsEndToEnd(t *testing.T) {
 		t.Fatal("non-matching query kept a row")
 	}
 	press(tea.KeyPressMsg{Code: tea.KeyEsc})
+	if m.searching || m.search == "" || len(m.sessionRows()) != 0 {
+		t.Fatalf("esc should close the field and keep the filter, got searching=%v query=%q rows=%d",
+			m.searching, m.search, len(m.sessionRows()))
+	}
+	press(tea.KeyPressMsg{Code: '/', Text: "/"})
+	press(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	press(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if len(m.sessionRows()) != 3 {
-		t.Fatal("clearing an empty result did not restore the board")
+		t.Fatal("deleting an empty result did not restore the board")
 	}
 }

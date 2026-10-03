@@ -156,10 +156,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return model, cmd
 	}
 
-	// Snippets are read before the list's own bindings and not inside them:
-	// they live in a chord namespace nothing below claims, so the order costs
-	// nothing, and keeping them out of the switch means a snippet can never
-	// shadow a key the manager documents.
+	// The one snippet key outside the menu is read before the list's own
+	// bindings and not inside them, so it can never shadow a key the
+	// manager documents. Every other snippet answers in the hotkey menu.
 	if snip, ok := m.snippetFor(msg.String()); ok {
 		return m.sendSnippetToSelected(snip)
 	}
@@ -297,8 +296,7 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 	case keymap.LastPane:
 		return m.focusLastPane()
 	case keymap.ToggleConversation:
-		m.toggleConversation()
-		return m, nil
+		return m, m.toggleConversation()
 	case keymap.QuickInput:
 		m.openQuickMode()
 	case keymap.FoldAll:
@@ -402,8 +400,8 @@ var artifactRowActions = map[keymap.Action]bool{
 	keymap.ArchivedView: true, keymap.StatusFilter: true,
 	keymap.EmptyGroups: true, keymap.Triage: true, keymap.ToggleChrome: true,
 	keymap.ToggleRail: true,
-	// LastPane reads the pair it swaps between, not the row under the
-	// cursor, so an artifact row is no reason to swallow it.
+	// LastPane reads the history it walks back through, not the row under
+	// the cursor, so an artifact row is no reason to swallow it.
 	keymap.LastPane: true,
 	keymap.Rescind:  true,
 }
@@ -788,7 +786,7 @@ func (m *Model) afterListFilter(previousKey string) tea.Cmd {
 	m.previewGen++
 	m.syncPollInput()
 	if _, ok := m.selected(); ok {
-		return m.schedulePreview()
+		return tea.Batch(m.schedulePreview(), m.readConversation())
 	}
 	return nil
 }
@@ -817,12 +815,18 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		m.searching = false
 	case "esc":
+		// Close the field and keep the filter: esc used to wipe the
+		// query, so a key meant to back out read as sessions gone
+		// missing. Deleting the text clears it (ctrl+u wipes the field).
 		m.searching = false
-		return m, m.clearSearch()
 	case "backspace":
 		if runes := []rune(m.search); len(runes) > 0 {
 			m.search = string(runes[:len(runes)-1])
 		}
+		m.rebuildRows()
+		return m, m.scheduleHistorySearch()
+	case "ctrl+u":
+		m.search = ""
 		m.rebuildRows()
 		return m, m.scheduleHistorySearch()
 	default:
@@ -835,9 +839,10 @@ func (m *Model) handleSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// clearSearch drops the query and re-lists. A query that outlives its field
-// with no way back is what makes filtered-away sessions read as sessions
-// that are gone, so esc answers from the list as well as from the field.
+// clearSearch drops the query and re-lists. It has no default key: the
+// search field's own deletions (backspace, ctrl+u) are what clear text,
+// and this stays behind quick actions for an applied filter whose field
+// is closed.
 func (m *Model) clearSearch() tea.Cmd {
 	if m.search == "" {
 		return nil

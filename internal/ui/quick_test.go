@@ -17,7 +17,7 @@ import (
 
 const menuText = "carry on with the plan"
 
-// bindMenuSnippet writes a snippets file whose only entry is on ctrl+alt+c.
+// bindMenuSnippet writes a snippets file whose only entry is on c.
 func bindMenuSnippet(t *testing.T, m *Model, text string) {
 	t.Helper()
 	writeSnippets(t, m, []snippets.Snippet{{Key: "c", Label: "carry on", Text: text}})
@@ -141,45 +141,38 @@ func TestHotkeyMenuWithNoSnippetsNamesTheFile(t *testing.T) {
 	}
 }
 
-// In the menu a snippet answers to its bare key, and the chord still works.
-func TestHotkeyMenuBareKeyAndChordBothSend(t *testing.T) {
-	for name, msg := range map[string]tea.KeyPressMsg{
-		"bare":  letter('c'),
-		"chord": {Code: 'c', Mod: tea.ModCtrl | tea.ModAlt},
-	} {
-		t.Run(name, func(t *testing.T) {
-			m := buildModel(t)
-			bindMenuSnippet(t, m, menuText)
-			createSession(t, m, "answer-me", t.TempDir(), "")
-			sess := m.sessionRows()[0]
-			if err := m.store.SetAcked(sess.ID, true); err != nil {
-				t.Fatal(err)
-			}
-			m.selectSessionRow(t, "answer-me")
+// In the menu a snippet answers to its bare key; a chord on the same letter
+// is a different key and does nothing, rather than reaching the pane.
+func TestHotkeyMenuBareKeySendsAndChordDoesNothing(t *testing.T) {
+	m := buildModel(t)
+	bindMenuSnippet(t, m, menuText)
+	createSession(t, m, "answer-me", t.TempDir(), "")
+	sess := m.sessionRows()[0]
+	m.selectSessionRow(t, "answer-me")
 
-			m = pressInMenu(t, m, msg)
-			if !strings.HasPrefix(m.errBar.text, "sent ") {
-				t.Fatalf("errBar = %q, want the send acknowledged", m.errBar.text)
-			}
-			if m.landings[sess.ID] == nil || m.landings[sess.ID].text != menuText {
-				t.Fatalf("landing = %+v, want %q pending", m.landings[sess.ID], menuText)
-			}
-			got, err := m.store.Get(sess.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got.Acked {
-				t.Fatal("a send should clear the acked flag")
-			}
-			if !m.quick.active {
-				t.Fatal("the menu should stay open after a send by default")
-			}
-		})
+	m.openQuickMode()
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl | tea.ModAlt})
+	m = updated.(*Model)
+	if m.landings[sess.ID] != nil {
+		t.Fatalf("a chord in the menu sent %q", m.landings[sess.ID].text)
+	}
+	if !m.quick.active {
+		t.Fatal("a chord closed the menu")
+	}
+
+	m = pressInMenu(t, m, letter('c'))
+	if !strings.HasPrefix(m.errBar.text, "sent ") {
+		t.Fatalf("errBar = %q, want the send acknowledged", m.errBar.text)
+	}
+	if m.landings[sess.ID] == nil || m.landings[sess.ID].text != menuText {
+		t.Fatalf("send = %+v, want %q pending", m.landings[sess.ID], menuText)
+	}
+	if !m.quick.active {
+		t.Fatal("the menu should stay open after a send by default")
 	}
 }
 
-// The two keys off the chord answer bare in the menu too: § without its alt,
-// and ± as it always does.
+// The two keys beside the letters answer bare in the menu too.
 func TestHotkeyMenuSendsTheSectionAndPlusMinusKeys(t *testing.T) {
 	for _, key := range []string{snippets.SectionKey, snippets.PlusMinusKey} {
 		t.Run(key, func(t *testing.T) {
@@ -247,7 +240,7 @@ func TestHotkeyMenuDeadSessionSetsError(t *testing.T) {
 	m.selectSessionRow(t, "gone")
 
 	m = pressInMenu(t, m, letter('c'))
-	if m.errBar.text != "session is dead - press v to revive or R to restart" {
+	if m.errBar.text != "session is dead - press v to revive or restart in quick actions" {
 		t.Fatalf("err = %q", m.errBar.text)
 	}
 	if !m.quick.active {

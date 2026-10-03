@@ -56,6 +56,11 @@ type Tool struct {
 	// the pane, as prompt_mode "send" does, instead of riding the command line.
 	TypedPromptPrefixes []string `toml:"typed_prompt_prefixes"`
 	InterruptKeys       []string `toml:"interrupt_keys"`
+	// ClearInputKeys empty the tool's composer. With them, a draft nobody
+	// is typing into is lifted out of the way of a queued message and typed
+	// back afterwards; without them it holds the queue for as long as it
+	// stands.
+	ClearInputKeys []string `toml:"clear_input_keys"`
 	// EchoBudget bounds the after-keystroke chase on this tool's panes: how
 	// long the focused view keeps looking for the repaint a key caused before
 	// leaving it to the tick. It is per tool because agent TUIs differ by
@@ -569,6 +574,9 @@ func mergeTool(name string, user, def Tool) Tool {
 	if len(user.InterruptKeys) == 0 {
 		user.InterruptKeys = def.InterruptKeys
 	}
+	if len(user.ClearInputKeys) == 0 {
+		user.ClearInputKeys = def.ClearInputKeys
+	}
 	if user.EchoBudget.Duration <= 0 {
 		user.EchoBudget = def.EchoBudget
 	}
@@ -678,6 +686,7 @@ var opencodeDialogSamples = []string{
 	"\u25b3 Permission required",
 	"ctrl+f fullscreen  \u21c6 select  enter confirm",
 	"\u2191\u2193 select  enter submit  esc dismiss",
+	"  \u2503  Questions",
 }
 
 // withAskUserQuestionRules adds the built-in rule for each page of that
@@ -917,6 +926,9 @@ type_ahead = true
 # Escape stops a running turn; a second one opens the rewind menu, so
 # Gate Inbox never sends it twice for one message
 interrupt_keys = ["Escape"]
+# ctrl+l empties the composer (chat:clearInput), so a draft left standing
+# is set aside while a queued message goes in, then typed back
+clear_input_keys = ["C-l"]
 # claude 2.1.263: --model <model>
 model_flag = "--model"
 # Named subscriptions are off: a session runs on claude's own stored login.
@@ -1146,6 +1158,11 @@ rules = [
   # than \s, which would also join an "enter submit" ending one transcript
   # line to an "esc dismiss" opening the next.
   { state = "waiting", pattern = "(?m)^.*\\benter (?:submit|toggle|confirm)[ \\x{A0}]+esc dismiss[ \\x{A0}]*$" },
+  # Under about 60 columns that legend wraps or is laid out in two rows
+  # ("enter confirm esc" over "dismiss"), so the overlay's own title row is
+  # read too: v2 heads the dialog "┃  Questions", and an answered one stays in
+  # the transcript as "# Questions", which this does not match.
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*\\x{2503}[ \\x{A0}]+Questions[ \\x{A0}]*$" },
   { state = "errored", pattern = "(?i)requires more credits" },
   { state = "errored", pattern = "(?im)^\\s*error\\b" },
   # opencode draws no agent row mid-turn; its only spinner is the footer
@@ -1205,6 +1222,11 @@ input_line = "^›"
 # "  done 2:41 AM", "  Worked for 1m 5s · 02:41", "  Sep 3 at 02:41"), with the
 # opt-in runtime metrics after it ("· Local tools: 2 calls (1.2s) • ...").
 turn_end = "(?m)^(?:─+ Worked for [\\dhms. ]+─.*|─{20,}\\s*|  (?:Worked for [\\dhms ]+ · )?(?:done )?(?:[A-Z][a-z]{2} \\d{1,2}(?:, \\d{4})? at )?\\d{1,2}:\\d{2}(?: [AP]M)?(?: · (?:Local tools: |Inference: |WebSocket: |Streams?: |\\d+ events received |Responses API |TTFT: |TBT: )[^\\n]*)?)$"
+# A command codex leaves running in a background terminal outlives the turn,
+# and codex names it on a row under the turn's closing label ("  1:15 AM" over
+# "  1 background terminal running · /ps to view · /stop to close", 0.157).
+# The turn stays working while that row shows.
+busy_line = "^\\s*\\d+ background terminals? running\\b"
 # Codex 0.157 parks right-aligned hint rows (usage warning, tip, scroll and
 # copy notices) between the transcript and the composer.
 chrome_line = '^\s*─*\s*$|^⚠ (?:The \S+ MCP server is not logged in\. Run \x60codex mcp login \S+\x60\.|MCP startup incomplete \(failed: [^)]+\))$|^\s+(?:⚠|↓|Tip: |Copied )'

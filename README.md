@@ -91,6 +91,15 @@ picks them back up.
 **Spawn.** `n` starts a session in the selected group. `ctrl+n` opens the full form (tool, name,
 directory, first prompt, group). Agents name their own sessions after the task.
 
+**Reuse prompts (experimental).** Enable **Prompt suggestions** under Settings → Experimental
+(default off). In the New Session form's prompt field, matching suggestions appear as you type.
+`ctrl+n` / `ctrl+p` choose among them and `ctrl+y` inserts the chosen text for editing;
+accepting does not launch the session. Suggestions come from the newest 16 MiB of each CLI's
+submission log within the past 30 days. A whole prompt or a line in a multi-line prompt must occur
+at least four times to qualify. Counting ignores case and repeated whitespace, and each submission
+counts once per candidate. The logs are reread in the background every minute. History and matching
+stay local; this feature makes no network requests. The hotkey-only snippet menu is unchanged.
+
 **See status.** Every row shows whether its agent is working, waiting on you, finished or idle,
 read from the pane itself. The preview beside the list shows the conversation as **You** and
 **Assistant** messages, without the tool noise. `w` filters the list to what needs attention, and
@@ -123,13 +132,14 @@ selected agent for builds and one-off commands.
 | `enter` | Focus the session; `ctrl+q` returns to the list |
 | `i` | Triage queue; `\` hides the list for a full-width drain |
 | `w` | Show only what needs attention |
-| `/` | Fuzzy search; `esc` clears it |
-| `p` | Priority tier for a session or group; higher tiers go first in triage |
+| `/` | Fuzzy search; `esc` closes the field, deleting the text clears it |
+| `p` | Priority tier for a session or group; each press steps urgent → high → medium → low → none |
 | `T` | Shell tab under the selected agent |
 | `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |
-| `f` | Fork the conversation into a new session |
 | `:` / `ctrl+p` | Quick actions: type what you want, `enter` runs it, and each row shows its key |
 | `h` / `s` | Key map for the current screen / settings |
+
+Priority defaults to 0 with no marker. Positive levels use green `▲`, `▲▲`, and `▲▲▲`; the negative level (-1) uses a red `▼`. Set a level with `gate-inbox priority <level>` using a number from -1 to 3 or its tier name.
 
 Every binding is a default, and `h` is where you rebind one. [`docs/usage.md`](docs/usage.md) is
 the complete reference.
@@ -206,7 +216,7 @@ reason, until its section is fixed.
 
 ```bash
 go build -o gate-inbox .
-CGO_ENABLED=0 go test ./...
+scripts/ci-test.sh       # the test suite exactly as CI runs it
 ```
 
 [`CONTRIBUTING.md`](CONTRIBUTING.md) covers sending a change, and [`SECURITY.md`](SECURITY.md) how

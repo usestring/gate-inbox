@@ -1,0 +1,45 @@
+[2m│ [0mupdate.
+[2m│[0m
+[2m│[0m
+[2m│[0m
+[2m│ [0mSee full release notes:
+[2m│[0m
+[2m│ [0;4m[38;5;75m]8;;https://github.com/openai/codex/releases/latest\https://github.com/openai/codex/[0m]8;;\
+[4m[38;5;75m]8;;https://github.com/openai/codex/releases/latest\releases/latest[0;2m]8;;\ │[0m
+[2m╰───────────────────────────────────────
+──────────╯[0m
+
+[2m╭──────────────────────────────────────╮
+│ >_ [0;1mOpenAI Codex[0;2m (v0.157.0)           │
+│                                      │
+│ model:     [0mGPT-6-Astra low[2m   [0m[38;5;75m/model…[2m[39m │
+│ directory: [0m/tmp/sbox-001000/gdx/work[2m │
+╰──────────────────────────────────────╯
+
+
+[1m› [0mCall the pick_region tool from the
+  probe MCP server once and report its
+  result verbatim, then stop.
+
+
+[2m• [0mI’ll call the probe server’s
+  [38;2;166;227;161mpick_region[39m tool once and report its
+  result verbatim.
+
+[2m◦[0m [1mCalling[0m [38;5;75mprobe.pick_region[39m
+[2m    + Show details
+
+
+[0m  [2mField 1/2 (1 required unanswered)[0m
+  [38;5;75mWhich region should the probe deploy[39m
+  [38;5;75mto?[39m
+
+  [38;5;75mReason[39m
+  [38;5;75mWhy this region[39m
+
+  [1m›[0m [2mType your answer (optional)[0m
+
+  [1menter[0m to submit answer
+  [1mctrl+p / ctrl+n[0m change field
+  [1mesc[0m to cancel
+

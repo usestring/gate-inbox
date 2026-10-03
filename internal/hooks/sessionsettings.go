@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/usestring/gate-inbox/grant"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 )
 
 // A session's own settings file.
@@ -48,12 +49,6 @@ func (m *Manager) LaunchSettingsPath(id string) string {
 	return m.SettingsPath()
 }
 
-// SettingsArgvMark is what any wired session's argv carries, whichever
-// settings file it was launched with.
-func (m *Manager) SettingsArgvMark() string {
-	return SettingsArgv(filepath.Join(m.dir, sessionSettingsPrefix))
-}
-
 // WriteSessionSettings writes id's own settings file: the shared hooks with
 // grants merged in. With no grants it removes the file, and the session goes
 // back to the shared one at its next launch.
@@ -65,7 +60,7 @@ func (m *Manager) WriteSessionSettings(id string, grants []grant.Grant) (string,
 	if len(grants) == 0 {
 		return path, removeIfExists(path)
 	}
-	settings, err := hookSettings()
+	settings, err := m.hookSettings()
 	if err != nil {
 		return "", err
 	}
@@ -93,7 +88,7 @@ func (m *Manager) RefreshSessionSettings(id string) error {
 	if err := json.Unmarshal(raw, &settings); err != nil {
 		return fmt.Errorf("hooks: %s is not JSON: %w", path, err)
 	}
-	fresh, err := hookSettings()
+	fresh, err := m.hookSettings()
 	if err != nil {
 		return err
 	}
@@ -101,8 +96,8 @@ func (m *Manager) RefreshSessionSettings(id string) error {
 	return writeSettings(m.dir, path, settings)
 }
 
-func hookSettings() (map[string]any, error) {
-	content, err := settingsContent()
+func (m *Manager) hookSettings() (map[string]any, error) {
+	content, err := settingsContent(parentseal.KeyDir(m.root))
 	if err != nil {
 		return nil, err
 	}

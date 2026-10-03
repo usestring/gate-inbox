@@ -1,0 +1,45 @@
+   Shell comman ? Shell command reque +
+ ┃  Call the question tool once with a
+ ┃  single question that allows
+ ┃  multiple selections: header
+ ┃  'Checks', question 'Which checks
+ ┃  should CI run?', options Lint /
+ ┃  Unit tests / E2E tests. Report the
+ ┃  answer verbatim and stop.
+ ┃
+
+    ┃ Thought: 1.9s
+
+    ┃ The previous question was
+    ┃ dismissed/aborted. The user now
+    ┃ asks again for a multi-select
+    ┃ question. Let me just call the
+    ┃ question tool once.
+
+    Calling the question tool once with
+    a multi-select question.
+
+    → Asked 1 question
+
+ ┃
+ ┃  Questions
+ ┃
+ ┃  Checks  Submit
+ ┃
+ ┃  Which checks should CI run?
+ ┃
+ ┃  1. [ ] Lint
+ ┃         Run code style and static
+ ┃         analysis checks.
+ ┃  2. [ ] Unit tests
+ ┃         Run fast, isolated unit
+ ┃         test suites.
+ ┃  3. [ ] E2E tests
+ ┃         Run full end-to-end
+ ┃         integration tests.
+ ┃  4. [ ] Type your own answer
+ ┃
+ ┃  ⇆    ↑↓      enter      esc
+ ┃  tab  select  toggle     dismiss
+ ┃
+

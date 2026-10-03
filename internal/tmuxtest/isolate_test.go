@@ -98,3 +98,29 @@ func TestScrubEnvDropsTheInheritedServer(t *testing.T) {
 		t.Errorf("ScrubEnv kept the inherited TMUX_TMPDIR: %v", env)
 	}
 }
+
+// A test run from inside a board's session must not write that session's exit
+// or status file: the live board would report the session as exited.
+func TestScrubEnvDropsTheLiveSession(t *testing.T) {
+	live := []string{
+		"GATE_INBOX_SESSION_ID=abcd1234", "GATE_INBOX_BIN=gate-inbox",
+		"GATE_INBOX_STATUS_FILE=hooks/abcd1234.status",
+		"GATE_INBOX_EXIT_FILE=hooks/abcd1234.exit",
+	}
+	env := ScrubEnv(append(live, "GATE_INBOX_HOME=/scratch", "KEEP=1"))
+	for _, kv := range live {
+		if slices.Contains(env, kv) {
+			t.Errorf("ScrubEnv kept %s", kv)
+		}
+	}
+	for _, want := range []string{"KEEP=1", "GATE_INBOX_HOME=/scratch"} {
+		if !slices.Contains(env, want) {
+			t.Errorf("ScrubEnv dropped %s", want)
+		}
+	}
+	for _, name := range sessionEnv {
+		if _, set := os.LookupEnv(name); set {
+			t.Errorf("%s is still set in the test process", name)
+		}
+	}
+}

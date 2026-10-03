@@ -35,6 +35,7 @@ type glyphSet struct {
 	muted         string
 	deaf          string
 	hookless      string
+	died          string
 	checksPassing string
 	checksFailing string
 	checksPending string
@@ -63,6 +64,7 @@ var shapeGlyphs = glyphSet{
 	muted:         "⊘",
 	deaf:          "⊗",
 	hookless:      "⊙",
+	died:          "↻",
 	checksPassing: "✓",
 	checksFailing: "✕",
 	checksPending: "◔",
@@ -96,6 +98,7 @@ var emojiGlyphs = glyphSet{
 	muted:         "🔕",
 	deaf:          "🔇",
 	hookless:      "🔌",
+	died:          "💥",
 	checksPassing: "✅",
 	checksFailing: "❌",
 	checksPending: "⏳",
@@ -193,6 +196,12 @@ func deafGlyph() string { return currentGlyphs.deaf }
 // than the errored tint ⊗ takes: it is there for the operator who wonders why
 // a row is slower to settle, not a thing to go and fix.
 func hooklessGlyph() string { return currentGlyphs.hookless }
+
+// diedGlyph marks a dead row that stopped while the board was closed without
+// the operator ending it: the rows the startup check found. It is drawn in
+// the errored tint beside the name, where it stays visible on a compact rail
+// that has given up the state word. See diedwhileclosed.go.
+func diedGlyph() string { return currentGlyphs.died }
 
 func checksGlyph(state forge.ChecksState) string {
 	switch state {

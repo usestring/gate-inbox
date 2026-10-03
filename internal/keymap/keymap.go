@@ -40,7 +40,6 @@ const (
 	ContextList      Context = "list"
 	ContextFocus     Context = "focus"
 	ContextNameSweep Context = "name_sweep"
-	ContextRestore   Context = "restore"
 	ContextWelcome   Context = "welcome"
 	ContextConfirm   Context = "confirm"
 )
@@ -48,7 +47,7 @@ const (
 // Contexts is every context in the order the key map lists them.
 var Contexts = []Context{
 	ContextList, ContextFocus,
-	ContextNameSweep, ContextRestore, ContextWelcome, ContextConfirm,
+	ContextNameSweep, ContextWelcome, ContextConfirm,
 }
 
 // Action names what a key does. It is the identifier the operator's file
@@ -270,7 +269,9 @@ func (m *Map) apply(overrides Overrides) []Problem {
 	var problems []Problem
 	m.foreign = Overrides{}
 	for _, ctx := range sortedContexts(overrides) {
-		if !slices.Contains(m.contexts, ctx) {
+		if reason, gone := retiredScreens[ctx]; gone {
+			problems = append(problems, Problem{Context: ctx, Reason: reason})
+		} else if !slices.Contains(m.contexts, ctx) {
 			problems = append(problems, Problem{Context: ctx,
 				Reason: "is not a screen this build has; its bindings are ignored"})
 			m.keepForeign(ctx, overrides[ctx])
@@ -585,6 +586,13 @@ var retired = map[Action]string{
 	"next_choice":         "was removed; the board takes outside panes over itself (settings: outside panes)",
 	"prev_choice":         "was removed; the board takes outside panes over itself (settings: outside panes)",
 	"toggle_gate_input":   "was removed with the gate",
+}
+
+// retiredScreens are screens a key file may still name from an older release.
+// Unlike a screen an extension adds, they are not kept on save: nothing will
+// read them again.
+var retiredScreens = map[Context]string{
+	"restore": "was removed; the board no longer asks at startup: sessions that died are marked in the list, and V revives every dead one",
 }
 
 // retiredOn are actions that left one screen but still work on another, so

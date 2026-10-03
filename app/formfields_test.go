@@ -32,8 +32,8 @@ func TestExternalBuildAddsANewSessionFormField(t *testing.T) {
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })
 	seedSessions(t, filepath.Join(home, "state.db"))
 	skipWelcome(t, filepath.Join(home, "state.db"))
-	// The reopen card would come up over the list on the first pass and
-	// take the keys; "never" settles the seeded dead rows with a notice.
+	// "never" keeps the died-while-closed marks off the seeded dead rows,
+	// so the rows read as they did before the board was closed.
 	setSetting(t, filepath.Join(home, "state.db"), "reopen_sessions", "never")
 	data := filepath.Join(home, "extensions", "noop")
 

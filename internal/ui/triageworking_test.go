@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/usestring/gate-inbox/internal/status"
 )
 
@@ -105,5 +107,22 @@ func TestWorkingTransitionAdvancesOnlyAnAutoProceedingDrain(t *testing.T) {
 				t.Fatalf("focus moved to %q", got)
 			}
 		})
+	}
+}
+
+// A key after the answer that answers nothing says the operator is not done
+// with the session, the way it does for an answer the check is still watching.
+func TestTriageStaysWhenTheOperatorKeepsWorkingAfterTheAnswer(t *testing.T) {
+	m := drainOnDialog(t, true)
+	askID := focusedID(t, m)
+	m = pressEnter(m)
+	logHookEvent(t, m, askID, "waiting Notification")
+	lookForLanding(t, m)
+	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m = updated.(*Model)
+
+	pollReporting(t, m, "ask", status.Working)
+	if got := focusedName(t, m); got != "ask" {
+		t.Fatalf("a session the operator was still working in moved focus to %q", got)
 	}
 }

@@ -20,6 +20,9 @@ concurrency:
 
 env:
   CGO_ENABLED: "0"
+  # The version ubuntu-24.04 ships. A runner image that brings another one
+  # fails the test jobs instead of quietly testing against a different tmux.
+  TMUX_VERSION: "3.4"
   # Panes draw box-drawing characters and a prompt glyph through tmux. Under
   # the C locale tmux renders them as replacement characters and the waits
   # time out.
@@ -28,7 +31,7 @@ env:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -49,18 +52,30 @@ jobs:
         run: go vet ./...
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         if: hashFiles('extension/artifacts/worker/package.json') != ''
+        with:
+          bun-version: 1.4.2
       - name: Test artifacts worker
         if: hashFiles('extension/artifacts/worker/package.json') != ''
         working-directory: extension/artifacts/worker
         run: bun test
 
+  # Run directly rather than through golang/govulncheck-action, which
+  # installs govulncheck@latest and scans with the latest stable Go even when
+  # given go.mod. That let a new govulncheck release change the verdict, and
+  # it scanned a newer standard library than the one this module builds with.
   govulncheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      GOVULNCHECK_VERSION: v1.8.0
     steps:
-      - uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1.1.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          go-package: ./...
+          cache: false
+      - name: Run govulncheck
+        run: go run "golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_VERSION" ./...
 
   # internal/ui is the longest package, and in one `go test ./...` it started
   # last, behind every other package's compile and run. It gets a runner of
@@ -69,7 +84,7 @@ jobs:
   # shard_test.go), and any test selection turns that off.
   test:
     name: test (${{ matrix.shard }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -113,6 +128,10 @@ jobs:
       - name: Verify tmux and scratch space
         run: |
           tmux -V
+          if [ "$(tmux -V)" != "tmux $TMUX_VERSION" ]; then
+            echo "::error::expected tmux $TMUX_VERSION, got $(tmux -V)"
+            exit 1
+          fi
           df -h /dev/shm
       # Tests that launch the claude tool resolve its binary before a fake
       # launcher takes over, and never run it. A stub that fails when invoked
@@ -176,7 +195,7 @@ jobs:
   report:
     needs: test
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -209,7 +228,7 @@ jobs:
           test "$TEST_RESULT" = success -a "$report" -eq 0
 
   secrets:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       GITLEAKS_VERSION: 8.30.1

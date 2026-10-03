@@ -34,6 +34,7 @@ revive = ["v"]  # revive it, or restart a live one on its own conversation
 revive_all = ["V", "shift+v"]  # revive every dead session
 switch_account = []  # switch its account: restarts it on its own conversation
 restart = []  # restart it on an empty context
+restart_with = []  # restart it with extra flags…
 archive = ["x"]  # kill it and file the row
 archive_all = []  # kill every session listed
 restore = ["u"]  # restore it out of the archive

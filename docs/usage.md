@@ -40,7 +40,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | `u` | Restore a session or group out of the archive, resuming what it held. The act is `kill`; the archive is where the row lands, the way a deleted file lands in a trash can. A row left in the archive is deleted for good after 7 days |
 | `U` | Undo the last archive: the same sessions out of the archive and running again. Offered after a confirmed kill as well as a silent one |
 | `space` / `ctrl+]` | Hotkey menu: send one of your snippets to the selected session (`ctrl+]` also opens it inside a focused session) |
-| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, ask before killing, sort, key hints, on leaving a session, after hotkey send, session keys, experimental features, snippets, CLIs, report a bug, suggest a change, and the version row that updates in place) |
+| `s` | Settings (default tool, new session agent, theme, terminal background, list density, layout, sidebar, colour, status marks, ask before killing, sort, key hints, on leaving a session, after hotkey send, session keys, experimental features, snippets, restart flags, CLIs, report a bug, suggest a change, and the version row that updates in place) |
 | `w` | Filter to sessions that need attention (`waiting`, stuck, `finished`, `errored`); press again to show all |
 | `tab` | Enter the next session that needs you, wherever it is in the list. One key per state (waiting, finished, errored, idle, working) ships unbound — rebind one from the key map (`h`), or run it from quick actions (`:`) |
 | `/` | Search: session name, tool, group, status, what the pane is showing, and what the session has said or run. `esc` closes the field and keeps the filter; delete the text (`ctrl+u` wipes the field) to clear it |
@@ -50,7 +50,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 
 Priority defaults to 0 with no marker. Positive levels use green `▲`, `▲▲`, and `▲▲▲`; the negative level (-1) uses a red `▼`. Set a level with `gate-inbox priority <level>` using a number from -1 to 3 or its tier name.
 
-One-off and destructive actions — fork, migrate, restart, account switch, kill-all, fold-all, resize, the archived view, per-state jumps — ship with no key. They all run from quick actions (`:`), which shows each action's current key, and the key map (`h`) puts any of them back on a key.
+One-off and destructive actions — fork, migrate, restart, restart with flags, account switch, kill-all, fold-all, resize, the archived view, per-state jumps — ship with no key. They all run from quick actions (`:`), which shows each action's current key, and the key map (`h`) puts any of them back on a key.
 
 Navigation is keyboard-driven. The manager claims mouse reporting so the wheel stays inside the app and cannot scroll the TUI out of view: in a focused session it walks that pane's scrollback, where click-drag also selects pane text and copies it. In a focused agent that tracks the mouse, a click passes straight through to its own clickable UI while a drag still selects and copies; hold `alt` to pass a whole drag through instead, for the agent's own text selection or sliders. In the list the wheel does nothing, since moving the selection with it retargets every key that follows.
 
@@ -166,6 +166,12 @@ A running session with a dead child under it keeps the older meaning: that press
 Restart (quick actions) keeps the row and drops the context: same name, group, tool, and working directory, launched on a conversation the agent has never seen. It is what you want when a session has piled up context you are done with, where reviving it would spend the budget re-reading history or land straight in a compact.
 
 It asks to confirm first, and it works on a live session too: the running agent ends, then the fresh one launches. The conversation it was on is retired rather than resumed: the manager mints a new id for tools that take one (`session_id_flag`) and captures the new one for tools that mint their own (`session_store`). The retired conversation is left on disk untouched, and the row stops pointing at it, so a later `v` resumes the conversation the restart started rather than the context it dropped. The row changes hands only once the new agent is up, so a launch that cannot start (a tool gone from `PATH`, a directory that moved) leaves the session on the conversation it had, still there for `v`.
+
+## Restarting a session with extra flags
+
+Restart with flags (quick actions) is restart on an empty context carrying extra CLI flags: same row, fresh conversation, plus the flag set you pick. It is what you want when the session needs a capability it was launched without -- most often Chrome, via claude's `--chrome` flag, for a session that needs your signed-in browser.
+
+The picker lists your `restart_flags.json` presets; a bare key restarts with that set, and the confirm names the session and the flags before `y` ends the running agent. A first run writes one preset, `c` for with Chrome (`--chrome`); add your own flag sets beside it the way you add snippets, and they appear on the next open. Settings (`s`) → **restart flags** opens the file in your editor. Each entry is a `key`, an optional `label`, and the `args` string appended to the tool's launch command, so `"--chrome --dangerously-skip-permissions"` restarts with both.
 
 ## Panes started outside the board
 

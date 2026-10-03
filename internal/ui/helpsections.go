@@ -149,6 +149,7 @@ func helpSections() []helpSection {
 			listRow(keymap.Rename, "rename it yourself, and re-pick its tool"),
 			listRow(keymap.Move, "move it to a group, or a terminal into a session"),
 			listRow(keymap.Restart, "restart it on an empty context (same name, group, dir, tool)"),
+			listRow(keymap.RestartWith, "restart it with extra flags (same row, fresh context, plus flags)"),
 			listRow(keymap.ArchiveAll, "kill every session listed (asks for a tick)"),
 			listRow(keymap.Revive, "revive it, or restart a live one on the conversation it is on"),
 			listRow(keymap.ReviveAll, "revive every dead session"),

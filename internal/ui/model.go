@@ -27,6 +27,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/promptsnips"
+	"github.com/usestring/gate-inbox/internal/restartpresets"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/sessname"
 	"github.com/usestring/gate-inbox/internal/snippets"
@@ -76,6 +77,7 @@ const (
 	// and shows the key it is on. See quickactions.go.
 	modeQuickActions
 	modePanePicker
+	modeRestartWith
 )
 
 type treeRow struct {
@@ -110,8 +112,13 @@ type Model struct {
 
 	// snips are the operator's canned answers, read once at startup;
 	// snipErr is why there are none, when the file would not be read.
-	snips          snippets.Set
-	snipErr        string
+	snips   snippets.Set
+	snipErr string
+	// restartFlags are the operator's canned restart flag sets, read once
+	// at startup; restartFlagErr is why there are none, when the file
+	// would not be read.
+	restartFlags   restartpresets.Set
+	restartFlagErr string
 	jevAutoSuggest bool
 	jevFinishCheck bool
 	jevFinish      jevFinishState
@@ -583,6 +590,7 @@ type Model struct {
 	fork             forkState
 	migrate          migrateState
 	account          accountState
+	restartWith      restartWithState
 	quick            quickState
 	latestSubmission submissionRescind
 	// landings are the answers waiting to be seen reaching their sessions,
@@ -763,6 +771,11 @@ type confirmTarget struct {
 	label    string
 	sessions []store.Session
 	action   string
+	// restartArgs are the extra CLI flags a restart-with-flags confirm
+	// carries, empty on every other confirm. The picker names the preset;
+	// the confirm names what it does, so the flags ride here between the
+	// two rather than in a mode the confirm would have to read back.
+	restartArgs string
 	// ack is the tick a wide answer has to pass before y means anything,
 	// empty on every dialog that names what it is about. y/↵ is one
 	// keystroke, and one keystroke is the right price for a session the
@@ -866,6 +879,7 @@ const (
 	settingsFieldOutsidePanes
 	settingsFieldExperimental
 	settingsFieldSnippets
+	settingsFieldRestartFlags
 	settingsFieldCLIs
 	settingsFieldGuide
 	settingsFieldKeys
@@ -1211,6 +1225,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	}
 	model.loadKeys()
 	model.loadSnippets()
+	model.loadRestartFlags()
 	model.seedFromStore()
 	model.triageStartupEnter = model.triage
 	model.noteOpencodeVersion(opencode.Cached())

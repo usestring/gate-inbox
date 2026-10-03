@@ -1170,8 +1170,13 @@ func (d *Driver) ClearRequest() error {
 // fills this terminal, and the attach replaces it until the operator detaches.
 //
 // The one attach that guard was right about is the session the manager is
-// running in, which would put its screen inside itself. $TMUX stays on for
-// that one so tmux refuses it, and its refusal reaches the operator as the
+// running in, which would put its screen inside itself -- and that is every
+// pane in the session, not just the manager's own. An adopted sibling pane
+// resolves to the same session name, and the nested client it starts lands on
+// the session's current window, which is where the manager is drawing. The
+// recursion is unreadable rather than merely wrong: the client renders the
+// pane it is running in. $TMUX stays on for any target in the manager's own
+// session so tmux refuses it, and its refusal reaches the operator as the
 // error it is.
 // The -t is always an exact session name, never the pane. tmux resolves a
 // pane id to its session, but attach-session given one also makes that pane's
@@ -1218,7 +1223,7 @@ func (d *Driver) AttachCommand(id string) *exec.Cmd {
 	}
 	tmuxguard.Enforce([]string{"-L", target.Socket})
 	cmd := exec.Command(d.bin, append([]string{"-L", target.Socket}, args...)...)
-	nested := d.runningInside(target)
+	nested := d.runningInside(target, session)
 	if !nested {
 		cmd.Env = envWithoutTmux(os.Environ())
 	}
@@ -1257,25 +1262,28 @@ func (d *Driver) attachTarget(target Target) (session, window, pane string) {
 	return fields[0], fields[1], target.Name
 }
 
-// runningInside reports whether the manager's own pane is the one this target
-// names. Anything it cannot establish -- no tmux around the manager, a pane
-// on another server, a server that will not answer -- is a no: the attach
-// tmux would refuse is the narrow case, and the common one has to work.
-func (d *Driver) runningInside(target Target) bool {
+// runningInside reports whether the attach would land in the session the
+// manager is itself running in, session being the exact name AttachCommand
+// resolved from the target. The whole session is the answer, not just the
+// manager's own pane: a target that is an adopted sibling pane of that session
+// resolves to the same name, and attaching to it would nest the manager's
+// screen inside itself. Comparing names is what catches both, and the pane-id
+// case falls out of it -- attachTarget resolves the manager's own pane to the
+// manager's own session name.
+//
+// Anything it cannot establish -- no tmux around the manager, a session on
+// another server, a server that will not answer -- is a no: the attach tmux
+// would refuse is the narrow case, and the common one has to work.
+func (d *Driver) runningInside(target Target, session string) bool {
 	pane := os.Getenv("TMUX_PANE")
 	if pane == "" || os.Getenv("TMUX") == "" {
 		return false
 	}
-	out, err := d.output([]string{"-L", target.Socket, "display-message", "-p", "-t", pane, "#{session_name}\t#{pane_id}"})
+	out, err := d.output([]string{"-L", target.Socket, "display-message", "-p", "-t", pane, "#{session_name}"})
 	if err != nil {
 		return false
 	}
-	for _, field := range strings.Split(strings.TrimSpace(string(out)), "\t") {
-		if field == target.Name {
-			return true
-		}
-	}
-	return false
+	return strings.TrimSpace(string(out)) == session
 }
 
 func envWithoutTmux(env []string) []string {

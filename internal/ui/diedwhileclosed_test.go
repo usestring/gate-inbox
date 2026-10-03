@@ -14,11 +14,12 @@ import (
 // resume by id, which is what separates an exact resume from a degraded one.
 func restoreModel(sessions ...store.Session) *Model {
 	return &Model{
-		mode:         modeList,
-		width:        120,
-		height:       40,
-		sessions:     sessions,
-		restoreArmed: true,
+		mode:           modeList,
+		width:          120,
+		height:         40,
+		sessions:       sessions,
+		restoreArmed:   true,
+		adoptFirstDone: true,
 		cfg: config.Config{Tools: map[string]config.Tool{
 			"claude": {ResumeByIDCommand: "claude --resume {id}"},
 		}},
@@ -160,4 +161,47 @@ func indexOf(sessions []store.Session, id string) int {
 		}
 	}
 	return -1
+}
+
+func TestStartupCheckWaitsForAdoptionAndItsRows(t *testing.T) {
+	for _, mode := range []string{reopenMark, reopenResume} {
+		t.Run(mode, func(t *testing.T) {
+			m := reopening(t)
+			setMode(t, m, reopenSessionsSetting, mode)
+			m.sessions = []store.Session{deadSession("old", "old", "conversation")}
+			m.adoptFirstDone = false
+			assertPending := func() {
+				t.Helper()
+				m.markDiedSessions()
+				if m.restoreChecked || len(m.diedWhileClosed) != 0 || len(m.launched) != 0 {
+					t.Fatal("startup classified or resumed a row before adoption was visible")
+				}
+			}
+			assertPending()
+			m.noteAdopted(adoptedMsg{taken: 2, ids: []string{"live", "other"}})
+			assertPending()
+			m.sessions = append(m.sessions, store.Session{ID: "live", Tool: "claude",
+				AgentSessionID: "conversation", Status: status.Working})
+			assertPending()
+			m.sessions = append(m.sessions, store.Session{ID: "other", Tool: "claude", Status: status.Working})
+			m.markDiedSessions()
+			if !m.restoreChecked || len(m.diedWhileClosed) != 0 || len(m.launched) != 0 {
+				t.Fatal("startup did not exclude the conversation already running in an adopted pane")
+			}
+		})
+	}
+}
+
+func TestStartupCheckContinuesAfterAdoptionFindsNoRows(t *testing.T) {
+	m := restoreModel(deadSession("lost", "lost", "conversation"))
+	m.adoptFirstDone = false
+	m.markDiedSessions()
+	if m.restoreChecked {
+		t.Fatal("startup check ran before adoption finished")
+	}
+	m.noteAdopted(adoptedMsg{})
+	m.markDiedSessions()
+	if !m.restoreChecked || !m.isDiedWhileClosed(m.sessions[0]) {
+		t.Fatal("startup did not mark a lost row after the empty adoption scan")
+	}
 }

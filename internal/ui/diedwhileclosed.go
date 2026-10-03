@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -71,6 +72,9 @@ func (m *Model) markDied(sessions []store.Session) {
 // which case the line points at O instead.
 func (m *Model) noteAdopted(msg adoptedMsg) {
 	m.adoptFirstDone = true
+	if !m.restoreChecked {
+		m.adoptAwaitingRows = append(m.adoptAwaitingRows, msg.ids...)
+	}
 	n := len(msg.ids)
 	if n == 0 {
 		return
@@ -88,17 +92,23 @@ func (m *Model) noteAdopted(msg adoptedMsg) {
 }
 
 // markDiedSessions runs once, on the first refresh that could see real
-// statuses. Before the first poll every row reads dead, so running it at Init
-// would mark a fleet that is already running.
+// statuses and all adopted rows. Before the first poll every row reads dead,
+// and before adoption finishes a running conversation can look lost.
 //
 // It never changes the screen. "mark" flags the rows and says so in one line;
 // "resume" brings back the ones that clearly died and marks the unclear ones;
 // "never" leaves them unmarked with a line pointing at V. Panes started outside the board are the
 // takeover's unless the settings say to ignore them, which is applied here.
 func (m *Model) markDiedSessions() {
-	if !m.restoreArmed || m.restoreChecked {
+	if !m.restoreArmed || m.restoreChecked || !m.adoptFirstDone {
 		return
 	}
+	for _, id := range m.adoptAwaitingRows {
+		if !slices.ContainsFunc(m.sessions, func(sess store.Session) bool { return sess.ID == id }) {
+			return
+		}
+	}
+	m.adoptAwaitingRows = nil
 	m.restoreChecked = true
 	candidates, ends := m.classifyDeadRows(m.loadEndEvidence())
 	var notices []string

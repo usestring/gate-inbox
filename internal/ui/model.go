@@ -333,7 +333,8 @@ type Model struct {
 	// the first session load.
 	adoptRestored bool
 	// adoptFirstDone is set once the first adopt scan has answered.
-	adoptFirstDone bool
+	adoptFirstDone    bool
+	adoptAwaitingRows []string
 	// nameAfterRefresh asks the next sweep to run a naming pass, for rows an
 	// adopt scan has just created and the board has not seen yet.
 	nameAfterRefresh bool
@@ -616,7 +617,7 @@ type Model struct {
 	// that died while the board was closed; a Model built directly never does.
 	restoreArmed bool
 	// restoreChecked marks the startup check as spent, so it runs on the first
-	// pass with real statuses and never again in the same run.
+	// pass with real statuses after adoption and never again in the same run.
 	restoreChecked bool
 	// diedWhileClosed is the rows that check marked, keyed by session id. See
 	// diedwhileclosed.go.

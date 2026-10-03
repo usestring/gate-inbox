@@ -79,7 +79,7 @@ func TestExternalBuildAddsANewSessionFormField(t *testing.T) {
 	// space's frame is the "n" of "on".
 	for _, step := range []struct{ key, drawn string }{
 		{"\x0e", "items ◂ off ▸"},
-		{"envecho", "envecho ▸"},
+		{"envecho", "[envecho]"},
 		{"\x1b[A", "❯ items"},
 		{" ", "n ▸"},
 	} {

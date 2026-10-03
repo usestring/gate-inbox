@@ -64,6 +64,9 @@ func FormatSession(session Session) string {
 	if session.Detached {
 		line += " detached from " + session.SpawnedBy
 	}
+	if len(session.Permissions) > 0 {
+		line += " granted " + strings.Join(session.Permissions, ", ")
+	}
 	return line
 }
 

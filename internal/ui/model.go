@@ -256,6 +256,10 @@ type Model struct {
 	// queuedMessages is replaced whole on every refresh rather than merged,
 	// so a delivered message's badge clears itself.
 	queuedMessages map[string]int
+	// granted is every permission a parent granted a session with
+	// grant_permission, by session, replaced whole like queuedMessages so a
+	// revoke clears it.
+	granted map[string][]string
 
 	// archivedChildren counts each parent's archived children, which the
 	// list itself cannot see: it drops archived rows, so a fan-out that has
@@ -899,6 +903,7 @@ type refreshMsg struct {
 	previewAt        time.Time
 	agents           agentStats
 	queuedMessages   map[string]int
+	granted          map[string][]string
 	archivedChildren map[string]int
 	searchText       map[string]string
 	answerableWait   map[string]bool
@@ -2134,6 +2139,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.priorityGroups = msg.priorityGroups
 		m.agents = msg.agents
 		m.queuedMessages = msg.queuedMessages
+		m.granted = msg.granted
 		m.archivedChildren = msg.archivedChildren
 		m.searchText = msg.searchText
 		m.answerableWait = msg.answerableWait

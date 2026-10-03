@@ -348,9 +348,11 @@ tape="$work/run-$run_id.tape"
   # A scenario writes its stills to {{SHOTS}}; only this driver knows the run
   # id. {{LAUNCH}} and {{TMUX}} are for the scenarios that have to leave the
   # board and come back -- a restart, or the panes going away under it -- which
-  # no keystroke inside the board can produce. Ampersands in the launch line
-  # are escaped because sed reads a bare & as the whole match.
+  # no keystroke inside the board can produce. {{HOME}} is the scratch config
+  # directory, for a scenario that seeds a row no keystroke can make. Ampersands
+  # in the launch line are escaped because sed reads a bare & as the whole match.
   sed -e "s|{{SHOTS}}|$rel_media|g" \
+    -e "s|{{HOME}}|$home|g" \
     -e "s|{{LAUNCH}}|${launch//&/\\&}|g" \
     -e "s|{{TMUX}}|tmux -S $sock/tmux-$(id -u)/default|g" \
     "$scenario" | awk '

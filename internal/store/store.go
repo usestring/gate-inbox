@@ -487,6 +487,25 @@ CREATE TABLE IF NOT EXISTS settings (
 			spent_at             INTEGER NOT NULL DEFAULT 0,
 			noted_at             INTEGER NOT NULL DEFAULT 0
 		)`,
+		// Permissions a parent granted its child on its user's approval. See
+		// grants.go.
+		`CREATE TABLE IF NOT EXISTS permission_grants (
+			id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id           TEXT NOT NULL,
+			kind                 TEXT NOT NULL,
+			value                TEXT NOT NULL,
+			by_session           TEXT NOT NULL,
+			evidence_tool_use_id TEXT NOT NULL,
+			created_at           INTEGER NOT NULL,
+			revoked_at           INTEGER NOT NULL DEFAULT 0,
+			revoked_by           TEXT NOT NULL DEFAULT ''
+		)`,
+		// One dialog can ask several questions, each approving its own grant,
+		// so an approval is spent per question rather than per dialog.
+		`ALTER TABLE permission_grants ADD COLUMN question_hash TEXT NOT NULL DEFAULT ''`,
+		// When a grant lapses; zero never. See grants.go.
+		`ALTER TABLE permission_grants ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS permission_grants_active ON permission_grants (session_id, kind, value) WHERE revoked_at = 0`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {

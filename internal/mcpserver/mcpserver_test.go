@@ -103,6 +103,8 @@ type fakeSessionCommands struct {
 	releasedPaths  []string
 	reservations   []sessioncmd.Reservation
 	revivedID      string
+	grantedID      string
+	grantReq       sessioncmd.GrantRequest
 	migratedID     string
 	migratedOpts   sessioncmd.MigrateOptions
 	killedID       string
@@ -205,6 +207,11 @@ func (f *fakeSessionCommands) Answer(_ string, id, reply string, relay bool) (se
 func (f *fakeSessionCommands) AnswerAll(_ string, id string, answers []sessioncmd.QuestionAnswer, submit, relay bool) (sessioncmd.AnsweredQuestion, error) {
 	f.answeredID, f.answeredAll, f.answeredSubmit, f.answeredRelay = id, answers, submit, relay
 	return sessioncmd.AnsweredQuestion{SessionID: id, Name: "child", Submitted: submit}, f.err
+}
+
+func (f *fakeSessionCommands) Grant(_ string, id string, req sessioncmd.GrantRequest) (sessioncmd.GrantResult, error) {
+	f.grantedID, f.grantReq = id, req
+	return sessioncmd.GrantResult{Target: f.created, Action: "granted"}, f.err
 }
 
 func (f *fakeSessionCommands) AnswerKeys(_ string, id string, keys []string, relay bool) (sessioncmd.AnsweredQuestion, error) {

@@ -1101,6 +1101,16 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 	if err != nil {
 		return errMsg{err}
 	}
+	active, err := p.store.ActiveGrants()
+	if err != nil {
+		return errMsg{err}
+	}
+	granted := make(map[string][]string, len(active))
+	for id, grants := range active {
+		for _, g := range grants {
+			granted[id] = append(granted[id], fmt.Sprintf("%s %s until %s", g.Kind, g.Value, g.ExpiresAt.Format("15:04")))
+		}
+	}
 	names := make([]string, len(groups))
 	paths := make(map[string]string, len(groups))
 	archivedGroups := make(map[string]bool, len(groups))
@@ -1142,6 +1152,7 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 		previewAt:        previewAt,
 		agents:           agents,
 		queuedMessages:   queued,
+		granted:          granted,
 		archivedChildren: archivedKids,
 		searchText:       searchText,
 		answerableWait:   answerableWait,

@@ -156,6 +156,7 @@ func (m *Model) toolRequest(mode string) extension.ToolRequest {
 // agentPickQuotaMsg is what the build's chooser said about the CLIs in the
 // box: each one's quota left, and the one it would start.
 type agentPickQuotaMsg struct {
+	generation  uint64
 	quotas      map[string]string
 	recommended string
 }
@@ -174,6 +175,7 @@ func (m *Model) agentPickQuotaCmd() tea.Cmd {
 	if err != nil {
 		return nil
 	}
+	generation := m.agentPick.generation
 	req := m.toolRequest(mode)
 	names := make([]string, 0, len(req.Candidates))
 	for _, candidate := range req.Candidates {
@@ -182,7 +184,7 @@ func (m *Model) agentPickQuotaCmd() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		var msg agentPickQuotaMsg
+		msg := agentPickQuotaMsg{generation: generation}
 		if reporter != nil {
 			msg.quotas = reporter.ToolQuotaSummaries(ctx, names)
 		}
@@ -194,7 +196,7 @@ func (m *Model) agentPickQuotaCmd() tea.Cmd {
 }
 
 func (m *Model) finishAgentPickQuota(msg agentPickQuotaMsg) {
-	if m.mode != modeAgentPick {
+	if m.mode != modeAgentPick || msg.generation != m.agentPick.generation {
 		return
 	}
 	m.agentPick.quotas, m.agentPick.recommended = msg.quotas, msg.recommended
@@ -315,9 +317,10 @@ func (m *Model) openPinnedAgentPick(msg autoRouteMsg) {
 // selection to the best match; the arrows cycle the selection and write it back
 // into the box. So the box always shows what enter would start.
 type agentPick struct {
-	input textinput.Model
-	names []string
-	index int
+	generation uint64
+	input      textinput.Model
+	names      []string
+	index      int
 	// fresh marks the text as put there by this program rather than typed:
 	// the prefill, or a name an arrow key wrote. The first character typed
 	// against fresh text replaces the whole of it, which is what makes a
@@ -346,7 +349,7 @@ func (m *Model) openAgentPick() {
 	input.CharLimit = 40
 	input.SetWidth(28)
 	input.Focus()
-	m.agentPick = agentPick{input: input, names: names, fresh: true}
+	m.agentPick = agentPick{generation: m.agentPick.generation + 1, input: input, names: names, fresh: true}
 	m.setAgentPick(m.lastTool())
 	m.errBar.text = ""
 	m.mode = modeAgentPick

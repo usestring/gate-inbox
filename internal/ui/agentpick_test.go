@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -985,5 +986,42 @@ func TestAgentBoxWithNoChooserListsNoQuota(t *testing.T) {
 	}
 	if view := ansi.Strip(m.viewAgentPick()); strings.Contains(view, "recommended") {
 		t.Fatalf("box lists a recommendation with no chooser:\n%s", view)
+	}
+}
+
+func TestAgentBoxIgnoresQuotaFromEarlierOpening(t *testing.T) {
+	for _, staleFirst := range []bool{true, false} {
+		t.Run(fmt.Sprintf("staleFirst=%t", staleFirst), func(t *testing.T) {
+			m := buildModel(t)
+			fake := quotaChooserFake{
+				toolChooserFake: toolChooserFake{choose: func(extension.ToolRequest) (string, error) { return "ready-tool", nil }},
+				quotas:          map[string]string{"ready-tool": "5h 10% left"},
+			}
+			t.Cleanup(accounts.UseChooser(func() (extension.AccountChooser, error) { return fake, nil }))
+			m.openAgentPick()
+			oldCmd := m.agentPickQuotaCmd()
+			m.handleAgentPickKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+			m.openAgentPick()
+			oldMsg := oldCmd()
+			fake.quotas = map[string]string{"ready-tool": "5h 80% left"}
+			fake.choose = func(extension.ToolRequest) (string, error) { return "claude", nil }
+			currentMsg := m.agentPickQuotaCmd()()
+			if staleFirst {
+				m.update(oldMsg)
+				if len(m.agentPick.quotas) != 0 || m.agentPick.recommended != "" {
+					t.Fatal("earlier opening populated the reopened picker")
+				}
+			}
+			m.update(currentMsg)
+			if !staleFirst {
+				m.update(oldMsg)
+			}
+			if got := m.agentPick.quotas["ready-tool"]; got != "5h 80% left" {
+				t.Fatalf("quota = %q, want current opening's quota", got)
+			}
+			if got := m.agentPick.recommended; got != "claude" {
+				t.Fatalf("recommendation = %q, want current opening's choice", got)
+			}
+		})
 	}
 }

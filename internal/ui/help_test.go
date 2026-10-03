@@ -262,8 +262,43 @@ func TestHelpOpensClean(t *testing.T) {
 	m.help = helpState{scroll: 4, query: "fork", searching: true}
 	m.closeHelp()
 	m.openHelp()
-	if !reflect.DeepEqual(m.help, helpState{}) {
+	if !reflect.DeepEqual(m.help, helpState{searching: true}) {
 		t.Fatalf("reopened with stale state: %+v", m.help)
+	}
+}
+
+func TestHelpOpensWithSearchOn(t *testing.T) {
+	m := helpModel()
+	m.mode = modeList
+	m.openHelp()
+	if m.mode != modeHelp {
+		t.Fatalf("openHelp left mode %v", m.mode)
+	}
+	if !m.help.searching {
+		t.Fatal("the key map should open with its search on")
+	}
+	if m.help.query != "" {
+		t.Fatalf("the search should open empty, got %q", m.help.query)
+	}
+}
+
+func TestHelpEscOnAnEmptySearchCloses(t *testing.T) {
+	m := helpModel()
+	m.mode = modeList
+	m.openHelp()
+	m.handleHelpKey(namedKey(tea.KeyEsc))
+	if m.mode == modeHelp {
+		t.Fatal("esc on an empty search left the key map open")
+	}
+}
+
+func TestHelpCtrlHClosesWhileSearching(t *testing.T) {
+	m := helpModel()
+	m.mode = modeList
+	m.openHelp()
+	m.handleHelpKey(tea.KeyPressMsg{Code: 'h', Mod: tea.ModCtrl})
+	if m.mode == modeHelp {
+		t.Fatal("ctrl+h did not close the key map while its search was on")
 	}
 }
 

@@ -7,8 +7,6 @@ Sleep 2s
 Screenshot {{SHOTS}}/01-key-map-under-H.png
 Sleep 1s
 
-Type "/"
-Sleep 600ms
 Type "cursor's group"
 Sleep 1500ms
 Screenshot {{SHOTS}}/02-new-session-row.png

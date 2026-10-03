@@ -24,8 +24,6 @@ Sleep 2s
 Screenshot {{SHOTS}}/05-key-map-under-H.png
 Sleep 1s
 
-Type "/"
-Sleep 600ms
 Type "triage"
 Sleep 1s
 Enter

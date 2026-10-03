@@ -16,8 +16,8 @@ import (
 // The key map is the one place every binding in the app is written down, so
 // it is grouped the way the keys are learned - by what is under the cursor
 // or which screen is up - rather than listed alphabetically. Long enough to
-// outgrow a terminal, it scrolls, and a search narrows it to the one line
-// the reader came for.
+// outgrow a terminal, it scrolls, and it opens with its search on to narrow
+// it to the one line the reader came for.
 
 type helpState struct {
 	scroll     int
@@ -579,7 +579,7 @@ func (m *Model) helpTitleCap() string {
 }
 
 func (m *Model) openHelp() {
-	m.help = helpState{returnMode: m.mode}
+	m.help = helpState{returnMode: m.mode, searching: true}
 	m.mode = modeHelp
 }
 
@@ -824,9 +824,16 @@ func (m *Model) handleHelpSearchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		m.help.searching = false
 	case "esc":
+		if m.help.query == "" {
+			m.closeHelp()
+			return m, m.startStartupTick()
+		}
 		m.help.searching = false
 		m.help.query = ""
 		m.help.scroll = 0
+	case "ctrl+h":
+		m.closeHelp()
+		return m, m.startStartupTick()
 	case "backspace":
 		if runes := []rune(m.help.query); len(runes) > 0 {
 			m.help.query = string(runes[:len(runes)-1])

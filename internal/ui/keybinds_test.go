@@ -109,6 +109,7 @@ func TestHOpensAndClosesTheKeyMap(t *testing.T) {
 	if m.mode != modeHelp {
 		t.Fatalf("H left the board in mode %v, want the key map", m.mode)
 	}
+	m.handleHelpKey(namedKey(tea.KeyEnter))
 	m.handleHelpKey(runeKey("H"))
 	if m.mode == modeHelp {
 		t.Fatal("H did not close the key map it opened")
@@ -155,6 +156,7 @@ func TestRebindingFromTheKeyMapWritesTheFile(t *testing.T) {
 	m.width, m.height = 200, 60
 	m.openHelp()
 	m.help.query = "show all of a session"
+	m.help.searching = false
 	m.frame() // resolves the cursor onto the one row the search leaves
 
 	row, ok := m.selectedBinding()
@@ -197,6 +199,7 @@ func TestEscDuringACaptureChangesNothing(t *testing.T) {
 	m.width, m.height = 200, 60
 	m.openHelp()
 	m.help.query = "show all of a session"
+	m.help.searching = false
 	m.frame()
 	m.handleHelpKey(namedKey(tea.KeyEnter))
 	m.handleHelpKey(namedKey(tea.KeyEsc))
@@ -215,6 +218,7 @@ func TestResetPutsABindingBackFromTheKeyMap(t *testing.T) {
 	writeKeys(t, m, "[list]\nshow_all_work = [\"z\"]\n")
 	m.openHelp()
 	m.help.query = "show all of a session"
+	m.help.searching = false
 	m.frame()
 	m.handleHelpKey(runeKey("r"))
 	if got := m.km().Key(keymap.ContextList, keymap.ShowAllWork); got != "" {

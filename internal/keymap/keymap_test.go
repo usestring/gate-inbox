@@ -220,12 +220,12 @@ func TestOptionIsAcceptedAsAltInTheKeyFile(t *testing.T) {
 
 // An action a screen cannot be worked without may be moved but not removed.
 func TestARequiredActionCannotBeUnbound(t *testing.T) {
-	m, problems := New(Overrides{ContextRestore: {Cancel: {}}})
+	m, problems := New(Overrides{ContextNameSweep: {Cancel: {}}})
 	if len(problems) == 0 {
-		t.Fatal("unbinding the way out of the restore offer was accepted")
+		t.Fatal("unbinding the way out of the name sweep was accepted")
 	}
-	if !m.Bound(ContextRestore, Cancel) {
-		t.Fatal("the restore offer has no way out of it")
+	if !m.Bound(ContextNameSweep, Cancel) {
+		t.Fatal("the name sweep has no way out of it")
 	}
 }
 
@@ -472,26 +472,22 @@ func TestRetiredGateStillLoads(t *testing.T) {
 	}
 }
 
-// A key file that moved the reopen card's pane answer still loads once the
-// card stops asking: each stale line points at the setting, and saving drops it.
-func TestRetiredPaneChoiceStillLoads(t *testing.T) {
-	overrides, err := Decode("[restore]\nnext_choice = [\"L\"]\nprev_choice = [\"H\"]\nmore = [\"C\"]\n")
+// A key file that rebound the reopen card still loads once the card is gone:
+// the screen is reported with where its job went, the override beside it
+// still applies, and saving drops the screen rather than carrying it forever.
+func TestRetiredRestoreScreenStillLoads(t *testing.T) {
+	overrides, err := Decode("[restore]\nnext_choice = [\"L\"]\nmore = [\"C\"]\n\n[list]\nrevive_all = [\"R\"]\n")
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	m, problems := New(overrides)
-	if len(problems) != 2 {
-		t.Fatalf("got problems %v, want one per stale line", problems)
+	if len(problems) != 1 || !strings.Contains(problems[0].Reason, "V revives") {
+		t.Fatalf("got problems %v, want one pointing at V", problems)
 	}
-	for _, problem := range problems {
-		if !strings.Contains(problem.Reason, "outside panes") {
-			t.Errorf("problem %q does not point at the outside panes setting", problem.Error())
-		}
+	if got := m.Key(ContextList, ReviveAll); got != "R" {
+		t.Errorf("the retired screen cost the override beside it: revive_all on %q", got)
 	}
-	if got := m.Key(ContextRestore, More); got != "C" {
-		t.Errorf("the stale lines cost the override beside them: more on %q", got)
-	}
-	if strings.Contains(Encode(m.Overrides()), "choice") {
-		t.Error("saving the map kept a retired action")
+	if strings.Contains(Encode(m.Overrides()), "restore") {
+		t.Error("saving the map kept the retired screen")
 	}
 }

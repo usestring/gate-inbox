@@ -43,7 +43,8 @@ var widelyDrawnRunes = func() map[rune]bool {
 
 	// Arrows, individually. The block runs to U+21FF and its tail is as
 	// sparsely cut as anything else; these nine are the ones the key legends,
-	// the fork card and the worktree chip are written in.
+	// the fork card, the worktree chip and the died-while-closed mark are
+	// written in.
 	add("←↑→↓↕↵↳↻⇄")
 
 	// Box Drawing, but only the full-length forms. U+2574-257F are the
@@ -110,7 +111,7 @@ var emojiGlyphRunes = func() map[rune]bool {
 func emojiMarks(set glyphSet) []string {
 	return []string{
 		set.working, set.starting, set.waiting, set.finished, set.errored,
-		set.idle, set.muted, set.deaf, set.hookless,
+		set.idle, set.muted, set.deaf, set.hookless, set.died,
 		set.checksPassing, set.checksFailing, set.checksPending,
 	}
 }

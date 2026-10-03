@@ -61,8 +61,8 @@ func (f statusFilter) matches(st string) bool {
 }
 
 // attentionViaChild is the half of the attention filter that a status cannot
-// answer: a session an extension says needs a person, and a parent whose
-// child is waiting on one.
+// answer: a session an extension says needs a person, one that died while the
+// board was closed, and a parent whose child is waiting on one.
 //
 // It is not a nicety. A child is drawn under its parent, so a
 // parent dropped by the filter takes its children off the list with it -- and
@@ -72,12 +72,12 @@ func (m *Model) attentionViaChild(sess store.Session) bool {
 	if m.statusFilter != statusFilterAttention {
 		return false
 	}
-	return m.extAttention[sess.ID].NeedsPerson || m.hasChildNeedingSomebody(sess.ID)
+	return m.extAttention[sess.ID].NeedsPerson || m.isDiedWhileClosed(sess) || m.hasDescendantNeedingSomebody(sess.ID)
 }
 
-// hasChildNeedingSomebody reports a child of this session that a person has
-// to answer.
-func (m *Model) hasChildNeedingSomebody(parentID string) bool {
+// hasDescendantNeedingSomebody reports a descendant of this session that
+// a person has to answer.
+func (m *Model) hasDescendantNeedingSomebody(parentID string) bool {
 	if parentID == "" {
 		return false
 	}
@@ -85,7 +85,7 @@ func (m *Model) hasChildNeedingSomebody(parentID string) bool {
 		if sess.ParentID != parentID || sess.Archived {
 			continue
 		}
-		if m.needsPerson(sess) {
+		if m.needsPerson(sess) || m.isDiedWhileClosed(sess) || m.hasDescendantNeedingSomebody(sess.ID) {
 			return true
 		}
 	}

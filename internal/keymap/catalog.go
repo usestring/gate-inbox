@@ -102,8 +102,6 @@ const (
 	Bottom   Action = "bottom"
 	More     Action = "more"
 	TickAll  Action = "tick_all"
-	// NeverAsk applies a prompt's answer and makes it the default.
-	NeverAsk Action = "never_ask"
 	// ToggleChrome hides the footer and brings it back. It is the chrome
 	// setting's "never" under a key, for an operator who wants the rows
 	// for a moment rather than for good.
@@ -154,7 +152,7 @@ var Catalog = []Binding{
 	{ContextList, Migrate, []string{}, "migrate it to another CLI", false},
 
 	{ContextList, Revive, []string{"v"}, "revive it, or restart a live one on its own conversation", false},
-	{ContextList, ReviveAll, []string{}, "revive every dead session", false},
+	{ContextList, ReviveAll, []string{"V", "shift+v"}, "revive every dead session", false},
 	{ContextList, SwitchAccount, []string{}, "switch its account: restarts it on its own conversation", false},
 	{ContextList, Restart, []string{}, "restart it on an empty context", false},
 	{ContextList, Archive, []string{"x"}, "kill it and file the row", false},
@@ -246,16 +244,6 @@ var Catalog = []Binding{
 	{ContextNameSweep, PageUp, []string{"ctrl+u", "pgup"}, "a page up", false},
 	{ContextNameSweep, PageDown, []string{"ctrl+d", "pgdown"}, "a page down", false},
 	{ContextNameSweep, Confirm, []string{"y", "enter"}, "run the sweep", true},
-
-	// ---- the restore prompt ----
-	{ContextRestore, Cancel, []string{"esc", "n", "q"}, "leave everything as it is", true},
-	{ContextRestore, More, []string{"c"}, "choose per session", false},
-	{ContextRestore, NeverAsk, []string{"N", "shift+n"}, "apply this answer and stop asking", false},
-	{ContextRestore, CursorUp, []string{"up", "k"}, "move up", true},
-	{ContextRestore, CursorDown, []string{"down", "j"}, "move down", true},
-	{ContextRestore, Toggle, []string{" ", "space"}, "tick / untick the row", false},
-	{ContextRestore, TickAll, []string{"a"}, "tick every row, or start over", false},
-	{ContextRestore, Confirm, []string{"y", "enter"}, "apply: resume the ticked sessions, answer the panes", true},
 
 	// ---- the welcome card ----
 	{ContextWelcome, Close, []string{"enter", "esc", "q", " ", "space"}, "close the guide", true},

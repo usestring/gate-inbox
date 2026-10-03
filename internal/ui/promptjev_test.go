@@ -102,6 +102,42 @@ func TestNewSessionJevPickLeadsAndStaysEditable(t *testing.T) {
 	}
 }
 
+func TestNewSessionJevSchedulesAfterAsyncTextPaste(t *testing.T) {
+	t.Setenv("TYPESAFE_API_KEY", "test-key")
+	m := newSessionJevModel(t)
+	m.jevAutoSuggest = true
+	m.form.prompt.input.SetValue("")
+	m.form.prompt.attachments = []imageAttachment{{id: 1}}
+	m.form.prompt.input.InsertString(imageToken(1))
+	if cmd := m.schedulePromptJev(); cmd != nil {
+		t.Fatal("pending image attachment queued ranking")
+	}
+	m = applyMsg(t, m, pasteImageMsg{target: composerForm, gen: m.form.prompt.gen, id: 1, noImage: true})
+	_, cmd := m.Update(pasteTextMsg{
+		target: composerForm,
+		gen:    m.form.prompt.gen,
+		inner:  tea.KeyPressMsg{Code: 'R', Text: "Review the"},
+	})
+	if got := m.form.prompt.input.Value(); got != "Review the" || len(m.form.prompt.attachments) != 0 {
+		t.Fatalf("pasted draft = %q, attachments = %d", got, len(m.form.prompt.attachments))
+	}
+	identity, _, _, _, ok := m.promptJevInput()
+	if !ok || m.promptJev.identity != identity || cmd == nil {
+		t.Fatal("asynchronous text paste did not schedule ranking for the pasted draft")
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, next := range batch {
+			if tick, ok := next().(promptJevTickMsg); ok && tick.seq == m.promptJev.seq {
+				return
+			}
+		}
+	} else if tick, ok := msg.(promptJevTickMsg); ok && tick.seq == m.promptJev.seq {
+		return
+	}
+	t.Fatal("paste command did not include the ranking debounce tick")
+}
+
 func TestNewSessionJevPayloadIsBounded(t *testing.T) {
 	now := time.Now()
 	var texts []string

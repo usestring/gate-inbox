@@ -633,5 +633,5 @@ func (m *Model) handlePasteTextMsg(msg pasteTextMsg) (tea.Model, tea.Cmd) {
 	c.prune()
 	c.snapCursorOutOfToken(snapNearest)
 	c.suggestionIndex = 0
-	return m, cmd
+	return m, tea.Batch(cmd, m.schedulePromptJev())
 }

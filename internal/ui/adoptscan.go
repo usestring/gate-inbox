@@ -168,7 +168,7 @@ func (r *adoptRun) reconcileTools(rows []store.Session, candidates []adopt.Candi
 		}
 		if r.hooks != nil {
 			if _, at, found := r.hooks.ReadExit(sess.ID); found && at.Before(observedAfter) {
-				if err := r.hooks.RemoveExit(sess.ID); err != nil {
+				if err := r.hooks.RemoveExitIfUnchanged(sess.ID, at); err != nil {
 					return err
 				}
 			}

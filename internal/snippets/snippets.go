@@ -321,6 +321,12 @@ func validate(parsed []Snippet) Set {
 			// into. The menu key is where a bare binding belongs.
 			set.Problems = append(set.Problems,
 				entry(i, snip)+"chord "+quote(snip.Chord)+" must hold a modifier, like option+shift+"+snip.Key)
+		case snip.Chord != "" && normalizeChord(snip.Chord) == reservedChord:
+			// ctrl+c quits from every screen ahead of the key map, so a
+			// snippet on it could never send from the list and would only
+			// take ctrl+c from the focused pane.
+			set.Problems = append(set.Problems,
+				entry(i, snip)+"chord "+quote(snip.Chord)+" is reserved: it quits the manager")
 		default:
 			if first, dup := taken[snip.Key]; dup {
 				set.Problems = append(set.Problems,
@@ -372,6 +378,10 @@ func legalChord(chord string) bool {
 	mods, _, ok := splitChord(chord)
 	return ok && slices.ContainsFunc(mods, func(mod string) bool { return mod != "shift" })
 }
+
+// reservedChord is the one key the manager reads ahead of every key map, so
+// no snippet may bind it.
+const reservedChord = "ctrl+c"
 
 func singleLetter(key string) bool {
 	runes := []rune(key)

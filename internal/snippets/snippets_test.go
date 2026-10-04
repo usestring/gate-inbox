@@ -97,6 +97,23 @@ func TestAChordMustBeAUniqueModifiedChord(t *testing.T) {
 	}
 }
 
+// ctrl+c quits ahead of every key map, so a snippet may not bind it in any
+// spelling.
+func TestCtrlCIsAReservedChord(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `[
+	  {"key":"c","chord":"ctrl+c","text":"one"},
+	  {"key":"d","chord":"ctrl+C","text":"two"}
+	]`)
+	set, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(set.Snippets) != 0 || len(set.Problems) != 2 {
+		t.Fatalf("bound %+v with problems %q, want both refused", set.Snippets, set.Problems)
+	}
+}
+
 // A chord is parsed, not merely checked for a "+": the separator alone, shift
 // alone and an unknown modifier would all take a character the pane was owed.
 func TestLegalChordNeedsARealModifierAndKey(t *testing.T) {

@@ -45,6 +45,8 @@ func TestFocusTypingVisibleEndToEnd(t *testing.T) {
 						update(key("down"))
 					}
 					update(key("enter"))
+					// Up wraps past the JEV finish check to compressed focus.
+					update(key("up"))
 					update(key("up"))
 					update(tea.KeyPressMsg{Code: tea.KeyRight})
 					update(key("esc"))

@@ -38,6 +38,21 @@ func TestCaretRowSurvivesTallPaneCrop(t *testing.T) {
 	}
 }
 
+// The hotkey menu maps single keys to snippets, so the focused caret is held
+// off while it is up: a caret still blinking would say the pane was taking
+// typing when it is not.
+func TestHotkeyMenuHidesTheFocusedCaret(t *testing.T) {
+	m := paneAt(t, "one")
+	m.pane.cursor = paneCursor{x: 0, y: 0, ok: true}
+	if _, _, ok := m.cursorCell(m.pane.box.height); !ok {
+		t.Fatal("test setup: the caret was already hidden")
+	}
+	m.quick.active = true
+	if _, _, ok := m.cursorCell(m.pane.box.height); ok {
+		t.Fatal("the caret is still drawn while the hotkey menu is up")
+	}
+}
+
 // Focus can paint before the newly focused session pushes its first
 // frame, and until then the cached caret is the last session's. Followed
 // into this pane's blank tail it would crop away every painted row.

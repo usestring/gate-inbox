@@ -50,7 +50,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 
 Priority defaults to 0 with no marker. Positive levels use green `▲`, `▲▲`, and `▲▲▲`; the negative level (-1) uses a red `▼`. Set a level with `gate-inbox priority <level>` using a number from -1 to 3 or its tier name.
 
-One-off and destructive actions — fork, migrate, restart, revive all, account switch, kill-all, fold-all, resize, the archived view, per-state jumps — ship with no key. They all run from quick actions (`:`), which shows each action's current key, and the key map (`h`) puts any of them back on a key.
+One-off and destructive actions — fork, migrate, restart, account switch, kill-all, fold-all, resize, the archived view, per-state jumps — ship with no key. They all run from quick actions (`:`), which shows each action's current key, and the key map (`h`) puts any of them back on a key.
 
 Navigation is keyboard-driven. The manager claims mouse reporting so the wheel stays inside the app and cannot scroll the TUI out of view: in a focused session it walks that pane's scrollback, where click-drag also selects pane text and copies it. In a focused agent that tracks the mouse, a click passes straight through to its own clickable UI while a drag still selects and copies; hold `alt` to pass a whole drag through instead, for the agent's own text selection or sliders. In the list the wheel does nothing, since moving the selection with it retargets every key that follows.
 
@@ -78,12 +78,12 @@ left. `ctrl+]` opens your snippet menu over the session in front of you.
 
 ## Hotkey menu
 
-Press `space` on the list, or `ctrl+]` anywhere including inside a focused session, to dock the hotkey menu at the bottom of the sidebar. It lists your snippets without a text box, because typing a message is what focusing a session (`enter`) is for. Each snippet's bare key sends it: `c` for continue, `§` for the progress summary. The menu is the whole namespace, so no modifier chord is reserved and nothing you type can collide with a snippet. Both openers are rebindable in the key map (`?`), per screen.
+Press `space` on the list, or `ctrl+]` anywhere including inside a focused session, to dock the hotkey menu at the bottom of the sidebar. It lists your snippets without a text box, because typing a message is what focusing a session (`enter`) is for. Each snippet's bare key sends it: `c` for continue, `§` for the progress summary. A lettered snippet also carries a direct chord — `option+shift+<key>` on a Mac, `alt+shift+<key>` elsewhere — that sends it in one press from the list or a focused session without opening the menu at all, and the footer lists those chords. The menu stays the whole namespace and is where `§` and `±` live, so nothing you type can collide with a snippet. Both openers are rebindable in the key map (`?`), per screen.
 
-- On a **session** row, each snippet's key sends it straight into that session's pane, so the agent gets it as a user message without you attaching. Opened from inside a session, it answers that session instead and leaves you where you were. The menu stays open, ready for the next session; Settings (`s`) can make it close after a send instead. The one exception is `±`, which fires anywhere without the menu.
+- On a **session** row, each snippet's key sends it straight into that session's pane, so the agent gets it as a user message without you attaching. The direct chord does the same without the menu. Opened from inside a session, the menu answers that session instead and leaves you where you were. The menu stays open, ready for the next session; Settings (`s`) can make it close after a send instead. The one exception is `±`, which fires anywhere without the menu.
 - On a **group** row there is no pane to send to, so the menu says to select a session. `n` and `ctrl+n` start a new agent in the group.
 
-Settings → **experimental** contains three features, all off by default.
+Settings → **experimental** contains four features, all off by default.
 
 **Compressed focus view** keeps the shortened conversation on screen in focus mode. It is off by default, including for existing users who previously chose the conversation view. Prompt and input mirroring is still experimental; use `F3` to return to the live terminal to see and submit input. Disabling it restores the live terminal whenever a session is focused.
 
@@ -92,6 +92,8 @@ Settings → **experimental** contains three features, all off by default.
 **JEV Auto Suggest** works in existing sessions. With `TYPESAFE_API_KEY` set, it ranks up to eight earlier submissions from the selected existing session against its last four messages. The suggestion appears beneath the snippets; `ctrl+y` inserts it into the session's prompt without submitting it. Close the menu and focus the session to edit or send it. It never suggests a starting prompt on a group row. When enabled, each ranking request sends up to four messages (500 characters each) and eight submissions (300 characters each) to TypeSafe. A missing key, failed request, or JEV's “none” choice leaves the menu without a suggestion.
 
 With **Prompt suggestions** and **JEV Auto Suggest** both on and `TYPESAFE_API_KEY` set, JEV also ranks the New Session prompt's suggestions. Once at least two recurring prompts match the draft, it sends the draft and up to eight matching recurring prompts (300 characters each) to TypeSafe, and its pick moves to the front of the suggestion line, marked `jev`. Nothing else from your history is sent. Turning either feature off stops these requests, and a missing key, failed request, or “none” choice leaves the local order.
+
+**JEV finish check** reads a Claude session each time its row turns finished. With `TYPESAFE_API_KEY` set, it sends the session's last six user and assistant turns (1,500 characters each) to TypeSafe in one request and asks two yes-no questions: is the work done, and did the agent stop because it had no Chrome browser control. When JEV is at least 80% sure Chrome was missing and at most 20% sure the work is done, the board ends the pane, resumes the same conversation on the same model with `--chrome`, and sends `continue`. It does this at most once per session while the board runs; a session that still reads as missing Chrome afterwards is reported on the status bar and left alone. A confident "done" with no Chrome problem is reported on the status bar. Anything less certain, a missing key, a failed request, or an unreadable transcript changes nothing. Panes the manager did not start are never checked, since the remedy kills the pane.
 
 `space`, `ctrl+]` or `esc` closes the menu. Snippets that do not fit on its lines are counted on the last one, and the key map (`?`) lists them all.
 
@@ -121,7 +123,7 @@ The line is run directly, never through a shell, so nothing in it is expanded an
 
 A known windowed editor (the six above, plus `open` and `xdg-open`) starts detached and the manager stays on screen, with the status line naming what opened. Everything else takes the terminal over the way an attach does and hands it back on exit — that way round because a terminal editor started detached would have nowhere to draw, while a windowed one launched this way only costs a repaint.
 
-Each entry is a `key`, an optional `label`, the `text` it types, and `autoSubmit`. The key is a single letter a–z, `§` or `±`, pressed as-is in the hotkey menu. With `autoSubmit` true the key presses Enter after the text, so the session is answered in one key; false types the text and leaves it in the prompt for you to finish and send. An entry without the field submits, which is how every snippet behaved before it was a choice. A first run writes `yes`, `continue`, `explain like I'm 5`, `wake up` and the `§` progress summary, all submitting.
+Each entry is a `key`, an optional `label`, the `text` it types, and `autoSubmit`. The key is a single letter a–z, `§` or `±`, pressed as-is in the hotkey menu. A lettered key also sends directly on `option+shift+<key>` (a Mac; `alt+shift+<key>` elsewhere) without the menu. With `autoSubmit` true the key presses Enter after the text, so the session is answered in one key; false types the text and leaves it in the prompt for you to finish and send. An entry without the field submits, which is how every snippet behaved before it was a choice. A first run writes `yes`, `continue`, `explain like I'm 5`, `wake up` and the `§` progress summary, all submitting.
 
 Inside a session every `ctrl` combination reaches the program running there, `ctrl+o` included: Claude Code shows more lines with it, and in a [terminal tab](#terminal-tabs) `nano` writes the file out.
 
@@ -137,13 +139,13 @@ Gate Inbox does not create git worktrees. A session that should edit a checkout 
 
 The id arrives one of two ways: tools with a `session_id_flag` launch under an id the manager mints, and tools that mint their own are read back by a `session_store` capturer (`codex`, `opencode`). Without an id, a tool with a `resume_picker_command` opens its own session picker in the pane on revive (`claude --resume`, `codex resume`), so you pick the conversation. A tool without one falls back to `revive_command` (`opencode --continue`), which resumes the working directory's most recent conversation, and the manager says so in the status line, since sessions sharing a directory would otherwise land on the wrong one. On a group row `v` revives every dead session under it, and revive-all in quick actions (`:`) revives every dead session in view; both revive what they can and name the first failure rather than stopping.
 
-A start that finds panes gone offers back the sessions that stopped without you ending them, on the reopen card, before you have to notice the dead rows: `enter` restores every one of them, `c` opens a picker to take part of it, and `esc` leaves them alone. Whichever you answer, those rows are settled: the next start does not ask about them again, and `v` is still there for the ones you left, with revive-all in quick actions (`:`). A session you revive by hand and lose again is a new loss, and that one is offered.
+A start never stops to ask about panes that are gone. The board opens on the list, and each session that stopped without you ending them is marked `↻` on its row, with one line on the status bar saying how many. The attention filter (`w`) keeps marked rows. `V` revives every dead session in view, the same as revive-all in quick actions (`:`), and `v` revives one. A mark lasts until that row is revived; a session you revive and lose again is a new loss, and the next start marks it again.
 
-Only a session that died is offered, never one you ended. The board tells them apart from what it records as it happens:
+Only a session that died is marked, never one you ended. The board tells them apart from what it records as it happens:
 
-- **Ended by you, never offered:** a kill from the board, the CLI (`gate-inbox kill`), the MCP tool or an extension; an archive; `gate-inbox park` (which `unpark` brings back); an agent you quit yourself with `/exit`, which leaves exit status 0 (ctrl+c's 130 counts too); and a pane you closed in tmux (`kill-pane`, `kill-window`) while its tmux server stayed up.
-- **Died, offered:** the tmux server it ran on is gone or was restarted after it launched (a reboot, tmux itself ending), or the agent crashed, which leaves a non-zero exit status or a signal.
-- **Unclear, offered and labelled:** nothing settles it either way, such as a stopped job's status. The row says what is known and when it was last seen.
+- **Ended by you, never marked:** a kill from the board, the CLI (`gate-inbox kill`), the MCP tool or an extension; an archive; `gate-inbox park` (which `unpark` brings back); an agent you quit yourself with `/exit`, which leaves exit status 0 (ctrl+c's 130 counts too); and a pane you closed in tmux (`kill-pane`, `kill-window`) while its tmux server stayed up.
+- **Died, marked:** the tmux server it ran on is gone or was restarted after it launched (a reboot, tmux itself ending), or the agent crashed, which leaves a non-zero exit status or a signal.
+- **Unclear, marked:** nothing settles it either way, such as a stopped job's status. The row says what is known and when it was last seen.
 
 The exit status comes from the pane's launch script, which records the agent's status in `hooks/<id>.exit` under the config directory before it drops to the shell.
 
@@ -170,7 +172,6 @@ It asks to confirm first, and it works on a live session too: the running agent 
 An agent you start by hand in tmux (plain `claude`, `codex` or `opencode` in any pane) is found by the board's scan, at start and every 45 seconds, and shown on the board as-is: an *adopted* pane. It is somebody else's window with an agent in it, so the board refuses to do to it what it does to its own sessions. Kept as-is, a pane keeps running where it is but misses:
 
 - the board's MCP tools inside the agent: spawning, messaging, tasks;
-- reach from other sessions and the CLI: `send`, `read`, `answer`, `wait` and `kill` treat it as not running;
 - the board's launch environment: the `GATE_INBOX_*` variables, extension settings, a fresh account token;
 - a known conversation unless Claude Code names it in its session file: fork, migrate, resume, restart, account switch and revive need one;
 - the back-to-board keys and the pane's title and colours.
@@ -179,17 +180,19 @@ Relaunching it into the board fixes all of that. The pane is ended once it is id
 
 Hook status is the exception: a Claude Code pane kept as-is still reports through hooks, from the moment the board adopts it, without a restart. At startup the board adds one entry per event it needs (`SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`, `Stop`, `StopFailure`) to the `hooks` member of your Claude Code user settings (`~/.claude/settings.json`, or the one under `CLAUDE_CONFIG_DIR`), so every `claude` you start loads them. Nothing else in the file is touched: a settings file that is a link stays a link, and one that is read-only or malformed is left alone with a warning in the board's log. Each entry is a few shell builtins that end the hook with no output unless the session runs in a pane the board has adopted, its claude is the one the board found there, the board is running and its binary is installed. So sessions outside the board see nothing, and entries left behind after Gate Inbox is deleted stay silent. A session the board launched carries its own hooks and skips these. In an adopted pane the entry hands the event to `gate-inbox hook global`, which runs the same commands a launched session's hooks run: lifecycle status, a pending `AskUserQuestion` for dialog relay, and the notes on messages typed into it. `gate-inbox claude-hooks status` shows whether they are registered. `gate-inbox claude-hooks uninstall` removes them and keeps the board from adding them back, and `gate-inbox claude-hooks install` restores them. A board whose config directory is a scratch directory, such as a test's, does not register them.
 
+Other sessions and the CLI still reach it from its row: `send`, `read`, `wait` and `kill` work on it as on a launched session, and `answer` from the session that tracks it. An adopted Claude Code session's own `gate-inbox` commands, run from its shell, speak as that session, so it can reply to a message the way the message tells it to.
+
 The board takes every adopted pane over without asking: an idle one on the first pass after startup, a busy one on the first pass that finds it idle, and a pane found while the board is up the same way. A pane is never ended while it is working or while you are in it. A pane that fails to relaunch is left as-is until takeover runs from quick actions (`:`), which runs the same takeover by hand. The "outside panes" setting can keep them as-is instead (quick actions still takes them over), or ignore them: take them off the board without touching the panes, and never take them again.
 
-If a pane runs the same conversation as a dead row on the board (you resumed a board session by hand), the dead row is never offered back and `v` refuses it: reviving it would start a second agent on one conversation.
+If a pane runs the same conversation as a dead row on the board (you resumed a board session by hand), the dead row is never marked and `v` refuses it: reviving it would start a second agent on one conversation.
 
-### Never asking again
+### Startup defaults
 
-`N` on the reopen card applies the answer on screen and makes it the default. Settings (`s`) holds it and is where the question is turned back on, beside what happens to outside panes:
+Settings (`s`) holds what a start does with sessions that died, beside what happens to outside panes:
 
 | Setting | Values |
 |---|---|
-| on reopen | ask; always resume the ones that died (an unclear one is left for revive-all in quick actions); never offer |
+| on reopen | mark them in the list (the default); always resume the ones that died (an unclear one is marked and left for `V`); leave them unmarked |
 | outside panes | take them over once idle (the default); keep them as-is; ignore them (the scan takes no outside pane) |
 
 Whatever a default does on the way in is said in one line on the status bar.

@@ -66,8 +66,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleHelpKey(msg)
 	case modeNameSweep:
 		return m.handleNameSweepKey(msg)
-	case modeRestorePrompt:
-		return m.handleRestorePromptKey(msg)
 	case modeWelcome:
 		return m.handleWelcomeKey(msg)
 	case modeTmuxHint:
@@ -154,6 +152,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// always was.
 	if model, cmd, answered := m.artifactRowAction(action, bound); answered {
 		return model, cmd
+	}
+
+	// A snippet's direct chord sends it in one press, read before the list's
+	// own bindings the way ± is: the chord is unbound in the map, so nothing
+	// else can claim it and it never shadows a documented key.
+	if snip, ok := m.snippetChordFor(msg); ok {
+		return m.sendSnippetToSelected(snip)
 	}
 
 	// The one snippet key outside the menu is read before the list's own

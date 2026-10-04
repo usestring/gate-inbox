@@ -20,11 +20,12 @@ package ui
 // no room for.
 
 import (
-	"github.com/usestring/gate-inbox/internal/keymap"
 	"path/filepath"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/snippets"
 )
 
@@ -117,10 +118,10 @@ func (m *Model) snippetChordFor(msg tea.KeyMsg) (snippets.Snippet, bool) {
 func chordNames(msg tea.KeyMsg) []string {
 	key := msg.Key()
 	if key.Mod&tea.ModShift == 0 {
-		if r := key.ShiftedCode; r >= 'A' && r <= 'Z' {
-			return []string{tea.Key{Code: r + ('a' - 'A'), Mod: key.Mod | tea.ModShift}.String()}
-		} else if r := key.Code; r >= 'A' && r <= 'Z' {
-			return []string{tea.Key{Code: r + ('a' - 'A'), Mod: key.Mod | tea.ModShift}.String()}
+		for _, r := range []rune{key.ShiftedCode, key.Code} {
+			if unicode.IsUpper(r) {
+				return []string{tea.Key{Code: unicode.ToLower(r), Mod: key.Mod | tea.ModShift}.String()}
+			}
 		}
 	}
 	return []string{keyName(msg), msg.String()}

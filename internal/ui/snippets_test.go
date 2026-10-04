@@ -176,6 +176,19 @@ func TestFoldedShiftPrefersTheShiftedChord(t *testing.T) {
 	}
 }
 
+// The fold is read for any uppercase letter, not only A-Z: a chord may bind
+// any single character.
+func TestFoldedShiftReadsNonASCIIUppercase(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{
+		{Key: "a", Chord: "alt+é", Text: "plain"},
+		{Key: "b", Chord: "alt+shift+é", Text: "shifted"},
+	})
+	if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'É', Mod: tea.ModAlt}); !ok || snip.Key != "b" {
+		t.Fatalf("option+shift+É folded into the code named %v %v, want b", snip, ok)
+	}
+}
+
 // A chord the manager's own map binds stays the manager's on both screens, so
 // a snippet file cannot make a documented key behave differently by screen.
 func TestManagerBindingOutranksASnippetChord(t *testing.T) {

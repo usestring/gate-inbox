@@ -16,7 +16,9 @@
 // Chord is a direct binding, e.g. option+shift+c, that sends it in one press
 // without opening the menu at all. The chord is not derived from the key: the
 // file spells it out, so the two can differ, either can be absent, and § and ±
-// -- not letters a modifier can carry -- can stay menu-only. The chord is the
+// -- not letters a modifier can carry -- can stay menu-only. A lettered entry
+// that leaves the field out entirely keeps option+shift+<key>, the chord it
+// had before the file named one; see legacyChords. The chord is the
 // fast path an operator wants when the sentence is known.
 //
 // The default chord is option+shift+<key> because option+shift is the
@@ -80,7 +82,9 @@ type Snippet struct {
 	// Chord is the direct binding that sends this snippet in one press from
 	// the list or a focused session, without opening the hotkey menu, e.g.
 	// "option+shift+c" (spelled "alt+shift+c" works too). Empty leaves the
-	// snippet on the menu alone, which is how § and ± stay.
+	// snippet on the menu alone, which is how § and ± stay. A lettered entry
+	// in the file that leaves the field out keeps option+shift+<key>, the
+	// chord every letter carried before the file named it: see legacyChords.
 	Chord string `json:"chord,omitempty"`
 	// Text is what is typed into the session.
 	Text string `json:"text"`
@@ -90,6 +94,32 @@ type Snippet struct {
 	// before it was a choice. false types the text and leaves it in the
 	// prompt for the operator to finish.
 	AutoSubmit *bool `json:"autoSubmit"`
+
+	// chordOmitted records a file entry with no chord field at all, as
+	// opposed to one that wrote "chord": "" to leave the menu alone.
+	chordOmitted bool
+}
+
+// UnmarshalJSON reads an entry and notes whether it named a chord, so a file
+// written before the field existed keeps the chords it always had.
+func (s *Snippet) UnmarshalJSON(data []byte) error {
+	type plain Snippet
+	if err := json.Unmarshal(data, (*plain)(s)); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	s.chordOmitted = true
+	for name := range fields {
+		// encoding/json matches field names case-insensitively, so "Chord"
+		// set the field and counts as named.
+		if strings.EqualFold(name, "chord") {
+			s.chordOmitted = false
+		}
+	}
+	return nil
 }
 
 // Submits reports whether the snippet presses Enter after its text.
@@ -142,6 +172,15 @@ func (s Set) Get(binding string) (Snippet, bool) {
 		}
 	}
 	return Snippet{}, false
+}
+
+// ChordKey is the snippet's chord spelled the way the TUI reports a press, so
+// it can be compared against a key map: "" when it has none.
+func (s Snippet) ChordKey() string {
+	if s.Chord == "" {
+		return ""
+	}
+	return normalizeChord(s.Chord)
 }
 
 // Chord returns the snippet a direct chord names, the counterpart to Get for
@@ -328,7 +367,10 @@ func validate(parsed []Snippet) Set {
 	var set Set
 	taken := map[string]int{}
 	chords := map[string]int{}
+	var legacy []int
 	for i, snip := range parsed {
+		omitted := snip.chordOmitted
+		snip.chordOmitted = false
 		snip.Key = strings.ToLower(strings.TrimSpace(snip.Key))
 		snip.Label = strings.TrimSpace(snip.Label)
 		snip.Chord = strings.TrimSpace(snip.Chord)
@@ -381,15 +423,36 @@ func validate(parsed []Snippet) Set {
 				chords[normalizeChord(snip.Chord)] = i
 			}
 			taken[snip.Key] = i
+			if snip.Chord == "" && omitted && singleLetter(snip.Key) {
+				legacy = append(legacy, len(set.Snippets))
+			}
 			set.Snippets = append(set.Snippets, snip)
 		}
 	}
+	legacyChords(set.Snippets, legacy, chords)
 	// Ordered by key so every surface that lists them — the key map, the
 	// footer, the quick bar — agrees, whatever order the file was written in.
 	sort.Slice(set.Snippets, func(a, b int) bool {
 		return set.Snippets[a].Key < set.Snippets[b].Key
 	})
 	return set
+}
+
+// legacyChords gives each entry that never named a chord the one its letter
+// carried before the file could: option+shift+<key>. A file written then has
+// no chord field anywhere, and losing every one-press key on upgrade, with
+// nothing on screen saying why, would be worse than keeping them. It runs
+// after every written chord is known, so a chord the file names outright
+// keeps it and the older entry falls back to the menu alone.
+func legacyChords(kept []Snippet, legacy []int, chords map[string]int) {
+	for _, i := range legacy {
+		chord := defaultChord(kept[i].Key)
+		if _, dup := chords[chord]; dup {
+			continue
+		}
+		chords[chord] = -1
+		kept[i].Chord = chord
+	}
 }
 
 // entry names an offending line the way the file numbers it, so a problem

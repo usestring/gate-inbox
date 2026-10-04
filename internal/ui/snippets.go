@@ -96,17 +96,49 @@ func (m *Model) snippetFor(key string) (snippets.Snippet, bool) {
 // screen that binds it: a snippet on ctrl+q would otherwise send from the list
 // and leave focus, so the same press would mean two things by screen.
 func (m *Model) snippetChordFor(msg tea.KeyMsg) (snippets.Snippet, bool) {
-	for _, ctx := range []keymap.Context{keymap.ContextList, keymap.ContextFocus} {
-		if _, bound := m.action(ctx, msg); bound {
-			return snippets.Snippet{}, false
-		}
+	if m.chordTaken(keyName(msg), msg.String()) {
+		return snippets.Snippet{}, false
 	}
 	for _, name := range chordNames(msg) {
-		if snip, ok := m.snips.Chord(name); ok {
+		if snip, ok := m.snips.Chord(name); ok && !m.chordTaken(snip.ChordKey()) {
 			return snip, true
 		}
 	}
 	return snippets.Snippet{}, false
+}
+
+// chordTaken reports whether either screen's map binds any of names. An
+// action that follows the rail's side (see sideBindings) takes both mirror
+// images, whichever side the rail is on now: the side is a setting, and a
+// snippet that sent only while the rail sat left would be a key whose meaning
+// moved with the layout.
+func (m *Model) chordTaken(names ...string) bool {
+	for _, ctx := range []keymap.Context{keymap.ContextList, keymap.ContextFocus} {
+		for _, name := range names {
+			if name == "" {
+				continue
+			}
+			if _, bound := m.km().Action(ctx, name); bound {
+				return true
+			}
+			if action, bound := m.km().Action(ctx, mirrorArrow(name)); bound {
+				if _, sided := sideBindings[ctx][action]; sided {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// liveChord is the chord a snippet actually answers to: "" when it has none
+// or the key map has taken it, so no surface advertises a press that would
+// do something else.
+func (m *Model) liveChord(snip snippets.Snippet) string {
+	if snip.Chord == "" || m.chordTaken(snip.ChordKey()) {
+		return ""
+	}
+	return snip.Chord
 }
 
 // chordNames is the spellings a press might name a chord by. A terminal may
@@ -178,16 +210,17 @@ func (m *Model) snippetLegend() legendSection {
 	}
 	pairs := make([][2]string, 0, len(m.snips.Snippets))
 	for _, snip := range m.snips.Snippets {
-		pairs = append(pairs, [2]string{snippetCap(snip), snip.Title()})
+		pairs = append(pairs, [2]string{m.snippetCap(snip), snip.Title()})
 	}
 	return legendSection{title: "Snippets", quiet: true, pairs: pairs}
 }
 
 // snippetCap is a snippet's direct chord as every surface prints it, falling
-// back to the bare menu key for a snippet that has no chord (§ and ±).
-func snippetCap(snip snippets.Snippet) string {
-	if snip.Chord != "" {
-		return keymap.Display(snip.Chord)
+// back to the bare menu key for a snippet with no live chord: § and ±, or one
+// whose chord the key map has taken.
+func (m *Model) snippetCap(snip snippets.Snippet) string {
+	if chord := m.liveChord(snip); chord != "" {
+		return keymap.Display(chord)
 	}
 	return keymap.Display(snip.Binding())
 }
@@ -210,10 +243,10 @@ func (m *Model) snippetHelpSection() helpSection {
 			verb = "type "
 		}
 		text := verb + snip.Quoted()
-		if snip.Chord != "" {
+		if m.liveChord(snip) != "" {
 			text += " (menu: " + snip.Key + ")"
 		}
-		rows = append(rows, lit(snippetCap(snip), text))
+		rows = append(rows, lit(m.snippetCap(snip), text))
 	}
 	switch {
 	case m.snipErr != "":
@@ -225,6 +258,11 @@ func (m *Model) snippetHelpSection() helpSection {
 	}
 	for _, problem := range m.snips.Problems {
 		rows = append(rows, note("✕ "+problem))
+	}
+	for _, snip := range m.snips.Snippets {
+		if snip.Chord != "" && m.liveChord(snip) == "" {
+			rows = append(rows, note("✕ "+snip.Key+": chord "+snip.Chord+" is a manager key, so it sends from the menu only"))
+		}
 	}
 	return helpSection{title: "snippets", rows: rows}
 }

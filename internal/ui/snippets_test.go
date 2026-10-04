@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/snippets"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -247,6 +248,46 @@ func TestAChordEitherScreenBindsNeverNamesASnippet(t *testing.T) {
 		if snip, ok := m.snippetChordFor(msg); ok {
 			t.Errorf("%s named the snippet %q over a manager binding", msg.String(), snip.Key)
 		}
+	}
+}
+
+// A side-sensitive action takes both mirror images of its key, whichever side
+// the rail is on, so moving the rail never hands a manager press to a snippet.
+func TestAMirroredBindingNeverNamesASnippet(t *testing.T) {
+	m := buildModel(t)
+	for _, ctx := range []keymap.Context{keymap.ContextList, keymap.ContextFocus} {
+		if action, bound := m.km().Action(ctx, "alt+l"); bound {
+			t.Fatalf("alt+l is already %s in %v; the test needs it free", action, ctx)
+		}
+	}
+	bindTestKey(t, m, keymap.StepIn, "alt+h")
+	writeSnippets(t, m, []snippets.Snippet{{Key: "l", Chord: "alt+l", Text: "mirror of step in"}})
+	for _, side := range []string{config.SidebarLeft, config.SidebarRight} {
+		m.sidebar = side
+		if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'l', Mod: tea.ModAlt}); ok {
+			t.Errorf("rail %s: alt+l named the snippet %q over mirrored step in", side, snip.Key)
+		}
+	}
+}
+
+// A chord the key map took is not advertised as the snippet's: the footer
+// falls back to the menu key and the key map says why.
+func TestSurfacesDropAChordTheKeyMapTook(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "p", Chord: "ctrl+p", Label: "push", Text: "push it"}})
+
+	if pairs := m.snippetLegend().pairs; len(pairs) != 1 || pairs[0][0] != "p" {
+		t.Fatalf("legend pairs = %v, want the menu key p", pairs)
+	}
+	var help string
+	for _, row := range m.snippetHelpSection().rows {
+		help += row.key + " " + row.text + "\n"
+	}
+	if strings.Contains(help, "(menu: p)") {
+		t.Errorf("the key map still offers ctrl+p as the snippet's chord:\n%s", help)
+	}
+	if !strings.Contains(help, "manager key") {
+		t.Errorf("the key map does not say why ctrl+p is not the snippet's:\n%s", help)
 	}
 }
 

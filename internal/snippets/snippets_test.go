@@ -75,6 +75,39 @@ func TestChordIsNamedInTheFile(t *testing.T) {
 	}
 }
 
+// A file written before entries named a chord keeps the option+shift+<key>
+// every letter carried then. An explicit "chord": "" still leaves the menu
+// alone, and a chord the file names outright outranks a kept one.
+func TestAFileWithoutChordsKeepsItsLetterChords(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `[
+		{"key":"d","text":"ship it"},
+		{"key":"e","chord":"","text":"menu only"},
+		{"key":"f","chord":"alt+shift+g","text":"takes g"},
+		{"key":"g","text":"loses its chord"},
+		{"key":"§","text":"progress"}
+	]`)
+	set, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(set.Problems) != 0 {
+		t.Fatalf("problems: %v", set.Problems)
+	}
+	want := map[string]string{"d": "alt+shift+d", "e": "", "f": "alt+shift+g", "g": "", SectionKey: ""}
+	for _, snip := range set.Snippets {
+		if snip.Chord != want[snip.Key] {
+			t.Errorf("%s chord = %q, want %q", snip.Key, snip.Chord, want[snip.Key])
+		}
+	}
+	if snip, ok := set.Chord("option+shift+d"); !ok || snip.Key != "d" {
+		t.Fatalf("option+shift+d did not resolve to d: %v %v", snip, ok)
+	}
+	if snip, ok := set.Chord("alt+shift+g"); !ok || snip.Key != "f" {
+		t.Fatalf("alt+shift+g resolved to %v %v, want f", snip, ok)
+	}
+}
+
 // A chord must hold a modifier and be unique; a bare or repeated one is a
 // problem, not a silent no-op. The Mac and alt spellings of one chord collide,
 // and so do its modifiers written in another order.

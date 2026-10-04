@@ -99,15 +99,7 @@ func Serve(in io.Reader, out io.Writer, configDir, bin, version string) error {
 		In:      in,
 		Out:     out,
 		Version: version,
-		Caller: func() (string, bool) {
-			pane := os.Getenv("TMUX_PANE")
-			if launched || pane == "" {
-				return "", false
-			}
-			return manager.AdoptedCaller(os.Getenv("TMUX"), pane, func() []int {
-				return adopt.Ancestors(int32(os.Getpid()))
-			})
-		},
+		Caller:  claudeCaller(manager, launched),
 		Start: func(id string) (Worker, error) {
 			stamp = binaryStamp(bin)
 			return StartProcess(bin, configDir, id)
@@ -118,6 +110,21 @@ func Serve(in io.Reader, out io.Writer, configDir, bin, version string) error {
 		},
 	}
 	return relay.Run()
+}
+
+// claudeCaller names the row this relay's claude is on the board as. Only a
+// claude's own marker counts: a codex or opencode adopted in the pane is not
+// the claude this relay serves, even a claude started from inside it.
+func claudeCaller(manager *hooks.Manager, launched bool) func() (string, bool) {
+	return func() (string, bool) {
+		pane := os.Getenv("TMUX_PANE")
+		if launched || pane == "" {
+			return "", false
+		}
+		return manager.AdoptedClaudeCaller(os.Getenv("TMUX"), pane, func() []int {
+			return adopt.Ancestors(int32(os.Getpid()))
+		})
+	}
 }
 
 // binaryStamp changes when the installed binary is replaced.

@@ -50,6 +50,9 @@ import (
 //     found in that pane, so a claude started from inside the adopted one --
 //     a `claude -p` from its Bash tool shares the pane and the environment --
 //     does not report as it, and a marker outliving its pane matches nothing.
+//     A marker for an adopted codex or opencode carries a third field, the
+//     tool, which the prelude's two-variable read takes into the pid, so it
+//     never matches either.
 //   - The board is running: the pid in its singleton lock answers kill -0.
 //   - The installed binary is still there and executable.
 //
@@ -100,21 +103,51 @@ func (m *Manager) AdoptedDir() string {
 	return filepath.Join(m.dir, adoptedDirName)
 }
 
-// AdoptedPane is one adopted claude the global hooks should answer for: the
-// row it is on the board as, and where its hooks run.
+// AdoptedPane is one adopted agent the board answers for from outside its
+// launch: the row it is on the board as, and where it runs.
+//
+// Every adopted agent gets one, so a command it runs can find its row
+// (AdoptedCaller). Only a claude's is read by the global hooks and the MCP
+// relay, and Tool is how they tell: a claude's marker is the two fields the
+// registered hook prelude reads, "<row> <pid>", and any other agent's adds
+// its tool as a third, which that prelude reads as a pid that is never its
+// parent's.
 type AdoptedPane struct {
 	ID string
 	// ServerPID and PaneID are what the hook reads off $TMUX and $TMUX_PANE.
 	ServerPID int
 	PaneID    string
-	// AgentPID is the claude process itself, which is its hooks' parent.
+	// AgentPID is the agent process itself. A claude's is its hooks' parent;
+	// any agent's is an ancestor of every command it runs.
 	AgentPID int
+	// Tool is the configured tool of an agent that is not a hooks-driven
+	// claude, and empty for one that is.
+	Tool string
 }
 
 var paneIDPattern = regexp.MustCompile(`^%[0-9]+$`)
 
+// markerToolPattern is what a marker's tool field may hold: one word, so
+// the marker still splits into three fields. A tool named otherwise is
+// written as markerToolFallback, which still marks the agent as no claude.
+var markerToolPattern = regexp.MustCompile(`^[A-Za-z0-9_.+-]+$`)
+
+const markerToolFallback = "agent"
+
 func adoptedMarkerName(pane AdoptedPane) string {
 	return strconv.Itoa(pane.ServerPID) + pane.PaneID
+}
+
+func adoptedMarkerContent(pane AdoptedPane) string {
+	content := pane.ID + " " + strconv.Itoa(pane.AgentPID)
+	if pane.Tool != "" {
+		tool := pane.Tool
+		if !markerToolPattern.MatchString(tool) {
+			tool = markerToolFallback
+		}
+		content += " " + tool
+	}
+	return content + "\n"
 }
 
 // SyncAdopted makes the markers exactly panes: each one written, and every
@@ -127,7 +160,7 @@ func (m *Manager) SyncAdopted(panes []AdoptedPane) error {
 		if checkID(pane.ID) != nil || !paneIDPattern.MatchString(pane.PaneID) || pane.ServerPID <= 0 || pane.AgentPID <= 0 {
 			continue
 		}
-		wanted[adoptedMarkerName(pane)] = pane.ID + " " + strconv.Itoa(pane.AgentPID) + "\n"
+		wanted[adoptedMarkerName(pane)] = adoptedMarkerContent(pane)
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -233,33 +266,60 @@ func (m *Manager) pruneAdoptedSteering() error {
 }
 
 // AdoptedCaller names the board row a command speaks as when it runs inside
-// an adopted claude, from the same marker the hook prelude reads. tmuxEnv
-// and paneID are $TMUX and $TMUX_PANE, and ancestors lists the pids above
-// the command, asked for only once a marker is there to check. A hook is the
-// claude's own child; a command its Bash tool runs sits under a shell or
-// two, so the marker's pid only has to be among them.
+// an adopted agent, from the pane's adoption marker. tmuxEnv and paneID are
+// $TMUX and $TMUX_PANE, and ancestors lists the pids above the command, asked
+// for only once a marker is there to check. A hook is the claude's own child;
+// a command an agent's shell tool runs sits under a shell or two, so the
+// marker's pid only has to be among them. Any agent's marker counts.
 func (m *Manager) AdoptedCaller(tmuxEnv, paneID string, ancestors func() []int) (string, bool) {
-	_, rest, ok := strings.Cut(tmuxEnv, ",")
-	if !ok || !paneIDPattern.MatchString(paneID) {
+	marker, ok := m.adoptedMarker(tmuxEnv, paneID)
+	if !ok || !slices.Contains(ancestors(), marker.AgentPID) {
 		return "", false
 	}
-	server, _, _ := strings.Cut(rest, ",")
-	if pid, err := strconv.Atoi(server); err != nil || pid <= 0 {
+	return marker.ID, true
+}
+
+// AdoptedClaudeCaller is AdoptedCaller for what only an adopted claude may
+// use, the MCP relay in its user config: a codex or opencode marker in the
+// same pane names a row that is not the claude asking, even when that claude
+// was started from inside the agent the marker names.
+func (m *Manager) AdoptedClaudeCaller(tmuxEnv, paneID string, ancestors func() []int) (string, bool) {
+	marker, ok := m.adoptedMarker(tmuxEnv, paneID)
+	if !ok || marker.Tool != "" || !slices.Contains(ancestors(), marker.AgentPID) {
 		return "", false
+	}
+	return marker.ID, true
+}
+
+// adoptedMarker reads the marker for the pane $TMUX and $TMUX_PANE name, in
+// either form SyncAdopted writes.
+func (m *Manager) adoptedMarker(tmuxEnv, paneID string) (AdoptedPane, bool) {
+	_, rest, ok := strings.Cut(tmuxEnv, ",")
+	if !ok || !paneIDPattern.MatchString(paneID) {
+		return AdoptedPane{}, false
+	}
+	server, _, _ := strings.Cut(rest, ",")
+	serverPID, err := strconv.Atoi(server)
+	if err != nil || serverPID <= 0 {
+		return AdoptedPane{}, false
 	}
 	raw, err := os.ReadFile(filepath.Join(m.AdoptedDir(), server+paneID))
 	if err != nil {
-		return "", false
+		return AdoptedPane{}, false
 	}
 	fields := strings.Fields(string(raw))
-	if len(fields) != 2 || checkID(fields[0]) != nil {
-		return "", false
+	if (len(fields) != 2 && len(fields) != 3) || checkID(fields[0]) != nil {
+		return AdoptedPane{}, false
 	}
 	agent, err := strconv.Atoi(fields[1])
-	if err != nil || agent <= 0 || !slices.Contains(ancestors(), agent) {
-		return "", false
+	if err != nil || agent <= 0 {
+		return AdoptedPane{}, false
 	}
-	return fields[0], true
+	marker := AdoptedPane{ID: fields[0], ServerPID: serverPID, PaneID: paneID, AgentPID: agent}
+	if len(fields) == 3 {
+		marker.Tool = fields[2]
+	}
+	return marker, true
 }
 
 // shellQuote makes s one word for sh, whatever it holds.

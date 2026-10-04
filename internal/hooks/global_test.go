@@ -477,6 +477,14 @@ func TestGlobalHooksStaySilentUnlessAdoptedAndAlive(t *testing.T) {
 		"a claude nested in the adopted one": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
 			return adoptedEnv, func(c string) string { return "/bin/sh -c " + shellQuote(c) + "; :" }
 		},
+		// A codex adopted in the pane, whose pid is even the hook's parent:
+		// its marker's third field keeps a claude's hooks out of its row.
+		"another agent's marker": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
+			if err := NewManager(b.configDir).SyncAdopted([]AdoptedPane{{ID: "adopted1", ServerPID: 4242, PaneID: "%7", AgentPID: os.Getpid(), Tool: "codex"}}); err != nil {
+				t.Fatal(err)
+			}
+			return adoptedEnv, direct
+		},
 		"a marker left by a pane that is gone": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
 			if err := NewManager(b.configDir).SyncAdopted([]AdoptedPane{{ID: "adopted1", ServerPID: 4242, PaneID: "%7", AgentPID: deadPID(t)}}); err != nil {
 				t.Fatal(err)
@@ -599,6 +607,67 @@ func TestAdoptedCallerNamesTheMarkedRowForTheAgentsDescendants(t *testing.T) {
 		if got != c.want || ok != (c.want != "") {
 			t.Errorf("%s: AdoptedCaller = %q, %v; want %q", c.name, got, ok, c.want)
 		}
+	}
+}
+
+// Every adopted agent's marker names its row and pid in the two fields a
+// claude's always has, and an agent other than a hooks-driven claude adds its
+// tool, one word whatever the tool is called.
+func TestSyncAdoptedMarksEveryAgentAndNamesTheOthersTool(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.SyncAdopted([]AdoptedPane{
+		{ID: "c1", ServerPID: 10, PaneID: "%1", AgentPID: 101},
+		{ID: "x1", ServerPID: 10, PaneID: "%2", AgentPID: 102, Tool: "codex"},
+		{ID: "o1", ServerPID: 10, PaneID: "%3", AgentPID: 103, Tool: "opencode"},
+		{ID: "w1", ServerPID: 10, PaneID: "%4", AgentPID: 104, Tool: "my tool"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{
+		"10%1": "c1 101\n",
+		"10%2": "x1 102 codex\n",
+		"10%3": "o1 103 opencode\n",
+		"10%4": "w1 104 agent\n",
+	} {
+		if got := readFile(t, filepath.Join(m.AdoptedDir(), name)); got != want {
+			t.Errorf("marker %s = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// Any agent's marker names the row for a command it runs, so a codex or
+// opencode can use the board's CLI as itself; only a claude's names it for
+// the MCP relay, which belongs to the claude in the pane and not to whatever
+// agent it was started under.
+func TestAdoptedClaudeCallerTakesOnlyAClaudesMarker(t *testing.T) {
+	m := NewManager(t.TempDir())
+	const tmuxEnv = "/run/tmux-test/default,4242,0"
+	under := func() []int { return []int{901, 900, 1} }
+	for _, c := range []struct {
+		tool             string
+		anyAgent, claude bool
+	}{
+		{"", true, true},
+		{"codex", true, false},
+		{"opencode", true, false},
+	} {
+		if err := m.SyncAdopted([]AdoptedPane{{ID: "a1b2c3d4", ServerPID: 4242, PaneID: "%7", AgentPID: 900, Tool: c.tool}}); err != nil {
+			t.Fatal(err)
+		}
+		if id, ok := m.AdoptedCaller(tmuxEnv, "%7", under); ok != c.anyAgent || (ok && id != "a1b2c3d4") {
+			t.Errorf("tool %q: AdoptedCaller = %q, %v; want %v", c.tool, id, ok, c.anyAgent)
+		}
+		if id, ok := m.AdoptedClaudeCaller(tmuxEnv, "%7", under); ok != c.claude || (ok && id != "a1b2c3d4") {
+			t.Errorf("tool %q: AdoptedClaudeCaller = %q, %v; want %v", c.tool, id, ok, c.claude)
+		}
+		if _, ok := m.AdoptedClaudeCaller(tmuxEnv, "%7", func() []int { return []int{77, 1} }); ok {
+			t.Errorf("tool %q: AdoptedClaudeCaller named the row for a process not under its agent", c.tool)
+		}
+	}
+	// A marker with more fields than either form is nobody's.
+	writeFile(t, filepath.Join(m.AdoptedDir(), "4242%7"), "a1b2c3d4 900 codex extra\n")
+	if _, ok := m.AdoptedCaller(tmuxEnv, "%7", under); ok {
+		t.Error("AdoptedCaller read a four-field marker")
 	}
 }
 

@@ -13,14 +13,15 @@ import (
 	"github.com/usestring/gate-inbox/internal/status"
 )
 
-// An adopted claude never loaded the hooks a launch carries, but the global
-// ones in the user's settings file run in it too, and they answer for its
-// pane once the board says which row it is (hooks.SyncAdopted). This keeps
-// those markers in step with the board: one for every live adopted claude,
-// none for anything else, so a pane let go of, archived or taken over stops
-// reporting as the row it was.
+// An adopted agent never loaded what a launch carries: its environment, its
+// hooks, its MCP server. What can reach it anyway -- the global hooks and MCP
+// relay in a claude's user settings, and the board's own CLI run from its
+// shell -- answers for its pane once the board says which row it is
+// (hooks.SyncAdopted). This keeps those markers in step with the board: one
+// for every live adopted agent, none for anything else, so a pane let go of,
+// archived or taken over stops speaking as the row it was.
 
-// adoptedHooksEvery bounds how stale a marker can be. A claude restarted by
+// adoptedHooksEvery bounds how stale a marker can be. An agent restarted by
 // hand inside its adopted pane has a new pid, which only a fresh look finds.
 const adoptedHooksEvery = 15 * time.Second
 
@@ -32,28 +33,46 @@ type adoptedHooksState struct {
 	synced bool
 }
 
-func (m *Model) adoptedClaudeRows() []adoptedClaudeRow {
-	var rows []adoptedClaudeRow
+// adoptedAgentRows is every live adopted row running an agent: any
+// configured tool with a command that is not a shell, the same tools a scan
+// adopts.
+func (m *Model) adoptedAgentRows() []adoptedAgentRow {
+	var rows []adoptedAgentRow
 	for _, sess := range m.sessions {
-		if sess.TmuxPaneID == "" || sess.Archived || sess.Status == status.Dead ||
-			m.cfg.Tools[sess.Tool].StatusSource != hooks.StatusSourceClaude {
+		if sess.TmuxPaneID == "" || sess.Archived || sess.Status == status.Dead {
 			continue
 		}
-		rows = append(rows, adoptedClaudeRow{id: sess.ID, socket: sess.TmuxSocket, pane: sess.TmuxPaneID})
+		tool, ok := m.cfg.Tools[sess.Tool]
+		if !ok || tool.Shell || tool.Command == "" {
+			continue
+		}
+		rows = append(rows, adoptedAgentRow{
+			id: sess.ID, socket: sess.TmuxSocket, pane: sess.TmuxPaneID,
+			tool: sess.Tool, command: tool.Command,
+			claude: tool.StatusSource == hooks.StatusSourceClaude,
+		})
 	}
 	return rows
 }
 
-type adoptedClaudeRow struct{ id, socket, pane string }
+type adoptedAgentRow struct {
+	id, socket, pane string
+	// tool and command are the row's configured tool and its launch
+	// command, which names the program to look for in the pane.
+	tool, command string
+	// claude is a hooks-driven claude, found by its session file rather
+	// than its command line, whose marker the global hooks read.
+	claude bool
+}
 
 // syncAdoptedHooks writes the markers when the adopted rows changed or the
-// last sync is old. A board with no adopted claude clears what an earlier run
+// last sync is old. A board with no adopted agent clears what an earlier run
 // left once and then costs nothing.
 func (m *Model) syncAdoptedHooks(now time.Time) {
 	if m.hooks == nil || m.tmux == nil {
 		return
 	}
-	rows := m.adoptedClaudeRows()
+	rows := m.adoptedAgentRows()
 	parts := make([]string, 0, len(rows))
 	for _, row := range rows {
 		parts = append(parts, row.id+"@"+row.socket+row.pane)
@@ -68,7 +87,10 @@ func (m *Model) syncAdoptedHooks(now time.Time) {
 	var panes []hooks.AdoptedPane
 	if len(rows) > 0 {
 		procs := adopt.NewProcTable()
-		claude := convo.LiveClaudeSessions(convo.ClaudeHome())
+		var claude []convo.ClaudeSession
+		if slices.ContainsFunc(rows, func(row adoptedAgentRow) bool { return row.claude }) {
+			claude = convo.LiveClaudeSessions(convo.ClaudeHome())
+		}
 		for _, row := range rows {
 			if pane, ok := m.adoptedPane(row, procs, claude); ok {
 				panes = append(panes, pane)
@@ -80,10 +102,13 @@ func (m *Model) syncAdoptedHooks(now time.Time) {
 	}
 }
 
-// adoptedPane reads what the hook will see: the server pid behind $TMUX, and
-// the claude whose child the hook is. A pane whose claude cannot be found gets
-// no marker, and its hooks stay quiet.
-func (m *Model) adoptedPane(row adoptedClaudeRow, procs *adopt.ProcTable, claude []convo.ClaudeSession) (hooks.AdoptedPane, bool) {
+// adoptedPane reads what the marker's readers will see: the server pid
+// behind $TMUX, and the agent process. A claude is the one whose session file
+// names a pid in the pane's tree, the claude its hooks are children of; any
+// other agent is the process in that tree whose command line runs its tool,
+// the evidence adoption itself went on. A pane whose agent cannot be found
+// gets no marker, and nothing speaks as its row.
+func (m *Model) adoptedPane(row adoptedAgentRow, procs *adopt.ProcTable, claude []convo.ClaudeSession) (hooks.AdoptedPane, bool) {
 	out, err := m.tmux.PaneState(row.id, "#{pid} #{pane_pid}")
 	if err != nil {
 		return hooks.AdoptedPane{}, false
@@ -97,9 +122,16 @@ func (m *Model) adoptedPane(row adoptedClaudeRow, procs *adopt.ProcTable, claude
 	if err1 != nil || err2 != nil {
 		return hooks.AdoptedPane{}, false
 	}
-	session, ok := convo.ClaudeSessionInTree(claude, procs.PIDs(int32(panePID)))
+	if row.claude {
+		session, ok := convo.ClaudeSessionInTree(claude, procs.PIDs(int32(panePID)))
+		if !ok {
+			return hooks.AdoptedPane{}, false
+		}
+		return hooks.AdoptedPane{ID: row.id, ServerPID: server, PaneID: row.pane, AgentPID: session.PID}, true
+	}
+	agent, ok := procs.ProgramPID(int32(panePID), row.command)
 	if !ok {
 		return hooks.AdoptedPane{}, false
 	}
-	return hooks.AdoptedPane{ID: row.id, ServerPID: server, PaneID: row.pane, AgentPID: session.PID}, true
+	return hooks.AdoptedPane{ID: row.id, ServerPID: server, PaneID: row.pane, AgentPID: agent, Tool: row.tool}, true
 }

@@ -3,6 +3,9 @@
 package status
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/usestring/gate-inbox/internal/config"
@@ -679,5 +682,55 @@ func TestClaudeQuestionDialogWaits(t *testing.T) {
 	}
 	if hold := engine.TypingHold("claude", pane); hold != Waiting {
 		t.Fatalf("TypingHold() = %q want %q", hold, Waiting)
+	}
+}
+
+func TestOpenCodeBackgroundWorkAllowsTypingAfterConfigUpgrade(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(`[tools.opencode]
+rules = [{state = "working", pattern = "esc interrupt"}]
+`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pane := "done\nBuild · Model · 4.8s\n  ┃\n  ╹▀▀▀▀\n ~/repo ↓ 1 shell · ctrl+p commands"
+	if got, _ := engine.Match("opencode", pane); got != Working {
+		t.Fatalf("background work = %q, want working", got)
+	}
+	if hold := engine.TypingHold("opencode", pane); hold != "" {
+		t.Fatalf("background work holds typing: %q", hold)
+	}
+	if _, matched := engine.RuleMatch("opencode", pane); matched {
+		t.Fatal("background work matched an input-blocking rule")
+	}
+	pane = strings.Replace(pane, "↓ 1 shell · ", "", 1)
+	if got, _ := engine.Match("opencode", pane); got != Finished {
+		t.Fatalf("drained background work = %q, want finished", got)
+	}
+}
+
+func TestOpenCodeBackgroundFooterDoesNotReadComposerOrOldTurns(t *testing.T) {
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pane := range []string{
+		"done\nBuild · Model · 4.8s\n  ┃ ↓ 1 shell\n  ╹▀▀▀▀\n ~/repo ctrl+p commands",
+		"quoted ↓ 1 shell\ndone\nBuild · Model · 4.8s\n  ┃\n  ╹▀▀▀▀\n ~/repo ctrl+p commands",
+	} {
+		if got, _ := engine.Match("opencode", pane); got != Finished {
+			t.Fatalf("quoted background marker = %q, want finished", got)
+		}
 	}
 }

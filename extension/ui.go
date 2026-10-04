@@ -393,13 +393,16 @@ const (
 	RankByStatus AttentionRank = iota
 	RankWaiting
 	// RankBlocked sorts after the sessions waiting on a question and before
-	// the errored ones. No status holds it: it is for a session blocked on
+	// the finished ones. No status holds it: it is for a session blocked on
 	// a decision about its work rather than on one question in front of the
 	// operator, which is handed over once the live questions are.
 	RankBlocked
-	RankErrored
 	RankFinished
 	RankIdle
+	// RankErrored sorts after the idle sessions and before the working ones:
+	// an error has already happened and blocks no turn, so it is handed over
+	// last.
+	RankErrored
 )
 
 // Badge is a short mark on a session's row. Rows are narrow, so a badge

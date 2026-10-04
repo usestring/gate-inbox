@@ -25,13 +25,16 @@ type AttentionRank int
 const (
 	AttentionByStatus AttentionRank = iota
 	AttentionWaiting
-	// AttentionBlocked is after the waiting sessions and before the errored
+	// AttentionBlocked is after the waiting sessions and before the finished
 	// ones: blocked on a decision about the work rather than on a question
 	// in front of somebody.
 	AttentionBlocked
-	AttentionErrored
 	AttentionFinished
 	AttentionIdle
+	// AttentionErrored is after the idle sessions and before the working
+	// ones: the error has already happened and blocks no turn, so it is
+	// handed over last.
+	AttentionErrored
 )
 
 // tier is the triage tier a rank stands for, or "" for none.

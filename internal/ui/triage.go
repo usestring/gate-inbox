@@ -12,21 +12,24 @@ import (
 )
 
 // triageTiers ranks statuses by how badly a human is needed, best first.
-// waiting outranks errored because a waiting agent is stalled on an answer
-// this second, while an error has already happened and blocks no turn;
-// working sits below every resting status because the one thing triage must
-// never do is walk somebody into a session that is mid-turn.
+// waiting outranks finished because a waiting agent is stalled on an answer
+// this second, while a finished turn is ready to review; finished outranks
+// idle because review comes before new work; and errored sits last, just
+// before the working statuses, because an error has already happened and
+// blocks no turn. working sits below every resting status because the one
+// thing triage must never do is walk somebody into a session that is
+// mid-turn.
 //
-// triageBlocked sits between waiting and errored. No status reaches it: it is
+// triageBlocked sits between waiting and finished. No status reaches it: it is
 // the tier an extension ranks a session at when it is blocked on a decision
 // about a whole piece of work rather than on one question in front of
 // somebody, so the sessions asking a live question are handed over first.
 var triageTiers = []string{
 	status.Waiting,
 	triageBlocked,
-	status.Errored,
 	status.Finished,
 	status.Idle,
+	status.Errored,
 	status.Working,
 	status.Starting,
 	status.Dead,
@@ -90,11 +93,13 @@ func (m *Model) needsPerson(sess store.Session) bool {
 }
 
 // triageWalkable is what a drain will hand over at all: the sessions that
-// need a person, and behind them the idle ones. An idle session is not
-// waiting on anybody, which is why it never counts as attention, but once
-// the queue of sessions that are has been answered it is the next thing a
-// drain can usefully put in front of the operator -- a session with nothing
-// running is one that could be given work. Working, starting and dead stay
+// need a person except the errored ones, then the idle ones, then the
+// errored ones last. An idle session is not waiting on anybody, which is why
+// it never counts as attention, but once the queue of waiting and finished
+// sessions has been answered it is the next thing a drain can usefully put in
+// front of the operator -- a session with nothing running is one that could
+// be given work -- and an errored session comes after that, since the error
+// has already happened and blocks no turn. Working, starting and dead stay
 // off, bar a working or starting label flagged stale (see stalestatus.go): entering a mid-turn session is the one thing triage must never do,
 // and a dead pane cannot be entered.
 //
@@ -113,15 +118,18 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 	return (sess.Status == status.Idle || m.isStale(sess)) && !m.ownedByExtension(sess.ID)
 }
 
-// triageLess sorts by whether a person is needed, then the status rank, then
+// triageLess sorts by queue group, then the status rank, then
 // the priority tier, then oldest first, so the session blocked longest is
 // handed over first and the rail reads as a queue rather than as a ranking.
+// The groups are sessions needing a person except errored ones, then idle
+// ones, then errored ones needing a person, then everything else: an errored
+// session sorts after every idle one, just before the working statuses.
 //
-// The tier sits under the status rank: an urgent session heads the sessions
+// The tier sits under the group: an urgent session heads the sessions
 // in the same state as it, but never crosses into a more pressing one -- a
 // question somebody is waiting on this second is handed over before any
-// finished session, urgent or not, and an urgent idle session still waits
-// behind every session that needs a person. The rail has to read in the
+// finished session, urgent or not, and an urgent errored session still waits
+// behind every idle session. The rail has to read in the
 // order the drain walks. See priority.go.
 //
 // LastStatusAt is when the session entered the state it is in, which is
@@ -135,19 +143,23 @@ func (m *Model) triageLess(a, b store.Session) bool {
 }
 
 // triageKey is everything the queue orders by before it falls back to who has
-// waited longest: whether somebody is needed at all, the status rank, and
+// waited longest: the queue group, the status rank, and
 // how much the work matters. It is a value rather than three comparisons
 // in a row because a parent adopts the best key in its lineage, and "best"
 // has to mean the same thing there as it does here.
+// Queue groups are sessions needing a person except errored ones (0), then
+// idle ones (1), then errored ones needing a person (2), then everything
+// else (3), so an errored session sorts after every idle one and just before
+// the working statuses, whatever its priority.
 //
 // priority is the tier's rank rather than the tier itself, so an untiered
 // session sorts with the mediums instead of ahead of or behind every stated
 // tier at once. See priority.Rank.
-type triageKey struct{ needs, priority, tier int }
+type triageKey struct{ group, priority, tier int }
 
 func (k triageKey) before(o triageKey) bool {
-	if k.needs != o.needs {
-		return k.needs < o.needs
+	if k.group != o.group {
+		return k.group < o.group
 	}
 	if k.tier != o.tier {
 		return k.tier < o.tier
@@ -156,11 +168,20 @@ func (k triageKey) before(o triageKey) bool {
 }
 
 // triageKeyOf reads one session's key. Zero sorts first in each field, so a
-// session that needs a person and is urgent is {0, 0, tier}.
+// session that needs a person and is urgent is {0, 0, tier}. An errored
+// session that needs a person queues at {2, priority, tier}, after every
+// idle session at {1, priority, tier} and before every working one at
+// {3, priority, tier}.
 func (m *Model) triageKeyOf(sess store.Session) triageKey {
-	key := triageKey{needs: 1, priority: m.tierOf(sess).Rank(), tier: m.triageRankOf(sess)}
+	key := triageKey{group: 3, priority: m.tierOf(sess).Rank(), tier: m.triageRankOf(sess)}
 	if m.needsPerson(sess) {
-		key.needs = 0
+		if m.triageRankOf(sess) == triageRank(status.Errored) {
+			key.group = 2
+		} else {
+			key.group = 0
+		}
+	} else if sess.Status == status.Idle || m.isStale(sess) {
+		key.group = 1
 	}
 	return key
 }
@@ -414,12 +435,15 @@ var raisedTiers = []priority.Tier{priority.Urgent, priority.High, priority.Mediu
 // than stranding the advance on a missing anchor.
 //
 // The walk is a pass per tier above the middle over the same ring -- urgent,
-// high, then medium -- for the sessions that need a person, then a catch-all
-// for the rest that do, then the same passes over the idle ones. An idle
-// session is never handed over ahead of one that is waiting, however the
+// high, then medium -- for the sessions that need a person except errored
+// ones, then a catch-all for the rest that do, then the same passes over the
+// idle ones, then the same passes over the errored ones last. An idle
+// session is never handed over ahead of one that is waiting, and an errored
+// one is never handed over ahead of an idle one, however the
 // ring happens to be ordered around leftID, and a drain that has answered
-// everything carries straight on into the idle sessions rather than dropping
-// the operator on the list with work still to be given out.
+// everything carries straight on into the idle sessions and then the errored
+// ones rather than dropping the operator on the list with work still to be
+// given out.
 //
 // The raised tiers get their own passes rather than trusting the rail's
 // order because the ring starts after leftID: an urgent session that came to
@@ -439,7 +463,7 @@ func (m *Model) nextTriageInput(leftID string, tried map[string]bool) (int, bool
 		}
 	}
 	var passes []func(store.Session) bool
-	for _, bucket := range []func(store.Session) bool{m.needsPerson, func(s store.Session) bool { return isIdle(s.Status) }} {
+	for _, bucket := range []func(store.Session) bool{m.triageNeedsNow, func(s store.Session) bool { return isIdle(s.Status) }, m.triageNeedsError} {
 		// A raised tier jumps the ring only among the sessions in the most
 		// pressing state still to hand over, which is where the rail puts
 		// it: an urgent finished session is not a claim on going ahead of a
@@ -516,6 +540,19 @@ func (m *Model) triageHandable(row treeRow, leftID string, tried map[string]bool
 
 func isIdle(st string) bool { return st == status.Idle }
 
+// triageNeedsNow is the sessions needing a person the drain hands over
+// first: waiting, finished and blocked, but never errored ones, which queue
+// last. triageNeedsError is those errored ones. Both read the effective tier
+// rather than the raw status, so a session an extension ranks at the errored
+// tier queues with the errored sessions either way.
+func (m *Model) triageNeedsNow(sess store.Session) bool {
+	return m.needsPerson(sess) && m.triageRankOf(sess) != triageRank(status.Errored)
+}
+
+func (m *Model) triageNeedsError(sess store.Session) bool {
+	return m.needsPerson(sess) && m.triageRankOf(sess) == triageRank(status.Errored)
+}
+
 // isSubagent is a session spawned under another one. A helper whose role
 // keeps it on screen is not: it is there for the operator rather than for
 // its parent, so the drain hands it over like a top-level session.
@@ -526,9 +563,9 @@ func isSubagent(sess store.Session) bool {
 // triagePickupCmd re-enters the head of the queue when a drain that ran
 // out of work left the operator on the list and a later poll brought a new
 // session needing a person. The queue is one live queue: work that reaches
-// waiting or finished while the first pass is walked joins it in place --
-// oldest first inside its tier, the way the rail already sorts -- rather
-// than stranding the operator on the list.
+// waiting, finished or errored while the first pass is walked joins it in
+// place -- oldest first inside its tier, the way the rail already sorts --
+// rather than stranding the operator on the list.
 //
 // It fires only for sessions needing a person, never for idle ones: a newly
 // idle session can wait for the next explicit pass, while a question or a

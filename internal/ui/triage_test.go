@@ -67,7 +67,7 @@ func TestTriageRailOrdersByUrgencyThenOldest(t *testing.T) {
 		t.Fatal("i did not turn triage on")
 	}
 
-	want := []string{"old-block", "new-block", "crashed", "reviewme", "napping", "grinder", "booting", "gone"}
+	want := []string{"old-block", "new-block", "reviewme", "napping", "crashed", "grinder", "booting", "gone"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
@@ -85,8 +85,10 @@ func TestTriageRailOrdersByUrgencyThenOldest(t *testing.T) {
 	if !slices.IsSorted(at) {
 		t.Fatalf("rendered rail is not in triage order (%v):\n%s", at, rail)
 	}
-	if strings.Contains(rail, "alpha") || strings.Contains(rail, "beta") {
-		t.Fatalf("triage should flatten the groups away:\n%s", rail)
+	for i, row := range m.rows {
+		if row.isGroup {
+			t.Fatalf("row %d is still a group row in triage: %v", i, rowKeys(m))
+		}
 	}
 }
 
@@ -258,7 +260,7 @@ func TestTriageAutoAdvanceWalksTheQueue(t *testing.T) {
 	})
 	m.triage = true
 	m.rebuildRows()
-	if got, want := sessionNames(m), []string{"ask", "broke", "done", "busy"}; !slices.Equal(got, want) {
+	if got, want := sessionNames(m), []string{"ask", "done", "broke", "busy"}; !slices.Equal(got, want) {
 		t.Fatalf("queue = %v want %v", got, want)
 	}
 
@@ -268,7 +270,7 @@ func TestTriageAutoAdvanceWalksTheQueue(t *testing.T) {
 	// session it leaves, so the walk ends when the queue is drained rather
 	// than cycling over work already done. See mute.go.
 	m.enterFocusOn(t, "broke")
-	for _, want := range []string{"done", "ask"} {
+	for _, want := range []string{"ask", "done"} {
 		updated, _ := m.handleFocusKey(ctrlQ())
 		m = updated.(*Model)
 		if m.mode != modeFocus {
@@ -377,10 +379,39 @@ func TestTriageDrainCarriesOnIntoIdleSessions(t *testing.T) {
 	}
 }
 
-// An idle session is never handed over while one that needs a person is
-// still unanswered, whatever order the ring puts them in around the session
-// just left.
-func TestTriageIdleWaitsBehindEverySessionNeedingInput(t *testing.T) {
+// An idle session is never handed over while a waiting or finished session
+// is still unanswered, whatever order the ring puts them in around the
+// session just left -- but it is handed over ahead of an errored one, which
+// queues last.
+func TestTriageIdleWaitsBehindWaitingAndFinishedButAheadOfError(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{
+		"ask":   status.Waiting,
+		"done":  status.Finished,
+		"calm":  status.Idle,
+		"broke": status.Errored,
+	})
+	m.triage = true
+	m.rebuildRows()
+	if got, want := sessionNames(m), []string{"ask", "done", "calm", "broke"}; !slices.Equal(got, want) {
+		t.Fatalf("queue = %v want %v", got, want)
+	}
+
+	// From broke the ring reaches ask first; ask has to come first
+	// regardless, then done, then calm, with broke last.
+	m.enterFocusOn(t, "broke")
+	for _, want := range []string{"ask", "done", "calm"} {
+		updated, _ := m.handleFocusKey(ctrlQ())
+		m = updated.(*Model)
+		if got := focusedName(t, m); got != want || m.mode != modeFocus {
+			t.Fatalf("ctrl+q landed on %q in mode %v want %s", got, m.mode, want)
+		}
+	}
+}
+
+// An errored session is handed over last, after every idle one, however the
+// ring happens to be ordered around the session just left.
+func TestTriageErrorWaitsBehindIdle(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{
 		"ask":   status.Waiting,
@@ -389,13 +420,11 @@ func TestTriageIdleWaitsBehindEverySessionNeedingInput(t *testing.T) {
 	})
 	m.triage = true
 	m.rebuildRows()
-	if got, want := sessionNames(m), []string{"ask", "broke", "calm"}; !slices.Equal(got, want) {
+	if got, want := sessionNames(m), []string{"ask", "calm", "broke"}; !slices.Equal(got, want) {
 		t.Fatalf("queue = %v want %v", got, want)
 	}
 
-	// From broke the ring reaches calm before it wraps to ask; ask has to
-	// come first regardless.
-	m.enterFocusOn(t, "broke")
+	m.enterFocusOn(t, "calm")
 	updated, _ := m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
 	if got := focusedName(t, m); got != "ask" || m.mode != modeFocus {
@@ -403,8 +432,8 @@ func TestTriageIdleWaitsBehindEverySessionNeedingInput(t *testing.T) {
 	}
 	updated, _ = m.handleFocusKey(ctrlQ())
 	m = updated.(*Model)
-	if got := focusedName(t, m); got != "calm" || m.mode != modeFocus {
-		t.Fatalf("with the waiting sessions answered ctrl+q landed on %q in mode %v want calm", got, m.mode)
+	if got := focusedName(t, m); got != "broke" || m.mode != modeFocus {
+		t.Fatalf("with the waiting session answered ctrl+q landed on %q in mode %v want broke last", got, m.mode)
 	}
 }
 

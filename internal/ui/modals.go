@@ -409,6 +409,9 @@ func (m *Model) viewSettings() string {
 	if m.settings.experimentalPicker {
 		return m.viewExperimentalSettings()
 	}
+	if m.settings.jevPanel {
+		return m.viewJevSettings()
+	}
 	density := "compact"
 	if m.settings.comfortableRows {
 		density = "comfortable"
@@ -486,6 +489,7 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldAutoProceed, "triage auto proceed", autoProceed) + "\n" +
 		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +
 		row(settingsFieldOutsidePanes, "outside panes", outsidePanesLabel(m.settings.outsidePanes)) + "\n" +
+		actionRow(settingsFieldJev, "JEV", m.jevSettingsSummary()) + "\n" +
 		actionRow(settingsFieldExperimental, "experimental", "features (default off)") + "\n" +
 		actionRow(settingsFieldSnippets, "snippets", "edit quick replies") + "\n" +
 		actionRow(settingsFieldRestartFlags, "restart flags", "edit restart flag presets") + "\n" +
@@ -495,6 +499,8 @@ func (m *Model) viewSettings() string {
 		m.settingsVersionRow(lead)
 	hint := [][2]string{{"↑↓", "field"}, {"←→", "change"}, {"↵/esc", "save"}}
 	switch m.settings.field {
+	case settingsFieldJev:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "JEV key and switch"}, {"esc", "save"}}
 	case settingsFieldExperimental:
 		hint = [][2]string{{"↑↓", "field"}, {"↵", "experimental features"}, {"esc", "save"}}
 	case settingsFieldSnippets:

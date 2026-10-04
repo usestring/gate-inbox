@@ -115,8 +115,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// keypresses, so they are read ahead of every other binding -- including
 	// the artifact row's refusals, since a jump acts on the tree rather than
 	// on the row it starts from. Any other key ends the number rather than
-	// being swallowed into it.
-	if m.isGroupJumpKey(msg.String()) {
+	// being swallowed into it. Read by keyName, not the printed text, so an
+	// alt+1 a terminal reports as "1" stays a chord rather than a digit.
+	if m.isGroupJumpKey(keyName(msg)) {
 		return m, m.typeGroupNumber(msg.String())
 	}
 	m.clearGroupJump()
@@ -156,10 +157,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return model, cmd
 	}
 
-	// A snippet's direct chord sends it in one press, read before the list's
-	// own bindings the way ± is: the chord is unbound in the map, so nothing
-	// else can claim it and it never shadows a documented key.
-	if snip, ok := m.snippetChordFor(msg); ok {
+	// A snippet's direct chord sends it in one press. A chord either screen's
+	// map binds belongs to the manager (see snippetChordFor), so a snippet
+	// file can never shadow a documented key.
+	if snip, ok := m.snippetChordFor(msg); ok && !bound {
 		return m.sendSnippetToSelected(snip)
 	}
 

@@ -70,6 +70,10 @@ var shardSlotDir = filepath.Join("/tmp", fmt.Sprintf("gate-inbox-ui-shards-%d", 
 // The kernel drops a flock when its holder exits, so a killed run cannot leak
 // a slot. A slot directory that cannot be made leaves the shard uncapped.
 func acquireShardSlot() (*os.File, func()) {
+	return acquireShardSlotWithLock(syscall.Flock)
+}
+
+func acquireShardSlotWithLock(flock func(int, int) error) (*os.File, func()) {
 	if err := os.MkdirAll(shardSlotDir, 0o700); err != nil {
 		return nil, func() {}
 	}
@@ -80,10 +84,14 @@ func acquireShardSlot() (*os.File, func()) {
 			if err != nil {
 				return nil, func() {}
 			}
-			if syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
+			err = flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+			if err == nil {
 				return f, func() { f.Close() }
 			}
 			f.Close()
+			if err != syscall.EWOULDBLOCK && err != syscall.EAGAIN && err != syscall.EINTR {
+				return nil, func() {}
+			}
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -239,7 +247,9 @@ func runSharded(m *testing.M) int {
 			again = append(again, regexp.QuoteMeta(name))
 		}
 		flag.Set("test.run", "^("+strings.Join(again, "|")+")$")
+		_, release := acquireShardSlot()
 		code = m.Run()
+		release()
 	} else if !failed {
 		fmt.Println("PASS")
 	}
@@ -328,6 +338,29 @@ func mergeTestLogs(parent string, wroteParent bool, shards []string) error {
 		return err
 	}
 	return f.Close()
+}
+
+func TestShardSlotFallsBackOnLockFailure(t *testing.T) {
+	saved := shardSlotDir
+	shardSlotDir = t.TempDir()
+	t.Cleanup(func() { shardSlotDir = saved })
+
+	for _, lockErr := range []error{syscall.ENOSYS, syscall.EOPNOTSUPP, syscall.EIO} {
+		t.Run(lockErr.Error(), func(t *testing.T) {
+			var fd int
+			slot, release := acquireShardSlotWithLock(func(openFD, operation int) error {
+				fd = openFD
+				return lockErr
+			})
+			release()
+			if slot != nil {
+				t.Fatal("lock failure must leave the run uncapped")
+			}
+			if err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB); err != syscall.EBADF {
+				t.Fatalf("failed slot descriptor must be closed: %v", err)
+			}
+		})
+	}
 }
 
 func TestShardSlotsCapConcurrentShardsAtOnePerCore(t *testing.T) {

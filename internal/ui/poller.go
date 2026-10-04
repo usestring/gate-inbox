@@ -168,6 +168,9 @@ type poller struct {
 	// between two passes say what it did meanwhile, and a whole turn can fit
 	// there. See missedTurn.
 	hookCursor map[string]int64
+	// codexHooks is what the last publish of the board's codex rows for
+	// the global codex hooks covered; see codexhooks.go.
+	codexHooks codexHooksState
 	// goneAdopted counts the consecutive passes each adopted session's pane
 	// has been proven missing, so a row is dropped on a finding that held
 	// still rather than on a single look.
@@ -737,6 +740,7 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 	}
 	phases.scan = lap(&mark)
 	panes := scan.PIDs
+	p.syncCodexHooks(sessions, panes, time.Now())
 	var livePIDs []int
 	var live []string
 	for _, sess := range sessions {
@@ -2439,6 +2443,13 @@ func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAli
 				}
 				return derived, nil
 			}
+		}
+	}
+	// A codex row the global codex hooks answer for has its turn's start
+	// and end from them, weighed against the pane; see codexhooks.go.
+	if agentAlive && !pinned {
+		if derived := p.codexHookStatus(sess, text, displaced); derived != "" {
+			return codexQuestionStatus(derived, p.unansweredCodexQuestions(sess)), nil
 		}
 	}
 	newStatus, matched := p.engine.Match(sess.Tool, text)

@@ -61,6 +61,16 @@ poll_interval = "2s"
 # [claude_code]
 # setup = true
 
+# Your own Codex config. While the board runs, on a machine with codex
+# installed, it keeps two hook entries (UserPromptSubmit and Stop) in
+# config.toml under CODEX_HOME or ~/.codex, so a codex started outside the
+# board reports status and hears the board's steering once the board adopts
+# it. They do nothing in any codex session the board does not hold. Codex
+# asks you to trust new hooks once ("Hooks need review"). false removes them,
+# and so does "gate-inbox codex-hooks uninstall".
+# [codex]
+# setup = true
+
 # The diagnostic log. It is a file log only -- this program owns the
 # terminal, so nothing is ever printed to the screen. "gate-inbox
 # --log-path" prints where it is written.

@@ -158,3 +158,19 @@ func TestEveryCLISteeringCarriesTheChildDialogRule(t *testing.T) {
 		t.Error("OpenCode's server-carried steering lacks the child-dialog rule")
 	}
 }
+
+// An adopted opencode has no gate-inbox tools, so its steering names the CLI
+// its shell can run as the session, and no MCP tool it does not have.
+func TestAdoptedPluginSteeringNamesOnlyTheCLI(t *testing.T) {
+	text := AdoptedPluginSteering("opencode")
+	for _, want := range []string{`"$GATE_INBOX_BIN" spawn`, `"$GATE_INBOX_BIN" sessions`, "--relay", builtinDelegation["opencode"], "CROSS-SESSION-MESSAGE", "rename"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("steering lacks %q", want)
+		}
+	}
+	for _, tool := range []string{"create_session", "send_session", "list_sessions", "answer_session"} {
+		if strings.Contains(text, tool) {
+			t.Errorf("steering names the MCP tool %s", tool)
+		}
+	}
+}

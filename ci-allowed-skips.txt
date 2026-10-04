@@ -79,6 +79,7 @@ app TestHogWatchOverheadE2E                   # needs GATE_INBOX_E2E_HOGS_OVERHE
 app TestAdoptedClaudeE2E                       # needs GATE_INBOX_E2E_CLAUDE, claude and ANTHROPIC_API_KEY; spends about a dozen haiku turns
 app TestAdoptedCodexE2E                        # needs GATE_INBOX_E2E_CODEX, codex and a codex login; spends three or four short model turns
 internal/codexprobe TestCodexProbeE2E           # needs GATE_INBOX_E2E_CODEX, codex and a codex login; spends three short model turns
+app TestAdoptedOpencodeE2E                     # needs GATE_INBOX_E2E_OPENCODE, a logged-in opencode v2 and a free port; spends a few turns on the cheapest model
 
 # Not a test: the child body TestTheRawWalkEntersTheKernelFarLessOften
 # re-execs with SYSSTAT_WALK_PROBE set. That parent runs in CI.
@@ -88,6 +89,9 @@ internal/sysstat TestWalkSyscallProbe
 # because mcpreg asks the real binary for its version.
 internal/sessioncmd TestModelsAsksTheInstalledOpencode?             # opencode on PATH
 internal/launch TestEnvironmentWritesOpencodeV2ModelIntoItsConfig?  # opencode v2 on PATH
+
+# Runs the generated OpenCode plugin under node, which the runner image ships.
+internal/opencode TestGlobalPluginBehaviour?  # node on PATH
 
 # Launch a pane under /usr/bin/zsh, which the runner image does not ship.
 internal/launch TestComposeReachesAPaneUnderTheOperatorShell?

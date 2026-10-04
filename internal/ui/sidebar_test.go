@@ -227,10 +227,8 @@ func TestSettingsSidebarAppliesLiveAndPersists(t *testing.T) {
 	}
 }
 
-// With the rail on the left the exit arrow mirrors: Left at the head of the
-// prompt steps back to the list, and Right, even at the prompt's end, is
-// the agent's.
-func TestFocusLeftUnfocusesAtPromptHeadRailLeft(t *testing.T) {
+// Either arrow leaves at its own prompt edge on either side of the frame.
+func TestFocusArrowsUnfocusAtPromptEdgesRailLeft(t *testing.T) {
 	m := buildModel(t)
 	m.sidebar = config.SidebarLeft
 	createSession(t, m, "leftrail", t.TempDir(), "")
@@ -249,9 +247,20 @@ func TestFocusLeftUnfocusesAtPromptHeadRailLeft(t *testing.T) {
 	m.pane.cursor = paneCursor{x: 4, y: 0, ok: true}
 	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
 	*m = *updated.(*Model)
-	if m.mode != modeFocus {
-		t.Fatalf("right at the prompt end left focus with the rail on the left, mode = %v", m.mode)
+	if m.mode != modeList {
+		t.Fatalf("right at the prompt end did not unfocus with the rail on the left, mode = %v", m.mode)
 	}
+
+	m.selectSessionRow(t, "leftrail")
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	*m = *updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("after re-enter, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+	sess = m.rows[m.cursor].sess
+	m.rows[m.cursor].sess.Tool = "claude-hooked"
+	m.pane.forID = sess.ID
+	m.preview = "❯ hi\n"
 
 	m.pane.cursor = paneCursor{x: 2, y: 0, ok: true}
 	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
@@ -331,13 +340,13 @@ func TestSideHelpAndRebindKey(t *testing.T) {
 	}
 	right := &Model{}
 	key, text := find(right)
-	if key != keymap.Display("right") || !strings.Contains(text, "prompt's end") {
-		t.Fatalf("right rail help row = %q %q, want the unchanged → at the prompt's end", key, text)
+	if key != keymap.Display("right") || !strings.Contains(text, "prompt edges") {
+		t.Fatalf("right rail help row = %q %q, want → at the prompt edges", key, text)
 	}
 	left := &Model{sidebar: config.SidebarLeft}
 	key, text = find(left)
-	if key != keymap.Display("left") || !strings.Contains(text, "prompt's head") {
-		t.Fatalf("left rail help row = %q %q, want ← at the prompt's head", key, text)
+	if key != keymap.Display("left") || !strings.Contains(text, "prompt edges") {
+		t.Fatalf("left rail help row = %q %q, want ← at the prompt edges", key, text)
 	}
 	if got := left.sideKey(keymap.ContextFocus, keymap.BackAtPrompt, "ctrl+left"); got != "ctrl+right" {
 		t.Fatalf("a left-rail rebind would store %q, want ctrl+right", got)

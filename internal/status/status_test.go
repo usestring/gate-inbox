@@ -289,6 +289,21 @@ func TestDefaultRulesRealPanes(t *testing.T) {
 				"\n                                                    MCP\n" +
 				"                                                    • example-web-access         Connected\n" +
 				"  ┃\n  ┃  Build auto · DeepSeek V4 Pro (New) OpenCode Go\n  ╹▀▀▀▀", Finished},
+		// Work moved to the background (ctrl+b) outlives the turn that started
+		// it: opencode names it in the footer as "↓ N shell(s)" (or subagent).
+		// The turn below is closed, but the session is still progressing, so it
+		// is working and must not be retired with the work still running.
+		{"opencode v2 turn end with a background shell", "opencode",
+			"     done\n     Build · DeepSeek V4 Pro (New) · 4.8s · 66.7 tok/s\n  ┃\n  ┃  Build auto · DeepSeek V4 Pro (New) OpenCode Go\n  ╹▀▀▀▀\n   ~/repo   ↓ 1 shell · 13.3K (1%)  ctrl+p commands", Working},
+		{"opencode v2 turn end with two background shells", "opencode",
+			"     done\n     Build · DeepSeek V4 Pro (New) · 4.8s · 66.7 tok/s\n  ┃\n  ┃  Build auto · DeepSeek V4 Pro (New) OpenCode Go\n  ╹▀▀▀▀\n   ~/repo   ↓ 2 shells · 13.3K (1%)  ctrl+p commands", Working},
+		{"opencode v2 turn end with a background subagent", "opencode",
+			"     done\n     Build · DeepSeek V4 Pro (New) · 4.8s · 66.7 tok/s\n  ┃\n  ┃  Build auto · DeepSeek V4 Pro (New) OpenCode Go\n  ╹▀▀▀▀\n   ~/repo   ↓ 1 subagent · 13.3K (1%)  ctrl+p commands", Working},
+		// The falsifier: the same footer with no background marker settles the
+		// closed turn as finished, so the rule above cannot key on the footer's
+		// ordinary context and token counts.
+		{"opencode v2 turn end, footer without background work", "opencode",
+			"     done\n     Build · DeepSeek V4 Pro (New) · 4.8s · 66.7 tok/s\n  ┃\n  ┃  Build auto · DeepSeek V4 Pro (New) OpenCode Go\n  ╹▀▀▀▀\n   ~/repo  13.3K (1%)  ctrl+p commands", Finished},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

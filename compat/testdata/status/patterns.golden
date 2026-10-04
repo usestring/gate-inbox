@@ -78,6 +78,7 @@ rules[3] waiting "(?m)^[ \\x{A0}]*\\x{2503}[ \\x{A0}]+Questions[ \\x{A0}]*$"
 rules[4] errored "(?i)requires more credits"
 rules[5] errored "(?im)^\\s*error\\b"
 rules[6] working "esc interrupt"
+rules[7] working "↓ \\d+ (?:shells?|subagents?)"
 
 [terminal]
 status_source = ""

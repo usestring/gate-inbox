@@ -1186,6 +1186,15 @@ rules = [
   # the match scope takes in a footer that trips a working rule
   # (status.matchScope).
   { state = "working", pattern = "esc interrupt" },
+  # Work can outlive the turn that started it: ctrl+b moves a running shell
+  # or subagent to the background, and opencode names it in the same footer
+  # as a count ("↓ 1 shell"). The turn below then closes -- turn_end matches,
+  # the spinner is gone -- but the session is still progressing, so finishing
+  # it here would retire the row and kill the work. Read the marker through
+  # the footer scope exactly as the spinner is read; when the count reaches
+  # zero the marker leaves, the footer drops out of scope, and the turn
+  # settles as finished on its own.
+  { state = "working", pattern = "↓ \\d+ (?:shells?|subagents?)" },
 ]
 
 [tools.codex]

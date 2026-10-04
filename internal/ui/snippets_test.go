@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/snippets"
 	"github.com/usestring/gate-inbox/internal/status"
 )
@@ -91,6 +92,70 @@ func TestMenuKeyFromTheListSendsToTheCursorRow(t *testing.T) {
 	}
 	if strings.Contains(squashSpace(ansi.Strip(pane)), squashSpace("ship it now")) {
 		t.Fatalf("the snippet also answered %q:\n%s", other.Name, pane)
+	}
+}
+
+// A lettered snippet's direct chord sends it in one press from the list, with
+// no menu opened.
+func TestDirectChordSendsFromTheList(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.selectSessionRow(t, "ask")
+	sess := sessionNamed(t, m, "ask")
+
+	updated, cmd := m.handleKey(tea.KeyPressMsg{Code: 'd', Mod: tea.ModAlt | tea.ModShift})
+	m = updated.(*Model)
+	if m.quick.active {
+		t.Fatal("the direct chord opened the hotkey menu")
+	}
+	if cmd != nil {
+		m.applyCmd(t, cmd)
+	}
+	waitForPaneText(t, m, sess.ID, "ship it now")
+}
+
+// The same chord answers a focused session without leaving the pane.
+func TestDirectChordSendsFromAFocusedSession(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.enterFocusOn(t, "ask")
+	sess := sessionNamed(t, m, "ask")
+
+	updated, cmd := m.handleFocusKey(tea.KeyPressMsg{Code: 'd', Mod: tea.ModAlt | tea.ModShift})
+	m = updated.(*Model)
+	if m.quick.active {
+		t.Fatal("the direct chord opened the hotkey menu")
+	}
+	if cmd != nil {
+		m.applyCmd(t, cmd)
+	}
+	waitForPaneText(t, m, sess.ID, "ship it now")
+}
+
+// The chord reads shift either as a modifier or folded into the key's
+// uppercase code, and neither a bare letter nor plain option+letter names a
+// snippet.
+func TestDirectChordReadsShiftFromModifierOrCode(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Text: "ship it now"}})
+
+	if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'd', Mod: tea.ModAlt | tea.ModShift}); !ok || snip.Key != "d" {
+		t.Fatalf("option+shift+d did not name d: %v %v", snip, ok)
+	}
+	if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'D', Mod: tea.ModAlt}); !ok || snip.Key != "d" {
+		t.Fatalf("shift folded into the code did not name d: %v %v", snip, ok)
+	}
+	for _, msg := range []tea.KeyPressMsg{
+		{Code: 'd', Mod: tea.ModAlt},
+		{Code: 'd', Text: "d"},
+	} {
+		if snip, ok := m.snippetChordFor(msg); ok {
+			t.Fatalf("%q named the snippet %q outside its chord", msg.String(), snip.Key)
+		}
 	}
 }
 
@@ -451,7 +516,7 @@ func TestFooterAdvertisesSnippets(t *testing.T) {
 	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Text: "ship it now"}})
 
 	section := m.snippetLegend()
-	if len(section.pairs) != 1 || section.pairs[0][0] != "d" || section.pairs[0][1] != "deploy" {
+	if len(section.pairs) != 1 || section.pairs[0][0] != keymap.Display("alt+shift+d") || section.pairs[0][1] != "deploy" {
 		t.Fatalf("legend pairs = %v", section.pairs)
 	}
 	if !section.quiet {
@@ -466,9 +531,9 @@ func TestFooterAdvertisesSnippets(t *testing.T) {
 	}
 }
 
-// Every surface prints the menu keys bare: the letter, § and ± with no
-// chord, because the menu is what reads them.
-func TestSurfacesPrintMenuKeysBare(t *testing.T) {
+// A lettered snippet's every surface prints its direct chord; § has no chord
+// and stays bare, the menu key it answers to.
+func TestSurfacesPrintTheDirectChord(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{
 		{Key: "d", Label: "deploy", Text: "ship it now"},
@@ -491,12 +556,13 @@ func TestSurfacesPrintMenuKeysBare(t *testing.T) {
 		"key map": help,
 	}
 	for name, got := range surfaces {
-		for _, want := range []string{"d", "§"} {
-			if !strings.Contains(got, want) {
-				t.Errorf("the %s does not print the %s snippet bare: %q", name, want, got)
-			}
+		if !strings.Contains(got, keymap.Display("alt+shift+d")) {
+			t.Errorf("the %s does not print d's direct chord: %q", name, got)
 		}
-		for _, never := range []string{"ctrl+alt", "alt+§", "^"} {
+		if !strings.Contains(got, snippets.SectionKey) {
+			t.Errorf("the %s does not print the %s snippet: %q", name, snippets.SectionKey, got)
+		}
+		for _, never := range []string{"ctrl+alt", "alt+" + snippets.SectionKey} {
 			if strings.Contains(got, never) {
 				t.Errorf("the %s still names the old chord %q: %q", name, never, got)
 			}

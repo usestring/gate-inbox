@@ -615,6 +615,11 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if bound && action == keymap.Rescind {
 		return m.rescindLatestSubmission()
 	}
+	// A snippet's direct chord answers the pane in one press without the menu.
+	if snip, ok := m.snippetChordFor(msg); ok {
+		m.noteFocusActivity()
+		return m, m.sendSentence(sess, snip.Text, snip.Quoted(), snip.Submits(), m.autoProceeds())
+	}
 	// The one snippet key outside the menu answers the pane the same way.
 	// Everything else this handler does not claim is forwarded to the
 	// agent, and the snippets package doc has that reasoning in full.

@@ -43,7 +43,7 @@
 # fork                = []  # fork the session into a new one
 # migrate             = []  # migrate it to another CLI
 # revive              = ["v"]  # revive it, or restart a live one on its own conversation
-# revive_all          = []  # revive every dead session
+# revive_all          = ["V", "shift+v"]  # revive every dead session
 # switch_account      = []  # switch its account: restarts it on its own conversation
 # restart             = []  # restart it on an empty context
 # archive             = ["x"]  # kill it and file the row
@@ -106,16 +106,6 @@
 # page_up     = ["ctrl+u", "pgup"]  # a page up
 # page_down   = ["ctrl+d", "pgdown"]  # a page down
 # confirm     = ["y", "enter"]  # run the sweep (cannot be unbound)
-
-# [restore]
-# cancel      = ["esc", "n", "q"]  # leave everything as it is (cannot be unbound)
-# more        = ["c"]  # choose per session
-# never_ask   = ["N", "shift+n"]  # apply this answer and stop asking
-# cursor_up   = ["up", "k"]  # move up (cannot be unbound)
-# cursor_down = ["down", "j"]  # move down (cannot be unbound)
-# toggle      = [" ", "space"]  # tick / untick the row
-# tick_all    = ["a"]  # tick every row, or start over
-# confirm     = ["y", "enter"]  # apply: resume the ticked sessions, answer the panes (cannot be unbound)
 
 # [welcome]
 # close       = ["enter", "esc", "q", " ", "space"]  # close the guide (cannot be unbound)

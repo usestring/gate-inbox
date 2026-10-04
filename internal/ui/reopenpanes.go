@@ -11,13 +11,13 @@ import (
 
 // Reopening the board after a while away can find two things: the board's own
 // sessions stopped, and agent panes somebody started by hand in the meantime.
-// The reopen card (restoreprompt.go) asks about the first. The second needs
-// no question: the adopt scan puts such a pane on the board, and the
-// takeover (takeover.go) makes it a board session once it is idle, so it gets
-// the hooks, the MCP surface and a title from the naming sweep. The settings
+// The first are marked on the list (diedwhileclosed.go), never asked about.
+// The second needs no question: the adopt scan puts such a pane on the board,
+// and the takeover (takeover.go) makes it a board session once it is idle, so
+// it gets the hooks, the MCP surface and a title from the naming sweep. The settings
 // here let an operator keep panes as they are, or leave them off the board.
 
-// Settings keys and their values. "ask" is the default for reopen_sessions;
+// Settings keys and their values. "mark" is the default for reopen_sessions;
 // outside_panes defaults to relaunching, which is the takeover.
 const (
 	reopenSessionsSetting = "reopen_sessions"
@@ -26,7 +26,7 @@ const (
 	// the scan does not take them again. See paneDecisions.
 	outsidePanesDecidedSetting = "outside_panes_decided"
 
-	reopenAsk    = "ask"
+	reopenMark   = "mark"
 	reopenResume = "resume"
 	reopenNever  = "never"
 
@@ -36,17 +36,19 @@ const (
 )
 
 var (
-	reopenSessionsModes = []string{reopenAsk, reopenResume, reopenNever}
+	reopenSessionsModes = []string{reopenMark, reopenResume, reopenNever}
 	outsidePanesModes   = []string{paneRelaunch, paneAdopt, paneIgnore}
 )
 
+// normalizeReopenSessions reads a stored "ask", from before the board stopped
+// asking at startup, as the default.
 func normalizeReopenSessions(mode string) string {
 	for _, known := range reopenSessionsModes {
 		if mode == known {
 			return mode
 		}
 	}
-	return reopenAsk
+	return reopenMark
 }
 
 // normalizeOutsidePanes reads a stored "ask", from before the card stopped
@@ -66,9 +68,9 @@ func reopenSessionsLabel(mode string) string {
 	case reopenResume:
 		return "always resume the ones that died"
 	case reopenNever:
-		return "never offer"
+		return "leave them unmarked"
 	}
-	return "ask"
+	return "mark them in the list"
 }
 
 func outsidePanesLabel(mode string) string {

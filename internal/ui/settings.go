@@ -170,6 +170,7 @@ func (m *Model) openSettings() {
 		reopenSessions:   m.reopenSessionsMode(),
 		outsidePanes:     m.outsidePanesMode(),
 		jevAutoSuggest:   m.jevAutoSuggest,
+		jevFinishCheck:   m.jevFinishCheck,
 		promptSuggest:    m.promptSuggest,
 		compressedFocus:  m.compressedFocus,
 		backdropSync:     storedBackdrop(m.store) == backdropSync,
@@ -328,6 +329,7 @@ func (m *Model) persistSettings() tea.Cmd {
 		m.errBar.text = err.Error()
 	}
 	m.persistExperiments()
+	m.jevFinishCheck = m.settings.jevFinishCheck
 	if m.promptSuggest != m.settings.promptSuggest {
 		m.promptSnipsSeq++
 	}

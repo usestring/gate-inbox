@@ -103,6 +103,7 @@ const procInterval = 1200 * time.Millisecond
 // which is what buys it the keystroke cadence for the next focusActiveFor.
 func (m *Model) noteFocusActivity() {
 	m.focusActiveAt = time.Now()
+	m.noteJevFinishActivity()
 }
 
 // releaseFocusActive ends the keystroke tier early, for a key whose echo the

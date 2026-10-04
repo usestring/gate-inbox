@@ -42,6 +42,9 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })
 	seedSessions(t, filepath.Join(home, "state.db"))
 	skipWelcome(t, filepath.Join(home, "state.db"))
+	// A died-while-closed mark would take two cells of the row the rungs
+	// are measured against; "never" leaves the seeded dead rows unmarked.
+	setSetting(t, filepath.Join(home, "state.db"), "reopen_sessions", "never")
 	data := filepath.Join(home, "extensions", "noop")
 	alerts := filepath.Join(home, "alerts.txt")
 	env = stubNotifiers(t, env, alerts)
@@ -75,9 +78,7 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 		<-exited
 	})
 
-	// A fresh board asks about the seeded sessions' missing panes first;
-	// esc answers that it should leave them, and uncovers the list.
-	waitForOutput(t, out, "noop:dead", exited, func() { keys.Write([]byte("\x1b")) })
+	waitForOutput(t, out, "noop:dead", exited, func() {})
 	// The header the extension set over a row is drawn with it.
 	waitForOutput(t, out, "noop head ca11e400", exited, func() {})
 	// A badge of rungs is drawn after the badge before it, as the widest

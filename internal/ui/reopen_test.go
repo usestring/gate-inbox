@@ -46,50 +46,40 @@ func setMode(t *testing.T, m *Model, key, value string) {
 	}
 }
 
-// The scenario the card exists for: the board was closed, its own session was
-// lost to a reboot, and meanwhile somebody started an agent by hand. The card
-// asks about the lost session only; the pane is taken over without a word
-// from the operator.
-func TestReopenAsksAboutLostSessionsAndTakesOutsidePanesOver(t *testing.T) {
+// The scenario the startup check exists for: the board was closed, its own
+// session was lost to a reboot, and meanwhile somebody started an agent by
+// hand. Nothing is put over the list: the lost row is marked, the pane is
+// taken over, and V brings the lost one back.
+func TestReopenMarksLostSessionsAndTakesOutsidePanesOver(t *testing.T) {
 	m := reopening(t)
 	lostSession(t, m, "lost")
 	socket, pane := adoptForeignPane(t, m, "byhand", "byhand", status.Idle)
 
 	m.applyCmd(t, nil)
-	if m.mode != modeRestorePrompt {
-		t.Fatalf("mode = %v, want the reopen card", m.mode)
+	if m.mode != modeList {
+		t.Fatalf("mode = %v, want the list", m.mode)
 	}
-	if len(m.restore.candidates) != 1 {
-		t.Fatalf("card holds %d sessions, want one", len(m.restore.candidates))
+	row, _ := m.store.Get("lost")
+	if !m.isDiedWhileClosed(row) {
+		t.Fatal("the lost session was not marked")
 	}
-	out := ansi.Strip(m.frame())
-	for _, want := range []string{"Welcome back", "1 session stopped without you ending it", "rebooted"} {
-		if !strings.Contains(out, want) {
-			t.Fatalf("card missing %q:\n%s", want, out)
-		}
-	}
-	for _, gone := range []string{"outside the board", "adopt as-is", "misses:"} {
-		if strings.Contains(out, gone) {
-			t.Fatalf("card still asks about outside panes (%q):\n%s", gone, out)
-		}
+	if out := ansi.Strip(m.frame()); !strings.Contains(out, diedGlyph()) {
+		t.Fatalf("the list does not show the mark:\n%s", out)
 	}
 	if foreignPaneAlive(t, socket, pane) {
-		t.Fatal("the outside pane was not taken over while the card was up")
-	}
-
-	pressKey(t, m, key("y"))
-	if m.mode != modeList {
-		t.Fatalf("after y mode = %v", m.mode)
-	}
-	if !m.tmux.Exists("lost") {
-		t.Fatal("the lost session was not resumed")
+		t.Fatal("the outside pane was not taken over")
 	}
 	if got, _ := m.store.Get("byhand"); got.TmuxPaneID != "" || !m.tmux.Exists("byhand") {
 		t.Fatalf("the outside pane is not a board session now: %+v", got)
 	}
+
+	pressKey(t, m, key("V"))
+	if !m.tmux.Exists("lost") {
+		t.Fatal("V did not resume the lost session")
+	}
 }
 
-// A session the operator ended is not on the card, even across a reboot.
+// A session the operator ended is not marked, even across a reboot.
 func TestReopenLeavesOutASessionTheOperatorKilled(t *testing.T) {
 	m := reopening(t)
 	lostSession(t, m, "killed")
@@ -98,20 +88,26 @@ func TestReopenLeavesOutASessionTheOperatorKilled(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.applyCmd(t, nil)
-	if m.mode != modeList {
-		t.Fatalf("a killed session raised the card: %+v", m.restore.candidates)
+	if row, _ = m.store.Get("killed"); m.isDiedWhileClosed(row) {
+		t.Fatal("a killed session was marked")
 	}
 }
 
 func TestEachReopenSessionsSettingValue(t *testing.T) {
-	t.Run("ask", func(t *testing.T) {
-		m := reopening(t)
-		lostSession(t, m, "lost")
-		m.applyCmd(t, nil)
-		if m.mode != modeRestorePrompt {
-			t.Fatalf("ask should raise the card, mode = %v", m.mode)
-		}
-	})
+	for _, stored := range []string{"", "ask", reopenMark} {
+		t.Run("mark when "+stored, func(t *testing.T) {
+			m := reopening(t)
+			if stored != "" {
+				setMode(t, m, reopenSessionsSetting, stored)
+			}
+			lostSession(t, m, "lost")
+			m.applyCmd(t, nil)
+			row, _ := m.store.Get("lost")
+			if m.mode != modeList || !m.isDiedWhileClosed(row) || m.tmux.Exists("lost") {
+				t.Fatalf("mark should flag the row and leave it, mode = %v", m.mode)
+			}
+		})
+	}
 	t.Run("resume", func(t *testing.T) {
 		m := reopening(t)
 		setMode(t, m, reopenSessionsSetting, reopenResume)
@@ -132,8 +128,9 @@ func TestEachReopenSessionsSettingValue(t *testing.T) {
 		setMode(t, m, reopenSessionsSetting, reopenNever)
 		lostSession(t, m, "lost")
 		m.applyCmd(t, nil)
-		if m.mode != modeList || m.tmux.Exists("lost") {
-			t.Fatalf("never should neither ask nor resume, mode = %v", m.mode)
+		row, _ := m.store.Get("lost")
+		if m.mode != modeList || m.tmux.Exists("lost") || m.isDiedWhileClosed(row) {
+			t.Fatalf("never should neither mark nor resume, mode = %v", m.mode)
 		}
 		if !strings.Contains(m.errBar.text, "V revives") {
 			t.Fatalf("notice = %q, want one line pointing at V", m.errBar.text)
@@ -142,7 +139,7 @@ func TestEachReopenSessionsSettingValue(t *testing.T) {
 }
 
 func TestEachOutsidePanesSettingValue(t *testing.T) {
-	for _, stored := range []string{"", reopenAsk, paneRelaunch} {
+	for _, stored := range []string{"", "ask", paneRelaunch} {
 		t.Run("take over when "+stored, func(t *testing.T) {
 			m := reopening(t)
 			if stored != "" {
@@ -188,33 +185,6 @@ func TestEachOutsidePanesSettingValue(t *testing.T) {
 			t.Fatalf("notice = %q", m.errBar.text)
 		}
 	})
-}
-
-// "Never ask again" applies the answer on screen and stores it as the
-// default, and says where to turn the question back on.
-func TestNeverAskStoresTheAnswerAsTheDefault(t *testing.T) {
-	m := reopening(t)
-	lostSession(t, m, "lost")
-	m.applyCmd(t, nil)
-	if m.mode != modeRestorePrompt {
-		t.Fatalf("mode = %v", m.mode)
-	}
-	pressKey(t, m, key("N"))
-	if m.mode != modeList {
-		t.Fatalf("after N mode = %v", m.mode)
-	}
-	if got := m.reopenSessionsMode(); got != reopenResume {
-		t.Fatalf("on reopen = %q, want resume", got)
-	}
-	if got := m.outsidePanesMode(); got != paneRelaunch {
-		t.Fatalf("outside panes = %q, want it left on taking over", got)
-	}
-	if !m.tmux.Exists("lost") {
-		t.Fatal("N should still apply the answer it stores")
-	}
-	if !strings.Contains(m.errBar.text, "won't ask again") || !strings.Contains(m.errBar.text, "settings") {
-		t.Fatalf("notice = %q", m.errBar.text)
-	}
 }
 
 // A pane left off the board is remembered by the scan, which does not take
@@ -285,8 +255,8 @@ func TestSettingsCyclesAndSavesTheReopenChoices(t *testing.T) {
 	}
 }
 
-// A pane started while the board is up is not raised as a card over whatever
-// the operator is doing: one line says it will be taken over, or, with panes
+// A pane started while the board is up does not interrupt whatever the
+// operator is doing: one line says it will be taken over, or, with panes
 // kept as they are, points at O.
 func TestAPaneAdoptedWhileRunningGetsOneLine(t *testing.T) {
 	m := buildModel(t)
@@ -306,16 +276,17 @@ func TestAPaneAdoptedWhileRunningGetsOneLine(t *testing.T) {
 // A pane resumed by hand on a board session's conversation is a row of its
 // own; the dead row it came from is a duplicate, never a loss. Offering it
 // back, or reviving it, would put a second agent on one conversation.
-func TestADeadRowWhoseConversationRunsElsewhereIsNeverOffered(t *testing.T) {
+func TestADeadRowWhoseConversationRunsElsewhereIsNeverMarked(t *testing.T) {
 	dead := endRow("old")
 	dead.AgentSessionID = "conv-1"
 	live := store.Session{ID: "byhand", Name: "byhand", Tool: "claude", Status: status.Idle,
 		AgentSessionID: "conv-1", TmuxSocket: "default", TmuxPaneID: "%3"}
 	m := restoreModel(dead, live)
-	if got := m.restoreCandidates(); len(got) != 0 {
+	got, ends := m.classifyDeadRows(endEvidence{})
+	if len(got) != 0 {
 		t.Fatalf("offered %v, want nothing", got)
 	}
-	if class := m.restore.ends["old"]; class.verdict != endSuperseded || !strings.Contains(class.why, "byhand") {
+	if class := ends["old"]; class.verdict != endSuperseded || !strings.Contains(class.why, "byhand") {
 		t.Fatalf("verdict %+v", class)
 	}
 }

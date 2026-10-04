@@ -30,6 +30,8 @@ var experiments = []experiment{
 		func(s *settingsState) *bool { return &s.promptSuggest }},
 	{compressedFocusSetting, "Compressed focus view", "Show the shortened conversation in focus mode.\nPrompt and input mirroring is experimental; F3 returns to the terminal.",
 		func(s *settingsState) *bool { return &s.compressedFocus }},
+	{jevFinishCheckSetting, "JEV finish check", "On finish, relaunch a Claude session that stopped without Chrome, with --chrome.\nNeeds a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends its last turns to TypeSafe.",
+		func(s *settingsState) *bool { return &s.jevFinishCheck }},
 }
 
 func storedExperiment(st *store.Store, setting string) bool {

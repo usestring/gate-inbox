@@ -1000,6 +1000,9 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	if m.isHookless(sess) {
 		head += " " + subtleText(hooklessGlyph())
 	}
+	if m.isDiedWhileClosed(sess) {
+		head += " " + statusTint(status.Errored, diedGlyph())
+	}
 	head += m.priorityMarker(sess)
 
 	metaText := subtleText

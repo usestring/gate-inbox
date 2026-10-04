@@ -1989,8 +1989,12 @@ func (p *poller) envelope(sess store.Session, msg store.InboxMessage) string {
 	style := p.mcpStyles[sess.Tool]
 	// An adopted pane is somebody else's process: the manager never launched
 	// it and so never registered its MCP server with it, whatever the tool's
-	// config says the style is.
-	taught := style != mcpreg.StyleNone && sess.TmuxPaneID == ""
+	// config says the style is. It has no send_session to reply with, only
+	// the shell its agent runs commands in.
+	if sess.TmuxPaneID != "" {
+		style = mcpreg.StyleNone
+	}
+	taught := style != mcpreg.StyleNone
 	// The operator's own words pass through unwrapped, and an extension is no
 	// session to have a row, so gathering context for either is three store
 	// reads towards a header nothing prints.

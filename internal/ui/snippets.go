@@ -85,6 +85,37 @@ func (m *Model) snippetFor(key string) (snippets.Snippet, bool) {
 	return m.snips.Get(key)
 }
 
+// snippetChordFor returns the snippet an option+shift+<letter> press names, so
+// a lettered snippet can be sent in one press without opening the hotkey menu.
+// It reads the modifiers from the key itself rather than the printed name: an
+// enhanced keyboard protocol may report the shifted letter as its uppercase
+// text, and either spelling stands for the same chord.
+func (m *Model) snippetChordFor(msg tea.KeyMsg) (snippets.Snippet, bool) {
+	key := msg.Key()
+	if key.Mod&tea.ModAlt == 0 || key.Mod&(tea.ModCtrl|tea.ModSuper|tea.ModMeta) != 0 {
+		return snippets.Snippet{}, false
+	}
+	letter, ok := chordLetter(key)
+	if !ok {
+		return snippets.Snippet{}, false
+	}
+	return m.snips.Chord("alt+shift+" + letter)
+}
+
+// chordLetter is the a-z letter a direct chord press stands for, or ok=false
+// when the press is not a shifted letter. Shift arrives either as a modifier
+// or folded into the key's uppercase code, depending on the terminal.
+func chordLetter(key tea.Key) (string, bool) {
+	r, shifted := key.Code, key.Mod&tea.ModShift != 0
+	if r >= 'A' && r <= 'Z' {
+		r, shifted = r+('a'-'A'), true
+	}
+	if !shifted || r < 'a' || r > 'z' {
+		return "", false
+	}
+	return string(r), true
+}
+
 // sendSnippetToSelected answers the row the list cursor is on. A group has no
 // pane, and saying so beats a key that looks like it did nothing.
 func (m *Model) sendSnippetToSelected(snip snippets.Snippet) (tea.Model, tea.Cmd) {
@@ -114,13 +145,15 @@ func (m *Model) sendSnippetToFocused(snip snippets.Snippet) (tea.Model, tea.Cmd)
 	return m, m.sendSentence(sess, snip.Text, snip.Quoted(), snip.Submits(), m.autoProceeds())
 }
 
-// snippetLegend is the footer's tier for the snippets that exist.
+// snippetLegend is the footer's tier for the snippets that exist. Each pair
+// carries the snippet's direct chord, so the toolbar shows the one-press keys
+// that send without the menu.
 //
 // It is quiet and it goes last, where a narrow footer drops it first -- the
 // same place the row legend puts the priority mark, and for the same reason.
 // The keys that act on the session under the cursor are what a three-row
-// budget must keep; a snippet is a shortcut the hotkey menu also lists, and
-// can always send by hand.
+// budget must keep; a snippet is also listed in the hotkey menu, and can
+// always be sent by hand.
 func (m *Model) snippetLegend() legendSection {
 	if len(m.snips.Snippets) == 0 {
 		return legendSection{}
@@ -132,8 +165,12 @@ func (m *Model) snippetLegend() legendSection {
 	return legendSection{title: "Snippets", quiet: true, pairs: pairs}
 }
 
-// snippetCap is a snippet's menu key as every surface prints it.
+// snippetCap is a snippet's direct chord as every surface prints it, falling
+// back to the bare menu key for a snippet that has no chord (§ and ±).
 func snippetCap(snip snippets.Snippet) string {
+	if chord := snip.Chord(); chord != "" {
+		return keymap.Display(chord)
+	}
 	return keymap.Display(snip.Binding())
 }
 
@@ -148,13 +185,17 @@ func snippetCap(snip snippets.Snippet) string {
 // otherwise a key that does nothing, with the explanation sitting in a
 // process nobody can see.
 func (m *Model) snippetHelpSection() helpSection {
-	rows := []helpRow{note("hotkey menu, then the key. Sends to the session in front of you.")}
+	rows := []helpRow{note("the chord sends in one press; the hotkey menu lists the rest.")}
 	for _, snip := range m.snips.Snippets {
 		verb := "send "
 		if !snip.Submits() {
 			verb = "type "
 		}
-		rows = append(rows, lit(snippetCap(snip), verb+snip.Quoted()))
+		text := verb + snip.Quoted()
+		if snip.Chord() != "" {
+			text += " (menu: " + snip.Key + ")"
+		}
+		rows = append(rows, lit(snippetCap(snip), text))
 	}
 	switch {
 	case m.snipErr != "":

@@ -204,7 +204,7 @@ func (m *Model) welcomeRunningLine() string {
 		return fmt.Sprintf("%d found in tmux and put on the board. The board takes %s over as its own sessions once idle, so %s can be named and steered.",
 			n, them, plural(n, "it", "they"))
 	}
-	return fmt.Sprintf("%d found in tmux and shown on the board as-is. O takes %s over as the board's own sessions.", n, them)
+	return fmt.Sprintf("%d found in tmux and shown on the board as-is. %s on one brings it in as the board's own session.", n, m.keyFor(keymap.ContextList, keymap.BringIn))
 }
 
 // welcomeRow lays one key against its description, the description wrapping

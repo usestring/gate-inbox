@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -66,10 +67,12 @@ func (m *Model) markDied(sessions []store.Session) {
 	}
 }
 
-// noteAdopted says what an adopt scan took. The panes are the takeover's
-// now (takeover.go) unless outside panes are set to be kept as they are, in
-// which case the line points at O instead.
+// noteAdopted says what an adopt scan took. Panes kept as they are get the
+// toast that offers to bring them in (adoptoffer.go) when the board adopted
+// them while running; the startup scan's batch, which may be every agent
+// the operator has, is only counted, and a on a row brings one in.
 func (m *Model) noteAdopted(msg adoptedMsg) {
+	first := !m.adoptFirstDone
 	m.adoptFirstDone = true
 	if !m.restoreChecked {
 		m.adoptFinishedAt = time.Now()
@@ -80,8 +83,12 @@ func (m *Model) noteAdopted(msg adoptedMsg) {
 	}
 	switch m.outsidePanesMode() {
 	case paneAdopt:
-		m.reportDone(fmt.Sprintf("%d agent %s started outside the board added as-is; O takes %s over",
-			n, plural(n, "pane", "panes"), plural(n, "it", "them")))
+		if !first {
+			m.offerAdopted(msg.ids, time.Now())
+			return
+		}
+		m.reportDone(fmt.Sprintf("%d agent %s started outside the board added as-is; %s on one brings it in",
+			n, plural(n, "pane", "panes"), m.keyFor(keymap.ContextList, keymap.BringIn)))
 	case paneRelaunch:
 		if m.restoreArmed {
 			m.reportDone(fmt.Sprintf("%d agent %s started outside the board; taking %s over once idle",

@@ -334,6 +334,10 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m, m.openNameSweep()
 	case keymap.TakeOver:
 		return m.takeOverAdopted()
+	case keymap.BringIn:
+		return m.bringIn()
+	case keymap.LeaveOut:
+		return m.leaveOut()
 	case keymap.Move:
 		m.openMove()
 	case keymap.ToggleChrome:

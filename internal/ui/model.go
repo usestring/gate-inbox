@@ -621,6 +621,8 @@ type Model struct {
 	adoptedHooks adoptedHooksState
 	// arrivals is the panes agents announced and the board has yet to scan.
 	arrivals arrivalsState
+	// offer is the toast naming panes just adopted, while it is up.
+	offer adoptOffer
 	// restoreArmed is set by Init, so only a real startup marks the sessions
 	// that died while the board was closed; a Model built directly never does.
 	restoreArmed bool
@@ -2807,7 +2809,7 @@ func (m *Model) ageError() {
 		return
 	}
 	m.errBar.age++
-	if m.errBar.age >= 2 {
+	if m.errBar.age >= 2 && !m.offerLive(time.Now()) {
 		m.errBar = errBar{}
 	}
 }

@@ -52,6 +52,7 @@ func setMode(t *testing.T, m *Model, key, value string) {
 // taken over, and V brings the lost one back.
 func TestReopenMarksLostSessionsAndTakesOutsidePanesOver(t *testing.T) {
 	m := reopening(t)
+	setMode(t, m, outsidePanesSetting, paneRelaunch)
 	lostSession(t, m, "lost")
 	socket, pane := adoptForeignPane(t, m, "byhand", "byhand", status.Idle)
 
@@ -139,7 +140,20 @@ func TestEachReopenSessionsSettingValue(t *testing.T) {
 }
 
 func TestEachOutsidePanesSettingValue(t *testing.T) {
-	for _, stored := range []string{"", "ask", paneRelaunch} {
+	for _, stored := range []string{"", "ask"} {
+		t.Run("kept as-is when "+stored, func(t *testing.T) {
+			m := reopening(t)
+			if stored != "" {
+				setMode(t, m, outsidePanesSetting, stored)
+			}
+			socket, pane := adoptForeignPane(t, m, "byhand", "byhand", status.Idle)
+			m.applyCmd(t, nil)
+			if got, _ := m.store.Get("byhand"); m.mode != modeList || got.TmuxPaneID == "" || !foreignPaneAlive(t, socket, pane) {
+				t.Fatalf("the default should leave the pane as it is, mode = %v", m.mode)
+			}
+		})
+	}
+	for _, stored := range []string{paneRelaunch} {
 		t.Run("take over when "+stored, func(t *testing.T) {
 			m := reopening(t)
 			if stored != "" {
@@ -266,18 +280,19 @@ func TestSettingsCyclesAndSavesTheReopenChoices(t *testing.T) {
 
 // A pane started while the board is up does not interrupt whatever the
 // operator is doing: one line says it will be taken over, or, with panes
-// kept as they are, points at O.
+// kept as they are, offers a to bring it in and o to leave it out.
 func TestAPaneAdoptedWhileRunningGetsOneLine(t *testing.T) {
 	m := buildModel(t)
 	m.restoreArmed = true
 	m.adoptFirstDone = true
+	setMode(t, m, outsidePanesSetting, paneRelaunch)
 	m.noteAdopted(adoptedMsg{taken: 1, ids: []string{"later"}})
 	if m.mode != modeList || !strings.Contains(m.errBar.text, "taking it over once idle") {
 		t.Fatalf("mode = %v notice = %q", m.mode, m.errBar.text)
 	}
 	setMode(t, m, outsidePanesSetting, paneAdopt)
 	m.noteAdopted(adoptedMsg{taken: 1, ids: []string{"later"}})
-	if m.mode != modeList || !strings.Contains(m.errBar.text, "O takes it over") {
+	if m.mode != modeList || !strings.Contains(m.errBar.text, "a brings it in · o leaves it out") {
 		t.Fatalf("mode = %v notice = %q", m.mode, m.errBar.text)
 	}
 }

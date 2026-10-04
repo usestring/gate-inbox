@@ -315,7 +315,7 @@ func WithAccount(tool config.Tool, account string) (string, error) {
 func AccountForSwitch(tool config.Tool, adopted bool, account string) (string, error) {
 	if adopted {
 		return "", errors.New("that session is a pane the manager did not start, so it cannot be " +
-			"ended and relaunched on another account; take it over first")
+			"ended and relaunched on another account; bring it into the board first (a on its row)")
 	}
 	return WithAccount(tool, account)
 }

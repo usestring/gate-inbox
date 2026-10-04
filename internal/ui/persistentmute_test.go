@@ -158,6 +158,32 @@ func TestSearchFindsAMutedRowByItsLabel(t *testing.T) {
 	}
 }
 
+// Muting the selected row under w takes it off the filter: the hold that keeps
+// the cursor's row listed is for a status that moved, not for a mute.
+func TestAttentionFilterDropsTheRowMutedUnderTheCursor(t *testing.T) {
+	m := childModel(t)
+	m.statusFilter = statusFilterAttention
+	m.rebuildRows()
+	for i, row := range m.rows {
+		if row.isSession() && row.sess.ID == "c2" {
+			m.cursor = i
+		}
+	}
+	if sess, ok := m.selected(); !ok || sess.ID != "c2" {
+		t.Fatal("the waiting child is not selectable under w")
+	}
+	for i := range m.sessions {
+		if m.sessions[i].ID == "c2" {
+			m.sessions[i].Muted = true
+		}
+	}
+	for _, sess := range m.computeListedSessions() {
+		if sess.ID == "c2" {
+			t.Fatal("the row muted under the cursor stayed on w")
+		}
+	}
+}
+
 // The attention filter keeps a muted branch out: a muted row's own escalation
 // does not hold it on w, and a muted child does not hold its parent there.
 func TestAttentionFilterLeavesMutedBranchesOut(t *testing.T) {

@@ -1527,7 +1527,10 @@ func (m *Model) computeListedSessions() []store.Session {
 	}
 	listed := make([]store.Session, 0, len(visible))
 	for _, sess := range visible {
-		if sess.ID == heldID {
+		// The hold is for a status that moved under the cursor. A mute is the
+		// operator's own say-so, so a muted row leaves the filter even while
+		// it is selected.
+		if sess.ID == heldID && !(m.statusFilter.active() && sess.Muted) {
 			listed = append(listed, sess)
 			continue
 		}

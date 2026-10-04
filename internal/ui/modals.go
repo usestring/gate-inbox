@@ -492,6 +492,7 @@ func (m *Model) viewSettings() string {
 		actionRow(settingsFieldJev, "JEV", m.jevSettingsSummary()) + "\n" +
 		actionRow(settingsFieldExperimental, "experimental", "features (default off)") + "\n" +
 		actionRow(settingsFieldSnippets, "snippets", "edit quick replies") + "\n" +
+		actionRow(settingsFieldRestartFlags, "restart flags", "edit restart flag presets") + "\n" +
 		actionRow(settingsFieldCLIs, "CLIs", "show or hide for new sessions") + "\n" +
 		actionRow(settingsFieldGuide, "welcome guide", "read the first-run introduction again") + "\n" +
 		actionRow(settingsFieldKeys, "keys", "see and rebind every key") + "\n" +
@@ -504,6 +505,8 @@ func (m *Model) viewSettings() string {
 		hint = [][2]string{{"↑↓", "field"}, {"↵", "experimental features"}, {"esc", "save"}}
 	case settingsFieldSnippets:
 		hint = [][2]string{{"↑↓", "field"}, {"↵", "edit snippets"}, {"esc", "save"}}
+	case settingsFieldRestartFlags:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "edit restart flags"}, {"esc", "save"}}
 	case settingsFieldCLIs:
 		hint = [][2]string{{"↑↓", "field"}, {"↵", "manage CLIs"}, {"esc", "save"}}
 	case settingsFieldGuide:

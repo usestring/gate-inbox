@@ -49,6 +49,7 @@ const (
 	ReviveAll     Action = "revive_all"
 	SwitchAccount Action = "switch_account"
 	Restart       Action = "restart"
+	RestartWith   Action = "restart_with"
 	Archive       Action = "archive"
 	ArchiveAll    Action = "archive_all"
 	Restore       Action = "restore"
@@ -65,6 +66,7 @@ const (
 
 	ShowAllWork  Action = "show_all_work"
 	StatusFilter Action = "status_filter"
+	ToolFilter   Action = "tool_filter"
 	Triage       Action = "triage"
 	EmptyGroups  Action = "empty_groups"
 	FoldAll      Action = "fold_all"
@@ -156,6 +158,7 @@ var Catalog = []Binding{
 	{ContextList, ReviveAll, []string{"V", "shift+v"}, "revive every dead session", false},
 	{ContextList, SwitchAccount, []string{}, "switch its account: restarts it on its own conversation", false},
 	{ContextList, Restart, []string{}, "restart it on an empty context", false},
+	{ContextList, RestartWith, []string{}, "restart it with extra flags…", false},
 	{ContextList, Archive, []string{"x"}, "kill it and file the row", false},
 	{ContextList, ArchiveAll, []string{}, "kill every session listed", false},
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
@@ -171,6 +174,7 @@ var Catalog = []Binding{
 
 	{ContextList, ShowAllWork, []string{}, "show every pull request and ticket, not the first few", false},
 	{ContextList, StatusFilter, []string{"w"}, "filter to what needs attention", false},
+	{ContextList, ToolFilter, []string{"Y"}, "filter to one CLI, or show all", false},
 	{ContextList, Triage, []string{"i"}, "triage this group as one queue", false},
 	{ContextList, ToggleConversation, []string{"f3"}, "show full / shortened conversation", false},
 	{ContextList, EmptyGroups, []string{}, "hide / show empty groups", false},

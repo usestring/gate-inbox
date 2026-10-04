@@ -87,7 +87,7 @@ func (m *Model) applies(ctx keymap.Context, action keymap.Action, row treeRow) b
 		return row.isGroup || (row.sess.ID != "" && !row.sess.Archived)
 	case keymap.Rename, keymap.Move:
 		return hasRow && !m.showArchived
-	case keymap.StatusFilter, keymap.Triage, keymap.EmptyGroups:
+	case keymap.StatusFilter, keymap.Triage, keymap.EmptyGroups, keymap.ToolFilter:
 		return !m.showArchived
 	case keymap.FoldAll:
 		return m.allFoldsCollapsed() || len(m.collapsed) > 0 || len(m.rows) > 1

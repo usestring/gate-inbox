@@ -952,3 +952,18 @@ func firstRule(rules []Rule, state string) Rule {
 	}
 	return Rule{}
 }
+
+func TestOpenCodeBusyDefaultsPreserveCustomConfiguration(t *testing.T) {
+	def, err := Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	user := Tool{BusyLine: "custom background signal", Rules: []Rule{{State: "working", Pattern: "custom working signal"}}}
+	got := mergeTool("opencode", user, def.Tools["opencode"])
+	if got.BusyLine != user.BusyLine {
+		t.Fatalf("busy line = %q, want custom pattern", got.BusyLine)
+	}
+	if !slices.Contains(got.Rules, user.Rules[0]) {
+		t.Fatal("custom rule was replaced")
+	}
+}

@@ -142,6 +142,11 @@ func (f *fakeSessions) Kill(sessionID, targetID string, _ extension.KillSource) 
 	return f.session, f.failWith
 }
 
+func (f *fakeSessions) Stop(sessionID string, dryRun bool) (sessioncmd.StopResult, error) {
+	f.callerID, f.dryRun = sessionID, dryRun
+	return sessioncmd.StopResult{Target: f.session, DryRun: dryRun}, f.failWith
+}
+
 func (f *fakeSessions) Park(sessionID string, dryRun bool) (sessioncmd.ParkResult, error) {
 	f.callerID, f.dryRun = sessionID, dryRun
 	return sessioncmd.ParkResult{DryRun: dryRun, Parked: []sessioncmd.Session{f.session}, Promoted: 2, Owed: 1}, f.failWith
@@ -606,7 +611,7 @@ func TestCommandsAndHelpCoverEverySection(t *testing.T) {
 	registered := []string{
 		"sessions", "spawn", "send", "read", "send-children", "place", "answer", "wait", "message-status", "kill", "revive", "migrate", "archive", "mute", "cleanup-children", "park", "unpark",
 		"groups", "create-group", "delete-group", "task", "reserve", "release-files", "reservations", "terminal",
-		"rename", "priority",
+		"rename", "priority", "stop", "_finish-stop",
 	}
 	for _, name := range registered {
 		if table[name] == nil {

@@ -189,7 +189,9 @@ func spellChord(chord string) string {
 }
 
 // splitChord parses a chord into its modifiers and key, ok=false when any
-// modifier is unknown or either side is empty.
+// modifier is unknown or repeated, or either side is empty. A repeat is
+// refused rather than collapsed: alt+alt+d would otherwise normalize to alt+d
+// and take a broader chord than the file wrote.
 func splitChord(chord string) (mods []string, key string, ok bool) {
 	chord = spellChord(chord)
 	rest := ""
@@ -202,8 +204,8 @@ func splitChord(chord string) (mods []string, key string, ok bool) {
 		return nil, "", false
 	}
 	mods = strings.Split(rest, "+")
-	for _, mod := range mods {
-		if !slices.Contains(modifierOrder, mod) {
+	for i, mod := range mods {
+		if !slices.Contains(modifierOrder, mod) || slices.Contains(mods[:i], mod) {
 			return nil, "", false
 		}
 	}

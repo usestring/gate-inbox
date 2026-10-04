@@ -115,9 +115,10 @@ func TestCtrlCIsAReservedChord(t *testing.T) {
 }
 
 // A chord is parsed, not merely checked for a "+": the separator alone, shift
-// alone and an unknown modifier would all take a character the pane was owed.
+// alone, an unknown modifier and a repeated one would all take a character the
+// pane was owed.
 func TestLegalChordNeedsARealModifierAndKey(t *testing.T) {
-	for _, chord := range []string{"+", "d+", "+d", "shift+d", "foo+d", "alt+", "d"} {
+	for _, chord := range []string{"+", "d+", "+d", "shift+d", "foo+d", "alt+", "d", "alt+alt+d", "option+alt+d", "⌥option+d", "ctrl+alt+ctrl+d"} {
 		if legalChord(chord) {
 			t.Errorf("legalChord(%q) = true, want false", chord)
 		}

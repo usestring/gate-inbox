@@ -130,28 +130,25 @@ func TestALaunchThatStartedTheServerIsOnThatServer(t *testing.T) {
 	}
 }
 
-func TestNoEvidenceAtAllIsUnknownAndStillOffered(t *testing.T) {
+func TestNoEvidenceAtAllIsUnknownAndStillMarked(t *testing.T) {
 	m := restoreModel(endRow("a"))
-	candidates := m.restoreCandidates()
-	if len(candidates) != 1 || m.restore.ends["a"].verdict != endUnknown {
-		t.Fatalf("candidates=%v ends=%v", candidates, m.restore.ends)
+	candidates, ends := m.classifyDeadRows(endEvidence{})
+	if len(candidates) != 1 || ends["a"].verdict != endUnknown {
+		t.Fatalf("candidates=%v ends=%v", candidates, ends)
 	}
 }
 
-func TestTheCardSaysWhyAndCountsWhatItLeftOut(t *testing.T) {
+func TestClassifyingKeepsTheDiedAndUnclearRowsAndLeavesOutTheKilled(t *testing.T) {
 	m := restoreModel(endRow("died"), endRow("unclear"), endRow("killed"))
-	m.restore.candidates = m.classifyRestore(endEvidence{
+	candidates, ends := m.classifyDeadRows(endEvidence{
 		serverKnown: true, serverUp: true, serverStarted: launchedAt.Add(-time.Hour),
 		exit: exitRecord(map[string]int{"died": 2, "unclear": 149}),
 		ends: map[string]store.SessionEnd{"killed": {Reason: store.EndKilled, Launched: launchedAt}},
 	})
-	body := strings.Join(m.restoreBody(100), "\n")
-	for _, want := range []string{"crashed (exit status 2)", "stopped (status 149)", "last seen", "1 more you ended yourself is not offered"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("card body lacks %q:\n%s", want, body)
-		}
+	if len(candidates) != 2 || candidates[0].ID != "died" || candidates[1].ID != "unclear" {
+		t.Fatalf("kept %v, want the died and unclear rows", candidates)
 	}
-	if len(m.restore.candidates) != 2 {
-		t.Fatalf("offered %d, want the died and unclear rows", len(m.restore.candidates))
+	if !strings.Contains(ends["died"].why, "crashed (exit status 2)") || ends["killed"].verdict != endByOperator {
+		t.Fatalf("ends = %v", ends)
 	}
 }

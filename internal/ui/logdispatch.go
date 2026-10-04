@@ -36,8 +36,6 @@ func (m mode) String() string {
 		return "focus"
 	case modeNameSweep:
 		return "name-sweep"
-	case modeRestorePrompt:
-		return "restore-prompt"
 	case modeWelcome:
 		return "welcome"
 	case modeTmuxHint:

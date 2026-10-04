@@ -23,7 +23,7 @@ import (
 //
 // It is also the first-run checklist: which agent CLIs this machine has, the
 // five keys the whole workflow is built from, whether agents are already
-// running in tmux (the reopen card that follows asks what to do with them),
+// running in tmux (the board takes them over once they are idle),
 // and n to start a first session straight from the card.
 
 // welcomeSeenSetting marks the introduction as spent. It is set when the card

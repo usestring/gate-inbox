@@ -337,6 +337,8 @@ type Model struct {
 	// adoptFirstDone is set once the first adopt scan has answered.
 	adoptFirstDone  bool
 	adoptFinishedAt time.Time
+	// adoptBusy is set while an adopt scan is out on its own goroutine.
+	adoptBusy bool
 	// nameAfterRefresh asks the next sweep to run a naming pass, for rows an
 	// adopt scan has just created and the board has not seen yet.
 	nameAfterRefresh bool
@@ -617,6 +619,8 @@ type Model struct {
 	takeover    takeoverState
 	// adoptedHooks keeps the global hooks' markers for adopted panes.
 	adoptedHooks adoptedHooksState
+	// arrivals is the panes agents announced and the board has yet to scan.
+	arrivals arrivalsState
 	// restoreArmed is set by Init, so only a real startup marks the sessions
 	// that died while the board was closed; a Model built directly never does.
 	restoreArmed bool
@@ -1405,7 +1409,7 @@ func (m *Model) Init() tea.Cmd {
 	// read any session state, and a first run has none to wait for.
 	m.maybeOpenWelcome()
 	m.syncPollInput()
-	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips())
+	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.arrivalStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips())
 }
 
 // pasteSweepMsg carries the result of one pass over the pastes directory.
@@ -2236,9 +2240,18 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case adoptTickMsg:
+		if m.adoptBusy {
+			// One scan at a time: two at once would each think a pane the
+			// other is taking is free. The arrival poll catches up after.
+			return m, m.adoptTick()
+		}
 		return m, tea.Batch(m.adoptScan(), m.adoptTick())
 
+	case arrivalTickMsg:
+		return m, tea.Batch(m.scanArrivals(time.Now()), m.arrivalTick())
+
 	case adoptedMsg:
+		m.adoptBusy = false
 		if msg.err != nil {
 			m.errBar.text = "adopting a pane: " + msg.err.Error()
 		}

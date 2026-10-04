@@ -59,6 +59,11 @@ const (
 	// one: pane text is whatever happens to be on the screen, so a shell with
 	// a transcript in its scrollback draws it as convincingly as an agent.
 	SignalPrompt Signal = "prompt"
+	// SignalArrival is the agent saying so itself: a process in the pane's
+	// own tree announced the pane as it started (the global SessionStart
+	// hook's arrival). As definitive as the command, and it holds for an
+	// agent whose process does not carry the tool's name.
+	SignalArrival Signal = "arrival"
 )
 
 // Match is a candidate that looks like a tool, and why.
@@ -90,8 +95,11 @@ func (m Match) has(want Signal) bool {
 // sake: a plain shell draws it perfectly from a transcript left in its
 // scrollback, and the cost of adopting one is not a spurious row, it is a
 // sentence eventually typed at somebody's shell.
+//
+// An arrival is the third kind of evidence and as good as the command: the
+// agent in the pane's own process tree announced itself.
 func (m Match) Confident() bool {
-	return m.has(SignalCommand)
+	return m.has(SignalCommand) || m.has(SignalArrival)
 }
 
 // strength orders matches for the tie-break in Identify, from the same
@@ -267,6 +275,46 @@ func Panes(socket string) []Candidate {
 		})
 	}
 	return found
+}
+
+// PaneAt reads one pane, the way Panes reads them all, for a scan that was
+// told where to look. serverPID is the pid of the server that answered, so
+// the caller can tell the pane it was told about from one that took its id
+// on a server restarted since.
+func PaneAt(socket, paneID string) (Candidate, int, bool) {
+	out, err := tmuxOutput(socket, "display-message", "-p", "-t", paneID, "#{pid}\t"+paneFormat)
+	if err != nil {
+		return Candidate{}, 0, false
+	}
+	server, rest, ok := strings.Cut(strings.TrimSuffix(string(out), "\n"), "\t")
+	if !ok {
+		return Candidate{}, 0, false
+	}
+	pid, err := strconv.Atoi(server)
+	if err != nil {
+		return Candidate{}, 0, false
+	}
+	parts := strings.SplitN(rest, "\t", 7)
+	if len(parts) != 7 || parts[0] != paneID {
+		return Candidate{}, 0, false
+	}
+	panePID, err := strconv.ParseInt(parts[2], 10, 32)
+	if err != nil {
+		return Candidate{}, 0, false
+	}
+	if socket == "" {
+		socket = DefaultSocket
+	}
+	return Candidate{
+		Socket:       socket,
+		PaneID:       parts[0],
+		Session:      parts[1],
+		PID:          int32(panePID),
+		Command:      parts[3],
+		Cwd:          parts[4],
+		Window:       parts[5],
+		StartCommand: parts[6],
+	}, pid, true
 }
 
 // Capture reads a pane's visible text, for the prompt signal.

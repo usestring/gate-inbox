@@ -78,6 +78,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleQuickActionsKey(msg)
 	case modePanePicker:
 		return m.handlePanePickerKey(msg)
+	case modeRestartWith:
+		return m.handleRestartWithKey(msg)
 	}
 
 	// A pending open waits for the open key again on the same row. esc
@@ -288,6 +290,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		m.openAccountSwitch()
 	case keymap.Restart:
 		return m.restartSelected()
+	case keymap.RestartWith:
+		m.openRestartWith()
 	case keymap.Archive:
 		return m.archiveSelected()
 	case keymap.ArchiveAll:

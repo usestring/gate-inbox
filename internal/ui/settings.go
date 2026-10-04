@@ -209,6 +209,8 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case settingsFieldSnippets:
 			return m.openSnippetEditor()
+		case settingsFieldRestartFlags:
+			return m.openRestartFlagEditor()
 		case settingsFieldCLIs:
 			m.openCLIPicker()
 			return m, nil
@@ -239,6 +241,10 @@ func (m *Model) saveAndCloseSettings() (tea.Model, tea.Cmd) {
 	m.loadSnippets()
 	if m.snipErr != "" {
 		m.errBar.text = "snippets could not be read: " + m.snipErr
+	}
+	m.loadRestartFlags()
+	if m.restartFlagErr != "" {
+		m.errBar.text = "restart flags could not be read: " + m.restartFlagErr
 	}
 	m.rebuildRows()
 	m.mode = modeList

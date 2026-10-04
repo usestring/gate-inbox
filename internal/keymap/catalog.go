@@ -49,6 +49,7 @@ const (
 	ReviveAll     Action = "revive_all"
 	SwitchAccount Action = "switch_account"
 	Restart       Action = "restart"
+	RestartWith   Action = "restart_with"
 	Archive       Action = "archive"
 	ArchiveAll    Action = "archive_all"
 	Restore       Action = "restore"
@@ -155,6 +156,7 @@ var Catalog = []Binding{
 	{ContextList, ReviveAll, []string{"V", "shift+v"}, "revive every dead session", false},
 	{ContextList, SwitchAccount, []string{}, "switch its account: restarts it on its own conversation", false},
 	{ContextList, Restart, []string{}, "restart it on an empty context", false},
+	{ContextList, RestartWith, []string{}, "restart it with extra flags…", false},
 	{ContextList, Archive, []string{"x"}, "kill it and file the row", false},
 	{ContextList, ArchiveAll, []string{}, "kill every session listed", false},
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},

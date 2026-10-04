@@ -2,8 +2,10 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/adopt"
 	"github.com/usestring/gate-inbox/internal/convo"
@@ -246,8 +248,18 @@ func (m *Model) viewAccountSwitch() string {
 	if m.account.migrate {
 		then = "over 200k context: migrate to new session"
 	}
+	var rows strings.Builder
+	for i, name := range m.account.names {
+		marker := "  "
+		style := mutedStyle
+		if i == m.account.index {
+			marker = lipgloss.NewStyle().Foreground(colorAccent).Render("❯ ")
+			style = groupNameStyle
+		}
+		rows.WriteString("  " + marker + style.Render(name) + "\n")
+	}
 	body := "  session  " + valueStyle.Render(sess.Name) + "  " + mutedStyle.Render("on "+sess.Tool+" as "+now) + "\n" +
-		"  account  " + subtleStyle.Render("◂ ") + valueStyle.Render(m.account.names[m.account.index]) + subtleStyle.Render(" ▸") + "\n" +
+		strings.TrimRight(rows.String(), "\n") + "\n" +
 		"           " + mutedStyle.Render(then)
-	return m.card("⇄ Switch Account", body, [][2]string{{"←→", "account"}, {"↵", "switch"}, {"esc", "cancel"}})
+	return m.card("⇄ Switch Account", body, [][2]string{{"↑↓", "account"}, {"↵", "switch"}, {"esc", "cancel"}})
 }

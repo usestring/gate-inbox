@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -111,15 +112,16 @@ func (m *Model) adoptScan() tea.Cmd {
 			logging.Warn("adopt scan failed", "at", "list sessions", logging.Err(err))
 			return adoptedMsg{err: err}
 		}
-		if err := run.reconcileTools(rows, candidates, started); err != nil {
+		run.launched = launchedSessions(rows, run.agentTools)
+		procs := adopt.NewProcTable()
+		if err := run.reconcileTools(rows, candidates, procs, started); err != nil {
 			return adoptedMsg{err: err}
 		}
 		run.onBoard = onBoardSessions(rows)
-		run.launched = launchedSessions(rows, run.agentTools)
 		run.pruneIgnored(candidates)
 		run.claude = convo.LiveClaudeSessions(convo.ClaudeHome())
 
-		taken, err := run.take(candidates, adopt.NewProcTable())
+		taken, err := run.take(candidates, procs)
 		logging.Info("adopt scan",
 			"sockets", sockets, "candidates", len(candidates), "taken", taken,
 			"rejected", rejectionSummary(run.rejected), "took", time.Since(started).Round(time.Millisecond).String())
@@ -127,8 +129,8 @@ func (m *Model) adoptScan() tea.Cmd {
 	}
 }
 
-func (r *adoptRun) reconcileTools(rows []store.Session, candidates []adopt.Candidate, observedAfter time.Time) error {
-	homes := managedHomes(candidates, nil)
+func (r *adoptRun) reconcileTools(rows []store.Session, candidates []adopt.Candidate, procs *adopt.ProcTable, observedAfter time.Time) error {
+	homes := managedHomes(candidates, r.launched)
 	for _, sess := range rows {
 		if sess.Archived || !r.agentTools[sess.Tool] {
 			continue
@@ -150,9 +152,18 @@ func (r *adoptRun) reconcileTools(rows []store.Session, candidates []adopt.Candi
 		foreground := matched[0]
 		// Descendants may be agents this agent launched; only the foreground
 		// command proves the pane itself changed harness.
+		foreground.Command = procs.ForegroundCommand(foreground)
 		foreground.PID = 0
-		match, ok := adopt.Identify(foreground, r.tools, "", nil)
-		if !ok {
+		// Blocks sharing an executable differ only in arguments, which the
+		// command signal ignores, so they are told apart by the row's own tool
+		// or not at all.
+		var identified []string
+		for _, tool := range r.tools {
+			if match, ok := adopt.Identify(foreground, []adopt.Tool{tool}, "", nil); ok {
+				identified = append(identified, match.Tool)
+			}
+		}
+		if len(identified) == 0 {
 			continue
 		}
 		if r.hooks != nil {
@@ -162,10 +173,10 @@ func (r *adoptRun) reconcileTools(rows []store.Session, candidates []adopt.Candi
 				}
 			}
 		}
-		if match.Tool == sess.Tool {
+		if len(identified) != 1 || slices.Contains(identified, sess.Tool) {
 			continue
 		}
-		if err := r.stor.UpdateTool(sess.ID, match.Tool); err != nil {
+		if err := r.stor.UpdateTool(sess.ID, identified[0]); err != nil {
 			return err
 		}
 	}

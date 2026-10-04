@@ -1,7 +1,9 @@
 package adopt
 
 import (
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/shirou/gopsutil/v4/process"
 )
@@ -80,6 +82,40 @@ func (t *ProcTable) PIDs(pid int32) []int {
 	var pids []int
 	t.walk(pid, func(p int32) { pids = append(pids, int(p)) })
 	return pids
+}
+
+// ForegroundCommand is the pane's foreground command with its arguments, when
+// tmux reports only an interpreter such as node. It reads the first process
+// below the pane's own that is in the terminal's foreground group and runs
+// that interpreter -- the process tmux named -- so a shebang CLI can be identified by its script
+// path while descendants the agent started stay out of the evidence. Any other
+// command, or a process that cannot be read, comes back as tmux reported it.
+func (t *ProcTable) ForegroundCommand(c Candidate) string {
+	if !interpreters[filepath.Base(c.Command)] {
+		return c.Command
+	}
+	line := c.Command
+	found := false
+	t.walk(c.PID, func(p int32) {
+		if found {
+			return
+		}
+		proc, err := process.NewProcess(p)
+		if err != nil {
+			return
+		}
+		if foreground, err := proc.Foreground(); err != nil || !foreground {
+			return
+		}
+		cmdline, err := proc.Cmdline()
+		if err != nil {
+			return
+		}
+		if fields := strings.Fields(cmdline); len(fields) > 0 && filepath.Base(fields[0]) == c.Command {
+			line, found = cmdline, true
+		}
+	})
+	return line
 }
 
 func (t *ProcTable) walk(pid int32, visit func(int32)) {

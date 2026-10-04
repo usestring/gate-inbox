@@ -1844,16 +1844,17 @@ func (s *Store) SetTmuxTarget(id, socket, paneID string) error {
 }
 
 // UpdateTool changes which tool status rules and revive use for a session.
-// Clears the captured agent conversation id: that id only makes sense for
-// the tool that minted it, and a manual tool swap means the user swapped
-// the process in the pane (e.g. quit opencode, ran vim). A no-op when the
-// tool column already matches leaves the conversation id alone.
+// Clears the captured and retired agent conversation ids: those ids only make
+// sense for the tool that minted them, and a manual tool swap means the user
+// swapped the process in the pane (e.g. quit opencode, ran vim). A retired id
+// left behind would mark the new harness's live row as deliberately ended. A
+// no-op when the tool column already matches leaves both ids alone.
 func (s *Store) UpdateTool(id, tool string) error {
 	if strings.TrimSpace(tool) == "" {
 		return fmt.Errorf("session tool cannot be empty")
 	}
 	res, err := s.db.Exec(
-		`UPDATE sessions SET tool = ?, agent_session_id = '' WHERE id = ? AND tool != ?`,
+		`UPDATE sessions SET tool = ?, agent_session_id = '', retired_agent_session_id = '' WHERE id = ? AND tool != ?`,
 		tool, id, tool)
 	if err != nil {
 		return err

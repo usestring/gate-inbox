@@ -166,8 +166,11 @@ func TestUpdateTool(t *testing.T) {
 	if err := st.CreateSession(sess); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if err := st.SetAgentSessionID("a", "ses_old"); err != nil {
+	if err := st.SetAgentSessionID("a", "ses_retired"); err != nil {
 		t.Fatalf("set agent id: %v", err)
+	}
+	if err := st.RestartAgent("a", "ses_old", time.Now()); err != nil {
+		t.Fatalf("restart agent: %v", err)
 	}
 	if err := st.UpdateTool("a", "grok"); err != nil {
 		t.Fatalf("update tool: %v", err)
@@ -181,6 +184,9 @@ func TestUpdateTool(t *testing.T) {
 	}
 	if got.AgentSessionID != "" {
 		t.Fatalf("agent session id should clear on tool change, got %q", got.AgentSessionID)
+	}
+	if got.RetiredAgentSessionID != "" {
+		t.Fatalf("retired session id should clear on tool change, got %q", got.RetiredAgentSessionID)
 	}
 	if err := st.SetAgentSessionID("a", "ses_new"); err != nil {
 		t.Fatalf("reset agent id: %v", err)

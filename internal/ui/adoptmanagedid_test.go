@@ -142,13 +142,15 @@ func TestManagedPaneRefusedWhenItsRowPostdatesTheScansRows(t *testing.T) {
 
 func TestKnownPaneTracksItsForegroundHarness(t *testing.T) {
 	for _, tc := range []struct {
-		name, command, want string
-		fresh               bool
+		name, command, want     string
+		fresh, shared, launched bool
 	}{
-		{"changed harness", "codex", "codex", false},
-		{"same harness", "opencode", "opencode", false},
-		{"shell with stale agent output", "bash", "opencode", false},
-		{"exit after the scan", "codex", "codex", true},
+		{name: "changed harness", command: "codex", want: "codex"},
+		{name: "same harness", command: "opencode", want: "opencode"},
+		{name: "shell with stale agent output", command: "bash", want: "opencode"},
+		{name: "exit after the scan", command: "codex", want: "codex", fresh: true},
+		{name: "executable shared by two blocks", command: "codex", want: "opencode", shared: true},
+		{name: "launch window closed", command: "codex", want: "opencode", launched: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st := newFixtureStore(t)
@@ -166,6 +168,12 @@ func TestKnownPaneTracksItsForegroundHarness(t *testing.T) {
 				t.Fatal(err)
 			}
 			run := &adoptRun{stor: st, hooks: manager, driver: driver, agentTools: map[string]bool{"opencode": true, "codex": true}, tools: []adopt.Tool{{Name: "opencode", Command: "opencode"}, {Name: "codex", Command: "codex"}}}
+			if tc.shared {
+				run.tools = append(run.tools, adopt.Tool{Name: "codex-fast", Command: "codex --fast"})
+			}
+			if tc.launched {
+				run.launched = map[string]bool{tmux.SessionName(sess.ID): true}
+			}
 			candidates := adopt.Panes(socket)
 			if len(candidates) != 2 {
 				t.Fatalf("panes = %d, want 2", len(candidates))
@@ -176,10 +184,10 @@ func TestKnownPaneTracksItsForegroundHarness(t *testing.T) {
 			if tc.fresh {
 				observedAfter = observedAfter.Add(-time.Hour)
 			}
-			if err := run.reconcileTools([]store.Session{sess}, candidates, observedAfter); err != nil {
+			if err := run.reconcileTools([]store.Session{sess}, candidates, nil, observedAfter); err != nil {
 				t.Fatal(err)
 			}
-			if _, _, exists := manager.ReadExit(sess.ID); exists != (tc.command == "bash" || tc.fresh) {
+			if _, _, exists := manager.ReadExit(sess.ID); exists != (tc.command == "bash" || tc.fresh || tc.launched) {
 				t.Fatal("historical exit did not follow foreground liveness")
 			}
 			got, err := st.Get(sess.ID)

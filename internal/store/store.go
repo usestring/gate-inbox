@@ -24,7 +24,7 @@ var ErrSessionGone = errors.New("session no longer exists")
 
 var ErrGroupExists = errors.New("group already exists")
 
-// Where a session's name came from. Only the first two may ever be replaced
+// Where a session's name came from. Only the first three may ever be replaced
 // automatically: the other two are somebody having said what a row is called,
 // and a manager that overwrites them is a manager nobody can name a row in.
 const (
@@ -34,6 +34,10 @@ const (
 	// SourceTitle is a name compressed from the agent's own title for the
 	// conversation. Replaceable in turn, because the title drifts.
 	SourceTitle = "title"
+	// SourcePrompt is a name a small model picked from the session's opening
+	// prompt, outside the session. It is replaced only by the tool's own
+	// title, once that is short enough to wear whole.
+	SourcePrompt = "prompt"
 	// SourceAgent is a name the session's own agent asked for.
 	SourceAgent = "agent"
 	// SourceUser is a name a person typed.
@@ -43,7 +47,7 @@ const (
 // autoNamable is the sources an automatic rename may replace, written as a
 // SQL fragment so the check happens inside the UPDATE rather than in a read
 // the user can rename between.
-const autoNamable = `name_source IN ('` + SourceDerived + `', '` + SourceTitle + `')`
+const autoNamable = `name_source IN ('` + SourceDerived + `', '` + SourceTitle + `', '` + SourcePrompt + `')`
 
 type Session struct {
 	ID       string
@@ -1803,7 +1807,7 @@ func (s *Store) AutoRenameSession(id, name, source string) (bool, error) {
 	if strings.TrimSpace(name) == "" {
 		return false, fmt.Errorf("session name cannot be empty")
 	}
-	if source != SourceDerived && source != SourceTitle {
+	if source != SourceDerived && source != SourceTitle && source != SourcePrompt {
 		return false, fmt.Errorf("automatic rename cannot claim source %q", source)
 	}
 	res, err := s.db.Exec(
@@ -1823,7 +1827,7 @@ func (s *Store) AutoRenameSession(id, name, source string) (bool, error) {
 // code that predates it is not silently made renamable.
 func nameSourceOr(source string) string {
 	switch source {
-	case SourceDerived, SourceTitle, SourceAgent, SourceUser:
+	case SourceDerived, SourceTitle, SourcePrompt, SourceAgent, SourceUser:
 		return source
 	}
 	return SourceUser

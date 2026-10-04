@@ -5,10 +5,12 @@ package ui
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -269,67 +271,24 @@ func TestAPendingInputThisManagerIsStillPastingIsNotReconciledAsAmbiguous(t *tes
 	}
 }
 
-func TestAdoptedRenameWaitsForAnEmptyRestingPrompt(t *testing.T) {
-	m := buildModel(t)
-	sess := store.Session{ID: "adopted", Name: "repo-2", Tool: "claude-typeahead", Cwd: t.TempDir(), NameSource: store.SourceDerived}
-	sess.PendingInputs = []string{adoptedRenameInput(t.TempDir(), sess.ID)}
-	if err := m.store.CreateSession(sess); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.tmux.Create(sess.ID, sess.Cwd, "cat", nil, 120, 30); err != nil {
-		t.Fatal(err)
-	}
-	for _, tc := range []struct {
-		name, state, text string
-		cursor            int
-		inputAt           time.Time
-	}{
-		{name: "working with type ahead", state: status.Working, text: "❯ ", cursor: 2},
-		{name: "starting", state: status.Starting, text: "❯ ", cursor: 2},
-		{name: "errored", state: status.Errored, text: "❯ ", cursor: 2},
-		{name: "waiting", state: status.Waiting, text: "❯ ", cursor: 2},
-		{name: "dialog", state: status.Idle, text: "Enter to confirm\n❯ ", cursor: 2},
-		{name: "draft", state: status.Idle, text: "❯ writing", cursor: 9},
-		{name: "recent input", state: status.Idle, text: "❯ ", cursor: 2, inputAt: time.Now()},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			capture := tmux.Capture{Text: tc.text, State: tmux.CaptureState{Read: true, CursorX: tc.cursor, InputAt: tc.inputAt}}
-			if sent, err := m.poller.maybeSendPendingInputWhenReady(sess, capture, tc.state, true); err != nil || sent {
-				t.Fatalf("sent = %v, %v", sent, err)
-			}
-			if inputs := sessionPendingInputs(t, m, sess.ID); len(inputs) != 1 {
-				t.Fatalf("held request lost: %v", inputs)
-			}
-		})
-	}
-	capture := tmux.Capture{Text: "❯ ", State: tmux.CaptureState{Read: true, CursorX: 2}}
-	if sent, err := m.poller.maybeSendPendingInputWhenReady(sess, capture, status.Finished, true); err != nil || !sent {
-		t.Fatalf("resting send = %v, %v", sent, err)
-	}
-	if !m.poller.awaitSends(10 * time.Second) {
-		t.Fatal("rename request did not finish sending")
-	}
-	if inputs := sessionPendingInputs(t, m, sess.ID); len(inputs) != 0 {
-		t.Fatalf("delivered request remained queued: %v", inputs)
-	}
-	settledPane(t, m, sess.ID, "placeholder name")
-}
-
-func TestAdoptedRenameIsDiscardedIfANameArrivesBeforeDelivery(t *testing.T) {
-	for _, source := range []string{store.SourceTitle, store.SourceAgent, store.SourceUser} {
-		t.Run(source, func(t *testing.T) {
-			m := buildModel(t)
-			sess := store.Session{ID: "adopted", Name: "adoption-naming", Tool: "ready-tool", Cwd: t.TempDir(), NameSource: source}
-			sess.PendingInputs = []string{adoptedRenameInput(t.TempDir(), sess.ID)}
-			if err := m.store.CreateSession(sess); err != nil {
-				t.Fatal(err)
-			}
-			if consumed, err := m.poller.maybeSendPendingInputWhenReady(sess, tmux.Capture{}, status.Working, true); err != nil || !consumed {
-				t.Fatalf("discard = %v, %v", consumed, err)
-			}
-			if inputs := sessionPendingInputs(t, m, sess.ID); len(inputs) != 0 || m.poller.sendInFlight(inputSend(sess.ID)) {
-				t.Fatal("named session retained or sent its rename request")
-			}
-		})
+func TestLegacyRenameRequestsAreDroppedUndelivered(t *testing.T) {
+	legacy := []string{adoptedRenamePrefix + "Run this exact shell command once.", launch.DeferredRenameDirective}
+	for _, source := range []string{store.SourceDerived, store.SourceTitle, store.SourceUser} {
+		for i, request := range legacy {
+			t.Run(source+"/"+strconv.Itoa(i), func(t *testing.T) {
+				m := buildModel(t)
+				sess := store.Session{ID: "adopted", Name: "adoption-naming", Tool: "ready-tool", Cwd: t.TempDir(), NameSource: source}
+				sess.PendingInputs = []string{request}
+				if err := m.store.CreateSession(sess); err != nil {
+					t.Fatal(err)
+				}
+				if consumed, err := m.poller.maybeSendPendingInputWhenReady(sess, tmux.Capture{}, status.Working, true); err != nil || !consumed {
+					t.Fatalf("discard = %v, %v", consumed, err)
+				}
+				if inputs := sessionPendingInputs(t, m, sess.ID); len(inputs) != 0 || m.poller.sendInFlight(inputSend(sess.ID)) {
+					t.Fatal("session retained or sent a legacy rename request")
+				}
+			})
+		}
 	}
 }

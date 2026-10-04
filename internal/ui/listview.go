@@ -896,8 +896,8 @@ func (m *Model) sessionGlyph(sess store.Session) string {
 	return statusTint(sess.Status, statusGlyph(sess.Status))
 }
 
-// namePlaceholder stands in for the name a spawn generated while the agent
-// it asked to name itself has not answered, so the row settles on one name
+// namePlaceholder stands in for the name a spawn generated while the one
+// picked from its prompt has not landed, so the row settles on one name
 // instead of flashing a throwaway one first.
 const namePlaceholder = "…"
 
@@ -907,9 +907,9 @@ const namePlaceholder = "…"
 // off its own end.
 const placeholderPromptWidth = 12
 
-// renameGrace caps the wait for that answer. It spans the whole way there,
-// the boot, the directive reaching the agent, and the command it runs, so it
-// is generous; past it the session keeps the name it was given.
+// renameGrace caps the wait for that answer: one call to the namer, which is
+// seconds, with room for a slow one. Past it the session keeps the name it
+// was given until the naming pass finds a better one.
 const renameGrace = time.Minute
 
 // awaitedRename is what a spawn launched with: the name generated for it,
@@ -944,8 +944,8 @@ func (m *Model) displayName(sess store.Session) string {
 		}
 		return sess.Name
 	}
-	// The stored LaunchPrompt is the decorated one, carrying the rename
-	// directive the agent was sent; what the row wants is what was typed.
+	// The stored LaunchPrompt is the decorated one; what the row wants is
+	// what was typed.
 	if preview := promptPreview(m.awaitedRenames[sess.ID].prompt); preview != "" {
 		return preview
 	}

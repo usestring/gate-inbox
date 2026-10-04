@@ -160,7 +160,7 @@ func (s *Sessions) prepareBoardLaunch(runtime *runtime, sess store.Session, tool
 	if err != nil {
 		return boardLaunch{}, err
 	}
-	plan, err := launch.Assemble(sess.Tool, tool, strings.TrimSpace(prompt), "", false, sess.Model, account)
+	plan, err := launch.Assemble(sess.Tool, tool, strings.TrimSpace(prompt), "", sess.Model, account)
 	if err != nil {
 		return boardLaunch{}, err
 	}

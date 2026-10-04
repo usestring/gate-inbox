@@ -654,7 +654,7 @@ func writeClaudeConversation(t *testing.T, home string, pid int32, cwd, title st
 	}
 }
 
-func TestUntitledAdoptedRowsQueueOneRenameAcrossScans(t *testing.T) {
+func TestUntitledAdoptedRowsQueueNothingIntoTheirPanes(t *testing.T) {
 	dir := t.TempDir()
 	socket := windowFixture(t, "main", 2, dir)
 	st := newFixtureStore(t)
@@ -662,20 +662,13 @@ func TestUntitledAdoptedRowsQueueOneRenameAcrossScans(t *testing.T) {
 	if taken, err := run.take(adopt.Panes(socket), adopt.NewProcTable()); err != nil || taken != 2 {
 		t.Fatalf("take = %d, %v", taken, err)
 	}
-	restarted := newFixtureRun(t, st, socket)
-	if taken, err := restarted.take(adopt.Panes(socket), adopt.NewProcTable()); err != nil || taken != 0 {
-		t.Fatalf("repeat take = %d, %v", taken, err)
-	}
 	rows, err := st.ListSessions(false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, row := range rows {
-		if row.NameSource != store.SourceDerived || len(row.PendingInputs) != 1 {
+		if row.NameSource != store.SourceDerived || len(row.PendingInputs) != 0 {
 			t.Fatalf("row %q: source %q, pending %v", row.Name, row.NameSource, row.PendingInputs)
-		}
-		if want := adoptedRenameInput(run.home, row.ID); row.PendingInputs[0] != want {
-			t.Errorf("pending request = %q, want %q", row.PendingInputs[0], want)
 		}
 	}
 }

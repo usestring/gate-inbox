@@ -161,7 +161,7 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 		m.reportLaunchError(err)
 		return m, nil
 	}
-	plan, err := launch.Assemble(toolName, tool, prompt, "", false, source.Model, account)
+	plan, err := launch.Assemble(toolName, tool, prompt, "", source.Model, account)
 	if err != nil {
 		m.reportLaunchError(err)
 		return m, nil

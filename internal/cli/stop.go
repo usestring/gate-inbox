@@ -3,6 +3,8 @@ package cli
 import (
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/usestring/gate-inbox/extension/cmdline"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
@@ -32,6 +34,9 @@ func finishStop(args []string, sessionID, configDir string) error {
 	if err != nil {
 		return err
 	}
+	// This runs as a run-shell -b job, which tmux SIGTERMs when ending the
+	// last session empties the server and leaves its output pipe closed.
+	signal.Ignore(syscall.SIGTERM, syscall.SIGHUP, syscall.SIGPIPE)
 	_, err = sessioncmd.NewSessions(configDir, sessioncmd.CLIVocabulary()).FinishStop(sessionID, operands[0], operands[1])
 	return err
 }

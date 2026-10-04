@@ -16,6 +16,16 @@ import (
 )
 
 func TestStopFromInsidePaneCompletesLifecycleOutsideIt(t *testing.T) {
+	testSelfStop(t, true)
+}
+
+// The last session's death empties the server, and tmux SIGTERMs a
+// run-shell -b job on the way out, so the worker must outlive that.
+func TestStopOfTheServersLastSessionCompletesLifecycle(t *testing.T) {
+	testSelfStop(t, false)
+}
+
+func testSelfStop(t *testing.T, withSentinel bool) {
 	bin := buildFixture(t)
 	socket := tmuxtest.Socket(t, "selfstop")
 	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+promptTool)
@@ -33,7 +43,11 @@ func TestStopFromInsidePaneCompletesLifecycleOutsideIt(t *testing.T) {
 		}
 		return idOf(t, string(out))
 	}
-	target, sentinel := spawn("self-stop"), spawn("sentinel")
+	target := spawn("self-stop")
+	var sentinel string
+	if withSentinel {
+		sentinel = spawn("sentinel")
+	}
 	tmuxCommand := func(args ...string) string {
 		t.Helper()
 		cmd := exec.Command("tmux", append([]string{"-L", socket}, args...)...)
@@ -93,8 +107,10 @@ func TestStopFromInsidePaneCompletesLifecycleOutsideIt(t *testing.T) {
 		t.Logf("pane: %s", captured)
 		t.Fatalf("end: %+v, row: %+v", ends[target], kept)
 	}
-	if got := tmuxCommand("list-sessions", "-F", "#{session_name}"); strings.Contains(got, "gi_"+target) || !strings.Contains(got, "gi_"+sentinel) {
-		t.Fatalf("remaining sessions: %s", got)
+	if withSentinel {
+		if got := tmuxCommand("list-sessions", "-F", "#{session_name}"); strings.Contains(got, "gi_"+target) || !strings.Contains(got, "gi_"+sentinel) {
+			t.Fatalf("remaining sessions: %s", got)
+		}
 	}
 	data, err := os.ReadFile(dry)
 	if err != nil || !json.Valid(data) {

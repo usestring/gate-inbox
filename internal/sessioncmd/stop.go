@@ -86,5 +86,14 @@ func (s *Sessions) FinishStop(sessionID, launched, pane string) (Session, error)
 	if pane == "" || current != pane {
 		return Session{}, errors.New("stop request no longer matches this session's pane")
 	}
-	return s.stopSession(runtime, target, extension.KillByCLI, sessionID)
+	return s.stopSession(runtime, target, extension.KillByCLI, sessionID, func(id string) error {
+		row, err := runtime.store.Get(id)
+		if err != nil {
+			return err
+		}
+		if launched != row.LaunchTime().Format(time.RFC3339Nano) {
+			return errors.New("stop request no longer matches this managed launch")
+		}
+		return runtime.driver.KillPane(id, pane)
+	})
 }

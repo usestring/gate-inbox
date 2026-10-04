@@ -1307,11 +1307,12 @@ func (s *Sessions) kill(sessionID, targetID string, terminals bool, via extensio
 	if err := runtime.reach(target); err != nil {
 		return Session{}, err
 	}
-	return s.stopSession(runtime, target, via, sessionID)
+	return s.stopSession(runtime, target, via, sessionID, killFor(runtime, target.ID))
 }
 
-func (s *Sessions) stopSession(runtime *runtime, target store.Session, via extension.KillSource, by string) (Session, error) {
-	if err := s.endSession(runtime, target, store.EndKilled); err != nil {
+func (s *Sessions) stopSession(runtime *runtime, target store.Session, via extension.KillSource, by string, kill func(string) error) (Session, error) {
+	pane, _ := runtime.driver.CapturePane(target.ID)
+	if err := s.endSessionBy(runtime, target, pane, store.EndKilled, kill); err != nil {
 		return Session{}, err
 	}
 	if _, err := runtime.store.ResolveEndedRecipient(target.ID, time.Now()); err != nil {

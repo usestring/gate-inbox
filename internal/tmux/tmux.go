@@ -1475,6 +1475,25 @@ func (d *Driver) PaneID(id string) (string, error) {
 	return strings.TrimSpace(out), err
 }
 
+// KillPane is Kill for a caller that validated one pane: the check and the
+// kill run as one tmux command, so a session revived under id after pane
+// was read survives.
+func (d *Driver) KillPane(id, pane string) error {
+	if err := d.refuseAdopted(id, "kill"); err != nil {
+		return err
+	}
+	d.forgetPin(id)
+	if _, err := d.run("if-shell", "-F", "-t", pane, "#{==:#{session_name},"+sessionName(id)+"}",
+		"kill-session -t ="+sessionName(id)); err != nil {
+		return err
+	}
+	if d.Exists(id) {
+		return fmt.Errorf("%s: pane %s no longer belongs to this session", id, pane)
+	}
+	os.Remove(d.launchScriptPath(id))
+	return nil
+}
+
 func (d *Driver) RunOutsidePane(id, command string) error {
 	_, err := d.runAt(id, "run-shell", "-b", "-t", d.TargetFor(id).Name, command)
 	return err

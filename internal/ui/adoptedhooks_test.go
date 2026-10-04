@@ -141,13 +141,15 @@ func TestAnAdoptedOutsideClaudeReportsThroughTheGlobalHooks(t *testing.T) {
 	if _, err := hooks.RegisterGlobal(settings, configDir, bin); err != nil {
 		t.Fatal(err)
 	}
+	const first, cleared = "2f1c7a4e-6b0d-4c9a-9e3f-1a2b3c4d5e6f", "8d3e5f70-1a2b-4c3d-8e4f-5a6b7c8d9e0f"
 	runs := []struct{ event, payload string }{
-		{"SessionStart", `{"source":"startup"}`},
-		{"UserPromptSubmit", `{"prompt":"hello"}`},
-		{"PreToolUse", `{"tool_name":"AskUserQuestion","tool_use_id":"t1","tool_input":{"questions":[]}}`},
-		{"PostToolUse", `{"tool_name":"AskUserQuestion"}`},
-		{"Notification", `{"notification_type":"permission_prompt"}`},
-		{"Stop", `{}`},
+		{"SessionStart", `{"source":"startup","session_id":"` + first + `"}`},
+		{"UserPromptSubmit", `{"prompt":"hello","session_id":"` + first + `"}`},
+		{"PreToolUse", `{"tool_name":"AskUserQuestion","tool_use_id":"t1","tool_input":{"questions":[]},"session_id":"` + first + `"}`},
+		{"PostToolUse", `{"tool_name":"AskUserQuestion","session_id":"` + first + `"}`},
+		{"Notification", `{"notification_type":"permission_prompt","session_id":"` + first + `"}`},
+		{"SessionStart", `{"source":"clear","session_id":"` + cleared + `"}`},
+		{"Stop", `{"session_id":"` + cleared + `"}`},
 	}
 	for n, run := range runs {
 		dir := filepath.Join(work, fmt.Sprintf("run.%02d", n))
@@ -177,9 +179,20 @@ func TestAnAdoptedOutsideClaudeReportsThroughTheGlobalHooks(t *testing.T) {
 	for _, ev := range events {
 		got = append(got, ev.State+" "+ev.Name)
 	}
-	want := "idle SessionStart,working UserPromptSubmit,waiting PreToolUse,working PostToolUse,waiting Notification,finished Stop"
+	want := "idle SessionStart,working UserPromptSubmit,waiting PreToolUse,working PostToolUse,waiting Notification,idle SessionStart,finished Stop"
 	if strings.Join(got, ",") != want {
 		t.Fatalf("status log = %v, want %s", got, want)
+	}
+	// The row went on the board with no conversation; the hooks name the
+	// one the pane is in now, the /clear's, and a pass binds the row to it.
+	var pass passStat
+	m.poller.refreshPass(&pass)
+	stored, err := m.store.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.AgentSessionID != cleared {
+		t.Fatalf("AgentSessionID = %q, want the conversation the hooks reported, %s", stored.AgentSessionID, cleared)
 	}
 	// Let the pane go: the marker goes with it.
 	m.sessions = nil

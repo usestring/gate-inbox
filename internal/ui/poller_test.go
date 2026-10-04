@@ -1547,6 +1547,67 @@ func TestPendingPriorityDropsAnUnreadableTier(t *testing.T) {
 	}
 }
 
+// reportConversation is an adopted session's global hook carrying the
+// conversation its claude is in, the way every hook payload does.
+func reportConversation(t *testing.T, m *Model, id, conversation string) {
+	t.Helper()
+	if err := os.MkdirAll(m.hooks.Dir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.hooks.RecordConversation(id, []byte(`{"session_id":"`+conversation+`"}`)); err != nil {
+		t.Fatalf("record conversation: %v", err)
+	}
+}
+
+// An adopted row that went on the board without its conversation id gets the
+// one its hooks report, and follows the pane to a new one after a /clear. The
+// mailbox is consumed each time.
+func TestPendingConversationBindsAnAdoptedRow(t *testing.T) {
+	m := buildModel(t)
+	sess := store.Session{ID: "adopted1", Name: "outside", Tool: "claude", Cwd: t.TempDir(), Status: status.Idle, TmuxSocket: "someserver", TmuxPaneID: "%7"}
+	if err := m.store.CreateSession(sess); err != nil {
+		t.Fatal(err)
+	}
+	for _, conversation := range []string{"2f1c7a4e-6b0d-4c9a-9e3f-1a2b3c4d5e6f", "8d3e5f70-1a2b-4c3d-8e4f-5a6b7c8d9e0f"} {
+		reportConversation(t, m, sess.ID, conversation)
+		if err := m.poller.applyPendingConversation(&sess); err != nil {
+			t.Fatalf("apply: %v", err)
+		}
+		stored, err := m.store.Get(sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stored.AgentSessionID != conversation || sess.AgentSessionID != conversation {
+			t.Fatalf("AgentSessionID = %q stored, %q in the pass; want %s", stored.AgentSessionID, sess.AgentSessionID, conversation)
+		}
+		if _, found := m.hooks.ReadConversation(sess.ID); found {
+			t.Fatal("the mailbox should be consumed instead of re-read every poll")
+		}
+	}
+}
+
+// A launched row keeps the id the board gave it: its hooks never write the
+// mailbox, and the poller does not read one for it if it is there.
+func TestPendingConversationLeavesALaunchedRowAlone(t *testing.T) {
+	m := buildModel(t)
+	const launched = "11111111-2222-4333-8444-555555555555"
+	sess := store.Session{ID: "launched1", Name: "mine", Tool: "claude", Cwd: t.TempDir(), Status: status.Idle, AgentSessionID: launched}
+	if err := m.store.CreateSession(sess); err != nil {
+		t.Fatal(err)
+	}
+	reportConversation(t, m, sess.ID, "8d3e5f70-1a2b-4c3d-8e4f-5a6b7c8d9e0f")
+	if err := m.poller.applyPendingConversation(&sess); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	stored, err := m.store.Get(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.AgentSessionID != launched || sess.AgentSessionID != launched {
+		t.Fatalf("a launched row moved to %q / %q", stored.AgentSessionID, sess.AgentSessionID)
+	}
+}
+
 // A row deleted mid-pass must not fail the poll, the same as a rename.
 func TestPendingPriorityOfADeletedSessionDoesNotFailThePass(t *testing.T) {
 	m := buildModel(t)

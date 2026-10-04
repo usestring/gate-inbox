@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/singleton"
@@ -268,6 +269,37 @@ func (m *Manager) DispatchGlobal(event string, payload []byte) string {
 		}
 	}
 	return mergeHookOutputs(outputs)
+}
+
+// RecordConversation leaves the conversation id an adopted session's hook
+// payload carries in its mailbox (ConversationFile), for the poller to bind
+// the row to. A launch tells claude its id; an adopted claude chose its own,
+// and adoption finds it only when claude's per-process session file was
+// there to read, so without this a row could go its whole life with no
+// transcript behind it. Every event carries the id, so the first hook after
+// adoption fills it, and a /clear or a resume inside the pane, which moves
+// claude to a new conversation, moves the row with it on the next one.
+//
+// The file is written only when it would change: a hook fires on every tool
+// call, and the id it carries is nearly always the one already waiting.
+func (m *Manager) RecordConversation(id string, payload []byte) error {
+	if err := checkID(id); err != nil {
+		return err
+	}
+	var fields struct {
+		SessionID string `json:"session_id"`
+	}
+	if json.Unmarshal(payload, &fields) != nil {
+		return nil
+	}
+	conversation := fields.SessionID
+	if parsed, err := uuid.Parse(conversation); err != nil || parsed.String() != conversation {
+		return nil
+	}
+	if existing, found := m.ReadConversation(id); found && existing == conversation {
+		return nil
+	}
+	return WriteWhole(m.ConversationFile(id), conversation+"\n")
 }
 
 // matcherTakes reads the matchers the launch hooks use: empty or "*" for

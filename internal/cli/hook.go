@@ -20,7 +20,9 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 		if err != nil || sessionID == "" {
 			return nil
 		}
-		if output := hooks.NewManager(configDir).DispatchGlobal(args[1], payload); output != "" {
+		m := hooks.NewManager(configDir)
+		_ = m.RecordConversation(sessionID, payload)
+		if output := m.DispatchGlobal(args[1], payload); output != "" {
 			fmt.Fprintln(out, output)
 		}
 		return nil

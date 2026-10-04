@@ -256,16 +256,18 @@ func TestAChordEitherScreenBindsNeverNamesASnippet(t *testing.T) {
 func TestAMirroredBindingNeverNamesASnippet(t *testing.T) {
 	m := buildModel(t)
 	for _, ctx := range []keymap.Context{keymap.ContextList, keymap.ContextFocus} {
-		if action, bound := m.km().Action(ctx, "alt+l"); bound {
-			t.Fatalf("alt+l is already %s in %v; the test needs it free", action, ctx)
+		for _, free := range []string{"ctrl+alt+h", "ctrl+alt+l"} {
+			if action, bound := m.km().Action(ctx, free); bound {
+				t.Fatalf("%s is already %s in %v; the test needs it free", free, action, ctx)
+			}
 		}
 	}
-	bindTestKey(t, m, keymap.StepIn, "alt+h")
-	writeSnippets(t, m, []snippets.Snippet{{Key: "l", Chord: "alt+l", Text: "mirror of step in"}})
+	bindTestKey(t, m, keymap.StepIn, "ctrl+alt+h")
+	writeSnippets(t, m, []snippets.Snippet{{Key: "l", Chord: "ctrl+alt+l", Text: "mirror of step in"}})
 	for _, side := range []string{config.SidebarLeft, config.SidebarRight} {
 		m.sidebar = side
-		if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'l', Mod: tea.ModAlt}); ok {
-			t.Errorf("rail %s: alt+l named the snippet %q over mirrored step in", side, snip.Key)
+		if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'l', Mod: tea.ModCtrl | tea.ModAlt}); ok {
+			t.Errorf("rail %s: ctrl+alt+l named the snippet %q over mirrored step in", side, snip.Key)
 		}
 	}
 }

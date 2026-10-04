@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -197,7 +196,7 @@ func askJev(ctx context.Context, client *http.Client, endpoint, key string, stat
 }
 
 func (m *Model) suggestIdentity() (string, bool) {
-	if !m.jevAutoSuggest || !m.quick.active || m.conversation == nil || os.Getenv("TYPESAFE_API_KEY") == "" {
+	if !m.jevAutoSuggest || !m.quick.active || m.conversation == nil || m.jevAPIKey() == "" {
 		return "", false
 	}
 	entry, ok := m.selectedRow()
@@ -234,7 +233,7 @@ func (m *Model) runAutoSuggestion(seq int) tea.Cmd {
 	if len(input.Candidates) == 0 {
 		return nil
 	}
-	key := os.Getenv("TYPESAFE_API_KEY")
+	key := m.jevAPIKey()
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 		defer cancel()

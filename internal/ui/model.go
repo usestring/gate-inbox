@@ -113,6 +113,9 @@ type Model struct {
 	snips          snippets.Set
 	snipErr        string
 	jevAutoSuggest bool
+	// jevSavedKey is the TypeSafe key pasted in Settings → JEV, read once
+	// at startup; TYPESAFE_API_KEY still wins over it (see jevKey).
+	jevSavedKey    string
 	jevFinishCheck bool
 	jevFinish      jevFinishState
 	promptSuggest  bool
@@ -830,6 +833,10 @@ type settingsState struct {
 	outsidePanes       string
 	experimentalPicker bool
 	experimentalCursor int
+	jevPanel           bool
+	jevCursor          int
+	jevPasting         bool
+	jevInput           textinput.Model
 	jevAutoSuggest     bool
 	jevFinishCheck     bool
 	promptSuggest      bool
@@ -864,6 +871,7 @@ const (
 	settingsFieldAutoProceed
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
+	settingsFieldJev
 	settingsFieldExperimental
 	settingsFieldSnippets
 	settingsFieldCLIs
@@ -1211,6 +1219,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	}
 	model.loadKeys()
 	model.loadSnippets()
+	model.loadJevKey()
 	model.seedFromStore()
 	model.triageStartupEnter = model.triage
 	model.noteOpencodeVersion(opencode.Cached())
@@ -2583,6 +2592,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev())
 
 	case tea.PasteMsg:
+		if m.mode == modeSettings && m.settings.jevPasting {
+			return m, m.pasteIntoJevKey(msg)
+		}
 		if m.mode == modeExtensionView {
 			return m, m.pasteIntoView(msg)
 		}

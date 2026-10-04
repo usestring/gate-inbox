@@ -220,6 +220,11 @@ func (r *runtime) running(target store.Session) error {
 	if target.Archived {
 		return fmt.Errorf("session %s is archived; restore it with %s first", target.ID, r.words.Restore)
 	}
+	// Every caller goes on to capture and type into the pane, which for an
+	// adopted row is wherever reach says it is.
+	if err := r.reach(target); err != nil {
+		return err
+	}
 	if !r.driver.Exists(target.ID) {
 		return fmt.Errorf("session %s is not running; revive it with %s first", target.ID, r.words.Revive)
 	}

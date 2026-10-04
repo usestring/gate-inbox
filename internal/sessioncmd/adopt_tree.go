@@ -138,6 +138,11 @@ func (r *runtime) parentGone(parentID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	// An adopted parent's pane is not gi_<id>, so unreached it reads as gone
+	// and any session could take its children out from under it.
+	if err := r.reach(parent); err != nil {
+		return false, err
+	}
 	return parent.Archived || !r.driver.Exists(parent.ID), nil
 }
 

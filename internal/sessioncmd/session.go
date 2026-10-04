@@ -388,6 +388,14 @@ func (r *runtime) list(callerID string, opts ListOptions) (SessionList, error) {
 	if err != nil {
 		return SessionList{}, err
 	}
+	// One scan answers for every row, adopted panes on other servers
+	// included, but only for the ones the driver has been told about; an
+	// adopted row left out would list as not running.
+	for _, sess := range stored {
+		if err := r.reach(sess); err != nil {
+			return SessionList{}, err
+		}
+	}
 	panes, err := r.driver.Panes()
 	if err != nil {
 		return SessionList{}, err
@@ -1105,6 +1113,9 @@ func (r *runtime) heldReason(sessionID string) (string, error) {
 	if target.Archived {
 		return fmt.Sprintf("session %s is archived, so Gate Inbox no longer polls it and nothing will type this in; restore it with %s", sessionID, r.words.Restore), nil
 	}
+	if err := r.reach(target); err != nil {
+		return "", err
+	}
 	if !r.driver.Exists(target.ID) {
 		return fmt.Sprintf("session %s is not running, so nothing will type this in; revive it with %s", sessionID, r.words.Revive), nil
 	}
@@ -1257,6 +1268,9 @@ func (s *Sessions) Get(sessionID, targetID string) (got Session, err error) {
 	if err != nil {
 		return Session{}, err
 	}
+	if err := runtime.reach(target); err != nil {
+		return Session{}, err
+	}
 	return runtime.sessionInfo(target, runtime.driver.Exists(target.ID), target.ID == sessionID), nil
 }
 
@@ -1339,6 +1353,11 @@ func (s *Sessions) Revive(sessionID, targetID string) (revived Session, err erro
 	if err != nil {
 		return Session{}, err
 	}
+	// A live adopted pane is not gi_<id>, so without reaching it this would
+	// launch a second agent on the conversation the first is still holding.
+	if err := runtime.reach(target); err != nil {
+		return Session{}, err
+	}
 	if runtime.driver.Exists(target.ID) {
 		return Session{}, fmt.Errorf("session %s is still running; revive only applies to dead sessions", target.ID)
 	}
@@ -1385,6 +1404,13 @@ func (s *Sessions) Archive(sessionID, targetID string, archived bool) (filed Ses
 	}
 	if target.ID == sessionID && archived {
 		return Session{}, errors.New("a session cannot archive itself")
+	}
+	// Archiving by id is how a pane the manager adopted is ended, so the one
+	// named is reached and its pane ends with it, as Kill ends it. Only the
+	// row named: a descendant filed with it is never reached here, so an
+	// adopted pane is not ended on the strength of somebody else's id.
+	if err := runtime.reach(target); err != nil {
+		return Session{}, err
 	}
 	if archived {
 		if err := s.fileDescendants(runtime, target, sessionID); err != nil {

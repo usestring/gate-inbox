@@ -95,6 +95,12 @@ func (s *Sessions) CleanupChildren(sessionID string, opts CleanupOptions) (clean
 		if store.TrackerOf(child) != caller.ID || child.Archived {
 			continue
 		}
+		// Reached for the liveness check below. An adopted child is refused
+		// by cleanupRefusal before anything is filed, so reaching it never
+		// lets this end a pane the manager did not start.
+		if err := runtime.reach(child); err != nil {
+			return ChildCleanup{}, err
+		}
 		// A terminal is the caller's own shell, which close_terminal ends
 		// while it runs: it may be one opened for the user to take over, so
 		// no cleanup ends it, all included. One whose shell has exited is

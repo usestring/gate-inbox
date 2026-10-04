@@ -111,6 +111,8 @@ type adoptedE2E struct {
 	workN    string
 	launched string
 	steps    []string
+	// title heads steps.md; empty is this test's own.
+	title string
 }
 
 // tmuxHost is one test-owned tmux server, addressed by its full socket path.
@@ -335,7 +337,11 @@ func (e *adoptedE2E) record(step, check string, ok bool, evidence string, featur
 }
 
 func (e *adoptedE2E) writeSteps() {
-	body := "# Adopted Claude Code session e2e\n\n" + strings.Join(e.steps, "\n")
+	title := e.title
+	if title == "" {
+		title = "Adopted Claude Code session e2e"
+	}
+	body := "# " + title + "\n\n" + strings.Join(e.steps, "\n")
 	_ = os.WriteFile(filepath.Join(e.out, "steps.md"), []byte(body), 0o644)
 }
 

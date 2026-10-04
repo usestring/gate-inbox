@@ -60,6 +60,7 @@
 # move                = ["m"]  # move it to a group
 # show_all_work       = []  # show every pull request and ticket, not the first few
 # status_filter       = ["w"]  # filter to what needs attention
+# tool_filter         = ["Y"]  # filter to one CLI, or show all
 # triage              = ["i"]  # triage this group as one queue
 # toggle_conversation = ["f3"]  # show full / shortened conversation
 # empty_groups        = []  # hide / show empty groups

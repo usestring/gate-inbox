@@ -65,6 +65,7 @@ const (
 
 	ShowAllWork  Action = "show_all_work"
 	StatusFilter Action = "status_filter"
+	ToolFilter   Action = "tool_filter"
 	Triage       Action = "triage"
 	EmptyGroups  Action = "empty_groups"
 	FoldAll      Action = "fold_all"
@@ -171,6 +172,7 @@ var Catalog = []Binding{
 
 	{ContextList, ShowAllWork, []string{}, "show every pull request and ticket, not the first few", false},
 	{ContextList, StatusFilter, []string{"w"}, "filter to what needs attention", false},
+	{ContextList, ToolFilter, []string{"Y"}, "filter to one CLI, or show all", false},
 	{ContextList, Triage, []string{"i"}, "triage this group as one queue", false},
 	{ContextList, ToggleConversation, []string{"f3"}, "show full / shortened conversation", false},
 	{ContextList, EmptyGroups, []string{}, "hide / show empty groups", false},

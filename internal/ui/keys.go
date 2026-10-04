@@ -313,6 +313,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		m.toggleCollapseAll()
 	case keymap.StatusFilter:
 		return m, m.cycleStatusFilter()
+	case keymap.ToolFilter:
+		return m, m.cycleToolFilter()
 	case keymap.Settings:
 		m.openSettings()
 	case keymap.Resize:
@@ -407,7 +409,7 @@ var artifactRowActions = map[keymap.Action]bool{
 	keymap.Search: true, keymap.ClearSearch: true, keymap.LegendPeek: true, keymap.Help: true,
 	keymap.QuickActions: true,
 	keymap.NameSweep:    true, keymap.TakeOver: true, keymap.Settings: true, keymap.Resize: true,
-	keymap.ArchivedView: true, keymap.StatusFilter: true,
+	keymap.ArchivedView: true, keymap.StatusFilter: true, keymap.ToolFilter: true,
 	keymap.EmptyGroups: true, keymap.Triage: true, keymap.ToggleChrome: true,
 	keymap.ToggleRail: true,
 	// LastPane reads the history it walks back through, not the row under

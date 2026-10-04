@@ -513,8 +513,8 @@ func promptPlain(prompt string) string {
 
 // filterBadgeLines is one badge per narrowing the rail is under, each next
 // to the key that lifts it. Ordered widest to narrowest: triage rebuilds
-// the whole rail, the archive is a different fleet, the status filter hides
-// sessions, hiding empty groups only hides scaffolding.
+// the whole rail, the archive is a different fleet, the status and tool
+// filters hide sessions, hiding empty groups only hides scaffolding.
 func (m *Model) filterBadgeLines() []string {
 	var lines []string
 	badge := func(label, key, action string) {
@@ -544,6 +544,9 @@ func (m *Model) filterBadgeLines() []string {
 	}
 	if m.statusFilter.active() {
 		badge(strings.ToUpper(m.statusFilter.label()), "w", "show all")
+	}
+	if m.toolFilterActive() {
+		badge(m.toolFilterLabel(), "Y", "show all")
 	}
 	m.extensionFilterBadges(badge)
 	if m.hideEmptyGroups && !m.showArchived {
@@ -699,6 +702,10 @@ func (m *Model) emptyRailLines(width, height int) []string {
 	if m.statusFilter.active() {
 		title = "nothing needs " + m.statusFilter.label()
 		hint = keyCap("w", "show all")
+	}
+	if m.toolFilterActive() {
+		title = "nothing on " + m.toolFilter
+		hint = keyCap("Y", "show all")
 	}
 	if search := strings.TrimSpace(m.search); search != "" {
 		title = "no matches"

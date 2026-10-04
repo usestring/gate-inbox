@@ -27,6 +27,7 @@ const (
 	usageWait          = "wait [<session-id>...] [--children] [--until <state>] [--timeout <duration>] [--json]"
 	usageMessageStatus = "message-status <message-id> [--json]"
 	usageKill          = "kill <session-id> [--json]"
+	usageStop          = "stop [--dry-run] [--json]"
 	usageRevive        = "revive <session-id> [--json]"
 	usageMigrate       = "migrate <session-id> --tool <cli> [--name <name>] [--json]"
 	usageArchive       = "archive <session-id> [--restore] [--json]"
@@ -53,6 +54,7 @@ type sessionCommands interface {
 	Wait(ctx context.Context, sessionID string, opts sessioncmd.WaitOptions) (sessioncmd.WaitResult, error)
 	MessageStatus(sessionID string, messageID int64) (sessioncmd.MessageState, error)
 	Kill(sessionID, targetID string, via extension.KillSource) (sessioncmd.Session, error)
+	Stop(sessionID string, dryRun bool) (sessioncmd.StopResult, error)
 	Revive(sessionID, targetID string) (sessioncmd.Session, error)
 	Migrate(sessionID, targetID string, opts sessioncmd.MigrateOptions) (sessioncmd.Session, error)
 	Archive(sessionID, targetID string, archived bool) (sessioncmd.Session, error)
@@ -81,6 +83,7 @@ func sessionSection() section {
 			{name: "wait", usage: usageWait, about: "park until a session stops working, instead of reading its screen in a loop; name several or pass --children to park on a whole fan-out and return on the first one to arrive; exits non-zero when none of them did", run: bind(newSessions, runWait)},
 			{name: "message-status", usage: usageMessageStatus, about: "check whether a message you sent is queued, held, delivered, dropped or answered", run: bind(newSessions, runMessageStatus)},
 			{name: "kill", usage: usageKill, about: "stop another agent's process, ending whatever it is doing; its row keeps the last screen", run: bind(newSessions, runKill)},
+			{name: "stop", usage: usageStop, about: "end this managed session intentionally, preserving its history and excluding it from crash restoration", run: bind(newSessions, runStop)},
 			{name: "revive", usage: usageRevive, about: "bring a dead session back on its old row, resuming the conversation it held", run: bind(newSessions, runRevive)},
 			{name: "migrate", usage: usageMigrate, about: "move a session's conversation to another agent CLI: a new session there reads the source's transcript and carries on; the source stays until you archive it", run: bind(newSessions, runMigrate)},
 			{name: "archive", usage: usageArchive, about: "file a finished session out of the active list, ending it if it is still running, or restore it with --restore; a row left archived is deleted for good after 7 days", run: bind(newSessions, runArchive)},

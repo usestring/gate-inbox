@@ -109,6 +109,9 @@ func (m *Model) adoptScan() tea.Cmd {
 			logging.Warn("adopt scan failed", "at", "list sessions", logging.Err(err))
 			return adoptedMsg{err: err}
 		}
+		if err := run.reconcileTools(rows, candidates); err != nil {
+			return adoptedMsg{err: err}
+		}
 		run.onBoard = onBoardSessions(rows)
 		run.launched = launchedSessions(rows, run.agentTools)
 		run.pruneIgnored(candidates)
@@ -120,6 +123,41 @@ func (m *Model) adoptScan() tea.Cmd {
 			"rejected", rejectionSummary(run.rejected), "took", time.Since(started).Round(time.Millisecond).String())
 		return adoptedMsg{taken: taken, ids: run.takenIDs, err: err}
 	}
+}
+
+func (r *adoptRun) reconcileTools(rows []store.Session, candidates []adopt.Candidate) error {
+	homes := managedHomes(candidates, nil)
+	for _, sess := range rows {
+		if sess.Archived || !r.agentTools[sess.Tool] {
+			continue
+		}
+		target := r.driver.TargetFor(sess.ID)
+		var matched []adopt.Candidate
+		for _, c := range candidates {
+			if c.Socket != target.Socket || adoptKey(c.Socket, c.PaneID) == r.self {
+				continue
+			}
+			if (sess.TmuxPaneID != "" && c.PaneID == sess.TmuxPaneID) ||
+				(sess.TmuxPaneID == "" && c.Session == target.Name && inHome(c, homes)) {
+				matched = append(matched, c)
+			}
+		}
+		if len(matched) != 1 {
+			continue
+		}
+		foreground := matched[0]
+		// Descendants may be agents this agent launched; only the foreground
+		// command proves the pane itself changed harness.
+		foreground.PID = 0
+		match, ok := adopt.Identify(foreground, r.tools, "", nil)
+		if !ok || match.Tool == sess.Tool {
+			continue
+		}
+		if err := r.stor.UpdateTool(sess.ID, match.Tool); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // pruneIgnored drops "leave this pane out" answers for panes that no longer

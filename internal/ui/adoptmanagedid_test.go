@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/status"
 	"testing"
 	"time"
 
@@ -133,5 +135,59 @@ func TestManagedPaneRefusedWhenItsRowPostdatesTheScansRows(t *testing.T) {
 	}
 	if len(rows) != 2 {
 		t.Errorf("board holds %d rows, want 2 (the spawn and the foreign pane)", len(rows))
+	}
+}
+
+func TestKnownPaneTracksItsForegroundHarness(t *testing.T) {
+	for _, tc := range []struct{ name, command, want string }{
+		{"changed harness", "codex", "codex"},
+		{"same harness", "opencode", "opencode"},
+		{"shell with stale agent output", "bash", "opencode"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := newFixtureStore(t)
+			sess := store.Session{ID: "swap", Name: "swap", Tool: "opencode", AgentSessionID: "old-conversation", Status: status.Errored}
+			if err := st.CreateSession(sess); err != nil {
+				t.Fatal(err)
+			}
+			socket := windowFixture(t, tmux.SessionName(sess.ID), 2, t.TempDir())
+			driver := newTestDriver(t, socket)
+			run := &adoptRun{stor: st, driver: driver, agentTools: map[string]bool{"opencode": true, "codex": true}, tools: []adopt.Tool{{Name: "opencode", Command: "opencode"}, {Name: "codex", Command: "codex"}}}
+			candidates := adopt.Panes(socket)
+			if len(candidates) != 2 {
+				t.Fatalf("panes = %d, want 2", len(candidates))
+			}
+			candidates[0].Command = tc.command
+			candidates[1].Command = "opencode"
+			if err := run.reconcileTools([]store.Session{sess}, candidates); err != nil {
+				t.Fatal(err)
+			}
+			got, err := st.Get(sess.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Tool != tc.want {
+				t.Fatalf("tool = %q, want %q", got.Tool, tc.want)
+			}
+			if tc.want == "codex" {
+				if got.AgentSessionID != "" {
+					t.Fatal("old harness conversation survived")
+				}
+				cfg, err := config.Default()
+				if err != nil {
+					t.Fatal(err)
+				}
+				engine, err := status.NewEngine(cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				pane := "Error: previous tool output\n• Working (12s • esc to interrupt)\n\n› Ask Codex to do anything"
+				if state, _ := engine.Match(got.Tool, pane); state != status.Working {
+					t.Fatalf("state = %q", state)
+				}
+			} else if got.AgentSessionID != sess.AgentSessionID {
+				t.Fatal("unchanged harness lost its conversation")
+			}
+		})
 	}
 }

@@ -1,12 +1,14 @@
 package ui
 
 import (
-	"github.com/usestring/gate-inbox/internal/config"
-	"github.com/usestring/gate-inbox/internal/status"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/adopt"
+	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
@@ -139,10 +141,14 @@ func TestManagedPaneRefusedWhenItsRowPostdatesTheScansRows(t *testing.T) {
 }
 
 func TestKnownPaneTracksItsForegroundHarness(t *testing.T) {
-	for _, tc := range []struct{ name, command, want string }{
-		{"changed harness", "codex", "codex"},
-		{"same harness", "opencode", "opencode"},
-		{"shell with stale agent output", "bash", "opencode"},
+	for _, tc := range []struct {
+		name, command, want string
+		fresh               bool
+	}{
+		{"changed harness", "codex", "codex", false},
+		{"same harness", "opencode", "opencode", false},
+		{"shell with stale agent output", "bash", "opencode", false},
+		{"exit after the scan", "codex", "codex", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st := newFixtureStore(t)
@@ -152,15 +158,29 @@ func TestKnownPaneTracksItsForegroundHarness(t *testing.T) {
 			}
 			socket := windowFixture(t, tmux.SessionName(sess.ID), 2, t.TempDir())
 			driver := newTestDriver(t, socket)
-			run := &adoptRun{stor: st, driver: driver, agentTools: map[string]bool{"opencode": true, "codex": true}, tools: []adopt.Tool{{Name: "opencode", Command: "opencode"}, {Name: "codex", Command: "codex"}}}
+			manager := hooks.NewManager(t.TempDir())
+			if err := os.MkdirAll(manager.Dir(), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(manager.ExitFile(sess.ID), []byte("0"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			run := &adoptRun{stor: st, hooks: manager, driver: driver, agentTools: map[string]bool{"opencode": true, "codex": true}, tools: []adopt.Tool{{Name: "opencode", Command: "opencode"}, {Name: "codex", Command: "codex"}}}
 			candidates := adopt.Panes(socket)
 			if len(candidates) != 2 {
 				t.Fatalf("panes = %d, want 2", len(candidates))
 			}
 			candidates[0].Command = tc.command
 			candidates[1].Command = "opencode"
-			if err := run.reconcileTools([]store.Session{sess}, candidates); err != nil {
+			observedAfter := time.Now()
+			if tc.fresh {
+				observedAfter = observedAfter.Add(-time.Hour)
+			}
+			if err := run.reconcileTools([]store.Session{sess}, candidates, observedAfter); err != nil {
 				t.Fatal(err)
+			}
+			if _, _, exists := manager.ReadExit(sess.ID); exists != (tc.command == "bash" || tc.fresh) {
+				t.Fatal("historical exit did not follow foreground liveness")
 			}
 			got, err := st.Get(sess.ID)
 			if err != nil {

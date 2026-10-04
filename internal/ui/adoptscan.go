@@ -14,6 +14,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/adopt"
 	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/sessname"
@@ -76,6 +77,7 @@ func (m *Model) adoptScan() tea.Cmd {
 		index:    m.convos,
 		drift:    m.drift,
 		stor:     m.store,
+		hooks:    m.hooks,
 		driver:   m.tmux,
 		home:     filepath.Dir(m.hooks.Dir()),
 		rejected: map[string]int{},
@@ -109,7 +111,7 @@ func (m *Model) adoptScan() tea.Cmd {
 			logging.Warn("adopt scan failed", "at", "list sessions", logging.Err(err))
 			return adoptedMsg{err: err}
 		}
-		if err := run.reconcileTools(rows, candidates); err != nil {
+		if err := run.reconcileTools(rows, candidates, started); err != nil {
 			return adoptedMsg{err: err}
 		}
 		run.onBoard = onBoardSessions(rows)
@@ -125,7 +127,7 @@ func (m *Model) adoptScan() tea.Cmd {
 	}
 }
 
-func (r *adoptRun) reconcileTools(rows []store.Session, candidates []adopt.Candidate) error {
+func (r *adoptRun) reconcileTools(rows []store.Session, candidates []adopt.Candidate, observedAfter time.Time) error {
 	homes := managedHomes(candidates, nil)
 	for _, sess := range rows {
 		if sess.Archived || !r.agentTools[sess.Tool] {
@@ -150,7 +152,17 @@ func (r *adoptRun) reconcileTools(rows []store.Session, candidates []adopt.Candi
 		// command proves the pane itself changed harness.
 		foreground.PID = 0
 		match, ok := adopt.Identify(foreground, r.tools, "", nil)
-		if !ok || match.Tool == sess.Tool {
+		if !ok {
+			continue
+		}
+		if r.hooks != nil {
+			if _, at, found := r.hooks.ReadExit(sess.ID); found && at.Before(observedAfter) {
+				if err := r.hooks.RemoveExit(sess.ID); err != nil {
+					return err
+				}
+			}
+		}
+		if match.Tool == sess.Tool {
 			continue
 		}
 		if err := r.stor.UpdateTool(sess.ID, match.Tool); err != nil {
@@ -226,6 +238,7 @@ type adoptRun struct {
 	index    *convo.Index
 	drift    *sessname.Drift
 	stor     *store.Store
+	hooks    *hooks.Manager
 	driver   *tmux.Driver
 	home     string
 	rejected map[string]int

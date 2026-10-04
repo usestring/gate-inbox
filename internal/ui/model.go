@@ -3113,6 +3113,11 @@ func (m *Model) buildTree() {
 			if m.triage && m.foldsAway(child) && m.parentOwns(child, time.Now(), livePanes) {
 				continue
 			}
+			// A muted child is off triage the same as a muted top-level
+			// session, and takes what hangs under it along.
+			if m.triage && child.Muted {
+				continue
+			}
 			if drawn[child.ID] {
 				continue
 			}
@@ -3344,7 +3349,8 @@ func matchesLiteralMetadata(sess store.Session, query string) bool {
 	return search.Match(strings.ToLower(sess.Name), query) ||
 		search.Match(strings.ToLower(sess.Tool), query) ||
 		search.Match(strings.ToLower(sess.Group), query) ||
-		search.Match(strings.ToLower(sess.Status), query)
+		search.Match(strings.ToLower(sess.Status), query) ||
+		sess.Muted && search.Match(mutedStatusLabel, query)
 }
 
 // matchesSearch also reaches into what the session is showing, so the one

@@ -3,8 +3,10 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
 )
 
 // The mute key stores a flag on the session and the row wears it as its
@@ -108,5 +110,49 @@ func TestSkipKeyUnmutesADurablyMutedRow(t *testing.T) {
 	m = updated.(*Model)
 	if sessionNamed(t, m, "ask").Muted {
 		t.Fatalf(`"." did not unmute the row: %s`, m.errBar.text)
+	}
+}
+
+// A muted child is off triage the same as a muted top-level row. It is not
+// drawn under its parent, and it does not lift that parent up the queue.
+func TestMutedChildStaysOutOfTriage(t *testing.T) {
+	m := childModel(t)
+	for i := range m.sessions {
+		if m.sessions[i].ID == "c2" {
+			m.sessions[i].Muted = true
+		}
+	}
+	m.triage = true
+	m.rebuildRows()
+	if got := joined(rowIDs(m)); strings.Contains(got, "c2") {
+		t.Fatalf("triage rows = %q, want the muted child left out", got)
+	}
+}
+
+func TestMutedChildDoesNotLiftItsParent(t *testing.T) {
+	parent := childSess("p1", "worker", "build", "", status.Working, time.Hour)
+	waiting := childSess("c1", "helper", "build", "p1", status.Waiting, 30*time.Minute)
+	waiting.Muted = true
+	idle := childSess("s9", "other", "build", "", status.Idle, 2*time.Hour)
+	queue := []store.Session{parent, idle}
+	kids := map[string][]store.Session{"p1": {waiting}}
+	(&Model{}).sortTriageWithChildren(queue, kids)
+	if queue[0].ID != "s9" {
+		t.Fatalf("queue leads with %s, want the idle row, since a muted child lifts nothing", queue[0].ID)
+	}
+}
+
+// A muted row reads "muted", so search finds it by that word.
+func TestSearchFindsAMutedRowByItsLabel(t *testing.T) {
+	sess := childSess("c1", "helper", "build", "", status.Waiting, time.Minute)
+	if matchesMetadata(sess, mutedStatusLabel) {
+		t.Fatal("an unmuted row matched the muted label")
+	}
+	sess.Muted = true
+	if !matchesLiteralMetadata(sess, mutedStatusLabel) {
+		t.Fatal("literal search missed a muted row by the label it shows")
+	}
+	if _, ok := fuzzyMetadataScore(sess, mutedStatusLabel); !ok {
+		t.Fatal("fuzzy search missed a muted row by the label it shows")
 	}
 }

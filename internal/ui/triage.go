@@ -208,6 +208,11 @@ func (m *Model) sortTriageWithChildren(sessions []store.Session, kids map[string
 			if m.parentOwns(kid, now, live) {
 				continue
 			}
+			// A muted child is not on the rail, so it does not get to
+			// reorder the parent it would have sat under.
+			if kid.Muted {
+				continue
+			}
 			if k := m.triageKeyOf(kid); k.before(best) {
 				best, holder = k, kid
 			}

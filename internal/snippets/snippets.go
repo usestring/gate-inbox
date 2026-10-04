@@ -49,6 +49,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // SectionKey is the menu key for the progress summary, on the physical key
@@ -189,7 +190,8 @@ func spellChord(chord string) string {
 }
 
 // splitChord parses a chord into its modifiers and key, ok=false when any
-// modifier is unknown or repeated, or either side is empty. A repeat is
+// modifier is unknown or repeated, the key is one no keypress names, or either
+// side is empty. A repeat is
 // refused rather than collapsed: alt+alt+d would otherwise normalize to alt+d
 // and take a broader chord than the file wrote.
 func splitChord(chord string) (mods []string, key string, ok bool) {
@@ -200,7 +202,7 @@ func splitChord(chord string) (mods []string, key string, ok bool) {
 	} else if i := strings.LastIndex(chord, "+"); i >= 0 {
 		key, rest = chord[i+1:], chord[:i]
 	}
-	if key == "" || rest == "" {
+	if !chordKey(key) || rest == "" {
 		return nil, "", false
 	}
 	mods = strings.Split(rest, "+")
@@ -210,6 +212,32 @@ func splitChord(chord string) (mods []string, key string, ok bool) {
 		}
 	}
 	return mods, key, true
+}
+
+// chordKey reports whether a keypress can name key: one character, or a key
+// bubbletea reports by name. A typo like alt+banana would otherwise load
+// cleanly and sit in the footer as a binding nothing can press.
+func chordKey(key string) bool {
+	if utf8.RuneCountInString(key) == 1 {
+		return true
+	}
+	if digits, ok := strings.CutPrefix(key, "f"); ok {
+		n, err := strconv.Atoi(digits)
+		return err == nil && n >= 1 && n <= 63 && strconv.Itoa(n) == digits
+	}
+	return slices.Contains(namedKeys, key)
+}
+
+// namedKeys is every non-function key bubbletea names rather than prints.
+var namedKeys = []string{
+	"backspace", "begin", "capslock", "comma", "delete", "div", "down", "end", "enter",
+	"equal", "esc", "find", "home", "insert", "isolevel3shift", "isolevel5shift", "left",
+	"leftalt", "leftctrl", "lefthyper", "leftmeta", "leftshift", "leftsuper", "lowervol",
+	"mediafastforward", "medianext", "mediapause", "mediaplay", "mediaplaypause", "mediaprev",
+	"mediarecord", "mediareverse", "mediarewind", "mediastop", "menu", "minus", "mul", "mute",
+	"numlock", "pause", "period", "pgdown", "pgup", "plus", "printscreen", "raisevol", "right",
+	"rightalt", "rightctrl", "righthyper", "rightmeta", "rightshift", "rightsuper", "scrolllock",
+	"select", "sep", "space", "tab", "up",
 }
 
 // Path is the snippets file inside the config directory.
@@ -322,7 +350,7 @@ func validate(parsed []Snippet) Set {
 			// menu's namespace and would be stolen from every pane it types
 			// into. The menu key is where a bare binding belongs.
 			set.Problems = append(set.Problems,
-				entry(i, snip)+"chord "+quote(snip.Chord)+" must hold a modifier, like option+shift+"+snip.Key)
+				entry(i, snip)+"chord "+quote(snip.Chord)+" must be a modifier and a key, like option+shift+"+snip.Key)
 		case snip.Chord != "" && normalizeChord(snip.Chord) == reservedChord:
 			// ctrl+c quits from every screen ahead of the key map, so a
 			// snippet on it could never send from the list and would only

@@ -160,18 +160,19 @@ func TestDirectChordReadsShiftFromModifierOrCode(t *testing.T) {
 }
 
 // Shift folded into the code names the shifted chord only: chords compare
-// case-folded, so offering option+D as-is would fire an option+d snippet.
+// case-folded, so offering option+E as-is would fire an option+e snippet.
+// (Not d: focus binds alt+d, so it could never name a snippet.)
 func TestFoldedShiftPrefersTheShiftedChord(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{
-		{Key: "a", Chord: "alt+d", Text: "plain"},
-		{Key: "b", Chord: "alt+shift+d", Text: "shifted"},
+		{Key: "a", Chord: "alt+e", Text: "plain"},
+		{Key: "b", Chord: "alt+shift+e", Text: "shifted"},
 	})
-	if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'D', Mod: tea.ModAlt}); !ok || snip.Key != "b" {
-		t.Fatalf("option+shift+D folded into the code named %v %v, want b", snip, ok)
+	if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'E', Mod: tea.ModAlt}); !ok || snip.Key != "b" {
+		t.Fatalf("option+shift+E folded into the code named %v %v, want b", snip, ok)
 	}
-	if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'd', Mod: tea.ModAlt}); !ok || snip.Key != "a" {
-		t.Fatalf("option+d named %v %v, want a", snip, ok)
+	if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'e', Mod: tea.ModAlt}); !ok || snip.Key != "a" {
+		t.Fatalf("option+e named %v %v, want a", snip, ok)
 	}
 }
 
@@ -200,6 +201,24 @@ func TestManagerBindingOutranksASnippetChord(t *testing.T) {
 	m = updated.(*Model)
 	if m.chrome == before {
 		t.Fatal("alt+, sent the snippet instead of toggling the key hints")
+	}
+}
+
+// A chord only one screen binds is still the manager's on the other, so the
+// same press never sends a snippet on one screen and acts on the other.
+func TestAChordEitherScreenBindsNeverNamesASnippet(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{
+		{Key: "p", Chord: "ctrl+p", Text: "list binds this"},
+		{Key: "q", Chord: "ctrl+q", Text: "focus binds this"},
+	})
+	for _, msg := range []tea.KeyPressMsg{
+		{Code: 'p', Mod: tea.ModCtrl},
+		{Code: 'q', Mod: tea.ModCtrl},
+	} {
+		if snip, ok := m.snippetChordFor(msg); ok {
+			t.Errorf("%s named the snippet %q over a manager binding", msg.String(), snip.Key)
+		}
 	}
 }
 

@@ -90,7 +90,16 @@ func (m *Model) snippetFor(key string) (snippets.Snippet, bool) {
 // chord; this only has to spell the press the way the file might, so keyName
 // (rebuilt from the key code, what a chord binds under) and the terminal's own
 // name are both offered.
+//
+// A chord either screen's map binds is the manager's on both, not only on the
+// screen that binds it: a snippet on ctrl+q would otherwise send from the list
+// and leave focus, so the same press would mean two things by screen.
 func (m *Model) snippetChordFor(msg tea.KeyMsg) (snippets.Snippet, bool) {
+	for _, ctx := range []keymap.Context{keymap.ContextList, keymap.ContextFocus} {
+		if _, bound := m.action(ctx, msg); bound {
+			return snippets.Snippet{}, false
+		}
+	}
 	for _, name := range chordNames(msg) {
 		if snip, ok := m.snips.Chord(name); ok {
 			return snip, true

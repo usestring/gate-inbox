@@ -154,9 +154,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return model, cmd
 	}
 
-	// A snippet's direct chord sends it in one press. A chord the list's own
-	// map also binds belongs to the manager, the same as it does focused, so
-	// a snippet file can never shadow a documented key.
+	// A snippet's direct chord sends it in one press. A chord either screen's
+	// map binds belongs to the manager (see snippetChordFor), so a snippet
+	// file can never shadow a documented key.
 	if snip, ok := m.snippetChordFor(msg); ok && !bound {
 		return m.sendSnippetToSelected(snip)
 	}

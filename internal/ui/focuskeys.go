@@ -616,7 +616,7 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.rescindLatestSubmission()
 	}
 	// A snippet's direct chord answers the pane in one press without the menu,
-	// unless the focused map binds it: a manager action wins, as on the list.
+	// unless either screen's map binds it: a manager action wins, as on the list.
 	if snip, ok := m.snippetChordFor(msg); ok && !bound {
 		m.noteFocusActivity()
 		return m, m.sendSentence(sess, snip.Text, snip.Quoted(), snip.Submits(), m.autoProceeds())

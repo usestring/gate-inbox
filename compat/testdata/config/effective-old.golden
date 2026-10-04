@@ -8,6 +8,7 @@ default  board.sidebar = "right"
 default  children.auto_archive_after = "30m0s"
 default  children.finished_grace = "10m0s"
 default  children.keep_finished = false
+default  claude_code.setup = <unset>
 default  editor = ""
 default  extensions = {}
 default  hogs.cooldown = "30m0s"

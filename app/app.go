@@ -262,7 +262,9 @@ func unknownCommand(arg string) error {
 }
 
 func printHelp(w io.Writer, extra []extensionCommand) error {
-	sections := []cli.HelpSection{claudeHooksHelp}
+	// claude-hooks is left out: the board keeps that setup itself, and the
+	// command stays only as a maintenance tool for someone who knows it.
+	var sections []cli.HelpSection
 	for _, entry := range extra {
 		title := entry.command.Group
 		if title == "" {

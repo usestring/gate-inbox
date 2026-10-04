@@ -52,6 +52,15 @@ poll_interval = "2s"
 # [work]
 # settle_after = "24h"
 
+# Your own Claude Code config. While the board runs it keeps its hooks in
+# ~/.claude/settings.json and an MCP server named gate-inbox in ~/.claude.json
+# (or the ones under CLAUDE_CONFIG_DIR), so a claude started outside the board
+# reports status and gets the board's tools once the board adopts it. Both
+# stay silent in any session the board has not adopted. false removes them,
+# and so does switching "claude code setup" off in Settings.
+# [claude_code]
+# setup = true
+
 # The diagnostic log. It is a file log only -- this program owns the
 # terminal, so nothing is ever printed to the screen. "gate-inbox
 # --log-path" prints where it is written.

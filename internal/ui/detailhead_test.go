@@ -42,19 +42,19 @@ func TestSessionDetailLinesFitTheirColumn(t *testing.T) {
 }
 
 // The block carries only what the cursor row does not: the row already
-// draws the name, the state and the age, so the block says where the session
-// runs and on what, and cuts a fact that does not fit rather than dropping it
-// or letting it overflow.
+// draws the name and the state, so the block says where the session runs,
+// on what, and when it started, and cuts a fact that does not fit rather
+// than dropping it or letting it overflow.
 func TestSessionDetailLinesLeaveTheRowItsOwnFacts(t *testing.T) {
 	m := shotModel()
 
 	wide := ansi.Strip(strings.Join(m.sessionDetailLines(70), "\n"))
-	for _, want := range []string{"claude", "group", "dir"} {
+	for _, want := range []string{"claude", "group", "dir", "started"} {
 		if !strings.Contains(wide, want) {
 			t.Fatalf("wide block is missing %q: %q", want, wide)
 		}
 	}
-	for _, repeated := range []string{"add-rate-limiting", "working", "started"} {
+	for _, repeated := range []string{"add-rate-limiting", "working"} {
 		if strings.Contains(wide, repeated) {
 			t.Errorf("wide block repeats %q from the cursor row: %q", repeated, wide)
 		}

@@ -408,10 +408,11 @@ func railFact(pad, label, value string) string {
 
 // sessionDetailLines is the selected session's or group's identity: the
 // facts that place it, right above the prompt block it sits beside. A
-// session's name, its queued-message badge, its state and its age are left
-// to the cursor row, which already draws them one glance away, so the block
-// carries only what the row does not. Its start time goes too, so the only
-// clock on the rail is the row's.
+// session's name, its queued-message badge and its state are left to the
+// cursor row, which already draws them one glance away, so the block
+// carries only what the row does not. The row's own clock is the last
+// activity; the block carries the start time, so both ends of the session's
+// life are one glance away.
 func (m *Model) sessionDetailLines(width int) []string {
 	pad := spaces(railInset)
 	room := width - railInset - 2
@@ -455,6 +456,7 @@ func (m *Model) sessionDetailLines(width int) []string {
 		railFact(pad, "cli", chipStyle.Render(textfmt.TruncateWidth(tool, max(factRoom-2, 1), "…"))),
 		railFact(pad, "group", lipgloss.NewStyle().Foreground(colorAccent2).Render(textfmt.TruncateWidth(displayGroup(sess.Group), factRoom, "…"))),
 		railFact(pad, "dir", mutedStyle.Render(truncateTail(sess.Cwd, factRoom))),
+		railFact(pad, "started", mutedStyle.Render(textfmt.TruncateWidth(formatStartedAt(sess.LaunchTime()), factRoom, "…"))),
 	}
 	if usage != "" {
 		lines = append(lines, railFact(pad, "usage", usage))
@@ -1801,6 +1803,19 @@ func lastActivity(sess store.Session) time.Time {
 		return sess.CreatedAt
 	}
 	return sess.LastStatusAt
+}
+
+// formatStartedAt is when the agent now in the pane started, as a relative
+// age like every other clock on the rail: the row already carries the last
+// activity, so the detail block carries the other end — the moment worth
+// knowing when a session has been up for days. Relative on purpose: the
+// golden frames pin the board byte-for-byte, and an absolute clock would
+// make them differ on every run.
+func formatStartedAt(t time.Time) string {
+	if t.IsZero() {
+		return "unknown"
+	}
+	return relSince(t)
 }
 
 // viewQuickBar is the docked hotkey menu: the session a key would answer,

@@ -176,7 +176,13 @@ func (r *adoptRun) reconcileTools(rows []store.Session, candidates []adopt.Candi
 		if len(identified) != 1 || slices.Contains(identified, sess.Tool) {
 			continue
 		}
-		if err := r.stor.UpdateTool(sess.ID, identified[0]); err != nil {
+		// The scan start is a safe fallback cutoff: it can miss the new
+		// harness's conversation, but never binds an older one.
+		launchedAt, ok := procs.ForegroundStart(matched[0])
+		if !ok {
+			launchedAt = observedAfter
+		}
+		if err := r.stor.SwitchTool(sess.ID, identified[0], launchedAt); err != nil {
 			return err
 		}
 	}

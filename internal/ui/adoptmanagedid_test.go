@@ -201,6 +201,11 @@ func TestKnownPaneTracksItsForegroundHarness(t *testing.T) {
 				if got.AgentSessionID != "" {
 					t.Fatal("old harness conversation survived")
 				}
+				// No process in the fixture runs codex, so the cutoff falls
+				// back to the scan rather than keeping the old launch clock.
+				if !got.AgentLaunchedAt.Equal(observedAfter) {
+					t.Fatalf("launch clock = %v, want the scan's %v", got.AgentLaunchedAt, observedAfter)
+				}
 				cfg, err := config.Default()
 				if err != nil {
 					t.Fatal(err)

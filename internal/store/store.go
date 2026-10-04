@@ -1862,6 +1862,26 @@ func (s *Store) UpdateTool(id, tool string) error {
 	return s.requireRowOrNoop(res, id)
 }
 
+// SwitchTool is UpdateTool for a harness observed running in the pane, which
+// also moves the launch clock to when it started. Conversation capture only
+// considers conversations since the launch, so the old clock would let an
+// earlier conversation in the same directory be bound to the new harness. One
+// statement, so a capture comparing against the old clock cannot bind between
+// the tool change and the clock move.
+func (s *Store) SwitchTool(id, tool string, launchedAt time.Time) error {
+	if strings.TrimSpace(tool) == "" {
+		return fmt.Errorf("session tool cannot be empty")
+	}
+	res, err := s.db.Exec(
+		`UPDATE sessions SET tool = ?, agent_session_id = '', retired_agent_session_id = '', agent_launched_at = ?
+		 WHERE id = ? AND tool != ?`,
+		tool, encodeTime(launchedAt), id, tool)
+	if err != nil {
+		return err
+	}
+	return s.requireRowOrNoop(res, id)
+}
+
 // DeleteGroup removes a group and all its descendant groups, reporting
 // the paths it removed.
 func (s *Store) DeleteGroup(path string) ([]string, error) {

@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/shirou/gopsutil/v4/process"
 )
@@ -85,19 +86,44 @@ func (t *ProcTable) PIDs(pid int32) []int {
 }
 
 // ForegroundCommand is the pane's foreground command with its arguments, when
-// tmux reports only an interpreter such as node. It reads the first process
-// below the pane's own that is in the terminal's foreground group and runs
-// that interpreter -- the process tmux named -- so a shebang CLI can be identified by its script
-// path while descendants the agent started stay out of the evidence. Any other
-// command, or a process that cannot be read, comes back as tmux reported it.
+// tmux reports only an interpreter such as node, so a shebang CLI can be
+// identified by its script path while descendants the agent started stay out
+// of the evidence. Any other command, or a process that cannot be read, comes
+// back as tmux reported it.
 func (t *ProcTable) ForegroundCommand(c Candidate) string {
 	if !interpreters[filepath.Base(c.Command)] {
 		return c.Command
 	}
-	line := c.Command
-	found := false
+	if _, cmdline, ok := t.foreground(c); ok {
+		return cmdline
+	}
+	return c.Command
+}
+
+// ForegroundStart is when the process tmux names as the pane's foreground
+// command started, the earliest moment a conversation it owns can date from.
+func (t *ProcTable) ForegroundStart(c Candidate) (time.Time, bool) {
+	proc, _, ok := t.foreground(c)
+	if !ok {
+		return time.Time{}, false
+	}
+	created, err := proc.CreateTime()
+	if err != nil || created <= 0 {
+		return time.Time{}, false
+	}
+	return time.UnixMilli(created), true
+}
+
+// foreground is the first process below the pane's own that is in the
+// terminal's foreground group and runs the command tmux reported -- the
+// process tmux named.
+func (t *ProcTable) foreground(c Candidate) (*process.Process, string, bool) {
+	var (
+		found   *process.Process
+		cmdline string
+	)
 	t.walk(c.PID, func(p int32) {
-		if found {
+		if found != nil {
 			return
 		}
 		proc, err := process.NewProcess(p)
@@ -107,15 +133,15 @@ func (t *ProcTable) ForegroundCommand(c Candidate) string {
 		if foreground, err := proc.Foreground(); err != nil || !foreground {
 			return
 		}
-		cmdline, err := proc.Cmdline()
+		line, err := proc.Cmdline()
 		if err != nil {
 			return
 		}
-		if fields := strings.Fields(cmdline); len(fields) > 0 && filepath.Base(fields[0]) == c.Command {
-			line, found = cmdline, true
+		if fields := strings.Fields(line); len(fields) > 0 && filepath.Base(fields[0]) == c.Command {
+			found, cmdline = proc, line
 		}
 	})
-	return line
+	return found, cmdline, found != nil
 }
 
 func (t *ProcTable) walk(pid int32, visit func(int32)) {

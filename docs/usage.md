@@ -26,6 +26,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | `l` | Back to the previous pane; pressing it again walks further back through the last 10 panes. Sessions are held by id, so a poll, a fold or a filter reordering the board does not move it |
 | `ctrl+g` | Jump to a pane: search listed sessions by name, group, tool or status, then press `enter` to focus one. Works from the list or a focused pane; `esc` returns without switching. Folded groups are opened when you jump into them. |
 | `.` | Skip it for now (mute, or mark finished idle); `alt+.` does it from inside |
+| `M` | Mute / unmute: keep this session out of triage until you unmute it. Its row stays on the list and reads `muted`; `gate-inbox mute <session-id>` does the same from a shell, and `--off` puts it back |
 | `ctrl+q` / `ctrl+\` | Inside a session: back to the manager when the terminal and tmux leave the key available |
 | tmux prefix, then `d` | Inside a full-screen attach: back to the manager when the prefix reaches the inner tmux |
 | `←` (`→` with the list on the left) | Step into the row, toward the pane: open the session's work, then focus the session; on a group, open it |
@@ -64,6 +65,12 @@ Answer a session, leave it, land in the next one that needs a person: `ctrl+q` d
 Settings (`s`) has an `on leaving a session` row for it — `list` (the default, today's behaviour) or `next`, which gives `ctrl+q` the same walk without a queue having to be armed with `i` first. Leaving a session mutes it, which is what makes the walk converge: answering a session does not clear its status until the poller sees the pane change, so without the mute the walk hands the same session straight back. `ctrl+\` is still the way out whatever the setting says, and the focused footer names whichever the key is about to do.
 
 With auto-proceed enabled, a confirmed submission also opens the next session when `on leaving a session` is `next`, even outside triage. Enter alone does not advance: the agent must be seen taking the prompt or dialog answer first.
+
+### Muting a session
+
+`M` on a row keeps that session out of triage until you unmute it. It is the persistent form of the skip the drain does on its own: the drain's mark is memory of one pass and lapses the moment the pane changes, while a mute is stored on the session, survives a restart, and holds until you press `M` again (or `.` on the row). A muted session is not hidden from the list — its row stays and reads `muted` as its status — but the triage queue never hands it over, the attention walk (`tab`, `w`) skips it, and re-entering triage does not bring it back. Use it for a session you have deliberately set aside rather than one you have just answered: a session that is merely finished leaves the queue on its own.
+
+An agent can set the same flag for a session from its shell or its MCP tools: `gate-inbox mute <session-id>` mutes, `gate-inbox mute <session-id> --off` unmutes, and the MCP `mute_session` tool takes the same `muted` argument. The board picks the change up on its next poll, and the key and the command write the same field.
 
 ### Draining full-width
 

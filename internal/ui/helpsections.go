@@ -66,6 +66,7 @@ func helpSections() []helpSection {
 			listRow(keymap.Attach, "attach: leave the list, fill the terminal with this pane"),
 			listRow(keymap.QuickInput, "hotkeys: send a snippet to the session without entering it"),
 			listRow(keymap.Priority, "priority: p steps urgent → high → medium → low → none"),
+			listRow(keymap.Mute, "mute / unmute: keep it out of triage until unmuted"),
 			listRow(keymap.LastPane, "back to the previous pane; again walks further back"),
 			listRow(keymap.Rescind, "undo the latest submission while its turn is active"),
 			listRow(keymap.NewSession, "new session here: n asks the agent, ctrl+n the full form"),

@@ -79,8 +79,10 @@ func (m *Model) applies(ctx keymap.Context, action keymap.Action, row treeRow) b
 		return anySession(func(candidate store.Session) bool { return candidate.Archived })
 	case keymap.Dismiss:
 		return row.sess.ID != "" && !row.sess.Archived &&
-			(m.isMuted(row.sess) || row.sess.Status == status.Finished ||
+			(m.isMuted(row.sess) || row.sess.Muted || row.sess.Status == status.Finished ||
 				m.triageWalkable(row.sess))
+	case keymap.Mute:
+		return row.sess.ID != "" && !row.sess.Archived
 	case keymap.Priority:
 		return row.isGroup || (row.sess.ID != "" && !row.sess.Archived)
 	case keymap.Rename, keymap.Move:

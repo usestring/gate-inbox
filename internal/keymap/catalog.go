@@ -55,6 +55,7 @@ const (
 	Restore       Action = "restore"
 	Dismiss       Action = "dismiss"
 	Priority      Action = "priority"
+	Mute          Action = "mute"
 	CopySessionID Action = "copy_session_id"
 	HandOver      Action = "hand_over"
 	QuickInput    Action = "quick_prompt"
@@ -163,6 +164,7 @@ var Catalog = []Binding{
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
 	{ContextList, Dismiss, []string{"."}, "skip", false},
 	{ContextList, Priority, []string{"p"}, "cycle priority: urgent → high → medium → low → none", false},
+	{ContextList, Mute, []string{"M", "shift+m"}, "mute / unmute: keep it out of triage until unmuted", false},
 	{ContextList, QuickInput, []string{" ", "space", "ctrl+]"}, "hotkey menu", false},
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{}, "rename it yourself, and re-pick its tool", false},

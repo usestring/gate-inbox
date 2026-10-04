@@ -35,6 +35,7 @@ type fakeSessions struct {
 	timeout      time.Duration
 	messageID    int64
 	archived     bool
+	muted        bool
 	dryRun       bool
 	groupPath    string
 	directory    string
@@ -175,6 +176,13 @@ func (f *fakeSessions) Archive(sessionID, targetID string, archived bool) (sessi
 	return updated, f.failWith
 }
 
+func (f *fakeSessions) Mute(sessionID, targetID string, muted bool) (sessioncmd.Session, error) {
+	f.callerID, f.targetID, f.muted = sessionID, targetID, muted
+	updated := f.session
+	updated.Muted = muted
+	return updated, f.failWith
+}
+
 func (f *fakeSessions) Groups(sessionID string) ([]sessioncmd.Group, error) {
 	f.callerID = sessionID
 	return []sessioncmd.Group{{Path: "api", Sessions: 2}}, f.failWith
@@ -305,6 +313,7 @@ func TestALayerFailureReachesTheCaller(t *testing.T) {
 		{"kill", []string{"beef1234"}, func(out io.Writer, args []string) error { return runKill(out, sessions, args, "cafe0001") }},
 		{"revive", []string{"beef1234"}, func(out io.Writer, args []string) error { return runRevive(out, sessions, args, "cafe0001") }},
 		{"archive", []string{"beef1234"}, func(out io.Writer, args []string) error { return runArchive(out, sessions, args, "cafe0001") }},
+		{"mute", []string{"beef1234"}, func(out io.Writer, args []string) error { return runMute(out, sessions, args, "cafe0001") }},
 		{"groups", nil, func(out io.Writer, args []string) error { return runGroups(out, sessions, args, "cafe0001") }},
 		{"create-group", []string{"api/web"}, func(out io.Writer, args []string) error { return runCreateGroup(out, sessions, args, "cafe0001") }},
 		{"delete-group", []string{"api/web"}, func(out io.Writer, args []string) error { return runDeleteGroup(out, sessions, args, "cafe0001") }},
@@ -538,6 +547,24 @@ func TestAFrontReportsWhatTheLayerDecided(t *testing.T) {
 	if !strings.HasPrefix(archived.String(), "restored ") {
 		t.Fatalf("archive --restore output = %q", archived.String())
 	}
+
+	muted := &bytes.Buffer{}
+	fake := &fakeSessions{}
+	if err := runMute(muted, fake, []string{"beef1234"}, "cafe0001"); err != nil {
+		t.Fatalf("mute: %v", err)
+	}
+	if fake.callerID != "cafe0001" || fake.targetID != "beef1234" || !fake.muted {
+		t.Fatalf("mute forwarded caller=%q target=%q muted=%v", fake.callerID, fake.targetID, fake.muted)
+	}
+	if !strings.HasPrefix(muted.String(), "muted ") {
+		t.Fatalf("mute output = %q", muted.String())
+	}
+	if err := runMute(&bytes.Buffer{}, fake, []string{"beef1234", "--off"}, "cafe0001"); err != nil {
+		t.Fatalf("mute --off: %v", err)
+	}
+	if fake.muted {
+		t.Fatal("--off did not clear the mute")
+	}
 }
 
 func TestCleanupChildrenForwardsItsFilters(t *testing.T) {
@@ -582,7 +609,7 @@ func TestSpawnKeepReachesCreate(t *testing.T) {
 func TestCommandsAndHelpCoverEverySection(t *testing.T) {
 	table := Commands()
 	registered := []string{
-		"sessions", "spawn", "send", "read", "send-children", "place", "answer", "wait", "message-status", "kill", "revive", "migrate", "archive", "cleanup-children", "park", "unpark",
+		"sessions", "spawn", "send", "read", "send-children", "place", "answer", "wait", "message-status", "kill", "revive", "migrate", "archive", "mute", "cleanup-children", "park", "unpark",
 		"groups", "create-group", "delete-group", "task", "reserve", "release-files", "reservations", "terminal",
 		"rename", "priority", "stop", "_finish-stop",
 	}

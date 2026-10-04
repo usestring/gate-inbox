@@ -52,6 +52,7 @@
 # restore             = ["u"]  # restore it out of the archive
 # dismiss             = ["."]  # skip
 # priority            = ["p"]  # cycle priority: urgent → high → medium → low → none
+# mute                = ["M", "shift+m"]  # mute / unmute: keep it out of triage until unmuted
 # quick_prompt        = [" ", "space", "ctrl+]"]  # hotkey menu
 # rename_from_agent   = ["r"]  # rename it after its conversation
 # rename              = []  # rename it yourself, and re-pick its tool

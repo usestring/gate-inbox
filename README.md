@@ -136,6 +136,7 @@ selected agent for builds and one-off commands.
 | `Y` | Show only one CLI's sessions, cycling through the harnesses on the board |
 | `/` | Fuzzy search; `esc` closes the field, deleting the text clears it |
 | `p` | Priority tier for a session or group; each press steps urgent → high → medium → low → none |
+| `M` | Mute / unmute: keep a session out of triage until unmuted; the row reads `muted` |
 | `T` | Shell tab under the selected agent |
 | `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |
 | `:` / `ctrl+p` | Quick actions: type what you want, `enter` runs it, and each row shows its key |

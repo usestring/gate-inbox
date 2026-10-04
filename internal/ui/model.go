@@ -1525,8 +1525,21 @@ func (m *Model) computeListedSessions() []store.Session {
 	if sess, ok := m.selected(); ok {
 		heldID = sess.ID
 	}
+	var byID map[string]store.Session
+	if m.statusFilter.active() {
+		byID = make(map[string]store.Session, len(m.sessions))
+		for _, sess := range m.sessions {
+			byID[sess.ID] = sess
+		}
+	}
 	listed := make([]store.Session, 0, len(visible))
 	for _, sess := range visible {
+		// A mute is the operator's own say-so, so a muted branch leaves the
+		// status filter whole, even the row under the cursor: the hold below
+		// is for a status that moved, not for a mute.
+		if m.statusFilter.active() && inMutedBranch(sess, byID) {
+			continue
+		}
 		if sess.ID == heldID {
 			listed = append(listed, sess)
 			continue
@@ -3111,6 +3124,11 @@ func (m *Model) buildTree() {
 			if m.triage && m.foldsAway(child) && m.parentOwns(child, time.Now(), livePanes) {
 				continue
 			}
+			// A muted child is off triage the same as a muted top-level
+			// session, and takes what hangs under it along.
+			if m.triage && child.Muted {
+				continue
+			}
 			if drawn[child.ID] {
 				continue
 			}
@@ -3151,6 +3169,13 @@ func (m *Model) buildTree() {
 				continue
 			}
 			for _, sess := range groupSessions {
+				// A persistently muted session is off the triage queue entirely:
+				// it is not a thing the drain walks past, it is not on the
+				// rail the drain reads. Its row is still on the list, where
+				// it reads "muted"; see persistentmute.go.
+				if m.triage && sess.Muted {
+					continue
+				}
 				kept[sess.ID] = true
 			}
 		}
@@ -3335,7 +3360,8 @@ func matchesLiteralMetadata(sess store.Session, query string) bool {
 	return search.Match(strings.ToLower(sess.Name), query) ||
 		search.Match(strings.ToLower(sess.Tool), query) ||
 		search.Match(strings.ToLower(sess.Group), query) ||
-		search.Match(strings.ToLower(sess.Status), query)
+		search.Match(strings.ToLower(sess.Status), query) ||
+		sess.Muted && search.Match(mutedStatusLabel, query)
 }
 
 // matchesSearch also reaches into what the session is showing, so the one

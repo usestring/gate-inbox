@@ -31,6 +31,7 @@ const (
 	usageRevive        = "revive <session-id> [--json]"
 	usageMigrate       = "migrate <session-id> --tool <cli> [--name <name>] [--json]"
 	usageArchive       = "archive <session-id> [--restore] [--json]"
+	usageMute          = "mute <session-id> [--off] [--json]"
 	usageCleanup       = "cleanup-children [--status <state>] [--all] [--dry-run] [--json]"
 	usagePark          = "park [--dry-run] [--json]"
 	usageUnpark        = "unpark [--json]"
@@ -58,6 +59,7 @@ type sessionCommands interface {
 	Revive(sessionID, targetID string) (sessioncmd.Session, error)
 	Migrate(sessionID, targetID string, opts sessioncmd.MigrateOptions) (sessioncmd.Session, error)
 	Archive(sessionID, targetID string, archived bool) (sessioncmd.Session, error)
+	Mute(sessionID, targetID string, muted bool) (sessioncmd.Session, error)
 	Park(sessionID string, dryRun bool) (sessioncmd.ParkResult, error)
 	Unpark(sessionID string) (sessioncmd.UnparkResult, error)
 	Groups(sessionID string) ([]sessioncmd.Group, error)
@@ -87,6 +89,7 @@ func sessionSection() section {
 			{name: "revive", usage: usageRevive, about: "bring a dead session back on its old row, resuming the conversation it held", run: bind(newSessions, runRevive)},
 			{name: "migrate", usage: usageMigrate, about: "move a session's conversation to another agent CLI: a new session there reads the source's transcript and carries on; the source stays until you archive it", run: bind(newSessions, runMigrate)},
 			{name: "archive", usage: usageArchive, about: "file a finished session out of the active list, ending it if it is still running, or restore it with --restore; a row left archived is deleted for good after 7 days", run: bind(newSessions, runArchive)},
+			{name: "mute", usage: usageMute, about: "keep a session out of triage until it is unmuted: the row stays on the list and reads muted, and --off puts it back", run: bind(newSessions, runMute)},
 			{name: "cleanup-children", usage: usageCleanup, about: "archive the sessions you spawned that are done, each with whatever it spawned: finished, idle and dead by default, --status to choose, --all for every one; a finished child you have read is archived on its own after a grace period anyway", run: bind(newSessions, runCleanupChildren)},
 			{name: "park", usage: usagePark, about: "stop every live agent session the manager started and record the set, so the machine can reboot; --dry-run only prints the plan; runs from any shell", run: bind(newSessions, runPark)},
 			{name: "unpark", usage: usageUnpark, about: "bring back every session park stopped, resuming the conversation each held; runs from any shell", run: bind(newSessions, runUnpark)},
@@ -384,6 +387,28 @@ func runArchive(out io.Writer, sessions sessionCommands, args []string, sessionI
 		return err
 	}
 	return cmdline.Emit(out, *asJSON, updated, sessioncmd.FormatArchiveState(updated))
+}
+
+// runMute keeps a session out of triage, or puts it back with --off. It is a
+// board command like archive: it reaches the row directly, so it works with
+// no manager running, and the manager's next poll shows the change.
+func runMute(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
+	set := cmdline.NewFlagSet(usageMute)
+	off := set.Bool("off", false, "unmute the session, putting it back in triage")
+	asJSON := cmdline.JSONFlag(set)
+	operands, err := parseCommand(out, set, args, 1, 1)
+	if err != nil {
+		return err
+	}
+	muted, err := sessions.Mute(sessionID, operands[0], !*off)
+	if err != nil {
+		return err
+	}
+	verb := "muted "
+	if !muted.Muted {
+		verb = "unmuted "
+	}
+	return cmdline.Emit(out, *asJSON, muted, verb+sessioncmd.FormatSession(muted))
 }
 
 func runCleanupChildren(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {

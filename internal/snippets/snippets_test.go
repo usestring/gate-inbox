@@ -64,7 +64,7 @@ func TestChordIsNamedInTheFile(t *testing.T) {
 			t.Errorf("%s chord = %q, want none", snip.Key, snip.Chord)
 		}
 	}
-	for _, spelling := range []string{"option+shift+d", "alt+shift+d", "alt+shift+D", "⌥shift+d"} {
+	for _, spelling := range []string{"option+shift+d", "alt+shift+d", "alt+shift+D", "⌥shift+d", "shift+alt+d", "shift+option+d"} {
 		if snip, ok := set.Chord(spelling); !ok || snip.Key != "d" {
 			t.Fatalf("set did not resolve %q to d: %v %v", spelling, snip, ok)
 		}
@@ -75,13 +75,15 @@ func TestChordIsNamedInTheFile(t *testing.T) {
 }
 
 // A chord must hold a modifier and be unique; a bare or repeated one is a
-// problem, not a silent no-op. The Mac and alt spellings of one chord collide.
+// problem, not a silent no-op. The Mac and alt spellings of one chord collide,
+// and so do its modifiers written in another order.
 func TestAChordMustBeAUniqueModifiedChord(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, `[
 	  {"key":"d","chord":"d","text":"ship it"},
 	  {"key":"e","chord":"alt+shift+d","text":"one"},
-	  {"key":"f","chord":"option+shift+d","text":"two"}
+	  {"key":"f","chord":"option+shift+d","text":"two"},
+	  {"key":"g","chord":"shift+alt+d","text":"three"}
 	]`)
 	set, err := Load(dir)
 	if err != nil {
@@ -90,8 +92,8 @@ func TestAChordMustBeAUniqueModifiedChord(t *testing.T) {
 	if len(set.Snippets) != 1 || set.Snippets[0].Key != "e" {
 		t.Fatalf("bound %+v, want only e", set.Snippets)
 	}
-	if len(set.Problems) != 2 {
-		t.Fatalf("problems = %q, want two", set.Problems)
+	if len(set.Problems) != 3 {
+		t.Fatalf("problems = %q, want three", set.Problems)
 	}
 }
 

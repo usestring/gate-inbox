@@ -45,6 +45,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -158,15 +159,55 @@ func (s Set) Chord(chord string) (Snippet, bool) {
 }
 
 // normalizeChord is the form a chord is compared in: case folded, the Mac
-// spellings mapped to the names bubbletea reports, so option+shift+c and
-// alt+shift+C are one chord.
+// spellings mapped to the names bubbletea reports, and the modifiers in the
+// order bubbletea prints them, so option+shift+c, alt+shift+C and shift+alt+c
+// are one chord.
 func normalizeChord(chord string) string {
+	mods, key, ok := splitChord(chord)
+	if !ok {
+		return spellChord(chord)
+	}
+	var out strings.Builder
+	for _, mod := range modifierOrder {
+		if slices.Contains(mods, mod) {
+			out.WriteString(mod + "+")
+		}
+	}
+	return out.String() + key
+}
+
+// modifierOrder is the order bubbletea writes a key's modifiers in.
+var modifierOrder = []string{"ctrl", "alt", "shift", "meta", "hyper", "super"}
+
+func spellChord(chord string) string {
 	chord = strings.ToLower(strings.TrimSpace(chord))
 	chord = strings.ReplaceAll(chord, "⌥", "alt+")
 	chord = strings.ReplaceAll(chord, "option", "alt")
 	chord = strings.ReplaceAll(chord, "⌘", "super+")
 	chord = strings.ReplaceAll(chord, "cmd", "super")
 	return chord
+}
+
+// splitChord parses a chord into its modifiers and key, ok=false when any
+// modifier is unknown or either side is empty.
+func splitChord(chord string) (mods []string, key string, ok bool) {
+	chord = spellChord(chord)
+	rest := ""
+	if strings.HasSuffix(chord, "++") {
+		key, rest = "+", strings.TrimSuffix(chord, "++")
+	} else if i := strings.LastIndex(chord, "+"); i >= 0 {
+		key, rest = chord[i+1:], chord[:i]
+	}
+	if key == "" || rest == "" {
+		return nil, "", false
+	}
+	mods = strings.Split(rest, "+")
+	for _, mod := range mods {
+		if !slices.Contains(modifierOrder, mod) {
+			return nil, "", false
+		}
+	}
+	return mods, key, true
 }
 
 // Path is the snippets file inside the config directory.
@@ -328,27 +369,8 @@ func legalKey(key string) bool {
 // least one modifier beyond shift, so a direct binding never takes a character
 // the pane was owed -- "+" alone, or shift+d, which is just a typed D.
 func legalChord(chord string) bool {
-	chord = normalizeChord(chord)
-	key, mods := "", ""
-	if strings.HasSuffix(chord, "++") {
-		key, mods = "+", strings.TrimSuffix(chord, "++")
-	} else if i := strings.LastIndex(chord, "+"); i >= 0 {
-		key, mods = chord[i+1:], chord[:i]
-	}
-	if key == "" || mods == "" {
-		return false
-	}
-	held := false
-	for _, mod := range strings.Split(mods, "+") {
-		switch mod {
-		case "shift":
-		case "ctrl", "alt", "super", "meta", "hyper":
-			held = true
-		default:
-			return false
-		}
-	}
-	return held
+	mods, _, ok := splitChord(chord)
+	return ok && slices.ContainsFunc(mods, func(mod string) bool { return mod != "shift" })
 }
 
 func singleLetter(key string) bool {

@@ -14,7 +14,7 @@ package mcpreg
 //
 // Each CLI gets the rule where it reads standing instructions, beside the
 // delegation steering, and each text is ASCII for the reason
-// delegationSteering is: codex receives it as a TOML string in a -c override.
+// DelegationSteering is: codex receives it as a TOML string in a -c override.
 
 const parentSteeringHeading = "# Messages from the session that spawned you"
 
@@ -42,5 +42,5 @@ func parentSteering(style string) string {
 // launchSteering is every standing instruction a launch carries for style's
 // CLI: delegation, then Rule 2.
 func launchSteering(style string) string {
-	return delegationSteering(style) + "\n" + parentSteering(style)
+	return DelegationSteering(style) + "\n" + parentSteering(style)
 }

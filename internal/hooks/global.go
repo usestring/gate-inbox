@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -57,10 +58,10 @@ import (
 // /dev/null, so nothing it trips over reaches the session either.
 //
 // When every test holds, the prelude exports what a launch would have put in
-// the environment and hands the event to `gate-inbox hook global <event>`,
-// which runs the launch's own commands for it (DispatchGlobal). A session
-// that joins the board later starts working on its next hook, with nothing
-// restarted.
+// the environment, with the claude's pid beside it, and hands the event to
+// `gate-inbox hook global <event>`, which runs the launch's own commands for
+// it (DispatchGlobal). A session that joins the board later starts working on
+// its next hook, with nothing restarted.
 
 // globalTag opens every global command, so this package can find the entries
 // it wrote in a file that is otherwise the operator's.
@@ -68,6 +69,11 @@ const globalTag = ": gate-inbox-global-hook"
 
 // adoptedDirName holds one marker per adopted pane.
 const adoptedDirName = "adopted"
+
+// adoptedSteeringDirName holds, for each adopted row, the pid of the claude
+// that has been given the board's standing instructions; see
+// AdoptedSteering.
+const adoptedSteeringDirName = "adopted-steering"
 
 // globalDisabledName is the file that keeps the board from registering the
 // global hooks again after an operator removed them.
@@ -134,6 +140,7 @@ func (m *Manager) SyncAdopted(panes []AdoptedPane) error {
 		}
 		errs = append(errs, removeIfExists(filepath.Join(dir, entry.Name())))
 	}
+	errs = append(errs, m.pruneAdoptedSteering())
 	if len(wanted) == 0 {
 		return errors.Join(errs...)
 	}
@@ -146,6 +153,81 @@ func (m *Manager) SyncAdopted(panes []AdoptedPane) error {
 			continue
 		}
 		errs = append(errs, WriteWhole(path, content))
+	}
+	return errors.Join(errs...)
+}
+
+// AdoptedSteering is the hook output that gives an adopted claude what a
+// launch would have given it from the start: text, the MCP server's
+// instructions and the launch's steering, as additionalContext. Neither
+// reaches it any other way, since Claude Code reads both only as a session
+// starts, and that was before the board knew of it.
+//
+// It is said once per adoption. The stamp under hooks/adopted-steering/ is
+// named for the row and holds the pid of the claude it was said to, so the
+// row's later prompts pass in silence while a new claude adopted into the
+// same row hears it again. A SessionStart says it whatever the stamp holds:
+// in a session that is already running it fires only for a /clear, a
+// compaction or a resume, each of which leaves the model without what was
+// said before. A stamp that cannot be written says nothing, rather than
+// saying it on every prompt.
+func (m *Manager) AdoptedSteering(event, id string, agentPID int, text func() string) string {
+	if (event != "UserPromptSubmit" && event != "SessionStart") || checkID(id) != nil || agentPID <= 0 {
+		return ""
+	}
+	dir := filepath.Join(m.dir, adoptedSteeringDirName)
+	path := filepath.Join(dir, id)
+	stamp := strconv.Itoa(agentPID) + "\n"
+	if event == "UserPromptSubmit" {
+		if existing, err := os.ReadFile(path); err == nil && string(existing) == stamp {
+			return ""
+		}
+	}
+	body := strings.TrimSpace(text())
+	if body == "" {
+		return ""
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return ""
+	}
+	if err := WriteWhole(path, stamp); err != nil {
+		return ""
+	}
+	out, err := marshalPlain(map[string]any{"hookSpecificOutput": map[string]any{
+		"hookEventName":     event,
+		"additionalContext": body,
+	}})
+	if err != nil {
+		return ""
+	}
+	return string(out)
+}
+
+// pruneAdoptedSteering drops the stamps of claudes that have exited, whose
+// pid can match no marker again. A stamp is kept while its claude runs, even
+// when the row is let go: the board lets every row go as it exits, and the
+// session that hears the steering again on the board's next start already
+// has it.
+func (m *Manager) pruneAdoptedSteering() error {
+	dir := filepath.Join(m.dir, adoptedSteeringDirName)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	var errs []error
+	for _, entry := range entries {
+		path := filepath.Join(dir, entry.Name())
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && pid > 0 && syscall.Kill(pid, 0) != syscall.ESRCH {
+			continue
+		}
+		errs = append(errs, removeIfExists(path))
 	}
 	return errors.Join(errs...)
 }
@@ -207,8 +289,9 @@ func globalCommand(configDir, bin, event string) string {
 		EnvSessionID + `="$i"; ` +
 		EnvStatusFile + `=` + shellQuote(hooksDir+"/") + `"$i.status"; ` +
 		EnvExecutable + `=` + shellQuote(bin) + `; ` +
+		EnvAgentPID + `="$p"; ` +
 		config.HomeEnv + `=` + shellQuote(configDir) + `; ` +
-		`export ` + EnvSessionID + ` ` + EnvStatusFile + ` ` + EnvExecutable + ` ` + config.HomeEnv + `; ` +
+		`export ` + EnvSessionID + ` ` + EnvStatusFile + ` ` + EnvExecutable + ` ` + EnvAgentPID + ` ` + config.HomeEnv + `; ` +
 		shellQuote(bin) + ` hook global ` + event + `; exit 0`
 }
 
@@ -309,6 +392,18 @@ func matcherTakes(matcher, value string) bool {
 		return true
 	}
 	return slices.Contains(strings.Split(matcher, "|"), value)
+}
+
+// MergeHookOutputs is mergeHookOutputs over the outputs that are not empty,
+// for a caller adding its own output to DispatchGlobal's.
+func MergeHookOutputs(outputs ...string) string {
+	var kept []string
+	for _, out := range outputs {
+		if out = strings.TrimSpace(out); out != "" {
+			kept = append(kept, out)
+		}
+	}
+	return mergeHookOutputs(kept)
 }
 
 // mergeHookOutputs makes one hook output of several. Claude Code reads a

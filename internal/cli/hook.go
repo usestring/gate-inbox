@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/mcpserver"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
@@ -22,7 +24,12 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 		}
 		m := hooks.NewManager(configDir)
 		_ = m.RecordConversation(sessionID, payload)
-		if output := m.DispatchGlobal(args[1], payload); output != "" {
+		output := m.DispatchGlobal(args[1], payload)
+		// An adopted claude's first prompt also carries the board's standing
+		// instructions, which reached a launched one at startup.
+		agentPID, _ := strconv.Atoi(os.Getenv(envname.AgentPID))
+		output = hooks.MergeHookOutputs(output, m.AdoptedSteering(args[1], sessionID, agentPID, mcpserver.AdoptedInstructions))
+		if output != "" {
 			fmt.Fprintln(out, output)
 		}
 		return nil

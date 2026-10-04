@@ -319,7 +319,7 @@ type sessionCommands interface {
 // it stays under that; what individual tool descriptions already carry (the
 // queueing rules) is left to them. The full delegation rule, naming each
 // CLI's own subagent tool, rides that CLI's launch as well (see
-// mcpreg.delegationSteering), where it outranks an MCP block; a CLI whose
+// mcpreg.DelegationSteering), where it outranks an MCP block; a CLI whose
 // launch has nowhere to put it gets it appended here (mcpreg.ServerSteering).
 //
 // The reading paragraph is here rather than on each arriving message because
@@ -398,6 +398,21 @@ func withSteering(instructions, style string) string {
 		return instructions
 	}
 	return instructions + "\n\n" + text
+}
+
+// AdoptedInstructions is what a claude the board adopted mid-session is told
+// once, through its prompt hook: the block this server would have given it
+// at connect, and the delegation steering a claude launch appends to its
+// system prompt. Neither reaches it otherwise. Claude Code reads a server's
+// instructions only when it connects, and the relay an adopted session
+// connected to answered that itself, long before there was a row to serve;
+// its system prompt was fixed when it started. The launch's second rule, on
+// messages from the session that spawned it, is left out: nothing spawned
+// an adopted session. So are the extension notes, which come from
+// configuring the extensions, something a prompt hook should not wait on.
+func AdoptedInstructions() string {
+	return "Gate Inbox adopted this session onto the user's board. Its gate-inbox MCP tools may reach your tool list only after this message.\n\n" +
+		withSteering(serverInstructions, "claude") + "\n\n" + strings.TrimSpace(mcpreg.DelegationSteering("claude"))
 }
 
 // withExtensionNotes is instructions with a closing paragraph naming the

@@ -36,7 +36,7 @@ func TestDelegationSteeringNamesEachCLIsOwnSubagentTool(t *testing.T) {
 		"codex":    "spawn_agent",
 		"opencode": "task tool",
 	} {
-		steering := delegationSteering(style)
+		steering := DelegationSteering(style)
 		assertSteers(t, style, steering, builtinDelegation[style])
 		if !strings.Contains(steering, want) {
 			t.Errorf("%s steering never names %q", style, want)
@@ -146,7 +146,7 @@ func TestServerSteeringCarriesOpencodeNamingAndDelegation(t *testing.T) {
 // children's dialogs, wherever that CLI reads its standing instructions.
 func TestEveryCLISteeringCarriesTheChildDialogRule(t *testing.T) {
 	for style := range builtinDelegation {
-		text := delegationSteering(style)
+		text := DelegationSteering(style)
 		for _, want := range []string{"Your children's dialogs are yours", "word for word", "answer_session",
 			"relay: true", "Never tell your user to answer at the child's pane"} {
 			if !strings.Contains(text, want) {

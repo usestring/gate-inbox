@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/accounts"
@@ -246,8 +247,18 @@ func (m *Model) viewAccountSwitch() string {
 	if m.account.migrate {
 		then = "over 200k context: migrate to new session"
 	}
-	body := "  session  " + valueStyle.Render(sess.Name) + "  " + mutedStyle.Render("on "+sess.Tool+" as "+now) + "\n" +
-		"  account  " + subtleStyle.Render("◂ ") + valueStyle.Render(m.account.names[m.account.index]) + subtleStyle.Render(" ▸") + "\n" +
-		"           " + mutedStyle.Render(then)
-	return m.card("⇄ Switch Account", body, [][2]string{{"←→", "account"}, {"↵", "switch"}, {"esc", "cancel"}})
+	var body strings.Builder
+	body.WriteString("  session  " + valueStyle.Render(sess.Name) + "  " + mutedStyle.Render("on "+sess.Tool+" as "+now) + "\n")
+	for i, name := range m.account.names {
+		lead, marker, style := "           ", "  ", mutedStyle
+		if i == 0 {
+			lead = "  account  "
+		}
+		if i == m.account.index {
+			marker, style = keyStyle.Render("❯ "), valueStyle
+		}
+		body.WriteString(lead + marker + style.Render(name) + "\n")
+	}
+	body.WriteString("           " + mutedStyle.Render(then))
+	return m.card("⇄ Switch Account", body.String(), [][2]string{{"↑↓", "account"}, {"↵", "switch"}, {"esc", "cancel"}})
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -93,6 +94,13 @@ func TestTheAccountCardRepointsADeadRow(t *testing.T) {
 	m.openAccountSwitch()
 	if m.account.names[m.account.index] != "BOB2" {
 		t.Fatalf("the card reopened on %q", m.account.names[m.account.index])
+	}
+	// Every choice is on the card, with the cursor on the row's own account.
+	card := ansi.Strip(m.viewAccountSwitch())
+	for _, want := range []string{"account    " + ownLogin, "ALICE1", "❯ BOB2"} {
+		if !strings.Contains(card, want) {
+			t.Errorf("the card does not list %q:\n%s", want, card)
+		}
 	}
 	m.submitAccountSwitch()
 	if !strings.Contains(m.errBar.text, "already on BOB2") {

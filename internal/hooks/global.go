@@ -296,9 +296,8 @@ func globalCommand(configDir, bin, event string) string {
 }
 
 // globalHooks is one matcher-less entry per global event. The permission and
-// sandbox denials a launch carries are not among them: they would bind every
-// claude on the machine, and an operator's own lists are not this package's
-// to edit.
+// sandbox denials a launch carries are registered beside them, in the
+// settings' own lists (globaldeny.go).
 func globalHooks(configDir, bin string) map[string][]hookMatcher {
 	out := make(map[string][]hookMatcher, len(globalEvents))
 	for _, event := range globalEvents {
@@ -315,7 +314,8 @@ const globalDispatchTimeout = 30 * time.Second
 // whose matchers take the payload, each with the payload on stdin and the
 // environment the prelude exported, and returns what they printed as one
 // hook output. Nothing fails: a command that errors adds nothing, and its
-// stderr is dropped.
+// stderr is dropped. A PreToolUse that names the sealing keys is also refused
+// (KeyDirDecision), which a launch does with the denials on its command line.
 func (m *Manager) DispatchGlobal(event string, payload []byte) string {
 	if !slices.Contains(globalEvents, event) {
 		return ""
@@ -338,6 +338,11 @@ func (m *Manager) DispatchGlobal(event string, payload []byte) string {
 	ctx, cancel := context.WithTimeout(context.Background(), globalDispatchTimeout)
 	defer cancel()
 	var outputs []string
+	if event == "PreToolUse" {
+		if denied := m.KeyDirDecision(payload); denied != "" {
+			outputs = append(outputs, denied)
+		}
+	}
 	for _, group := range launched.Hooks[event] {
 		if !matcherTakes(group.Matcher, value) {
 			continue
@@ -466,26 +471,77 @@ func GlobalSettingsPath() (string, error) {
 }
 
 // RegisterGlobal puts this board's global hooks into the settings file at
-// path, replacing any it wrote before. Only the file's "hooks" member is
-// rewritten; every other byte stays as it was. changed is false when the file
-// already carried exactly these entries.
+// path, replacing any it wrote before, and the key-dir denials beside them
+// (see globaldeny.go). Only the file's "hooks" member and the two deny lists
+// are rewritten; every other byte stays as it was. changed is false when the
+// file already carried exactly these entries.
 func RegisterGlobal(path, configDir, bin string) (changed bool, err error) {
-	return rewriteSettings(path, globalMark(configDir), globalHooks(configDir, bin))
+	var created []string
+	changed, resolved, err := rewriteSettings(path, true, func(raw []byte) ([]byte, error) {
+		merged, err := mergeSettings(raw, globalMark(configDir), globalHooks(configDir, bin))
+		if err != nil {
+			return nil, err
+		}
+		merged, created, err = addDenials(merged, configDir)
+		return merged, err
+	})
+	if err != nil || !changed {
+		return changed, err
+	}
+	return true, writeCreated(configDir, resolved, created, false)
 }
 
-// UnregisterGlobal removes the global hooks of the board at configDir, or of
-// every board when configDir is empty. A hooks member this package added is
-// removed with them, so a file that had none is left as it was before.
+// UnregisterGlobal removes the global hooks and key-dir denials of the board
+// at configDir, or of every board when configDir is empty. A hooks member, a
+// list or an object this package added is removed with them, so a file that
+// had none is left as it was before.
 func UnregisterGlobal(path, configDir string) (changed bool, err error) {
 	mark := globalTag + " "
 	if configDir != "" {
 		mark = globalMark(configDir)
 	}
-	return rewriteSettings(path, mark, nil)
+	var boards, kept, remaining []string
+	changed, resolved, err := rewriteSettings(path, false, func(raw []byte) ([]byte, error) {
+		boards = []string{configDir}
+		if configDir == "" {
+			boards = registeredBoards(raw)
+		}
+		var created []string
+		for _, dir := range boards {
+			created = append(created, readCreated(dir, resolvedSettings(path))...)
+		}
+		out := raw
+		for _, dir := range boards {
+			var err error
+			if out, err = removeDenials(out, dir, created); err != nil {
+				return nil, err
+			}
+		}
+		out, err := mergeSettings(out, mark, nil)
+		if err != nil {
+			return nil, err
+		}
+		kept, remaining = stillThere(out, created), registeredBoards(out)
+		return out, nil
+	})
+	if err != nil {
+		return changed, err
+	}
+	var errs []error
+	for _, dir := range boards {
+		errs = append(errs, writeCreated(dir, resolved, nil, true))
+	}
+	// A container another board's entries still fill stays, and becomes
+	// theirs to take out with the last of them.
+	for _, dir := range remaining {
+		errs = append(errs, writeCreated(dir, resolved, kept, false))
+	}
+	return changed, errors.Join(errs...)
 }
 
 // GlobalRegistered reports whether the settings file at path carries this
-// board's global hooks exactly as this build would write them.
+// board's global hooks and key-dir denials exactly as this build would write
+// them.
 func GlobalRegistered(path, configDir, bin string) (bool, error) {
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -495,6 +551,10 @@ func GlobalRegistered(path, configDir, bin string) (bool, error) {
 		return false, err
 	}
 	merged, err := mergeSettings(raw, globalMark(configDir), globalHooks(configDir, bin))
+	if err != nil {
+		return false, err
+	}
+	merged, _, err = addDenials(merged, configDir)
 	if err != nil {
 		return false, err
 	}
@@ -520,58 +580,66 @@ func (m *Manager) SetGlobalDisabled(disabled bool) error {
 	return os.WriteFile(path, nil, 0o644)
 }
 
-// rewriteSettings writes the merge back. A settings file that is a link --
-// one a dotfiles checkout manages, say -- is written through, so the link
+// rewriteSettings writes edit's result back. A settings file that is a link
+// -- one a dotfiles checkout manages, say -- is written through, so the link
 // stays a link. A file the operator made read-only is refused rather than
 // replaced: a rename into its directory would succeed and undo their choice.
-func rewriteSettings(path, mark string, hooks map[string][]hookMatcher) (bool, error) {
-	if target, err := filepath.EvalSymlinks(path); err == nil {
-		path = target
-	}
+// A missing file is created only when create is set. resolved is the path
+// written, after links.
+func rewriteSettings(path string, create bool, edit func(raw []byte) ([]byte, error)) (changed bool, resolved string, err error) {
+	path = resolvedSettings(path)
 	raw, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return false, err
+		return false, path, err
 	}
 	missing := err != nil
-	if missing && len(hooks) == 0 {
-		return false, nil
+	if missing && !create {
+		return false, path, nil
 	}
-	merged, err := mergeSettings(raw, mark, hooks)
+	merged, err := edit(raw)
 	if err != nil {
-		return false, err
+		return false, path, err
 	}
 	if !missing && bytes.Equal(merged, raw) {
-		return false, nil
+		return false, path, nil
 	}
 	mode := os.FileMode(0o600)
 	if info, err := os.Stat(path); err == nil {
 		mode = info.Mode().Perm()
 		probe, err := os.OpenFile(path, os.O_WRONLY, 0)
 		if err != nil {
-			return false, fmt.Errorf("hooks: %s is not writable: %w", path, err)
+			return false, path, fmt.Errorf("hooks: %s is not writable: %w", path, err)
 		}
 		probe.Close()
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, err
+		return false, path, err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".settings-*.json")
 	if err != nil {
-		return false, err
+		return false, path, err
 	}
 	defer os.Remove(tmp.Name())
 	if _, err := tmp.Write(merged); err != nil {
 		tmp.Close()
-		return false, err
+		return false, path, err
 	}
 	if err := tmp.Chmod(mode); err != nil {
 		tmp.Close()
-		return false, err
+		return false, path, err
 	}
 	if err := tmp.Close(); err != nil {
-		return false, err
+		return false, path, err
 	}
-	return true, os.Rename(tmp.Name(), path)
+	return true, path, os.Rename(tmp.Name(), path)
+}
+
+// resolvedSettings is path after links, or path when it does not resolve.
+func resolvedSettings(path string) string {
+	if target, err := filepath.EvalSymlinks(path); err == nil {
+		return target
+	}
+	return path
 }
 
 // mergeSettings is raw with every hook command starting with mark taken out

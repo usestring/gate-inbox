@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -154,5 +155,32 @@ func TestSearchFindsAMutedRowByItsLabel(t *testing.T) {
 	}
 	if _, ok := fuzzyMetadataScore(sess, mutedStatusLabel); !ok {
 		t.Fatal("fuzzy search missed a muted row by the label it shows")
+	}
+}
+
+// A muted row that is still working shows the mute mark on its conversation
+// status row, not the working spinner.
+func TestMutedWorkingRowDropsTheSpinner(t *testing.T) {
+	m := childModel(t)
+	m.sessions[0].Muted = true
+	m.rebuildRows()
+	m.conversation = &conversationView{hovered: -1}
+	for i, row := range m.rows {
+		if row.isSession() && row.sess.ID == "p1" {
+			m.cursor = i
+		}
+	}
+	if !m.conversationWorking() {
+		t.Fatal("the working row is not drawn for the selected working session")
+	}
+	rows := m.withWorkingRow(nil, 80)
+	got := ansi.Strip(rows[len(rows)-1])
+	if !strings.HasPrefix(got, mutedGlyph()) || !strings.Contains(got, mutedStatusLabel) {
+		t.Fatalf("working row = %q, want the mute mark beside %q", got, mutedStatusLabel)
+	}
+	for _, frame := range startupFrames {
+		if strings.HasPrefix(got, ansi.Strip(frame)) {
+			t.Fatalf("working row = %q still leads with the spinner", got)
+		}
 	}
 }

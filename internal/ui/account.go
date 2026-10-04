@@ -249,9 +249,18 @@ func (m *Model) viewAccountSwitch() string {
 	}
 	var body strings.Builder
 	body.WriteString("  session  " + valueStyle.Render(sess.Name) + "  " + mutedStyle.Render("on "+sess.Tool+" as "+now) + "\n")
-	for i, name := range m.account.names {
+	hint := [][2]string{{"↑↓", "account"}, {"↵", "switch"}, {"esc", "cancel"}}
+	legendRows := strings.Count(legendInline(hint, cardInnerWidth(m.cardWidth())), "\n") + 1
+	rows := m.height - 7 - legendRows
+	if m.errBar.text != "" {
+		rows -= 2
+	}
+	rows = max(1, rows)
+	start := max(0, m.account.index-rows+1)
+	for i := start; i < min(len(m.account.names), start+rows); i++ {
+		name := m.account.names[i]
 		lead, marker, style := "           ", "  ", mutedStyle
-		if i == 0 {
+		if i == start {
 			lead = "  account  "
 		}
 		if i == m.account.index {
@@ -260,5 +269,5 @@ func (m *Model) viewAccountSwitch() string {
 		body.WriteString(lead + marker + style.Render(name) + "\n")
 	}
 	body.WriteString("           " + mutedStyle.Render(then))
-	return m.card("⇄ Switch Account", body.String(), [][2]string{{"↑↓", "account"}, {"↵", "switch"}, {"esc", "cancel"}})
+	return m.card("⇄ Switch Account", body.String(), hint)
 }

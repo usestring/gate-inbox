@@ -69,7 +69,9 @@ func (f statusFilter) matches(st string) bool {
 // a parent working away while its child sits on a question is exactly the
 // case w exists to surface. It was dropped, and the question with it.
 func (m *Model) attentionViaChild(sess store.Session) bool {
-	if m.statusFilter != statusFilterAttention {
+	// A muted session is off w with everything under it, the same as it is
+	// off triage; see persistentmute.go.
+	if m.statusFilter != statusFilterAttention || sess.Muted {
 		return false
 	}
 	return m.extAttention[sess.ID].NeedsPerson || m.isDiedWhileClosed(sess) || m.hasDescendantNeedingSomebody(sess.ID)
@@ -82,7 +84,7 @@ func (m *Model) hasDescendantNeedingSomebody(parentID string) bool {
 		return false
 	}
 	for _, sess := range m.sessions {
-		if sess.ParentID != parentID || sess.Archived {
+		if sess.ParentID != parentID || sess.Archived || sess.Muted {
 			continue
 		}
 		if m.needsPerson(sess) || m.isDiedWhileClosed(sess) || m.hasDescendantNeedingSomebody(sess.ID) {

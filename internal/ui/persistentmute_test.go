@@ -158,6 +158,30 @@ func TestSearchFindsAMutedRowByItsLabel(t *testing.T) {
 	}
 }
 
+// The attention filter keeps a muted branch out: a muted row's own escalation
+// does not hold it on w, and a muted child does not hold its parent there.
+func TestAttentionFilterLeavesMutedBranchesOut(t *testing.T) {
+	m := childModel(t)
+	m.statusFilter = statusFilterAttention
+	parent := m.sessions[0]
+	if !m.attentionViaChild(parent) {
+		t.Fatal("the children needing a person did not hold their parent on w before any mute")
+	}
+	for i := range m.sessions {
+		if m.sessions[i].ParentID == parent.ID {
+			m.sessions[i].Muted = true
+		}
+	}
+	if m.attentionViaChild(parent) {
+		t.Fatal("muted children still hold their parent on w")
+	}
+	m.extAttention = map[string]Attention{parent.ID: {NeedsPerson: true}}
+	parent.Muted = true
+	if m.attentionViaChild(parent) {
+		t.Fatal("a muted row's own escalation still holds it on w")
+	}
+}
+
 // A muted row that is still working shows the mute mark on its conversation
 // status row, not the working spinner.
 func TestMutedWorkingRowDropsTheSpinner(t *testing.T) {

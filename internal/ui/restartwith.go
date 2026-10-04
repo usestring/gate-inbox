@@ -64,6 +64,9 @@ func (m *Model) openRestartWith() {
 	}
 	if len(m.restartFlags.Presets) == 0 {
 		m.errBar.text = "no restart flags configured"
+		if len(m.restartFlags.Problems) > 0 {
+			m.errBar.text += ": " + strings.Join(m.restartFlags.Problems, "; ")
+		}
 		return
 	}
 	m.restartWith = restartWithState{sess: entry.sess, index: 0}
@@ -142,16 +145,32 @@ func (m *Model) viewRestartWith() string {
 	var b strings.Builder
 	b.WriteString("  restart  " + valueStyle.Render(m.restartWith.sess.Name) + "\n")
 	b.WriteString("  with extra flags; pick one\n")
-	for i, preset := range m.restartFlags.Presets {
+	hint := [][2]string{{"↑↓", "move"}, {"↵", "restart"}, {"esc", "back"}}
+	room := m.height - 9
+	room -= strings.Count(legendInline(hint, cardInnerWidth(m.cardWidth())), "\n")
+	if len(m.restartFlags.Problems) > 0 {
+		room--
+	}
+	if m.errBar.text != "" {
+		room -= 2
+	}
+	start, end := scrollWindow(len(m.restartFlags.Presets), m.restartWith.index, max(3, room))
+	if start > 0 {
+		b.WriteString("  ↑ more\n")
+	}
+	for i := start; i < end; i++ {
+		preset := m.restartFlags.Presets[i]
 		marker := "  "
 		if m.restartWith.index == i {
 			marker = "❯ "
 		}
 		b.WriteString(marker + preset.Key + "  " + valueStyle.Render(preset.Title()) + "\n")
 	}
+	if end < len(m.restartFlags.Presets) {
+		b.WriteString("  ↓ more\n")
+	}
 	if len(m.restartFlags.Problems) > 0 {
 		b.WriteString("  " + mutedStyle.Render(strings.Join(m.restartFlags.Problems, "; ")) + "\n")
 	}
-	hint := [][2]string{{"↑↓", "move"}, {"↵", "restart"}, {"esc", "back"}}
 	return m.cardFlex("↻ Restart with flags", b.String(), hint)
 }

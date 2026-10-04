@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"fmt"
+
+	"github.com/charmbracelet/x/ansi"
 	"strings"
 	"testing"
 
@@ -102,5 +105,56 @@ func TestRestartWithRefusesWithoutPresets(t *testing.T) {
 	}
 	if m.errBar.text == "" {
 		t.Fatal("refusal left no explanation on the error bar")
+	}
+}
+
+func TestRestartWithRefusalShowsValidationProblems(t *testing.T) {
+	m := buildModel(t)
+	m.restartFlags = restartpresets.Set{Problems: []string{"preset c has empty args", "preset d has empty args"}}
+	createSession(t, m, "invalid", t.TempDir(), "")
+	m.selectSessionRow(t, "invalid")
+	m.openRestartWith()
+	if m.mode == modeRestartWith {
+		t.Fatal("picker opened without valid presets")
+	}
+	for _, problem := range m.restartFlags.Problems {
+		if !strings.Contains(m.errBar.text, problem) {
+			t.Fatalf("refusal %q omits %q", m.errBar.text, problem)
+		}
+	}
+}
+
+func TestRestartWithSelectionStaysVisible(t *testing.T) {
+	for _, width := range []int{40, 80} {
+		for _, height := range []int{14, 24} {
+			for _, problems := range [][]string{nil, {"preset skipped"}} {
+				t.Run(fmt.Sprintf("%dx%d/problems=%d", width, height, len(problems)), func(t *testing.T) {
+					m := &Model{width: width, height: height, mode: modeRestartWith}
+					m.restartFlags.Problems = problems
+					for i := range 26 {
+						m.restartFlags.Presets = append(m.restartFlags.Presets, restartpresets.Preset{Key: string(rune('a' + i)), Label: fmt.Sprintf("choice-%02d", i), Args: "--flag"})
+					}
+					for _, key := range []tea.KeyPressMsg{{Code: tea.KeyDown}, {Code: tea.KeyUp}} {
+						for range 27 {
+							m.handleRestartWithKey(key)
+							frame, _ := m.paint()
+							frame = ansi.Strip(frame)
+							selected := m.restartFlags.Presets[m.restartWith.index]
+							if !strings.Contains(frame, "❯ "+selected.Key+"  "+selected.Title()) {
+								t.Fatalf("selection %d hidden:\n%s", m.restartWith.index, frame)
+							}
+							if !strings.Contains(frame, "esc") || !strings.Contains(frame, "back") {
+								t.Fatalf("footer hidden:\n%s", frame)
+							}
+							for _, problem := range problems {
+								if !strings.Contains(frame, problem) {
+									t.Fatalf("problem hidden:\n%s", frame)
+								}
+							}
+						}
+					}
+				})
+			}
+		}
 	}
 }

@@ -67,7 +67,7 @@ func TestTriageRailOrdersByUrgencyThenOldest(t *testing.T) {
 		t.Fatal("i did not turn triage on")
 	}
 
-	want := []string{"old-block", "new-block", "crashed", "reviewme", "napping", "grinder", "booting", "gone"}
+	want := []string{"old-block", "new-block", "reviewme", "crashed", "napping", "grinder", "booting", "gone"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
@@ -258,7 +258,7 @@ func TestTriageAutoAdvanceWalksTheQueue(t *testing.T) {
 	})
 	m.triage = true
 	m.rebuildRows()
-	if got, want := sessionNames(m), []string{"ask", "broke", "done", "busy"}; !slices.Equal(got, want) {
+	if got, want := sessionNames(m), []string{"ask", "done", "broke", "busy"}; !slices.Equal(got, want) {
 		t.Fatalf("queue = %v want %v", got, want)
 	}
 
@@ -267,8 +267,8 @@ func TestTriageAutoAdvanceWalksTheQueue(t *testing.T) {
 	// does not do any more is come round a second time -- each hop mutes the
 	// session it leaves, so the walk ends when the queue is drained rather
 	// than cycling over work already done. See mute.go.
-	m.enterFocusOn(t, "broke")
-	for _, want := range []string{"done", "ask"} {
+	m.enterFocusOn(t, "done")
+	for _, want := range []string{"broke", "ask"} {
 		updated, _ := m.handleFocusKey(ctrlQ())
 		m = updated.(*Model)
 		if m.mode != modeFocus {

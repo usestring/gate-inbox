@@ -12,21 +12,23 @@ import (
 )
 
 // triageTiers ranks statuses by how badly a human is needed, best first.
-// waiting outranks errored because a waiting agent is stalled on an answer
-// this second, while an error has already happened and blocks no turn;
-// working sits below every resting status because the one thing triage must
-// never do is walk somebody into a session that is mid-turn.
+// waiting outranks everything because a waiting agent is stalled on an
+// answer this second; errored sits last among the resting statuses because
+// the error has already happened and blocks no turn, so a finished or idle
+// session is handed over before it; working sits below every resting status
+// because the one thing triage must never do is walk somebody into a
+// session that is mid-turn.
 //
-// triageBlocked sits between waiting and errored. No status reaches it: it is
-// the tier an extension ranks a session at when it is blocked on a decision
-// about a whole piece of work rather than on one question in front of
-// somebody, so the sessions asking a live question are handed over first.
+// triageBlocked sits between waiting and finished. No status reaches it: it
+// is the tier an extension ranks a session at when it is blocked on a
+// decision about a whole piece of work rather than on one question in front
+// of somebody, so the sessions asking a live question are handed over first.
 var triageTiers = []string{
 	status.Waiting,
 	triageBlocked,
-	status.Errored,
 	status.Finished,
 	status.Idle,
+	status.Errored,
 	status.Working,
 	status.Starting,
 	status.Dead,

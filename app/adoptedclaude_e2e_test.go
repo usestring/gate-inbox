@@ -26,16 +26,17 @@ const adoptedModel = "claude-haiku-4-5-20251001"
 // branch yet. Such a check still runs and reports what it saw, but a miss is
 // logged as PENDING rather than failing the test. Delete an entry once its
 // feature is merged, so a miss fails from then on.
-var awaitingFeatures = map[string]string{
-	"steering": "steering delivered to an adopted session through its first UserPromptSubmit additionalContext",
-	"answer":   "answer_session from the session that placed an adopted row",
-}
+var awaitingFeatures = map[string]string{}
 
 // toolPrompt names the board's tools as native MCP tools: haiku otherwise
 // sometimes reaches for a made-up shell command, which stops the turn on a
 // Bash approval and proves nothing about the tools.
 const toolPrompt = "The gate-inbox tools named below are native MCP tools, not shell commands; " +
 	"if one is deferred, load it with ToolSearch first. "
+
+// steeringMark is a heading of the delegation steering an adopted session's
+// first prompt carries.
+const steeringMark = "Delegating work: use Gate Inbox sessions"
 
 // hookErrorPattern is what Claude Code draws when a hook or an MCP server
 // misbehaves.
@@ -211,6 +212,13 @@ func newAdoptedE2E(t *testing.T, apiKey string) *adoptedE2E {
 		"GATE_INBOX_HOME="+e.giHome, "DISABLE_AUTOUPDATER=1", "TERM=xterm-256color")
 	e.tmpdir = envValue(e.env, "TMUX_TMPDIR")
 
+	// The board launches through the login shell, and a zsh with no startup
+	// file at all stops on its new-user wizard instead of running the agent.
+	for _, rc := range []string{".zshrc", ".bashrc"} {
+		if err := os.WriteFile(filepath.Join(home, rc), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	e.seedClaude(apiKey)
 	e.seedBoard()
 
@@ -367,7 +375,7 @@ func (e *adoptedE2E) claudeCmd(dir string, args ...string) (string, error) {
 
 func (e *adoptedE2E) startBoard() {
 	e.t.Helper()
-	out, err := e.board.run("new-session", "-d", "-s", "board", "-x", "200", "-y", "50", e.bin)
+	out, err := e.board.run("new-session", "-d", "-s", "board", "-x", "200", "-y", "50", "-c", e.root, e.bin)
 	if err != nil {
 		e.t.Fatalf("start the board: %v\n%s", err, out)
 	}
@@ -500,15 +508,20 @@ func lastLines(s string, n int) string {
 func (e *adoptedE2E) waitComposer(h tmuxHost, target string) time.Duration {
 	e.t.Helper()
 	began := time.Now()
-	waitUntil(e.t, 90*time.Second, "claude's composer in "+target, func() bool {
+	deadline := began.Add(90 * time.Second)
+	for {
 		s := h.screen(target)
 		if strings.Contains(s, "trust") && strings.Contains(s, "Enter to confirm") {
 			h.keys(target, "Enter")
-			return false
+		} else if strings.Contains(s, "❯") && !strings.Contains(s, "esc to interrupt") {
+			return time.Since(began)
 		}
-		return strings.Contains(s, "❯") && !strings.Contains(s, "esc to interrupt")
-	})
-	return time.Since(began)
+		if time.Now().After(deadline) {
+			e.save("composer-timeout-"+strings.ReplaceAll(target, ":", "-")+".txt", h.history(target))
+			e.t.Fatalf("timed out waiting for claude's composer in %s:\n%s", target, lastLines(s, 20))
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 // turn types prompt into target and waits for the assistant to say token.
@@ -562,8 +575,41 @@ func (e *adoptedE2E) stepA() {
 	e.record("a", "`gate-inbox claude-hooks status` reports both registered",
 		err == nil && strings.Contains(status, ": registered") && strings.Contains(status, "MCP relay registered"),
 		strings.ReplaceAll(status, e.root, "<scratch>"))
+	e.stopBoard()
+
+	// The config opt-out takes the entries back out, and turning it back on
+	// restores them, each on a plain board start.
+	config := filepath.Join(e.giHome, "config.toml")
+	if err := os.WriteFile(config, []byte(e.boardConfig()+"[claude_code]\nsetup = false\n"), 0o644); err != nil {
+		e.t.Fatal(err)
+	}
+	e.startBoard()
+	gone := false
+	waitUntilQuiet(60*time.Second, func() bool {
+		raw, _ := os.ReadFile(settings)
+		gone = !strings.Contains(string(raw), "gate-inbox-global-hook") && relayEntry(state) == ""
+		return gone
+	})
+	off, _ := e.gi("", "claude-hooks", "status")
+	e.stopBoard()
+	raw, _ = os.ReadFile(settings)
+	e.record("a", "[claude_code] setup = false removes the hooks and the relay on the next board start",
+		gone && strings.Contains(string(raw), "mcp__gate-inbox"),
+		strings.ReplaceAll(off, e.root, "<scratch>")+"\noperator permissions kept: "+
+			strconv.FormatBool(strings.Contains(string(raw), "mcp__gate-inbox")))
+	if err := os.WriteFile(config, []byte(e.boardConfig()), 0o644); err != nil {
+		e.t.Fatal(err)
+	}
+	e.startBoard()
+	back := false
+	waitUntilQuiet(60*time.Second, func() bool {
+		raw, _ := os.ReadFile(settings)
+		back = strings.Count(string(raw), ": gate-inbox-global-hook") == 7 && relayEntry(state) != ""
+		return back
+	})
 	// b runs with no board at all, so the plain claude is outside it.
 	e.stopBoard()
+	e.record("a", "removing the opt-out restores both on the next board start", back, "")
 }
 
 // relayEntry is the gate-inbox server in a Claude Code user config, as JSON.
@@ -698,10 +744,42 @@ func (e *adoptedE2E) stepC() string {
 	})
 	id := adopted.ID
 	e.save("c-sessions-adopted.json", e.listing())
-	markers, _ := os.ReadDir(filepath.Join(e.giHome, "hooks", "adopted"))
+	// The marker follows the row by a poll.
+	var markers []os.DirEntry
+	waitUntilQuiet(20*time.Second, func() bool {
+		markers, _ = os.ReadDir(filepath.Join(e.giHome, "hooks", "adopted"))
+		return len(markers) == 1
+	})
 	e.record("c", "the board adopts the plain claude's pane and writes its adoption marker",
 		id != "" && len(markers) == 1,
 		fmt.Sprintf("row %s %q on pane %s, markers: %d", id, adopted.Name, adopted.TmuxPaneID, len(markers)))
+
+	// Every session command sees the live adopted pane as running.
+	var listed struct {
+		Sessions []e2eRow `json:"sessions"`
+	}
+	running := false
+	if json.Unmarshal([]byte(e.listing()), &listed) == nil {
+		for _, r := range listed.Sessions {
+			if r.ID == id {
+				running = r.Running
+			}
+		}
+	}
+	waited, _ := e.gi(operator, "wait", id, "--timeout", "5s", "--json")
+	e.save("c-wait.json", waited)
+	var wait struct {
+		Outcome string `json:"outcome"`
+		Session struct {
+			Status  string `json:"status"`
+			Running bool   `json:"running"`
+		} `json:"session"`
+	}
+	_ = json.Unmarshal([]byte(waited), &wait)
+	e.record("c", "list_sessions shows the adopted row running and wait_for_session does not call it dead",
+		running && wait.Outcome != "" && wait.Outcome != "died" && wait.Session.Status != "dead",
+		fmt.Sprintf("sessions running: %v\nwait outcome: %q, status: %q, running: %v",
+			running, wait.Outcome, wait.Session.Status, wait.Session.Running))
 
 	// The board may queue a request for the agent to name itself; let any
 	// such turn finish before this test types its own.
@@ -746,11 +824,44 @@ func (e *adoptedE2E) stepC() string {
 		ok && usedTool(text, "mcp__gate-inbox__list_sessions"),
 		fmt.Sprintf("answered: %v\n%s", ok, clip(strings.Join(transcriptLines(text, `"type":"assistant"`, "LIST-OK"), "\n"), 600)))
 	e.save("c-pane-list-sessions.txt", e.plain.history("plain"))
+	convos, _ := filepath.Glob(filepath.Join(e.claudeD, "projects",
+		regexp.MustCompile(`[^a-zA-Z0-9]`).ReplaceAllString(e.workA, "-"), "*.jsonl"))
+	var live string
+	if len(convos) == 1 {
+		live = strings.TrimSuffix(filepath.Base(convos[0]), ".jsonl")
+	}
+	var bound string
+	waitUntilQuiet(15*time.Second, func() bool {
+		bound = e.storeRow(id).AgentSessionID
+		return bound != "" && bound == live
+	})
+	e.record("c", "the adopted row is bound to the pane's conversation id",
+		bound != "" && bound == live, fmt.Sprintf("row agent session id: %q\nconversation file: %q", bound, live))
 	e.stopAfter("c-tools")
 
-	steering := transcriptLines(text, "hook_additional_context", "create_session")
-	e.record("c", "steering arrives in the adopted session's first prompt context",
-		len(steering) > 0, clip(strings.Join(steering, "\n"), 600), "steering")
+	// The steering rides the first prompt after adoption, once: the
+	// transcript keeps each hook's additionalContext as an attachment.
+	steered := 0
+	for _, line := range transcriptLines(text, steeringMark) {
+		if !strings.Contains(line, `"type":"assistant"`) {
+			steered++
+		}
+	}
+	ok = e.turn(e.plain, "plain", e.workA, "Answer from what you were told in this conversation, without calling any tool: "+
+		"were you given standing instructions about Gate Inbox? If so, reply with STEER-YES followed by the name of the tool "+
+		"they tell you to delegate real work with; if not, reply with STEER-NO.", "STEER-", 90*time.Second)
+	text = e.transcript(e.workA)
+	answer := strings.Join(transcriptLines(text, `"type":"assistant"`, "STEER-"), "\n")
+	again := 0
+	for _, line := range transcriptLines(text, steeringMark) {
+		if !strings.Contains(line, `"type":"assistant"`) {
+			again++
+		}
+	}
+	e.record("c", "steering reaches the model on the first prompt after adoption, and only once",
+		steered == 1 && again == 1 && ok && strings.Contains(answer, "STEER-YES") && strings.Contains(answer, "create_session"),
+		fmt.Sprintf("transcript entries carrying the steering after the first turn: %d, after the next: %d\nmodel: %s",
+			steered, again, clip(assistantText(answer), 300)))
 
 	// A launched session to talk to.
 	out, err := e.gi(operator, "spawn", "--tool", "claude", "--name", "launched", "--directory", e.workL, "--json")
@@ -758,10 +869,19 @@ func (e *adoptedE2E) stepC() string {
 		t.Fatalf("spawn: %v\n%s", err, out)
 	}
 	e.launched = idOf(t, out)
-	waitUntil(t, 90*time.Second, "the launched session to come up", func() bool {
-		r := e.row(e.launched)
-		return r.Status == "idle" || r.Status == "finished"
-	})
+	e.save("c-spawn.json", out)
+	// A spawn nests under its caller, and the tree is one level deep, so the
+	// launched session is handed back to the top level: it has to be able to
+	// take the adopted row as its own child below.
+	released, err := e.gi(operator, "place", e.launched, "--release", "--json")
+	e.save("c-release.txt", released)
+	if err != nil {
+		e.record("c", "the launched session is released to the top level", false, released)
+	}
+	target := "gi_" + e.launched
+	e.waitComposer(e.agents, target)
+	e.save("c-pane-launched-start.txt", e.agents.screen(target))
+	e.settle(e.launched)
 
 	nonce := strconv.FormatInt(time.Now().Unix()%100000, 10)
 	pong := "PONG-" + nonce
@@ -842,6 +962,7 @@ func (e *adoptedE2E) stepC() string {
 
 // e. A board-launched claude still works and no event is logged twice.
 func (e *adoptedE2E) stepE(adopted string) {
+	e.save("e-pane-launched.txt", e.agents.history("gi_"+e.launched))
 	launchedText := e.transcript(e.workL)
 	worked := answeredAfter(launchedText, "PONG-")
 	log, _ := os.ReadFile(filepath.Join(e.giHome, "hooks", e.launched+".status"))
@@ -1001,6 +1122,30 @@ func userPrompts(text string) []string {
 		}
 	}
 	return out
+}
+
+// assistantText pulls the text blocks out of transcript entries.
+func assistantText(lines string) string {
+	var out []string
+	for _, line := range strings.Split(lines, "\n") {
+		var entry struct {
+			Message struct {
+				Content []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal([]byte(line), &entry) != nil {
+			continue
+		}
+		for _, c := range entry.Message.Content {
+			if c.Type == "text" {
+				out = append(out, c.Text)
+			}
+		}
+	}
+	return strings.Join(out, " ")
 }
 
 // grepLines keeps the lines of text that hold any of words.

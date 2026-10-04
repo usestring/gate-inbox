@@ -510,6 +510,9 @@ type Model struct {
 	archiveSweptAt  time.Time
 	hideEmptyGroups bool
 	statusFilter    statusFilter
+	// toolFilter narrows the list and the triage queue to one harness --
+	// the CLI in sess.Tool -- and is "" for every harness. See toolfilter.go.
+	toolFilter      string
 	collapsed       map[string]bool
 	// groupNumbers maps a group to the outline number printed beside it and
 	// groupByNumber reads that back, both rebuilt with the rows so a typed
@@ -1453,8 +1456,8 @@ func (m *Model) refreshExistingSessionUX() tea.Msg {
 // visibleSessions filters to the sessions the current view scope shows:
 // active ones normally, archived ones in the archived view. It also
 // covers the frames between a scope toggle and the next refresh, when
-// m.sessions still carries the other scope's list. Status filters apply
-// later via listedSessions.
+// m.sessions still carries the other scope's list. Status and tool filters
+// apply later via listedSessions.
 func (m *Model) visibleSessions() []store.Session {
 	visible := m.visScratch[:0]
 	if !m.painting {
@@ -1471,9 +1474,9 @@ func (m *Model) visibleSessions() []store.Session {
 	return visible
 }
 
-// listedSessions is the archived scope narrowed by the status filter.
-// Header counts, group rollups, and the tree all share this set so the
-// numbers always match what the list can show.
+// listedSessions is the archived scope narrowed by the status and tool
+// filters. Header counts, group rollups, and the tree all share this set so
+// the numbers always match what the list can show.
 //
 // The selected session stays listed when its status leaves the filter
 // (finished → idle on enter/ack) so rebuild cannot eject the cursor mid-work.
@@ -1491,7 +1494,7 @@ func (m *Model) listedSessions() []store.Session {
 func (m *Model) computeListedSessions() []store.Session {
 	visible := m.visibleSessions()
 	extFiltered := m.extensionFiltersOn()
-	if !m.statusFilter.active() && !extFiltered {
+	if !m.statusFilter.active() && !extFiltered && !m.toolFilterActive() {
 		return visible
 	}
 	heldID := ""
@@ -1502,6 +1505,9 @@ func (m *Model) computeListedSessions() []store.Session {
 	for _, sess := range visible {
 		if sess.ID == heldID {
 			listed = append(listed, sess)
+			continue
+		}
+		if m.toolFilterActive() && !m.matchesToolFilter(sess) {
 			continue
 		}
 		if extFiltered && !m.extensionFiltersKeep(sess) {
@@ -2856,7 +2862,7 @@ func (m *Model) cursorSessionID() string {
 
 // buildTree walks the group tree depth-first and emits one row per
 // group node and per session, honoring collapse state, search, and the
-// status filter. The cursor follows the previously selected row's
+// status and tool filters. The cursor follows the previously selected row's
 // identity, so list changes from the 2s poll never yank the selection.
 func (m *Model) buildTree() {
 	m.railCursorSess = m.cursorSessionID()
@@ -2870,7 +2876,7 @@ func (m *Model) buildTree() {
 		previousKey = rowKey(entry)
 	}
 	query := strings.ToLower(strings.TrimSpace(m.search))
-	prunedView := query != "" || m.statusFilter.active()
+	prunedView := query != "" || m.statusFilter.active() || m.toolFilterActive()
 
 	listed := store.OrderLinkedSessions(m.listedSessions())
 	listedIDs := make(map[string]bool, len(listed))

@@ -133,6 +133,7 @@ selected agent for builds and one-off commands.
 | `enter` | Focus the session; `ctrl+q` returns to the list |
 | `i` | Triage queue; `\` hides the list for a full-width drain |
 | `w` | Show only what needs attention |
+| `Y` | Show only one CLI's sessions, cycling through the harnesses on the board |
 | `/` | Fuzzy search; `esc` closes the field, deleting the text clears it |
 | `p` | Priority tier for a session or group; each press steps urgent → high → medium → low → none |
 | `T` | Shell tab under the selected agent |

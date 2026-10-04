@@ -12,7 +12,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
@@ -52,6 +54,38 @@ func shardCount() int {
 		return n
 	}
 	return runtime.NumCPU()
+}
+
+// shardSlotDir holds one lock file per core, shared by every sharded run on
+// the machine. It is a fixed path rather than os.TempDir because agent
+// sandboxes give each session its own TMPDIR, and runs that cannot see each
+// other's slots are not capped.
+var shardSlotDir = filepath.Join("/tmp", fmt.Sprintf("gate-inbox-ui-shards-%d", os.Getuid()))
+
+// acquireShardSlot blocks until this process holds one of the machine's
+// runtime.NumCPU() shard slots. Each run already starts one shard per core,
+// so without a shared cap four agents testing at once start four times that,
+// each with its own tmux server: a load average past 180 on a 12-core box.
+// The kernel drops a flock when its holder exits, so a killed run cannot leak
+// a slot. A slot directory that cannot be made leaves the shard uncapped.
+func acquireShardSlot() (release func()) {
+	if err := os.MkdirAll(shardSlotDir, 0o700); err != nil {
+		return func() {}
+	}
+	slots := runtime.NumCPU()
+	for {
+		for i := 0; i < slots; i++ {
+			f, err := os.OpenFile(filepath.Join(shardSlotDir, fmt.Sprintf("slot-%d", i)), os.O_CREATE|os.O_RDWR, 0o600)
+			if err != nil {
+				return func() {}
+			}
+			if syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
+				return func() { f.Close() }
+			}
+			f.Close()
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // shouldShard reports whether this process is a parent run that selected
@@ -162,7 +196,9 @@ func runSharded(m *testing.M) int {
 			cmd := exec.Command(os.Args[0], shardArgs...)
 			cmd.Env = append(tmuxtest.Environ(), shardChildEnv+"=1")
 			cmd.Stdout, cmd.Stderr = &out, &out
+			release := acquireShardSlot()
 			runErr := cmd.Run()
+			release()
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -288,4 +324,32 @@ func mergeTestLogs(parent string, wroteParent bool, shards []string) error {
 		return err
 	}
 	return f.Close()
+}
+
+func TestShardSlotsCapConcurrentShardsAtOnePerCore(t *testing.T) {
+	saved := shardSlotDir
+	shardSlotDir = t.TempDir()
+	defer func() { shardSlotDir = saved }()
+
+	var held []func()
+	for i := 0; i < runtime.NumCPU(); i++ {
+		held = append(held, acquireShardSlot())
+	}
+	got := make(chan func())
+	go func() { got <- acquireShardSlot() }()
+	select {
+	case <-got:
+		t.Fatal("a shard took a slot past one per core")
+	case <-time.After(300 * time.Millisecond):
+	}
+	held[0]()
+	select {
+	case release := <-got:
+		release()
+	case <-time.After(5 * time.Second):
+		t.Fatal("a released slot was never taken")
+	}
+	for _, release := range held[1:] {
+		release()
+	}
 }

@@ -115,8 +115,15 @@ func (m *Model) snippetChordFor(msg tea.KeyMsg) (snippets.Snippet, bool) {
 // spelling -- and only that one, since chords compare case-folded and option+C
 // would otherwise also name an option+c snippet. A plain lowercase chord stays
 // unambiguous: shift that is nowhere reported cannot be invented.
+//
+// A symbol goes the other way. Chords name the symbol shift types (option+!,
+// never option+shift+1), which is what a legacy terminal sends; a terminal
+// that reports shift and the base key separately is folded back to it here.
 func chordNames(msg tea.KeyMsg) []string {
 	key := msg.Key()
+	if r := key.ShiftedCode; key.Mod&tea.ModShift != 0 && r != 0 && !unicode.IsLetter(r) {
+		return []string{tea.Key{Code: r, Mod: key.Mod &^ tea.ModShift}.String()}
+	}
 	if key.Mod&tea.ModShift == 0 {
 		for _, r := range []rune{key.ShiftedCode, key.Code} {
 			if unicode.IsUpper(r) {

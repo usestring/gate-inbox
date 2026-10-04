@@ -49,6 +49,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -351,6 +352,12 @@ func validate(parsed []Snippet) Set {
 			// into. The menu key is where a bare binding belongs.
 			set.Problems = append(set.Problems,
 				entry(i, snip)+"chord "+quote(snip.Chord)+" must be a modifier and a key, like option+shift+"+snip.Key)
+		case snip.Chord != "" && shiftsASymbol(snip.Chord):
+			// Most terminals fold shift into the symbol it types -- option+
+			// shift+1 arrives as option+! -- and which symbol is the keyboard
+			// layout's to say, so the chord names the symbol itself.
+			set.Problems = append(set.Problems,
+				entry(i, snip)+"chord "+quote(snip.Chord)+" shifts a key with no case; name the character shift types instead, like option+!")
 		case snip.Chord != "" && normalizeChord(snip.Chord) == reservedChord:
 			// ctrl+c quits from every screen ahead of the key map, so a
 			// snippet on it could never send from the list and would only
@@ -399,6 +406,17 @@ func entry(index int, snip Snippet) string {
 // the physical key left of 1.
 func legalKey(key string) bool {
 	return singleLetter(key) || key == SectionKey || key == PlusMinusKey
+}
+
+// shiftsASymbol reports a chord that holds shift on a single character with no
+// case, like alt+shift+1. Named keys keep shift as a modifier and are fine.
+func shiftsASymbol(chord string) bool {
+	mods, key, ok := splitChord(chord)
+	if !ok || !slices.Contains(mods, "shift") || utf8.RuneCountInString(key) != 1 {
+		return false
+	}
+	r, _ := utf8.DecodeRuneInString(key)
+	return !unicode.IsLetter(r)
 }
 
 // legalChord is what may bind directly: known modifiers and a nonempty key, at

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -111,6 +112,31 @@ func TestCtrlCIsAReservedChord(t *testing.T) {
 	}
 	if len(set.Snippets) != 0 || len(set.Problems) != 2 {
 		t.Fatalf("bound %+v with problems %q, want both refused", set.Snippets, set.Problems)
+	}
+}
+
+// Shift on a key with no case is refused: most terminals fold it into the
+// symbol, so the chord names the symbol. Shift on a letter or a named key
+// still binds.
+func TestAChordNamesTheSymbolShiftTypes(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `[
+	  {"key":"a","chord":"alt+shift+1","text":"one"},
+	  {"key":"b","chord":"alt+shift+/","text":"two"},
+	  {"key":"c","chord":"alt+!","text":"three"},
+	  {"key":"d","chord":"alt+shift+é","text":"four"},
+	  {"key":"e","chord":"alt+shift+enter","text":"five"}
+	]`)
+	set, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	var bound []string
+	for _, snip := range set.Snippets {
+		bound = append(bound, snip.Key)
+	}
+	if !slices.Equal(bound, []string{"c", "d", "e"}) || len(set.Problems) != 2 {
+		t.Fatalf("bound %v with problems %q, want c, d and e", bound, set.Problems)
 	}
 }
 

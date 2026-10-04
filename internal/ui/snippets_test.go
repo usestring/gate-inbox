@@ -189,6 +189,21 @@ func TestFoldedShiftReadsNonASCIIUppercase(t *testing.T) {
 	}
 }
 
+// A symbol chord fires whether the terminal sends the symbol (option+!) or
+// reports shift and the base key apart (option+shift+1, shifted to !).
+func TestASymbolChordFiresEitherWayShiftArrives(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "a", Chord: "alt+!", Text: "bang"}})
+	for _, msg := range []tea.KeyPressMsg{
+		{Code: '!', Mod: tea.ModAlt},
+		{Code: '1', ShiftedCode: '!', Mod: tea.ModAlt | tea.ModShift},
+	} {
+		if snip, ok := m.snippetChordFor(msg); !ok || snip.Key != "a" {
+			t.Fatalf("%s named %v %v, want a", msg.String(), snip, ok)
+		}
+	}
+}
+
 // A chord the manager's own map binds stays the manager's on both screens, so
 // a snippet file cannot make a documented key behave differently by screen.
 func TestManagerBindingOutranksASnippetChord(t *testing.T) {

@@ -83,6 +83,12 @@ func requiresInput(st string) bool {
 // owned or not: that claim is an escalation, and an ownership must never
 // hide one. See Attention.
 func (m *Model) needsPerson(sess store.Session) bool {
+	// A persistently muted session is one the operator has taken off their queue
+	// on purpose. It is not waiting on anybody until they say otherwise,
+	// whatever its pane is doing.
+	if sess.Muted {
+		return false
+	}
 	if m.extAttention[sess.ID].NeedsPerson {
 		return true
 	}
@@ -103,6 +109,9 @@ func (m *Model) needsPerson(sess store.Session) bool {
 // answers for is off it whatever its pane says, and one an extension says
 // needs a person is on it whatever its pane says.
 func (m *Model) triageWalkable(sess store.Session) bool {
+	if sess.Muted {
+		return false
+	}
 	if m.needsPerson(sess) {
 		return true
 	}
@@ -472,6 +481,11 @@ func (m *Model) nextTriageInput(leftID string, tried map[string]bool) (int, bool
 // pass is asking.
 func (m *Model) triageHandable(row treeRow, leftID string, tried map[string]bool) bool {
 	if !row.isSession() || row.sess.ID == leftID || tried[row.sess.ID] || row.sess.Archived {
+		return false
+	}
+	// A persistently muted session is off the operator's queue until they say
+	// otherwise; a drain never hands it over.
+	if row.sess.Muted {
 		return false
 	}
 	// A subagent is never the row a drain hands over. Its question is its

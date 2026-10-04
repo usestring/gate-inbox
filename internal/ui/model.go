@@ -1517,9 +1517,11 @@ func (m *Model) computeListedSessions() []store.Session {
 			continue
 		}
 		// A session an extension answers for is not waiting on the
-		// operator, whatever its status says; see ownedByExtension.
+		// operator, whatever its status says; see ownedByExtension. A
+		// persistently muted one is the operator's own "not mine to act on",
+		// so the attention filter drops it for the same reason.
 		kept := m.statusFilter.matches(sess.Status)
-		if m.statusFilter.active() && m.ownedByExtension(sess.ID) {
+		if m.statusFilter.active() && (m.ownedByExtension(sess.ID) || sess.Muted) {
 			kept = false
 		}
 		if kept || m.attentionViaChild(sess) {
@@ -3130,6 +3132,13 @@ func (m *Model) buildTree() {
 				continue
 			}
 			for _, sess := range groupSessions {
+				// A persistently muted session is off the triage queue entirely:
+				// it is not a thing the drain walks past, it is not on the
+				// rail the drain reads. Its row is still on the list, where
+				// it reads "muted"; see persistentmute.go.
+				if m.triage && sess.Muted {
+					continue
+				}
 				kept[sess.ID] = true
 			}
 		}

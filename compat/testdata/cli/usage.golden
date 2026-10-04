@@ -1,4 +1,4 @@
-37 commands and verbs
+38 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -142,6 +142,15 @@ usage: gate-inbox archive <session-id> [--restore] [--json]
     	print the raw result as JSON instead of a sentence
   -restore
     	put an archived session back on the active list
+
+$ gate-inbox mute -h
+exit 0
+--- stdout
+usage: gate-inbox mute <session-id> [--off] [--json]
+  -json
+    	print the raw result as JSON instead of a sentence
+  -off
+    	unmute the session, putting it back in triage
 
 $ gate-inbox cleanup-children -h
 exit 0

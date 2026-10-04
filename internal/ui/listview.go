@@ -886,6 +886,9 @@ func (m *Model) renderTreeRowContent(entry treeRow, selected bool, width, index 
 // A shell takes a caret rather than an idle dot it would never leave, but
 // a pane that has gone still has to say so.
 func (m *Model) sessionGlyph(sess store.Session) string {
+	if sess.Muted {
+		return subtleText(mutedGlyph())
+	}
 	if sess.Status == status.Starting {
 		return statusTint(status.Starting, startupFrames[m.startupPhase%len(startupFrames)])
 	}
@@ -983,7 +986,9 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	// A muted row stays on the rail rather than being filtered out of it:
 	// silencing something the operator can no longer see is how a session
 	// gets lost, and the mark is also the only prompt that "." un-mutes it.
-	if m.isMuted(sess) {
+	// A persistently muted row already reads "muted" as its state, so the drain's
+	// own mark would only double the glyph.
+	if !sess.Muted && m.isMuted(sess) {
 		head += " " + subtleText(mutedGlyph())
 	}
 	// Beside the mute rather than in place of the status mark, and for the
@@ -1011,7 +1016,7 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	}
 	// A session names its state in words as well as in its dot; a group,
 	// whose row rolls several states together, is left to its dots.
-	state := statusTint(sess.Status, statusLabel(sess.Status))
+	state := m.displayStatusText(sess, m.displayStatusLabel(sess))
 	// Beside the label rather than in place of it: the board does not know
 	// what the session is really doing, only that the label has sat over a
 	// screen that has not moved for longer than any turn runs.
@@ -1717,9 +1722,9 @@ func (m *Model) viewGroupAgents(group string, width, height int) string {
 			break
 		}
 		rows = append(rows, rosterRow{
-			name:  statusTint(sess.Status, statusGlyph(sess.Status)) + " " + valueStyle.Render(m.displayName(sess)),
+			name:  m.displayStatusText(sess, m.displayStatusGlyph(sess)) + " " + valueStyle.Render(m.displayName(sess)),
 			tool:  subtleText(sess.Tool),
-			state: statusTint(sess.Status, statusLabel(sess.Status)) + subtleText(" · "+relSince(lastActivity(sess))),
+			state: m.displayStatusText(sess, m.displayStatusLabel(sess)) + subtleText(" · "+relSince(lastActivity(sess))),
 		})
 		shown++
 	}
@@ -1801,8 +1806,7 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 		target = rowColumns(label("target")+mutedStyle.Render("a group: select a session to send to"), "", width)
 	} else if ok {
 		sess := entry.sess
-		state := lipgloss.NewStyle().Foreground(statusColor(sess.Status)).
-			Render(statusGlyph(sess.Status) + " " + statusLabel(sess.Status))
+		state := m.displayStatusText(sess, m.displayStatusGlyph(sess)+" "+m.displayStatusLabel(sess))
 		target = fitColumns(
 			[]string{label("send") + lipgloss.NewStyle().Foreground(colorBright).Bold(true).Render(m.displayName(sess))},
 			[]string{state + " " + chipStyle.Render(sess.Tool), state, ""}, width)

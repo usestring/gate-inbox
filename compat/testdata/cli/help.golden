@@ -32,6 +32,8 @@ Agent sessions
       move a session's conversation to another agent CLI: a new session there reads the source's transcript and carries on; the source stays until you archive it
   gate-inbox archive <session-id> [--restore] [--json]
       file a finished session out of the active list, ending it if it is still running, or restore it with --restore; a row left archived is deleted for good after 7 days
+  gate-inbox mute <session-id> [--off] [--json]
+      keep a session out of triage until it is unmuted: the row stays on the list and reads muted, and --off puts it back
   gate-inbox cleanup-children [--status <state>] [--all] [--dry-run] [--json]
       archive the sessions you spawned that are done, each with whatever it spawned: finished, idle and dead by default, --status to choose, --all for every one; a finished child you have read is archived on its own after a grace period anyway
   gate-inbox park [--dry-run] [--json]

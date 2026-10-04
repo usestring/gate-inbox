@@ -42,6 +42,7 @@ type Session struct {
 	Status    string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, finished, idle, errored or dead"`
 	Running   bool   `json:"running" jsonschema:"whether the session currently has a live tmux pane"`
 	Archived  bool   `json:"archived" jsonschema:"whether the session is archived out of the active list"`
+	Muted     bool   `json:"muted" jsonschema:"whether the operator has muted this session out of their triage queue until it is unmuted"`
 	Self      bool   `json:"self" jsonschema:"whether this row is the calling session itself"`
 	// ParentID is where the board draws this row, and SpawnedBy is who owns
 	// it. Nothing the tools hand back used to carry either, so a fan-out that
@@ -224,6 +225,7 @@ func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 		Status:    sess.Status,
 		Running:   running,
 		Archived:  sess.Archived,
+		Muted:     sess.Muted,
 		Self:      self,
 		ParentID:  sess.ParentID,
 		SpawnedBy: store.SpawnerOf(sess),

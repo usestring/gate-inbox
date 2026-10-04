@@ -1525,12 +1525,22 @@ func (m *Model) computeListedSessions() []store.Session {
 	if sess, ok := m.selected(); ok {
 		heldID = sess.ID
 	}
+	var byID map[string]store.Session
+	if m.statusFilter.active() {
+		byID = make(map[string]store.Session, len(m.sessions))
+		for _, sess := range m.sessions {
+			byID[sess.ID] = sess
+		}
+	}
 	listed := make([]store.Session, 0, len(visible))
 	for _, sess := range visible {
-		// The hold is for a status that moved under the cursor. A mute is the
-		// operator's own say-so, so a muted row leaves the filter even while
-		// it is selected.
-		if sess.ID == heldID && !(m.statusFilter.active() && sess.Muted) {
+		// A mute is the operator's own say-so, so a muted branch leaves the
+		// status filter whole, even the row under the cursor: the hold below
+		// is for a status that moved, not for a mute.
+		if m.statusFilter.active() && inMutedBranch(sess, byID) {
+			continue
+		}
+		if sess.ID == heldID {
 			listed = append(listed, sess)
 			continue
 		}
@@ -1541,11 +1551,9 @@ func (m *Model) computeListedSessions() []store.Session {
 			continue
 		}
 		// A session an extension answers for is not waiting on the
-		// operator, whatever its status says; see ownedByExtension. A
-		// persistently muted one is the operator's own "not mine to act on",
-		// so the attention filter drops it for the same reason.
+		// operator, whatever its status says; see ownedByExtension.
 		kept := m.statusFilter.matches(sess.Status)
-		if m.statusFilter.active() && (m.ownedByExtension(sess.ID) || sess.Muted) {
+		if m.statusFilter.active() && m.ownedByExtension(sess.ID) {
 			kept = false
 		}
 		if kept || m.attentionViaChild(sess) {

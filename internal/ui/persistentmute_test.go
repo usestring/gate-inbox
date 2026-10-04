@@ -208,6 +208,23 @@ func TestAttentionFilterLeavesMutedBranchesOut(t *testing.T) {
 	}
 }
 
+// A muted parent takes its unmuted children off w with it. Without that the
+// waiting child stays listed, loses its parent, and paints as a top-level row.
+func TestAttentionFilterDropsChildrenOfAMutedParent(t *testing.T) {
+	m := childModel(t)
+	m.statusFilter = statusFilterAttention
+	m.sessions[0].Muted = true
+	m.rebuildRows()
+	for _, sess := range m.computeListedSessions() {
+		if sess.ID == "p1" || sess.ParentID == "p1" {
+			t.Fatalf("%s from the muted branch stayed on w", sess.ID)
+		}
+	}
+	if got := joined(rowIDs(m)); strings.Contains(got, "c2") {
+		t.Fatalf("rows = %q, want the muted parent's waiting child left out", got)
+	}
+}
+
 // A muted row that is still working shows the mute mark on its conversation
 // status row, not the working spinner.
 func TestMutedWorkingRowDropsTheSpinner(t *testing.T) {

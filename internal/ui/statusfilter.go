@@ -77,6 +77,26 @@ func (m *Model) attentionViaChild(sess store.Session) bool {
 	return m.extAttention[sess.ID].NeedsPerson || m.isDiedWhileClosed(sess) || m.hasDescendantNeedingSomebody(sess.ID)
 }
 
+// inMutedBranch reports a session that is muted or hangs under a muted one.
+// The status filter drops the whole branch: a kept child whose parent is gone
+// paints un-nested at the top level, which would put the muted work back on
+// w by another route.
+func inMutedBranch(sess store.Session, byID map[string]store.Session) bool {
+	seen := map[string]bool{}
+	for !seen[sess.ID] {
+		if sess.Muted {
+			return true
+		}
+		seen[sess.ID] = true
+		parent, ok := byID[sess.ParentID]
+		if !ok {
+			return false
+		}
+		sess = parent
+	}
+	return false
+}
+
 // hasDescendantNeedingSomebody reports a descendant of this session that
 // a person has to answer.
 func (m *Model) hasDescendantNeedingSomebody(parentID string) bool {

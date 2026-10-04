@@ -45,6 +45,19 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 		// instructions, which reached a launched one at startup.
 		agentPID, _ := strconv.Atoi(os.Getenv(envname.AgentPID))
 		output = hooks.MergeHookOutputs(output, m.AdoptedSteering(args[1], sessionID, agentPID, mcpserver.AdoptedInstructions))
+		// Its grants ride these hooks too, since it never loaded the
+		// settings file a launch carries them in. A refusal already made,
+		// of the sealing keys, stands.
+		switch args[1] {
+		case "PreToolUse":
+			if !hooks.OutputSays(output, "permissionDecision") {
+				output = hooks.MergeHookOutputs(output, sessioncmd.AdoptedGrantDecision(configDir, sessionID, payload, time.Now()))
+			}
+		case "PostToolUse":
+			if !hooks.OutputSays(output, "classifierContext") {
+				output = hooks.MergeHookOutputs(output, sessioncmd.AdoptedSoftNote(configDir, sessionID, agentPID, payload, time.Now()))
+			}
+		}
 		if output != "" {
 			fmt.Fprintln(out, output)
 		}

@@ -54,7 +54,7 @@ Gate Inbox reads the panes; it does not sit between you and the model.
 | reports status through the hooks the board registers in your Claude Code user settings (Claude Code only) | reports status through the hooks it is launched with |
 | lacks the `GATE_INBOX_*` environment, extension settings and a fresh account token | gets all three |
 | can't be forked, migrated, restarted or revived without a conversation id | can, on its own conversation |
-| doesn't get the back-to-board keys or the pane's title and colours | gets them |
+| gets the back-to-board keys when the board attaches it (`A`), not its title and colours | gets them all |
 | keeps the flags and `--model` it was started with | is started from your config, so it doesn't keep them |
 
 ## Install
@@ -272,7 +272,8 @@ directory's most recent one.
 4. Remove the launch scripts and pasted images it left in your temp directory:
    `rm -f "${TMPDIR:-/tmp}"/gi-launch-*.sh` and `rm -rf "${TMPDIR:-/tmp}/gate-inbox-pastes"`.
 5. Undo the tmux key bindings it added (`ctrl+q` and `ctrl+\`, plus `alt+o` from older releases,
-   which act only inside `gi_*` sessions):
+   which act only inside `gi_*` sessions and adopted panes the board attached), on each tmux
+   server it adopted a pane on:
    `tmux unbind-key -n C-q \; unbind-key -n 'C-\' \; unbind-key -n M-o`, or
    restart tmux. If the board didn't exit cleanly, `tmux kill-session -t gi_poll-anchor` removes
    its helper session. If you gave it a private tmux socket, `tmux -L <name> kill-server` does

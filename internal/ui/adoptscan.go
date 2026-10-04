@@ -364,6 +364,9 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 				"taken", taken, logging.Err(err))
 			return taken, err
 		}
+		if err := r.driver.MarkAdopted(sess.ID); err != nil {
+			logging.Info("adopted pane not given the back key", "session", sess.ID, logging.Err(err))
+		}
 		r.names[sess.Name] = true
 		r.takenIDs = append(r.takenIDs, sess.ID)
 		taken++
@@ -540,6 +543,13 @@ func (m *Model) restoreAdopted() {
 		target := tmux.Target{Socket: sess.TmuxSocket, Name: sess.TmuxPaneID}
 		if err := m.tmux.Adopt(sess.ID, target); err != nil {
 			m.errBar.text = err.Error()
+			continue
+		}
+		if sess.Archived {
+			continue
+		}
+		if err := m.tmux.MarkAdopted(sess.ID); err != nil {
+			logging.Info("adopted pane not given the back key", "session", sess.ID, logging.Err(err))
 		}
 	}
 }

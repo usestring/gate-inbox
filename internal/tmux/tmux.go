@@ -57,6 +57,9 @@ type Driver struct {
 	// command resolves its target through this map under a lock.
 	adoptedMu sync.RWMutex
 	adopted   map[string]Target
+	// backKeysOn is the foreign servers the back-to-board keys have been
+	// offered to, so marking every adopted pane on one costs one list-keys.
+	backKeysOn map[string]bool
 
 	// controls is the per-socket budget that caps how many control-mode
 	// clients this driver may hold on any one tmux server.
@@ -368,6 +371,7 @@ func (d *Driver) Adopt(id string, target Target) error {
 // and the operator whose window it is has no way to tell that it is.
 func (d *Driver) Release(id string) {
 	d.unpinSession(id)
+	d.unmarkAdopted(id)
 	d.adoptedMu.Lock()
 	defer d.adoptedMu.Unlock()
 	delete(d.adopted, id)
@@ -770,10 +774,7 @@ func attachStatusRight(primary, secondary string) string {
 }
 
 func (d *Driver) EnsureBindings() error {
-	inSession := "#{m:" + prefix + "*,#{session_name}}"
-	binds := [][]string{
-		{"bind-key", "-n", "C-q", "if-shell", "-F", inSession, "detach-client", "send-keys C-q"},
-		{"bind-key", "-n", `C-\`, "if-shell", "-F", inSession, "detach-client", `send-keys C-\\`},
+	binds := append(backBindings(), [][]string{
 		// The editor key sat on C-o, then F3, then M-o until the action was
 		// removed; C-r opened the review the manager no longer has. A server
 		// that outlives the update still carries those bindings until they
@@ -784,10 +785,10 @@ func (d *Driver) EnsureBindings() error {
 		{"unbind-key", "-n", "F3"},
 		// Restore the standard fallback when the prefix shadows a direct binding.
 		{"bind-key", "-T", "prefix", "d", "detach-client"},
-	}
+	}...)
 	if !d.owned {
 		var err error
-		binds, err = d.sharedBindings(binds)
+		binds, err = d.sharedBindings(d.socket, binds)
 		if err != nil || len(binds) == 0 {
 			return err
 		}
@@ -808,11 +809,13 @@ func (d *Driver) EnsureBindings() error {
 // Everything else in the list rewrites configuration that belongs to the
 // operator -- an unbind-key drops a binding they may be using, and a binding
 // in the prefix table overwrites what their own config put there -- and a key
-// already bound is theirs too, however much the manager would like it. A
-// binding an earlier run installed reads as bound and is left alone, so a
-// changed binding reaches a shared server only after that key comes free.
-func (d *Driver) sharedBindings(binds [][]string) ([][]string, error) {
-	bound, running, err := d.rootKeys()
+// already bound is theirs too, however much the manager would like it. The
+// one bound key that is not theirs is the back-to-board binding an earlier
+// run installed, which is recognised (ownBackBinding) and replaced, so a
+// changed condition reaches a shared server without waiting for the key to
+// come free.
+func (d *Driver) sharedBindings(socket string, binds [][]string) ([][]string, error) {
+	bound, running, err := d.rootKeys(socket)
 	if err != nil {
 		return nil, err
 	}
@@ -826,7 +829,7 @@ func (d *Driver) sharedBindings(binds [][]string) ([][]string, error) {
 		if len(bind) < 3 || bind[0] != "bind-key" || bind[1] != "-n" {
 			continue
 		}
-		if bound[bind[2]] {
+		if line, taken := bound[bind[2]]; taken && !ownBackBinding(line) {
 			continue
 		}
 		kept = append(kept, bind)
@@ -836,18 +839,18 @@ func (d *Driver) sharedBindings(binds [][]string) ([][]string, error) {
 
 // rootKeys is every key bound in the root table, and whether a server
 // answered at all.
-func (d *Driver) rootKeys() (map[string]bool, bool, error) {
-	out, err := d.combined(d.args("list-keys", "-T", "root"))
+func (d *Driver) rootKeys(socket string) (map[string]string, bool, error) {
+	out, err := d.combined([]string{"-L", socket, "list-keys", "-T", "root"})
 	if err != nil {
 		if noServer(string(out)) {
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("tmux list-keys: %w: %s", err, strings.TrimSpace(string(out)))
 	}
-	keys := map[string]bool{}
+	keys := map[string]string{}
 	for _, line := range strings.Split(string(out), "\n") {
 		if key := rootKeyName(line); key != "" {
-			keys[key] = true
+			keys[key] = line
 		}
 	}
 	return keys, true, nil
@@ -1220,6 +1223,18 @@ func (d *Driver) AttachCommand(id string) *exec.Cmd {
 		}
 		args = append(args, ";", "if-shell", "-F", "-t", "="+session,
 			"#{==:#{session_attached},1}", selects)
+	}
+	if pane != "" {
+		// The client this attach makes is the board's: the back key detaches
+		// it, and only it, from an adopted pane (backkey.go). Said once on
+		// arrival, since the pane's own status bar is not the board's to
+		// change.
+		args = append(args, ";", "set-option", "-t", "="+session+":", "-F", clientOption, "#{client_name}")
+		if key := d.backKeyOn(target.Socket); key != "" {
+			hint := "Gate Inbox: " + key + " = back to the board"
+			args = append(args, ";", "if-shell", "-F", "#{version}",
+				"display-message -d 4000 '"+hint+"'", "display-message '"+hint+"'")
+		}
 	}
 	tmuxguard.Enforce([]string{"-L", target.Socket})
 	cmd := exec.Command(d.bin, append([]string{"-L", target.Socket}, args...)...)

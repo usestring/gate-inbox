@@ -287,7 +287,12 @@ func (m *Model) withWorkingRow(rows []string, width int) []string {
 	}
 	sess, _ := m.selected()
 	frame := statusTint(status.Working, startupFrames[m.startupPhase%len(startupFrames)])
-	text := statusLabel(sess.Status) + " · " + relSince(lastActivity(sess))
+	// A muted row wears the mute mark here as it does everywhere else; a
+	// spinner beside "muted" would say the row is two things at once.
+	if sess.Muted {
+		frame = m.displayStatusText(sess, m.displayStatusGlyph(sess))
+	}
+	text := m.displayStatusLabel(sess) + " · " + relSince(lastActivity(sess))
 	row := frame + " " + mutedStyle.Render(textfmt.TruncateWidth(text, max(1, width-2), "…"))
 	return append(rows[:len(rows):len(rows)], row)
 }

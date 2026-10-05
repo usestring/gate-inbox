@@ -69,10 +69,32 @@ func (f statusFilter) matches(st string) bool {
 // a parent working away while its child sits on a question is exactly the
 // case w exists to surface. It was dropped, and the question with it.
 func (m *Model) attentionViaChild(sess store.Session) bool {
-	if m.statusFilter != statusFilterAttention {
+	// A muted session is off w with everything under it, the same as it is
+	// off triage; see persistentmute.go.
+	if m.statusFilter != statusFilterAttention || sess.Muted {
 		return false
 	}
 	return m.extAttention[sess.ID].NeedsPerson || m.isDiedWhileClosed(sess) || m.hasDescendantNeedingSomebody(sess.ID)
+}
+
+// inMutedBranch reports a session that is muted or hangs under a muted one.
+// The status filter drops the whole branch: a kept child whose parent is gone
+// paints un-nested at the top level, which would put the muted work back on
+// w by another route.
+func inMutedBranch(sess store.Session, byID map[string]store.Session) bool {
+	seen := map[string]bool{}
+	for !seen[sess.ID] {
+		if sess.Muted {
+			return true
+		}
+		seen[sess.ID] = true
+		parent, ok := byID[sess.ParentID]
+		if !ok {
+			return false
+		}
+		sess = parent
+	}
+	return false
 }
 
 // hasDescendantNeedingSomebody reports a descendant of this session that
@@ -82,7 +104,7 @@ func (m *Model) hasDescendantNeedingSomebody(parentID string) bool {
 		return false
 	}
 	for _, sess := range m.sessions {
-		if sess.ParentID != parentID || sess.Archived {
+		if sess.ParentID != parentID || sess.Archived || sess.Muted {
 			continue
 		}
 		if m.needsPerson(sess) || m.isDiedWhileClosed(sess) || m.hasDescendantNeedingSomebody(sess.ID) {

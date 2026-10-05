@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -94,9 +95,57 @@ func TestTheAccountCardRepointsADeadRow(t *testing.T) {
 	if m.account.names[m.account.index] != "BOB2" {
 		t.Fatalf("the card reopened on %q", m.account.names[m.account.index])
 	}
+	// Every choice is on the card, with the cursor on the row's own account.
+	card := ansi.Strip(m.viewAccountSwitch())
+	for _, want := range []string{"account    " + ownLogin, "ALICE1", "❯ BOB2"} {
+		if !strings.Contains(card, want) {
+			t.Errorf("the card does not list %q:\n%s", want, card)
+		}
+	}
 	m.submitAccountSwitch()
 	if !strings.Contains(m.errBar.text, "already on BOB2") {
 		t.Errorf("errBar = %q", m.errBar.text)
+	}
+}
+
+func TestAccountCardKeepsEverySelectionAndControlsVisible(t *testing.T) {
+	m := buildModel(t)
+	m.mode = modeAccount
+	m.account.sess = store.Session{ID: "account-window", Name: "worker", Tool: "claude"}
+	for i := range 30 {
+		m.account.names = append(m.account.names, fmt.Sprintf("ACCOUNT%02d", i))
+	}
+	for _, width := range []int{40, 100} {
+		for _, height := range []int{12, 24, 50} {
+			for _, errText := range []string{"", "account listing failed"} {
+				t.Run(fmt.Sprintf("%dx%d/error=%t", width, height, errText != ""), func(t *testing.T) {
+					m.width, m.height = width, height
+					m.errBar.text = errText
+					m.account.index = 0
+					for range len(m.account.names) + 1 {
+						card := m.viewAccountSwitch()
+						if got := len(strings.Split(card, "\n")); got != height {
+							t.Fatalf("card height = %d, want %d", got, height)
+						}
+						frame, _ := m.paint()
+						frame = ansi.Strip(frame)
+						for _, want := range []string{"❯ " + m.account.names[m.account.index], "account", "takes effect", "switch", "cancel", "╰", errText} {
+							if !strings.Contains(frame, want) {
+								t.Fatalf("selection %d hides %q:\n%s", m.account.index, want, frame)
+							}
+						}
+						if height == 50 {
+							for _, name := range m.account.names {
+								if !strings.Contains(frame, name) {
+									t.Fatalf("tall card hides %q", name)
+								}
+							}
+						}
+						m.handleAccountKey(tea.KeyPressMsg{Code: 'j', Text: "j"})
+					}
+				})
+			}
+		}
 	}
 }
 

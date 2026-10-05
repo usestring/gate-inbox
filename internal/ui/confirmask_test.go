@@ -230,3 +230,44 @@ func TestConfirmAlwaysIsIgnoredWhereThereIsNoSetting(t *testing.T) {
 		t.Fatal("A answered a restore, which has no don't-ask-again")
 	}
 }
+
+func TestFocusedArchiveAlwaysRequiresConfirmation(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), "")
+	sessions, err := m.store.ListSessions(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("got %d sessions, want 1", len(sessions))
+	}
+	sess := sessions[0]
+	if _, cmd := m.archiveFocused(sess); cmd != nil {
+		m.applyCmd(t, cmd)
+	}
+	if m.mode != modeConfirmDelete || m.confirm.fromFocus != sess.ID {
+		t.Fatal("focused archive did not open its confirmation")
+	}
+	if strings.Contains(cardText(m), "don't ask again") {
+		t.Fatal("focused archive offers don't ask again")
+	}
+	if _, cmd := m.handleConfirmKey(key("A")); cmd != nil {
+		m.applyCmd(t, cmd)
+	}
+	if m.mode != modeConfirmDelete || archived(t, m, "alpha") {
+		t.Fatal("A answered the focused archive confirmation")
+	}
+	if got := storedArchiveConfirm(m.store); got != archiveConfirmAlways {
+		t.Fatalf("A changed archive_confirm to %q", got)
+	}
+	if err := m.store.SetSetting(archiveConfirmSetting, archiveConfirmNever); err != nil {
+		t.Fatal(err)
+	}
+	m.mode, m.confirm = modeList, confirmTarget{}
+	if _, cmd := m.archiveFocused(sess); cmd != nil {
+		m.applyCmd(t, cmd)
+	}
+	if m.mode != modeConfirmDelete || m.skipsConfirm() {
+		t.Fatal("focused archive was silenced by the list's setting")
+	}
+}

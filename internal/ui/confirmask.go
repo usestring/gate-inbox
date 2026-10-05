@@ -66,7 +66,7 @@ func (m *Model) confirmSilenceable() bool {
 	}
 	switch m.confirm.action {
 	case actionArchive:
-		return !m.confirm.isGroup && len(m.confirm.sessions) > 0
+		return m.confirm.fromFocus == "" && !m.confirm.isGroup && len(m.confirm.sessions) > 0
 	case actionRestart:
 		return !m.confirm.isGroup && len(m.confirm.sessions) == 1
 	case actionDelete:

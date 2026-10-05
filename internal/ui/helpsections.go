@@ -210,6 +210,7 @@ func helpSections() []helpSection {
 		}},
 		{title: "advanced: a confirmation", rows: []helpRow{
 			bound(keymap.ContextConfirm, keymap.Confirm, "go ahead"),
+			bound(keymap.ContextConfirm, keymap.ConfirmAlways, "go ahead, and stop asking about it"),
 			bound(keymap.ContextConfirm, keymap.Toggle, "answer the tick a destructive dialog asks for"),
 			lit("k", "keep the children rather than ending them with the parent"),
 			lit("esc", "any other key cancels"),

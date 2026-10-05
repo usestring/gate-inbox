@@ -481,6 +481,8 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldPalette, "colour", normalizePalette(m.settings.palette)) + "\n" +
 		row(settingsFieldGlyphs, "status marks", normalizeGlyphs(m.settings.glyphs)+"  "+statusGlyph("waiting")+statusGlyph("finished")+statusGlyph("errored")) + "\n" +
 		row(settingsFieldArchiveConfirm, "ask before killing", normalizeArchiveConfirm(m.settings.archiveConfirm)) + "\n" +
+		row(settingsFieldDeleteConfirm, "ask before deleting", normalizeConfirmAsk(m.settings.deleteConfirm)) + "\n" +
+		row(settingsFieldRestartConfirm, "ask before restarting", normalizeConfirmAsk(m.settings.restartConfirm)) + "\n" +
 		row(settingsFieldListSort, "sort", normalizeListSort(m.settings.listSort)) + "\n" +
 		row(settingsFieldChrome, "key hints", normalizeChrome(m.settings.chrome)) + "\n" +
 		row(settingsFieldLeave, "on leaving a session", normalizeLeaveMode(m.settings.leaveMode)) + "\n" +

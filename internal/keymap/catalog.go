@@ -99,6 +99,10 @@ const (
 	Confirm  Action = "confirm"
 	Cancel   Action = "cancel"
 	Toggle   Action = "toggle"
+	// ConfirmAlways is Confirm with the asking turned off: it answers the
+	// dialog the same way and writes the action's own "never" setting, so the
+	// next one of its kind is answered without a dialog.
+	ConfirmAlways Action = "confirm_always"
 	PageUp   Action = "page_up"
 	PageDown Action = "page_down"
 	Top      Action = "top"
@@ -264,4 +268,5 @@ var Catalog = []Binding{
 	// ---- a confirmation ----
 	{ContextConfirm, Toggle, []string{" ", "space"}, "answer the tick", false},
 	{ContextConfirm, Confirm, []string{"y", "enter"}, "go ahead", true},
+	{ContextConfirm, ConfirmAlways, []string{"A", "shift+a"}, "go ahead and stop asking", false},
 }

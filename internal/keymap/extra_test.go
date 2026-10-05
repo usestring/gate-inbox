@@ -147,18 +147,18 @@ func TestOverridesForAnAbsentExtensionSurviveARebind(t *testing.T) {
 func TestAliasCarriesAnOldActionsKeys(t *testing.T) {
 	extra := []Binding{{Context: ContextList, Action: "items_view", Keys: []string{"C"}, Label: "only items"}}
 	aliases := []Alias{{Context: ContextList, From: "items_filter", To: "items_view"}}
-	m, problems := NewWithAliases(Overrides{ContextList: {"items_filter": {"U"}}}, extra, aliases)
+	m, problems := NewWithAliases(Overrides{ContextList: {"items_filter": {"Q"}}}, extra, aliases)
 	if len(problems) != 1 || problems[0].Action != "items_filter" || !strings.Contains(problems[0].Reason, "renamed to items_view") {
 		t.Fatalf("problems: %v, want the old name reported as renamed", problems)
 	}
-	if action, _ := m.Action(ContextList, "U"); action != "items_view" {
-		t.Fatalf("U answers %q, want the old name's key on the new action", action)
+	if action, _ := m.Action(ContextList, "Q"); action != "items_view" {
+		t.Fatalf("Q answers %q, want the old name's key on the new action", action)
 	}
 	if _, ok := m.Action(ContextList, "C"); ok {
 		t.Fatal("the new action kept its default beside the carried key")
 	}
 	saved := m.Overrides()[ContextList]
-	if _, kept := saved["items_filter"]; kept || !sameKeys(saved["items_view"], []string{"U"}) {
+	if _, kept := saved["items_filter"]; kept || !sameKeys(saved["items_view"], []string{"Q"}) {
 		t.Fatalf("saved = %v, want the keys under the new name alone", saved)
 	}
 	// A rebind resolves against the same aliases.
@@ -175,14 +175,14 @@ func TestAliasCarriesAnOldActionsKeys(t *testing.T) {
 func TestAliasLosesToTheNewNamesOwnOverride(t *testing.T) {
 	extra := []Binding{{Context: ContextList, Action: "items_view", Keys: []string{"C"}, Label: "only items"}}
 	aliases := []Alias{{Context: ContextList, From: "items_filter", To: "items_view"}}
-	m, problems := NewWithAliases(Overrides{ContextList: {"items_filter": {"U"}, "items_view": {"B"}}}, extra, aliases)
+	m, problems := NewWithAliases(Overrides{ContextList: {"items_filter": {"Q"}, "items_view": {"B"}}}, extra, aliases)
 	if len(problems) != 1 || !strings.Contains(problems[0].Reason, "whose own binding is used") {
 		t.Fatalf("problems: %v", problems)
 	}
 	if action, _ := m.Action(ContextList, "B"); action != "items_view" {
 		t.Fatalf("B answers %q", action)
 	}
-	if _, ok := m.Action(ContextList, "U"); ok {
+	if _, ok := m.Action(ContextList, "Q"); ok {
 		t.Fatal("the old name's key was bound as well")
 	}
 }

@@ -207,7 +207,6 @@ func TestUndoRefusesWithNothingArchived(t *testing.T) {
 // The footer names undo's key only once there is something to take back.
 func TestTheFooterNamesUndoOnlyAfterAnArchive(t *testing.T) {
 	m := buildModel(t)
-	m.keys, _ = m.km().Rebind(keymap.ContextList, keymap.UndoArchive, []string{"U"})
 	dir := t.TempDir()
 	createSession(t, m, "alpha", dir, "")
 	createSession(t, m, "beta", dir, "")

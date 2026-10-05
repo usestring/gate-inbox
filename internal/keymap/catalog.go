@@ -167,9 +167,7 @@ var Catalog = []Binding{
 	{ContextList, Archive, []string{"x"}, "kill it and file the row", false},
 	{ContextList, ArchiveAll, []string{}, "kill every session listed", false},
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
-	// No key: U is free on the list today but an extension may hold it, and
-	// a catalog default would take it away. Quick actions runs it.
-	{ContextList, UndoArchive, []string{}, "bring back what the last kill filed away", false},
+	{ContextList, UndoArchive, []string{"U", "shift+u"}, "bring back what the last kill filed away", false},
 	{ContextList, Dismiss, []string{"."}, "skip", false},
 	{ContextList, Priority, []string{"p"}, "cycle priority: urgent → high → medium → low → none", false},
 	{ContextList, Mute, []string{"M", "shift+m"}, "mute / unmute: keep it out of triage until unmuted", false},

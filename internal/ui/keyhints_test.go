@@ -82,12 +82,14 @@ func TestAnUnboundWayOutNamesQuickActionsOrNothing(t *testing.T) {
 }
 
 // The undo had a hint and no binding: U was compared against the action
-// name, so it never fired. As an action it answers whatever key it is given.
-func TestUndoArchiveAnswersTheKeyItIsBoundTo(t *testing.T) {
+// name, so it never fired. As an action it answers U by default, and a
+// rebind moves the key and the hint together.
+func TestUndoArchiveAnswersItsKey(t *testing.T) {
 	m := buildModel(t)
-	createSession(t, m, "alpha", t.TempDir(), "")
+	dir := t.TempDir()
+	createSession(t, m, "alpha", dir, "")
+	createSession(t, m, "beta", dir, "")
 	m.archiveConfirm = archiveConfirmNever
-	m.keys, _ = m.km().Rebind(keymap.ContextList, keymap.UndoArchive, []string{"U"})
 	m.selectSessionRow(t, "alpha")
 	if _, cmd := m.archiveSelected(); cmd != nil {
 		m.applyCmd(t, cmd)
@@ -100,6 +102,15 @@ func TestUndoArchiveAnswersTheKeyItIsBoundTo(t *testing.T) {
 	}
 	if archived(t, m, "alpha") {
 		t.Fatalf("U did not bring alpha back; bar says %q", m.errBar.text)
+	}
+
+	m.keys, _ = m.km().Rebind(keymap.ContextList, keymap.UndoArchive, []string{"Q"})
+	m.selectSessionRow(t, "beta")
+	if _, cmd := m.archiveSelected(); cmd != nil {
+		m.applyCmd(t, cmd)
+	}
+	if !strings.Contains(m.errBar.text, "Q undoes it") || strings.Contains(m.errBar.text, "U undoes") {
+		t.Errorf("notice %q does not follow the rebind to Q", m.errBar.text)
 	}
 }
 

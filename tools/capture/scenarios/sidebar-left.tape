@@ -2,12 +2,12 @@
 # Settings' "sidebar" row moves it to the left as it is stepped -- the board
 # behind the panel is the preview -- and closing Settings keeps it there. A
 # focused session then draws its ring on the right with the rail to its left,
-# and Left at the empty prompt is the arrow that returns to the list.
+# and either prompt-edge arrow returns to the list.
 #
 # The sidebar row is the eighth in Settings, so seven Downs reach it. The
 # claude row is found by searching for its tool rather than by counting rows,
-# since the live poll reorders and unfolds the tree under a blind Down. Left
-# only leaves at the head of the prompt, so record with the claude session
+# since the live poll reorders and unfolds the tree under a blind Down. Either
+# prompt-edge arrow leaves, so record with the claude session
 # resting on its bare prompt. Linear is switched off so the branch's ticket
 # does not draw a work row under the session:
 #

@@ -72,6 +72,10 @@ type Options struct {
 	// written into the file, and a first run leaves their keys out of the
 	// starting set it writes. Run refuses an entry that could not bind.
 	SnippetDefaults []Snippet
+	// RestartFlagDefaults are restart_flags.json entries this build
+	// supplies, merged by key under the operator's own file every time it
+	// is loaded. Same overlay rule as SnippetDefaults.
+	RestartFlagDefaults []RestartFlag
 }
 
 // Name is the command this program is run as.
@@ -115,6 +119,9 @@ func Run(ctx context.Context, args []string, opts Options) error {
 	}
 
 	if err := useSnippetDefaults(opts.SnippetDefaults); err != nil {
+		return err
+	}
+	if err := useRestartFlagDefaults(opts.RestartFlagDefaults); err != nil {
 		return err
 	}
 

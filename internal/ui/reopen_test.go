@@ -191,7 +191,7 @@ func TestEachOutsidePanesSettingValue(t *testing.T) {
 // it again while it runs.
 func TestTheScanRemembersALeftOutPane(t *testing.T) {
 	m := buildModel(t)
-	socket, _ := adoptForeignPane(t, m, "left", "left", status.Idle)
+	socket, pane := adoptForeignPane(t, m, "left", "left", status.Idle)
 	m.applyCmd(t, nil)
 	if n := m.leaveOutPanes(m.adoptedCandidates()); n != 1 {
 		t.Fatalf("left out %d panes, want 1", n)
@@ -210,7 +210,16 @@ func TestTheScanRemembersALeftOutPane(t *testing.T) {
 		rejected: map[string]int{},
 		ignored:  loadPaneDecisions(m.store).ignoredPaneKeys(),
 	}
-	taken, err := run.take(adopt.Panes(socket), adopt.NewProcTable())
+	// Only the left-out pane: marking the adopted row's pane read it over a
+	// control client, whose anchor session runs cat, which is this test's
+	// claude.
+	var candidates []adopt.Candidate
+	for _, candidate := range adopt.Panes(socket) {
+		if candidate.PaneID == pane {
+			candidates = append(candidates, candidate)
+		}
+	}
+	taken, err := run.take(candidates, adopt.NewProcTable())
 	if err != nil {
 		t.Fatalf("take: %v", err)
 	}

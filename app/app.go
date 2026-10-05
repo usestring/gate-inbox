@@ -430,7 +430,7 @@ func withConfigDir(command func(args []string, sessionID, configDir string) erro
 }
 
 // callerID is the board row a subcommand speaks as: the one a launch put in
-// the environment, or, for a claude the board adopted rather than launched,
+// the environment, or, for an agent the board adopted rather than launched,
 // the one its pane's adoption marker names. Without it an adopted agent
 // could not send, read or answer as itself from its shell.
 func callerID(configDir string) string {

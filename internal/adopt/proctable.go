@@ -85,6 +85,35 @@ func (t *ProcTable) PIDs(pid int32) []int {
 	return pids
 }
 
+// ProgramPID is the process in pid's tree, to the depth Cmdlines walks, that
+// runs command's program, judged the way Identify judges a pane. Of several,
+// it is the one nearest pid: an agent CLI shipped as a script runs its real
+// binary, under the same name, as its own child, and everything the agent
+// starts is below the outer one.
+func (t *ProcTable) ProgramPID(pid int32, command string) (int, bool) {
+	program := programName(command)
+	if program == "" || pid <= 0 {
+		return 0, false
+	}
+	if t == nil {
+		t = NewProcTable()
+	}
+	level := []int32{pid}
+	for depth := 0; depth <= treeDepth && len(level) > 0; depth++ {
+		var next []int32
+		for _, p := range level {
+			if proc, err := process.NewProcess(p); err == nil {
+				if line, err := proc.Cmdline(); err == nil && namesProgram([]string{line}, program) {
+					return int(p), true
+				}
+			}
+			next = append(next, t.children[p]...)
+		}
+		level = next
+	}
+	return 0, false
+}
+
 // ForegroundCommand is the pane's foreground command with its arguments, when
 // tmux reports only an interpreter such as node, so a shebang CLI can be
 // identified by its script path while descendants the agent started stay out

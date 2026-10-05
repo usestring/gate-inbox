@@ -168,6 +168,11 @@ func (s *Sessions) BoardAnswer(targetID, reply string) (answered AnsweredQuestio
 	if err != nil {
 		return AnsweredQuestion{}, err
 	}
+	// The board answers an adopted pane's dialog as it does a started one's,
+	// so this process is told where the pane is first; see reach.
+	if err := runtime.reach(target); err != nil {
+		return AnsweredQuestion{}, err
+	}
 	return runtime.answer(target, reply, "board", "", nil)
 }
 

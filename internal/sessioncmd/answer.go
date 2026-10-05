@@ -322,5 +322,12 @@ func (r *runtime) child(caller store.Session, targetID string) (store.Session, e
 			"session %s was spawned by session %s, not by this one; only the session that spawned "+
 				"a child answers it", target.ID, owner)
 	}
+	// An adopted child's pane is not gi_<id> on the board's server, and only
+	// the board holds where it is in memory. Every caller of this goes on to
+	// capture and key the child's screen, so a child placed under its parent
+	// from outside the board would otherwise read as having no pane at all.
+	if err := r.reach(target); err != nil {
+		return store.Session{}, err
+	}
 	return target, nil
 }

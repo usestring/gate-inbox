@@ -1,10 +1,14 @@
 package ui
 
 import (
+	"os"
 	"testing"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/adopt"
+	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
@@ -133,5 +137,90 @@ func TestManagedPaneRefusedWhenItsRowPostdatesTheScansRows(t *testing.T) {
 	}
 	if len(rows) != 2 {
 		t.Errorf("board holds %d rows, want 2 (the spawn and the foreign pane)", len(rows))
+	}
+}
+
+func TestKnownPaneTracksItsForegroundHarness(t *testing.T) {
+	for _, tc := range []struct {
+		name, command, want     string
+		fresh, shared, launched bool
+	}{
+		{name: "changed harness", command: "codex", want: "codex"},
+		{name: "same harness", command: "opencode", want: "opencode"},
+		{name: "shell with stale agent output", command: "bash", want: "opencode"},
+		{name: "exit after the scan", command: "codex", want: "codex", fresh: true},
+		{name: "executable shared by two blocks", command: "codex", want: "opencode", shared: true},
+		{name: "launch window closed", command: "codex", want: "opencode", launched: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := newFixtureStore(t)
+			sess := store.Session{ID: "swap", Name: "swap", Tool: "opencode", AgentSessionID: "old-conversation", Status: status.Errored}
+			if err := st.CreateSession(sess); err != nil {
+				t.Fatal(err)
+			}
+			socket := windowFixture(t, tmux.SessionName(sess.ID), 2, t.TempDir())
+			driver := newTestDriver(t, socket)
+			manager := hooks.NewManager(t.TempDir())
+			if err := os.MkdirAll(manager.Dir(), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(manager.ExitFile(sess.ID), []byte("0"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			run := &adoptRun{stor: st, hooks: manager, driver: driver, agentTools: map[string]bool{"opencode": true, "codex": true}, tools: []adopt.Tool{{Name: "opencode", Command: "opencode"}, {Name: "codex", Command: "codex"}}}
+			if tc.shared {
+				run.tools = append(run.tools, adopt.Tool{Name: "codex-fast", Command: "codex --fast"})
+			}
+			if tc.launched {
+				run.launched = map[string]bool{tmux.SessionName(sess.ID): true}
+			}
+			candidates := adopt.Panes(socket)
+			if len(candidates) != 2 {
+				t.Fatalf("panes = %d, want 2", len(candidates))
+			}
+			candidates[0].Command = tc.command
+			candidates[1].Command = "opencode"
+			observedAfter := time.Now()
+			if tc.fresh {
+				observedAfter = observedAfter.Add(-time.Hour)
+			}
+			if err := run.reconcileTools([]store.Session{sess}, candidates, nil, observedAfter); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, exists := manager.ReadExit(sess.ID); exists != (tc.command == "bash" || tc.fresh || tc.launched) {
+				t.Fatal("historical exit did not follow foreground liveness")
+			}
+			got, err := st.Get(sess.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Tool != tc.want {
+				t.Fatalf("tool = %q, want %q", got.Tool, tc.want)
+			}
+			if tc.want == "codex" {
+				if got.AgentSessionID != "" {
+					t.Fatal("old harness conversation survived")
+				}
+				// No process in the fixture runs codex, so the cutoff falls
+				// back to the scan rather than keeping the old launch clock.
+				if !got.AgentLaunchedAt.Equal(observedAfter) {
+					t.Fatalf("launch clock = %v, want the scan's %v", got.AgentLaunchedAt, observedAfter)
+				}
+				cfg, err := config.Default()
+				if err != nil {
+					t.Fatal(err)
+				}
+				engine, err := status.NewEngine(cfg)
+				if err != nil {
+					t.Fatal(err)
+				}
+				pane := "Error: previous tool output\n• Working (12s • esc to interrupt)\n\n› Ask Codex to do anything"
+				if state, _ := engine.Match(got.Tool, pane); state != status.Working {
+					t.Fatalf("state = %q", state)
+				}
+			} else if got.AgentSessionID != sess.AgentSessionID {
+				t.Fatal("unchanged harness lost its conversation")
+			}
+		})
 	}
 }

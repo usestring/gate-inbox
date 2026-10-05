@@ -304,6 +304,23 @@ func TestProcTableFindsADescendant(t *testing.T) {
 	}
 }
 
+// A shebang CLI reads to tmux as its interpreter. The foreground leader's own
+// argv still names the script, and that alone identifies the pane.
+func TestForegroundCommandNamesTheInterpretedScript(t *testing.T) {
+	dir := t.TempDir()
+	socket := paneServer(t, dir, fakeAgent(t, "someagent"))
+	pane := waitForPane(t, socket, "❯")[0]
+	if !interpreters[filepath.Base(pane.Command)] {
+		t.Skipf("tmux reported %q rather than the interpreter", pane.Command)
+	}
+
+	pane.Command = NewProcTable().ForegroundCommand(pane)
+	pane.PID = 0
+	if _, ok := Identify(pane, []Tool{{Name: "someagent", Command: "someagent"}}, "", nil); !ok {
+		t.Fatalf("foreground command %q did not identify the interpreted agent", pane.Command)
+	}
+}
+
 // A pane is identified by the program its processes run, not by an argument
 // that happens to end in the tool's name. The short tool names are the ones
 // that bite -- "pi" is a directory component on any Raspberry Pi box, and the

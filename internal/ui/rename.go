@@ -149,6 +149,7 @@ func (m *Model) applyRename() (tea.Model, tea.Cmd) {
 		if toolChanged {
 			m.sessions[index].Tool = tool
 			m.sessions[index].AgentSessionID = ""
+			m.sessions[index].RetiredAgentSessionID = ""
 		}
 	}
 	m.relabelSession(m.rename.sessID)

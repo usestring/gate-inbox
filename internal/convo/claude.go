@@ -457,6 +457,14 @@ func parseTail(raw []byte, partial bool) Conversation {
 			if prompt == "" || (len(convo.Prompts) > 0 && convo.Prompts[len(convo.Prompts)-1] == prompt) {
 				continue
 			}
+			// Claude Code records whatever was last typed, the board's own
+			// messages included: a cache keep-warm or another agent's note is
+			// not what the session is about, and fed to the drift rule it
+			// renamed rows after the envelope ("cache-warden extension
+			// running board sent <date>").
+			if band.Has(prompt) {
+				continue
+			}
 			convo.Prompts = append(convo.Prompts, prompt)
 			if len(convo.Prompts) > promptCount {
 				convo.Prompts = convo.Prompts[1:]

@@ -1,4 +1,4 @@
-39 commands and verbs
+40 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -376,3 +376,8 @@ $ gate-inbox priority -h
 exit 0
 --- stdout
 usage: gate-inbox priority <urgent|high|medium|low|none|-1..3>
+
+$ gate-inbox claude-hooks -h
+exit 0
+--- stdout
+usage: gate-inbox claude-hooks [install | uninstall [--all] | status]

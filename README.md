@@ -50,7 +50,7 @@ Gate Inbox reads the panes; it does not sit between you and the model.
 | keeps running where it is, in its own window | is ended once idle and resumed on the same conversation as a board session |
 | has none of the board's MCP tools (spawn, message, tasks) | gets them |
 | can't be reached by other sessions or the CLI (`send`, `read`, `answer`, `wait`, `kill`) | can be |
-| gets no guaranteed hook status: questions and permission prompts are read off the screen | reports status through Claude Code's hooks |
+| reports status through the hooks the board registers in your Claude Code user settings (Claude Code only) | reports status through the hooks it is launched with |
 | lacks the `GATE_INBOX_*` environment, extension settings and a fresh account token | gets all three |
 | can't be forked, migrated, restarted or revived without a conversation id | can, on its own conversation |
 | doesn't get the back-to-board keys or the pane's title and colours | gets them |

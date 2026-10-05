@@ -111,4 +111,5 @@ bottom = ["G", "end"]  # the bottom
 [confirm]
 toggle = [" ", "space"]  # answer the tick
 confirm = ["y", "enter"]  # go ahead (required)
+confirm_always = ["A", "shift+a"]  # go ahead and stop asking
 

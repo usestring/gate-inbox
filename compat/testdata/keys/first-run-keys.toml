@@ -121,5 +121,6 @@
 # bottom      = ["G", "end"]  # the bottom
 
 # [confirm]
-# toggle  = [" ", "space"]  # answer the tick
-# confirm = ["y", "enter"]  # go ahead (cannot be unbound)
+# toggle         = [" ", "space"]  # answer the tick
+# confirm        = ["y", "enter"]  # go ahead (cannot be unbound)
+# confirm_always = ["A", "shift+a"]  # go ahead and stop asking

@@ -163,3 +163,27 @@ func (t *ProcTable) walk(pid int32, visit func(int32)) {
 	}
 	descend(pid, 0)
 }
+
+// ancestorDepth bounds the walk up from a command: an agent's Bash tool puts
+// a shell or two between it and the agent, and a walk that reached init
+// would have long since passed anything worth finding.
+const ancestorDepth = 8
+
+// Ancestors is pid's parent, its parent and so on, nearest first, up to
+// ancestorDepth of them. It reads only that chain, not the whole table.
+func Ancestors(pid int32) []int {
+	var pids []int
+	for len(pids) < ancestorDepth {
+		proc, err := process.NewProcess(pid)
+		if err != nil {
+			break
+		}
+		ppid, err := proc.Ppid()
+		if err != nil || ppid <= 1 {
+			break
+		}
+		pids = append(pids, int(ppid))
+		pid = ppid
+	}
+	return pids
+}

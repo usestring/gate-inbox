@@ -92,23 +92,23 @@ const (
 // Close wherever the screen is, and a cursor step is CursorUp on all of
 // them. The context is what separates them.
 const (
-	Close    Action = "close"
-	Refresh  Action = "refresh"
-	Rescind  Action = "rescind_submission"
-	Fold     Action = "fold"
-	Confirm  Action = "confirm"
-	Cancel   Action = "cancel"
-	Toggle   Action = "toggle"
+	Close   Action = "close"
+	Refresh Action = "refresh"
+	Rescind Action = "rescind_submission"
+	Fold    Action = "fold"
+	Confirm Action = "confirm"
+	Cancel  Action = "cancel"
+	Toggle  Action = "toggle"
 	// ConfirmAlways is Confirm with the asking turned off: it answers the
 	// dialog the same way and writes the action's own "never" setting, so the
 	// next one of its kind is answered without a dialog.
 	ConfirmAlways Action = "confirm_always"
-	PageUp   Action = "page_up"
-	PageDown Action = "page_down"
-	Top      Action = "top"
-	Bottom   Action = "bottom"
-	More     Action = "more"
-	TickAll  Action = "tick_all"
+	PageUp        Action = "page_up"
+	PageDown      Action = "page_down"
+	Top           Action = "top"
+	Bottom        Action = "bottom"
+	More          Action = "more"
+	TickAll       Action = "tick_all"
 	// ToggleChrome hides the footer and brings it back. It is the chrome
 	// setting's "never" under a key, for an operator who wants the rows
 	// for a moment rather than for good.

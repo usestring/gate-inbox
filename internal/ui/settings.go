@@ -130,6 +130,24 @@ func storedFocusOnEnter(st *store.Store) bool {
 	return chosen != "attach"
 }
 
+// claudeSetupSwitch reads the Settings half of the Claude Code setup choice:
+// the hooks/global-hooks.disabled file the board's setup loop watches, the
+// same one `claude-hooks uninstall` writes. The board picks a change up
+// within seconds and adds or removes its entries to match.
+func (m *Model) claudeSetupSwitch() bool {
+	return m.hooks == nil || !m.hooks.GlobalDisabled()
+}
+
+func claudeSetupLabel(configOn, on bool) string {
+	switch {
+	case !configOn:
+		return "off in config.toml"
+	case on:
+		return "automatic"
+	}
+	return "off: entries removed"
+}
+
 func (m *Model) openSettings() {
 	if len(m.cfg.Tools) == 0 {
 		m.errBar.text = "no tools configured"
@@ -171,6 +189,7 @@ func (m *Model) openSettings() {
 		autoProceed:      m.autoProceed,
 		reopenSessions:   m.reopenSessionsMode(),
 		outsidePanes:     m.outsidePanesMode(),
+		claudeSetup:      m.claudeSetupSwitch(),
 		jevAutoSuggest:   m.jevAutoSuggest,
 		jevFinishCheck:   m.jevFinishCheck,
 		promptSuggest:    m.promptSuggest,
@@ -341,6 +360,11 @@ func (m *Model) persistSettings() tea.Cmd {
 	}
 	if err := m.store.SetSetting(outsidePanesSetting, normalizeOutsidePanes(m.settings.outsidePanes)); err != nil {
 		m.errBar.text = err.Error()
+	}
+	if m.hooks != nil && m.settings.claudeSetup != m.claudeSetupSwitch() {
+		if err := m.hooks.SetGlobalDisabled(!m.settings.claudeSetup); err != nil {
+			m.errBar.text = "saving claude code setup: " + err.Error()
+		}
 	}
 	m.persistExperiments()
 	m.jevFinishCheck = m.settings.jevFinishCheck
@@ -614,6 +638,14 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		m.settings.reopenSessions = cycleMode(reopenSessionsModes, normalizeReopenSessions(m.settings.reopenSessions), step)
 	case settingsFieldOutsidePanes:
 		m.settings.outsidePanes = cycleMode(outsidePanesModes, normalizeOutsidePanes(m.settings.outsidePanes), step)
+	case settingsFieldClaudeSetup:
+		// config.toml's false outranks the switch, so stepping it would
+		// show a choice the board does not follow.
+		if !m.cfg.ClaudeCode.SetupOn() {
+			m.errBar.text = "claude code setup is off in config.toml ([claude_code] setup = false)"
+			return nil
+		}
+		m.settings.claudeSetup = !m.settings.claudeSetup
 	}
 	return nil
 }

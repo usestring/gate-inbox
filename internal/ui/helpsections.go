@@ -138,6 +138,7 @@ func helpSections() []helpSection {
 			note("w on this key map, or settings, reopens the welcome guide"),
 			note("settings: \"on reopen\" sets what startup does with sessions that died"),
 			note("settings: \"outside panes\" sets whether adopted panes are taken over"),
+			note("settings: \"claude code setup\" keeps the board in claude's own config"),
 			note("to stop sessions: gate-inbox park, and unpark to bring them back"),
 			note("to leave for good: the README's \"Stop using it\" section"),
 		}},

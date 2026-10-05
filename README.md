@@ -264,7 +264,8 @@ directory's most recent one.
 
 **Uninstall.**
 
-1. `gate-inbox park`, then quit the board with `q`.
+1. `gate-inbox park`. In Settings (`s`), switch "claude code setup" off so the board takes its
+   hooks and MCP relay back out of your Claude Code config, then quit the board with `q`.
 2. Remove the binary: `rm "$(command -v gate-inbox)"`.
 3. Remove the config and state directory. That's `$GATE_INBOX_HOME` if you set it, otherwise
    `~/.config/gate-inbox` on Linux (`$XDG_CONFIG_HOME/gate-inbox` if that's set) and
@@ -280,8 +281,11 @@ directory's most recent one.
    its helper session. If you gave it a private tmux socket, `tmux -L <name> kill-server` does
    all of this at once.
 
-Gate Inbox writes nothing to your agent CLIs' own configuration. It hands each session its MCP
-server and hooks on the command line. The one exception is `migrate`, which leaves a
+Gate Inbox hands each session it launches its MCP server and hooks on the command line. The
+one thing it keeps in an agent CLI's own configuration is the Claude Code setup for panes it
+adopts: hook entries in `~/.claude/settings.json` and an MCP server named `gate-inbox` in
+`~/.claude.json`, added automatically and silent outside an adopted pane. Step 1 removes them,
+and so does `[claude_code] setup = false` in `config.toml`. Beyond that, `migrate` leaves a
 `*.handover.jsonl` file next to the transcript it moved, under `~/.claude/projects` or
 `~/.codex/sessions`.
 

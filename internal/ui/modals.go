@@ -491,6 +491,7 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldAutoProceed, "triage auto proceed", autoProceed) + "\n" +
 		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +
 		row(settingsFieldOutsidePanes, "outside panes", outsidePanesLabel(m.settings.outsidePanes)) + "\n" +
+		row(settingsFieldClaudeSetup, "claude code setup", claudeSetupLabel(m.cfg.ClaudeCode.SetupOn(), m.settings.claudeSetup)) + "\n" +
 		actionRow(settingsFieldJev, "JEV", m.jevSettingsSummary()) + "\n" +
 		actionRow(settingsFieldExperimental, "experimental", "features (default off)") + "\n" +
 		actionRow(settingsFieldSnippets, "snippets", "edit quick replies") + "\n" +

@@ -360,6 +360,20 @@ type HogRule struct {
 	For             Duration `toml:"for"`
 }
 
+// ClaudeCode configures what the board keeps in the operator's own Claude Code
+// config, as opposed to the per-session config a launch passes.
+type ClaudeCode struct {
+	// Setup keeps Gate Inbox's hooks and MCP relay registered in the Claude
+	// Code user config, which is what gives a claude started outside the
+	// board status and tools once it is adopted. A pointer so that absent
+	// means on: nobody has to find a command to get it. false takes the
+	// entries back out.
+	Setup *bool `toml:"setup"`
+}
+
+// SetupOn reports whether the board keeps its Claude Code entries registered.
+func (c ClaudeCode) SetupOn() bool { return c.Setup == nil || *c.Setup }
+
 // The sides the board's sidebar -- the sessions rail -- can sit on.
 const (
 	SidebarRight = "right"
@@ -410,6 +424,7 @@ type Config struct {
 	Work             Work         `toml:"work"`
 	Integrations     Integrations `toml:"integrations"`
 	Hogs             Hogs         `toml:"hogs"`
+	ClaudeCode       ClaudeCode   `toml:"claude_code"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see
@@ -885,6 +900,15 @@ const defaultConfig = `poll_interval = "2s"
 # see it that way, then leaves the rail and the counts for good.
 # [work]
 # settle_after = "24h"
+
+# Your own Claude Code config. While the board runs it keeps its hooks in
+# ~/.claude/settings.json and an MCP server named gate-inbox in ~/.claude.json
+# (or the ones under CLAUDE_CONFIG_DIR), so a claude started outside the board
+# reports status and gets the board's tools once the board adopts it. Both
+# stay silent in any session the board has not adopted. false removes them,
+# and so does switching "claude code setup" off in Settings.
+# [claude_code]
+# setup = true
 
 # The diagnostic log. It is a file log only -- this program owns the
 # terminal, so nothing is ever printed to the screen. "gate-inbox

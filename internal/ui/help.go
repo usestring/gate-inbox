@@ -571,7 +571,7 @@ func (m *Model) helpHint() [][2]string {
 		return [][2]string{{"any key", "bind it"}, {"esc", "cancel"}}
 	}
 	if m.help.clash != nil {
-		return [][2]string{{"↵/y", "move it here"}, {"esc/n", "leave both as they are"}}
+		return [][2]string{{m.keysCap(keymap.ContextConfirm, keymap.Confirm), "move it here"}, {"esc/n", "leave both as they are"}}
 	}
 	if m.help.searching {
 		return [][2]string{{"type", "search"}, {"↵", "done"}, {"↑↓", "scroll"}, {"esc", "clear"}}
@@ -837,15 +837,19 @@ func (m *Model) captureRebind(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// answerRebindClash takes the operator's answer to a clash. Moving the key
-// unbinds it from the action that held it, which the map does as part of the
-// rebind; anything but a yes or a no leaves the question up.
+// answerRebindClash takes the operator's answer to a clash. It is a
+// confirmation like any other, so yes is the confirm dialog's own binding and
+// no is the n/esc every dialog reads. Moving the key unbinds it from the
+// action that held it, which the map does as part of the rebind; anything but
+// a yes or a no leaves the question up.
 func (m *Model) answerRebindClash(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	clash := m.help.clash
-	switch msg.String() {
-	case "enter", "y":
+	if m.isAction(keymap.ContextConfirm, keymap.Confirm, msg) {
 		m.help.clash = nil
 		m.applyRebind(clash.ctx, clash.action, clash.key, clash.owner)
+		return m, nil
+	}
+	switch msg.String() {
 	case "esc", "n":
 		m.help.clash = nil
 		m.help.notes = []string{"left as it was: " + keymap.Display(clash.key) + " stays on " + string(clash.owner)}

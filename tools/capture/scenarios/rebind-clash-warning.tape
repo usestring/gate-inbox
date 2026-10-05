@@ -1,7 +1,7 @@
 # Rebinding onto a key another action already holds. The key map names the
-# holder from the live map and waits: n leaves both alone, y moves the key and
-# says which action gave it up. Here show_all_work, which ships unbound, is
-# offered x, the archive (kill) key.
+# holder from the live map and waits: n leaves both alone, y (the confirm
+# binding) moves the key and says which action gave it up. Here
+# show_all_work, which ships unbound, is offered x, the archive (kill) key.
 #
 #   tools/capture/capture.sh --scenario tools/capture/scenarios/rebind-clash-warning.tape
 

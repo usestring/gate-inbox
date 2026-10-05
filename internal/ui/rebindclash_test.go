@@ -48,7 +48,7 @@ func TestRebindingOntoATakenKeyAsksFirstAndNamesTheHolder(t *testing.T) {
 	if got := m.km().Key(keymap.ContextList, keymap.Archive); got != "x" {
 		t.Fatalf("archive lost x before the answer: now %q", got)
 	}
-	if !hintPairHas(m.helpHint(), "↵/y") || !hintPairHas(m.helpHint(), "esc/n") {
+	if !hintPairHas(m.helpHint(), "y/↵") || !hintPairHas(m.helpHint(), "esc/n") {
 		t.Errorf("the hint does not offer the answers: %v", m.helpHint())
 	}
 
@@ -94,6 +94,26 @@ func TestDecliningAClashChangesNothing(t *testing.T) {
 		if !strings.Contains(notesText(m), "x stays on archive") {
 			t.Errorf("%s: notes = %s", answer, notesText(m))
 		}
+	}
+}
+
+// Yes is the confirm dialog's binding, read from the live map: moved to o,
+// the prompt answers o, ignores y, and its footer says o.
+func TestTheClashAnswersTheConfirmBinding(t *testing.T) {
+	m := buildModel(t)
+	m.keys, _ = m.km().Rebind(keymap.ContextConfirm, keymap.Confirm, []string{"o"})
+	armOn(t, m, "show all of a session", keymap.ShowAllWork)
+	m.handleHelpKey(runeKey("x"))
+	if !hintPairHas(m.helpHint(), "o") {
+		t.Errorf("the hint = %v, want o for yes", m.helpHint())
+	}
+	m.handleHelpKey(runeKey("y"))
+	if m.help.clash == nil {
+		t.Fatal("y answered a clash after confirm moved to o")
+	}
+	m.handleHelpKey(runeKey("o"))
+	if got := m.km().Key(keymap.ContextList, keymap.ShowAllWork); got != "x" {
+		t.Errorf("o did not move x: show_all_work is on %q", got)
 	}
 }
 

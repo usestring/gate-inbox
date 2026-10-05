@@ -37,6 +37,18 @@ type helpState struct {
 	// the page is what moved and the cursor catches up instead.
 	follow bool
 	notes  []string
+	// clash holds a rebind onto a key another action on the same screen
+	// already answers to, until the operator says whether to move it.
+	clash *rebindClash
+}
+
+// rebindClash is a rebind waiting on that answer: the binding being changed,
+// the key it asked for as it will be stored, and the action holding it now.
+type rebindClash struct {
+	ctx    keymap.Context
+	action keymap.Action
+	key    string
+	owner  keymap.Action
 }
 
 // helpKeyColumn is the width the key column is padded to: the widest key in
@@ -505,8 +517,12 @@ func (m *Model) viewHelp() string {
 		// did not get. Both belong on the key map and nowhere else: a refused
 		// override is otherwise a key that does nothing with its explanation in
 		// a process nobody can see.
-		for _, note := range append(append([]string{}, m.help.notes...), m.keyProblems...) {
-			lines = append(lines, subtleStyle.Render(textfmt.TruncateWidth("· "+note, inner, "…")))
+		for i, note := range append(append([]string{}, m.help.notes...), m.keyProblems...) {
+			style := subtleStyle
+			if i == 0 && m.help.clash != nil {
+				style = errStyle
+			}
+			lines = append(lines, style.Render(textfmt.TruncateWidth("· "+note, inner, "…")))
 		}
 	}
 
@@ -553,6 +569,9 @@ func (m *Model) helpHint() [][2]string {
 	}
 	if m.help.capturing {
 		return [][2]string{{"any key", "bind it"}, {"esc", "cancel"}}
+	}
+	if m.help.clash != nil {
+		return [][2]string{{"↵/y", "move it here"}, {"esc/n", "leave both as they are"}}
 	}
 	if m.help.searching {
 		return [][2]string{{"type", "search"}, {"↵", "done"}, {"↑↓", "scroll"}, {"esc", "clear"}}
@@ -662,6 +681,9 @@ func (m *Model) handleHelpKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// rather than binding itself.
 	if m.help.capturing {
 		return m.captureRebind(msg)
+	}
+	if m.help.clash != nil {
+		return m.answerRebindClash(msg)
 	}
 	// The legend binds nothing, so its keys scroll rather than select: up
 	// and down move the page the cursor would have pulled along, and l
@@ -796,12 +818,80 @@ func (m *Model) captureRebind(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// A side-following binding is stored as the right-hand rail reads it, so
 	// a key pressed with the rail on the left is mirrored back before it is
 	// written.
-	if notes := m.rebind(row.ctx, row.action, []string{m.sideKey(row.ctx, row.action, key)}); len(notes) > 0 {
-		m.help.notes = notes
+	stored := m.sideKey(row.ctx, row.action, key)
+	if owner, taken := m.km().Action(row.ctx, stored); taken && owner != row.action {
+		// A move the map would refuse anyway -- the last key of an action the
+		// screen needs -- is refused now rather than offered and then refused.
+		if refusals := m.rebindRefusals(row.ctx, row.action, stored); len(refusals) > 0 {
+			m.help.notes = refusals
+			return m, nil
+		}
+		m.help.clash = &rebindClash{ctx: row.ctx, action: row.action, key: stored, owner: owner}
+		m.help.notes = []string{
+			keymap.Display(key) + " is already bound to " + m.actionName(row.ctx, owner),
+			"move it to " + string(row.action) + "? " + string(owner) + " loses it",
+		}
 		return m, nil
 	}
-	m.help.notes = []string{string(row.action) + " is now " + keymap.Display(key)}
+	m.applyRebind(row.ctx, row.action, stored, "")
 	return m, nil
+}
+
+// answerRebindClash takes the operator's answer to a clash. Moving the key
+// unbinds it from the action that held it, which the map does as part of the
+// rebind; anything but a yes or a no leaves the question up.
+func (m *Model) answerRebindClash(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	clash := m.help.clash
+	switch msg.String() {
+	case "enter", "y":
+		m.help.clash = nil
+		m.applyRebind(clash.ctx, clash.action, clash.key, clash.owner)
+	case "esc", "n":
+		m.help.clash = nil
+		m.help.notes = []string{"left as it was: " + keymap.Display(clash.key) + " stays on " + string(clash.owner)}
+	}
+	return m, nil
+}
+
+// applyRebind writes the binding and says what changed, naming the action
+// that gave the key up when there was one.
+func (m *Model) applyRebind(ctx keymap.Context, action keymap.Action, key string, from keymap.Action) {
+	if notes := m.rebind(ctx, action, []string{key}); len(notes) > 0 {
+		m.help.notes = notes
+		return
+	}
+	m.help.notes = []string{string(action) + " is now " + keymap.Display(key)}
+	if from != "" {
+		left := "no key"
+		if keys := m.km().Keys(ctx, from); len(keys) > 0 {
+			left = keymap.Display(keys[0])
+		}
+		m.help.notes = append(m.help.notes, string(from)+" gave it up and is now on "+left)
+	}
+}
+
+// rebindRefusals is what the map would refuse about moving action onto key,
+// asked without installing the result.
+func (m *Model) rebindRefusals(ctx keymap.Context, action keymap.Action, key string) []string {
+	_, problems := m.km().Rebind(ctx, action, []string{key})
+	var refusals []string
+	for _, problem := range problems {
+		if problem.Context == ctx && problem.Action == action {
+			refusals = append(refusals, problem.Error())
+		}
+	}
+	return refusals
+}
+
+// actionName is an action as the key map lists it: its label from the live
+// map, an extension's included, with the name the key file uses beside it.
+func (m *Model) actionName(ctx keymap.Context, action keymap.Action) string {
+	for _, binding := range m.km().Bindings(ctx) {
+		if binding.Action == action && binding.Label != "" {
+			return `"` + binding.Label + `" (` + string(action) + ")"
+		}
+	}
+	return string(action)
 }
 
 // resetSelectedBinding puts the selected action back on the keys it shipped

@@ -366,6 +366,9 @@ func (m *Model) restartSelected() (tea.Model, tea.Cmd) {
 		label:    label,
 	}
 	m.mode = modeConfirmDelete
+	if m.skipsConfirm() {
+		return m.answerConfirm()
+	}
 	return m, nil
 }
 
@@ -373,6 +376,14 @@ func (m *Model) restartSelected() (tea.Model, tea.Cmd) {
 // it was resuming is retired rather than resumed, so the agent comes back
 // with the same name, directory and group but no context to carry.
 func (m *Model) restartSession(sess store.Session) error {
+	return m.restartSessionWithFlags(sess, "")
+}
+
+// restartSessionWithFlags is restartSession carrying extra CLI flags, e.g.
+// a preset's "--chrome". The flags ride the launch command between the
+// tool's own command and the conversation id it mints, so they read as
+// options rather than as the prompt.
+func (m *Model) restartSessionWithFlags(sess store.Session, extraArgs string) error {
 	tool, ok := m.cfg.Tools[sess.Tool]
 	if !ok {
 		return fmt.Errorf("tool %s is no longer configured", sess.Tool)
@@ -383,7 +394,7 @@ func (m *Model) restartSession(sess store.Session) error {
 	if err := m.killSession(sess); err != nil {
 		return err
 	}
-	baseCommand, agentSessionID := restartLaunch(tool)
+	baseCommand, agentSessionID := restartLaunch(tool, extraArgs)
 	bind := func() error {
 		launchedAt := time.Now()
 		if err := m.store.RestartAgent(sess.ID, agentSessionID, launchedAt); err != nil {
@@ -398,15 +409,20 @@ func (m *Model) restartSession(sess store.Session) error {
 }
 
 // restartLaunch builds what a restart runs: the tool's plain launch command,
-// exactly as a brand new session gets it, plus a fresh conversation id for
+// exactly as a brand new session gets it, plus extra CLI flags when given
+// (e.g. a restart preset's "--chrome"), plus a fresh conversation id for
 // the tools that take one. Tools that mint their own id instead get nothing
 // to carry, and the poller captures what they wrote.
-func restartLaunch(tool config.Tool) (baseCommand, agentSessionID string) {
+func restartLaunch(tool config.Tool, extraArgs string) (baseCommand, agentSessionID string) {
+	base := tool.Command
+	if trimmed := strings.TrimSpace(extraArgs); trimmed != "" {
+		base += " " + trimmed
+	}
 	if tool.SessionIDFlag == "" {
-		return tool.Command, ""
+		return base, ""
 	}
 	agentSessionID = uuid.NewString()
-	return tool.Command + " " + tool.SessionIDFlag + " " + agentSessionID, agentSessionID
+	return base + " " + tool.SessionIDFlag + " " + agentSessionID, agentSessionID
 }
 
 // bindRestartLocally mirrors the store write in the loaded rows, so the list
@@ -481,6 +497,9 @@ func (m *Model) archiveSelected() (tea.Model, tea.Cmd) {
 				label:   fmt.Sprintf("delete group %s? nothing is filed in it, so it goes for good.", entry.group),
 			}
 			m.mode = modeConfirmDelete
+			if m.skipsConfirm() {
+				return m.answerConfirm()
+			}
 			return m, nil
 		}
 		// Adopted panes stay in the set here, unlike the whole-view sweep:
@@ -1220,6 +1239,10 @@ func followConfirmLabel(verb, name string, extra int, one, many string) string {
 }
 
 func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handleConfirmAnswer(msg, m.isAction(keymap.ContextConfirm, keymap.Confirm, msg))
+}
+
+func (m *Model) handleConfirmAnswer(msg tea.KeyMsg, confirmed bool) (tea.Model, tea.Cmd) {
 	// A dialog carrying a tick keeps the keys until the tick is answered, so
 	// this runs ahead of the mode bookkeeping below: neither the toggle nor
 	// a y pressed too early is an answer, and both leave the dialog up.
@@ -1230,7 +1253,16 @@ func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirm.keepChildren = !m.confirm.keepChildren
 		return m, nil
 	}
-	confirmed := m.isAction(keymap.ContextConfirm, keymap.Confirm, msg)
+	// "don't ask again" is the same answer as yes with the dialog turned off
+	// afterwards. It is offered only where the setting can take effect, so a
+	// wide answer or an act with no setting never reads the key at all.
+	always := m.confirmSilenceable() && m.isAction(keymap.ContextConfirm, keymap.ConfirmAlways, msg)
+	if always {
+		if err := m.silenceConfirm(); err != nil {
+			m.errBar.text = err.Error()
+			return m, nil
+		}
+	}
 	if m.confirm.ack != "" {
 		switch {
 		case m.isAction(keymap.ContextConfirm, keymap.Toggle, msg):
@@ -1246,7 +1278,7 @@ func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	// The card advertises its answer and n/esc; any other key leaves it up
 	// rather than dismissing a question the operator has not answered.
-	if !confirmed {
+	if !confirmed && !always {
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
@@ -1269,7 +1301,7 @@ func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeList
 		}
 	}()
-	if confirmed {
+	if confirmed || always {
 		answered = true
 		// Follow-up work a confirmed answer leaves that must not run on the
 		// event loop. Nothing the dialog offers has any: deleting a row for
@@ -1341,7 +1373,7 @@ func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.errBar.text = ""
 		case actionRestart:
 			for _, sess := range m.confirm.sessions {
-				if err := m.restartSession(sess); err != nil {
+				if err := m.restartSessionWithFlags(sess, m.confirm.restartArgs); err != nil {
 					m.reportLaunchError(err)
 					return m, nil
 				}

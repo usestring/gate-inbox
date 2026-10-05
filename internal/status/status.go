@@ -260,7 +260,16 @@ func (tr toolRules) isBusy(pane string) bool {
 	if !ok {
 		return false
 	}
+	_, footer, _ := strings.Cut(pane[len(region):], "\n")
+	if tr.busyLine.MatchString(footer) {
+		return true
+	}
 	lines := strings.Split(region, "\n")
+	for i, line := range lines {
+		if tr.inputLine != nil && tr.inputLine.MatchString(line) {
+			lines[i] = ""
+		}
+	}
 	for i := len(lines) - 1; i >= 0; i-- {
 		if !tr.busyLine.MatchString(unwrapLine(lines, i)) {
 			continue

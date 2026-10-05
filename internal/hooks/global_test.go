@@ -376,7 +376,7 @@ func newAdoptedBoard(t *testing.T) adoptedBoard {
 	b := adoptedBoard{configDir: t.TempDir()}
 	dir := t.TempDir()
 	b.bin, b.calls = filepath.Join(dir, "gate-inbox"), filepath.Join(dir, "calls")
-	writeFile(t, b.bin, "#!/bin/sh\ncat >/dev/null\necho \"$* $GATE_INBOX_SESSION_ID $GATE_INBOX_HOME\" >> '"+b.calls+"'\n")
+	writeFile(t, b.bin, "#!/bin/sh\ncat >/dev/null\necho \"$* $GATE_INBOX_SESSION_ID $GATE_INBOX_HOME $GATE_INBOX_AGENT_PID\" >> '"+b.calls+"'\n")
 	if err := os.Chmod(b.bin, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -511,7 +511,8 @@ func TestGlobalHooksStaySilentUnlessAdoptedAndAlive(t *testing.T) {
 }
 
 // In an adopted pane, with the board up, each hook hands its event to the
-// binary under the row's id and the board's home, and prints nothing itself.
+// binary under the row's id, the board's home and the claude's pid, and
+// prints nothing itself.
 func TestGlobalHooksHandAnAdoptedPaneToTheBinary(t *testing.T) {
 	b := newAdoptedBoard(t)
 	noise, _ := b.fireAll(t, adoptedEnv, direct)
@@ -520,8 +521,8 @@ func TestGlobalHooksHandAnAdoptedPaneToTheBinary(t *testing.T) {
 	}
 	log := readFile(t, b.calls)
 	for _, event := range globalEvents {
-		if !strings.Contains(log, "hook global "+event+" adopted1 "+b.configDir+"\n") {
-			t.Fatalf("%s was not handed over as adopted1 on %s:\n%s", event, b.configDir, log)
+		if !strings.Contains(log, "hook global "+event+" adopted1 "+b.configDir+" "+strconv.Itoa(os.Getpid())+"\n") {
+			t.Fatalf("%s was not handed over as adopted1's claude on %s:\n%s", event, b.configDir, log)
 		}
 	}
 	if n := strings.Count(log, "\n"); n != len(globalEvents) {
@@ -599,5 +600,102 @@ func TestAdoptedCallerWalksNoProcessesWithoutAMarker(t *testing.T) {
 	})
 	if ok {
 		t.Fatal("named a caller with no marker")
+	}
+}
+
+type steeringNote struct {
+	H struct {
+		HookEventName     string `json:"hookEventName"`
+		AdditionalContext string `json:"additionalContext"`
+	} `json:"hookSpecificOutput"`
+}
+
+func parseSteering(t *testing.T, out string) steeringNote {
+	t.Helper()
+	var note steeringNote
+	if err := json.Unmarshal([]byte(out), &note); err != nil {
+		t.Fatalf("not hook JSON: %q (%v)", out, err)
+	}
+	return note
+}
+
+// The standing instructions reach an adopted claude once: on its first
+// prompt, not its second, again for a new claude adopted into the row, and
+// again on a SessionStart, which in a running session means its context
+// was cleared, compacted or swapped.
+func TestAdoptedSteeringIsSaidOncePerAdoption(t *testing.T) {
+	m := NewManager(t.TempDir())
+	text := func() string { return "steer" }
+	say := func(event string, pid int) string { return m.AdoptedSteering(event, "adopted1", pid, text) }
+
+	note := parseSteering(t, say("UserPromptSubmit", 900))
+	if note.H.HookEventName != "UserPromptSubmit" || note.H.AdditionalContext != "steer" {
+		t.Fatalf("first prompt = %+v", note.H)
+	}
+	if out := say("UserPromptSubmit", 900); out != "" {
+		t.Fatalf("the second prompt was steered again: %q", out)
+	}
+	if out := say("UserPromptSubmit", 901); parseSteering(t, out).H.AdditionalContext != "steer" {
+		t.Fatalf("a new claude in the row was not steered: %q", out)
+	}
+	if out := say("UserPromptSubmit", 901); out != "" {
+		t.Fatalf("the new claude's second prompt was steered again: %q", out)
+	}
+	note = parseSteering(t, say("SessionStart", 901))
+	if note.H.HookEventName != "SessionStart" || note.H.AdditionalContext != "steer" {
+		t.Fatalf("SessionStart after a clear = %+v", note.H)
+	}
+	if out := say("UserPromptSubmit", 901); out != "" {
+		t.Fatalf("the prompt after SessionStart was steered again: %q", out)
+	}
+	if out := m.AdoptedSteering("UserPromptSubmit", "other1", 900, text); out == "" {
+		t.Fatal("another row shared adopted1's stamp")
+	}
+	for _, event := range []string{"PreToolUse", "Stop", "Notification"} {
+		if out := m.AdoptedSteering(event, "fresh1", 900, text); out != "" {
+			t.Fatalf("%s carried the steering: %q", event, out)
+		}
+	}
+	if m.AdoptedSteering("UserPromptSubmit", "../x", 900, text) != "" || m.AdoptedSteering("UserPromptSubmit", "fresh2", 0, text) != "" {
+		t.Fatal("steered a row that cannot be named or a claude with no pid")
+	}
+	if m.AdoptedSteering("UserPromptSubmit", "fresh3", 900, func() string { return " " }) != "" {
+		t.Fatal("an empty text was said")
+	}
+	if out := m.AdoptedSteering("UserPromptSubmit", "fresh3", 900, text); out == "" {
+		t.Fatal("an empty text used up the adoption's one telling")
+	}
+}
+
+// The steering joins whatever the launch's own prompt hook said, both notes
+// in one additionalContext, rather than one replacing the other.
+func TestAdoptedSteeringMergesWithTheLaunchNote(t *testing.T) {
+	m := NewManager(t.TempDir())
+	launch := `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"sealed by parent"}}`
+	merged := MergeHookOutputs(launch, m.AdoptedSteering("UserPromptSubmit", "adopted1", 900, func() string { return "steer" }))
+	note := parseSteering(t, merged)
+	if note.H.HookEventName != "UserPromptSubmit" || note.H.AdditionalContext != "sealed by parent\n\nsteer" {
+		t.Fatalf("merged = %+v", note.H)
+	}
+	if MergeHookOutputs(launch, "") != launch || MergeHookOutputs("", "  ") != "" {
+		t.Fatal("an empty output was not dropped from the merge")
+	}
+}
+
+// A stamp goes when its claude does, and stays while it runs, whatever the
+// board holds.
+func TestSyncAdoptedPrunesTheStampsOfExitedClaudes(t *testing.T) {
+	m := NewManager(t.TempDir())
+	text := func() string { return "steer" }
+	m.AdoptedSteering("UserPromptSubmit", "live1", os.Getpid(), text)
+	m.AdoptedSteering("UserPromptSubmit", "gone1", deadPID(t), text)
+	if err := m.SyncAdopted(nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(dirEntries(t, filepath.Join(m.Dir(), adoptedSteeringDirName)), ","); got != "/live1" {
+		t.Fatalf("stamps = %s", got)
+	}
+	if out := m.AdoptedSteering("UserPromptSubmit", "live1", os.Getpid(), text); out != "" {
+		t.Fatalf("a running claude was steered again after the board let its row go: %q", out)
 	}
 }

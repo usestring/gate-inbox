@@ -50,7 +50,7 @@ var (
 )
 
 // sessionEnv is the environment that ties a process to a live board session.
-var sessionEnv = []string{envname.SessionID, envname.Executable, envname.StatusFile, envname.ExitFile}
+var sessionEnv = []string{envname.SessionID, envname.Executable, envname.StatusFile, envname.ExitFile, envname.AgentPID}
 
 func isolate() {
 	os.Unsetenv("TMUX")

@@ -22,10 +22,10 @@ var builtinDelegation = map[string]string{
 	"opencode": "the built-in subagent tool (the general, explore and other subagents)",
 }
 
-// delegationSteering is the standing instruction for style's CLI. It is
+// DelegationSteering is the standing instruction for style's CLI. It is
 // ASCII on purpose: codex receives it as a TOML string inside a -c override,
 // and the quoting there is Go's %q, which only matches TOML for ASCII.
-func delegationSteering(style string) string {
+func DelegationSteering(style string) string {
 	builtin := builtinDelegation[style]
 	return strings.Join([]string{
 		"# Delegating work: use Gate Inbox sessions",
@@ -42,7 +42,7 @@ func delegationSteering(style string) string {
 // childDialogSteering is the standing rule that a parent owns its children's
 // dialogs. It rides every CLI's steering after the delegation section, kept
 // as its own constant so other rules land beside it rather than inside it.
-// ASCII for the same reason as delegationSteering.
+// ASCII for the same reason as DelegationSteering.
 const childDialogSteering = `# Your children's dialogs are yours
 
 When a session you created stops on a dialog, Gate Inbox relays it to you. Answer what your brief or your user's standing decisions settle. Ask your user the rest with your own question tool, copying each question and its options word for word, then reply with answer_session and relay: true. Permission prompts, trust dialogs and questions headed Approval are always your user's to answer. Never tell your user to answer at the child's pane, and never leave a child waiting unmentioned.

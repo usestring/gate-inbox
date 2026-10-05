@@ -71,9 +71,9 @@ type sideBinding struct {
 // takes ← to step in and → to fold, and the arrow still points at the pane.
 //
 // The focused prompt binding is written for the right-hand rail. On the left,
-// its horizontal keys are mirrored; outside triage, only the arrow toward the
-// rail leaves focus. In triage Left leaves and Right advances a finished
-// session, on either side.
+// its horizontal keys are mirrored; either arrow leaves at its own prompt
+// edge on either side. In triage Right advances a finished session, on
+// either side.
 //
 // Everything else horizontal is not here, on purpose. The divider's ← → move
 // it in screen columns, so they already follow what is on screen; Settings
@@ -86,7 +86,7 @@ var sideBindings = map[keymap.Context]map[keymap.Action]sideBinding{
 	keymap.ContextFocus: {
 		keymap.BackAtPrompt: {
 			written:      config.SidebarRight,
-			mirroredText: "Left at prompt's head: list; finished triage: Right next",
+			mirroredText: "Left/Right at prompt edges: list; finished triage: Right next",
 		},
 	},
 }

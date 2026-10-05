@@ -806,6 +806,7 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 	// New sessions start as starting, which attention excludes; clear so
 	// the row the form just created is on screen.
 	m.statusFilter = statusFilterAll
+	m.toolFilter = ""
 	// Set before focusing, not instead of it: this is where a focus that
 	// refuses -- a row filtered off the tree, a pane already gone -- leaves
 	// the operator, and it must not be the form.
@@ -1103,6 +1104,7 @@ func (m *Model) submitGroupForm() (tea.Model, tea.Cmd) {
 	m.showArchived = false
 	m.hideEmptyGroups = false
 	m.statusFilter = statusFilterAll
+	m.toolFilter = ""
 	m.errBar.text = ""
 	m.mode = modeList
 	m.rebuildRows()

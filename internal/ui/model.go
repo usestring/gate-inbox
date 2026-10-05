@@ -2579,6 +2579,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.refreshPromptSnips()
 
 	case attachDoneMsg:
+		m.tmux.AttachDone(msg.sessID)
 		// An agent that repainted the terminal background for itself leaves
 		// it on ours; the resume's WindowSizeMsg skips its own sync when the
 		// size is unchanged, so the detach restores the theme's here.

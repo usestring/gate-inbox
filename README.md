@@ -266,7 +266,8 @@ directory's most recent one.
 
 1. `gate-inbox park`. In Settings (`s`), switch "claude code setup" off so the board takes its
    hooks and MCP relay back out of your Claude Code config, run `gate-inbox codex-hooks
-   uninstall` to take its hooks out of your Codex config, then quit the board with `q`.
+   uninstall` to take its hooks out of your Codex config, set `[opencode] setup = false` in
+   `config.toml` so it takes its plugin out of your OpenCode config, then quit the board with `q`.
 2. Remove the binary: `rm "$(command -v gate-inbox)"`.
 3. Remove the config and state directory. That's `$GATE_INBOX_HOME` if you set it, otherwise
    `~/.config/gate-inbox` on Linux (`$XDG_CONFIG_HOME/gate-inbox` if that's set) and
@@ -287,10 +288,11 @@ things it keeps in an agent CLI's own configuration are for panes it adopts: hoo
 `~/.claude/settings.json`, silent outside an adopted pane, the two deny lists there that keep every
 Claude Code session out of Gate Inbox's sealing keys (`permissions.deny` and
 `sandbox.filesystem.denyRead`, naming only its own `channel-keys` directory), and an MCP server
-named `gate-inbox` in `~/.claude.json`, and two hook entries in `~/.codex/config.toml`, silent
-outside the board's sessions, all added automatically. Step 1 removes them, giving back the
-settings file as it was, and so do `[claude_code] setup = false` and `[codex] setup = false` in
-`config.toml`. Beyond that, `migrate` leaves a
+named `gate-inbox` in `~/.claude.json`; two hook entries in `~/.codex/config.toml`, silent
+outside the board's sessions; and a `gate-inbox-<id>.js` plugin in `~/.config/opencode/plugins`,
+silent outside an adopted pane; all added automatically. Step 1 removes them, giving back the
+settings file as it was, and so do `[claude_code] setup = false`, `[codex] setup = false` and
+`[opencode] setup = false` in `config.toml`. Beyond that, `migrate` leaves a
 `*.handover.jsonl` file next to the transcript it moved, under `~/.claude/projects` or
 `~/.codex/sessions`.
 

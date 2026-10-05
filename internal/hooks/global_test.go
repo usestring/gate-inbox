@@ -612,7 +612,8 @@ func TestAdoptedCallerNamesTheMarkedRowForTheAgentsDescendants(t *testing.T) {
 
 // Every adopted agent's marker names its row and pid in the two fields a
 // claude's always has, and an agent other than a hooks-driven claude adds its
-// tool, one word whatever the tool is called.
+// tool, one word whatever the tool is called, then the conversation its row
+// is bound to when it has one that is a single word.
 func TestSyncAdoptedMarksEveryAgentAndNamesTheOthersTool(t *testing.T) {
 	m := NewManager(t.TempDir())
 	if err := m.SyncAdopted([]AdoptedPane{
@@ -620,6 +621,9 @@ func TestSyncAdoptedMarksEveryAgentAndNamesTheOthersTool(t *testing.T) {
 		{ID: "x1", ServerPID: 10, PaneID: "%2", AgentPID: 102, Tool: "codex"},
 		{ID: "o1", ServerPID: 10, PaneID: "%3", AgentPID: 103, Tool: "opencode"},
 		{ID: "w1", ServerPID: 10, PaneID: "%4", AgentPID: 104, Tool: "my tool"},
+		{ID: "o2", ServerPID: 10, PaneID: "%5", AgentPID: 105, Tool: "opencode", Conversation: "ses_abc"},
+		{ID: "c2", ServerPID: 10, PaneID: "%6", AgentPID: 106, Conversation: "4c1a0f6e-0000-4000-8000-000000000000"},
+		{ID: "o3", ServerPID: 10, PaneID: "%8", AgentPID: 108, Tool: "opencode", Conversation: "two words"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -628,6 +632,9 @@ func TestSyncAdoptedMarksEveryAgentAndNamesTheOthersTool(t *testing.T) {
 		"10%2": "x1 102 codex\n",
 		"10%3": "o1 103 opencode\n",
 		"10%4": "w1 104 agent\n",
+		"10%5": "o2 105 opencode ses_abc\n",
+		"10%6": "c2 106\n",
+		"10%8": "o3 108 opencode\n",
 	} {
 		if got := readFile(t, filepath.Join(m.AdoptedDir(), name)); got != want {
 			t.Errorf("marker %s = %q, want %q", name, got, want)
@@ -664,10 +671,18 @@ func TestAdoptedClaudeCallerTakesOnlyAClaudesMarker(t *testing.T) {
 			t.Errorf("tool %q: AdoptedClaudeCaller named the row for a process not under its agent", c.tool)
 		}
 	}
-	// A marker with more fields than either form is nobody's.
-	writeFile(t, filepath.Join(m.AdoptedDir(), "4242%7"), "a1b2c3d4 900 codex extra\n")
+	// A fourth field is the agent's conversation, which changes nothing
+	// here; a marker with more fields than that is nobody's.
+	writeFile(t, filepath.Join(m.AdoptedDir(), "4242%7"), "a1b2c3d4 900 opencode ses_abc\n")
+	if id, ok := m.AdoptedCaller(tmuxEnv, "%7", under); !ok || id != "a1b2c3d4" {
+		t.Errorf("AdoptedCaller with a conversation field = %q, %v", id, ok)
+	}
+	if _, ok := m.AdoptedClaudeCaller(tmuxEnv, "%7", under); ok {
+		t.Error("AdoptedClaudeCaller took an opencode marker with a conversation")
+	}
+	writeFile(t, filepath.Join(m.AdoptedDir(), "4242%7"), "a1b2c3d4 900 codex ses_abc extra\n")
 	if _, ok := m.AdoptedCaller(tmuxEnv, "%7", under); ok {
-		t.Error("AdoptedCaller read a four-field marker")
+		t.Error("AdoptedCaller read a five-field marker")
 	}
 }
 

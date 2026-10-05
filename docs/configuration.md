@@ -24,6 +24,13 @@ setup = false
 setup = false
 ```
 
+<a id="opencode-setup"></a>`[opencode]` covers your own OpenCode config. `setup` (default on) has the board keep one plugin file, `gate-inbox-<id>.js`, in OpenCode's global plugins directory (`~/.config/opencode/plugins`, or the one under `OPENCODE_CONFIG_DIR` or `XDG_CONFIG_HOME`), which is how an `opencode` you started outside the board speaks as its row, binds to its conversation and gets the board's steering once it is adopted (see [Panes started outside the board](usage.md#panes-started-outside-the-board)). Nothing else in that directory or in your `opencode.json` is touched. The board writes it when it starts, only on a machine with opencode installed, and checks it every few minutes while it runs; `setup = false` makes the board remove it instead.
+
+```toml
+[opencode]
+setup = false
+```
+
 <a id="resource-hogs"></a>`[hogs]` sets when the board tells a session its processes are holding the machine (see [Resource hogs](usage.md#status)). It reads `/proc`, so it is Linux only (WSL2 included); elsewhere it is off. `enabled` (default on) switches it off with `false`. `sample_every` (default `"10s"`) is how often the trees are read, `reset_after` (default `"2m"`) is how long every rule of a kind must stay below before its episode ends -- a shorter dip keeps each rule's window open -- and `cooldown` (default `"30m"`) is the least time between two notices of the same tier to one session. Each tier of `[hogs.cpu]` and `[hogs.memory]` is a list of alternative rules; any one held for its `for` puts the session at that tier (`for` left out means the first sample that finds it). A CPU rule sets `percent`, summed over the tree, 100 being one full core. A memory rule sets `gib` (the tree's PSS), `growth_gib_per_min` (its growth over the last minute) and `available_below` (the host's `MemAvailable` as a percentage of RAM), and every one it sets must hold. A tier left out takes the built-in rules below; `stop = []` switches that tier off.
 
 | Kind | Tier | Built-in rules (any one) |

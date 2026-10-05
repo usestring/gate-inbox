@@ -281,4 +281,18 @@ func TestEveryAdoptedAgentGetsAMarker(t *testing.T) {
 			t.Fatalf("marker %q is named %s, want it for pane %s", content, name, panes[id])
 		}
 	}
+
+	// A row bound to its conversation since -- opencode's plugin reports
+	// it -- has its marker carry the id at once, not on the next tick.
+	if err := m.store.SetAgentSessionID("open1", "ses_bound1"); err != nil {
+		t.Fatal(err)
+	}
+	if m.sessions, err = m.store.ListSessions(false); err != nil {
+		t.Fatal(err)
+	}
+	m.syncAdoptedHooks(time.Now())
+	raw, err := os.ReadFile(filepath.Join(m.hooks.AdoptedDir(), got["open1 "+openPID+" opencode\n"]))
+	if err != nil || string(raw) != "open1 "+openPID+" opencode ses_bound1\n" {
+		t.Fatalf("bound opencode marker = %q, %v", raw, err)
+	}
 }

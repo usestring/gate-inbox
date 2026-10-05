@@ -51,8 +51,8 @@ import (
 //     a `claude -p` from its Bash tool shares the pane and the environment --
 //     does not report as it, and a marker outliving its pane matches nothing.
 //     A marker for an adopted codex or opencode carries a third field, the
-//     tool, which the prelude's two-variable read takes into the pid, so it
-//     never matches either.
+//     tool, and sometimes a fourth, its conversation id, which the prelude's
+//     two-variable read takes into the pid, so it never matches either.
 //   - The board is running: the pid in its singleton lock answers kill -0.
 //   - The installed binary is still there and executable.
 //
@@ -123,6 +123,13 @@ type AdoptedPane struct {
 	// Tool is the configured tool of an agent that is not a hooks-driven
 	// claude, and empty for one that is.
 	Tool string
+	// Conversation is the agent's own conversation id when the row has one,
+	// written as a fourth field after Tool. OpenCode's global plugin reads
+	// it: the plugin runs in opencode's shared background service, where
+	// only a session id says which conversation a model request is for, so
+	// a row bound earlier is recognised again without waiting for the pane
+	// to show itself. A claude's marker never carries it.
+	Conversation string
 }
 
 var paneIDPattern = regexp.MustCompile(`^%[0-9]+$`)
@@ -146,6 +153,9 @@ func adoptedMarkerContent(pane AdoptedPane) string {
 			tool = markerToolFallback
 		}
 		content += " " + tool
+		if markerToolPattern.MatchString(pane.Conversation) {
+			content += " " + pane.Conversation
+		}
 	}
 	return content + "\n"
 }
@@ -308,7 +318,7 @@ func (m *Manager) adoptedMarker(tmuxEnv, paneID string) (AdoptedPane, bool) {
 		return AdoptedPane{}, false
 	}
 	fields := strings.Fields(string(raw))
-	if (len(fields) != 2 && len(fields) != 3) || checkID(fields[0]) != nil {
+	if len(fields) < 2 || len(fields) > 4 || checkID(fields[0]) != nil {
 		return AdoptedPane{}, false
 	}
 	agent, err := strconv.Atoi(fields[1])
@@ -316,8 +326,11 @@ func (m *Manager) adoptedMarker(tmuxEnv, paneID string) (AdoptedPane, bool) {
 		return AdoptedPane{}, false
 	}
 	marker := AdoptedPane{ID: fields[0], ServerPID: serverPID, PaneID: paneID, AgentPID: agent}
-	if len(fields) == 3 {
+	if len(fields) >= 3 {
 		marker.Tool = fields[2]
+	}
+	if len(fields) == 4 {
+		marker.Conversation = fields[3]
 	}
 	return marker, true
 }

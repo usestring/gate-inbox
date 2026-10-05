@@ -71,6 +71,15 @@ poll_interval = "2s"
 # [codex]
 # setup = true
 
+# Your own OpenCode config. While the board runs it keeps a plugin in
+# OpenCode's global plugins directory (~/.config/opencode/plugins, or the one
+# under OPENCODE_CONFIG_DIR or XDG_CONFIG_HOME), so an opencode started
+# outside the board speaks as its row and gets the board's steering once the
+# board adopts it. It does nothing in any session the board has not adopted.
+# false removes it.
+# [opencode]
+# setup = true
+
 # The diagnostic log. It is a file log only -- this program owns the
 # terminal, so nothing is ever printed to the screen. "gate-inbox
 # --log-path" prints where it is written.

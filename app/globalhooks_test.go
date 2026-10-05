@@ -9,8 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/mcprelay"
+	"github.com/usestring/gate-inbox/internal/opencode"
 )
 
 // claude-hooks install, status and uninstall against a scratch user settings
@@ -90,7 +92,7 @@ func TestBoardStartupSkipsGlobalHooksForAScratchHome(t *testing.T) {
 	if !underTempDir(home) {
 		t.Fatalf("%s is not recognised as scratch", home)
 	}
-	keepClaudeSetup(home, true, true)()
+	keepClaudeSetup(home, true, true, nil)()
 	if _, err := os.Stat(filepath.Join(claudeDir, "settings.json")); err == nil {
 		t.Fatal("a scratch board wrote the user's settings")
 	}
@@ -419,5 +421,92 @@ func TestCodexHooksCommandInstallsAndRemoves(t *testing.T) {
 	var out bytes.Buffer
 	if err := runCodexHooks(&out, []string{"bogus"}, home); err == nil || !strings.Contains(err.Error(), "usage:") {
 		t.Fatalf("an unknown verb: %v", err)
+	}
+}
+
+// scratchOpencode is an opencodeSetup over a scratch global config
+// directory, on a machine that has opencode unless told otherwise.
+func scratchOpencode(t *testing.T, on bool) (*opencodeSetup, string) {
+	t.Helper()
+	dir := t.TempDir()
+	return &opencodeSetup{
+		on:        on,
+		tools:     []string{"opencode"},
+		dir:       func() (string, error) { return dir, nil },
+		installed: func() bool { return true },
+	}, dir
+}
+
+// The board writes its OpenCode plugin with no command, writes nothing when
+// it is in place, rewrites it for a moved binary, and takes it out when
+// [opencode] setup is false. A machine with no opencode gets nothing.
+func TestOpencodeSetupKeepsThePluginInPlace(t *testing.T) {
+	setup, _, _, _ := scratchSetup(t, true)
+	oc, dir := scratchOpencode(t, true)
+	setup.opencode = oc
+	path := opencode.PluginPath(dir, setup.dir)
+	setup.sync()
+	first, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("plugin not written: %v", err)
+	}
+	if !strings.Contains(string(first), `"/opt/gate-inbox/bin/gate-inbox"`) || !strings.Contains(string(first), "GATE_INBOX_BIN") {
+		t.Fatalf("plugin does not name the binary:\n%s", first)
+	}
+	stat, _ := os.Stat(path)
+	setup.sync()
+	again, _ := os.Stat(path)
+	if !again.ModTime().Equal(stat.ModTime()) {
+		t.Fatal("a pass with the plugin in place rewrote it")
+	}
+	setup.bin = func() string { return "/usr/local/bin/gate-inbox" }
+	setup.sync()
+	if raw, _ := os.ReadFile(path); !strings.Contains(string(raw), `"/usr/local/bin/gate-inbox"`) {
+		t.Fatal("a moved binary was not followed")
+	}
+
+	oc.on = false
+	setup.sync()
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("[opencode] setup = false left the plugin")
+	}
+
+	none, noneDir := scratchOpencode(t, true)
+	none.installed = func() bool { return false }
+	setup.opencode = none
+	setup.sync()
+	if entries, _ := os.ReadDir(noneDir); len(entries) != 0 {
+		t.Fatalf("a machine with no opencode got %d entries", len(entries))
+	}
+}
+
+// Only the configured tools that run opencode are ones whose markers the
+// plugin may speak for.
+func TestOpencodeSetupNamesTheOpencodeTools(t *testing.T) {
+	cfg := config.Config{Tools: map[string]config.Tool{
+		"opencode":  {Command: "opencode"},
+		"oc-fast":   {Command: "opencode", MCP: "opencode"},
+		"claude":    {Command: "claude"},
+		"codex":     {Command: "codex"},
+		"terminal":  {Command: "sh", Shell: true},
+		"something": {Command: "something"},
+	}}
+	got := newOpencodeSetup(cfg)
+	if strings.Join(got.tools, ",") != "oc-fast,opencode" || !got.on {
+		t.Fatalf("tools %v on %v", got.tools, got.on)
+	}
+	off := false
+	cfg.OpenCode.Setup = &off
+	if newOpencodeSetup(cfg).on {
+		t.Fatal("[opencode] setup = false read as on")
+	}
+}
+
+// A scratch home writes no OpenCode plugin either.
+func TestBoardStartupSkipsTheOpencodePluginForAScratchHome(t *testing.T) {
+	oc, dir := scratchOpencode(t, true)
+	keepClaudeSetup(t.TempDir(), true, true, oc)()
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("a scratch board wrote %d entries into the opencode config", len(entries))
 	}
 }

@@ -386,6 +386,19 @@ type Codex struct {
 // SetupOn reports whether the board keeps its Codex hooks registered.
 func (c Codex) SetupOn() bool { return c.Setup == nil || *c.Setup }
 
+// OpenCode configures what the board keeps in the operator's own OpenCode
+// config, as opposed to the config a launch generates.
+type OpenCode struct {
+	// Setup keeps Gate Inbox's plugin in OpenCode's global plugins
+	// directory, which is what gives an opencode started outside the board
+	// its row, steering and conversation binding once it is adopted. Absent
+	// means on; false takes the plugin back out.
+	Setup *bool `toml:"setup"`
+}
+
+// SetupOn reports whether the board keeps its OpenCode plugin registered.
+func (c OpenCode) SetupOn() bool { return c.Setup == nil || *c.Setup }
+
 // The sides the board's sidebar -- the sessions rail -- can sit on.
 const (
 	SidebarRight = "right"
@@ -438,6 +451,7 @@ type Config struct {
 	Hogs             Hogs         `toml:"hogs"`
 	ClaudeCode       ClaudeCode   `toml:"claude_code"`
 	Codex            Codex        `toml:"codex"`
+	OpenCode         OpenCode     `toml:"opencode"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see
@@ -931,6 +945,15 @@ const defaultConfig = `poll_interval = "2s"
 # asks you to trust new hooks once ("Hooks need review"). false removes them,
 # and so does "gate-inbox codex-hooks uninstall".
 # [codex]
+# setup = true
+
+# Your own OpenCode config. While the board runs it keeps a plugin in
+# OpenCode's global plugins directory (~/.config/opencode/plugins, or the one
+# under OPENCODE_CONFIG_DIR or XDG_CONFIG_HOME), so an opencode started
+# outside the board speaks as its row and gets the board's steering once the
+# board adopts it. It does nothing in any session the board has not adopted.
+# false removes it.
+# [opencode]
 # setup = true
 
 # The diagnostic log. It is a file log only -- this program owns the

@@ -704,9 +704,18 @@ func (d *Driver) installSessionUX(id string) error {
 	if err := d.styleStatusBar(id); err != nil {
 		return err
 	}
-	_, err := d.run("set-option", "-t", sessionName(id), "status-left", "")
+	if _, err := d.run("set-option", "-t", sessionName(id), "status-left", ""); err != nil {
+		return err
+	}
+	// Recorded while the session holds nothing else, so Kill can tell its
+	// own window from any opened in it later. See ownWindow.
+	_, err := d.run("set-option", "-F", "-t", "="+sessionName(id)+":", homeOption, "#{window_id}")
 	return err
 }
+
+// homeOption is the session option naming the window a managed session was
+// created with.
+const homeOption = "@gi-home"
 
 // Tmux answers an un-overridden session option with an empty string rather than the global option.
 func (d *Driver) resolvedOption(name, option string) (string, error) {
@@ -1166,21 +1175,31 @@ func (d *Driver) ClearRequest() error {
 
 // AttachCommand hands the terminal over to a session's pane.
 //
-// $TMUX is dropped from the attach, because the manager now runs its sessions
-// on the same server it is itself likely to be running inside, and tmux
+// Where the manager runs decides how. Outside tmux, or on a different server
+// from the target, it is a plain attach-session with $TMUX dropped: tmux
 // refuses that attach as accidental nesting ("sessions should be nested with
-// care"). Here the nesting is the whole point: the manager's screen already
-// fills this terminal, and the attach replaces it until the operator detaches.
+// care"), and here the nesting is the whole point -- the manager's screen
+// already fills this terminal, and the attach replaces it until the operator
+// detaches.
 //
-// The one attach that guard was right about is the session the manager is
-// running in, which would put its screen inside itself -- and that is every
+// On the target's own server a nested client is never safe, whatever session
+// it lands in. Its terminal is a pane of that same server, so the one
+// single-threaded process both writes the client's output into the pty and is
+// the only reader that drains it. A burst bigger than the pty buffer leaves the
+// server blocked in that write with nothing left to read it, and every tmux
+// command on the machine hangs behind it. Measured, not reasoned: a server
+// nine days old sat in writev() to its own pane's tty until the tty was
+// flushed from outside, and killing the nested client did not free it. So on
+// the same server the operator's existing client is moved instead
+// (switchCommand), and no second client exists to feed back into it.
+//
+// The one attach the nesting guard was right about is the session the manager
+// is running in, which would put its screen inside itself -- and that is every
 // pane in the session, not just the manager's own. An adopted sibling pane
-// resolves to the same session name, and the nested client it starts lands on
-// the session's current window, which is where the manager is drawing. The
-// recursion is unreadable rather than merely wrong: the client renders the
-// pane it is running in. $TMUX stays on for any target in the manager's own
-// session so tmux refuses it, and its refusal reaches the operator as the
-// error it is.
+// resolves to the same session name. $TMUX stays on for any target in the
+// manager's own session so tmux refuses it, and its refusal reaches the
+// operator as the error it is.
+//
 // The -t is always an exact session name, never the pane. tmux resolves a
 // pane id to its session, but attach-session given one also makes that pane's
 // window the session's current window -- and every client of a session shows
@@ -1237,16 +1256,58 @@ func (d *Driver) AttachCommand(id string) *exec.Cmd {
 		}
 	}
 	tmuxguard.Enforce([]string{"-L", target.Socket})
-	cmd := exec.Command(d.bin, append([]string{"-L", target.Socket}, args...)...)
-	nested := d.runningInside(target, session)
-	if !nested {
+	home, onServer := d.managerSession(target)
+	nested := onServer && home == session
+	mode := "attach"
+	var cmd *exec.Cmd
+	switch {
+	case nested:
+		cmd = exec.Command(d.bin, append([]string{"-L", target.Socket}, args...)...)
+	case onServer:
+		mode = "switch"
+		cmd = exec.Command(d.bin, append([]string{"-L", target.Socket}, switchCommand(home, args)...)...)
+	default:
+		cmd = exec.Command(d.bin, append([]string{"-L", target.Socket}, args...)...)
 		cmd.Env = envWithoutTmux(os.Environ())
 	}
 	// The manager handing the terminal to tmux: without a record here, a
 	// report that it "dropped out of the TUI" has nothing to check.
 	logging.Info("tmux attach", "session", id, "socket", target.Socket,
-		"target", "="+session, "window", window, "pane", pane, "nested", nested)
+		"target", "="+session, "window", window, "pane", pane, "nested", nested, "mode", mode)
 	return cmd
+}
+
+// returnHook is the hook array index switchCommand borrows on the manager's
+// session. tmux runs every set index of a hook, so a high one leaves the
+// operator's own hooks, which start at 0, alone.
+const returnHook = "[9047]"
+
+var returnSeq atomic.Uint64
+
+// switchCommand turns an attach-session command list into one that moves the
+// operator's current client to the target and blocks until that client is
+// back in home, the manager's session. The block is what keeps the caller's
+// contract: the manager's screen stays released while the operator is away
+// and comes back when they do, as it does after a detach.
+//
+// Coming back is either a switch into home (prefix-L, choose-tree) or, after
+// a detach from the target, a fresh attach to it; both hooks are armed and
+// whichever fires first disarms both. wait-for latches a signal sent before
+// anyone waits, so a return faster than this command reaching its wait is not
+// lost. The switch needs $TMUX, which is how tmux finds the client to move.
+func switchCommand(home string, attach []string) []string {
+	channel := fmt.Sprintf("gi-return-%d-%d", os.Getpid(), returnSeq.Add(1))
+	seat := "=" + home + ":"
+	signal := "wait-for -S " + channel +
+		" ; set-hook -u -t " + seat + " client-session-changed" + returnHook +
+		" ; set-hook -u -t " + seat + " client-attached" + returnHook
+	args := []string{
+		"set-hook", "-t", seat, "client-session-changed" + returnHook, signal, ";",
+		"set-hook", "-t", seat, "client-attached" + returnHook, signal, ";",
+		"switch-client",
+	}
+	args = append(args, attach[1:]...)
+	return append(args, ";", "wait-for", channel)
 }
 
 // attachTarget is the exact session name to attach to, and for an adopted
@@ -1277,28 +1338,40 @@ func (d *Driver) attachTarget(target Target) (session, window, pane string) {
 	return fields[0], fields[1], target.Name
 }
 
-// runningInside reports whether the attach would land in the session the
-// manager is itself running in, session being the exact name AttachCommand
-// resolved from the target. The whole session is the answer, not just the
-// manager's own pane: a target that is an adopted sibling pane of that session
-// resolves to the same name, and attaching to it would nest the manager's
-// screen inside itself. Comparing names is what catches both, and the pane-id
-// case falls out of it -- attachTarget resolves the manager's own pane to the
-// manager's own session name.
+// managerSession is the session the manager runs in, and whether that
+// session is on the target's server. Pane ids are only unique within a
+// server, so the server is established first, by socket path, before
+// $TMUX_PANE is looked up on it; asking the target's server about a pane id
+// from another server can name an unrelated pane.
 //
-// Anything it cannot establish -- no tmux around the manager, a session on
-// another server, a server that will not answer -- is a no: the attach tmux
-// would refuse is the narrow case, and the common one has to work.
-func (d *Driver) runningInside(target Target, session string) bool {
+// Anything it cannot establish -- no tmux around the manager, a server that
+// will not answer -- is "not on this server": the plain attach is the common
+// case and has to work.
+func (d *Driver) managerSession(target Target) (string, bool) {
 	pane := os.Getenv("TMUX_PANE")
-	if pane == "" || os.Getenv("TMUX") == "" {
-		return false
+	socket, _, _ := strings.Cut(os.Getenv("TMUX"), ",")
+	if pane == "" || socket == "" {
+		return "", false
 	}
-	out, err := d.output([]string{"-L", target.Socket, "display-message", "-p", "-t", pane, "#{session_name}"})
+	out, err := d.output([]string{"-L", target.Socket, "display-message", "-p", "-t", pane,
+		"#{socket_path}\t#{session_name}"})
 	if err != nil {
-		return false
+		return "", false
 	}
-	return strings.TrimSpace(string(out)) == session
+	path, name, ok := strings.Cut(strings.TrimSpace(string(out)), "\t")
+	if !ok || name == "" || !samePath(path, socket) {
+		return "", false
+	}
+	return name, true
+}
+
+func samePath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && ra == rb
 }
 
 func envWithoutTmux(env []string) []string {
@@ -1318,6 +1391,11 @@ func envWithoutTmux(env []string) []string {
 // every path that merely wants a session gone — archive, restart, whatever
 // is written next — from ending somebody's agent as a side effect. Reaching
 // a foreign pane has to be asked for by name.
+//
+// The same holds inside a managed session. A `tmux new-window` typed in one
+// of its panes lands in the gi_ session, and a fan-out launcher run from a
+// terminal row put eleven agents there that the board then adopted as
+// foreign panes. Kill ends only the session's own window; see endOwnWindow.
 func (d *Driver) Kill(id string) error {
 	if err := d.refuseAdopted(id, "kill"); err != nil {
 		return err
@@ -1330,9 +1408,97 @@ func (d *Driver) Kill(id string) error {
 		os.Remove(d.launchScriptPath(id))
 		return nil
 	}
-	_, err := d.run("kill-session", "-t", sessionName(id))
+	home, err := d.ownWindow(id)
+	if err != nil {
+		return err
+	}
+	target := home
+	if target == "" {
+		// The trailing colon makes it a window: tmux expands no format
+		// against a bare =session as a pane target.
+		target = "=" + sessionName(id) + ":"
+	}
+	err = d.endOwnWindow(id, home, target, "#{==:#{session_name},"+sessionName(id)+"}")
 	os.Remove(d.launchScriptPath(id))
 	return err
+}
+
+// ownWindow is the window session id's own agent runs in: the one recorded
+// when the manager created the session, and "" once that window has closed,
+// because every window left is then somebody else's. A session created before
+// the record existed falls back to the board adoption scan's choice: the
+// window whose pane runs its launch script, or failing that the oldest one.
+func (d *Driver) ownWindow(id string) (string, error) {
+	out, err := d.run("list-panes", "-s", "-t", "="+sessionName(id), "-F", "#{window_id}\t#{"+homeOption+"}\t#{pane_start_command}")
+	if err != nil {
+		return "", err
+	}
+	recorded, scripted, oldest := "", "", ""
+	listed := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		fields := strings.SplitN(line, "\t", 3)
+		if len(fields) < 3 || fields[0] == "" {
+			continue
+		}
+		window := fields[0]
+		listed[window] = true
+		recorded = fields[1]
+		if scripted == "" && RunsLaunchScript(fields[2], id) {
+			scripted = window
+		}
+		if oldest == "" || WindowNumber(window) < WindowNumber(oldest) {
+			oldest = window
+		}
+	}
+	switch {
+	case recorded != "":
+		if listed[recorded] {
+			return recorded, nil
+		}
+		return "", nil
+	case scripted != "":
+		return scripted, nil
+	}
+	return oldest, nil
+}
+
+// WindowNumber orders tmux window ids by when the server made them,
+// and puts anything that is not one last.
+func WindowNumber(window string) int {
+	n, err := strconv.Atoi(strings.TrimPrefix(window, "@"))
+	if err != nil {
+		return int(^uint(0) >> 1)
+	}
+	return n
+}
+
+// endOwnWindow ends session id's home window and nothing else, when tmux finds
+// condition true of target. A session holding only that window goes whole, as
+// it always has. One holding more keeps the rest under a name outside the gi_
+// prefix: the id is free for a revive, and the board stops reading those
+// windows as part of a row that is gone. The check and the kill run as one
+// tmux command, so a window opened after ownWindow listed them is never taken
+// for the home, and neither is a session revived under id in between.
+func (d *Driver) endOwnWindow(id, home, target, condition string) error {
+	name := "=" + sessionName(id)
+	rename := "rename-session -t " + name + " " + leftoverName(id)
+	if home == "" {
+		_, err := d.run("if-shell", "-F", "-t", target, condition, rename)
+		return err
+	}
+	// The session-wide kill sits at the top level, and target is never the
+	// session by name: either way tmux reports the target gone after the
+	// kill has succeeded.
+	_, err := d.run("if-shell", "-F", "-t", target, "#{&&:"+condition+",#{==:#{session_windows},1}}",
+		"kill-session -t "+name,
+		`if-shell -F -t `+target+` "`+condition+`" "kill-window -t `+home+` ; `+rename+`"`)
+	return err
+}
+
+// leftoverName is what a managed session is renamed to once its own window is
+// gone and somebody else's are still running in it.
+func leftoverName(id string) string {
+	return "gi-left-" + id
 }
 
 // KillAdopted ends a pane the manager never started, the one operation Kill
@@ -1483,6 +1649,47 @@ func (d *Driver) OwnSessionID() string {
 	}
 	id, _ := SessionID(strings.TrimSpace(string(out)))
 	return id
+}
+
+func (d *Driver) PaneID(id string) (string, error) {
+	out, err := d.runAt(id, "display-message", "-p", "-t", d.TargetFor(id).Name, "#{pane_id}")
+	return strings.TrimSpace(out), err
+}
+
+// KillPane is Kill for a caller that validated one pane: the check and the
+// kill run as one tmux command, so a session revived under id after pane
+// was read survives. The pane has to be in the session's own window as well,
+// so a pane read off a window somebody else opened in it ends nothing.
+func (d *Driver) KillPane(id, pane string) error {
+	if err := d.refuseAdopted(id, "kill"); err != nil {
+		return err
+	}
+	d.forgetPin(id)
+	if !d.Exists(id) {
+		os.Remove(d.launchScriptPath(id))
+		return nil
+	}
+	home, err := d.ownWindow(id)
+	if err != nil {
+		return err
+	}
+	if home == "" {
+		return fmt.Errorf("%s: pane %s is not in this session's own window", id, pane)
+	}
+	if err := d.endOwnWindow(id, home, pane,
+		"#{&&:#{==:#{session_name},"+sessionName(id)+"},#{==:#{window_id},"+home+"}}"); err != nil {
+		return err
+	}
+	if d.Exists(id) {
+		return fmt.Errorf("%s: pane %s no longer belongs to this session's own window", id, pane)
+	}
+	os.Remove(d.launchScriptPath(id))
+	return nil
+}
+
+func (d *Driver) RunOutsidePane(id, command string) error {
+	_, err := d.runAt(id, "run-shell", "-b", "-t", d.TargetFor(id).Name, command)
+	return err
 }
 
 func (d *Driver) runningInOwnPane(target Target) bool {

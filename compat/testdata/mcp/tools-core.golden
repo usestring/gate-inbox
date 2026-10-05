@@ -1,4 +1,4 @@
-32 tools
+33 tools
   answer_session
   archive_session
   cleanup_children
@@ -17,6 +17,7 @@
   list_terminals
   message_status
   migrate_session
+  mute_session
   place_session
   read_session
   read_terminal
@@ -351,6 +352,10 @@
         "description": "model that CLI runs on; empty is the CLI's own default",
         "type": "string"
       },
+      "muted": {
+        "description": "whether the operator has muted this session out of their triage queue until it is unmuted",
+        "type": "boolean"
+      },
       "name": {
         "description": "session name shown in Gate Inbox",
         "type": "string"
@@ -399,6 +404,7 @@
       "status",
       "running",
       "archived",
+      "muted",
       "self"
     ],
     "type": "object"
@@ -691,6 +697,10 @@
         "description": "model that CLI runs on; empty is the CLI's own default",
         "type": "string"
       },
+      "muted": {
+        "description": "whether the operator has muted this session out of their triage queue until it is unmuted",
+        "type": "boolean"
+      },
       "name": {
         "description": "session name shown in Gate Inbox",
         "type": "string"
@@ -739,6 +749,7 @@
       "status",
       "running",
       "archived",
+      "muted",
       "self"
     ],
     "type": "object"
@@ -1054,6 +1065,10 @@
             "description": "model that CLI runs on; empty is the CLI's own default",
             "type": "string"
           },
+          "muted": {
+            "description": "whether the operator has muted this session out of their triage queue until it is unmuted",
+            "type": "boolean"
+          },
           "name": {
             "description": "session name shown in Gate Inbox",
             "type": "string"
@@ -1102,6 +1117,7 @@
           "status",
           "running",
           "archived",
+          "muted",
           "self"
         ],
         "type": "object"
@@ -1173,6 +1189,10 @@
         "description": "model that CLI runs on; empty is the CLI's own default",
         "type": "string"
       },
+      "muted": {
+        "description": "whether the operator has muted this session out of their triage queue until it is unmuted",
+        "type": "boolean"
+      },
       "name": {
         "description": "session name shown in Gate Inbox",
         "type": "string"
@@ -1221,6 +1241,7 @@
       "status",
       "running",
       "archived",
+      "muted",
       "self"
     ],
     "type": "object"
@@ -1494,6 +1515,10 @@
               "description": "model that CLI runs on; empty is the CLI's own default",
               "type": "string"
             },
+            "muted": {
+              "description": "whether the operator has muted this session out of their triage queue until it is unmuted",
+              "type": "boolean"
+            },
             "name": {
               "description": "session name shown in Gate Inbox",
               "type": "string"
@@ -1542,6 +1567,7 @@
             "status",
             "running",
             "archived",
+            "muted",
             "self"
           ],
           "type": "object"
@@ -1771,6 +1797,10 @@
         "description": "model that CLI runs on; empty is the CLI's own default",
         "type": "string"
       },
+      "muted": {
+        "description": "whether the operator has muted this session out of their triage queue until it is unmuted",
+        "type": "boolean"
+      },
       "name": {
         "description": "session name shown in Gate Inbox",
         "type": "string"
@@ -1819,6 +1849,127 @@
       "status",
       "running",
       "archived",
+      "muted",
+      "self"
+    ],
+    "type": "object"
+  }
+}
+
+=== mute_session
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+  },
+  "description": "Keep a session out of the user's triage queue until it is unmuted, or put it back with muted false. A muted session is not hidden from the list: its row stays, reading muted, but the user's triage queue never hands it over and the attention walk skips it. Use it for a session the user has said is not theirs to act on right now -- a long background job, work parked on an external wait -- rather than for one that is merely finished, which will leave the queue on its own. The flag is the user's own; do not mute a session they are waiting on.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "muted": {
+        "description": "true keeps the session out of the user's triage queue until it is unmuted, false puts it back; defaults to true",
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
+      "session_id": {
+        "description": "session id returned by list_sessions",
+        "type": "string"
+      }
+    },
+    "required": [
+      "session_id"
+    ],
+    "type": "object"
+  },
+  "name": "mute_session",
+  "outputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "account": {
+        "description": "named subscription the session runs on; empty is the CLI's own login",
+        "type": "string"
+      },
+      "archived": {
+        "description": "whether the session is archived out of the active list",
+        "type": "boolean"
+      },
+      "detached": {
+        "description": "whether this session was created detached (nest false): its creator, in spawned_by, is told nothing of its questions or finishes and cannot answer its dialogs, and the two talk only through send_session",
+        "type": "boolean"
+      },
+      "directory": {
+        "description": "session's current working directory, or its launch directory when stopped",
+        "type": "string"
+      },
+      "group": {
+        "description": "group path holding the session; empty is the root",
+        "type": "string"
+      },
+      "id": {
+        "description": "agent session id",
+        "type": "string"
+      },
+      "model": {
+        "description": "model that CLI runs on; empty is the CLI's own default",
+        "type": "string"
+      },
+      "muted": {
+        "description": "whether the operator has muted this session out of their triage queue until it is unmuted",
+        "type": "boolean"
+      },
+      "name": {
+        "description": "session name shown in Gate Inbox",
+        "type": "string"
+      },
+      "parent_id": {
+        "description": "session this row is drawn under on the board; empty for a top-level session",
+        "type": "string"
+      },
+      "permissions": {
+        "description": "permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
+      },
+      "running": {
+        "description": "whether the session currently has a live tmux pane",
+        "type": "boolean"
+      },
+      "self": {
+        "description": "whether this row is the calling session itself",
+        "type": "boolean"
+      },
+      "spawned_by": {
+        "description": "session that spawned this one, which is the only session that can answer its questions or reach it with send_children unless it is detached; empty for a session nobody spawned",
+        "type": "string"
+      },
+      "status": {
+        "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+        "type": "string"
+      },
+      "tool": {
+        "description": "agent CLI the session runs",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "name",
+      "tool",
+      "group",
+      "directory",
+      "status",
+      "running",
+      "archived",
+      "muted",
       "self"
     ],
     "type": "object"
@@ -1887,6 +2038,10 @@
         "description": "model that CLI runs on; empty is the CLI's own default",
         "type": "string"
       },
+      "muted": {
+        "description": "whether the operator has muted this session out of their triage queue until it is unmuted",
+        "type": "boolean"
+      },
       "name": {
         "description": "session name shown in Gate Inbox",
         "type": "string"
@@ -1935,6 +2090,7 @@
       "status",
       "running",
       "archived",
+      "muted",
       "self"
     ],
     "type": "object"
@@ -2122,6 +2278,10 @@
             "description": "model that CLI runs on; empty is the CLI's own default",
             "type": "string"
           },
+          "muted": {
+            "description": "whether the operator has muted this session out of their triage queue until it is unmuted",
+            "type": "boolean"
+          },
           "name": {
             "description": "session name shown in Gate Inbox",
             "type": "string"
@@ -2170,6 +2330,7 @@
           "status",
           "running",
           "archived",
+          "muted",
           "self"
         ],
         "type": "object"
@@ -2535,6 +2696,10 @@
         "description": "model that CLI runs on; empty is the CLI's own default",
         "type": "string"
       },
+      "muted": {
+        "description": "whether the operator has muted this session out of their triage queue until it is unmuted",
+        "type": "boolean"
+      },
       "name": {
         "description": "session name shown in Gate Inbox",
         "type": "string"
@@ -2583,6 +2748,7 @@
       "status",
       "running",
       "archived",
+      "muted",
       "self"
     ],
     "type": "object"
@@ -2916,6 +3082,10 @@
         "description": "model that CLI runs on; empty is the CLI's own default",
         "type": "string"
       },
+      "muted": {
+        "description": "whether the operator has muted this session out of their triage queue until it is unmuted",
+        "type": "boolean"
+      },
       "name": {
         "description": "session name shown in Gate Inbox",
         "type": "string"
@@ -2964,6 +3134,7 @@
       "status",
       "running",
       "archived",
+      "muted",
       "self"
     ],
     "type": "object"
@@ -3301,6 +3472,10 @@
             "description": "model that CLI runs on; empty is the CLI's own default",
             "type": "string"
           },
+          "muted": {
+            "description": "whether the operator has muted this session out of their triage queue until it is unmuted",
+            "type": "boolean"
+          },
           "name": {
             "description": "session name shown in Gate Inbox",
             "type": "string"
@@ -3349,6 +3524,7 @@
           "status",
           "running",
           "archived",
+          "muted",
           "self"
         ],
         "type": "object"
@@ -3393,6 +3569,10 @@
                 "model": {
                   "description": "model that CLI runs on; empty is the CLI's own default",
                   "type": "string"
+                },
+                "muted": {
+                  "description": "whether the operator has muted this session out of their triage queue until it is unmuted",
+                  "type": "boolean"
                 },
                 "name": {
                   "description": "session name shown in Gate Inbox",
@@ -3442,6 +3622,7 @@
                 "status",
                 "running",
                 "archived",
+                "muted",
                 "self"
               ],
               "type": "object"

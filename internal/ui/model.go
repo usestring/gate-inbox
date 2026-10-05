@@ -27,6 +27,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/promptsnips"
+	"github.com/usestring/gate-inbox/internal/restartpresets"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/sessname"
 	"github.com/usestring/gate-inbox/internal/snippets"
@@ -76,6 +77,7 @@ const (
 	// and shows the key it is on. See quickactions.go.
 	modeQuickActions
 	modePanePicker
+	modeRestartWith
 )
 
 type treeRow struct {
@@ -110,9 +112,17 @@ type Model struct {
 
 	// snips are the operator's canned answers, read once at startup;
 	// snipErr is why there are none, when the file would not be read.
-	snips          snippets.Set
-	snipErr        string
+	snips   snippets.Set
+	snipErr string
+	// restartFlags are the operator's canned restart flag sets, read once
+	// at startup; restartFlagErr is why there are none, when the file
+	// would not be read.
+	restartFlags   restartpresets.Set
+	restartFlagErr string
 	jevAutoSuggest bool
+	// jevSavedKey is the TypeSafe key pasted in Settings → JEV, read once
+	// at startup; TYPESAFE_API_KEY still wins over it (see jevKey).
+	jevSavedKey    string
 	jevFinishCheck bool
 	jevFinish      jevFinishState
 	promptSuggest  bool
@@ -512,7 +522,10 @@ type Model struct {
 	archiveSweptAt  time.Time
 	hideEmptyGroups bool
 	statusFilter    statusFilter
-	collapsed       map[string]bool
+	// toolFilter narrows the list and the triage queue to one harness --
+	// the CLI in sess.Tool -- and is "" for every harness. See toolfilter.go.
+	toolFilter string
+	collapsed  map[string]bool
 	// groupNumbers maps a group to the outline number printed beside it and
 	// groupByNumber reads that back, both rebuilt with the rows so a typed
 	// number always names the group the rail is showing. jump is the number
@@ -576,6 +589,11 @@ type Model struct {
 	// undo is what the last archive filed away so U can put it back. See
 	// archiveundo.go.
 	archiveConfirm string
+	// deleteConfirm and restartConfirm are the same persisted answer for the
+	// other two destructive confirms: whether deleting an empty group, or
+	// restarting a session, asks first. See confirmask.go.
+	deleteConfirm  string
+	restartConfirm string
 	undo           archiveUndo
 	launchFix      launchFix
 	// install is the setup-dialog install still running in a shell tab,
@@ -585,6 +603,7 @@ type Model struct {
 	fork             forkState
 	migrate          migrateState
 	account          accountState
+	restartWith      restartWithState
 	quick            quickState
 	latestSubmission submissionRescind
 	// landings are the answers waiting to be seen reaching their sessions,
@@ -771,6 +790,11 @@ type confirmTarget struct {
 	label    string
 	sessions []store.Session
 	action   string
+	// restartArgs are the extra CLI flags a restart-with-flags confirm
+	// carries, empty on every other confirm. The picker names the preset;
+	// the confirm names what it does, so the flags ride here between the
+	// two rather than in a mode the confirm would have to read back.
+	restartArgs string
 	// ack is the tick a wide answer has to pass before y means anything,
 	// empty on every dialog that names what it is about. y/↵ is one
 	// keystroke, and one keystroke is the right price for a session the
@@ -829,6 +853,8 @@ type settingsState struct {
 	palette          string
 	glyphs           string
 	archiveConfirm   string
+	deleteConfirm    string
+	restartConfirm   string
 	listSort         string
 	chrome           string
 	leaveMode        string
@@ -841,6 +867,10 @@ type settingsState struct {
 	claudeSetup        bool
 	experimentalPicker bool
 	experimentalCursor int
+	jevPanel           bool
+	jevCursor          int
+	jevPasting         bool
+	jevInput           textinput.Model
 	jevAutoSuggest     bool
 	jevFinishCheck     bool
 	promptSuggest      bool
@@ -867,6 +897,8 @@ const (
 	settingsFieldPalette
 	settingsFieldGlyphs
 	settingsFieldArchiveConfirm
+	settingsFieldDeleteConfirm
+	settingsFieldRestartConfirm
 	settingsFieldListSort
 	settingsFieldChrome
 	settingsFieldLeave
@@ -876,8 +908,10 @@ const (
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
 	settingsFieldClaudeSetup
+	settingsFieldJev
 	settingsFieldExperimental
 	settingsFieldSnippets
+	settingsFieldRestartFlags
 	settingsFieldCLIs
 	settingsFieldGuide
 	settingsFieldKeys
@@ -1193,6 +1227,8 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		palette:         storedPalette(st),
 		glyphs:          storedGlyphs(st),
 		archiveConfirm:  storedArchiveConfirm(st),
+		deleteConfirm:   storedConfirmAsk(st, deleteConfirmSetting),
+		restartConfirm:  storedConfirmAsk(st, restartConfirmSetting),
 		listSort:        storedListSort(st),
 		chrome:          storedChrome(st),
 		leaveMode:       storedLeaveMode(st),
@@ -1223,6 +1259,8 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	}
 	model.loadKeys()
 	model.loadSnippets()
+	model.loadRestartFlags()
+	model.loadJevKey()
 	model.seedFromStore()
 	model.triageStartupEnter = model.triage
 	model.noteOpencodeVersion(opencode.Cached())
@@ -1465,8 +1503,8 @@ func (m *Model) refreshExistingSessionUX() tea.Msg {
 // visibleSessions filters to the sessions the current view scope shows:
 // active ones normally, archived ones in the archived view. It also
 // covers the frames between a scope toggle and the next refresh, when
-// m.sessions still carries the other scope's list. Status filters apply
-// later via listedSessions.
+// m.sessions still carries the other scope's list. Status and tool filters
+// apply later via listedSessions.
 func (m *Model) visibleSessions() []store.Session {
 	visible := m.visScratch[:0]
 	if !m.painting {
@@ -1483,9 +1521,9 @@ func (m *Model) visibleSessions() []store.Session {
 	return visible
 }
 
-// listedSessions is the archived scope narrowed by the status filter.
-// Header counts, group rollups, and the tree all share this set so the
-// numbers always match what the list can show.
+// listedSessions is the archived scope narrowed by the status and tool
+// filters. Header counts, group rollups, and the tree all share this set so
+// the numbers always match what the list can show.
 //
 // The selected session stays listed when its status leaves the filter
 // (finished → idle on enter/ack) so rebuild cannot eject the cursor mid-work.
@@ -1503,17 +1541,33 @@ func (m *Model) listedSessions() []store.Session {
 func (m *Model) computeListedSessions() []store.Session {
 	visible := m.visibleSessions()
 	extFiltered := m.extensionFiltersOn()
-	if !m.statusFilter.active() && !extFiltered {
+	if !m.statusFilter.active() && !extFiltered && !m.toolFilterActive() {
 		return visible
 	}
 	heldID := ""
 	if sess, ok := m.selected(); ok {
 		heldID = sess.ID
 	}
+	var byID map[string]store.Session
+	if m.statusFilter.active() {
+		byID = make(map[string]store.Session, len(m.sessions))
+		for _, sess := range m.sessions {
+			byID[sess.ID] = sess
+		}
+	}
 	listed := make([]store.Session, 0, len(visible))
 	for _, sess := range visible {
+		// A mute is the operator's own say-so, so a muted branch leaves the
+		// status filter whole, even the row under the cursor: the hold below
+		// is for a status that moved, not for a mute.
+		if m.statusFilter.active() && inMutedBranch(sess, byID) {
+			continue
+		}
 		if sess.ID == heldID {
 			listed = append(listed, sess)
+			continue
+		}
+		if m.toolFilterActive() && !m.matchesToolFilter(sess) {
 			continue
 		}
 		if extFiltered && !m.extensionFiltersKeep(sess) {
@@ -2608,6 +2662,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev())
 
 	case tea.PasteMsg:
+		if m.mode == modeSettings && m.settings.jevPasting {
+			return m, m.pasteIntoJevKey(msg)
+		}
 		if m.mode == modeExtensionView {
 			return m, m.pasteIntoView(msg)
 		}
@@ -2881,7 +2938,7 @@ func (m *Model) cursorSessionID() string {
 
 // buildTree walks the group tree depth-first and emits one row per
 // group node and per session, honoring collapse state, search, and the
-// status filter. The cursor follows the previously selected row's
+// status and tool filters. The cursor follows the previously selected row's
 // identity, so list changes from the 2s poll never yank the selection.
 func (m *Model) buildTree() {
 	m.railCursorSess = m.cursorSessionID()
@@ -2895,7 +2952,7 @@ func (m *Model) buildTree() {
 		previousKey = rowKey(entry)
 	}
 	query := strings.ToLower(strings.TrimSpace(m.search))
-	prunedView := query != "" || m.statusFilter.active()
+	prunedView := query != "" || m.statusFilter.active() || m.toolFilterActive()
 
 	listed := store.OrderLinkedSessions(m.listedSessions())
 	listedIDs := make(map[string]bool, len(listed))
@@ -3103,6 +3160,11 @@ func (m *Model) buildTree() {
 			if m.triage && m.foldsAway(child) && m.parentOwns(child, time.Now(), livePanes) {
 				continue
 			}
+			// A muted child is off triage the same as a muted top-level
+			// session, and takes what hangs under it along.
+			if m.triage && child.Muted {
+				continue
+			}
 			if drawn[child.ID] {
 				continue
 			}
@@ -3143,6 +3205,13 @@ func (m *Model) buildTree() {
 				continue
 			}
 			for _, sess := range groupSessions {
+				// A persistently muted session is off the triage queue entirely:
+				// it is not a thing the drain walks past, it is not on the
+				// rail the drain reads. Its row is still on the list, where
+				// it reads "muted"; see persistentmute.go.
+				if m.triage && sess.Muted {
+					continue
+				}
 				kept[sess.ID] = true
 			}
 		}
@@ -3327,7 +3396,8 @@ func matchesLiteralMetadata(sess store.Session, query string) bool {
 	return search.Match(strings.ToLower(sess.Name), query) ||
 		search.Match(strings.ToLower(sess.Tool), query) ||
 		search.Match(strings.ToLower(sess.Group), query) ||
-		search.Match(strings.ToLower(sess.Status), query)
+		search.Match(strings.ToLower(sess.Status), query) ||
+		sess.Muted && search.Match(mutedStatusLabel, query)
 }
 
 // matchesSearch also reaches into what the session is showing, so the one

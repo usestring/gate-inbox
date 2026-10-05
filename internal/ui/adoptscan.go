@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/adopt"
 	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/sessname"
@@ -95,6 +97,7 @@ func (m *Model) newAdoptRun() *adoptRun {
 		index:    m.convos,
 		drift:    m.drift,
 		stor:     m.store,
+		hooks:    m.hooks,
 		driver:   m.tmux,
 		home:     filepath.Dir(m.hooks.Dir()),
 		rejected: map[string]int{},
@@ -127,8 +130,16 @@ func (r *adoptRun) scan(candidates []adopt.Candidate, started time.Time, complet
 		logging.Warn("adopt scan failed", "at", "list sessions", logging.Err(err))
 		return adoptedMsg{err: err}
 	}
-	r.onBoard = onBoardSessions(rows)
 	r.launched = launchedSessions(rows, r.agentTools)
+	procs := adopt.NewProcTable()
+	// Reconciling a row's tool needs every pane on its server: matching a
+	// row with no pane id by session name is only safe against all of them.
+	if complete {
+		if err := r.reconcileTools(rows, candidates, procs, started); err != nil {
+			return adoptedMsg{err: err}
+		}
+	}
+	r.onBoard = onBoardSessions(rows)
 	// A row an earlier scan took a moment ago is in the store before the
 	// board has read it back, and the arrival poll can run again in that
 	// window.
@@ -142,11 +153,71 @@ func (r *adoptRun) scan(candidates []adopt.Candidate, started time.Time, complet
 	}
 	r.claude = convo.LiveClaudeSessions(convo.ClaudeHome())
 
-	taken, err := r.take(candidates, adopt.NewProcTable())
+	taken, err := r.take(candidates, procs)
 	logging.Info("adopt scan",
 		"candidates", len(candidates), "arrivals", len(r.arrivals), "taken", taken,
 		"rejected", rejectionSummary(r.rejected), "took", time.Since(started).Round(time.Millisecond).String())
 	return adoptedMsg{taken: taken, ids: r.takenIDs, err: err}
+}
+
+func (r *adoptRun) reconcileTools(rows []store.Session, candidates []adopt.Candidate, procs *adopt.ProcTable, observedAfter time.Time) error {
+	homes := managedHomes(candidates, r.launched)
+	for _, sess := range rows {
+		if sess.Archived || !r.agentTools[sess.Tool] {
+			continue
+		}
+		target := r.driver.TargetFor(sess.ID)
+		var matched []adopt.Candidate
+		for _, c := range candidates {
+			if c.Socket != target.Socket || adoptKey(c.Socket, c.PaneID) == r.self {
+				continue
+			}
+			if (sess.TmuxPaneID != "" && c.PaneID == sess.TmuxPaneID) ||
+				(sess.TmuxPaneID == "" && c.Session == target.Name && inHome(c, homes)) {
+				matched = append(matched, c)
+			}
+		}
+		if len(matched) != 1 {
+			continue
+		}
+		foreground := matched[0]
+		// Descendants may be agents this agent launched; only the foreground
+		// command proves the pane itself changed harness.
+		foreground.Command = procs.ForegroundCommand(foreground)
+		foreground.PID = 0
+		// Blocks sharing an executable differ only in arguments, which the
+		// command signal ignores, so they are told apart by the row's own tool
+		// or not at all.
+		var identified []string
+		for _, tool := range r.tools {
+			if match, ok := adopt.Identify(foreground, []adopt.Tool{tool}, "", nil); ok {
+				identified = append(identified, match.Tool)
+			}
+		}
+		if len(identified) == 0 {
+			continue
+		}
+		if r.hooks != nil {
+			if _, at, found := r.hooks.ReadExit(sess.ID); found && at.Before(observedAfter) {
+				if err := r.hooks.RemoveExitIfUnchanged(sess.ID, at); err != nil {
+					return err
+				}
+			}
+		}
+		if len(identified) != 1 || slices.Contains(identified, sess.Tool) {
+			continue
+		}
+		// The scan start is a safe fallback cutoff: it can miss the new
+		// harness's conversation, but never binds an older one.
+		launchedAt, ok := procs.ForegroundStart(matched[0])
+		if !ok {
+			launchedAt = observedAfter
+		}
+		if err := r.stor.SwitchTool(sess.ID, identified[0], launchedAt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // pruneIgnored drops "leave this pane out" answers for panes that no longer
@@ -215,6 +286,7 @@ type adoptRun struct {
 	index    *convo.Index
 	drift    *sessname.Drift
 	stor     *store.Store
+	hooks    *hooks.Manager
 	driver   *tmux.Driver
 	home     string
 	rejected map[string]int
@@ -740,7 +812,7 @@ func managedHomes(candidates []adopt.Candidate, launched map[string]bool) map[st
 			scripted[key] = true
 			continue
 		}
-		if home, ok := homes[key]; !ok || windowNumber(c.Window) < windowNumber(home) {
+		if home, ok := homes[key]; !ok || tmux.WindowNumber(c.Window) < tmux.WindowNumber(home) {
 			homes[key] = c.Window
 		}
 	}
@@ -790,14 +862,6 @@ func (m *Model) agentToolNames() map[string]bool {
 		}
 	}
 	return names
-}
-
-func windowNumber(window string) int {
-	n, err := strconv.Atoi(strings.TrimPrefix(window, "@"))
-	if err != nil {
-		return int(^uint(0) >> 1)
-	}
-	return n
 }
 
 // selfPaneKey is the pane the manager itself is drawing in, in the identity

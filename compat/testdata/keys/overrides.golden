@@ -41,11 +41,13 @@ revive = ["v"]  # revive it, or restart a live one on its own conversation
 revive_all = ["V", "shift+v"]  # revive every dead session
 switch_account = []  # switch its account: restarts it on its own conversation
 restart = []  # restart it on an empty context
+restart_with = []  # restart it with extra flags…
 archive = ["X"]  # kill it and file the row
 archive_all = []  # kill every session listed
 restore = ["u"]  # restore it out of the archive
 dismiss = ["."]  # skip
 priority = []  # cycle priority: urgent → high → medium → low → none
+mute = ["M", "shift+m"]  # mute / unmute: keep it out of triage until unmuted
 quick_prompt = [" ", "space", "ctrl+]"]  # hotkey menu
 rename_from_agent = ["r"]  # rename it after its conversation
 rename = []  # rename it yourself, and re-pick its tool
@@ -56,6 +58,7 @@ leave_out = ["o"]  # leave an outside pane off the board, still running
 move = ["m"]  # move it to a group
 show_all_work = []  # show every pull request and ticket, not the first few
 status_filter = ["w"]  # filter to what needs attention
+tool_filter = ["Y"]  # filter to one CLI, or show all
 triage = ["i"]  # triage this group as one queue
 toggle_conversation = ["f3"]  # show full / shortened conversation
 empty_groups = []  # hide / show empty groups
@@ -117,4 +120,5 @@ bottom = ["G", "end"]  # the bottom
 [confirm]
 toggle = [" ", "space"]  # answer the tick
 confirm = ["y", "enter"]  # go ahead (required)
+confirm_always = ["A", "shift+a"]  # go ahead and stop asking
 

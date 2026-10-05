@@ -51,11 +51,13 @@ const (
 	ReviveAll     Action = "revive_all"
 	SwitchAccount Action = "switch_account"
 	Restart       Action = "restart"
+	RestartWith   Action = "restart_with"
 	Archive       Action = "archive"
 	ArchiveAll    Action = "archive_all"
 	Restore       Action = "restore"
 	Dismiss       Action = "dismiss"
 	Priority      Action = "priority"
+	Mute          Action = "mute"
 	CopySessionID Action = "copy_session_id"
 	HandOver      Action = "hand_over"
 	QuickInput    Action = "quick_prompt"
@@ -66,6 +68,7 @@ const (
 
 	ShowAllWork  Action = "show_all_work"
 	StatusFilter Action = "status_filter"
+	ToolFilter   Action = "tool_filter"
 	Triage       Action = "triage"
 	EmptyGroups  Action = "empty_groups"
 	FoldAll      Action = "fold_all"
@@ -91,19 +94,23 @@ const (
 // Close wherever the screen is, and a cursor step is CursorUp on all of
 // them. The context is what separates them.
 const (
-	Close    Action = "close"
-	Refresh  Action = "refresh"
-	Rescind  Action = "rescind_submission"
-	Fold     Action = "fold"
-	Confirm  Action = "confirm"
-	Cancel   Action = "cancel"
-	Toggle   Action = "toggle"
-	PageUp   Action = "page_up"
-	PageDown Action = "page_down"
-	Top      Action = "top"
-	Bottom   Action = "bottom"
-	More     Action = "more"
-	TickAll  Action = "tick_all"
+	Close   Action = "close"
+	Refresh Action = "refresh"
+	Rescind Action = "rescind_submission"
+	Fold    Action = "fold"
+	Confirm Action = "confirm"
+	Cancel  Action = "cancel"
+	Toggle  Action = "toggle"
+	// ConfirmAlways is Confirm with the asking turned off: it answers the
+	// dialog the same way and writes the action's own "never" setting, so the
+	// next one of its kind is answered without a dialog.
+	ConfirmAlways Action = "confirm_always"
+	PageUp        Action = "page_up"
+	PageDown      Action = "page_down"
+	Top           Action = "top"
+	Bottom        Action = "bottom"
+	More          Action = "more"
+	TickAll       Action = "tick_all"
 	// ToggleChrome hides the footer and brings it back. It is the chrome
 	// setting's "never" under a key, for an operator who wants the rows
 	// for a moment rather than for good.
@@ -157,11 +164,13 @@ var Catalog = []Binding{
 	{ContextList, ReviveAll, []string{"V", "shift+v"}, "revive every dead session", false},
 	{ContextList, SwitchAccount, []string{}, "switch its account: restarts it on its own conversation", false},
 	{ContextList, Restart, []string{}, "restart it on an empty context", false},
+	{ContextList, RestartWith, []string{}, "restart it with extra flags…", false},
 	{ContextList, Archive, []string{"x"}, "kill it and file the row", false},
 	{ContextList, ArchiveAll, []string{}, "kill every session listed", false},
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
 	{ContextList, Dismiss, []string{"."}, "skip", false},
 	{ContextList, Priority, []string{"p"}, "cycle priority: urgent → high → medium → low → none", false},
+	{ContextList, Mute, []string{"M", "shift+m"}, "mute / unmute: keep it out of triage until unmuted", false},
 	{ContextList, QuickInput, []string{" ", "space", "ctrl+]"}, "hotkey menu", false},
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{}, "rename it yourself, and re-pick its tool", false},
@@ -176,6 +185,7 @@ var Catalog = []Binding{
 
 	{ContextList, ShowAllWork, []string{}, "show every pull request and ticket, not the first few", false},
 	{ContextList, StatusFilter, []string{"w"}, "filter to what needs attention", false},
+	{ContextList, ToolFilter, []string{"Y"}, "filter to one CLI, or show all", false},
 	{ContextList, Triage, []string{"i"}, "triage this group as one queue", false},
 	{ContextList, ToggleConversation, []string{"f3"}, "show full / shortened conversation", false},
 	{ContextList, EmptyGroups, []string{}, "hide / show empty groups", false},
@@ -265,4 +275,5 @@ var Catalog = []Binding{
 	// ---- a confirmation ----
 	{ContextConfirm, Toggle, []string{" ", "space"}, "answer the tick", false},
 	{ContextConfirm, Confirm, []string{"y", "enter"}, "go ahead", true},
+	{ContextConfirm, ConfirmAlways, []string{"A", "shift+a"}, "go ahead and stop asking", false},
 }

@@ -33,6 +33,12 @@ var (
 	waitMark       = []byte(`"wait"`)
 	pollsCommand   = regexp.MustCompile(`\btools\.write_stdin\s*\(`)
 	wrapperCreated = regexp.MustCompile(`gh-pr-create: labeled PR #([0-9]+) as '[^'\r\n]+'(?:\r?\n|\\n)(https://github\.com/[^/\s"]+/[^/\s"]+/pull/([0-9]+))(?:\r?\n|\\n|$)`)
+	// wrapperConfirmed is wrapperCreated held to whole lines joined by a real
+	// newline. It is the only evidence taken from a result whose call did not
+	// name the wrapper: a script that runs it, or a waiter tailing its log.
+	// Source and transcripts quoting the confirmation carry it escaped or
+	// behind a line-number gutter, and do not match.
+	wrapperConfirmed = regexp.MustCompile(`(?m)^gh-pr-create: labeled PR #([0-9]+) as '[^'\r\n]+'\r?\n(https://github\.com/[^/\s"]+/[^/\s"]+/pull/([0-9]+))\r?$`)
 )
 
 // lineCalls reads the tool calls out of one transcript row. Most rows carry
@@ -122,4 +128,16 @@ func codexCalls(line []byte) []toolCall {
 		return []toolCall{{id: p.CallID, result: true, text: resultText(p.Output, resultScan)}}
 	}
 	return nil
+}
+
+// confirmedURLs is every pull request URL the wrapper's confirmation names,
+// kept only where the label line and the URL agree on the number.
+func confirmedURLs(re *regexp.Regexp, text string) []string {
+	var urls []string
+	for _, match := range re.FindAllStringSubmatch(text, -1) {
+		if match[1] == match[3] {
+			urls = append(urls, match[2])
+		}
+	}
+	return urls
 }

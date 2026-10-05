@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/snippets"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -99,7 +100,7 @@ func TestMenuKeyFromTheListSendsToTheCursorRow(t *testing.T) {
 // no menu opened.
 func TestDirectChordSendsFromTheList(t *testing.T) {
 	m := buildModel(t)
-	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Chord: "alt+shift+d", Text: "ship it now"}})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
@@ -119,7 +120,7 @@ func TestDirectChordSendsFromTheList(t *testing.T) {
 // The same chord answers a focused session without leaving the pane.
 func TestDirectChordSendsFromAFocusedSession(t *testing.T) {
 	m := buildModel(t)
-	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Chord: "alt+shift+d", Text: "ship it now"}})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.rebuildRows()
 	m.enterFocusOn(t, "ask")
@@ -141,7 +142,7 @@ func TestDirectChordSendsFromAFocusedSession(t *testing.T) {
 // snippet.
 func TestDirectChordReadsShiftFromModifierOrCode(t *testing.T) {
 	m := buildModel(t)
-	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Text: "ship it now"}})
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Chord: "option+shift+d", Label: "deploy", Text: "ship it now"}})
 
 	if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'd', Mod: tea.ModAlt | tea.ModShift}); !ok || snip.Key != "d" {
 		t.Fatalf("option+shift+d did not name d: %v %v", snip, ok)
@@ -156,6 +157,139 @@ func TestDirectChordReadsShiftFromModifierOrCode(t *testing.T) {
 		if snip, ok := m.snippetChordFor(msg); ok {
 			t.Fatalf("%q named the snippet %q outside its chord", msg.String(), snip.Key)
 		}
+	}
+}
+
+// Shift folded into the code names the shifted chord only: chords compare
+// case-folded, so offering option+E as-is would fire an option+e snippet.
+// (Not d: focus binds alt+d, so it could never name a snippet.)
+func TestFoldedShiftPrefersTheShiftedChord(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{
+		{Key: "a", Chord: "alt+e", Text: "plain"},
+		{Key: "b", Chord: "alt+shift+e", Text: "shifted"},
+	})
+	if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'E', Mod: tea.ModAlt}); !ok || snip.Key != "b" {
+		t.Fatalf("option+shift+E folded into the code named %v %v, want b", snip, ok)
+	}
+	if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'e', Mod: tea.ModAlt}); !ok || snip.Key != "a" {
+		t.Fatalf("option+e named %v %v, want a", snip, ok)
+	}
+}
+
+// The fold is read for any uppercase letter, not only A-Z: a chord may bind
+// any single character.
+func TestFoldedShiftReadsNonASCIIUppercase(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{
+		{Key: "a", Chord: "alt+é", Text: "plain"},
+		{Key: "b", Chord: "alt+shift+é", Text: "shifted"},
+	})
+	if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'É', Mod: tea.ModAlt}); !ok || snip.Key != "b" {
+		t.Fatalf("option+shift+É folded into the code named %v %v, want b", snip, ok)
+	}
+}
+
+// A symbol chord fires whether the terminal sends the symbol (option+!) or
+// reports shift and the base key apart (option+shift+1, shifted to !).
+func TestASymbolChordFiresEitherWayShiftArrives(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "a", Chord: "alt+!", Text: "bang"}})
+	for _, msg := range []tea.KeyPressMsg{
+		{Code: '!', Mod: tea.ModAlt},
+		{Code: '1', ShiftedCode: '!', Mod: tea.ModAlt | tea.ModShift},
+	} {
+		if snip, ok := m.snippetChordFor(msg); !ok || snip.Key != "a" {
+			t.Fatalf("%s named %v %v, want a", msg.String(), snip, ok)
+		}
+	}
+}
+
+// A chord the manager's own map binds stays the manager's on both screens, so
+// a snippet file cannot make a documented key behave differently by screen.
+func TestManagerBindingOutranksASnippetChord(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{
+		{Key: "p", Chord: "ctrl+p", Text: "list snippet"},
+		{Key: "c", Chord: "alt+,", Text: "focus snippet"},
+	})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.selectSessionRow(t, "ask")
+
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	m = updated.(*Model)
+	if m.mode != modeQuickActions {
+		t.Fatalf("ctrl+p left the board in %v, want quick actions over the snippet", m.mode)
+	}
+	pressKey(t, m, key("esc"))
+
+	m.enterFocusOn(t, "ask")
+	before := m.chrome
+	updated, _ = m.handleFocusKey(tea.KeyPressMsg{Code: ',', Mod: tea.ModAlt})
+	m = updated.(*Model)
+	if m.chrome == before {
+		t.Fatal("alt+, sent the snippet instead of toggling the key hints")
+	}
+}
+
+// A chord only one screen binds is still the manager's on the other, so the
+// same press never sends a snippet on one screen and acts on the other.
+func TestAChordEitherScreenBindsNeverNamesASnippet(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{
+		{Key: "p", Chord: "ctrl+p", Text: "list binds this"},
+		{Key: "q", Chord: "ctrl+q", Text: "focus binds this"},
+	})
+	for _, msg := range []tea.KeyPressMsg{
+		{Code: 'p', Mod: tea.ModCtrl},
+		{Code: 'q', Mod: tea.ModCtrl},
+	} {
+		if snip, ok := m.snippetChordFor(msg); ok {
+			t.Errorf("%s named the snippet %q over a manager binding", msg.String(), snip.Key)
+		}
+	}
+}
+
+// A side-sensitive action takes both mirror images of its key, whichever side
+// the rail is on, so moving the rail never hands a manager press to a snippet.
+func TestAMirroredBindingNeverNamesASnippet(t *testing.T) {
+	m := buildModel(t)
+	for _, ctx := range []keymap.Context{keymap.ContextList, keymap.ContextFocus} {
+		for _, free := range []string{"ctrl+alt+h", "ctrl+alt+l"} {
+			if action, bound := m.km().Action(ctx, free); bound {
+				t.Fatalf("%s is already %s in %v; the test needs it free", free, action, ctx)
+			}
+		}
+	}
+	bindTestKey(t, m, keymap.StepIn, "ctrl+alt+h")
+	writeSnippets(t, m, []snippets.Snippet{{Key: "l", Chord: "ctrl+alt+l", Text: "mirror of step in"}})
+	for _, side := range []string{config.SidebarLeft, config.SidebarRight} {
+		m.sidebar = side
+		if snip, ok := m.snippetChordFor(tea.KeyPressMsg{Code: 'l', Mod: tea.ModCtrl | tea.ModAlt}); ok {
+			t.Errorf("rail %s: ctrl+alt+l named the snippet %q over mirrored step in", side, snip.Key)
+		}
+	}
+}
+
+// A chord the key map took is not advertised as the snippet's: the footer
+// falls back to the menu key and the key map says why.
+func TestSurfacesDropAChordTheKeyMapTook(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "p", Chord: "ctrl+p", Label: "push", Text: "push it"}})
+
+	if pairs := m.snippetLegend().pairs; len(pairs) != 1 || pairs[0][0] != "p" {
+		t.Fatalf("legend pairs = %v, want the menu key p", pairs)
+	}
+	var help string
+	for _, row := range m.snippetHelpSection().rows {
+		help += row.key + " " + row.text + "\n"
+	}
+	if strings.Contains(help, "(menu: p)") {
+		t.Errorf("the key map still offers ctrl+p as the snippet's chord:\n%s", help)
+	}
+	if !strings.Contains(help, "manager key") {
+		t.Errorf("the key map does not say why ctrl+p is not the snippet's:\n%s", help)
 	}
 }
 
@@ -513,7 +647,7 @@ func TestHelpExplainsARefusedEntry(t *testing.T) {
 
 func TestFooterAdvertisesSnippets(t *testing.T) {
 	m := buildModel(t)
-	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Text: "ship it now"}})
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Chord: "alt+shift+d", Label: "deploy", Text: "ship it now"}})
 
 	section := m.snippetLegend()
 	if len(section.pairs) != 1 || section.pairs[0][0] != keymap.Display("alt+shift+d") || section.pairs[0][1] != "deploy" {
@@ -536,7 +670,7 @@ func TestFooterAdvertisesSnippets(t *testing.T) {
 func TestSurfacesPrintTheDirectChord(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{
-		{Key: "d", Label: "deploy", Text: "ship it now"},
+		{Key: "d", Chord: "alt+shift+d", Label: "deploy", Text: "ship it now"},
 		{Key: snippets.SectionKey, Label: "progress", Text: "summarise it"},
 	})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})

@@ -685,9 +685,7 @@ func TestCaretAtInputEnd(t *testing.T) {
 }
 
 // Right leaves focus at the end of the prompt and reaches the agent
-// anywhere else, so a typed prompt keeps its caret movement. The rail sits
-// on the right of the frame, so the exit arrow is Right; Left always reaches
-// the agent, even at the head where it is a no-op for it.
+// anywhere else, so a typed prompt keeps its caret movement.
 func TestFocusRightUnfocusesAtPromptEnd(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "rightie", t.TempDir(), "")
@@ -721,10 +719,9 @@ func TestFocusRightUnfocusesAtPromptEnd(t *testing.T) {
 	}
 }
 
-// Left is the pane's on every prompt position now: the exit arrow points at
-// the rail on the right, so even the head-of-prompt Left that used to leave
-// forwards instead.
-func TestFocusLeftStaysAtPromptHead(t *testing.T) {
+// Left leaves focus at the head of the prompt and reaches the agent
+// anywhere else, so a typed prompt keeps its caret movement.
+func TestFocusLeftUnfocusesAtPromptHead(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "leftie", t.TempDir(), "")
 	m.selectSessionRow(t, "leftie")
@@ -737,16 +734,23 @@ func TestFocusLeftStaysAtPromptHead(t *testing.T) {
 	sess := m.rows[m.cursor].sess
 	m.rows[m.cursor].sess.Tool = "claude-hooked"
 	m.pane.forID = sess.ID
-	m.pane.cursor = paneCursor{x: 2, y: 0, ok: true}
 	m.preview = "❯ hi\n"
 
+	m.pane.cursor = paneCursor{x: 3, y: 0, ok: true}
 	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
 	*m = *updated.(*Model)
 	if m.mode != modeFocus {
-		t.Fatalf("left at the prompt head left focus, mode = %v", m.mode)
+		t.Fatalf("left inside a typed prompt left focus, mode = %v", m.mode)
 	}
 	if m.errBar.text != "" {
 		t.Fatalf("forwarding left set err: %q", m.errBar.text)
+	}
+
+	m.pane.cursor = paneCursor{x: 2, y: 0, ok: true}
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	*m = *updated.(*Model)
+	if m.mode != modeList {
+		t.Fatalf("left at the prompt head did not unfocus, mode = %v", m.mode)
 	}
 }
 

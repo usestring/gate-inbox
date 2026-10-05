@@ -162,6 +162,8 @@ func (m *Model) openSettings() {
 		palette:          normalizePalette(m.palette),
 		glyphs:           normalizeGlyphs(m.glyphs),
 		archiveConfirm:   normalizeArchiveConfirm(m.archiveConfirm),
+		deleteConfirm:    normalizeConfirmAsk(m.deleteConfirm),
+		restartConfirm:   normalizeConfirmAsk(m.restartConfirm),
 		listSort:         normalizeListSort(m.listSort),
 		chrome:           normalizeChrome(m.chrome),
 		leaveMode:        normalizeLeaveMode(m.leaveMode),
@@ -183,26 +185,11 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleCLIPickerKey(msg)
 	}
 	if m.settings.experimentalPicker {
-		switch msg.String() {
-		case "up", "k":
-			m.settings.experimentalCursor = (m.settings.experimentalCursor + 3) % 4
-		case "down", "j":
-			m.settings.experimentalCursor = (m.settings.experimentalCursor + 1) % 4
-		case "left", "right", "h", "l", "space", "enter":
-			switch m.settings.experimentalCursor {
-			case 0:
-				m.settings.jevAutoSuggest = !m.settings.jevAutoSuggest
-			case 1:
-				m.settings.promptSuggest = !m.settings.promptSuggest
-			case 2:
-				m.settings.compressedFocus = !m.settings.compressedFocus
-			case 3:
-				m.settings.jevFinishCheck = !m.settings.jevFinishCheck
-			}
-		case "esc":
-			m.settings.experimentalPicker = false
-		}
+		m.handleExperimentalKey(msg)
 		return m, nil
+	}
+	if m.settings.jevPanel {
+		return m.handleJevSettingsKey(msg)
 	}
 	switch msg.String() {
 	case "up", "k":
@@ -215,11 +202,17 @@ func (m *Model) handleSettingsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.cycleSetting(1)
 	case "enter":
 		switch m.settings.field {
+		case settingsFieldJev:
+			m.settings.jevPanel = true
+			m.settings.jevCursor = 0
+			return m, nil
 		case settingsFieldExperimental:
 			m.settings.experimentalPicker = true
 			return m, nil
 		case settingsFieldSnippets:
 			return m.openSnippetEditor()
+		case settingsFieldRestartFlags:
+			return m.openRestartFlagEditor()
 		case settingsFieldCLIs:
 			m.openCLIPicker()
 			return m, nil
@@ -250,6 +243,10 @@ func (m *Model) saveAndCloseSettings() (tea.Model, tea.Cmd) {
 	m.loadSnippets()
 	if m.snipErr != "" {
 		m.errBar.text = "snippets could not be read: " + m.snipErr
+	}
+	m.loadRestartFlags()
+	if m.restartFlagErr != "" {
+		m.errBar.text = "restart flags could not be read: " + m.restartFlagErr
 	}
 	m.rebuildRows()
 	m.mode = modeList
@@ -314,6 +311,12 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(archiveConfirmSetting, normalizeArchiveConfirm(m.settings.archiveConfirm)); err != nil {
 		m.errBar.text = err.Error()
 	}
+	if err := m.store.SetSetting(deleteConfirmSetting, normalizeConfirmAsk(m.settings.deleteConfirm)); err != nil {
+		m.errBar.text = err.Error()
+	}
+	if err := m.store.SetSetting(restartConfirmSetting, normalizeConfirmAsk(m.settings.restartConfirm)); err != nil {
+		m.errBar.text = err.Error()
+	}
 	if err := m.store.SetSetting(listSortSetting, normalizeListSort(m.settings.listSort)); err != nil {
 		m.errBar.text = err.Error()
 	}
@@ -339,28 +342,8 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(outsidePanesSetting, normalizeOutsidePanes(m.settings.outsidePanes)); err != nil {
 		m.errBar.text = err.Error()
 	}
-	featureValue := "off"
-	if m.settings.jevAutoSuggest {
-		featureValue = "on"
-	}
-	if err := m.store.SetSetting(jevAutoSuggestSetting, featureValue); err != nil {
-		m.errBar.text = err.Error()
-	}
-	finishValue := "off"
-	if m.settings.jevFinishCheck {
-		finishValue = "on"
-	}
-	if err := m.store.SetSetting(jevFinishCheckSetting, finishValue); err != nil {
-		m.errBar.text = err.Error()
-	}
+	m.persistExperiments()
 	m.jevFinishCheck = m.settings.jevFinishCheck
-	promptValue := "off"
-	if m.settings.promptSuggest {
-		promptValue = "on"
-	}
-	if err := m.store.SetSetting(promptSuggestionsSetting, promptValue); err != nil {
-		m.errBar.text = err.Error()
-	}
 	if m.promptSuggest != m.settings.promptSuggest {
 		m.promptSnipsSeq++
 	}
@@ -374,13 +357,6 @@ func (m *Model) persistSettings() tea.Cmd {
 	}
 	m.autoProceed = m.settings.autoProceed
 	m.focusOnEnter = m.settings.enterFocuses
-	compressedValue := "off"
-	if m.settings.compressedFocus {
-		compressedValue = "on"
-	}
-	if err := m.store.SetSetting(compressedFocusSetting, compressedValue); err != nil {
-		m.errBar.text = err.Error()
-	}
 	m.compressedFocus = storedCompressedFocus(m.store)
 	m.focusView = storedFocusView(m.store)
 	m.comfortableRows = m.settings.comfortableRows
@@ -390,6 +366,8 @@ func (m *Model) persistSettings() tea.Cmd {
 	m.glyphs = normalizeGlyphs(m.settings.glyphs)
 	applyGlyphSet(m.glyphs)
 	m.archiveConfirm = normalizeArchiveConfirm(m.settings.archiveConfirm)
+	m.deleteConfirm = normalizeConfirmAsk(m.settings.deleteConfirm)
+	m.restartConfirm = normalizeConfirmAsk(m.settings.restartConfirm)
 	m.listSort = normalizeListSort(m.settings.listSort)
 	m.chrome = normalizeChrome(m.settings.chrome)
 	m.leaveMode = normalizeLeaveMode(m.settings.leaveMode)
@@ -585,6 +563,10 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 			}
 		}
 		m.settings.archiveConfirm = archiveConfirmModes[(index+step+len(archiveConfirmModes))%len(archiveConfirmModes)]
+	case settingsFieldDeleteConfirm:
+		m.settings.deleteConfirm = cycleMode(confirmAskModes, normalizeConfirmAsk(m.settings.deleteConfirm), step)
+	case settingsFieldRestartConfirm:
+		m.settings.restartConfirm = cycleMode(confirmAskModes, normalizeConfirmAsk(m.settings.restartConfirm), step)
 	case settingsFieldListSort:
 		index := 0
 		for i, mode := range listSortModes {

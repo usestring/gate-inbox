@@ -120,6 +120,8 @@ func (m *Model) paint() (string, bool) {
 		frame = m.viewQuickActions()
 	case modePanePicker:
 		frame = m.viewPanePicker()
+	case modeRestartWith:
+		frame = m.viewRestartWith()
 	default:
 		frame = m.viewListFrame()
 	}
@@ -871,7 +873,7 @@ func (m *Model) viewLegend() legendSection {
 		{keymap.NewSession, "new"}, {keymap.NewSessionForm, "new…"},
 		{keymap.NewTerminal, "terminal"}, {keymap.NewGroup, "group"}, {keymap.Search, "search"},
 		{keymap.ArchivedView, "archived"}, {keymap.StatusFilter, "attention"},
-		{keymap.Triage, "triage"}, {keymap.EmptyGroups, "hide empty"},
+		{keymap.ToolFilter, "CLI"}, {keymap.Triage, "triage"}, {keymap.EmptyGroups, "hide empty"},
 		{keymap.Help, "full key map"}, {keymap.Quit, "quit"},
 		{keymap.FoldAll, "fold all"}, {keymap.Resize, "resize"}, {keymap.Settings, "settings"},
 	} {
@@ -892,6 +894,10 @@ func (m *Model) viewLegend() legendSection {
 			}
 		case keymap.StatusFilter:
 			if m.statusFilter.active() {
+				text = "show all"
+			}
+		case keymap.ToolFilter:
+			if m.toolFilterActive() {
 				text = "show all"
 			}
 		case keymap.Triage:

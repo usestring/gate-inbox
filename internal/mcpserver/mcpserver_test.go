@@ -110,6 +110,8 @@ type fakeSessionCommands struct {
 	killedID       string
 	archivedID     string
 	archived       bool
+	mutedID        string
+	muted          bool
 	groupPath      string
 	groupDir       string
 	err            error
@@ -247,6 +249,14 @@ func (f *fakeSessionCommands) Archive(_ string, id string, archived bool) (sessi
 	f.archived = archived
 	updated := f.created
 	updated.Archived = archived
+	return updated, f.err
+}
+
+func (f *fakeSessionCommands) Mute(_ string, id string, muted bool) (sessioncmd.Session, error) {
+	f.mutedID = id
+	f.muted = muted
+	updated := f.created
+	updated.Muted = muted
 	return updated, f.err
 }
 

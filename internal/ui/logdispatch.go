@@ -48,6 +48,8 @@ func (m mode) String() string {
 		return "quick-actions"
 	case modePanePicker:
 		return "pane-picker"
+	case modeRestartWith:
+		return "restart-with"
 	}
 	return fmt.Sprintf("mode(%d)", int(m))
 }

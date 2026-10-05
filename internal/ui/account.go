@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/accounts"
@@ -246,8 +247,27 @@ func (m *Model) viewAccountSwitch() string {
 	if m.account.migrate {
 		then = "over 200k context: migrate to new session"
 	}
-	body := "  session  " + valueStyle.Render(sess.Name) + "  " + mutedStyle.Render("on "+sess.Tool+" as "+now) + "\n" +
-		"  account  " + subtleStyle.Render("◂ ") + valueStyle.Render(m.account.names[m.account.index]) + subtleStyle.Render(" ▸") + "\n" +
-		"           " + mutedStyle.Render(then)
-	return m.card("⇄ Switch Account", body, [][2]string{{"←→", "account"}, {"↵", "switch"}, {"esc", "cancel"}})
+	var body strings.Builder
+	body.WriteString("  session  " + valueStyle.Render(sess.Name) + "  " + mutedStyle.Render("on "+sess.Tool+" as "+now) + "\n")
+	hint := [][2]string{{"↑↓", "account"}, {"↵", "switch"}, {"esc", "cancel"}}
+	legendRows := strings.Count(legendInline(hint, cardInnerWidth(m.cardWidth())), "\n") + 1
+	rows := m.height - 7 - legendRows
+	if m.errBar.text != "" {
+		rows -= 2
+	}
+	rows = max(1, rows)
+	start := max(0, m.account.index-rows+1)
+	for i := start; i < min(len(m.account.names), start+rows); i++ {
+		name := m.account.names[i]
+		lead, marker, style := "           ", "  ", mutedStyle
+		if i == start {
+			lead = "  account  "
+		}
+		if i == m.account.index {
+			marker, style = keyStyle.Render("❯ "), valueStyle
+		}
+		body.WriteString(lead + marker + style.Render(name) + "\n")
+	}
+	body.WriteString("           " + mutedStyle.Render(then))
+	return m.card("⇄ Switch Account", body.String(), hint)
 }

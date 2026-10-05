@@ -5,6 +5,7 @@ package tmux
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -322,8 +323,9 @@ func hasTmuxEnv(env []string) bool {
 }
 
 // TestAttachFromInsideTheSameServer covers the attach the manager makes for a
-// living. Sharing a server with the terminal the manager runs in is what tmux
-// calls nesting and refuses, so the attach has to say it means it.
+// living. A manager in a pane of the session's own server moves the
+// operator's client rather than nesting a second one there; anywhere else it
+// is a plain attach with tmux's nesting guard taken off.
 func TestAttachFromInsideTheSameServer(t *testing.T) {
 	driver := requireTmux(t)
 	id := uniqueID("attach")
@@ -338,18 +340,39 @@ func TestAttachFromInsideTheSameServer(t *testing.T) {
 	}
 	pane := strings.TrimSpace(string(out))
 
-	// The manager sits in some other pane on the same server: the attach
-	// must go through, so tmux's nesting guard has to come off.
+	// The manager sits in a pane of another session on the same server: a
+	// nested client there would draw into one of the server's own panes, so
+	// the operator's client is switched instead, and the switch needs $TMUX
+	// to find it.
+	home := uniqueID("home")
+	if err := driver.Create(home, t.TempDir(), "", nil, 80, 24); err != nil {
+		t.Fatalf("Create home: %v", err)
+	}
+	t.Cleanup(func() { driver.Kill(home) })
+	out, err = tmuxCmd("list-panes", "-t", sessionName(home), "-F", "#{pane_id}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("list-panes home: %v: %s", err, out)
+	}
 	t.Setenv("TMUX", tmuxtest.SocketPath(testSocket)+",1,0")
+	t.Setenv("TMUX_PANE", strings.TrimSpace(string(out)))
+	cmd := driver.AttachCommand(id)
+	if slices.Contains(cmd.Args, "attach-session") || !slices.Contains(cmd.Args, "switch-client") {
+		t.Errorf("nested a second client on the manager's own server: %q", cmd.Args)
+	}
+	if cmd.Env != nil && !hasTmuxEnv(cmd.Env) {
+		t.Error("dropped $TMUX, so the switch cannot find the operator's client")
+	}
+
+	// A pane id the server does not have is not the manager being on it.
 	t.Setenv("TMUX_PANE", "%99999")
 	if hasTmuxEnv(driver.AttachCommand(id).Env) {
-		t.Error("kept $TMUX, so tmux refuses the attach as nesting")
+		t.Error("kept $TMUX for a manager that is not on this server")
 	}
 
 	// The manager sits in this very session: attaching it would put its
 	// screen inside itself, and tmux's refusal is the right answer.
 	t.Setenv("TMUX_PANE", pane)
-	cmd := driver.AttachCommand(id)
+	cmd = driver.AttachCommand(id)
 	if cmd.Env != nil && !hasTmuxEnv(cmd.Env) {
 		t.Error("dropped $TMUX for the one attach that loops back on itself")
 	}

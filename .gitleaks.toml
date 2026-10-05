@@ -26,3 +26,13 @@ condition = "AND"
 targetRules = ["generic-api-key"]
 commits = ["e8200eb2bb8d1e8cf6ec799fcd0443978e51cade"]
 paths = ['''^internal/ui/childquestion_test\.go$''']
+
+# The JEV key-paste test first spelled its made-up keys with a random-looking
+# tail. A later commit renamed them to plain fake values; this entry covers the
+# one commit that still carries the old spelling.
+[[allowlists]]
+description = "internal/ui JEV key-paste test: fake JEV API key values"
+condition = "AND"
+targetRules = ["generic-api-key"]
+commits = ["9aec9032e69089d20e2008a83dfaa0b7c302fb2c"]
+paths = ['''^internal/ui/jevkey_test\.go$''']

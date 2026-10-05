@@ -766,7 +766,7 @@ func managedHomes(candidates []adopt.Candidate, launched map[string]bool) map[st
 			scripted[key] = true
 			continue
 		}
-		if home, ok := homes[key]; !ok || windowNumber(c.Window) < windowNumber(home) {
+		if home, ok := homes[key]; !ok || tmux.WindowNumber(c.Window) < tmux.WindowNumber(home) {
 			homes[key] = c.Window
 		}
 	}
@@ -816,14 +816,6 @@ func (m *Model) agentToolNames() map[string]bool {
 		}
 	}
 	return names
-}
-
-func windowNumber(window string) int {
-	n, err := strconv.Atoi(strings.TrimPrefix(window, "@"))
-	if err != nil {
-		return int(^uint(0) >> 1)
-	}
-	return n
 }
 
 // selfPaneKey is the pane the manager itself is drawing in, in the identity

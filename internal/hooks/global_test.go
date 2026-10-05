@@ -396,6 +396,9 @@ func newAdoptedBoard(t *testing.T) adoptedBoard {
 	if err := NewManager(b.configDir).SyncAdopted([]AdoptedPane{{ID: "adopted1", ServerPID: 4242, PaneID: "%7", AgentPID: os.Getpid()}}); err != nil {
 		t.Fatal(err)
 	}
+	if err := NewManager(b.configDir).PrepareArrivals(); err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(t.TempDir(), "settings.json")
 	if _, err := RegisterGlobal(path, b.configDir, b.bin); err != nil {
 		t.Fatal(err)
@@ -457,8 +460,14 @@ func deadPID(t *testing.T) int {
 
 // Every way a session can be outside an adopted pane -- or Gate Inbox can be
 // half gone -- leaves every global hook silent: exit 0, nothing on stdout or
-// stderr, the binary never run, nothing written.
+// stderr, the binary never run, nothing written. The one write allowed is
+// SessionStart's announcement of a pane the running board has no marker
+// for, which the cases in announces expect.
 func TestGlobalHooksStaySilentUnlessAdoptedAndAlive(t *testing.T) {
+	announces := map[string]string{
+		"a pane nobody adopted": "/hooks/arrivals/4242%8",
+		"another server's pane": "/hooks/arrivals/999%7",
+	}
 	cases := map[string]func(t *testing.T, b *adoptedBoard) ([]string, func(string) string){
 		"no tmux": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
 			return []string{"PATH=/usr/bin:/bin"}, direct
@@ -495,6 +504,19 @@ func TestGlobalHooksStaySilentUnlessAdoptedAndAlive(t *testing.T) {
 			writeFile(t, filepath.Join(b.configDir, singleton.FileName), strconv.Itoa(deadPID(t)))
 			return adoptedEnv, direct
 		},
+		"an unmarked pane with the board down": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
+			writeFile(t, filepath.Join(b.configDir, singleton.FileName), strconv.Itoa(deadPID(t)))
+			return []string{"PATH=/usr/bin:/bin", "TMUX=/tmp/s,4242,0", "TMUX_PANE=%8"}, direct
+		},
+		"an unmarked pane the board launched": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
+			return []string{"PATH=/usr/bin:/bin", "TMUX=/tmp/s,4242,0", "TMUX_PANE=%8", EnvStatusFile + "=" + filepath.Join(t.TempDir(), "launched.status")}, direct
+		},
+		"an unmarked pane before the board made its arrivals": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
+			if err := os.Remove(NewManager(b.configDir).ArrivalsDir()); err != nil {
+				t.Fatal(err)
+			}
+			return []string{"PATH=/usr/bin:/bin", "TMUX=/tmp/s,4242,0", "TMUX_PANE=%8"}, direct
+		},
 		"the board never ran": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
 			os.Remove(filepath.Join(b.configDir, singleton.FileName))
 			return adoptedEnv, direct
@@ -522,7 +544,20 @@ func TestGlobalHooksStaySilentUnlessAdoptedAndAlive(t *testing.T) {
 			if _, err := os.Stat(b.calls); err == nil {
 				t.Fatalf("the hooks ran the binary: %s", readFile(t, b.calls))
 			}
-			if after := dirEntries(t, b.configDir); strings.Join(after, ",") != strings.Join(before, ",") {
+			after := dirEntries(t, b.configDir)
+			if want, ok := announces[name]; ok {
+				kept := after[:0:0]
+				for _, entry := range after {
+					if entry != want {
+						kept = append(kept, entry)
+					}
+				}
+				if len(kept) != len(after)-1 {
+					t.Fatalf("the pane was not announced as %s: %v", want, after)
+				}
+				after = kept
+			}
+			if strings.Join(after, ",") != strings.Join(before, ",") {
 				t.Fatalf("the hooks wrote under the config dir: %v -> %v", before, after)
 			}
 			t.Logf("%v per hook (sh start included)", each)

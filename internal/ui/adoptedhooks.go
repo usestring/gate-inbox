@@ -25,6 +25,10 @@ import (
 // hand inside its adopted pane has a new pid, which only a fresh look finds.
 const adoptedHooksEvery = 15 * time.Second
 
+// adoptedHooksRetry is how soon a sync that could not mark every adopted
+// claude tries again.
+const adoptedHooksRetry = 2 * time.Second
+
 type adoptedHooksState struct {
 	last time.Time
 	// key is the adopted rows the last sync covered; a change in them syncs
@@ -99,6 +103,12 @@ func (m *Model) syncAdoptedHooks(now time.Time) {
 				panes = append(panes, pane)
 			}
 		}
+	}
+	if len(panes) < len(rows) {
+		// A claude adopted the moment it started may not have written the
+		// session file its marker is read from yet. Look again soon rather
+		// than leaving its hooks quiet for a whole interval.
+		state.last = now.Add(adoptedHooksRetry - adoptedHooksEvery)
 	}
 	if err := m.hooks.SyncAdopted(panes); err != nil {
 		logging.Warn("adopted hook markers not synced", logging.Err(err))

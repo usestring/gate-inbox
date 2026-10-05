@@ -56,6 +56,10 @@ import (
 //   - The board is running: the pid in its singleton lock answers kill -0.
 //   - The installed binary is still there and executable.
 //
+// SessionStart alone does one thing more when the pane has no marker: with
+// the board running, it announces the pane (arrivals.go), so the board can
+// take it at once rather than on its next scan.
+//
 // Gate Inbox deleted without unregistering leaves entries that fail the first
 // test they reach and stay silent. The prelude's own stderr goes to
 // /dev/null, so nothing it trips over reaches the session either.
@@ -352,12 +356,22 @@ func globalMark(configDir string) string {
 // board stops at the first or second.
 func globalCommand(configDir, bin, event string) string {
 	hooksDir := filepath.Join(configDir, "hooks")
+	lock := shellQuote(filepath.Join(configDir, singleton.FileName))
+	unmarked := `[ -f "$m" ] || exit 0; `
+	if event == arrivalEvent {
+		// A pane with no marker yet is one the board may not know about:
+		// announce it (see arrivals.go), still only with builtins, and
+		// only to a board that is running.
+		unmarked = `[ -f "$m" ] || { read -r b < ` + lock + `; [ -n "$b" ] && kill -0 "$b" && ` +
+			`printf '%s\n' "$TMUX" "$TMUX_PANE" "$PPID" > ` +
+			shellQuote(filepath.Join(hooksDir, arrivalsDirName)+"/") + `"${t%%,*}$TMUX_PANE"; exit 0; }; `
+	}
 	return globalMark(configDir) + `exec 2>/dev/null; ` +
 		`[ -z "$` + EnvStatusFile + `" ] || exit 0; [ -n "$TMUX_PANE" ] || exit 0; ` +
 		`t="${TMUX#*,}"; m=` + shellQuote(filepath.Join(hooksDir, adoptedDirName)+"/") + `"${t%%,*}$TMUX_PANE"; ` +
-		`[ -f "$m" ] || exit 0; read -r i p < "$m"; [ "$p" = "$PPID" ] || exit 0; ` +
+		unmarked + `read -r i p < "$m"; [ "$p" = "$PPID" ] || exit 0; ` +
 		`case "$i" in ''|*[!A-Za-z0-9_-]*) exit 0;; esac; ` +
-		`read -r b < ` + shellQuote(filepath.Join(configDir, singleton.FileName)) + `; [ -n "$b" ] && kill -0 "$b" || exit 0; ` +
+		`read -r b < ` + lock + `; [ -n "$b" ] && kill -0 "$b" || exit 0; ` +
 		`[ -x ` + shellQuote(bin) + ` ] || exit 0; ` +
 		EnvSessionID + `="$i"; ` +
 		EnvStatusFile + `=` + shellQuote(hooksDir+"/") + `"$i.status"; ` +

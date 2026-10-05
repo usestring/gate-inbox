@@ -1551,7 +1551,7 @@ func TestRestartLaunchIsAFreshStartForEveryShippedTool(t *testing.T) {
 		if tool.Shell {
 			continue
 		}
-		command, agentSessionID := restartLaunch(tool)
+		command, agentSessionID := restartLaunch(tool, "")
 		if !strings.HasPrefix(command, tool.Command) {
 			t.Errorf("%s: restart command %q does not start from its launch command %q", name, command, tool.Command)
 		}
@@ -1577,7 +1577,7 @@ func TestRestartLaunchIsAFreshStartForEveryShippedTool(t *testing.T) {
 		if want := " " + tool.SessionIDFlag + " " + agentSessionID; rest != want {
 			t.Errorf("%s: restart command tail = %q, want %q", name, rest, want)
 		}
-		if _, second := restartLaunch(tool); second == agentSessionID {
+		if _, second := restartLaunch(tool, ""); second == agentSessionID {
 			t.Errorf("%s: two restarts reused conversation id %q", name, agentSessionID)
 		}
 	}

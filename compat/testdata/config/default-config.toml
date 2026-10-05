@@ -313,6 +313,7 @@ turn_end = "^ *[^ ┃].*· \\d+(?:\\.\\d+)?[hms](?: \\d+[hms])*(?: · [\\d.]+ to
 # which capture-pane renders as rows of 40+ leading spaces. Those must not
 # count as content below the finished-turn row or the turn never settles.
 chrome_line = "^\\s*(┃.*)?$|^ {40,}\\S.*$"
+busy_line = "↓ \\d+ (?:shells?|subagents?)"
 limit_line = "(?i)requires more credits|(?:Usage|Free|Go) limit reached"
 # The permission overlay steps its options with the horizontal arrows
 # ("ctrl+f fullscreen  ⇆ select  enter confirm"), so the arrows belong to the

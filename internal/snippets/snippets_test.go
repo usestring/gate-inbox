@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -47,28 +48,144 @@ func TestLoadLeavesAnEditedFileAlone(t *testing.T) {
 	}
 }
 
-// A lettered snippet carries a direct chord; a key that is not a letter has
-// none and answers in the menu. The set resolves the chord back to its
-// snippet.
-func TestLetterSnippetsCarryADirectChord(t *testing.T) {
+// A snippet's chord is named in the file, not derived from its key; § and ±
+// can carry none. The set resolves a spelled chord back to its snippet, Mac
+// and alt spellings alike.
+func TestChordIsNamedInTheFile(t *testing.T) {
 	set := Set{Snippets: []Snippet{
-		{Key: "d", Text: "ship it"},
+		{Key: "d", Chord: "option+shift+d", Text: "ship it"},
 		{Key: PlusMinusKey, Text: "approve"},
 		{Key: SectionKey, Text: "progress"},
 	}}
-	if got := set.Snippets[0].Chord(); got != "alt+shift+d" {
-		t.Fatalf("d chord = %q, want alt+shift+d", got)
+	if got := set.Snippets[0].Chord; got != "option+shift+d" {
+		t.Fatalf("d chord = %q, want option+shift+d", got)
 	}
 	for _, snip := range set.Snippets[1:] {
-		if got := snip.Chord(); got != "" {
-			t.Errorf("%s chord = %q, want none", snip.Key, got)
+		if snip.Chord != "" {
+			t.Errorf("%s chord = %q, want none", snip.Key, snip.Chord)
 		}
 	}
-	if snip, ok := set.Chord("alt+shift+d"); !ok || snip.Key != "d" {
-		t.Fatalf("set did not resolve alt+shift+d to d: %v %v", snip, ok)
+	for _, spelling := range []string{"option+shift+d", "alt+shift+d", "alt+shift+D", "⌥shift+d", "shift+alt+d", "shift+option+d"} {
+		if snip, ok := set.Chord(spelling); !ok || snip.Key != "d" {
+			t.Fatalf("set did not resolve %q to d: %v %v", spelling, snip, ok)
+		}
 	}
 	if _, ok := set.Chord("alt+shift+x"); ok {
 		t.Fatal("set resolved a chord no snippet carries")
+	}
+}
+
+// A file written before entries named a chord keeps the option+shift+<key>
+// every letter carried then. An explicit "chord": "" still leaves the menu
+// alone, and a chord the file names outright outranks a kept one.
+func TestAFileWithoutChordsKeepsItsLetterChords(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `[
+		{"key":"d","text":"ship it"},
+		{"key":"e","chord":"","text":"menu only"},
+		{"key":"f","chord":"alt+shift+g","text":"takes g"},
+		{"key":"g","text":"loses its chord"},
+		{"key":"§","text":"progress"}
+	]`)
+	set, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(set.Problems) != 0 {
+		t.Fatalf("problems: %v", set.Problems)
+	}
+	want := map[string]string{"d": "alt+shift+d", "e": "", "f": "alt+shift+g", "g": "", SectionKey: ""}
+	for _, snip := range set.Snippets {
+		if snip.Chord != want[snip.Key] {
+			t.Errorf("%s chord = %q, want %q", snip.Key, snip.Chord, want[snip.Key])
+		}
+	}
+	if snip, ok := set.Chord("option+shift+d"); !ok || snip.Key != "d" {
+		t.Fatalf("option+shift+d did not resolve to d: %v %v", snip, ok)
+	}
+	if snip, ok := set.Chord("alt+shift+g"); !ok || snip.Key != "f" {
+		t.Fatalf("alt+shift+g resolved to %v %v, want f", snip, ok)
+	}
+}
+
+// A chord must hold a modifier and be unique; a bare or repeated one is a
+// problem, not a silent no-op. The Mac and alt spellings of one chord collide,
+// and so do its modifiers written in another order.
+func TestAChordMustBeAUniqueModifiedChord(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `[
+	  {"key":"d","chord":"d","text":"ship it"},
+	  {"key":"e","chord":"alt+shift+d","text":"one"},
+	  {"key":"f","chord":"option+shift+d","text":"two"},
+	  {"key":"g","chord":"shift+alt+d","text":"three"}
+	]`)
+	set, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(set.Snippets) != 1 || set.Snippets[0].Key != "e" {
+		t.Fatalf("bound %+v, want only e", set.Snippets)
+	}
+	if len(set.Problems) != 3 {
+		t.Fatalf("problems = %q, want three", set.Problems)
+	}
+}
+
+// ctrl+c quits ahead of every key map, so a snippet may not bind it in any
+// spelling.
+func TestCtrlCIsAReservedChord(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `[
+	  {"key":"c","chord":"ctrl+c","text":"one"},
+	  {"key":"d","chord":"ctrl+C","text":"two"}
+	]`)
+	set, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(set.Snippets) != 0 || len(set.Problems) != 2 {
+		t.Fatalf("bound %+v with problems %q, want both refused", set.Snippets, set.Problems)
+	}
+}
+
+// Shift on a key with no case is refused: most terminals fold it into the
+// symbol, so the chord names the symbol. Shift on a letter or a named key
+// still binds.
+func TestAChordNamesTheSymbolShiftTypes(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, `[
+	  {"key":"a","chord":"alt+shift+1","text":"one"},
+	  {"key":"b","chord":"alt+shift+/","text":"two"},
+	  {"key":"c","chord":"alt+!","text":"three"},
+	  {"key":"d","chord":"alt+shift+é","text":"four"},
+	  {"key":"e","chord":"alt+shift+enter","text":"five"}
+	]`)
+	set, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	var bound []string
+	for _, snip := range set.Snippets {
+		bound = append(bound, snip.Key)
+	}
+	if !slices.Equal(bound, []string{"c", "d", "e"}) || len(set.Problems) != 2 {
+		t.Fatalf("bound %v with problems %q, want c, d and e", bound, set.Problems)
+	}
+}
+
+// A chord is parsed, not merely checked for a "+": the separator alone, shift
+// alone, an unknown modifier and a repeated one would all take a character the
+// pane was owed, and a key no press names would bind nothing.
+func TestLegalChordNeedsARealModifierAndKey(t *testing.T) {
+	for _, chord := range []string{"+", "d+", "+d", "shift+d", "foo+d", "alt+", "d", "alt+alt+d", "option+alt+d", "⌥option+d", "ctrl+alt+ctrl+d", "alt+banana", "ctrl+f64", "alt+fx"} {
+		if legalChord(chord) {
+			t.Errorf("legalChord(%q) = true, want false", chord)
+		}
+	}
+	for _, chord := range []string{"alt+shift+d", "option+shift+d", "⌥shift+d", "ctrl+p", "alt++", "alt+enter", "ctrl+f12", "alt+é"} {
+		if !legalChord(chord) {
+			t.Errorf("legalChord(%q) = false, want true", chord)
+		}
 	}
 }
 

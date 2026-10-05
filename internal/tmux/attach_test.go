@@ -160,7 +160,7 @@ func attachTargetsOf(argv []string) []string {
 // recursively and unreadable. $TMUX has to stay on for that target so tmux
 // refuses it.
 //
-// The bug this covers: runningInside compared the target to the manager's own
+// The bug this covers: the inside check compared the target to the manager's own
 // pane, so a sibling pane of the manager's own session sailed through and the
 // board mirrored itself.
 func TestAttachRefusesAnAdoptedSiblingOfTheManagersSession(t *testing.T) {
@@ -242,5 +242,81 @@ func TestAttachLandsOnTheAdoptedPaneWhenNobodyIsWatching(t *testing.T) {
 			t.Fatalf("the attach never landed on the adopted pane's window: %s", out)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// A manager running in a pane of the target's own server must not start a
+// second client there: that client's terminal is one of the server's panes,
+// and the server deadlocked writing into a pty only it could drain. The attach
+// moves the operator's existing client instead, and still blocks until the
+// operator is back in the manager's session, which is what the caller's
+// release-and-restore of the screen depends on.
+func TestAttachOnTheManagersServerSwitchesTheOperatorsClient(t *testing.T) {
+	driver := requireTmux(t)
+	socket := operatorServer(t)
+	if out, err := tmuxOn(socket, "new-session", "-d", "-s", "other", "-x", "80", "-y", "24", "cat").CombinedOutput(); err != nil {
+		t.Fatalf("new-session other: %v: %s", err, out)
+	}
+	out, err := tmuxOn(socket, "list-panes", "-t", "=other:0", "-F", "#{pane_id}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("list-panes other: %v: %s", err, out)
+	}
+	targetPane := strings.TrimSpace(string(out))
+	out, err = tmuxOn(socket, "list-panes", "-t", operatorSession+":0", "-F", "#{pane_id}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("list-panes manager: %v: %s", err, out)
+	}
+	managerPane := strings.TrimSpace(string(out))
+
+	id := uniqueID("switch")
+	if err := driver.Adopt(id, Target{Socket: socket, Name: targetPane}); err != nil {
+		t.Fatalf("Adopt: %v", err)
+	}
+	t.Setenv("TMUX", tmuxtest.SocketPath(socket)+",1,0")
+	t.Setenv("TMUX_PANE", managerPane)
+
+	cmd := driver.AttachCommand(id)
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start attach: %v", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	t.Cleanup(func() { cmd.Process.Kill() })
+
+	clients := func() string {
+		out, _ := tmuxOn(socket, "list-clients", "-F", "#{session_name}").CombinedOutput()
+		return strings.TrimSpace(string(out))
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for clients() != "other" {
+		if time.Now().After(deadline) {
+			t.Fatalf("the operator's one client never reached the target; clients: %q", clients())
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("the attach returned while the operator was still away: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	tty, err := tmuxOn(socket, "list-clients", "-F", "#{client_tty}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("list-clients: %v: %s", err, tty)
+	}
+	if out, err := tmuxOn(socket, "switch-client", "-c", strings.TrimSpace(string(tty)), "-t", "="+operatorSession).CombinedOutput(); err != nil {
+		t.Fatalf("switch back: %v: %s", err, out)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("attach exited with %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the attach never returned after the operator came back")
+	}
+	hooks, _ := tmuxOn(socket, "show-hooks", "-t", "="+operatorSession+":").CombinedOutput()
+	if strings.Contains(string(hooks), returnHook) {
+		t.Errorf("the return hooks outlived the attach:\n%s", hooks)
 	}
 }

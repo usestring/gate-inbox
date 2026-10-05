@@ -940,6 +940,44 @@ func TestCreatedPullRequestsComeFromTheCreatingCallAndItsResult(t *testing.T) {
 	}
 }
 
+// Sessions on the live board opened pull requests through the wrapper without
+// naming it in the call: a push script run for several branches at once, and a
+// waiter tailing the log of a wrapper launched in the background. The wrapper's
+// confirmation came back in those results and the board showed none of the
+// pull requests. Quotations of the confirmation -- a test fixture read from
+// source, another transcript dumped as JSON, a file read with its line-number
+// gutter -- are not the session's own and stay out.
+func TestCreatedPullRequestsFromTheWrapperConfirmationInAnyResult(t *testing.T) {
+	x := openTest(t, Options{})
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	writeLines(t, path,
+		toolUseLine("script", "bash ./open-prs.sh 2>&1 | tail -40"),
+		toolResultLine("script", "gh-pr-create: labeled PR #125 as 'claude'\n"+
+			"https://github.com/example-org/gate-inbox/pull/125\n"+
+			"remote: \nremote: Create a pull request for 'approval-relay' on GitHub by visiting:        \n"+
+			"remote:      https://github.com/example-org/gate-inbox/pull/new/approval-relay        \n"+
+			"gh-pr-create: labeled PR #126 as 'claude'\n"+
+			"https://github.com/example-org/gate-inbox/pull/126\n"),
+		toolUseLine("waiter", "until grep -q 'wrapper exit=' pr-open.log; do sleep 20; done; tail -4 pr-open.log"),
+		toolResultLine("waiter", "ui-diff-needs-evidence-flag: REPO 'example-org/go' is not a web-UI app; skipping check\n"+
+			"gh-pr-create: labeled PR #2138 as 'claude'\n"+
+			"https://github.com/example-org/go/pull/2138\nwrapper exit=0"),
+		toolResultLine("fixture", "800\t\ttoolResultLine(\"t2\", \"gh-pr-create: labeled PR #1392 as 'claude'\\nhttps://github.com/example-org/component-b/pull/1392\\nShell cwd was reset\"),"),
+		toolUseLine("dump", "python3 dump.py other"),
+		toolResultLine("dump", `{"stdout": "gh-pr-create: labeled PR #2330 as 'claude'\\nhttps://github.com/example-org/tools/pull/2330\\n"}`),
+		toolResultLine("gutter", "    12\tgh-pr-create: labeled PR #5 as 'claude'\n    13\thttps://github.com/o/r/pull/5\n"),
+		toolUseLine("mismatch", "bash push.sh --execute"),
+		toolResultLine("mismatch", "gh-pr-create: labeled PR #1 as 'claude'\nhttps://github.com/o/r/pull/2\n"),
+	)
+	refreshAll(t, x, []Target{{Key: "k", Tool: ToolClaude, Path: path}})
+	want := "https://github.com/example-org/gate-inbox/pull/125\n" +
+		"https://github.com/example-org/gate-inbox/pull/126\n" +
+		"https://github.com/example-org/go/pull/2138\n"
+	if got := x.Created("k"); got != want {
+		t.Errorf("created = %q, want %q", got, want)
+	}
+}
+
 func TestCreatedPullRequestsOutliveTheTextTrim(t *testing.T) {
 	x := openTest(t, Options{SessionBytes: 4 << 10})
 	path := filepath.Join(t.TempDir(), "s.jsonl")

@@ -166,8 +166,11 @@ func TestUpdateTool(t *testing.T) {
 	if err := st.CreateSession(sess); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if err := st.SetAgentSessionID("a", "ses_old"); err != nil {
+	if err := st.SetAgentSessionID("a", "ses_retired"); err != nil {
 		t.Fatalf("set agent id: %v", err)
+	}
+	if err := st.RestartAgent("a", "ses_old", time.Now()); err != nil {
+		t.Fatalf("restart agent: %v", err)
 	}
 	if err := st.UpdateTool("a", "grok"); err != nil {
 		t.Fatalf("update tool: %v", err)
@@ -181,6 +184,9 @@ func TestUpdateTool(t *testing.T) {
 	}
 	if got.AgentSessionID != "" {
 		t.Fatalf("agent session id should clear on tool change, got %q", got.AgentSessionID)
+	}
+	if got.RetiredAgentSessionID != "" {
+		t.Fatalf("retired session id should clear on tool change, got %q", got.RetiredAgentSessionID)
 	}
 	if err := st.SetAgentSessionID("a", "ses_new"); err != nil {
 		t.Fatalf("reset agent id: %v", err)
@@ -200,6 +206,46 @@ func TestUpdateTool(t *testing.T) {
 	}
 	if err := st.UpdateTool("missing", "claude"); err == nil {
 		t.Fatal("update tool on missing row should error")
+	}
+}
+
+func TestSwitchToolMovesTheLaunchClock(t *testing.T) {
+	st := newTestStore(t)
+	sess := sample("a", "g1")
+	sess.Tool = "claude"
+	if err := st.CreateSession(sess); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	old := time.Now().Add(-24 * time.Hour)
+	if err := st.RestartAgent("a", "ses_old", old); err != nil {
+		t.Fatalf("restart agent: %v", err)
+	}
+	started := time.Now().Add(-time.Minute)
+	if err := st.SwitchTool("a", "codex", started); err != nil {
+		t.Fatalf("switch tool: %v", err)
+	}
+	got, err := st.Get("a")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Tool != "codex" || got.AgentSessionID != "" || got.RetiredAgentSessionID != "" {
+		t.Fatalf("switch left tool %q, id %q, retired %q", got.Tool, got.AgentSessionID, got.RetiredAgentSessionID)
+	}
+	if !got.AgentLaunchedAt.Equal(started) {
+		t.Fatalf("launch clock = %v, want %v", got.AgentLaunchedAt, started)
+	}
+	if bound, err := st.BindAgentSessionID("a", "ses_stale", old); err != nil || bound {
+		t.Fatalf("a capture against the old launch bound: %v, %v", bound, err)
+	}
+
+	if err := st.SwitchTool("a", "codex", time.Now()); err != nil {
+		t.Fatalf("same-tool switch: %v", err)
+	}
+	if again, _ := st.Get("a"); !again.AgentLaunchedAt.Equal(started) {
+		t.Fatalf("same-tool switch moved the launch clock to %v", again.AgentLaunchedAt)
+	}
+	if err := st.SwitchTool("missing", "codex", started); err == nil {
+		t.Fatal("switch tool on missing row should error")
 	}
 }
 

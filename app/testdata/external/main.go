@@ -724,7 +724,7 @@ func (n *noop) UI(host extension.UIHost) (extension.UI, error) {
 		Label:  "clear the note",
 	}}, Filters: []extension.Filter{{
 		Action: "noop_roots",
-		Keys:   []string{"Y"},
+		Keys:   []string{"R"},
 		Label:  "only sessions with no parent",
 		Badge:  "roots",
 		Keep:   func(s extension.SessionInfo) bool { return s.ParentID == "" },

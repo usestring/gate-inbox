@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 // parentKidShell is a parent, a child placed under it, and a live terminal
@@ -73,6 +75,34 @@ func TestArchivingAParentTakesTheTerminalUnderItsChild(t *testing.T) {
 	row, err := m.store.Get(shell.ID)
 	if err != nil || !row.Archived {
 		t.Fatalf("terminal row = %+v, %v; want archived", row, err)
+	}
+}
+
+// A fan-out launcher run in that terminal opens its agents as windows of the
+// terminal's own tmux session. Archiving the parent ends the terminal and
+// leaves them: they were never the manager's to end.
+func TestArchivingAParentLeavesWindowsOpenedInItsTerminal(t *testing.T) {
+	m, parent, _, shell := parentKidShell(t)
+	out, err := tmuxCmd("new-window", "-d", "-t", "="+tmux.SessionName(shell.ID), "-P", "-F", "#{pane_id}", "cat").CombinedOutput()
+	if err != nil {
+		t.Fatalf("new-window in the terminal: %v: %s", err, out)
+	}
+	stray := strings.TrimSpace(string(out))
+	t.Cleanup(func() { tmuxCmd("kill-pane", "-t", stray).Run() })
+
+	target, ok := m.archiveConfirmFor(parent)
+	if !ok {
+		t.Fatalf("archiveConfirmFor: %q", m.errBar.text)
+	}
+	m.confirm = target
+	if text := m.archiveConfirmed(m.livePanes()); text != "" {
+		t.Fatalf("archive: %s", text)
+	}
+	if m.tmux.Exists(shell.ID) {
+		t.Fatal("the terminal is still running after its parent was archived")
+	}
+	if out, err := tmuxCmd("display-message", "-p", "-t", stray, "#{pane_id}").Output(); err != nil || strings.TrimSpace(string(out)) != stray {
+		t.Fatalf("archiving the parent ended %s, a window opened in its terminal", stray)
 	}
 }
 

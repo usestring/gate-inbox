@@ -581,8 +581,8 @@ func reserved(ctx Context, key string) (string, bool) {
 var retired = map[Action]string{
 	"approve":             "was removed; bind its sentence to ± as a snippet in snippets.json",
 	"editor":              "was removed; open the directory from your own editor",
-	"gate":                "was removed; triage with i, and hide the list with \\ and the key hints with ,",
-	"jump_attention_back": "was removed; tab walks down the sessions waiting on you and wraps",
+	"gate":                "was removed; use triage, and toggle_rail and toggle_chrome to hide the list and the key hints",
+	"jump_attention_back": "was removed; jump_attention walks down the sessions waiting on you and wraps",
 	"next_choice":         "was removed; the board takes outside panes over itself (settings: outside panes)",
 	"prev_choice":         "was removed; the board takes outside panes over itself (settings: outside panes)",
 	"toggle_gate_input":   "was removed with the gate",
@@ -592,7 +592,7 @@ var retired = map[Action]string{
 // Unlike a screen an extension adds, they are not kept on save: nothing will
 // read them again.
 var retiredScreens = map[Context]string{
-	"restore": "was removed; the board no longer asks at startup: sessions that died are marked in the list, and V revives every dead one",
+	"restore": "was removed; the board no longer asks at startup: sessions that died are marked in the list, and revive_all revives every dead one",
 }
 
 // retiredOn are actions that left one screen but still work on another, so

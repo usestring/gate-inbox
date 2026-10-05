@@ -50,6 +50,7 @@
 # archive             = ["x"]  # kill it and file the row
 # archive_all         = []  # kill every session listed
 # restore             = ["u"]  # restore it out of the archive
+# undo_archive        = []  # bring back what the last kill filed away
 # dismiss             = ["."]  # skip
 # priority            = ["p"]  # cycle priority: urgent → high → medium → low → none
 # mute                = ["M", "shift+m"]  # mute / unmute: keep it out of triage until unmuted
@@ -121,5 +122,6 @@
 # bottom      = ["G", "end"]  # the bottom
 
 # [confirm]
-# toggle  = [" ", "space"]  # answer the tick
-# confirm = ["y", "enter"]  # go ahead (cannot be unbound)
+# toggle         = [" ", "space"]  # answer the tick
+# confirm        = ["y", "enter"]  # go ahead (cannot be unbound)
+# confirm_always = ["A", "shift+a"]  # go ahead and stop asking

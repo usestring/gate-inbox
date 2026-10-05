@@ -88,7 +88,7 @@ func TestConfirmWarnsBeforeEndingSomeoneElsesPane(t *testing.T) {
 		title  string
 		want   []string
 	}{
-		{actionArchive, adoptedArchiveLabel(sess), "Kill someone else's pane", []string{
+		{actionArchive, m.adoptedArchiveLabel(sess), "Kill someone else's pane", []string{
 			"the manager did not start refactor.",
 			"it is pane %12 on tmux server default.",
 			"kill it?",
@@ -121,7 +121,7 @@ func TestAdoptedConsequenceIsPaintedAsAnAlarm(t *testing.T) {
 	m.mode = modeConfirmDelete
 	m.width = 100
 	sess := store.Session{ID: "one", Name: "refactor", TmuxSocket: "default", TmuxPaneID: "%12"}
-	m.confirm = confirmTarget{action: actionArchive, sessions: []store.Session{sess}, label: adoptedArchiveLabel(sess)}
+	m.confirm = confirmTarget{action: actionArchive, sessions: []store.Session{sess}, label: m.adoptedArchiveLabel(sess)}
 	if m.confirmAdopted() != 1 {
 		t.Fatalf("confirmAdopted = %d, want 1", m.confirmAdopted())
 	}

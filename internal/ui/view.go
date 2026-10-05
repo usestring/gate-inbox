@@ -241,7 +241,10 @@ func (m *Model) statusLine() string {
 	case m.scrolledBack():
 		// Nothing typed reaches a pane nobody is focused on, so an unfocused
 		// preview is named its own way back: the wheel, or leaving the row.
-		catchUp := keymap.Display("alt+down") + ", wheel down or type to catch up"
+		catchUp := "wheel down or type to catch up"
+		if key := m.fullCap(keymap.ContextFocus, keymap.PreviewDown); key != "" {
+			catchUp = key + ", " + catchUp
+		}
 		if m.mode != modeFocus {
 			catchUp = "wheel down or move the cursor to catch up"
 		}
@@ -856,7 +859,9 @@ func (m *Model) rowLegend() legendSection {
 		}
 	}
 	if len(m.undo.sessions) > 0 {
-		pairs = append(pairs, [2]string{"U", "undo archive"})
+		if key := m.tightCap(keymap.ContextList, keymap.UndoArchive); key != "" {
+			pairs = append(pairs, [2]string{key, "undo archive"})
+		}
 	}
 	return legendSection{title: title, pairs: pairs}
 }

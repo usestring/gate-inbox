@@ -59,8 +59,7 @@ const archiveWindowPhrase = "deleted for good after 7 days"
 // pane and the manager stops watching it, so focus could only forward keys
 // into a snapshot frozen at the moment it was archived.
 func (m *Model) archivedFocusHint() string {
-	return "archived session - press " + m.cap(keymap.ContextList, keymap.Restore) +
-		" to restore it before entering"
+	return "archived session - " + m.pressTo(keymap.ContextList, keymap.Restore, "restore it before entering")
 }
 
 // shellPromptHint refuses to write into a shell. SendText pastes and then
@@ -508,12 +507,12 @@ func (m *Model) archiveSelected() (tea.Model, tea.Cmd) {
 		// count in the note is what warns about them.
 		subtree := stillLive(m.sessionsInGroup(entry.group))
 		_, adopted := splitAdopted(subtree)
-		label := fmt.Sprintf("kill group %s (%d sessions)? frees their RAM, t finds them, %s.%s",
-			entry.group, len(subtree), archiveWindowPhrase, adoptedSetNote(len(adopted)))
+		label := fmt.Sprintf("kill group %s (%d sessions)? frees their RAM, %s finds them, %s.%s",
+			entry.group, len(subtree), m.archiveFinder(), archiveWindowPhrase, adoptedSetNote(len(adopted)))
 		if len(subtree) == 0 {
 			// Only archived rows are left under it. Filing the group away
 			// with them beats an "(0 sessions)" the reader has to decode.
-			label = fmt.Sprintf("kill group %s? nothing is running in it, t finds it.", entry.group)
+			label = fmt.Sprintf("kill group %s? nothing is running in it, %s finds it.", entry.group, m.archiveFinder())
 		}
 		m.confirm = confirmTarget{
 			isGroup:  true,
@@ -560,7 +559,7 @@ func stillLive(sessions []store.Session) []store.Session {
 // reason already on the bar.
 func (m *Model) archiveConfirmFor(sess store.Session) (confirmTarget, bool) {
 	if sess.Archived {
-		m.errBar.text = sess.Name + " is already archived - u restores it"
+		m.errBar.text = sess.Name + " is already archived - " + m.keyOr(keymap.ContextList, keymap.Restore, "restore") + " brings it back"
 		return confirmTarget{}, false
 	}
 	sessions, err := m.sessionAndChildren(sess)
@@ -580,10 +579,10 @@ func (m *Model) archiveConfirmFor(sess store.Session) (confirmTarget, bool) {
 		}
 	}
 	label := followConfirmLabel("kill", sess.Name, len(sessions)-1-len(spawned),
-		"frees its RAM, t finds it, "+archiveWindowPhrase+".",
-		"frees their RAM, t finds them, "+archiveWindowPhrase+".")
+		"frees its RAM, "+m.archiveFinder()+" finds it, "+archiveWindowPhrase+".",
+		"frees their RAM, "+m.archiveFinder()+" finds them, "+archiveWindowPhrase+".")
 	if len(sessions) == 1 && sessions[0].TmuxPaneID != "" {
-		label = adoptedArchiveLabel(sessions[0])
+		label = m.adoptedArchiveLabel(sessions[0])
 	} else {
 		_, adopted := splitAdopted(sessions)
 		label += adoptedSetNote(len(adopted))
@@ -622,8 +621,8 @@ func (m *Model) archiveAllLive() (tea.Model, tea.Cmd) {
 	m.confirm = confirmTarget{
 		action:   actionArchive,
 		sessions: managed,
-		label: fmt.Sprintf("kill every session listed (%d)? frees their RAM, t finds them, %s.%s",
-			len(managed), archiveWindowPhrase, sweepSkippedNote(len(adopted))),
+		label: fmt.Sprintf("kill every session listed (%d)? frees their RAM, %s finds them, %s.%s",
+			len(managed), m.archiveFinder(), archiveWindowPhrase, sweepSkippedNote(len(adopted))),
 		ack: fmt.Sprintf("yes, kill all %d and start their 7 days", len(managed)),
 	}
 	m.mode = modeConfirmDelete
@@ -1205,13 +1204,19 @@ func adoptedSetNote(adopted int) string {
 }
 
 // adoptedArchiveLabel warns that ending a pane the manager never started
-// reaches past the row. "frees its RAM, t to find it" is a sentence about
+// reaches past the row. "frees its RAM, t finds it" is a sentence about
 // housekeeping -- and the row does come back, but the agent in the pane does
 // not. An operator draining a queue at speed has to
 // read that here, in the same words the kill and delete dialogs use.
-func adoptedArchiveLabel(sess store.Session) string {
-	return fmt.Sprintf("the manager did not start %s. it is %s. kill it? this kills the pane, not just the row: the agent running in it dies, and whatever it has not saved dies with it. t finds the row again, the agent is gone.",
-		sess.Name, adoptedWhere(sess))
+func (m *Model) adoptedArchiveLabel(sess store.Session) string {
+	return fmt.Sprintf("the manager did not start %s. it is %s. kill it? this kills the pane, not just the row: the agent running in it dies, and whatever it has not saved dies with it. %s finds the row again, the agent is gone.",
+		sess.Name, adoptedWhere(sess), m.archiveFinder())
+}
+
+// archiveFinder names the way to the archived view for a sentence about
+// finding a row there: its key, or the view itself while it has none.
+func (m *Model) archiveFinder() string {
+	return m.keyOr(keymap.ContextList, keymap.ArchivedView, "the archived view")
 }
 
 // deadSessions are the members of set that are not running, skipping the one

@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -844,8 +845,8 @@ func TestFilterBadgesStackOverTheList(t *testing.T) {
 		}
 	}
 	want := [][2]string{
-		{"ARCHIVED", "t back to active"},
-		{"ATTENTION", "w show all"},
+		{"ARCHIVED", m.hintKey(keymap.ContextList, keymap.ArchivedView) + " back to active"},
+		{"ATTENTION", m.hintKey(keymap.ContextList, keymap.StatusFilter) + " show all"},
 	}
 	if len(painted) < len(want) {
 		t.Fatalf("rail painted %d lines, want the %d badges first:\n%s", len(painted), len(want), rail)

@@ -251,17 +251,19 @@ func (m *Model) nameSweepScrollLimit() int {
 }
 
 func (m *Model) nameSweepHint() [][2]string {
+	sweep := keymap.ContextNameSweep
+	cancel := m.keysCap(sweep, keymap.Cancel)
 	switch {
 	case m.nameSweep.building:
-		return [][2]string{{"esc", "cancel"}}
+		return [][2]string{{cancel, "cancel"}}
 	case m.nameSweep.sending:
-		return [][2]string{{"esc", "stop"}}
+		return [][2]string{{cancel, "stop"}}
 	case m.nameSweep.result != nil:
-		return [][2]string{{"↵/esc", "close"}}
+		return [][2]string{{m.keysCap(sweep, keymap.Confirm) + "/" + cancel, "close"}}
 	case len(m.nameSweep.plan.Targets) == 0:
-		return [][2]string{{"esc", "close"}}
+		return [][2]string{{cancel, "close"}}
 	}
-	return [][2]string{{"↑↓", "scroll"}, {"y/↵", "send"}, {"n/esc", "cancel"}}
+	return [][2]string{{m.navCap(sweep), "scroll"}, {m.keysCap(sweep, keymap.Confirm), "send"}, {cancel, "cancel"}}
 }
 
 func (m *Model) nameSweepTitle() string {

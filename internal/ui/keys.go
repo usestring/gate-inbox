@@ -303,7 +303,7 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.restoreSelected()
 	case keymap.Rescind:
 		return m.rescindLatestSubmission()
-	case "U", "shift+u":
+	case keymap.UndoArchive:
 		return m.undoArchive()
 	case keymap.LastPane:
 		return m.focusLastPane()
@@ -418,6 +418,8 @@ var artifactRowActions = map[keymap.Action]bool{
 	// the cursor, so an artifact row is no reason to swallow it.
 	keymap.LastPane: true,
 	keymap.Rescind:  true,
+	// UndoArchive brings back the last kill, wherever the cursor is.
+	keymap.UndoArchive: true,
 }
 
 // stepCursor is one move of the selection: the next row that is not an

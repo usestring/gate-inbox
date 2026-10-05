@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -105,6 +106,7 @@ func (m *Model) markDiedSessions(listedAt time.Time) {
 	m.restoreChecked = true
 	candidates, ends := m.classifyDeadRows(m.loadEndEvidence())
 	var notices []string
+	reviveAll := m.keyOr(keymap.ContextList, keymap.ReviveAll, "revive all")
 
 	switch m.reopenSessionsMode() {
 	case reopenResume:
@@ -123,18 +125,18 @@ func (m *Model) markDiedSessions(listedAt time.Time) {
 				len(died), plural(len(died), "session", "sessions")))
 		}
 		if len(unclear) > 0 {
-			notices = append(notices, fmt.Sprintf("%d with an unclear end marked %s, left for V", len(unclear), diedGlyph()))
+			notices = append(notices, fmt.Sprintf("%d with an unclear end marked %s, left for %s", len(unclear), diedGlyph(), reviveAll))
 		}
 	case reopenNever:
 		if len(candidates) > 0 {
-			notices = append(notices, fmt.Sprintf("%d %s stopped without you ending them; V revives (settings: on reopen)",
-				len(candidates), plural(len(candidates), "session", "sessions")))
+			notices = append(notices, fmt.Sprintf("%d %s stopped without you ending them; %s revives (settings: on reopen)",
+				len(candidates), plural(len(candidates), "session", "sessions"), reviveAll))
 		}
 	default:
 		if len(candidates) > 0 {
 			m.markDied(candidates)
-			notices = append(notices, fmt.Sprintf("%d %s stopped without you ending them, marked %s; V revives every dead session",
-				len(candidates), plural(len(candidates), "session", "sessions"), diedGlyph()))
+			notices = append(notices, fmt.Sprintf("%d %s stopped without you ending them, marked %s; %s revives every dead session",
+				len(candidates), plural(len(candidates), "session", "sessions"), diedGlyph(), reviveAll))
 		}
 	}
 

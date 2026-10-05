@@ -271,3 +271,55 @@ func TestFocusedArchiveAlwaysRequiresConfirmation(t *testing.T) {
 		t.Fatal("focused archive was silenced by the list's setting")
 	}
 }
+
+func TestSilentRestartHonorsReboundConfirmKey(t *testing.T) {
+	m := buildModel(t)
+	writeKeys(t, m, "[confirm]\nconfirm = [\"ctrl+y\"]\n")
+	createSession(t, m, "alpha", t.TempDir(), "")
+	m.selectSessionRow(t, "alpha")
+	sess := m.sessionRows()[0]
+	if err := m.store.SetSetting(restartConfirmSetting, confirmNever); err != nil {
+		t.Fatal(err)
+	}
+	m.restartConfirm = confirmNever
+	if _, cmd := m.restartSelected(); cmd != nil {
+		m.applyCmd(t, cmd)
+	}
+	if m.mode == modeConfirmDelete || m.errBar.text != "" {
+		t.Fatalf("silent restart failed: mode %v, error %q", m.mode, m.errBar.text)
+	}
+	got, err := m.store.Get(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.LaunchTime().After(sess.LaunchTime()) || !m.tmux.Exists(sess.ID) {
+		t.Fatal("silent restart did not relaunch the session")
+	}
+}
+
+func TestSilentEmptyGroupDeleteHonorsReboundConfirmKey(t *testing.T) {
+	m := buildModel(t)
+	writeKeys(t, m, "[confirm]\nconfirm = [\"ctrl+y\"]\n")
+	if err := m.store.CreateGroup("team", t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	loadStoredRows(t, m)
+	m.selectGroupRow(t, "team")
+	if err := m.store.SetSetting(deleteConfirmSetting, confirmNever); err != nil {
+		t.Fatal(err)
+	}
+	m.deleteConfirm = confirmNever
+	if _, cmd := m.archiveSelected(); cmd != nil {
+		m.applyCmd(t, cmd)
+	}
+	if m.mode == modeConfirmDelete || !strings.Contains(m.errBar.text, "deleted") {
+		t.Fatalf("silent deletion failed: mode %v, message %q", m.mode, m.errBar.text)
+	}
+	groups, err := m.store.Groups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 0 {
+		t.Fatalf("group still exists: %v", groups)
+	}
+}

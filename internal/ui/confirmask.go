@@ -83,8 +83,15 @@ func (m *Model) skipsConfirm() bool {
 	if !m.confirmSilenceable() {
 		return false
 	}
-	setting := confirmAskSetting(m.confirm.action)
-	return setting != "" && storedConfirmAsk(m.store, setting) == confirmNever
+	switch m.confirm.action {
+	case actionArchive:
+		return m.archiveConfirm == confirmNever
+	case actionDelete:
+		return m.deleteConfirm == confirmNever
+	case actionRestart:
+		return m.restartConfirm == confirmNever
+	}
+	return false
 }
 
 // silenceConfirm turns this action's dialog off for good: its setting goes to

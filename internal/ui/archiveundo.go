@@ -49,12 +49,12 @@ func (m *Model) skipsArchiveConfirm() bool {
 }
 
 // answerConfirm says yes to the dialog just built, without drawing it. It
-// goes through the key handler rather than around it because that handler is
-// where the whole answer lives -- the snapshot pass, the batch kill, the
+// uses the shared answer handler because the whole answer lives there --
+// the snapshot pass, the batch kill, the
 // focused pane's exit, the triage drain carrying on -- and a second path
 // into an act that ends agents is a second path that can drift from it.
 func (m *Model) answerConfirm() (tea.Model, tea.Cmd) {
-	return m.handleConfirmKey(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	return m.handleConfirmAnswer(tea.KeyPressMsg{}, true)
 }
 
 // noteArchived records what an archive filed away. Called for a confirmed

@@ -1226,6 +1226,10 @@ func followConfirmLabel(verb, name string, extra int, one, many string) string {
 }
 
 func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.handleConfirmAnswer(msg, m.isAction(keymap.ContextConfirm, keymap.Confirm, msg))
+}
+
+func (m *Model) handleConfirmAnswer(msg tea.KeyMsg, confirmed bool) (tea.Model, tea.Cmd) {
 	// A dialog carrying a tick keeps the keys until the tick is answered, so
 	// this runs ahead of the mode bookkeeping below: neither the toggle nor
 	// a y pressed too early is an answer, and both leave the dialog up.
@@ -1236,7 +1240,6 @@ func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.confirm.keepChildren = !m.confirm.keepChildren
 		return m, nil
 	}
-	confirmed := m.isAction(keymap.ContextConfirm, keymap.Confirm, msg)
 	// "don't ask again" is the same answer as yes with the dialog turned off
 	// afterwards. It is offered only where the setting can take effect, so a
 	// wide answer or an act with no setting never reads the key at all.

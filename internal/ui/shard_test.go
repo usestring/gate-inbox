@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bufio"
 	"bytes"
 	"flag"
 	"fmt"
@@ -12,7 +13,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
@@ -52,6 +55,46 @@ func shardCount() int {
 		return n
 	}
 	return runtime.NumCPU()
+}
+
+// shardSlotDir holds one lock file per core, shared by every sharded run on
+// the machine. It is a fixed path rather than os.TempDir because agent
+// sandboxes give each session its own TMPDIR, and runs that cannot see each
+// other's slots are not capped.
+var shardSlotDir = filepath.Join("/tmp", fmt.Sprintf("gate-inbox-ui-shards-%d", os.Getuid()))
+
+// acquireShardSlot blocks until this process holds one of the machine's
+// runtime.NumCPU() shard slots. Each run already starts one shard per core,
+// so without a shared cap four agents testing at once start four times that,
+// each with its own tmux server: a load average past 180 on a 12-core box.
+// The kernel drops a flock when its holder exits, so a killed run cannot leak
+// a slot. A slot directory that cannot be made leaves the shard uncapped.
+func acquireShardSlot() (*os.File, func()) {
+	return acquireShardSlotWithLock(syscall.Flock)
+}
+
+func acquireShardSlotWithLock(flock func(int, int) error) (*os.File, func()) {
+	if err := os.MkdirAll(shardSlotDir, 0o700); err != nil {
+		return nil, func() {}
+	}
+	slots := runtime.NumCPU()
+	for {
+		for i := 0; i < slots; i++ {
+			f, err := os.OpenFile(filepath.Join(shardSlotDir, fmt.Sprintf("slot-%d", i)), os.O_CREATE|os.O_RDWR, 0o600)
+			if err != nil {
+				return nil, func() {}
+			}
+			err = flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+			if err == nil {
+				return f, func() { f.Close() }
+			}
+			f.Close()
+			if err != syscall.EWOULDBLOCK && err != syscall.EAGAIN && err != syscall.EINTR {
+				return nil, func() {}
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 // shouldShard reports whether this process is a parent run that selected
@@ -162,7 +205,12 @@ func runSharded(m *testing.M) int {
 			cmd := exec.Command(os.Args[0], shardArgs...)
 			cmd.Env = append(tmuxtest.Environ(), shardChildEnv+"=1")
 			cmd.Stdout, cmd.Stderr = &out, &out
+			slot, release := acquireShardSlot()
+			if slot != nil {
+				cmd.ExtraFiles = []*os.File{slot}
+			}
 			runErr := cmd.Run()
+			release()
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -199,7 +247,9 @@ func runSharded(m *testing.M) int {
 			again = append(again, regexp.QuoteMeta(name))
 		}
 		flag.Set("test.run", "^("+strings.Join(again, "|")+")$")
+		_, release := acquireShardSlot()
 		code = m.Run()
+		release()
 	} else if !failed {
 		fmt.Println("PASS")
 	}
@@ -288,4 +338,125 @@ func mergeTestLogs(parent string, wroteParent bool, shards []string) error {
 		return err
 	}
 	return f.Close()
+}
+
+func TestShardSlotFallsBackOnLockFailure(t *testing.T) {
+	saved := shardSlotDir
+	shardSlotDir = t.TempDir()
+	t.Cleanup(func() { shardSlotDir = saved })
+
+	for _, lockErr := range []error{syscall.ENOSYS, syscall.EOPNOTSUPP, syscall.EIO} {
+		t.Run(lockErr.Error(), func(t *testing.T) {
+			var fd int
+			slot, release := acquireShardSlotWithLock(func(openFD, operation int) error {
+				fd = openFD
+				return lockErr
+			})
+			release()
+			if slot != nil {
+				t.Fatal("lock failure must leave the run uncapped")
+			}
+			if err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB); err != syscall.EBADF {
+				t.Fatalf("failed slot descriptor must be closed: %v", err)
+			}
+		})
+	}
+}
+
+func TestShardSlotsCapConcurrentShardsAtOnePerCore(t *testing.T) {
+	saved := shardSlotDir
+	shardSlotDir = t.TempDir()
+	defer func() { shardSlotDir = saved }()
+
+	var held []func()
+	for i := 0; i < runtime.NumCPU(); i++ {
+		_, release := acquireShardSlot()
+		held = append(held, release)
+	}
+	got := make(chan func())
+	go func() {
+		_, release := acquireShardSlot()
+		got <- release
+	}()
+	select {
+	case <-got:
+		t.Fatal("a shard took a slot past one per core")
+	case <-time.After(300 * time.Millisecond):
+	}
+	held[0]()
+	select {
+	case release := <-got:
+		release()
+	case <-time.After(5 * time.Second):
+		t.Fatal("a released slot was never taken")
+	}
+	for _, release := range held[1:] {
+		release()
+	}
+}
+
+func TestShardSlotChildKeepsLockAfterParentClose(t *testing.T) {
+	saved := shardSlotDir
+	shardSlotDir = t.TempDir()
+	t.Cleanup(func() { shardSlotDir = saved })
+
+	slot, release := acquireShardSlot()
+	if slot == nil {
+		t.Fatal("could not acquire a shard slot")
+	}
+	t.Cleanup(release)
+
+	cmd := exec.Command("/bin/sh", "-c", "printf 'ready\n'; read line; exit 0")
+	cmd.ExtraFiles = []*os.File{slot}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stdin.Close() })
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cmd.Process.Kill()
+		cmd.Wait()
+	})
+	ready := make(chan error, 1)
+	go func() {
+		line, err := bufio.NewReader(stdout).ReadString('\n')
+		if err == nil && line != "ready\n" {
+			err = fmt.Errorf("unexpected child output: %q", line)
+		}
+		ready <- err
+	}()
+	select {
+	case err := <-ready:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("child did not start")
+	}
+
+	probe, err := os.OpenFile(slot.Name(), os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer probe.Close()
+	release()
+	if err := syscall.Flock(int(probe.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != syscall.EWOULDBLOCK {
+		t.Fatalf("slot must stay locked while the child lives: %v", err)
+	}
+	if err := stdin.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(probe.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("child exit must release the slot: %v", err)
+	}
 }

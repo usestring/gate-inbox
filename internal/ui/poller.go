@@ -854,6 +854,9 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 		if err := p.applyPendingPriority(&sessions[i]); err != nil {
 			return errMsg{err}
 		}
+		if err := p.applyPendingConversation(&sessions[i]); err != nil {
+			return errMsg{err}
+		}
 		phases.rename += lap(&step)
 		newStatus := status.Dead
 		delivered := false
@@ -1261,6 +1264,7 @@ func (p *poller) forgetAdopted(id string) error {
 	for _, remove := range []func(string) error{
 		p.hooks.Remove,
 		p.hooks.RemoveName,
+		p.hooks.RemoveConversation,
 	} {
 		if err := remove(id); err != nil {
 			return err
@@ -2190,6 +2194,31 @@ func (p *poller) applyPendingPriority(sess *store.Session) error {
 		sess.Priority = tier
 	}
 	return p.hooks.RemovePriority(sess.ID)
+}
+
+// applyPendingConversation binds an adopted row to the conversation its
+// global hooks last reported (hooks.RecordConversation), keeping the manager
+// the sole database writer for the same reason applyPendingRename does. It
+// fills an id adoption could not find, and follows the pane to a new one
+// after a /clear or a resume there. Only an adopted row is read: a launched
+// one carries the id the board gave it, and its hooks never write the file.
+func (p *poller) applyPendingConversation(sess *store.Session) error {
+	if sess.TmuxPaneID == "" {
+		return nil
+	}
+	conversation, found := p.hooks.ReadConversation(sess.ID)
+	if !found {
+		return nil
+	}
+	if conversation != "" && conversation != sess.AgentSessionID {
+		if err := ignoreDeletedSession(p.store.SetAgentSessionID(sess.ID, conversation)); err != nil {
+			return err
+		}
+		logging.Info("adopted row bound to its conversation",
+			"session", sess.ID, "from", sess.AgentSessionID, "to", conversation)
+		sess.AgentSessionID = conversation
+	}
+	return p.hooks.RemoveConversation(sess.ID)
 }
 
 // reflowSessions drops activity-region hashes for ids and runs reflow

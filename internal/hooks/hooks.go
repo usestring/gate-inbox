@@ -930,6 +930,29 @@ func (m *Manager) RemovePriority(id string) error {
 	return removeIfExists(m.PriorityFile(id))
 }
 
+// ConversationFile is the mailbox an adopted session's global hooks leave
+// its Claude Code conversation id in (RecordConversation); the poller binds
+// the row to it and deletes it, for the reason a rename is a mailbox. A
+// launched session never writes it: the board chose its id at launch.
+func (m *Manager) ConversationFile(id string) string {
+	return filepath.Join(m.dir, id+".conversation")
+}
+
+// ReadConversation returns the conversation id a session's hooks last
+// reported. found reports that the file exists, so the caller consumes it
+// even when it holds nothing usable.
+func (m *Manager) ReadConversation(id string) (conversation string, found bool) {
+	raw, ok := readMailbox("conversation", id, m.ConversationFile(id))
+	if !ok {
+		return "", false
+	}
+	return strings.TrimSpace(string(raw)), true
+}
+
+func (m *Manager) RemoveConversation(id string) error {
+	return removeIfExists(m.ConversationFile(id))
+}
+
 // WriteWhole leaves the file complete or absent, never half written, so
 // a reader polling for it never picks up a partial line. Each writer
 // stages under a name of its own, so two of them cannot publish each

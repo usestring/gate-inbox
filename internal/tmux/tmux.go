@@ -1172,21 +1172,31 @@ func (d *Driver) ClearRequest() error {
 
 // AttachCommand hands the terminal over to a session's pane.
 //
-// $TMUX is dropped from the attach, because the manager now runs its sessions
-// on the same server it is itself likely to be running inside, and tmux
+// Where the manager runs decides how. Outside tmux, or on a different server
+// from the target, it is a plain attach-session with $TMUX dropped: tmux
 // refuses that attach as accidental nesting ("sessions should be nested with
-// care"). Here the nesting is the whole point: the manager's screen already
-// fills this terminal, and the attach replaces it until the operator detaches.
+// care"), and here the nesting is the whole point -- the manager's screen
+// already fills this terminal, and the attach replaces it until the operator
+// detaches.
 //
-// The one attach that guard was right about is the session the manager is
-// running in, which would put its screen inside itself -- and that is every
+// On the target's own server a nested client is never safe, whatever session
+// it lands in. Its terminal is a pane of that same server, so the one
+// single-threaded process both writes the client's output into the pty and is
+// the only reader that drains it. A burst bigger than the pty buffer leaves the
+// server blocked in that write with nothing left to read it, and every tmux
+// command on the machine hangs behind it. Measured, not reasoned: a server
+// nine days old sat in writev() to its own pane's tty until the tty was
+// flushed from outside, and killing the nested client did not free it. So on
+// the same server the operator's existing client is moved instead
+// (switchCommand), and no second client exists to feed back into it.
+//
+// The one attach the nesting guard was right about is the session the manager
+// is running in, which would put its screen inside itself -- and that is every
 // pane in the session, not just the manager's own. An adopted sibling pane
-// resolves to the same session name, and the nested client it starts lands on
-// the session's current window, which is where the manager is drawing. The
-// recursion is unreadable rather than merely wrong: the client renders the
-// pane it is running in. $TMUX stays on for any target in the manager's own
-// session so tmux refuses it, and its refusal reaches the operator as the
-// error it is.
+// resolves to the same session name. $TMUX stays on for any target in the
+// manager's own session so tmux refuses it, and its refusal reaches the
+// operator as the error it is.
+//
 // The -t is always an exact session name, never the pane. tmux resolves a
 // pane id to its session, but attach-session given one also makes that pane's
 // window the session's current window -- and every client of a session shows
@@ -1231,16 +1241,58 @@ func (d *Driver) AttachCommand(id string) *exec.Cmd {
 			"#{==:#{session_attached},1}", selects)
 	}
 	tmuxguard.Enforce([]string{"-L", target.Socket})
-	cmd := exec.Command(d.bin, append([]string{"-L", target.Socket}, args...)...)
-	nested := d.runningInside(target, session)
-	if !nested {
+	home, onServer := d.managerSession(target)
+	nested := onServer && home == session
+	mode := "attach"
+	var cmd *exec.Cmd
+	switch {
+	case nested:
+		cmd = exec.Command(d.bin, append([]string{"-L", target.Socket}, args...)...)
+	case onServer:
+		mode = "switch"
+		cmd = exec.Command(d.bin, append([]string{"-L", target.Socket}, switchCommand(home, args)...)...)
+	default:
+		cmd = exec.Command(d.bin, append([]string{"-L", target.Socket}, args...)...)
 		cmd.Env = envWithoutTmux(os.Environ())
 	}
 	// The manager handing the terminal to tmux: without a record here, a
 	// report that it "dropped out of the TUI" has nothing to check.
 	logging.Info("tmux attach", "session", id, "socket", target.Socket,
-		"target", "="+session, "window", window, "pane", pane, "nested", nested)
+		"target", "="+session, "window", window, "pane", pane, "nested", nested, "mode", mode)
 	return cmd
+}
+
+// returnHook is the hook array index switchCommand borrows on the manager's
+// session. tmux runs every set index of a hook, so a high one leaves the
+// operator's own hooks, which start at 0, alone.
+const returnHook = "[9047]"
+
+var returnSeq atomic.Uint64
+
+// switchCommand turns an attach-session command list into one that moves the
+// operator's current client to the target and blocks until that client is
+// back in home, the manager's session. The block is what keeps the caller's
+// contract: the manager's screen stays released while the operator is away
+// and comes back when they do, as it does after a detach.
+//
+// Coming back is either a switch into home (prefix-L, choose-tree) or, after
+// a detach from the target, a fresh attach to it; both hooks are armed and
+// whichever fires first disarms both. wait-for latches a signal sent before
+// anyone waits, so a return faster than this command reaching its wait is not
+// lost. The switch needs $TMUX, which is how tmux finds the client to move.
+func switchCommand(home string, attach []string) []string {
+	channel := fmt.Sprintf("gi-return-%d-%d", os.Getpid(), returnSeq.Add(1))
+	seat := "=" + home + ":"
+	signal := "wait-for -S " + channel +
+		" ; set-hook -u -t " + seat + " client-session-changed" + returnHook +
+		" ; set-hook -u -t " + seat + " client-attached" + returnHook
+	args := []string{
+		"set-hook", "-t", seat, "client-session-changed" + returnHook, signal, ";",
+		"set-hook", "-t", seat, "client-attached" + returnHook, signal, ";",
+		"switch-client",
+	}
+	args = append(args, attach[1:]...)
+	return append(args, ";", "wait-for", channel)
 }
 
 // attachTarget is the exact session name to attach to, and for an adopted
@@ -1271,28 +1323,40 @@ func (d *Driver) attachTarget(target Target) (session, window, pane string) {
 	return fields[0], fields[1], target.Name
 }
 
-// runningInside reports whether the attach would land in the session the
-// manager is itself running in, session being the exact name AttachCommand
-// resolved from the target. The whole session is the answer, not just the
-// manager's own pane: a target that is an adopted sibling pane of that session
-// resolves to the same name, and attaching to it would nest the manager's
-// screen inside itself. Comparing names is what catches both, and the pane-id
-// case falls out of it -- attachTarget resolves the manager's own pane to the
-// manager's own session name.
+// managerSession is the session the manager runs in, and whether that
+// session is on the target's server. Pane ids are only unique within a
+// server, so the server is established first, by socket path, before
+// $TMUX_PANE is looked up on it; asking the target's server about a pane id
+// from another server can name an unrelated pane.
 //
-// Anything it cannot establish -- no tmux around the manager, a session on
-// another server, a server that will not answer -- is a no: the attach tmux
-// would refuse is the narrow case, and the common one has to work.
-func (d *Driver) runningInside(target Target, session string) bool {
+// Anything it cannot establish -- no tmux around the manager, a server that
+// will not answer -- is "not on this server": the plain attach is the common
+// case and has to work.
+func (d *Driver) managerSession(target Target) (string, bool) {
 	pane := os.Getenv("TMUX_PANE")
-	if pane == "" || os.Getenv("TMUX") == "" {
-		return false
+	socket, _, _ := strings.Cut(os.Getenv("TMUX"), ",")
+	if pane == "" || socket == "" {
+		return "", false
 	}
-	out, err := d.output([]string{"-L", target.Socket, "display-message", "-p", "-t", pane, "#{session_name}"})
+	out, err := d.output([]string{"-L", target.Socket, "display-message", "-p", "-t", pane,
+		"#{socket_path}\t#{session_name}"})
 	if err != nil {
-		return false
+		return "", false
 	}
-	return strings.TrimSpace(string(out)) == session
+	path, name, ok := strings.Cut(strings.TrimSpace(string(out)), "\t")
+	if !ok || name == "" || !samePath(path, socket) {
+		return "", false
+	}
+	return name, true
+}
+
+func samePath(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && ra == rb
 }
 
 func envWithoutTmux(env []string) []string {

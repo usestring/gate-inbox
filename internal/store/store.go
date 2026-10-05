@@ -56,8 +56,13 @@ type Session struct {
 	// ArchivedAt is when the row was filed away, and the clock the retention
 	// window runs on: a row still archived a week later is one nobody came
 	// back for, and the sweep deletes it. Zero for a row that is not filed.
-	ArchivedAt   time.Time
-	Acked        bool
+	ArchivedAt time.Time
+	Acked      bool
+	// Muted is the operator's persistent "keep this out of triage". Unlike the
+	// ephemeral drain mark in internal/ui/mute.go it is stored on the row and
+	// outlives a pass, a restart and the operator's memory: a muted session
+	// never rejoins the queue until somebody unmutes it.
+	Muted        bool
 	CreatedAt    time.Time
 	LastStatusAt time.Time
 	// AgentSessionID is the agent CLI's own conversation id (claude session
@@ -506,6 +511,10 @@ CREATE TABLE IF NOT EXISTS settings (
 		// When a grant lapses; zero never. See grants.go.
 		`ALTER TABLE permission_grants ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS permission_grants_active ON permission_grants (session_id, kind, value) WHERE revoked_at = 0`,
+		// The operator's persistent mute: a stored flag, so a muted session
+		// stays out of triage across polls and restarts until it is
+		// explicitly unmuted. See Session.Muted.
+		`ALTER TABLE sessions ADD COLUMN muted INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {
@@ -676,11 +685,11 @@ func (s *Store) insertSession(sess Session, anchorID string, leaf bool, launch f
 		sess.SpawnedBy = sess.ParentID
 	}
 	_, err = tx.Exec(
-		`INSERT INTO sessions (id, name, tool, cwd, group_name, status, archived, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, pending_inputs, parent_id, spawned_by, launch_prompt, model, account, name_source, priority_tier, role, sort_order)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+		`INSERT INTO sessions (id, name, tool, cwd, group_name, status, archived, muted, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, pending_inputs, parent_id, spawned_by, launch_prompt, model, account, name_source, priority_tier, role, sort_order)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 		         (SELECT COALESCE(MAX(sort_order)+1, 0) FROM sessions WHERE group_name = ? AND parent_id = ?))`,
 		sess.ID, sess.Name, sess.Tool, sess.Cwd, sess.Group, sess.Status,
-		boolToInt(sess.Archived), encodeTime(sess.CreatedAt), encodeTime(sess.LastStatusAt), sess.AgentSessionID,
+		boolToInt(sess.Archived), boolToInt(sess.Muted), encodeTime(sess.CreatedAt), encodeTime(sess.LastStatusAt), sess.AgentSessionID,
 		sess.TmuxSocket, sess.TmuxPaneID, pendingInputs, sess.ParentID, sess.SpawnedBy, sess.LaunchPrompt, sess.Model, sess.Account,
 		nameSourceOr(sess.NameSource), string(sess.Priority), sess.Role,
 		sess.Group, sess.ParentID,
@@ -803,7 +812,7 @@ func (s *Store) ListSessions(includeArchived bool) ([]Session, error) {
 }
 
 func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
-	query := `SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, ` + spawnerColumnOf("sessions") + `, launch_prompt, model, account, name_source, priority_tier, role, replaced_by, ` + migrationColumn + `, ` + migrationOpeningColumn + `, sort_order, rowid
+	query := `SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, muted, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, ` + spawnerColumnOf("sessions") + `, launch_prompt, model, account, name_source, priority_tier, role, replaced_by, ` + migrationColumn + `, ` + migrationOpeningColumn + `, sort_order, rowid
 	          FROM sessions`
 	if !includeArchived {
 		query += ` WHERE archived = 0`
@@ -818,12 +827,12 @@ func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
 	var sessions []Session
 	for rows.Next() {
 		var sess Session
-		var archived, acked, pendingClaimed int
+		var archived, acked, muted, pendingClaimed int
 		var tier string
 		var created, lastStatus, agentLaunched, archivedAt int64
 		var pendingInputs, migrationOpening string
 		if err := rows.Scan(&sess.ID, &sess.Name, &sess.Tool, &sess.Cwd,
-			&sess.Group, &sess.Status, &archived, &archivedAt, &acked, &created, &lastStatus,
+			&sess.Group, &sess.Status, &archived, &archivedAt, &acked, &muted, &created, &lastStatus,
 			&sess.AgentSessionID,
 			&sess.TmuxSocket, &sess.TmuxPaneID,
 			&agentLaunched, &sess.RetiredAgentSessionID, &pendingInputs, &pendingClaimed, &sess.ParentID, &sess.SpawnedBy, &sess.LaunchPrompt, &sess.Model, &sess.Account, &sess.NameSource, &tier, &sess.Role, &sess.ReplacedBy, &sess.MigrationID, &migrationOpening, &sess.position.SortOrder, &sess.position.RowID); err != nil {
@@ -840,6 +849,7 @@ func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
 		sess.Archived = archived != 0
 		sess.ArchivedAt = decodeTime(archivedAt)
 		sess.Acked = acked != 0
+		sess.Muted = muted != 0
 		sess.PendingInputClaimed = pendingClaimed != 0
 		sess.CreatedAt = decodeTime(created)
 		sess.LastStatusAt = decodeTime(lastStatus)
@@ -851,15 +861,15 @@ func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
 
 func (s *Store) Get(id string) (Session, error) {
 	var sess Session
-	var archived, acked, pendingClaimed int
+	var archived, acked, muted, pendingClaimed int
 	var tier string
 	var created, lastStatus, agentLaunched, archivedAt int64
 	var pendingInputs, migrationOpening string
 	err := s.db.QueryRow(
-		`SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, `+spawnerColumnOf("sessions")+`, launch_prompt, model, account, name_source, priority_tier, role, replaced_by, `+migrationColumn+`, `+migrationOpeningColumn+`
+		`SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, muted, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, `+spawnerColumnOf("sessions")+`, launch_prompt, model, account, name_source, priority_tier, role, replaced_by, `+migrationColumn+`, `+migrationOpeningColumn+`
 		 FROM sessions WHERE id = ?`, id,
 	).Scan(&sess.ID, &sess.Name, &sess.Tool, &sess.Cwd, &sess.Group,
-		&sess.Status, &archived, &archivedAt, &acked, &created, &lastStatus, &sess.AgentSessionID,
+		&sess.Status, &archived, &archivedAt, &acked, &muted, &created, &lastStatus, &sess.AgentSessionID,
 		&sess.TmuxSocket, &sess.TmuxPaneID,
 		&agentLaunched, &sess.RetiredAgentSessionID, &pendingInputs, &pendingClaimed, &sess.ParentID, &sess.SpawnedBy, &sess.LaunchPrompt, &sess.Model, &sess.Account, &sess.NameSource, &tier, &sess.Role, &sess.ReplacedBy, &sess.MigrationID, &migrationOpening)
 	if err != nil {
@@ -875,6 +885,7 @@ func (s *Store) Get(id string) (Session, error) {
 	sess.Archived = archived != 0
 	sess.ArchivedAt = decodeTime(archivedAt)
 	sess.Acked = acked != 0
+	sess.Muted = muted != 0
 	sess.PendingInputClaimed = pendingClaimed != 0
 	sess.CreatedAt = decodeTime(created)
 	sess.LastStatusAt = decodeTime(lastStatus)
@@ -1187,6 +1198,18 @@ func (s *Store) AcknowledgeFinished(id string) error {
 func (s *Store) SetAcked(id string, acked bool) error {
 	res, err := s.db.Exec(
 		`UPDATE sessions SET acked = ? WHERE id = ?`, boolToInt(acked), id)
+	if err != nil {
+		return err
+	}
+	return requireRow(res, id)
+}
+
+// SetMuted stores the operator's persistent mute on a session. A muted session
+// is left out of triage entirely until this is called with false, which is
+// what the board's mute key and the `mute` command toggle.
+func (s *Store) SetMuted(id string, muted bool) error {
+	res, err := s.db.Exec(
+		`UPDATE sessions SET muted = ? WHERE id = ?`, boolToInt(muted), id)
 	if err != nil {
 		return err
 	}
@@ -1844,17 +1867,38 @@ func (s *Store) SetTmuxTarget(id, socket, paneID string) error {
 }
 
 // UpdateTool changes which tool status rules and revive use for a session.
-// Clears the captured agent conversation id: that id only makes sense for
-// the tool that minted it, and a manual tool swap means the user swapped
-// the process in the pane (e.g. quit opencode, ran vim). A no-op when the
-// tool column already matches leaves the conversation id alone.
+// Clears the captured and retired agent conversation ids: those ids only make
+// sense for the tool that minted them, and a manual tool swap means the user
+// swapped the process in the pane (e.g. quit opencode, ran vim). A retired id
+// left behind would mark the new harness's live row as deliberately ended. A
+// no-op when the tool column already matches leaves both ids alone.
 func (s *Store) UpdateTool(id, tool string) error {
 	if strings.TrimSpace(tool) == "" {
 		return fmt.Errorf("session tool cannot be empty")
 	}
 	res, err := s.db.Exec(
-		`UPDATE sessions SET tool = ?, agent_session_id = '' WHERE id = ? AND tool != ?`,
+		`UPDATE sessions SET tool = ?, agent_session_id = '', retired_agent_session_id = '' WHERE id = ? AND tool != ?`,
 		tool, id, tool)
+	if err != nil {
+		return err
+	}
+	return s.requireRowOrNoop(res, id)
+}
+
+// SwitchTool is UpdateTool for a harness observed running in the pane, which
+// also moves the launch clock to when it started. Conversation capture only
+// considers conversations since the launch, so the old clock would let an
+// earlier conversation in the same directory be bound to the new harness. One
+// statement, so a capture comparing against the old clock cannot bind between
+// the tool change and the clock move.
+func (s *Store) SwitchTool(id, tool string, launchedAt time.Time) error {
+	if strings.TrimSpace(tool) == "" {
+		return fmt.Errorf("session tool cannot be empty")
+	}
+	res, err := s.db.Exec(
+		`UPDATE sessions SET tool = ?, agent_session_id = '', retired_agent_session_id = '', agent_launched_at = ?
+		 WHERE id = ? AND tool != ?`,
+		tool, encodeTime(launchedAt), id, tool)
 	if err != nil {
 		return err
 	}

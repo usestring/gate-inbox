@@ -484,20 +484,21 @@ func (s *session) recordCreations(calls []toolCall) {
 			continue
 		}
 		creating, pending := s.opening[call.id]
-		if !pending {
-			continue
-		}
-		delete(s.opening, call.id)
-		urls := pullURL.FindAllString(call.text, -1)
-		if !creating {
+		var urls []string
+		switch {
+		case !pending:
+			// The wrapper ran inside something else -- a push script, a
+			// background job read back later -- so the call never named it.
+			// Its own confirmation still says this session opened the PR.
+			urls = confirmedURLs(wrapperConfirmed, call.text)
+		case creating:
+			delete(s.opening, call.id)
+			urls = pullURL.FindAllString(call.text, -1)
+		default:
 			// A poll may finish any command; only the wrapper's confirmation
 			// establishes creation when the original call returned no URL.
-			urls = nil
-			for _, match := range wrapperCreated.FindAllStringSubmatch(call.text, -1) {
-				if match[1] == match[3] {
-					urls = append(urls, match[2])
-				}
-			}
+			delete(s.opening, call.id)
+			urls = confirmedURLs(wrapperCreated, call.text)
 		}
 		for _, url := range urls {
 			if bytes.Contains(s.created, []byte(url+"\n")) {

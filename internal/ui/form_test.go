@@ -93,6 +93,7 @@ func TestGroupFormShowsNewEmptyGroup(t *testing.T) {
 	m.search = "does-not-match"
 	m.showArchived = true
 	m.statusFilter = statusFilterAttention
+	m.toolFilter = "claude"
 	m.openGroupForm()
 	m.groupForm.name.SetValue("manual")
 	m.groupForm.path.SetValue(t.TempDir())
@@ -101,9 +102,9 @@ func TestGroupFormShowsNewEmptyGroup(t *testing.T) {
 	if m.hideEmptyGroups {
 		t.Fatal("creating a group should reveal it when empty groups were hidden")
 	}
-	if m.search != "" || m.showArchived || m.statusFilter.active() {
-		t.Fatalf("creation left list filters active: search=%q archived=%v statusFilter=%v",
-			m.search, m.showArchived, m.statusFilter)
+	if m.search != "" || m.showArchived || m.statusFilter.active() || m.toolFilterActive() {
+		t.Fatalf("creation left list filters active: search=%q archived=%v statusFilter=%v toolFilter=%q",
+			m.search, m.showArchived, m.statusFilter, m.toolFilter)
 	}
 	if got := m.groupRowPaths(); !reflect.DeepEqual(got, []string{"manual"}) {
 		t.Fatalf("group rows before refresh = %v, want [manual]", got)

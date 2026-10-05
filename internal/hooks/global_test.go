@@ -104,6 +104,18 @@ func withoutHooks(t *testing.T, raw string) string {
 	return string(out)
 }
 
+// outsideGlobal is raw with the hooks member and configDir's key-dir denials
+// taken out, along with any list or object the denials could have needed.
+func outsideGlobal(t *testing.T, raw, configDir string) string {
+	t.Helper()
+	out, err := removeDenials([]byte(withoutHooks(t, raw)), configDir,
+		[]string{"permissions", "permissions.deny", "sandbox", "sandbox.filesystem", "sandbox.filesystem.denyRead"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
 func TestRegisterGlobalWritesOneEntryPerEventOnce(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
@@ -144,7 +156,7 @@ func TestRegisterGlobalWritesOneEntryPerEventOnce(t *testing.T) {
 	if s.Hooks["Stop"][0].Hooks[0].Command != "notify-send done" {
 		t.Fatalf("the operator's Stop hook is no longer first: %+v", s.Hooks["Stop"])
 	}
-	if withoutHooks(t, first) != withoutHooks(t, operatorSettings) {
+	if outsideGlobal(t, first, configDir) != outsideGlobal(t, operatorSettings, configDir) {
 		t.Fatalf("bytes outside the hooks member changed:\n%s", first)
 	}
 	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o640 {
@@ -170,7 +182,7 @@ func TestGlobalHooksRoundTripTheOperatorsBytes(t *testing.T) {
 			}
 			registered := readFile(t, path)
 			parse(t, registered)
-			if withoutHooks(t, registered) != withoutHooks(t, original) {
+			if outsideGlobal(t, registered, configDir) != outsideGlobal(t, original, configDir) {
 				t.Fatalf("bytes outside the hooks member changed:\n%q\nfrom\n%q", registered, original)
 			}
 			if _, err := UnregisterGlobal(path, configDir); err != nil {

@@ -283,8 +283,11 @@ directory's most recent one.
 
 Gate Inbox hands each session it launches its MCP server and hooks on the command line. The
 one thing it keeps in an agent CLI's own configuration is the Claude Code setup for panes it
-adopts: hook entries in `~/.claude/settings.json` and an MCP server named `gate-inbox` in
-`~/.claude.json`, added automatically and silent outside an adopted pane. Step 1 removes them,
+adopts: hook entries in `~/.claude/settings.json`, silent outside an adopted pane, the two
+deny lists there that keep every Claude Code session out of Gate Inbox's sealing keys
+(`permissions.deny` and `sandbox.filesystem.denyRead`, naming only its own `channel-keys`
+directory), and an MCP server named `gate-inbox` in `~/.claude.json`, all added
+automatically. Step 1 removes them, giving back the settings file as it was,
 and so does `[claude_code] setup = false` in `config.toml`. Beyond that, `migrate` leaves a
 `*.handover.jsonl` file next to the transcript it moved, under `~/.claude/projects` or
 `~/.codex/sessions`.

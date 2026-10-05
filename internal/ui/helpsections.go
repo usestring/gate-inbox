@@ -123,7 +123,7 @@ func helpSections() []helpSection {
 			listRow(keymap.ClearSearch, "clear the search: delete the field's text (ctrl+u wipes it)"),
 			listRow(keymap.LegendPeek, "peek at every key available for this row"),
 			listRow(keymap.StatusFilter, "filter to what needs attention (waiting, finished, errored)"),
-		listRow(keymap.ToolFilter, "filter to one CLI's sessions, or show all"),
+			listRow(keymap.ToolFilter, "filter to one CLI's sessions, or show all"),
 			note("in triage, answering hands a session over and opens the next;"),
 			note("turning settings' triage auto proceed off keeps you in the session"),
 			listRow(keymap.ShowAllWork, "show all of a session's pull requests and tickets"),

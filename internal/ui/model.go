@@ -522,8 +522,8 @@ type Model struct {
 	statusFilter    statusFilter
 	// toolFilter narrows the list and the triage queue to one harness --
 	// the CLI in sess.Tool -- and is "" for every harness. See toolfilter.go.
-	toolFilter      string
-	collapsed       map[string]bool
+	toolFilter string
+	collapsed  map[string]bool
 	// groupNumbers maps a group to the outline number printed beside it and
 	// groupByNumber reads that back, both rebuilt with the rows so a typed
 	// number always names the group the rail is showing. jump is the number

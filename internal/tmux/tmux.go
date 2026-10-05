@@ -700,9 +700,18 @@ func (d *Driver) installSessionUX(id string) error {
 	if err := d.styleStatusBar(id); err != nil {
 		return err
 	}
-	_, err := d.run("set-option", "-t", sessionName(id), "status-left", "")
+	if _, err := d.run("set-option", "-t", sessionName(id), "status-left", ""); err != nil {
+		return err
+	}
+	// Recorded while the session holds nothing else, so Kill can tell its
+	// own window from any opened in it later. See ownWindow.
+	_, err := d.run("set-option", "-F", "-t", "="+sessionName(id)+":", homeOption, "#{window_id}")
 	return err
 }
+
+// homeOption is the session option naming the window a managed session was
+// created with.
+const homeOption = "@gi-home"
 
 // Tmux answers an un-overridden session option with an empty string rather than the global option.
 func (d *Driver) resolvedOption(name, option string) (string, error) {
@@ -1303,6 +1312,11 @@ func envWithoutTmux(env []string) []string {
 // every path that merely wants a session gone — archive, restart, whatever
 // is written next — from ending somebody's agent as a side effect. Reaching
 // a foreign pane has to be asked for by name.
+//
+// The same holds inside a managed session. A `tmux new-window` typed in one
+// of its panes lands in the gi_ session, and a fan-out launcher run from a
+// terminal row put eleven agents there that the board then adopted as
+// foreign panes. Kill ends only the session's own window; see endOwnWindow.
 func (d *Driver) Kill(id string) error {
 	if err := d.refuseAdopted(id, "kill"); err != nil {
 		return err
@@ -1315,9 +1329,97 @@ func (d *Driver) Kill(id string) error {
 		os.Remove(d.launchScriptPath(id))
 		return nil
 	}
-	_, err := d.run("kill-session", "-t", sessionName(id))
+	home, err := d.ownWindow(id)
+	if err != nil {
+		return err
+	}
+	target := home
+	if target == "" {
+		// The trailing colon makes it a window: tmux expands no format
+		// against a bare =session as a pane target.
+		target = "=" + sessionName(id) + ":"
+	}
+	err = d.endOwnWindow(id, home, target, "#{==:#{session_name},"+sessionName(id)+"}")
 	os.Remove(d.launchScriptPath(id))
 	return err
+}
+
+// ownWindow is the window session id's own agent runs in: the one recorded
+// when the manager created the session, and "" once that window has closed,
+// because every window left is then somebody else's. A session created before
+// the record existed falls back to the board adoption scan's choice: the
+// window whose pane runs its launch script, or failing that the oldest one.
+func (d *Driver) ownWindow(id string) (string, error) {
+	out, err := d.run("list-panes", "-s", "-t", "="+sessionName(id), "-F", "#{window_id}\t#{"+homeOption+"}\t#{pane_start_command}")
+	if err != nil {
+		return "", err
+	}
+	recorded, scripted, oldest := "", "", ""
+	listed := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		fields := strings.SplitN(line, "\t", 3)
+		if len(fields) < 3 || fields[0] == "" {
+			continue
+		}
+		window := fields[0]
+		listed[window] = true
+		recorded = fields[1]
+		if scripted == "" && RunsLaunchScript(fields[2], id) {
+			scripted = window
+		}
+		if oldest == "" || WindowNumber(window) < WindowNumber(oldest) {
+			oldest = window
+		}
+	}
+	switch {
+	case recorded != "":
+		if listed[recorded] {
+			return recorded, nil
+		}
+		return "", nil
+	case scripted != "":
+		return scripted, nil
+	}
+	return oldest, nil
+}
+
+// WindowNumber orders tmux window ids by when the server made them,
+// and puts anything that is not one last.
+func WindowNumber(window string) int {
+	n, err := strconv.Atoi(strings.TrimPrefix(window, "@"))
+	if err != nil {
+		return int(^uint(0) >> 1)
+	}
+	return n
+}
+
+// endOwnWindow ends session id's home window and nothing else, when tmux finds
+// condition true of target. A session holding only that window goes whole, as
+// it always has. One holding more keeps the rest under a name outside the gi_
+// prefix: the id is free for a revive, and the board stops reading those
+// windows as part of a row that is gone. The check and the kill run as one
+// tmux command, so a window opened after ownWindow listed them is never taken
+// for the home, and neither is a session revived under id in between.
+func (d *Driver) endOwnWindow(id, home, target, condition string) error {
+	name := "=" + sessionName(id)
+	rename := "rename-session -t " + name + " " + leftoverName(id)
+	if home == "" {
+		_, err := d.run("if-shell", "-F", "-t", target, condition, rename)
+		return err
+	}
+	// The session-wide kill sits at the top level, and target is never the
+	// session by name: either way tmux reports the target gone after the
+	// kill has succeeded.
+	_, err := d.run("if-shell", "-F", "-t", target, "#{&&:"+condition+",#{==:#{session_windows},1}}",
+		"kill-session -t "+name,
+		`if-shell -F -t `+target+` "`+condition+`" "kill-window -t `+home+` ; `+rename+`"`)
+	return err
+}
+
+// leftoverName is what a managed session is renamed to once its own window is
+// gone and somebody else's are still running in it.
+func leftoverName(id string) string {
+	return "gi-left-" + id
 }
 
 // KillAdopted ends a pane the manager never started, the one operation Kill
@@ -1477,18 +1579,30 @@ func (d *Driver) PaneID(id string) (string, error) {
 
 // KillPane is Kill for a caller that validated one pane: the check and the
 // kill run as one tmux command, so a session revived under id after pane
-// was read survives.
+// was read survives. The pane has to be in the session's own window as well,
+// so a pane read off a window somebody else opened in it ends nothing.
 func (d *Driver) KillPane(id, pane string) error {
 	if err := d.refuseAdopted(id, "kill"); err != nil {
 		return err
 	}
 	d.forgetPin(id)
-	if _, err := d.run("if-shell", "-F", "-t", pane, "#{==:#{session_name},"+sessionName(id)+"}",
-		"kill-session -t ="+sessionName(id)); err != nil {
+	if !d.Exists(id) {
+		os.Remove(d.launchScriptPath(id))
+		return nil
+	}
+	home, err := d.ownWindow(id)
+	if err != nil {
+		return err
+	}
+	if home == "" {
+		return fmt.Errorf("%s: pane %s is not in this session's own window", id, pane)
+	}
+	if err := d.endOwnWindow(id, home, pane,
+		"#{&&:#{==:#{session_name},"+sessionName(id)+"},#{==:#{window_id},"+home+"}}"); err != nil {
 		return err
 	}
 	if d.Exists(id) {
-		return fmt.Errorf("%s: pane %s no longer belongs to this session", id, pane)
+		return fmt.Errorf("%s: pane %s no longer belongs to this session's own window", id, pane)
 	}
 	os.Remove(d.launchScriptPath(id))
 	return nil

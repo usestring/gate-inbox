@@ -374,6 +374,18 @@ type ClaudeCode struct {
 // SetupOn reports whether the board keeps its Claude Code entries registered.
 func (c ClaudeCode) SetupOn() bool { return c.Setup == nil || *c.Setup }
 
+// Codex configures what the board keeps in the operator's own Codex config.
+type Codex struct {
+	// Setup keeps Gate Inbox's two hook entries in the Codex user config
+	// (config.toml under CODEX_HOME or ~/.codex), which is what gives a
+	// codex started outside the board status and steering once it is
+	// adopted. Absent means on; false takes the entries back out.
+	Setup *bool `toml:"setup"`
+}
+
+// SetupOn reports whether the board keeps its Codex hooks registered.
+func (c Codex) SetupOn() bool { return c.Setup == nil || *c.Setup }
+
 // The sides the board's sidebar -- the sessions rail -- can sit on.
 const (
 	SidebarRight = "right"
@@ -425,6 +437,7 @@ type Config struct {
 	Integrations     Integrations `toml:"integrations"`
 	Hogs             Hogs         `toml:"hogs"`
 	ClaudeCode       ClaudeCode   `toml:"claude_code"`
+	Codex            Codex        `toml:"codex"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see
@@ -908,6 +921,16 @@ const defaultConfig = `poll_interval = "2s"
 # stay silent in any session the board has not adopted. false removes them,
 # and so does switching "claude code setup" off in Settings.
 # [claude_code]
+# setup = true
+
+# Your own Codex config. While the board runs, on a machine with codex
+# installed, it keeps two hook entries (UserPromptSubmit and Stop) in
+# config.toml under CODEX_HOME or ~/.codex, so a codex started outside the
+# board reports status and hears the board's steering once the board adopts
+# it. They do nothing in any codex session the board does not hold. Codex
+# asks you to trust new hooks once ("Hooks need review"). false removes them,
+# and so does "gate-inbox codex-hooks uninstall".
+# [codex]
 # setup = true
 
 # The diagnostic log. It is a file log only -- this program owns the

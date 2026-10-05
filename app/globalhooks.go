@@ -39,32 +39,48 @@ type claudeSetup struct {
 	dir string
 	// configOn is config.toml's [claude_code] setup, read at startup.
 	configOn bool
-	bin      func() string
-	// applied is what the last pass did, so the switch ticker only syncs on
-	// a change.
-	applied bool
+	// codexOn is config.toml's [codex] setup, read at startup.
+	codexOn bool
+	bin     func() string
+	// codexInstalled reports whether a codex is on PATH: the codex hooks
+	// are registered only on a machine that has one.
+	codexInstalled func() bool
+	// applied and codexApplied are what the last pass did, so the switch
+	// ticker only syncs on a change.
+	applied      bool
+	codexApplied bool
 	// warned holds the last warning per entry, so a settings file that stays
 	// malformed is reported once rather than every few minutes.
 	warned map[string]string
 }
 
-func newClaudeSetup(dir string, configOn bool) *claudeSetup {
-	return &claudeSetup{dir: dir, configOn: configOn, bin: launch.Installed, warned: map[string]string{}}
+func newClaudeSetup(dir string, configOn, codexOn bool) *claudeSetup {
+	return &claudeSetup{
+		dir: dir, configOn: configOn, codexOn: codexOn, bin: launch.Installed,
+		codexInstalled: codexOnPath, warned: map[string]string{},
+	}
 }
 
-// keepClaudeSetup syncs the entries once before the board draws anything,
+func codexOnPath() bool {
+	_, err := exec.LookPath("codex")
+	return err == nil
+}
+
+// keepClaudeSetup keeps the Claude Code entries and the Codex hooks
+// (codexOn, from config.toml's [codex] setup) in step with the board. It
+// syncs them once before the board draws anything,
 // then again every claudeSetupEvery, and whenever the Settings switch flips,
 // until stop is called.
 //
 // It stands down for a board whose home is a scratch directory, which is what
 // a test or a trial run uses: those homes vanish, and a user's settings must
 // not be left naming them.
-func keepClaudeSetup(dir string, configOn bool) (stop func()) {
+func keepClaudeSetup(dir string, configOn, codexOn bool) (stop func()) {
 	if underTempDir(dir) {
 		logging.Info("claude code setup left off", "reason", "scratch home", "home", dir)
 		return func() {}
 	}
-	setup := newClaudeSetup(dir, configOn)
+	setup := newClaudeSetup(dir, configOn, codexOn)
 	setup.sync()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -89,7 +105,7 @@ func (s *claudeSetup) run(ctx context.Context, every, switchEvery time.Duration)
 		case <-full.C:
 			s.sync()
 		case <-flip.C:
-			if s.wanted() != s.applied {
+			if s.wanted() != s.applied || s.codexWanted() != s.codexApplied {
 				s.sync()
 			}
 		}
@@ -108,6 +124,7 @@ func (s *claudeSetup) wanted() bool {
 // that changes nothing when the entries are already right; only a difference
 // writes the settings file or runs the claude CLI.
 func (s *claudeSetup) sync() {
+	s.syncCodex()
 	want := s.wanted()
 	s.applied = want
 	settings, settingsErr := hooks.GlobalSettingsPath()
@@ -142,6 +159,45 @@ func (s *claudeSetup) sync() {
 	}
 }
 
+// codexWanted is the operator's choice for the codex hooks: config.toml's
+// [codex] setup and the codex-hooks.disabled file `codex-hooks uninstall`
+// writes must both leave them on.
+func (s *claudeSetup) codexWanted() bool {
+	return s.codexOn && !hooks.NewManager(s.dir).CodexDisabled()
+}
+
+// syncCodex makes the user's codex config.toml match codexWanted: this
+// board's two hook entries in place, or taken out. A machine with no codex
+// gets nothing written; one that already has the entries keeps them as they
+// are when they match, so codex's trust in them stands.
+func (s *claudeSetup) syncCodex() {
+	want := s.codexWanted()
+	s.codexApplied = want
+	path, err := hooks.CodexConfigPath()
+	if err != nil {
+		s.report("codex", "", "", "", false, err)
+		return
+	}
+	if !want {
+		changed, err := hooks.UnregisterCodex(path, s.dir)
+		s.report("codex", "global codex hooks removed", "config", path, changed, err)
+		return
+	}
+	if s.codexInstalled == nil || !s.codexInstalled() {
+		s.report("codex", "", "", "", false, errNoCodex)
+		return
+	}
+	bin := s.bin()
+	if bin == "" {
+		s.report("codex", "", "", "", false, errors.New("no installed binary"))
+		return
+	}
+	changed, err := hooks.RegisterCodex(path, s.dir, bin)
+	s.report("codex", "global codex hooks registered", "config", path, changed, err)
+}
+
+var errNoCodex = errors.New("no codex on PATH")
+
 // report logs a change once and a failure once per distinct message. A
 // machine with no claude on it is not a fault, so that one is info.
 func (s *claudeSetup) report(entry, did, key, path string, changed bool, err error) {
@@ -156,7 +212,7 @@ func (s *claudeSetup) report(entry, did, key, path string, changed bool, err err
 		return
 	}
 	s.warned[entry] = err.Error()
-	if errors.Is(err, errNoClaude) {
+	if errors.Is(err, errNoClaude) || errors.Is(err, errNoCodex) {
 		logging.Info("claude code setup: "+entry+" left off", "reason", err.Error())
 		return
 	}
@@ -349,4 +405,86 @@ func describeChange(changed bool, did, already string) string {
 		return did
 	}
 	return already
+}
+
+const codexHooksUsage = "codex-hooks [install | uninstall [--all] | status]"
+
+// runCodexHooks is the codex-hooks command, the codex counterpart of
+// claude-hooks: a maintenance tool the help leaves out, since the board
+// keeps the entries itself. uninstall writes codex-hooks.disabled, so the
+// board keeps them out; install clears it.
+func runCodexHooks(out io.Writer, args []string, configDir string) error {
+	verb := "status"
+	if len(args) > 0 {
+		verb = args[0]
+	}
+	if verb == "-h" || verb == "--help" {
+		_, err := fmt.Fprintf(out, "usage: %s %s\n", Name, codexHooksUsage)
+		return err
+	}
+	path, err := hooks.CodexConfigPath()
+	if err != nil {
+		return err
+	}
+	manager := hooks.NewManager(configDir)
+	bin := launch.Installed()
+	if bin == "" {
+		bin = launch.Executable()
+	}
+	switch {
+	case verb == "install" && len(args) == 1:
+		if err := manager.SetCodexDisabled(false); err != nil {
+			return err
+		}
+		changed, err := hooks.RegisterCodex(path, configDir, bin)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(out, describeChange(changed,
+			"registered Gate Inbox's codex hooks in "+path+"; codex asks once to trust them (\"Hooks need review\")",
+			path+" already carries Gate Inbox's codex hooks"))
+		return err
+	case verb == "uninstall" && (len(args) == 1 || len(args) == 2 && args[1] == "--all"):
+		scope := configDir
+		if len(args) == 2 {
+			scope = ""
+		}
+		changed, err := hooks.UnregisterCodex(path, scope)
+		if err != nil {
+			return err
+		}
+		if err := manager.SetCodexDisabled(true); err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(out, describeChange(changed, "removed Gate Inbox's codex hooks from "+path, path+" carries none of Gate Inbox's codex hooks"))
+		return err
+	case verb == "status" && len(args) <= 1:
+		registered, err := hooks.CodexRegistered(path, configDir, bin)
+		if err != nil {
+			return err
+		}
+		state := "codex hooks not registered"
+		if registered {
+			state = "codex hooks registered"
+		}
+		switch {
+		case !configCodexOn(configDir):
+			state += " (switched off by [codex] setup = false in config.toml; the board removes them)"
+		case manager.CodexDisabled():
+			state += " (switched off by codex-hooks uninstall; the board removes them)"
+		}
+		_, err = fmt.Fprintf(out, "%s: %s\n", path, state)
+		return err
+	}
+	return fmt.Errorf("usage: %s %s", Name, codexHooksUsage)
+}
+
+// configCodexOn reads [codex] setup from the board's config, without
+// writing a default config where there is none.
+func configCodexOn(configDir string) bool {
+	if _, err := os.Stat(filepath.Join(configDir, "config.toml")); err != nil {
+		return true
+	}
+	cfg, err := config.LoadDir(configDir)
+	return err != nil || cfg.Codex.SetupOn()
 }

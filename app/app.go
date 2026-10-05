@@ -269,7 +269,7 @@ func unknownCommand(arg string) error {
 }
 
 func printHelp(w io.Writer, extra []extensionCommand) error {
-	// claude-hooks is left out: the board keeps that setup itself, and the
+	// claude-hooks and codex-hooks are left out: the board keeps that setup itself, and the
 	// command stays only as a maintenance tool for someone who knows it.
 	var sections []cli.HelpSection
 	for _, entry := range extra {
@@ -402,6 +402,9 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 	table["claude-hooks"] = withConfigDir(func(args []string, _, configDir string) error {
 		return runClaudeHooks(os.Stdout, args, configDir)
 	})
+	table["codex-hooks"] = withConfigDir(func(args []string, _, configDir string) error {
+		return runCodexHooks(os.Stdout, args, configDir)
+	})
 	for name, command := range cli.Commands() {
 		if name != "spawn" && name != "migrate" && name != "revive" && name != "unpark" {
 			table[name] = withConfigDir(command)
@@ -433,7 +436,17 @@ func withConfigDir(command func(args []string, sessionID, configDir string) erro
 // the environment, or, for an agent the board adopted rather than launched,
 // the one its pane's adoption marker names. Without it an adopted agent
 // could not send, read or answer as itself from its shell.
+//
+// A command codex's shell tool runs comes first, by its thread. Codex runs
+// those commands from its shared daemon, whose environment -- a launch's
+// session id included -- is that of whichever pane started the daemon, so
+// for a codex thread the board holds the thread is the only honest answer.
 func callerID(configDir string) string {
+	if thread := os.Getenv(codexThreadEnv); thread != "" {
+		if id, _, ok := hooks.NewManager(configDir).CodexThreadRow(thread); ok {
+			return id
+		}
+	}
 	if id := envname.Get(hooks.EnvSessionID); id != "" {
 		return id
 	}
@@ -446,6 +459,10 @@ func callerID(configDir string) string {
 	})
 	return id
 }
+
+// codexThreadEnv is the variable codex sets, to the calling thread's id, on
+// every command its shell tool runs.
+const codexThreadEnv = "CODEX_THREAD_ID"
 
 // extensionCommand is one command an extension adds, with the ID of the
 // extension that owns it.

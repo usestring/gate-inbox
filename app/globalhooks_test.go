@@ -83,17 +83,22 @@ func TestClaudeHooksCommandInstallsAndRemoves(t *testing.T) {
 func TestBoardStartupSkipsGlobalHooksForAScratchHome(t *testing.T) {
 	claudeDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", claudeDir)
+	codexDir := t.TempDir()
+	t.Setenv("CODEX_HOME", codexDir)
 	calls := fakeClaude(t, filepath.Join(claudeDir, ".claude.json"))
 	home := t.TempDir()
 	if !underTempDir(home) {
 		t.Fatalf("%s is not recognised as scratch", home)
 	}
-	keepClaudeSetup(home, true)()
+	keepClaudeSetup(home, true, true)()
 	if _, err := os.Stat(filepath.Join(claudeDir, "settings.json")); err == nil {
 		t.Fatal("a scratch board wrote the user's settings")
 	}
 	if got := readCalls(t, calls); got != "" {
 		t.Fatalf("a scratch board ran claude: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(codexDir, "config.toml")); err == nil {
+		t.Fatal("a scratch board wrote the user's codex config")
 	}
 	if underTempDir("/var/lib/gate-inbox") {
 		t.Fatal("a real home was taken for scratch")
@@ -109,8 +114,10 @@ func scratchSetup(t *testing.T, configOn bool) (setup *claudeSetup, settings, st
 	t.Setenv("CLAUDE_CONFIG_DIR", claudeDir)
 	state = filepath.Join(claudeDir, ".claude.json")
 	calls = fakeClaude(t, state)
-	setup = newClaudeSetup(t.TempDir(), configOn)
+	t.Setenv("CODEX_HOME", t.TempDir())
+	setup = newClaudeSetup(t.TempDir(), configOn, configOn)
 	setup.bin = func() string { return "/opt/gate-inbox/bin/gate-inbox" }
+	setup.codexInstalled = func() bool { return true }
 	return setup, filepath.Join(claudeDir, "settings.json"), state, calls
 }
 
@@ -204,8 +211,9 @@ func TestClaudeSetupOptOutRemovesEntries(t *testing.T) {
 	t.Run("config", func(t *testing.T) {
 		on, settings, state, _ := scratchSetup(t, true)
 		on.sync()
-		off := newClaudeSetup(on.dir, false)
+		off := newClaudeSetup(on.dir, false, false)
 		off.bin = on.bin
+		off.codexInstalled = on.codexInstalled
 		off.sync()
 		if raw, _ := os.ReadFile(settings); strings.Contains(string(raw), "gate-inbox-global-hook") {
 			t.Fatalf("config opt-out left the hooks:\n%s", raw)
@@ -307,4 +315,109 @@ func readCalls(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return strings.TrimSpace(string(raw))
+}
+
+func codexConfigFile(t *testing.T) string {
+	t.Helper()
+	path, err := hooks.CodexConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// The codex hooks ride the same passes as the Claude Code setup: registered
+// with no command when codex is installed, left untouched by a pass with
+// nothing to change, never written on a machine without codex, and taken
+// out by codex-hooks.disabled while the board runs or by [codex] setup =
+// false at startup.
+func TestCodexSetupFollowsTheBoard(t *testing.T) {
+	setup, _, _, _ := scratchSetup(t, true)
+	path := codexConfigFile(t)
+	setup.codexInstalled = func() bool { return false }
+	setup.sync()
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("a machine with no codex had its codex config written")
+	}
+	setup.codexInstalled = func() bool { return true }
+	setup.sync()
+	if ok, err := hooks.CodexRegistered(path, setup.dir, setup.bin()); err != nil || !ok {
+		t.Fatalf("codex hooks registered = %v, %v", ok, err)
+	}
+	info, _ := os.Stat(path)
+	setup.sync()
+	if again, _ := os.Stat(path); !os.SameFile(info, again) {
+		t.Fatal("a pass with nothing to change rewrote the codex config")
+	}
+
+	manager := hooks.NewManager(setup.dir)
+	if err := manager.SetCodexDisabled(true); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		setup.run(ctx, time.Hour, 10*time.Millisecond)
+	}()
+	waitFor(t, "the codex switch to remove the hooks", func() bool {
+		raw, _ := os.ReadFile(path)
+		return !strings.Contains(string(raw), "gate-inbox-codex-hook")
+	})
+	if err := manager.SetCodexDisabled(false); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the codex switch to restore the hooks", func() bool {
+		ok, _ := hooks.CodexRegistered(path, setup.dir, setup.bin())
+		return ok
+	})
+	cancel()
+	<-done
+
+	off := newClaudeSetup(setup.dir, true, false)
+	off.bin, off.codexInstalled = setup.bin, setup.codexInstalled
+	off.sync()
+	if raw, _ := os.ReadFile(path); strings.Contains(string(raw), "gate-inbox-codex-hook") {
+		t.Fatalf("[codex] setup = false left the hooks:\n%s", raw)
+	}
+}
+
+func TestCodexHooksCommandInstallsAndRemoves(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("GATE_INBOX_HOME", home)
+	path := codexConfigFile(t)
+	if err := os.WriteFile(path, []byte("# mine\nmodel = \"x\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) string {
+		t.Helper()
+		var out bytes.Buffer
+		if err := runCodexHooks(&out, args, home); err != nil {
+			t.Fatalf("codex-hooks %v: %v", args, err)
+		}
+		return out.String()
+	}
+	if got := run(); !strings.Contains(got, "codex hooks not registered") {
+		t.Fatalf("status before install = %q", got)
+	}
+	if got := run("install"); !strings.Contains(got, "registered Gate Inbox's codex hooks") || !strings.Contains(got, "Hooks need review") {
+		t.Fatalf("install = %q", got)
+	}
+	if got := run("status"); !strings.Contains(got, ": codex hooks registered\n") {
+		t.Fatalf("status after install = %q", got)
+	}
+	if got := run("uninstall"); !strings.Contains(got, "removed Gate Inbox's codex hooks") {
+		t.Fatalf("uninstall = %q", got)
+	}
+	if raw, _ := os.ReadFile(path); string(raw) != "# mine\nmodel = \"x\"\n" {
+		t.Fatalf("config after uninstall:\n%s", raw)
+	}
+	if got := run("status"); !strings.Contains(got, "switched off by codex-hooks uninstall") {
+		t.Fatalf("status after uninstall = %q", got)
+	}
+	var out bytes.Buffer
+	if err := runCodexHooks(&out, []string{"bogus"}, home); err == nil || !strings.Contains(err.Error(), "usage:") {
+		t.Fatalf("an unknown verb: %v", err)
+	}
 }

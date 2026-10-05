@@ -7,8 +7,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/adopt"
 	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/mcpserver"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
@@ -17,6 +19,20 @@ import (
 // not a command an agent runs, so it is left out of the help. It always
 // exits 0: a hook that fails must not stand in the child's way.
 func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir string) error {
+	if len(args) == 2 && args[0] == "codex" {
+		// A codex hook runs in codex's shared daemon, whose environment --
+		// a session id included -- is whichever pane started it. Only the
+		// payload's thread says which session this is.
+		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
+		if err != nil {
+			return nil
+		}
+		output := hooks.NewManager(configDir).DispatchCodex(args[1], payload, adopt.Capture, codexSteering)
+		if output != "" {
+			fmt.Fprintln(out, output)
+		}
+		return nil
+	}
 	if len(args) == 2 && args[0] == "global" {
 		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
 		if err != nil || sessionID == "" {
@@ -95,3 +111,7 @@ func attestFlag() string {
 	}
 	return status + hooks.AttestPendingSuffix
 }
+
+// codexSteering is what an adopted codex hears once: it has no Gate Inbox
+// MCP server, so the board's steering is written for the gate-inbox command.
+func codexSteering() string { return mcpreg.AdoptedCLISteering("codex") }

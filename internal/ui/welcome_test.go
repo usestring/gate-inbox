@@ -121,6 +121,7 @@ func TestWelcomeCardSaysWhenNoCLIIsInstalled(t *testing.T) {
 // does about them.
 func TestWelcomeCardCountsAgentsAlreadyRunning(t *testing.T) {
 	m := buildModel(t)
+	setMode(t, m, outsidePanesSetting, paneRelaunch)
 	adoptForeignPane(t, m, "byhand", "byhand", "idle")
 	m.applyCmd(t, nil)
 	m.adoptFirstDone = true
@@ -130,8 +131,8 @@ func TestWelcomeCardCountsAgentsAlreadyRunning(t *testing.T) {
 		t.Fatalf("the card should count the running agent:\n%s", body)
 	}
 	setMode(t, m, outsidePanesSetting, paneAdopt)
-	if body = ansi.Strip(m.viewWelcome()); !strings.Contains(body, "1 found in tmux and shown on the board as-is. O takes it over") {
-		t.Fatalf("a kept pane should point at O:\n%s", body)
+	if body = ansi.Strip(m.viewWelcome()); !strings.Contains(body, "1 found in tmux and shown on the board as-is. a on one brings it in") {
+		t.Fatalf("a kept pane should point at a:\n%s", body)
 	}
 }
 

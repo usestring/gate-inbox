@@ -44,6 +44,8 @@ const (
 	Fork           Action = "fork"
 	Migrate        Action = "migrate"
 	TakeOver       Action = "take_over"
+	BringIn        Action = "bring_in"
+	LeaveOut       Action = "leave_out"
 
 	Revive        Action = "revive"
 	ReviveAll     Action = "revive_all"
@@ -174,6 +176,11 @@ var Catalog = []Binding{
 	{ContextList, Rename, []string{}, "rename it yourself, and re-pick its tool", false},
 	{ContextList, NameSweep, []string{}, "name sweep over idle adopted panes", false},
 	{ContextList, TakeOver, []string{}, "take over the adopted panes now; busy ones once they go idle", false},
+	// A pane started outside the board stays as it is until asked: a brings
+	// the one under the cursor, or the ones a toast just named, in, and o
+	// leaves them off the board.
+	{ContextList, BringIn, []string{"a"}, "bring an outside pane in: resume it as a board session once idle", false},
+	{ContextList, LeaveOut, []string{"o"}, "leave an outside pane off the board, still running", false},
 	{ContextList, Move, []string{"m"}, "move it to a group", false},
 
 	{ContextList, ShowAllWork, []string{}, "show every pull request and ticket, not the first few", false},

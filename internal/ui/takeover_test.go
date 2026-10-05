@@ -50,6 +50,7 @@ func setStatus(t *testing.T, m *Model, id, state string) {
 // the status bar says so.
 func TestAnAdoptedPaneIsTakenOverAtStartupWithoutAsking(t *testing.T) {
 	m := buildModel(t)
+	setMode(t, m, outsidePanesSetting, paneRelaunch)
 	socket, pane := adoptForeignPane(t, m, "borrowed", "borrowed", status.Idle)
 	m.restoreArmed = true
 	m.adoptFirstDone = true
@@ -71,6 +72,7 @@ func TestAnAdoptedPaneIsTakenOverAtStartupWithoutAsking(t *testing.T) {
 
 func TestAutoTakeoverWaitsForAnAttachedTmuxClient(t *testing.T) {
 	m := buildModel(t)
+	setMode(t, m, outsidePanesSetting, paneRelaunch)
 	socket, pane := adoptForeignPane(t, m, "borrowed", "borrowed", status.Idle)
 	terminal := tmuxtest.Socket(t, "takeoverterminal")
 	tmuxOnSocket(terminal, "kill-server").Run()
@@ -132,6 +134,7 @@ func TestAdoptedPanesAreNotTakenOverUnlessArmed(t *testing.T) {
 func TestAutoTakeoverWaitsForBusyPanesAndCoversLaterOnes(t *testing.T) {
 	m := buildModel(t)
 	m.adoptFirstDone = true
+	setMode(t, m, outsidePanesSetting, paneRelaunch)
 	// Each refresh reads the panes' screens, so it runs disarmed and the
 	// status the test means is pinned before the armed pass.
 	refresh := func(id, state string) {

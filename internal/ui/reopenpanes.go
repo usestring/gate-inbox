@@ -12,13 +12,15 @@ import (
 // Reopening the board after a while away can find two things: the board's own
 // sessions stopped, and agent panes somebody started by hand in the meantime.
 // The first are marked on the list (diedwhileclosed.go), never asked about.
-// The second needs no question: the adopt scan puts such a pane on the board,
-// and the takeover (takeover.go) makes it a board session once it is idle, so
-// it gets the hooks, the MCP surface and a title from the naming sweep. The settings
-// here let an operator keep panes as they are, or leave them off the board.
+// The second needs no question: the adopt scan puts such a pane on the board
+// as it is, where the global hooks and the MCP relay give a Claude Code pane
+// the board's status, tools and steering with nothing restarted. Ending the
+// operator's process to relaunch it as a board session (takeover.go) is
+// theirs to ask for: a on its row or on the toast that names it
+// (adoptoffer.go), or the "take them over once idle" setting.
 
 // Settings keys and their values. "mark" is the default for reopen_sessions;
-// outside_panes defaults to relaunching, which is the takeover.
+// outside_panes defaults to keeping panes as they are.
 const (
 	reopenSessionsSetting = "reopen_sessions"
 	outsidePanesSetting   = "outside_panes"
@@ -37,7 +39,7 @@ const (
 
 var (
 	reopenSessionsModes = []string{reopenMark, reopenResume, reopenNever}
-	outsidePanesModes   = []string{paneRelaunch, paneAdopt, paneIgnore}
+	outsidePanesModes   = []string{paneAdopt, paneRelaunch, paneIgnore}
 )
 
 // normalizeReopenSessions reads a stored "ask", from before the board stopped
@@ -59,7 +61,7 @@ func normalizeOutsidePanes(mode string) string {
 			return mode
 		}
 	}
-	return paneRelaunch
+	return paneAdopt
 }
 
 // reopenSessionsLabel and outsidePanesLabel are the settings rows' words.
@@ -75,12 +77,12 @@ func reopenSessionsLabel(mode string) string {
 
 func outsidePanesLabel(mode string) string {
 	switch normalizeOutsidePanes(mode) {
-	case paneAdopt:
-		return "keep them as-is"
+	case paneRelaunch:
+		return "take them over once idle"
 	case paneIgnore:
 		return "ignore them"
 	}
-	return "take them over once idle"
+	return "keep them as-is"
 }
 
 func (m *Model) storedMode(key string, normalize func(string) string) string {

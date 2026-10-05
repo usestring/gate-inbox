@@ -114,11 +114,17 @@ func (e *ApprovalNeeded) Error() string {
 // approves how long as well as what.
 func ApprovalQuestion(target store.Session, g grant.Grant, ttl time.Duration) convo.AskQuestion {
 	g = grant.Normalise(g)
+	applies := "Gate Inbox writes it into that session's own settings only, restarts it to apply, and revokes it " +
+		"when the time is up."
+	if target.TmuxPaneID != "" {
+		applies = "That session was started outside Gate Inbox, so Gate Inbox applies it to that session only, " +
+			"through its hooks where they can carry it and otherwise once it is resumed, and revokes it when the " +
+			"time is up."
+	}
 	return convo.AskQuestion{
 		Header: dialog.ApprovalHeader,
-		Question: fmt.Sprintf("Grant child session %q (%s), for %s, %s? Gate Inbox writes it into that "+
-			"session's own settings only, restarts it to apply, and revokes it when the time is up.",
-			target.Name, target.ID, window(ttl), grant.Describe(g)),
+		Question: fmt.Sprintf("Grant child session %q (%s), for %s, %s? %s",
+			target.Name, target.ID, window(ttl), grant.Describe(g), applies),
 		Options: []convo.AskOption{
 			{Label: grantOption, Description: "Write this one permission for that session; it can be revoked later"},
 			{Label: refuseOption, Description: "Leave the session's permissions as they are"},
@@ -194,11 +200,23 @@ func (s *Sessions) Grant(sessionID, targetID string, req GrantRequest) (GrantRes
 		if err != nil {
 			return GrantResult{}, err
 		}
+		held := false
 		for _, have := range active {
 			if have.Kind == string(g.Kind) && have.Value == g.Value {
-				return GrantResult{}, fmt.Errorf("session %s already holds that permission", target.ID)
+				held = true
 			}
 		}
+		switch {
+		case held && req.Restart:
+			// Nothing new is granted, so no approval is spent: this resumes
+			// the session on what it already holds, which is how the part of
+			// a grant an adopted session could not take live reaches it.
+			result.Action = "reapplied"
+		case held:
+			return GrantResult{}, fmt.Errorf("session %s already holds that permission", target.ID)
+		}
+	}
+	if !req.Revoke && result.Action == "" {
 		ttl, err := grantTTL(req)
 		if err != nil {
 			return GrantResult{}, err
@@ -222,6 +240,9 @@ func (s *Sessions) Grant(sessionID, targetID string, req GrantRequest) (GrantRes
 		return GrantResult{}, err
 	}
 	result.Settings, result.Restarted, result.Note = applied.settings, applied.restarted, applied.note
+	if applied.adopted {
+		result.Note = adoptedGrantNote(g, req.Revoke)
+	}
 	result.Target = runtime.sessionInfo(applied.target, applied.running, false)
 	result.Grants, err = grantInfos(runtime.store, target.ID)
 	for _, info := range result.Grants {
@@ -238,7 +259,10 @@ type applied struct {
 	settings  string
 	running   bool
 	restarted bool
-	note      string
+	// adopted is a running session adopted from outside the board, left
+	// running: its grants apply through its hooks (AdoptedGrantDecision).
+	adopted bool
+	note    string
 }
 
 // applyGrants rewrites target's own settings file from the grants in force on
@@ -265,16 +289,39 @@ func (s *Sessions) applyGrants(runtime *runtime, target store.Session, force boo
 	if len(grants) > 0 {
 		out.settings = path
 	}
+	adopted := target.TmuxPaneID != ""
+	if adopted {
+		if err := runtime.reach(target); err != nil {
+			return out, err
+		}
+	}
 	out.running = runtime.driver.Exists(target.ID)
 	switch {
 	case !out.running:
 		out.note = "the session is not running; it launches with this at its next revive"
+	case adopted && !force:
+		// Restarting it would move its conversation out of the user's
+		// own pane. What its hooks can carry applies from its next call;
+		// the rest waits for a resume the caller asks for.
+		out.adopted = true
+		out.note = "the session was started outside Gate Inbox and keeps running; its hooks apply its grants"
 	case target.Status == status.Working && !force:
 		out.note = "the session is working, so it was left alone: the change applies when it is next " +
 			"restarted; call again with restart true to restart it now"
 	default:
 		if err := s.endSession(runtime, target, store.EndKilled); err != nil {
 			return out, err
+		}
+		if adopted {
+			// Its pane is gone, so it comes back as a board session on its
+			// own conversation, launched with its settings file -- which is
+			// the resume a sandbox or domain grant needed.
+			runtime.driver.Release(target.ID)
+			if err := runtime.store.PromoteAdopted(target.ID, target.Cwd, target.AgentSessionID); err != nil {
+				return out, err
+			}
+			target.TmuxSocket, target.TmuxPaneID = "", ""
+			out.target = target
 		}
 		relaunched, err := s.relaunch(runtime, target, "")
 		if err != nil {
@@ -319,7 +366,9 @@ func (s *Sessions) ExpireGrants(now time.Time) (int, error) {
 		case err != nil:
 			errs = append(errs, err)
 			continue
-		case target.Status == status.Working && runtime.driver.Exists(target.ID):
+		case target.Status == status.Working && target.TmuxPaneID == "" && runtime.driver.Exists(target.ID):
+			// An adopted session's hooks stop honouring a grant the moment
+			// it lapses, so only a launched one keeps it until it rests.
 			continue
 		}
 		for _, g := range grants {
@@ -423,6 +472,29 @@ func (s *Sessions) grantApproval(st *store.Store, caller, target store.Session, 
 		}
 	}
 	return "", "", need(reason)
+}
+
+// adoptedGrantNote says what a grant or revoke did for a running session
+// adopted from outside the board, which was not restarted: what its hooks
+// apply from its next tool call, and plainly what needs a resume.
+func adoptedGrantNote(g grant.Grant, revoked bool) string {
+	if revoked {
+		return "the session was started outside Gate Inbox, so it was not restarted: its hooks stop applying " +
+			"the permission from its next tool call"
+	}
+	live, resume := grant.Live(g)
+	var parts []string
+	if live != "" {
+		parts = append(parts, "the session was started outside Gate Inbox, so it was not restarted; from its "+
+			"next tool call its hooks apply "+live)
+	}
+	if resume != "" {
+		parts = append(parts, "NEEDS A RESUME: "+resume+" cannot reach a session Gate Inbox did not launch while it "+
+			"runs, so that part applies only once the session is resumed on the board. Call grant_permission "+
+			"again with the same kind and value and restart true to resume it now -- its conversation moves "+
+			"out of the user's pane into a board session -- or leave it until it is taken over")
+	}
+	return strings.Join(parts, ". ")
 }
 
 // unsupportedGrant says why a CLI other than Claude Code cannot be granted a

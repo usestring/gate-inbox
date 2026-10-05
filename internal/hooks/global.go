@@ -82,6 +82,10 @@ const adoptedDirName = "adopted"
 // AdoptedSteering.
 const adoptedSteeringDirName = "adopted-steering"
 
+// adoptedNotesDirName holds, for each adopted row, the pid of the claude its
+// grant notes were said to and which ones; see NoteOnce.
+const adoptedNotesDirName = "adopted-grants"
+
 // globalDisabledName is the file that keeps the board from registering the
 // global hooks again after an operator removed them.
 const globalDisabledName = "global-hooks.disabled"
@@ -250,31 +254,64 @@ func (m *Manager) AdoptedSteering(event, id string, agentPID int, text func() st
 	return string(out)
 }
 
-// pruneAdoptedSteering drops the stamps of claudes that have exited, whose
-// pid can match no marker again. A stamp is kept while its claude runs, even
-// when the row is let go: the board lets every row go as it exits, and the
-// session that hears the steering again on the board's next start already
-// has it.
-func (m *Manager) pruneAdoptedSteering() error {
-	dir := filepath.Join(m.dir, adoptedSteeringDirName)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-		return err
+// NoteOnce reports whether the note named key has yet to be said to the
+// claude agentPID adopted as row id, and records it as said. The stamp under
+// hooks/adopted-grants/ is named for the row and holds the claude's pid and
+// the keys said to it, so a new claude adopted into the row hears each again.
+// A stamp that cannot be written says nothing, rather than saying it on every
+// call.
+func (m *Manager) NoteOnce(id string, agentPID int, key string) bool {
+	if checkID(id) != nil || agentPID <= 0 || key == "" || strings.ContainsAny(key, " \t\n") {
+		return false
 	}
+	dir := filepath.Join(m.dir, adoptedNotesDirName)
+	path := filepath.Join(dir, id)
+	pid := strconv.Itoa(agentPID)
+	var said []string
+	if raw, err := os.ReadFile(path); err == nil {
+		if fields := strings.Fields(string(raw)); len(fields) > 0 && fields[0] == pid {
+			said = fields[1:]
+		}
+	}
+	if slices.Contains(said, key) {
+		return false
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return false
+	}
+	return WriteWhole(path, strings.Join(append([]string{pid}, append(said, key)...), " ")+"\n") == nil
+}
+
+// pruneAdoptedSteering drops the stamps of claudes that have exited, whose
+// pid can match no marker again: the steering stamps and the grant-note
+// stamps alike, each opening with that pid. A stamp is kept while its claude
+// runs, even when the row is let go: the board lets every row go as it exits,
+// and the session that hears the steering again on the board's next start
+// already has it.
+func (m *Manager) pruneAdoptedSteering() error {
 	var errs []error
-	for _, entry := range entries {
-		path := filepath.Join(dir, entry.Name())
-		raw, err := os.ReadFile(path)
+	for _, name := range []string{adoptedSteeringDirName, adoptedNotesDirName} {
+		dir := filepath.Join(m.dir, name)
+		entries, err := os.ReadDir(dir)
 		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				errs = append(errs, err)
+			}
 			continue
 		}
-		if pid, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && pid > 0 && syscall.Kill(pid, 0) != syscall.ESRCH {
-			continue
+		for _, entry := range entries {
+			path := filepath.Join(dir, entry.Name())
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			if fields := strings.Fields(string(raw)); len(fields) > 0 {
+				if pid, err := strconv.Atoi(fields[0]); err == nil && pid > 0 && syscall.Kill(pid, 0) != syscall.ESRCH {
+					continue
+				}
+			}
+			errs = append(errs, removeIfExists(path))
 		}
-		errs = append(errs, removeIfExists(path))
 	}
 	return errors.Join(errs...)
 }
@@ -484,6 +521,20 @@ func matcherTakes(matcher, value string) bool {
 		return true
 	}
 	return slices.Contains(strings.Split(matcher, "|"), value)
+}
+
+// OutputSays reports whether a hook output already carries field in its
+// hookSpecificOutput: a permission decision, which a second hook must not
+// contradict, or a classifierContext, whose cap the hooks on one call share.
+func OutputSays(output, field string) bool {
+	var parsed struct {
+		Specific map[string]any `json:"hookSpecificOutput"`
+	}
+	if json.Unmarshal([]byte(output), &parsed) != nil {
+		return false
+	}
+	_, ok := parsed.Specific[field]
+	return ok
 }
 
 // MergeHookOutputs is mergeHookOutputs over the outputs that are not empty,

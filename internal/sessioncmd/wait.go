@@ -181,6 +181,14 @@ func (s *Sessions) Wait(ctx context.Context, sessionID string, opts WaitOptions)
 	if err != nil {
 		return WaitResult{}, err
 	}
+	// The liveness scan only covers an adopted pane once the driver has been
+	// told where it is. Without this an adopted child reads as having no pane
+	// on the first scan, and the wait reports a running session as dead.
+	for _, target := range targets {
+		if err := runtime.reach(target); err != nil {
+			return WaitResult{}, err
+		}
+	}
 
 	wanted := map[string]bool{}
 	for _, state := range states {

@@ -91,6 +91,9 @@ func (s *Sessions) BoardGet(targetID string) (got Session, err error) {
 	if err != nil {
 		return Session{}, err
 	}
+	if err := runtime.reach(target); err != nil {
+		return Session{}, err
+	}
 	return runtime.sessionInfo(target, runtime.driver.Exists(target.ID), false), nil
 }
 
@@ -120,6 +123,11 @@ func (s *Sessions) BoardRead(targetID string) (read BoardPane, err error) {
 	defer runtime.store.Close()
 	target, err := runtime.agent(targetID)
 	if err != nil {
+		return BoardPane{}, err
+	}
+	// The read the board's answer is chosen from, so it must see the
+	// adopted pane the answer will key rather than its last stored screen.
+	if err := runtime.reach(target); err != nil {
 		return BoardPane{}, err
 	}
 	live := runtime.driver.Exists(target.ID)

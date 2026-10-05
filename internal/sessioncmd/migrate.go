@@ -55,6 +55,11 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	if err != nil {
 		return Session{}, err
 	}
+	// Whether the source is still running goes into the brief and the
+	// migration hook, and an adopted source only answers once reached.
+	if err := runtime.reach(source); err != nil {
+		return Session{}, err
+	}
 	toolName := strings.TrimSpace(opts.Tool)
 	if toolName == "" {
 		return Session{}, fmt.Errorf("tool is empty; name the agent CLI to move %s to, one of %s", source.ID, strings.Join(agentToolNames(runtime), ", "))

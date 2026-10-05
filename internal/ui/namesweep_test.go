@@ -166,7 +166,7 @@ func TestTheDryRunShowsEveryPaneAndWhatWouldHappenToIt(t *testing.T) {
 		"mid-turn",
 		"1 managed, archived or shell row is not in scope",
 		"y/↵ send",
-		"n/esc cancel",
+		"esc/n/q cancel",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("the dry run must say %q", want)

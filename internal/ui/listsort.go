@@ -113,11 +113,11 @@ func (m *Model) sortGroupSessions(sessions []store.Session) {
 // one would read as the board ignoring it.
 func (m *Model) listSortRefusal() string {
 	if m.showArchived {
-		return "the archive is ordered by when each session was archived — press " + m.cap(keymap.ContextList, keymap.ArchivedView) + " to go back to the active list before reordering"
+		return "the archive is ordered by when each session was archived — " + m.pressTo(keymap.ContextList, keymap.ArchivedView, "go back to the active list before reordering")
 	}
 	switch normalizeListSort(m.listSort) {
 	case listSortActivity:
-		return "the list is ordered by last activity — press " + m.cap(keymap.ContextList, keymap.Settings) + " and set sort to manual before reordering"
+		return "the list is ordered by last activity — " + m.pressTo(keymap.ContextList, keymap.Settings, "open settings") + " and set sort to manual before reordering"
 	case listSortName:
 		return "the list is ordered by name — press " + m.cap(keymap.ContextList, keymap.Settings) + " and set sort to manual before reordering"
 	}

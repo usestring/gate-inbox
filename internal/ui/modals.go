@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/textfmt"
+	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
 func (m *Model) cardWidth() int {
@@ -420,10 +421,18 @@ func (m *Model) viewSettings() string {
 	if m.settings.quickCloseSend {
 		quickClose = "close"
 	}
-	focusKey := "↵ focus · A attach"
+	focusVerb, attachVerb := "focus", "attach"
 	if !m.settings.enterFocuses {
-		focusKey = "↵ attach · A focus"
+		focusVerb, attachVerb = attachVerb, focusVerb
 	}
+	var focusKeys []string
+	if key := m.cap(keymap.ContextList, keymap.Open); key != "" {
+		focusKeys = append(focusKeys, key+" "+focusVerb)
+	}
+	if key := m.cap(keymap.ContextList, keymap.Attach); key != "" {
+		focusKeys = append(focusKeys, key+" "+attachVerb)
+	}
+	focusKey := strings.Join(focusKeys, " · ")
 	backdrop := "inherit"
 	if m.settings.backdropSync {
 		backdrop = "match theme"

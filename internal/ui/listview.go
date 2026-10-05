@@ -167,7 +167,10 @@ func (m *Model) searchFieldLine(width int) string {
 	caret := lipgloss.NewStyle().Foreground(colorAccent).Render("▏")
 	hint := keyCapQuiet("esc", "close")
 	if !m.searching {
-		caret, hint = "", keyCapQuiet("/", "edit")
+		caret, hint = "", ""
+		if key := m.cap(keymap.ContextList, keymap.Search); key != "" {
+			hint = keyCapQuiet(key, "edit")
+		}
 	}
 	chrome := railInset + textfmt.Width(glyph) + textfmt.Width(caret)
 
@@ -520,15 +523,20 @@ func promptPlain(prompt string) string {
 func (m *Model) filterBadgeLines() []string {
 	var lines []string
 	badge := func(label, key, action string) {
+		hint := legendLabelStyle.Render(action)
+		if key != "" {
+			hint = keyCap(key, action)
+		}
 		lines = append(lines, spaces(railInset)+scopeBadgeStyle.Render(label)+
-			subtleStyle.Render("  ")+keyCap(key, action))
+			subtleStyle.Render("  ")+hint)
 	}
+	list := keymap.ContextList
 	if m.triage {
 		// The rail has flattened the groups away by the time this paints, so
 		// the badge is the only thing left saying which group the queue was
 		// drawn from. Truncated rather than wrapped: the badge shares its
 		// line with the key that lifts it.
-		label, key, out := "TRIAGE", "i", "back to groups"
+		label, key, out := "TRIAGE", m.hintKey(list, keymap.Triage), "back to groups"
 		if m.triageScope != "" {
 			label += " " + strings.ToUpper(textfmt.TruncateWidth(baseName(m.triageScope), 12, "…"))
 		}
@@ -539,20 +547,20 @@ func (m *Model) filterBadgeLines() []string {
 		// reports the frame. It earns its row because the state hides its
 		// own way out: a focused session with the rail away has no list to
 		// print the key on, so the board has to carry it.
-		badge("WIDE", `\`, "bring the pane back")
+		badge("WIDE", m.hintKey(list, keymap.ToggleRail), "bring the pane back")
 	}
 	if m.showArchived {
-		badge("ARCHIVED", "t", "back to active")
+		badge("ARCHIVED", m.hintKey(list, keymap.ArchivedView), "back to active")
 	}
 	if m.statusFilter.active() {
-		badge(strings.ToUpper(m.statusFilter.label()), "w", "show all")
+		badge(strings.ToUpper(m.statusFilter.label()), m.hintKey(list, keymap.StatusFilter), "show all")
 	}
 	if m.toolFilterActive() {
-		badge(m.toolFilterLabel(), "Y", "show all")
+		badge(m.toolFilterLabel(), m.hintKey(list, keymap.ToolFilter), "show all")
 	}
 	m.extensionFilterBadges(badge)
 	if m.hideEmptyGroups && !m.showArchived {
-		badge("HIDE EMPTY", "e", "show empty")
+		badge("HIDE EMPTY", m.hintKey(list, keymap.EmptyGroups), "show empty")
 	}
 	return lines
 }
@@ -691,23 +699,24 @@ func lineWindow(heights []int, cursor, budget int) (int, int) {
 }
 
 func (m *Model) emptyRailLines(width, height int) []string {
+	list := keymap.ContextList
 	title := "no sessions yet"
-	hint := keyCap("n", "starts one")
+	hint := m.keyHint(list, keymap.NewSession, "starts one")
 	if m.showArchived {
 		title = "nothing archived"
-		hint = keyCap("t", "back to active")
+		hint = m.keyHint(list, keymap.ArchivedView, "back to active")
 	}
 	if m.triage && m.triageScope != "" {
 		title = "nothing in " + baseName(m.triageScope)
-		hint = keyCap("i", "back to groups")
+		hint = m.keyHint(list, keymap.Triage, "back to groups")
 	}
 	if m.statusFilter.active() {
 		title = "nothing needs " + m.statusFilter.label()
-		hint = keyCap("w", "show all")
+		hint = m.keyHint(list, keymap.StatusFilter, "show all")
 	}
 	if m.toolFilterActive() {
 		title = "nothing on " + m.toolFilter
-		hint = keyCap("Y", "show all")
+		hint = m.keyHint(list, keymap.ToolFilter, "show all")
 	}
 	if search := strings.TrimSpace(m.search); search != "" {
 		title = "no matches"
@@ -1552,9 +1561,20 @@ func (m *Model) contentLines(width, height int) []contentLine {
 // notice card is not. corner closes it on the ring's right upright, which is
 // only drawn once there is a pane box for the uprights to run down.
 func (m *Model) focusRuleTail(width int, corner bool) string {
-	title := " focused · ctrl+q back · " + keymap.Display("alt+↑↓") + " scroll "
+	focus := keymap.ContextFocus
+	title := " focused · "
+	if key := m.fullCap(focus, keymap.Leave); key != "" {
+		title += key + " back · "
+	}
+	if key := m.pairCap(focus, keymap.PreviewUp, keymap.PreviewDown); key != "" {
+		title += key + " scroll "
+	}
 	if m.scrolledBack() {
-		title = fmt.Sprintf(" focused · %d lines back · %s or type to catch up ", m.focusScroll, keymap.Display("alt+down"))
+		catchUp := "type"
+		if key := m.fullCap(focus, keymap.PreviewDown); key != "" {
+			catchUp = key + " or type"
+		}
+		title = fmt.Sprintf(" focused · %d lines back · %s to catch up ", m.focusScroll, catchUp)
 	}
 	edge := 0
 	if corner {
@@ -1714,8 +1734,11 @@ const (
 func (m *Model) viewGroupAgents(group string, width, height int) string {
 	total := m.groupSessionCount(group)
 	if total == 0 {
-		return subtleStyle.Render("agents") + "\n" +
-			mutedStyle.Render("(none yet — press space to spawn one)")
+		empty := "(none yet)"
+		if key := m.hintKey(keymap.ContextList, keymap.NewSession); key != "" {
+			empty = "(none yet — press " + key + " to start one)"
+		}
+		return subtleStyle.Render("agents") + "\n" + mutedStyle.Render(empty)
 	}
 
 	type rosterRow struct{ name, tool, state string }

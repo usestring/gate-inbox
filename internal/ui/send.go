@@ -33,7 +33,7 @@ import (
 // by a handover.
 func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, handOver bool) tea.Cmd {
 	if sess.Archived {
-		m.errBar.text = m.displayName(sess) + " is archived — press " + m.cap(keymap.ContextList, keymap.Restore) + " to restore it first"
+		m.errBar.text = m.displayName(sess) + " is archived — " + m.pressTo(keymap.ContextList, keymap.Restore, "restore it first")
 		return nil
 	}
 	// SendText pastes and presses Enter, so on a shell row the sentence

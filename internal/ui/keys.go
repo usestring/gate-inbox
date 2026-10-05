@@ -78,6 +78,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleQuickActionsKey(msg)
 	case modePanePicker:
 		return m.handlePanePickerKey(msg)
+	case modeRestartWith:
+		return m.handleRestartWithKey(msg)
 	}
 
 	// A pending open waits for the open key again on the same row. esc
@@ -113,8 +115,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// keypresses, so they are read ahead of every other binding -- including
 	// the artifact row's refusals, since a jump acts on the tree rather than
 	// on the row it starts from. Any other key ends the number rather than
-	// being swallowed into it.
-	if m.isGroupJumpKey(msg.String()) {
+	// being swallowed into it. Read by keyName, not the printed text, so an
+	// alt+1 a terminal reports as "1" stays a chord rather than a digit.
+	if m.isGroupJumpKey(keyName(msg)) {
 		return m, m.typeGroupNumber(msg.String())
 	}
 	m.clearGroupJump()
@@ -154,10 +157,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return model, cmd
 	}
 
-	// A snippet's direct chord sends it in one press, read before the list's
-	// own bindings the way ± is: the chord is unbound in the map, so nothing
-	// else can claim it and it never shadows a documented key.
-	if snip, ok := m.snippetChordFor(msg); ok {
+	// A snippet's direct chord sends it in one press. A chord either screen's
+	// map binds belongs to the manager (see snippetChordFor), so a snippet
+	// file can never shadow a documented key.
+	if snip, ok := m.snippetChordFor(msg); ok && !bound {
 		return m.sendSnippetToSelected(snip)
 	}
 
@@ -282,12 +285,16 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.skipSelected()
 	case keymap.Priority:
 		return m.cyclePrioritySelected()
+	case keymap.Mute:
+		return m.toggleMuteSelected()
 	case keymap.ReviveAll:
 		return m.reviveAllDead()
 	case keymap.SwitchAccount:
 		m.openAccountSwitch()
 	case keymap.Restart:
 		return m.restartSelected()
+	case keymap.RestartWith:
+		m.openRestartWith()
 	case keymap.Archive:
 		return m.archiveSelected()
 	case keymap.ArchiveAll:
@@ -308,6 +315,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		m.toggleCollapseAll()
 	case keymap.StatusFilter:
 		return m, m.cycleStatusFilter()
+	case keymap.ToolFilter:
+		return m, m.cycleToolFilter()
 	case keymap.Settings:
 		m.openSettings()
 	case keymap.Resize:
@@ -406,7 +415,7 @@ var artifactRowActions = map[keymap.Action]bool{
 	keymap.Search: true, keymap.ClearSearch: true, keymap.LegendPeek: true, keymap.Help: true,
 	keymap.QuickActions: true,
 	keymap.NameSweep:    true, keymap.TakeOver: true, keymap.Settings: true, keymap.Resize: true,
-	keymap.ArchivedView: true, keymap.StatusFilter: true,
+	keymap.ArchivedView: true, keymap.StatusFilter: true, keymap.ToolFilter: true,
 	keymap.EmptyGroups: true, keymap.Triage: true, keymap.ToggleChrome: true,
 	keymap.ToggleRail: true,
 	// LastPane reads the history it walks back through, not the row under

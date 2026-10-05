@@ -22,7 +22,7 @@ func clearSnippetDefaults(t *testing.T) {
 func TestRunLaysSnippetDefaultsUnderTheOperatorsFile(t *testing.T) {
 	clearSnippetDefaults(t)
 	t.Setenv(config.HomeEnv, t.TempDir())
-	supplied := Snippet{Key: "r", Label: "review the diff", Text: "review the diff for mistakes"}
+	supplied := Snippet{Key: "r", Label: "review the diff", Chord: "option+shift+r", Text: "review the diff for mistakes"}
 	if err := Run(context.Background(), []string{"--version"}, Options{SnippetDefaults: []Snippet{supplied}}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -37,6 +37,9 @@ func TestRunLaysSnippetDefaultsUnderTheOperatorsFile(t *testing.T) {
 	got, ok := set.Get("r")
 	if !ok || got.Text != supplied.Text || got.Label != supplied.Label {
 		t.Fatalf("r = %+v, %v; want the build's snippet", got, ok)
+	}
+	if got, ok := set.Chord("alt+shift+r"); !ok || got.Key != "r" {
+		t.Fatalf("alt+shift+r = %+v, %v; want the build's chord to bind", got, ok)
 	}
 	if _, ok := set.Get("d"); !ok {
 		t.Fatal("the operator's own entry did not bind")

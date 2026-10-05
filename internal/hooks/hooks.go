@@ -658,6 +658,34 @@ func (m *Manager) RemoveExit(id string) error {
 	return removeIfExists(m.ExitFile(id))
 }
 
+// RemoveExitIfUnchanged drops the record only while it is still the one
+// ReadExit stamped at. The launch script can write a fresh exit between that
+// read and this call, and the fresh record is the only durable evidence of how
+// the agent ended. The record is moved aside first so the check and the
+// delete see one file; a newer one is linked back, never over a record the
+// script has written since.
+func (m *Manager) RemoveExitIfUnchanged(id string, at time.Time) error {
+	path := m.ExitFile(id)
+	suffix, err := NewRequestID()
+	if err != nil {
+		return err
+	}
+	held := path + ".inspect-" + suffix
+	if err := os.Rename(path, held); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if info, err := os.Stat(held); err == nil && info.ModTime().Equal(at) {
+		return os.Remove(held)
+	}
+	if err := os.Link(held, path); err != nil && !errors.Is(err, fs.ErrExist) {
+		return err
+	}
+	return os.Remove(held)
+}
+
 func (m *Manager) Remove(id string) error {
 	return removeIfExists(m.StatusFile(id))
 }

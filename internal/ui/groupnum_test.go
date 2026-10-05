@@ -74,6 +74,18 @@ func TestTypingAGroupNumberMovesTheCursorToIt(t *testing.T) {
 	}
 }
 
+// A terminal that reports text for an alt-modified rune hands alt+2 over as
+// "2"; it is still a chord, not a group number.
+func TestAnAltDigitIsNotAGroupNumber(t *testing.T) {
+	m := numberedBoard(t)
+	m.cursor = 0
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: '2', Text: "2", Mod: tea.ModAlt})
+	m = updated.(*Model)
+	if m.cursor != 0 {
+		t.Fatalf("alt+2 moved the cursor to %d as a group jump", m.cursor)
+	}
+}
+
 func TestASecondDigitWalksIntoTheGroupJustReached(t *testing.T) {
 	m := numberedBoard(t)
 	m.cursor = 0

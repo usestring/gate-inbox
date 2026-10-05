@@ -42,6 +42,7 @@ type Session struct {
 	Status    string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, finished, idle, errored or dead"`
 	Running   bool   `json:"running" jsonschema:"whether the session currently has a live tmux pane"`
 	Archived  bool   `json:"archived" jsonschema:"whether the session is archived out of the active list"`
+	Muted     bool   `json:"muted" jsonschema:"whether the operator has muted this session out of their triage queue until it is unmuted"`
 	Self      bool   `json:"self" jsonschema:"whether this row is the calling session itself"`
 	// ParentID is where the board draws this row, and SpawnedBy is who owns
 	// it. Nothing the tools hand back used to carry either, so a fan-out that
@@ -224,6 +225,7 @@ func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 		Status:    sess.Status,
 		Running:   running,
 		Archived:  sess.Archived,
+		Muted:     sess.Muted,
 		Self:      self,
 		ParentID:  sess.ParentID,
 		SpawnedBy: store.SpawnerOf(sess),
@@ -1321,7 +1323,12 @@ func (s *Sessions) kill(sessionID, targetID string, terminals bool, via extensio
 	if err := runtime.reach(target); err != nil {
 		return Session{}, err
 	}
-	if err := s.endSession(runtime, target, store.EndKilled); err != nil {
+	return s.stopSession(runtime, target, via, sessionID, killFor(runtime, target.ID))
+}
+
+func (s *Sessions) stopSession(runtime *runtime, target store.Session, via extension.KillSource, by string, kill func(string) error) (Session, error) {
+	pane, _ := runtime.driver.CapturePane(target.ID)
+	if err := s.endSessionBy(runtime, target, pane, store.EndKilled, kill); err != nil {
 		return Session{}, err
 	}
 	if _, err := runtime.store.ResolveEndedRecipient(target.ID, time.Now()); err != nil {
@@ -1329,7 +1336,7 @@ func (s *Sessions) kill(sessionID, targetID string, terminals bool, via extensio
 	}
 	target.Status = status.Dead
 	if !runtime.cfg.Tools[target.Tool].Shell {
-		sessionhooks.Killed(target, via, sessionID)
+		sessionhooks.Killed(target, via, by)
 	}
 	return runtime.sessionInfo(target, false, false), nil
 }

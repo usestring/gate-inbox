@@ -187,8 +187,11 @@ func newAdoptedE2E(t *testing.T, apiKey string) *adoptedE2E {
 		}
 	}
 	// The API key's own Claude Code config lives under the scratch config
-	// dir; remove it, and the scratch HOME, once the run is over.
+	// dir; remove it, and the scratch HOME, once the run is over. This runs
+	// after the tmux servers are killed, and a claude losing its pane still
+	// writes its transcript on the way out, so it waits for them first.
 	t.Cleanup(func() {
+		awaitScratchClaudes(home, 15*time.Second)
 		_ = os.RemoveAll(filepath.Join(e.claudeD, ".claude.json"))
 		_ = os.RemoveAll(filepath.Join(e.claudeD, ".claude.json.backup"))
 		_ = os.RemoveAll(filepath.Join(e.claudeD, "backups"))
@@ -249,6 +252,40 @@ func newAdoptedE2E(t *testing.T, apiKey string) *adoptedE2E {
 		})
 	}
 	return e
+}
+
+// awaitScratchClaudes waits up to wait for every process running under the
+// scratch HOME to exit, then kills the ones still running, so none writes
+// into the scratch directories while they are being removed.
+func awaitScratchClaudes(home string, wait time.Duration) {
+	scratch := func() []int {
+		var pids []int
+		entries, _ := os.ReadDir("/proc")
+		for _, entry := range entries {
+			pid, err := strconv.Atoi(entry.Name())
+			if err != nil || pid <= 1 || pid == os.Getpid() {
+				continue
+			}
+			raw, err := os.ReadFile(filepath.Join("/proc", entry.Name(), "environ"))
+			if err != nil {
+				continue
+			}
+			if slices.Contains(strings.Split(string(raw), "\x00"), "HOME="+home) {
+				pids = append(pids, pid)
+			}
+		}
+		return pids
+	}
+	deadline := time.Now().Add(wait)
+	for time.Now().Before(deadline) {
+		if len(scratch()) == 0 {
+			return
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	for _, pid := range scratch() {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+	}
 }
 
 func (e *adoptedE2E) boardConfig() string {

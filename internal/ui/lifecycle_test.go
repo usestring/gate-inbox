@@ -1814,7 +1814,7 @@ func TestArchiveAgentConfirmNamesExtraTerminals(t *testing.T) {
 	spawnTerminal(t, m)
 	m.selectSessionRow(t, "coder")
 	m.archiveSelected()
-	want := "kill coder and 2 terminals? frees their RAM, t finds them, deleted for good after 7 days."
+	want := "kill coder and 2 terminals? frees their RAM, the archived view finds them, deleted for good after 7 days."
 	if m.confirm.label != want {
 		t.Fatalf("label = %q, want %q", m.confirm.label, want)
 	}

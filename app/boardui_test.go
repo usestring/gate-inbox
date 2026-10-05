@@ -165,7 +165,7 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	// form; esc puts it away first.
 	keys.Write([]byte("\x1b"))
 	time.Sleep(300 * time.Millisecond)
-	keys.Write([]byte("U"))
+	keys.Write([]byte("E"))
 	waitForOutput(t, out, "write a note", exited, func() {})
 	keys.Write([]byte(" board"))
 	time.Sleep(300 * time.Millisecond)

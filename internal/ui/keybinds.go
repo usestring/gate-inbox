@@ -109,6 +109,91 @@ func (m *Model) cap(ctx keymap.Context, action keymap.Action) string {
 	return keymap.Display(m.sideKey(ctx, action, m.km().Key(ctx, action)))
 }
 
+// hintKey is the key a hint names as the way to an action: the key it is on
+// now, or for a list action the operator left unbound, the quick actions key
+// and the action's name, which is how that action is still reached. "" when
+// the keyboard cannot reach it at all.
+func (m *Model) hintKey(ctx keymap.Context, action keymap.Action) string {
+	if key := m.cap(ctx, action); key != "" {
+		return key
+	}
+	if ctx != keymap.ContextList || quickActionsHidden[action] {
+		return ""
+	}
+	palette := m.cap(keymap.ContextList, keymap.QuickActions)
+	if palette == "" {
+		return ""
+	}
+	return palette + " " + strings.ReplaceAll(string(action), "_", " ")
+}
+
+// keyHint is keyCap over hintKey: a badge or an empty state naming its way
+// out. With no key to name, the label stands alone rather than beside a gap.
+func (m *Model) keyHint(ctx keymap.Context, action keymap.Action, label string) string {
+	if key := m.hintKey(ctx, action); key != "" {
+		return keyCap(key, label)
+	}
+	return legendLabelStyle.Render(label)
+}
+
+// keyOr is the key an action is on, for a sentence that names it, or the
+// words for the action when nothing is bound: "t finds it" must not read as
+// " finds it" once the operator moves the archived view off t.
+func (m *Model) keyOr(ctx keymap.Context, action keymap.Action, words string) string {
+	if key := m.cap(ctx, action); key != "" {
+		return key
+	}
+	return words
+}
+
+// pressTo is "press <key> to <what>" for a notice, or the bare instruction
+// when the keyboard cannot reach the action: a sentence with an empty key in
+// the middle of it reads as a typo.
+func (m *Model) pressTo(ctx keymap.Context, action keymap.Action, what string) string {
+	if key := m.hintKey(ctx, action); key != "" {
+		return "press " + key + " to " + what
+	}
+	return what
+}
+
+// keysCap is every key an action answers to, joined: "y/↵" for a dialog that
+// takes either. A legend for a screen where both spellings are natural names
+// both, so a rebind that drops one drops it from the hint too.
+func (m *Model) keysCap(ctx keymap.Context, action keymap.Action) string {
+	var parts []string
+	seen := map[string]bool{}
+	for _, key := range m.km().Keys(ctx, action) {
+		shown := keymap.Display(key)
+		if seen[shown] || isShiftSpelling(key) {
+			continue
+		}
+		seen[shown] = true
+		parts = append(parts, shown)
+	}
+	return strings.Join(parts, "/")
+}
+
+// isShiftSpelling is the second spelling of a shifted letter: "shift+a"
+// beside "A". A hint that printed both would read as two keys.
+func isShiftSpelling(key string) bool {
+	tail, ok := strings.CutPrefix(key, "shift+")
+	return ok && len(tail) == 1
+}
+
+// pairCap renders two actions that share a modifier as one chord: "alt+↑↓"
+// rather than "alt+↑/alt+↓". Keys that do not share one are joined plainly.
+func (m *Model) pairCap(ctx keymap.Context, a, b keymap.Action) string {
+	first, second := m.cap(ctx, a), m.cap(ctx, b)
+	if first == "" || second == "" {
+		return first + second
+	}
+	i, j := strings.LastIndex(first, "+"), strings.LastIndex(second, "+")
+	if i > 0 && i == j && first[:i] == second[:j] {
+		return first + second[j+1:]
+	}
+	return first + "/" + second
+}
+
 // rebind moves an action onto keys and writes the file. The map is replaced
 // only when the rebind was accepted, so a refused one leaves the board on
 // the keys it was already answering.

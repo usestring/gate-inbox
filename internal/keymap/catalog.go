@@ -53,6 +53,7 @@ const (
 	Archive       Action = "archive"
 	ArchiveAll    Action = "archive_all"
 	Restore       Action = "restore"
+	UndoArchive   Action = "undo_archive"
 	Dismiss       Action = "dismiss"
 	Priority      Action = "priority"
 	Mute          Action = "mute"
@@ -166,6 +167,7 @@ var Catalog = []Binding{
 	{ContextList, Archive, []string{"x"}, "kill it and file the row", false},
 	{ContextList, ArchiveAll, []string{}, "kill every session listed", false},
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
+	{ContextList, UndoArchive, []string{"U", "shift+u"}, "bring back what the last kill filed away", false},
 	{ContextList, Dismiss, []string{"."}, "skip", false},
 	{ContextList, Priority, []string{"p"}, "cycle priority: urgent → high → medium → low → none", false},
 	{ContextList, Mute, []string{"M", "shift+m"}, "mute / unmute: keep it out of triage until unmuted", false},
@@ -185,7 +187,7 @@ var Catalog = []Binding{
 	{ContextList, FoldAll, []string{}, "fold / unfold everything", false},
 	// No key: the archive is where killed rows wait out their 7-day
 	// retention, visited deliberately rather than toggled past. Quick
-	// actions (:) opens it, and u restores from it.
+	// actions opens it, and Restore brings a row back out of it.
 	{ContextList, ArchivedView, []string{}, "archived view", false},
 	{ContextList, Search, []string{"/"}, "fuzzy session search", false},
 	// No key: esc closes the search field and keeps the filter; the text

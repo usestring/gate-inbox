@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -113,5 +114,9 @@ func (m *Model) undoArchive() (tea.Model, tea.Cmd) {
 // replaces was where the act named itself and named its way back, so with
 // the dialog gone the notice has to do both.
 func (m *Model) archivedNotice(label string) {
-	m.reportDone("archived " + label + " · U undoes it, t finds it")
+	notice := "archived " + label + " · "
+	if undo := m.hintKey(keymap.ContextList, keymap.UndoArchive); undo != "" {
+		notice += undo + " undoes it, "
+	}
+	m.reportDone(notice + m.archiveFinder() + " finds it")
 }

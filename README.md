@@ -106,7 +106,7 @@ read from the pane itself. The preview beside the list shows the conversation as
 `/` searches names, groups, statuses and what the sessions have said.
 
 **Triage.** `i` flattens the groups into one queue ordered by what needs a person: waiting first,
-then errored, then finished, longest-blocked first inside each. Picking an option in a dialog, or
+then finished, then errored, longest-blocked first inside each. Picking an option in a dialog, or
 sending a reply, hands that session back to its agent and opens the next one. `ctrl+q` moves on
 without answering, and `ctrl+\` stops triage. `alt+\` puts the list away for a full-width drain,
 and `alt+,` hides the key hints.

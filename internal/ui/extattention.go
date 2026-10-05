@@ -25,7 +25,7 @@ type AttentionRank int
 const (
 	AttentionByStatus AttentionRank = iota
 	AttentionWaiting
-	// AttentionBlocked is after the waiting sessions and before the errored
+	// AttentionBlocked is after the waiting sessions and before the finished
 	// ones: blocked on a decision about the work rather than on a question
 	// in front of somebody.
 	AttentionBlocked

@@ -28,6 +28,9 @@ func fuzzyMetadataScore(sess store.Session, query string) (int, bool) {
 		util.ToChars([]byte(sess.Group)),
 		util.ToChars([]byte(sess.Status)),
 	}
+	if sess.Muted {
+		fields = append(fields, util.ToChars([]byte(mutedStatusLabel)))
+	}
 	score := 0
 	for _, term := range terms {
 		best := -1

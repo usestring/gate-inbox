@@ -144,6 +144,11 @@ type archiveSessionArgs struct {
 	Archived  *bool  `json:"archived,omitempty" jsonschema:"true archives the session out of the active list, false restores it; defaults to true"`
 }
 
+type muteSessionArgs struct {
+	SessionID string `json:"session_id" jsonschema:"session id returned by list_sessions"`
+	Muted     *bool  `json:"muted,omitempty" jsonschema:"true keeps the session out of the user's triage queue until it is unmuted, false puts it back; defaults to true"`
+}
+
 type cleanupChildrenArgs struct {
 	Statuses []string `json:"statuses,omitempty" jsonschema:"states of the children to archive: starting, working, waiting, finished, idle, errored or dead; defaults to finished, idle and dead"`
 	All      bool     `json:"all,omitempty" jsonschema:"archive every child whatever its state, including ones spawned with keep and ones whose own children are still working"`
@@ -298,6 +303,7 @@ type sessionCommands interface {
 	Migrate(sessionID, targetID string, opts sessioncmd.MigrateOptions) (sessioncmd.Session, error)
 	Kill(sessionID, targetID string, via extension.KillSource) (sessioncmd.Session, error)
 	Archive(sessionID, targetID string, archived bool) (sessioncmd.Session, error)
+	Mute(sessionID, targetID string, muted bool) (sessioncmd.Session, error)
 	Tasks(sessionID string, opts sessioncmd.TaskListOptions) (sessioncmd.TaskList, error)
 	CreateTask(sessionID, title, body string, dependsOn []string) (sessioncmd.Task, error)
 	ClaimTask(sessionID, taskID string) (sessioncmd.Task, error)
@@ -866,6 +872,29 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			return nil, sessioncmd.Session{}, err
 		}
 		return mcptool.Text(sessioncmd.FormatArchiveState(updated)), updated, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "mute_session",
+		Description: "Keep a session out of the user's triage queue until it is unmuted, or put it back with muted false. " +
+			"A muted session is not hidden from the list: its row stays, reading muted, but the user's triage queue never hands it over and the attention walk skips it. " +
+			"Use it for a session the user has said is not theirs to act on right now -- a long background job, work parked on an external wait -- rather than for one that is merely finished, which will leave the queue on its own. " +
+			"The flag is the user's own; do not mute a session they are waiting on.",
+		Annotations: mcptool.Annotations(false, false, false),
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args muteSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
+		muted := true
+		if args.Muted != nil {
+			muted = *args.Muted
+		}
+		updated, err := sessions.Mute(sessionID, args.SessionID, muted)
+		if err != nil {
+			return nil, sessioncmd.Session{}, err
+		}
+		verb := "muted "
+		if !updated.Muted {
+			verb = "unmuted "
+		}
+		return mcptool.Text(verb + sessioncmd.FormatSession(updated)), updated, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{

@@ -20,11 +20,12 @@ package ui
 // no room for.
 
 import (
-	"github.com/usestring/gate-inbox/internal/keymap"
 	"path/filepath"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/snippets"
 )
 
@@ -85,35 +86,84 @@ func (m *Model) snippetFor(key string) (snippets.Snippet, bool) {
 	return m.snips.Get(key)
 }
 
-// snippetChordFor returns the snippet an option+shift+<letter> press names, so
-// a lettered snippet can be sent in one press without opening the hotkey menu.
-// It reads the modifiers from the key itself rather than the printed name: an
-// enhanced keyboard protocol may report the shifted letter as its uppercase
-// text, and either spelling stands for the same chord.
+// snippetChordFor returns the snippet a direct chord press names, so it can be
+// sent in one press without opening the hotkey menu. The file names each
+// chord; this only has to spell the press the way the file might, so keyName
+// (rebuilt from the key code, what a chord binds under) and the terminal's own
+// name are both offered.
+//
+// A chord either screen's map binds is the manager's on both, not only on the
+// screen that binds it: a snippet on ctrl+q would otherwise send from the list
+// and leave focus, so the same press would mean two things by screen.
 func (m *Model) snippetChordFor(msg tea.KeyMsg) (snippets.Snippet, bool) {
-	key := msg.Key()
-	if key.Mod&tea.ModAlt == 0 || key.Mod&(tea.ModCtrl|tea.ModSuper|tea.ModMeta) != 0 {
+	if m.chordTaken(keyName(msg), msg.String()) {
 		return snippets.Snippet{}, false
 	}
-	letter, ok := chordLetter(key)
-	if !ok {
-		return snippets.Snippet{}, false
+	for _, name := range chordNames(msg) {
+		if snip, ok := m.snips.Chord(name); ok && !m.chordTaken(snip.ChordKey()) {
+			return snip, true
+		}
 	}
-	return m.snips.Chord("alt+shift+" + letter)
+	return snippets.Snippet{}, false
 }
 
-// chordLetter is the a-z letter a direct chord press stands for, or ok=false
-// when the press is not a shifted letter. Shift arrives either as a modifier
-// or folded into the key's uppercase code, depending on the terminal.
-func chordLetter(key tea.Key) (string, bool) {
-	r, shifted := key.Code, key.Mod&tea.ModShift != 0
-	if r >= 'A' && r <= 'Z' {
-		r, shifted = r+('a'-'A'), true
+// chordTaken reports whether either screen's map binds any of names. An
+// action that follows the rail's side (see sideBindings) takes both mirror
+// images, whichever side the rail is on now: the side is a setting, and a
+// snippet that sent only while the rail sat left would be a key whose meaning
+// moved with the layout.
+func (m *Model) chordTaken(names ...string) bool {
+	for _, ctx := range []keymap.Context{keymap.ContextList, keymap.ContextFocus} {
+		for _, name := range names {
+			if name == "" {
+				continue
+			}
+			if _, bound := m.km().Action(ctx, name); bound {
+				return true
+			}
+			if action, bound := m.km().Action(ctx, mirrorArrow(name)); bound {
+				if _, sided := sideBindings[ctx][action]; sided {
+					return true
+				}
+			}
+		}
 	}
-	if !shifted || r < 'a' || r > 'z' {
-		return "", false
+	return false
+}
+
+// liveChord is the chord a snippet actually answers to: "" when it has none
+// or the key map has taken it, so no surface advertises a press that would
+// do something else.
+func (m *Model) liveChord(snip snippets.Snippet) string {
+	if snip.Chord == "" || m.chordTaken(snip.ChordKey()) {
+		return ""
 	}
-	return string(r), true
+	return snip.Chord
+}
+
+// chordNames is the spellings a press might name a chord by. A terminal may
+// fold shift into the key's code rather than report the modifier -- option+
+// shift+c arrives as option+C -- so an uppercase code also offers the shifted
+// spelling -- and only that one, since chords compare case-folded and option+C
+// would otherwise also name an option+c snippet. A plain lowercase chord stays
+// unambiguous: shift that is nowhere reported cannot be invented.
+//
+// A symbol goes the other way. Chords name the symbol shift types (option+!,
+// never option+shift+1), which is what a legacy terminal sends; a terminal
+// that reports shift and the base key separately is folded back to it here.
+func chordNames(msg tea.KeyMsg) []string {
+	key := msg.Key()
+	if r := key.ShiftedCode; key.Mod&tea.ModShift != 0 && r != 0 && !unicode.IsLetter(r) {
+		return []string{tea.Key{Code: r, Mod: key.Mod &^ tea.ModShift}.String()}
+	}
+	if key.Mod&tea.ModShift == 0 {
+		for _, r := range []rune{key.ShiftedCode, key.Code} {
+			if unicode.IsUpper(r) {
+				return []string{tea.Key{Code: unicode.ToLower(r), Mod: key.Mod | tea.ModShift}.String()}
+			}
+		}
+	}
+	return []string{keyName(msg), msg.String()}
 }
 
 // sendSnippetToSelected answers the row the list cursor is on. A group has no
@@ -160,15 +210,16 @@ func (m *Model) snippetLegend() legendSection {
 	}
 	pairs := make([][2]string, 0, len(m.snips.Snippets))
 	for _, snip := range m.snips.Snippets {
-		pairs = append(pairs, [2]string{snippetCap(snip), snip.Title()})
+		pairs = append(pairs, [2]string{m.snippetCap(snip), snip.Title()})
 	}
 	return legendSection{title: "Snippets", quiet: true, pairs: pairs}
 }
 
 // snippetCap is a snippet's direct chord as every surface prints it, falling
-// back to the bare menu key for a snippet that has no chord (§ and ±).
-func snippetCap(snip snippets.Snippet) string {
-	if chord := snip.Chord(); chord != "" {
+// back to the bare menu key for a snippet with no live chord: § and ±, or one
+// whose chord the key map has taken.
+func (m *Model) snippetCap(snip snippets.Snippet) string {
+	if chord := m.liveChord(snip); chord != "" {
 		return keymap.Display(chord)
 	}
 	return keymap.Display(snip.Binding())
@@ -192,10 +243,10 @@ func (m *Model) snippetHelpSection() helpSection {
 			verb = "type "
 		}
 		text := verb + snip.Quoted()
-		if snip.Chord() != "" {
+		if m.liveChord(snip) != "" {
 			text += " (menu: " + snip.Key + ")"
 		}
-		rows = append(rows, lit(snippetCap(snip), text))
+		rows = append(rows, lit(m.snippetCap(snip), text))
 	}
 	switch {
 	case m.snipErr != "":
@@ -207,6 +258,11 @@ func (m *Model) snippetHelpSection() helpSection {
 	}
 	for _, problem := range m.snips.Problems {
 		rows = append(rows, note("✕ "+problem))
+	}
+	for _, snip := range m.snips.Snippets {
+		if snip.Chord != "" && m.liveChord(snip) == "" {
+			rows = append(rows, note("✕ "+snip.Key+": chord "+snip.Chord+" is a manager key, so it sends from the menu only"))
+		}
 	}
 	return helpSection{title: "snippets", rows: rows}
 }

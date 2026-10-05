@@ -316,8 +316,8 @@ func TestSkipKeyAcksAFinishedSessionAndMovesOn(t *testing.T) {
 	m.triage = true
 	m.rebuildRows()
 	names := sessionNames(m)
-	if len(names) != 2 || names[0] != "broke" {
-		t.Fatalf("queue = %v, want broke at the head", names)
+	if len(names) != 2 || names[0] != "done" {
+		t.Fatalf("queue = %v, want done at the head", names)
 	}
 	m.selectSessionRow(t, "done")
 

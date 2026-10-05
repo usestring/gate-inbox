@@ -409,6 +409,9 @@ func (m *Model) viewSettings() string {
 	if m.settings.experimentalPicker {
 		return m.viewExperimentalSettings()
 	}
+	if m.settings.jevPanel {
+		return m.viewJevSettings()
+	}
 	density := "compact"
 	if m.settings.comfortableRows {
 		density = "comfortable"
@@ -478,6 +481,8 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldPalette, "colour", normalizePalette(m.settings.palette)) + "\n" +
 		row(settingsFieldGlyphs, "status marks", normalizeGlyphs(m.settings.glyphs)+"  "+statusGlyph("waiting")+statusGlyph("finished")+statusGlyph("errored")) + "\n" +
 		row(settingsFieldArchiveConfirm, "ask before killing", normalizeArchiveConfirm(m.settings.archiveConfirm)) + "\n" +
+		row(settingsFieldDeleteConfirm, "ask before deleting", normalizeConfirmAsk(m.settings.deleteConfirm)) + "\n" +
+		row(settingsFieldRestartConfirm, "ask before restarting", normalizeConfirmAsk(m.settings.restartConfirm)) + "\n" +
 		row(settingsFieldListSort, "sort", normalizeListSort(m.settings.listSort)) + "\n" +
 		row(settingsFieldChrome, "key hints", normalizeChrome(m.settings.chrome)) + "\n" +
 		row(settingsFieldLeave, "on leaving a session", normalizeLeaveMode(m.settings.leaveMode)) + "\n" +
@@ -487,18 +492,24 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +
 		row(settingsFieldOutsidePanes, "outside panes", outsidePanesLabel(m.settings.outsidePanes)) + "\n" +
 		row(settingsFieldClaudeSetup, "claude code setup", claudeSetupLabel(m.cfg.ClaudeCode.SetupOn(), m.settings.claudeSetup)) + "\n" +
+		actionRow(settingsFieldJev, "JEV", m.jevSettingsSummary()) + "\n" +
 		actionRow(settingsFieldExperimental, "experimental", "features (default off)") + "\n" +
 		actionRow(settingsFieldSnippets, "snippets", "edit quick replies") + "\n" +
+		actionRow(settingsFieldRestartFlags, "restart flags", "edit restart flag presets") + "\n" +
 		actionRow(settingsFieldCLIs, "CLIs", "show or hide for new sessions") + "\n" +
 		actionRow(settingsFieldGuide, "welcome guide", "read the first-run introduction again") + "\n" +
 		actionRow(settingsFieldKeys, "keys", "see and rebind every key") + "\n" +
 		m.settingsVersionRow(lead)
 	hint := [][2]string{{"↑↓", "field"}, {"←→", "change"}, {"↵/esc", "save"}}
 	switch m.settings.field {
+	case settingsFieldJev:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "JEV key and switch"}, {"esc", "save"}}
 	case settingsFieldExperimental:
 		hint = [][2]string{{"↑↓", "field"}, {"↵", "experimental features"}, {"esc", "save"}}
 	case settingsFieldSnippets:
 		hint = [][2]string{{"↑↓", "field"}, {"↵", "edit snippets"}, {"esc", "save"}}
+	case settingsFieldRestartFlags:
+		hint = [][2]string{{"↑↓", "field"}, {"↵", "edit restart flags"}, {"esc", "save"}}
 	case settingsFieldCLIs:
 		hint = [][2]string{{"↑↓", "field"}, {"↵", "manage CLIs"}, {"esc", "save"}}
 	case settingsFieldGuide:

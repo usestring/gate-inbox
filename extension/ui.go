@@ -393,7 +393,7 @@ const (
 	RankByStatus AttentionRank = iota
 	RankWaiting
 	// RankBlocked sorts after the sessions waiting on a question and before
-	// the errored ones. No status holds it: it is for a session blocked on
+	// the finished ones. No status holds it: it is for a session blocked on
 	// a decision about its work rather than on one question in front of the
 	// operator, which is handed over once the live questions are.
 	RankBlocked

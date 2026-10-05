@@ -147,9 +147,9 @@ func TestTriageDrainHoldsTheRowStillWhileTheOperatorAnswersIt(t *testing.T) {
 	}
 }
 
-// At a prompt edge in triage, Right walks the drain and Left is back: it
-// lands on the list with the queue still armed, whichever side the rail is
-// on. Outside triage only the arrow toward the rail leaves.
+// At a prompt edge, either arrow steps out: Right walks the drain on a
+// finished triage session and Left is back to the list with the queue still
+// armed; every other spare arrow lands on the list.
 func TestTriagePromptEdgeArrows(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -168,11 +168,11 @@ func TestTriagePromptEdgeArrows(t *testing.T) {
 		{"triage waiting, right sidebar, left arrow", config.SidebarRight, true, status.Waiting, tea.KeyLeft, "list"},
 		{"triage waiting, left sidebar, left arrow", config.SidebarLeft, true, status.Waiting, tea.KeyLeft, "list"},
 		{"triage waiting, right sidebar, right arrow", config.SidebarRight, true, status.Waiting, tea.KeyRight, "list"},
-		{"triage waiting, left sidebar, right arrow", config.SidebarLeft, true, status.Waiting, tea.KeyRight, "first"},
-		{"no triage, right sidebar, left arrow", config.SidebarRight, false, status.Finished, tea.KeyLeft, "first"},
+		{"triage waiting, left sidebar, right arrow", config.SidebarLeft, true, status.Waiting, tea.KeyRight, "list"},
+		{"no triage, right sidebar, left arrow", config.SidebarRight, false, status.Finished, tea.KeyLeft, "list"},
 		{"no triage, left sidebar, left arrow", config.SidebarLeft, false, status.Finished, tea.KeyLeft, "list"},
 		{"no triage, right sidebar, right arrow", config.SidebarRight, false, status.Finished, tea.KeyRight, "list"},
-		{"no triage, left sidebar, right arrow", config.SidebarLeft, false, status.Finished, tea.KeyRight, "first"},
+		{"no triage, left sidebar, right arrow", config.SidebarLeft, false, status.Finished, tea.KeyRight, "list"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := buildModel(t)

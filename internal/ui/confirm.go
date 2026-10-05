@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
 // A destructive answer is worth a dialog rather than a line of status text:
@@ -128,10 +129,17 @@ func (m *Model) viewConfirm() string {
 	case actionDelete:
 		answer = "delete"
 	}
-	hint := [][2]string{{"y/↵", answer}, {"n/esc", "cancel"}}
+	var hint [][2]string
 	if m.confirm.ack != "" {
-		hint = [][2]string{{"space", "tick"}, {"y/↵", answer}, {"n/esc", "cancel"}}
+		hint = append(hint, [2]string{"space", "tick"})
 	}
+	hint = append(hint, [2]string{"y/↵", answer})
+	if m.confirmSilenceable() {
+		if k := m.cap(keymap.ContextConfirm, keymap.ConfirmAlways); k != "" {
+			hint = append(hint, [2]string{k, "don't ask again"})
+		}
+	}
+	hint = append(hint, [2]string{"n/esc", "cancel"})
 	// The choice is shown as its current state rather than as an offer, so
 	// the operator reads what y is about to do instead of what k would.
 	if len(m.confirm.keptChildren) > 0 {

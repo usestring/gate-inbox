@@ -574,6 +574,11 @@ type Model struct {
 	// undo is what the last archive filed away so U can put it back. See
 	// archiveundo.go.
 	archiveConfirm string
+	// deleteConfirm and restartConfirm are the same persisted answer for the
+	// other two destructive confirms: whether deleting an empty group, or
+	// restarting a session, asks first. See confirmask.go.
+	deleteConfirm  string
+	restartConfirm string
 	undo           archiveUndo
 	launchFix      launchFix
 	// install is the setup-dialog install still running in a shell tab,
@@ -821,6 +826,8 @@ type settingsState struct {
 	palette            string
 	glyphs             string
 	archiveConfirm     string
+	deleteConfirm      string
+	restartConfirm     string
 	listSort           string
 	chrome             string
 	leaveMode          string
@@ -856,6 +863,8 @@ const (
 	settingsFieldPalette
 	settingsFieldGlyphs
 	settingsFieldArchiveConfirm
+	settingsFieldDeleteConfirm
+	settingsFieldRestartConfirm
 	settingsFieldListSort
 	settingsFieldChrome
 	settingsFieldLeave
@@ -1181,6 +1190,8 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		palette:         storedPalette(st),
 		glyphs:          storedGlyphs(st),
 		archiveConfirm:  storedArchiveConfirm(st),
+		deleteConfirm:   storedConfirmAsk(st, deleteConfirmSetting),
+		restartConfirm:  storedConfirmAsk(st, restartConfirmSetting),
 		listSort:        storedListSort(st),
 		chrome:          storedChrome(st),
 		leaveMode:       storedLeaveMode(st),

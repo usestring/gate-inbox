@@ -366,6 +366,9 @@ func (m *Model) restartSelected() (tea.Model, tea.Cmd) {
 		label:    label,
 	}
 	m.mode = modeConfirmDelete
+	if m.skipsConfirm() {
+		return m.answerConfirm()
+	}
 	return m, nil
 }
 
@@ -481,6 +484,9 @@ func (m *Model) archiveSelected() (tea.Model, tea.Cmd) {
 				label:   fmt.Sprintf("delete group %s? nothing is filed in it, so it goes for good.", entry.group),
 			}
 			m.mode = modeConfirmDelete
+			if m.skipsConfirm() {
+				return m.answerConfirm()
+			}
 			return m, nil
 		}
 		// Adopted panes stay in the set here, unlike the whole-view sweep:
@@ -1231,6 +1237,16 @@ func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	confirmed := m.isAction(keymap.ContextConfirm, keymap.Confirm, msg)
+	// "don't ask again" is the same answer as yes with the dialog turned off
+	// afterwards. It is offered only where the setting can take effect, so a
+	// wide answer or an act with no setting never reads the key at all.
+	always := m.confirmSilenceable() && m.isAction(keymap.ContextConfirm, keymap.ConfirmAlways, msg)
+	if always {
+		if err := m.silenceConfirm(); err != nil {
+			m.errBar.text = err.Error()
+			return m, nil
+		}
+	}
 	if m.confirm.ack != "" {
 		switch {
 		case m.isAction(keymap.ContextConfirm, keymap.Toggle, msg):
@@ -1246,7 +1262,7 @@ func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	// The card advertises its answer and n/esc; any other key leaves it up
 	// rather than dismissing a question the operator has not answered.
-	if !confirmed {
+	if !confirmed && !always {
 		switch msg.String() {
 		case "ctrl+c":
 			return m, tea.Quit
@@ -1269,7 +1285,7 @@ func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.mode = modeList
 		}
 	}()
-	if confirmed {
+	if confirmed || always {
 		answered = true
 		// Follow-up work a confirmed answer leaves that must not run on the
 		// event loop. Nothing the dialog offers has any: deleting a row for

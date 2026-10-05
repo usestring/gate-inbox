@@ -162,6 +162,8 @@ func (m *Model) openSettings() {
 		palette:          normalizePalette(m.palette),
 		glyphs:           normalizeGlyphs(m.glyphs),
 		archiveConfirm:   normalizeArchiveConfirm(m.archiveConfirm),
+		deleteConfirm:    normalizeConfirmAsk(m.deleteConfirm),
+		restartConfirm:   normalizeConfirmAsk(m.restartConfirm),
 		listSort:         normalizeListSort(m.listSort),
 		chrome:           normalizeChrome(m.chrome),
 		leaveMode:        normalizeLeaveMode(m.leaveMode),
@@ -314,6 +316,12 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(archiveConfirmSetting, normalizeArchiveConfirm(m.settings.archiveConfirm)); err != nil {
 		m.errBar.text = err.Error()
 	}
+	if err := m.store.SetSetting(deleteConfirmSetting, normalizeConfirmAsk(m.settings.deleteConfirm)); err != nil {
+		m.errBar.text = err.Error()
+	}
+	if err := m.store.SetSetting(restartConfirmSetting, normalizeConfirmAsk(m.settings.restartConfirm)); err != nil {
+		m.errBar.text = err.Error()
+	}
 	if err := m.store.SetSetting(listSortSetting, normalizeListSort(m.settings.listSort)); err != nil {
 		m.errBar.text = err.Error()
 	}
@@ -390,6 +398,8 @@ func (m *Model) persistSettings() tea.Cmd {
 	m.glyphs = normalizeGlyphs(m.settings.glyphs)
 	applyGlyphSet(m.glyphs)
 	m.archiveConfirm = normalizeArchiveConfirm(m.settings.archiveConfirm)
+	m.deleteConfirm = normalizeConfirmAsk(m.settings.deleteConfirm)
+	m.restartConfirm = normalizeConfirmAsk(m.settings.restartConfirm)
 	m.listSort = normalizeListSort(m.settings.listSort)
 	m.chrome = normalizeChrome(m.settings.chrome)
 	m.leaveMode = normalizeLeaveMode(m.settings.leaveMode)
@@ -585,6 +595,10 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 			}
 		}
 		m.settings.archiveConfirm = archiveConfirmModes[(index+step+len(archiveConfirmModes))%len(archiveConfirmModes)]
+	case settingsFieldDeleteConfirm:
+		m.settings.deleteConfirm = cycleMode(confirmAskModes, normalizeConfirmAsk(m.settings.deleteConfirm), step)
+	case settingsFieldRestartConfirm:
+		m.settings.restartConfirm = cycleMode(confirmAskModes, normalizeConfirmAsk(m.settings.restartConfirm), step)
 	case settingsFieldListSort:
 		index := 0
 		for i, mode := range listSortModes {

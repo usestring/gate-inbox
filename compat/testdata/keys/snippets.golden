@@ -9,24 +9,28 @@ w  "wake up" -> "Auto wake-up: the previous turn died on a transient API error. 
   {
     "key": "y",
     "label": "yes",
+    "chord": "alt+shift+y",
     "text": "yes",
     "autoSubmit": true
   },
   {
     "key": "c",
     "label": "continue",
+    "chord": "alt+shift+c",
     "text": "continue",
     "autoSubmit": true
   },
   {
     "key": "e",
     "label": "explain like I'm 5",
+    "chord": "alt+shift+e",
     "text": "I'm confused, explain like I'm 5",
     "autoSubmit": true
   },
   {
     "key": "w",
     "label": "wake up",
+    "chord": "alt+shift+w",
     "text": "Auto wake-up: the previous turn died on a transient API error. Continue where you left off.",
     "autoSubmit": true
   },

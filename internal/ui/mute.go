@@ -132,6 +132,11 @@ func (m *Model) dismissSelected() (tea.Model, tea.Cmd) {
 		m.unmute(sess.ID)
 		return m, nil
 	}
+	// A persistent mute is the operator's own mark, so the skip key on one is
+	// the request to take it back: the row returns to triage.
+	if sess.Muted {
+		return m.setMuted(sess, false)
+	}
 	if sess.Status == status.Finished {
 		if err := m.store.AcknowledgeFinished(sess.ID); err != nil {
 			m.errBar.text = err.Error()
@@ -172,6 +177,9 @@ func (m *Model) skipSelected() (tea.Model, tea.Cmd) {
 	if m.isMuted(sess) {
 		m.unmute(sess.ID)
 		return m, nil
+	}
+	if sess.Muted {
+		return m.setMuted(sess, false)
 	}
 	if !m.triage {
 		return m.dismissSelected()

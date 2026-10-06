@@ -24,10 +24,10 @@ import (
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
 )
 
-// RenameDirective asks the agent, as the first line of its first prompt,
-// to name its own session via the rename tool. Carried only for auto-named
-// sessions that launch with a prompt on a tool that wants it
-// (skip_rename_directive opts out), so it fires exactly once.
+// RenameDirective is what an auto-named launch's first prompt used to open
+// with, asking the agent to name its own session. Sessions are named from
+// outside now; it is kept so TypedPrompt can take it back off the transcripts
+// that still carry it.
 const RenameDirective = `First, run this exact shell command once, replacing <name> with a short 2-4 word kebab-case name for the broad feature or theme of this whole session (not one subtask of a larger feature): "$GATE_INBOX_BIN" rename "<name>". Run rename only this once. Do not rename again later in the conversation unless the user explicitly asks you to rename; if they do, pick a broad name from context, not a narrow step. Then do the task:`
 
 // ManagerBand marks a message the manager typed into a pane on its own
@@ -37,9 +37,9 @@ const RenameDirective = `First, run this exact shell command once, replacing <na
 // is part of the prompt the spawn asked for, so it goes unbanded.
 const ManagerBand = band.Tag + ` This request is from Gate Inbox itself, not from the user. `
 
-// DeferredRenameDirective is the standalone message sent into sessions
-// whose first prompt could not carry the directive: slash-command
-// prompts (the command must open the message) and promptless launches.
+// DeferredRenameDirective asks an agent to name its own session, as a
+// standalone message. Nothing sends it automatically any more; it is what r
+// types into a session whose tool has no rename command of its own.
 //
 // The manager's own MCP tool leads and the shell command is the fallback.
 // Both do the same thing, but a shell command is the one an agent has to stop
@@ -74,8 +74,8 @@ func AdoptedRenameCommand(executable, configDir, sessionID string) string {
 		tmux.ShellQuote(executable) + ` rename "<name>"`
 }
 
-// RenameAvailableNote tells a custom-named session that rename exists for
-// later use without asking it to rename now.
+// RenameAvailableNote is what a custom-named launch's first prompt used to
+// open with. Kept, like RenameDirective, only for TypedPrompt.
 const RenameAvailableNote = `This session is already named. You can rename it later with "$GATE_INBOX_BIN" rename "<name>" only if the user asks. Do not rename it now. Then do the task:`
 
 // WorkdirDirectivePrefix opens the directive below, and is what TypedPrompt
@@ -108,8 +108,7 @@ func coordinationNote(toolName string, tool config.Tool) string {
 }
 
 // DirectiveEmbeddable reports whether a launch note can ride the
-// session's first prompt; otherwise auto-named sessions get the rename
-// directive later as its own message.
+// session's first prompt; otherwise it is sent later as its own message.
 func DirectiveEmbeddable(prompt string) bool {
 	return prompt != "" && !opensWithSlashCommand(prompt)
 }
@@ -128,34 +127,16 @@ func opensWithSlashCommand(prompt string) bool {
 	return name != "" && !strings.Contains(name, "/")
 }
 
-// Prompt prepends the short agent notes a first prompt can carry: auto-named
-// sessions must rename once, custom-named sessions only learn that rename is
-// available later, and a session without MCP tools learns where the rest of
-// the workspace is. The coordination note leads because both rename notes
-// end by handing over to the task.
-//
-// skipDirective leaves the prompt alone apart from the coordination note: the
-// tool names its sessions from the outside (its own title, an on-demand
-// command, silent instructions), so anything prepended here would only pollute
-// the first message the title is eventually written from.
-func Prompt(note, prompt string, autoNamed, skipDirective bool) string {
-	if !DirectiveEmbeddable(prompt) {
+// Prompt prepends the coordination note a session without MCP tools needs to
+// find the rest of the workspace. Nothing about naming rides the prompt: the
+// board names every session from outside it (internal/ui/promptnaming.go), so
+// a note here would only cost the agent a turn and pollute the first message
+// its own title is written from.
+func Prompt(note, prompt string) string {
+	if !DirectiveEmbeddable(prompt) || note == "" {
 		return prompt
 	}
-	if skipDirective {
-		if note != "" {
-			return note + "\n\n" + prompt
-		}
-		return prompt
-	}
-	directive := RenameAvailableNote
-	if autoNamed {
-		directive = RenameDirective
-	}
-	if note != "" {
-		return note + "\n\n" + directive + "\n\n" + prompt
-	}
-	return directive + "\n\n" + prompt
+	return note + "\n\n" + prompt
 }
 
 // TypedPrompt is the prompt a person typed, with the notes Prompt put in
@@ -325,14 +306,14 @@ func AccountForSwitch(tool config.Tool, adopted bool, account string) (string, e
 // anything else, and a tool with an add_dir_flag is granted it on the command
 // line as well. Empty for every session launched where it was asked to be,
 // which is almost all of them.
-func Assemble(toolName string, tool config.Tool, rawPrompt, workdir string, autoNamed bool, model, account string) (Plan, error) {
+func Assemble(toolName string, tool config.Tool, rawPrompt, workdir string, model, account string) (Plan, error) {
 	account, err := WithAccount(tool, account)
 	if err != nil {
 		return Plan{}, err
 	}
 	note := coordinationNote(toolName, tool)
 	carried := DirectiveEmbeddable(rawPrompt)
-	prompt := Prompt(note, rawPrompt, autoNamed, tool.SkipRenameDirective)
+	prompt := Prompt(note, rawPrompt)
 	workdir = strings.TrimSpace(workdir)
 	if workdir != "" && carried {
 		prompt = WorkdirDirective(workdir) + "\n\n" + prompt
@@ -349,9 +330,6 @@ func Assemble(toolName string, tool config.Tool, rawPrompt, workdir string, auto
 	}
 	if typed && prompt != "" {
 		plan.PendingInputs = append(plan.PendingInputs, prompt)
-	}
-	if autoNamed && !tool.SkipRenameDirective && !carried {
-		plan.PendingInputs = append(plan.PendingInputs, DeferredRenameDirective)
 	}
 	if note != "" && !carried {
 		plan.PendingInputs = append(plan.PendingInputs, ManagerBand+note)

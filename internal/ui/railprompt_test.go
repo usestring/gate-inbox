@@ -109,7 +109,7 @@ func TestTheLaunchPromptStandsInUntilTheTranscriptIsRead(t *testing.T) {
 	delete(m.firstPrompts, sess.ID)
 	for i := range m.rows {
 		if !m.rows[i].isGroup && m.rows[i].sess.ID == sess.ID {
-			m.rows[i].sess.LaunchPrompt = launch.Prompt("", "ship the thing", true, false)
+			m.rows[i].sess.LaunchPrompt = launch.RenameDirective + "\n\nship the thing"
 		}
 	}
 	block := promptBlock(t, m, 59)
@@ -167,7 +167,7 @@ func TestApplyFirstPromptsKeepsTheLongerOpening(t *testing.T) {
 // too, and a record that was nothing but a manager note is dropped.
 func TestTypedPromptsStripTheLaunchNotes(t *testing.T) {
 	got := typedPrompts([]string{
-		launch.Prompt(launch.CoordinationNote, "do the task", true, false),
+		launch.CoordinationNote + "\n\n" + launch.RenameDirective + "\n\ndo the task",
 		launch.DeferredRenameDirective,
 		"a plain one",
 	})

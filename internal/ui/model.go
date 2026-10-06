@@ -360,6 +360,12 @@ type Model struct {
 	// mutex-guarded, so the two may overlap, and making the primary rename key
 	// wait on a ticker would be felt as a key that did nothing.
 	smartNaming bool
+	// namer picks a session's name from its opening prompt with a small model,
+	// out of process. Nil leaves naming to the titles alone.
+	namer sessionNamer
+	// promptNamed is every row the namer has already been asked about this
+	// run, answered or not, so a failing call is not retried every pass.
+	promptNamed map[string]bool
 	// sel is the focused-pane selection, written during paint so clicks
 	// resolve against the current frame. copied is the size of the last
 	// clipboard write, shown once in the status line and cleared on the
@@ -655,9 +661,9 @@ type Model struct {
 	movePath     string
 
 	// awaitedRenames holds what a spawned session launched with, for as long
-	// as the agent it carries the rename directive to is still expected to
-	// answer. A rename that has not landed by the time this manager run ends
-	// is one that is never arriving, so the set is deliberately not persisted.
+	// as the name picked from its prompt is still expected. A rename that has
+	// not landed by the time this manager run ends is one that is never
+	// arriving, so the set is deliberately not persisted.
 	awaitedRenames map[string]awaitedRename
 
 	width  int
@@ -1201,6 +1207,8 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		work:            newWorkTracker(cfg, st),
 		convos:          newConvoIndex(),
 		drift:           sessname.NewDrift(),
+		namer:           newSessionNamer(),
+		promptNamed:     map[string]bool{},
 		firstPrompts:    map[string][]string{},
 		poller:          newPoller(st, driver, engine, hookManager, gitDriver, statusSources, sessionStores, mcpStyles, shellTools, cfg.PollInterval.Duration),
 		collapsed:       loadCollapsed(st),
@@ -2314,10 +2322,26 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.applyFirstPrompts(msg.prompts)
 		m.applyTitles(msg.titles)
+		if m.promptNamed == nil && len(msg.asked) > 0 {
+			m.promptNamed = map[string]bool{}
+		}
+		for _, id := range msg.asked {
+			m.promptNamed[id] = true
+		}
 		if m.applyRenames(msg.renamed) {
 			m.rebuildRows()
 			// The rail is already right; this is for everything else a pass
 			// derives from a session row.
+			m.poller.requestRefresh()
+		}
+		return m, nil
+
+	case promptNamedMsg:
+		if msg.err != nil {
+			logging.Debug("name a session from its prompt", "session", msg.id, "error", msg.err)
+		}
+		if m.applyRenames(msg.renamed) {
+			m.rebuildRows()
 			m.poller.requestRefresh()
 		}
 		return m, nil

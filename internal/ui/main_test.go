@@ -42,6 +42,8 @@ func TestMain(m *testing.M) {
 	// asked for. A login /bin/sh sources nothing and never moves, which is
 	// what makes the terminal and editor tests here deterministic.
 	os.Setenv("SHELL", "/bin/sh")
+	// The real namer spends a model call per session; no test may make one.
+	newSessionNamer = func() sessionNamer { return nil }
 	// OLED, the default theme, repaints the terminal's background. Tests that
 	// read those sequences point Out at their own buffer; the rest must not
 	// turn the terminal running go test black.

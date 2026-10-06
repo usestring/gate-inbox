@@ -560,66 +560,32 @@ func TestSpawnAwaitsARenameOnlyWhenItAsksForOne(t *testing.T) {
 	}
 }
 
-func TestSpawnMarksDeferredDirective(t *testing.T) {
+// The board names its sessions from outside them, so no spawn -- auto-named or
+// not, slash prompt or not -- queues a rename request into its pane.
+func TestSpawnQueuesNoRenameDirective(t *testing.T) {
 	m := buildModel(t)
 	dir := t.TempDir()
 
-	if err := m.spawnSession("claude", "claude-aaaa", dir, "", "/compact", true); err != nil {
-		t.Fatalf("slash spawn: %v", err)
+	spawns := []struct {
+		name, prompt string
+		autoNamed    bool
+	}{
+		{"claude-aaaa", "/compact", true},
+		{"claude-bbbb", "do things", true},
+		{"custom", "/compact", false},
 	}
-	m.applyCmd(t, m.refreshCmd())
-	slashID := m.sessionRows()[0].ID
-	if !sessionHasPendingInput(t, m, slashID, launch.DeferredRenameDirective) {
-		t.Fatal("slash-prompt spawn should defer the directive")
-	}
-
-	if err := m.spawnSession("claude", "claude-bbbb", dir, "", "do things", true); err != nil {
-		t.Fatalf("plain spawn: %v", err)
-	}
-	if err := m.spawnSession("claude", "custom", dir, "", "/compact", false); err != nil {
-		t.Fatalf("custom spawn: %v", err)
+	for _, s := range spawns {
+		if err := m.spawnSession("claude", s.name, dir, "", s.prompt, s.autoNamed); err != nil {
+			t.Fatalf("spawn %q: %v", s.name, err)
+		}
 	}
 	m.applyCmd(t, m.refreshCmd())
 	for _, sess := range m.sessionRows() {
-		if sess.ID == slashID {
-			continue
+		for _, input := range sessionPendingInputs(t, m, sess.ID) {
+			if strings.Contains(input, "rename") {
+				t.Fatalf("session %q queued a rename request: %q", sess.Name, input)
+			}
 		}
-		if sessionHasPendingInput(t, m, sess.ID, launch.DeferredRenameDirective) {
-			t.Fatalf("session %q should not defer a directive", sess.Name)
-		}
-	}
-}
-
-func TestDeferredDirectiveSentWhenPaneReady(t *testing.T) {
-	m := buildModel(t)
-	if err := m.spawnSession("ready-tool", "ready-tool-abcd", t.TempDir(), "", "", true); err != nil {
-		t.Fatalf("spawn: %v", err)
-	}
-	m.applyCmd(t, m.refreshCmd())
-	sess := m.sessionRows()[0]
-	// Launch scripts boot the tool immediately, so the first refresh may
-	// already deliver the deferred directive. Either still-pending or
-	// already present in the pane is success; a missing mark before any
-	// send is not possible after spawnSession.
-	deadline := time.Now().Add(5 * time.Second)
-	for sessionHasPendingInput(t, m, sess.ID, launch.DeferredRenameDirective) {
-		if time.Now().After(deadline) {
-			pane, _ := m.tmux.CapturePane(sess.ID)
-			t.Fatalf("directive never sent; pane:\n%s", pane)
-		}
-		time.Sleep(100 * time.Millisecond)
-		m.applyCmd(t, m.refreshCmd())
-	}
-	pane, err := m.tmux.CapturePane(sess.ID)
-	if err != nil {
-		t.Fatalf("capture: %v", err)
-	}
-	// Whitespace is squashed out of both sides: the pane wraps the directive
-	// at its own width, mid-word, so any fragment long enough to identify it
-	// is long enough to straddle a line break.
-	squash := func(s string) string { return strings.Join(strings.Fields(s), "") }
-	if !strings.Contains(squash(pane), squash(`"$GATE_INBOX_BIN" rename "<name>"`)) {
-		t.Fatalf("pane should hold the directive, got:\n%s", pane)
 	}
 }
 
@@ -648,7 +614,7 @@ func TestSendModePromptSurvivesPollerRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(pane, "do the work") || !strings.Contains(pane, "This session is already named") {
+	if !strings.Contains(pane, "do the work") {
 		t.Fatalf("pane did not receive the launch prompt:\n%s", pane)
 	}
 }

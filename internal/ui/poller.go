@@ -1377,19 +1377,14 @@ func (p *poller) maybeSendPendingInputWhenReady(sess store.Session, capture tmux
 	if len(sess.PendingInputs) == 0 {
 		return false, nil
 	}
-	if !sess.PendingInputClaimed && strings.HasPrefix(sess.PendingInputs[0], adoptedRenamePrefix) {
-		if sess.NameSource != store.SourceDerived {
-			claimed, err := p.store.ClaimPendingInput(sess.ID, sess.PendingInputs[0])
-			if err != nil || !claimed {
-				return false, err
-			}
-			return p.store.ConsumeClaimedPendingInput(sess.ID, sess.PendingInputs[0])
+	// A session is named from outside it, so a rename request an older
+	// manager queued is dropped rather than typed into the agent.
+	if !sess.PendingInputClaimed && legacyRenameRequest(sess.PendingInputs[0]) {
+		claimed, err := p.store.ClaimPendingInput(sess.ID, sess.PendingInputs[0])
+		if err != nil || !claimed {
+			return false, err
 		}
-		// Naming is housekeeping: even a tool with type-ahead must finish
-		// its turn before it is asked, and an error is not a resting prompt.
-		if derived != status.Idle && derived != status.Finished {
-			return false, nil
-		}
+		return p.store.ConsumeClaimedPendingInput(sess.ID, sess.PendingInputs[0])
 	}
 	if !sess.PendingInputClaimed && !pendingDeliverable(derived, p.engine.TypeAhead(sess.Tool)) {
 		return false, nil

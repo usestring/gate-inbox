@@ -157,12 +157,9 @@ type Tool struct {
 	// a command in. This names the shortcut where one exists, not whether the
 	// tool can be asked at all.
 	RenameCommand string `toml:"rename_command"`
-	// SkipRenameDirective leaves a launch's first prompt untouched: no rename
-	// directive is prepended to it and none is queued behind it. The session
-	// is named from the outside instead -- the title its own CLI writes, read
-	// by the naming pass -- on demand with r, and silently through the
-	// per-session instructions its launch registers. Unset keeps the old
-	// behaviour, which asks the agent to rename itself as its first act.
+	// SkipRenameDirective is retired and read only so existing config files
+	// still load. No launch asks its agent to rename itself any more: the
+	// board names every session from outside it.
 	SkipRenameDirective bool `toml:"skip_rename_directive"`
 	// TypeAhead says this tool keeps what is typed into its composer mid-turn
 	// and reads it at the next point it can (Claude Code queues it and hands

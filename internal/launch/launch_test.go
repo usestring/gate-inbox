@@ -26,41 +26,18 @@ func TestMain(m *testing.M) {
 	os.Exit(tmuxtest.Run(m.Run))
 }
 
-func TestPromptInjectsDirectiveOnlyForAutoNamedWithPrompt(t *testing.T) {
-	withDirective := Prompt("", "build the api", true, false)
-	if !strings.HasPrefix(withDirective, RenameDirective+"\n\n") || !strings.HasSuffix(withDirective, "build the api") {
-		t.Fatalf("auto-named prompt should carry the directive, got %q", withDirective)
+func TestPromptCarriesNoNamingNote(t *testing.T) {
+	if got := Prompt("", "build the api"); got != "build the api" {
+		t.Fatalf("a prompt without a note should stay clean, got %q", got)
 	}
-	named := Prompt("", "build the api", false, false)
-	if !strings.HasPrefix(named, RenameAvailableNote+"\n\n") || !strings.HasSuffix(named, "build the api") {
-		t.Fatalf("custom-named prompt should note rename is optional later, got %q", named)
+	if got := Prompt(CoordinationNote, "build the api"); got != CoordinationNote+"\n\nbuild the api" {
+		t.Fatalf("the coordination note should lead the prompt, got %q", got)
 	}
-	if strings.Contains(named, "Run rename only this once") || strings.HasPrefix(named, RenameDirective) {
-		t.Fatalf("custom-named prompt must not force a rename, got %q", named)
-	}
-	if got := Prompt("", "", true, false); got != "" {
+	if got := Prompt(CoordinationNote, ""); got != "" {
 		t.Fatalf("promptless session should stay clean, got %q", got)
 	}
-	if got := Prompt("", "/compact keep the api notes", true, false); got != "/compact keep the api notes" {
+	if got := Prompt(CoordinationNote, "/compact keep the api notes"); got != "/compact keep the api notes" {
 		t.Fatalf("slash-command prompt should stay clean, got %q", got)
-	}
-	if got := Prompt("", "/compact keep the api notes", false, false); got != "/compact keep the api notes" {
-		t.Fatalf("named slash-command prompt should stay clean, got %q", got)
-	}
-}
-
-func TestPromptLeavesAnOptedOutLaunchAlone(t *testing.T) {
-	if got := Prompt("", "build the api", true, true); got != "build the api" {
-		t.Fatalf("an opted-out auto-named prompt should stay clean, got %q", got)
-	}
-	if got := Prompt("", "build the api", false, true); got != "build the api" {
-		t.Fatalf("an opted-out named prompt should stay clean, got %q", got)
-	}
-	if got := Prompt(CoordinationNote, "build the api", true, true); got != CoordinationNote+"\n\nbuild the api" {
-		t.Fatalf("an opted-out launch keeps only the coordination note, got %q", got)
-	}
-	if got := Prompt("", "/compact keep the api notes", true, true); got != "/compact keep the api notes" {
-		t.Fatalf("an opted-out slash prompt should stay clean, got %q", got)
 	}
 }
 
@@ -75,7 +52,7 @@ func TestOpencodeOpeningPromptIsTypedInNotPassedAsAFlag(t *testing.T) {
 		t.Fatalf("LoadDir: %v", err)
 	}
 	tool := cfg.Tools["opencode"]
-	plan, err := Assemble("opencode", tool, "build the api", "", false, "", "")
+	plan, err := Assemble("opencode", tool, "build the api", "", "", "")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
@@ -92,12 +69,12 @@ func TestOpencodeOpeningPromptIsTypedInNotPassedAsAFlag(t *testing.T) {
 
 func TestAssembleSkipsEveryDirectiveForOptedOutTools(t *testing.T) {
 	tool := config.Tool{Command: "opencode", PromptFlag: "--prompt", SkipRenameDirective: true}
-	plan, err := Assemble("opencode", tool, "build the api", "", true, "", "")
+	plan, err := Assemble("opencode", tool, "build the api", "", "", "")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
 	if strings.Contains(plan.Command, RenameDirective) || strings.Contains(plan.Command, RenameAvailableNote) {
-		t.Fatalf("an opted-out command carries a directive: %q", plan.Command)
+		t.Fatalf("a command carries a rename directive: %q", plan.Command)
 	}
 	if want := "opencode --prompt 'build the api'"; plan.Command != want {
 		t.Fatalf("command = %q, want %q", plan.Command, want)
@@ -106,7 +83,7 @@ func TestAssembleSkipsEveryDirectiveForOptedOutTools(t *testing.T) {
 		t.Fatalf("an embeddable directive needs no pending input, got %v", plan.PendingInputs)
 	}
 
-	deferred, err := Assemble("opencode", tool, "/compact the notes", "", true, "", "")
+	deferred, err := Assemble("opencode", tool, "/compact the notes", "", "", "")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
@@ -114,7 +91,7 @@ func TestAssembleSkipsEveryDirectiveForOptedOutTools(t *testing.T) {
 		t.Fatalf("a slash-command launch on an opted-out tool should queue nothing, got %v", deferred.PendingInputs)
 	}
 
-	promptless, err := Assemble("opencode", tool, "", "", true, "", "")
+	promptless, err := Assemble("opencode", tool, "", "", "", "")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
@@ -143,20 +120,22 @@ func TestWithPromptComposesPerToolStyle(t *testing.T) {
 
 func TestAssembleRoutesPromptAndDirective(t *testing.T) {
 	flagged := config.Tool{Command: "claude", PromptFlag: "-p", SessionIDFlag: "--session-id"}
-	plan, _ := Assemble("claude", flagged, "build the api", "", true, "", "")
-	if !strings.HasPrefix(plan.Command, "claude -p '"+RenameDirective) {
-		t.Fatalf("auto-named flagged command = %q", plan.Command)
+	plan, _ := Assemble("claude", flagged, "build the api", "", "", "")
+	if !strings.HasPrefix(plan.Command, "claude -p 'build the api'") {
+		t.Fatalf("flagged command = %q", plan.Command)
 	}
 	if plan.AgentSessionID == "" || !strings.Contains(plan.Command, "--session-id "+plan.AgentSessionID) {
 		t.Fatalf("command should carry the chosen session id, got %q", plan.Command)
 	}
 	if len(plan.PendingInputs) != 0 {
-		t.Fatalf("an embeddable directive needs no pending input, got %v", plan.PendingInputs)
+		t.Fatalf("a carried prompt needs no pending input, got %v", plan.PendingInputs)
 	}
 
-	deferred, _ := Assemble("claude", flagged, "/compact the notes", "", true, "", "")
-	if len(deferred.PendingInputs) != 1 || deferred.PendingInputs[0] != DeferredRenameDirective {
-		t.Fatalf("slash-command launch should defer the directive, got %v", deferred.PendingInputs)
+	// Sessions are named from outside, so nothing is queued to ask the
+	// agent for a name either.
+	deferred, _ := Assemble("claude", flagged, "/compact the notes", "", "", "")
+	if len(deferred.PendingInputs) != 0 {
+		t.Fatalf("slash-command launch should queue nothing, got %v", deferred.PendingInputs)
 	}
 	// It lands where the user's own typing goes, so it says whose words it is.
 	if !strings.HasPrefix(DeferredRenameDirective, ManagerBand) ||
@@ -165,7 +144,7 @@ func TestAssembleRoutesPromptAndDirective(t *testing.T) {
 	}
 
 	sent := config.Tool{Command: "hermes", PromptMode: "send"}
-	typed, _ := Assemble("hermes", sent, "build the api", "", false, "", "")
+	typed, _ := Assemble("hermes", sent, "build the api", "", "", "")
 	if typed.Command != "hermes" {
 		t.Fatalf("send-mode command = %q", typed.Command)
 	}
@@ -179,7 +158,7 @@ func TestAssembleRoutesPromptAndDirective(t *testing.T) {
 
 func TestAssembleNotesCoordinationOnlyForToolsWithoutMCP(t *testing.T) {
 	noClient := config.Tool{Command: "pi", PromptFlag: "-p"}
-	carried, _ := Assemble("pi", noClient, "build the api", "", false, "", "")
+	carried, _ := Assemble("pi", noClient, "build the api", "", "", "")
 	if !strings.Contains(carried.Command, CoordinationNote) {
 		t.Fatalf("a tool with no MCP client should be pointed at the subcommands, got %q", carried.Command)
 	}
@@ -193,20 +172,17 @@ func TestAssembleNotesCoordinationOnlyForToolsWithoutMCP(t *testing.T) {
 	}
 
 	withClient := config.Tool{Command: "claude", PromptFlag: "-p"}
-	if plan, _ := Assemble("claude", withClient, "build the api", "", false, "", ""); strings.Contains(plan.Command, CoordinationNote) {
+	if plan, _ := Assemble("claude", withClient, "build the api", "", "", ""); strings.Contains(plan.Command, CoordinationNote) {
 		t.Fatalf("a tool whose MCP tool descriptions say this already must not repeat it, got %q", plan.Command)
 	}
 
-	// A slash command carries neither, so both queue, and the order is what
-	// the agent reads: the directive ends on "Then continue.", and the note
-	// is what it continues into.
-	deferred, _ := Assemble("pi", noClient, "/compact the notes", "", true, "", "")
-	if len(deferred.PendingInputs) != 2 ||
-		deferred.PendingInputs[0] != DeferredRenameDirective || deferred.PendingInputs[1] != ManagerBand+CoordinationNote {
-		t.Fatalf("a launch needing both should queue them in reading order, got %v", deferred.PendingInputs)
+	// A slash command cannot carry the note, so it queues on its own.
+	deferred, _ := Assemble("pi", noClient, "/compact the notes", "", "", "")
+	if len(deferred.PendingInputs) != 1 || deferred.PendingInputs[0] != ManagerBand+CoordinationNote {
+		t.Fatalf("a slash launch should queue only the note, got %v", deferred.PendingInputs)
 	}
 
-	promptless, _ := Assemble("pi", noClient, "", "", false, "", "")
+	promptless, _ := Assemble("pi", noClient, "", "", "", "")
 	if promptless.Command != noClient.Command {
 		t.Fatalf("a promptless launch command should stay clean, got %q", promptless.Command)
 	}
@@ -432,20 +408,21 @@ func TestEnvironmentCarriesARelocatedHomeAndInventsNoDefault(t *testing.T) {
 	}
 }
 
-// TypedPrompt takes back off what Prompt put in front, whichever notes a
-// launch chose, and leaves a bare prompt alone.
+// TypedPrompt takes back off what Prompt put in front, and the rename notes
+// older launches put there, and leaves a bare prompt alone.
 func TestTypedPromptStripsTheNotes(t *testing.T) {
 	for _, decorated := range []string{
-		Prompt("", "ship it", true, false),
-		Prompt("", "ship it", false, false),
-		Prompt(CoordinationNote, "ship it", true, false),
+		RenameDirective + "\n\nship it",
+		RenameAvailableNote + "\n\nship it",
+		CoordinationNote + "\n\n" + RenameDirective + "\n\nship it",
+		Prompt(CoordinationNote, "ship it"),
 		"ship it",
 	} {
 		if got := TypedPrompt(decorated); got != "ship it" {
 			t.Errorf("TypedPrompt(%q) = %q", decorated, got)
 		}
 	}
-	if got := TypedPrompt(Prompt("", "/review", true, false)); got != "/review" {
+	if got := TypedPrompt(Prompt(CoordinationNote, "/review")); got != "/review" {
 		t.Errorf("a slash prompt came back as %q", got)
 	}
 	if got := TypedPrompt(DeferredRenameDirective); got != "" {
@@ -509,7 +486,7 @@ func TestOpencodeV2ModelRidesTheGeneratedConfig(t *testing.T) {
 	if err != nil || revive != "opencode --session 'ses_1'" {
 		t.Fatalf("v2 revive = %q, %v; want no model flag", revive, err)
 	}
-	plan, err := Assemble("opencode", tool, "fix the bug", "", false, "anthropic/claude-sonnet-5", "")
+	plan, err := Assemble("opencode", tool, "fix the bug", "", "anthropic/claude-sonnet-5", "")
 	if err != nil || plan.Model != "anthropic/claude-sonnet-5" || strings.Contains(plan.Command, "--model") {
 		t.Fatalf("v2 plan = %+v, %v; want the model recorded but off the command line", plan, err)
 	}
@@ -564,7 +541,7 @@ func TestAToolWithNoModelFlagRefusesAModel(t *testing.T) {
 	if got, err := WithModel("somecli", tool, tool.Command, ""); err != nil || got != "somecli" {
 		t.Fatalf("got %q, %v; want the bare command", got, err)
 	}
-	if _, err := Assemble("somecli", tool, "do the thing", "", false, "opus", ""); err == nil {
+	if _, err := Assemble("somecli", tool, "do the thing", "", "opus", ""); err == nil {
 		t.Error("Assemble launched a tool that cannot be told which model to use")
 	}
 }
@@ -603,7 +580,7 @@ func TestReviveComesBackOnTheSameModel(t *testing.T) {
 // reads the model back out of.
 func TestAssembleRecordsTheModelItAskedFor(t *testing.T) {
 	tool := config.Tool{Command: "claude", ModelFlag: "--model"}
-	plan, err := Assemble("claude", tool, "fix the bug", "", false, " opus ", "")
+	plan, err := Assemble("claude", tool, "fix the bug", "", " opus ", "")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
@@ -613,7 +590,7 @@ func TestAssembleRecordsTheModelItAskedFor(t *testing.T) {
 	if !strings.Contains(plan.Command, "--model 'opus'") {
 		t.Errorf("command = %q", plan.Command)
 	}
-	plain, err := Assemble("claude", tool, "fix the bug", "", false, "", "")
+	plain, err := Assemble("claude", tool, "fix the bug", "", "", "")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
@@ -836,10 +813,10 @@ func TestEnvironmentExportsTheAccountsToken(t *testing.T) {
 // login the CLI finds for itself: when the tool has nowhere to take a token,
 // when the name is not a name, and when the secret will not resolve.
 func TestAccountRefusesRatherThanLaunchingOnTheDefaultLogin(t *testing.T) {
-	if _, err := Assemble("somecli", config.Tool{Command: "somecli"}, "do the thing", "", false, "", "ALICE1"); err == nil {
+	if _, err := Assemble("somecli", config.Tool{Command: "somecli"}, "do the thing", "", "", "ALICE1"); err == nil {
 		t.Error("Assemble launched a tool that cannot be handed a token")
 	}
-	if _, err := Assemble("claude", accountTool, "fix the bug", "", false, "", "a; rm -rf /"); err == nil {
+	if _, err := Assemble("claude", accountTool, "fix the bug", "", "", "a; rm -rf /"); err == nil {
 		t.Error("Assemble accepted a shell-shaped account name")
 	}
 	manager := hooks.NewManager(t.TempDir())
@@ -881,7 +858,7 @@ func TestAccountForSwitchRefusesWhatCannotBeRelaunched(t *testing.T) {
 // what a later revive reads it back out of; the shipped claude block already
 // knows where the team's tokens live, and no other CLI claims to.
 func TestAssembleRecordsTheAccountAndTheDefaultConfigNamesNoAccounts(t *testing.T) {
-	plan, err := Assemble("claude", accountTool, "fix the bug", "", false, "", " alice1 ")
+	plan, err := Assemble("claude", accountTool, "fix the bug", "", "", " alice1 ")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
@@ -906,17 +883,17 @@ func TestAssembleRecordsTheAccountAndTheDefaultConfigNamesNoAccounts(t *testing.
 // still lands where it was meant to.
 func TestAssembleLeadsWithTheWorkdirDirective(t *testing.T) {
 	tool := config.Tool{Command: "claude", PromptFlag: "--prompt"}
-	plan, err := Assemble("claude", tool, "build the api", "/home/dev/worktrees/wt", true, "", "")
+	plan, err := Assemble("claude", tool, "build the api", "/srv/example/wt", "", "")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
-	if !strings.Contains(plan.LaunchPrompt, "/home/dev/worktrees/wt") {
+	if !strings.Contains(plan.LaunchPrompt, "/srv/example/wt") {
 		t.Fatalf("the launch prompt does not name the working directory: %q", plan.LaunchPrompt)
 	}
 	if !strings.HasPrefix(plan.LaunchPrompt, WorkdirDirectivePrefix) {
 		t.Fatalf("the directive does not lead the prompt: %q", plan.LaunchPrompt)
 	}
-	if !strings.Contains(plan.LaunchPrompt, RenameDirective) || !strings.Contains(plan.LaunchPrompt, "build the api") {
+	if !strings.HasSuffix(plan.LaunchPrompt, "\n\nbuild the api") {
 		t.Fatalf("the directive displaced the rest of the prompt: %q", plan.LaunchPrompt)
 	}
 	// The stored launch prompt carries the manager's own notes, and the prompt
@@ -936,7 +913,7 @@ func TestAssembleLeadsWithTheWorkdirDirective(t *testing.T) {
 // prompt a typed-into tool takes the same way.
 func TestAssembleSendsTheWorkdirDirectiveFirstWhenItCannotRide(t *testing.T) {
 	sent := config.Tool{Command: "hermes", PromptMode: "send"}
-	plan, err := Assemble("hermes", sent, "/compact the notes", "/srv/work", false, "", "")
+	plan, err := Assemble("hermes", sent, "/compact the notes", "/srv/work", "", "")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
@@ -955,7 +932,7 @@ func TestAssembleSendsTheWorkdirDirectiveFirstWhenItCannotRide(t *testing.T) {
 // them, must compose exactly what it composed before.
 func TestAssembleWithoutAWorkdirIsUnchanged(t *testing.T) {
 	tool := config.Tool{Command: "claude", PromptFlag: "--prompt"}
-	plan, err := Assemble("claude", tool, "build the api", "  ", true, "", "")
+	plan, err := Assemble("claude", tool, "build the api", "  ", "", "")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
@@ -974,7 +951,7 @@ func TestADivertedClaudeLaunchIsGrantedItsDirectory(t *testing.T) {
 		t.Fatalf("LoadDir: %v", err)
 	}
 	claude := cfg.Tools["claude"]
-	plan, err := Assemble("claude", claude, "build the api", "/srv/other tree", true, "opus", "")
+	plan, err := Assemble("claude", claude, "build the api", "/srv/other tree", "opus", "")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
@@ -984,7 +961,7 @@ func TestADivertedClaudeLaunchIsGrantedItsDirectory(t *testing.T) {
 	if !strings.HasPrefix(plan.LaunchPrompt, WorkdirDirectivePrefix) {
 		t.Fatalf("the grant replaced the change-directory note: %q", plan.LaunchPrompt)
 	}
-	home, err := Assemble("claude", claude, "build the api", "", true, "opus", "")
+	home, err := Assemble("claude", claude, "build the api", "", "opus", "")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
@@ -998,11 +975,11 @@ func TestADivertedClaudeLaunchIsGrantedItsDirectory(t *testing.T) {
 // change-directory note alone.
 func TestADivertedLaunchWithoutTheFlagKeepsItsCommand(t *testing.T) {
 	tool := config.Tool{Command: "hermes"}
-	plan, err := Assemble("hermes", tool, "build the api", "/srv/work", true, "", "")
+	plan, err := Assemble("hermes", tool, "build the api", "/srv/work", "", "")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
-	plain, err := Assemble("hermes", tool, "build the api", "", true, "", "")
+	plain, err := Assemble("hermes", tool, "build the api", "", "", "")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
@@ -1034,7 +1011,7 @@ func TestAssembleTypesAPromptOpeningWithAPrefixTheCLIWouldParse(t *testing.T) {
 		SkipRenameDirective: true, TypedPromptPrefixes: []string{"@", "-"},
 	}
 	for _, prompt := range []string{"@notes.md is out of date", "- tidy the list"} {
-		plan, err := Assemble("pi", tool, prompt, "", false, "provider/model", "")
+		plan, err := Assemble("pi", tool, prompt, "", "provider/model", "")
 		if err != nil {
 			t.Fatalf("Assemble(%q): %v", prompt, err)
 		}
@@ -1052,7 +1029,7 @@ func TestAssembleTypesAPromptOpeningWithAPrefixTheCLIWouldParse(t *testing.T) {
 		}
 	}
 
-	plain, err := Assemble("pi", tool, "tidy the list", "", false, "", "")
+	plain, err := Assemble("pi", tool, "tidy the list", "", "", "")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
@@ -1081,18 +1058,18 @@ func TestTypesPromptMatchesOnlyAConfiguredOpening(t *testing.T) {
 	}
 }
 
-func TestAssembleCarriesTheDirectiveOverAPastedImagePath(t *testing.T) {
-	flagged := config.Tool{Command: "claude", PromptFlag: "-p"}
+func TestAssembleCarriesTheNoteOverAPastedImagePath(t *testing.T) {
+	flagged := config.Tool{Command: "pi", PromptFlag: "-p"}
 	prompt := "/var/folders/_b/T/gate-inbox-pastes/paste-268.png why is this session working?"
-	plan, err := Assemble("claude", flagged, prompt, "", true, "", "")
+	plan, err := Assemble("pi", flagged, prompt, "", "", "")
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
 	if len(plan.PendingInputs) != 0 {
 		t.Fatalf("a prompt led by an image path is no slash command, got %v", plan.PendingInputs)
 	}
-	if !strings.Contains(plan.Command, RenameDirective) || !strings.Contains(plan.Command, prompt) {
-		t.Fatalf("directive should ride the prompt, got %q", plan.Command)
+	if !strings.Contains(plan.Command, CoordinationNote) || !strings.Contains(plan.Command, prompt) {
+		t.Fatalf("the note should ride the prompt, got %q", plan.Command)
 	}
 	if DirectiveEmbeddable("/compact") || DirectiveEmbeddable("/land-pr now") {
 		t.Fatal("a slash command must still open its own message")

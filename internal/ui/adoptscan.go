@@ -362,8 +362,8 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 		source := store.SourceTitle
 		if !fromTitle {
 			// Without a conversation title, the directory basename is only
-			// a temporary label. The pending request
-			// asks the agent for a name if the title sweep cannot supply one.
+			// a temporary label until the naming pass names the row from
+			// its first prompt.
 			name, source = adoptName(candidate.Cwd, candidate.Session, r.names), store.SourceDerived
 		}
 		sess := store.Session{
@@ -376,9 +376,6 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 			TmuxSocket:     candidate.Socket,
 			TmuxPaneID:     candidate.PaneID,
 			AgentSessionID: entry.conversation,
-		}
-		if !fromTitle {
-			sess.PendingInputs = []string{adoptedRenameInput(r.home, sess.ID)}
 		}
 		if err := r.stor.CreateSession(sess); err != nil {
 			if entry.recovered {
@@ -856,9 +853,13 @@ func adoptName(cwd, session string, taken map[string]bool) string {
 	return candidate
 }
 
+// adoptedRenamePrefix opens the request an adopted row used to be queued,
+// asking its agent to name itself. Rows are named from outside now; the poller
+// drops any such request a row still carries rather than deliver it.
 const adoptedRenamePrefix = launch.ManagerBand + "This adopted session still has a placeholder name. "
 
-func adoptedRenameInput(configDir, id string) string {
-	directive := launch.AdoptedRenameDirective(launch.AdoptedRenameCommand(launch.Executable(), configDir, id))
-	return adoptedRenamePrefix + strings.TrimPrefix(directive, launch.ManagerBand)
+// legacyRenameRequest reports whether a pending input is a rename request an
+// older manager queued, which is never delivered.
+func legacyRenameRequest(input string) bool {
+	return strings.HasPrefix(input, adoptedRenamePrefix) || input == launch.DeferredRenameDirective
 }

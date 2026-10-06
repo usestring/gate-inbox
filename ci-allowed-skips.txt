@@ -43,11 +43,6 @@ internal/ui TestLiveSmartRenameOnARealPane  # needs GATE_INBOX_LIVE_SMART=1
 # Needs a real agent CLI to scroll its own viewport off the live bottom.
 internal/ui TestLiveScrolledPaneKeepsItsStatus  # needs GATE_INBOX_LIVE_SCROLL=1
 
-# Quarantined, not gated: it races the pane's first prompt and fails about
-# four runs in five on main. The comment above it says why no wait fixes it.
-# This is a real coverage gap, not an environment one.
-internal/ui TestPendingInputWaitsForTheLaunchPrompt
-
 # These wait on something a loaded machine may not produce in time -- a tmux
 # control client attaching, a pane accumulating scrollback -- and skip rather
 # than fail when it does not. Conditional, so they are not required to skip;

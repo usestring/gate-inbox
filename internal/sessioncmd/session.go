@@ -665,6 +665,11 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		SpawnedBy: caller.ID,
 		Model:     strings.TrimSpace(opts.Model),
 	}
+	// A placeholder is the manager's own, so the board's naming pass replaces
+	// it from the session's first prompt.
+	if autoNamed {
+		sess.NameSource = store.SourceDerived
+	}
 	// Shaped and then put to the policies before an account is chosen or a
 	// file written, so a refusal costs nothing to undo, and a policy is
 	// asked about the session that will actually launch.
@@ -705,7 +710,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if launchDir != dir {
 		workdir = dir
 	}
-	plan, err := launch.Assemble(toolName, tool, prompt, workdir, autoNamed, opts.Model, account)
+	plan, err := launch.Assemble(toolName, tool, prompt, workdir, opts.Model, account)
 	if err != nil {
 		return Session{}, err
 	}

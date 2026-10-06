@@ -113,7 +113,7 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	if err != nil {
 		return Session{}, err
 	}
-	plan, err := launch.Assemble(toolName, tool, prompt, "", false, source.Model, account)
+	plan, err := launch.Assemble(toolName, tool, prompt, "", source.Model, account)
 	if err != nil {
 		return Session{}, err
 	}

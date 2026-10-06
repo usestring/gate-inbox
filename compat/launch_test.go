@@ -129,7 +129,7 @@ func describePlan(t *testing.T, s *scratch, manager *hooks.Manager, name string,
 	t.Helper()
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n== %s\n", label)
-	plan, err := launch.Assemble(name, tool, launchPrompt, workdir, autoNamed, model, account)
+	plan, err := launch.Assemble(name, tool, launchPrompt, workdir, model, account)
 	if err != nil {
 		fmt.Fprintf(&b, "refused: %v\n", err)
 		return b.String()

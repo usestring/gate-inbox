@@ -814,12 +814,17 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 	// The extensions hear of it before the board focuses the new pane, so
 	// one that opens a view of its own on the session gets there first,
 	// and the board leaves the operator in that view instead.
+	var naming tea.Cmd
+	if autoNamed {
+		naming = m.nameLaunch(id, launch.TypedPrompt(prompt))
+	}
 	if m.formSpawned(id, values) {
 		m.rebuildRows()
 		m.focusSession(id)
-		return m, m.refreshCmd()
+		return m, tea.Batch(m.refreshCmd(), naming)
 	}
-	return m.landInNewSession(id)
+	model, cmd := m.landInNewSession(id)
+	return model, tea.Batch(cmd, naming)
 }
 
 // formSpawned tells the extensions that id was spawned from the form with
@@ -858,8 +863,7 @@ func (m *Model) noteExtensionViewOpened() { m.extensionViews++ }
 
 // spawnSession creates the tmux session and its store record for both
 // the New Session form and quick spawn. autoNamed marks sessions whose
-// name is a generated placeholder; those are asked to rename once.
-// Custom-named sessions only get a short note that rename is available later.
+// name is a generated placeholder, which the board replaces from outside.
 func (m *Model) spawnSession(toolName, name, dir, group, prompt string, autoNamed bool) error {
 	_, err := m.spawnSessionAs(toolName, "", name, dir, group, prompt, autoNamed, store.SourceUser)
 	return err
@@ -882,11 +886,15 @@ func (m *Model) spawnSessionAs(toolName, model, name, dir, group, prompt string,
 func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt string, autoNamed bool, nameSource string, form map[string]string) (string, error) {
 	tool := m.cfg.Tools[toolName]
 	id := newID()
+	// A placeholder is the manager's own, so the naming pass may replace it.
+	if autoNamed {
+		nameSource = store.SourceDerived
+	}
 	account, err := accounts.Select(m.store, tool, "", accounts.Request{SessionID: id, ToolName: toolName, Reason: extension.LaunchSpawn})
 	if err != nil {
 		return "", err
 	}
-	plan, err := launch.Assemble(toolName, tool, prompt, "", autoNamed, model, account)
+	plan, err := launch.Assemble(toolName, tool, prompt, "", model, account)
 	if err != nil {
 		return "", err
 	}
@@ -911,8 +919,8 @@ func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt strin
 	// The CLI is remembered once the launch has actually happened, so a
 	// spawn that failed does not move the box the next one opens on.
 	m.rememberTool(toolName)
-	// The directive went out with the launch, so the row waits for the name
-	// the agent picks instead of showing the one generated for it.
+	// The row waits for the name picked from its prompt instead of showing
+	// the one generated for it.
 	if autoNamed {
 		if m.awaitedRenames == nil {
 			m.awaitedRenames = map[string]awaitedRename{}

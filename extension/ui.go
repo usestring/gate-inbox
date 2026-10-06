@@ -34,6 +34,13 @@ type UI struct {
 	// Aliases carry the operator's stored choices over from the names they
 	// were kept under before this extension took them over.
 	Aliases Aliases
+	// OpenHeader, when set, makes this extension's headers rows of their
+	// own (see UIHost.Group): the cursor lands on one, and the board's open
+	// key there calls OpenHeader with the session it heads instead of
+	// opening that session. Every other key on the row still acts on the
+	// session. It is called off the event loop, and an error it returns is
+	// put on the status bar.
+	OpenHeader func(ctx context.Context, press Press) error
 }
 
 // Aliases are old names for this extension's filters and actions. Where an
@@ -154,7 +161,9 @@ type UIHost interface {
 	// Group replaces this extension's header over a session's row: one line
 	// drawn above the row, at its depth in the tree, that says what the row
 	// belongs to. It is part of the row's entry rather than a row of its
-	// own, so a key pressed there is pressed on the session. Called with an
+	// own, so a key pressed there is pressed on the session -- unless the
+	// extension's UI sets OpenHeader, which makes it a row the cursor
+	// lands on and opens. Called with an
 	// empty line, it clears the header. Headers from several extensions
 	// stack in build order. Like Decorate, Group, Hide and Own may be called
 	// from any goroutine and never block on the board.

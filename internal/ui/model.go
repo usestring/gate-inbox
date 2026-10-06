@@ -93,14 +93,20 @@ type treeRow struct {
 	// that reaches an artifact row and acts on sess acts on the session that
 	// opened the artifact, which is the only session the row has ever meant.
 	art *workRow
+	// head is the extension whose header this row is, drawn over sess: see
+	// headrows.go.
+	head string
 }
 
 // isArtifact marks a row that draws a pull request or a ticket.
 func (e treeRow) isArtifact() bool { return e.art != nil }
 
+// isHead marks a row that is an extension's header over a session.
+func (e treeRow) isHead() bool { return e.head != "" }
+
 // isSession marks a row that is a session itself, as against the group above
-// it or the work hanging off it.
-func (e treeRow) isSession() bool { return !e.isGroup && e.art == nil }
+// it, the header over it or the work hanging off it.
+func (e treeRow) isSession() bool { return !e.isGroup && e.art == nil && e.head == "" }
 
 type Model struct {
 	cfg    config.Config
@@ -146,7 +152,7 @@ type Model struct {
 	extBadges map[string][]Badge
 	// extHeaders, extHidden, extOwned and extFilters are the rows' headers,
 	// the hidden and owned rows, and the list filters: see extrows.go.
-	extHeaders map[string][][]Span
+	extHeaders map[string][]extHeader
 	extHidden  map[string]bool
 	extOwned   map[string]bool
 	extFilters []*listFilter
@@ -1625,6 +1631,11 @@ func (m *Model) selectedIndex() (int, bool) {
 		return 0, false
 	}
 	index := m.cursor
+	// A header row heads the session drawn just below it, past any other
+	// extension's header over the same session.
+	for index < len(m.rows)-1 && m.rows[index].isHead() {
+		index++
+	}
 	for index > 0 && m.rows[index].isArtifact() {
 		index--
 	}
@@ -2879,6 +2890,8 @@ func rowKey(entry treeRow) string {
 		return "g:" + entry.group
 	case entry.isArtifact():
 		return "a:" + entry.sess.ID + ":" + entry.art.kind + ":" + entry.art.label
+	case entry.isHead():
+		return "h:" + entry.head + ":" + entry.sess.ID
 	}
 	return "s:" + entry.sess.ID
 }
@@ -3111,6 +3124,7 @@ func (m *Model) buildTree() {
 		if extHides(sess) {
 			return
 		}
+		rows = append(rows, m.headRows(sess, depth)...)
 		rows = append(rows, treeRow{sess: sess, depth: depth})
 		rows = append(rows, m.artifactRows(sess, depth+1)...)
 		appendChildren(sess, depth, map[string]bool{sess.ID: true})
@@ -3149,6 +3163,7 @@ func (m *Model) buildTree() {
 				continue
 			}
 			drawn[child.ID] = true
+			rows = append(rows, m.headRows(child, childDepth)...)
 			rows = append(rows, treeRow{sess: child, depth: childDepth})
 			rows = append(rows, m.artifactRows(child, childDepth+1)...)
 			appendChildren(child, childDepth, drawn)

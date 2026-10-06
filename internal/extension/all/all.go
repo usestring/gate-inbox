@@ -11,6 +11,7 @@ package all
 import (
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/artifacts"
+	"github.com/usestring/gate-inbox/extension/communications"
 )
 
 // Extensions returns every extension, in the order their tools should be
@@ -19,5 +20,6 @@ import (
 func Extensions() []extension.Extension {
 	return []extension.Extension{
 		artifacts.New(),
+		communications.New(),
 	}
 }

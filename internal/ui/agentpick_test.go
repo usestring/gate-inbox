@@ -1025,3 +1025,41 @@ func TestAgentBoxIgnoresQuotaFromEarlierOpening(t *testing.T) {
 		})
 	}
 }
+
+// The box opens on the last CLI used, then moves to auto's pick when the
+// chooser answers, so n then enter starts what auto would.
+func TestAgentBoxMovesToTheRecommendedCLI(t *testing.T) {
+	m := buildModel(t)
+	fake := quotaChooserFake{toolChooserFake: toolChooserFake{choose: func(extension.ToolRequest) (string, error) { return "ready-tool", nil }}}
+	t.Cleanup(accounts.UseChooser(func() (extension.AccountChooser, error) { return fake, nil }))
+	m.openAgentPick()
+	if got := m.agentPickName(); got == "ready-tool" {
+		t.Fatal("test needs the box to open on another CLI")
+	}
+	m.update(m.agentPickQuotaCmd()())
+	if got := m.agentPickName(); got != "ready-tool" {
+		t.Fatalf("selection = %q, want the recommended CLI", got)
+	}
+	if got := m.agentPick.input.Value(); got != "ready-tool" {
+		t.Fatalf("box shows %q, want the recommended CLI", got)
+	}
+}
+
+// A recommendation that lands after the operator has started choosing leaves
+// their choice alone.
+func TestAgentBoxKeepsTheOperatorsChoiceOverALateRecommendation(t *testing.T) {
+	m := buildModel(t)
+	fake := quotaChooserFake{toolChooserFake: toolChooserFake{choose: func(extension.ToolRequest) (string, error) { return "ready-tool", nil }}}
+	t.Cleanup(accounts.UseChooser(func() (extension.AccountChooser, error) { return fake, nil }))
+	m.openAgentPick()
+	cmd := m.agentPickQuotaCmd()
+	m.handleAgentPickKey(tea.KeyPressMsg{Code: tea.KeyTab})
+	chosen := m.agentPickName()
+	m.update(cmd())
+	if got := m.agentPickName(); got != chosen {
+		t.Fatalf("selection = %q, want the operator's %q", got, chosen)
+	}
+	if m.agentPick.recommended != "ready-tool" {
+		t.Fatalf("recommendation = %q, still want it marked", m.agentPick.recommended)
+	}
+}

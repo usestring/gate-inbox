@@ -356,7 +356,7 @@ func NewServer(configDir, sessionID, version string, extensions []extension.Exte
 	sessions := sessioncmd.NewSessions(configDir, words)
 	registry, notes := configureExtensions(configDir, extensions)
 	server := buildServer(configDir, sessionID, version, sessioncmd.NewTerminals(configDir, words), sessions,
-		withExtensionNotes(withSteering(serverInstructions, steering), notes))
+		withExtensionNotes(withSteering(serverInstructions, steering, namingAsks(configDir)), notes))
 	registerExtensions(server, registry, extension.SessionContext{
 		SessionID: sessionID,
 		Host:      extensionhost.New(configDir, sessionID, sessions),
@@ -396,10 +396,21 @@ func configureExtensions(configDir string, extensions []extension.Extension) (*e
 	return registry, report.Notes()
 }
 
+// namingAsks is whether launches may ask a live agent to name itself. A
+// config that cannot be read keeps asking: failing open preserves the
+// behaviour every session already runs on.
+func namingAsks(configDir string) bool {
+	cfg, err := config.LoadDir(configDir)
+	if err != nil {
+		return true
+	}
+	return cfg.Naming.Asks()
+}
+
 // withSteering is instructions with the launch steering for style's CLI
 // appended, or instructions alone for a style that carries its own.
-func withSteering(instructions, style string) string {
-	text, ok := mcpreg.ServerSteering(style)
+func withSteering(instructions, style string, askRename bool) string {
+	text, ok := mcpreg.ServerSteering(style, askRename)
 	if !ok {
 		return instructions
 	}

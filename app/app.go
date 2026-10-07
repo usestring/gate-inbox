@@ -362,7 +362,7 @@ func mcpSteering(args []string) (string, error) {
 	if *steering == "" {
 		return "", nil
 	}
-	if _, ok := mcpreg.ServerSteering(*steering); !ok {
+	if _, ok := mcpreg.ServerSteering(*steering, true); !ok {
 		return "", fmt.Errorf("mcp: %s %q is not a CLI this build steers", mcpreg.SteeringFlag, *steering)
 	}
 	return *steering, nil

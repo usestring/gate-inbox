@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/usestring/gate-inbox/internal/adopt"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
@@ -81,6 +82,7 @@ func (m *Model) adoptScan() tea.Cmd {
 		hooks:    m.hooks,
 		driver:   m.tmux,
 		home:     filepath.Dir(m.hooks.Dir()),
+		naming:   m.cfg.Naming,
 		rejected: map[string]int{},
 		// The operator's own answers: panes they left off the board, and
 		// whether outside panes are wanted at all. Orphaned sessions of
@@ -251,13 +253,17 @@ type adoptRun struct {
 	agentTools map[string]bool
 	// names is every name the board is using, so a new row cannot collide
 	// with one.
-	names    map[string]bool
-	index    *convo.Index
-	drift    *sessname.Drift
-	stor     *store.Store
-	hooks    *hooks.Manager
-	driver   *tmux.Driver
-	home     string
+	names  map[string]bool
+	index  *convo.Index
+	drift  *sessname.Drift
+	stor   *store.Store
+	hooks  *hooks.Manager
+	driver *tmux.Driver
+	home   string
+	// naming is the board's naming policy: without ask, an adopted pane
+	// with no title keeps a quiet placeholder instead of a pending rename
+	// request typed into its live session.
+	naming   config.Naming
 	rejected map[string]int
 	// ignored is the panes the operator left off the board, by
 	// paneDecisionKey. skipForeign refuses every pane the manager did not
@@ -377,7 +383,7 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 			TmuxPaneID:     candidate.PaneID,
 			AgentSessionID: entry.conversation,
 		}
-		if !fromTitle {
+		if !fromTitle && r.naming.Asks() {
 			sess.PendingInputs = []string{adoptedRenameInput(r.home, sess.ID)}
 		}
 		if err := r.stor.CreateSession(sess); err != nil {

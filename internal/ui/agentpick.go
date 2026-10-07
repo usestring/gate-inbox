@@ -13,6 +13,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -572,4 +573,42 @@ func (m *Model) openPinnedTerminal() (tea.Model, tea.Cmd) {
 		row.sess = sess
 	}
 	return m.openTerminalAt(row, true)
+}
+
+// newSessionFromAnywhere lets the list's new-session key start a session
+// from inside any box: the box closes the way esc closes it, then the key does
+// what it does on the screen underneath, the form on the list and the CLI box
+// in a focused session. The form and the CLI box are already starting one,
+// and a key-map capture is waiting for exactly this key to bind it.
+func (m *Model) newSessionFromAnywhere(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	if action, bound := m.action(keymap.ContextList, msg); !bound || action != keymap.NewSessionForm {
+		return nil, nil, false
+	}
+	if !m.inBox() || m.mode == modeForm || m.mode == modeAgentPick ||
+		(m.mode == modeHelp && (m.help.capturing || m.help.clash != nil)) {
+		return nil, nil, false
+	}
+	// A box can sit on another (a search inside help), so esc is pressed
+	// until the screen underneath shows, and a box esc cannot close keeps
+	// the key rather than letting it type into the box.
+	var cmds []tea.Cmd
+	for range 4 {
+		if !m.inBox() {
+			break
+		}
+		_, cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+		cmds = append(cmds, cmd)
+	}
+	if !m.inBox() {
+		_, cmd := m.handleKey(msg)
+		cmds = append(cmds, cmd)
+	}
+	return m, tea.Batch(cmds...), true
+}
+
+// inBox reports whether something is drawn over the list or the focused
+// session and owns the keyboard.
+func (m *Model) inBox() bool {
+	return (m.mode != modeList && m.mode != modeFocus) ||
+		m.searching || m.quick.active || m.legendPeek.visible
 }

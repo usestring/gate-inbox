@@ -269,8 +269,9 @@ func settingsContent(keyDir string) ([]byte, error) {
 	content := settingsFile{Hooks: map[string][]hookMatcher{
 		"UserPromptSubmit": append(report("UserPromptSubmit", "", status.Working),
 			run("", promptSubmitCommand())...),
-		"PreToolUse": append(run("*", preToolUseCommand()),
+		"PreToolUse": append(append(run("*", preToolUseCommand()),
 			run(blockingTool, askPendingCommand())...),
+			run(SlackSendTool, slackFooterCommand())...),
 		"PostToolUse": append(report("PostToolUse", "*", status.Working),
 			append(run(blockingTool, askAnsweredCommand()), run("*", attestNoteCommand())...)...),
 		"Notification": report("Notification", blockingNotifications, status.Waiting),

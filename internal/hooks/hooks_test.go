@@ -91,11 +91,13 @@ func TestEnsureSettingsWritesValidHookJSON(t *testing.T) {
 	// apart from ordinary work. Two status writers under one event would run
 	// in parallel and race on the file, and matchers cannot exclude a tool, so
 	// the single "*" entry has to be the branching one. The ask-pending hook
-	// beside it writes a file of its own, so it races on nothing.
+	// beside it writes a file of its own, so it races on nothing. The Slack
+	// footer hook writes no file either; it only rewrites a Slack post.
 	pre := parsed.Hooks["PreToolUse"]
-	if len(pre) != 2 || pre[0].Hooks[0].Command != preToolUseCommand() ||
-		pre[1].Matcher != blockingTool || pre[1].Hooks[0].Command != askPendingCommand() {
-		t.Fatalf("PreToolUse = %+v, want the tool-aware status command, then ask-pending on AskUserQuestion", pre)
+	if len(pre) != 3 || pre[0].Hooks[0].Command != preToolUseCommand() ||
+		pre[1].Matcher != blockingTool || pre[1].Hooks[0].Command != askPendingCommand() ||
+		pre[2].Matcher != SlackSendTool || pre[2].Hooks[0].Command != slackFooterCommand() {
+		t.Fatalf("PreToolUse = %+v, want the tool-aware status command, ask-pending on AskUserQuestion, then the Slack footer", pre)
 	}
 	if strings.Contains(askPendingCommand(), statusFileVar+`[ -z "$f" ] || `+"printf") {
 		t.Fatal("the ask-pending hook writes the status file")

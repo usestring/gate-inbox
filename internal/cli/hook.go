@@ -61,6 +61,14 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 		if note != "" {
 			fmt.Fprintln(out, note)
 		}
+	case "slack-footer":
+		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
+		if err != nil {
+			return nil
+		}
+		if output := hooks.SlackFooterInput(payload); output != "" {
+			fmt.Fprintln(out, output)
+		}
 	case "attest-note":
 		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
 		if err != nil {

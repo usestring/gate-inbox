@@ -39,6 +39,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	if model, cmd, ok := m.newSessionFromAnywhere(msg); ok {
+		return model, cmd
+	}
+
 	switch m.mode {
 	case modeForm:
 		return m.handleFormKey(msg)

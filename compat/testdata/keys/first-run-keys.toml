@@ -91,7 +91,7 @@
 # archive             = ["ctrl+x"]  # kill it, asking first
 # help                = ["ctrl+h"]  # this key map
 # quick_prompt        = ["ctrl+]"]  # hotkey menu: send a snippet without leaving the session
-# new_session         = ["alt+n"]  # new session in this one's group
+# new_session         = ["alt+n", "ctrl+n"]  # new session in this one's group
 # copy_session_id     = ["alt+y"]  # copy the agent's session id
 # last_pane           = ["alt+l"]  # back to the previous pane; again walks further back
 # jump_pane           = ["ctrl+g"]  # find a pane by name and focus it

@@ -237,7 +237,7 @@ var Catalog = []Binding{
 	// Session controls reached from inside the pane: a drain that had to leave
 	// the queue to spawn, copy an id or step back was not one queue. See the
 	// ui package's focusactions.go.
-	{ContextFocus, NewSession, []string{"alt+n"}, "new session in this one's group", false},
+	{ContextFocus, NewSession, []string{"alt+n", "ctrl+n"}, "new session in this one's group", false},
 	{ContextFocus, CopySessionID, []string{"alt+y"}, "copy the agent's session id", false},
 	{ContextFocus, LastPane, []string{"alt+l"}, "back to the previous pane; again walks further back", false},
 	{ContextFocus, JumpPane, []string{"ctrl+g"}, "find a pane by name and focus it", false},

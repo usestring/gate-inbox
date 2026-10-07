@@ -32,9 +32,18 @@ theme="oled"
 # already matches it. Empty takes the theme's.
 terminal_bg=""
 # Which canned transcript each seeded tool plays, in the order the tools are
-# found. The default set draws one row per resting state; a scenario about a
-# particular pane shape names its own transcript for the row it looks at.
-transcripts=(waiting working finished)
+# found. A scenario about a particular pane shape names its own transcript for
+# the row it looks at. Without one, each tool plays a transcript in its own
+# pane shape: the board reads a pane with that tool's rules, so a claude-shaped
+# transcript in a codex or opencode pane reads as idle whatever it shows.
+transcripts=()
+default_transcript() {
+  case "$1" in
+    claude) printf 'waiting' ;;
+    codex) printf 'codex-working' ;;
+    opencode) printf 'opencode-finished' ;;
+  esac
+}
 # Panes the manager did not start: each --foreign opens a window on the
 # board's own tmux server, before the board comes up, running the demo agent
 # on the named transcript. The adoption scan takes it, which is how a
@@ -156,8 +165,13 @@ done
   # launched on a named account reads that account's token, and a capture
   # must reach no real secret store and put no real token in its work dir.
   for i in "${!tools[@]}"; do
+    if [[ ${#transcripts[@]} -gt 0 ]]; then
+      transcript="${transcripts[$i % ${#transcripts[@]}]}"
+    else
+      transcript="$(default_transcript "${tools[$i]}")"
+    fi
     printf '\n[tools.%s]\ncommand = "%s/demo-agent.sh %s"\nresume_by_id_command = "%s/demo-agent.sh {id}"\nrevive_command = "%s/demo-agent.sh %s"\n' \
-      "${tools[$i]}" "$here" "${transcripts[$i % ${#transcripts[@]}]}" "$here" "$here" "${transcripts[$i % ${#transcripts[@]}]}"
+      "${tools[$i]}" "$here" "$transcript" "$here" "$here" "$transcript"
     printf 'account_command = "echo demo-token"\naccounts_command = "printf '"'"'%%s\\\\n'"'"' CLAUDE_OAUTH_TOKEN_ALICE1 CLAUDE_OAUTH_TOKEN_BOB2"\n'
   done
   # A scenario's own settings go last, so a run can shorten a window the

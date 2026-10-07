@@ -160,6 +160,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if model, cmd, answered := m.artifactRowAction(action, bound); answered {
 		return model, cmd
 	}
+	// A header row opens what its extension says it heads; every other key
+	// on it acts on the session below. See headrows.go.
+	if model, cmd, answered := m.headRowAction(action, bound); answered {
+		return model, cmd
+	}
 
 	// A snippet's direct chord sends it in one press. A chord either screen's
 	// map binds belongs to the manager (see snippetChordFor), so a snippet
@@ -592,7 +597,7 @@ func (m *Model) visibleReorderTarget(entry treeRow, delta int) (treeRow, bool) {
 		// An artifact is not a sibling of anything, and it carries the very
 		// session the scan started from: left in, it would offer that session
 		// itself as its own swap target.
-		if candidate.isArtifact() {
+		if candidate.isArtifact() || candidate.isHead() {
 			continue
 		}
 		if candidate.isRoot() {

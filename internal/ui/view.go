@@ -687,7 +687,7 @@ func (m *Model) defaultRowLegend() legendSection {
 	if !ok {
 		return legendSection{}
 	}
-	if row.isArtifact() {
+	if row.isArtifact() || row.isHead() {
 		return m.rowLegend()
 	}
 	openKey := m.tightCap(keymap.ContextList, keymap.Open)
@@ -793,6 +793,14 @@ func (m *Model) rowLegend() legendSection {
 	row, ok := m.cursorRow()
 	if !ok {
 		return legendSection{}
+	}
+	if row.isHead() {
+		// The header opens what its extension says it heads; every other
+		// key on it is the session's, which the session's own row lists.
+		return legendSection{title: "Header", pairs: [][2]string{
+			{m.tightCap(keymap.ContextList, keymap.Open), "open"},
+			{m.navCap(keymap.ContextList), "navigate"},
+		}}
 	}
 	if row.isArtifact() {
 		title := "Pull request"

@@ -648,7 +648,7 @@ func (m *Model) entryHeight(entry treeRow) int {
 	// An artifact has no second line to unstack: its state already rides
 	// beside it, and a blank line under every pull request would cost the
 	// rail more rows than the work it is showing.
-	if entry.isArtifact() {
+	if entry.isArtifact() || entry.isHead() {
 		return 1
 	}
 	if m.stackedRows() {
@@ -894,6 +894,9 @@ func (m *Model) renderTreeRowContent(entry treeRow, selected bool, width, index 
 
 	if entry.isArtifact() {
 		return m.renderArtifactEntry(entry, selected, width, pad, guides, bg)
+	}
+	if entry.isHead() {
+		return m.renderHeadEntry(entry, selected, width, index, pad, bg)
 	}
 	if entry.isGroup {
 		return m.renderGroupEntry(entry, selected, width, pad, guides, trail, bg)

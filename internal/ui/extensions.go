@@ -34,6 +34,10 @@ type ExtensionUI struct {
 	Owner   string
 	Keys    []ExtensionKey
 	Filters []ExtensionFilter
+	// OpenHeader, when set, makes the owner's headers rows of their own:
+	// see headrows.go. It is called off the event loop with the session the
+	// header is over.
+	OpenHeader func(Press) error
 }
 
 // ExtensionKey is one action an extension adds to a screen.
@@ -214,7 +218,7 @@ func (b *ExtensionBridge) Notify(owner, text string) {
 // owners in build order.
 type rowMarks struct {
 	badges  map[string][]Badge
-	headers map[string][][]Span
+	headers map[string][]extHeader
 	hidden  map[string]bool
 	owned   map[string]bool
 	// attention is every owner's claims merged: see Attention.merge.
@@ -228,7 +232,7 @@ func (b *ExtensionBridge) snapshot() rowMarks {
 	b.pending, b.dirty = false, false
 	out := rowMarks{
 		badges:    map[string][]Badge{},
-		headers:   map[string][][]Span{},
+		headers:   map[string][]extHeader{},
 		hidden:    map[string]bool{},
 		owned:     map[string]bool{},
 		attention: map[string]Attention{},
@@ -238,7 +242,7 @@ func (b *ExtensionBridge) snapshot() rowMarks {
 			out.badges[sessionID] = append(out.badges[sessionID], badges...)
 		}
 		for sessionID, header := range b.headers[owner] {
-			out.headers[sessionID] = append(out.headers[sessionID], header)
+			out.headers[sessionID] = append(out.headers[sessionID], extHeader{owner: owner, spans: header})
 		}
 		for sessionID := range b.hidden[owner] {
 			out.hidden[sessionID] = true
@@ -341,7 +345,7 @@ func (m *Model) InstallExtensions(uis []ExtensionUI, bridge *ExtensionBridge) {
 	m.extUIs = nil
 	m.extFilters = nil
 	for _, ui := range uis {
-		kept := ExtensionUI{Owner: ui.Owner}
+		kept := ExtensionUI{Owner: ui.Owner, OpenHeader: ui.OpenHeader}
 		keys := append([]ExtensionKey(nil), ui.Keys...)
 		for _, filter := range ui.Filters {
 			listed := m.newListFilter(ui.Owner, filter)
@@ -474,7 +478,12 @@ func (m *Model) runExtensionKey(ext extensionKey) tea.Cmd {
 		return m.toggleListFilter(ext.key.filter)
 	}
 	var press Press
-	if entry, ok := m.cursorRow(); ok {
+	entry, ok := m.cursorRow()
+	if ok && entry.isHead() {
+		// A key on a header row is pressed on the session it heads.
+		entry, ok = m.selectedRow()
+	}
+	if ok {
 		if entry.isGroup {
 			press.Group = entry.group
 		} else if entry.isSession() {

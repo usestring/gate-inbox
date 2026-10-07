@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -200,6 +201,12 @@ func (m *Model) finishAgentPickQuota(msg agentPickQuotaMsg) {
 		return
 	}
 	m.agentPick.quotas, m.agentPick.recommended = msg.quotas, msg.recommended
+	// The box opened on the last CLI used only because the chooser had not
+	// answered yet. Until the operator presses a key, auto's pick replaces
+	// it, so n then enter starts what auto would.
+	if !m.agentPick.touched && slices.Contains(m.agentPick.names, msg.recommended) {
+		m.setAgentPick(msg.recommended)
+	}
 }
 
 // activeByTool counts the sessions each CLI already has in flight, which a
@@ -326,6 +333,9 @@ type agentPick struct {
 	// against fresh text replaces the whole of it, which is what makes a
 	// prefilled box overridable without a backspace per character.
 	fresh bool
+	// touched marks a box the operator has pressed a key in, after which a
+	// late recommendation no longer moves the selection.
+	touched bool
 	// group and row pin the launch to what an auto choice captured when n was
 	// pressed, so a fallback picker does not follow a cursor moved meanwhile.
 	group       string
@@ -484,6 +494,9 @@ func (m *Model) handleAgentPickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.submitAgentPick()
+	}
+	m.agentPick.touched = true
+	switch msg.String() {
 	case "tab", "down", "right":
 		m.cycleAgentPick(1)
 		return m, nil

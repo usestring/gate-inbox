@@ -25,7 +25,6 @@ func headModel(t *testing.T) (*Model, *ExtensionBridge, *[]Press, *[]Press) {
 	return m, bridge, &opened, &pressed
 }
 
-
 func headIndex(t *testing.T, m *Model, owner, sessionID string) int {
 	t.Helper()
 	for i, row := range m.rows {

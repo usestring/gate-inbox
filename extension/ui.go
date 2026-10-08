@@ -41,6 +41,26 @@ type UI struct {
 	// session. It is called off the event loop, and an error it returns is
 	// put on the status bar.
 	OpenHeader func(ctx context.Context, press Press) error
+	// HeaderPane, when set, makes this extension's headers rows of their
+	// own the way OpenHeader does, and gives each a page the board draws
+	// where a session's pane is drawn: the cursor arriving on the header
+	// shows it, the keys that focus a session focus it, and the keys that
+	// leave a focused session leave it. It takes the place of OpenHeader.
+	HeaderPane *HeaderPane
+}
+
+// HeaderPane is the page behind an extension's header rows.
+type HeaderPane struct {
+	// Screen is the screen the page's keys resolve on, one this extension
+	// declares keys for. Its close action leaves the page for the list.
+	Screen string
+	// View is the page for the session a header is over. It is called on
+	// the board's event loop the first time the cursor lands on that
+	// header, and must return promptly: the page loads off the loop and
+	// calls Refresh on handle. The board keeps the page while the header
+	// stands, so it is called once per header, not once per visit. Close
+	// on handle hands the keyboard back to the list.
+	View func(press Press, handle ViewHandle) View
 }
 
 // Aliases are old names for this extension's filters and actions. Where an

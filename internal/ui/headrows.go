@@ -37,11 +37,17 @@ func (m *Model) headOpener(owner string) func(Press) error {
 	return nil
 }
 
+// headsRows is whether the owner's headers are rows: it opens them, or has
+// a page behind them.
+func (m *Model) headsRows(owner string) bool {
+	return m.headOpener(owner) != nil || m.headPaneOf(owner) != nil
+}
+
 // headRows are the header rows over a session, owners in build order.
 func (m *Model) headRows(sess store.Session, depth int) []treeRow {
 	var rows []treeRow
 	for _, header := range m.extHeaders[sess.ID] {
-		if m.headOpener(header.owner) != nil {
+		if m.headsRows(header.owner) {
 			rows = append(rows, treeRow{sess: sess, depth: depth, head: header.owner})
 		}
 	}
@@ -55,7 +61,7 @@ func (m *Model) headKeys(headers map[string][]extHeader) map[string]bool {
 	keys := map[string]bool{}
 	for sessionID, list := range headers {
 		for _, header := range list {
-			if m.headOpener(header.owner) != nil {
+			if m.headsRows(header.owner) {
 				keys[header.owner+"\x00"+sessionID] = true
 			}
 		}
@@ -102,6 +108,10 @@ func (m *Model) headRowAction(action keymap.Action, bound bool) (tea.Model, tea.
 	case keymap.Open, keymap.StepIn:
 	default:
 		return m, nil, false
+	}
+	// A header with a page is focused the way a session is.
+	if m.focusHeadPane() {
+		return m, nil, true
 	}
 	open := m.headOpener(entry.head)
 	if open == nil {

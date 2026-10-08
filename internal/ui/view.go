@@ -586,6 +586,9 @@ func (m *Model) viewFooter() string {
 		}
 		return m.transientFooter(legendSection{title: "Rename", pairs: pairs})
 	}
+	if m.mode == modeHeadPane {
+		return m.transientFooter(m.headPaneLegend())
+	}
 	// Focused, the keyboard belongs to the agent: the tier says so in its
 	// title, carries the few keys the manager keeps, and drops the app-wide
 	// tier, which would name keys the agent receives.
@@ -797,8 +800,12 @@ func (m *Model) rowLegend() legendSection {
 	if row.isHead() {
 		// The header opens what its extension says it heads; every other
 		// key on it is the session's, which the session's own row lists.
+		verb := "open"
+		if m.headPaneOf(row.head) != nil {
+			verb = "focus"
+		}
 		return legendSection{title: "Header", pairs: [][2]string{
-			{m.tightCap(keymap.ContextList, keymap.Open), "open"},
+			{m.tightCap(keymap.ContextList, keymap.Open), verb},
 			{m.navCap(keymap.ContextList), "navigate"},
 		}}
 	}

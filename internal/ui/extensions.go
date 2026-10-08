@@ -38,6 +38,15 @@ type ExtensionUI struct {
 	// see headrows.go. It is called off the event loop with the session the
 	// header is over.
 	OpenHeader func(Press) error
+	// HeaderPane, when set, makes the owner's headers rows with a page the
+	// board draws in the session's place: see headpane.go.
+	HeaderPane *HeaderPane
+}
+
+// HeaderPane is an extension's page behind its header rows.
+type HeaderPane struct {
+	Screen string
+	View   func(Press, ViewHandle) ExtensionView
 }
 
 // ExtensionKey is one action an extension adds to a screen.
@@ -345,7 +354,7 @@ func (m *Model) InstallExtensions(uis []ExtensionUI, bridge *ExtensionBridge) {
 	m.extUIs = nil
 	m.extFilters = nil
 	for _, ui := range uis {
-		kept := ExtensionUI{Owner: ui.Owner, OpenHeader: ui.OpenHeader}
+		kept := ExtensionUI{Owner: ui.Owner, OpenHeader: ui.OpenHeader, HeaderPane: ui.HeaderPane}
 		keys := append([]ExtensionKey(nil), ui.Keys...)
 		for _, filter := range ui.Filters {
 			listed := m.newListFilter(ui.Owner, filter)

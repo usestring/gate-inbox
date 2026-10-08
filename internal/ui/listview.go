@@ -104,7 +104,7 @@ func (m *Model) viewListFrame() string {
 		)...)
 	}
 	bottom := m.boundedRuleRow(leftWidth+1, m.width, "▄")
-	if m.mode == modeFocus && m.pane.box.ok {
+	if m.ringed() && m.pane.box.ok {
 		bottom = m.focusBottomRule(leftWidth+1, m.width)
 	}
 	frame = append(frame, bottom)
@@ -129,7 +129,7 @@ func (m *Model) viewOnePaneFrame(bodyHeight int, footer string) string {
 	tone := panelHex()
 	// No content column, so a click can never land in a pane.
 	m.pane.columnX = m.width + 1
-	if m.mode == modeFocus {
+	if m.ringed() {
 		rows = m.contentLines(paneWidth, bodyHeight)
 		tone = backdropHex()
 		m.pane.columnX = 1
@@ -868,7 +868,7 @@ func (m *Model) renderTreeRow(entry treeRow, selected bool, width, index int, bg
 		lines[i] = ansi.Cut(line, 1, width-1)
 	}
 	edge := colorDim
-	if m.mode == modeFocus {
+	if m.ringed() {
 		edge = colorAccent
 	}
 	return lipgloss.NewStyle().
@@ -1543,7 +1543,10 @@ func (m *Model) contentLines(width, height int) []contentLine {
 		if group, ok := m.selectedGroup(); ok {
 			body = append(body, ours(splitLines(m.viewGroupAgents(group, inner, rest)))...)
 		} else {
-			if _, ok := m.selected(); !ok {
+			if page, ok := m.headPaneLines(width, rest, gutter); ok {
+				m.previewBodyOffset = len(body)
+				body = append(body, page...)
+			} else if _, ok := m.selected(); !ok {
 				body = append(body, ours(splitLines(mutedStyle.Render("Select a session to inspect it.")))...)
 			} else {
 				m.previewBodyOffset = len(body)
@@ -1569,10 +1572,11 @@ func (m *Model) focusRuleTail(width int, corner bool) string {
 	if key := m.fullCap(focus, keymap.Leave); key != "" {
 		title += key + " back · "
 	}
-	if key := m.pairCap(focus, keymap.PreviewUp, keymap.PreviewDown); key != "" {
+	// A page scrolls with its own keys, which the footer names.
+	if key := m.pairCap(focus, keymap.PreviewUp, keymap.PreviewDown); key != "" && m.mode != modeHeadPane {
 		title += key + " scroll "
 	}
-	if m.scrolledBack() {
+	if m.scrolledBack() && m.mode != modeHeadPane {
 		catchUp := "type"
 		if key := m.fullCap(focus, keymap.PreviewDown); key != "" {
 			catchUp = key + " or type"

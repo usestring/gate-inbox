@@ -607,6 +607,10 @@ func (m *Model) advanceTriage(leftID string) tea.Cmd {
 		m.cursor = index
 		m.clearPreviewState()
 		m.previewGen++
+		// A session with a page over it is answered from the page.
+		if m.headPaneTriage(index) {
+			return m.schedulePreview()
+		}
 		_, cmd := m.focusSelected()
 		if m.mode == modeFocus {
 			return tea.Batch(cmd, m.schedulePreview())

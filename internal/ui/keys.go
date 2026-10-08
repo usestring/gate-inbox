@@ -78,6 +78,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleAgentPickKey(msg)
 	case modeExtensionView:
 		return m.handleExtensionViewKey(msg)
+	case modeHeadPane:
+		return m.handleHeadPaneKey(msg)
 	case modeQuickActions:
 		return m.handleQuickActionsKey(msg)
 	case modePanePicker:

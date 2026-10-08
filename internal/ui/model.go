@@ -78,6 +78,9 @@ const (
 	modeQuickActions
 	modePanePicker
 	modeRestartWith
+	// modeHeadPane routes the keyboard into the page behind an extension's
+	// header row, drawn where a session's pane is. See headpane.go.
+	modeHeadPane
 )
 
 type treeRow struct {
@@ -163,6 +166,11 @@ type Model struct {
 	// extView is the view on screen in modeExtensionView.
 	extScreens map[keymap.Context]bool
 	extView    openView
+	// headPanes are the pages behind the header rows, by row key; see
+	// headpane.go. headReturn is a card opened from a focused page, which
+	// hands the keyboard back to that page when it closes.
+	headPanes  map[string]*openView
+	headReturn bool
 
 	// extensionNotes are the build's extensions the operator's config
 	// switched off, and the config sections nothing owns, each with its
@@ -2656,7 +2664,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeSettings && m.settings.jevPasting {
 			return m, m.pasteIntoJevKey(msg)
 		}
-		if m.mode == modeExtensionView {
+		if m.mode == modeExtensionView || m.mode == modeHeadPane {
 			return m, m.pasteIntoView(msg)
 		}
 		if m.mode == modeFocus {
@@ -3272,6 +3280,7 @@ func (m *Model) buildTree() {
 }
 
 func (m *Model) restoreCursor(previousKey string) {
+	defer m.settleHeadPanes()
 	if previousKey != "" {
 		for i, entry := range m.rows {
 			if rowKey(entry) == previousKey {

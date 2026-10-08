@@ -28,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
@@ -137,6 +138,11 @@ func Run(ctx context.Context, args []string, opts Options) error {
 	if err := defaultsOwnedBy(registry); err != nil {
 		return err
 	}
+	claudeHooks, err := registry.ClaudeHooks()
+	if err != nil {
+		return err
+	}
+	hooks.UseExtensionHooks(extensionHooks(claudeHooks))
 	accounts.UseChooser(chooserOf(registry))
 	sessionhooks.Use(sessionHooksOf(registry))
 	sessionhooks.UseSessions(&spawnReader{})
@@ -148,6 +154,7 @@ func Run(ctx context.Context, args []string, opts Options) error {
 	for _, entry := range extra {
 		table[entry.command.Name] = runExtensionCommand(ctx, registry, entry)
 	}
+	table["hook"] = withExtensionHooks(ctx, registry, table["hook"])
 	tooldrivers.Use(driversOf(registry))
 
 	if len(args) == 0 {
@@ -218,6 +225,57 @@ func sessionHooksOf(registry *extension.Registry) func() (*extension.SessionHook
 		}
 		return registry.SessionHooks(dir, cfg.Extensions)
 	})
+}
+
+// extensionHooks is the build's Claude hooks as the settings file carries
+// them.
+func extensionHooks(registered []extension.RegisteredClaudeHook) []hooks.ExtensionHook {
+	out := make([]hooks.ExtensionHook, len(registered))
+	for i, hook := range registered {
+		out[i] = hooks.ExtensionHook{ID: hook.ID, Event: hook.Event, Matcher: hook.Matcher}
+	}
+	return out
+}
+
+// claudeHookTimeout bounds one extension hook, well inside Claude Code's own
+// hook timeout.
+const claudeHookTimeout = 30 * time.Second
+
+// withExtensionHooks answers `hook ext <id> <event>`, which an extension's
+// hook in the settings file runs, and hands every other hook verb to core
+// untouched: an adopted session runs `hook global` on every tool call, and
+// resolving its caller twice would scan its process ancestry twice. Like
+// core's, it always exits 0 and says nothing on stderr: an extension that
+// fails, or that the config switches off, adds nothing to the event.
+func withExtensionHooks(ctx context.Context, registry *extension.Registry, core func([]string) error) func([]string) error {
+	ext := withConfigDir(func(args []string, sessionID, configDir string) error {
+		payload, err := io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
+		if err != nil {
+			return nil
+		}
+		cfg, err := config.Load()
+		if err != nil {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(ctx, claudeHookTimeout)
+		defer cancel()
+		out, err := registry.RunClaudeHook(ctx, configDir, cfg.Extensions, args[1], extension.ClaudeHookCall{
+			Event:     args[2],
+			SessionID: sessionID,
+			Payload:   payload,
+		})
+		if err != nil || len(out) == 0 {
+			return nil
+		}
+		fmt.Fprintln(os.Stdout, strings.TrimSpace(string(out)))
+		return nil
+	})
+	return func(args []string) error {
+		if len(args) == 3 && args[0] == hooks.ExtensionHookVerb {
+			return ext(args)
+		}
+		return core(args)
+	}
 }
 
 // defaultsOwnedBy refuses defaults with an [extensions.<id>] section no

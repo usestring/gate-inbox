@@ -253,6 +253,8 @@ A session started with `n` is named differently, because it is started with noth
 
 Sessions you name yourself keep that name: the first prompt only notes that `gate-inbox rename` is available later if you ask, and does not instruct the agent to rename now. You can still ask an agent to rename its session later, or run `"$GATE_INBOX_BIN" rename "<name>"` yourself from a shell inside the session.
 
+To never interrupt a session for a name, set `[naming] ask = false` in the config: launches carry the rename-available note instead of the directive, adopted panes keep their quiet placeholder with no queued request, and opencode sessions carry delegation steering without the naming instructions. Rows still take the title the CLI writes itself, and `r` still asks on demand.
+
 ## MCP: how agents discover these commands
 
 Every session of an MCP-capable tool carries the Gate Inbox MCP server on spawn and revive, so its agent sees the whole workspace as native tools with descriptions telling it when to call each: its own session, the other agent sessions running beside it, the groups they are filed under, and the managed terminals. No per-project setup. The server lives in the same binary (`gate-inbox mcp`, stdio) and identifies the calling session through its environment.

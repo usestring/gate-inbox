@@ -125,7 +125,7 @@ func TestApplyCodexCarriesTheSteeringAsDeveloperInstructions(t *testing.T) {
 // and delegation steering ride the MCP server's own block. No other CLI's
 // server carries it: theirs rides the launch, where it outranks that block.
 func TestServerSteeringCarriesOpencodeNamingAndDelegation(t *testing.T) {
-	steering, ok := ServerSteering("opencode")
+	steering, ok := ServerSteering("opencode", true)
 	if !ok {
 		t.Fatal("opencode has no server steering")
 	}
@@ -136,8 +136,27 @@ func TestServerSteeringCarriesOpencodeNamingAndDelegation(t *testing.T) {
 		}
 	}
 	for _, style := range []string{"", "claude", "codex", "none"} {
-		if text, ok := ServerSteering(style); ok || text != "" {
+		if text, ok := ServerSteering(style, true); ok || text != "" {
 			t.Fatalf("ServerSteering(%q) = %q, %v; want nothing", style, text, ok)
+		}
+	}
+}
+
+// Without ask, the server carries delegation alone: nothing the agent reads
+// asks it to spend a turn on a name, while the parent rule still rides.
+func TestServerSteeringWithoutAskCarriesDelegationAlone(t *testing.T) {
+	steering, ok := ServerSteering("opencode", false)
+	if !ok {
+		t.Fatal("opencode has no server steering")
+	}
+	for _, want := range []string{"# Delegating work", parentSteeringHeading} {
+		if !strings.Contains(steering, want) {
+			t.Fatalf("unasked server steering is missing %q:\n%s", want, steering)
+		}
+	}
+	for _, want := range []string{"# Session naming", "not as your first action"} {
+		if strings.Contains(steering, want) {
+			t.Fatalf("unasked server steering still asks for a name (%q):\n%s", want, steering)
 		}
 	}
 }
@@ -154,7 +173,7 @@ func TestEveryCLISteeringCarriesTheChildDialogRule(t *testing.T) {
 			}
 		}
 	}
-	if text, _ := ServerSteering("opencode"); !strings.Contains(text, childDialogSteering) {
+	if text, _ := ServerSteering("opencode", true); !strings.Contains(text, childDialogSteering) {
 		t.Error("OpenCode's server-carried steering lacks the child-dialog rule")
 	}
 }

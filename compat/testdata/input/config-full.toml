@@ -19,6 +19,9 @@ no_compress = true
 [children]
 auto_archive_after = "1h"
 
+[naming]
+ask = false
+
 [work]
 settle_after = "48h"
 

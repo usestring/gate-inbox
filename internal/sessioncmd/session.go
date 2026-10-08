@@ -705,7 +705,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if launchDir != dir {
 		workdir = dir
 	}
-	plan, err := launch.Assemble(toolName, tool, prompt, workdir, autoNamed, opts.Model, account)
+	plan, err := launch.Assemble(toolName, tool, prompt, workdir, autoNamed && runtime.cfg.Naming.Asks(), opts.Model, account)
 	if err != nil {
 		return Session{}, err
 	}

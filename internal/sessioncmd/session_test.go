@@ -130,11 +130,16 @@ jump_to_bottom_key = "Enter"
 
 func newSessionHarness(t *testing.T) *sessionHarness {
 	t.Helper()
+	return newSessionHarnessWithConfig(t, sessionConfig)
+}
+
+func newSessionHarnessWithConfig(t *testing.T, raw string) *sessionHarness {
+	t.Helper()
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
 	configDir := tmuxtest.ScratchDir(t)
-	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(sessionConfig), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(raw), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	driver, err := tmux.NewWithSocket(tmuxtest.Socket(t, "sess"))
@@ -1104,6 +1109,37 @@ func TestCreateOnAChosenModelKeepsItThroughRevive(t *testing.T) {
 	}
 	if revived.Model != "opus" {
 		t.Errorf("revived Model = %q, want it preserved", revived.Model)
+	}
+}
+
+// With [naming] ask = false an unnamed spawn still takes a placeholder name,
+// but nothing it launches asks the agent to rename itself: the prompt carries
+// the rename-available note instead of the directive, and nothing waits
+// behind it.
+func TestCreateWithoutAskSendsNoRenameDirective(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarnessWithConfig(t, "[naming]\nask = false\n"+sessionConfig)
+	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Prompt: "do things"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if !strings.HasPrefix(created.Name, "echoer-") {
+		t.Fatalf("Name = %q, want the placeholder", created.Name)
+	}
+	row, err := h.store.Get(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, input := range row.PendingInputs {
+		if strings.Contains(input, launch.DeferredRenameDirective) {
+			t.Fatalf("pending input carries a deferred directive: %q", input)
+		}
+	}
+	if strings.Contains(row.LaunchPrompt, launch.RenameDirective) {
+		t.Fatalf("launch prompt carries the rename directive:\n%s", row.LaunchPrompt)
+	}
+	if !strings.Contains(row.LaunchPrompt, launch.RenameAvailableNote) {
+		t.Fatalf("launch prompt should note rename is available later:\n%s", row.LaunchPrompt)
 	}
 }
 

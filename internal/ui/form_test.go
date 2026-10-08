@@ -590,6 +590,33 @@ func TestSpawnMarksDeferredDirective(t *testing.T) {
 	}
 }
 
+func TestSpawnWithoutAskSendsNoRenameDirective(t *testing.T) {
+	m := buildModel(t)
+	no := false
+	m.cfg.Naming.Ask = &no
+	dir := t.TempDir()
+
+	if err := m.spawnSession("claude", "claude-aaaa", dir, "", "/compact", true); err != nil {
+		t.Fatalf("slash spawn: %v", err)
+	}
+	if err := m.spawnSession("claude", "claude-bbbb", dir, "", "do things", true); err != nil {
+		t.Fatalf("plain spawn: %v", err)
+	}
+	m.applyCmd(t, m.refreshCmd())
+	rows := m.sessionRows()
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d, want 2", len(rows))
+	}
+	for _, sess := range rows {
+		if sessionHasPendingInput(t, m, sess.ID, launch.DeferredRenameDirective) {
+			t.Fatalf("session %q defers a directive with ask off", sess.Name)
+		}
+		if strings.Contains(sess.LaunchPrompt, launch.RenameDirective) {
+			t.Fatalf("session %q carries the directive with ask off:\n%s", sess.Name, sess.LaunchPrompt)
+		}
+	}
+}
+
 func TestDeferredDirectiveSentWhenPaneReady(t *testing.T) {
 	m := buildModel(t)
 	if err := m.spawnSession("ready-tool", "ready-tool-abcd", t.TempDir(), "", "", true); err != nil {

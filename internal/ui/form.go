@@ -886,7 +886,12 @@ func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt strin
 	if err != nil {
 		return "", err
 	}
-	plan, err := launch.Assemble(toolName, tool, prompt, "", autoNamed, model, account)
+	// askRename is whether this launch may ask the agent to name itself: only
+	// a placeholder-named session is ever asked, and never when [naming] ask
+	// is off. Without it the prompt carries the rename-available note instead
+	// of the directive, so nothing the agent reads costs it a turn.
+	askRename := autoNamed && m.cfg.Naming.Asks()
+	plan, err := launch.Assemble(toolName, tool, prompt, "", askRename, model, account)
 	if err != nil {
 		return "", err
 	}

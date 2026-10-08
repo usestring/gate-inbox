@@ -90,6 +90,7 @@ file     log.max_size_mb = 4
 file     log.max_total_mb = 16
 file     log.no_compress = true
 file     name_sweep_pace = "10s"
+file     naming.ask = false
 file     poll_interval = "5s"
 default  stale_status_after = "2h0m0s"
 file     tmux_socket = "compat"

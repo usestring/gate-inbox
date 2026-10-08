@@ -83,6 +83,7 @@ default  log.max_size_mb = 0
 default  log.max_total_mb = 0
 default  log.no_compress = false
 default  name_sweep_pace = "3s"
+default  naming.ask = <unset>
 default  poll_interval = "2s"
 default  stale_status_after = "2h0m0s"
 default  tmux_socket = ""

@@ -46,6 +46,14 @@ poll_interval = "2s"
 # [board]
 # sidebar = "right"
 
+# Asking a live agent to name its session interrupts it for a housekeeping
+# turn: the rename directive on a managed launch, the pending note in an
+# adopted pane, and the silent naming instructions opencode sessions carry.
+# Off leaves the quiet paths alone: rows still take the title the CLI writes
+# itself, and r still asks on demand.
+# [naming]
+# ask = false
+
 # The pull requests and tickets sessions are on. One that is over -- merged,
 # closed, completed, cancelled -- stays on the board this long after you first
 # see it that way, then leaves the rail and the counts for good.

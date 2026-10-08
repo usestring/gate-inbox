@@ -470,6 +470,36 @@ func TestBackfillSkipRenameDirective(t *testing.T) {
 	}
 }
 
+// Asking is the default: a config written before [naming] existed carries
+// no key, and launches keep the rename directive they always had.
+func TestNamingAskDefaultsOn(t *testing.T) {
+	if !(Naming{}).Asks() {
+		t.Fatal("zero Naming must ask")
+	}
+	dir := t.TempDir()
+	cfg, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	if !cfg.Naming.Asks() {
+		t.Fatal("default config must ask agents to rename")
+	}
+}
+
+func TestNamingAskOff(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[naming]\nask = false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	if cfg.Naming.Asks() {
+		t.Fatal("[naming] ask = false must stop rename asks")
+	}
+}
+
 // The listing a caller needs to pick a model has to survive an older config
 // the same way the flag does, or list_models answers "no way to list its
 // models" for a CLI whose default has carried the command all along.

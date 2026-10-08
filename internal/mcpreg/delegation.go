@@ -60,10 +60,15 @@ const SteeringFlag = "--steering"
 // ServerSteering is what the MCP server appends to its instructions for
 // style's CLI, and false for a style whose launch carries its steering
 // itself. OpenCode v2 loads no instruction file a launch can name, so its
-// naming and delegation steering both ride the server.
-func ServerSteering(style string) (string, bool) {
+// naming and delegation steering both ride the server. askRename selects the
+// naming half: without it the server carries delegation alone, and nothing
+// the agent reads asks it to spend a turn on a name.
+func ServerSteering(style string, askRename bool) (string, bool) {
 	if style != "opencode" {
 		return "", false
+	}
+	if !askRename {
+		return launchSteering(style), true
 	}
 	return string(renameSteering()) + "\n" + launchSteering(style), true
 }

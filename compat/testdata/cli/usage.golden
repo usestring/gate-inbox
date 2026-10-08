@@ -1,4 +1,4 @@
-40 commands and verbs
+41 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -381,3 +381,16 @@ $ gate-inbox claude-hooks -h
 exit 0
 --- stdout
 usage: gate-inbox claude-hooks [install | uninstall [--all] | status]
+
+$ gate-inbox communications -h
+exit 0
+--- stdout
+Usage: gate-inbox communications <import|list|read|mark-read|draft>
+
+  import                    Read a JSON message array from stdin
+  list                      List conversations as JSON
+  read <id>                 Read a conversation and its drafts
+  mark-read <id> <revision>  Mark the reviewed revision read
+  draft                     Read conversation_id, revision, body from stdin
+
+Drafts stay local. Enable [extensions.communications] with enabled = true.

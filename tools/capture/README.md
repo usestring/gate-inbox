@@ -33,8 +33,13 @@ own `TMUX_TMPDIR`, so it never lists, moves or kills a session on the live
 board, and the sessions it opens run `demo-agent.sh` — a transcript player —
 rather than a real CLI, so a capture spawns no agent and spends no tokens.
 The seeded set is whichever of `claude`, `codex`, `opencode` this machine has
-installed, because the board's agent picker offers no others; each draws a different state (waiting, working, finished) from
-`demo/*.txt`.
+installed, because the board's agent picker offers no others. Each plays a
+transcript in its own pane shape, because the board reads a pane with that
+tool's rules: `claude` plays `demo/waiting.txt`, `codex` plays
+`demo/codex-working.txt` and `opencode` plays `demo/opencode-finished.txt`, so
+with all three installed the board opens on one waiting, one working and one
+finished row. `--transcripts a,b,c` replaces the set in that order; a
+claude-shaped transcript in a codex or opencode pane reads as idle.
 
 ## Theme and size
 

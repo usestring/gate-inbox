@@ -1,0 +1,10 @@
+› run the unit tests and fix whatever fails
+
+• Ran the unit tests
+  └ FAIL internal/ui  2 failed, 212 passed
+
+• Editing internal/ui/poller.go
+
+• Working (14s • esc to interrupt)
+
+› Ask Codex to do anything

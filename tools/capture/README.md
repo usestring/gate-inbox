@@ -19,18 +19,25 @@ drives the scenario's keystrokes and writes
 <out>/test-results/<run>/video.webm
 ```
 
-which is the layout `skills/ship-ui-feature/scripts/post-to-pr.ts` uploads. The
-run prints the exact command; run it from inside this checkout:
+which is the layout `skills/ship-ui-feature/scripts/post-to-pr.ts` uploads.
 
-```bash
-bun ../skills/ship-ui-feature/scripts/post-to-pr.ts --evidence /tmp/claude/gate-capture/<branch>
-```
+**This repository is public, so its evidence never lands here.** No recording or
+still is attached to a PR in this repo, linked from one, or committed. The
+evidence goes to the private companion PR, and only after the operator has seen
+every frame and approved that exact upload; `post-to-pr.ts` refuses a public
+target outright.
 
 ## What it runs against
 
-Nothing of the operator's. The board gets a scratch `GATE_INBOX_HOME` and its
-own `TMUX_TMPDIR`, so it never lists, moves or kills a session on the live
-board, and the sessions it opens run `demo-agent.sh` — a transcript player —
+Nothing of the operator's. The board gets a scratch `GATE_INBOX_HOME`, its
+own `TMUX_TMPDIR`, a scratch `HOME` and `XDG_*` directories, and no
+`LINEAR_API_KEY`, `GITHUB_TOKEN` or `GH_TOKEN`, so it never lists, moves or
+kills a session on the live board and never reads a real transcript, ticket or
+pull request. It runs in a fixture `demo-project` under that scratch home, never this
+checkout's real path. The driver refuses to start
+when a scratch path would be the live board's home, the real `HOME` or the
+operator's tmux directory, and deletes a recording whose screen text shows the
+operator's home path or login. The sessions it opens run `demo-agent.sh` — a transcript player —
 rather than a real CLI, so a capture spawns no agent and spends no tokens.
 The seeded set is whichever of `claude`, `codex`, `opencode` this machine has
 installed, because the board's agent picker offers no others. Each plays a

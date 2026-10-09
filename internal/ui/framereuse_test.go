@@ -110,6 +110,9 @@ func TestFrameSessionSetsAreRebuiltEachFrame(t *testing.T) {
 	_ = moved.frame()
 	moved.sessions = fleetSessions(8)
 	moved.rebuildRows()
+	// Where the rail's window starts is carried between frames on purpose,
+	// so it is the one piece of history the fresh model cannot share.
+	moved.listTop = listAnchor{}
 
 	fresh := fleetModel(t, 8, 120, 34)
 	if got, want := moved.frame(), fresh.frame(); got != want {

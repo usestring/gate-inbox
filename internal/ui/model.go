@@ -523,8 +523,10 @@ type Model struct {
 	focusHistory      []string
 	previewBodyOffset int
 	cursor            int
-	mode              mode
-	showArchived      bool
+	// listTop is the first entry the rail drew last frame; see entryLines.
+	listTop      listAnchor
+	mode         mode
+	showArchived bool
 	// showAllWork lifts the cap on the pull requests and tickets a session
 	// hangs on the rail, for a reader who came for the tail. Off at every
 	// start: the cap is what keeps one busy session off the whole screen.

@@ -315,10 +315,10 @@ func TestAGrantCarriesItsInstructionUnderTheSameAnswer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GrantAndSend: %v", err)
 	}
-	if result.Action != "granted" || result.Question != question.Question || result.Sent == nil {
+	if result.Action != "granted" || result.Question != question.Question || result.SentMessage == 0 {
 		t.Fatalf("result = %+v; want the grant, its question and the queued instruction", result)
 	}
-	a, ok, err := h.store.AttestationFor(result.Sent.MessageID)
+	a, ok, err := h.store.AttestationFor(result.SentMessage)
 	if err != nil || !ok || a.Answer != "Grant" || a.Question != question.Question ||
 		a.EvidenceToolUseID != "toolu_merge" || a.TargetSession != child.ID {
 		t.Fatalf("attestation = %+v, %v, %v; want the user's Grant quoted for the child", a, ok, err)

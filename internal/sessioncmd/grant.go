@@ -102,11 +102,12 @@ type GrantResult struct {
 	// Question is the Approval question the grant spent, word for word, so
 	// the same answer can carry the instruction the grant was for.
 	Question string `json:"approval_question,omitempty"`
-	// Sent is the instruction GrantAndSend queued for the child under that
-	// answer's attestation.
-	Sent   *SendResult `json:"sent,omitempty"`
-	Note   string      `json:"note"`
-	Grants []GrantInfo `json:"grants"`
+	// SentMessage and Attestation are the instruction GrantAndSend queued
+	// for the child under that answer, for message_status.
+	SentMessage int64       `json:"sent_message_id,omitempty"`
+	Attestation string      `json:"attestation,omitempty"`
+	Note        string      `json:"note"`
+	Grants      []GrantInfo `json:"grants"`
 }
 
 // ApprovalNeeded is the refusal of a grant no approval settles yet. It
@@ -324,7 +325,7 @@ func (s *Sessions) GrantAndSend(sessionID, targetID string, req GrantRequest, me
 		return result, fmt.Errorf("the permission is granted but the instruction was not sent (%w); send it with "+
 			"send_session, citing the grant's question as the one your user answered", err)
 	}
-	result.Sent = &sent
+	result.SentMessage, result.Attestation = sent.MessageID, sent.Attestation
 	return result, nil
 }
 
@@ -552,8 +553,8 @@ func FormatGrant(r GrantResult) string {
 		fmt.Fprintf(&b, "settings file: %s\n", r.Settings)
 	}
 	fmt.Fprintf(&b, "%s\n", r.Note)
-	if r.Sent != nil {
-		fmt.Fprintf(&b, "instruction queued as message %d with your user's Grant attested (%s)\n", r.Sent.MessageID, r.Sent.Attestation)
+	if r.SentMessage != 0 {
+		fmt.Fprintf(&b, "instruction queued as message %d with your user's Grant attested (%s)\n", r.SentMessage, r.Attestation)
 	}
 	active := 0
 	for _, g := range r.Grants {

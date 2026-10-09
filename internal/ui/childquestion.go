@@ -357,8 +357,9 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 	}
 	if len(approvals) > 0 {
 		fmt.Fprintf(&out, "\n\nQuestion %s is headed Approval: the child is asking for your user's approval. "+
-			"Never answer it yourself. Ask your user verbatim, then answer with relay: true; any other answer "+
-			"is refused.", strings.Join(approvals, ", "))
+			"Never answer it yourself. Your user is shown it in triage on the board and may answer it at the "+
+			"child's pane; read_session first, and if it is answered there is nothing to carry. Otherwise ask "+
+			"your user verbatim, then answer with relay: true; any other answer is refused.", strings.Join(approvals, ", "))
 	}
 	if len(person) > 0 {
 		fmt.Fprintf(&out, "\n\nQuestion %s is a multi-select, which answer_session cannot tick: only a person at its pane can answer it. Put it to your user word for word, then ask the operator for the keystrokes.", strings.Join(person, ", "))

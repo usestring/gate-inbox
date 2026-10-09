@@ -521,6 +521,26 @@ func (s *Sessions) endSessionBy(runtime *runtime, target store.Session, pane, re
 	return runtime.store.UpdateStatus(target.ID, status.Dead)
 }
 
+// restart ends a running session and relaunches it on its own conversation,
+// for a change that only a fresh process picks up: a grant, an account.
+//
+// The launch is stamped before the kill. Between the two the row reads dead
+// with no pane, which is exactly what the child sweep files away: a child
+// whose report reached its spawner since its last launch is archived on
+// sight, and the relaunch then came up under an archived row that nothing
+// polled (2026-10-09, a grant restart filed two seconds after it began).
+// Stamping first makes the reports from the life being ended predate this
+// launch, so the sweep sees a child that has not reported and leaves it be.
+func (s *Sessions) restart(runtime *runtime, target store.Session) (config.Tool, error) {
+	if err := runtime.store.SetAgentLaunchedAt(target.ID, time.Now()); err != nil {
+		return config.Tool{}, err
+	}
+	if err := s.endSession(runtime, target, store.EndKilled); err != nil {
+		return config.Tool{}, err
+	}
+	return s.relaunch(runtime, target, "")
+}
+
 // relaunch is the relaunch Revive and Unpark share: the dead row's tool,
 // directory and conversation id decide the command, and the row comes back
 // in the tool's default status with its finished alert re-armed. A prompt

@@ -125,10 +125,7 @@ func (s *Sessions) switchAccount(runtime *runtime, target store.Session, account
 	if !runtime.driver.Exists(target.ID) {
 		return runtime.sessionInfo(target, false, false), nil
 	}
-	if err := s.endSession(runtime, target, store.EndKilled); err != nil {
-		return Session{}, err
-	}
-	relaunched, err := s.relaunch(runtime, target, "")
+	relaunched, err := s.restart(runtime, target)
 	if err != nil {
 		return Session{}, err
 	}

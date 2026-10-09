@@ -4,6 +4,8 @@ package tmux
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -1948,7 +1950,8 @@ func (d *Driver) ScanPanes() (PaneScan, error) {
 }
 
 func (d *Driver) scanPanes(ctx context.Context) (PaneScan, error) {
-	out, err := d.combinedWithin(ctx, d.args("list-panes", "-a", "-F", "#{session_name} #{pane_pid} #{pane_current_path}"))
+	mark := scanMark()
+	out, err := d.combinedWithin(ctx, d.args("list-panes", "-a", "-F", mark+"#{session_name} #{pane_pid} #{pane_current_path}"))
 	// A deadline that fired is not an answer about this server, so it is
 	// checked ahead of the no-server reading below: that one treats silence
 	// as "no sessions here", which is the reading a timeout must never get.
@@ -1964,10 +1967,40 @@ func (d *Driver) scanPanes(ctx context.Context) (PaneScan, error) {
 	if err != nil {
 		out = nil
 	}
+	scan := parsePaneScan(string(out), mark)
+	if err := d.adoptedPanes(ctx, scan); err != nil {
+		return PaneScan{}, err
+	}
+	return scan, nil
+}
+
+// scanMark is a fresh prefix for every line of one pane listing. A pane's
+// directory is whatever its occupant named it, line breaks included, and
+// the text after one would otherwise read as a pane line of tmux's own:
+// any session's liveness and pid, written by whoever controls a directory
+// name. The occupant cannot know the mark before the listing runs.
+func scanMark() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:]) + " "
+}
+
+// parsePaneScan reads a managed listing whose every line tmux began with
+// mark. A line without it is the rest of the directory above, so that
+// directory is dropped, cut short as it is; PaneCurrentPath still answers
+// for the session the way it always has.
+func parsePaneScan(out, mark string) PaneScan {
 	scan := PaneScan{PIDs: map[string]int{}, Paths: map[string]string{}, Gone: map[string]bool{}}
+	last := ""
 	// Only line breaks are trimmed: a trailing space on the last pane's
 	// path is part of the directory name.
-	for _, line := range strings.Split(strings.TrimRight(string(out), "\r\n"), "\n") {
+	for _, line := range strings.Split(strings.TrimRight(out, "\r\n"), "\n") {
+		line, marked := strings.CutPrefix(line, mark)
+		if !marked {
+			delete(scan.Paths, last)
+			continue
+		}
+		last = ""
 		name, rest, ok := strings.Cut(line, " ")
 		if !ok || !managedName(name) {
 			continue
@@ -1977,17 +2010,17 @@ func (d *Driver) scanPanes(ctx context.Context) (PaneScan, error) {
 			continue
 		}
 		pidText, path, _ := strings.Cut(rest, " ")
-		if pid, err := strconv.Atoi(pidText); err == nil {
-			scan.PIDs[id] = pid
-			if path = strings.TrimSuffix(path, "\r"); path != "" {
-				scan.Paths[id] = path
-			}
+		pid, err := strconv.Atoi(pidText)
+		if err != nil {
+			continue
+		}
+		scan.PIDs[id] = pid
+		if path = strings.TrimSuffix(path, "\r"); path != "" {
+			scan.Paths[id] = path
+			last = id
 		}
 	}
-	if err := d.adoptedPanes(ctx, scan); err != nil {
-		return PaneScan{}, err
-	}
-	return scan, nil
+	return scan
 }
 
 // adoptedPanes adds the adopted sessions to the liveness map. They carry no

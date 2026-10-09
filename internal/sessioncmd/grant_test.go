@@ -240,3 +240,58 @@ func TestALapsedGrantOnADeletedSessionLeavesTheRecord(t *testing.T) {
 		t.Fatalf("sweep revoked %d, %v; want the orphaned grant revoked without an error", n, err)
 	}
 }
+
+// A merge the user approved is several commands, and asking for each in its
+// own dialog made one decision four. One question names them all, one Grant
+// covers them all, and asking again for a set that half landed asks only for
+// what the child does not hold yet.
+func TestOneApprovalGrantsEveryCommandItNames(t *testing.T) {
+	h, child := grantHarness(t)
+	steps := []string{"git commit -S -m pin", "git push origin HEAD", "gh pr merge 2544 --squash"}
+	req := GrantRequest{Kind: string(grant.KindSoft), Value: steps[0], Values: steps[1:]}
+	(&transcript{}).write(t, h.sessions.claudeHome, "conv-parent")
+
+	_, err := h.sessions.Grant(h.caller.ID, child.ID, req)
+	var need *ApprovalNeeded
+	if !errors.As(err, &need) {
+		t.Fatalf("unapproved err = %v, want ApprovalNeeded", err)
+	}
+	for _, step := range steps {
+		if !strings.Contains(need.Question.Question, step) {
+			t.Fatalf("question %q does not name %q", need.Question.Question, step)
+		}
+	}
+	if !strings.Contains(need.Question.Question, "these 3 permissions") {
+		t.Fatalf("question %q does not say how many it grants", need.Question.Question)
+	}
+
+	asked := time.Now().Add(-time.Minute)
+	(&transcript{}).ask("toolu_all", asked, need.Question).
+		answer("toolu_all", asked.Add(time.Second), map[string]string{need.Question.Question: "Grant"}).
+		write(t, h.sessions.claudeHome, "conv-parent")
+	result, err := h.sessions.Grant(h.caller.ID, child.ID, req)
+	if err != nil {
+		t.Fatalf("approved set: %v", err)
+	}
+	if len(result.Set) != 3 || !result.Restarted {
+		t.Fatalf("result = %+v, want three granted and one restart", result)
+	}
+	rows, err := h.store.Grants(child.ID, true)
+	if err != nil || len(rows) != 3 {
+		t.Fatalf("in force = %+v, %v; want all three", rows, err)
+	}
+	if !strings.Contains(FormatGrant(result), "granted "+child.ID+" 3 permissions") {
+		t.Fatalf("format = %q", FormatGrant(result))
+	}
+
+	more := GrantRequest{Kind: req.Kind, Value: steps[0], Values: []string{"gh pr checks 2544"}}
+	if _, err := h.sessions.Grant(h.caller.ID, child.ID, more); !errors.As(err, &need) ||
+		need.Question.Question != ApprovalQuestion(child, grant.Grant{Kind: grant.KindSoft, Value: "gh pr checks 2544"}, DefaultGrantTTL).Question {
+		t.Fatalf("half-held err = %v, want a question for the one prefix not yet held", err)
+	}
+
+	chained := GrantRequest{Kind: req.Kind, Value: "git add go.mod", Values: []string{"git commit && git push"}}
+	if _, err := h.sessions.Grant(h.caller.ID, child.ID, chained); err == nil || errors.As(err, &need) {
+		t.Fatalf("chained err = %v, want the whole set refused before any question", err)
+	}
+}

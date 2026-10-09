@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -56,10 +57,15 @@ const (
 	MaxGrantTTL     = 24 * time.Hour
 )
 
-// GrantRequest is one grant or revoke a parent asks for.
+// GrantRequest is one grant or revoke a parent asks for. Values names more
+// permissions of the same kind beside Value, and they are approved by one
+// question and granted together: a step the user approved as a whole, such as
+// commit, push and merge, is several command prefixes, and asking for each in
+// its own dialog turned one decision into four.
 type GrantRequest struct {
 	Kind   string
 	Value  string
+	Values []string
 	Revoke bool
 	// ExpiresIn is how long the grant lasts; zero is DefaultGrantTTL.
 	ExpiresIn time.Duration
@@ -85,9 +91,12 @@ type GrantInfo struct {
 
 // GrantResult is what a grant or revoke did.
 type GrantResult struct {
-	Target    Session     `json:"target"`
-	Action    string      `json:"action"`
-	Grant     GrantInfo   `json:"grant"`
+	Target Session   `json:"target"`
+	Action string    `json:"action"`
+	Grant  GrantInfo `json:"grant"`
+	// Set is every permission this call granted or revoked when it named
+	// more than one; Grant is the first of them.
+	Set       []GrantInfo `json:"set,omitempty"`
 	Settings  string      `json:"settings_file,omitempty"`
 	Restarted bool        `json:"restarted"`
 	Note      string      `json:"note"`
@@ -113,14 +122,32 @@ func (e *ApprovalNeeded) Error() string {
 // reading of somebody's paraphrase, and the window is in it so the user
 // approves how long as well as what.
 func ApprovalQuestion(target store.Session, g grant.Grant, ttl time.Duration) convo.AskQuestion {
-	g = grant.Normalise(g)
+	return ApprovalQuestionFor(target, []grant.Grant{g}, ttl)
+}
+
+// ApprovalQuestionFor is ApprovalQuestion for several permissions approved
+// together. One permission reads exactly as ApprovalQuestion always has; more
+// are numbered, so the user sees every one of them in the question they
+// answer.
+func ApprovalQuestionFor(target store.Session, gs []grant.Grant, ttl time.Duration) convo.AskQuestion {
+	what, it, write := "", "it", "Write this one permission for that session; it can be revoked later"
+	if len(gs) == 1 {
+		what = grant.Describe(grant.Normalise(gs[0]))
+	} else {
+		parts := make([]string, len(gs))
+		for i, g := range gs {
+			parts[i] = fmt.Sprintf("(%d) %s", i+1, grant.Describe(grant.Normalise(g)))
+		}
+		what, it = fmt.Sprintf("these %d permissions: %s", len(gs), strings.Join(parts, "; ")), "them"
+		write = "Write all of these for that session; they can be revoked later"
+	}
 	return convo.AskQuestion{
 		Header: dialog.ApprovalHeader,
-		Question: fmt.Sprintf("Grant child session %q (%s), for %s, %s? Gate Inbox writes it into that "+
-			"session's own settings only, restarts it to apply, and revokes it when the time is up.",
-			target.Name, target.ID, window(ttl), grant.Describe(g)),
+		Question: fmt.Sprintf("Grant child session %q (%s), for %s, %s? Gate Inbox writes %s into that "+
+			"session's own settings only, restarts it to apply, and revokes %s when the time is up.",
+			target.Name, target.ID, window(ttl), what, it, it),
 		Options: []convo.AskOption{
-			{Label: grantOption, Description: "Write this one permission for that session; it can be revoked later"},
+			{Label: grantOption, Description: write},
 			{Label: refuseOption, Description: "Leave the session's permissions as they are"},
 		},
 	}
@@ -149,8 +176,8 @@ func grantTTL(req GrantRequest) (time.Duration, error) {
 	return ttl.Round(time.Minute), nil
 }
 
-// Grant gives a child of the caller one permission its user approved, for a
-// window the user approved too, or revokes one.
+// Grant gives a child of the caller the permissions its user approved, for a
+// window the user approved too, or revokes them.
 func (s *Sessions) Grant(sessionID, targetID string, req GrantRequest) (GrantResult, error) {
 	runtime, err := s.open()
 	if err != nil {
@@ -175,18 +202,20 @@ func (s *Sessions) Grant(sessionID, targetID string, req GrantRequest) (GrantRes
 	if tool.StatusSource != hooks.StatusSourceClaude {
 		return GrantResult{}, unsupportedGrant(target.Tool)
 	}
-	g := grant.Normalise(grant.Grant{Kind: grant.Kind(req.Kind), Value: req.Value})
-	if err := grant.Check(g); err != nil {
+	gs, err := requested(req)
+	if err != nil {
 		return GrantResult{}, err
 	}
-	result := GrantResult{Grant: GrantInfo{Kind: string(g.Kind), Value: g.Value, Granted: grant.Describe(g)}}
+	var result GrantResult
 	if req.Revoke {
-		n, err := runtime.store.RevokeGrant(target.ID, string(g.Kind), g.Value, caller.ID)
-		if err != nil {
-			return GrantResult{}, err
-		}
-		if n == 0 {
-			return GrantResult{}, fmt.Errorf("session %s holds no %s %q to revoke", target.ID, g.Kind, g.Value)
+		for _, g := range gs {
+			n, err := runtime.store.RevokeGrant(target.ID, string(g.Kind), g.Value, caller.ID)
+			if err != nil {
+				return GrantResult{}, err
+			}
+			if n == 0 {
+				return GrantResult{}, fmt.Errorf("session %s holds no %s %q to revoke", target.ID, g.Kind, g.Value)
+			}
 		}
 		result.Action = "revoked"
 	} else {
@@ -194,26 +223,35 @@ func (s *Sessions) Grant(sessionID, targetID string, req GrantRequest) (GrantRes
 		if err != nil {
 			return GrantResult{}, err
 		}
-		for _, have := range active {
-			if have.Kind == string(g.Kind) && have.Value == g.Value {
-				return GrantResult{}, fmt.Errorf("session %s already holds that permission", target.ID)
-			}
+		// What the child already holds is left out of the question rather
+		// than refusing the lot, so asking again for a set that half
+		// landed asks only for the half that did not.
+		held := func(g grant.Grant) bool {
+			return slices.ContainsFunc(active, func(have store.PermissionGrant) bool {
+				return have.Kind == string(g.Kind) && have.Value == g.Value
+			})
+		}
+		gs = slices.DeleteFunc(gs, held)
+		if len(gs) == 0 {
+			return GrantResult{}, fmt.Errorf("session %s already holds that permission", target.ID)
 		}
 		ttl, err := grantTTL(req)
 		if err != nil {
 			return GrantResult{}, err
 		}
-		evidence, hash, err := s.grantApproval(runtime.store, caller, target, g, ttl)
+		evidence, hash, err := s.grantApproval(runtime.store, caller, target, gs, ttl)
 		if err != nil {
 			return GrantResult{}, err
 		}
 		now := time.Now()
-		if _, err := runtime.store.RecordGrant(store.PermissionGrant{
-			SessionID: target.ID, Kind: string(g.Kind), Value: g.Value,
-			GrantedBy: caller.ID, EvidenceToolUseID: evidence, QuestionHash: hash,
-			CreatedAt: now, ExpiresAt: now.Add(ttl),
-		}); err != nil {
-			return GrantResult{}, err
+		for _, g := range gs {
+			if _, err := runtime.store.RecordGrant(store.PermissionGrant{
+				SessionID: target.ID, Kind: string(g.Kind), Value: g.Value,
+				GrantedBy: caller.ID, EvidenceToolUseID: evidence, QuestionHash: hash,
+				CreatedAt: now, ExpiresAt: now.Add(ttl),
+			}); err != nil {
+				return GrantResult{}, err
+			}
 		}
 		result.Action = "granted"
 	}
@@ -224,12 +262,40 @@ func (s *Sessions) Grant(sessionID, targetID string, req GrantRequest) (GrantRes
 	result.Settings, result.Restarted, result.Note = applied.settings, applied.restarted, applied.note
 	result.Target = runtime.sessionInfo(applied.target, applied.running, false)
 	result.Grants, err = grantInfos(runtime.store, target.ID)
-	for _, info := range result.Grants {
-		if info.Kind == result.Grant.Kind && info.Value == result.Grant.Value {
-			result.Grant = info
+	for _, g := range gs {
+		info := GrantInfo{Kind: string(g.Kind), Value: g.Value, Granted: grant.Describe(g)}
+		for _, have := range result.Grants {
+			if have.Kind == info.Kind && have.Value == info.Value {
+				info = have
+			}
 		}
+		result.Set = append(result.Set, info)
+	}
+	result.Grant = result.Set[0]
+	if len(result.Set) == 1 {
+		result.Set = nil
 	}
 	return result, err
+}
+
+// requested is every permission req names, normalised, checked and without
+// repeats. They share req's kind, so one call is one kind of widening.
+func requested(req GrantRequest) ([]grant.Grant, error) {
+	var gs []grant.Grant
+	for _, value := range append([]string{req.Value}, req.Values...) {
+		g := grant.Normalise(grant.Grant{Kind: grant.Kind(req.Kind), Value: value})
+		if g.Value == "" || slices.Contains(gs, g) {
+			continue
+		}
+		if err := grant.Check(g); err != nil {
+			return nil, err
+		}
+		gs = append(gs, g)
+	}
+	if len(gs) == 0 {
+		return nil, errors.New("name at least one permission in value or values")
+	}
+	return gs, nil
 }
 
 // applied is what applyGrants did.
@@ -371,12 +437,12 @@ func grantInfos(st *store.Store, id string) ([]GrantInfo, error) {
 	return out, nil
 }
 
-// grantApproval finds the caller's own dialog in which its user approved g for
+// grantApproval finds the caller's own dialog in which its user approved gs for
 // target, and returns its tool_use id and the hash of the question in it. The
 // checks are relay.go's verify, held to Gate Inbox's own question rather than
 // the child's.
-func (s *Sessions) grantApproval(st *store.Store, caller, target store.Session, g grant.Grant, ttl time.Duration) (string, string, error) {
-	want := ApprovalQuestion(target, g, ttl)
+func (s *Sessions) grantApproval(st *store.Store, caller, target store.Session, gs []grant.Grant, ttl time.Duration) (string, string, error) {
+	want := ApprovalQuestionFor(target, gs, ttl)
 	hash := questionHash(want)
 	need := func(reason string) error { return &ApprovalNeeded{Question: want, Reason: reason} }
 	path := s.transcriptOf(caller)
@@ -444,7 +510,14 @@ func unsupportedGrant(tool string) error {
 // FormatGrant is a grant's result as text.
 func FormatGrant(r GrantResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s: %s\n", r.Action, r.Target.ID, r.Grant.Granted)
+	if len(r.Set) == 0 {
+		fmt.Fprintf(&b, "%s %s: %s\n", r.Action, r.Target.ID, r.Grant.Granted)
+	} else {
+		fmt.Fprintf(&b, "%s %s %d permissions:\n", r.Action, r.Target.ID, len(r.Set))
+		for _, g := range r.Set {
+			fmt.Fprintf(&b, "  %s\n", g.Granted)
+		}
+	}
 	if r.Settings != "" {
 		fmt.Fprintf(&b, "settings file: %s\n", r.Settings)
 	}

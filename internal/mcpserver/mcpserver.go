@@ -262,12 +262,13 @@ type answerSessionArgs struct {
 }
 
 type grantPermissionArgs struct {
-	SessionID        string `json:"session_id" jsonschema:"child session to grant to, one this session spawned"`
-	Kind             string `json:"kind" jsonschema:"what to widen: soft_command (prefer it: tells the child's auto-mode classifier the user approved commands starting with an exact prefix, sandboxed or not, while the classifier still judges each call), rule (one permission rule written Tool(pattern), such as Bash(./bin/fetch:*), which skips the classifier for what it matches), unsandboxed_command (an exact prefix that runs outside the sandbox without asking), or domain (one host the sandbox's network proxy lets through)"`
-	Value            string `json:"value" jsonschema:"the command prefix, rule or host name, exactly as the approval question names it"`
-	ExpiresInMinutes int    `json:"expires_in_minutes,omitempty" jsonschema:"how long the child keeps it, 1 to 1440 minutes; omit for 120. The approval question names the window, so ask for the one the work needs"`
-	Revoke           bool   `json:"revoke,omitempty" jsonschema:"true takes a permission back instead; no approval needed"`
-	Restart          bool   `json:"restart,omitempty" jsonschema:"restart the child now even if it is working; without it a working child picks the change up at its next restart"`
+	SessionID        string   `json:"session_id" jsonschema:"child session to grant to, one this session spawned"`
+	Kind             string   `json:"kind" jsonschema:"what to widen: soft_command (prefer it: tells the child's auto-mode classifier the user approved commands starting with an exact prefix, sandboxed or not, while the classifier still judges each call), rule (one permission rule written Tool(pattern), such as Bash(./bin/fetch:*), which skips the classifier for what it matches), unsandboxed_command (an exact prefix that runs outside the sandbox without asking), or domain (one host the sandbox's network proxy lets through)"`
+	Value            string   `json:"value,omitempty" jsonschema:"the command prefix, rule or host name, exactly as the approval question names it"`
+	Values           []string `json:"values,omitempty" jsonschema:"more of the same kind, approved by the same one question and granted together: name every command one approved step runs, such as the commit, the push and the merge, rather than asking once for each"`
+	ExpiresInMinutes int      `json:"expires_in_minutes,omitempty" jsonschema:"how long the child keeps it, 1 to 1440 minutes; omit for 120. The approval question names the window, so ask for the one the work needs"`
+	Revoke           bool     `json:"revoke,omitempty" jsonschema:"true takes a permission back instead; no approval needed"`
+	Restart          bool     `json:"restart,omitempty" jsonschema:"restart the child now even if it is working; without it a working child picks the change up at its next restart"`
 }
 
 type messageStatusArgs struct {
@@ -699,13 +700,14 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"An answer you key into the child is not its user's approval, so neither answer_session nor send_session can do this; this writes the one permission into that child's own settings file, never a shared one, and restarts it on its own conversation so it takes effect. " +
 			"Every grant is temporary: it lasts expires_in_minutes (default 120) and the board revokes it when the window closes. " +
 			"Call it first with the kind, value and window: unless your user already approved exactly that, it refuses with the exact question to put to them -- header Approval, the question naming the child, the window and the permission, options Grant and Don't grant. Ask your user that word for word with your own question tool, then call again; Gate Inbox checks your transcript for their Grant and spends it on this one grant. " +
+			"A step that runs several commands -- add, commit, push, merge -- is one decision: pass every prefix in values and the one question names them all. A prefix is one command, so chaining with && or ; is refused; list each command instead. " +
 			"Prefer soft_command: it is enough for the classifier to pass a refused step, including one run with dangerouslyDisableSandbox, and the classifier still judges each call. Use rule or unsandboxed_command only when a soft grant is still refused. " +
 			"Wildcards, whole tools, and anything touching settings files, sudo or credentials are refused with no way past. Only Claude Code children can be granted to. " +
 			"revoke true takes a permission back; list_sessions shows what a session holds. After a restart the child is idle: tell it with send_session to retry.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args grantPermissionArgs) (*mcp.CallToolResult, sessioncmd.GrantResult, error) {
 		result, err := sessions.Grant(sessionID, args.SessionID, sessioncmd.GrantRequest{
-			Kind: args.Kind, Value: args.Value, Revoke: args.Revoke, Restart: args.Restart,
+			Kind: args.Kind, Value: args.Value, Values: args.Values, Revoke: args.Revoke, Restart: args.Restart,
 			ExpiresIn: time.Duration(args.ExpiresInMinutes) * time.Minute,
 		})
 		if err != nil {

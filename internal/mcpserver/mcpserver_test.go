@@ -106,6 +106,7 @@ type fakeSessionCommands struct {
 	revivedID      string
 	grantedID      string
 	grantReq       sessioncmd.GrantRequest
+	grantMessage   string
 	migratedID     string
 	migratedOpts   sessioncmd.MigrateOptions
 	killedID       string
@@ -212,8 +213,8 @@ func (f *fakeSessionCommands) AnswerAll(_ string, id string, answers []sessioncm
 	return sessioncmd.AnsweredQuestion{SessionID: id, Name: "child", Submitted: submit}, f.err
 }
 
-func (f *fakeSessionCommands) Grant(_ string, id string, req sessioncmd.GrantRequest) (sessioncmd.GrantResult, error) {
-	f.grantedID, f.grantReq = id, req
+func (f *fakeSessionCommands) GrantAndSend(_ string, id string, req sessioncmd.GrantRequest, message string) (sessioncmd.GrantResult, error) {
+	f.grantedID, f.grantReq, f.grantMessage = id, req, message
 	return sessioncmd.GrantResult{Target: f.created, Action: "granted"}, f.err
 }
 

@@ -269,6 +269,7 @@ type grantPermissionArgs struct {
 	ExpiresInMinutes int      `json:"expires_in_minutes,omitempty" jsonschema:"how long the child keeps it, 1 to 1440 minutes; omit for 120. The approval question names the window, so ask for the one the work needs"`
 	Revoke           bool     `json:"revoke,omitempty" jsonschema:"true takes a permission back instead; no approval needed"`
 	Restart          bool     `json:"restart,omitempty" jsonschema:"restart the child now even if it is working; without it a working child picks the change up at its next restart"`
+	Message          string   `json:"message,omitempty" jsonschema:"the instruction the grant is for, such as retry the merge; once granted it is queued for the child with your user's Grant attached as an attestation, so the approval need not be passed on again"`
 }
 
 type messageStatusArgs struct {
@@ -297,7 +298,7 @@ type sessionCommands interface {
 	ReleaseSession(sessionID, targetID string) (sessioncmd.Session, error)
 	Answer(sessionID, targetID, reply string, relay bool) (sessioncmd.AnsweredQuestion, error)
 	AnswerAll(sessionID, targetID string, answers []sessioncmd.QuestionAnswer, submit, relay bool) (sessioncmd.AnsweredQuestion, error)
-	Grant(sessionID, targetID string, req sessioncmd.GrantRequest) (sessioncmd.GrantResult, error)
+	GrantAndSend(sessionID, targetID string, req sessioncmd.GrantRequest, message string) (sessioncmd.GrantResult, error)
 	AnswerKeys(sessionID, targetID string, keys []string, relay bool) (sessioncmd.AnsweredQuestion, error)
 	Revive(sessionID, targetID string) (sessioncmd.Session, error)
 	SwitchAccount(sessionID, targetID, account string) (sessioncmd.Session, error)
@@ -703,13 +704,13 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"A step that runs several commands -- add, commit, push, merge -- is one decision: pass every prefix in values and the one question names them all. A prefix is one command, so chaining with && or ; is refused; list each command instead. " +
 			"Prefer soft_command: it is enough for the classifier to pass a refused step, including one run with dangerouslyDisableSandbox, and the classifier still judges each call. Use rule or unsandboxed_command only when a soft grant is still refused. " +
 			"Wildcards, whole tools, and anything touching settings files, sudo or credentials are refused with no way past. Only Claude Code children can be granted to. " +
-			"revoke true takes a permission back; list_sessions shows what a session holds. After a restart the child is idle: tell it with send_session to retry.",
+			"revoke true takes a permission back; list_sessions shows what a session holds. After a restart the child is idle: pass message with the instruction the grant is for, and it is queued for the child carrying your user's Grant as an attestation.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args grantPermissionArgs) (*mcp.CallToolResult, sessioncmd.GrantResult, error) {
-		result, err := sessions.Grant(sessionID, args.SessionID, sessioncmd.GrantRequest{
+		result, err := sessions.GrantAndSend(sessionID, args.SessionID, sessioncmd.GrantRequest{
 			Kind: args.Kind, Value: args.Value, Values: args.Values, Revoke: args.Revoke, Restart: args.Restart,
 			ExpiresIn: time.Duration(args.ExpiresInMinutes) * time.Minute,
-		})
+		}, args.Message)
 		if err != nil {
 			return nil, sessioncmd.GrantResult{}, err
 		}

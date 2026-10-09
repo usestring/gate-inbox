@@ -22,6 +22,7 @@ command = "cat"
 revive_command = "cat"
 default_status = "idle"
 status_source = "claude-hooks"
+activity_cutoff = "(?m)^\u276f"
 `
 
 func grantHarness(t *testing.T) (*sessionHarness, store.Session) {
@@ -293,5 +294,41 @@ func TestOneApprovalGrantsEveryCommandItNames(t *testing.T) {
 	chained := GrantRequest{Kind: req.Kind, Value: "git add go.mod", Values: []string{"git commit && git push"}}
 	if _, err := h.sessions.Grant(h.caller.ID, child.ID, chained); err == nil || errors.As(err, &need) {
 		t.Fatalf("chained err = %v, want the whole set refused before any question", err)
+	}
+}
+
+// A grant moved the child's classifier but not its own rules: its hook takes
+// the user's go only from an attestation, so the parent had to pass the
+// same answer on again before the child would act. The grant's question names
+// the child, the command and the window, so the instruction rides on it.
+func TestAGrantCarriesItsInstructionUnderTheSameAnswer(t *testing.T) {
+	h, child := grantHarness(t)
+	merge := grant.Grant{Kind: grant.KindSoft, Value: "gh pr merge 2546 --squash"}
+	question := ApprovalQuestion(child, merge, DefaultGrantTTL)
+	asked := time.Now()
+	(&transcript{}).ask("toolu_merge", asked, question).
+		answer("toolu_merge", asked.Add(time.Second), map[string]string{question.Question: "Grant"}).
+		write(t, h.sessions.claudeHome, "conv-parent")
+
+	result, err := h.sessions.GrantAndSend(h.caller.ID, child.ID,
+		GrantRequest{Kind: string(merge.Kind), Value: merge.Value}, "Retry the merge now.")
+	if err != nil {
+		t.Fatalf("GrantAndSend: %v", err)
+	}
+	if result.Action != "granted" || result.Question != question.Question || result.Sent == nil {
+		t.Fatalf("result = %+v; want the grant, its question and the queued instruction", result)
+	}
+	a, ok, err := h.store.AttestationFor(result.Sent.MessageID)
+	if err != nil || !ok || a.Answer != "Grant" || a.Question != question.Question ||
+		a.EvidenceToolUseID != "toolu_merge" || a.TargetSession != child.ID {
+		t.Fatalf("attestation = %+v, %v, %v; want the user's Grant quoted for the child", a, ok, err)
+	}
+	if !strings.Contains(FormatGrant(result), "Grant attested") {
+		t.Fatalf("format = %q; want the attested instruction named", FormatGrant(result))
+	}
+	// One answer, one grant and one instruction: citing it again is refused.
+	if _, err := h.sessions.SendAttested(h.caller.ID, child.ID, "again", "", false, question.Question); err == nil ||
+		!strings.Contains(err.Error(), "already been") {
+		t.Fatalf("second attested send err = %v; want it refused as spent", err)
 	}
 }

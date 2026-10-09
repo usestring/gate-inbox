@@ -99,8 +99,14 @@ type GrantResult struct {
 	Set       []GrantInfo `json:"set,omitempty"`
 	Settings  string      `json:"settings_file,omitempty"`
 	Restarted bool        `json:"restarted"`
-	Note      string      `json:"note"`
-	Grants    []GrantInfo `json:"grants"`
+	// Question is the Approval question the grant spent, word for word, so
+	// the same answer can carry the instruction the grant was for.
+	Question string `json:"approval_question,omitempty"`
+	// Sent is the instruction GrantAndSend queued for the child under that
+	// answer's attestation.
+	Sent   *SendResult `json:"sent,omitempty"`
+	Note   string      `json:"note"`
+	Grants []GrantInfo `json:"grants"`
 }
 
 // ApprovalNeeded is the refusal of a grant no approval settles yet. It
@@ -243,6 +249,7 @@ func (s *Sessions) Grant(sessionID, targetID string, req GrantRequest) (GrantRes
 		if err != nil {
 			return GrantResult{}, err
 		}
+		result.Question = ApprovalQuestionFor(target, gs, ttl).Question
 		now := time.Now()
 		for _, g := range gs {
 			if _, err := runtime.store.RecordGrant(store.PermissionGrant{
@@ -296,6 +303,29 @@ func requested(req GrantRequest) ([]grant.Grant, error) {
 		return nil, errors.New("name at least one permission in value or values")
 	}
 	return gs, nil
+}
+
+// GrantAndSend grants as Grant does and then queues message for the child
+// with the same answer of the user's attached as an attestation.
+//
+// The grant alone left the child's own rules unmoved: its hook takes the
+// user's go only from an attestation, so a parent had to pass the answer
+// on again in a second send_session, and a merge the user had approved came back
+// refused as unreviewed. The question the user answered names the child, the
+// commands and the window, so it is the approval the instruction rides on;
+// the answer ledger spends it once, apart from the grant's own ledger.
+func (s *Sessions) GrantAndSend(sessionID, targetID string, req GrantRequest, message string) (GrantResult, error) {
+	result, err := s.Grant(sessionID, targetID, req)
+	if err != nil || strings.TrimSpace(message) == "" || result.Action != "granted" {
+		return result, err
+	}
+	sent, err := s.SendAttested(sessionID, targetID, message, "grant", false, result.Question)
+	if err != nil {
+		return result, fmt.Errorf("the permission is granted but the instruction was not sent (%w); send it with "+
+			"send_session, citing the grant's question as the one your user answered", err)
+	}
+	result.Sent = &sent
+	return result, nil
 }
 
 // applied is what applyGrants did.
@@ -522,6 +552,9 @@ func FormatGrant(r GrantResult) string {
 		fmt.Fprintf(&b, "settings file: %s\n", r.Settings)
 	}
 	fmt.Fprintf(&b, "%s\n", r.Note)
+	if r.Sent != nil {
+		fmt.Fprintf(&b, "instruction queued as message %d with your user's Grant attested (%s)\n", r.Sent.MessageID, r.Sent.Attestation)
+	}
 	active := 0
 	for _, g := range r.Grants {
 		if g.RevokedAt.IsZero() {

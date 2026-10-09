@@ -140,6 +140,55 @@ func TestGrantNeedsTheUsersExactApproval(t *testing.T) {
 	}
 }
 
+// A grant restart ends the child before it relaunches it, and between the two
+// the row reads dead with no pane. A child that had reported back to its
+// spawner was archived in that gap by the child sweep (2026-10-09), so the
+// relaunch came up under a row nothing polled. A restart that never comes
+// back holds the gap open: the row must still not be one the sweep files.
+func TestAGrantRestartIsNotFiledAsAnExitedChild(t *testing.T) {
+	h, child := grantHarness(t)
+	if err := h.store.SetAgentLaunchedAt(child.ID, time.Now().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	report, _, err := h.store.Enqueue(store.InboxMessage{
+		SessionID: h.caller.ID, SenderID: child.ID, SenderName: child.Name,
+		Body: "done", SentAt: time.Now().Add(-time.Minute),
+	}, store.DefaultInboxLimits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.store.MarkDelivered(report, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	probe := grant.Grant{Kind: grant.KindSoft, Value: "gh pr merge 2546"}
+	question := ApprovalQuestion(child, probe, DefaultGrantTTL)
+	asked := time.Now().Add(-time.Minute)
+	(&transcript{}).ask("toolu_yes", asked, question).
+		answer("toolu_yes", asked.Add(time.Second), map[string]string{question.Question: "Grant"}).
+		write(t, h.sessions.claudeHome, "conv-parent")
+	if err := os.RemoveAll(child.Cwd); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{Kind: string(probe.Kind), Value: probe.Value}); err == nil ||
+		!strings.Contains(err.Error(), "did not come back") {
+		t.Fatalf("grant err = %v, want the relaunch to fail on the missing directory", err)
+	}
+	row, err := h.store.Get(child.ID)
+	if err != nil || row.Status != status.Dead {
+		t.Fatalf("row = %+v, %v; want it dead between the kill and the relaunch", row, err)
+	}
+	filed, err := h.store.AutoArchivableChildren(time.Now().Add(-30 * time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range filed {
+		if c.ID == child.ID {
+			t.Fatalf("the sweep would file %s mid-restart (%s)", child.ID, c.Reason)
+		}
+	}
+}
+
 func TestGrantRefusesWhatNoApprovalCovers(t *testing.T) {
 	h, child := grantHarness(t)
 	_, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{Kind: "rule", Value: "Bash(*)"})

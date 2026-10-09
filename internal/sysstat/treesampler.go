@@ -106,7 +106,7 @@ func (s *TreeSampler) Sample(rootPIDs []int, argvRoots map[int]bool) map[int]Pro
 		if argvRoots[root] {
 			mark = s.argvMark
 		}
-		stat, alive := sampleTree(root, mark)
+		stat, alive := sampleTree(root, mark, 0)
 		if !alive {
 			// A root with no /proc entry has exited. Leaving it out is what
 			// Trees does for a pid ps did not list, and the caller reads a
@@ -127,13 +127,17 @@ func (s *TreeSampler) Sample(rootPIDs []int, argvRoots map[int]bool) map[int]Pro
 // that substring in its argv. "Live" excludes a job-control-stopped process:
 // a stopped process runs nothing, so a flag on its command line describes
 // what it would do if resumed rather than anything happening now.
-func sampleTree(root int, argvMark string) (ProcStat, bool) {
+//
+// uptime, when above zero, is the host's seconds since boot, and each
+// process's lifetime CPU share is summed into PCPU against it the way ps
+// computes %cpu. The sampler passes zero: it keeps the seeding scan's figure.
+func sampleTree(root int, argvMark string, uptime float64) (ProcStat, bool) {
 	info, ok := readProcStat(root)
 	if !ok {
 		return ProcStat{}, false
 	}
 	pageSize := uint64(os.Getpagesize())
-	stat := ProcStat{OK: true, Procs: 1, CPUSeconds: info.cpuSeconds, RSS: info.rssPages * pageSize}
+	stat := ProcStat{OK: true, Procs: 1, CPUSeconds: info.cpuSeconds, RSS: info.rssPages * pageSize, PCPU: lifetimePCPU(info, uptime)}
 	stat.ArgvMarkOK = argvMark != ""
 	stat.ArgvMark = stat.ArgvMarkOK && liveCarriesMark(root, info, argvMark)
 
@@ -163,6 +167,7 @@ func sampleTree(root int, argvMark string) (ProcStat, bool) {
 		stat.Procs++
 		stat.CPUSeconds += info.cpuSeconds
 		stat.RSS += info.rssPages * pageSize
+		stat.PCPU += lifetimePCPU(info, uptime)
 		// Short-circuited on purpose. The mark is normally on the pane's
 		// first child, so a healthy tree pays one cmdline read; only a tree
 		// that does not carry it anywhere pays one per process, and that is
@@ -173,6 +178,49 @@ func sampleTree(root int, argvMark string) (ProcStat, bool) {
 		queue = append(queue, childrenOf(pid, info.threads)...)
 	}
 	return stat, true
+}
+
+// lifetimePCPU is ps's %cpu for one process: its CPU time over the time it
+// has existed, 100 being one core. Zero without an uptime to measure against.
+func lifetimePCPU(info procInfo, uptime float64) float64 {
+	alive := uptime - info.startSeconds
+	if uptime <= 0 || alive <= 0 {
+		return 0
+	}
+	return info.cpuSeconds / alive * 100
+}
+
+// Tree is Trees for one root, read straight from /proc where the kernel
+// lists children, and through Trees elsewhere.
+//
+// The focused pane's process line asks for this every 1.2 seconds. Trees
+// forks ps twice to answer, and the first of those walks every process on the
+// machine to report on the dozen under one pane. The walk here reads only
+// those, and forks nothing.
+func Tree(root int) (ProcStat, bool) {
+	if !procChildren() {
+		stat, ok := Trees([]int{root})[root]
+		return stat, ok
+	}
+	uptime, ok := readUptime()
+	if !ok {
+		stat, ok := Trees([]int{root})[root]
+		return stat, ok
+	}
+	return sampleTree(root, "", uptime)
+}
+
+// readUptime is the host's seconds since boot, the first field of
+// /proc/uptime, which is the clock /proc/<pid>/stat's starttime counts on.
+func readUptime() (float64, bool) {
+	var uptime float64
+	var ok bool
+	withProcFile("/proc/uptime", func(raw []byte) {
+		first, _, _ := strings.Cut(string(raw), " ")
+		value, err := strconv.ParseFloat(first, 64)
+		uptime, ok = value, err == nil && value > 0
+	})
+	return uptime, ok
 }
 
 // liveCarriesMark reports whether a process is one whose argv can speak for
@@ -260,6 +308,8 @@ type procInfo struct {
 	// stopped is job-control stopped ("T") or tracing stopped ("t"). Such a
 	// process is scheduled nothing until somebody continues it.
 	stopped bool
+	// startSeconds is when the process started, in seconds after boot.
+	startSeconds float64
 }
 
 // readProcStat pulls cumulative CPU seconds, resident pages, thread count and
@@ -293,7 +343,7 @@ func parseProcStat(line string) (procInfo, bool) {
 	// fields[0] is "state", which proc(5) numbers as field 3, so field N
 	// lives at fields[N-3].
 	fields := strings.Fields(line[comm+2:])
-	const state, utime, stime, numThreads, rss = 3, 14, 15, 20, 24
+	const state, utime, stime, numThreads, starttime, rss = 3, 14, 15, 20, 22, 24
 	if len(fields) <= rss-3 {
 		return procInfo{}, false
 	}
@@ -301,13 +351,15 @@ func parseProcStat(line string) (procInfo, bool) {
 	sys, err2 := strconv.ParseFloat(fields[stime-3], 64)
 	count, err4 := strconv.Atoi(fields[numThreads-3])
 	pages, err3 := strconv.ParseUint(fields[rss-3], 10, 64)
-	if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
+	started, err5 := strconv.ParseFloat(fields[starttime-3], 64)
+	if err1 != nil || err2 != nil || err3 != nil || err4 != nil || err5 != nil {
 		return procInfo{}, false
 	}
 	return procInfo{
-		cpuSeconds: (user + sys) / clockTicks,
-		rssPages:   pages,
-		threads:    count,
-		stopped:    fields[state-3] == "T" || fields[state-3] == "t",
+		cpuSeconds:   (user + sys) / clockTicks,
+		rssPages:     pages,
+		threads:      count,
+		stopped:      fields[state-3] == "T" || fields[state-3] == "t",
+		startSeconds: started / clockTicks,
 	}, true
 }

@@ -1897,6 +1897,11 @@ func noServer(out string) bool {
 // live on a server this pass could not read; Gone holds only the first kind.
 type PaneScan struct {
 	PIDs map[string]int
+	// Paths is where each managed session's pane sits now, as
+	// PaneCurrentPath reads it, from the same listing as PIDs. A caller
+	// describing every session reads it here rather than asking tmux once
+	// per session. Adopted sessions are not in it.
+	Paths map[string]string
 	// Gone is the adopted sessions whose pane is proven no longer there:
 	// their server produced a pane listing, and the pane was not on it. A
 	// server that could not be listed at all fails the whole scan rather
@@ -1943,7 +1948,7 @@ func (d *Driver) ScanPanes() (PaneScan, error) {
 }
 
 func (d *Driver) scanPanes(ctx context.Context) (PaneScan, error) {
-	out, err := d.combinedWithin(ctx, d.args("list-panes", "-a", "-F", "#{session_name} #{pane_pid}"))
+	out, err := d.combinedWithin(ctx, d.args("list-panes", "-a", "-F", "#{session_name} #{pane_pid} #{pane_current_path}"))
 	// A deadline that fired is not an answer about this server, so it is
 	// checked ahead of the no-server reading below: that one treats silence
 	// as "no sessions here", which is the reading a timeout must never get.
@@ -1959,9 +1964,11 @@ func (d *Driver) scanPanes(ctx context.Context) (PaneScan, error) {
 	if err != nil {
 		out = nil
 	}
-	scan := PaneScan{PIDs: map[string]int{}, Gone: map[string]bool{}}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		name, pidText, ok := strings.Cut(line, " ")
+	scan := PaneScan{PIDs: map[string]int{}, Paths: map[string]string{}, Gone: map[string]bool{}}
+	// Only line breaks are trimmed: a trailing space on the last pane's
+	// path is part of the directory name.
+	for _, line := range strings.Split(strings.TrimRight(string(out), "\r\n"), "\n") {
+		name, rest, ok := strings.Cut(line, " ")
 		if !ok || !managedName(name) {
 			continue
 		}
@@ -1969,8 +1976,12 @@ func (d *Driver) scanPanes(ctx context.Context) (PaneScan, error) {
 		if _, taken := scan.PIDs[id]; taken {
 			continue
 		}
+		pidText, path, _ := strings.Cut(rest, " ")
 		if pid, err := strconv.Atoi(pidText); err == nil {
 			scan.PIDs[id] = pid
+			if path = strings.TrimSuffix(path, "\r"); path != "" {
+				scan.Paths[id] = path
+			}
 		}
 	}
 	if err := d.adoptedPanes(ctx, scan); err != nil {

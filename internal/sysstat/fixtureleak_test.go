@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 // TestTheProcessTreeFixtureOutlivesNothing is what keeps the leak from coming
@@ -75,7 +77,7 @@ func TestAKilledRunLeavesNoFixtureBehind(t *testing.T) {
 	}
 
 	child := exec.Command(os.Args[0], "-test.run=^TestAKilledRunLeavesNoFixtureBehind$")
-	child.Env = append(os.Environ(), fixtureOrphanEnv+"=1")
+	child.Env = append(tmuxtest.Environ(), fixtureOrphanEnv+"=1")
 	out, err := child.StdoutPipe()
 	if err != nil {
 		t.Fatal(err)

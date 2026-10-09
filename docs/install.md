@@ -9,7 +9,7 @@ archives, package-manager entries and an install script come with the first rele
 
 | Tool | What it powers |
 | --- | --- |
-| Go 1.27.1+ | building the binary |
+| Go 1.27.2+ | building the binary |
 | tmux 3.1+ | every agent session |
 | git | repository roots, session-end pruning |
 | wl-clipboard, xclip, or xsel | pasting images into a prompt on Linux |

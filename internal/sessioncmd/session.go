@@ -207,6 +207,18 @@ func (r *runtime) deliverable(target store.Session) error {
 	return nil
 }
 
+// currentInfo is sessionInfo for a row whose liveness is not known yet. One tmux
+// call answers both whether its pane is alive and where it sits; asking
+// Exists first and then sessionInfo is two, and a board extension asks this
+// of every session it watches on every poll pass.
+func (r *runtime) currentInfo(sess store.Session, self bool) Session {
+	dir, live := r.driver.LivePaneDir(sess.ID)
+	if dir == "" {
+		dir = sess.Cwd
+	}
+	return r.sessionInfoIn(sess, dir, live, self)
+}
+
 func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 	dir := sess.Cwd
 	if running {
@@ -214,6 +226,11 @@ func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 			dir = current
 		}
 	}
+	return r.sessionInfoIn(sess, dir, running, self)
+}
+
+// sessionInfoIn is sessionInfo with the directory already read.
+func (r *runtime) sessionInfoIn(sess store.Session, dir string, running, self bool) Session {
 	return Session{
 		ID:        sess.ID,
 		Name:      sess.Name,
@@ -1259,7 +1276,7 @@ func (s *Sessions) Get(sessionID, targetID string) (got Session, err error) {
 	if err != nil {
 		return Session{}, err
 	}
-	return runtime.sessionInfo(target, runtime.driver.Exists(target.ID), target.ID == sessionID), nil
+	return runtime.currentInfo(target, target.ID == sessionID), nil
 }
 
 // Kill stops a session's pane and leaves its row dead, keeping the last

@@ -1846,6 +1846,23 @@ func (d *Driver) PanePID(id string) (int, error) {
 	return strconv.Atoi(line)
 }
 
+// LivePaneDir is Exists and PaneCurrentPath in one tmux call: whether the
+// session's pane is there, and the directory it sits in when tmux can say.
+// The pane id coming back is the proof of life, as it is for Exists on an
+// adopted pane, so a pane whose directory cannot be read is still live.
+func (d *Driver) LivePaneDir(id string) (dir string, live bool) {
+	out, err := d.paneProperty(id, "#{pane_id} #{pane_current_path}")
+	if err != nil {
+		return "", false
+	}
+	line := strings.TrimSuffix(strings.SplitN(out, "\n", 2)[0], "\r")
+	pane, dir, _ := strings.Cut(line, " ")
+	if pane == "" {
+		return "", false
+	}
+	return dir, true
+}
+
 // PaneCurrentPath is where the session's pane sits now, which follows any
 // cd the shell or the agent made since launch, unlike the directory the
 // session was created in.

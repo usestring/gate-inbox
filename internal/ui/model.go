@@ -699,6 +699,9 @@ type Model struct {
 	// archived, restored, or deleted a group, a poll that listed the store
 	// before that moment must not put the old state back on the tree.
 	goneGroups map[string]goneMark
+	// reorders are this run's manual swaps a poll may not have listed yet;
+	// see holdReorders.
+	reorders []reorderMark
 	// terminalKeyAt is when the last T finished being handled. Held down it
 	// autorepeats into a burst of keystrokes, and T is the only key that
 	// spawns on the keystroke itself rather than opening a form that would
@@ -2216,6 +2219,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// own is no longer marked as adopted.
 		m.syncAdoptedHooks(time.Now())
 		m.groups = msg.groups
+		m.holdReorders(msg.listedAt)
 		m.groupPaths = msg.groupPaths
 		m.archivedGroups = msg.archivedGroups
 		m.priorityGroups = msg.priorityGroups

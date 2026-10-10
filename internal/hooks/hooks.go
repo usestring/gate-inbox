@@ -19,8 +19,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/envname"
@@ -259,6 +261,55 @@ func hookCommandLine(verb string) string {
 		`" ] || "$` + EnvExecutable + `" hook ` + verb + ` 2>/dev/null; }; exit 0`
 }
 
+// ExtensionHook is one Claude Code hook a build's extension runs on: the
+// extension's ID, the event, and the matcher (extension.ClaudeHook).
+type ExtensionHook struct {
+	ID      string
+	Event   string
+	Matcher string
+}
+
+var (
+	extensionHooksMu sync.Mutex
+	extensionHooks   []ExtensionHook
+)
+
+// UseExtensionHooks sets the extension hooks every settings file this
+// process writes carries, after the board's own. The list depends on the
+// build alone, never on config, so every process writing the shared file
+// writes the same one. It returns a func restoring the previous list, for
+// tests.
+func UseExtensionHooks(list []ExtensionHook) (restore func()) {
+	extensionHooksMu.Lock()
+	defer extensionHooksMu.Unlock()
+	previous := extensionHooks
+	extensionHooks = slices.Clone(list)
+	return func() {
+		extensionHooksMu.Lock()
+		defer extensionHooksMu.Unlock()
+		extensionHooks = previous
+	}
+}
+
+func currentExtensionHooks() []ExtensionHook {
+	extensionHooksMu.Lock()
+	defer extensionHooksMu.Unlock()
+	return extensionHooks
+}
+
+// ExtensionHookVerb is the hook subcommand an extension's hook runs:
+// `hook ext <id> <event>`.
+const ExtensionHookVerb = "ext"
+
+// extensionHookCommand hands one extension hook's payload to the extension
+// with id, through the same prelude as the board's own verbs, so a session
+// that is not on the board starts no process. The ID and event were checked
+// against the extension package's patterns, which leave nothing a shell
+// would read.
+func extensionHookCommand(id, event string) string {
+	return hookCommandLine(ExtensionHookVerb + " " + id + " " + event)
+}
+
 func settingsContent(keyDir string) ([]byte, error) {
 	run := func(matcher, command string) []hookMatcher {
 		return []hookMatcher{{Matcher: matcher, Hooks: []hookCommand{{Type: "command", Command: command}}}}
@@ -284,6 +335,9 @@ func settingsContent(keyDir string) ([]byte, error) {
 			Command: sessionEndCommand(),
 		}}}},
 	}}
+	for _, hook := range currentExtensionHooks() {
+		content.Hooks[hook.Event] = append(content.Hooks[hook.Event], run(hook.Matcher, extensionHookCommand(hook.ID, hook.Event))...)
+	}
 	content.Permissions, content.Sandbox = KeyDirDenials(keyDir)
 	return json.MarshalIndent(content, "", "  ")
 }

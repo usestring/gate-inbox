@@ -1167,6 +1167,33 @@ func (n *noop) Killed(_ context.Context, kill extension.KillContext) {
 	n.record("kills.txt", fmt.Sprintf("%s %s %s %s", kill.Session.ID, kill.Via, kill.By, kill.Session.Status))
 }
 
+// ClaudeHooks runs on one tool's PreToolUse, the way a policy on what a
+// Slack post may carry would. NOOP_FIXTURE_BAD_HOOK stands in for a build
+// whose hook names an event no extension can run on.
+func (n *noop) ClaudeHooks() []extension.ClaudeHook {
+	if os.Getenv("NOOP_FIXTURE_BAD_HOOK") != "" {
+		return []extension.ClaudeHook{{Event: "SessionEnd"}}
+	}
+	return []extension.ClaudeHook{{Event: "PreToolUse", Matcher: "mcp__fixture__post"}}
+}
+
+// RunClaudeHook signs the post's text with the configured greeting,
+// carrying every other field of the tool's input over.
+func (n *noop) RunClaudeHook(_ context.Context, call extension.ClaudeHookCall) ([]byte, error) {
+	var payload struct {
+		ToolInput map[string]any `json:"tool_input"`
+	}
+	if err := json.Unmarshal(call.Payload, &payload); err != nil {
+		return nil, err
+	}
+	text, _ := payload.ToolInput["text"].(string)
+	payload.ToolInput["text"] = text + " -- " + n.greeting + " (" + call.SessionID + ")"
+	return json.Marshal(map[string]any{"hookSpecificOutput": map[string]any{
+		"hookEventName": "PreToolUse",
+		"updatedInput":  payload.ToolInput,
+	}})
+}
+
 // items is a second extension with one tool, so a test can refuse one
 // extension's section and watch the other keep serving.
 type items struct{ label string }

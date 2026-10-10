@@ -896,7 +896,7 @@ func (d *Driver) RefreshChrome(id string) error {
 // gone out, so it spends whatever window the pane takes to draw the paste;
 // a caller that cannot stall for a pane sends with SendTextAsync instead.
 func (d *Driver) SendText(id, text string) error {
-	submit, err := d.pasteHoldingSubmit(id, text)
+	submit, err := d.pasteHoldingSubmit(id, text, nil)
 	if err != nil {
 		return err
 	}
@@ -912,8 +912,15 @@ func (d *Driver) SendText(id, text string) error {
 // A pane mid-turn is exactly the pane that will not draw a paste promptly,
 // so this is how the poll pass sends; what that was costing the board is in
 // internal/ui/asyncsend.go.
-func (d *Driver) SendTextAsync(id, text string, submitted func(error)) error {
-	submit, err := d.pasteHoldingSubmit(id, text)
+//
+// The caller judged the pane from a capture taken before the paste, and an
+// agent mid-turn can put a dialog up in between. A dialog swallows the paste
+// and takes the Enter as its answer, ticking or picking whatever row its
+// cursor is on. So hold, when non-nil, is shown the pane once more just
+// before the Enter; reporting true leaves the Enter unpressed and submitted
+// gets ErrSubmitHeld.
+func (d *Driver) SendTextAsync(id, text string, hold func(pane string) bool, submitted func(error)) error {
+	submit, err := d.pasteHoldingSubmit(id, text, hold)
 	if err != nil {
 		return err
 	}
@@ -972,7 +979,11 @@ func (d *Driver) pasteWindow() time.Duration {
 // Operator keystrokes deliberately do not wait -- they already race a
 // synchronous send's Enter, and delivery is held off a pane someone is
 // typing into by rules further up rather than by a lock down here.
-func (d *Driver) pasteHoldingSubmit(id, text string) (func() error, error) {
+// ErrSubmitHeld reports a paste left unsubmitted because the pane showed
+// something the Enter would have answered.
+var ErrSubmitHeld = errors.New("the pane put up a dialog before the paste was submitted, so Enter was not pressed")
+
+func (d *Driver) pasteHoldingSubmit(id, text string, hold func(pane string) bool) (func() error, error) {
 	done := d.claimPane(id)
 	before, baseline := d.capturePlain(id)
 	if err := d.paste(id, text); err != nil {
@@ -988,6 +999,11 @@ func (d *Driver) pasteHoldingSubmit(id, text string) (func() error, error) {
 			time.Sleep(d.pasteWindow())
 		} else {
 			d.awaitPasteEcho(id, before, text)
+		}
+		if hold != nil {
+			if pane, err := d.capturePlain(id); err == nil && hold(pane) {
+				return ErrSubmitHeld
+			}
 		}
 		_, err := d.runAt(id, "send-keys", "-t", d.TargetName(id), "Enter")
 		return err

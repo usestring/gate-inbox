@@ -1,8 +1,17 @@
 package sysstat
 
 import (
+	"bufio"
+	"errors"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 // TestTheProcessTreeFixtureOutlivesNothing is what keeps the leak from coming
@@ -49,5 +58,54 @@ func awaitAtLeast(want int, within time.Duration) int {
 			return got
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// fixtureOrphanEnv makes TestAKilledRunLeavesNoFixtureBehind's re-executed
+// child start a fixture and kill itself before any cleanup runs.
+const fixtureOrphanEnv = "GATE_INBOX_SYSSTAT_FIXTURE_ORPHAN"
+
+// TestAKilledRunLeavesNoFixtureBehind is the case the cleanup above cannot
+// reach: a test binary that dies by -timeout or SIGKILL runs no t.Cleanup, and
+// the busy loop it started outlived it by six days.
+func TestAKilledRunLeavesNoFixtureBehind(t *testing.T) {
+	if os.Getenv(fixtureOrphanEnv) == "1" {
+		cmd := startFixture(t, `while :; do :; done & sh -c 'sleep 60' "$0" & wait`)
+		os.Stdout.WriteString("pgid=" + strconv.Itoa(cmd.Process.Pid) + "\n")
+		_ = syscall.Kill(os.Getpid(), syscall.SIGKILL)
+		select {}
+	}
+
+	child := exec.Command(os.Args[0], "-test.run=^TestAKilledRunLeavesNoFixtureBehind$")
+	child.Env = append(tmuxtest.Environ(), fixtureOrphanEnv+"=1")
+	out, err := child.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := child.Start(); err != nil {
+		t.Skipf("cannot re-exec the test binary: %v", err)
+	}
+	pgid := 0
+	scanner := bufio.NewScanner(out)
+	for scanner.Scan() {
+		if v, ok := strings.CutPrefix(scanner.Text(), "pgid="); ok {
+			pgid, _ = strconv.Atoi(v)
+		}
+	}
+	_ = child.Wait()
+	if pgid == 0 {
+		t.Fatal("the child never reported its fixture's process group")
+	}
+	t.Cleanup(func() { _ = syscall.Kill(-pgid, syscall.SIGKILL) })
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if err := syscall.Kill(-pgid, 0); errors.Is(err, syscall.ESRCH) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("process group %d outlived the killed test binary that started it", pgid)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

@@ -48,8 +48,8 @@ Gate Inbox reads the panes; it does not sit between you and the model.
 | An agent pane you started by hand, kept as-is... | Relaunched into the board, it... |
 |---|---|
 | keeps running where it is, in its own window | is ended once idle and resumed on the same conversation as a board session |
-| has none of the board's MCP tools (spawn, message, tasks) | gets them |
-| can't be reached by other sessions or the CLI (`send`, `read`, `answer`, `wait`, `kill`) | can be |
+| gets the board's MCP tools (spawn, message, tasks) through the relay the board registers in your Claude Code user config (Claude Code only; other CLIs get none) | gets them |
+| is reached by other sessions and the CLI from its row (`send`, `read`, `wait`, `kill`, and `answer` from the session that tracks it) | is reached the same way |
 | reports status through the hooks the board registers in your Claude Code user settings (Claude Code only) | reports status through the hooks it is launched with |
 | lacks the `GATE_INBOX_*` environment, extension settings and a fresh account token | gets all three |
 | can't be forked, migrated, restarted or revived without a conversation id | can, on its own conversation |

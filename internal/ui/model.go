@@ -27,6 +27,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/promptsnips"
+	"github.com/usestring/gate-inbox/internal/restartpresets"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/sessname"
 	"github.com/usestring/gate-inbox/internal/snippets"
@@ -76,6 +77,10 @@ const (
 	// and shows the key it is on. See quickactions.go.
 	modeQuickActions
 	modePanePicker
+	modeRestartWith
+	// modeHeadPane routes the keyboard into the page behind an extension's
+	// header row, drawn where a session's pane is. See headpane.go.
+	modeHeadPane
 )
 
 type treeRow struct {
@@ -91,14 +96,20 @@ type treeRow struct {
 	// that reaches an artifact row and acts on sess acts on the session that
 	// opened the artifact, which is the only session the row has ever meant.
 	art *workRow
+	// head is the extension whose header this row is, drawn over sess: see
+	// headrows.go.
+	head string
 }
 
 // isArtifact marks a row that draws a pull request or a ticket.
 func (e treeRow) isArtifact() bool { return e.art != nil }
 
+// isHead marks a row that is an extension's header over a session.
+func (e treeRow) isHead() bool { return e.head != "" }
+
 // isSession marks a row that is a session itself, as against the group above
-// it or the work hanging off it.
-func (e treeRow) isSession() bool { return !e.isGroup && e.art == nil }
+// it, the header over it or the work hanging off it.
+func (e treeRow) isSession() bool { return !e.isGroup && e.art == nil && e.head == "" }
 
 type Model struct {
 	cfg    config.Config
@@ -110,9 +121,17 @@ type Model struct {
 
 	// snips are the operator's canned answers, read once at startup;
 	// snipErr is why there are none, when the file would not be read.
-	snips          snippets.Set
-	snipErr        string
+	snips   snippets.Set
+	snipErr string
+	// restartFlags are the operator's canned restart flag sets, read once
+	// at startup; restartFlagErr is why there are none, when the file
+	// would not be read.
+	restartFlags   restartpresets.Set
+	restartFlagErr string
 	jevAutoSuggest bool
+	// jevSavedKey is the TypeSafe key pasted in Settings → JEV, read once
+	// at startup; TYPESAFE_API_KEY still wins over it (see jevKey).
+	jevSavedKey    string
 	jevFinishCheck bool
 	jevFinish      jevFinishState
 	promptSuggest  bool
@@ -136,7 +155,7 @@ type Model struct {
 	extBadges map[string][]Badge
 	// extHeaders, extHidden, extOwned and extFilters are the rows' headers,
 	// the hidden and owned rows, and the list filters: see extrows.go.
-	extHeaders map[string][][]Span
+	extHeaders map[string][]extHeader
 	extHidden  map[string]bool
 	extOwned   map[string]bool
 	extFilters []*listFilter
@@ -147,6 +166,11 @@ type Model struct {
 	// extView is the view on screen in modeExtensionView.
 	extScreens map[keymap.Context]bool
 	extView    openView
+	// headPanes are the pages behind the header rows, by row key; see
+	// headpane.go. headReturn is a card opened from a focused page, which
+	// hands the keyboard back to that page when it closes.
+	headPanes  map[string]*openView
+	headReturn bool
 
 	// extensionNotes are the build's extensions the operator's config
 	// switched off, and the config sections nothing owns, each with its
@@ -499,8 +523,10 @@ type Model struct {
 	focusHistory      []string
 	previewBodyOffset int
 	cursor            int
-	mode              mode
-	showArchived      bool
+	// listTop is the first entry the rail drew last frame; see entryLines.
+	listTop      listAnchor
+	mode         mode
+	showArchived bool
 	// showAllWork lifts the cap on the pull requests and tickets a session
 	// hangs on the rail, for a reader who came for the tail. Off at every
 	// start: the cap is what keeps one busy session off the whole screen.
@@ -510,7 +536,10 @@ type Model struct {
 	archiveSweptAt  time.Time
 	hideEmptyGroups bool
 	statusFilter    statusFilter
-	collapsed       map[string]bool
+	// toolFilter narrows the list and the triage queue to one harness --
+	// the CLI in sess.Tool -- and is "" for every harness. See toolfilter.go.
+	toolFilter string
+	collapsed  map[string]bool
 	// groupNumbers maps a group to the outline number printed beside it and
 	// groupByNumber reads that back, both rebuilt with the rows so a typed
 	// number always names the group the rail is showing. jump is the number
@@ -574,6 +603,11 @@ type Model struct {
 	// undo is what the last archive filed away so U can put it back. See
 	// archiveundo.go.
 	archiveConfirm string
+	// deleteConfirm and restartConfirm are the same persisted answer for the
+	// other two destructive confirms: whether deleting an empty group, or
+	// restarting a session, asks first. See confirmask.go.
+	deleteConfirm  string
+	restartConfirm string
 	undo           archiveUndo
 	launchFix      launchFix
 	// install is the setup-dialog install still running in a shell tab,
@@ -583,6 +617,7 @@ type Model struct {
 	fork             forkState
 	migrate          migrateState
 	account          accountState
+	restartWith      restartWithState
 	quick            quickState
 	latestSubmission submissionRescind
 	// landings are the answers waiting to be seen reaching their sessions,
@@ -615,6 +650,8 @@ type Model struct {
 	welcome     welcomeState
 	tmuxHint    tmuxHintState
 	takeover    takeoverState
+	// adoptedHooks keeps the global hooks' markers for adopted panes.
+	adoptedHooks adoptedHooksState
 	// restoreArmed is set by Init, so only a real startup marks the sessions
 	// that died while the board was closed; a Model built directly never does.
 	restoreArmed bool
@@ -664,6 +701,9 @@ type Model struct {
 	// archived, restored, or deleted a group, a poll that listed the store
 	// before that moment must not put the old state back on the tree.
 	goneGroups map[string]goneMark
+	// reorders are this run's manual swaps a poll may not have listed yet;
+	// see holdReorders.
+	reorders []reorderMark
 	// terminalKeyAt is when the last T finished being handled. Held down it
 	// autorepeats into a burst of keystrokes, and T is the only key that
 	// spawns on the keystroke itself rather than opening a form that would
@@ -763,6 +803,11 @@ type confirmTarget struct {
 	label    string
 	sessions []store.Session
 	action   string
+	// restartArgs are the extra CLI flags a restart-with-flags confirm
+	// carries, empty on every other confirm. The picker names the preset;
+	// the confirm names what it does, so the flags ride here between the
+	// two rather than in a mode the confirm would have to read back.
+	restartArgs string
 	// ack is the tick a wide answer has to pass before y means anything,
 	// empty on every dialog that names what it is about. y/↵ is one
 	// keystroke, and one keystroke is the right price for a session the
@@ -821,6 +866,8 @@ type settingsState struct {
 	palette            string
 	glyphs             string
 	archiveConfirm     string
+	deleteConfirm      string
+	restartConfirm     string
 	listSort           string
 	chrome             string
 	leaveMode          string
@@ -830,6 +877,10 @@ type settingsState struct {
 	outsidePanes       string
 	experimentalPicker bool
 	experimentalCursor int
+	jevPanel           bool
+	jevCursor          int
+	jevPasting         bool
+	jevInput           textinput.Model
 	jevAutoSuggest     bool
 	jevFinishCheck     bool
 	promptSuggest      bool
@@ -856,6 +907,8 @@ const (
 	settingsFieldPalette
 	settingsFieldGlyphs
 	settingsFieldArchiveConfirm
+	settingsFieldDeleteConfirm
+	settingsFieldRestartConfirm
 	settingsFieldListSort
 	settingsFieldChrome
 	settingsFieldLeave
@@ -864,8 +917,10 @@ const (
 	settingsFieldAutoProceed
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
+	settingsFieldJev
 	settingsFieldExperimental
 	settingsFieldSnippets
+	settingsFieldRestartFlags
 	settingsFieldCLIs
 	settingsFieldGuide
 	settingsFieldKeys
@@ -1181,6 +1236,8 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		palette:         storedPalette(st),
 		glyphs:          storedGlyphs(st),
 		archiveConfirm:  storedArchiveConfirm(st),
+		deleteConfirm:   storedConfirmAsk(st, deleteConfirmSetting),
+		restartConfirm:  storedConfirmAsk(st, restartConfirmSetting),
 		listSort:        storedListSort(st),
 		chrome:          storedChrome(st),
 		leaveMode:       storedLeaveMode(st),
@@ -1211,6 +1268,8 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	}
 	model.loadKeys()
 	model.loadSnippets()
+	model.loadRestartFlags()
+	model.loadJevKey()
 	model.seedFromStore()
 	model.triageStartupEnter = model.triage
 	model.noteOpencodeVersion(opencode.Cached())
@@ -1453,8 +1512,8 @@ func (m *Model) refreshExistingSessionUX() tea.Msg {
 // visibleSessions filters to the sessions the current view scope shows:
 // active ones normally, archived ones in the archived view. It also
 // covers the frames between a scope toggle and the next refresh, when
-// m.sessions still carries the other scope's list. Status filters apply
-// later via listedSessions.
+// m.sessions still carries the other scope's list. Status and tool filters
+// apply later via listedSessions.
 func (m *Model) visibleSessions() []store.Session {
 	visible := m.visScratch[:0]
 	if !m.painting {
@@ -1471,9 +1530,9 @@ func (m *Model) visibleSessions() []store.Session {
 	return visible
 }
 
-// listedSessions is the archived scope narrowed by the status filter.
-// Header counts, group rollups, and the tree all share this set so the
-// numbers always match what the list can show.
+// listedSessions is the archived scope narrowed by the status and tool
+// filters. Header counts, group rollups, and the tree all share this set so
+// the numbers always match what the list can show.
 //
 // The selected session stays listed when its status leaves the filter
 // (finished → idle on enter/ack) so rebuild cannot eject the cursor mid-work.
@@ -1491,17 +1550,33 @@ func (m *Model) listedSessions() []store.Session {
 func (m *Model) computeListedSessions() []store.Session {
 	visible := m.visibleSessions()
 	extFiltered := m.extensionFiltersOn()
-	if !m.statusFilter.active() && !extFiltered {
+	if !m.statusFilter.active() && !extFiltered && !m.toolFilterActive() {
 		return visible
 	}
 	heldID := ""
 	if sess, ok := m.selected(); ok {
 		heldID = sess.ID
 	}
+	var byID map[string]store.Session
+	if m.statusFilter.active() {
+		byID = make(map[string]store.Session, len(m.sessions))
+		for _, sess := range m.sessions {
+			byID[sess.ID] = sess
+		}
+	}
 	listed := make([]store.Session, 0, len(visible))
 	for _, sess := range visible {
+		// A mute is the operator's own say-so, so a muted branch leaves the
+		// status filter whole, even the row under the cursor: the hold below
+		// is for a status that moved, not for a mute.
+		if m.statusFilter.active() && inMutedBranch(sess, byID) {
+			continue
+		}
 		if sess.ID == heldID {
 			listed = append(listed, sess)
+			continue
+		}
+		if m.toolFilterActive() && !m.matchesToolFilter(sess) {
 			continue
 		}
 		if extFiltered && !m.extensionFiltersKeep(sess) {
@@ -1569,6 +1644,11 @@ func (m *Model) selectedIndex() (int, bool) {
 		return 0, false
 	}
 	index := m.cursor
+	// A header row heads the session drawn just below it, past any other
+	// extension's header over the same session.
+	for index < len(m.rows)-1 && m.rows[index].isHead() {
+		index++
+	}
 	for index > 0 && m.rows[index].isArtifact() {
 		index--
 	}
@@ -2137,7 +2217,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if result := m.takeoverPass(); result.taken > 0 || len(result.failed) > 0 {
 			m.reportTakeover(result)
 		}
+		// After the takeover, so a pane it just relaunched as the manager's
+		// own is no longer marked as adopted.
+		m.syncAdoptedHooks(time.Now())
 		m.groups = msg.groups
+		m.holdReorders(msg.listedAt)
 		m.groupPaths = msg.groupPaths
 		m.archivedGroups = msg.archivedGroups
 		m.priorityGroups = msg.priorityGroups
@@ -2583,7 +2667,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev())
 
 	case tea.PasteMsg:
-		if m.mode == modeExtensionView {
+		if m.mode == modeSettings && m.settings.jevPasting {
+			return m, m.pasteIntoJevKey(msg)
+		}
+		if m.mode == modeExtensionView || m.mode == modeHeadPane {
 			return m, m.pasteIntoView(msg)
 		}
 		if m.mode == modeFocus {
@@ -2817,6 +2904,8 @@ func rowKey(entry treeRow) string {
 		return "g:" + entry.group
 	case entry.isArtifact():
 		return "a:" + entry.sess.ID + ":" + entry.art.kind + ":" + entry.art.label
+	case entry.isHead():
+		return "h:" + entry.head + ":" + entry.sess.ID
 	}
 	return "s:" + entry.sess.ID
 }
@@ -2856,7 +2945,7 @@ func (m *Model) cursorSessionID() string {
 
 // buildTree walks the group tree depth-first and emits one row per
 // group node and per session, honoring collapse state, search, and the
-// status filter. The cursor follows the previously selected row's
+// status and tool filters. The cursor follows the previously selected row's
 // identity, so list changes from the 2s poll never yank the selection.
 func (m *Model) buildTree() {
 	m.railCursorSess = m.cursorSessionID()
@@ -2870,7 +2959,7 @@ func (m *Model) buildTree() {
 		previousKey = rowKey(entry)
 	}
 	query := strings.ToLower(strings.TrimSpace(m.search))
-	prunedView := query != "" || m.statusFilter.active()
+	prunedView := query != "" || m.statusFilter.active() || m.toolFilterActive()
 
 	listed := store.OrderLinkedSessions(m.listedSessions())
 	listedIDs := make(map[string]bool, len(listed))
@@ -3049,6 +3138,7 @@ func (m *Model) buildTree() {
 		if extHides(sess) {
 			return
 		}
+		rows = append(rows, m.headRows(sess, depth)...)
 		rows = append(rows, treeRow{sess: sess, depth: depth})
 		rows = append(rows, m.artifactRows(sess, depth+1)...)
 		appendChildren(sess, depth, map[string]bool{sess.ID: true})
@@ -3078,10 +3168,16 @@ func (m *Model) buildTree() {
 			if m.triage && m.foldsAway(child) && m.parentOwns(child, time.Now(), livePanes) {
 				continue
 			}
+			// A muted child is off triage the same as a muted top-level
+			// session, and takes what hangs under it along.
+			if m.triage && child.Muted {
+				continue
+			}
 			if drawn[child.ID] {
 				continue
 			}
 			drawn[child.ID] = true
+			rows = append(rows, m.headRows(child, childDepth)...)
 			rows = append(rows, treeRow{sess: child, depth: childDepth})
 			rows = append(rows, m.artifactRows(child, childDepth+1)...)
 			appendChildren(child, childDepth, drawn)
@@ -3118,6 +3214,13 @@ func (m *Model) buildTree() {
 				continue
 			}
 			for _, sess := range groupSessions {
+				// A persistently muted session is off the triage queue entirely:
+				// it is not a thing the drain walks past, it is not on the
+				// rail the drain reads. Its row is still on the list, where
+				// it reads "muted"; see persistentmute.go.
+				if m.triage && sess.Muted {
+					continue
+				}
 				kept[sess.ID] = true
 			}
 		}
@@ -3183,6 +3286,7 @@ func (m *Model) buildTree() {
 }
 
 func (m *Model) restoreCursor(previousKey string) {
+	defer m.settleHeadPanes()
 	if previousKey != "" {
 		for i, entry := range m.rows {
 			if rowKey(entry) == previousKey {
@@ -3302,7 +3406,8 @@ func matchesLiteralMetadata(sess store.Session, query string) bool {
 	return search.Match(strings.ToLower(sess.Name), query) ||
 		search.Match(strings.ToLower(sess.Tool), query) ||
 		search.Match(strings.ToLower(sess.Group), query) ||
-		search.Match(strings.ToLower(sess.Status), query)
+		search.Match(strings.ToLower(sess.Status), query) ||
+		sess.Muted && search.Match(mutedStatusLabel, query)
 }
 
 // matchesSearch also reaches into what the session is showing, so the one

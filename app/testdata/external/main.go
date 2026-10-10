@@ -707,7 +707,7 @@ func (n *noop) UI(host extension.UIHost) (extension.UI, error) {
 		Label:  "open a child view",
 	}, {
 		Action: "noop_compose",
-		Keys:   []string{"U"},
+		Keys:   []string{"E"},
 		Label:  "compose a note",
 		Run: func(context.Context, extension.Press) error {
 			dir, err := n.config.DataDir()
@@ -724,7 +724,7 @@ func (n *noop) UI(host extension.UIHost) (extension.UI, error) {
 		Label:  "clear the note",
 	}}, Filters: []extension.Filter{{
 		Action: "noop_roots",
-		Keys:   []string{"Y"},
+		Keys:   []string{"R"},
 		Label:  "only sessions with no parent",
 		Badge:  "roots",
 		Keep:   func(s extension.SessionInfo) bool { return s.ParentID == "" },

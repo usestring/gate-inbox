@@ -48,6 +48,10 @@ func (m mode) String() string {
 		return "quick-actions"
 	case modePanePicker:
 		return "pane-picker"
+	case modeRestartWith:
+		return "restart-with"
+	case modeHeadPane:
+		return "head-pane"
 	}
 	return fmt.Sprintf("mode(%d)", int(m))
 }
@@ -148,6 +152,8 @@ func (m *Model) snapshotDispatch(key tea.KeyPressMsg) dispatchSnapshot {
 		snap.row, snap.name = "group", entry.group
 	case entry.isArtifact():
 		snap.row, snap.name = "artifact", entry.art.label
+	case entry.isHead():
+		snap.row, snap.name = "header", entry.sess.Name
 	default:
 		snap.row, snap.name = "session", entry.sess.Name
 	}

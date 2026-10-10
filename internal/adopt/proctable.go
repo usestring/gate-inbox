@@ -1,7 +1,10 @@
 package adopt
 
 import (
+	"path/filepath"
 	"sort"
+	"strings"
+	"time"
 
 	"github.com/shirou/gopsutil/v4/process"
 )
@@ -82,6 +85,65 @@ func (t *ProcTable) PIDs(pid int32) []int {
 	return pids
 }
 
+// ForegroundCommand is the pane's foreground command with its arguments, when
+// tmux reports only an interpreter such as node, so a shebang CLI can be
+// identified by its script path while descendants the agent started stay out
+// of the evidence. Any other command, or a process that cannot be read, comes
+// back as tmux reported it.
+func (t *ProcTable) ForegroundCommand(c Candidate) string {
+	if !interpreters[filepath.Base(c.Command)] {
+		return c.Command
+	}
+	if _, cmdline, ok := t.foreground(c); ok {
+		return cmdline
+	}
+	return c.Command
+}
+
+// ForegroundStart is when the process tmux names as the pane's foreground
+// command started, the earliest moment a conversation it owns can date from.
+func (t *ProcTable) ForegroundStart(c Candidate) (time.Time, bool) {
+	proc, _, ok := t.foreground(c)
+	if !ok {
+		return time.Time{}, false
+	}
+	created, err := proc.CreateTime()
+	if err != nil || created <= 0 {
+		return time.Time{}, false
+	}
+	return time.UnixMilli(created), true
+}
+
+// foreground is the first process below the pane's own that is in the
+// terminal's foreground group and runs the command tmux reported -- the
+// process tmux named.
+func (t *ProcTable) foreground(c Candidate) (*process.Process, string, bool) {
+	var (
+		found   *process.Process
+		cmdline string
+	)
+	t.walk(c.PID, func(p int32) {
+		if found != nil {
+			return
+		}
+		proc, err := process.NewProcess(p)
+		if err != nil {
+			return
+		}
+		if foreground, err := proc.Foreground(); err != nil || !foreground {
+			return
+		}
+		line, err := proc.Cmdline()
+		if err != nil {
+			return
+		}
+		if fields := strings.Fields(line); len(fields) > 0 && filepath.Base(fields[0]) == c.Command {
+			found, cmdline = proc, line
+		}
+	})
+	return found, cmdline, found != nil
+}
+
 func (t *ProcTable) walk(pid int32, visit func(int32)) {
 	if pid <= 0 {
 		return
@@ -100,4 +162,28 @@ func (t *ProcTable) walk(pid int32, visit func(int32)) {
 		}
 	}
 	descend(pid, 0)
+}
+
+// ancestorDepth bounds the walk up from a command: an agent's Bash tool puts
+// a shell or two between it and the agent, and a walk that reached init
+// would have long since passed anything worth finding.
+const ancestorDepth = 8
+
+// Ancestors is pid's parent, its parent and so on, nearest first, up to
+// ancestorDepth of them. It reads only that chain, not the whole table.
+func Ancestors(pid int32) []int {
+	var pids []int
+	for len(pids) < ancestorDepth {
+		proc, err := process.NewProcess(pid)
+		if err != nil {
+			break
+		}
+		ppid, err := proc.Ppid()
+		if err != nil || ppid <= 1 {
+			break
+		}
+		pids = append(pids, int(ppid))
+		pid = ppid
+	}
+	return pids
 }

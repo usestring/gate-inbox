@@ -360,6 +360,21 @@ type HogRule struct {
 	For             Duration `toml:"for"`
 }
 
+// Naming configures how sessions get their names.
+type Naming struct {
+	// Ask asks a live agent to name its own session: the rename directive
+	// on a managed launch, the pending note in an adopted pane, and the
+	// silent naming instructions opencode sessions carry. Each costs the
+	// agent a turn. Absent means on: a config written before this section
+	// existed keeps asking. Off leaves every other naming path alone --
+	// rows still take the title the CLI writes itself, and r still asks
+	// on demand.
+	Ask *bool `toml:"ask"`
+}
+
+// Asks reports whether a launch may ask a live agent to name itself.
+func (n Naming) Asks() bool { return n.Ask == nil || *n.Ask }
+
 // The sides the board's sidebar -- the sessions rail -- can sit on.
 const (
 	SidebarRight = "right"
@@ -405,6 +420,7 @@ type Config struct {
 	// likely a misread than a long turn.
 	StaleStatusAfter Duration     `toml:"stale_status_after"`
 	Board            Board        `toml:"board"`
+	Naming           Naming       `toml:"naming"`
 	Log              Log          `toml:"log"`
 	Children         Children     `toml:"children"`
 	Work             Work         `toml:"work"`
@@ -880,6 +896,14 @@ const defaultConfig = `poll_interval = "2s"
 # [board]
 # sidebar = "right"
 
+# Asking a live agent to name its session interrupts it for a housekeeping
+# turn: the rename directive on a managed launch, the pending note in an
+# adopted pane, and the silent naming instructions opencode sessions carry.
+# Off leaves the quiet paths alone: rows still take the title the CLI writes
+# itself, and r still asks on demand.
+# [naming]
+# ask = false
+
 # The pull requests and tickets sessions are on. One that is over -- merged,
 # closed, completed, cancelled -- stays on the board this long after you first
 # see it that way, then leaves the rail and the counts for good.
@@ -1138,6 +1162,7 @@ turn_end = "^ *[^ ┃].*· \\d+(?:\\.\\d+)?[hms](?: \\d+[hms])*(?: · [\\d.]+ to
 # which capture-pane renders as rows of 40+ leading spaces. Those must not
 # count as content below the finished-turn row or the turn never settles.
 chrome_line = "^\\s*(┃.*)?$|^ {40,}\\S.*$"
+busy_line = "↓ \\d+ (?:shells?|subagents?)"
 limit_line = "(?i)requires more credits|(?:Usage|Free|Go) limit reached"
 # The permission overlay steps its options with the horizontal arrows
 # ("ctrl+f fullscreen  ⇆ select  enter confirm"), so the arrows belong to the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -200,6 +202,12 @@ func (m *Model) finishAgentPickQuota(msg agentPickQuotaMsg) {
 		return
 	}
 	m.agentPick.quotas, m.agentPick.recommended = msg.quotas, msg.recommended
+	// The box opened on the last CLI used only because the chooser had not
+	// answered yet. Until the operator presses a key, auto's pick replaces
+	// it, so n then enter starts what auto would.
+	if !m.agentPick.touched && slices.Contains(m.agentPick.names, msg.recommended) {
+		m.setAgentPick(msg.recommended)
+	}
 }
 
 // activeByTool counts the sessions each CLI already has in flight, which a
@@ -326,6 +334,9 @@ type agentPick struct {
 	// against fresh text replaces the whole of it, which is what makes a
 	// prefilled box overridable without a backspace per character.
 	fresh bool
+	// touched marks a box the operator has pressed a key in, after which a
+	// late recommendation no longer moves the selection.
+	touched bool
 	// group and row pin the launch to what an auto choice captured when n was
 	// pressed, so a fallback picker does not follow a cursor moved meanwhile.
 	group       string
@@ -484,6 +495,9 @@ func (m *Model) handleAgentPickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.submitAgentPick()
+	}
+	m.agentPick.touched = true
+	switch msg.String() {
 	case "tab", "down", "right":
 		m.cycleAgentPick(1)
 		return m, nil
@@ -559,4 +573,42 @@ func (m *Model) openPinnedTerminal() (tea.Model, tea.Cmd) {
 		row.sess = sess
 	}
 	return m.openTerminalAt(row, true)
+}
+
+// newSessionFromAnywhere lets the list's new-session key start a session
+// from inside any box: the box closes the way esc closes it, then the key does
+// what it does on the screen underneath, the form on the list and the CLI box
+// in a focused session. The form and the CLI box are already starting one,
+// and a key-map capture is waiting for exactly this key to bind it.
+func (m *Model) newSessionFromAnywhere(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	if action, bound := m.action(keymap.ContextList, msg); !bound || action != keymap.NewSessionForm {
+		return nil, nil, false
+	}
+	if !m.inBox() || m.mode == modeForm || m.mode == modeAgentPick ||
+		(m.mode == modeHelp && (m.help.capturing || m.help.clash != nil)) {
+		return nil, nil, false
+	}
+	// A box can sit on another (a search inside help), so esc is pressed
+	// until the screen underneath shows, and a box esc cannot close keeps
+	// the key rather than letting it type into the box.
+	var cmds []tea.Cmd
+	for range 4 {
+		if !m.inBox() {
+			break
+		}
+		_, cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+		cmds = append(cmds, cmd)
+	}
+	if !m.inBox() {
+		_, cmd := m.handleKey(msg)
+		cmds = append(cmds, cmd)
+	}
+	return m, tea.Batch(cmds...), true
+}
+
+// inBox reports whether something is drawn over the list or the focused
+// session and owns the keyboard.
+func (m *Model) inBox() bool {
+	return (m.mode != modeList && m.mode != modeFocus) ||
+		m.searching || m.quick.active || m.legendPeek.visible
 }

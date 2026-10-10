@@ -806,6 +806,7 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 	// New sessions start as starting, which attention excludes; clear so
 	// the row the form just created is on screen.
 	m.statusFilter = statusFilterAll
+	m.toolFilter = ""
 	// Set before focusing, not instead of it: this is where a focus that
 	// refuses -- a row filtered off the tree, a pane already gone -- leaves
 	// the operator, and it must not be the form.
@@ -885,7 +886,12 @@ func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt strin
 	if err != nil {
 		return "", err
 	}
-	plan, err := launch.Assemble(toolName, tool, prompt, "", autoNamed, model, account)
+	// askRename is whether this launch may ask the agent to name itself: only
+	// a placeholder-named session is ever asked, and never when [naming] ask
+	// is off. Without it the prompt carries the rename-available note instead
+	// of the directive, so nothing the agent reads costs it a turn.
+	askRename := autoNamed && m.cfg.Naming.Asks()
+	plan, err := launch.Assemble(toolName, tool, prompt, "", askRename, model, account)
 	if err != nil {
 		return "", err
 	}
@@ -1103,6 +1109,7 @@ func (m *Model) submitGroupForm() (tea.Model, tea.Cmd) {
 	m.showArchived = false
 	m.hideEmptyGroups = false
 	m.statusFilter = statusFilterAll
+	m.toolFilter = ""
 	m.errBar.text = ""
 	m.mode = modeList
 	m.rebuildRows()

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -105,11 +106,14 @@ type fakeSessionCommands struct {
 	revivedID      string
 	grantedID      string
 	grantReq       sessioncmd.GrantRequest
+	grantMessage   string
 	migratedID     string
 	migratedOpts   sessioncmd.MigrateOptions
 	killedID       string
 	archivedID     string
 	archived       bool
+	mutedID        string
+	muted          bool
 	groupPath      string
 	groupDir       string
 	err            error
@@ -209,8 +213,8 @@ func (f *fakeSessionCommands) AnswerAll(_ string, id string, answers []sessioncm
 	return sessioncmd.AnsweredQuestion{SessionID: id, Name: "child", Submitted: submit}, f.err
 }
 
-func (f *fakeSessionCommands) Grant(_ string, id string, req sessioncmd.GrantRequest) (sessioncmd.GrantResult, error) {
-	f.grantedID, f.grantReq = id, req
+func (f *fakeSessionCommands) GrantAndSend(_ string, id string, req sessioncmd.GrantRequest, message string) (sessioncmd.GrantResult, error) {
+	f.grantedID, f.grantReq, f.grantMessage = id, req, message
 	return sessioncmd.GrantResult{Target: f.created, Action: "granted"}, f.err
 }
 
@@ -247,6 +251,14 @@ func (f *fakeSessionCommands) Archive(_ string, id string, archived bool) (sessi
 	f.archived = archived
 	updated := f.created
 	updated.Archived = archived
+	return updated, f.err
+}
+
+func (f *fakeSessionCommands) Mute(_ string, id string, muted bool) (sessioncmd.Session, error) {
+	f.mutedID = id
+	f.muted = muted
+	updated := f.created
+	updated.Muted = muted
 	return updated, f.err
 }
 
@@ -735,13 +747,32 @@ func TestServerTeachesDelegationWorkflow(t *testing.T) {
 // Code's cap.
 func TestServerCarriesSteeringOnlyWhenAskedTo(t *testing.T) {
 	steered := connectServer(t, NewServer(t.TempDir(), "abc123", "test", all.Extensions(), "opencode")).InitializeResult().Instructions
-	want, _ := mcpreg.ServerSteering("opencode")
+	want, _ := mcpreg.ServerSteering("opencode", true)
 	if !strings.HasPrefix(steered, serverInstructions) || !strings.Contains(steered, want) {
 		t.Fatalf("steered instructions are not the shared block plus the opencode steering:\n%s", steered)
 	}
 	plain := connect(t, t.TempDir(), "abc123").InitializeResult().Instructions
 	if strings.Contains(plain, "# Session naming") || strings.Contains(plain, "# Delegating work") {
 		t.Fatalf("an unsteered server carries launch steering:\n%s", plain)
+	}
+}
+
+// With [naming] ask = false the opencode server still steers delegation but
+// carries no naming instructions, so nothing the agent reads asks it to
+// spend a turn on a name.
+func TestServerOmitsNamingSteeringWhenAskIsOff(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[naming]\nask = false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	instructions := connectServer(t, NewServer(dir, "abc123", "test", all.Extensions(), "opencode")).InitializeResult().Instructions
+	if strings.Contains(instructions, "# Session naming") {
+		t.Fatalf("unasked server still carries naming steering:\n%s", instructions)
+	}
+	for _, want := range []string{"# Delegating work", "# Messages from the session that spawned you"} {
+		if !strings.Contains(instructions, want) {
+			t.Fatalf("unasked server is missing %q:\n%s", want, instructions)
+		}
 	}
 }
 

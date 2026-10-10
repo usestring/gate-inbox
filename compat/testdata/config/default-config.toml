@@ -46,6 +46,14 @@ poll_interval = "2s"
 # [board]
 # sidebar = "right"
 
+# Asking a live agent to name its session interrupts it for a housekeeping
+# turn: the rename directive on a managed launch, the pending note in an
+# adopted pane, and the silent naming instructions opencode sessions carry.
+# Off leaves the quiet paths alone: rows still take the title the CLI writes
+# itself, and r still asks on demand.
+# [naming]
+# ask = false
+
 # The pull requests and tickets sessions are on. One that is over -- merged,
 # closed, completed, cancelled -- stays on the board this long after you first
 # see it that way, then leaves the rail and the counts for good.
@@ -304,6 +312,7 @@ turn_end = "^ *[^ ┃].*· \\d+(?:\\.\\d+)?[hms](?: \\d+[hms])*(?: · [\\d.]+ to
 # which capture-pane renders as rows of 40+ leading spaces. Those must not
 # count as content below the finished-turn row or the turn never settles.
 chrome_line = "^\\s*(┃.*)?$|^ {40,}\\S.*$"
+busy_line = "↓ \\d+ (?:shells?|subagents?)"
 limit_line = "(?i)requires more credits|(?:Usage|Free|Go) limit reached"
 # The permission overlay steps its options with the horizontal arrows
 # ("ctrl+f fullscreen  ⇆ select  enter confirm"), so the arrows belong to the

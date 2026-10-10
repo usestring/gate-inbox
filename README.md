@@ -50,7 +50,7 @@ Gate Inbox reads the panes; it does not sit between you and the model.
 | keeps running where it is, in its own window | is ended once idle and resumed on the same conversation as a board session |
 | has none of the board's MCP tools (spawn, message, tasks) | gets them |
 | can't be reached by other sessions or the CLI (`send`, `read`, `answer`, `wait`, `kill`) | can be |
-| gets no guaranteed hook status: questions and permission prompts are read off the screen | reports status through Claude Code's hooks |
+| reports status through the hooks the board registers in your Claude Code user settings (Claude Code only) | reports status through the hooks it is launched with |
 | lacks the `GATE_INBOX_*` environment, extension settings and a fresh account token | gets all three |
 | can't be forked, migrated, restarted or revived without a conversation id | can, on its own conversation |
 | doesn't get the back-to-board keys or the pane's title and colours | gets them |
@@ -59,7 +59,7 @@ Gate Inbox reads the panes; it does not sit between you and the model.
 ## Install
 
 Gate Inbox runs on Linux and macOS, and on Windows inside WSL2. It needs **tmux 3.1+** and **git**
-on `PATH`, plus at least one agent CLI. Building needs **Go 1.27.1+**.
+on `PATH`, plus at least one agent CLI. Building needs **Go 1.27.2+**.
 
 ```bash
 git clone https://github.com/usestring/gate-inbox.git
@@ -106,7 +106,7 @@ read from the pane itself. The preview beside the list shows the conversation as
 `/` searches names, groups, statuses and what the sessions have said.
 
 **Triage.** `i` flattens the groups into one queue ordered by what needs a person: waiting first,
-then errored, then finished, longest-blocked first inside each. Picking an option in a dialog, or
+then finished, then errored, longest-blocked first inside each. Picking an option in a dialog, or
 sending a reply, hands that session back to its agent and opens the next one. `ctrl+q` moves on
 without answering, and `ctrl+\` stops triage. `alt+\` puts the list away for a full-width drain,
 and `alt+,` hides the key hints.
@@ -133,8 +133,10 @@ selected agent for builds and one-off commands.
 | `enter` | Focus the session; `ctrl+q` returns to the list |
 | `i` | Triage queue; `\` hides the list for a full-width drain |
 | `w` | Show only what needs attention |
+| `Y` | Show only one CLI's sessions, cycling through the harnesses on the board |
 | `/` | Fuzzy search; `esc` closes the field, deleting the text clears it |
 | `p` | Priority tier for a session or group; each press steps urgent → high → medium → low → none |
+| `M` | Mute / unmute: keep a session out of triage until unmuted; the row reads `muted` |
 | `T` | Shell tab under the selected agent |
 | `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |
 | `:` / `ctrl+p` | Quick actions: type what you want, `enter` runs it, and each row shows its key |
@@ -241,7 +243,11 @@ picked back up next time.
 **Stop every agent.** `gate-inbox park` ends every live agent the board started and records the
 set. It runs from any shell, and `--dry-run` prints the plan first. `gate-inbox unpark` brings
 the same sessions back on their conversations. A single one: `gate-inbox kill <id>`, with the id
-from `gate-inbox sessions`.
+from `gate-inbox sessions`. From inside a managed agent session, `gate-inbox stop` ends that
+session and preserves its row and conversation for an explicit revive. It records an intentional
+stop, so startup recovery does not offer it as a lost session. `gate-inbox stop --dry-run`
+verifies the current pane without ending it. Adopted panes must still be stopped by id from
+another session or the board.
 
 **Carry on in the plain CLI.** In a focused session, `alt+y` copies the agent's own conversation
 id. From that session's working directory:

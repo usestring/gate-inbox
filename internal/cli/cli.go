@@ -54,7 +54,7 @@ func sections() []section {
 }
 
 func Commands() map[string]Command {
-	table := map[string]Command{}
+	table := map[string]Command{"_finish-stop": finishStop}
 	for _, section := range sections() {
 		for _, command := range section.commands {
 			table[command.name] = command.run

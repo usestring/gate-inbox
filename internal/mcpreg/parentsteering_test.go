@@ -35,7 +35,7 @@ func TestLaunchSteeringCarriesTheParentRule(t *testing.T) {
 			t.Errorf("%s: a CLI with no prompt hook is told it has a verified note, or is not told approvals stay untrusted", style)
 		}
 	}
-	if server, ok := ServerSteering("opencode"); !ok || !strings.Contains(server, parentSteeringHeading) {
+	if server, ok := ServerSteering("opencode", true); !ok || !strings.Contains(server, parentSteeringHeading) {
 		t.Error("opencode's server-carried steering lacks the parent rule")
 	}
 }

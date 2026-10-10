@@ -1551,7 +1551,7 @@ func TestRestartLaunchIsAFreshStartForEveryShippedTool(t *testing.T) {
 		if tool.Shell {
 			continue
 		}
-		command, agentSessionID := restartLaunch(tool)
+		command, agentSessionID := restartLaunch(tool, "")
 		if !strings.HasPrefix(command, tool.Command) {
 			t.Errorf("%s: restart command %q does not start from its launch command %q", name, command, tool.Command)
 		}
@@ -1577,7 +1577,7 @@ func TestRestartLaunchIsAFreshStartForEveryShippedTool(t *testing.T) {
 		if want := " " + tool.SessionIDFlag + " " + agentSessionID; rest != want {
 			t.Errorf("%s: restart command tail = %q, want %q", name, rest, want)
 		}
-		if _, second := restartLaunch(tool); second == agentSessionID {
+		if _, second := restartLaunch(tool, ""); second == agentSessionID {
 			t.Errorf("%s: two restarts reused conversation id %q", name, agentSessionID)
 		}
 	}
@@ -1814,7 +1814,7 @@ func TestArchiveAgentConfirmNamesExtraTerminals(t *testing.T) {
 	spawnTerminal(t, m)
 	m.selectSessionRow(t, "coder")
 	m.archiveSelected()
-	want := "kill coder and 2 terminals? frees their RAM, t finds them, deleted for good after 7 days."
+	want := "kill coder and 2 terminals? frees their RAM, the archived view finds them, deleted for good after 7 days."
 	if m.confirm.label != want {
 		t.Fatalf("label = %q, want %q", m.confirm.label, want)
 	}

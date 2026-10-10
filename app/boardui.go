@@ -34,7 +34,8 @@ func startUI(ctx context.Context, registry *extension.Registry, model *ui.Model,
 		}
 		keys, filters := uiKeys(ctx, result.ID, result.UI.Keys), uiFilters(result.UI.Filters)
 		applyAliases(result.ID, result.UI.Aliases, keys, filters)
-		uis = append(uis, ui.ExtensionUI{Owner: result.ID, Keys: keys, Filters: filters})
+		uis = append(uis, ui.ExtensionUI{Owner: result.ID, Keys: keys, Filters: filters,
+			OpenHeader: uiOpenHeader(ctx, result.UI.OpenHeader), HeaderPane: uiHeaderPane(result.UI.HeaderPane)})
 	}
 	model.InstallExtensions(uis, bridge)
 	bridge.Attach(send)
@@ -59,6 +60,35 @@ func uiKeys(ctx context.Context, owner string, bindings []extension.KeyBinding) 
 		})
 	}
 	return keys
+}
+
+// uiOpenHeader is an extension's header opener as the model calls it, or nil
+// for an extension whose headers are lines over a row rather than rows.
+func uiOpenHeader(ctx context.Context, open func(context.Context, extension.Press) error) func(ui.Press) error {
+	if open == nil {
+		return nil
+	}
+	return func(press ui.Press) error {
+		return open(ctx, extension.Press{SessionID: press.SessionID, Group: press.Group})
+	}
+}
+
+// uiHeaderPane is an extension's header page as the model builds it, or nil
+// for an extension whose headers have none.
+func uiHeaderPane(pane *extension.HeaderPane) *ui.HeaderPane {
+	if pane == nil || pane.View == nil {
+		return nil
+	}
+	return &ui.HeaderPane{Screen: pane.Screen, View: func(press ui.Press, handle ui.ViewHandle) ui.ExtensionView {
+		view := pane.View(extension.Press{SessionID: press.SessionID, Group: press.Group}, handle)
+		if view == nil {
+			return nil
+		}
+		if form, ok := view.(extension.Form); ok {
+			return uiForm{uiView{view}, form}
+		}
+		return uiView{view}
+	}}
 }
 
 // applyAliases hangs each alias on the key or filter it names. One naming

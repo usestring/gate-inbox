@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -16,28 +17,19 @@ import (
 
 const (
 	archiveConfirmSetting = "archive_confirm"
-	archiveConfirmAlways  = "always"
-	archiveConfirmNever   = "never"
+	archiveConfirmAlways  = confirmAlways
+	archiveConfirmNever   = confirmNever
 )
 
 // archiveConfirmModes is the setting's cycle order.
-var archiveConfirmModes = []string{archiveConfirmAlways, archiveConfirmNever}
+var archiveConfirmModes = confirmAskModes
 
 func storedArchiveConfirm(st *store.Store) string {
-	chosen, err := st.Setting(archiveConfirmSetting)
-	if err != nil {
-		return archiveConfirmAlways
-	}
-	return normalizeArchiveConfirm(chosen)
+	return storedConfirmAsk(st, archiveConfirmSetting)
 }
 
 func normalizeArchiveConfirm(chosen string) string {
-	for _, mode := range archiveConfirmModes {
-		if chosen == mode {
-			return mode
-		}
-	}
-	return archiveConfirmAlways
+	return normalizeConfirmAsk(chosen)
 }
 
 // archiveUndo is the set the last archive filed away, held so U can put it
@@ -51,24 +43,19 @@ type archiveUndo struct {
 }
 
 // skipsArchiveConfirm reports whether the dialog now built can be answered
-// without being shown.
-//
-// One session only, however the setting is set. x on a group takes its whole
-// subtree and X takes every row on screen, and neither is a keystroke aimed
-// at something the operator picked out -- which is the thing that makes a
-// silent answer safe. X keeps its tick for the same reason it has one.
+// without being shown. It is the archive action's own reading of skipsConfirm,
+// kept for callers that mean the archive specifically.
 func (m *Model) skipsArchiveConfirm() bool {
-	return m.archiveConfirm == archiveConfirmNever &&
-		!m.confirm.isGroup && m.confirm.ack == "" && len(m.confirm.sessions) > 0
+	return m.confirm.action == actionArchive && m.skipsConfirm()
 }
 
 // answerConfirm says yes to the dialog just built, without drawing it. It
-// goes through the key handler rather than around it because that handler is
-// where the whole answer lives -- the snapshot pass, the batch kill, the
+// uses the shared answer handler because the whole answer lives there --
+// the snapshot pass, the batch kill, the
 // focused pane's exit, the triage drain carrying on -- and a second path
 // into an act that ends agents is a second path that can drift from it.
 func (m *Model) answerConfirm() (tea.Model, tea.Cmd) {
-	return m.handleConfirmKey(tea.KeyPressMsg{Code: 'y', Text: "y"})
+	return m.handleConfirmAnswer(tea.KeyPressMsg{}, true)
 }
 
 // noteArchived records what an archive filed away. Called for a confirmed
@@ -127,5 +114,9 @@ func (m *Model) undoArchive() (tea.Model, tea.Cmd) {
 // replaces was where the act named itself and named its way back, so with
 // the dialog gone the notice has to do both.
 func (m *Model) archivedNotice(label string) {
-	m.reportDone("archived " + label + " · U undoes it, t finds it")
+	notice := "archived " + label + " · "
+	if undo := m.hintKey(keymap.ContextList, keymap.UndoArchive); undo != "" {
+		notice += undo + " undoes it, "
+	}
+	m.reportDone(notice + m.archiveFinder() + " finds it")
 }

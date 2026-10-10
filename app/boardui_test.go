@@ -85,8 +85,16 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	// rung the row has room for beside the preview: its mark and numbers.
 	waitForOutput(t, out, "noop:dead ◈ 2c · 3/h", exited, func() {})
 	// A badge placed after the name is drawn right after it, ahead of the
-	// fold's count and the badges in the slot.
-	waitForOutput(t, out, "the caller items  ↳1 · ✕1 noop:dead ◈ 2c · 3/h ", exited, func() {})
+	// fold's count and the badges in the slot. The badges land after the
+	// row's first paint, and the renderer then redraws only the cells that
+	// changed, so the row shows up whole in the stream only once something
+	// repaints it: opening the key map and closing it again.
+	repaint := func() {
+		keys.Write([]byte("h"))
+		time.Sleep(150 * time.Millisecond)
+		keys.Write([]byte("\x1b"))
+	}
+	waitForOutput(t, out, "the caller items  ↳1 · ✕1 noop:dead ◈ 2c · 3/h ", exited, repaint)
 	// The widths it measured its rungs by, through Line.Width, are the
 	// widths the row fitted them to.
 	waitForFile(t, filepath.Join(data, "rungs.txt"), "16 10 1\n", exited, &strings.Builder{})
@@ -157,7 +165,7 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	// form; esc puts it away first.
 	keys.Write([]byte("\x1b"))
 	time.Sleep(300 * time.Millisecond)
-	keys.Write([]byte("U"))
+	keys.Write([]byte("E"))
 	waitForOutput(t, out, "write a note", exited, func() {})
 	keys.Write([]byte(" board"))
 	time.Sleep(300 * time.Millisecond)
@@ -175,13 +183,13 @@ func TestExternalBuildAddsKeysAndBadgesToTheBoard(t *testing.T) {
 	// The extension's filter is a key on the list, and the header names it
 	// while it is on.
 	time.Sleep(300 * time.Millisecond)
-	keys.Write([]byte("Y"))
+	keys.Write([]byte("R"))
 	waitForOutput(t, out, "ROOTS", exited, func() {})
 
 	// The child's pane is dead and the extension hid it from the tree, but
 	// the extension says it needs a person: with the roots filter lifted,
 	// the attention filter draws it, header and all.
-	keys.Write([]byte("Y"))
+	keys.Write([]byte("R"))
 	time.Sleep(300 * time.Millisecond)
 	drawn := len(out.String())
 	keys.Write([]byte("w"))

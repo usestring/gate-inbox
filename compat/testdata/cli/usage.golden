@@ -1,4 +1,4 @@
-37 commands and verbs
+40 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -116,6 +116,15 @@ usage: gate-inbox kill <session-id> [--json]
   -json
     	print the raw result as JSON instead of a sentence
 
+$ gate-inbox stop -h
+exit 0
+--- stdout
+usage: gate-inbox stop [--dry-run] [--json]
+  -dry-run
+    	verify the calling session without ending it
+  -json
+    	print the raw result as JSON instead of a sentence
+
 $ gate-inbox revive -h
 exit 0
 --- stdout
@@ -142,6 +151,15 @@ usage: gate-inbox archive <session-id> [--restore] [--json]
     	print the raw result as JSON instead of a sentence
   -restore
     	put an archived session back on the active list
+
+$ gate-inbox mute -h
+exit 0
+--- stdout
+usage: gate-inbox mute <session-id> [--off] [--json]
+  -json
+    	print the raw result as JSON instead of a sentence
+  -off
+    	unmute the session, putting it back in triage
 
 $ gate-inbox cleanup-children -h
 exit 0
@@ -358,3 +376,8 @@ $ gate-inbox priority -h
 exit 0
 --- stdout
 usage: gate-inbox priority <urgent|high|medium|low|none|-1..3>
+
+$ gate-inbox claude-hooks -h
+exit 0
+--- stdout
+usage: gate-inbox claude-hooks [install | uninstall [--all] | status]

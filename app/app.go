@@ -31,6 +31,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/adopt"
 	"github.com/usestring/gate-inbox/internal/cli"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/envname"
@@ -69,6 +70,10 @@ type Options struct {
 	// written into the file, and a first run leaves their keys out of the
 	// starting set it writes. Run refuses an entry that could not bind.
 	SnippetDefaults []Snippet
+	// RestartFlagDefaults are restart_flags.json entries this build
+	// supplies, merged by key under the operator's own file every time it
+	// is loaded. Same overlay rule as SnippetDefaults.
+	RestartFlagDefaults []RestartFlag
 }
 
 // Name is the command this program is run as.
@@ -112,6 +117,9 @@ func Run(ctx context.Context, args []string, opts Options) error {
 	}
 
 	if err := useSnippetDefaults(opts.SnippetDefaults); err != nil {
+		return err
+	}
+	if err := useRestartFlagDefaults(opts.RestartFlagDefaults); err != nil {
 		return err
 	}
 
@@ -259,7 +267,7 @@ func unknownCommand(arg string) error {
 }
 
 func printHelp(w io.Writer, extra []extensionCommand) error {
-	var sections []cli.HelpSection
+	sections := []cli.HelpSection{claudeHooksHelp}
 	for _, entry := range extra {
 		title := entry.command.Group
 		if title == "" {
@@ -354,7 +362,7 @@ func mcpSteering(args []string) (string, error) {
 	if *steering == "" {
 		return "", nil
 	}
-	if _, ok := mcpreg.ServerSteering(*steering); !ok {
+	if _, ok := mcpreg.ServerSteering(*steering, true); !ok {
 		return "", fmt.Errorf("mcp: %s %q is not a CLI this build steers", mcpreg.SteeringFlag, *steering)
 	}
 	return *steering, nil
@@ -375,6 +383,9 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 	}
 	table["hook"] = withConfigDir(func(args []string, sessionID, configDir string) error {
 		return cli.RunHook(os.Stdin, os.Stdout, args, sessionID, configDir)
+	})
+	table["claude-hooks"] = withConfigDir(func(args []string, _, configDir string) error {
+		return runClaudeHooks(os.Stdout, args, configDir)
 	})
 	for name, command := range cli.Commands() {
 		if name != "spawn" && name != "migrate" && name != "revive" && name != "unpark" {
@@ -399,8 +410,26 @@ func withConfigDir(command func(args []string, sessionID, configDir string) erro
 		if err != nil {
 			return err
 		}
-		return command(args, envname.Get(hooks.EnvSessionID), dir)
+		return command(args, callerID(dir), dir)
 	}
+}
+
+// callerID is the board row a subcommand speaks as: the one a launch put in
+// the environment, or, for a claude the board adopted rather than launched,
+// the one its pane's adoption marker names. Without it an adopted agent
+// could not send, read or answer as itself from its shell.
+func callerID(configDir string) string {
+	if id := envname.Get(hooks.EnvSessionID); id != "" {
+		return id
+	}
+	pane := os.Getenv("TMUX_PANE")
+	if pane == "" {
+		return ""
+	}
+	id, _ := hooks.NewManager(configDir).AdoptedCaller(os.Getenv("TMUX"), pane, func() []int {
+		return adopt.Ancestors(int32(os.Getpid()))
+	})
+	return id
 }
 
 // extensionCommand is one command an extension adds, with the ID of the
@@ -479,7 +508,7 @@ func runExtensionCommand(ctx context.Context, registry *extension.Registry, entr
 		}
 		cmds := sessioncmd.NewSessions(dir, sessioncmd.CLIVocabulary())
 		base := extensionhost.NewOperator(dir, cmds)
-		if sessionID := envname.Get(hooks.EnvSessionID); sessionID != "" {
+		if sessionID := callerID(dir); sessionID != "" {
 			base = extensionhost.New(dir, sessionID, cmds)
 		}
 		host := base.ForExtension(entry.owner)

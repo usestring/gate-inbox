@@ -107,8 +107,9 @@ func setMark(marks map[string]map[string]bool, owner, sessionID string, on bool)
 // order, so a change to any of them rebuilds it; badges and headers only
 // change how rows paint.
 func (m *Model) applyRowMarks(marks rowMarks) {
+	heads := maps.Equal(m.headKeys(m.extHeaders), m.headKeys(marks.headers))
 	m.extBadges, m.extHeaders = marks.badges, marks.headers
-	if maps.Equal(m.extHidden, marks.hidden) && maps.Equal(m.extOwned, marks.owned) &&
+	if heads && maps.Equal(m.extHidden, marks.hidden) && maps.Equal(m.extOwned, marks.owned) &&
 		maps.Equal(m.extAttention, marks.attention) {
 		return
 	}
@@ -265,8 +266,12 @@ func (m *Model) extensionHeaderLines(entry treeRow, width, index int) []string {
 	styles := viewStyles()
 	lines := make([]string, 0, len(headers))
 	for _, header := range headers {
+		// A header its owner opens is a row of its own: see headrows.go.
+		if m.headOpener(header.owner) != nil {
+			continue
+		}
 		var b strings.Builder
-		for _, span := range header {
+		for _, span := range header.spans {
 			b.WriteString(styles[viewStyleKey{span.Tone, span.Bold}].Render(span.Text))
 		}
 		lines = append(lines, textfmt.TruncateWidth(lead+b.String(), width, "…"))

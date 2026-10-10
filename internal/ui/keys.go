@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/clipboard"
@@ -37,6 +38,10 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		default:
 			return m, nil
 		}
+	}
+
+	if model, cmd, ok := m.newSessionFromAnywhere(msg); ok {
+		return model, cmd
 	}
 
 	switch m.mode {
@@ -74,10 +79,14 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleAgentPickKey(msg)
 	case modeExtensionView:
 		return m.handleExtensionViewKey(msg)
+	case modeHeadPane:
+		return m.handleHeadPaneKey(msg)
 	case modeQuickActions:
 		return m.handleQuickActionsKey(msg)
 	case modePanePicker:
 		return m.handlePanePickerKey(msg)
+	case modeRestartWith:
+		return m.handleRestartWithKey(msg)
 	}
 
 	// A pending open waits for the open key again on the same row. esc
@@ -113,8 +122,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// keypresses, so they are read ahead of every other binding -- including
 	// the artifact row's refusals, since a jump acts on the tree rather than
 	// on the row it starts from. Any other key ends the number rather than
-	// being swallowed into it.
-	if m.isGroupJumpKey(msg.String()) {
+	// being swallowed into it. Read by keyName, not the printed text, so an
+	// alt+1 a terminal reports as "1" stays a chord rather than a digit.
+	if m.isGroupJumpKey(keyName(msg)) {
 		return m, m.typeGroupNumber(msg.String())
 	}
 	m.clearGroupJump()
@@ -153,11 +163,16 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if model, cmd, answered := m.artifactRowAction(action, bound); answered {
 		return model, cmd
 	}
+	// A header row opens what its extension says it heads; every other key
+	// on it acts on the session below. See headrows.go.
+	if model, cmd, answered := m.headRowAction(action, bound); answered {
+		return model, cmd
+	}
 
-	// A snippet's direct chord sends it in one press, read before the list's
-	// own bindings the way ± is: the chord is unbound in the map, so nothing
-	// else can claim it and it never shadows a documented key.
-	if snip, ok := m.snippetChordFor(msg); ok {
+	// A snippet's direct chord sends it in one press. A chord either screen's
+	// map binds belongs to the manager (see snippetChordFor), so a snippet
+	// file can never shadow a documented key.
+	if snip, ok := m.snippetChordFor(msg); ok && !bound {
 		return m.sendSnippetToSelected(snip)
 	}
 
@@ -282,12 +297,16 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.skipSelected()
 	case keymap.Priority:
 		return m.cyclePrioritySelected()
+	case keymap.Mute:
+		return m.toggleMuteSelected()
 	case keymap.ReviveAll:
 		return m.reviveAllDead()
 	case keymap.SwitchAccount:
 		m.openAccountSwitch()
 	case keymap.Restart:
 		return m.restartSelected()
+	case keymap.RestartWith:
+		m.openRestartWith()
 	case keymap.Archive:
 		return m.archiveSelected()
 	case keymap.ArchiveAll:
@@ -296,7 +315,7 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.restoreSelected()
 	case keymap.Rescind:
 		return m.rescindLatestSubmission()
-	case "U", "shift+u":
+	case keymap.UndoArchive:
 		return m.undoArchive()
 	case keymap.LastPane:
 		return m.focusLastPane()
@@ -308,6 +327,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		m.toggleCollapseAll()
 	case keymap.StatusFilter:
 		return m, m.cycleStatusFilter()
+	case keymap.ToolFilter:
+		return m, m.cycleToolFilter()
 	case keymap.Settings:
 		m.openSettings()
 	case keymap.Resize:
@@ -402,13 +423,15 @@ var artifactRowActions = map[keymap.Action]bool{
 	keymap.Search: true, keymap.ClearSearch: true, keymap.LegendPeek: true, keymap.Help: true,
 	keymap.QuickActions: true,
 	keymap.NameSweep:    true, keymap.TakeOver: true, keymap.Settings: true, keymap.Resize: true,
-	keymap.ArchivedView: true, keymap.StatusFilter: true,
+	keymap.ArchivedView: true, keymap.StatusFilter: true, keymap.ToolFilter: true,
 	keymap.EmptyGroups: true, keymap.Triage: true, keymap.ToggleChrome: true,
 	keymap.ToggleRail: true,
 	// LastPane reads the history it walks back through, not the row under
 	// the cursor, so an artifact row is no reason to swallow it.
 	keymap.LastPane: true,
 	keymap.Rescind:  true,
+	// UndoArchive brings back the last kill, wherever the cursor is.
+	keymap.UndoArchive: true,
 }
 
 // stepCursor is one move of the selection: the next row that is not an
@@ -552,12 +575,19 @@ func (m *Model) reorderSelected(delta int) (tea.Model, tea.Cmd) {
 	}
 	// Mirror the swap in memory so the list redraws instantly; the next
 	// poll re-reads the authoritative order from the store.
+	mark := reorderMark{group: entry.isGroup, at: time.Now()}
 	if entry.isGroup {
 		m.materializeGroupsLocal(groupSiblings)
 		m.swapGroupLocal(entry.group, target.group)
+		mark.first, mark.second = entry.group, target.group
 	} else {
 		m.swapSessionLocal(entry.sess.ID, target.sess.ID)
+		mark.first, mark.second = entry.sess.ID, target.sess.ID
 	}
+	if delta > 0 {
+		mark.first, mark.second = mark.second, mark.first
+	}
+	m.reorders = append(m.reorders, mark)
 	m.errBar.text = ""
 	m.rebuildRows()
 	m.requestRefresh()
@@ -577,7 +607,7 @@ func (m *Model) visibleReorderTarget(entry treeRow, delta int) (treeRow, bool) {
 		// An artifact is not a sibling of anything, and it carries the very
 		// session the scan started from: left in, it would offer that session
 		// itself as its own swap target.
-		if candidate.isArtifact() {
+		if candidate.isArtifact() || candidate.isHead() {
 			continue
 		}
 		if candidate.isRoot() {

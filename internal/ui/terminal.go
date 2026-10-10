@@ -125,6 +125,7 @@ func (m *Model) launchTerminal(toolName string, tool config.Tool, sess store.Ses
 	// Starting sits outside the attention set, so the row the key just made
 	// would be filtered off screen.
 	m.statusFilter = statusFilterAll
+	m.toolFilter = ""
 	m.errBar.text = ""
 	return m.landInNewSession(sess.ID)
 }

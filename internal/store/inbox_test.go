@@ -152,6 +152,21 @@ func TestEnqueueGuardsAPingPongBetweenAPair(t *testing.T) {
 	}
 }
 
+// A board extension waking the same session again and again is not two agents
+// in a loop: only its rate cap per recipient bounds it.
+func TestPairCapExemptsABoardExtension(t *testing.T) {
+	st := newTestStore(t)
+	now := time.Now()
+	from := ExtensionSenderID("charters")
+	for i := range DefaultInboxLimits.PairCap + 1 {
+		body := fmt.Sprintf("event %d", i)
+		event := pairMessage(from, "manager01", body, now.Add(time.Duration(i)*61*time.Second))
+		if _, _, err := st.Enqueue(event, DefaultInboxLimits); err != nil {
+			t.Fatalf("extension send %d: %v", i, err)
+		}
+	}
+}
+
 // A parent and its child -- drawn under it, or spawned by it from deeper in
 // the tree -- are exempt from the pair cap: a coordinator steering a child
 // and the child's finished notices must never be refused. Two siblings are

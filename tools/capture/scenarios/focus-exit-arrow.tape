@@ -1,7 +1,6 @@
-# The exit arrow follows the rail. The rail sits on the right of the frame, so
-# the spare arrow at a prompt is Right: the focused session's pane is left, the
+# Either prompt-edge arrow leaves. The focused session's pane is left, the
 # rail beside it, and pressing Right at the end of the empty prompt returns to
-# the list. Left reaches the agent instead, which is the half no still shows.
+# the list; Left at the head does the same.
 #
 # The caret has to be at the prompt's end for the key to be spare, and that is
 # a position rather than a state: the transcript seeded for the claude session

@@ -5,9 +5,13 @@
 #   tools/capture/capture.sh --scenario tools/capture/scenarios/board-tour.tape
 #   tools/capture/capture.sh --scenario <tape> --config <toml appended to the scratch config>
 #
-# The board runs against a scratch GATE_INBOX_HOME on a private tmux server, so
-# a capture never sees, moves or kills a session on the operator's live board.
+# The board runs against a scratch GATE_INBOX_HOME, a scratch HOME and a private
+# tmux server, in a fixture project, so a capture never sees, moves or kills a
+# session on the operator's live board and never records a real name or path.
+# It refuses to start if any of those would be the operator's own.
 # Exit 2 means a tool this needs is missing and nothing was changed.
+# The recording is evidence for a private review only: never attach it to a
+# public PR or commit it.
 set -euo pipefail
 
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,9 +36,18 @@ theme="oled"
 # already matches it. Empty takes the theme's.
 terminal_bg=""
 # Which canned transcript each seeded tool plays, in the order the tools are
-# found. The default set draws one row per resting state; a scenario about a
-# particular pane shape names its own transcript for the row it looks at.
-transcripts=(waiting working finished)
+# found. A scenario about a particular pane shape names its own transcript for
+# the row it looks at. Without one, each tool plays a transcript in its own
+# pane shape: the board reads a pane with that tool's rules, so a claude-shaped
+# transcript in a codex or opencode pane reads as idle whatever it shows.
+transcripts=()
+default_transcript() {
+  case "$1" in
+    claude) printf 'waiting' ;;
+    codex) printf 'codex-working' ;;
+    opencode) printf 'opencode-finished' ;;
+  esac
+}
 # Panes the manager did not start: each --foreign opens a window on the
 # board's own tmux server, before the board comes up, running the demo agent
 # on the named transcript. The adoption scan takes it, which is how a
@@ -132,6 +145,36 @@ home="$work/home"
 mkdir -p "$home"
 rm -f "$home/state.db" "$home/state.db-shm" "$home/state.db-wal"
 
+# A HOME of its own, so nothing the board reads from home -- agent transcripts,
+# hooks, the gh login, opencode's store -- is the operator's, and a fixture
+# project under it, so the session's dir is a scratch path rather than this
+# checkout's real one.
+fake_home="$sock/home"
+project="$fake_home/demo-project"
+mkdir -p "$project"
+printf '# demo-project\n' >"$project/README.md"
+git -C "$project" init -q -b main 2>/dev/null || git -C "$project" init -q
+
+# Refuse rather than record anything of the operator's: each scratch path must
+# be new, and none may be the live board's home, the real HOME, or the tmux
+# server the operator's sessions are on.
+live_home="${GATE_INBOX_HOME:-}"
+if [[ -z "$live_home" ]]; then
+  case "$(uname -s)" in
+    Darwin) live_home="$HOME/Library/Application Support/gate-inbox" ;;
+    *) live_home="${XDG_CONFIG_HOME:-$HOME/.config}/gate-inbox" ;;
+  esac
+fi
+real() { (cd -- "$1" 2>/dev/null && pwd -P) || printf '%s' "$1"; }
+live_tmux="${TMUX_TMPDIR:-/tmp}"
+for scratch in "$home" "$fake_home" "$sock"; do
+  for operator in "$live_home" "$HOME" "$live_tmux"; do
+    [[ "$(real "$scratch")" != "$(real "$operator")" ]] ||
+      die "refusing to capture: scratch path $scratch is the operator's $operator"
+  done
+done
+[[ -z "$(ls -A "$home" 2>/dev/null)" ]] || die "refusing to capture: $home is not empty"
+
 # Demo tools, not the operator's: every session a scenario opens runs the
 # canned transcript player, so a capture spawns no real agent and spends no
 # tokens. Only a CLI actually installed here can be picked — the board's
@@ -156,8 +199,13 @@ done
   # launched on a named account reads that account's token, and a capture
   # must reach no real secret store and put no real token in its work dir.
   for i in "${!tools[@]}"; do
+    if [[ ${#transcripts[@]} -gt 0 ]]; then
+      transcript="${transcripts[$i % ${#transcripts[@]}]}"
+    else
+      transcript="$(default_transcript "${tools[$i]}")"
+    fi
     printf '\n[tools.%s]\ncommand = "%s/demo-agent.sh %s"\nresume_by_id_command = "%s/demo-agent.sh {id}"\nrevive_command = "%s/demo-agent.sh %s"\n' \
-      "${tools[$i]}" "$here" "${transcripts[$i % ${#transcripts[@]}]}" "$here" "$here" "${transcripts[$i % ${#transcripts[@]}]}"
+      "${tools[$i]}" "$here" "$transcript" "$here" "$here" "$transcript"
     printf 'account_command = "echo demo-token"\naccounts_command = "printf '"'"'%%s\\\\n'"'"' CLAUDE_OAUTH_TOKEN_ALICE1 CLAUDE_OAUTH_TOKEN_BOB2"\n'
   done
   # A scenario's own settings go last, so a run can shorten a window the
@@ -210,7 +258,7 @@ if [[ -n "$codex_question" ]]; then
   mkdir -p "$cq_dir"
   {
     printf '{"type":"session_meta","payload":{"session_id":"%s","cwd":"%s","source":"cli","originator":"codex-tui"}}\n' \
-      "$cq_id" "$root"
+      "$cq_id" "$project"
     head -1 "$root/internal/codexq/testdata/expired-blocking.jsonl"
     [[ "$codex_question" == "expired" ]] && sed -n '2p' "$root/internal/codexq/testdata/expired-blocking.jsonl"
   } >"$cq_dir/rollout-2026-09-09T04-30-42-$cq_id.jsonl"
@@ -224,17 +272,17 @@ if [[ -n "$codex_question" ]]; then
 fi
 for i in "${!foreign[@]}"; do
 	if [[ -r "$here/demo/${foreign[$i]}.jsonl" ]]; then
-		project_dir="$(printf '%s' "$root" | sed 's/[^a-zA-Z0-9]/-/g')"
+		project_dir="$(printf '%s' "$project" | sed 's/[^a-zA-Z0-9]/-/g')"
 		mkdir -p "$claude_dir/projects/$project_dir"
 		cp "$here/demo/${foreign[$i]}.jsonl" "$claude_dir/projects/$project_dir/${foreign[$i]}.jsonl"
 	fi
   name="operator-$((i + 1))"
   env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$sock" tmux -L default new-session -d \
-    -s "$name" -c "$root" -x "${cols:-120}" -y "${rows:-40}" \
+    -s "$name" -c "$project" -x "${cols:-120}" -y "${rows:-40}" \
     "$here/demo-agent.sh ${foreign[$i]}" || die "foreign pane ${foreign[$i]} failed"
   pid="$(TMUX_TMPDIR="$sock" tmux -L default list-panes -t "$name" -F '#{pane_pid}')"
   printf '{"pid":%s,"sessionId":"%s","cwd":"%s","startedAt":%s,"kind":"cli"}\n' \
-    "$pid" "${foreign[$i]}" "$root" "$(($(date +%s) * 1000))" >"$claude_dir/sessions/$pid.json"
+    "$pid" "${foreign[$i]}" "$project" "$(($(date +%s) * 1000))" >"$claude_dir/sessions/$pid.json"
 done
 
 # The theme is a settings row in the board's store, so seed the scratch one
@@ -313,7 +361,11 @@ if [[ -z "$width" || -z "$height" ]]; then
 fi
 printf 'capture: %sx%s cells at font size %s = %sx%s px\n' "$cols" "$rows" "$font_size" "$width" "$height"
 
-launch="clear && cd $root && env -u TMUX -u TMUX_PANE -u GATE_INBOX_SESSION_ID"
+# Every credential and home the board could read is withheld or scratch.
+launch="clear && cd $project && env -u TMUX -u TMUX_PANE -u GATE_INBOX_SESSION_ID"
+launch="$launch -u LINEAR_API_KEY -u GITHUB_TOKEN -u GH_TOKEN -u OPENCODE_DB HOME=$fake_home"
+launch="$launch XDG_CONFIG_HOME=$fake_home/.config XDG_DATA_HOME=$fake_home/.local/share"
+launch="$launch XDG_STATE_HOME=$fake_home/.local/state XDG_CACHE_HOME=$fake_home/.cache"
 launch="$launch GATE_INBOX_HOME=$home CLAUDE_CONFIG_DIR=$claude_dir CODEX_HOME=$codex_dir"
 launch="$launch TMUX_TMPDIR=$sock $binary"
 
@@ -321,6 +373,8 @@ tape="$work/run-$run_id.tape"
 {
   printf 'Output %s/board.gif\n' "$rel_media"
   printf 'Output %s/video.webm\n' "$rel_video"
+  # The screen as text, for the pre-upload scan; it is never uploaded.
+  printf 'Output %s/board.txt\n' "$rel_media"
   printf 'Set Width %s\nSet Height %s\nSet FontSize %s\n' "$width" "$height" "$font_size"
   printf 'Set TypingSpeed 15ms\n'
   if [[ -n "$vhs_theme" ]]; then printf 'Set Theme "%s"\n' "$vhs_theme"; fi
@@ -395,7 +449,14 @@ for artefact in "$media/board.gif" "$video_dir/video.webm" "$media/zz-final.png"
   go install github.com/charmbracelet/vhs@v0.11.0"
 done
 
+# Last line of defence in the driver itself: the operator's home path or login
+# anywhere in the recorded screen text means the scratch setup leaked.
+if [[ -s "$media/board.txt" ]] && grep -qiF -e "$HOME/" -e "$(id -un)@" "$media/board.txt"; then
+  rm -rf "$media" "$video_dir"
+  die "the recording shows the operator's home or login; deleted it -- fix the leak before recording again"
+fi
+
 printf '\ncapture %s\n  stills : %s\n  video  : %s\n  gif    : %s\n\n' \
   "$run_id" "$media" "$video_dir/video.webm" "$media/board.gif"
-printf 'attach it to the PR from inside this checkout:\n  bun %s/skills/ship-ui-feature/scripts/post-to-pr.ts --evidence %s\n' \
-  "$(cd "$root/.." && pwd)" "$out"
+printf 'this repo is public: attach the evidence to the private companion PR only, after\n'
+printf 'the operator has approved every frame; never to this repo or its PR.\n'

@@ -98,6 +98,16 @@ func (h ViewHandle) Close() { h.bridge.post(extensionViewMsg{id: h.id, close: tr
 
 // Open asks the board to show view on screen. It is shown only if the board
 // is on its list, or on another extension view, when the request arrives.
+// newHandle is a handle for a view the board made itself, numbered from the
+// same count Open numbers views by.
+func (b *ExtensionBridge) newHandle() ViewHandle {
+	b.mu.Lock()
+	b.views++
+	id := b.views
+	b.mu.Unlock()
+	return ViewHandle{bridge: b, id: id}
+}
+
 func (b *ExtensionBridge) Open(owner, screen string, view ExtensionView) ViewHandle {
 	b.mu.Lock()
 	b.views++
@@ -153,6 +163,10 @@ func (m *Model) updateExtensionView(msg tea.Msg) bool {
 	case extensionOpenMsg:
 		m.openExtensionView(msg)
 	case extensionViewMsg:
+		if m.mode == modeHeadPane && m.extView.id == msg.id && msg.close {
+			m.leaveHeadPane(false)
+			return true
+		}
 		if m.mode != modeExtensionView || m.extView.id != msg.id {
 			return true
 		}
@@ -171,6 +185,17 @@ func (m *Model) openExtensionView(msg extensionOpenMsg) {
 		return
 	}
 	onList := m.mode == modeList && !m.searching && !m.quick.active
+	if m.mode == modeHeadPane {
+		// A card a focused page opens goes over it, and gives the keyboard
+		// back to the page when it closes.
+		m.stashHeadPane()
+		m.extView = openView{}
+		m.mode = modeList
+		m.headReturn = true
+		onList = true
+	} else if m.mode == modeList {
+		m.headReturn = false
+	}
 	if !onList && m.mode != modeExtensionView {
 		// The operator has moved on since the key that asked for this;
 		// taking the screen from under them would lose what they are doing.
@@ -204,6 +229,10 @@ func (m *Model) closeExtensionView(reason CloseReason) {
 func (m *Model) dropExtensionView() {
 	m.extView = openView{}
 	m.mode = modeList
+	if m.headReturn {
+		m.headReturn = false
+		m.focusHeadPane()
+	}
 }
 
 // tellClosed tells a view that implements ViewCloser it was closed. A Closed
@@ -226,6 +255,10 @@ func (m *Model) tellClosed(closed openView, reason CloseReason) {
 // failView closes a view that panicked, and says so. The view is not told
 // it was closed: it is broken.
 func (m *Model) failView(recovered any) {
+	if m.mode == modeHeadPane {
+		m.failHeadPane(recovered)
+		return
+	}
 	owner := m.extView.owner
 	logging.Warn("extension view panicked", "extension", owner, "panic", fmt.Sprint(recovered))
 	m.dropExtensionView()
@@ -269,6 +302,10 @@ func (m *Model) tellView(key ViewKey) {
 		}()
 		return m.extView.view.Key(key)
 	}()
+	if closed && m.mode == modeHeadPane {
+		m.leaveHeadPane(false)
+		return
+	}
 	if closed && m.mode == modeExtensionView {
 		reason := CloseReturned
 		if key.Action == string(ActionSubmit) {

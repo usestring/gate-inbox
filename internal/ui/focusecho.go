@@ -357,7 +357,8 @@ func (m *Model) focusCaptureCmd(sessID string, gen uint64, withProc bool, gate c
 		if withProc {
 			if pid, err := driver.PanePID(sessID); err == nil {
 				memTotal, _ := sysstat.MemTotalBytes()
-				msg.proc = sysstat.Trees([]int{pid})[pid].ScaleToHost(sysstat.LogicalCPUs(), memTotal)
+				stat, _ := sysstat.Tree(pid)
+				msg.proc = stat.ScaleToHost(sysstat.LogicalCPUs(), memTotal)
 				msg.procOK = true
 			}
 		}

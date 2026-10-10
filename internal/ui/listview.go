@@ -603,7 +603,19 @@ func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentL
 			heights[i] += 2
 		}
 	}
-	start, end := lineWindow(heights, m.cursor-offset, height)
+	top := m.listTop.index
+	if m.listTop.key != "" {
+		for i := range rows {
+			if rowKey(rows[i]) == m.listTop.key {
+				top = i
+				break
+			}
+		}
+	}
+	start, end := lineWindow(heights, m.cursor-offset, height, top)
+	if start < len(rows) {
+		m.listTop = listAnchor{key: rowKey(rows[start]), index: start}
+	}
 
 	var lines []contentLine
 	for i := start; i < end; i++ {
@@ -657,18 +669,29 @@ func (m *Model) entryHeight(entry treeRow) int {
 	return 1
 }
 
+// listAnchor names the rail's top entry by identity, so a row a poll adds or
+// drops above it does not slide the window; the index is the fallback once
+// that entry is gone.
+type listAnchor struct {
+	key   string
+	index int
+}
+
+// scrollMargin is how many entries the window keeps past the cursor before
+// it scrolls, so a step shows what comes next.
+const scrollMargin = 1
+
 // lineWindow keeps the cursor's entry fully visible inside a line budget,
-// scrolling by whole entries so an entry is never cut in half.
-func lineWindow(heights []int, cursor, budget int) (int, int) {
+// scrolling by whole entries so an entry is never cut in half. The window
+// starts where the last frame's did and moves only as far as the cursor and
+// its margin need: a window rebuilt around the cursor every frame slides the
+// whole list under a cursor that stays put, which reads as the list jumping
+// on every step. One line stays free for a "more" counter.
+func lineWindow(heights []int, cursor, budget, top int) (int, int) {
 	if len(heights) == 0 || budget <= 0 {
 		return 0, 0
 	}
-	if cursor < 0 {
-		cursor = 0
-	}
-	if cursor >= len(heights) {
-		cursor = len(heights) - 1
-	}
+	cursor = min(max(cursor, 0), len(heights)-1)
 	total := 0
 	for _, h := range heights {
 		total += h
@@ -676,24 +699,32 @@ func lineWindow(heights []int, cursor, budget int) (int, int) {
 	if total <= budget {
 		return 0, len(heights)
 	}
-	// Grow a window around the cursor, preferring to keep entries above it
-	// on screen so the list does not jump when stepping down.
-	start, end, used := cursor, cursor+1, heights[cursor]
-	for {
-		grew := false
-		if end < len(heights) && used+heights[end] <= budget-1 {
-			used += heights[end]
-			end++
-			grew = true
+	room := budget - 1
+	span := func(from, to int) int {
+		used := 0
+		for i := from; i <= to; i++ {
+			used += heights[i]
 		}
-		if start > 0 && used+heights[start-1] <= budget-1 {
-			start--
-			used += heights[start]
-			grew = true
-		}
-		if !grew {
-			break
-		}
+		return used
+	}
+	start := min(max(top, 0), cursor)
+	start = min(start, max(cursor-scrollMargin, 0))
+	below := min(cursor+scrollMargin, len(heights)-1)
+	for start < cursor && span(start, below) > room {
+		start++
+	}
+	end, used := start, 0
+	for end < len(heights) && used+heights[end] <= room {
+		used += heights[end]
+		end++
+	}
+	if end <= cursor {
+		end = cursor + 1
+	}
+	// Never leave the bottom of the rail empty while entries above are cut.
+	for end == len(heights) && start > 0 && used+heights[start-1] <= room {
+		start--
+		used += heights[start]
 	}
 	return start, end
 }

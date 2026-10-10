@@ -35,7 +35,7 @@ func (s *Sessions) Mute(sessionID, targetID string, muted bool) (mutedSession Se
 		return Session{}, err
 	}
 	target.Muted = muted
-	return runtime.sessionInfo(target, runtime.driver.Exists(target.ID), target.ID == sessionID), nil
+	return runtime.currentInfo(target, target.ID == sessionID), nil
 }
 
 // mutable resolves a session a mute may target. Any row on the board is

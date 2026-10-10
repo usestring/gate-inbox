@@ -555,6 +555,11 @@ const busyLineWaitOnly = `^[✻✳✶✽✢·✦✧+*] Waiting for \d+ (?:backgr
 // current pattern; one edited by hand keeps what its author wrote.
 const waitingEnterToConfirmBare = `Enter to confirm`
 
+// waitingAskLegendOneLine is the AskUserQuestion legend pattern claude shipped
+// with before it read a legend the pane wraps. A config carrying it verbatim
+// takes the current pattern, the way one carrying the bare phrase above does.
+const waitingAskLegendOneLine = `(?m)^[ \x{A0}]*Enter to select \x{B7} (?:[^\x{B7}\n]+\x{B7} )*Esc to cancel[ \x{A0}]*$`
+
 // codexTurnEndRuleOnly, codexChromeLineMCPOnly and codexWorkingNoHints are
 // the codex patterns shipped before codex 0.154 moved the turn end to a dim
 // label under the reply and 0.157 parked hint rows above the composer. A
@@ -651,6 +656,7 @@ func mergeTool(name string, user, def Tool) Tool {
 		user.Rules = def.Rules
 	} else if name == "claude" {
 		upgradeBareEnterToConfirm(user.Rules, def.Rules)
+		upgradeOneLineAskLegend(user.Rules, def.Rules)
 		user.Rules = withAskUserQuestionRules(user.Rules, def.Rules)
 	} else if name == "opencode" {
 		user.Rules = withDialogRules(user.Rules, def.Rules, opencodeDialogSamples)
@@ -681,6 +687,9 @@ func mergeTool(name string, user, def Tool) Tool {
 const askUserQuestionLegend = "Enter to select \u00b7 \u2191/\u2193 to navigate \u00b7 Esc to cancel"
 const askUserQuestionReview = "Ready to submit your answers?"
 
+// askUserQuestionLegendWrapped is that legend as a 40-column pane draws it.
+const askUserQuestionLegendWrapped = "Enter to select \u00b7 \u2191/\u2193 to navigate \u00b7 Esc\nto cancel"
+
 var askUserQuestionSamples = []string{askUserQuestionLegend, askUserQuestionReview}
 
 // upgradeBareEnterToConfirm swaps the superseded bare phrase for whichever
@@ -697,6 +706,25 @@ func upgradeBareEnterToConfirm(user, def []Rule) {
 			}
 			user[i] = d
 			break
+		}
+	}
+}
+
+// upgradeOneLineAskLegend swaps the superseded one-line legend pattern for the
+// default rule that reads a wrapped legend, in place.
+func upgradeOneLineAskLegend(user, def []Rule) {
+	for i, r := range user {
+		if r.State != "waiting" || r.Pattern != waitingAskLegendOneLine {
+			continue
+		}
+		for _, d := range def {
+			if d.State != "waiting" {
+				continue
+			}
+			if re, err := regexp.Compile(d.Pattern); err == nil && re.MatchString(askUserQuestionLegendWrapped) {
+				user[i] = d
+				break
+			}
 		}
 	}
 }
@@ -1092,7 +1120,12 @@ rules = [
   # separated. How many segments sit between them is the dialog's own business
   # -- a multi-question one adds "n to add notes" and "Tab to switch questions"
   # -- so anchor both ends and let the middle be any number of segments.
-  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Enter to select \\x{B7} (?:[^\\x{B7}\\n]+\\x{B7} )*Esc to cancel[ \\x{A0}]*$" },
+  # A pane narrower than the legend wraps it at any space ("… · Esc" over "to
+  # cancel" at 40 columns; the "ctrl+g to edit in nano" segment a focused
+  # free-text row adds wraps it below 76), so a line break stands in for any
+  # space and each segment may wrap once. Missing the wrapped legend reads
+  # the dialog as idle, and the next queued message's Enter ticks a box.
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Enter(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)select(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)\\x{B7}(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)(?:[^\\x{B7}\\n]+(?:\\n[^\\x{B7}\\n]*)?\\x{B7}(?:[ \\x{A0}]+|[ \\x{A0}]*\\n))*Esc(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)cancel[ \\x{A0}]*$" },
   # The review page a stepper dialog ends on: the answers listed, "Ready to
   # submit your answers?", then "❯ 1. Submit answers / 2. Cancel" -- and no
   # legend at all, so the rule above cannot see it, and the marker row is the

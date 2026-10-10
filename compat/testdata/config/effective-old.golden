@@ -125,7 +125,7 @@ file     tools.claude.revive_command = "claude --continue"
 file*    tools.claude.rules[0].pattern = "(?m)^[ \\x{A0}\\x{2502}|]*(?:[^\\n]*[,\\x{B7}][ \\x{A0}]*)?Enter to confirm(?:[ \\x{A0}]*[,\\x{B7}][^\\n]*)?[ \\x{A0}\\x{2502}|]*$"
          (file: "Enter to confirm")
 file     tools.claude.rules[0].state = "waiting"
-file*    tools.claude.rules[1].pattern = "(?m)^[ \\x{A0}]*Enter to select \\x{B7} (?:[^\\x{B7}\\n]+\\x{B7} )*Esc to cancel[ \\x{A0}]*$"
+file*    tools.claude.rules[1].pattern = "(?m)^[ \\x{A0}]*Enter(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)select(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)\\x{B7}(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)(?:[^\\x{B7}\\n]+(?:\\n[^\\x{B7}\\n]*)?\\x{B7}(?:[ \\x{A0}]+|[ \\x{A0}]*\\n))*Esc(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)cancel[ \\x{A0}]*$"
          (file: "esc to interrupt")
 file*    tools.claude.rules[1].state = "waiting"
          (file: "working")

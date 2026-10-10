@@ -555,10 +555,14 @@ const busyLineWaitOnly = `^[✻✳✶✽✢·✦✧+*] Waiting for \d+ (?:backgr
 // current pattern; one edited by hand keeps what its author wrote.
 const waitingEnterToConfirmBare = `Enter to confirm`
 
-// waitingAskLegendOneLine is the AskUserQuestion legend pattern claude shipped
-// with before it read a legend the pane wraps. A config carrying it verbatim
-// takes the current pattern, the way one carrying the bare phrase above does.
-const waitingAskLegendOneLine = `(?m)^[ \x{A0}]*Enter to select \x{B7} (?:[^\x{B7}\n]+\x{B7} )*Esc to cancel[ \x{A0}]*$`
+// waitingAskLegendOneLine and waitingAskReviewOneLine are the AskUserQuestion
+// patterns claude shipped with before they read a line the pane wraps. A
+// config carrying either verbatim takes the current pattern, the way one
+// carrying the bare phrase above does.
+const (
+	waitingAskLegendOneLine = `(?m)^[ \x{A0}]*Enter to select \x{B7} (?:[^\x{B7}\n]+\x{B7} )*Esc to cancel[ \x{A0}]*$`
+	waitingAskReviewOneLine = `(?m)^[ \x{A0}]*Ready to submit your answers\?[ \x{A0}]*$`
+)
 
 // codexTurnEndRuleOnly, codexChromeLineMCPOnly and codexWorkingNoHints are
 // the codex patterns shipped before codex 0.154 moved the turn end to a dim
@@ -656,7 +660,7 @@ func mergeTool(name string, user, def Tool) Tool {
 		user.Rules = def.Rules
 	} else if name == "claude" {
 		upgradeBareEnterToConfirm(user.Rules, def.Rules)
-		upgradeOneLineAskLegend(user.Rules, def.Rules)
+		upgradeOneLineAskRules(user.Rules, def.Rules)
 		user.Rules = withAskUserQuestionRules(user.Rules, def.Rules)
 	} else if name == "opencode" {
 		user.Rules = withDialogRules(user.Rules, def.Rules, opencodeDialogSamples)
@@ -687,8 +691,19 @@ func mergeTool(name string, user, def Tool) Tool {
 const askUserQuestionLegend = "Enter to select \u00b7 \u2191/\u2193 to navigate \u00b7 Esc to cancel"
 const askUserQuestionReview = "Ready to submit your answers?"
 
-// askUserQuestionLegendWrapped is that legend as a 40-column pane draws it.
-const askUserQuestionLegendWrapped = "Enter to select \u00b7 \u2191/\u2193 to navigate \u00b7 Esc\nto cancel"
+// The legend as a 40-column pane draws it, and the review question as a
+// 24-column one does.
+const (
+	askUserQuestionLegendWrapped = "Enter to select \u00b7 \u2191/\u2193 to navigate \u00b7 Esc\nto cancel"
+	askUserQuestionReviewWrapped = "Ready to submit your\nanswers?"
+)
+
+// oneLineAskRules maps each superseded one-line pattern to the wrapped line
+// its replacement has to read.
+var oneLineAskRules = map[string]string{
+	waitingAskLegendOneLine: askUserQuestionLegendWrapped,
+	waitingAskReviewOneLine: askUserQuestionReviewWrapped,
+}
 
 var askUserQuestionSamples = []string{askUserQuestionLegend, askUserQuestionReview}
 
@@ -710,18 +725,19 @@ func upgradeBareEnterToConfirm(user, def []Rule) {
 	}
 }
 
-// upgradeOneLineAskLegend swaps the superseded one-line legend pattern for the
-// default rule that reads a wrapped legend, in place.
-func upgradeOneLineAskLegend(user, def []Rule) {
+// upgradeOneLineAskRules swaps each superseded one-line pattern for the
+// default rule that reads the same line wrapped, in place.
+func upgradeOneLineAskRules(user, def []Rule) {
 	for i, r := range user {
-		if r.State != "waiting" || r.Pattern != waitingAskLegendOneLine {
+		wrapped, superseded := oneLineAskRules[r.Pattern]
+		if r.State != "waiting" || !superseded {
 			continue
 		}
 		for _, d := range def {
 			if d.State != "waiting" {
 				continue
 			}
-			if re, err := regexp.Compile(d.Pattern); err == nil && re.MatchString(askUserQuestionLegendWrapped) {
+			if re, err := regexp.Compile(d.Pattern); err == nil && re.MatchString(wrapped) {
 				user[i] = d
 				break
 			}
@@ -1131,7 +1147,10 @@ rules = [
   # legend at all, so the rule above cannot see it, and the marker row is the
   # activity cutoff so the numbered rule cannot either. The question line sits
   # above the cutoff and inside the newest turn, which is where rules look.
-  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Ready to submit your answers\\?[ \\x{A0}]*$" },
+  # Below 29 columns the question wraps, and missing it there lets a queued
+  # message's Enter press "Submit answers", so a break may stand in for any
+  # space here too.
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Ready(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)submit(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)your(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)answers\\?[ \\x{A0}]*$" },
   # spinner row of an active turn, any duration format:
   # "✳ Drizzling… (6s · thinking)" / "✽ Zigzagging… (3m 18s · ↓ 1.4k tokens)"
   { state = "working", pattern = "(?m)^[✻✳✶✽✢·✦✧+*] \\S+… \\(" },

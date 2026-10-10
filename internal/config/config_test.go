@@ -817,16 +817,18 @@ rules = [
 	}
 }
 
-// A config written before the question legend was read wrapped carries the
-// one-line pattern verbatim, and keeps reading a narrow multi-select as idle
-// unless the load swaps it for the current one, in its own position.
-func TestLoadDirUpgradesTheOneLineQuestionLegendRule(t *testing.T) {
+// A config written before the question legend and review page were read
+// wrapped carries their one-line patterns verbatim, and keeps reading a narrow
+// question as idle unless the load swaps each for the current one, in its own
+// position.
+func TestLoadDirUpgradesTheOneLineQuestionRules(t *testing.T) {
 	dir := t.TempDir()
 	legacy := `
 [tools.claude]
 command = "claude"
 rules = [
   { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Enter to select \\x{B7} (?:[^\\x{B7}\\n]+\\x{B7} )*Esc to cancel[ \\x{A0}]*$" },
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Ready to submit your answers\\?[ \\x{A0}]*$" },
   { state = "working", pattern = "esc to interrupt" },
 ]
 `
@@ -842,17 +844,22 @@ rules = [
 		t.Fatalf("claude rules lost their shape: %+v", rules)
 	}
 	for _, r := range rules {
-		if r.Pattern == waitingAskLegendOneLine {
-			t.Fatal("the one-line pattern survived the upgrade")
+		if _, superseded := oneLineAskRules[r.Pattern]; superseded {
+			t.Fatalf("one-line pattern %q survived the upgrade", r.Pattern)
 		}
 	}
-	re, err := regexp.Compile(rules[0].Pattern)
-	if err != nil {
-		t.Fatalf("compile upgraded pattern: %v", err)
-	}
-	for _, legend := range []string{askUserQuestionLegend, askUserQuestionLegendWrapped} {
-		if !re.MatchString(legend) {
-			t.Fatalf("upgraded pattern %q does not read %q", rules[0].Pattern, legend)
+	for i, lines := range [][]string{
+		{askUserQuestionLegend, askUserQuestionLegendWrapped},
+		{askUserQuestionReview, askUserQuestionReviewWrapped},
+	} {
+		re, err := regexp.Compile(rules[i].Pattern)
+		if err != nil {
+			t.Fatalf("compile upgraded pattern: %v", err)
+		}
+		for _, line := range lines {
+			if !re.MatchString(line) {
+				t.Fatalf("upgraded pattern %q does not read %q", rules[i].Pattern, line)
+			}
 		}
 	}
 }

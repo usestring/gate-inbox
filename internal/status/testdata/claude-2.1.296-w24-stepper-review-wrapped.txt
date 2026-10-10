@@ -1,0 +1,50 @@
+ ▐▛███▛█   Haiku 5.5
+▝▜██████▀  Claude Max
+ ▝▝   ▝▝   ~/repos/sampl
+           e-repo
+
+
+❯ Do not use any tool
+  except
+  AskUserQuestion.
+  Immediately call
+  AskUserQuestion ONCE
+  with THREE questions:
+  (1) header Color,
+  single-select,
+  question "Pick a
+  color?", options Red,
+  Blue; (2) header
+  Checks, multiSelect
+  true, question "Which
+  checks?", options
+  Build, Lint, Tests;
+  (3) header Size,
+  single-select,
+  question "Pick a
+  size?", options
+  Small, Large. Short
+  descriptions. Then
+  wait.
+
+────────────────────────
+←  ☐   ☐ C… ☐   ✔
+  C…       S…  Submit  →
+
+Review your answers
+
+⚠ You have not answered
+  all questions
+
+Ready to submit your
+answers?
+
+❯ 1. Submit answers
+  2. Cancel
+
+
+
+
+
+
+

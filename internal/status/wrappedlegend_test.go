@@ -32,6 +32,11 @@ func TestAWrappedQuestionLegendHoldsDelivery(t *testing.T) {
 		// A focused free-text row adds "ctrl+g to edit in nano", so the legend
 		// wraps below 76 columns.
 		{"testdata/claude-2.1.296-w72-multiselect-free-text-wrapped.txt", "a 72-column multi-select on its free-text row"},
+		// Three wraps: every segment but the first starts a line of its own.
+		{"testdata/claude-2.1.296-w20-stepper-multiselect-wrapped.txt", "a 20-column stepper multi-select"},
+		// The review page has no legend; its question wraps instead, and the
+		// cursor it opens on is "Submit answers", so an Enter submits them all.
+		{"testdata/claude-2.1.296-w24-stepper-review-wrapped.txt", "a 24-column stepper review page"},
 		{"../dialog/testdata/claude-2.1.283-tabs-w80-on-free-text.ansi", "an 80-column stepper on its free-text row"},
 		// The separator itself opens the next line.
 		{"../dialog/testdata/claude-2.1.283-tabs-w44-multiselect.ansi", "a 44-column stepper multi-select"},

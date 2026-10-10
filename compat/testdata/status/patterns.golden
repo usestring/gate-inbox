@@ -20,7 +20,7 @@ interrupt_keys = ["Escape"]
 rules[0] waiting "(?m)^[ \\x{A0}\\x{2502}|]*(?:[^\\n]*[,\\x{B7}][ \\x{A0}]*)?Enter to confirm(?:[ \\x{A0}]*[,\\x{B7}][^\\n]*)?[ \\x{A0}\\x{2502}|]*$"
 rules[1] waiting "(?m)^[ \\x{A0}]*❯[ \\x{A0}]+\\d+\\."
 rules[2] waiting "(?m)^[ \\x{A0}]*Enter(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)select(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)\\x{B7}(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)(?:[^\\x{B7}\\n]+(?:\\n[^\\x{B7}\\n]*)?\\x{B7}(?:[ \\x{A0}]+|[ \\x{A0}]*\\n))*Esc(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)cancel[ \\x{A0}]*$"
-rules[3] waiting "(?m)^[ \\x{A0}]*Ready to submit your answers\\?[ \\x{A0}]*$"
+rules[3] waiting "(?m)^[ \\x{A0}]*Ready(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)submit(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)your(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)answers\\?[ \\x{A0}]*$"
 rules[4] working "(?m)^[✻✳✶✽✢·✦✧+*] \\S+… \\("
 rules[5] working "esc to interrupt"
 rules[6] errored "(?im)^\\s*error:"

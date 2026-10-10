@@ -40,10 +40,10 @@ func TestTreeAgreesWithTreesWithoutForkingPs(t *testing.T) {
 	if !slices.Equal(got.Children, want.Children) {
 		t.Errorf("Children = %q, ps named %q", got.Children, want.Children)
 	}
-	// RSS comes from /proc/<pid>/stat's page count, which ps does not read,
-	// so it is held to TreeSampler's bound: the same source the poll pass
-	// already reports, and within 2x catches a wrong page size.
-	if ratio := float64(got.RSS) / float64(want.RSS); ratio < 0.5 || ratio > 2 {
+	// RSS comes from statm, the count ps reads too. stat's own count runs
+	// about a tenth low on processes this small, which is what this bound
+	// is tight enough to catch.
+	if ratio := float64(got.RSS) / float64(want.RSS); ratio < 0.98 || ratio > 1.02 {
 		t.Errorf("RSS = %d, ps read %d", got.RSS, want.RSS)
 	}
 	// ps rounds %cpu to a tenth, and the two reads are moments apart.

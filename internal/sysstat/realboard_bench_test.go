@@ -169,7 +169,7 @@ func TestRealBoardSamplerCost(t *testing.T) {
 			if !ok || f.Procs == s.Procs {
 				continue
 			}
-			if _, alive := sampleTree(root, "", 0); alive && len(clientsStillAlive(root, s.Procs, f.Procs)) > 0 {
+			if _, alive := sampleTree(root, "", 0, false); alive && len(clientsStillAlive(root, s.Procs, f.Procs)) > 0 {
 				live++
 				continue
 			}

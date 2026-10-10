@@ -106,7 +106,7 @@ func (s *TreeSampler) Sample(rootPIDs []int, argvRoots map[int]bool) map[int]Pro
 		if argvRoots[root] {
 			mark = s.argvMark
 		}
-		stat, alive := sampleTree(root, mark, 0)
+		stat, alive := sampleTree(root, mark, 0, false)
 		if !alive {
 			// A root with no /proc entry has exited. Leaving it out is what
 			// Trees does for a pid ps did not list, and the caller reads a
@@ -131,13 +131,17 @@ func (s *TreeSampler) Sample(rootPIDs []int, argvRoots map[int]bool) map[int]Pro
 // uptime, when above zero, is the host's seconds since boot, and each
 // process's lifetime CPU share is summed into PCPU against it the way ps
 // computes %cpu. The sampler passes zero: it keeps the seeding scan's figure.
-func sampleTree(root int, argvMark string, uptime float64) (ProcStat, bool) {
+//
+// exactRSS reads each process's resident size from statm, the count ps
+// reports, rather than stat's, which the kernel sums from per-CPU counters
+// without folding them in and so runs about a tenth low on a small process.
+func sampleTree(root int, argvMark string, uptime float64, exactRSS bool) (ProcStat, bool) {
 	info, ok := readProcStat(root)
 	if !ok {
 		return ProcStat{}, false
 	}
 	pageSize := uint64(os.Getpagesize())
-	stat := ProcStat{OK: true, Procs: 1, CPUSeconds: info.cpuSeconds, RSS: info.rssPages * pageSize, PCPU: lifetimePCPU(info, uptime)}
+	stat := ProcStat{OK: true, Procs: 1, CPUSeconds: info.cpuSeconds, RSS: residentPages(root, info, exactRSS) * pageSize, PCPU: lifetimePCPU(info, uptime)}
 	stat.ArgvMarkOK = argvMark != ""
 	stat.ArgvMark = stat.ArgvMarkOK && liveCarriesMark(root, info, argvMark)
 
@@ -166,7 +170,7 @@ func sampleTree(root int, argvMark string, uptime float64) (ProcStat, bool) {
 		}
 		stat.Procs++
 		stat.CPUSeconds += info.cpuSeconds
-		stat.RSS += info.rssPages * pageSize
+		stat.RSS += residentPages(pid, info, exactRSS) * pageSize
 		stat.PCPU += lifetimePCPU(info, uptime)
 		// Short-circuited on purpose. The mark is normally on the pane's
 		// first child, so a healthy tree pays one cmdline read; only a tree
@@ -207,7 +211,29 @@ func Tree(root int) (ProcStat, bool) {
 		stat, ok := Trees([]int{root})[root]
 		return stat, ok
 	}
-	return sampleTree(root, "", uptime)
+	return sampleTree(root, "", uptime, true)
+}
+
+// residentPages is info's resident page count, or statm's when exact is set
+// and statm can still be read.
+func residentPages(pid int, info procInfo, exact bool) uint64 {
+	if !exact {
+		return info.rssPages
+	}
+	pages, ok := info.rssPages, false
+	withProcFile("/proc/"+strconv.Itoa(pid)+"/statm", func(raw []byte) {
+		fields := strings.Fields(string(raw))
+		if len(fields) < 2 {
+			return
+		}
+		if value, err := strconv.ParseUint(fields[1], 10, 64); err == nil {
+			pages, ok = value, true
+		}
+	})
+	if !ok {
+		return info.rssPages
+	}
+	return pages
 }
 
 // readUptime is the host's seconds since boot, the first field of

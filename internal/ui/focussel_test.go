@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
@@ -798,5 +799,45 @@ func TestLateCopyConfirmationIsDroppedAfterTheSelectionGoes(t *testing.T) {
 	m2.Update(focusCopiedMsg{chars: 4, gen: m2.copyGen})
 	if m2.copied != 4 {
 		t.Fatalf("the write for the standing selection was dropped: %d", m2.copied)
+	}
+}
+
+// Copying the focused conversation must not carry the message box with it:
+// every content row wears a two-column │ gutter on screen, and pasting that
+// gutter indents each copied line and breaks code.
+func TestConversationCopyStripsTheMessageFrame(t *testing.T) {
+	m := conversationInputModel(t, "codex", "", paneCursor{})
+	m.conversation.messages = []search.Message{
+		{Role: "assistant", Text: "line one\n```\n  indented\n```"},
+	}
+	m.conversation.dirty = true
+	width := 40
+	m.previewLines(width, 12, "")
+	rows := m.paneTextLines()
+	content := -1
+	for i, row := range rows {
+		if strings.Contains(row, "line one") {
+			content = i
+			break
+		}
+	}
+	if content < 0 {
+		t.Fatalf("test setup: no content row in %q", strings.Join(rows, "\n"))
+	}
+	// A full-width drag over the content rows, the way a line-wise select
+	// lands, copies the words without the frame.
+	m.sel = focusSelection{active: true, anchorRow: content, anchorCol: 0, headRow: content + 1, headCol: width}
+	if got := m.selectionText(); got != "line one\n  indented" {
+		t.Fatalf("framed copy = %q, want the bare content", got)
+	}
+	// A drag confined to the frame itself copies nothing, not the border.
+	m.sel = focusSelection{active: true, anchorRow: content, anchorCol: 0, headRow: content, headCol: 1}
+	if got := m.selectionText(); got != "" {
+		t.Fatalf("frame-only copy = %q, want empty", got)
+	}
+	// The box borders copy as empty lines rather than box art.
+	m.sel = focusSelection{active: true, anchorRow: 0, anchorCol: 0, headRow: 0, headCol: width}
+	if got := m.selectionText(); got != "" {
+		t.Fatalf("border copy = %q, want empty", got)
 	}
 }

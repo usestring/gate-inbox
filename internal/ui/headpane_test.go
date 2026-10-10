@@ -172,3 +172,16 @@ func TestTriageLandsOnAHeadersPage(t *testing.T) {
 		t.Fatalf("triage cursor on %s, want the header over s9", rowKey(row))
 	}
 }
+
+// A header with a page is a row, and only a row: drawn again as a caption
+// over its session, every charter showed its title on two lines.
+func TestAHeaderWithAPageIsDrawnOnce(t *testing.T) {
+	m, _, _, _ := paneModel(t)
+	var lines []string
+	for _, line := range m.entryLines(m.rows, 0, 80, 30) {
+		lines = append(lines, ansi.Strip(line.text))
+	}
+	if got := strings.Count(strings.Join(lines, "\n"), "◈ ship it"); got != 1 {
+		t.Fatalf("the header is drawn %d times, want once:\n%s", got, strings.Join(lines, "\n"))
+	}
+}

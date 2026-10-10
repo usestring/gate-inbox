@@ -395,7 +395,7 @@ func (r *runtime) list(callerID string, opts ListOptions) (SessionList, error) {
 	if err != nil {
 		return SessionList{}, err
 	}
-	scan, err := r.driver.ScanPanes()
+	scan, err := r.driver.ScanPanesWithPaths()
 	if err != nil {
 		return SessionList{}, err
 	}

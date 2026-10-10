@@ -31,3 +31,28 @@ func TestPaneScanIgnoresALineBreakInADirectory(t *testing.T) {
 		t.Errorf("Paths[cccc] = %q, want the trailing space kept", got)
 	}
 }
+
+// The board's poll pass scans every two seconds and shows no directory, so
+// its scan must not ask tmux for one; the listing that reports sessions does.
+func TestOnlyThePathScanReadsDirectories(t *testing.T) {
+	driver := requireTmux(t)
+	id := uniqueID("paths")
+	if err := driver.Create(id, "/tmp", "cat", nil, 80, 24); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { driver.Kill(id) })
+	scan, err := driver.ScanPanes()
+	if err != nil {
+		t.Fatalf("ScanPanes: %v", err)
+	}
+	if _, ok := scan.PIDs[id]; !ok || scan.Paths != nil {
+		t.Errorf("ScanPanes = pids %v, paths %v; want the pane live and no directories read", scan.PIDs, scan.Paths)
+	}
+	scan, err = driver.ScanPanesWithPaths()
+	if err != nil {
+		t.Fatalf("ScanPanesWithPaths: %v", err)
+	}
+	if _, ok := scan.PIDs[id]; !ok || scan.Paths[id] != "/tmp" {
+		t.Errorf("ScanPanesWithPaths = pids %v, paths %v; want the pane live in /tmp", scan.PIDs, scan.Paths)
+	}
+}

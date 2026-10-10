@@ -86,7 +86,7 @@ func (p *poller) maybeRecoverLimit(sess store.Session, states map[string]store.L
 	// AttemptedAt is written before the paste goes out, so no second pass
 	// can reach this however long the pane takes to draw it; the send only
 	// has to say whether it landed.
-	p.runSend(sess.ID, key, limitResumePrompt, func(err error) error {
+	p.runSend(sess, key, limitResumePrompt, func(err error) error {
 		if err != nil {
 			return fmt.Errorf("usage-limit continuation for %s was not confirmed; automatic retry suppressed to avoid duplicate input: %w", sess.Name, err)
 		}

@@ -1459,7 +1459,7 @@ func (p *poller) maybeSendPendingInput(sess store.Session, pane string, agentAli
 		p.releaseSend(key)
 		return false, nil
 	}
-	p.runSend(sess.ID, key, input, func(err error) error {
+	p.runSend(sess, key, input, func(err error) error {
 		// Opencode collapses a multi-line bracketed paste to "[Pasted ~N
 		// lines]" and the first Enter can land inside the paste burst
 		// rather than submitting it, leaving the prompt held in the
@@ -1658,7 +1658,7 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 		}
 		return nil
 	}
-	p.runSend(sess.ID, key, p.envelope(sess, msg), func(err error) error {
+	p.runSend(sess, key, p.envelope(sess, msg), func(err error) error {
 		return errors.Join(settle(err), p.restoreDraft(sess, draft))
 	})
 	return true, nil

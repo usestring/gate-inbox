@@ -817,6 +817,53 @@ rules = [
 	}
 }
 
+// A config written before the question legend and review page were read
+// wrapped carries their one-line patterns verbatim, and keeps reading a narrow
+// question as idle unless the load swaps each for the current one, in its own
+// position.
+func TestLoadDirUpgradesTheOneLineQuestionRules(t *testing.T) {
+	dir := t.TempDir()
+	legacy := `
+[tools.claude]
+command = "claude"
+rules = [
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Enter to select \\x{B7} (?:[^\\x{B7}\\n]+\\x{B7} )*Esc to cancel[ \\x{A0}]*$" },
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Ready to submit your answers\\?[ \\x{A0}]*$" },
+  { state = "working", pattern = "esc to interrupt" },
+]
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	rules := cfg.Tools["claude"].Rules
+	if len(rules) == 0 || rules[0].State != "waiting" || rules[len(rules)-1].State != "working" {
+		t.Fatalf("claude rules lost their shape: %+v", rules)
+	}
+	for _, r := range rules {
+		if _, superseded := oneLineAskRules[r.Pattern]; superseded {
+			t.Fatalf("one-line pattern %q survived the upgrade", r.Pattern)
+		}
+	}
+	for i, lines := range [][]string{
+		{askUserQuestionLegend, askUserQuestionLegendWrapped},
+		{askUserQuestionReview, askUserQuestionReviewWrapped},
+	} {
+		re, err := regexp.Compile(rules[i].Pattern)
+		if err != nil {
+			t.Fatalf("compile upgraded pattern: %v", err)
+		}
+		for _, line := range lines {
+			if !re.MatchString(line) {
+				t.Fatalf("upgraded pattern %q does not read %q", rules[i].Pattern, line)
+			}
+		}
+	}
+}
+
 // A config written before either opencode overlay was recognized carries a
 // rules array with no waiting rule at all, so both a permission ask and an
 // agent's select prompt read working off the spinner row that sits above the

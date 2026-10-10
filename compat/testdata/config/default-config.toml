@@ -242,13 +242,21 @@ rules = [
   # separated. How many segments sit between them is the dialog's own business
   # -- a multi-question one adds "n to add notes" and "Tab to switch questions"
   # -- so anchor both ends and let the middle be any number of segments.
-  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Enter to select \\x{B7} (?:[^\\x{B7}\\n]+\\x{B7} )*Esc to cancel[ \\x{A0}]*$" },
+  # A pane narrower than the legend wraps it at any space ("… · Esc" over "to
+  # cancel" at 40 columns; the "ctrl+g to edit in nano" segment a focused
+  # free-text row adds wraps it below 76), so a line break stands in for any
+  # space and each segment may wrap once. Missing the wrapped legend reads
+  # the dialog as idle, and the next queued message's Enter ticks a box.
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Enter(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)select(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)\\x{B7}(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)(?:[^\\x{B7}\\n]+(?:\\n[^\\x{B7}\\n]*)?\\x{B7}(?:[ \\x{A0}]+|[ \\x{A0}]*\\n))*Esc(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)cancel[ \\x{A0}]*$" },
   # The review page a stepper dialog ends on: the answers listed, "Ready to
   # submit your answers?", then "❯ 1. Submit answers / 2. Cancel" -- and no
   # legend at all, so the rule above cannot see it, and the marker row is the
   # activity cutoff so the numbered rule cannot either. The question line sits
   # above the cutoff and inside the newest turn, which is where rules look.
-  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Ready to submit your answers\\?[ \\x{A0}]*$" },
+  # Below 29 columns the question wraps, and missing it there lets a queued
+  # message's Enter press "Submit answers", so a break may stand in for any
+  # space here too.
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Ready(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)submit(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)your(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)answers\\?[ \\x{A0}]*$" },
   # spinner row of an active turn, any duration format:
   # "✳ Drizzling… (6s · thinking)" / "✽ Zigzagging… (3m 18s · ↓ 1.4k tokens)"
   { state = "working", pattern = "(?m)^[✻✳✶✽✢·✦✧+*] \\S+… \\(" },

@@ -41,6 +41,17 @@
         ]
       }
     ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || { p=$(cat); case \"$p\" in *\"get type of source\"*) [ -z \"$GATE_INBOX_BIN\" ] || [ -z \"$GATE_INBOX_SESSION_ID\" ] || printf '%s' \"$p\" | \"$GATE_INBOX_BIN\" hook sandbox-stale 2\u003e/dev/null;; esac; }; exit 0"
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "*",
@@ -66,7 +77,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || rm -f \"$f\" \"$f.attest\"; git rev-parse --git-dir \u003e/dev/null 2\u003e\u00261 \u0026\u0026 { git worktree prune \u003e/dev/null 2\u003e\u00261; git submodule --quiet foreach --recursive 'git worktree prune \u003e/dev/null 2\u003e\u00261 || true' \u003e/dev/null 2\u003e\u00261; }; exit 0"
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || rm -f \"$f\" \"$f.attest\" \"$f.sandbox-stale\"; git rev-parse --git-dir \u003e/dev/null 2\u003e\u00261 \u0026\u0026 { git worktree prune \u003e/dev/null 2\u003e\u00261; git submodule --quiet foreach --recursive 'git worktree prune \u003e/dev/null 2\u003e\u00261 || true' \u003e/dev/null 2\u003e\u00261; }; exit 0"
           }
         ]
       }

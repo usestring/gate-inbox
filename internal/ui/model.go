@@ -1734,7 +1734,8 @@ func (m *Model) previewCmd(sess store.Session, gen uint64, withProc bool) tea.Cm
 		if withProc {
 			if pid, err := m.tmux.PanePID(sess.ID); err == nil {
 				memTotal, _ := sysstat.MemTotalBytes()
-				msg.proc = sysstat.Trees([]int{pid})[pid].ScaleToHost(sysstat.LogicalCPUs(), memTotal)
+				stat, _ := sysstat.Tree(pid)
+				msg.proc = stat.ScaleToHost(sysstat.LogicalCPUs(), memTotal)
 				msg.procOK = true
 			}
 		}

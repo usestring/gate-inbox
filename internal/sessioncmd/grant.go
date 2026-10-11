@@ -49,9 +49,11 @@ const (
 	refuseOption = "Don't grant"
 )
 
-// Every grant is temporary. A parent says how long its child needs the
-// permission, the user approves that window along with the permission, and
-// the board revokes it when the window closes (ExpireGrants).
+// A grant stands until revoked unless the parent asks for a window. A
+// standing grant is approved once and applies to every Claude Code session
+// Gate Inbox launches, so the same permission is never asked for again; a
+// windowed one is for one child, and the board revokes it when the window
+// closes (ExpireGrants).
 const (
 	DefaultGrantTTL = 2 * time.Hour
 	MaxGrantTTL     = 24 * time.Hour
@@ -67,7 +69,8 @@ type GrantRequest struct {
 	Value  string
 	Values []string
 	Revoke bool
-	// ExpiresIn is how long the grant lasts; zero is DefaultGrantTTL.
+	// ExpiresIn is how long a grant for this child alone lasts; zero makes
+	// it a standing grant for every session.
 	ExpiresIn time.Duration
 	// Restart ends and resumes a running child so the change takes effect;
 	// without it a working child is left alone and picks the change up at
@@ -99,6 +102,8 @@ type GrantResult struct {
 	Set       []GrantInfo `json:"set,omitempty"`
 	Settings  string      `json:"settings_file,omitempty"`
 	Restarted bool        `json:"restarted"`
+	// Standing is set when the grant stands for every session until revoked.
+	Standing bool `json:"standing,omitempty"`
 	// Question is the Approval question the grant spent, word for word, so
 	// the same answer can carry the instruction the grant was for.
 	Question string `json:"approval_question,omitempty"`
@@ -137,6 +142,9 @@ func ApprovalQuestion(target store.Session, g grant.Grant, ttl time.Duration) co
 // are numbered, so the user sees every one of them in the question they
 // answer.
 func ApprovalQuestionFor(target store.Session, gs []grant.Grant, ttl time.Duration) convo.AskQuestion {
+	if ttl == 0 {
+		return standingQuestion(target, gs)
+	}
 	what, it, write := "", "it", "Write this one permission for that session; it can be revoked later"
 	if len(gs) == 1 {
 		what = grant.Describe(grant.Normalise(gs[0]))
@@ -160,6 +168,29 @@ func ApprovalQuestionFor(target store.Session, gs []grant.Grant, ttl time.Durati
 	}
 }
 
+// standingQuestion asks for a standing grant. It says the scope out loud --
+// every session, until revoked -- because that is what the answer settles.
+func standingQuestion(target store.Session, gs []grant.Grant) convo.AskQuestion {
+	what := grant.Describe(grant.Normalise(gs[0]))
+	if len(gs) > 1 {
+		parts := make([]string, len(gs))
+		for i, g := range gs {
+			parts[i] = fmt.Sprintf("(%d) %s", i+1, grant.Describe(grant.Normalise(g)))
+		}
+		what = fmt.Sprintf("these %d permissions: %s", len(gs), strings.Join(parts, "; "))
+	}
+	return convo.AskQuestion{
+		Header: dialog.ApprovalHeader,
+		Question: fmt.Sprintf("Grant, until revoked, %s to every Claude Code session Gate Inbox launches, starting "+
+			"with child session %q (%s)? Gate Inbox writes it into each session's own settings, restarts that child "+
+			"to apply it, and does not ask for it again.", what, target.Name, target.ID),
+		Options: []convo.AskOption{
+			{Label: grantOption, Description: "Write it for every session until it is revoked"},
+			{Label: refuseOption, Description: "Leave the permissions as they are; this answer covers only this request"},
+		},
+	}
+}
+
 // window is a grant's lifetime in words.
 func window(ttl time.Duration) string {
 	if ttl%time.Hour == 0 {
@@ -175,7 +206,7 @@ func window(ttl time.Duration) string {
 func grantTTL(req GrantRequest) (time.Duration, error) {
 	ttl := req.ExpiresIn
 	if ttl == 0 {
-		ttl = DefaultGrantTTL
+		return 0, nil
 	}
 	if ttl < time.Minute || ttl > MaxGrantTTL {
 		return 0, fmt.Errorf("a grant lasts between 1 minute and %s; ask again for a window in that range", window(MaxGrantTTL))
@@ -220,6 +251,11 @@ func (s *Sessions) Grant(sessionID, targetID string, req GrantRequest) (GrantRes
 			if err != nil {
 				return GrantResult{}, err
 			}
+			standing, err := runtime.store.RevokeGrant(store.StandingSession, string(g.Kind), g.Value, caller.ID)
+			if err != nil {
+				return GrantResult{}, err
+			}
+			n += standing
 			if n == 0 {
 				return GrantResult{}, fmt.Errorf("session %s holds no %s %q to revoke", target.ID, g.Kind, g.Value)
 			}
@@ -242,26 +278,51 @@ func (s *Sessions) Grant(sessionID, targetID string, req GrantRequest) (GrantRes
 		if len(gs) == 0 {
 			return GrantResult{}, fmt.Errorf("session %s already holds that permission", target.ID)
 		}
-		ttl, err := grantTTL(req)
+		standing, err := runtime.store.Grants(store.StandingSession, true)
 		if err != nil {
 			return GrantResult{}, err
 		}
-		evidence, hash, err := s.grantApproval(runtime.store, caller, target, gs, ttl)
-		if err != nil {
-			return GrantResult{}, err
+		// What the user already approved for every session is not asked
+		// again: the decision is on record, and the child only needs the
+		// restart that puts it in its process.
+		stands := func(g grant.Grant) bool {
+			return slices.ContainsFunc(standing, func(have store.PermissionGrant) bool {
+				return have.Kind == string(g.Kind) && have.Value == g.Value
+			})
 		}
-		result.Question = ApprovalQuestionFor(target, gs, ttl).Question
-		now := time.Now()
-		for _, g := range gs {
-			if _, err := runtime.store.RecordGrant(store.PermissionGrant{
-				SessionID: target.ID, Kind: string(g.Kind), Value: g.Value,
-				GrantedBy: caller.ID, EvidenceToolUseID: evidence, QuestionHash: hash,
-				CreatedAt: now, ExpiresAt: now.Add(ttl),
-			}); err != nil {
+		if fresh := slices.DeleteFunc(slices.Clone(gs), stands); len(fresh) == 0 {
+			result.Standing = true
+			req.Restart = true
+		} else {
+			gs = fresh
+			ttl, err := grantTTL(req)
+			if err != nil {
 				return GrantResult{}, err
+			}
+			evidence, hash, err := s.grantApproval(runtime.store, caller, target, gs, ttl)
+			if err != nil {
+				return GrantResult{}, err
+			}
+			result.Question = ApprovalQuestionFor(target, gs, ttl).Question
+			now := time.Now()
+			owner, expires := target.ID, now.Add(ttl)
+			if ttl == 0 {
+				owner, expires, result.Standing = store.StandingSession, time.Time{}, true
+			}
+			for _, g := range gs {
+				if _, err := runtime.store.RecordGrant(store.PermissionGrant{
+					SessionID: owner, Kind: string(g.Kind), Value: g.Value,
+					GrantedBy: caller.ID, EvidenceToolUseID: evidence, QuestionHash: hash,
+					CreatedAt: now, ExpiresAt: expires,
+				}); err != nil {
+					return GrantResult{}, err
+				}
 			}
 		}
 		result.Action = "granted"
+	}
+	if err := s.syncStanding(runtime); err != nil {
+		return GrantResult{}, err
 	}
 	applied, err := s.applyGrants(runtime, target, req.Restart)
 	if err != nil {
@@ -284,6 +345,47 @@ func (s *Sessions) Grant(sessionID, targetID string, req GrantRequest) (GrantRes
 		result.Set = nil
 	}
 	return result, err
+}
+
+// syncStanding copies the standing grants in force to the file launches
+// read and, when they changed, rewrites every session's own settings file
+// from it, so a revoke leaves no session's next launch holding what was taken
+// back.
+func (s *Sessions) syncStanding(runtime *runtime) error {
+	rows, err := runtime.store.Grants(store.StandingSession, true)
+	if err != nil {
+		return err
+	}
+	standing := make([]grant.Grant, len(rows))
+	for i, row := range rows {
+		standing[i] = grant.Grant{Kind: grant.Kind(row.Kind), Value: row.Value}
+	}
+	manager := hooks.NewManager(s.configDir)
+	if slices.Equal(standing, manager.StandingGrants()) {
+		return nil
+	}
+	if err := manager.WriteStandingGrants(standing); err != nil {
+		return err
+	}
+	active, err := runtime.store.ActiveGrants()
+	if err != nil {
+		return err
+	}
+	sessions, err := runtime.store.ListSessions(false)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, sess := range sessions {
+		own := make([]grant.Grant, 0, len(active[sess.ID]))
+		for _, row := range active[sess.ID] {
+			own = append(own, grant.Grant{Kind: grant.Kind(row.Kind), Value: row.Value})
+		}
+		if _, err := manager.WriteSessionSettings(sess.ID, own); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // requested is every permission req names, normalised, checked and without
@@ -393,6 +495,9 @@ func (s *Sessions) ExpireGrants(now time.Time) (int, error) {
 		return 0, err
 	}
 	defer runtime.store.Close()
+	if err := s.syncStanding(runtime); err != nil {
+		return 0, err
+	}
 	expired, err := runtime.store.ExpiredGrants(now)
 	if err != nil {
 		return 0, err
@@ -454,6 +559,12 @@ func grantInfos(st *store.Store, id string) ([]GrantInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The standing grants in force are the session's too.
+	standing, err := st.Grants(store.StandingSession, true)
+	if err != nil {
+		return nil, err
+	}
+	rows = append(rows, standing...)
 	out := make([]GrantInfo, len(rows))
 	for i, row := range rows {
 		out[i] = GrantInfo{
@@ -557,7 +668,11 @@ func FormatGrant(r GrantResult) string {
 	for _, g := range r.Grants {
 		if g.RevokedAt.IsZero() {
 			active++
-			fmt.Fprintf(&b, "  in force: %s %q until %s\n", g.Kind, g.Value, g.ExpiresAt.Format("15:04"))
+			until := "revoked"
+			if !g.ExpiresAt.IsZero() {
+				until = g.ExpiresAt.Format("15:04")
+			}
+			fmt.Fprintf(&b, "  in force: %s %q until %s\n", g.Kind, g.Value, until)
 		}
 	}
 	if active == 0 {

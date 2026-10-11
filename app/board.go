@@ -257,6 +257,7 @@ func startExtensions(dir string, registry *extension.Registry, model *ui.Model, 
 	model.UseQueueDeadlines(events)
 	ctx, cancel := context.WithCancel(context.Background())
 	go expireGrants(ctx, cmds, grantSweep)
+	go restartStaleSandboxes(ctx, cmds, staleSandboxSweep)
 	if err := startUI(ctx, registry, model, send); err != nil {
 		cancel()
 		return nil, err
@@ -300,6 +301,32 @@ func expireGrants(ctx context.Context, cmds *sessioncmd.Sessions, every time.Dur
 		}
 		if revoked > 0 {
 			logging.Info("expired permission grants", "count", revoked)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// staleSandboxSweep is how often the board looks for a child whose sandbox
+// went stale and whose turn has ended. The child is idle and waiting for it,
+// so this is short.
+const staleSandboxSweep = 5 * time.Second
+
+// restartStaleSandboxes restarts children whose sandbox stayed stale until ctx
+// ends; see sessioncmd.RestartStaleSandboxes.
+func restartStaleSandboxes(ctx context.Context, cmds *sessioncmd.Sessions, every time.Duration) {
+	tick := time.NewTicker(every)
+	defer tick.Stop()
+	for {
+		restarted, err := cmds.RestartStaleSandboxes(time.Now())
+		if err != nil {
+			logging.Warn("could not restart every session with a stale sandbox", logging.Err(err))
+		}
+		if restarted > 0 {
+			logging.Info("restarted sessions with a stale sandbox", "count", restarted)
 		}
 		select {
 		case <-ctx.Done():

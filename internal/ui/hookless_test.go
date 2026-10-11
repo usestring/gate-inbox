@@ -194,3 +194,55 @@ func TestTheFirstPassMarksNothingOnAWholeBoard(t *testing.T) {
 		t.Errorf("steady-state pass marked %v, want the two managed claude rows only", marked)
 	}
 }
+
+// A row resting at idle was settled by its hook file. A pass that cannot use
+// the file -- gone, unreadable for a moment, or the row found hookless -- reads
+// the pane, which still shows that settled turn's end line. Raising it as a
+// new finish re-alerted every idle row on a board at once, and each one was
+// sent the progress-update prompt for work it had already reported.
+func TestASettledIdleRowStaysIdleWhenThePaneDecides(t *testing.T) {
+	m := buildModel(t)
+	sess := store.Session{ID: hooklessID, Tool: "claude-hooked", Status: status.Idle}
+
+	if got := deriveStatus(t, m, sess, hooklessPane, true); got != status.Idle {
+		t.Errorf("no hook file: status = %q, want %q: the pane's old turn end was raised as a new finish", got, status.Idle)
+	}
+
+	writeHookStatus(t, m, sess.ID, status.Idle)
+	m.poller.hookless[sess.ID] = true
+	if got := deriveStatus(t, m, sess, hooklessPane, true); got != status.Idle {
+		t.Errorf("hookless: status = %q, want %q: the pane's old turn end was raised as a new finish", got, status.Idle)
+	}
+}
+
+// What the pane does still say: a turn that runs. Its output lands below the
+// old turn end, so the row goes working, and the turn's own end finishes it.
+func TestASettledIdleRowStillFinishesATurnThePaneShows(t *testing.T) {
+	m := buildModel(t)
+	sess := store.Session{ID: hooklessID, Tool: "claude-hooked", Status: status.Idle}
+	writeHookStatus(t, m, sess.ID, status.Idle)
+	m.poller.hookless[sess.ID] = true
+	// Each pass records the region it saw; the next compares against it.
+	pass := func(pane string) string {
+		t.Helper()
+		seen := map[string]uint64{}
+		got, err := m.poller.derivePaneStatus(sess, pane, true, seen)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.poller.paneHashes = seen
+		return got
+	}
+
+	pass(hooklessPane)
+	running := "here is the result\n\n✻ Baked for 5s\n\n> look again\n\n● reading the logs\n\n❯ \n"
+	got := pass(running)
+	if got != status.Working {
+		t.Fatalf("a new turn on the pane: status = %q, want %q", got, status.Working)
+	}
+	sess.Status = got
+	ended := "here is the result\n\n✻ Baked for 5s\n\n> look again\n\n● the logs are clean\n\n✻ Baked for 9s\n\n❯ \n"
+	if got := deriveStatus(t, m, sess, ended, true); got != status.Finished {
+		t.Errorf("the new turn's end: status = %q, want %q", got, status.Finished)
+	}
+}

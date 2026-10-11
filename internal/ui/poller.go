@@ -2465,6 +2465,16 @@ func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAli
 	if newStatus == status.Finished && sess.Acked {
 		newStatus = status.Idle
 	}
+	// A hook-reported row resting at idle got there from its hook file, which
+	// had already settled the turn end still on the pane. A pass that reads
+	// the pane instead -- the file unreadable for a moment, deleted, or the
+	// row found hookless -- sees that same line, and raising it as a new
+	// finish re-alerts every such row at once and fires everything that
+	// listens for one. A turn that really ran shows working on the pane
+	// before it ends, which moves the row off idle first.
+	if newStatus == status.Finished && sess.Status == status.Idle && p.statusSources[sess.Tool] == hooks.StatusSourceClaude {
+		newStatus = status.Idle
+	}
 	// A codex question the operator was never told about outranks a settled
 	// pane, because settling is exactly how one disappears. See
 	// codexquestions.go.

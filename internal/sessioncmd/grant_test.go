@@ -55,7 +55,7 @@ func grantHarness(t *testing.T) (*sessionHarness, store.Session) {
 func TestGrantNeedsTheUsersExactApproval(t *testing.T) {
 	h, child := grantHarness(t)
 	probe := grant.Grant{Kind: grant.KindUnsandboxed, Value: "tools/probe.sh"}
-	req := GrantRequest{Kind: string(probe.Kind), Value: probe.Value}
+	req := GrantRequest{ExpiresIn: DefaultGrantTTL, Kind: string(probe.Kind), Value: probe.Value}
 	question := ApprovalQuestion(child, probe, DefaultGrantTTL)
 	(&transcript{}).write(t, h.sessions.claudeHome, "conv-parent")
 
@@ -131,7 +131,7 @@ func TestGrantNeedsTheUsersExactApproval(t *testing.T) {
 		answer("toolu_two", asked.Add(time.Second), map[string]string{both[0]: "Grant", both[1]: "Grant"}).
 		write(t, h.sessions.claudeHome, "conv-parent")
 	for _, g := range []grant.Grant{domain, rule} {
-		if _, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{Kind: string(g.Kind), Value: g.Value}); err != nil {
+		if _, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{ExpiresIn: DefaultGrantTTL, Kind: string(g.Kind), Value: g.Value}); err != nil {
 			t.Fatalf("grant %s from a two-question dialog: %v", g.Kind, err)
 		}
 	}
@@ -171,7 +171,7 @@ func TestAGrantRestartIsNotFiledAsAnExitedChild(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{Kind: string(probe.Kind), Value: probe.Value}); err == nil ||
+	if _, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{ExpiresIn: DefaultGrantTTL, Kind: string(probe.Kind), Value: probe.Value}); err == nil ||
 		!strings.Contains(err.Error(), "did not come back") {
 		t.Fatalf("grant err = %v, want the relaunch to fail on the missing directory", err)
 	}
@@ -298,7 +298,7 @@ func TestALapsedGrantOnADeletedSessionLeavesTheRecord(t *testing.T) {
 func TestOneApprovalGrantsEveryCommandItNames(t *testing.T) {
 	h, child := grantHarness(t)
 	steps := []string{"git commit -S -m pin", "git push origin HEAD", "gh pr merge 2544 --squash"}
-	req := GrantRequest{Kind: string(grant.KindSoft), Value: steps[0], Values: steps[1:]}
+	req := GrantRequest{ExpiresIn: DefaultGrantTTL, Kind: string(grant.KindSoft), Value: steps[0], Values: steps[1:]}
 	(&transcript{}).write(t, h.sessions.claudeHome, "conv-parent")
 
 	_, err := h.sessions.Grant(h.caller.ID, child.ID, req)
@@ -334,13 +334,13 @@ func TestOneApprovalGrantsEveryCommandItNames(t *testing.T) {
 		t.Fatalf("format = %q", FormatGrant(result))
 	}
 
-	more := GrantRequest{Kind: req.Kind, Value: steps[0], Values: []string{"gh pr checks 2544"}}
+	more := GrantRequest{ExpiresIn: DefaultGrantTTL, Kind: req.Kind, Value: steps[0], Values: []string{"gh pr checks 2544"}}
 	if _, err := h.sessions.Grant(h.caller.ID, child.ID, more); !errors.As(err, &need) ||
 		need.Question.Question != ApprovalQuestion(child, grant.Grant{Kind: grant.KindSoft, Value: "gh pr checks 2544"}, DefaultGrantTTL).Question {
 		t.Fatalf("half-held err = %v, want a question for the one prefix not yet held", err)
 	}
 
-	chained := GrantRequest{Kind: req.Kind, Value: "git add go.mod", Values: []string{"git commit && git push"}}
+	chained := GrantRequest{ExpiresIn: DefaultGrantTTL, Kind: req.Kind, Value: "git add go.mod", Values: []string{"git commit && git push"}}
 	if _, err := h.sessions.Grant(h.caller.ID, child.ID, chained); err == nil || errors.As(err, &need) {
 		t.Fatalf("chained err = %v, want the whole set refused before any question", err)
 	}
@@ -360,7 +360,7 @@ func TestAGrantCarriesItsInstructionUnderTheSameAnswer(t *testing.T) {
 		write(t, h.sessions.claudeHome, "conv-parent")
 
 	result, err := h.sessions.GrantAndSend(h.caller.ID, child.ID,
-		GrantRequest{Kind: string(merge.Kind), Value: merge.Value}, "Retry the merge now.")
+		GrantRequest{ExpiresIn: DefaultGrantTTL, Kind: string(merge.Kind), Value: merge.Value}, "Retry the merge now.")
 	if err != nil {
 		t.Fatalf("GrantAndSend: %v", err)
 	}
@@ -379,5 +379,83 @@ func TestAGrantCarriesItsInstructionUnderTheSameAnswer(t *testing.T) {
 	if _, err := h.sessions.SendAttested(h.caller.ID, child.ID, "again", "", false, question.Question); err == nil ||
 		!strings.Contains(err.Error(), "already been") {
 		t.Fatalf("second attested send err = %v; want it refused as spent", err)
+	}
+}
+
+// A permission the user approved once stands for every session: a sibling
+// asking for it later is granted without a new question, a session launched
+// afterwards carries it, and a revoke takes it from all of them.
+func TestAStandingGrantIsNeverAskedForAgain(t *testing.T) {
+	h, child := grantHarness(t)
+	probe := grant.Grant{Kind: grant.KindSoft, Value: "tools/positive-control-tight.sh"}
+	req := GrantRequest{Kind: string(probe.Kind), Value: probe.Value}
+	question := ApprovalQuestionFor(child, []grant.Grant{probe}, 0)
+	if !strings.Contains(question.Question, "until revoked") || !strings.Contains(question.Question, "every Claude Code session") {
+		t.Fatalf("standing question does not name its scope: %q", question.Question)
+	}
+	asked := time.Now().Add(-time.Minute)
+	(&transcript{}).ask("toolu_once", asked, question).
+		answer("toolu_once", asked.Add(time.Second), map[string]string{question.Question: "Grant"}).
+		write(t, h.sessions.claudeHome, "conv-parent")
+	first, err := h.sessions.Grant(h.caller.ID, child.ID, req)
+	if err != nil || !first.Standing {
+		t.Fatalf("first grant = %+v, %v; want a standing grant", first, err)
+	}
+	if text := FormatGrant(first); !strings.Contains(text, "until revoked") {
+		t.Fatalf("the result does not show the standing grant in force:\n%s", text)
+	}
+
+	sibling := store.Session{ID: "child002", Name: "sibling", Tool: "hooked", Cwd: t.TempDir(),
+		Group: "backend", Status: status.Idle, ParentID: h.caller.ID, SpawnedBy: h.caller.ID}
+	if err := h.driver.Create(sibling.ID, sibling.Cwd, "cat", nil, 80, 24); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = h.driver.Kill(sibling.ID) })
+	if err := h.store.CreateSession(sibling); err != nil {
+		t.Fatal(err)
+	}
+	again, err := h.sessions.Grant(h.caller.ID, sibling.ID, req)
+	if err != nil {
+		t.Fatalf("sibling grant asked again: %v", err)
+	}
+	if !again.Standing || !again.Restarted || again.Question != "" {
+		t.Fatalf("sibling grant = %+v; want it applied from the standing record, restarted, with no question", again)
+	}
+
+	manager := hooks.NewManager(h.sessions.configDir)
+	if err := manager.RefreshSessionSettings("newcomer"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(manager.SessionSettingsPath("newcomer"))
+	if err != nil || !strings.Contains(string(raw), "tools/positive-control-tight.sh") {
+		t.Fatalf("a later launch does not carry the standing grant: %s, %v", raw, err)
+	}
+
+	if _, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{Kind: req.Kind, Value: req.Value, Revoke: true}); err != nil {
+		t.Fatal(err)
+	}
+	if got := manager.StandingGrants(); len(got) != 0 {
+		t.Fatalf("standing grants after revoke = %v", got)
+	}
+	if raw, _ := os.ReadFile(manager.SessionSettingsPath("child002")); strings.Contains(string(raw), "positive-control-tight") {
+		t.Fatalf("the sibling's settings still carry a revoked standing grant: %s", raw)
+	}
+}
+
+// Don't grant settles only the request it answered.
+func TestARefusedGrantIsNotRemembered(t *testing.T) {
+	h, child := grantHarness(t)
+	probe := grant.Grant{Kind: grant.KindSoft, Value: "az rest"}
+	question := ApprovalQuestionFor(child, []grant.Grant{probe}, 0)
+	asked := time.Now().Add(-time.Minute)
+	(&transcript{}).ask("toolu_no", asked, question).
+		answer("toolu_no", asked.Add(time.Second), map[string]string{question.Question: "Don't grant"}).
+		write(t, h.sessions.claudeHome, "conv-parent")
+	var need *ApprovalNeeded
+	if _, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{Kind: string(probe.Kind), Value: probe.Value}); !errors.As(err, &need) {
+		t.Fatalf("refused grant err = %v; want the question asked again", err)
+	}
+	if got := hooks.NewManager(h.sessions.configDir).StandingGrants(); len(got) != 0 {
+		t.Fatalf("a refusal left standing grants %v", got)
 	}
 }

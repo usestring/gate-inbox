@@ -1511,6 +1511,25 @@ func (d *Driver) KillAdopted(id string) error {
 	return err
 }
 
+func (d *Driver) KillAdoptedPane(id, pane, processID string) error {
+	target, adopted := d.AdoptedTarget(id)
+	if !adopted || target.Name != pane {
+		return fmt.Errorf("%s: adopted pane identity changed", id)
+	}
+	pid, err := strconv.Atoi(processID)
+	if err != nil || pid <= 0 {
+		return fmt.Errorf("%s: invalid pane process identity", id)
+	}
+	_, err = d.runAt(id, "if-shell", "-F", "-t", pane, "#{==:#{pane_pid},"+processID+"}", "kill-pane -t "+pane)
+	if err != nil {
+		return err
+	}
+	if d.Exists(id) {
+		return fmt.Errorf("%s: adopted pane process changed before shutdown", id)
+	}
+	return nil
+}
+
 func (d *Driver) Exists(id string) bool {
 	target, adopted := d.AdoptedTarget(id)
 	if !adopted {

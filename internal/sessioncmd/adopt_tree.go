@@ -78,7 +78,7 @@ func (s *Sessions) place(sessionID, targetID string, adopt bool) (Session, error
 				target.ID, target.ParentID)
 		}
 		if target.ParentID == caller.ID {
-			return runtime.sessionInfo(target, runtime.driver.Exists(target.ID), false), nil
+			return runtime.currentInfo(target, false), nil
 		}
 		parentID = caller.ID
 	} else if target.ParentID != caller.ID {
@@ -112,7 +112,7 @@ func (s *Sessions) place(sessionID, targetID string, adopt bool) (Session, error
 	if err != nil {
 		return Session{}, err
 	}
-	return runtime.sessionInfo(placed, runtime.driver.Exists(placed.ID), false), nil
+	return runtime.currentInfo(placed, false), nil
 }
 
 // parentGone reports whether the session a row is filed under can no longer

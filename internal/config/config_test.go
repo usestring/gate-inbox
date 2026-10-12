@@ -19,8 +19,12 @@ func TestLoadWritesAndParsesDefault(t *testing.T) {
 	if err := writeDefault(path); err != nil {
 		t.Fatalf("writeDefault: %v", err)
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var cfg Config
-	if err := decodeInto(path, &cfg); err != nil {
+	if err := decodeInto(path, data, &cfg); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	cfg.applyDefaults()

@@ -58,6 +58,15 @@ func isolate() {
 	for _, name := range sessionEnv {
 		os.Unsetenv(name)
 	}
+	// A harness that drives git from outside the checkout points its
+	// children at the repository with GIT_DIR rather than the working
+	// directory. A fixture building a repository in a temp dir then builds
+	// it in the harness's repository instead -- its remote add fails on
+	// the origin that is already there, and every read answers from the
+	// wrong repository. The suite never wants the ambient checkout: each
+	// fixture brings a repository of its own.
+	os.Unsetenv("GIT_DIR")
+	os.Unsetenv("GIT_WORK_TREE")
 	if privateDir != "" {
 		os.Setenv("TMUX_TMPDIR", privateDir)
 		prependShimDir()
@@ -195,8 +204,10 @@ func SocketPath(socket string) string {
 }
 
 // ScrubEnv is env made safe to hand a child process: TMUX and TMUX_PANE
-// dropped, TMUX_TMPDIR forced to this run's private directory. Every test that
-// builds a child's environment from os.Environ() passes it through here;
+// dropped, TMUX_TMPDIR forced to this run's private directory, and the git
+// discovery variables dropped so a child's git call cannot be redirected
+// into another repository. Every test that builds a child's environment
+// from os.Environ() passes it through here;
 // TestNoUnscrubbedEnviron enforces that.
 func ScrubEnv(env []string) []string {
 	kept := make([]string, 0, len(env)+2)
@@ -204,6 +215,8 @@ func ScrubEnv(env []string) []string {
 		key, _, _ := strings.Cut(kv, "=")
 		switch key {
 		case "TMUX", "TMUX_PANE", "TMUX_TMPDIR", tmuxguard.PrivateDirEnv:
+			continue
+		case "GIT_DIR", "GIT_WORK_TREE":
 			continue
 		}
 		if slices.Contains(sessionEnv, key) {

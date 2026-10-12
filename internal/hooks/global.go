@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/config"
-	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/singleton"
 )
 
@@ -236,14 +235,6 @@ func (m *Manager) DispatchGlobal(event string, payload []byte) string {
 	if !slices.Contains(globalEvents, event) {
 		return ""
 	}
-	content, err := settingsContent(parentseal.KeyDir(m.root))
-	if err != nil {
-		return ""
-	}
-	var launched settingsFile
-	if json.Unmarshal(content, &launched) != nil {
-		return ""
-	}
 	value := ""
 	if field, ok := matchField[event]; ok {
 		var fields map[string]any
@@ -254,7 +245,7 @@ func (m *Manager) DispatchGlobal(event string, payload []byte) string {
 	ctx, cancel := context.WithTimeout(context.Background(), globalDispatchTimeout)
 	defer cancel()
 	var outputs []string
-	for _, group := range launched.Hooks[event] {
+	for _, group := range launchHooks()[event] {
 		if !matcherTakes(group.Matcher, value) {
 			continue
 		}

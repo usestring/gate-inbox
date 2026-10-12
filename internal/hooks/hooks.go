@@ -91,7 +91,7 @@ type hookMatcher struct {
 }
 
 type settingsFile struct {
-	Hooks       map[string][]hookMatcher `json:"hooks"`
+	Hooks       map[string][]hookMatcher `json:"hooks,omitempty"`
 	Permissions *permissionRules         `json:"permissions,omitempty"`
 	Sandbox     *sandboxSettings         `json:"sandbox,omitempty"`
 }
@@ -277,14 +277,18 @@ func hookCommandLine(verb string) string {
 		`" ] || "$` + EnvExecutable + `" hook ` + verb + ` 2>/dev/null; }; exit 0`
 }
 
-func settingsContent(keyDir string) ([]byte, error) {
+// launchHooks are the hooks every claude session the board launches
+// carries. They ride the Gate Inbox plugin's hooks/hooks.json (claudeplugin),
+// not the --settings file, and adopted sessions run them through the global
+// entries (DispatchGlobal).
+func launchHooks() map[string][]hookMatcher {
 	run := func(matcher, command string) []hookMatcher {
 		return []hookMatcher{{Matcher: matcher, Hooks: []hookCommand{{Type: "command", Command: command}}}}
 	}
 	report := func(event, matcher, state string) []hookMatcher {
 		return run(matcher, statusCommand(state, event))
 	}
-	content := settingsFile{Hooks: map[string][]hookMatcher{
+	return map[string][]hookMatcher{
 		"UserPromptSubmit": append(report("UserPromptSubmit", "", status.Working),
 			run("", promptSubmitCommand())...),
 		"PreToolUse": append(run("*", preToolUseCommand()),
@@ -302,7 +306,13 @@ func settingsContent(keyDir string) ([]byte, error) {
 			Type:    "command",
 			Command: sessionEndCommand(),
 		}}}},
-	}}
+	}
+}
+
+// settingsContent is the --settings file a launch carries: only what a
+// plugin cannot, the key-dir denials. The hooks travel in the plugin.
+func settingsContent(keyDir string) ([]byte, error) {
+	var content settingsFile
 	content.Permissions, content.Sandbox = KeyDirDenials(keyDir)
 	return json.MarshalIndent(content, "", "  ")
 }

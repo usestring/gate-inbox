@@ -1,9 +1,6 @@
 package mergegate
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -86,35 +83,5 @@ func TestJudgeAdmitsOnlyAGreenOwnedPullRequest(t *testing.T) {
 		if err := judge(testConfig, bad, "main"); err == nil {
 			t.Errorf("%s admitted, want refuse", name)
 		}
-	}
-}
-
-func TestEnsurePluginDirWritesTheShippedMod(t *testing.T) {
-	dir, err := EnsurePluginDir(filepath.Join(t.TempDir(), "home"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, rel := range []string{
-		".claude-plugin/plugin.json",
-		"hooks/hooks.json",
-		"hooks/register.ts",
-	} {
-		if _, err := os.Stat(filepath.Join(dir, rel)); err != nil {
-			t.Errorf("%s: %v", rel, err)
-		}
-	}
-	raw, err := os.ReadFile(filepath.Join(dir, "hooks/register.ts"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{"tool.check", "merge-gate-check", "$.process.run"} {
-		if !strings.Contains(string(raw), want) {
-			t.Errorf("register.ts lacks %q", want)
-		}
-	}
-	// A second run refreshes nothing and keeps the directory.
-	again, err := EnsurePluginDir(filepath.Dir(filepath.Dir(dir)))
-	if err != nil || again != dir {
-		t.Fatalf("second run = %q, %v; want %q", again, err, dir)
 	}
 }

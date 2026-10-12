@@ -11,17 +11,16 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/band"
+	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
-	"github.com/usestring/gate-inbox/internal/mergegate"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
 )
@@ -392,22 +391,6 @@ func WithAddDir(tool config.Tool, command, workdir string) string {
 	return command + " " + tool.AddDirFlag + " " + tmux.ShellQuote(workdir)
 }
 
-// WithMergeGatePlugin loads the merge-gate mod into a claude session when
-// the standing merge authority is configured and its plugin dir is on disk.
-// Anything else keeps the command it had: without the authority the mod
-// would allow nothing, and without its directory the flag would break the
-// launch, so both fail open to today's behaviour.
-func WithMergeGatePlugin(toolName, command string, gate mergegate.Config, configDir string) string {
-	if toolName != "claude" || !gate.Enabled() {
-		return command
-	}
-	dir := mergegate.PluginDir(configDir)
-	if _, err := os.Stat(filepath.Join(dir, ".claude-plugin", "plugin.json")); err != nil {
-		return command
-	}
-	return command + " --plugin-dir " + tmux.ShellQuote(dir)
-}
-
 // ReviveCommand is the base command a dead session comes back on. When
 // its own conversation id was captured, it resumes that exact
 // conversation instead of the working directory's most recent one, which
@@ -636,6 +619,15 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		return command, env, nil
 	}
 	env[hooks.EnvStatusFile] = manager.StatusFile(id)
+	plugin := claudeplugin.Path
+	if write {
+		plugin = claudeplugin.Ensure
+	}
+	pluginDir, err := plugin(manager.ConfigDir())
+	if err != nil {
+		return "", nil, err
+	}
+	command += " " + claudeplugin.Argv(tmux.ShellQuote(pluginDir))
 	// Composed through hooks.SettingsArgv, which is also what the poller
 	// looks for in a running process's argv to tell a wired session from one
 	// somebody restarted by hand inside its pane. One spelling, so the check

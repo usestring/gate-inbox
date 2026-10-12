@@ -46,7 +46,7 @@ func writeSnippets(t testing.TB, m *Model, snips []snippets.Snippet) {
 // one bare key, and the operator's own sentence is in the pane, submitted.
 func TestMenuKeySendsIntoTheFocusedPane(t *testing.T) {
 	m := buildModel(t)
-	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Text: "ship it now"}})
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Preview: "custom preview", Text: "ship it now"}})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.rebuildRows()
 	m.enterFocusOn(t, "ask")
@@ -551,7 +551,7 @@ func TestLeaderTogglesTheFocusedMenuClosed(t *testing.T) {
 // The focused menu paints on screen: the snippets and how to leave.
 func TestFocusedMenuRendersInTheFrame(t *testing.T) {
 	m := buildModel(t)
-	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Text: "ship it now"}})
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Preview: "custom preview", Text: "ship it now"}})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.rebuildRows()
 	m.enterFocusOn(t, "ask")
@@ -560,7 +560,7 @@ func TestFocusedMenuRendersInTheFrame(t *testing.T) {
 	updated, _ := m.handleFocusKey(menuTrigger())
 	m = updated.(*Model)
 	frame := ansi.Strip(m.frame())
-	for _, want := range []string{"Hotkeys", "d", "deploy", "send snippet", "close"} {
+	for _, want := range []string{"Hotkeys", "d", "custom preview", "send snippet", "close"} {
 		if !strings.Contains(frame, want) {
 			t.Errorf("the focused frame is missing %q:\n%s", want, frame)
 		}
@@ -647,7 +647,7 @@ func TestHelpExplainsARefusedEntry(t *testing.T) {
 
 func TestFooterAdvertisesSnippets(t *testing.T) {
 	m := buildModel(t)
-	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Chord: "alt+shift+d", Label: "deploy", Text: "ship it now"}})
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Chord: "alt+shift+d", Label: "deploy", Preview: "custom preview", Text: "ship it now"}})
 
 	section := m.snippetLegend()
 	if len(section.pairs) != 1 || section.pairs[0][0] != keymap.Display("alt+shift+d") || section.pairs[0][1] != "deploy" {

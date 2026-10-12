@@ -318,6 +318,7 @@ func Defaults() []Snippet {
 		submit("e", "explain like I'm 5", "I'm confused, explain like I'm 5"),
 		submit("w", "wake up", "Auto wake-up: the previous turn died on a transient API error. "+
 			"Continue where you left off."),
+		submit("n", "what do you need from me", "what do you need from me?"),
 		submit(SectionKey, "progress", progressText),
 	}
 }

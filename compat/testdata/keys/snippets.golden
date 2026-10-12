@@ -3,6 +3,7 @@ y  "yes" -> "yes"
 c  "continue" -> "continue"
 e  "explain like I'm 5" -> "I'm confused, explain like I'm 5"
 w  "wake up" -> "Auto wake-up: the previous turn died on a transient API error. Continue where you left off."
+n  "what do you need from me" -> "what do you need from me?"
 §  "progress" -> "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so"
 --- snippets.json as written
 [
@@ -32,6 +33,13 @@ w  "wake up" -> "Auto wake-up: the previous turn died on a transient API error. 
     "label": "wake up",
     "chord": "alt+shift+w",
     "text": "Auto wake-up: the previous turn died on a transient API error. Continue where you left off.",
+    "autoSubmit": true
+  },
+  {
+    "key": "n",
+    "label": "what do you need from me",
+    "chord": "alt+shift+n",
+    "text": "what do you need from me?",
     "autoSubmit": true
   },
   {

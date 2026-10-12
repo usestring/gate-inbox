@@ -895,6 +895,7 @@ func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt strin
 	if err != nil {
 		return "", err
 	}
+	plan.Command = launch.WithMergeGatePlugin(toolName, plan.Command, m.cfg.MergeGate, m.hooks.ConfigDir())
 	if err := m.launchNewSessionWith(store.Session{
 		ID:         id,
 		Name:       name,

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
+	"github.com/usestring/gate-inbox/internal/mergegate"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
 )
@@ -388,6 +390,22 @@ func WithAddDir(tool config.Tool, command, workdir string) string {
 		return command
 	}
 	return command + " " + tool.AddDirFlag + " " + tmux.ShellQuote(workdir)
+}
+
+// WithMergeGatePlugin loads the merge-gate mod into a claude session when
+// the standing merge authority is configured and its plugin dir is on disk.
+// Anything else keeps the command it had: without the authority the mod
+// would allow nothing, and without its directory the flag would break the
+// launch, so both fail open to today's behaviour.
+func WithMergeGatePlugin(toolName, command string, gate mergegate.Config, configDir string) string {
+	if toolName != "claude" || !gate.Enabled() {
+		return command
+	}
+	dir := mergegate.PluginDir(configDir)
+	if _, err := os.Stat(filepath.Join(dir, ".claude-plugin", "plugin.json")); err != nil {
+		return command
+	}
+	return command + " --plugin-dir " + tmux.ShellQuote(dir)
 }
 
 // ReviveCommand is the base command a dead session comes back on. When

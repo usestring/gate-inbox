@@ -164,6 +164,7 @@ func (s *Sessions) prepareBoardLaunch(runtime *runtime, sess store.Session, tool
 	if err != nil {
 		return boardLaunch{}, err
 	}
+	plan.Command = launch.WithMergeGatePlugin(sess.Tool, plan.Command, runtime.cfg.MergeGate, s.configDir)
 	for _, arg := range args {
 		plan.Command += " " + tmux.ShellQuote(arg)
 	}

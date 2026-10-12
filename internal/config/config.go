@@ -3,6 +3,7 @@
 package config
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -483,8 +484,16 @@ func LoadDir(dir string) (Config, error) {
 			return Config{}, err
 		}
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	key := loadKey{path: path, sum: sha256.Sum256(data), defaults: defaultsIdentity()}
+	if cfg, ok := loaded.get(key); ok {
+		return cfg, nil
+	}
 	var cfg Config
-	if err := decodeInto(path, &cfg); err != nil {
+	if err := decodeInto(path, data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("parse config %s: %w", path, err)
 	}
 	if err := cfg.backfillToolDefaults(); err != nil {
@@ -494,6 +503,7 @@ func LoadDir(dir string) (Config, error) {
 	if err := cfg.validate(); err != nil {
 		return Config{}, fmt.Errorf("config %s: %w", path, err)
 	}
+	loaded.put(key, cfg)
 	return cfg, nil
 }
 

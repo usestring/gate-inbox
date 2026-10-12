@@ -80,3 +80,32 @@ func TestWaitDoesNotTakeADelegatingChildAsStopped(t *testing.T) {
 		t.Fatalf("wait once the grandchild is done = %+v, want finished", result)
 	}
 }
+
+func TestBoardGetReportsDelegatingUntilDescendantsFinish(t *testing.T) {
+	for _, resting := range []string{status.Finished, status.Idle} {
+		t.Run(resting, func(t *testing.T) {
+			h := newSessionHarness(t)
+			mid, leaf := delegatingTree(t, h)
+			if err := h.store.UpdateStatus(mid.ID, resting); err != nil {
+				t.Fatal(err)
+			}
+			got, err := h.sessions.BoardGet(mid.ID)
+			if err != nil {
+				t.Fatalf("BoardGet: %v", err)
+			}
+			if got.Status != status.Delegating || got.Self {
+				t.Fatalf("BoardGet = %+v, want delegating without self", got)
+			}
+			if row, err := h.store.Get(mid.ID); err != nil || row.Status != resting {
+				t.Fatalf("stored row = %+v, %v; want status %q", row, err, resting)
+			}
+			if err := h.store.UpdateStatus(leaf.ID, status.Finished); err != nil {
+				t.Fatal(err)
+			}
+			got, err = h.sessions.BoardGet(mid.ID)
+			if err != nil || got.Status != resting {
+				t.Fatalf("BoardGet after descendants finish = %+v, %v; want status %q", got, err, resting)
+			}
+		})
+	}
+}

@@ -144,3 +144,23 @@ func TestEphemeralChecksDoNotRevokeVisibleThread(t *testing.T) {
 		t.Fatal("structured check changed the visible session identity")
 	}
 }
+
+func TestNewThreadUsesTheClientDirectory(t *testing.T) {
+	for _, cwd := range []any{nil, "/tmp/explicit"} {
+		b := &bridge{workingDirectory: "/tmp/client", identity: Identity{Home: t.TempDir()}, launches: map[string]string{}}
+		raw, _ := json.Marshal(message{ID: json.RawMessage("1"), Method: "thread/start", Params: map[string]any{"cwd": cwd}})
+		data, err := b.prepare(raw, "/tmp/client.sock")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m message
+		json.Unmarshal(data, &m)
+		want := cwd
+		if want == nil {
+			want = "/tmp/client"
+		}
+		if m.Params["cwd"] != want {
+			t.Fatalf("cwd = %v, want %v", m.Params["cwd"], want)
+		}
+	}
+}

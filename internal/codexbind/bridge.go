@@ -45,6 +45,7 @@ type bridge struct {
 	busy             bool
 	connected        bool
 	daemonExecutable string
+	workingDirectory string
 	tools            map[string]activeTool
 }
 
@@ -117,6 +118,10 @@ func Run(ctx context.Context, home, server string, argv []string, autoStart bool
 			b.lock = nil
 		}
 	}()
+	b.workingDirectory, err = os.Getwd()
+	if err != nil {
+		return err
+	}
 	args := append([]string{"--remote", "unix://" + path}, argv[1:]...)
 	cmd := exec.CommandContext(ctx, argv[0], args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
@@ -308,6 +313,9 @@ func (b *bridge) prepare(data []byte, path string) ([]byte, error) {
 	}
 	if len(m.ID) == 0 || m.Params == nil {
 		return nil, errors.New("unidentified thread request")
+	}
+	if m.Method == "thread/start" && m.Params["cwd"] == nil && b.workingDirectory != "" {
+		m.Params["cwd"] = b.workingDirectory
 	}
 	b.lifecycle.Lock()
 	defer b.lifecycle.Unlock()

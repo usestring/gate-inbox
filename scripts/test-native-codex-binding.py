@@ -53,6 +53,7 @@ state = root / "gate"
 home.mkdir()
 state.mkdir()
 (root / "bin").mkdir()
+(root / "daemon-work").mkdir()
 (root / "bin" / "gate-inbox").symlink_to(gate)
 (root / "bin" / "codex").symlink_to(codex)
 env = {
@@ -83,7 +84,7 @@ if options.stop_script:
 command = (
     "python3 -c "
     + shlex.quote(
-        "import os,json;json.dump({k:os.environ.get(k) for k in ['CODEX_THREAD_ID','CODEX_TOOL_CALL_ID','GATE_INBOX_CALLER_BINDING','GATE_INBOX_HOME']},open("
+        "import os,json;json.dump({k:os.environ.get(k) for k in ['CODEX_THREAD_ID','CODEX_TOOL_CALL_ID','GATE_INBOX_CALLER_BINDING','GATE_INBOX_HOME','PWD']},open("
         + repr(str(root / "runtime.json"))
         + ",'w'))"
     )
@@ -202,7 +203,7 @@ if native_managed:
     if not options.cold_daemon:
         subprocess.run(
             [codex, "app-server", "daemon", "start"],
-            cwd=root,
+            cwd=root / "daemon-work",
             env=env,
             stdout=log,
             stderr=log,
@@ -537,6 +538,9 @@ try:
         assert proc.poll() is None, "shared daemon stopped"
     assert list((home / "sessions").rglob("*.jsonl")), "history was deleted"
     runtime = json.loads((root / "runtime.json").read_text())
+    assert (
+        pathlib.Path(runtime["PWD"]).resolve() == root.resolve()
+    ), "client inherited daemon workdir"
     assert runtime["CODEX_THREAD_ID"]
     assert runtime["GATE_INBOX_CALLER_BINDING"]
     if seed_thread:

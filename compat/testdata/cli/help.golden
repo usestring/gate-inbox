@@ -99,6 +99,10 @@ Setup
   gate-inbox claude-hooks [install | uninstall [--all] | status]
       register Gate Inbox's hooks in your Claude Code user settings, so a claude started outside the board works fully once adopted; the board installs them at startup
 
+communications
+  gate-inbox communications <import|list|read|mark-read|draft>
+      Import conversations and prepare local replies for Slack, email, and SMS
+
 Options:
   -h, --help     Show this help text
   -v, --version  Print the installed version

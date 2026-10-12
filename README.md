@@ -24,6 +24,9 @@ It is a thin layer over the CLIs you already have. Each session launches your in
 so your login, config files, MCP servers and every feature the tool ships carry over unchanged.
 Gate Inbox reads the panes; it does not sit between you and the model.
 
+An optional [communications inbox](docs/communications.md) imports Slack DM, email, and SMS
+conversations for local review and reply drafting. Live connectors and a board view are planned.
+
 ## Your first 5 minutes
 
 1. **Install.** You need tmux 3.1+, git and at least one agent CLI (Claude Code, Codex or

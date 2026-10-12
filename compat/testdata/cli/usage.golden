@@ -1,4 +1,4 @@
-40 commands and verbs
+41 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -383,3 +383,8 @@ $ gate-inbox claude-hooks -h
 exit 0
 --- stdout
 usage: gate-inbox claude-hooks [install | uninstall [--all] | status]
+
+$ gate-inbox codex-client -h
+exit 0
+--- stdout
+usage: gate-inbox codex-client [--server <private-unix-socket>] -- codex [args]

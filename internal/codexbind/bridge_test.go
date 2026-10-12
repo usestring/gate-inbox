@@ -7,7 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
+
+func TestMain(m *testing.M) {
+	os.Exit(tmuxtest.Run(m.Run))
+}
 
 func TestThreadConfigurationCarriesFreshCapability(t *testing.T) {
 	b := &bridge{identity: Identity{Home: t.TempDir()}, launches: map[string]string{}, dir: t.TempDir()}

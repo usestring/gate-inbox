@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -21,6 +22,10 @@ var codexClientHelp = cli.HelpSection{
 
 func runCodexClient(ctx context.Context, args []string, home string) error {
 	set := flag.NewFlagSet("codex-client [--server <private-unix-socket>] -- codex [args]", flag.ContinueOnError)
+	set.SetOutput(os.Stdout)
+	set.Usage = func() {
+		fmt.Fprintln(set.Output(), "usage: gate-inbox codex-client [--server <private-unix-socket>] -- codex [args]")
+	}
 	server := set.String("server", "", "existing Codex app-server Unix socket")
 	if err := set.Parse(args); err != nil {
 		return err

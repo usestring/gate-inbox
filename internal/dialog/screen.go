@@ -2,6 +2,7 @@ package dialog
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -437,16 +438,24 @@ var autoDenyStart = regexp.MustCompile(`(?i)will automatically deny this\s+reque
 // reports whether there was one. The notice runs from its first line to the
 // one that ends it with "session", at most four lines.
 func withoutAutoDeny(lines []string) ([]string, bool) {
-	for i, line := range lines {
-		if !autoDenyStart.MatchString(line) && (i+1 >= len(lines) || !autoDenyStart.MatchString(line+" "+strings.TrimSpace(lines[i+1]))) {
+	for i := range lines {
+		if !opensAutoDeny(lines, i) {
 			continue
 		}
 		end := i
 		for end < len(lines)-1 && end < i+3 && !strings.HasSuffix(strings.TrimSpace(lines[end]), "session") {
 			end++
 		}
-		kept := append(append([]string{}, lines[:i]...), lines[end+1:]...)
-		return kept, true
+		return slices.Concat(lines[:i], lines[end+1:]), true
 	}
 	return lines, false
+}
+
+// opensAutoDeny reports whether the notice starts on line i, read alone or
+// with the next line when the pane broke "this request" across the two.
+func opensAutoDeny(lines []string, i int) bool {
+	if autoDenyStart.MatchString(lines[i]) {
+		return true
+	}
+	return i+1 < len(lines) && autoDenyStart.MatchString(lines[i]+" "+strings.TrimSpace(lines[i+1]))
 }

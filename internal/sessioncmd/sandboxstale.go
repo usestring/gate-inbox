@@ -65,7 +65,16 @@ const StaleSandboxResume = "Gate Inbox restarted this session to rebuild its san
 
 // staleSandboxLine is how bwrap reports a bind source that no longer exists,
 // at the start of the failed call's output.
-var staleSandboxLine = regexp.MustCompile(`(?m)^bwrap: Can't (?:get type of source|find source path) `)
+var staleSandboxLine = regexp.MustCompile(`(?m)^bwrap: ` + staleRefusal + ` `)
+
+// staleRefusal is bwrap's wording for a missing bind source; older builds
+// print "Can't find source path". A command that only mentions it, such as
+// a grep for it, is not one.
+const staleRefusal = `Can't ` + staleWords
+
+const staleWords = `(?:get type of source|find source path)`
+
+var staleRefusalText = regexp.MustCompile(staleWords)
 
 // staleSandboxFailure reports whether a PostToolUseFailure payload is a Bash
 // call that bwrap refused for a missing bind source. A command that merely
@@ -80,7 +89,7 @@ func staleSandboxFailure(payload []byte) bool {
 	if json.Unmarshal(payload, &call) != nil {
 		return false
 	}
-	return staleSandboxLine.MatchString(call.Error) && !strings.Contains(call.ToolInput.Command, "get type of source") && !strings.Contains(call.ToolInput.Command, "find source path")
+	return staleSandboxLine.MatchString(call.Error) && !staleRefusalText.MatchString(call.ToolInput.Command)
 }
 
 // SandboxStaleHook records a stale-sandbox failure in flag and returns the
@@ -130,8 +139,7 @@ const staleRestoredNote = "Gate Inbox: that Bash call failed because a removed w
 	"sandbox works again. Retry the same command inside the sandbox now; do not switch to " +
 	"dangerouslyDisableSandbox, and do not ask anyone for approval over it."
 
-// Older bwrap builds word the same refusal "Can't find source path".
-var staleSourcePath = regexp.MustCompile(`(?m)^bwrap: Can't (?:get type of source|find source path) (.+?): No such file or directory`)
+var staleSourcePath = regexp.MustCompile(`(?m)^bwrap: ` + staleRefusal + ` (.+?): No such file or directory`)
 
 // worktreeMetadataFiles are the per-worktree files bwrap has been seen to
 // bind; the worktree's directory itself is restored for any of them.

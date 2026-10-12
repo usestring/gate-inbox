@@ -21,11 +21,13 @@ drives the scenario's keystrokes and writes
 
 which is the layout `skills/ship-ui-feature/scripts/post-to-pr.ts` uploads.
 
-**This repository is public, so its evidence never lands here.** No recording or
-still is attached to a PR in this repo, linked from one, or committed. The
-evidence goes to the private companion PR, and only after the operator has seen
-every frame and approved that exact upload; `post-to-pr.ts` refuses a public
-target outright.
+Each run also writes `<out>/media/<run>/capture.json`, through `manifest.sh`:
+the scratch tmux directory, board home and `HOME` the run used, and the sha256
+of every file it wrote. `post-to-pr.ts` publishes nothing without it, refuses a
+manifest that names the operator's own tmux server, board or `HOME`, and
+refuses any file the manifest does not hash. It then scans every frame, and
+because this repository is public, runs the public leak check too; a finding
+uploads nothing. A recording is never committed.
 
 ## What it runs against
 

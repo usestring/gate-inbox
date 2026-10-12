@@ -15,10 +15,10 @@ var testConfig = Config{
 
 func TestParseAdmitsOnlyTheCoveredShape(t *testing.T) {
 	for command, want := range map[string]Merge{
-		"gh pr merge 331 --squash --delete-branch":                                              {Number: 331},
-		"gh pr merge 331 -s -d -R usestring/gate-inbox":                                         {Number: 331, Repo: "usestring/gate-inbox"},
+		"gh pr merge 331 --squash --delete-branch":                                                  {Number: 331},
+		"gh pr merge 331 -s -d -R usestring/gate-inbox":                                             {Number: 331, Repo: "usestring/gate-inbox"},
 		"cd /work/checkout && gh pr merge 8343 --squash --repo usestring/gate-inbox 2>&1 | tail -3": {Number: 8343, Repo: "usestring/gate-inbox"},
-		"gh pr merge 1 --squash --match-head-commit abc1234":                                    {Number: 1},
+		"gh pr merge 1 --squash --match-head-commit abc1234":                                        {Number: 1},
 	} {
 		got, ok := Parse(command, "/work")
 		if !ok {

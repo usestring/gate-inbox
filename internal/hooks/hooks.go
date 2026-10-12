@@ -267,7 +267,7 @@ const SandboxStaleSuffix = ".sandbox-stale"
 // It runs on PostToolUseFailure, not PostToolUse: bwrap failing exits
 // non-zero, and Claude Code reports a failed call only to the former.
 func sandboxStaleCommand() string {
-	return statusFileVar + `[ -z "$f" ] || { p=$(cat); case "$p" in *"get type of source"*) [ -z "$` + EnvExecutable +
+	return statusFileVar + `[ -z "$f" ] || { p=$(cat); case "$p" in *"get type of source"*|*"find source path"*) [ -z "$` + EnvExecutable +
 		`" ] || [ -z "$` + EnvSessionID + `" ] || printf '%s' "$p" | "$` + EnvExecutable +
 		`" hook sandbox-stale 2>/dev/null;; esac; }; exit 0`
 }

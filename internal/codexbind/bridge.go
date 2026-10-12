@@ -30,19 +30,22 @@ import (
 )
 
 type bridge struct {
-	lifecycle sync.Mutex
-	mu        sync.Mutex
-	identity  Identity
-	token     string
-	upstream  *websocket.Conn
-	pending   map[string]chan message
-	launches  map[string]string
-	lock      *os.File
-	lockKey   string
-	dir       string
-	busy      bool
-	connected bool
-	tools     map[string]activeTool
+	lifecycle        sync.Mutex
+	mu               sync.Mutex
+	identity         Identity
+	token            string
+	upstream         *websocket.Conn
+	pending          map[string]chan message
+	launches         map[string]string
+	lock             *os.File
+	lockKey          string
+	runtimeBinding   string
+	aliases          map[string]string
+	dir              string
+	busy             bool
+	connected        bool
+	daemonExecutable string
+	tools            map[string]activeTool
 }
 
 type activeTool struct{ ID, Thread, Turn, Command string }
@@ -65,18 +68,25 @@ func secret() string {
 
 // Run owns one native terminal client. A shared server's response supplies the
 // thread id; Unix peer credentials supply the daemon and client processes.
-func Run(ctx context.Context, home, server string, argv []string) error {
+func Run(ctx context.Context, home, server string, argv []string, autoStart bool) error {
 	if len(argv) == 0 {
 		return errors.New("codex-client requires a Codex command after --")
 	}
 	for _, arg := range argv[1:] {
-		if arg == "--remote" || strings.HasPrefix(arg, "--remote=") || arg == "--no-daemon" || arg == "--add-dir" || strings.HasPrefix(arg, "--add-dir=") {
-			return fmt.Errorf("codex-client cannot bind %s; use a private --no-daemon launch for this mode", arg)
+		if arg == "--remote" || strings.HasPrefix(arg, "--remote=") || arg == "--no-daemon" || arg == "--worktree" || arg == "--add-dir" || strings.HasPrefix(arg, "--add-dir=") {
+			return fmt.Errorf("codex-client cannot bind %s; this mode is incompatible with a bound local daemon client", arg)
 		}
 	}
 	identity, err := ownPane(home)
 	if err != nil {
 		return err
+	}
+	daemonExecutable := ""
+	if autoStart {
+		daemonExecutable, err = ensureDaemon(ctx, argv[0], server)
+		if err != nil {
+			return err
+		}
 	}
 	registry := filepath.Join("/tmp", fmt.Sprintf("gi-codex-bindings-%d", os.Geteuid()))
 	if err := os.MkdirAll(registry, 0700); err != nil {
@@ -98,7 +108,7 @@ func Run(ctx context.Context, home, server string, argv []string) error {
 		return err
 	}
 	defer listener.Close()
-	b := &bridge{identity: identity, pending: map[string]chan message{}, launches: map[string]string{}, dir: registry}
+	b := &bridge{identity: identity, pending: map[string]chan message{}, launches: map[string]string{}, dir: registry, daemonExecutable: daemonExecutable}
 	defer func() {
 		b.mu.Lock()
 		defer b.mu.Unlock()
@@ -204,7 +214,7 @@ func (b *bridge) proxy(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	defer up.CloseNow()
 	up.SetReadLimit(32 << 20)
 	daemonPin, err := ProcessPin(daemon)
-	if err != nil || !codexDaemon(daemon) || !sameProcessExecutable(daemon, b.identity.Client.PID) {
+	if err != nil || !codexDaemon(daemon) || !b.verifiedDaemonExecutable(daemon) {
 		http.Error(w, "unverified Codex daemon", 403)
 		return
 	}
@@ -248,6 +258,12 @@ func (b *bridge) disconnect() {
 	b.busy, b.connected, b.token = false, false, ""
 	clear(b.launches)
 	clear(b.tools)
+	for path, destination := range b.aliases {
+		if current, err := os.Readlink(path); err == nil && current == destination {
+			os.Remove(path)
+		}
+	}
+	clear(b.aliases)
 }
 
 func (i Identity) LiveClient(pid int) bool {
@@ -309,10 +325,20 @@ func (b *bridge) prepare(data []byte, path string) ([]byte, error) {
 			return nil, err
 		}
 	}
-	token := secret()
+	binding := b.runtimeBinding
+	if m.Method != "thread/resume" || binding == "" {
+		endpoint, err := os.MkdirTemp("/tmp", "gi-codex-runtime-")
+		if err != nil {
+			return nil, err
+		}
+		binding = filepath.Join(endpoint, "caller.sock") + "#" + secret()
+	}
+	if err := b.routeBinding(binding, path); err != nil {
+		return nil, err
+	}
 	b.token = ""
 	b.identity.Thread = ""
-	b.launches[string(m.ID)] = token
+	b.launches[string(m.ID)] = binding
 	config, _ := m.Params["config"].(map[string]any)
 	if config == nil {
 		config = map[string]any{}
@@ -332,7 +358,7 @@ func (b *bridge) prepare(data []byte, path string) ([]byte, error) {
 	if set == nil {
 		set = map[string]any{}
 	}
-	set[Env] = path + "#" + token
+	set[Env] = binding
 	set["GATE_INBOX_HOME"] = b.identity.Home
 	set["GATE_INBOX_SESSION_ID"] = ""
 	executable, err := os.Executable()
@@ -365,8 +391,8 @@ func (b *bridge) readUpstream(ctx context.Context, up, down *websocket.Conn) err
 			ch <- m
 			continue
 		}
-		token := b.launches[string(m.ID)]
-		if token != "" {
+		binding := b.launches[string(m.ID)]
+		if binding != "" {
 			delete(b.launches, string(m.ID))
 			var result struct {
 				Thread struct {
@@ -381,8 +407,12 @@ func (b *bridge) readUpstream(ctx context.Context, up, down *websocket.Conn) err
 				b.mu.Unlock()
 				return err
 			}
+			if err = b.saveBinding(binding); err != nil {
+				b.mu.Unlock()
+				return err
+			}
 			b.identity.Thread = result.Thread.ID
-			b.token = token
+			_, b.token, _ = strings.Cut(binding, "#")
 		}
 		b.mu.Unlock()
 		if err = down.Write(ctx, kind, data); err != nil {
@@ -442,6 +472,12 @@ func (b *bridge) claim(thread string) error {
 	if b.lock != nil {
 		b.lock.Close()
 	}
+	record, err := io.ReadAll(io.LimitReader(file, 4096))
+	if err != nil {
+		file.Close()
+		return err
+	}
+	b.runtimeBinding = strings.TrimSpace(string(record))
 	b.lock = file
 	b.lockKey = path
 	return nil

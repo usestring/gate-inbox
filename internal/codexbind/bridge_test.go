@@ -27,7 +27,7 @@ func TestThreadConfigurationCarriesFreshCapability(t *testing.T) {
 		t.Fatal(err)
 	}
 	set := m.Params["config"].(map[string]any)["shell_environment_policy"].(map[string]any)["set"].(map[string]any)
-	if set["KEEP"] != "value" || set[Env] != "/tmp/fixture/client.sock#"+b.launches["1"] || len(b.launches["1"]) != 64 || set["GATE_INBOX_SESSION_ID"] != "" {
+	if set["KEEP"] != "value" || set[Env] != b.launches["1"] || len(b.launches["1"]) < 64 || set["GATE_INBOX_SESSION_ID"] != "" {
 		t.Fatalf("runtime configuration: %v", set)
 	}
 	if _, err = b.prepare(raw, "/tmp/fixture/client.sock"); err == nil {

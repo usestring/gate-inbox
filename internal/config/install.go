@@ -34,6 +34,9 @@ func (e MissingToolError) Error() string {
 }
 
 func CheckInstalled(command string) error {
+	if nested, ok := strings.CutPrefix(command, "gate-inbox codex-client -- "); ok {
+		return CheckInstalled(nested)
+	}
 	fields := strings.Fields(command)
 	if len(fields) == 0 {
 		return nil

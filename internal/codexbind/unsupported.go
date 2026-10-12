@@ -13,7 +13,7 @@ type Identity struct{ Home, Socket, Pane string }
 
 func (Identity) Live() bool      { return false }
 func (Identity) PanePin() string { return "" }
-func Run(context.Context, string, string, []string) error {
+func Run(context.Context, string, string, []string, bool) error {
 	return errors.New("Codex caller binding requires macOS or Linux Unix peer credentials")
 }
 func Resolve(context.Context, string, string, bool) (Identity, error) {

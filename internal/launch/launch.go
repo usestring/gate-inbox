@@ -611,6 +611,9 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 			return "", nil, err
 		}
 	}
+	if nested, ok := strings.CutPrefix(baseCommand, "gate-inbox codex-client -- "); ok {
+		baseCommand = tmux.ShellQuote(Executable()) + " codex-client -- " + nested
+	}
 	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model))
 	if err != nil {
 		return "", nil, err

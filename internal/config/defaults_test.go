@@ -204,15 +204,15 @@ func TestEmptyDefaultsLeaveLoadingAsItWas(t *testing.T) {
 	}
 }
 
-func TestCodexDefaultsKeepCallerAncestry(t *testing.T) {
+func TestCodexDefaultsBindSharedCallers(t *testing.T) {
 	cfg, err := LoadDir(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	tool := cfg.Tools["codex"]
 	for _, command := range []string{tool.Command, tool.ReviveCommand, tool.ResumeByIDCommand, tool.ResumePickerCommand, tool.ForkCommand} {
-		if !strings.HasPrefix(command, "codex --no-daemon") {
-			t.Errorf("shared default: %s", command)
+		if !strings.HasPrefix(command, "gate-inbox codex-client -- codex") {
+			t.Errorf("unbound default: %s", command)
 		}
 	}
 	old := Tool{Command: "codex", ResumeByIDCommand: "codex resume {id}", ForkCommand: "codex fork {id}"}
@@ -220,9 +220,9 @@ func TestCodexDefaultsKeepCallerAncestry(t *testing.T) {
 	if old.Command != tool.Command || old.ResumeByIDCommand != tool.ResumeByIDCommand || old.ForkCommand != tool.ForkCommand {
 		t.Fatalf("old defaults: %+v", old)
 	}
-	custom := Tool{Command: "gate-inbox codex-client -- codex", ResumeByIDCommand: "custom resume {id}"}
+	custom := Tool{Command: "codex --no-daemon --model custom", ResumeByIDCommand: "custom resume {id}"}
 	custom = mergeTool("codex", custom, tool)
-	if custom.Command != "gate-inbox codex-client -- codex" || custom.ResumeByIDCommand != "custom resume {id}" {
+	if custom.Command != "codex --no-daemon --model custom" || custom.ResumeByIDCommand != "custom resume {id}" {
 		t.Fatalf("custom changed: %+v", custom)
 	}
 }

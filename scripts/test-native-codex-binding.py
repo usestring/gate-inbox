@@ -295,6 +295,11 @@ try:
                     )
                     == codex
                 )
+                assert client_argv[1:] == [
+                    "--no-daemon",
+                    "--no-alt-screen",
+                    "native-binding-fixture",
+                ], "launcher fixture accepts only the private offline new-client command"
             launch = (
                 "env -u GATE_INBOX_SESSION_ID -u GATE_INBOX_BIN GATE_INBOX_HOME="
                 + shlex.quote(str(state))

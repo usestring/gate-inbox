@@ -4,6 +4,8 @@ package tmux
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"hash/fnv"
@@ -1662,9 +1664,14 @@ func (d *Driver) PaneID(id string) (string, error) {
 
 // KillPane is Kill for a caller that validated one pane: the check and the
 // kill run as one tmux command, so a session revived under id after pane
-// was read survives. The pane has to be in the session's own window as well,
+// was read survives, as does a process respawned in the same pane.
+// The pane has to be in the session's own window as well,
 // so a pane read off a window somebody else opened in it ends nothing.
-func (d *Driver) KillPane(id, pane string) error {
+func (d *Driver) KillPane(id, pane, processID string) error {
+	pid, err := strconv.Atoi(processID)
+	if err != nil || pid <= 0 {
+		return fmt.Errorf("%s: invalid pane process identity", id)
+	}
 	if err := d.refuseAdopted(id, "kill"); err != nil {
 		return err
 	}
@@ -1681,11 +1688,11 @@ func (d *Driver) KillPane(id, pane string) error {
 		return fmt.Errorf("%s: pane %s is not in this session's own window", id, pane)
 	}
 	if err := d.endOwnWindow(id, home, pane,
-		"#{&&:#{==:#{session_name},"+sessionName(id)+"},#{==:#{window_id},"+home+"}}"); err != nil {
+		"#{&&:#{==:#{pane_pid},"+strconv.Itoa(pid)+"},#{&&:#{==:#{session_name},"+sessionName(id)+"},#{==:#{window_id},"+home+"}}}"); err != nil {
 		return err
 	}
 	if d.Exists(id) {
-		return fmt.Errorf("%s: pane %s no longer belongs to this session's own window", id, pane)
+		return fmt.Errorf("%s: pane %s process or window changed before shutdown", id, pane)
 	}
 	os.Remove(d.launchScriptPath(id))
 	return nil
@@ -1865,6 +1872,23 @@ func (d *Driver) PanePID(id string) (int, error) {
 	return strconv.Atoi(line)
 }
 
+// LivePaneDir is Exists and PaneCurrentPath in one tmux call: whether the
+// session's pane is there, and the directory it sits in when tmux can say.
+// The pane id coming back is the proof of life, as it is for Exists on an
+// adopted pane, so a pane whose directory cannot be read is still live.
+func (d *Driver) LivePaneDir(id string) (dir string, live bool) {
+	out, err := d.paneProperty(id, "#{pane_id} #{pane_current_path}")
+	if err != nil {
+		return "", false
+	}
+	line := strings.TrimSuffix(strings.SplitN(out, "\n", 2)[0], "\r")
+	pane, dir, _ := strings.Cut(line, " ")
+	if pane == "" {
+		return "", false
+	}
+	return dir, true
+}
+
 // PaneCurrentPath is where the session's pane sits now, which follows any
 // cd the shell or the agent made since launch, unlike the directory the
 // session was created in.
@@ -1916,6 +1940,13 @@ func noServer(out string) bool {
 // live on a server this pass could not read; Gone holds only the first kind.
 type PaneScan struct {
 	PIDs map[string]int
+	// Paths is where each managed session's pane sits now, as
+	// PaneCurrentPath reads it, from the same listing as PIDs. A caller
+	// describing every session reads it here rather than asking tmux once
+	// per session. Adopted sessions are not in it, and only
+	// ScanPanesWithPaths fills it: the board's poll pass scans every two
+	// seconds and never reads a directory, so it does not pay for them.
+	Paths map[string]string
 	// Gone is the adopted sessions whose pane is proven no longer there:
 	// their server produced a pane listing, and the pane was not on it. A
 	// server that could not be listed at all fails the whole scan rather
@@ -1958,11 +1989,24 @@ const ScanTimeout = 4 * time.Second
 func (d *Driver) ScanPanes() (PaneScan, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), ScanTimeout)
 	defer cancel()
-	return d.scanPanes(ctx)
+	return d.scanPanes(ctx, false)
 }
 
-func (d *Driver) scanPanes(ctx context.Context) (PaneScan, error) {
-	out, err := d.combinedWithin(ctx, d.args("list-panes", "-a", "-F", "#{session_name} #{pane_pid}"))
+// ScanPanesWithPaths is ScanPanes with each managed pane's directory read
+// in the same listing, for a caller about to report every session's.
+func (d *Driver) ScanPanesWithPaths() (PaneScan, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), ScanTimeout)
+	defer cancel()
+	return d.scanPanes(ctx, true)
+}
+
+func (d *Driver) scanPanes(ctx context.Context, withPaths bool) (PaneScan, error) {
+	format, mark := "#{session_name} #{pane_pid}", ""
+	if withPaths {
+		mark = scanMark()
+		format = mark + format + " #{pane_current_path}"
+	}
+	out, err := d.combinedWithin(ctx, d.args("list-panes", "-a", "-F", format))
 	// A deadline that fired is not an answer about this server, so it is
 	// checked ahead of the no-server reading below: that one treats silence
 	// as "no sessions here", which is the reading a timeout must never get.
@@ -1978,8 +2022,22 @@ func (d *Driver) scanPanes(ctx context.Context) (PaneScan, error) {
 	if err != nil {
 		out = nil
 	}
+	var scan PaneScan
+	if withPaths {
+		scan = parsePaneScan(string(out), mark)
+	} else {
+		scan = parsePaneLiveness(string(out))
+	}
+	if err := d.adoptedPanes(ctx, scan); err != nil {
+		return PaneScan{}, err
+	}
+	return scan, nil
+}
+
+// parsePaneLiveness reads a listing of session names and pane pids.
+func parsePaneLiveness(out string) PaneScan {
 	scan := PaneScan{PIDs: map[string]int{}, Gone: map[string]bool{}}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		name, pidText, ok := strings.Cut(line, " ")
 		if !ok || !managedName(name) {
 			continue
@@ -1992,10 +2050,56 @@ func (d *Driver) scanPanes(ctx context.Context) (PaneScan, error) {
 			scan.PIDs[id] = pid
 		}
 	}
-	if err := d.adoptedPanes(ctx, scan); err != nil {
-		return PaneScan{}, err
+	return scan
+}
+
+// scanMark is a fresh prefix for every line of one pane listing. A pane's
+// directory is whatever its occupant named it, line breaks included, and
+// the text after one would otherwise read as a pane line of tmux's own:
+// any session's liveness and pid, written by whoever controls a directory
+// name. The occupant cannot know the mark before the listing runs.
+func scanMark() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:]) + " "
+}
+
+// parsePaneScan reads a managed listing whose every line tmux began with
+// mark. A line without it is the rest of the directory above, so that
+// directory is dropped, cut short as it is; PaneCurrentPath still answers
+// for the session the way it always has.
+func parsePaneScan(out, mark string) PaneScan {
+	scan := PaneScan{PIDs: map[string]int{}, Paths: map[string]string{}, Gone: map[string]bool{}}
+	last := ""
+	// Only line breaks are trimmed: a trailing space on the last pane's
+	// path is part of the directory name.
+	for _, line := range strings.Split(strings.TrimRight(out, "\r\n"), "\n") {
+		line, marked := strings.CutPrefix(line, mark)
+		if !marked {
+			delete(scan.Paths, last)
+			continue
+		}
+		last = ""
+		name, rest, ok := strings.Cut(line, " ")
+		if !ok || !managedName(name) {
+			continue
+		}
+		id := strings.TrimPrefix(name, prefix)
+		if _, taken := scan.PIDs[id]; taken {
+			continue
+		}
+		pidText, path, _ := strings.Cut(rest, " ")
+		pid, err := strconv.Atoi(pidText)
+		if err != nil {
+			continue
+		}
+		scan.PIDs[id] = pid
+		if path = strings.TrimSuffix(path, "\r"); path != "" {
+			scan.Paths[id] = path
+			last = id
+		}
 	}
-	return scan, nil
+	return scan
 }
 
 // adoptedPanes adds the adopted sessions to the liveness map. They carry no

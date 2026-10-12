@@ -208,7 +208,7 @@ func stopFailureCommand() string {
 // repository that moved, and a session ending outside a git tree is
 // normal, not an error.
 func sessionEndCommand() string {
-	return statusFileVar + `[ -z "$f" ] || rm -f "$f" "$f` + AttestPendingSuffix + `"; ` +
+	return statusFileVar + `[ -z "$f" ] || rm -f "$f" "$f` + AttestPendingSuffix + `" "$f` + SandboxStaleSuffix + `"; ` +
 		`git rev-parse --git-dir >/dev/null 2>&1 && { git worktree prune >/dev/null 2>&1; ` +
 		`git submodule --quiet foreach --recursive 'git worktree prune >/dev/null 2>&1 || true' >/dev/null 2>&1; }; ` +
 		`exit 0`
@@ -254,6 +254,24 @@ func attestNoteCommand() string {
 		`" ] || [ -z "$` + EnvSessionID + `" ] || "$` + EnvExecutable + `" hook attest-note 2>/dev/null; }; exit 0`
 }
 
+// SandboxStaleSuffix names the flag file beside a session's status file that
+// says its sandbox has gone stale and the board should restart it.
+const SandboxStaleSuffix = ".sandbox-stale"
+
+// sandboxStaleCommand hands a failed Bash call to sessioncmd.SandboxStaleHook
+// when its payload mentions bwrap's missing-source error, the one a sandbox
+// left stale by a deleted path gives every command. The case test keeps the
+// executable from starting on every other failure; the hook itself decides
+// whether the error came from bwrap or only from the command's own text.
+//
+// It runs on PostToolUseFailure, not PostToolUse: bwrap failing exits
+// non-zero, and Claude Code reports a failed call only to the former.
+func sandboxStaleCommand() string {
+	return statusFileVar + `[ -z "$f" ] || { p=$(cat); case "$p" in *"get type of source"*) [ -z "$` + EnvExecutable +
+		`" ] || [ -z "$` + EnvSessionID + `" ] || printf '%s' "$p" | "$` + EnvExecutable +
+		`" hook sandbox-stale 2>/dev/null;; esac; }; exit 0`
+}
+
 func hookCommandLine(verb string) string {
 	return statusFileVar + `[ -z "$f" ] || { [ -z "$` + EnvExecutable + `" ] || [ -z "$` + EnvSessionID +
 		`" ] || "$` + EnvExecutable + `" hook ` + verb + ` 2>/dev/null; }; exit 0`
@@ -273,9 +291,10 @@ func settingsContent(keyDir string) ([]byte, error) {
 			run(blockingTool, askPendingCommand())...),
 		"PostToolUse": append(report("PostToolUse", "*", status.Working),
 			append(run(blockingTool, askAnsweredCommand()), run("*", attestNoteCommand())...)...),
-		"Notification": report("Notification", blockingNotifications, status.Waiting),
-		"Stop":         report("Stop", "", status.Finished),
-		"StopFailure":  run("", stopFailureCommand()),
+		"PostToolUseFailure": run("Bash", sandboxStaleCommand()),
+		"Notification":       report("Notification", blockingNotifications, status.Waiting),
+		"Stop":               report("Stop", "", status.Finished),
+		"StopFailure":        run("", stopFailureCommand()),
 		// compact fires SessionStart in the middle of an active turn
 		"SessionStart": append(report("SessionStart", "startup|resume|clear", status.Idle),
 			run("startup|resume|clear|compact", sessionStartCommand())...),

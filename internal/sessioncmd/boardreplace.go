@@ -140,7 +140,7 @@ func (s *Sessions) BoardCommitReplace(targetID, freshID string) (committed Sessi
 		fresh = store.Session{ID: freshID, Group: old.Group, ParentID: old.ParentID}
 	}
 	_ = runtime.driver.SetLabel(fresh.ID, sessionLabel(fresh.Group, fresh.Name))
-	return runtime.sessionInfo(fresh, runtime.driver.Exists(fresh.ID), false), nil
+	return runtime.currentInfo(fresh, false), nil
 }
 
 // BoardAbortReplace takes back a replacement BoardReplace held: freshID's

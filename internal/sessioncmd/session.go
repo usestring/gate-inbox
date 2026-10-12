@@ -207,6 +207,18 @@ func (r *runtime) deliverable(target store.Session) error {
 	return nil
 }
 
+// currentInfo is sessionInfo for a row whose liveness is not known yet. One tmux
+// call answers both whether its pane is alive and where it sits; asking
+// Exists first and then sessionInfo is two, and a board extension asks this
+// of every session it watches on every poll pass.
+func (r *runtime) currentInfo(sess store.Session, self bool) Session {
+	dir, live := r.driver.LivePaneDir(sess.ID)
+	if dir == "" {
+		dir = sess.Cwd
+	}
+	return r.sessionInfoIn(sess, dir, live, self)
+}
+
 func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 	dir := sess.Cwd
 	if running {
@@ -214,6 +226,11 @@ func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 			dir = current
 		}
 	}
+	return r.sessionInfoIn(sess, dir, running, self)
+}
+
+// sessionInfoIn is sessionInfo with the directory already read.
+func (r *runtime) sessionInfoIn(sess store.Session, dir string, running, self bool) Session {
 	return Session{
 		ID:        sess.ID,
 		Name:      sess.Name,
@@ -390,7 +407,7 @@ func (r *runtime) list(callerID string, opts ListOptions) (SessionList, error) {
 	if err != nil {
 		return SessionList{}, err
 	}
-	panes, err := r.driver.Panes()
+	scan, err := r.driver.ScanPanesWithPaths()
 	if err != nil {
 		return SessionList{}, err
 	}
@@ -419,8 +436,15 @@ func (r *runtime) list(callerID string, opts ListOptions) (SessionList, error) {
 			more = true
 			continue
 		}
-		_, running := panes[sess.ID]
-		sessions = append(sessions, r.sessionInfo(sess, running, callerID != "" && sess.ID == callerID))
+		self := callerID != "" && sess.ID == callerID
+		_, running := scan.PIDs[sess.ID]
+		// The listing that proved the pane alive also read where it sits,
+		// so a page of rows costs one tmux call, not one per running row.
+		if path, ok := scan.Paths[sess.ID]; ok && running {
+			sessions = append(sessions, r.sessionInfoIn(sess, path, true, self))
+		} else {
+			sessions = append(sessions, r.sessionInfo(sess, running, self))
+		}
 		last = keys[i]
 	}
 	granted, err := r.store.ActiveGrants()
@@ -1259,7 +1283,7 @@ func (s *Sessions) Get(sessionID, targetID string) (got Session, err error) {
 	if err != nil {
 		return Session{}, err
 	}
-	return runtime.sessionInfo(target, runtime.driver.Exists(target.ID), target.ID == sessionID), nil
+	return runtime.currentInfo(target, target.ID == sessionID), nil
 }
 
 // Kill stops a session's pane and leaves its row dead, keeping the last

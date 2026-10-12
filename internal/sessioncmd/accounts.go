@@ -113,7 +113,7 @@ func (s *Sessions) switchAccount(runtime *runtime, target store.Session, account
 		return Session{}, err
 	}
 	if account == target.Account {
-		return runtime.sessionInfo(target, runtime.driver.Exists(target.ID), false), nil
+		return runtime.currentInfo(target, false), nil
 	}
 	if _, over := migrate.AccountSwitchTranscript(s.roots, tool, target); over {
 		return large(account)

@@ -43,6 +43,10 @@ func (s *Sessions) Stop(sessionID string, dryRun bool) (StopResult, error) {
 	if err != nil {
 		return StopResult{}, err
 	}
+	pin, err := runtime.paneProcess(target)
+	if err != nil {
+		return StopResult{}, err
+	}
 	owned, err := runtime.paneAncestor(target)
 	if err != nil {
 		return StopResult{}, err
@@ -66,10 +70,6 @@ func (s *Sessions) Stop(sessionID string, dryRun bool) (StopResult, error) {
 		}
 	}
 	pane, err := runtime.driver.PaneID(target.ID)
-	if err != nil {
-		return StopResult{}, err
-	}
-	pin, err := runtime.paneProcess(target)
 	if err != nil {
 		return StopResult{}, err
 	}
@@ -132,11 +132,11 @@ func (s *Sessions) FinishStop(sessionID, launched, pane, processPin string) (Ses
 		if row.TmuxPaneID != target.TmuxPaneID || row.TmuxSocket != target.TmuxSocket {
 			return errors.New("stop request no longer matches this adopted target")
 		}
+		pid, _, _ := strings.Cut(processPin, ":")
 		if target.TmuxPaneID != "" {
-			pid, _, _ := strings.Cut(processPin, ":")
 			return runtime.driver.KillAdoptedPane(id, pane, pid)
 		}
-		return runtime.driver.KillPane(id, pane)
+		return runtime.driver.KillPane(id, pane, pid)
 	})
 }
 

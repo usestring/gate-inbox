@@ -65,7 +65,16 @@ const StaleSandboxResume = "Gate Inbox restarted this session to rebuild its san
 
 // staleSandboxLine is how bwrap reports a bind source that no longer exists,
 // at the start of the failed call's output.
-var staleSandboxLine = regexp.MustCompile(`(?m)^bwrap: Can't get type of source `)
+var staleSandboxLine = regexp.MustCompile(`(?m)^bwrap: ` + staleRefusal + ` `)
+
+// staleRefusal is bwrap's wording for a missing bind source; older builds
+// print "Can't find source path". A command that only mentions it, such as
+// a grep for it, is not one.
+const staleRefusal = `Can't ` + staleWords
+
+const staleWords = `(?:get type of source|find source path)`
+
+var staleRefusalText = regexp.MustCompile(staleWords)
 
 // staleSandboxFailure reports whether a PostToolUseFailure payload is a Bash
 // call that bwrap refused for a missing bind source. A command that merely
@@ -80,7 +89,7 @@ func staleSandboxFailure(payload []byte) bool {
 	if json.Unmarshal(payload, &call) != nil {
 		return false
 	}
-	return staleSandboxLine.MatchString(call.Error) && !strings.Contains(call.ToolInput.Command, "get type of source")
+	return staleSandboxLine.MatchString(call.Error) && !staleRefusalText.MatchString(call.ToolInput.Command)
 }
 
 // SandboxStaleHook records a stale-sandbox failure in flag and returns the
@@ -88,6 +97,9 @@ func staleSandboxFailure(payload []byte) bool {
 func SandboxStaleHook(configDir, sessionID, flag string, payload []byte, now time.Time) string {
 	if !staleSandboxFailure(payload) {
 		return ""
+	}
+	if restoreWorktreeSource(staleSource(payload)) {
+		return failureNote(staleRestoredNote)
 	}
 	note := staleRetryNote
 	if staleSeenBefore(flag, now) {
@@ -99,6 +111,10 @@ func SandboxStaleHook(configDir, sessionID, flag string, payload []byte, now tim
 	} else {
 		_ = hooks.WriteWhole(flag, staleOnce)
 	}
+	return failureNote(note)
+}
+
+func failureNote(note string) string {
 	out, err := json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{
 		"hookEventName":     "PostToolUseFailure",
 		"additionalContext": note,
@@ -107,6 +123,73 @@ func SandboxStaleHook(configDir, sessionID, flag string, payload []byte, now tim
 		return ""
 	}
 	return string(out)
+}
+
+// Most stale paths are a removed worktree's metadata under
+// <gitdir>/worktrees/<name>/ (62 of 82 failures, 2026-10-11 22:30 to
+// 2026-10-12 04:25). Putting an empty file back where bwrap expects one fixes
+// the session in place, and every other session that bound the same path,
+// with no restart. Git does not see the placeholder: an entry with no gitdir
+// file is left out of `git worktree list`, holds no branch, and the next
+// `git worktree prune` removes it. Lock files and checkout files are never
+// recreated; an empty config.lock would block every git config write.
+
+const staleRestoredNote = "Gate Inbox: that Bash call failed because a removed worktree's metadata, which Claude " +
+	"Code had bound into this session's sandbox, was deleted. Gate Inbox has put an empty placeholder back, so the " +
+	"sandbox works again. Retry the same command inside the sandbox now; do not switch to " +
+	"dangerouslyDisableSandbox, and do not ask anyone for approval over it."
+
+var staleSourcePath = regexp.MustCompile(`(?m)^bwrap: ` + staleRefusal + ` (.+?): No such file or directory`)
+
+// worktreeMetadataFiles are the per-worktree files bwrap has been seen to
+// bind; the worktree's directory itself is restored for any of them.
+var worktreeMetadataFiles = map[string]bool{"config.worktree": true, "commondir": true, "config": true}
+
+func staleSource(payload []byte) string {
+	var call struct {
+		Error string `json:"error"`
+	}
+	if json.Unmarshal(payload, &call) != nil {
+		return ""
+	}
+	match := staleSourcePath.FindStringSubmatch(call.Error)
+	if match == nil {
+		return ""
+	}
+	return match[1]
+}
+
+// restoreWorktreeSource puts back path when it is a removed worktree's
+// metadata directory, or one of its known files, under a git directory that
+// still exists. It reports whether path exists afterwards.
+func restoreWorktreeSource(path string) bool {
+	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return false
+	}
+	dir, file := path, ""
+	if worktreeMetadataFiles[filepath.Base(path)] {
+		dir, file = filepath.Dir(path), filepath.Base(path)
+	}
+	worktrees := filepath.Dir(dir)
+	gitDir := filepath.Dir(worktrees)
+	if filepath.Base(worktrees) != "worktrees" || filepath.Base(gitDir) != ".git" {
+		return false
+	}
+	if info, err := os.Stat(gitDir); err != nil || !info.IsDir() {
+		return false
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return false
+	}
+	if file != "" {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			return false
+		}
+		_ = f.Close()
+	}
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func staleSeenBefore(flag string, now time.Time) bool {

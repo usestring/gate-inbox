@@ -384,6 +384,9 @@ func childScreenMessage(sess store.Session, screen dialog.Screen) string {
 	if screen.Legend != "" {
 		fmt.Fprintf(&out, "\nKeys: %s\n", screen.Legend)
 	}
+	if screen.AutoDeny {
+		out.WriteString("\nClaude Code refuses this prompt by itself about two minutes after drawing it, so settle it now.\n")
+	}
 	if len(screen.Choices) < 2 {
 		fmt.Fprintf(&out, "\nanswer_session cannot read this as choices, but it is still yours to settle. Ask "+
 			"your user with your own question tool, quoting the lines above word for word and offering the "+

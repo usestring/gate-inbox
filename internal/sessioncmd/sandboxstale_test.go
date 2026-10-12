@@ -1,7 +1,9 @@
 package sessioncmd
 
 import (
+	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -122,5 +124,56 @@ func TestOnlyBwrapsRefusalMarksASandboxStale(t *testing.T) {
 		if _, err := os.Stat(flag); !os.IsNotExist(err) {
 			t.Fatalf("%s: left a flag", name)
 		}
+	}
+}
+
+// A removed worktree's metadata is put back where bwrap expects it, so the
+// session is fixed in place: no retry count, no restart.
+func TestAStaleWorktreeSourceIsRestoredInPlace(t *testing.T) {
+	h, child := grantHarness(t)
+	flag := staleFlag(t, h, child.ID)
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git", "worktrees"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, missing := range []string{
+		filepath.Join(repo, ".git", "worktrees", "gone", "config.worktree"),
+		filepath.Join(repo, ".git", "worktrees", "gone2"),
+	} {
+		payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "tool_input": map[string]string{"command": "ls"},
+			"error": "Exit code 1\nbwrap: Can't get type of source " + missing + ": No such file or directory"})
+		for range 2 {
+			note := SandboxStaleHook(h.sessions.configDir, child.ID, flag, payload, time.Now())
+			if !strings.Contains(note, "put an empty placeholder back") {
+				t.Fatalf("note = %s", note)
+			}
+		}
+		if _, err := os.Stat(missing); err != nil {
+			t.Fatalf("%s not restored: %v", missing, err)
+		}
+	}
+	if _, err := os.Stat(flag); err == nil {
+		t.Fatal("a restored source counted toward a restart")
+	}
+}
+
+// A lock file, a path outside .git/worktrees, or a git directory that is gone
+// is never created; those keep the retry-then-restart path.
+func TestStaleSourcesThatAreNotWorktreeMetadataAreLeftAlone(t *testing.T) {
+	repo := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(repo, ".git", "worktrees"), 0o755)
+	for _, path := range []string{
+		filepath.Join(repo, ".git", "config.lock"),
+		filepath.Join(repo, "sub", ".mcp.json"),
+		filepath.Join(repo, ".git", "worktrees", "gone", "index.lock"),
+		filepath.Join(t.TempDir(), "absent", ".git", "worktrees", "gone", "commondir"),
+		"relative/.git/worktrees/gone/commondir",
+	} {
+		if restoreWorktreeSource(path) {
+			t.Errorf("restored %s", path)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git", "config.lock")); err == nil {
+		t.Fatal("created config.lock")
 	}
 }

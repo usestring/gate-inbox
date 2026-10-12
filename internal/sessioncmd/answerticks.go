@@ -31,14 +31,17 @@ func tickOnScreen(pane dialogPane, raw string, question dialog.Question, ticks [
 	filled := FilledAnswer{Index: question.Index, Header: question.Header, question: question.Question}
 	held, ok := dialog.Inspect(ansi.Strip(raw))
 	if !ok {
-		return filled, fmt.Errorf("%w: question %d is not on the screen", errDialogMoved, question.Index)
+		return filled, fmt.Errorf("%w: question %d is not on the screen", unkeyed(errDialogMoved), question.Index)
 	}
 	if held.Prompt != "" {
 		filled.question = strings.Join(strings.Fields(held.Prompt), " ")
 	}
-	if question.Question != "" && !strings.EqualFold(filled.question, strings.Join(strings.Fields(question.Question), " ")) {
-		return filled, fmt.Errorf("%w: the tab for question %d shows %q, not %q",
-			errDialogMoved, question.Index, held.Prompt, question.Question)
+	if question.Question != "" {
+		if !tabShows(held.Prompt, question.Question) {
+			return filled, fmt.Errorf("%w: the tab for question %d shows %q, not %q",
+				unkeyed(errDialogMoved), question.Index, held.Prompt, question.Question)
+		}
+		filled.question = question.Question
 	}
 	if !held.MultiSelect {
 		return filled, fmt.Errorf("question %d is not drawn as a multi-select, so no box was ticked", question.Index)

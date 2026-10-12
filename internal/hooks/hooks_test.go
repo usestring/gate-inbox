@@ -839,6 +839,7 @@ func TestSandboxStaleCommandFiresOnlyOnTheBwrapSignature(t *testing.T) {
 		want    bool
 	}{
 		{"stale", `{"tool_name":"Bash","error":"Exit code 1\nbwrap: Can't get type of source /r/.git/worktrees/x/commondir: No such file or directory"}`, true},
+		{"older bwrap wording", `{"tool_name":"Bash","error":"Exit code 1\nbwrap: Can't find source path /r/.git/worktrees/x/commondir: No such file or directory"}`, true},
 		{"ordinary failure", `{"tool_name":"Bash","error":"Exit code 2\ngrep: foo: No such file or directory"}`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

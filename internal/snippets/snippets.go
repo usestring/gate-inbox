@@ -76,9 +76,12 @@ type Snippet struct {
 	// Key is the menu key: a single letter a-z, or one of the two keys on
 	// the physical key left of 1, § and ±.
 	Key string `json:"key"`
-	// Label is what the key map, the footer and the quick bar call it. Empty
-	// falls back to the text itself, which is usually short enough to read.
+	// Label is what the footer calls it. Empty falls back to the text itself,
+	// which is usually short enough to read.
 	Label string `json:"label,omitempty"`
+	// Preview overrides the menu text without changing what the key sends.
+	// Empty falls back to Text.
+	Preview string `json:"preview,omitempty"`
 	// Chord is the direct binding that sends this snippet in one press from
 	// the list or a focused session, without opening the hotkey menu, e.g.
 	// "option+shift+c" (spelled "alt+shift+c" works too). Empty leaves the
@@ -373,6 +376,7 @@ func validate(parsed []Snippet) Set {
 		snip.chordOmitted = false
 		snip.Key = strings.ToLower(strings.TrimSpace(snip.Key))
 		snip.Label = strings.TrimSpace(snip.Label)
+		snip.Preview = strings.TrimSpace(snip.Preview)
 		snip.Chord = strings.TrimSpace(snip.Chord)
 		// Only the text's edges: a snippet is a message, and an operator who
 		// wrote one across several lines meant those lines.

@@ -747,7 +747,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		return Session{}, err
 	}
 	manager := hooks.NewManager(s.configDir)
-	command, env, err := launch.Environment(manager, toolName, tool, plan.Command, id, plan.Model, plan.Account, contributed)
+	command, env, err := launch.EnvironmentWithProfile(manager, toolName, tool, plan.Command, id, plan.Model, plan.Account, contributed, mcpProfile(sess))
 	if err != nil {
 		return Session{}, err
 	}

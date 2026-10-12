@@ -259,6 +259,8 @@ To never interrupt a session for a name, set `[naming] ask = false` in the confi
 
 Every session of an MCP-capable tool carries the Gate Inbox MCP server on spawn and revive, so its agent sees the whole workspace as native tools with descriptions telling it when to call each: its own session, the other agent sessions running beside it, the groups they are filed under, and the managed terminals. No per-project setup. The server lives in the same binary (`gate-inbox mcp`, stdio) and identifies the calling session through its environment.
 
+The server serves one of three tool profiles, chosen with `gate-inbox mcp --profile core|admin|all` (`all` when the flag is omitted). `core` is the delegation loop: `list_sessions`, `create_session`, `read_session`, `send_session`, `wait_for_session`, `answer_session`, `archive_session`, `revive_session`, `kill_session`, `task`, `grant_permission`, `message_status` and `rename`. `admin` is everything else, an enabled extension's tools included, so `core` and `admin` side by side are `all`. A child a session spawned and tracks launches with `core`, under the same `gate-inbox` server name, so its tool names and permission rules read as before; the operator's own sessions, a detached spawn and a session an extension launched for a role keep `all`. A few argument names models reach for are served as the schema's: `timeout_seconds` on `wait_for_session` is `timeout_s`.
+
 That server is started once by its CLI and then lives as long as the conversation, while the board is rebuilt and restarted under it many times, so a weeks-old session keeps offering the tools of whatever build started it. Every tool says so in its reply once the board is running a newer binary. `create_session` does more than say so: a build that predates nesting would file the spawn with no parent, which cannot be repaired afterwards -- nothing records who asked for which session -- so a stale server runs the spawn through the installed manager under the config directory instead of in its own process, as the calling session, and takes the row back. If that copy is missing or fails, the spawn still happens in process rather than not at all.
 
 | Tool | Action |
@@ -287,7 +289,7 @@ That server is started once by its CLI and then lives as long as the conversatio
 | `delete_group` | remove a group whose work is done; sessions still filed there move to the root rather than stopping |
 | `create_group` | Add a group heading, nested with a slash path, for work the user asked to file separately; never for a fan-out |
 | `list_terminals` | List active managed terminals and their current directories |
-| `create_terminal` | Open a terminal under the calling session, or beside it when that session is itself a terminal, unless `nest` is false |
+| `create_terminal` | Open a terminal under the calling session, or beside it when that session is itself a terminal, unless `nest` is false; `name` labels its row |
 | `send_terminal` | Submit a command or send exact keys to a running terminal |
 | `read_terminal` | Read the plain-text content currently visible in a terminal |
 | `close_terminal` | Close a finished terminal nested under the caller: kill the pane and delete the row |

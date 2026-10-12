@@ -34,6 +34,9 @@ const (
 	AnswerPending AnswerState = "pending"
 	AnswerKeyed   AnswerState = "keyed"
 	AnswerFailed  AnswerState = "failed"
+	// AnswerReleased is a row whose handoff failed before any key reached the
+	// child. It no longer cites its evidence, so that answer can be passed on.
+	AnswerReleased AnswerState = "released"
 )
 
 // DialogAnswer is one row of the ledger.
@@ -72,6 +75,14 @@ func (s *Store) RecordAnswer(row DialogAnswer) (int64, error) {
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// ReleaseAnswer marks row id released and drops its evidence: nothing was
+// keyed, so the user's answer it cited is not spent.
+func (s *Store) ReleaseAnswer(id int64) error {
+	_, err := s.db.Exec(`UPDATE dialog_answers SET state = ?, evidence_tool_use_id = '' WHERE id = ?`,
+		string(AnswerReleased), id)
+	return err
 }
 
 // MarkAnswer records how a row's keystrokes ended.

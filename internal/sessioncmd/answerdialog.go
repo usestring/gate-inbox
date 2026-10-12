@@ -297,6 +297,9 @@ func fillDialog(pane dialogPane, questions []dialog.Question, answers []Question
 			filled, err = answerOnScreen(pane, raw, questions[step.index], step.answer, tabbed)
 		}
 		if err != nil {
+			if errors.Is(err, errUnkeyedHere) && len(result.Answers) == 0 {
+				err = fmt.Errorf("%w: %w", errNothingKeyed, err)
+			}
 			return finish(pane, result, err)
 		}
 		if !tabbed {
@@ -410,15 +413,17 @@ func answerOnScreen(pane dialogPane, raw string, question dialog.Question, answe
 	filled := FilledAnswer{Index: question.Index, Header: question.Header, Answer: answer, question: question.Question}
 	held, ok := dialog.Inspect(ansi.Strip(raw))
 	if !ok {
-		return filled, fmt.Errorf("%w: question %d is not on the screen", errDialogMoved, question.Index)
+		return filled, fmt.Errorf("%w: question %d is not on the screen", unkeyed(errDialogMoved), question.Index)
 	}
 	if held.Prompt != "" {
 		filled.question = strings.Join(strings.Fields(held.Prompt), " ")
 	}
-	if question.Question != "" && tabbed && !strings.EqualFold(
-		strings.Join(strings.Fields(held.Prompt), " "), strings.Join(strings.Fields(question.Question), " ")) {
-		return filled, fmt.Errorf("%w: the tab for question %d shows %q, not %q",
-			errDialogMoved, question.Index, held.Prompt, question.Question)
+	if question.Question != "" && tabbed {
+		if !tabShows(held.Prompt, question.Question) {
+			return filled, fmt.Errorf("%w: the tab for question %d shows %q, not %q",
+				unkeyed(errDialogMoved), question.Index, held.Prompt, question.Question)
+		}
+		filled.question = question.Question
 	}
 	if refusal := held.Refusal(); refusal != "" {
 		return filled, fmt.Errorf("question %d is %s", question.Index, refusal)
@@ -658,4 +663,25 @@ func waitFor(pane dialogPane, done func(raw string) bool) (string, error) {
 		}
 		time.Sleep(settlePoll)
 	}
+}
+
+// A handoff that fails before its first answer key reaches the child spent
+// nothing: the user's answer was never typed anywhere. errUnkeyedHere marks
+// such a refusal on one question; fillDialog turns it into errNothingKeyed
+// when no earlier question took an answer either, and finish then releases
+// the ledger rows, so the same answer of the user's can be passed on again.
+// Before this, a long question whose tab showed only its last lines failed
+// that way and still used up the answer, and the user was asked twice.
+var (
+	errUnkeyedHere  = errors.New("no answer key was sent")
+	errNothingKeyed = errors.New("nothing was keyed into the child")
+)
+
+func unkeyed(err error) error { return fmt.Errorf("%w%w", err, errUnkeyedHere) }
+
+// tabShows reports whether a question tab's prompt is question: the tab
+// draws only its last few wrapped lines of a long one.
+func tabShows(prompt, question string) bool {
+	trimmed := strings.TrimLeft(strings.TrimSpace(prompt), "…. ")
+	return dialog.SameQuestion(prompt, question) || (trimmed != "" && dialog.SameQuestion(trimmed, question))
 }

@@ -267,7 +267,7 @@ func unknownCommand(arg string) error {
 }
 
 func printHelp(w io.Writer, extra []extensionCommand) error {
-	sections := []cli.HelpSection{claudeHooksHelp}
+	sections := []cli.HelpSection{claudeHooksHelp, codexClientHelp}
 	for _, entry := range extra {
 		title := entry.command.Group
 		if title == "" {
@@ -383,6 +383,9 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 	}
 	table["hook"] = withConfigDir(func(args []string, sessionID, configDir string) error {
 		return cli.RunHook(os.Stdin, os.Stdout, args, sessionID, configDir)
+	})
+	table["codex-client"] = withConfigDir(func(args []string, _, configDir string) error {
+		return runCodexClient(ctx, args, configDir)
 	})
 	table["claude-hooks"] = withConfigDir(func(args []string, _, configDir string) error {
 		return runClaudeHooks(os.Stdout, args, configDir)

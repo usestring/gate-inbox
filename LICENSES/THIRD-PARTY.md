@@ -39,10 +39,11 @@ what the repository and its binaries contain that is licensed by someone else.
 
 <!-- BEGIN GENERATED: scripts/third-party-licences.sh -->
 
-93 modules in `go list -m all` besides this one; 48 are linked into a binary on at least one of linux, darwin, windows.
+94 modules in `go list -m all` besides this one; 49 are linked into a binary on at least one of linux, darwin, windows.
 
 Linked modules by detected licence:
 
+- ISC: 1
 - MIT: 30
 - BSD-3-Clause: 10
 - BSD-3-Clause + GooglePatentsFile: 4
@@ -95,6 +96,7 @@ Flagged:
 | `github.com/clipperhouse/displaywidth` | v0.11.0 | MIT | https://pkg.go.dev/github.com/clipperhouse/displaywidth@v0.11.0?tab=licenses | linked (linux, darwin, windows); files: LICENSE; copied to `LICENSES/third_party/github.com/clipperhouse/displaywidth/` |
 | `github.com/clipperhouse/stringish` | v0.1.1 | UNKNOWN | https://pkg.go.dev/github.com/clipperhouse/stringish@v0.1.1?tab=licenses | module graph only; **NOT DOWNLOADED: run scripts/third-party-licences.sh** |
 | `github.com/clipperhouse/uax29/v2` | v2.7.0 | MIT | https://pkg.go.dev/github.com/clipperhouse/uax29/v2@v2.7.0?tab=licenses | linked (linux, darwin, windows); files: LICENSE; copied to `LICENSES/third_party/github.com/clipperhouse/uax29/v2/` |
+| `github.com/coder/websocket` | v1.8.14 | ISC | https://pkg.go.dev/github.com/coder/websocket@v1.8.14?tab=licenses | linked (linux, darwin); files: LICENSE.txt; copied to `LICENSES/third_party/github.com/coder/websocket/` |
 | `github.com/davecgh/go-spew` | v1.1.1 | ISC | https://pkg.go.dev/github.com/davecgh/go-spew@v1.1.1?tab=licenses | module graph only; files: LICENSE |
 | `github.com/dustin/go-humanize` | v1.0.1 | MIT | https://pkg.go.dev/github.com/dustin/go-humanize@v1.0.1?tab=licenses | linked (linux, darwin, windows); files: LICENSE; copied to `LICENSES/third_party/github.com/dustin/go-humanize/` |
 | `github.com/ebitengine/purego` | v0.10.2 | Apache-2.0 | https://pkg.go.dev/github.com/ebitengine/purego@v0.10.2?tab=licenses | linked (darwin); files: LICENSE; copied to `LICENSES/third_party/github.com/ebitengine/purego/` |

@@ -1,6 +1,7 @@
 package sessioncmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/shirou/gopsutil/v4/process"
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/codexbind"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
@@ -29,6 +31,9 @@ type StopResult struct {
 func (s *Sessions) Stop(sessionID string, dryRun bool) (StopResult, error) {
 	if sessionID == "" {
 		if _, err := os.Stat(filepath.Join(s.configDir, "state.db")); errors.Is(err, os.ErrNotExist) {
+			if os.Getenv(codexbind.Env) != "" {
+				return StopResult{}, errors.New("bound caller's Gate Inbox state is unavailable")
+			}
 			return StopResult{}, ErrUnmanagedCaller
 		} else if err != nil {
 			return StopResult{}, err
@@ -51,6 +56,10 @@ func (s *Sessions) Stop(sessionID string, dryRun bool) (StopResult, error) {
 	if err != nil {
 		return StopResult{}, err
 	}
+	if !owned && os.Getenv(codexbind.Env) != "" {
+		identity, bindErr := codexbind.Resolve(context.Background(), os.Getenv(codexbind.Env), os.Getenv("CODEX_THREAD_ID"), false)
+		owned = bindErr == nil && runtime.boundPane(target, identity)
+	}
 	if !owned {
 		return StopResult{}, errors.New("stop must run inside its own managed session pane")
 	}
@@ -68,6 +77,9 @@ func (s *Sessions) Stop(sessionID string, dryRun bool) (StopResult, error) {
 		if value, ok := os.LookupEnv(name); ok {
 			command = append(command, name+"="+value)
 		}
+	}
+	if binding := os.Getenv(codexbind.Env); binding != "" {
+		command = append(command, codexbind.Env+"="+binding, "CODEX_THREAD_ID="+os.Getenv("CODEX_THREAD_ID"))
 	}
 	pane, err := runtime.driver.PaneID(target.ID)
 	if err != nil {
@@ -121,6 +133,12 @@ func (s *Sessions) FinishStop(sessionID, launched, pane, processPin string) (Ses
 	if err != nil || currentPin != processPin {
 		return Session{}, errors.New("stop request no longer matches this pane process")
 	}
+	if binding := os.Getenv(codexbind.Env); binding != "" {
+		identity, err := codexbind.Resolve(context.Background(), binding, os.Getenv("CODEX_THREAD_ID"), true)
+		if err != nil || !runtime.boundPane(target, identity) {
+			return Session{}, errors.New("queued Codex binding no longer owns this session")
+		}
+	}
 	return s.stopSession(runtime, target, extension.KillByCLI, target.ID, func(id string) error {
 		row, err := runtime.store.Get(id)
 		if err != nil {
@@ -133,6 +151,12 @@ func (s *Sessions) FinishStop(sessionID, launched, pane, processPin string) (Ses
 			return errors.New("stop request no longer matches this adopted target")
 		}
 		pid, _, _ := strings.Cut(processPin, ":")
+		if binding := os.Getenv(codexbind.Env); binding != "" {
+			identity, err := codexbind.Interrupt(context.Background(), binding, os.Getenv("CODEX_THREAD_ID"))
+			if err != nil || !runtime.boundPane(target, identity) {
+				return errors.New("Codex lifecycle binding changed; refusing pane shutdown")
+			}
+		}
 		if target.TmuxPaneID != "" {
 			return runtime.driver.KillAdoptedPane(id, pane, pid)
 		}
@@ -141,6 +165,31 @@ func (s *Sessions) FinishStop(sessionID, launched, pane, processPin string) (Ses
 }
 
 func (r *runtime) stopCaller(id string) (store.Session, error) {
+	if binding := os.Getenv(codexbind.Env); binding != "" {
+		identity, err := codexbind.Resolve(context.Background(), binding, os.Getenv("CODEX_THREAD_ID"), false)
+		if err != nil {
+			return store.Session{}, err
+		}
+		rows, err := r.store.ListSessions(true)
+		if err != nil {
+			return store.Session{}, err
+		}
+		var matches []store.Session
+		for _, row := range rows {
+			if row.Tool == "codex" && !row.Archived && row.Status != "dead" {
+				if err := r.reach(row); err != nil {
+					return store.Session{}, err
+				}
+				if r.boundPane(row, identity) {
+					matches = append(matches, row)
+				}
+			}
+		}
+		if len(matches) != 1 || id != "" && matches[0].ID != id {
+			return store.Session{}, errors.New("Codex binding does not identify one calling Gate Inbox row")
+		}
+		return matches[0], nil
+	}
 	if id != "" {
 		target, err := r.agent(id)
 		if err != nil {
@@ -191,6 +240,22 @@ func (r *runtime) stopCaller(id string) (store.Session, error) {
 		return store.Session{}, errors.New("cannot verify a Gate Inbox caller pane from the shared Codex daemon; refusing shutdown")
 	}
 	return store.Session{}, ErrUnmanagedCaller
+}
+
+func (r *runtime) boundPane(target store.Session, identity codexbind.Identity) bool {
+	if filepath.Clean(identity.Home) != filepath.Clean(r.configDir) {
+		return false
+	}
+	pane, err := r.driver.PaneID(target.ID)
+	if err != nil || pane != identity.Pane {
+		return false
+	}
+	socket, err := r.driver.PaneState(target.ID, "#{socket_path}")
+	if err != nil || strings.TrimSpace(socket) != identity.Socket {
+		return false
+	}
+	pin, err := r.paneProcess(target)
+	return err == nil && pin == identity.PanePin() && identity.Live()
 }
 
 func (r *runtime) paneProcess(target store.Session) (string, error) {

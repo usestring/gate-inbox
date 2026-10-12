@@ -821,6 +821,30 @@ func writeCodexRollout(t *testing.T, path, sessionID, cwd string, modTime time.T
 	}
 }
 
+func TestCaptureAgentSessionIDsDoesNotGuessForAnAdoptedPane(t *testing.T) {
+	st, err := store.Open(filepath.Join(tmuxtest.ScratchDir(t), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	root, cwd := t.TempDir(), t.TempDir()
+	t.Setenv("CODEX_HOME", root)
+	now := time.Now()
+	writeCodexRollout(t, filepath.Join(root, "sessions", "rollout-other.jsonl"), "other", cwd, now)
+	sess := store.Session{ID: "adopted", Tool: "codex", Cwd: cwd, CreatedAt: now, TmuxSocket: "default", TmuxPaneID: "%1"}
+	if err := st.CreateSession(sess); err != nil {
+		t.Fatal(err)
+	}
+	p := &poller{store: st, sessionStores: map[string]string{"codex": "codex"}}
+	if captured, err := p.captureAgentSessionIDs([]store.Session{sess}, map[string]int{sess.ID: 123}); err != nil || captured != 0 {
+		t.Fatalf("adopted pane guessed a conversation: captured %d, err %v", captured, err)
+	}
+	got, err := st.Get(sess.ID)
+	if err != nil || got.AgentSessionID != "" {
+		t.Fatalf("adopted conversation = %q, err %v", got.AgentSessionID, err)
+	}
+}
+
 // Two codex sessions share a directory, A launched a fraction of a second
 // before B, both within the same wall-clock second. The poller receives
 // them in store order (B first), not launch order. Sub-second launch times

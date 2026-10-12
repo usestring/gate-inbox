@@ -109,8 +109,8 @@ type landingProbe struct {
 	rolloutQuestions *codexq.Tracker
 
 	// paneWorking reports the pane showing the agent at work. It is nil
-	// where the pane cannot confirm: a composer on a tool with a better
-	// source, or a pane that already read working before the key.
+	// where the pane cannot confirm: a composer with live hooks, or a pane
+	// that already read working before the key.
 	paneWorking func() bool
 }
 
@@ -220,7 +220,7 @@ func (p *landingProbe) transcriptVerdict(delta convo.Delta) (seen, refused bool)
 // whether a dialog was up for it to answer, read before the key moved
 // anything, and it must be called before the send so every offset it takes
 // is from before anything the answer caused.
-func (m *Model) armLanding(sess store.Session, via extension.OperatorVia, text string, dialog, handOver bool) tea.Cmd {
+func (m *Model) armLanding(sess store.Session, via extension.OperatorVia, text string, dialog, handOver bool, pane string) tea.Cmd {
 	m.landingGen++
 	if m.landings == nil {
 		m.landings = map[string]*pendingLanding{}
@@ -232,11 +232,11 @@ func (m *Model) armLanding(sess store.Session, via extension.OperatorVia, text s
 		text:     text,
 		deadline: time.Now().Add(landingWindow),
 		handOver: handOver,
-		probe:    m.landingProbeFor(sess, dialog),
+		probe:    m.landingProbeFor(sess, dialog, pane),
 	}
 	m.landings[sess.ID] = pending
 	delete(m.unseenAnswers, sess.ID)
-	return landingCheck(sess.ID, pending)
+	return landingLook(sess.ID, pending)
 }
 
 // dropLanding forgets the answer pending for a session: the send it was
@@ -255,19 +255,22 @@ func (m *Model) dropLanding(id string) {
 // fallback off a submit nothing will ever write an event for, and a composer
 // key into it would never be seen to land. So the dead source is left out and
 // the pane answers, exactly as it does for a tool whose rules carry no hooks.
-func (m *Model) landingProbeFor(sess store.Session, dialog bool) *landingProbe {
+func (m *Model) landingProbeFor(sess store.Session, dialog bool, pane string) *landingProbe {
 	p := &landingProbe{dialog: dialog}
 	if m.hooks != nil && m.poller != nil && m.poller.statusSources[sess.Tool] == hooks.StatusSourceClaude && !m.isHookless(sess) {
 		p.hooks, p.hookID = m.hooks, sess.ID
 		p.hookOffset = fileSize(m.hooks.StatusFile(sess.ID))
 	}
 	format := historyToolFormats(m.cfg)[sess.Tool]
-	if m.landingLocator != nil && (format == search.ToolClaude || format == search.ToolCodex) {
+	// Older adopted Codex rows can carry a directory-and-time guess. Such a
+	// rollout cannot confirm this pane's answer, even if it receives a message.
+	boundSource := format == search.ToolClaude || (format == search.ToolCodex && sess.TmuxSocket == "")
+	if m.landingLocator != nil && boundSource {
 		if target, ok := m.landingLocator.Target(sess.ID, format, sess.Cwd, sess.AgentSessionID); ok {
 			if format == search.ToolClaude {
 				p.transcript, p.transcriptOffset = target.Path, fileSize(target.Path)
 				if dialog {
-					if name, ok := landingToolName(m.preview); ok {
+					if name, ok := landingToolName(pane); ok {
 						if id, next, err := convo.PendingTool(target.Path, name); err == nil {
 							p.toolID, p.transcriptOffset = id, next
 						}
@@ -276,7 +279,7 @@ func (m *Model) landingProbeFor(sess store.Session, dialog bool) *landingProbe {
 				p.transcriptFile, _ = os.Stat(target.Path)
 			} else {
 				p.rollout, p.rolloutOffset = target.Path, fileSize(target.Path)
-				if dialog && landingCodexQuestion(m.preview) {
+				if dialog && landingCodexQuestion(pane) {
 					p.rolloutQuestions = &codexq.Tracker{}
 					if questions, err := p.rolloutQuestions.Update(target.Path); err == nil {
 						for _, q := range questions {
@@ -298,11 +301,10 @@ func (m *Model) landingProbeFor(sess store.Session, dialog bool) *landingProbe {
 	// The pane is the fallback source. A dialog that gives way to the agent
 	// working has been answered however long the call it allowed then runs,
 	// which the transcript and rollout only report once the call ends. On
-	// a composer it is the only source a tool without hooks or a transcript
-	// has. Either way it counts only as a change: a pane that already read
-	// working says nothing about this key.
-	paneOnly := p.hooks == nil && p.transcript == "" && p.rollout == ""
-	if (dialog || paneOnly) && m.tmux != nil && m.engine != nil && !paneWorks(m.engine, sess.Tool, m.preview) {
+	// a composer without live hooks it also covers a stale conversation
+	// binding. Only a change from a fresh pre-send capture counts: an older
+	// preview may predate work that had already started before this key.
+	if (dialog || p.hooks == nil) && pane != "" && m.tmux != nil && m.engine != nil && !paneWorks(m.engine, sess.Tool, pane) {
 		driver, engine, id, tool := m.tmux, m.engine, sess.ID, sess.Tool
 		p.paneWorking = func() bool {
 			pane, err := driver.CapturePane(id)
@@ -356,13 +358,20 @@ func fileSize(path string) int64 {
 	return info.Size()
 }
 
-// landingCheck schedules the next look. The look runs in the command's
+// landingLook runs the first look immediately after the send, in the command's
 // goroutine, off the event loop; the probe is the pending's own, and only
 // this chain of looks touches it.
-func landingCheck(id string, pending *pendingLanding) tea.Cmd {
+func landingLook(id string, pending *pendingLanding) tea.Cmd {
 	probe, gen := pending.probe, pending.gen
-	return tea.Tick(landingTick, func(time.Time) tea.Msg {
+	return func() tea.Msg {
 		return landingCheckMsg{id: id, gen: gen, verdict: probe.look()}
+	}
+}
+
+func landingCheck(id string, pending *pendingLanding) tea.Cmd {
+	look := landingLook(id, pending)
+	return tea.Tick(landingTick, func(time.Time) tea.Msg {
+		return look()
 	})
 }
 

@@ -117,6 +117,7 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	if err != nil {
 		return Session{}, err
 	}
+	plan.Command = launch.WithMergeGatePlugin(toolName, plan.Command, runtime.cfg.MergeGate, s.configDir)
 	sess := migrate.NewSession(id, name, toolName, source, plan)
 	sessionHooks, err := sessionhooks.Current()
 	if err != nil {

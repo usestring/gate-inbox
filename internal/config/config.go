@@ -15,6 +15,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/mergegate"
 )
 
 // defaultNameSweepPace paces the bulk rename sweep. Slow enough that a
@@ -433,7 +434,11 @@ type Config struct {
 	// the public extension package), so adding an extension never means
 	// editing this file.
 	Extensions map[string]map[string]any `toml:"extensions"`
-	Tools      map[string]Tool           `toml:"tools"`
+	// MergeGate is the standing merge authority the merge-gate mod enforces
+	// ([merge_gate]). Empty owners or authors turns the gate off, and the
+	// mod is not loaded into launched sessions then.
+	MergeGate mergegate.Config `toml:"merge_gate"`
+	Tools     map[string]Tool  `toml:"tools"`
 }
 
 type Duration = extension.Duration

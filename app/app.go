@@ -387,6 +387,12 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 	table["claude-hooks"] = withConfigDir(func(args []string, _, configDir string) error {
 		return runClaudeHooks(os.Stdout, args, configDir)
 	})
+	// merge-gate-check is the merge-gate mod's way back into the Go gate. It
+	// stays out of the cli sections like hook does: it is machine-facing, not
+	// something an operator runs by hand.
+	table["merge-gate-check"] = withConfigDir(func(args []string, _, configDir string) error {
+		return cli.RunMergeGateCheck(os.Stdout, args, configDir)
+	})
 	for name, command := range cli.Commands() {
 		if name != "spawn" && name != "migrate" && name != "revive" && name != "unpark" {
 			table[name] = withConfigDir(command)

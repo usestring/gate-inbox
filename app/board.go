@@ -22,6 +22,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/managerbuild"
+	"github.com/usestring/gate-inbox/internal/mergegate"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/singleton"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -152,6 +153,15 @@ func runBoard(version string, registry *extension.Registry) error {
 	// this is what lets a weeks-old session reach current code.
 	installed := launch.Install()
 	logging.Info("manager binary installed", "path", installed)
+	// Materialize the merge-gate mod the board loads into the claude
+	// sessions it launches, when the standing merge authority is
+	// configured. A failure costs the flag, never the startup: launches
+	// without a plugin dir run as they do today.
+	if cfg.MergeGate.Enabled() {
+		if _, err := mergegate.EnsurePluginDir(dir); err != nil {
+			logging.Warn("could not write the merge-gate plugin", "err", err)
+		}
+	}
 	// The same hooks, in the user's own Claude Code settings, are what a
 	// claude started outside the board reports through once it is adopted.
 	registerGlobalHooks(dir)

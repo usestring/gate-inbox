@@ -91,7 +91,9 @@ func (s *Sessions) BoardGet(targetID string) (got Session, err error) {
 	if err != nil {
 		return Session{}, err
 	}
-	return runtime.currentInfo(target, false), nil
+	got = runtime.currentInfo(target, false)
+	got.Status = runtime.restingStatus(target.ID, got.Status)
+	return got, nil
 }
 
 // BoardList is the agent sessions opts keeps, as List reports them, without a

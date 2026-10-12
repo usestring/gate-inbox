@@ -1168,8 +1168,13 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	p.askReads = askReads
 	phases.tail = lap(&mark)
 
+	shown, err := p.delegated(sessions)
+	if err != nil {
+		return errMsg{err}
+	}
+
 	msg := refreshMsg{
-		sessions:         sessions,
+		sessions:         shown,
 		listedAt:         listedAt,
 		groups:           names,
 		groupPaths:       paths,
@@ -2644,4 +2649,17 @@ func (p *poller) applyHookStatus(sess store.Session, text, hookStatus string, di
 		}
 	}
 	return hookStatus
+}
+
+// delegated is the rows as the board shows them: a parent at rest on its
+// fan-out reads delegating. It is laid over a copy, because the rows the
+// poller holds are the pane's reading and the next pass derives from those.
+func (p *poller) delegated(sessions []store.Session) ([]store.Session, error) {
+	reports, err := p.store.PendingChildReports()
+	if err != nil {
+		return nil, err
+	}
+	return store.ApplyDelegation(slices.Clone(sessions), reports, func(sess store.Session) bool {
+		return p.shellTools[sess.Tool]
+	}), nil
 }

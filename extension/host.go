@@ -95,8 +95,8 @@ type SessionInfo struct {
 	// Directory is the session's current working directory, or its launch
 	// directory when it is not running.
 	Directory string
-	// Status is the board's status: starting, working, waiting, finished,
-	// idle, errored or dead.
+	// Status is the board's status: starting, working, waiting, delegating,
+	// finished, idle, errored or dead.
 	Status   string
 	Running  bool
 	Archived bool

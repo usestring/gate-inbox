@@ -20,6 +20,11 @@ const (
 	// agent first draws to the pane, so a new row appears immediately instead
 	// of after the next poll.
 	Starting = "starting"
+	// Delegating is a session at rest with work still owed to it: a child
+	// it spawned is still going, or a child's report has not been typed in
+	// yet. Nothing derives it from a pane and nothing stores it; it is laid
+	// over a finished or idle row by store.ApplyDelegation.
+	Delegating = "delegating"
 )
 
 type rule struct {

@@ -1322,6 +1322,9 @@ func (m *Model) seedFromStore() {
 		logging.Info("store seeded", "sessions", 0, logging.Err(err))
 		return
 	}
+	if shown, err := m.poller.delegated(sessions); err == nil {
+		sessions = shown
+	}
 	m.sessions = sessions
 	m.adoptRestored = true
 	m.restoreAdopted()

@@ -29,7 +29,7 @@ import (
 
 // ReadDigest is the child's state as something to branch on.
 type ReadDigest struct {
-	Status string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, finished, idle, errored or dead"`
+	Status string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead"`
 	// Question is the prompt of the dialog the session is holding, with its
 	// options, or empty when nothing is being asked. A parent answers it with
 	// answer_session.
@@ -157,6 +157,7 @@ func (r *runtime) digest(target store.Session, pane string, running bool, delta 
 			block.Question = formatQuestion(held)
 		}
 	}
+	block.Status = r.restingStatus(target.ID, block.Status)
 	block.Result = textfmt.Tail(delta.LastTurn(), dialog.MaxTurnBytes)
 	return block
 }

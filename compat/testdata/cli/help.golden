@@ -49,6 +49,10 @@ Agent sessions
   gate-inbox delete-group <path> [--json]
       remove a group whose work is done; sessions still in it move to the root rather than stopping
 
+Your children
+  gate-inbox children [--session <id>] [--json]
+      list the sessions you spawned and, for each one stopped on a dialog, how long it has waited and its questions word for word, ready to put to the user; never touches tmux, so it is cheap to run every turn
+
 Shared task list
   gate-inbox task <list|create|claim|finish|release|delete>
       the work list every session in this manager claims from

@@ -122,6 +122,8 @@ exit 0
 usage: gate-inbox stop [--dry-run] [--json]
   -dry-run
     	verify the calling session without ending it
+  -if-managed
+    	report unmanaged callers without stopping them
   -json
     	print the raw result as JSON instead of a sentence
 

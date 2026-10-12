@@ -1513,6 +1513,25 @@ func (d *Driver) KillAdopted(id string) error {
 	return err
 }
 
+func (d *Driver) KillAdoptedPane(id, pane, processID string) error {
+	target, adopted := d.AdoptedTarget(id)
+	if !adopted || target.Name != pane {
+		return fmt.Errorf("%s: adopted pane identity changed", id)
+	}
+	pid, err := strconv.Atoi(processID)
+	if err != nil || pid <= 0 {
+		return fmt.Errorf("%s: invalid pane process identity", id)
+	}
+	_, err = d.runAt(id, "if-shell", "-F", "-t", pane, "#{==:#{pane_pid},"+processID+"}", "kill-pane -t "+pane)
+	if err != nil {
+		return err
+	}
+	if d.Exists(id) {
+		return fmt.Errorf("%s: adopted pane process changed before shutdown", id)
+	}
+	return nil
+}
+
 func (d *Driver) Exists(id string) bool {
 	target, adopted := d.AdoptedTarget(id)
 	if !adopted {
@@ -1645,9 +1664,14 @@ func (d *Driver) PaneID(id string) (string, error) {
 
 // KillPane is Kill for a caller that validated one pane: the check and the
 // kill run as one tmux command, so a session revived under id after pane
-// was read survives. The pane has to be in the session's own window as well,
+// was read survives, as does a process respawned in the same pane.
+// The pane has to be in the session's own window as well,
 // so a pane read off a window somebody else opened in it ends nothing.
-func (d *Driver) KillPane(id, pane string) error {
+func (d *Driver) KillPane(id, pane, processID string) error {
+	pid, err := strconv.Atoi(processID)
+	if err != nil || pid <= 0 {
+		return fmt.Errorf("%s: invalid pane process identity", id)
+	}
 	if err := d.refuseAdopted(id, "kill"); err != nil {
 		return err
 	}
@@ -1664,11 +1688,11 @@ func (d *Driver) KillPane(id, pane string) error {
 		return fmt.Errorf("%s: pane %s is not in this session's own window", id, pane)
 	}
 	if err := d.endOwnWindow(id, home, pane,
-		"#{&&:#{==:#{session_name},"+sessionName(id)+"},#{==:#{window_id},"+home+"}}"); err != nil {
+		"#{&&:#{==:#{pane_pid},"+strconv.Itoa(pid)+"},#{&&:#{==:#{session_name},"+sessionName(id)+"},#{==:#{window_id},"+home+"}}}"); err != nil {
 		return err
 	}
 	if d.Exists(id) {
-		return fmt.Errorf("%s: pane %s no longer belongs to this session's own window", id, pane)
+		return fmt.Errorf("%s: pane %s process or window changed before shutdown", id, pane)
 	}
 	os.Remove(d.launchScriptPath(id))
 	return nil

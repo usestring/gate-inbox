@@ -1303,7 +1303,9 @@ func (p *poller) forgetAdopted(id string) error {
 // idMinting reports whether a live, not-yet-captured session belongs to a
 // tool that mints its own conversation id.
 func (p *poller) idMinting(sess store.Session, panes map[string]int) bool {
-	return !sess.Archived && panes[sess.ID] != 0 && sess.AgentSessionID == "" &&
+	// Adoption time is not launch time, so directory-and-time capture cannot
+	// identify the conversation in an adopted pane.
+	return sess.TmuxSocket == "" && !sess.Archived && panes[sess.ID] != 0 && sess.AgentSessionID == "" &&
 		p.sessionStores[sess.Tool] != ""
 }
 

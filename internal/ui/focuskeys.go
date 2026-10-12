@@ -742,24 +742,27 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// and in order, and a baseline taken after it could already contain the
 	// echo it is supposed to detect.
 	//
-	// Only when this key is arming a chase. The baseline is a forked capture
-	// and so is every look the chase takes, and a held key repeats faster
+	// Only when this key is arming a chase or an answer check. The baseline
+	// is a forked capture, and so is every look the chase takes. A held key repeats faster
 	// than a chase completes: one each would fork dozens of times a second,
-	// which is the shape that pinned a core on the wheel. A key that arms
+	// which is the shape that pinned a core on the wheel. An answer needs a
+	// fresh baseline even with a chase in flight: the preview may still show
+	// the prompt from before the agent started working. A key that arms
 	// nothing sets echoPending instead, and the chase already out lands a
 	// trailing one for it -- so no character waits on a tick.
 	baseline := ""
 	chase := resume == nil && !m.focusChasing
-	if chase {
+	if chase || arms {
 		baseline = m.echoBaseline(sess.ID)
-	} else if resume == nil {
+	}
+	if !chase && resume == nil {
 		m.echoPending = true
 	}
 	// Armed before the send, so every source it snapshots is from before
 	// anything the key caused.
 	var landing tea.Cmd
 	if arms {
-		landing = m.armLanding(sess, extension.OperatorPane, "", dialog, m.autoProceeds())
+		landing = m.armLanding(sess, extension.OperatorPane, "", dialog, m.autoProceeds(), baseline)
 	}
 	m.poller.noteOperatorInput(sess.ID)
 	// SendRawAt takes the pooled pipe where there is one and forks where

@@ -9,13 +9,110 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/codexq"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
+
+func TestEnterStartsLookingWithoutATimer(t *testing.T) {
+	before := landingTick
+	landingTick = time.Hour
+	t.Cleanup(func() { landingTick = before })
+	m := &Model{}
+	cmd := m.armLanding(store.Session{ID: "row"}, extension.OperatorPane, "", false, true, "❯ ")
+	result := make(chan tea.Msg, 1)
+	go func() { result <- cmd() }()
+	select {
+	case msg := <-result:
+		if got, ok := msg.(landingCheckMsg); !ok || got.id != "row" || got.verdict != landingPending {
+			t.Fatalf("first look = %#v", msg)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Enter delayed its first acceptance check")
+	}
+}
+
+func TestStaleRolloutStillChecksOnlyTheAnsweredPane(t *testing.T) {
+	m := buildModel(t)
+	tool := m.cfg.Tools["claude"]
+	tool.SessionStore = search.ToolCodex
+	m.cfg.Tools["claude"] = tool
+	engine, err := status.NewEngine(config.Config{Tools: map[string]config.Tool{
+		"claude": {DefaultStatus: status.Idle, Rules: []config.Rule{{State: status.Working, Pattern: "WORKING-NOW"}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.engine = engine
+	liveTriageFleet(t, m, map[string]string{"answer": status.Idle, "other": status.Idle})
+	m.enterFocusOn(t, "answer")
+	sess, _ := m.selected()
+	sess.AgentSessionID = "stale"
+	root := t.TempDir()
+	path := filepath.Join(root, "rollout-stale.jsonl")
+	appendLandingRecord(t, path, `{"payload":{"type":"message","role":"user","content":[]}}`)
+	m.landingLocator = search.NewLocator("", root)
+	p := m.landingProbeFor(sess, false, m.echoBaseline(sess.ID))
+	if p.rollout != path || p.paneWorking == nil {
+		t.Fatal("a bound rollout disabled the current pane fallback")
+	}
+	sess.TmuxSocket, sess.TmuxPaneID = "default", "%1"
+	adopted := m.landingProbeFor(sess, false, m.echoBaseline(sess.ID))
+	if adopted.rollout != "" || adopted.paneWorking == nil {
+		t.Fatal("an adopted Codex pane trusted an unverified conversation binding")
+	}
+	for _, row := range m.sessions {
+		if row.ID != sess.ID {
+			if err := m.tmux.SendText(row.ID, "WORKING-NOW"); err != nil {
+				t.Fatal(err)
+			}
+			waitForPaneText(t, m, row.ID, "WORKING-NOW")
+		}
+	}
+	if got := p.look(); got != landingPending {
+		t.Fatalf("another pane landed this answer: %v", got)
+	}
+	appendLandingRecord(t, path, `{"payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"unrelated answer"}]}}`)
+	if got := adopted.look(); got != landingPending {
+		t.Fatalf("the stale rollout landed the adopted pane's answer: %v", got)
+	}
+	if err := m.tmux.SendText(sess.ID, "WORKING-NOW"); err != nil {
+		t.Fatal(err)
+	}
+	waitForPaneText(t, m, sess.ID, "WORKING-NOW")
+	if got := adopted.look(); got != landingSeen {
+		t.Fatalf("the current pane's transition did not land: %v", got)
+	}
+}
+
+func TestEnterDuringAnEchoChaseSnapshotsWorkAlreadyOnThePane(t *testing.T) {
+	m := buildModel(t)
+	engine, err := status.NewEngine(config.Config{Tools: map[string]config.Tool{
+		"claude": {DefaultStatus: status.Idle, Rules: []config.Rule{{State: status.Working, Pattern: "WORKING-NOW"}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.engine = engine
+	liveTriageFleet(t, m, map[string]string{"answer": status.Idle})
+	m.enterFocusOn(t, "answer")
+	id := focusedID(t, m)
+	if err := m.tmux.SendText(id, "WORKING-NOW"); err != nil {
+		t.Fatal(err)
+	}
+	waitForPaneText(t, m, id, "WORKING-NOW")
+	m.preview = "❯ "
+	m.focusChasing = true
+	m = pressEnter(m)
+	if onlyLanding(t, m).probe.paneWorking != nil {
+		t.Fatal("Enter trusted the stale preview instead of the fresh working pane")
+	}
+}
 
 func recordDialogResult(t *testing.T, m *Model, id, callID string) {
 	t.Helper()
@@ -103,7 +200,7 @@ func TestLandingSnapshotSelectsTheDialogCall(t *testing.T) {
 	appendLandingRecord(t, path, `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"background","name":"Bash"},{"type":"tool_use","id":"ask","name":"AskUserQuestion"}]}}`)
 	m.landingLocator = search.NewLocator(root, "")
 	m.preview = askPane
-	p := m.landingProbeFor(store.Session{ID: "row", Tool: "claude", AgentSessionID: "conversation"}, true)
+	p := m.landingProbeFor(store.Session{ID: "row", Tool: "claude", AgentSessionID: "conversation"}, true, m.preview)
 	if p.toolID != "ask" {
 		t.Fatalf("target = %q, want ask", p.toolID)
 	}

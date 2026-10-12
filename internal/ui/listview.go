@@ -1894,7 +1894,7 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 }
 
 // quickMenuLines lays the snippets out as the menu's body: each key beside
-// its label, packed across the width and wrapped onto at most limit lines.
+// its preview, packed across the width and wrapped onto at most limit lines.
 // The dock's height is measured from what this returns, so the cap is what
 // keeps a long snippets file from pushing the live pane off the screen; the
 // last line says how many did not fit, and the key map lists them all.
@@ -1914,10 +1914,12 @@ func (m *Model) quickMenuLines(width, limit int) []string {
 	var line []cell
 	used := 0
 	for _, snip := range m.snips.Snippets {
-		key, title := snip.Key, snip.Title()
-		if room := width - textfmt.Width(key) - 1; textfmt.Width(title) > room {
-			title = truncateTail(title, max(1, room))
+		key, title := snip.Key, snip.Preview
+		if title == "" {
+			title = snip.Text
 		}
+		title = strings.Join(strings.Fields(title), " ")
+		title = textfmt.TruncateWidth(title, max(1, width-textfmt.Width(key)-1), "…")
 		c := cell{keyStyle.Render(key) + " " + mutedStyle.Render(title), textfmt.Width(key) + 1 + textfmt.Width(title)}
 		if len(line) > 0 && used+gap+c.width > width {
 			lines, line, used = append(lines, line), nil, 0

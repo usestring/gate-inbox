@@ -145,8 +145,9 @@ type poller struct {
 	// switched off or when there is no /proc to read. See hogwatch.go.
 	hogWatch *hogWatch
 
-	runMu      sync.Mutex
-	paneHashes map[string]uint64
+	runMu       sync.Mutex
+	paneHashes  map[string]uint64
+	paneSamples map[string]paneSample
 	// quietSince is when each session's activity region last stopped
 	// changing while unmatched; used to debounce marker-less turn ends.
 	quietSince map[string]time.Time
@@ -178,12 +179,8 @@ type poller struct {
 	// dropped because the writer was busy is retried on the next pass rather
 	// than waiting out another whole period.
 	heartbeatAt time.Time
+	statsAt     time.Time
 	tick        int
-	// prevTreeCPU / prevTreeAt drive interval agent CPU: cumulative
-	// CPU-seconds per pane root from the last poll, so host share uses
-	// the same "over this window" idea as the computer gauge.
-	prevTreeCPU map[int]float64
-	prevTreeAt  time.Time
 	// observer is told what each pass stored; nil tells nobody.
 	observer BoardObserver
 	// pins holds the statuses board extensions pinned the sessions they
@@ -227,6 +224,7 @@ type transition struct{ id, from, to string }
 type passStat struct {
 	sessions int
 	live     int
+	captured int
 	failures map[string]int
 	phases   passPhases
 }
@@ -387,6 +385,7 @@ func newPoller(st *store.Store, driver *tmux.Driver, engine *status.Engine, hook
 		poke:            make(chan struct{}, 1),
 		beats:           make(chan time.Time, 1),
 		paneHashes:      map[string]uint64{},
+		paneSamples:     map[string]paneSample{},
 		quietSince:      map[string]time.Time{},
 		hookless:        map[string]bool{},
 		hookCursor:      map[string]int64{},
@@ -488,9 +487,13 @@ func (p *poller) hooklessRows() map[string]bool {
 
 func (p *poller) setInput(includeArchived bool, selectedID string) {
 	p.mu.Lock()
+	changed := p.selectedID != selectedID || p.includeArchived != includeArchived
 	p.includeArchived = includeArchived
 	p.selectedID = selectedID
 	p.mu.Unlock()
+	if changed {
+		p.requestRefresh()
+	}
 }
 
 func (p *poller) pinnedStatus(id string) (string, bool) {
@@ -527,7 +530,7 @@ func (p *poller) run(send func(tea.Msg)) {
 		}
 	}()
 	for {
-		msg := p.refreshOnce()
+		msg := p.refresh(false)
 		// Keep only the newest result when the UI is not draining.
 		select {
 		case pending <- msg:
@@ -585,20 +588,20 @@ func storedPreview(st *store.Store, driver *tmux.Driver, sessID string) (string,
 	return pane, nil
 }
 
-// refreshOnce polls every live session's pane, derives and stores status,
-// and samples system stats. Liveness and pane pids come from one tmux
-// call, and every process tree from one ps call, so the poll cost stays
-// flat as sessions are added. runMu serializes the loop with one-off
-// refreshes issued as tea commands.
-//
-// refreshOnce is the logging seam around it. The stats travel out through a
-// caller-owned value rather than a field on the poller: refreshPass drops
+// Explicit refreshes bypass the background cadences. runMu serializes them
+// with the loop so queued work is never claimed from two simultaneous reads.
+// The stats travel out through a caller-owned value rather than a field:
+// refreshPass drops
 // runMu on return, so the poll goroutine and a refresh issued as a tea.Cmd
 // would otherwise race on them.
 func (p *poller) refreshOnce() tea.Msg {
+	return p.refresh(true)
+}
+
+func (p *poller) refresh(force bool) tea.Msg {
 	started := time.Now()
 	var stat passStat
-	msg := p.refreshPass(&stat)
+	msg := p.refreshPass(&stat, force)
 	tracePass(started, msg, stat)
 	logPass(started, msg, stat)
 	return msg
@@ -628,6 +631,7 @@ func logPass(started time.Time, msg tea.Msg, stat passStat) {
 	fields := []any{
 		"sessions", stat.sessions,
 		"live", stat.live,
+		"captured", stat.captured,
 		"took", elapsed.Round(time.Millisecond).String(),
 	}
 	// The breakdown is what a slow pass is diagnosed from, and a fourteen
@@ -658,7 +662,7 @@ func logPass(started time.Time, msg tea.Msg, stat passStat) {
 // stale rows and belongs in the log at info whether or not it errored.
 const slowPass = time.Second
 
-func (p *poller) refreshPass(stat *passStat) tea.Msg {
+func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	mark := time.Now()
 	var phases passPhases
 	// Deferred because a pass that returned an error is one of the passes
@@ -685,8 +689,8 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 		phases.admin = mark.Sub(adminStart)
 		return errMsg{backgroundErr}
 	}
-	// Machine gauges change slowly; sample them every other poll.
-	sampleStats := p.tick%2 == 0
+	// Focus changes wake passes too; machine gauges must not follow keystrokes.
+	sampleStats := time.Since(p.statsAt) >= max(2*p.interval, backgroundWorkingInterval)
 	// Delivering a queued message needs this process, so a pass leaves a
 	// heartbeat the session tools can read to tell a sender whether anyone
 	// is home. Stamping every poll would be a write transaction every couple
@@ -738,31 +742,7 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 	}
 	phases.scan = lap(&mark)
 	panes := scan.PIDs
-	var livePIDs []int
-	var live []string
-	for _, sess := range sessions {
-		if !sess.Archived && panes[sess.ID] > 0 {
-			livePIDs = append(livePIDs, panes[sess.ID])
-			live = append(live, sess.ID)
-		}
-	}
-	argvRoots := argvScanRoots(sessions, panes, p.statusSources)
-	// One batch per tmux server over a client held open across passes.
-	// Forking tmux once per pane was the largest single cost in this
-	// program: the whole board paid it every couple of seconds.
-	captures := p.tmux.CapturePanes(live)
-	*stat = passStat{sessions: len(sessions), live: len(live), failures: map[string]int{}}
-	unseen := map[string]bool{}
-	for id, capture := range captures {
-		if capture.Err != nil {
-			stat.failures[p.tmux.TargetFor(id).Socket]++
-			unseen[id] = true
-		}
-	}
-	phases.capture = lap(&mark)
-	// One query for the whole board's queued heads. Asking per session put
-	// thirty round trips through the store's single connection every pass,
-	// which is the connection a keypress writes through.
+	// A queued delivery must use a fresh screen, even on a resting row.
 	heads, err := p.store.HeadMessages()
 	if err != nil {
 		return errMsg{err}
@@ -772,15 +752,58 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 	if err != nil {
 		return errMsg{err}
 	}
-	trees := p.trees.Sample(livePIDs, argvRoots)
+	var duePIDs []int
+	var due []string
+	duePanes := map[string]int{}
+	samples := make(map[string]paneSample, len(sessions))
+	now := time.Now()
+	liveCount := 0
+	for _, sess := range sessions {
+		pid := panes[sess.ID]
+		if sess.Archived || pid <= 0 {
+			continue
+		}
+		liveCount++
+		previous := p.paneSamples[sess.ID]
+		hook := p.hookStamp(sess)
+		_, queued := heads[sess.ID]
+		_, recovering := limitRecoveries[sess.ID]
+		if previous.pid != pid || p.paneDue(sess, previous, selectedID, now, hook, queued || recovering, force) {
+			duePIDs = append(duePIDs, pid)
+			due = append(due, sess.ID)
+			duePanes[sess.ID] = pid
+			samples[sess.ID] = paneSample{pid: pid, hook: hook}
+		} else {
+			samples[sess.ID] = previous
+		}
+	}
+	argvRoots := argvScanRoots(sessions, duePanes, p.statusSources)
+	// One batch per tmux server over a client held open across passes.
+	// Forking tmux once per pane was the largest single cost in this
+	// program: the whole board paid it every couple of seconds.
+	captures := p.tmux.CapturePanes(due)
+	*stat = passStat{sessions: len(sessions), live: liveCount, captured: len(due), failures: map[string]int{}}
+	unseen := map[string]bool{}
+	for id, capture := range captures {
+		if capture.Err != nil {
+			stat.failures[p.tmux.TargetFor(id).Socket]++
+			unseen[id] = true
+		}
+	}
+	phases.capture = lap(&mark)
+	trees := p.trees.Sample(duePIDs, argvRoots)
 	ncpu := sysstat.LogicalCPUs()
 	memTotal, _ := sysstat.MemTotalBytes()
 	phases.procs = lap(&mark)
-	now := time.Now()
+	now = time.Now()
+	for _, id := range due {
+		sample := samples[id]
+		sample.capture = captures[id]
+		sample.proc = sampledProc(p.paneSamples[id], sample.pid, trees[sample.pid], now, ncpu, memTotal)
+		sample.procAt = now
+		samples[id] = sample
+	}
 	p.hogWatch.offer(now, p.hogTargets(sessions, panes))
-	elapsed := now.Sub(p.prevTreeAt).Seconds()
-	haveDelta := !p.prevTreeAt.IsZero() && elapsed > 0.05
-	nextTreeCPU := make(map[int]float64, len(livePIDs))
 
 	preview := ""
 	// previewAt stamps the frame with when it was actually read, so a pass
@@ -790,7 +813,6 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 	previewAt := time.Time{}
 	var proc sysstat.ProcStat
 	var agents agentStats
-	var cpuSecDelta float64
 	paneHashes := make(map[string]uint64, len(sessions))
 	searchText := make(map[string]string, len(sessions))
 	childPane := make(map[string]string)
@@ -862,28 +884,13 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 		exited := false
 		if pid := panes[sess.ID]; pid > 0 {
 			exit, exited = p.agentExit(sess)
-			stat := trees[pid]
+			sample := samples[sess.ID]
+			fresh := duePanes[sess.ID] > 0
+			stat := sample.proc
 			if stat.OK {
-				nextTreeCPU[pid] = stat.CPUSeconds
 				agents.count++
 				agents.rss += stat.RSS
-				var hostCPU float64
-				if haveDelta {
-					delta := stat.CPUSeconds - p.prevTreeCPU[pid]
-					if delta < 0 {
-						delta = 0
-					}
-					cpuSecDelta += delta
-					hostCPU = sysstat.HostCPUFromDelta(delta, elapsed, ncpu)
-				} else {
-					hostCPU = sysstat.HostCPUPercent(stat.PCPU, ncpu)
-				}
-				stat.CPUPercent = hostCPU
-				stat.RamPercent = sysstat.HostRAMPercent(stat.RSS, memTotal)
-				if !haveDelta {
-					// First sample: fleet CPU still uses pcpu sum path below.
-					agents.cpu += stat.PCPU
-				}
+				agents.cpu += stat.CPUPercent
 				if sess.ID == selectedID {
 					proc = stat
 				}
@@ -895,7 +902,13 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 			if hooklessTree(sess, p.statusSources[sess.Tool], agentAlive, stat) {
 				p.hookless[sess.ID] = true
 			}
-			capture := captures[sess.ID]
+			capture := sample.capture
+			if !fresh {
+				newStatus = sess.Status
+				if hash, ok := p.paneHashes[sess.ID]; ok {
+					paneHashes[sess.ID] = hash
+				}
+			}
 			if capture.Err != nil {
 				// A server that did not answer is silence, not proof the
 				// agent is gone: the row keeps the status it already had
@@ -906,7 +919,9 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 				// Opt-in, and scrubbed even then: these panes hold live API
 				// keys, so the captured text is the one thing the log does
 				// not carry by default.
-				logging.PaneText("pane capture", sess.ID, pane)
+				if fresh {
+					logging.PaneText("pane capture", sess.ID, pane)
+				}
 				// The filter reads what a session is showing, and this is the
 				// capture that already exists: a second one per session would
 				// double the cost of the pass, which is the expensive part of
@@ -918,7 +933,14 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 				// pulling scrollback for the whole fleet is a different cost
 				// profile and its own decision.
 				step = time.Now()
-				clean := ansi.Strip(pane)
+				clean := sample.clean
+				if fresh {
+					clean = ansi.Strip(pane)
+					sample.clean = clean
+					sample.questions = p.pendingAsk(sess, clean, askReads)
+				} else if read := p.askReads[sess.ID]; read != nil {
+					askReads[sess.ID] = read
+				}
 				searchText[sess.ID] = strings.ToLower(clean)
 				// A child's pane is kept off the same capture, for the same
 				// reason: relaying its question to its parent has to read the
@@ -929,86 +951,90 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 				if sess.ParentID != "" || sess.SpawnedBy != "" {
 					childPane[sess.ID] = pane
 				}
-				if asked := p.pendingAsk(sess, clean, askReads); len(asked) > 0 {
-					askQuestions[sess.ID] = asked
+				if len(sample.questions) > 0 {
+					askQuestions[sess.ID] = sample.questions
 				}
 				phases.search += lap(&step)
-				// Ahead of every other write into the pane: until the
-				// dialog is answered the conversation has not loaded, so
-				// there is nothing for a prompt or a message to land on.
-				if err := p.maybeAnswerForkDialog(sess, pane); err != nil {
-					return errMsg{err}
-				}
-				phases.inbox += lap(&step)
-				derived, err := p.deriveCleanPaneStatus(sess, clean, agentAlive, paneHashes)
-				if err != nil {
-					return errMsg{err}
-				}
-				phases.status += lap(&step)
-				newStatus = derived
-				sent, err := p.maybeSendPendingInputWhenReady(sess, capture, derived, agentAlive)
-				if err != nil {
-					return errMsg{err}
-				}
-				if sent {
-					sessions[i].PendingInputs = sessions[i].PendingInputs[1:]
-				}
-				phases.inbox += lap(&step)
-				retried, err := p.maybeRecoverLimit(sess, limitRecoveries, capture, clean, derived, agentAlive, !sent && limitContinuations < limitRecoveriesPerPass, now)
-				if err != nil {
-					return errMsg{err}
-				}
-				if retried {
-					limitContinuations++
-					sent = true
-				}
-
-				// Launch inputs and limit recovery go first; a
-				// message from another agent waits its turn behind them.
-				// An input sent this tick leaves pane and derived
-				// describing the moment before it was typed, so the message
-				// waits for the next capture rather than landing on a pane
-				// that is already starting a turn.
-				if !sent && len(sessions[i].PendingInputs) == 0 {
-					delivered, err = p.deliverInboxHead(sess, heads, capture, derived, agentAlive)
+				// A cached screen can predate a send; it cannot advance work.
+				if fresh {
+					// Ahead of every other write into the pane: until the
+					// dialog is answered the conversation has not loaded, so
+					// there is nothing for a prompt or a message to land on.
+					if err := p.maybeAnswerForkDialog(sess, pane); err != nil {
+						return errMsg{err}
+					}
+					phases.inbox += lap(&step)
+					derived, err := p.deriveCleanPaneStatus(sess, clean, agentAlive, paneHashes)
 					if err != nil {
 						return errMsg{err}
 					}
-					// Typing it in starts a turn only the next capture can show.
-					if delivered {
-						newStatus = status.Working
+					phases.status += lap(&step)
+					newStatus = derived
+					sent, err := p.maybeSendPendingInputWhenReady(sess, capture, derived, agentAlive)
+					if err != nil {
+						return errMsg{err}
+					}
+					if sent {
+						sessions[i].PendingInputs = sessions[i].PendingInputs[1:]
+					}
+					phases.inbox += lap(&step)
+					retried, err := p.maybeRecoverLimit(sess, limitRecoveries, capture, clean, derived, agentAlive, !sent && limitContinuations < limitRecoveriesPerPass, now)
+					if err != nil {
+						return errMsg{err}
+					}
+					if retried {
+						limitContinuations++
+						sent = true
+					}
+
+					// Launch inputs and limit recovery go first; a
+					// message from another agent waits its turn behind them.
+					// An input sent this tick leaves pane and derived
+					// describing the moment before it was typed, so the message
+					// waits for the next capture rather than landing on a pane
+					// that is already starting a turn.
+					if !sent && len(sessions[i].PendingInputs) == 0 {
+						delivered, err = p.deliverInboxHead(sess, heads, capture, derived, agentAlive)
+						if err != nil {
+							return errMsg{err}
+						}
+						// Typing it in starts a turn only the next capture can show.
+						if delivered {
+							newStatus = status.Working
+						}
+					}
+					phases.inbox += lap(&step)
+					// Hold the launch state until the agent first paints its pane,
+					// so a just-created session reads "starting up" rather than
+					// flashing idle before it has booted. A grace cap keeps a tool
+					// that never paints from sticking on starting forever.
+					if sess.Status == status.Starting && !paneBooted(pane) &&
+						time.Since(sess.LaunchTime()) < startingGrace {
+						newStatus = status.Starting
+					}
+					// A pin outranks the pane, the hooks and the launch hold: a
+					// worker stopped to wait on the operator looks, on most CLIs'
+					// panes, exactly like one whose turn ended, and only the
+					// extension supervising it knows otherwise. It holds only while
+					// the agent runs, so a pin never hides a dead one.
+					if pinned, ok := p.pinnedStatus(sess.ID); ok && agentAlive {
+						newStatus = pinned
+					}
+					// Any real transition re-arms the finished alert.
+					if sess.Acked && newStatus != status.Idle && newStatus != status.Finished {
+						step = time.Now()
+						unacked := false
+						rowState = append(rowState, store.DerivedState{ID: sess.ID, Acked: &unacked})
+						phases.writes += lap(&step)
+						sessions[i].Acked = false
 					}
 				}
-				phases.inbox += lap(&step)
-				// Hold the launch state until the agent first paints its pane,
-				// so a just-created session reads "starting up" rather than
-				// flashing idle before it has booted. A grace cap keeps a tool
-				// that never paints from sticking on starting forever.
-				if sess.Status == status.Starting && !paneBooted(pane) &&
-					time.Since(sess.LaunchTime()) < startingGrace {
-					newStatus = status.Starting
-				}
-				// A pin outranks the pane, the hooks and the launch hold: a
-				// worker stopped to wait on the operator looks, on most CLIs'
-				// panes, exactly like one whose turn ended, and only the
-				// extension supervising it knows otherwise. It holds only while
-				// the agent runs, so a pin never hides a dead one.
-				if pinned, ok := p.pinnedStatus(sess.ID); ok && agentAlive {
-					newStatus = pinned
-				}
-				// Any real transition re-arms the finished alert.
-				if sess.Acked && newStatus != status.Idle && newStatus != status.Finished {
-					step = time.Now()
-					unacked := false
-					rowState = append(rowState, store.DerivedState{ID: sess.ID, Acked: &unacked})
-					phases.writes += lap(&step)
-					sessions[i].Acked = false
-				}
 				if sess.ID == selectedID {
-					preview, previewAt = pane, time.Now()
+					preview, previewAt = pane, capture.At
 				}
 				p.noteScreen(sess, newStatus, clean, now)
 			}
+			samples[sess.ID] = sample
 			if exited {
 				newStatus = status.Errored
 			}
@@ -1058,6 +1084,10 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 			if err := p.watchChildDialog(sess, newStatus, childPane[sess.ID], now); err != nil {
 				return errMsg{err}
 			}
+		}
+		if sample, ok := samples[sess.ID]; ok {
+			sample.binding = p.paneBinding(sessions[i])
+			samples[sess.ID] = sample
 		}
 	}
 	// Everything the loop queued and did not have to flush early, in one
@@ -1132,15 +1162,9 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 	}
 
 	if agents.count > 0 {
-		if haveDelta {
-			agents.cpu = sysstat.HostCPUFromDelta(cpuSecDelta, elapsed, ncpu)
-		} else {
-			agents.cpu = sysstat.HostCPUPercent(agents.cpu, ncpu)
-		}
+		agents.cpu = min(100, agents.cpu)
 		agents.ram = sysstat.HostRAMPercent(agents.rss, memTotal)
 	}
-	p.prevTreeCPU = nextTreeCPU
-	p.prevTreeAt = now
 	p.askReads = askReads
 	phases.tail = lap(&mark)
 
@@ -1173,11 +1197,13 @@ func (p *poller) refreshPass(stat *passStat) tea.Msg {
 	if sampleStats {
 		msg.snap = sysstat.Sample("/")
 		msg.snapOK = true
+		p.statsAt = time.Now()
 	}
 	phases.sample = lap(&mark)
 	if p.observer != nil {
 		p.observer.Pass(now, sessions)
 	}
+	p.paneSamples = samples
 	return msg
 }
 
@@ -1277,7 +1303,9 @@ func (p *poller) forgetAdopted(id string) error {
 // idMinting reports whether a live, not-yet-captured session belongs to a
 // tool that mints its own conversation id.
 func (p *poller) idMinting(sess store.Session, panes map[string]int) bool {
-	return !sess.Archived && panes[sess.ID] != 0 && sess.AgentSessionID == "" &&
+	// Adoption time is not launch time, so directory-and-time capture cannot
+	// identify the conversation in an adopted pane.
+	return sess.TmuxSocket == "" && !sess.Archived && panes[sess.ID] != 0 && sess.AgentSessionID == "" &&
 		p.sessionStores[sess.Tool] != ""
 }
 

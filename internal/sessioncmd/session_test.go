@@ -501,11 +501,13 @@ func TestSessionGroupsListAndCreate(t *testing.T) {
 func TestSendAndWaitRefuseATargetTheManagerNoLongerPolls(t *testing.T) {
 	t.Parallel()
 	h := newSessionHarness(t)
-	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "worker"})
+	// Another session's, since a send to the caller's own child restores it.
+	stranger := childRow(t, h, store.Session{ID: "other001", Name: "another-agent"}, false)
+	created, err := h.sessions.Create(stranger.ID, CreateSessionOptions{Name: "worker"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := h.sessions.Archive(h.caller.ID, created.ID, true); err != nil {
+	if _, err := h.sessions.Archive(stranger.ID, created.ID, true); err != nil {
 		t.Fatalf("Archive: %v", err)
 	}
 	// The refusal has to name the archive rather than the dead pane: an

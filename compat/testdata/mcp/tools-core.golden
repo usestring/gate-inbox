@@ -3003,6 +3003,10 @@
         "description": "whether this was relayed as the operator's words; with no message_id, nothing was queued and there is nothing to track",
         "type": "boolean"
       },
+      "restored": {
+        "description": "what the send did first to reach your own child: restored it from the archive, revived it on its conversation, or both; empty when it was already running",
+        "type": "string"
+      },
       "superseded": {
         "description": "how many earlier queued messages from this sender on the same subject this one replaced",
         "type": "integer"

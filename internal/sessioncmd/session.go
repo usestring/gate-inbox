@@ -196,10 +196,10 @@ func (r *runtime) killable(id string, reaches func(terminal store.Session) error
 // so the next message would queue against it just the same.
 func (r *runtime) deliverable(target store.Session) error {
 	if target.Archived {
-		return fmt.Errorf("session %s is archived, so Gate Inbox no longer polls it; restore it with %s first", target.ID, r.words.Restore)
+		return fmt.Errorf("session %s is archived, so Gate Inbox no longer polls it; only its spawner's send restores it, so restore it with %s, revive it with %s, then send again", target.ID, r.words.restoreCall(target.ID), r.words.reviveCall(target.ID))
 	}
 	if !r.driver.Exists(target.ID) {
-		return fmt.Errorf("session %s is not running; revive it with %s first", target.ID, r.words.Revive)
+		return fmt.Errorf("session %s is not running; revive it with %s, then send again", target.ID, r.words.reviveCall(target.ID))
 	}
 	if r.cfg.Tools[target.Tool].ActivityCutoff == "" {
 		return fmt.Errorf("tool %q declares no activity_cutoff, so Gate Inbox cannot tell when %s is ready to read a message; add one to config.toml", target.Tool, target.ID)
@@ -816,6 +816,9 @@ type SendResult struct {
 	Handled []extension.OperatorSendResult `json:"handled,omitempty" jsonschema:"what the build's extensions made of an operator's send, each under its extension's id; the message is queued and delivered either way"`
 	// Attestation is the nonce of the relay attestation attached to the
 	// message, set only for a send with relay_question.
+	// Restored is what the send did to bring the sender's archived or dead
+	// child back so it could take the message.
+	Restored    string `json:"restored,omitempty" jsonschema:"what the send did first to reach your own child: restored it from the archive, revived it on its conversation, or both; empty when it was already running"`
 	Attestation string `json:"attestation,omitempty" jsonschema:"nonce of the relay attestation attached to this message: your user's answer, verified in your own transcript, which the child's hook spends once"`
 }
 
@@ -919,10 +922,17 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 	case asHuman:
 		from.id, from.name = store.HumanSenderID, ""
 	}
+	restored := ""
+	if !asHuman {
+		if restored, err = s.restoreForSend(runtime, caller, targetID); err != nil {
+			return SendResult{}, err
+		}
+	}
 	result, err = runtime.enqueue(from, targetID, message, subject, interrupt)
 	if err != nil {
 		return SendResult{}, err
 	}
+	result.Restored = restored
 	result.Relayed = isRelay
 	if !asHuman || isRelay {
 		return result, nil

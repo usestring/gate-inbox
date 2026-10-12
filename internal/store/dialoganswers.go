@@ -25,6 +25,9 @@ const (
 	// AnswerRelayedUser is an answer matched word for word to the answer the
 	// user gave the same question in the parent's own dialog.
 	AnswerRelayedUser AnswerMode = "relayed_user"
+	// AnswerSpentOnAction is the user's answer in a session's own Approval
+	// dialog, spent by the command it approved (sessioncmd.SpendApproval).
+	AnswerSpentOnAction AnswerMode = "spent_on_action"
 )
 
 // AnswerState is how far a ledger row's keystrokes got.

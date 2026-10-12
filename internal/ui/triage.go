@@ -19,6 +19,11 @@ import (
 // because the one thing triage must never do is walk somebody into a
 // session that is mid-turn.
 //
+// delegating sits under idle: the session is at rest but its children's
+// results are still coming back to it, so handing it over now shows the
+// operator a session with nothing to say yet. It is never walkable on its
+// own; a child that needs a person lifts it through the child's own rank.
+//
 // triageBlocked sits between waiting and finished. No status reaches it: it
 // is the tier an extension ranks a session at when it is blocked on a
 // decision about a whole piece of work rather than on one question in front
@@ -28,6 +33,7 @@ var triageTiers = []string{
 	triageBlocked,
 	status.Finished,
 	status.Idle,
+	status.Delegating,
 	status.Errored,
 	status.Working,
 	status.Starting,

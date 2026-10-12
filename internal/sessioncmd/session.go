@@ -39,7 +39,7 @@ type Session struct {
 	Account   string `json:"account,omitempty" jsonschema:"named subscription the session runs on; empty is the CLI's own login"`
 	Group     string `json:"group" jsonschema:"group path holding the session; empty is the root"`
 	Directory string `json:"directory" jsonschema:"session's current working directory, or its launch directory when stopped"`
-	Status    string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, finished, idle, errored or dead"`
+	Status    string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead"`
 	Running   bool   `json:"running" jsonschema:"whether the session currently has a live tmux pane"`
 	Archived  bool   `json:"archived" jsonschema:"whether the session is archived out of the active list"`
 	Muted     bool   `json:"muted" jsonschema:"whether the operator has muted this session out of their triage queue until it is unmuted"`
@@ -405,6 +405,9 @@ func (r *runtime) list(callerID string, opts ListOptions) (SessionList, error) {
 	}
 	stored, err := r.store.ListSessions(opts.IncludeArchived)
 	if err != nil {
+		return SessionList{}, err
+	}
+	if stored, err = r.delegated(stored); err != nil {
 		return SessionList{}, err
 	}
 	scan, err := r.driver.ScanPanesWithPaths()
@@ -1248,6 +1251,7 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 		Cursor:  cursor,
 		Digest:  runtime.digest(target, pane, running, delta),
 	}
+	screen.Session.Status = runtime.restingStatus(target.ID, target.Status)
 	if running {
 		if reading, ok := dialog.ReadQuestions(target.Tool, raw, s.asked(target)); ok {
 			screen.Digest.withQuestions(reading.Questions)
@@ -1283,7 +1287,9 @@ func (s *Sessions) Get(sessionID, targetID string) (got Session, err error) {
 	if err != nil {
 		return Session{}, err
 	}
-	return runtime.currentInfo(target, target.ID == sessionID), nil
+	got = runtime.currentInfo(target, target.ID == sessionID)
+	got.Status = runtime.restingStatus(target.ID, got.Status)
+	return got, nil
 }
 
 // Kill stops a session's pane and leaves its row dead, keeping the last

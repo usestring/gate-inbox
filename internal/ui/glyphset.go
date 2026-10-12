@@ -32,6 +32,7 @@ type glyphSet struct {
 	finished      string
 	errored       string
 	idle          string
+	delegating    string
 	muted         string
 	deaf          string
 	hookless      string
@@ -54,13 +55,15 @@ type glyphSet struct {
 // state, all from the same weight family so a column of them reads as a
 // single scale rather than as a mix of punctuation.
 var shapeGlyphs = glyphSet{
-	name:          glyphsShapes,
-	working:       "◐",
-	starting:      "◌",
-	waiting:       "◆",
-	finished:      "●",
-	errored:       "✕",
-	idle:          "○",
+	name:     glyphsShapes,
+	working:  "◐",
+	starting: "◌",
+	waiting:  "◆",
+	finished: "●",
+	errored:  "✕",
+	idle:     "○",
+	// ◎ is ○ with something inside it: at rest, and still holding work.
+	delegating:    "◎",
 	muted:         "⊘",
 	deaf:          "⊗",
 	hookless:      "⊙",
@@ -95,6 +98,7 @@ var emojiGlyphs = glyphSet{
 	finished:      "✅",
 	errored:       "❌",
 	idle:          "💤",
+	delegating:    "📤",
 	muted:         "🔕",
 	deaf:          "🔇",
 	hookless:      "🔌",
@@ -166,6 +170,8 @@ func statusGlyph(s string) string {
 		return currentGlyphs.waiting
 	case status.Finished:
 		return currentGlyphs.finished
+	case status.Delegating:
+		return currentGlyphs.delegating
 	case status.Errored, status.Dead:
 		return currentGlyphs.errored
 	default:

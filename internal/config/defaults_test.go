@@ -203,3 +203,26 @@ func TestEmptyDefaultsLeaveLoadingAsItWas(t *testing.T) {
 		t.Fatalf("editor = %q after the defaults were cleared", cfg.Editor)
 	}
 }
+
+func TestCodexDefaultsKeepCallerAncestry(t *testing.T) {
+	cfg, err := LoadDir(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := cfg.Tools["codex"]
+	for _, command := range []string{tool.Command, tool.ReviveCommand, tool.ResumeByIDCommand, tool.ResumePickerCommand, tool.ForkCommand} {
+		if !strings.HasPrefix(command, "codex --no-daemon") {
+			t.Errorf("shared default: %s", command)
+		}
+	}
+	old := Tool{Command: "codex", ResumeByIDCommand: "codex resume {id}", ForkCommand: "codex fork {id}"}
+	old = mergeTool("codex", old, tool)
+	if old.Command != tool.Command || old.ResumeByIDCommand != tool.ResumeByIDCommand || old.ForkCommand != tool.ForkCommand {
+		t.Fatalf("old defaults: %+v", old)
+	}
+	custom := Tool{Command: "gate-inbox codex-client -- codex", ResumeByIDCommand: "custom resume {id}"}
+	custom = mergeTool("codex", custom, tool)
+	if custom.Command != "gate-inbox codex-client -- codex" || custom.ResumeByIDCommand != "custom resume {id}" {
+		t.Fatalf("custom changed: %+v", custom)
+	}
+}

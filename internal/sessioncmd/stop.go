@@ -176,7 +176,7 @@ func (r *runtime) stopCaller(id string) (store.Session, error) {
 		}
 		var matches []store.Session
 		for _, row := range rows {
-			if row.Tool == "codex" && !row.Archived && row.Status != "dead" {
+			if !r.cfg.Tools[row.Tool].Shell && !row.Archived && row.Status != "dead" {
 				if err := r.reach(row); err != nil {
 					return store.Session{}, err
 				}

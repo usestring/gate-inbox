@@ -27,6 +27,15 @@ parser.add_argument(
 parser.add_argument(
     "--stop-script", help="optional company nuke script to exercise instead of stop"
 )
+parser.add_argument(
+    "--default-launch",
+    choices=["managed", "adopted"],
+    help="exercise ordinary private managed launch or a private client adopted without managed env",
+)
+parser.add_argument(
+    "--client-argv-json",
+    help="private adopted fixture command emitted by a launcher; executable must match --codex-binary",
+)
 options = parser.parse_args()
 if not __debug__:
     raise RuntimeError("native fixture verification requires Python assertions")
@@ -39,6 +48,7 @@ home.mkdir()
 state.mkdir()
 (root / "bin").mkdir()
 (root / "bin" / "gate-inbox").symlink_to(gate)
+(root / "bin" / "codex").symlink_to(codex)
 env = {
     "PATH": str(root / "bin") + os.pathsep + os.environ["PATH"],
     "HOME": str(root),
@@ -71,7 +81,10 @@ command = (
         + repr(str(root / "runtime.json"))
         + ",'w'))"
     )
-    + "; env -u GATE_INBOX_SESSION_ID -u GATE_INBOX_BIN TMUX_PANE=%999999 "
+    + (
+        "; env -u GATE_INBOX_SESSION_ID -u GATE_INBOX_BIN "
+        + ("" if options.default_launch else "TMUX_PANE=%999999 ")
+    )
     + stop
     + " > "
     + shlex.quote(str(root / "stop.json"))
@@ -199,6 +212,25 @@ try:
         timeout=10,
     )
     tmux("new-session", "-d", "-s", "sentinel", "sleep 120")
+    parent_pane = tmux("display-message", "-p", "-t", "sentinel", "#{pane_id}")
+    parent_db = sqlite3.connect(state / "state.db")
+    parent_db.execute(
+        "INSERT INTO sessions (id,name,tool,cwd,group_name,status,created_at,last_status_at,tmux_socket,tmux_pane_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        (
+            "cafe0001",
+            "fixture-parent",
+            "sh",
+            str(root),
+            "",
+            "working",
+            int(time.time()),
+            int(time.time()),
+            socket,
+            parent_pane,
+        ),
+    )
+    parent_db.commit()
+    parent_db.close()
     launch = (
         "env GATE_INBOX_HOME="
         + shlex.quote(str(state))
@@ -213,34 +245,100 @@ try:
         + " --no-alt-screen "
         + shlex.quote("native-binding-fixture")
     )
-    tmux("new-session", "-d", "-s", "gi_native01", launch)
+    target_id = "native01"
+    target_session = "gi_native01"
+    if options.default_launch == "managed":
+        spawned = subprocess.run(
+            [
+                gate,
+                "spawn",
+                "--tool",
+                "codex",
+                "--name",
+                "native-default",
+                "--prompt",
+                "native-binding-fixture",
+                "--directory",
+                str(root),
+                "--json",
+            ],
+            cwd=root,
+            env=dict(env, GATE_INBOX_SESSION_ID="cafe0001"),
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert spawned.returncode == 0, spawned.stderr
+        target_id = json.loads(spawned.stdout)["id"]
+        target_session = "gi_" + target_id
+    else:
+        if options.default_launch == "adopted":
+            client_argv = [
+                codex,
+                "--no-daemon",
+                "--no-alt-screen",
+                "native-binding-fixture",
+            ]
+            if options.client_argv_json:
+                client_argv = json.loads(
+                    pathlib.Path(options.client_argv_json).read_text()
+                )
+                assert isinstance(client_argv, list) and all(
+                    isinstance(arg, str) for arg in client_argv
+                )
+                assert (
+                    str(
+                        pathlib.Path(
+                            shutil.which(client_argv[0], path=env["PATH"])
+                            or client_argv[0]
+                        ).resolve(strict=True)
+                    )
+                    == codex
+                )
+            launch = (
+                "env -u GATE_INBOX_SESSION_ID -u GATE_INBOX_BIN GATE_INBOX_HOME="
+                + shlex.quote(str(state))
+                + " CODEX_HOME="
+                + shlex.quote(str(home))
+                + " HOME="
+                + shlex.quote(str(root))
+                + " "
+                + shlex.join(client_argv)
+            )
+        tmux("new-session", "-d", "-c", str(root), "-s", target_session, launch)
     sentinel = tmux("display-message", "-p", "-t", "sentinel", "#{pane_id} #{pane_pid}")
-    pane = tmux("display-message", "-p", "-t", "gi_native01", "#{pane_id}")
+    pane = tmux("display-message", "-p", "-t", target_session, "#{pane_id}")
     db = sqlite3.connect(state / "state.db")
     now = int(time.time())
-    db.execute(
-        "INSERT INTO sessions (id,name,tool,cwd,group_name,status,created_at,last_status_at,agent_launched_at,tmux_socket,tmux_pane_id,agent_session_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-        (
-            "native01",
-            "native-bound",
-            "codex",
-            str(root),
-            "",
-            "working",
-            now,
-            now,
-            now,
-            socket,
-            pane,
-            "deliberately-unreliable",
-        ),
-    )
+    if options.default_launch != "managed":
+        db.execute(
+            "INSERT INTO sessions (id,name,tool,cwd,group_name,status,created_at,last_status_at,agent_launched_at,tmux_socket,tmux_pane_id,agent_session_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                target_id,
+                "native-bound",
+                "codex",
+                str(root),
+                "",
+                "working",
+                now,
+                now,
+                now,
+                socket,
+                pane,
+                "deliberately-unreliable",
+            ),
+        )
+    if options.default_launch == "managed":
+        db.execute(
+            "UPDATE sessions SET agent_session_id=? WHERE id=?",
+            ("deliberately-unreliable", target_id),
+        )
     db.commit()
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         if (
             db.execute(
-                "SELECT status FROM sessions WHERE id=?", ("native01",)
+                "SELECT status FROM sessions WHERE id=?", (target_id,)
             ).fetchone()[0]
             == "dead"
         ):
@@ -248,18 +346,18 @@ try:
         time.sleep(0.1)
     row = db.execute(
         "SELECT status,archived,agent_session_id FROM sessions WHERE id=?",
-        ("native01",),
+        (target_id,),
     ).fetchone()
     assert row == ("dead", 0, "deliberately-unreliable"), (
         row,
         (
             (root / "stop.err").read_text()
             if (root / "stop.err").exists()
-            else "no caller output"
+            else "no caller output: " + tmux("capture-pane", "-p", "-t", target_session)
         ),
     )
     assert db.execute(
-        "SELECT reason FROM session_ends WHERE session_id=?", ("native01",)
+        "SELECT reason FROM session_ends WHERE session_id=?", (target_id,)
     ).fetchone() == ("killed",)
     assert (
         tmux("display-message", "-p", "-t", "sentinel", "#{pane_id} #{pane_pid}")
@@ -269,9 +367,14 @@ try:
     assert proc.poll() is None, "shared daemon stopped"
     assert list((home / "sessions").rglob("*.jsonl")), "history was deleted"
     runtime = json.loads((root / "runtime.json").read_text())
-    assert runtime["CODEX_THREAD_ID"] and runtime["GATE_INBOX_CALLER_BINDING"]
+    assert runtime["CODEX_THREAD_ID"]
+    assert bool(runtime["GATE_INBOX_CALLER_BINDING"]) == (
+        not bool(options.default_launch)
+    )
     print(
-        "PASS: native daemon caller stopped its adopted pane; intentional end, history, daemon and sentinel verified.",
+        "PASS: native "
+        + (options.default_launch or "bridged")
+        + " caller stopped its own pane; intentional end, history, daemon and sentinel verified.",
         flush=True,
     )
     print(

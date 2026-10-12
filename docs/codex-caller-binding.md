@@ -2,7 +2,9 @@
 
 Codex tool shells hosted by a shared app-server daemon are outside their terminal client's process tree. Shell snapshots can carry the daemon's pane address, and a saved conversation association does not establish which client owns a terminal. Gate Inbox therefore requires a binding established at the client launch boundary before it can stop such a caller.
 
-On macOS and Linux, launch a terminal client through Gate Inbox's bridge:
+Ordinary managed Codex launches, revives and forks use `--no-daemon` by default. Older config files with the former stock commands are migrated when loaded; custom commands remain explicit choices. Private tool shells retain terminal ancestry, so Gate Inbox can verify an adopted pane even when its tools carry no managed environment. Adoption does not restart or rewrite a live client.
+
+On macOS and Linux, an explicitly shared client can instead use Gate Inbox's bridge:
 
 ```sh
 gate-inbox codex-client -- codex

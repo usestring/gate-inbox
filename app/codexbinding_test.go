@@ -20,7 +20,7 @@ import (
 func TestSharedCodexBindingStopsOnlyItsAdoptedPane(t *testing.T) {
 	bin := buildFixture(t)
 	socket := tmuxtest.Socket(t, "boundcodex")
-	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+promptTool)
+	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+promptTool+"\n[tools.work-codex]\ncommand = \"codex\"\nsession_store = \"codex\"\n")
 	home := envValue(env, "GATE_INBOX_HOME")
 	root := t.TempDir()
 	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })
@@ -75,19 +75,19 @@ func TestSharedCodexBindingStopsOnlyItsAdoptedPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	launch := func(id, thread, stored string) string {
+	launch := func(id, thread, stored, tool string) string {
 		command := "env -u GATE_INBOX_SESSION_ID -u GATE_INBOX_BIN GATE_INBOX_HOME=" + tmux.ShellQuote(home) + " " + tmux.ShellQuote(bin) + " codex-client --server " + tmux.ShellQuote(server) + " -- " + tmux.ShellQuote(fake) + " " + tmux.ShellQuote(thread)
 		tmuxCmd("new-session", "-d", "-s", "gi_"+id, command)
 		pane := tmuxCmd("display-message", "-p", "-t", "gi_"+id, "#{pane_id}")
-		row := store.Session{ID: id, Name: thread, Tool: "codex", Status: "working", CreatedAt: time.Now(), TmuxSocket: socket, TmuxPaneID: pane, AgentSessionID: stored}
+		row := store.Session{ID: id, Name: thread, Tool: tool, Status: "working", CreatedAt: time.Now(), TmuxSocket: socket, TmuxPaneID: pane, AgentSessionID: stored}
 		if err := st.CreateSession(row); err != nil {
 			t.Fatal(err)
 		}
 		waitBinding(t, func() bool { _, err := os.Stat(filepath.Join(root, thread+".ready")); return err == nil })
 		return pane
 	}
-	target := launch("bound001", "target-thread", "foreign-stored-thread")
-	sentinel := launch("bound002", "sentinel-thread", "target-thread")
+	target := launch("bound001", "target-thread", "foreign-stored-thread", "work-codex")
+	sentinel := launch("bound002", "sentinel-thread", "target-thread", "codex")
 	var set map[string]string
 	data, err := os.ReadFile(filepath.Join(root, "target-thread.ready"))
 	if err != nil || json.Unmarshal(data, &set) != nil {

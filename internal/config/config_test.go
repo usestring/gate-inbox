@@ -41,11 +41,11 @@ func TestLoadWritesAndParsesDefault(t *testing.T) {
 	if _, ok := cfg.Tools["codex"]; !ok {
 		t.Fatal("expected codex tool in default config")
 	}
-	if cfg.Tools["codex"].Command != "codex" {
+	if cfg.Tools["codex"].Command != "codex --no-daemon" {
 		t.Fatalf("codex command = %q", cfg.Tools["codex"].Command)
 	}
-	if got := cfg.Tools["codex"].ReviveCommand; got != "codex resume --last" {
-		t.Fatalf("codex revive_command = %q want \"codex resume --last\"", got)
+	if got := cfg.Tools["codex"].ReviveCommand; got != "codex --no-daemon resume --last" {
+		t.Fatalf("codex revive_command = %q want \"codex --no-daemon resume --last\"", got)
 	}
 	if got := cfg.Tools["codex"].PromptFlag; got != "" {
 		t.Fatalf("codex prompt_flag = %q want empty (positional prompt)", got)
@@ -68,8 +68,8 @@ func TestLoadWritesAndParsesDefault(t *testing.T) {
 	if got := cfg.Tools["claude"].ForkDialogKeys; len(got) != 2 || got[0] != "Down" || got[1] != "Enter" {
 		t.Fatalf("claude fork_dialog_keys = %v", got)
 	}
-	if got := cfg.Tools["codex"].ForkCommand; got != "codex fork {id}" {
-		t.Fatalf("codex fork_command = %q want \"codex fork {id}\"", got)
+	if got := cfg.Tools["codex"].ForkCommand; got != "codex --no-daemon fork {id}" {
+		t.Fatalf("codex --no-daemon fork_command = %q want \"codex --no-daemon fork {id}\"", got)
 	}
 	if got := cfg.Tools["opencode"].ForkCommand; got != "" {
 		t.Fatalf("opencode fork_command = %q want none: opencode forks through its API", got)

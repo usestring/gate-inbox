@@ -170,7 +170,7 @@ var Catalog = []Binding{
 	{ContextList, UndoArchive, []string{"U", "shift+u"}, "bring back what the last kill filed away", false},
 	{ContextList, Dismiss, []string{"."}, "skip", false},
 	{ContextList, Priority, []string{"p"}, "cycle priority: urgent → high → medium → low → none", false},
-	{ContextList, Mute, []string{"M", "shift+m"}, "mute / unmute: keep it out of triage until unmuted", false},
+	{ContextList, Mute, []string{"M", "shift+m", "ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
 	{ContextList, QuickInput, []string{" ", "space", "ctrl+]"}, "hotkey menu", false},
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{}, "rename it yourself, and re-pick its tool", false},

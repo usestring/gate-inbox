@@ -1458,7 +1458,7 @@ func TestThePollAccountsForWhatAdminSpent(t *testing.T) {
 	m.applyCmd(t, m.refreshCmd())
 
 	var pass passStat
-	m.poller.refreshPass(&pass)
+	m.poller.refreshPass(&pass, false)
 	if pass.phases.mu <= 0 {
 		t.Fatal("the pass charged nothing to the mutex it took")
 	}
@@ -1470,7 +1470,7 @@ func TestThePollAccountsForWhatAdminSpent(t *testing.T) {
 	}
 
 	var quiet passStat
-	m.poller.refreshPass(&quiet)
+	m.poller.refreshPass(&quiet, false)
 
 	rendered := map[string]bool{}
 	fields := quiet.phases.fields()

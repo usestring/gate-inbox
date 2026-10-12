@@ -168,6 +168,31 @@ func TestMutedChildStaysVisibleButSkippedInTriage(t *testing.T) {
 	}
 }
 
+// A question the parent is answering folds its child off the rail, but not a
+// muted one: the mute is the operator's, and the rail is where they undo it.
+func TestMutedChildStaysVisibleInTriageWhileItsParentOwnsItsQuestion(t *testing.T) {
+	m := childModel(t)
+	owned := func(muted bool) {
+		for i := range m.sessions {
+			if m.sessions[i].ID == "c2" {
+				m.sessions[i].Muted = muted
+				m.sessions[i].LastStatusAt = time.Now().Add(-time.Minute)
+			}
+		}
+		m.answerableWait = map[string]bool{"c2": true}
+		m.triage = true
+		m.rebuildRows()
+	}
+	owned(false)
+	if got := joined(rowIDs(m)); strings.Contains(got, "c2") {
+		t.Fatalf("triage rows = %q, want the parent-owned child folded away", got)
+	}
+	owned(true)
+	if got := joined(rowIDs(m)); !strings.Contains(got, "c2") {
+		t.Fatalf("triage rows = %q, want the muted child kept on the rail", got)
+	}
+}
+
 func TestMutedChildDoesNotLiftItsParent(t *testing.T) {
 	parent := childSess("p1", "worker", "build", "", status.Working, time.Hour)
 	waiting := childSess("c1", "helper", "build", "p1", status.Waiting, 30*time.Minute)

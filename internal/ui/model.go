@@ -3166,9 +3166,10 @@ func (m *Model) buildTree() {
 			}
 			// Triage draws every child except the ones somebody else is
 			// already answering; see parentOwns. A muted child stays on the
-			// rail reading "muted" and the drain walks past it; see
+			// rail reading "muted" whoever owns its question, so it can be
+			// unmuted from here, and the drain walks past it; see
 			// persistentmute.go and triageHandable.
-			if m.triage && m.foldsAway(child) && m.parentOwns(child, time.Now(), livePanes) {
+			if m.triage && !child.Muted && m.foldsAway(child) && m.parentOwns(child, time.Now(), livePanes) {
 				continue
 			}
 			if drawn[child.ID] {

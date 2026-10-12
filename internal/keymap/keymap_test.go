@@ -365,6 +365,21 @@ func TestABrokenFileIsAnErrorNotAPanic(t *testing.T) {
 	}
 }
 
+func TestDisplayPairMergesASharedModifier(t *testing.T) {
+	for _, tc := range []struct{ first, second, want string }{
+		{"alt+↑", "alt+↓", "alt+↑↓"},
+		{"alt+shift+↑", "alt+shift+↓", "alt+shift+↑↓"},
+		{"⌥↑", "⌥↓", "⌥↑↓"},
+		{"⌥shift+↑", "⌥shift+↓", "⌥shift+↑↓"},
+		{"⌥↑", "ctrl+↓", "⌥↑/ctrl+↓"},
+		{"x", "y", "x/y"},
+	} {
+		if got := DisplayPair(tc.first, tc.second); got != tc.want {
+			t.Errorf("DisplayPair(%q, %q) = %q, want %q", tc.first, tc.second, got, tc.want)
+		}
+	}
+}
+
 func TestDisplayUsesOSModifierNames(t *testing.T) {
 	for _, tc := range []struct{ key, mac, other string }{
 		{"alt+o", "⌥o", "alt+o"},

@@ -101,6 +101,8 @@ type autoRouteMsg struct {
 	selected bool
 	mode     string
 	err      error
+	// reason is the chooser's account of its answer, when it gives one.
+	reason string
 }
 
 // toolChooser is the build's chooser for a new session's CLI, when its
@@ -113,6 +115,15 @@ func toolChooser() (extension.ToolChooser, bool) {
 	}
 	tools, ok := chooser.(extension.ToolChooser)
 	return tools, ok
+}
+
+// chooseTool asks chooser for a CLI, with its reason when it can give one.
+func chooseTool(ctx context.Context, chooser extension.ToolChooser, req extension.ToolRequest) (name, reason string, err error) {
+	if explainer, ok := chooser.(extension.ToolChoiceExplainer); ok {
+		return explainer.ExplainToolChoice(ctx, req)
+	}
+	name, err = chooser.ChooseTool(ctx, req)
+	return name, "", err
 }
 
 func (m *Model) startAutoRoute() (tea.Model, tea.Cmd) {
@@ -161,6 +172,7 @@ type agentPickQuotaMsg struct {
 	generation  uint64
 	quotas      map[string]string
 	recommended string
+	reason      string
 }
 
 // agentPickQuotaCmd asks the build's chooser, off the event loop, how much
@@ -190,9 +202,11 @@ func (m *Model) agentPickQuotaCmd() tea.Cmd {
 		if reporter != nil {
 			msg.quotas = reporter.ToolQuotaSummaries(ctx, names)
 		}
-		if name, err := chooser.ChooseTool(ctx, req); err == nil {
+		name, reason, err := chooseTool(ctx, chooser, req)
+		if err == nil {
 			msg.recommended = name
 		}
+		msg.reason = reason
 		return msg
 	}
 }
@@ -201,7 +215,7 @@ func (m *Model) finishAgentPickQuota(msg agentPickQuotaMsg) {
 	if m.mode != modeAgentPick || msg.generation != m.agentPick.generation {
 		return
 	}
-	m.agentPick.quotas, m.agentPick.recommended = msg.quotas, msg.recommended
+	m.agentPick.quotas, m.agentPick.recommended, m.agentPick.reason = msg.quotas, msg.recommended, msg.reason
 	// The box opened on the last CLI used only because the chooser had not
 	// answered yet. Until the operator presses a key, auto's pick replaces
 	// it, so n then enter starts what auto would.
@@ -235,7 +249,7 @@ func (m *Model) autoRouteCmd(req autoRouteMsg) tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		msg.name, msg.err = chooser.ChooseTool(ctx, req.request)
+		msg.name, msg.reason, msg.err = chooseTool(ctx, chooser, req.request)
 		return msg
 	}
 }
@@ -258,6 +272,9 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil || msg.name == "" {
 		m.openPinnedAgentPick(msg)
 		m.errBar.text = "no CLI chosen: choose one"
+		if msg.reason != "" {
+			m.errBar.text = "no CLI chosen (" + msg.reason + "): choose one"
+		}
 		return m, nil
 	}
 	// The chooser answered for the launch-account mode read when n was
@@ -276,7 +293,11 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 	}
 	for _, name := range m.enabledToolNames() {
 		if name == msg.name {
-			return m.spawnInstantIn(name, msg.group)
+			model, cmd := m.spawnInstantIn(name, msg.group)
+			if m.errBar.text == "" && msg.reason != "" {
+				m.reportDone("auto: " + msg.reason)
+			}
+			return model, cmd
 		}
 	}
 	m.openPinnedAgentPick(msg)
@@ -343,10 +364,11 @@ type agentPick struct {
 	row         treeRow
 	rowSelected bool
 	pinned      bool
-	// quotas and recommended are the build chooser's answer, once it lands:
-	// each CLI's quota left and the CLI auto would start.
+	// quotas, recommended and reason are the build chooser's answer, once
+	// it lands: each CLI's quota left, the CLI auto would start, and why.
 	quotas      map[string]string
 	recommended string
+	reason      string
 }
 
 func (m *Model) openAgentPick() {

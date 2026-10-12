@@ -76,6 +76,16 @@ type ToolQuotaReporter interface {
 	ToolQuotaSummaries(ctx context.Context, names []string) map[string]string
 }
 
+// ToolChoiceExplainer is implemented by a ToolChooser that can say why it
+// picks the CLI it picks, or why it picks none. The board shows the reason
+// under the CLIs in the new-session box, on the status bar when auto starts
+// a session, and beside the error when auto falls back to the box.
+type ToolChoiceExplainer interface {
+	// ExplainToolChoice answers as ChooseTool does, with the reason in one
+	// line; the reason may be empty, and is shown on failure too.
+	ExplainToolChoice(ctx context.Context, req ToolRequest) (name, reason string, err error)
+}
+
 // ToolRequest is a new session whose CLI the operator left to the build.
 type ToolRequest struct {
 	// Candidates are the enabled agent CLIs, in the board's order.

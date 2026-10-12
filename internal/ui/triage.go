@@ -166,9 +166,15 @@ func (k triageKey) before(o triageKey) bool {
 }
 
 // triageKeyOf reads one session's key. Zero sorts first in each field, so a
-// walkable session that is urgent is {0, 0, tier}.
+// walkable session that is urgent is {0, 0, tier}. A persistently muted
+// session sorts after every unmuted row: it stays on the triage rail reading
+// "muted", but the drain walks past it, so it must never order the queue.
 func (m *Model) triageKeyOf(sess store.Session) triageKey {
 	key := triageKey{needs: 1, priority: m.tierOf(sess).Rank(), tier: m.triageRankOf(sess)}
+	if sess.Muted {
+		key.needs = 2
+		return key
+	}
 	if m.triageWalkable(sess) {
 		key.needs = 0
 	}
@@ -200,6 +206,13 @@ func (m *Model) sortTriageWithChildren(sessions []store.Session, kids map[string
 	waited := make(map[string]store.Session, len(sessions))
 	for _, sess := range sessions {
 		best, holder := m.triageKeyOf(sess), sess
+		// A muted parent stays sorted last on its own key: an unmuted child
+		// riding under it must not lift it back up the queue.
+		if sess.Muted {
+			keys[sess.ID] = best
+			waited[sess.ID] = holder
+			continue
+		}
 		for _, kid := range kids[sess.ID] {
 			// A question this session is going to answer itself does not
 			// lift it up the queue: the lift exists so a child blocked on a
@@ -209,8 +222,9 @@ func (m *Model) sortTriageWithChildren(sessions []store.Session, kids map[string
 			if m.parentOwns(kid, now, live) {
 				continue
 			}
-			// A muted child is not on the rail, so it does not get to
-			// reorder the parent it would have sat under.
+			// A muted child rides under its parent but never lifts it: the mute
+			// is the operator setting that work aside, not a question waiting
+			// on them.
 			if kid.Muted {
 				continue
 			}

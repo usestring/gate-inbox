@@ -217,41 +217,57 @@ func buildBulkRollout(t *testing.T, root, agentID string, sizeMB int) string {
 // tracker's first Update parses the whole rollout, and on the real board those
 // files reach hundreds of megabytes; paid where this is called it lands inside
 // the status phase of a poll pass and stalls every row on the board, not just
-// the codex ones. The first lookup must cost nothing like the read it stands
-// in for, and the questions must arrive on a later pass.
+// the codex ones. The first lookup must return with the read still
+// outstanding, and the questions must arrive on a later pass.
+//
+// The proof holds every seed slot rather than racing the clock: with no slot
+// free no background read can complete, so a first lookup that still returns
+// at once with nothing is structurally off the pass, on a fast box as well
+// as a slow one.
 func TestCodexSeedStaysOffThePollPass(t *testing.T) {
 	const agentID = "0c0dec0d-0000-7000-8000-00000000f00d"
 	root := t.TempDir()
-	path := buildBulkRollout(t, root, agentID, 8)
-
-	// What the pass used to pay, measured on this machine rather than
-	// asserted as a constant, so the comparison holds on a slow box too.
-	var direct codexq.Tracker
-	start := time.Now()
-	if _, err := direct.Update(path); err != nil {
-		t.Fatal(err)
-	}
-	inline := time.Since(start)
-	if inline < 25*time.Millisecond {
-		t.Fatalf("a full read of the rollout took only %v; the fixture is too "+
-			"small for this comparison to mean anything", inline)
-	}
+	buildBulkRollout(t, root, agentID, 1)
 
 	p := &poller{locator: search.NewLocator("", root)}
 	sess := store.Session{ID: "row", Tool: search.ToolCodex, AgentSessionID: agentID}
 
-	start = time.Now()
-	first := p.unansweredCodexQuestions(sess)
-	elapsed := time.Since(start)
-	if elapsed > inline/10 {
-		t.Errorf("the first lookup took %v against a %v full read: the seed is "+
-			"still being read on the pass", elapsed, inline)
-	}
-	if len(first) != 0 {
-		t.Errorf("the first lookup reported %d questions; until the rollout has "+
-			"been read the session has nothing to report", len(first))
+	p.codexSeeds.slots = make(chan struct{}, codexSeedsAtOnce)
+	for range codexSeedsAtOnce {
+		p.codexSeeds.slots <- struct{}{}
 	}
 
+	// In a goroutine with a deadline, so a lookup that blocks on the
+	// held slots fails here instead of hanging the suite: with no slot
+	// free the seed cannot have landed, and the pass must not wait for it.
+	firstCh := make(chan []codexq.Question, 1)
+	go func() { firstCh <- p.unansweredCodexQuestions(sess) }()
+	var first []codexq.Question
+	select {
+	case first = <-firstCh:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the first lookup never returned with every seed slot held: " +
+			"the read is back on the pass")
+	}
+	if len(first) != 0 {
+		t.Fatalf("the first lookup reported %d questions with no seed read "+
+			"completed; until the rollout has been read the session has "+
+			"nothing to report", len(first))
+	}
+	p.codexSeeds.mu.Lock()
+	_, inflight := p.codexSeeds.inflight[sess.ID]
+	_, ready := p.codexSeeds.ready[sess.ID]
+	p.codexSeeds.mu.Unlock()
+	if !inflight {
+		t.Error("the first lookup started no seed: the questions would never arrive")
+	}
+	if ready {
+		t.Error("a seed published with every slot held: the read is not behind the semaphore")
+	}
+
+	for range codexSeedsAtOnce {
+		<-p.codexSeeds.slots
+	}
 	got := awaitCodexQuestions(t, p, sess, 1)
 	if got[0].CallID != "call_bulk" {
 		t.Errorf("CallID = %q, want call_bulk", got[0].CallID)

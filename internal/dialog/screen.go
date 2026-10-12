@@ -54,6 +54,11 @@ type Screen struct {
 	// exact is the text the gutter block was drawn from, when WithExact
 	// matched it, written in its place by Prompt.
 	exact string
+	// AutoDeny is set when Claude Code drew its countdown to refusing the
+	// prompt by itself. The countdown is left out of Lines: it ticks every
+	// second, and a dialog that read differently on every pass was forwarded
+	// to the parent on every pass, with a question no answer could match.
+	AutoDeny bool
 }
 
 // ScreenChoice is one choice of a held dialog.
@@ -265,6 +270,7 @@ func ReadScreen(pane string) (Screen, bool) {
 		}
 		screen.Lines = append(screen.Lines, line)
 	}
+	screen.Lines, screen.AutoDeny = withoutAutoDeny(screen.Lines)
 	for len(screen.Lines) > 0 && screen.Lines[len(screen.Lines)-1] == "" {
 		screen.Lines = screen.Lines[:len(screen.Lines)-1]
 	}
@@ -419,4 +425,28 @@ func screenKind(screen Screen) ScreenKind {
 		return ScreenQuestion
 	}
 	return ScreenOther
+}
+
+// autoDenyStart opens Claude Code's countdown notice on a prompt held in an
+// unattended session: "⚠ Claude Code will automatically deny this request in
+// 1:58, to avoid blocking progress on an unattended session", wrapped to the
+// pane's width.
+var autoDenyStart = regexp.MustCompile(`(?i)will automatically deny this\s+request`)
+
+// withoutAutoDeny drops the countdown notice from a dialog's lines and
+// reports whether there was one. The notice runs from its first line to the
+// one that ends it with "session", at most four lines.
+func withoutAutoDeny(lines []string) ([]string, bool) {
+	for i, line := range lines {
+		if !autoDenyStart.MatchString(line) && (i+1 >= len(lines) || !autoDenyStart.MatchString(line+" "+strings.TrimSpace(lines[i+1]))) {
+			continue
+		}
+		end := i
+		for end < len(lines)-1 && end < i+3 && !strings.HasSuffix(strings.TrimSpace(lines[end]), "session") {
+			end++
+		}
+		kept := append(append([]string{}, lines[:i]...), lines[end+1:]...)
+		return kept, true
+	}
+	return lines, false
 }

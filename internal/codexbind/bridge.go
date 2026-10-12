@@ -179,7 +179,7 @@ func (b *bridge) proxy(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	}
 	b.busy = true
 	b.mu.Unlock()
-	defer func() { b.mu.Lock(); b.connected = false; b.token = ""; b.mu.Unlock() }()
+	defer b.disconnect()
 	var daemon int
 	transport := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		conn, err := (&net.Dialer{}).DialContext(ctx, "unix", server)
@@ -238,6 +238,16 @@ func (b *bridge) proxy(ctx context.Context, w http.ResponseWriter, r *http.Reque
 	}
 	cancel()
 	<-done
+}
+
+// A dropped connection takes its capability, pending launches, and observed
+// commands with it, so the same verified client can reconnect and bind afresh.
+func (b *bridge) disconnect() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.busy, b.connected, b.token = false, false, ""
+	clear(b.launches)
+	clear(b.tools)
 }
 
 func (i Identity) LiveClient(pid int) bool {

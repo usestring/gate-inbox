@@ -114,6 +114,22 @@ func TestRecycledProcessStartIdentityRefuses(t *testing.T) {
 	}
 }
 
+func TestDisconnectLetsTheSameClientReconnect(t *testing.T) {
+	b := &bridge{identity: Identity{Home: t.TempDir()}, launches: map[string]string{}, dir: t.TempDir(), busy: true, connected: true, token: "stale"}
+	start := []byte(`{"id":1,"method":"thread/start","params":{}}`)
+	if _, err := b.prepare(start, "/tmp/fixture/client.sock"); err != nil {
+		t.Fatal(err)
+	}
+	b.observe(message{Method: "item/started", Params: map[string]any{"threadId": "thread", "turnId": "turn", "item": map[string]any{"id": "call", "type": "commandExecution"}}})
+	b.disconnect()
+	if b.busy || b.connected || b.token != "" || len(b.tools) != 0 {
+		t.Fatal("closed connection retained its slot or caller authority")
+	}
+	if _, err := b.prepare(start, "/tmp/fixture/client.sock"); err != nil {
+		t.Fatalf("reconnected client could not start a thread: %v", err)
+	}
+}
+
 func TestEphemeralChecksDoNotRevokeVisibleThread(t *testing.T) {
 	b := &bridge{token: "visible-token", identity: Identity{Thread: "visible-thread"}, launches: map[string]string{}}
 	request := []byte(`{"id":1,"method":"thread/start","params":{"ephemeral":true}}`)

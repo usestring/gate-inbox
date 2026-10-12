@@ -477,6 +477,7 @@ func Environment(manager *hooks.Manager, toolName string, tool config.Tool, base
 // session's status.
 var parentEnvBlocklist = map[string]bool{
 	"TMUX": true, "TMUX_PANE": true,
+	"GATE_INBOX_CALLER_BINDING": true, "CODEX_THREAD_ID": true, "CODEX_TOOL_CALL_ID": true,
 	"PWD": true, "OLDPWD": true, "SHLVL": true,
 	"TERM":       true,
 	"CLAUDECODE": true, "CLAUDE_CODE_SESSION_ID": true, "CLAUDE_CODE_CHILD_SESSION": true,

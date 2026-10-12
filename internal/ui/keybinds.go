@@ -187,11 +187,7 @@ func (m *Model) pairCap(ctx keymap.Context, a, b keymap.Action) string {
 	if first == "" || second == "" {
 		return first + second
 	}
-	i, j := strings.LastIndex(first, "+"), strings.LastIndex(second, "+")
-	if i > 0 && i == j && first[:i] == second[:j] {
-		return first + second[j+1:]
-	}
-	return first + "/" + second
+	return keymap.DisplayPair(first, second)
 }
 
 // rebind moves an action onto keys and writes the file. The map is replaced

@@ -47,6 +47,44 @@ func TestColdDaemonStartFailsWithoutPrivateFallback(t *testing.T) {
 	}
 }
 
+func TestColdDaemonStartDropsTheStartingSession(t *testing.T) {
+	dir := t.TempDir()
+	socket := filepath.Join(dir, "daemon.sock")
+	seen := filepath.Join(dir, "environment")
+	cli := filepath.Join(dir, "codex")
+	info, _ := json.Marshal(map[string]string{"status": "running", "socketPath": socket, "managedCodexPath": cli})
+	script := "#!/bin/sh\nif [ \"$3\" = start ]; then env > '" + seen + "'; : > '" + socket + "'; fi\nprintf '%s\\n' '" + string(info) + "'\n"
+	if err := os.WriteFile(cli, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GATE_INBOX_SESSION_ID", "starter")
+	t.Setenv("GATE_INBOX_HOME", dir)
+	t.Setenv("GATE_INBOX_BIN", cli)
+	t.Setenv(Env, "starter.sock#secret")
+	t.Setenv("TMUX", "/tmp/starter,1,0")
+	t.Setenv("TMUX_PANE", "%7")
+	t.Setenv("KEEP", "value")
+	if _, err := ensureDaemon(context.Background(), cli, socket); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(seen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Failures name the variable only: the dump holds the runner's own secrets.
+	kept := false
+	for _, kv := range strings.Split(string(raw), "\n") {
+		key, value, _ := strings.Cut(kv, "=")
+		kept = kept || key == "KEEP" && value == "value"
+		if key == "TMUX" || key == "TMUX_PANE" || strings.HasPrefix(key, "GATE_INBOX_") {
+			t.Errorf("daemon inherited %s", key)
+		}
+	}
+	if !kept {
+		t.Error("daemon lost the operator environment")
+	}
+}
+
 func TestSocketAliasUsesFileIdentity(t *testing.T) {
 	dir, err := os.MkdirTemp("/tmp", "gi-socket-")
 	if err != nil {

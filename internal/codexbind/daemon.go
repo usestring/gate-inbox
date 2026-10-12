@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/process"
@@ -20,6 +21,7 @@ func ensureDaemon(ctx context.Context, codex, socket string) (string, error) {
 	if _, err := os.Stat(socket); os.IsNotExist(err) {
 		cmd := exec.CommandContext(ctx, codex, "app-server", "daemon", "start")
 		cmd.Stdin, cmd.Stderr = os.Stdin, os.Stderr
+		cmd.Env = daemonEnvironment(os.Environ())
 		if out, err := cmd.Output(); err != nil {
 			return "", fmt.Errorf("start shared Codex daemon: %w: %s", err, out)
 		}
@@ -39,6 +41,21 @@ func ensureDaemon(ctx context.Context, codex, socket string) (string, error) {
 		return "", fmt.Errorf("native Codex daemon did not report a running local executable")
 	}
 	return info.Executable, nil
+}
+
+// daemonEnvironment drops the starting pane's session and tmux identity. The
+// daemon outlives this launch and serves clients that are not this session;
+// the bridge sets what its own threads need on each thread start.
+func daemonEnvironment(env []string) []string {
+	kept := make([]string, 0, len(env))
+	for _, kv := range env {
+		key, _, _ := strings.Cut(kv, "=")
+		if key == "TMUX" || key == "TMUX_PANE" || strings.HasPrefix(key, "GATE_INBOX_") {
+			continue
+		}
+		kept = append(kept, kv)
+	}
+	return kept
 }
 
 func (b *bridge) verifiedDaemonExecutable(pid int) bool {

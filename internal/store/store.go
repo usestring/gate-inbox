@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/priority"
@@ -167,11 +169,36 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	abs, absErr := filepath.Abs(path)
+	if done, ok := migrated.Load(abs); ok && absErr == nil && store.schemaVersion() == done.(int64) {
+		return store, nil
+	}
 	if err := store.init(); err != nil {
 		store.db.Close()
 		return nil, err
 	}
+	if version := store.schemaVersion(); absErr == nil && version > 0 {
+		migrated.Store(abs, version)
+	}
 	return store, nil
+}
+
+// migrated is the schema version each database path this process brought up
+// to date was left at. The board opens state.db afresh for each session an
+// extension asks about, and the migrations' UPDATEs scan every session row on
+// a cold connection: several megabytes read per call, many calls a second.
+// Once per process per file still runs them on every start, which is all the
+// re-runnable UPDATEs promise. A schema change since, or a new file at the
+// same path, moves SQLite's schema cookie and migrates again; the path alone
+// cannot tell, because a new file can reuse the old one's inode.
+var migrated sync.Map
+
+func (s *Store) schemaVersion() int64 {
+	var version int64
+	if s.db.QueryRow("PRAGMA schema_version").Scan(&version) != nil {
+		return -1
+	}
+	return version
 }
 
 func connect(path string) (*Store, error) {

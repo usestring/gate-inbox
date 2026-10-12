@@ -205,7 +205,8 @@ jump_to_bottom_key = "C-End"
 # too. So require the arrow wording inside that one segment: "Tab/Arrow keys to
 # navigate" claims the arrows, "↑/↓ to navigate" leaves them alone, and a permission
 # prompt ("Enter to confirm · Esc to cancel") has no such segment at all.
-arrow_dialog_line = "(?i)\\x{B7} [^\\x{B7}\\n]*(?:Arrow keys|\\x{2190}|\\x{2192})[^\\x{B7}\\n]* to navigate\\b"
+# The /model picker's effort slider ("◉ xHigh effort ←/→ to adjust") claims them too.
+arrow_dialog_line = "(?i)\\x{B7} [^\\x{B7}\\n]*(?:Arrow keys|\\x{2190}|\\x{2192})[^\\x{B7}\\n]* to navigate\\b|\\x{2190}/\\x{2192} to adjust\\b"
 # The question stepper, drawn above the options whenever the dialog has more
 # than one step: "←  ☐ Shape  ☐ Scope  ✔ Submit  →" for three questions, and
 # "←  ☐ Checks  ✔ Submit  →" for a single multi-select one, which has the

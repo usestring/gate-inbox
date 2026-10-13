@@ -119,6 +119,10 @@ func TestArchivedGroupSubtreeExpires(t *testing.T) {
 			archivedID = s.ID
 		}
 	}
+	// An archive ends the pane before it files the row.
+	if err := m.tmux.Kill(archivedID); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
 	if err := m.store.SetArchived(archivedID, true); err != nil {
 		t.Fatalf("archive: %v", err)
 	}

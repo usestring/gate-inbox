@@ -74,7 +74,13 @@ func Resolve(toolName, explicit string) (string, error) {
 // asked to run on, for the tool whose generated config is the only place it
 // can be named; every other style leaves it to the command line.
 func Apply(style, exe, hooksDir, command string, env map[string]string, model string) (string, error) {
-	return apply(style, exe, hooksDir, command, env, model, true)
+	return apply(style, exe, hooksDir, command, env, model, "", true)
+}
+
+// ApplyProfile is Apply registering a server that serves only profile's
+// tools; "" is every tool, as Apply.
+func ApplyProfile(style, exe, hooksDir, command string, env map[string]string, model, profile string) (string, error) {
+	return apply(style, exe, hooksDir, command, env, model, profile, true)
 }
 
 // Preview is Apply without the side effects: the same command and the same
@@ -86,10 +92,15 @@ func Apply(style, exe, hooksDir, command string, env map[string]string, model st
 // avoid doing -- and it fails on a machine where those paths are not writable,
 // which is exactly when somebody is reading a dry run.
 func Preview(style, exe, hooksDir, command string, env map[string]string, model string) (string, error) {
-	return apply(style, exe, hooksDir, command, env, model, false)
+	return apply(style, exe, hooksDir, command, env, model, "", false)
 }
 
-func apply(style, exe, hooksDir, command string, env map[string]string, model string, write bool) (string, error) {
+// PreviewProfile is Preview for ApplyProfile.
+func PreviewProfile(style, exe, hooksDir, command string, env map[string]string, model, profile string) (string, error) {
+	return apply(style, exe, hooksDir, command, env, model, profile, false)
+}
+
+func apply(style, exe, hooksDir, command string, env map[string]string, model, profile string, write bool) (string, error) {
 	config := func(name string, content []byte) (string, error) {
 		if !write {
 			return filepath.Join(hooksDir, hooks.GeneratedName(name, content)), nil
@@ -98,7 +109,7 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model st
 	}
 	switch style {
 	case "claude":
-		path, err := config(generatedPrefix+"mcp-claude.json", claudeConfig(exe))
+		path, err := config(generatedPrefix+"mcp-claude.json", claudeConfig(exe, profile))
 		if err != nil {
 			return "", err
 		}
@@ -110,7 +121,7 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model st
 	case "codex":
 		overrides := []string{
 			fmt.Sprintf(`mcp_servers.%s.command=%q`, serverName, exe),
-			fmt.Sprintf(`mcp_servers.%s.args=["mcp"]`, serverName),
+			fmt.Sprintf(`mcp_servers.%s.args=%s`, serverName, codexArgs(profile)),
 			fmt.Sprintf(`mcp_servers.%s.env_vars=[%q]`, serverName, hooks.EnvSessionID),
 			`features.default_mode_request_user_input=true`,
 			// A developer message beside codex's own instructions, where
@@ -123,11 +134,11 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model st
 		}
 		return command, nil
 	case "opencode":
-		name, content := generatedPrefix+"mcp-opencode.json", opencodeConfig(exe, "")
+		name, content := generatedPrefix+"mcp-opencode.json", opencodeConfig(exe, "", profile)
 		if model != "" {
 			// v2's TUI has no model flag; the config's model key is where a
 			// chosen model goes, so a session on one gets a config of its own.
-			name, content = generatedPrefix+"mcp-opencode-"+env[hooks.EnvSessionID]+".json", opencodeConfig(exe, model)
+			name, content = generatedPrefix+"mcp-opencode-"+env[hooks.EnvSessionID]+".json", opencodeConfig(exe, model, profile)
 		}
 		path, err := config(name, content)
 		if err != nil {
@@ -198,12 +209,12 @@ func forwardedSessionID(open, close string) map[string]string {
 	return map[string]string{hooks.EnvSessionID: open + hooks.EnvSessionID + close}
 }
 
-func claudeConfig(exe string) []byte {
+func claudeConfig(exe, profile string) []byte {
 	config := map[string]any{
 		"mcpServers": map[string]any{
 			serverName: map[string]any{
 				"command": exe,
-				"args":    []string{"mcp"},
+				"args":    serverArgs(profile),
 				"env":     forwardedSessionID("${", "}"),
 			},
 		},
@@ -225,14 +236,14 @@ func claudeConfig(exe string) []byte {
 // server, which appends them to its block when started with SteeringFlag.
 // Nothing lands in the user message the session's own title is eventually
 // written from, and the steering arrives only where the tools it names do.
-func opencodeConfig(exe string, model string) []byte {
+func opencodeConfig(exe, model, profile string) []byte {
 	config := map[string]any{
 		"$schema": "https://opencode.ai/config.json",
 		"mcp": map[string]any{
 			"servers": map[string]any{
 				serverName: map[string]any{
 					"type":        "local",
-					"command":     []string{exe, "mcp", SteeringFlag, "opencode"},
+					"command":     append([]string{exe}, serverArgs(profile, SteeringFlag, "opencode")...),
 					"environment": forwardedSessionID("{env:", "}"),
 					// Code mode, v2's default, hides a server's tools behind
 					// its exec tool; the steering and every tool description

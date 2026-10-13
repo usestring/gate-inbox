@@ -48,9 +48,20 @@ type ChildSend struct {
 // queue on one child is not a reason to leave the other eight uninstructed,
 // and the caller can see exactly which one to chase.
 func (s *Sessions) SendChildren(sessionID, message string) (ChildSend, error) {
+	return s.SendChildrenAbout(sessionID, message, "")
+}
+
+// SendChildrenAbout is SendChildren labelling each message with subject, so
+// a later send on the same subject replaces it where it is still unread, as
+// send_session's subject does.
+func (s *Sessions) SendChildrenAbout(sessionID, message, subject string) (ChildSend, error) {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return ChildSend{}, errors.New("message is empty")
+	}
+	subject = strings.TrimSpace(subject)
+	if len(subject) > maxSubjectBytes {
+		return ChildSend{}, fmt.Errorf("subject is %d bytes, over the %d byte limit; it is a label for what the message is about, not the message", len(subject), maxSubjectBytes)
 	}
 	if len(message) > maxMessageBytes {
 		return ChildSend{}, fmt.Errorf(
@@ -110,6 +121,7 @@ func (s *Sessions) SendChildren(sessionID, message string) (ChildSend, error) {
 				SenderName:  caller.Name,
 				Body:        message,
 				Fingerprint: stamp,
+				Subject:     subject,
 				SentAt:      now,
 			}, store.DefaultInboxLimits)
 			if err != nil {

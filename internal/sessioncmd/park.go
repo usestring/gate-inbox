@@ -567,7 +567,7 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 	if err != nil {
 		return config.Tool{}, err
 	}
-	command, env, err := launch.Environment(hooks.NewManager(s.configDir), target.Tool, tool, base, target.ID, target.Model, target.Account, contributed)
+	command, env, err := launch.EnvironmentWithProfile(hooks.NewManager(s.configDir), target.Tool, tool, base, target.ID, target.Model, target.Account, contributed, mcpProfile(target))
 	if err != nil {
 		return config.Tool{}, err
 	}

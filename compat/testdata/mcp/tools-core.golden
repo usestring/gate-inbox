@@ -764,7 +764,7 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "Create a managed terminal for human-visible work such as SSH, not for one-shot local commands or other internal work. It nests under this session unless nest is false, which a group other than this session's needs; a terminal created from a terminal joins it as a sibling under the same agent. The group supplies the inherited directory, and directory set explicitly wins. Then call send_terminal with the returned id; use create_session instead for another agent CLI. Call close_terminal when the job is finished and the terminal is not being left for the user.",
+  "description": "Create a managed terminal for human-visible work such as SSH, not for one-shot local commands or other internal work. It nests under this session unless nest is false, which a group other than this session's needs; a terminal created from a terminal joins it as a sibling under the same agent. The group supplies the inherited directory, and directory set explicitly wins; name labels its row, which is otherwise named after this session. Then call send_terminal with the returned id; use create_session instead for another agent CLI. Call close_terminal when the job is finished and the terminal is not being left for the user.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -778,6 +778,10 @@
           "null",
           "string"
         ]
+      },
+      "name": {
+        "description": "name for the terminal's row; omit to name it after this session",
+        "type": "string"
       },
       "nest": {
         "description": "when true or omitted, nest under this session, or beside it under the same parent when this session is itself a terminal; false places an un-nested terminal in group",
@@ -2831,7 +2835,7 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Queue one message for every session this one spawned, when the correction is about the work rather than about one worker: the branch moved, the endpoint changed, stop using that field. Sending nine messages by hand means the ninth is written long after the first, and by then the first agents have acted on the old instruction. Use send_session for anything meant for one agent -- this interrupts the whole fan-out, so reach for it only when every child needs to hear it. A child that cannot take the message is reported rather than failing the call, so a full queue on one does not leave the rest uninstructed.",
+  "description": "Queue one message for every session this one spawned, when the correction is about the work rather than about one worker: the branch moved, the endpoint changed, stop using that field. Sending nine messages by hand means the ninth is written long after the first, and by then the first agents have acted on the old instruction. Use send_session for anything meant for one agent -- this interrupts the whole fan-out, so reach for it only when every child needs to hear it. A child that cannot take the message is reported rather than failing the call, so a full queue on one does not leave the rest uninstructed. Pass subject so a later correction on the same subject replaces this one where it is still unread.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -2841,6 +2845,10 @@
       },
       "message_file": {
         "description": "absolute path of a file holding the instruction, used instead of message",
+        "type": "string"
+      },
+      "subject": {
+        "description": "what the message is about, as on send_session: a later send_children or send_session on the same subject replaces it for every child that has not read it yet",
         "type": "string"
       }
     },
@@ -3457,7 +3465,7 @@
     "openWorldHint": false,
     "readOnlyHint": true
   },
-  "description": "Park until a session you are waiting on stops working, instead of calling read_session in a loop. Call it after handing an agent a task when your next step depends on its result. For a fan-out pass children true, or several session_ids: one call parks on the whole set and returns the moment any one of them arrives, so never wait on children one at a time. By default it returns once a session reaches any state that means it stopped (finished, waiting, idle, errored or dead; a session at rest while its own children are still going reads delegating and does not end the wait); pass until to wait for particular states. It counts from your own handoff. While a message you sent that session is still queued, its state describes the turn before, so the wait carries on until that message goes in and its turn ends. A timeout is a normal answer, not a failure: the result carries reached false and the actual state, and outcome says whether it reached, timed_out or died. standing carries every waited-on session with its own outcome, so use that rather than a follow-up list_sessions, then read_session on whichever one moved.",
+  "description": "Park until a session you are waiting on stops working, instead of calling read_session in a loop. Call it after handing an agent a task when your next step depends on its result. For a fan-out pass children true, or several session_ids: one call parks on the whole set and returns the moment any one of them arrives, so never wait on children one at a time. By default it returns once a session reaches any state that means it stopped (finished, waiting, idle, errored or dead; a session at rest while its own children are still going reads delegating and does not end the wait); pass until to wait for particular states. It counts from your own handoff. While a message you sent that session is still queued, its state describes the turn before, so the wait carries on until that message goes in and its turn ends. Pass timeout_s for how long to park. A timeout is a normal answer, not a failure: the result carries reached false and the actual state, and outcome says whether it reached, timed_out or died. standing carries every waited-on session with its own outcome, so use that rather than a follow-up list_sessions, then read_session on whichever one moved.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {

@@ -26,6 +26,9 @@ socket. `internal/ui` is the slow one: `-short` skips its wall-clock tests, and
 `scripts/shard-test.sh` splits it across processes. [`README.md`](README.md#development) has the
 details.
 
+Coding agents testing locally follow [`AGENTS.md`](AGENTS.md): `-short` on changed packages
+only, with the full suites left to CI.
+
 ### Pre-push tests
 
 Enable the repository's hook once per clone (including when working in a submodule):

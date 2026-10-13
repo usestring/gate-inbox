@@ -806,6 +806,7 @@ func TestInboxRecordsAMessageItCouldNotTypeAsDropped(t *testing.T) {
 // it was sent, so a message delivered on the same tick would land on an
 // agent that is already starting a turn.
 func TestInboxWaitsAPollAfterALaunchInputIsTyped(t *testing.T) {
+	needsQuietBox(t)
 	m := buildModel(t)
 	if err := m.spawnSession("send-tool", "", t.TempDir(), "", "", true); err != nil {
 		t.Fatalf("spawn: %v", err)

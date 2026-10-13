@@ -211,7 +211,17 @@ func (r *runtime) deliverable(target store.Session) error {
 // call answers both whether its pane is alive and where it sits; asking
 // Exists first and then sessionInfo is two, and a board extension asks this
 // of every session it watches on every poll pass.
+//
+// An archived row the store holds dead has no pane to ask about: archiving
+// ended it, and only a revive, which stores a fresh status, puts one back.
+// An extension that keeps an archived id on record asks after it on every
+// pass, and each ask was a list-panes that tmux refused with "can't find
+// window" and a WARN to go with it -- 222k in 3.5 hours from 19 archived
+// rows, which rotated the log every half hour.
 func (r *runtime) currentInfo(sess store.Session, self bool) Session {
+	if sess.Archived && sess.Status == status.Dead {
+		return r.sessionInfoIn(sess, sess.Cwd, false, self)
+	}
 	dir, live := r.driver.LivePaneDir(sess.ID)
 	if dir == "" {
 		dir = sess.Cwd

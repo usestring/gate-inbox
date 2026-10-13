@@ -171,7 +171,15 @@ func TestMutedChildStaysVisibleButSkippedInTriage(t *testing.T) {
 }
 
 func TestTriageMovesMutedRowsBelowUnmutedDescendantsAndSiblings(t *testing.T) {
-	for _, mutedIDs := range [][]string{{"p1"}, {"c1", "c2"}, {"p1", "c2"}} {
+	for _, tc := range []struct {
+		mutedIDs                    []string
+		childDepth, grandchildDepth int
+	}{
+		{[]string{"p1"}, 0, 1},
+		{[]string{"c1", "c2"}, 0, 0},
+		{[]string{"p1", "c2"}, 1, 0},
+	} {
+		mutedIDs := tc.mutedIDs
 		t.Run(joined(mutedIDs), func(t *testing.T) {
 			m := childModel(t)
 			m.sessions = append(m.sessions, childSess("g1", "nested", m.sessions[0].Group, "c2", status.Idle, time.Minute))
@@ -195,6 +203,12 @@ func TestTriageMovesMutedRowsBelowUnmutedDescendantsAndSiblings(t *testing.T) {
 					t.Fatalf("unmuted row %s followed a muted row in %v", row.sess.ID, rowIDs(m))
 				}
 				seenMuted = seenMuted || row.sess.Muted
+				if row.isSession() && row.sess.ID == "c2" && row.depth != tc.childDepth {
+					t.Fatalf("child depth = %d, want %d", row.depth, tc.childDepth)
+				}
+				if row.isSession() && row.sess.ID == "g1" && row.depth != tc.grandchildDepth {
+					t.Fatalf("grandchild depth = %d, want %d", row.depth, tc.grandchildDepth)
+				}
 				if row.isHead() && (i+1 == len(m.rows) || !m.rows[i+1].isSession() || m.rows[i+1].sess.ID != row.sess.ID) {
 					t.Fatalf("header for %s separated from its session", row.sess.ID)
 				}

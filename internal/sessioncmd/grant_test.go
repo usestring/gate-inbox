@@ -99,7 +99,9 @@ func TestGrantNeedsTheUsersExactApproval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("no session settings file: %v", err)
 	}
-	for _, want := range []string{`"Bash(tools/probe.sh:*)"`, `"excludedCommands"`, `"hooks"`} {
+	// The hooks ride the Gate Inbox plugin; the session's file carries the
+	// grants and the key-dir denials.
+	for _, want := range []string{`"Bash(tools/probe.sh:*)"`, `"excludedCommands"`, `"denyRead"`} {
 		if !strings.Contains(string(body), want) {
 			t.Fatalf("settings file lacks %s:\n%s", want, body)
 		}

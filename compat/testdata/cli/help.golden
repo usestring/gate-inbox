@@ -97,7 +97,7 @@ How much this session matters
 
 Setup
   gate-inbox claude-hooks [install | uninstall [--all] | status]
-      register Gate Inbox's hooks in your Claude Code user settings, so a claude started outside the board works fully once adopted; the board installs them at startup
+      register Gate Inbox's hooks and MCP relay in your Claude Code user config, so a claude started outside the board works fully once adopted; the board installs them at startup
 
 Options:
   -h, --help     Show this help text

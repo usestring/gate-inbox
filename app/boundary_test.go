@@ -1421,3 +1421,69 @@ func callText(t *testing.T, session *mcp.ClientSession, name string, args map[st
 	}
 	return text
 }
+
+// TestExternalBuildRunsClaudeHooks proves an extension outside this module
+// runs on a Claude Code hook through app.Options alone: the hook line the
+// settings file carries reaches the extension configured from the
+// operator's file, and its output is the hook's. A switched-off or refused
+// extension adds nothing and never fails the hook.
+func TestExternalBuildRunsClaudeHooks(t *testing.T) {
+	bin := buildFixture(t)
+	payload := `{"tool_name":"mcp__fixture__post","tool_input":{"channel_id":"C1","text":"hi"}}`
+	hook := func(t *testing.T, env []string, args ...string) (string, int) {
+		t.Helper()
+		cmd := exec.Command(bin, append([]string{"hook"}, args...)...)
+		cmd.Env = env
+		cmd.Stdin = strings.NewReader(payload)
+		out, err := cmd.CombinedOutput()
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return string(out), exit.ExitCode()
+		}
+		if err != nil {
+			t.Fatalf("hook %v: %v", args, err)
+		}
+		return string(out), 0
+	}
+
+	t.Run("signs the call", func(t *testing.T) {
+		out, code := hook(t, fixtureHome(t, "[extensions.noop]\ngreeting = \"signed\"\n"), "ext", "noop", "PreToolUse")
+		var got struct {
+			Output struct {
+				Event string         `json:"hookEventName"`
+				Input map[string]any `json:"updatedInput"`
+			} `json:"hookSpecificOutput"`
+		}
+		if code != 0 || json.Unmarshal([]byte(out), &got) != nil {
+			t.Fatalf("hook exited %d with %q", code, out)
+		}
+		if got.Output.Event != "PreToolUse" || got.Output.Input["text"] != "hi -- signed (fixture-session)" || got.Output.Input["channel_id"] != "C1" {
+			t.Fatalf("hook output = %+v", got.Output)
+		}
+	})
+
+	for name, tc := range map[string]struct {
+		config string
+		args   []string
+	}{
+		"refused config":   {"[extensions.noop]\nbogus = 1\n", []string{"ext", "noop", "PreToolUse"}},
+		"unknown id":       {"", []string{"ext", "nobody", "PreToolUse"}},
+		"undeclared event": {"", []string{"ext", "noop", "Stop"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if out, code := hook(t, fixtureHome(t, tc.config), tc.args...); code != 0 || out != "" {
+				t.Fatalf("hook %v exited %d with %q, want silence", tc.args, code, out)
+			}
+		})
+	}
+
+	t.Run("a bad hook stops every face", func(t *testing.T) {
+		env := append(fixtureHome(t, ""), "NOOP_FIXTURE_BAD_HOOK=1")
+		cmd := exec.Command(bin, "--version")
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		if err == nil || !strings.Contains(string(out), `extension "noop": Claude hook event "SessionEnd"`) {
+			t.Fatalf("--version with a bad hook: %v, %q", err, out)
+		}
+	})
+}

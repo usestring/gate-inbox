@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/opencode"
@@ -344,6 +345,48 @@ func TestEnvironmentCarriesSessionIDAndHooks(t *testing.T) {
 	}
 	if !strings.Contains(command, "--mcp-config '") || !strings.Contains(command, "--settings '") {
 		t.Fatalf("hooked command = %q", command)
+	}
+}
+
+// Every hooked launch loads the Gate Inbox plugin once, from the directory
+// the launch itself wrote, and a dry run names the same directory without
+// writing it.
+func TestEnvironmentLoadsTheGateInboxPluginOnce(t *testing.T) {
+	home := t.TempDir()
+	manager := hooks.NewManager(home)
+	hooked := config.Tool{Command: "cat", StatusSource: hooks.StatusSourceClaude, MCP: "claude"}
+	dir, err := claudeplugin.Path(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, _, err := Compose(manager, "hooked", hooked, hooked.Command, "abcd1234", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(claudeplugin.Dir(home)); !os.IsNotExist(err) {
+		t.Fatalf("Compose wrote the plugin: %v", err)
+	}
+	command, _, err := Environment(manager, "hooked", hooked, hooked.Command, "abcd1234", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := claudeplugin.Argv(tmux.ShellQuote(dir))
+	for _, got := range []string{preview, command} {
+		if strings.Count(got, "--plugin-dir") != 1 || !strings.Contains(got, want) {
+			t.Fatalf("command = %q, want exactly one %q", got, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".claude-plugin", "plugin.json")); err != nil {
+		t.Fatalf("the launch did not write the plugin it loads: %v", err)
+	}
+
+	plain := config.Tool{Command: "cat", MCP: "codex"}
+	command, _, err = Environment(manager, "codex", plain, plain.Command, "abcd1234", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(command, "--plugin-dir") {
+		t.Fatalf("a codex launch carries the claude plugin: %q", command)
 	}
 }
 

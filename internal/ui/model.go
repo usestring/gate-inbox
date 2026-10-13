@@ -523,8 +523,10 @@ type Model struct {
 	focusHistory      []string
 	previewBodyOffset int
 	cursor            int
-	mode              mode
-	showArchived      bool
+	// listTop is the first entry the rail drew last frame; see entryLines.
+	listTop      listAnchor
+	mode         mode
+	showArchived bool
 	// showAllWork lifts the cap on the pull requests and tickets a session
 	// hangs on the rail, for a reader who came for the tail. Off at every
 	// start: the cap is what keeps one busy session off the whole screen.
@@ -699,6 +701,9 @@ type Model struct {
 	// archived, restored, or deleted a group, a poll that listed the store
 	// before that moment must not put the old state back on the tree.
 	goneGroups map[string]goneMark
+	// reorders are this run's manual swaps a poll may not have listed yet;
+	// see holdReorders.
+	reorders []reorderMark
 	// terminalKeyAt is when the last T finished being handled. Held down it
 	// autorepeats into a burst of keystrokes, and T is the only key that
 	// spawns on the keystroke itself rather than opening a form that would
@@ -1317,6 +1322,9 @@ func (m *Model) seedFromStore() {
 		logging.Info("store seeded", "sessions", 0, logging.Err(err))
 		return
 	}
+	if shown, err := m.poller.delegated(sessions); err == nil {
+		sessions = shown
+	}
 	m.sessions = sessions
 	m.adoptRestored = true
 	m.restoreAdopted()
@@ -1729,7 +1737,8 @@ func (m *Model) previewCmd(sess store.Session, gen uint64, withProc bool) tea.Cm
 		if withProc {
 			if pid, err := m.tmux.PanePID(sess.ID); err == nil {
 				memTotal, _ := sysstat.MemTotalBytes()
-				msg.proc = sysstat.Trees([]int{pid})[pid].ScaleToHost(sysstat.LogicalCPUs(), memTotal)
+				stat, _ := sysstat.Tree(pid)
+				msg.proc = stat.ScaleToHost(sysstat.LogicalCPUs(), memTotal)
 				msg.procOK = true
 			}
 		}
@@ -2216,6 +2225,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// own is no longer marked as adopted.
 		m.syncAdoptedHooks(time.Now())
 		m.groups = msg.groups
+		m.holdReorders(msg.listedAt)
 		m.groupPaths = msg.groupPaths
 		m.archivedGroups = msg.archivedGroups
 		m.priorityGroups = msg.priorityGroups
@@ -3158,13 +3168,11 @@ func (m *Model) buildTree() {
 				continue
 			}
 			// Triage draws every child except the ones somebody else is
-			// already answering; see parentOwns.
-			if m.triage && m.foldsAway(child) && m.parentOwns(child, time.Now(), livePanes) {
-				continue
-			}
-			// A muted child is off triage the same as a muted top-level
-			// session, and takes what hangs under it along.
-			if m.triage && child.Muted {
+			// already answering; see parentOwns. A muted child stays on the
+			// rail reading "muted" whoever owns its question, so it can be
+			// unmuted from here, and the drain walks past it; see
+			// persistentmute.go and triageHandable.
+			if m.triage && !child.Muted && m.foldsAway(child) && m.parentOwns(child, time.Now(), livePanes) {
 				continue
 			}
 			if drawn[child.ID] {
@@ -3208,13 +3216,9 @@ func (m *Model) buildTree() {
 				continue
 			}
 			for _, sess := range groupSessions {
-				// A persistently muted session is off the triage queue entirely:
-				// it is not a thing the drain walks past, it is not on the
-				// rail the drain reads. Its row is still on the list, where
-				// it reads "muted"; see persistentmute.go.
-				if m.triage && sess.Muted {
-					continue
-				}
+				// A persistently muted session stays on the triage rail reading
+				// "muted", sorted last; the drain walks past it rather than
+				// handing it over. See persistentmute.go and triageHandable.
 				kept[sess.ID] = true
 			}
 		}
@@ -3231,6 +3235,17 @@ func (m *Model) buildTree() {
 		}
 		for _, sess := range queue {
 			appendSession(sess, 0)
+		}
+		if m.triage {
+			slices.SortStableFunc(rows, func(a, b treeRow) int {
+				if a.sess.Muted == b.sess.Muted {
+					return 0
+				}
+				if a.sess.Muted {
+					return 1
+				}
+				return -1
+			})
 		}
 		connectMigrationRows(rows)
 		m.rows = rows

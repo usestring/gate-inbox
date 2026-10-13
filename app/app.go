@@ -348,24 +348,30 @@ func logSettings(cfg config.Config) logging.Settings {
 	}
 }
 
-// mcpSteering reads the mcp verb's only flag: the CLI whose standing
-// instructions the server carries, which a generated config names. A style
-// the server has no steering for is refused, so a typo fails the server's
-// start where the operator sees it rather than serving without the steering.
-func mcpSteering(args []string) (string, error) {
+// mcpSteering reads the mcp verb's flags: the CLI whose standing
+// instructions the server carries, which a generated config names, and the
+// profile of tools it serves (all when omitted). A style the server has no
+// steering for is refused, so a typo fails the server's start where the
+// operator sees it rather than serving without the steering.
+func mcpSteering(args []string) (string, mcpserver.Profile, error) {
 	flags := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	steering := flags.String(strings.TrimPrefix(mcpreg.SteeringFlag, "--"), "", "")
+	profileFlag := flags.String(strings.TrimPrefix(mcpserver.ProfileFlag, "--"), "", "")
 	if err := flags.Parse(args); err != nil {
-		return "", fmt.Errorf("mcp: %w", err)
+		return "", "", fmt.Errorf("mcp: %w", err)
+	}
+	profile, err := mcpserver.ParseProfile(*profileFlag)
+	if err != nil {
+		return "", "", fmt.Errorf("mcp: %w", err)
 	}
 	if *steering == "" {
-		return "", nil
+		return "", profile, nil
 	}
 	if _, ok := mcpreg.ServerSteering(*steering, true); !ok {
-		return "", fmt.Errorf("mcp: %s %q is not a CLI this build steers", mcpreg.SteeringFlag, *steering)
+		return "", "", fmt.Errorf("mcp: %s %q is not a CLI this build steers", mcpreg.SteeringFlag, *steering)
 	}
-	return *steering, nil
+	return *steering, profile, nil
 }
 
 // subcommands is every verb other than the board itself. "mcp" is the one
@@ -374,11 +380,11 @@ func mcpSteering(args []string) (string, error) {
 func subcommands(ctx context.Context, version string, extensions []extension.Extension) map[string]func(args []string) error {
 	table := map[string]func(args []string) error{
 		"mcp": withConfigDir(func(args []string, sessionID, configDir string) error {
-			steering, err := mcpSteering(args)
+			steering, profile, err := mcpSteering(args)
 			if err != nil {
 				return err
 			}
-			return mcpserver.Run(ctx, configDir, sessionID, version, extensions, steering)
+			return mcpserver.Run(ctx, configDir, sessionID, version, extensions, steering, profile)
 		}),
 	}
 	table["hook"] = withConfigDir(func(args []string, sessionID, configDir string) error {
@@ -386,6 +392,12 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 	})
 	table["claude-hooks"] = withConfigDir(func(args []string, _, configDir string) error {
 		return runClaudeHooks(os.Stdout, args, configDir)
+	})
+	// merge-gate-check is the merge-gate mod's way back into the Go gate. It
+	// stays out of the cli sections like hook does: it is machine-facing, not
+	// something an operator runs by hand.
+	table["merge-gate-check"] = withConfigDir(func(args []string, _, configDir string) error {
+		return cli.RunMergeGateCheck(os.Stdout, args, configDir)
 	})
 	for name, command := range cli.Commands() {
 		if name != "spawn" && name != "migrate" && name != "revive" && name != "unpark" {

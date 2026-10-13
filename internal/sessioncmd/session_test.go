@@ -501,11 +501,13 @@ func TestSessionGroupsListAndCreate(t *testing.T) {
 func TestSendAndWaitRefuseATargetTheManagerNoLongerPolls(t *testing.T) {
 	t.Parallel()
 	h := newSessionHarness(t)
-	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "worker"})
+	// Another session's, since a send to the caller's own child restores it.
+	stranger := childRow(t, h, store.Session{ID: "a0b1c2d3", Name: "another-agent"}, false)
+	created, err := h.sessions.Create(stranger.ID, CreateSessionOptions{Name: "worker"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := h.sessions.Archive(h.caller.ID, created.ID, true); err != nil {
+	if _, err := h.sessions.Archive(stranger.ID, created.ID, true); err != nil {
 		t.Fatalf("Archive: %v", err)
 	}
 	// The refusal has to name the archive rather than the dead pane: an
@@ -1466,12 +1468,14 @@ func TestSessionsListNarrowsToWhatTheCallerAskedFor(t *testing.T) {
 		t.Fatal("a cursor no list returned was accepted")
 	}
 
-	idle, err := h.sessions.List(h.caller.ID, ListOptions{Status: []string{status.Idle}})
+	// The caller is idle on its own pane and reads delegating while the
+	// children it spawned are still starting, so it is on that side.
+	idle, err := h.sessions.List(h.caller.ID, ListOptions{Status: []string{status.Idle, status.Delegating}})
 	if err != nil {
 		t.Fatalf("List idle: %v", err)
 	}
 	for _, sess := range idle.Sessions {
-		if sess.Status != status.Idle {
+		if sess.Status != status.Idle && sess.Status != status.Delegating {
 			t.Fatalf("status filter returned %+v", sess)
 		}
 	}
@@ -1483,7 +1487,7 @@ func TestSessionsListNarrowsToWhatTheCallerAskedFor(t *testing.T) {
 		t.Fatalf("the two states do not partition the list: idle %d, starting %d, all %d", idle.Matched, rest.Matched, all.Matched)
 	}
 	// A set is a set: both states together are the whole unarchived list.
-	if both, err := h.sessions.List(h.caller.ID, ListOptions{Status: []string{status.Idle, status.Starting}}); err != nil ||
+	if both, err := h.sessions.List(h.caller.ID, ListOptions{Status: []string{status.Idle, status.Delegating, status.Starting}}); err != nil ||
 		both.Matched != all.Matched {
 		t.Fatalf("two states = %+v, err %v", both, err)
 	}

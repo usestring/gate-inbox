@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/clipboard"
@@ -574,12 +575,19 @@ func (m *Model) reorderSelected(delta int) (tea.Model, tea.Cmd) {
 	}
 	// Mirror the swap in memory so the list redraws instantly; the next
 	// poll re-reads the authoritative order from the store.
+	mark := reorderMark{group: entry.isGroup, at: time.Now()}
 	if entry.isGroup {
 		m.materializeGroupsLocal(groupSiblings)
 		m.swapGroupLocal(entry.group, target.group)
+		mark.first, mark.second = entry.group, target.group
 	} else {
 		m.swapSessionLocal(entry.sess.ID, target.sess.ID)
+		mark.first, mark.second = entry.sess.ID, target.sess.ID
 	}
+	if delta > 0 {
+		mark.first, mark.second = mark.second, mark.first
+	}
+	m.reorders = append(m.reorders, mark)
 	m.errBar.text = ""
 	m.rebuildRows()
 	m.requestRefresh()

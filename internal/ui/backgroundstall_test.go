@@ -1,0 +1,73 @@
+package ui
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/usestring/gate-inbox/internal/agentsession"
+	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
+)
+
+const staleShellPane = `● The probe is done.
+
+✻ Baked for 26s · done 15:14 · 1 shell still running
+──────────────────────────────────────────────────────────────
+❯
+──────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on · 1 shell
+`
+
+func transcriptAged(t *testing.T, sess store.Session, age time.Duration, now time.Time) {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	path, err := agentsession.ClaudeTranscriptPath(sess.Cwd, sess.AgentSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, now.Add(-age), now.Add(-age)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Live 2026-10-12: a child whose turn ended six days earlier with a shell
+// tail read working the whole time, held off the child sweep, and held its
+// parent delegating.
+func TestSettleStalledBackgroundRestsAQuietTail(t *testing.T) {
+	now := time.Now()
+	sess := store.Session{ID: "child001", Tool: "claude", Cwd: "/work/repo", AgentSessionID: "conv-1"}
+	p := &poller{engine: liveEngine(t)}
+
+	transcriptAged(t, sess, 129*time.Hour, now)
+	if got := p.settleStalledBackground(sess, staleShellPane, status.Working, now); got != status.Finished {
+		t.Fatalf("quiet for 129h: got %q, want finished", got)
+	}
+	sess.Acked = true
+	if got := p.settleStalledBackground(sess, staleShellPane, status.Working, now); got != status.Idle {
+		t.Fatalf("acknowledged and quiet: got %q, want idle", got)
+	}
+}
+
+func TestSettleStalledBackgroundKeepsLiveWorkWorking(t *testing.T) {
+	now := time.Now()
+	sess := store.Session{ID: "child001", Tool: "claude", Cwd: "/work/repo", AgentSessionID: "conv-1"}
+	p := &poller{engine: liveEngine(t)}
+
+	transcriptAged(t, sess, 10*time.Minute, now)
+	if got := p.settleStalledBackground(sess, staleShellPane, status.Working, now); got != status.Working {
+		t.Fatalf("written 10m ago: got %q, want working", got)
+	}
+	noTranscript := sess
+	noTranscript.AgentSessionID = ""
+	if got := p.settleStalledBackground(noTranscript, staleShellPane, status.Working, now); got != status.Working {
+		t.Fatalf("no transcript to read: got %q, want working", got)
+	}
+}

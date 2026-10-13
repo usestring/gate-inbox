@@ -49,21 +49,32 @@ func TestDelegationSteeringNamesEachCLIsOwnSubagentTool(t *testing.T) {
 	}
 }
 
-func TestApplyClaudeAppendsTheDelegationSteering(t *testing.T) {
+// A claude launch appends one line pointing at the Gate Inbox plugin's
+// delegate-with-gate-inbox skill, which says what every other CLI's steering
+// says and owns its children's dialogs the same way.
+func TestClaudeSteeringIsThePluginSkill(t *testing.T) {
 	dir := t.TempDir()
 	command, err := Apply("claude", "/opt/bin/gate-inbox", dir, "claude", map[string]string{}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, hooks.GeneratedName(claudeSteeringFile, []byte(launchSteering("claude"))))
+	path := filepath.Join(dir, hooks.GeneratedName(claudeSteeringFile, []byte(claudeSteering)))
 	if want := " --append-system-prompt-file " + tmux.ShellQuote(path); !strings.HasSuffix(command, want) {
 		t.Fatalf("command = %q, want it to end with %q", command, want)
 	}
-	content, err := os.ReadFile(path)
+	if appended, err := os.ReadFile(path); err != nil || !strings.Contains(string(appended), "gate-inbox:delegate-with-gate-inbox") {
+		t.Fatalf("appended %q (%v), want the pointer to the skill", appended, err)
+	}
+	skill, err := os.ReadFile(filepath.Join("..", "claudeplugin", "plugindir", "skills", "delegate-with-gate-inbox", "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertSteers(t, "claude", string(content), builtinDelegation["claude"])
+	assertSteers(t, "claude skill", string(skill), builtinDelegation["claude"])
+	for _, want := range []string{"Your children's dialogs are yours", "answer_session", "Approval are always your user's to answer"} {
+		if !strings.Contains(string(skill), want) {
+			t.Fatalf("the skill lost the child-dialog rule %q:\n%s", want, skill)
+		}
+	}
 }
 
 // Claude Code keeps only the last --append-system-prompt-file, so ours
@@ -85,7 +96,7 @@ func TestPreviewClaudeWritesNoSteeringFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(command, filepath.Join(dir, hooks.GeneratedName(claudeSteeringFile, []byte(launchSteering("claude"))))) {
+	if !strings.Contains(command, filepath.Join(dir, hooks.GeneratedName(claudeSteeringFile, []byte(claudeSteering)))) {
 		t.Fatalf("preview command = %q, want the steering path a launch would carry", command)
 	}
 	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {

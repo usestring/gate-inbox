@@ -55,11 +55,11 @@ import (
 	"unicode/utf8"
 )
 
-// SectionKey is the menu key for the progress summary, on the physical key
-// left of 1 where the triage keys already are, so the sentence sent most
-// often belongs under that hand too. It reads as a bare key in the menu like
-// every other snippet; a bare § outside the menu still hands over, which is
-// why the menu is the only place it answers.
+// SectionKey is a legal menu key on the physical key left of 1, where the
+// triage keys already are. It reads as a bare key in the menu like every
+// other snippet; a bare § outside the menu still hands over, which is why the
+// menu is the only place it answers. Not every keyboard has the key, so no
+// default sits on it.
 const SectionKey = "§"
 
 // PlusMinusKey is the one snippet key with no modifier at all: shifted §, so
@@ -76,9 +76,12 @@ type Snippet struct {
 	// Key is the menu key: a single letter a-z, or one of the two keys on
 	// the physical key left of 1, § and ±.
 	Key string `json:"key"`
-	// Label is what the key map, the footer and the quick bar call it. Empty
-	// falls back to the text itself, which is usually short enough to read.
+	// Label is what the footer calls it. Empty falls back to the text itself,
+	// which is usually short enough to read.
 	Label string `json:"label,omitempty"`
+	// Preview overrides the menu text without changing what the key sends.
+	// Empty falls back to Label, then Text.
+	Preview string `json:"preview,omitempty"`
 	// Chord is the direct binding that sends this snippet in one press from
 	// the list or a focused session, without opening the hotkey menu, e.g.
 	// "option+shift+c" (spelled "alt+shift+c" works too). Empty leaves the
@@ -312,10 +315,11 @@ func Defaults() []Snippet {
 	return []Snippet{
 		submit("y", "yes", "yes"),
 		submit("c", "continue", "continue"),
-		submit("e", "explain like I'm 5", "I'm confused, explain like I'm 5"),
+		submit("e", "eli5", "I'm confused, explain like I'm 5"),
 		submit("w", "wake up", "Auto wake-up: the previous turn died on a transient API error. "+
 			"Continue where you left off."),
-		submit(SectionKey, "progress", progressText),
+		submit("n", "needs?", "what do you need from me?"),
+		submit("p", "progress", progressText),
 	}
 }
 
@@ -373,6 +377,7 @@ func validate(parsed []Snippet) Set {
 		snip.chordOmitted = false
 		snip.Key = strings.ToLower(strings.TrimSpace(snip.Key))
 		snip.Label = strings.TrimSpace(snip.Label)
+		snip.Preview = strings.TrimSpace(snip.Preview)
 		snip.Chord = strings.TrimSpace(snip.Chord)
 		// Only the text's edges: a snippet is a message, and an operator who
 		// wrote one across several lines meant those lines.

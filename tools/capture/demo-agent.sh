@@ -7,6 +7,18 @@
 set -uo pipefail
 
 transcript="${1:-working}"
+if [[ "$transcript" == "composer-submit" ]]; then
+  stty -echo -icanon 2>/dev/null || true
+  printf 'Ready for a prompt\n❯ '
+  IFS= read -r _prompt
+  sleep 0.25
+  if [[ -n "${GATE_INBOX_STATUS_FILE:-}" ]]; then
+    printf 'working UserPromptSubmit\n' >> "$GATE_INBOX_STATUS_FILE"
+  fi
+  printf '\033[2J\033[H✻ Working… (esc to interrupt)\n• Working (0s • esc to interrupt)\n'
+  cat >/dev/null
+  exit 0
+fi
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 file="$here/demo/$transcript.txt"
 

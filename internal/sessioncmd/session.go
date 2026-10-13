@@ -39,7 +39,7 @@ type Session struct {
 	Account   string `json:"account,omitempty" jsonschema:"named subscription the session runs on; empty is the CLI's own login"`
 	Group     string `json:"group" jsonschema:"group path holding the session; empty is the root"`
 	Directory string `json:"directory" jsonschema:"session's current working directory, or its launch directory when stopped"`
-	Status    string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, finished, idle, errored or dead"`
+	Status    string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead"`
 	Running   bool   `json:"running" jsonschema:"whether the session currently has a live tmux pane"`
 	Archived  bool   `json:"archived" jsonschema:"whether the session is archived out of the active list"`
 	Muted     bool   `json:"muted" jsonschema:"whether the operator has muted this session out of their triage queue until it is unmuted"`
@@ -196,15 +196,37 @@ func (r *runtime) killable(id string, reaches func(terminal store.Session) error
 // so the next message would queue against it just the same.
 func (r *runtime) deliverable(target store.Session) error {
 	if target.Archived {
-		return fmt.Errorf("session %s is archived, so Gate Inbox no longer polls it; restore it with %s first", target.ID, r.words.Restore)
+		return fmt.Errorf("session %s is archived, so Gate Inbox no longer polls it; only its spawner's send restores it, so restore it with %s, revive it with %s, then send again", target.ID, r.words.restoreCall(target.ID), r.words.reviveCall(target.ID))
 	}
 	if !r.driver.Exists(target.ID) {
-		return fmt.Errorf("session %s is not running; revive it with %s first", target.ID, r.words.Revive)
+		return fmt.Errorf("session %s is not running; revive it with %s, then send again", target.ID, r.words.reviveCall(target.ID))
 	}
 	if r.cfg.Tools[target.Tool].ActivityCutoff == "" {
 		return fmt.Errorf("tool %q declares no activity_cutoff, so Gate Inbox cannot tell when %s is ready to read a message; add one to config.toml", target.Tool, target.ID)
 	}
 	return nil
+}
+
+// currentInfo is sessionInfo for a row whose liveness is not known yet. One tmux
+// call answers both whether its pane is alive and where it sits; asking
+// Exists first and then sessionInfo is two, and a board extension asks this
+// of every session it watches on every poll pass.
+//
+// An archived row the store holds dead has no pane to ask about: archiving
+// ended it, and only a revive, which stores a fresh status, puts one back.
+// An extension that keeps an archived id on record asks after it on every
+// pass, and each ask was a list-panes that tmux refused with "can't find
+// window" and a WARN to go with it -- 222k in 3.5 hours from 19 archived
+// rows, which rotated the log every half hour.
+func (r *runtime) currentInfo(sess store.Session, self bool) Session {
+	if sess.Archived && sess.Status == status.Dead {
+		return r.sessionInfoIn(sess, sess.Cwd, false, self)
+	}
+	dir, live := r.driver.LivePaneDir(sess.ID)
+	if dir == "" {
+		dir = sess.Cwd
+	}
+	return r.sessionInfoIn(sess, dir, live, self)
 }
 
 func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
@@ -214,6 +236,11 @@ func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 			dir = current
 		}
 	}
+	return r.sessionInfoIn(sess, dir, running, self)
+}
+
+// sessionInfoIn is sessionInfo with the directory already read.
+func (r *runtime) sessionInfoIn(sess store.Session, dir string, running, self bool) Session {
 	return Session{
 		ID:        sess.ID,
 		Name:      sess.Name,
@@ -390,7 +417,10 @@ func (r *runtime) list(callerID string, opts ListOptions) (SessionList, error) {
 	if err != nil {
 		return SessionList{}, err
 	}
-	panes, err := r.driver.Panes()
+	if stored, err = r.delegated(stored); err != nil {
+		return SessionList{}, err
+	}
+	scan, err := r.driver.ScanPanesWithPaths()
 	if err != nil {
 		return SessionList{}, err
 	}
@@ -419,8 +449,15 @@ func (r *runtime) list(callerID string, opts ListOptions) (SessionList, error) {
 			more = true
 			continue
 		}
-		_, running := panes[sess.ID]
-		sessions = append(sessions, r.sessionInfo(sess, running, callerID != "" && sess.ID == callerID))
+		self := callerID != "" && sess.ID == callerID
+		_, running := scan.PIDs[sess.ID]
+		// The listing that proved the pane alive also read where it sits,
+		// so a page of rows costs one tmux call, not one per running row.
+		if path, ok := scan.Paths[sess.ID]; ok && running {
+			sessions = append(sessions, r.sessionInfoIn(sess, path, true, self))
+		} else {
+			sessions = append(sessions, r.sessionInfo(sess, running, self))
+		}
 		last = keys[i]
 	}
 	granted, err := r.store.ActiveGrants()
@@ -719,7 +756,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		return Session{}, err
 	}
 	manager := hooks.NewManager(s.configDir)
-	command, env, err := launch.Environment(manager, toolName, tool, plan.Command, id, plan.Model, plan.Account, contributed)
+	command, env, err := launch.EnvironmentWithProfile(manager, toolName, tool, plan.Command, id, plan.Model, plan.Account, contributed, mcpProfile(sess))
 	if err != nil {
 		return Session{}, err
 	}
@@ -788,6 +825,9 @@ type SendResult struct {
 	Handled []extension.OperatorSendResult `json:"handled,omitempty" jsonschema:"what the build's extensions made of an operator's send, each under its extension's id; the message is queued and delivered either way"`
 	// Attestation is the nonce of the relay attestation attached to the
 	// message, set only for a send with relay_question.
+	// Restored is what the send did to bring the sender's archived or dead
+	// child back so it could take the message.
+	Restored    string `json:"restored,omitempty" jsonschema:"what the send did first to reach your own child: restored it from the archive, revived it on its conversation, or both; empty when it was already running"`
 	Attestation string `json:"attestation,omitempty" jsonschema:"nonce of the relay attestation attached to this message: your user's answer, verified in your own transcript, which the child's hook spends once"`
 }
 
@@ -891,10 +931,17 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 	case asHuman:
 		from.id, from.name = store.HumanSenderID, ""
 	}
+	restored := ""
+	if !asHuman {
+		if restored, err = s.restoreForSend(runtime, caller, targetID); err != nil {
+			return SendResult{}, err
+		}
+	}
 	result, err = runtime.enqueue(from, targetID, message, subject, interrupt)
 	if err != nil {
 		return SendResult{}, err
 	}
+	result.Restored = restored
 	result.Relayed = isRelay
 	if !asHuman || isRelay {
 		return result, nil
@@ -1224,10 +1271,12 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 		Cursor:  cursor,
 		Digest:  runtime.digest(target, pane, running, delta),
 	}
+	screen.Session.Status = runtime.restingStatus(target.ID, target.Status)
 	if running {
 		if reading, ok := dialog.ReadQuestions(target.Tool, raw, s.asked(target)); ok {
 			screen.Digest.withQuestions(reading.Questions)
 		}
+		screen.Digest.RelayAsk = s.relayAskOn(target, raw)
 	}
 	if since != "" && readable {
 		screen.Mode, screen.Output, screen.Degraded = "delta", renderDelta(delta), note
@@ -1259,7 +1308,9 @@ func (s *Sessions) Get(sessionID, targetID string) (got Session, err error) {
 	if err != nil {
 		return Session{}, err
 	}
-	return runtime.sessionInfo(target, runtime.driver.Exists(target.ID), target.ID == sessionID), nil
+	got = runtime.currentInfo(target, target.ID == sessionID)
+	got.Status = runtime.restingStatus(target.ID, got.Status)
+	return got, nil
 }
 
 // Kill stops a session's pane and leaves its row dead, keeping the last

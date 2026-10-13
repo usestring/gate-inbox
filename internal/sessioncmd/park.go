@@ -567,7 +567,7 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 	if err != nil {
 		return config.Tool{}, err
 	}
-	command, env, err := launch.Environment(hooks.NewManager(s.configDir), target.Tool, tool, base, target.ID, target.Model, target.Account, contributed)
+	command, env, err := launch.EnvironmentWithProfile(hooks.NewManager(s.configDir), target.Tool, tool, base, target.ID, target.Model, target.Account, contributed, mcpProfile(target))
 	if err != nil {
 		return config.Tool{}, err
 	}
@@ -575,6 +575,9 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 		return config.Tool{}, err
 	}
 	_ = runtime.driver.SetLabel(target.ID, sessionLabel(target.Group, target.Name))
+	if err := restoreRelaunched(runtime.store, target); err != nil {
+		return config.Tool{}, err
+	}
 	// Stamped the way the board's revive stamps it: the child sweep reads
 	// the launch to tell this life's reports from the last one's.
 	if err := runtime.store.SetAgentLaunchedAt(target.ID, time.Now()); err != nil {
@@ -593,4 +596,15 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 	}
 	accounts.RecordLaunch(target.ID, target.Tool, target.Account)
 	return tool, nil
+}
+
+// restoreRelaunched puts a relaunched row back on the active list. An
+// archived row is one every sweep passes over, so an agent relaunched under
+// it runs unseen: on 2026-10-12 six archived rows held live agents, two of
+// them relaunched in the same second they were archived, one for six days.
+func restoreRelaunched(st *store.Store, target store.Session) error {
+	if !target.Archived {
+		return nil
+	}
+	return st.SetArchived(target.ID, false)
 }

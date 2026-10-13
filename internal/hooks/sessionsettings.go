@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/usestring/gate-inbox/grant"
@@ -57,6 +58,7 @@ func (m *Manager) WriteSessionSettings(id string, grants []grant.Grant) (string,
 		return "", err
 	}
 	path := m.SessionSettingsPath(id)
+	grants = append(slices.Clone(grants), m.StandingGrants()...)
 	if len(grants) == 0 {
 		return path, removeIfExists(path)
 	}
@@ -79,7 +81,11 @@ func (m *Manager) RefreshSessionSettings(id string) error {
 	path := m.SessionSettingsPath(id)
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		if len(m.StandingGrants()) == 0 {
+			return nil
+		}
+		_, err := m.WriteSessionSettings(id, nil)
+		return err
 	}
 	if err != nil {
 		return err
@@ -88,12 +94,57 @@ func (m *Manager) RefreshSessionSettings(id string) error {
 	if err := json.Unmarshal(raw, &settings); err != nil {
 		return fmt.Errorf("hooks: %s is not JSON: %w", path, err)
 	}
-	fresh, err := m.hookSettings()
+	// The hooks ride the Gate Inbox plugin now. A file written before it
+	// still carries them, and beside the plugin's they would fire twice.
+	delete(settings, "hooks")
+	grant.Apply(settings, m.StandingGrants())
+	return writeSettings(m.dir, path, settings)
+}
+
+// Standing grants.
+//
+// A permission the user approved once for every session stands until it is
+// revoked: each Claude Code session Gate Inbox launches carries it in its own
+// settings file. Before this a grant lasted two hours on one child, so the
+// same command prefix came back as a fresh approval question for the same
+// child after its window, for its siblings, and for the next session (8 of 20
+// grants measured to 2026-10-11 re-granted a prefix already approved). The
+// store keeps the record; this file is the copy a launch reads, because a
+// launch does not open the store.
+
+// StandingGrantsFile is where the standing grants are kept for launches.
+func (m *Manager) StandingGrantsFile() string {
+	return filepath.Join(m.dir, "standing-grants.json")
+}
+
+// WriteStandingGrants replaces the standing grants a launch reads.
+func (m *Manager) WriteStandingGrants(grants []grant.Grant) error {
+	if len(grants) == 0 {
+		return removeIfExists(m.StandingGrantsFile())
+	}
+	body, err := json.Marshal(grants)
 	if err != nil {
 		return err
 	}
-	settings["hooks"] = fresh["hooks"]
-	return writeSettings(m.dir, path, settings)
+	if err := os.MkdirAll(m.dir, 0o755); err != nil {
+		return err
+	}
+	return WriteWhole(m.StandingGrantsFile(), string(body))
+}
+
+// StandingGrants is every standing grant, each passed through grant.Check
+// again so a hand-edited file cannot widen past what a grant may be. A file
+// that cannot be read grants nothing.
+func (m *Manager) StandingGrants() []grant.Grant {
+	raw, err := os.ReadFile(m.StandingGrantsFile())
+	if err != nil {
+		return nil
+	}
+	var grants []grant.Grant
+	if err := json.Unmarshal(raw, &grants); err != nil {
+		return nil
+	}
+	return slices.DeleteFunc(grants, func(g grant.Grant) bool { return grant.Check(grant.Normalise(g)) != nil })
 }
 
 func (m *Manager) hookSettings() (map[string]any, error) {

@@ -52,6 +52,7 @@ type priorityArgs struct {
 type listTerminalsArgs struct{}
 
 type createTerminalArgs struct {
+	Name      string  `json:"name,omitempty" jsonschema:"name for the terminal's row; omit to name it after this session"`
 	Group     *string `json:"group,omitempty" jsonschema:"existing group path for the new terminal; pass an empty string for the root group; defaults to this agent's group"`
 	Directory string  `json:"directory,omitempty" jsonschema:"existing directory to open; defaults to the selected group's inherited path, then this agent's current directory"`
 	Nest      *bool   `json:"nest,omitempty" jsonschema:"when true or omitted, nest under this session, or beside it under the same parent when this session is itself a terminal; false places an un-nested terminal in group"`
@@ -69,7 +70,7 @@ type readTerminalArgs struct {
 
 type listSessionsArgs struct {
 	Parent          string   `json:"parent,omitempty" jsonschema:"keep only the sessions this one spawned; pass \"me\" for this session's own children, which is the fan-out it is steering; omit for every session whoever spawned it"`
-	Status          []string `json:"status,omitempty" jsonschema:"keep only sessions in these states: starting, working, waiting, finished, idle, errored or dead; omit for every state"`
+	Status          []string `json:"status,omitempty" jsonschema:"keep only sessions in these states: starting, working, waiting, delegating, finished, idle, errored or dead; omit for every state"`
 	IncludeArchived bool     `json:"include_archived,omitempty" jsonschema:"also list sessions archived out of the active list, which on a long-lived board are most of the table; pass it only when looking for a row to restore with archive_session"`
 	Limit           int      `json:"limit,omitempty" jsonschema:"how many rows to return (default 50, maximum 500); the reply says how many matched, so a truncated one is never silent"`
 	IncludeText     *bool    `json:"include_text,omitempty" jsonschema:"when false, the readable rendering is replaced by a one-line count and the rows come back only in the structured result, which halves the reply; omit or true for both renderings"`
@@ -150,7 +151,7 @@ type muteSessionArgs struct {
 }
 
 type cleanupChildrenArgs struct {
-	Statuses []string `json:"statuses,omitempty" jsonschema:"states of the children to archive: starting, working, waiting, finished, idle, errored or dead; defaults to finished, idle and dead"`
+	Statuses []string `json:"statuses,omitempty" jsonschema:"states of the children to archive: starting, working, waiting, delegating, finished, idle, errored or dead; defaults to finished, idle and dead"`
 	All      bool     `json:"all,omitempty" jsonschema:"archive every child whatever its state, including ones spawned with keep and ones whose own children are still working"`
 	DryRun   bool     `json:"dry_run,omitempty" jsonschema:"report what would be archived without archiving anything"`
 }
@@ -229,13 +230,14 @@ type waitSessionArgs struct {
 	SessionID  string   `json:"session_id,omitempty" jsonschema:"one session id returned by list_sessions or create_session; for a fan-out use children, or session_ids"`
 	SessionIDs []string `json:"session_ids,omitempty" jsonschema:"several session ids to park on at once; the call ends as soon as any one of them arrives and reports where all of them stand"`
 	Children   bool     `json:"children,omitempty" jsonschema:"park on every session you spawned, which is what a fan-out wants; give this instead of session_id or session_ids, never alongside them"`
-	Until      []string `json:"until,omitempty" jsonschema:"states that end the wait; defaults to every state that means a session stopped working (finished, waiting, idle, errored, dead). Valid values: starting, working, waiting, finished, idle, errored, dead"`
+	Until      []string `json:"until,omitempty" jsonschema:"states that end the wait; defaults to every state that means a session stopped working (finished, waiting, idle, errored, dead); delegating, a session at rest whose own children are still going, is not one of them. Valid values: starting, working, waiting, delegating, finished, idle, errored, dead"`
 	TimeoutS   int      `json:"timeout_s,omitempty" jsonschema:"seconds to wait before giving up, default 50, maximum 120; your own client may cut the call short before this"`
 }
 
 type sendChildrenArgs struct {
 	Message     string `json:"message,omitempty" jsonschema:"the instruction every child should get, in full; each reads it with no other context; or name a file in message_file"`
 	MessageFile string `json:"message_file,omitempty" jsonschema:"absolute path of a file holding the instruction, used instead of message"`
+	Subject     string `json:"subject,omitempty" jsonschema:"what the message is about, as on send_session: a later send_children or send_session on the same subject replaces it for every child that has not read it yet"`
 }
 
 type placeSessionArgs struct {
@@ -266,7 +268,7 @@ type grantPermissionArgs struct {
 	Kind             string   `json:"kind" jsonschema:"what to widen: soft_command (prefer it: tells the child's auto-mode classifier the user approved commands starting with an exact prefix, sandboxed or not, while the classifier still judges each call), rule (one permission rule written Tool(pattern), such as Bash(./bin/fetch:*), which skips the classifier for what it matches), unsandboxed_command (an exact prefix that runs outside the sandbox without asking), or domain (one host the sandbox's network proxy lets through)"`
 	Value            string   `json:"value,omitempty" jsonschema:"the command prefix, rule or host name, exactly as the approval question names it"`
 	Values           []string `json:"values,omitempty" jsonschema:"more of the same kind, approved by the same one question and granted together: name every command one approved step runs, such as the commit, the push and the merge, rather than asking once for each"`
-	ExpiresInMinutes int      `json:"expires_in_minutes,omitempty" jsonschema:"how long the child keeps it, 1 to 1440 minutes; omit for 120. The approval question names the window, so ask for the one the work needs"`
+	ExpiresInMinutes int      `json:"expires_in_minutes,omitempty" jsonschema:"omit to make it a standing grant every session keeps until revoked, which is never asked for again; set 1 to 1440 minutes only for a permission this child alone should hold for a while. The approval question names the scope"`
 	Revoke           bool     `json:"revoke,omitempty" jsonschema:"true takes a permission back instead; no approval needed"`
 	Restart          bool     `json:"restart,omitempty" jsonschema:"restart the child now even if it is working; without it a working child picks the change up at its next restart"`
 	Message          string   `json:"message,omitempty" jsonschema:"the instruction the grant is for, such as retry the merge; once granted it is queued for the child with your user's Grant attached as an attestation, so the approval need not be passed on again"`
@@ -289,7 +291,7 @@ type sessionCommands interface {
 	Create(sessionID string, opts sessioncmd.CreateSessionOptions) (sessioncmd.Session, error)
 	Send(sessionID, targetID, message, subject string, interrupt bool) (sessioncmd.SendResult, error)
 	SendAttested(sessionID, targetID, message, subject string, interrupt bool, question string) (sessioncmd.SendResult, error)
-	SendChildren(sessionID, message string) (sessioncmd.ChildSend, error)
+	SendChildrenAbout(sessionID, message, subject string) (sessioncmd.ChildSend, error)
 	CleanupChildren(sessionID string, opts sessioncmd.CleanupOptions) (sessioncmd.ChildCleanup, error)
 	Wait(ctx context.Context, sessionID string, opts sessioncmd.WaitOptions) (sessioncmd.WaitResult, error)
 	MessageStatus(sessionID string, messageID int64) (sessioncmd.MessageState, error)
@@ -493,7 +495,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		&mcp.Implementation{Name: mcpreg.ServerName, Version: version},
 		&mcp.ServerOptions{Instructions: instructions},
 	)
-	server.AddReceivingMiddleware(traceTools(sessionID))
+	server.AddReceivingMiddleware(traceTools(sessionID), aliasArgs)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "rename",
@@ -518,7 +520,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "list_sessions",
 		Description: "Call first whenever the work involves another agent: before delegating, before reporting what the fleet is doing, and to find a session's id. " +
-			"Lists every agent session Gate Inbox knows (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, finished, idle, errored, dead) and which row is this session. " +
+			"Lists every agent session Gate Inbox knows (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, delegating, finished, idle, errored, dead; delegating is a session whose turn ended while children it spawned are still going, so their results are still coming back to it) and which row is this session. " +
 			"Reuse a relevant idle session instead of creating another; otherwise call create_session. " +
 			"Filter rather than reading the whole board, which can run to hundreds of kilobytes: parent \"me\" is your own children, status narrows by state, and archived rows are left out unless you ask for them.",
 		Annotations: mcptool.Annotations(true, false, false),
@@ -619,14 +621,15 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Description: "Queue one message for every session this one spawned, when the correction is about the work rather than about one worker: the branch moved, the endpoint changed, stop using that field. " +
 			"Sending nine messages by hand means the ninth is written long after the first, and by then the first agents have acted on the old instruction. " +
 			"Use send_session for anything meant for one agent -- this interrupts the whole fan-out, so reach for it only when every child needs to hear it. " +
-			"A child that cannot take the message is reported rather than failing the call, so a full queue on one does not leave the rest uninstructed.",
+			"A child that cannot take the message is reported rather than failing the call, so a full queue on one does not leave the rest uninstructed. " +
+			"Pass subject so a later correction on the same subject replaces this one where it is still unread.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args sendChildrenArgs) (*mcp.CallToolResult, sessioncmd.ChildSend, error) {
 		message, err := mcptool.RequiredTextArg(args.Message, args.MessageFile, "message", "message_file")
 		if err != nil {
 			return nil, sessioncmd.ChildSend{}, err
 		}
-		sent, err := sessions.SendChildren(sessionID, message)
+		sent, err := sessions.SendChildrenAbout(sessionID, message, args.Subject)
 		if err != nil {
 			return nil, sessioncmd.ChildSend{}, err
 		}
@@ -699,7 +702,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Name: "grant_permission",
 		Description: "Give one of your own spawned sessions a permission your user approved, when its permission system refused a step your brief needs -- a command that has to run outside the sandbox, a rule its auto-mode classifier will not pass, a host its sandbox cannot reach. " +
 			"An answer you key into the child is not its user's approval, so neither answer_session nor send_session can do this; this writes the one permission into that child's own settings file, never a shared one, and restarts it on its own conversation so it takes effect. " +
-			"Every grant is temporary: it lasts expires_in_minutes (default 120) and the board revokes it when the window closes. " +
+			"A grant stands until revoked by default: once your user approves it, every Claude Code session Gate Inbox launches carries it, and asking again for a permission that already stands applies it to the child (restarting it) without a new question. Pass expires_in_minutes only for a permission one child should hold for a while. " +
 			"Call it first with the kind, value and window: unless your user already approved exactly that, it refuses with the exact question to put to them -- header Approval, the question naming the child, the window and the permission, options Grant and Don't grant. Ask your user that word for word with your own question tool, then call again; Gate Inbox checks your transcript for their Grant and spends it on this one grant. " +
 			"A step that runs several commands -- add, commit, push, merge -- is one decision: pass every prefix in values and the one question names them all. A prefix is one command, so chaining with && or ; is refused; list each command instead. " +
 			"Prefer soft_command: it is enough for the classifier to pass a refused step, including one run with dangerouslyDisableSandbox, and the classifier still judges each call. Use rule or unsandboxed_command only when a soft grant is still refused. " +
@@ -790,9 +793,9 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Description: "Park until a session you are waiting on stops working, instead of calling read_session in a loop. " +
 			"Call it after handing an agent a task when your next step depends on its result. " +
 			"For a fan-out pass children true, or several session_ids: one call parks on the whole set and returns the moment any one of them arrives, so never wait on children one at a time. " +
-			"By default it returns once a session reaches any state that means it stopped (finished, waiting, idle, errored or dead); pass until to wait for particular states. " +
+			"By default it returns once a session reaches any state that means it stopped (finished, waiting, idle, errored or dead; a session at rest while its own children are still going reads delegating and does not end the wait); pass until to wait for particular states. " +
 			"It counts from your own handoff. While a message you sent that session is still queued, its state describes the turn before, so the wait carries on until that message goes in and its turn ends. " +
-			"A timeout is a normal answer, not a failure: the result carries reached false and the actual state, and outcome says whether it reached, timed_out or died. " +
+			"Pass timeout_s for how long to park. A timeout is a normal answer, not a failure: the result carries reached false and the actual state, and outcome says whether it reached, timed_out or died. " +
 			"standing carries every waited-on session with its own outcome, so use that rather than a follow-up list_sessions, then read_session on whichever one moved.",
 		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args waitSessionArgs) (*mcp.CallToolResult, sessioncmd.WaitResult, error) {
@@ -899,7 +902,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "cleanup_children",
 		Description: "Archive the sessions this one spawned that are done, in one call, instead of archive_session on each. " +
-			"By default it takes children that are finished, idle or dead, each with every session it spawned in turn, and leaves one that is working, waiting on a question, errored, spawned with keep, or still has working children of its own, saying why. " +
+			"By default it takes children that are finished, idle or dead, each with every session it spawned in turn, and leaves one that is working, waiting on a question, errored, delegating, spawned with keep, or still has working children of its own, saying why. " +
 			"Pass statuses to choose the states, all true to archive every child whatever it is doing, and dry_run true to see the plan first. " +
 			"A terminal you opened is taken only once its shell has exited; a running one is left for close_terminal. " +
 			"It reaches only your own fan-out. Archiving ends a running agent: its last screen is kept, the row stays in the archived view for 7 days, and revive_session brings it back. " +
@@ -1084,11 +1087,12 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "create_terminal",
 		Description: "Create a managed terminal for human-visible work such as SSH, not for one-shot local commands or other internal work. " +
-			"It nests under this session unless nest is false, which a group other than this session's needs; a terminal created from a terminal joins it as a sibling under the same agent. The group supplies the inherited directory, and directory set explicitly wins. " +
+			"It nests under this session unless nest is false, which a group other than this session's needs; a terminal created from a terminal joins it as a sibling under the same agent. The group supplies the inherited directory, and directory set explicitly wins; name labels its row, which is otherwise named after this session. " +
 			"Then call send_terminal with the returned id; use create_session instead for another agent CLI. Call close_terminal when the job is finished and the terminal is not being left for the user.",
 		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args createTerminalArgs) (*mcp.CallToolResult, sessioncmd.Terminal, error) {
 		created, err := terminals.Create(sessionID, sessioncmd.CreateTerminalOptions{
+			Name:      args.Name,
 			Group:     args.Group,
 			Directory: args.Directory,
 			Nest:      args.Nest,
@@ -1157,11 +1161,11 @@ func textResult(message string, err error) (*mcp.CallToolResult, any, error) {
 // Run serves MCP over stdio until the client closes the connection. A
 // client that drops the pipe without the shutdown handshake surfaces as
 // EOF, which is a normal exit, not a failure.
-func Run(ctx context.Context, configDir, sessionID, version string, extensions []extension.Extension, steering string) error {
+func Run(ctx context.Context, configDir, sessionID, version string, extensions []extension.Extension, steering string, profile Profile) error {
 	if tracer := startTracing(); tracer != nil {
 		defer tracer.Close()
 	}
-	err := NewServer(configDir, sessionID, version, extensions, steering).Run(ctx, &mcp.StdioTransport{})
+	err := NewProfileServer(configDir, sessionID, version, extensions, steering, profile).Run(ctx, &mcp.StdioTransport{})
 	// The SDK reports an abrupt pipe close as an internal "server is
 	// closing" wire error that wraps EOF without errors.Is support.
 	if err != nil && (errors.Is(err, io.EOF) || strings.Contains(err.Error(), "server is closing")) {

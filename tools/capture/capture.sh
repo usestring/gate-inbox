@@ -10,8 +10,9 @@
 # session on the operator's live board and never records a real name or path.
 # It refuses to start if any of those would be the operator's own.
 # Exit 2 means a tool this needs is missing and nothing was changed.
-# The recording is evidence for a private review only: never attach it to a
-# public PR or commit it.
+# It also writes media/<run>/capture.json (manifest.sh): the scratch state the
+# run used and the hash of every file, which the uploader requires before it
+# publishes a capture. Never commit a recording.
 set -euo pipefail
 
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -456,7 +457,12 @@ if [[ -s "$media/board.txt" ]] && grep -qiF -e "$HOME/" -e "$(id -un)@" "$media/
   die "the recording shows the operator's home or login; deleted it -- fix the leak before recording again"
 fi
 
-printf '\ncapture %s\n  stills : %s\n  video  : %s\n  gif    : %s\n\n' \
-  "$run_id" "$media" "$video_dir/video.webm" "$media/board.gif"
-printf 'this repo is public: attach the evidence to the private companion PR only, after\n'
-printf 'the operator has approved every frame; never to this repo or its PR.\n'
+# Provenance for the uploader, which publishes nothing without it: the scratch
+# tmux server, board home and HOME this run used, and the hash of every file it
+# wrote, so a frame from anywhere else cannot ride along under this run's name.
+"$here/manifest.sh" "$media/capture.json" "$run_id" "$sock" "$home" "$fake_home" \
+  "$media"/*.png "$media"/*.gif "$video_dir/video.webm" || die "could not write the provenance manifest"
+
+printf '\ncapture %s\n  stills : %s\n  video  : %s\n  gif    : %s\n  proof  : %s\n\n' \
+  "$run_id" "$media" "$video_dir/video.webm" "$media/board.gif" "$media/capture.json"
+printf 'the uploader checks capture.json and scans every frame before anything is published.\n'

@@ -250,6 +250,7 @@ func legendSections() []helpSection {
 			lit("◆ waiting", "blocked on you: a dialog, a permission ask, a question"),
 			lit("● finished", "the turn ended; entering the session clears it to idle"),
 			lit("○ idle", "nothing running"),
+			lit("◎ delegating", "at rest, waiting on its children's results"),
 			lit("✕ errored", "the tool reported an error, or the session is dead"),
 			lit("◌ starting", "the pane is still launching"),
 		}},

@@ -1,10 +1,10 @@
 // Modified by Durable Alpha, 2026: changes from the upstream commit named in NOTICE.
 
 // Package hooks wires Claude Code hook events into status files: each
-// managed session gets GATE_INBOX_STATUS_FILE in its environment, and
-// the generated settings file makes Claude Code write its lifecycle state
-// there. The poller reads these files as a tier-1 status source, ahead of
-// the pane-regex heuristics.
+// managed session gets GATE_INBOX_STATUS_FILE in its environment, and the
+// hooks the Gate Inbox plugin carries (claudeplugin) make Claude Code write
+// its lifecycle state there. The poller reads these files as a tier-1 status
+// source, ahead of the pane-regex heuristics.
 package hooks
 
 import (
@@ -91,7 +91,7 @@ type hookMatcher struct {
 }
 
 type settingsFile struct {
-	Hooks       map[string][]hookMatcher `json:"hooks"`
+	Hooks       map[string][]hookMatcher `json:"hooks,omitempty"`
 	Permissions *permissionRules         `json:"permissions,omitempty"`
 	Sandbox     *sandboxSettings         `json:"sandbox,omitempty"`
 }
@@ -208,7 +208,7 @@ func stopFailureCommand() string {
 // repository that moved, and a session ending outside a git tree is
 // normal, not an error.
 func sessionEndCommand() string {
-	return statusFileVar + `[ -z "$f" ] || rm -f "$f" "$f` + AttestPendingSuffix + `"; ` +
+	return statusFileVar + `[ -z "$f" ] || rm -f "$f" "$f` + AttestPendingSuffix + `" "$f` + SandboxStaleSuffix + `"; ` +
 		`git rev-parse --git-dir >/dev/null 2>&1 && { git worktree prune >/dev/null 2>&1; ` +
 		`git submodule --quiet foreach --recursive 'git worktree prune >/dev/null 2>&1 || true' >/dev/null 2>&1; }; ` +
 		`exit 0`
@@ -254,28 +254,51 @@ func attestNoteCommand() string {
 		`" ] || [ -z "$` + EnvSessionID + `" ] || "$` + EnvExecutable + `" hook attest-note 2>/dev/null; }; exit 0`
 }
 
+// SandboxStaleSuffix names the flag file beside a session's status file that
+// says its sandbox has gone stale and the board should restart it.
+const SandboxStaleSuffix = ".sandbox-stale"
+
+// sandboxStaleCommand hands a failed Bash call to sessioncmd.SandboxStaleHook
+// when its payload mentions bwrap's missing-source error, the one a sandbox
+// left stale by a deleted path gives every command. The case test keeps the
+// executable from starting on every other failure; the hook itself decides
+// whether the error came from bwrap or only from the command's own text.
+//
+// It runs on PostToolUseFailure, not PostToolUse: bwrap failing exits
+// non-zero, and Claude Code reports a failed call only to the former.
+func sandboxStaleCommand() string {
+	return statusFileVar + `[ -z "$f" ] || { p=$(cat); case "$p" in *"get type of source"*|*"find source path"*) [ -z "$` + EnvExecutable +
+		`" ] || [ -z "$` + EnvSessionID + `" ] || printf '%s' "$p" | "$` + EnvExecutable +
+		`" hook sandbox-stale 2>/dev/null;; esac; }; exit 0`
+}
+
 func hookCommandLine(verb string) string {
 	return statusFileVar + `[ -z "$f" ] || { [ -z "$` + EnvExecutable + `" ] || [ -z "$` + EnvSessionID +
 		`" ] || "$` + EnvExecutable + `" hook ` + verb + ` 2>/dev/null; }; exit 0`
 }
 
-func settingsContent(keyDir string) ([]byte, error) {
+// launchHooks are the hooks every claude session the board launches
+// carries. They ride the Gate Inbox plugin's hooks/hooks.json (claudeplugin),
+// not the --settings file, and adopted sessions run them through the global
+// entries (DispatchGlobal).
+func launchHooks() map[string][]hookMatcher {
 	run := func(matcher, command string) []hookMatcher {
 		return []hookMatcher{{Matcher: matcher, Hooks: []hookCommand{{Type: "command", Command: command}}}}
 	}
 	report := func(event, matcher, state string) []hookMatcher {
 		return run(matcher, statusCommand(state, event))
 	}
-	content := settingsFile{Hooks: map[string][]hookMatcher{
+	return map[string][]hookMatcher{
 		"UserPromptSubmit": append(report("UserPromptSubmit", "", status.Working),
 			run("", promptSubmitCommand())...),
 		"PreToolUse": append(run("*", preToolUseCommand()),
 			run(blockingTool, askPendingCommand())...),
 		"PostToolUse": append(report("PostToolUse", "*", status.Working),
 			append(run(blockingTool, askAnsweredCommand()), run("*", attestNoteCommand())...)...),
-		"Notification": report("Notification", blockingNotifications, status.Waiting),
-		"Stop":         report("Stop", "", status.Finished),
-		"StopFailure":  run("", stopFailureCommand()),
+		"PostToolUseFailure": run("Bash", sandboxStaleCommand()),
+		"Notification":       report("Notification", blockingNotifications, status.Waiting),
+		"Stop":               report("Stop", "", status.Finished),
+		"StopFailure":        run("", stopFailureCommand()),
 		// compact fires SessionStart in the middle of an active turn
 		"SessionStart": append(report("SessionStart", "startup|resume|clear", status.Idle),
 			run("startup|resume|clear|compact", sessionStartCommand())...),
@@ -283,7 +306,13 @@ func settingsContent(keyDir string) ([]byte, error) {
 			Type:    "command",
 			Command: sessionEndCommand(),
 		}}}},
-	}}
+	}
+}
+
+// settingsContent is the --settings file a launch carries: only what a
+// plugin cannot, the key-dir denials. The hooks travel in the plugin.
+func settingsContent(keyDir string) ([]byte, error) {
+	var content settingsFile
 	content.Permissions, content.Sandbox = KeyDirDenials(keyDir)
 	return json.MarshalIndent(content, "", "  ")
 }

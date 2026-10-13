@@ -387,7 +387,7 @@
         "type": "string"
       },
       "status": {
-        "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+        "description": "Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead",
         "type": "string"
       },
       "tool": {
@@ -419,7 +419,7 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "Archive the sessions this one spawned that are done, in one call, instead of archive_session on each. By default it takes children that are finished, idle or dead, each with every session it spawned in turn, and leaves one that is working, waiting on a question, errored, spawned with keep, or still has working children of its own, saying why. Pass statuses to choose the states, all true to archive every child whatever it is doing, and dry_run true to see the plan first. A terminal you opened is taken only once its shell has exited; a running one is left for close_terminal. It reaches only your own fan-out. Archiving ends a running agent: its last screen is kept, the row stays in the archived view for 7 days, and revive_session brings it back. You rarely need it for a finished child: Gate Inbox archives one on its own once you have read or been told of its finish and left it alone for the grace period.",
+  "description": "Archive the sessions this one spawned that are done, in one call, instead of archive_session on each. By default it takes children that are finished, idle or dead, each with every session it spawned in turn, and leaves one that is working, waiting on a question, errored, delegating, spawned with keep, or still has working children of its own, saying why. Pass statuses to choose the states, all true to archive every child whatever it is doing, and dry_run true to see the plan first. A terminal you opened is taken only once its shell has exited; a running one is left for close_terminal. It reaches only your own fan-out. Archiving ends a running agent: its last screen is kept, the row stays in the archived view for 7 days, and revive_session brings it back. You rarely need it for a finished child: Gate Inbox archives one on its own once you have read or been told of its finish and left it alone for the grace period.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -432,7 +432,7 @@
         "type": "boolean"
       },
       "statuses": {
-        "description": "states of the children to archive: starting, working, waiting, finished, idle, errored or dead; defaults to finished, idle and dead",
+        "description": "states of the children to archive: starting, working, waiting, delegating, finished, idle, errored or dead; defaults to finished, idle and dead",
         "items": {
           "type": "string"
         },
@@ -732,7 +732,7 @@
         "type": "string"
       },
       "status": {
-        "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+        "description": "Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead",
         "type": "string"
       },
       "tool": {
@@ -764,7 +764,7 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "Create a managed terminal for human-visible work such as SSH, not for one-shot local commands or other internal work. It nests under this session unless nest is false, which a group other than this session's needs; a terminal created from a terminal joins it as a sibling under the same agent. The group supplies the inherited directory, and directory set explicitly wins. Then call send_terminal with the returned id; use create_session instead for another agent CLI. Call close_terminal when the job is finished and the terminal is not being left for the user.",
+  "description": "Create a managed terminal for human-visible work such as SSH, not for one-shot local commands or other internal work. It nests under this session unless nest is false, which a group other than this session's needs; a terminal created from a terminal joins it as a sibling under the same agent. The group supplies the inherited directory, and directory set explicitly wins; name labels its row, which is otherwise named after this session. Then call send_terminal with the returned id; use create_session instead for another agent CLI. Call close_terminal when the job is finished and the terminal is not being left for the user.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -778,6 +778,10 @@
           "null",
           "string"
         ]
+      },
+      "name": {
+        "description": "name for the terminal's row; omit to name it after this session",
+        "type": "string"
       },
       "nest": {
         "description": "when true or omitted, nest under this session, or beside it under the same parent when this session is itself a terminal; false places an un-nested terminal in group",
@@ -902,12 +906,12 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Give one of your own spawned sessions a permission your user approved, when its permission system refused a step your brief needs -- a command that has to run outside the sandbox, a rule its auto-mode classifier will not pass, a host its sandbox cannot reach. An answer you key into the child is not its user's approval, so neither answer_session nor send_session can do this; this writes the one permission into that child's own settings file, never a shared one, and restarts it on its own conversation so it takes effect. Every grant is temporary: it lasts expires_in_minutes (default 120) and the board revokes it when the window closes. Call it first with the kind, value and window: unless your user already approved exactly that, it refuses with the exact question to put to them -- header Approval, the question naming the child, the window and the permission, options Grant and Don't grant. Ask your user that word for word with your own question tool, then call again; Gate Inbox checks your transcript for their Grant and spends it on this one grant. A step that runs several commands -- add, commit, push, merge -- is one decision: pass every prefix in values and the one question names them all. A prefix is one command, so chaining with \u0026\u0026 or ; is refused; list each command instead. Prefer soft_command: it is enough for the classifier to pass a refused step, including one run with dangerouslyDisableSandbox, and the classifier still judges each call. Use rule or unsandboxed_command only when a soft grant is still refused. Wildcards, whole tools, and anything touching settings files, sudo or credentials are refused with no way past. Only Claude Code children can be granted to. revoke true takes a permission back; list_sessions shows what a session holds. After a restart the child is idle: pass message with the instruction the grant is for, and it is queued for the child carrying your user's Grant as an attestation.",
+  "description": "Give one of your own spawned sessions a permission your user approved, when its permission system refused a step your brief needs -- a command that has to run outside the sandbox, a rule its auto-mode classifier will not pass, a host its sandbox cannot reach. An answer you key into the child is not its user's approval, so neither answer_session nor send_session can do this; this writes the one permission into that child's own settings file, never a shared one, and restarts it on its own conversation so it takes effect. A grant stands until revoked by default: once your user approves it, every Claude Code session Gate Inbox launches carries it, and asking again for a permission that already stands applies it to the child (restarting it) without a new question. Pass expires_in_minutes only for a permission one child should hold for a while. Call it first with the kind, value and window: unless your user already approved exactly that, it refuses with the exact question to put to them -- header Approval, the question naming the child, the window and the permission, options Grant and Don't grant. Ask your user that word for word with your own question tool, then call again; Gate Inbox checks your transcript for their Grant and spends it on this one grant. A step that runs several commands -- add, commit, push, merge -- is one decision: pass every prefix in values and the one question names them all. A prefix is one command, so chaining with \u0026\u0026 or ; is refused; list each command instead. Prefer soft_command: it is enough for the classifier to pass a refused step, including one run with dangerouslyDisableSandbox, and the classifier still judges each call. Use rule or unsandboxed_command only when a soft grant is still refused. Wildcards, whole tools, and anything touching settings files, sudo or credentials are refused with no way past. Only Claude Code children can be granted to. revoke true takes a permission back; list_sessions shows what a session holds. After a restart the child is idle: pass message with the instruction the grant is for, and it is queued for the child carrying your user's Grant as an attestation.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "expires_in_minutes": {
-        "description": "how long the child keeps it, 1 to 1440 minutes; omit for 120. The approval question names the window, so ask for the one the work needs",
+        "description": "omit to make it a standing grant every session keeps until revoked, which is never asked for again; set 1 to 1440 minutes only for a permission this child alone should hold for a while. The approval question names the scope",
         "type": "integer"
       },
       "kind": {
@@ -1099,6 +1103,9 @@
       "settings_file": {
         "type": "string"
       },
+      "standing": {
+        "type": "boolean"
+      },
       "target": {
         "additionalProperties": false,
         "properties": {
@@ -1165,7 +1172,7 @@
             "type": "string"
           },
           "status": {
-            "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+            "description": "Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead",
             "type": "string"
           },
           "tool": {
@@ -1289,7 +1296,7 @@
         "type": "string"
       },
       "status": {
-        "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+        "description": "Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead",
         "type": "string"
       },
       "tool": {
@@ -1500,7 +1507,7 @@
     "openWorldHint": false,
     "readOnlyHint": true
   },
-  "description": "Call first whenever the work involves another agent: before delegating, before reporting what the fleet is doing, and to find a session's id. Lists every agent session Gate Inbox knows (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, finished, idle, errored, dead) and which row is this session. Reuse a relevant idle session instead of creating another; otherwise call create_session. Filter rather than reading the whole board, which can run to hundreds of kilobytes: parent \"me\" is your own children, status narrows by state, and archived rows are left out unless you ask for them.",
+  "description": "Call first whenever the work involves another agent: before delegating, before reporting what the fleet is doing, and to find a session's id. Lists every agent session Gate Inbox knows (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, delegating, finished, idle, errored, dead; delegating is a session whose turn ended while children it spawned are still going, so their results are still coming back to it) and which row is this session. Reuse a relevant idle session instead of creating another; otherwise call create_session. Filter rather than reading the whole board, which can run to hundreds of kilobytes: parent \"me\" is your own children, status narrows by state, and archived rows are left out unless you ask for them.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -1524,7 +1531,7 @@
         "type": "string"
       },
       "status": {
-        "description": "keep only sessions in these states: starting, working, waiting, finished, idle, errored or dead; omit for every state",
+        "description": "keep only sessions in these states: starting, working, waiting, delegating, finished, idle, errored or dead; omit for every state",
         "items": {
           "type": "string"
         },
@@ -1615,7 +1622,7 @@
               "type": "string"
             },
             "status": {
-              "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+              "description": "Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead",
               "type": "string"
             },
             "tool": {
@@ -1897,7 +1904,7 @@
         "type": "string"
       },
       "status": {
-        "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+        "description": "Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead",
         "type": "string"
       },
       "tool": {
@@ -2017,7 +2024,7 @@
         "type": "string"
       },
       "status": {
-        "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+        "description": "Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead",
         "type": "string"
       },
       "tool": {
@@ -2138,7 +2145,7 @@
         "type": "string"
       },
       "status": {
-        "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+        "description": "Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead",
         "type": "string"
       },
       "tool": {
@@ -2290,12 +2297,80 @@
               "array"
             ]
           },
+          "relay_ask": {
+            "additionalProperties": false,
+            "description": "when the session is on a dialog: the exact input for your own AskUserQuestion that puts it to your user word for word, which answer_session relay: true accepts; pass it as is, then answer with the option your user picks",
+            "properties": {
+              "questions": {
+                "description": "pass this object as is to your own AskUserQuestion; each question is the child's, word for word, with its header, options and multiSelect",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "header": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "multiSelect": {
+                      "type": "boolean"
+                    },
+                    "options": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "description": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "preview": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "label"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "null",
+                        "array"
+                      ]
+                    },
+                    "question": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "header",
+                    "question",
+                    "multiSelect",
+                    "options"
+                  ],
+                  "type": "object"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              }
+            },
+            "required": [
+              "questions"
+            ],
+            "type": [
+              "null",
+              "object"
+            ]
+          },
           "result": {
             "description": "the session's most recent prose turn, which is the closest thing to its result",
             "type": "string"
           },
           "status": {
-            "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+            "description": "Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead",
             "type": "string"
           }
         },
@@ -2378,7 +2453,7 @@
             "type": "string"
           },
           "status": {
-            "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+            "description": "Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead",
             "type": "string"
           },
           "tool": {
@@ -2796,7 +2871,7 @@
         "type": "string"
       },
       "status": {
-        "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+        "description": "Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead",
         "type": "string"
       },
       "tool": {
@@ -2828,7 +2903,7 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Queue one message for every session this one spawned, when the correction is about the work rather than about one worker: the branch moved, the endpoint changed, stop using that field. Sending nine messages by hand means the ninth is written long after the first, and by then the first agents have acted on the old instruction. Use send_session for anything meant for one agent -- this interrupts the whole fan-out, so reach for it only when every child needs to hear it. A child that cannot take the message is reported rather than failing the call, so a full queue on one does not leave the rest uninstructed.",
+  "description": "Queue one message for every session this one spawned, when the correction is about the work rather than about one worker: the branch moved, the endpoint changed, stop using that field. Sending nine messages by hand means the ninth is written long after the first, and by then the first agents have acted on the old instruction. Use send_session for anything meant for one agent -- this interrupts the whole fan-out, so reach for it only when every child needs to hear it. A child that cannot take the message is reported rather than failing the call, so a full queue on one does not leave the rest uninstructed. Pass subject so a later correction on the same subject replaces this one where it is still unread.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -2838,6 +2913,10 @@
       },
       "message_file": {
         "description": "absolute path of a file holding the instruction, used instead of message",
+        "type": "string"
+      },
+      "subject": {
+        "description": "what the message is about, as on send_session: a later send_children or send_session on the same subject replaces it for every child that has not read it yet",
         "type": "string"
       }
     },
@@ -2999,6 +3078,10 @@
       "relayed": {
         "description": "whether this was relayed as the operator's words; with no message_id, nothing was queued and there is nothing to track",
         "type": "boolean"
+      },
+      "restored": {
+        "description": "what the send did first to reach your own child: restored it from the archive, revived it on its conversation, or both; empty when it was already running",
+        "type": "string"
       },
       "superseded": {
         "description": "how many earlier queued messages from this sender on the same subject this one replaced",
@@ -3182,7 +3265,7 @@
         "type": "string"
       },
       "status": {
-        "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+        "description": "Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead",
         "type": "string"
       },
       "tool": {
@@ -3450,7 +3533,7 @@
     "openWorldHint": false,
     "readOnlyHint": true
   },
-  "description": "Park until a session you are waiting on stops working, instead of calling read_session in a loop. Call it after handing an agent a task when your next step depends on its result. For a fan-out pass children true, or several session_ids: one call parks on the whole set and returns the moment any one of them arrives, so never wait on children one at a time. By default it returns once a session reaches any state that means it stopped (finished, waiting, idle, errored or dead); pass until to wait for particular states. It counts from your own handoff. While a message you sent that session is still queued, its state describes the turn before, so the wait carries on until that message goes in and its turn ends. A timeout is a normal answer, not a failure: the result carries reached false and the actual state, and outcome says whether it reached, timed_out or died. standing carries every waited-on session with its own outcome, so use that rather than a follow-up list_sessions, then read_session on whichever one moved.",
+  "description": "Park until a session you are waiting on stops working, instead of calling read_session in a loop. Call it after handing an agent a task when your next step depends on its result. For a fan-out pass children true, or several session_ids: one call parks on the whole set and returns the moment any one of them arrives, so never wait on children one at a time. By default it returns once a session reaches any state that means it stopped (finished, waiting, idle, errored or dead; a session at rest while its own children are still going reads delegating and does not end the wait); pass until to wait for particular states. It counts from your own handoff. While a message you sent that session is still queued, its state describes the turn before, so the wait carries on until that message goes in and its turn ends. Pass timeout_s for how long to park. A timeout is a normal answer, not a failure: the result carries reached false and the actual state, and outcome says whether it reached, timed_out or died. standing carries every waited-on session with its own outcome, so use that rather than a follow-up list_sessions, then read_session on whichever one moved.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -3477,7 +3560,7 @@
         "type": "integer"
       },
       "until": {
-        "description": "states that end the wait; defaults to every state that means a session stopped working (finished, waiting, idle, errored, dead). Valid values: starting, working, waiting, finished, idle, errored, dead",
+        "description": "states that end the wait; defaults to every state that means a session stopped working (finished, waiting, idle, errored, dead); delegating, a session at rest whose own children are still going, is not one of them. Valid values: starting, working, waiting, delegating, finished, idle, errored, dead",
         "items": {
           "type": "string"
         },
@@ -3572,7 +3655,7 @@
             "type": "string"
           },
           "status": {
-            "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+            "description": "Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead",
             "type": "string"
           },
           "tool": {
@@ -3670,7 +3753,7 @@
                   "type": "string"
                 },
                 "status": {
-                  "description": "Gate Inbox status: starting, working, waiting, finished, idle, errored or dead",
+                  "description": "Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead",
                   "type": "string"
                 },
                 "tool": {

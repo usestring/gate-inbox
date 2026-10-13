@@ -40,6 +40,10 @@ type PermissionGrant struct {
 // Active reports whether the grant is still in force.
 func (g PermissionGrant) Active() bool { return g.RevokedAt.IsZero() }
 
+// StandingSession is the session_id of a standing grant: one the user
+// approved for every session Gate Inbox launches, until revoked.
+const StandingSession = "*"
+
 // GrantExpired is the RevokedBy of a grant the board revoked because its time
 // ran out.
 const GrantExpired = "expired"

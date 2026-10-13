@@ -49,6 +49,10 @@ Agent sessions
   gate-inbox delete-group <path> [--json]
       remove a group whose work is done; sessions still in it move to the root rather than stopping
 
+Your children
+  gate-inbox children [--session <id>] [--json]
+      list the sessions you spawned and, for each one stopped on a dialog, how long it has waited and its questions word for word, ready to put to the user; never touches tmux, so it is cheap to run every turn
+
 Shared task list
   gate-inbox task <list|create|claim|finish|release|delete>
       the work list every session in this manager claims from
@@ -94,6 +98,10 @@ Your own session
 How much this session matters
   gate-inbox priority <urgent|high|medium|low|none|-1..3>
       declare the tier of the work in this session, so triage hands it over ahead of the sessions that matter less
+
+Board hygiene
+  gate-inbox sweep [--json] [--db <path>] [--idle 72h] [--waiting 24h] [--errored 24h] [--dead 1h] [--mail 1h]
+      list stale sessions and undelivered mail with the call that would clear each; reads state.db read-only and changes nothing
 
 Setup
   gate-inbox claude-hooks [install | uninstall [--all] | status]

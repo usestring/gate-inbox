@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/priority"
@@ -167,11 +169,36 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	abs, absErr := filepath.Abs(path)
+	if done, ok := migrated.Load(abs); ok && absErr == nil && store.schemaVersion() == done.(int64) {
+		return store, nil
+	}
 	if err := store.init(); err != nil {
 		store.db.Close()
 		return nil, err
 	}
+	if version := store.schemaVersion(); absErr == nil && version > 0 {
+		migrated.Store(abs, version)
+	}
 	return store, nil
+}
+
+// migrated is the schema version each database path this process brought up
+// to date was left at. The board opens state.db afresh for each session an
+// extension asks about, and the migrations' UPDATEs scan every session row on
+// a cold connection: several megabytes read per call, many calls a second.
+// Once per process per file still runs them on every start, which is all the
+// re-runnable UPDATEs promise. A schema change since, or a new file at the
+// same path, moves SQLite's schema cookie and migrates again; the path alone
+// cannot tell, because a new file can reuse the old one's inode.
+var migrated sync.Map
+
+func (s *Store) schemaVersion() int64 {
+	var version int64
+	if s.db.QueryRow("PRAGMA schema_version").Scan(&version) != nil {
+		return -1
+	}
+	return version
 }
 
 func connect(path string) (*Store, error) {
@@ -1154,7 +1181,9 @@ func (s *Store) applyDerivedStates(at time.Time, states []DerivedState) error {
 		return err
 	}
 	defer tx.Rollback()
-	statuses, err := tx.Prepare(`UPDATE sessions SET status = ?, last_status_at = ? WHERE id = ?`)
+	statuses, err := tx.Prepare(`UPDATE sessions SET status = ?1,
+		last_status_at = CASE WHEN status = '` + status.Finished + `' AND ?1 = '` + status.Idle + `' THEN last_status_at ELSE ?2 END
+		WHERE id = ?3`)
 	if err != nil {
 		return err
 	}
@@ -1182,10 +1211,15 @@ func (s *Store) applyDerivedStates(at time.Time, states []DerivedState) error {
 
 // AcknowledgeFinished atomically marks a session idle and acked if its stored
 // status is still finished. A newer status makes the operation a no-op.
+//
+// last_status_at stays where the finish put it, here and in
+// applyDerivedStates: acknowledging a rest does not start a new one. Moving
+// it made every absorbed child unretirable the moment anyone looked at it,
+// since the child sweep measures absorption against it.
 func (s *Store) AcknowledgeFinished(id string) error {
 	res, err := s.db.Exec(
-		`UPDATE sessions SET status = ?, acked = 1, last_status_at = ? WHERE id = ? AND status = ?`,
-		status.Idle, encodeTime(time.Now()), id, status.Finished)
+		`UPDATE sessions SET status = ?, acked = 1 WHERE id = ? AND status = ?`,
+		status.Idle, id, status.Finished)
 	if err != nil {
 		return err
 	}

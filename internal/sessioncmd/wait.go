@@ -55,7 +55,9 @@ const (
 // restingStates is what "the session stopped working" means. Finished is
 // rewritten to idle once the manager acknowledges it, and a manager tick
 // can pass through both between two polls, so waiting on the whole set is
-// the only way not to miss the moment.
+// the only way not to miss the moment. Delegating is not among them: that
+// session ended its turn, but its own children's results are still coming
+// back into it.
 var restingStates = []string{status.Finished, status.Waiting, status.Idle, status.Errored, status.Dead}
 
 // WaitOptions says what one wait is parked on. Children is the set a parent
@@ -82,7 +84,7 @@ type WaitStanding struct {
 // list's status filter are read against it, so a state added to one front
 // is never accepted by one caller and refused by the other.
 var knownStates = map[string]bool{
-	status.Starting: true, status.Working: true, status.Waiting: true,
+	status.Starting: true, status.Working: true, status.Waiting: true, status.Delegating: true,
 	status.Finished: true, status.Idle: true, status.Errored: true, status.Dead: true,
 }
 
@@ -223,6 +225,18 @@ func (s *Sessions) Wait(ctx context.Context, sessionID string, opts WaitOptions)
 				return WaitResult{}, err
 			}
 			current = append(current, sess)
+		}
+		// A child that ended its turn on a fan-out of its own reads
+		// delegating, not finished, so the default wait does not hand it
+		// back before the results it is waiting on.
+		delegating, err := runtime.delegatingIDs()
+		if err != nil {
+			return WaitResult{}, err
+		}
+		for i := range current {
+			if delegating[current[i].ID] {
+				current[i].Status = status.Delegating
+			}
 		}
 		if tick%existsEvery == 0 {
 			runtime.refreshLive(live)

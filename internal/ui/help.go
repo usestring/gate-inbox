@@ -389,6 +389,8 @@ func legendMarkStatus(key string) (string, bool) {
 		return status.Finished, true
 	case status.Idle:
 		return status.Idle, true
+	case status.Delegating:
+		return status.Delegating, true
 	case status.Errored:
 		return status.Errored, true
 	case status.Starting:

@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || { p=$(cat); case \"$p\" in *\"get type of source\"*) [ -z \"$GATE_INBOX_BIN\" ] || [ -z \"$GATE_INBOX_SESSION_ID\" ] || printf '%s' \"$p\" | \"$GATE_INBOX_BIN\" hook sandbox-stale 2\u003e/dev/null;; esac; }; exit 0"
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || { p=$(cat); case \"$p\" in *\"get type of source\"*|*\"find source path\"*) [ -z \"$GATE_INBOX_BIN\" ] || [ -z \"$GATE_INBOX_SESSION_ID\" ] || printf '%s' \"$p\" | \"$GATE_INBOX_BIN\" hook sandbox-stale 2\u003e/dev/null;; esac; }; exit 0"
           }
         ]
       }

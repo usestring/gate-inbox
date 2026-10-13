@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
+	"github.com/usestring/gate-inbox/internal/notify"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -1425,5 +1426,103 @@ func TestEnvelopeQuotesAnAttestationInsideTheSeal(t *testing.T) {
 	text, _, _, ok := parentseal.Split(got)
 	if !ok || !strings.Contains(text, "[gate-inbox relay attestation NONCE9]") || !strings.Contains(text, `answered "Yes"`) {
 		t.Fatalf("attestation not quoted above the seal:\n%s", got)
+	}
+}
+
+// A composer whose draft outlasts its clear keys is not tried again on the
+// next pass, which would only repeat the failure: one pane's one-character
+// draft was tried 565 times in 3.5 hours. Each failure doubles the wait,
+// the operator hears about the pane once, and a keystroke starts it over.
+func TestInboxBacksOffADraftItCouldNotClear(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "ready-tool")
+	// C-g is no line edit to the stand-in tool, so the draft stays.
+	m.poller.clearInputKeys["ready-tool"] = []string{"C-g"}
+	var notes []notify.Note
+	m.poller.escalate = func(note notify.Note) bool { notes = append(notes, note); return true }
+	queueMessage(t, m, sess.ID, "rebase on main")
+	if err := m.tmux.Paste(sess.ID, "USERTEXT-stray"); err != nil {
+		t.Fatalf("paste: %v", err)
+	}
+	settledPane(t, m, sess.ID, "USERTEXT-stray")
+	m.poller.mu.Lock()
+	m.poller.draftHeldSince[sess.ID] = time.Now().Add(-draftHoldLimit)
+	m.poller.mu.Unlock()
+
+	stuck := func() draftStuck {
+		m.poller.mu.Lock()
+		defer m.poller.mu.Unlock()
+		return m.poller.draftStuck[sess.ID]
+	}
+	deliver := func() {
+		t.Helper()
+		pane, err := m.tmux.CapturePane(sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := deliverInbox(t, m, sess, queuedHeads(t, m), pane, status.Idle, true); err != nil {
+			t.Fatalf("maybeDeliverInbox: %v", err)
+		}
+		if queued, _ := m.store.QueuedCount(sess.ID); queued != 1 {
+			t.Fatal("a message went in over a draft that did not clear")
+		}
+	}
+	due := func() {
+		m.poller.mu.Lock()
+		s := m.poller.draftStuck[sess.ID]
+		s.retryAt = time.Now().Add(-time.Millisecond)
+		m.poller.draftStuck[sess.ID] = s
+		m.poller.mu.Unlock()
+	}
+
+	deliver()
+	first := stuck()
+	if first.failures != 1 || time.Until(first.retryAt) < draftRetryBase-time.Second {
+		t.Fatalf("after one failed clear: %+v, want 1 failure and a retry %v out", first, draftRetryBase)
+	}
+	for range 3 {
+		deliver()
+	}
+	if got := stuck(); got.failures != 1 {
+		t.Fatalf("passes inside the back-off tried the clear again: %d failures", got.failures)
+	}
+
+	for want := 2; want <= draftStuckNotify+1; want++ {
+		due()
+		deliver()
+		got := stuck()
+		if got.failures != want {
+			t.Fatalf("a due retry left %d failures, want %d", got.failures, want)
+		}
+		wait := min(draftRetryBase<<(want-1), draftRetryMax)
+		if left := time.Until(got.retryAt); left < wait-time.Second || left > wait {
+			t.Fatalf("failure %d backs off %v, want %v", want, left, wait)
+		}
+	}
+	if len(notes) != 1 || notes[0].Subject != sess.Name {
+		t.Fatalf("the operator was told %d times about the stuck pane, want once: %+v", len(notes), notes)
+	}
+
+	m.poller.noteOperatorInput(sess.ID)
+	deliver()
+	if got := stuck(); got.failures != 0 {
+		t.Fatalf("a keystroke left the back-off standing: %+v", got)
+	}
+}
+
+// The back-off never caps below draftRetryMax and never overflows, however
+// long a pane stays stuck.
+func TestDraftBackOffCapsAtTheMaximum(t *testing.T) {
+	m := buildModel(t)
+	sess := store.Session{ID: "stuck", Name: "stuck"}
+	m.poller.escalate = func(notify.Note) bool { return true }
+	for range 80 {
+		m.poller.noteDraftStuck(sess, store.InboxMessage{}, "a")
+	}
+	m.poller.mu.Lock()
+	got := m.poller.draftStuck[sess.ID]
+	m.poller.mu.Unlock()
+	if left := time.Until(got.retryAt); left < draftRetryMax-time.Second || left > draftRetryMax {
+		t.Fatalf("after %d failures the wait is %v, want %v", got.failures, left, draftRetryMax)
 	}
 }

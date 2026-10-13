@@ -12,7 +12,7 @@ type Snippet struct {
 	// Label is what the board calls the snippet. Empty falls back to Text.
 	Label string
 	// Preview overrides the menu text without changing what the key sends.
-	// Empty falls back to Text.
+	// Empty falls back to Label, then Text.
 	Preview string
 	// Chord is the direct binding that sends it in one press without the
 	// menu, e.g. "option+shift+r". Empty leaves it on the menu alone.

@@ -13,6 +13,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/mergegate"
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
@@ -1098,5 +1099,30 @@ func TestAssembleCarriesTheDirectiveOverAPastedImagePath(t *testing.T) {
 	}
 	if DirectiveEmbeddable("/compact") || DirectiveEmbeddable("/land-pr now") {
 		t.Fatal("a slash command must still open its own message")
+	}
+}
+
+func TestWithMergeGatePluginLoadsTheModOnlyWhenConfigured(t *testing.T) {
+	home := t.TempDir()
+	if _, err := mergegate.EnsurePluginDir(home); err != nil {
+		t.Fatal(err)
+	}
+	gate := mergegate.Config{Owners: []string{"usestring"}, Authors: []string{"merge-author"}}
+	base := "claude -p --output-format json"
+	// Not a claude tool: untouched.
+	if got := WithMergeGatePlugin("codex", base, gate, home); got != base {
+		t.Errorf("codex = %q, want unchanged", got)
+	}
+	// Gate off: untouched.
+	if got := WithMergeGatePlugin("claude", base, mergegate.Config{}, home); got != base {
+		t.Errorf("disabled = %q, want unchanged", got)
+	}
+	// Plugin dir missing: untouched.
+	if got := WithMergeGatePlugin("claude", base, gate, filepath.Join(home, "empty")); got != base {
+		t.Errorf("missing dir = %q, want unchanged", got)
+	}
+	got := WithMergeGatePlugin("claude", base, gate, home)
+	if !strings.Contains(got, "--plugin-dir ") || !strings.HasPrefix(got, base+" ") {
+		t.Errorf("enabled = %q, want the base command plus --plugin-dir", got)
 	}
 }

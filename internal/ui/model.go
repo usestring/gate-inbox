@@ -1322,6 +1322,9 @@ func (m *Model) seedFromStore() {
 		logging.Info("store seeded", "sessions", 0, logging.Err(err))
 		return
 	}
+	if shown, err := m.poller.delegated(sessions); err == nil {
+		sessions = shown
+	}
 	m.sessions = sessions
 	m.adoptRestored = true
 	m.restoreAdopted()
@@ -3165,13 +3168,11 @@ func (m *Model) buildTree() {
 				continue
 			}
 			// Triage draws every child except the ones somebody else is
-			// already answering; see parentOwns.
-			if m.triage && m.foldsAway(child) && m.parentOwns(child, time.Now(), livePanes) {
-				continue
-			}
-			// A muted child is off triage the same as a muted top-level
-			// session, and takes what hangs under it along.
-			if m.triage && child.Muted {
+			// already answering; see parentOwns. A muted child stays on the
+			// rail reading "muted" whoever owns its question, so it can be
+			// unmuted from here, and the drain walks past it; see
+			// persistentmute.go and triageHandable.
+			if m.triage && !child.Muted && m.foldsAway(child) && m.parentOwns(child, time.Now(), livePanes) {
 				continue
 			}
 			if drawn[child.ID] {
@@ -3215,13 +3216,9 @@ func (m *Model) buildTree() {
 				continue
 			}
 			for _, sess := range groupSessions {
-				// A persistently muted session is off the triage queue entirely:
-				// it is not a thing the drain walks past, it is not on the
-				// rail the drain reads. Its row is still on the list, where
-				// it reads "muted"; see persistentmute.go.
-				if m.triage && sess.Muted {
-					continue
-				}
+				// A persistently muted session stays on the triage rail reading
+				// "muted", sorted last; the drain walks past it rather than
+				// handing it over. See persistentmute.go and triageHandable.
 				kept[sess.ID] = true
 			}
 		}

@@ -183,8 +183,8 @@ func (f *fakeSessionCommands) Read(_ string, id string, since string) (sessioncm
 	return f.screen, f.err
 }
 
-func (f *fakeSessionCommands) SendChildren(_ string, message string) (sessioncmd.ChildSend, error) {
-	f.sentMessage = message
+func (f *fakeSessionCommands) SendChildrenAbout(_ string, message, subject string) (sessioncmd.ChildSend, error) {
+	f.sentMessage, f.sentSubject = message, subject
 	return sessioncmd.ChildSend{Queued: 1, Deliveries: []sessioncmd.ChildDelivery{{SessionID: "kid-a", Name: "kid-a", MessageID: 1}}}, f.err
 }
 

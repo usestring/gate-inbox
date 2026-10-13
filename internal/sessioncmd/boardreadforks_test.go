@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/usestring/gate-inbox/internal/git"
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
@@ -98,4 +99,57 @@ func resolvedDir(path string) string {
 		return real
 	}
 	return path
+}
+
+// An extension that keeps an archived id on record reads it on every pass.
+// The row is dead and its pane is gone, so a read forks no tmux at all: each
+// fork was a "can't find window" failure and a WARN in the board's log.
+func TestBoardGetOfAnArchivedDeadSessionForksNoTmux(t *testing.T) {
+	h := newSessionHarness(t)
+	filed := childShowing(t, h, "", "fork003", "filed", "ready\n")
+	if err := h.driver.Kill(filed.ID); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
+	if err := h.store.UpdateStatus(filed.ID, status.Dead); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if err := h.store.SetArchived(filed.ID, true); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	sessions, calls := loggedTmux(t, h)
+
+	for range 3 {
+		got, err := sessions.BoardGet(filed.ID)
+		if err != nil {
+			t.Fatalf("BoardGet: %v", err)
+		}
+		if got.Running || !got.Archived || got.Directory != filed.Cwd {
+			t.Fatalf("BoardGet = running %v, archived %v in %q; want archived and stopped in %q", got.Running, got.Archived, got.Directory, filed.Cwd)
+		}
+	}
+	if forks := calls(); len(forks) != 0 {
+		t.Errorf("BoardGet of an archived dead session forked tmux %d times, want 0:\n%s", len(forks), strings.Join(forks, "\n"))
+	}
+}
+
+// Archiving a group files its sessions without ending them, so an archived
+// row that is not dead may still have a pane, and a read still asks tmux.
+func TestBoardGetOfAnArchivedLiveSessionStillAsksTmux(t *testing.T) {
+	h := newSessionHarness(t)
+	filed := childShowing(t, h, "", "fork004", "filed", "ready\n")
+	if err := h.store.SetArchived(filed.ID, true); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	sessions, calls := loggedTmux(t, h)
+
+	got, err := sessions.BoardGet(filed.ID)
+	if err != nil {
+		t.Fatalf("BoardGet: %v", err)
+	}
+	if !got.Running {
+		t.Fatalf("BoardGet of an archived session whose pane is up = not running")
+	}
+	if forks := calls(); len(forks) != 1 {
+		t.Errorf("BoardGet of an archived live session forked tmux %d times, want 1:\n%s", len(forks), strings.Join(forks, "\n"))
+	}
 }

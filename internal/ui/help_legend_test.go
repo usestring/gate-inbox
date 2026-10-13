@@ -18,7 +18,7 @@ func TestKeysViewCarriesNoLegend(t *testing.T) {
 			t.Errorf("the key map still carries %q", section.title)
 		}
 		for _, row := range section.rows {
-			for _, glyph := range []string{"◐ working", "◆ waiting", "● finished", "○ idle", "✕ errored", "◌ starting", "■ ◧ ◰", "▢ □", "▣", "▲ ◭ △"} {
+			for _, glyph := range []string{"◐ working", "◆ waiting", "● finished", "○ idle", "◎ delegating", "✕ errored", "◌ starting", "■ ◧ ◰", "▢ □", "▣", "▲ ◭ △"} {
 				if row.key == glyph {
 					t.Errorf("the key map still lists the legend row %q", glyph)
 				}

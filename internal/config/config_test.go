@@ -821,6 +821,47 @@ rules = [
 	}
 }
 
+// A claude block written before the /model effort slider claimed the arrows
+// carries the old arrow_dialog_line verbatim and takes the current one, so
+// the slider's "←/→ to adjust" keeps Left and Right in the pane. One edited
+// by hand keeps what its author wrote.
+func TestLoadDirUpgradesClaudeArrowDialogLine(t *testing.T) {
+	const custom = `to navigate\b`
+	for _, c := range []struct {
+		name, pattern string
+		upgraded      bool
+	}{
+		{"shipped pattern", arrowDialogNavigateOnly, true},
+		{"hand-edited pattern", custom, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			legacy := "[tools.claude]\ncommand = \"claude\"\narrow_dialog_line = '" + c.pattern + "'\n"
+			if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(legacy), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := LoadDir(dir)
+			if err != nil {
+				t.Fatalf("LoadDir: %v", err)
+			}
+			got := cfg.Tools["claude"].ArrowDialogLine
+			if !c.upgraded {
+				if got != c.pattern {
+					t.Fatalf("hand-edited arrow_dialog_line rewritten to %q", got)
+				}
+				return
+			}
+			re, err := regexp.Compile(got)
+			if err != nil {
+				t.Fatalf("upgraded arrow_dialog_line does not compile: %q: %v", got, err)
+			}
+			if !re.MatchString("   \u25c9 xHigh effort \u2190/\u2192 to adjust") {
+				t.Fatalf("upgraded arrow_dialog_line %q does not see the /model effort slider", got)
+			}
+		})
+	}
+}
+
 // A config written before either opencode overlay was recognized carries a
 // rules array with no waiting rule at all, so both a permission ask and an
 // agent's select prompt read working off the spinner row that sits above the

@@ -631,7 +631,7 @@ func (m *Model) viewAgentPick() string {
 		hint = [][2]string{{"←→", "pick"}, {"↵", "start"}, {"esc", "cancel"}}
 		room += hintRows - lipgloss.Height(legendInline(hint, cardInnerWidth(m.cardWidth())))
 	}
-	quotaRows := agentPickQuotaRows(m.agentPick.names, m.agentPick.quotas, m.agentPick.recommended, inner)
+	quotaRows := agentPickQuotaRows(m.agentPick.names, m.agentPick.quotas, m.agentPick.recommended, m.agentPick.reason, inner)
 	if room-len(quotaRows) < 1 {
 		quotaRows = nil
 	}
@@ -654,9 +654,10 @@ func (m *Model) viewAgentPick() string {
 
 // agentPickQuotaRows lists each CLI's quota left under the names, in the box's
 // order, with the CLI auto would start marked. It is a blank line and then
-// one row per CLI the chooser could read, each cut to width.
-func agentPickQuotaRows(names []string, quotas map[string]string, recommended string, width int) []string {
-	if len(quotas) == 0 && recommended == "" {
+// one row per CLI the chooser could read, each cut to width, and last why
+// auto picks what it picks, in the chooser's words when it gave them.
+func agentPickQuotaRows(names []string, quotas map[string]string, recommended, reason string, width int) []string {
+	if len(quotas) == 0 && recommended == "" && reason == "" {
 		return nil
 	}
 	rows := []string{""}
@@ -674,7 +675,13 @@ func agentPickQuotaRows(names []string, quotas map[string]string, recommended st
 		}
 		rows = append(rows, ansi.Truncate(label+"  "+subtleStyle.Render(quota), width, "…"))
 	}
-	if recommended != "" {
+	switch {
+	case reason != "":
+		// Wrapped, not cut: the end of a reason is often what says why.
+		for _, line := range strings.Split(ansi.Wordwrap("(auto): "+reason, width, ""), "\n") {
+			rows = append(rows, subtleStyle.Render(ansi.Truncate(line, width, "…")))
+		}
+	case recommended != "":
 		rows = append(rows, subtleStyle.Render(ansi.Truncate("(auto): most quota left before reset", width, "…")))
 	}
 	return rows

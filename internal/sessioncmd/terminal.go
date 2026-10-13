@@ -46,6 +46,8 @@ type TerminalInput struct {
 }
 
 type CreateTerminalOptions struct {
+	// Name labels the row; "" names it after the session it hangs under.
+	Name string
 	// Nil inherits the calling session's group; a pointer to an empty string
 	// deliberately targets the root group.
 	Group     *string
@@ -295,6 +297,9 @@ func (t *Terminals) Create(sessionID string, opts CreateTerminalOptions) (create
 	name, err := runtime.shellName(toolName, parentID)
 	if err != nil {
 		return Terminal{}, err
+	}
+	if requested := strings.TrimSpace(opts.Name); requested != "" {
+		name = requested
 	}
 	sess := store.Session{
 		ID:     uuid.NewString()[:8],

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
@@ -91,7 +92,7 @@ func TestLaunchPlans(t *testing.T) {
 
 // TestGeneratedLaunchFiles records the files a real launch writes for the
 // CLIs that are pointed at the MCP server and at the status hooks through a
-// generated config: claude's settings and MCP config, and opencode's.
+// generated config: claude's settings, MCP config and plugin, and opencode's.
 func TestGeneratedLaunchFiles(t *testing.T) {
 	s := newScratch(t)
 	cfg, err := config.LoadDir(s.home)
@@ -107,12 +108,14 @@ func TestGeneratedLaunchFiles(t *testing.T) {
 	}
 	var b strings.Builder
 	var paths []string
-	filepath.WalkDir(manager.Dir(), func(path string, entry os.DirEntry, err error) error {
-		if err == nil && !entry.IsDir() {
-			paths = append(paths, path)
-		}
-		return nil
-	})
+	for _, root := range []string{manager.Dir(), claudeplugin.Dir(s.home)} {
+		filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+			if err == nil && !entry.IsDir() {
+				paths = append(paths, path)
+			}
+			return nil
+		})
+	}
 	sort.Strings(paths)
 	for _, path := range paths {
 		raw, err := os.ReadFile(path)

@@ -746,7 +746,6 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if err != nil {
 		return Session{}, err
 	}
-	plan.Command = launch.WithMergeGatePlugin(toolName, plan.Command, runtime.cfg.MergeGate, s.configDir)
 	sess.AgentSessionID = plan.AgentSessionID
 	sess.PendingInputs = plan.PendingInputs
 	sess.LaunchPrompt = plan.LaunchPrompt

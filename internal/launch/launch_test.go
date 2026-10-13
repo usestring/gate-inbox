@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
-	"github.com/usestring/gate-inbox/internal/mergegate"
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
@@ -345,6 +345,48 @@ func TestEnvironmentCarriesSessionIDAndHooks(t *testing.T) {
 	}
 	if !strings.Contains(command, "--mcp-config '") || !strings.Contains(command, "--settings '") {
 		t.Fatalf("hooked command = %q", command)
+	}
+}
+
+// Every hooked launch loads the Gate Inbox plugin once, from the directory
+// the launch itself wrote, and a dry run names the same directory without
+// writing it.
+func TestEnvironmentLoadsTheGateInboxPluginOnce(t *testing.T) {
+	home := t.TempDir()
+	manager := hooks.NewManager(home)
+	hooked := config.Tool{Command: "cat", StatusSource: hooks.StatusSourceClaude, MCP: "claude"}
+	dir, err := claudeplugin.Path(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, _, err := Compose(manager, "hooked", hooked, hooked.Command, "abcd1234", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(claudeplugin.Dir(home)); !os.IsNotExist(err) {
+		t.Fatalf("Compose wrote the plugin: %v", err)
+	}
+	command, _, err := Environment(manager, "hooked", hooked, hooked.Command, "abcd1234", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := claudeplugin.Argv(tmux.ShellQuote(dir))
+	for _, got := range []string{preview, command} {
+		if strings.Count(got, "--plugin-dir") != 1 || !strings.Contains(got, want) {
+			t.Fatalf("command = %q, want exactly one %q", got, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".claude-plugin", "plugin.json")); err != nil {
+		t.Fatalf("the launch did not write the plugin it loads: %v", err)
+	}
+
+	plain := config.Tool{Command: "cat", MCP: "codex"}
+	command, _, err = Environment(manager, "codex", plain, plain.Command, "abcd1234", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(command, "--plugin-dir") {
+		t.Fatalf("a codex launch carries the claude plugin: %q", command)
 	}
 }
 
@@ -1097,30 +1139,5 @@ func TestAssembleCarriesTheDirectiveOverAPastedImagePath(t *testing.T) {
 	}
 	if DirectiveEmbeddable("/compact") || DirectiveEmbeddable("/land-pr now") {
 		t.Fatal("a slash command must still open its own message")
-	}
-}
-
-func TestWithMergeGatePluginLoadsTheModOnlyWhenConfigured(t *testing.T) {
-	home := t.TempDir()
-	if _, err := mergegate.EnsurePluginDir(home); err != nil {
-		t.Fatal(err)
-	}
-	gate := mergegate.Config{Owners: []string{"usestring"}, Authors: []string{"merge-author"}}
-	base := "claude -p --output-format json"
-	// Not a claude tool: untouched.
-	if got := WithMergeGatePlugin("codex", base, gate, home); got != base {
-		t.Errorf("codex = %q, want unchanged", got)
-	}
-	// Gate off: untouched.
-	if got := WithMergeGatePlugin("claude", base, mergegate.Config{}, home); got != base {
-		t.Errorf("disabled = %q, want unchanged", got)
-	}
-	// Plugin dir missing: untouched.
-	if got := WithMergeGatePlugin("claude", base, gate, filepath.Join(home, "empty")); got != base {
-		t.Errorf("missing dir = %q, want unchanged", got)
-	}
-	got := WithMergeGatePlugin("claude", base, gate, home)
-	if !strings.Contains(got, "--plugin-dir ") || !strings.HasPrefix(got, base+" ") {
-		t.Errorf("enabled = %q, want the base command plus --plugin-dir", got)
 	}
 }

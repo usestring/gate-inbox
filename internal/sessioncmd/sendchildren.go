@@ -83,10 +83,13 @@ func (s *Sessions) SendChildren(sessionID, message string) (ChildSend, error) {
 		}
 		delivery := ChildDelivery{SessionID: child.ID, Name: child.Name}
 		switch {
+		// Bringing back every filed-away child of a fan-out is not what one
+		// message to all of them asks for, so these are skipped here and a
+		// send to the one that is wanted brings it back.
 		case child.Archived:
-			delivery.Skipped = "archived"
+			delivery.Skipped = fmt.Sprintf("archived; %s to it alone restores it", runtime.words.Send)
 		case child.Status == status.Dead:
-			delivery.Skipped = "dead"
+			delivery.Skipped = fmt.Sprintf("dead; %s to it alone revives it", runtime.words.Send)
 		// A terminal is a shell the caller opened to watch, not an agent with
 		// an inbox, so it is not part of the fan-out this is instructing.
 		case runtime.cfg.Tools[child.Tool].Shell:

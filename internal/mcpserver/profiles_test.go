@@ -108,9 +108,7 @@ var passedWord = regexp.MustCompile(`\b[Pp]ass ([a-z][a-z0-9_]*)\b`)
 var notArgs = map[string]string{
 	"spawn_agent":        "Codex's subagent tool",
 	"request_user_input": "Codex's question tool",
-	"parent_id":          "a list_sessions field",
 	"session_id":         "the header field a cross-session message carries",
-	"caller_session_id":  "an override argument some tools take",
 }
 
 // Every argument a tool's guidance names is one that tool's schema has, so

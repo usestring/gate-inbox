@@ -8,10 +8,12 @@ suites mostly report load flakes rather than regressions.
 ## Testing a change
 
 - Run `go test -short` on the packages you changed, and only those:
-  `env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$(mktemp -d)" go test -short ./internal/<pkg>`.
+  `env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$(mktemp -d)" go test -short ./<changed package>`.
   `-short` skips the tests that assert wall-clock budgets; CI runs them in full.
 - Always unset `TMUX` and `TMUX_PANE` and give the run its own `TMUX_TMPDIR`, as above.
 - Leave the full `internal/ui` and `internal/sessioncmd` suites, and `scripts/ci-test.sh`, to CI.
+  For the same reason, do not enable the `.githooks` pre-push hook: it runs the full suite on
+  every push.
 - Do not run `go build ./...` before testing: `go test` builds what it runs.
 - Do not pass `-count=1` unless you are proving a flake. The test cache is what keeps a rerun of
   unchanged packages free.

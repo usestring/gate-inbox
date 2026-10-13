@@ -140,6 +140,15 @@ Gate Inbox manages this session. Before handing work to another agent (Agent, Ta
             "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || { [ -z \"$GATE_INBOX_BIN\" ] || [ -z \"$GATE_INBOX_SESSION_ID\" ] || \"$GATE_INBOX_BIN\" hook ask-pending 2\u003e/dev/null; }; exit 0"
           }
         ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || { [ -z \"$GATE_INBOX_BIN\" ] || [ -z \"$GATE_INBOX_SESSION_ID\" ] || \"$GATE_INBOX_BIN\" hook agent-nudge 2\u003e/dev/null; }; exit 0"
+          }
+        ]
       }
     ],
     "SessionEnd": [

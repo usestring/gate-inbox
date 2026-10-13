@@ -82,8 +82,16 @@ func TestHooksFileCarriesTheLaunchHooksAndTheMods(t *testing.T) {
 	if !reflect.DeepEqual(file.Modules, []string{"./merge-gate.ts"}) {
 		t.Fatalf("modules = %v", file.Modules)
 	}
-	if want := hooks.LaunchHooks(); !reflect.DeepEqual(file.Hooks, want) {
-		t.Fatalf("hooks = %+v\nwant the launch hooks %+v", file.Hooks, want)
+	launch := hooks.LaunchHooks()
+	for event, want := range launch {
+		if got := file.Hooks[event]; len(got) < len(want) || !reflect.DeepEqual(got[:len(want)], want) {
+			t.Fatalf("%s hooks = %+v\nwant the launch hooks first %+v", event, got, want)
+		}
+	}
+	for _, hook := range contributed {
+		if _, ok := launch[hook.Event]; !ok {
+			t.Fatalf("registered %s hook is on an event the launch lacks", hook.Event)
+		}
 	}
 	if len(file.Hooks) != 9 {
 		t.Fatalf("hooks carry %d events, want the 9 the launch has", len(file.Hooks))
@@ -106,6 +114,11 @@ func TestRegisteredHooksFollowTheLaunchHooks(t *testing.T) {
 	}
 	pre := file.Hooks["PreToolUse"]
 	launch := hooks.LaunchHooks()["PreToolUse"]
+	for _, hook := range saved {
+		if hook.Event == "PreToolUse" {
+			launch = append(launch, hooks.HookMatcher{})
+		}
+	}
 	if len(pre) != len(launch)+1 || pre[len(pre)-1].Matcher != "Agent" || pre[len(pre)-1].Hooks[0].Command != "true" {
 		t.Fatalf("PreToolUse = %+v, want the launch entries then the registered one", pre)
 	}

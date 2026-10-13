@@ -968,6 +968,25 @@ func (s *Store) archivedChildCounts() (map[string]int, error) {
 	return counts, rows.Err()
 }
 
+// ArchivedIDs is the id of every archived session, without the rest of the
+// row.
+func (s *Store) ArchivedIDs() ([]string, error) {
+	rows, err := s.db.Query(`SELECT id FROM sessions WHERE archived = 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // ArchivableChild is a child the sweep may file, with the reason it may.
 type ArchivableChild struct {
 	ID     string

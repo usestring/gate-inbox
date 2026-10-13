@@ -858,6 +858,10 @@ func TestRefreshCarriesQueuedCountsToTheRows(t *testing.T) {
 	for _, sess := range m.sessionRows() {
 		ids[sess.Name] = sess.ID
 	}
+	// An archive ends the pane before it files the row.
+	if err := m.tmux.Kill(ids["stranded"]); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
 	if err := m.store.SetArchived(ids["stranded"], true); err != nil {
 		t.Fatalf("archive: %v", err)
 	}

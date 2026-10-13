@@ -727,6 +727,13 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	phases.admin = mark.Sub(adminStart)
 
 	listedAt := time.Now()
+	// Read before the scan: an archive ends the pane before it files the
+	// row, so an id read here whose pane the scan still finds is a live
+	// agent, not one caught halfway through being archived.
+	archivedIDs, err := p.store.ArchivedIDs()
+	if err != nil {
+		return errMsg{err}
+	}
 	sessions, err := p.listSessions(includeArchived)
 	if err != nil {
 		return errMsg{err}
@@ -737,6 +744,15 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	scan, err := p.tmux.ScanPanes()
 	if err != nil {
 		return errMsg{err}
+	}
+	restored, err := p.restoreLiveArchived(archivedIDs, scan.PIDs)
+	if err != nil {
+		return errMsg{err}
+	}
+	if restored {
+		if sessions, err = p.listSessions(includeArchived); err != nil {
+			return errMsg{err}
+		}
 	}
 	// Before anything reads a status off this pass: a row removed here is
 	// one the rest of the pass must not derive, notify or write for.
@@ -1290,6 +1306,26 @@ func (p *poller) pruneGoneAdopted(sessions []store.Session, scan tmux.PaneScan) 
 		}
 	}
 	return kept, nil
+}
+
+// restoreLiveArchived puts an archived row whose own pane is running back
+// on the active list. The pass derives no status for an archived row, so a
+// live agent under one reads "starting" for as long as it runs and no sweep
+// sees it. Builds before relaunches restored their rows left exactly that
+// behind on every revive from the archived view.
+func (p *poller) restoreLiveArchived(archivedIDs []string, panes map[string]int) (bool, error) {
+	restored := false
+	for _, id := range archivedIDs {
+		if panes[id] <= 0 {
+			continue
+		}
+		if err := ignoreDeletedSession(p.store.SetArchived(id, false)); err != nil {
+			return restored, err
+		}
+		logging.Info("restored an archived row with a live pane", "session", id, "pid", panes[id])
+		restored = true
+	}
+	return restored, nil
 }
 
 // forgetAdopted drops every trace of a session whose adopted pane is gone.

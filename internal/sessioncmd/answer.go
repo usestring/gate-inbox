@@ -60,7 +60,7 @@ type AnsweredQuestion struct {
 	readFrom  string
 }
 
-// Answer picks or types reply into the question dialog targetID is holding.
+// answerOne picks or types reply into the question dialog targetID is holding.
 //
 // Only the session that spawned the child may call it. That is read off
 // spawned_by rather than off parent_id: the tree carries one level, so a
@@ -76,7 +76,7 @@ type AnsweredQuestion struct {
 // a list.
 //
 // relay keys the answer as the caller's user's own: see relay.go.
-func (s *Sessions) Answer(sessionID, targetID, reply string, relay bool) (AnsweredQuestion, error) {
+func (s *Sessions) answerOne(sessionID, targetID, reply string, relay bool) (AnsweredQuestion, error) {
 	reply = strings.TrimSpace(reply)
 	if reply == "" {
 		return AnsweredQuestion{}, errEmptyAnswer
@@ -193,6 +193,7 @@ func answerGuarded(pane dialogPane, raw string, held dialog.Dialog, reply string
 		}
 	}
 	answered, err := answerHeld(pane, raw, held, reply)
+	err = guard.settle(pane, &answered, err, func() (AnsweredQuestion, error) { return rekeyHeld(pane, reply) })
 	guard.finish(err)
 	return answered, err
 }

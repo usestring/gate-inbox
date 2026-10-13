@@ -2297,6 +2297,74 @@
               "array"
             ]
           },
+          "relay_ask": {
+            "additionalProperties": false,
+            "description": "when the session is on a dialog: the exact input for your own AskUserQuestion that puts it to your user word for word, which answer_session relay: true accepts; pass it as is, then answer with the option your user picks",
+            "properties": {
+              "questions": {
+                "description": "pass this object as is to your own AskUserQuestion; each question is the child's, word for word, with its header, options and multiSelect",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "header": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "multiSelect": {
+                      "type": "boolean"
+                    },
+                    "options": {
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "description": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "preview": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "label"
+                        ],
+                        "type": "object"
+                      },
+                      "type": [
+                        "null",
+                        "array"
+                      ]
+                    },
+                    "question": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "header",
+                    "question",
+                    "multiSelect",
+                    "options"
+                  ],
+                  "type": "object"
+                },
+                "type": [
+                  "null",
+                  "array"
+                ]
+              }
+            },
+            "required": [
+              "questions"
+            ],
+            "type": [
+              "null",
+              "object"
+            ]
+          },
           "result": {
             "description": "the session's most recent prose turn, which is the closest thing to its result",
             "type": "string"

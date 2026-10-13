@@ -119,10 +119,10 @@ var (
 // somebody else answered, typed or cancelled while it ran.
 var errDialogMoved = errors.New("the dialog changed under the answer")
 
-// AnswerAll answers several questions of the dialog targetID is holding, and
+// answerAll answers several questions of the dialog targetID is holding, and
 // submits it when every question then has an answer and submit is set.
 // relay keys the answers as the caller's user's own: see relay.go.
-func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswer, submit, relay bool) (AnsweredQuestion, error) {
+func (s *Sessions) answerAll(sessionID, targetID string, answers []QuestionAnswer, submit, relay bool) (AnsweredQuestion, error) {
 	if len(answers) == 0 {
 		return AnsweredQuestion{}, errors.New("answers is empty; give one entry per question to answer")
 	}
@@ -179,6 +179,7 @@ func (s *Sessions) AnswerAll(sessionID, targetID string, answers []QuestionAnswe
 		return AnsweredQuestion{}, fmt.Errorf("session %s: %w", target.ID, err)
 	}
 	answered, err := fillDialog(pane, questions, answers, submit)
+	err = guard.settle(pane, &answered, err, func() (AnsweredQuestion, error) { return fillDialog(pane, questions, answers, submit) })
 	guard.finish(err)
 	answered.SessionID, answered.Name = target.ID, target.Name
 	if err != nil {

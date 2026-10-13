@@ -1,4 +1,4 @@
-40 commands and verbs
+41 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -378,6 +378,25 @@ $ gate-inbox priority -h
 exit 0
 --- stdout
 usage: gate-inbox priority <urgent|high|medium|low|none|-1..3>
+
+$ gate-inbox sweep -h
+exit 0
+--- stdout
+usage: gate-inbox sweep [--json] [--db <path>] [--idle 72h] [--waiting 24h] [--errored 24h] [--dead 1h] [--mail 1h]
+  -db string
+    	state.db to read instead of the board's own, such as a copy
+  -dead duration
+    	how long an ended session stays on the list before it is stale (default 1h0m0s)
+  -errored duration
+    	how long an errored session sits before it is stale (default 24h0m0s)
+  -idle duration
+    	how long an idle or finished session sits before it is stale (default 72h0m0s)
+  -json
+    	print the raw result as JSON instead of a sentence
+  -mail duration
+    	how old an undelivered message is before it is reported (default 1h0m0s)
+  -waiting duration
+    	how long a session waits on a dialog before it is stale (default 24h0m0s)
 
 $ gate-inbox claude-hooks -h
 exit 0

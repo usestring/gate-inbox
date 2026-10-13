@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/agentnudge"
+	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
@@ -60,6 +61,15 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 			}
 		}
 		if note != "" {
+			fmt.Fprintln(out, note)
+		}
+	case "child-dialogs":
+		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
+		if err != nil {
+			return nil
+		}
+		if note := sessioncmd.ChildNudgeHook(configDir, convo.ClaudeHome(), sessionID, statusSibling(sessioncmd.ChildNudgeSuffix),
+			sessioncmd.ChildSegmentDir(), payload, time.Now()); note != "" {
 			fmt.Fprintln(out, note)
 		}
 	case "sandbox-stale":

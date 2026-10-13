@@ -249,8 +249,9 @@ func (s *Sessions) RestartStaleSandboxes(now time.Time) (int, error) {
 	for _, flag := range persistent {
 		id := strings.TrimSuffix(filepath.Base(flag), ".status"+hooks.SandboxStaleSuffix)
 		target, err := runtime.store.Get(id)
-		if err != nil || store.SpawnerOf(target) == "" || !runtime.driver.Exists(id) {
-			// Gone, or a person's own session: nothing for the board to do.
+		if err != nil || store.SpawnerOf(target) == "" || target.Archived || !runtime.driver.Exists(id) {
+			// Gone, filed away, or a person's own session: nothing for the
+			// board to do.
 			_ = removeFlag(flag)
 			continue
 		}

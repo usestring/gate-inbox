@@ -1,10 +1,10 @@
 === absent
 y  "yes" -> "yes"
 c  "continue" -> "continue"
-e  "explain like I'm 5" -> "I'm confused, explain like I'm 5"
+e  "eli5" -> "I'm confused, explain like I'm 5"
 w  "wake up" -> "Auto wake-up: the previous turn died on a transient API error. Continue where you left off."
-n  "what do you need from me" -> "what do you need from me?"
-§  "progress" -> "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so"
+n  "needs?" -> "what do you need from me?"
+p  "progress" -> "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so"
 --- snippets.json as written
 [
   {
@@ -23,7 +23,7 @@ n  "what do you need from me" -> "what do you need from me?"
   },
   {
     "key": "e",
-    "label": "explain like I'm 5",
+    "label": "eli5",
     "chord": "alt+shift+e",
     "text": "I'm confused, explain like I'm 5",
     "autoSubmit": true
@@ -37,14 +37,15 @@ n  "what do you need from me" -> "what do you need from me?"
   },
   {
     "key": "n",
-    "label": "what do you need from me",
+    "label": "needs?",
     "chord": "alt+shift+n",
     "text": "what do you need from me?",
     "autoSubmit": true
   },
   {
-    "key": "§",
+    "key": "p",
     "label": "progress",
+    "chord": "alt+shift+p",
     "text": "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so",
     "autoSubmit": true
   }

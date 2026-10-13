@@ -968,6 +968,9 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 					if err != nil {
 						return errMsg{err}
 					}
+					if agentAlive {
+						derived = p.settleStalledBackground(sess, clean, derived, now)
+					}
 					phases.status += lap(&step)
 					newStatus = derived
 					sent, err := p.maybeSendPendingInputWhenReady(sess, capture, derived, agentAlive)

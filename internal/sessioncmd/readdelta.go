@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/usestring/gate-inbox/extension/textfmt"
+	"github.com/usestring/gate-inbox/internal/agentsession"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -151,6 +153,15 @@ func (r *runtime) digest(target store.Session, pane string, running bool, delta 
 			// either way, so read it the way park does.
 			if state, ok := engine.Match(target.Tool, pane); ok {
 				block.Status = state
+				// Settled the way the poller settles it: a tail that has
+				// outlived its conversation's last write is not work.
+				if state == status.Working {
+					if rest, stalled := status.StalledBackground(engine, target.Tool, pane, func() (time.Duration, bool) {
+						return agentsession.ClaudeTranscriptAge(target.Cwd, target.AgentSessionID, time.Now())
+					}); stalled {
+						block.Status = rest
+					}
+				}
 			}
 		}
 		if held, ok := dialog.Parse(pane); ok {

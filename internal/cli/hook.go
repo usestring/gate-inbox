@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/agentnudge"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/hooks"
@@ -78,6 +79,16 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 			return nil
 		}
 		if note := sessioncmd.SandboxStaleHook(configDir, sessionID, flag, payload, time.Now()); note != "" {
+			fmt.Fprintln(out, note)
+		}
+	case "agent-nudge":
+		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
+		if err != nil || os.Getenv(envname.StatusFile) == "" {
+			return nil
+		}
+		home, _ := os.UserHomeDir()
+		paths := agentnudge.Paths{Dir: agentnudge.StateDir(configDir), SessionID: sessionID, Home: home}
+		if _, note := agentnudge.Hook(payload, paths, time.Now()); note != "" {
 			fmt.Fprintln(out, note)
 		}
 	case "attest-note":

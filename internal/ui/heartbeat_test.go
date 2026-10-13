@@ -76,6 +76,7 @@ func stampAge(t *testing.T, raw string) time.Duration {
 // one step, into the first query the pass runs behind it, since the store
 // keeps a single connection.
 func TestAStalledLivenessStampDoesNotStallThePass(t *testing.T) {
+	needsQuietBox(t)
 	m, dbPath := buildModelWithStorePath(t)
 	// The first pass sweeps the inbox; from the second on, admin is the
 	// stamp and nothing else.

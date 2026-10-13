@@ -3236,6 +3236,17 @@ func (m *Model) buildTree() {
 		for _, sess := range queue {
 			appendSession(sess, 0)
 		}
+		if m.triage {
+			slices.SortStableFunc(rows, func(a, b treeRow) int {
+				if a.sess.Muted == b.sess.Muted {
+					return 0
+				}
+				if a.sess.Muted {
+					return 1
+				}
+				return -1
+			})
+		}
 		connectMigrationRows(rows)
 		m.rows = rows
 		m.clearGroupNumbers()

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -98,7 +99,7 @@ func SandboxStaleHook(configDir, sessionID, flag string, payload []byte, now tim
 	if !staleSandboxFailure(payload) {
 		return ""
 	}
-	if restoreWorktreeSource(staleSource(payload)) {
+	if restoreStaleSource(staleSource(payload), now) {
 		return failureNote(staleRestoredNote)
 	}
 	note := staleRetryNote
@@ -127,23 +128,56 @@ func failureNote(note string) string {
 
 // Most stale paths are a removed worktree's metadata under
 // <gitdir>/worktrees/<name>/ (62 of 82 failures, 2026-10-11 22:30 to
-// 2026-10-12 04:25). Putting an empty file back where bwrap expects one fixes
-// the session in place, and every other session that bound the same path,
-// with no restart. Git does not see the placeholder: an entry with no gitdir
-// file is left out of `git worktree list`, holds no branch, and the next
-// `git worktree prune` removes it. Lock files and checkout files are never
-// recreated; an empty config.lock would block every git config write.
+// 2026-10-12 04:25), and most of the rest a .mcp.json in a subdirectory.
+// Putting the path back fixes the session in place, and every other session
+// that bound the same path, with no restart.
+//
+// What is put back has to outlive two deleters, or the sessions break again
+// whenever another one exits. Claude Code's own sandbox mounts /dev/null over
+// a deny path that does not exist, which makes bwrap create an empty file
+// there; Claude Code unlinks every empty file it so placed when its last
+// sandboxed command ends or it exits, whoever has bound the path since. And
+// this board's SessionEnd hook runs `git worktree prune`, which drops any
+// worktree entry without a gitdir file. So every file written here has
+// content, and a worktree placeholder carries a lock file, which prune
+// honours. Git does not otherwise see the placeholder: an entry with no
+// gitdir file is left out of `git worktree list` and holds no branch.
+// Placeholders older than placeholderLifetime are swept the next time one is
+// written, so they cannot pile up into Claude Code's deny list.
+//
+// Lock files and checkout files are never recreated; an empty config.lock
+// would block every git config write.
 
-const staleRestoredNote = "Gate Inbox: that Bash call failed because a removed worktree's metadata, which Claude " +
-	"Code had bound into this session's sandbox, was deleted. Gate Inbox has put an empty placeholder back, so the " +
-	"sandbox works again. Retry the same command inside the sandbox now; do not switch to " +
+const staleRestoredNote = "Gate Inbox: that Bash call failed because a path Claude Code had bound into this " +
+	"session's sandbox (a removed worktree's metadata or a placeholder .mcp.json) was deleted. Gate Inbox has put a " +
+	"placeholder back, so the sandbox works again. Retry the same command inside the sandbox now; do not switch to " +
 	"dangerouslyDisableSandbox, and do not ask anyone for approval over it."
 
 var staleSourcePath = regexp.MustCompile(`(?m)^bwrap: ` + staleRefusal + ` (.+?): No such file or directory`)
 
 // worktreeMetadataFiles are the per-worktree files bwrap has been seen to
-// bind; the worktree's directory itself is restored for any of them.
-var worktreeMetadataFiles = map[string]bool{"config.worktree": true, "commondir": true, "config": true}
+// bind, with the content a placeholder holds; the worktree's directory
+// itself is restored for any of them.
+var worktreeMetadataFiles = map[string]string{
+	"commondir":       "../..\n",
+	"config.worktree": placeholderConfig,
+	"config":          placeholderConfig,
+}
+
+const placeholderConfig = "# Gate Inbox placeholder for a removed worktree\n"
+
+// Claude Code binds both of these for every registered worktree, so both are
+// written at once rather than each costing its own failed call.
+var worktreePlaceholderFiles = []string{"commondir", "config.worktree"}
+
+// placeholderLock marks a worktree entry as this hook's placeholder.
+const placeholderLock = "gate-inbox sandbox placeholder: a removed worktree that running Claude Code sandboxes still bind\n"
+
+// placeholderLifetime is how long a worktree placeholder is kept.
+const placeholderLifetime = 72 * time.Hour
+
+// mcpPlaceholder is a .mcp.json that declares no servers.
+const mcpPlaceholder = "{\"mcpServers\":{}}\n"
 
 func staleSource(payload []byte) string {
 	var call struct {
@@ -159,16 +193,26 @@ func staleSource(payload []byte) string {
 	return match[1]
 }
 
-// restoreWorktreeSource puts back path when it is a removed worktree's
-// metadata directory, or one of its known files, under a git directory that
-// still exists. It reports whether path exists afterwards.
-func restoreWorktreeSource(path string) bool {
+// restoreStaleSource puts back path when it is a removed worktree's metadata
+// or a subdirectory's .mcp.json. It reports whether path exists afterwards.
+func restoreStaleSource(path string, now time.Time) bool {
 	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return false
 	}
-	dir, file := path, ""
-	if worktreeMetadataFiles[filepath.Base(path)] {
-		dir, file = filepath.Dir(path), filepath.Base(path)
+	if filepath.Base(path) == ".mcp.json" {
+		return restoreMCPConfig(path)
+	}
+	return restoreWorktreeSource(path, now)
+}
+
+// restoreWorktreeSource puts back path when it is a removed worktree's
+// metadata directory, or one of its known files, under a git directory that
+// still exists. A live worktree's entry, one with a gitdir file, is never
+// written to.
+func restoreWorktreeSource(path string, now time.Time) bool {
+	dir := path
+	if _, ok := worktreeMetadataFiles[filepath.Base(path)]; ok {
+		dir = filepath.Dir(path)
 	}
 	worktrees := filepath.Dir(dir)
 	gitDir := filepath.Dir(worktrees)
@@ -178,18 +222,134 @@ func restoreWorktreeSource(path string) bool {
 	if info, err := os.Stat(gitDir); err != nil || !info.IsDir() {
 		return false
 	}
+	if _, err := os.Lstat(filepath.Join(dir, "gitdir")); err == nil {
+		_, err := os.Stat(path)
+		return err == nil
+	}
+	sweepPlaceholders(worktrees, now)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false
 	}
-	if file != "" {
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
-		if err != nil {
+	files := map[string]string{"locked": placeholderLock}
+	for _, name := range worktreePlaceholderFiles {
+		files[name] = worktreeMetadataFiles[name]
+	}
+	if content, ok := worktreeMetadataFiles[filepath.Base(path)]; ok {
+		files[filepath.Base(path)] = content
+	}
+	for name, content := range files {
+		if err := fillPlaceholder(filepath.Join(dir, name), content); err != nil {
 			return false
 		}
-		_ = f.Close()
 	}
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// restoreMCPConfig writes a .mcp.json that declares no servers into a
+// directory of a git checkout, outside its .git directory, after keeping it
+// out of that checkout's untracked files. The path comes from a command's
+// output, so a directory outside any checkout is left alone.
+func restoreMCPConfig(path string) bool {
+	dir := filepath.Dir(path)
+	if strings.Contains(dir+string(filepath.Separator), string(filepath.Separator)+".git"+string(filepath.Separator)) {
+		return false
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return false
+	}
+	if !excludeUntracked(dir, ".mcp.json") {
+		return false
+	}
+	return fillPlaceholder(path, mcpPlaceholder) == nil
+}
+
+// fillPlaceholder writes content to path unless it already holds something.
+// It replaces rather than writes in place: an empty file left by bwrap is
+// read-only.
+func fillPlaceholder(path, content string) error {
+	if info, err := os.Lstat(path); err == nil && (info.Size() > 0 || !info.Mode().IsRegular()) {
+		return nil
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".gate-inbox-placeholder-*")
+	if err != nil {
+		return err
+	}
+	_, werr := tmp.WriteString(content)
+	cerr := tmp.Close()
+	if err := errors.Join(werr, cerr, os.Chmod(tmp.Name(), 0o644)); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		_ = os.Remove(tmp.Name())
+		return err
+	}
+	return nil
+}
+
+// excludeUntracked adds dir/name to the info/exclude of the checkout holding
+// dir, so the placeholder does not make that checkout look dirty, and reports
+// whether dir is in a checkout whose exclude file now lists it.
+func excludeUntracked(dir, name string) bool {
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-prefix", "--git-path", "info/exclude").Output()
+	if err != nil {
+		return false
+	}
+	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	if len(lines) != 2 {
+		return false
+	}
+	pattern := "/" + lines[0] + name
+	exclude := lines[1]
+	if !filepath.IsAbs(exclude) {
+		exclude = filepath.Join(dir, exclude)
+	}
+	raw, err := os.ReadFile(exclude)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if line == pattern {
+			return true
+		}
+	}
+	if len(raw) > 0 && !strings.HasSuffix(string(raw), "\n") {
+		pattern = "\n" + pattern
+	}
+	if err := os.MkdirAll(filepath.Dir(exclude), 0o755); err != nil {
+		return false
+	}
+	f, err := os.OpenFile(exclude, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return false
+	}
+	_, werr := f.WriteString(pattern + "\n")
+	return errors.Join(werr, f.Close()) == nil
+}
+
+// sweepPlaceholders removes this hook's worktree placeholders older than
+// placeholderLifetime. Claude Code lists every entry under worktrees/ into
+// one sandbox argument, so they must not accumulate.
+func sweepPlaceholders(worktrees string, now time.Time) {
+	entries, err := os.ReadDir(worktrees)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		dir := filepath.Join(worktrees, entry.Name())
+		if _, err := os.Lstat(filepath.Join(dir, "gitdir")); err == nil {
+			continue
+		}
+		lock := filepath.Join(dir, "locked")
+		info, err := os.Stat(lock)
+		if err != nil || now.Sub(info.ModTime()) < placeholderLifetime {
+			continue
+		}
+		if raw, err := os.ReadFile(lock); err == nil && string(raw) == placeholderLock {
+			_ = os.RemoveAll(dir)
+		}
+	}
 }
 
 func staleSeenBefore(flag string, now time.Time) bool {

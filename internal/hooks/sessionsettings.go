@@ -94,11 +94,9 @@ func (m *Manager) RefreshSessionSettings(id string) error {
 	if err := json.Unmarshal(raw, &settings); err != nil {
 		return fmt.Errorf("hooks: %s is not JSON: %w", path, err)
 	}
-	fresh, err := m.hookSettings()
-	if err != nil {
-		return err
-	}
-	settings["hooks"] = fresh["hooks"]
+	// The hooks ride the Gate Inbox plugin now. A file written before it
+	// still carries them, and beside the plugin's they would fire twice.
+	delete(settings, "hooks")
 	grant.Apply(settings, m.StandingGrants())
 	return writeSettings(m.dir, path, settings)
 }

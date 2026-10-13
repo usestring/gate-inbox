@@ -139,6 +139,9 @@ func FormatSendResult(result SendResult, targetID string) string {
 		return fmt.Sprintf("relayed; the extension that launched this session took it, and nothing was queued for session %s", targetID)
 	}
 	text := fmt.Sprintf("queued message %d for session %s at position %d", result.MessageID, targetID, result.QueuePosition)
+	if result.Restored != "" {
+		text = result.Restored + ", and " + text
+	}
 	if result.Superseded == 1 {
 		text += ", replacing one of yours still queued on the same subject"
 	} else if result.Superseded > 1 {

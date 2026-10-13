@@ -117,7 +117,6 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	if err != nil {
 		return Session{}, err
 	}
-	plan.Command = launch.WithMergeGatePlugin(toolName, plan.Command, runtime.cfg.MergeGate, s.configDir)
 	sess := migrate.NewSession(id, name, toolName, source, plan)
 	sessionHooks, err := sessionhooks.Current()
 	if err != nil {
@@ -127,7 +126,7 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	if err != nil {
 		return Session{}, err
 	}
-	command, env, err := launch.Environment(hooks.NewManager(s.configDir), toolName, tool, plan.Command, id, plan.Model, plan.Account, contributed)
+	command, env, err := launch.EnvironmentWithProfile(hooks.NewManager(s.configDir), toolName, tool, plan.Command, id, plan.Model, plan.Account, contributed, mcpProfile(sess))
 	if err != nil {
 		return Session{}, err
 	}

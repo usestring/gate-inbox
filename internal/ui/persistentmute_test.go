@@ -149,8 +149,7 @@ func TestSkipKeyUnmutesADurablyMutedRow(t *testing.T) {
 	}
 }
 
-// A muted child stays on the triage rail under its parent reading "muted",
-// and it does not lift that parent up the queue.
+// A muted child stays visible at the end of triage without lifting its parent.
 func TestMutedChildStaysVisibleButSkippedInTriage(t *testing.T) {
 	m := childModel(t)
 	for i := range m.sessions {
@@ -165,6 +164,42 @@ func TestMutedChildStaysVisibleButSkippedInTriage(t *testing.T) {
 	}
 	if rail := triageRail(m); !strings.Contains(rail, mutedStatusLabel) {
 		t.Fatalf("a muted child does not read %q in triage:\n%s", mutedStatusLabel, rail)
+	}
+	if ids := rowIDs(m); ids[len(ids)-1] != "c2" {
+		t.Fatalf("triage rows = %v, want the muted child after every unmuted row", ids)
+	}
+}
+
+func TestTriageMovesMutedRowsBelowUnmutedDescendantsAndSiblings(t *testing.T) {
+	for _, mutedIDs := range [][]string{{"p1"}, {"c1", "c2"}, {"p1", "c2"}} {
+		t.Run(joined(mutedIDs), func(t *testing.T) {
+			m := childModel(t)
+			m.sessions = append(m.sessions, childSess("g1", "nested", m.sessions[0].Group, "c2", status.Idle, time.Minute))
+			for i := range m.sessions {
+				for _, id := range mutedIDs {
+					if m.sessions[i].ID == id {
+						m.sessions[i].Muted = true
+					}
+				}
+			}
+			m.extUIs = []ExtensionUI{{Owner: "caption", OpenHeader: func(Press) error { return nil }}}
+			m.extHeaders = map[string][]extHeader{"c2": {{owner: "caption", spans: []Span{{Text: "child work"}}}}}
+			m.triage = true
+			m.rebuildRows()
+			if ids := rowIDs(m); len(ids) != len(m.sessions) {
+				t.Fatalf("triage rows = %v, want every session visible", ids)
+			}
+			seenMuted := false
+			for i, row := range m.rows {
+				if seenMuted && !row.sess.Muted {
+					t.Fatalf("unmuted row %s followed a muted row in %v", row.sess.ID, rowIDs(m))
+				}
+				seenMuted = seenMuted || row.sess.Muted
+				if row.isHead() && (i+1 == len(m.rows) || !m.rows[i+1].isSession() || m.rows[i+1].sess.ID != row.sess.ID) {
+					t.Fatalf("header for %s separated from its session", row.sess.ID)
+				}
+			}
+		})
 	}
 }
 

@@ -113,6 +113,11 @@ func TestRegisteredHooksFollowTheLaunchHooks(t *testing.T) {
 	}
 	pre := file.Hooks["PreToolUse"]
 	launch := hooks.LaunchHooks()["PreToolUse"]
+	for _, hook := range saved {
+		if hook.Event == "PreToolUse" {
+			launch = append(launch, hooks.HookMatcher{})
+		}
+	}
 	if len(pre) != len(launch)+1 || pre[len(pre)-1].Matcher != "Agent" || pre[len(pre)-1].Hooks[0].Command != "true" {
 		t.Fatalf("PreToolUse = %+v, want the launch entries then the registered one", pre)
 	}

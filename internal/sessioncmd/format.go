@@ -112,6 +112,10 @@ func FormatSessionScreen(screen SessionScreen) string {
 	if screen.Digest.Question != "" {
 		parts = append(parts, "waiting on:\n"+screen.Digest.Question)
 	}
+	if screen.Digest.RelayAsk != nil {
+		parts = append(parts, "relay_ask (pass as is to your own AskUserQuestion to put it to your user):\n"+
+			screen.Digest.RelayAsk.JSON())
+	}
 	if screen.Digest.Result != "" {
 		parts = append(parts, "last said:\n"+screen.Digest.Result)
 	}

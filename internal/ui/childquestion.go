@@ -12,6 +12,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/notify"
+	"github.com/usestring/gate-inbox/internal/relayask"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -209,12 +210,14 @@ func childDialogBody(sess store.Session, pane string, saved ...string) (body, ke
 			id.WriteString(q.Header + "\x00" + q.Question + "\x00")
 		}
 		traits := asks.TraitsOf(sess.Tool)
-		return childQuestionsMessageFor(sess, reading.Questions, traits, call.AskedAt), "q:" + textfmt.Fingerprint(id.String()),
-			traits.Expires > 0
+		return childQuestionsMessageFor(sess, reading.Questions, traits, call.AskedAt) +
+				relayask.Line(relayask.For(call.Questions, reading.Questions), sess.ID),
+			"q:" + textfmt.Fingerprint(id.String()), traits.Expires > 0
 	}
 	if screen, ok := dialog.ReadScreenFor(sess.Tool, pane); ok {
 		screen = screen.WithExact(childPendingStrings(sess)...)
-		return childScreenMessage(sess, screen), "s:" + textfmt.Fingerprint(screen.Identity()), false
+		return childScreenMessage(sess, screen) + relayask.Line(relayask.ForScreen(screen), sess.ID),
+			"s:" + textfmt.Fingerprint(screen.Identity()), false
 	}
 	if lost, ok := asks.Unanswered(childAskTarget(sess)); ok {
 		return childLostMessage(sess, lost), "x:" + lost.Call.ID, true

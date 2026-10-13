@@ -1257,6 +1257,7 @@ func (s *Sessions) Read(sessionID, targetID, since string) (screen SessionScreen
 		if reading, ok := dialog.ReadQuestions(target.Tool, raw, s.asked(target)); ok {
 			screen.Digest.withQuestions(reading.Questions)
 		}
+		screen.Digest.RelayAsk = s.relayAskOn(target, raw)
 	}
 	if since != "" && readable {
 		screen.Mode, screen.Output, screen.Degraded = "delta", renderDelta(delta), note

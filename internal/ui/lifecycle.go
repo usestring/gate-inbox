@@ -337,6 +337,12 @@ func (m *Model) relaunchSession(sess store.Session, tool config.Tool, baseComman
 	if err := m.store.UpdateStatus(sess.ID, newStatus); err != nil {
 		return err
 	}
+	// A live agent under an archived row runs where no sweep looks.
+	if sess.Archived {
+		if err := m.store.SetArchived(sess.ID, false); err != nil {
+			return err
+		}
+	}
 	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account)
 	// A leftover ack from the previous life must not swallow the relaunched
 	// agent's first finished alert.

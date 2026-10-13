@@ -229,3 +229,27 @@ func TestARepeatedChildRestReplacesTheNoticeAlreadyQueued(t *testing.T) {
 		t.Fatalf("the parent reads the stale notice: %q", head.Body)
 	}
 }
+
+// Live 2026-10-12: the cache warden pinned a child at finished while its
+// row read idle, the pin read as an idle->finished transition, and the
+// parent was woken for a keep-warm turn -- 32 of 38 keep-warms to children.
+func TestRelayChildRestSkipsAPinnedChild(t *testing.T) {
+	p, st := pollerWithStore(t)
+	parent := seedSession(t, st, store.Session{ID: "parent01", Name: "google-flights-hotels", Status: status.Working})
+	child := seedSession(t, st, store.Session{ID: "child001", Name: "flights-signed-rpc-switch", ParentID: parent.ID, Status: status.Idle})
+	p.pins = fixedPins{child.ID: status.Finished}
+
+	if err := p.relayChildRest(child, status.Finished); err != nil {
+		t.Fatalf("relayChildRest: %v", err)
+	}
+	if _, found, err := st.HeadMessage(parent.ID); err != nil || found {
+		t.Fatalf("parent was woken for a pinned keep-warm turn (found=%v err=%v)", found, err)
+	}
+
+	if err := p.relayChildRest(child, status.Dead); err != nil {
+		t.Fatalf("relayChildRest: %v", err)
+	}
+	if _, found, _ := st.HeadMessage(parent.ID); !found {
+		t.Fatal("a pinned child that died was not reported")
+	}
+}

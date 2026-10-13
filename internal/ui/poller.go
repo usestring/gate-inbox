@@ -108,6 +108,9 @@ type poller struct {
 	// draftHeldSince is when a draft in each session's composer began
 	// holding its queue. See draftHoldLimit.
 	draftHeldSince map[string]time.Time
+	// draftStuck is each session whose composer kept its draft through the
+	// clear keys, and when the next attempt may go. See noteDraftStuck.
+	draftStuck map[string]draftStuck
 	// forkDialogs holds, per session the fork key created, the resume-dialog
 	// option that fork wants and the keys that pick it. Armed at launch and
 	// dropped once answered, so it never outlives the launch it belongs to.
@@ -392,6 +395,7 @@ func newPoller(st *store.Store, driver *tmux.Driver, engine *status.Engine, hook
 		goneAdopted:     map[string]int{},
 		operatorInputAt: map[string]time.Time{},
 		draftHeldSince:  map[string]time.Time{},
+		draftStuck:      map[string]draftStuck{},
 		forkDialogs:     map[string]forkDialog{},
 		childDialogs:    map[string]*childDialogRelay{},
 		escalate:        notify.Post,
@@ -968,6 +972,9 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 					if err != nil {
 						return errMsg{err}
 					}
+					if agentAlive {
+						derived = p.settleStalledBackground(sess, clean, derived, now)
+					}
 					phases.status += lap(&step)
 					newStatus = derived
 					sent, err := p.maybeSendPendingInputWhenReady(sess, capture, derived, agentAlive)
@@ -1534,6 +1541,12 @@ const (
 	// clear keys before the draft counts as not having left.
 	draftClearWait = time.Second
 	draftClearPoll = 25 * time.Millisecond
+	// A composer that kept its draft is tried again after draftRetryBase,
+	// doubling to draftRetryMax, and the operator hears about it on the
+	// draftStuckNotify-th failure.
+	draftRetryBase   = 5 * time.Second
+	draftRetryMax    = 5 * time.Minute
+	draftStuckNotify = 3
 )
 
 // inboxDeliverable is the set of derived statuses a message may land on.
@@ -1626,6 +1639,9 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 	case draft == "":
 		p.restartDraftHold(sess.ID)
 	case len(p.clearInputKeys[sess.Tool]) == 0 || !p.draftAbandoned(sess, msg, capture.State):
+		return false, nil
+	}
+	if draft != "" && p.draftBackingOff(sess.ID) {
 		return false, nil
 	}
 	// Reserved before the claim: a pass that has no slot left has written
@@ -1755,8 +1771,7 @@ func (p *poller) setDraftAside(sess store.Session, msg store.InboxMessage, draft
 			// Typing the whole draft back over a part that stayed would
 			// double that part, so whatever is left stands and the message
 			// waits; the log keeps the draft as it was.
-			logging.Warn("the composer kept a draft after its clear keys",
-				"session", sess.ID, "message", msg.ID, "left", left)
+			p.noteDraftStuck(sess, msg, left)
 			return false, nil
 		}
 		time.Sleep(draftClearPoll)
@@ -1780,7 +1795,55 @@ func (p *poller) restoreDraft(sess store.Session, draft string) error {
 func (p *poller) restartDraftHold(id string) {
 	p.mu.Lock()
 	delete(p.draftHeldSince, id)
+	delete(p.draftStuck, id)
 	p.mu.Unlock()
+}
+
+// draftStuck is a composer whose draft outlasted its clear keys.
+type draftStuck struct {
+	failures int
+	retryAt  time.Time
+}
+
+// draftBackingOff reports whether a session's composer kept its draft
+// recently enough that clearing it again is not due yet.
+func (p *poller) draftBackingOff(id string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	stuck, ok := p.draftStuck[id]
+	return ok && time.Now().Before(stuck.retryAt)
+}
+
+// noteDraftStuck backs a session off after its composer kept a draft
+// through the clear keys. Nothing changes between two passes a second
+// apart, so retrying on each one only repeated the failure: one pane whose
+// one-character draft never cleared was tried 565 times in 3.5 hours, each
+// try holding its pass up to draftClearWait and writing a WARN. The wait
+// doubles to draftRetryMax, and on the draftStuckNotify-th failure the
+// operator is told the pane needs a hand, since only someone at it can
+// say what the draft is. A keystroke or an empty composer starts over
+// (restartDraftHold).
+func (p *poller) noteDraftStuck(sess store.Session, msg store.InboxMessage, left string) {
+	p.mu.Lock()
+	stuck := p.draftStuck[sess.ID]
+	stuck.failures++
+	wait := draftRetryBase << min(stuck.failures-1, 16)
+	if wait > draftRetryMax {
+		wait = draftRetryMax
+	}
+	stuck.retryAt = time.Now().Add(wait)
+	p.draftStuck[sess.ID] = stuck
+	p.mu.Unlock()
+	logging.Warn("the composer kept a draft after its clear keys",
+		"session", sess.ID, "message", msg.ID, "left", left,
+		"failures", stuck.failures, "retry_in", wait)
+	if stuck.failures == draftStuckNotify && p.escalate != nil {
+		p.escalate(notify.Note{
+			Subject: sess.Name,
+			Body:    fmt.Sprintf("A draft in its composer will not clear, so a message from %s is waiting. Clear or send it at the pane.", msg.SenderName),
+			Kind:    notify.Waiting,
+		})
+	}
 }
 
 // interruptGrace is how long a message sent with interrupt waits, after its

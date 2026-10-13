@@ -61,6 +61,15 @@ func (p *poller) relayChildRest(sess store.Session, newStatus string) error {
 	if !atRest {
 		return nil
 	}
+	// A pinned status is an extension's word, not a turn ending. The cache
+	// warden pins a resting child while its keep-warm turn runs, from a
+	// status read up to a tick earlier; when that differs from the row, the
+	// pin itself was a transition, and on 2026-10-12 it woke the parent on
+	// 32 of 38 keep-warms sent to children. A death still relays: a pin
+	// holds only while the agent runs.
+	if _, pinned := p.pinnedStatus(sess.ID); pinned && newStatus != status.Dead {
+		return nil
+	}
 	return p.enqueueChildRest(sess, newStatus, childRestMessage(sess, ending))
 }
 

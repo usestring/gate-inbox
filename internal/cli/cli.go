@@ -45,6 +45,7 @@ type section struct {
 func sections() []section {
 	return []section{
 		sessionSection(),
+		childrenSection(),
 		taskSection(),
 		fileSection(),
 		terminalSection(),

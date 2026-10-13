@@ -664,7 +664,9 @@ func TestEnvironmentSkipsPerProcessParentVars(t *testing.T) {
 	for key, value := range map[string]string{
 		"TMUX": "/tmp/fake,,0", "TMUX_PANE": "%0",
 		"PWD": "/nope", "OLDPWD": "/nope", "SHLVL": "9", "TERM": "xterm",
-		"GATE_INBOX_TEST_EMPTY": "",
+		"GATE_INBOX_TEST_EMPTY":     "",
+		"GATE_INBOX_CALLER_BINDING": "/tmp/foreign/client.sock#foreign",
+		"CODEX_THREAD_ID":           "foreign-thread", "CODEX_TOOL_CALL_ID": "foreign-call",
 	} {
 		t.Setenv(key, value)
 	}
@@ -672,7 +674,7 @@ func TestEnvironmentSkipsPerProcessParentVars(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Environment: %v", err)
 	}
-	for _, key := range []string{"TMUX", "TMUX_PANE", "PWD", "OLDPWD", "SHLVL", "TERM", "GATE_INBOX_TEST_EMPTY"} {
+	for _, key := range []string{"TMUX", "TMUX_PANE", "PWD", "OLDPWD", "SHLVL", "TERM", "GATE_INBOX_TEST_EMPTY", "GATE_INBOX_CALLER_BINDING", "CODEX_THREAD_ID", "CODEX_TOOL_CALL_ID"} {
 		if got, set := env[key]; set {
 			t.Errorf("session env carries parent %s = %q", key, got)
 		}

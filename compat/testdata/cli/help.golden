@@ -103,6 +103,10 @@ Setup
   gate-inbox claude-hooks [install | uninstall [--all] | status]
       register Gate Inbox's hooks in your Claude Code user settings, so a claude started outside the board works fully once adopted; the board installs them at startup
 
+Codex clients
+  gate-inbox codex-client [--server <private-unix-socket>] -- codex [args]
+      bind a shared-daemon Codex client to its own pane for verified intentional shutdown
+
 Options:
   -h, --help     Show this help text
   -v, --version  Print the installed version

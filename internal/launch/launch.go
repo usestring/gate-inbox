@@ -501,6 +501,7 @@ func EnvironmentWithProfile(manager *hooks.Manager, toolName string, tool config
 // session's status.
 var parentEnvBlocklist = map[string]bool{
 	"TMUX": true, "TMUX_PANE": true,
+	"GATE_INBOX_CALLER_BINDING": true, "CODEX_THREAD_ID": true, "CODEX_TOOL_CALL_ID": true,
 	"PWD": true, "OLDPWD": true, "SHLVL": true,
 	"TERM":       true,
 	"CLAUDECODE": true, "CLAUDE_CODE_SESSION_ID": true, "CLAUDE_CODE_CHILD_SESSION": true,
@@ -633,6 +634,9 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		if err := os.MkdirAll(manager.Dir(), 0o755); err != nil {
 			return "", nil, err
 		}
+	}
+	if nested, ok := strings.CutPrefix(baseCommand, "gate-inbox codex-client -- "); ok {
+		baseCommand = tmux.ShellQuote(Executable()) + " codex-client -- " + nested
 	}
 	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model), profile)
 	if err != nil {

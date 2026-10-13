@@ -599,6 +599,20 @@ func mergeTool(name string, user, def Tool) Tool {
 			*dst = src
 		}
 	}
+	if name == "codex" {
+		// Older config files contain the former defaults; retain custom commands.
+		for value, old := range map[*string]string{
+			&user.Command:             "codex",
+			&user.ReviveCommand:       "codex resume --last",
+			&user.ResumeByIDCommand:   "codex resume {id}",
+			&user.ResumePickerCommand: "codex resume",
+			&user.ForkCommand:         "codex fork {id}",
+		} {
+			if *value == old || *value == strings.Replace(old, "codex", "codex --no-daemon", 1) {
+				*value = strings.Replace(old, "codex", "gate-inbox codex-client -- codex", 1)
+			}
+		}
+	}
 	fill(&user.Command, def.Command)
 	fill(&user.ReviveCommand, def.ReviveCommand)
 	fill(&user.ModelFlag, def.ModelFlag)
@@ -1239,7 +1253,7 @@ rules = [
 ]
 
 [tools.codex]
-command = "codex"
+command = "gate-inbox codex-client -- codex"
 # codex-cli 0.153.4: -m, --model <MODEL>
 model_flag = "--model"
 # codex-cli 0.157.0: --add-dir <DIR>, writable alongside the primary workspace
@@ -1260,11 +1274,11 @@ echo_budget = "90ms"
 # directive is what actually renames the session.
 # codex mints its own session id; capture it after launch and resume it
 session_store = "codex"
-resume_by_id_command = "codex resume {id}"
-resume_picker_command = "codex resume"
-fork_command = "codex fork {id}"
+resume_by_id_command = "gate-inbox codex-client -- codex resume {id}"
+resume_picker_command = "gate-inbox codex-client -- codex resume"
+fork_command = "gate-inbox codex-client -- codex fork {id}"
 # fallback: resumes the most recent session in the working directory
-revive_command = "codex resume --last"
+revive_command = "gate-inbox codex-client -- codex resume --last"
 default_status = "idle"
 # The animated composer paints Braille dots above its input row; those redraws
 # are not agent output and must stay outside the activity fingerprint.

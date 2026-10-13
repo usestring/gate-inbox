@@ -2,6 +2,8 @@
 
 # Usage
 
+Shared-daemon Codex callers need the verified launch integration in the [Codex caller binding guide](codex-caller-binding.md) before using `gate-inbox stop`.
+
 ```bash
 gate-inbox
 ```

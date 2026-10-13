@@ -3179,10 +3179,16 @@ func (m *Model) buildTree() {
 				continue
 			}
 			drawn[child.ID] = true
-			rows = append(rows, m.headRows(child, childDepth)...)
-			rows = append(rows, treeRow{sess: child, depth: childDepth})
-			rows = append(rows, m.artifactRows(child, childDepth+1)...)
-			appendChildren(child, childDepth, drawn)
+			rowDepth := childDepth
+			// Mute partitions separate these branches on screen, so keeping
+			// their nesting would attach a child to an unrelated session.
+			if m.triage && child.Muted != sess.Muted {
+				rowDepth = 0
+			}
+			rows = append(rows, m.headRows(child, rowDepth)...)
+			rows = append(rows, treeRow{sess: child, depth: rowDepth})
+			rows = append(rows, m.artifactRows(child, rowDepth+1)...)
+			appendChildren(child, rowDepth, drawn)
 		}
 	}
 	// A search is answered by the sessions it matched and triage by the

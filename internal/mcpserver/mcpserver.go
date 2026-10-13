@@ -52,6 +52,7 @@ type priorityArgs struct {
 type listTerminalsArgs struct{}
 
 type createTerminalArgs struct {
+	Name      string  `json:"name,omitempty" jsonschema:"name for the terminal's row; omit to name it after this session"`
 	Group     *string `json:"group,omitempty" jsonschema:"existing group path for the new terminal; pass an empty string for the root group; defaults to this agent's group"`
 	Directory string  `json:"directory,omitempty" jsonschema:"existing directory to open; defaults to the selected group's inherited path, then this agent's current directory"`
 	Nest      *bool   `json:"nest,omitempty" jsonschema:"when true or omitted, nest under this session, or beside it under the same parent when this session is itself a terminal; false places an un-nested terminal in group"`
@@ -236,6 +237,7 @@ type waitSessionArgs struct {
 type sendChildrenArgs struct {
 	Message     string `json:"message,omitempty" jsonschema:"the instruction every child should get, in full; each reads it with no other context; or name a file in message_file"`
 	MessageFile string `json:"message_file,omitempty" jsonschema:"absolute path of a file holding the instruction, used instead of message"`
+	Subject     string `json:"subject,omitempty" jsonschema:"what the message is about, as on send_session: a later send_children or send_session on the same subject replaces it for every child that has not read it yet"`
 }
 
 type placeSessionArgs struct {
@@ -289,7 +291,7 @@ type sessionCommands interface {
 	Create(sessionID string, opts sessioncmd.CreateSessionOptions) (sessioncmd.Session, error)
 	Send(sessionID, targetID, message, subject string, interrupt bool) (sessioncmd.SendResult, error)
 	SendAttested(sessionID, targetID, message, subject string, interrupt bool, question string) (sessioncmd.SendResult, error)
-	SendChildren(sessionID, message string) (sessioncmd.ChildSend, error)
+	SendChildrenAbout(sessionID, message, subject string) (sessioncmd.ChildSend, error)
 	CleanupChildren(sessionID string, opts sessioncmd.CleanupOptions) (sessioncmd.ChildCleanup, error)
 	Wait(ctx context.Context, sessionID string, opts sessioncmd.WaitOptions) (sessioncmd.WaitResult, error)
 	MessageStatus(sessionID string, messageID int64) (sessioncmd.MessageState, error)
@@ -493,7 +495,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		&mcp.Implementation{Name: mcpreg.ServerName, Version: version},
 		&mcp.ServerOptions{Instructions: instructions},
 	)
-	server.AddReceivingMiddleware(traceTools(sessionID))
+	server.AddReceivingMiddleware(traceTools(sessionID), aliasArgs)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "rename",
@@ -619,14 +621,15 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Description: "Queue one message for every session this one spawned, when the correction is about the work rather than about one worker: the branch moved, the endpoint changed, stop using that field. " +
 			"Sending nine messages by hand means the ninth is written long after the first, and by then the first agents have acted on the old instruction. " +
 			"Use send_session for anything meant for one agent -- this interrupts the whole fan-out, so reach for it only when every child needs to hear it. " +
-			"A child that cannot take the message is reported rather than failing the call, so a full queue on one does not leave the rest uninstructed.",
+			"A child that cannot take the message is reported rather than failing the call, so a full queue on one does not leave the rest uninstructed. " +
+			"Pass subject so a later correction on the same subject replaces this one where it is still unread.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args sendChildrenArgs) (*mcp.CallToolResult, sessioncmd.ChildSend, error) {
 		message, err := mcptool.RequiredTextArg(args.Message, args.MessageFile, "message", "message_file")
 		if err != nil {
 			return nil, sessioncmd.ChildSend{}, err
 		}
-		sent, err := sessions.SendChildren(sessionID, message)
+		sent, err := sessions.SendChildrenAbout(sessionID, message, args.Subject)
 		if err != nil {
 			return nil, sessioncmd.ChildSend{}, err
 		}
@@ -792,7 +795,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"For a fan-out pass children true, or several session_ids: one call parks on the whole set and returns the moment any one of them arrives, so never wait on children one at a time. " +
 			"By default it returns once a session reaches any state that means it stopped (finished, waiting, idle, errored or dead; a session at rest while its own children are still going reads delegating and does not end the wait); pass until to wait for particular states. " +
 			"It counts from your own handoff. While a message you sent that session is still queued, its state describes the turn before, so the wait carries on until that message goes in and its turn ends. " +
-			"A timeout is a normal answer, not a failure: the result carries reached false and the actual state, and outcome says whether it reached, timed_out or died. " +
+			"Pass timeout_s for how long to park. A timeout is a normal answer, not a failure: the result carries reached false and the actual state, and outcome says whether it reached, timed_out or died. " +
 			"standing carries every waited-on session with its own outcome, so use that rather than a follow-up list_sessions, then read_session on whichever one moved.",
 		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args waitSessionArgs) (*mcp.CallToolResult, sessioncmd.WaitResult, error) {
@@ -1084,11 +1087,12 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "create_terminal",
 		Description: "Create a managed terminal for human-visible work such as SSH, not for one-shot local commands or other internal work. " +
-			"It nests under this session unless nest is false, which a group other than this session's needs; a terminal created from a terminal joins it as a sibling under the same agent. The group supplies the inherited directory, and directory set explicitly wins. " +
+			"It nests under this session unless nest is false, which a group other than this session's needs; a terminal created from a terminal joins it as a sibling under the same agent. The group supplies the inherited directory, and directory set explicitly wins; name labels its row, which is otherwise named after this session. " +
 			"Then call send_terminal with the returned id; use create_session instead for another agent CLI. Call close_terminal when the job is finished and the terminal is not being left for the user.",
 		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args createTerminalArgs) (*mcp.CallToolResult, sessioncmd.Terminal, error) {
 		created, err := terminals.Create(sessionID, sessioncmd.CreateTerminalOptions{
+			Name:      args.Name,
 			Group:     args.Group,
 			Directory: args.Directory,
 			Nest:      args.Nest,
@@ -1157,11 +1161,11 @@ func textResult(message string, err error) (*mcp.CallToolResult, any, error) {
 // Run serves MCP over stdio until the client closes the connection. A
 // client that drops the pipe without the shutdown handshake surfaces as
 // EOF, which is a normal exit, not a failure.
-func Run(ctx context.Context, configDir, sessionID, version string, extensions []extension.Extension, steering string) error {
+func Run(ctx context.Context, configDir, sessionID, version string, extensions []extension.Extension, steering string, profile Profile) error {
 	if tracer := startTracing(); tracer != nil {
 		defer tracer.Close()
 	}
-	err := NewServer(configDir, sessionID, version, extensions, steering).Run(ctx, &mcp.StdioTransport{})
+	err := NewProfileServer(configDir, sessionID, version, extensions, steering, profile).Run(ctx, &mcp.StdioTransport{})
 	// The SDK reports an abrupt pipe close as an internal "server is
 	// closing" wire error that wraps EOF without errors.Is support.
 	if err != nil && (errors.Is(err, io.EOF) || strings.Contains(err.Error(), "server is closing")) {

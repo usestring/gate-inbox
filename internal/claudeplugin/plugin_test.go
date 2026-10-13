@@ -82,8 +82,15 @@ func TestHooksFileCarriesTheLaunchHooksAndTheMods(t *testing.T) {
 	if !reflect.DeepEqual(file.Modules, []string{"./merge-gate.ts"}) {
 		t.Fatalf("modules = %v", file.Modules)
 	}
-	if want := hooks.LaunchHooks(); !reflect.DeepEqual(file.Hooks, want) {
-		t.Fatalf("hooks = %+v\nwant the launch hooks %+v", file.Hooks, want)
+	want := hooks.LaunchHooks()
+	for _, hook := range contributed {
+		want[hook.Event] = append(want[hook.Event], hooks.HookMatcher{
+			Matcher: hook.Matcher,
+			Hooks:   []hooks.HookCommand{{Type: "command", Command: hook.Command}},
+		})
+	}
+	if !reflect.DeepEqual(file.Hooks, want) {
+		t.Fatalf("hooks = %+v\nwant the launch hooks then the registered ones %+v", file.Hooks, want)
 	}
 	if len(file.Hooks) != 9 {
 		t.Fatalf("hooks carry %d events, want the 9 the launch has", len(file.Hooks))

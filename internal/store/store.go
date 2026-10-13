@@ -1181,7 +1181,9 @@ func (s *Store) applyDerivedStates(at time.Time, states []DerivedState) error {
 		return err
 	}
 	defer tx.Rollback()
-	statuses, err := tx.Prepare(`UPDATE sessions SET status = ?, last_status_at = ? WHERE id = ?`)
+	statuses, err := tx.Prepare(`UPDATE sessions SET status = ?1,
+		last_status_at = CASE WHEN status = '` + status.Finished + `' AND ?1 = '` + status.Idle + `' THEN last_status_at ELSE ?2 END
+		WHERE id = ?3`)
 	if err != nil {
 		return err
 	}
@@ -1209,10 +1211,15 @@ func (s *Store) applyDerivedStates(at time.Time, states []DerivedState) error {
 
 // AcknowledgeFinished atomically marks a session idle and acked if its stored
 // status is still finished. A newer status makes the operation a no-op.
+//
+// last_status_at stays where the finish put it, here and in
+// applyDerivedStates: acknowledging a rest does not start a new one. Moving
+// it made every absorbed child unretirable the moment anyone looked at it,
+// since the child sweep measures absorption against it.
 func (s *Store) AcknowledgeFinished(id string) error {
 	res, err := s.db.Exec(
-		`UPDATE sessions SET status = ?, acked = 1, last_status_at = ? WHERE id = ? AND status = ?`,
-		status.Idle, encodeTime(time.Now()), id, status.Finished)
+		`UPDATE sessions SET status = ?, acked = 1 WHERE id = ? AND status = ?`,
+		status.Idle, id, status.Finished)
 	if err != nil {
 		return err
 	}

@@ -1,4 +1,4 @@
-41 commands and verbs
+42 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -214,6 +214,15 @@ exit 0
 usage: gate-inbox delete-group <path> [--json]
   -json
     	print the raw result as JSON instead of a sentence
+
+$ gate-inbox children -h
+exit 0
+--- stdout
+usage: gate-inbox children [--session <id>] [--json]
+  -json
+    	print the raw result as JSON instead of a sentence
+  -session string
+    	whose children to list; defaults to this session
 
 $ gate-inbox task -h
 exit 0

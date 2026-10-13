@@ -1916,7 +1916,7 @@ func (m *Model) quickMenuLines(width, limit int) []string {
 	for _, snip := range m.snips.Snippets {
 		key, title := snip.Key, snip.Preview
 		if title == "" {
-			title = snip.Text
+			title = snip.Title()
 		}
 		title = strings.Join(strings.Fields(title), " ")
 		title = textfmt.TruncateWidth(title, max(1, width-textfmt.Width(key)-1), "…")

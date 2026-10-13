@@ -1,0 +1,13 @@
+● The probe is done. Summary:
+
+  - Rig pushed on its branch; no PR was opened.
+  - Worktree left in place.
+
+✻ Baked for 26s · done 15:14 · 1 shell still running
+                                                                                          ✔ Update installed · Restart to update
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ remove the worktree, you're done
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  app | main | Opus 5.5 | 10%
+  ⏵⏵ auto mode on · 1 shell
+

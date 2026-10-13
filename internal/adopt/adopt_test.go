@@ -349,3 +349,60 @@ func TestAPathArgumentDoesNotNameTheProgram(t *testing.T) {
 		})
 	}
 }
+
+func TestWrappedCodexRequiresTheChildProcess(t *testing.T) {
+	cli := filepath.Join(t.TempDir(), "codex")
+	source := filepath.Join(t.TempDir(), "main.go")
+	if err := os.WriteFile(source, []byte("package main\nimport \"time\"\nfunc main() { time.Sleep(30 * time.Second) }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	build := exec.Command("go", "build", "-o", cli, source)
+	build.Env = tmuxtest.Environ()
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build native fixture: %v: %s", err, out)
+	}
+	wrapper := filepath.Join(t.TempDir(), "gate-inbox")
+	script := "#!/bin/sh\nshift 2\n\"$@\" &\nprintf 'client ready\\n'\nwait\n"
+	if err := os.WriteFile(wrapper, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	socket := paneServer(t, t.TempDir(), wrapper+" codex-client -- "+cli+" 30")
+	pane := waitForPane(t, socket, "client ready")[0]
+	tool := Tool{Name: "codex", Command: "gate-inbox codex-client -- codex"}
+	procs := NewProcTable()
+	if !namesProgram(procs.Cmdlines(pane.PID), "codex") {
+		t.Fatal("fixture did not launch a native codex child")
+	}
+	match, ok := Identify(pane, []Tool{tool}, "", procs)
+	if !ok || !match.Confident() {
+		t.Fatalf("wrapped native child was not identified: %#v, %v", match, ok)
+	}
+	pane.PID = 0
+	pane.Command = "gate-inbox codex-client -- codex"
+	if match, ok := Identify(pane, []Tool{tool}, "", nil); ok && match.Confident() {
+		t.Fatal("wrapper arguments alone identified a Codex process")
+	}
+}
+
+func TestConfiguredCodexClientCommand(t *testing.T) {
+	for _, tc := range []struct{ command, want string }{
+		{"codex --model sample", "codex"},
+		{"'/opt/bin/codex'", "codex"},
+		{"gate-inbox codex-client -- codex", "codex"},
+		{"'/opt/tools/gate-inbox' codex-client -- '/opt/tools/codex' resume sample", "codex"},
+		{"gate-inbox codex-client --server '/tmp/client socket' -- codex", "codex"},
+		{"gate-inbox codex-client --server=/tmp/client.sock -- codex", "codex"},
+		{"gate-inbox codex-client -- other-agent codex", "other-agent"},
+		{"gate-inbox codex-client --", ""},
+		{"gate-inbox codex-client --server", ""},
+		{"gate-inbox codex-client --unknown codex", ""},
+		{"gate-inbox codex-client -- 'codex", ""},
+		{"", ""},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			if got := programName(tc.command); got != tc.want {
+				t.Errorf("programName(%q) = %q, want %q", tc.command, got, tc.want)
+			}
+		})
+	}
+}

@@ -9,7 +9,7 @@ import (
 	"github.com/usestring/gate-inbox/grant"
 )
 
-func TestSessionSettingsCarryHooksAndGrants(t *testing.T) {
+func TestSessionSettingsCarryGrantsAndNoHooks(t *testing.T) {
 	m := NewManager(t.TempDir())
 	if got := m.LaunchSettingsPath("abc12345"); got != m.SettingsPath() {
 		t.Fatalf("ungranted launch carries %s, want the shared file", got)
@@ -25,8 +25,8 @@ func TestSessionSettingsCarryHooksAndGrants(t *testing.T) {
 		t.Fatalf("another session's launch carries %s, want the shared file", got)
 	}
 	settings := readJSON(t, path)
-	if _, ok := settings["hooks"].(map[string]any)["Stop"]; !ok {
-		t.Fatalf("session file has no hooks: %v", settings)
+	if _, ok := settings["hooks"]; ok {
+		t.Fatalf("session file carries hooks, which ride the plugin: %v", settings)
 	}
 	if allow := settings["permissions"].(map[string]any)["allow"]; len(allow.([]any)) != 1 {
 		t.Fatalf("allow = %v", allow)
@@ -37,7 +37,7 @@ func TestSessionSettingsCarryHooksAndGrants(t *testing.T) {
 		}
 	}
 
-	// A refresh replaces the hooks and keeps the grants.
+	// A refresh drops hooks an older build wrote and keeps the grants.
 	settings["hooks"] = map[string]any{"stale": true}
 	raw, _ := json.Marshal(settings)
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
@@ -47,7 +47,7 @@ func TestSessionSettingsCarryHooksAndGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	refreshed := readJSON(t, path)
-	if _, stale := refreshed["hooks"].(map[string]any)["stale"]; stale {
+	if _, stale := refreshed["hooks"]; stale {
 		t.Fatal("refresh kept the stale hooks")
 	}
 	if refreshed["sandbox"].(map[string]any)["excludedCommands"].([]any)[0] != "tools/x.sh" {

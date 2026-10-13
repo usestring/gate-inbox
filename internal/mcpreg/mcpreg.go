@@ -98,11 +98,14 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model st
 	}
 	switch style {
 	case "claude":
+		// The server stays out of the Gate Inbox plugin: a plugin's server
+		// tools are named mcp__plugin_gate-inbox_<server>__*, which no rule
+		// naming mcp__gate-inbox__* matches.
 		path, err := config(generatedPrefix+"mcp-claude.json", claudeConfig(exe))
 		if err != nil {
 			return "", err
 		}
-		steering, err := config(claudeSteeringFile, []byte(launchSteering(style)))
+		steering, err := config(claudeSteeringFile, []byte(claudeSteering))
 		if err != nil {
 			return "", err
 		}

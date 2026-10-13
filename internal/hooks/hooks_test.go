@@ -18,15 +18,10 @@ import (
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
-func TestEnsureSettingsWritesValidHookJSON(t *testing.T) {
-	manager := NewManager(t.TempDir())
-	path, err := manager.EnsureSettings()
+func TestLaunchHooksAreValidHookJSON(t *testing.T) {
+	raw, err := json.Marshal(map[string]any{"hooks": LaunchHooks()})
 	if err != nil {
-		t.Fatalf("EnsureSettings: %v", err)
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read settings: %v", err)
+		t.Fatal(err)
 	}
 	var parsed struct {
 		Hooks map[string][]struct {
@@ -145,8 +140,8 @@ func TestSettingsDenyTheKeyDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	for key := range parsed {
-		if key != "hooks" && key != "permissions" && key != "sandbox" {
-			t.Fatalf("settings carry %q; only hooks and the key-dir denials belong there", key)
+		if key != "permissions" && key != "sandbox" {
+			t.Fatalf("settings carry %q; only the key-dir denials belong there, the hooks ride the plugin", key)
 		}
 	}
 	var rules struct {

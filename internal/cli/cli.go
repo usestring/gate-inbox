@@ -51,6 +51,7 @@ func sections() []section {
 		terminalSection(),
 		renameSection(),
 		prioritySection(),
+		sweepSection(),
 	}
 }
 

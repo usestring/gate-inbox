@@ -611,7 +611,7 @@ func TestCommandsAndHelpCoverEverySection(t *testing.T) {
 	registered := []string{
 		"sessions", "spawn", "send", "read", "send-children", "place", "answer", "wait", "message-status", "kill", "revive", "migrate", "archive", "mute", "cleanup-children", "park", "unpark",
 		"groups", "create-group", "delete-group", "task", "reserve", "release-files", "reservations", "terminal",
-		"rename", "priority", "stop", "_finish-stop", "children",
+		"rename", "priority", "sweep", "stop", "_finish-stop", "children",
 	}
 	for _, name := range registered {
 		if table[name] == nil {
@@ -623,7 +623,7 @@ func TestCommandsAndHelpCoverEverySection(t *testing.T) {
 	}
 
 	help := Help()
-	for _, line := range []string{usageSessions, usageChildren, usageReserve, usageTerminalSend, usageRename, usagePriority,
+	for _, line := range []string{usageSessions, usageChildren, usageReserve, usageTerminalSend, usageRename, usagePriority, usageSweep,
 		"task <list|create|claim|finish|release|delete>"} {
 		if !strings.Contains(help, line) {
 			t.Fatalf("help is missing %q:\n%s", line, help)

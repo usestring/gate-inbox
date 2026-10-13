@@ -86,9 +86,9 @@ func TestCtrlMMutesAndUnmutesWithoutTakingEnter(t *testing.T) {
 	}
 }
 
-// A persistently muted session never reappears in triage, on the rail or in the
-// drain, until it is explicitly unmuted.
-func TestMutedSessionStaysOutOfTriageUntilUnmuted(t *testing.T) {
+// A persistently muted session stays on the triage rail reading "muted",
+// sorted last, and the drain walks past it until it is explicitly unmuted.
+func TestMutedSessionStaysVisibleButSkippedInTriageUntilUnmuted(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "other": status.Waiting})
 	m.rebuildRows()
@@ -98,11 +98,15 @@ func TestMutedSessionStaysOutOfTriageUntilUnmuted(t *testing.T) {
 
 	m.triage = true
 	m.rebuildRows()
-	if rail := triageRail(m); strings.Contains(rail, "ask") {
-		t.Fatalf("a muted session reappeared in triage:\n%s", rail)
+	rail := triageRail(m)
+	if !strings.Contains(rail, "ask") {
+		t.Fatalf("a muted session left the triage rail:\n%s", rail)
 	}
-	if names := sessionNames(m); len(names) != 1 || names[0] != "other" {
-		t.Fatalf("triage queue = %v, want only other", names)
+	if !strings.Contains(rail, mutedStatusLabel) {
+		t.Fatalf("a muted session does not read %q in triage:\n%s", mutedStatusLabel, rail)
+	}
+	if names := sessionNames(m); len(names) != 2 || names[1] != "ask" {
+		t.Fatalf("triage queue = %v, want ask sorted last", names)
 	}
 	if cmd := m.enterTriageHead(); cmd != nil {
 		m.applyCmd(t, cmd)
@@ -111,7 +115,7 @@ func TestMutedSessionStaysOutOfTriageUntilUnmuted(t *testing.T) {
 		t.Fatalf("the drain handed over %q, want other", got)
 	}
 
-	// Unmuting from the list brings the row back to the queue.
+	// Unmuting from the list returns the row to its queue position.
 	m.mode = modeList
 	m.triage = false
 	m.rebuildRows()
@@ -122,6 +126,9 @@ func TestMutedSessionStaysOutOfTriageUntilUnmuted(t *testing.T) {
 	m.rebuildRows()
 	if rail := triageRail(m); !strings.Contains(rail, "ask") {
 		t.Fatalf("an unmuted session did not return to triage:\n%s", rail)
+	}
+	if names := sessionNames(m); len(names) != 2 {
+		t.Fatalf("triage queue = %v, want both sessions back", names)
 	}
 }
 
@@ -142,9 +149,9 @@ func TestSkipKeyUnmutesADurablyMutedRow(t *testing.T) {
 	}
 }
 
-// A muted child is off triage the same as a muted top-level row. It is not
-// drawn under its parent, and it does not lift that parent up the queue.
-func TestMutedChildStaysOutOfTriage(t *testing.T) {
+// A muted child stays on the triage rail under its parent reading "muted",
+// and it does not lift that parent up the queue.
+func TestMutedChildStaysVisibleButSkippedInTriage(t *testing.T) {
 	m := childModel(t)
 	for i := range m.sessions {
 		if m.sessions[i].ID == "c2" {
@@ -153,8 +160,36 @@ func TestMutedChildStaysOutOfTriage(t *testing.T) {
 	}
 	m.triage = true
 	m.rebuildRows()
+	if got := joined(rowIDs(m)); !strings.Contains(got, "c2") {
+		t.Fatalf("triage rows = %q, want the muted child kept on the rail", got)
+	}
+	if rail := triageRail(m); !strings.Contains(rail, mutedStatusLabel) {
+		t.Fatalf("a muted child does not read %q in triage:\n%s", mutedStatusLabel, rail)
+	}
+}
+
+// A question the parent is answering folds its child off the rail, but not a
+// muted one: the mute is the operator's, and the rail is where they undo it.
+func TestMutedChildStaysVisibleInTriageWhileItsParentOwnsItsQuestion(t *testing.T) {
+	m := childModel(t)
+	owned := func(muted bool) {
+		for i := range m.sessions {
+			if m.sessions[i].ID == "c2" {
+				m.sessions[i].Muted = muted
+				m.sessions[i].LastStatusAt = time.Now().Add(-time.Minute)
+			}
+		}
+		m.answerableWait = map[string]bool{"c2": true}
+		m.triage = true
+		m.rebuildRows()
+	}
+	owned(false)
 	if got := joined(rowIDs(m)); strings.Contains(got, "c2") {
-		t.Fatalf("triage rows = %q, want the muted child left out", got)
+		t.Fatalf("triage rows = %q, want the parent-owned child folded away", got)
+	}
+	owned(true)
+	if got := joined(rowIDs(m)); !strings.Contains(got, "c2") {
+		t.Fatalf("triage rows = %q, want the muted child kept on the rail", got)
 	}
 }
 

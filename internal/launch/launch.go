@@ -434,6 +434,12 @@ func ReviveCommand(toolName string, tool config.Tool, agentSessionID, model stri
 // inherited one; a name this function sets itself is refused rather than
 // overridden.
 func Environment(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string) (string, map[string]string, error) {
+	return EnvironmentWithProfile(manager, toolName, tool, baseCommand, id, model, account, contributed, "")
+}
+
+// EnvironmentWithProfile is Environment registering an MCP server that
+// serves only profile's tools (mcpreg.ProfileCore); "" serves every tool.
+func EnvironmentWithProfile(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string, profile string) (string, map[string]string, error) {
 	if err := config.CheckInstalled(baseCommand); err != nil {
 		return "", nil, err
 	}
@@ -459,7 +465,7 @@ func Environment(manager *hooks.Manager, toolName string, tool config.Tool, base
 			return "", nil, err
 		}
 	}
-	return compose(manager, toolName, tool, baseCommand, id, model, account, contributed, true)
+	return compose(manager, toolName, tool, baseCommand, id, model, account, contributed, profile, true)
 }
 
 // parentEnvBlocklist are per-process values a launched session must never
@@ -548,14 +554,14 @@ func validEnvName(key string) bool {
 // a stale claude-settings.json behind a sandbox deny rule is precisely when
 // somebody wants to read the plan rather than run it.
 func Compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string) (string, map[string]string, error) {
-	return compose(manager, toolName, tool, baseCommand, id, model, account, contributed, false)
+	return compose(manager, toolName, tool, baseCommand, id, model, account, contributed, "", false)
 }
 
 // resolveAccount reads an account's token, replaced in tests so a launch
 // plan never reaches a real secret store.
 var resolveAccount = accounts.Resolve
 
-func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string, write bool) (string, map[string]string, error) {
+func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string, profile string, write bool) (string, map[string]string, error) {
 	if err := config.CheckInstalled(baseCommand); err != nil {
 		return "", nil, err
 	}
@@ -602,16 +608,16 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		// it would otherwise pass on.
 		env[tool.AccountEnv] = ""
 	}
-	register := mcpreg.Preview
+	register := mcpreg.PreviewProfile
 	if write {
-		register = mcpreg.Apply
+		register = mcpreg.ApplyProfile
 		// The launch script writes the agent's exit status here and never
 		// creates the directory itself.
 		if err := os.MkdirAll(manager.Dir(), 0o755); err != nil {
 			return "", nil, err
 		}
 	}
-	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model))
+	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model), profile)
 	if err != nil {
 		return "", nil, err
 	}

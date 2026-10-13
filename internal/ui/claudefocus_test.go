@@ -225,3 +225,26 @@ func TestRightStaysOnNonLastStepperEntries(t *testing.T) {
 		})
 	}
 }
+
+// The /model picker parks the caret on its ❯ marker, so it reads as a
+// selection dialog, and its effort slider takes both horizontal arrows
+// ("◉ xHigh effort ←/→ to adjust") in a line with no "to navigate" segment.
+// The frame is a real capture with the caret where tmux had it.
+func TestModelPickerKeepsBothArrows(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "claude-model-picker.txt"))
+	if err != nil {
+		t.Fatalf("read frame: %v", err)
+	}
+	m := &Model{engine: liveEngine(t), mode: modeFocus}
+	m.preview = string(raw)
+	m.pane.forID = "s1"
+	m.pane.box.height, m.pane.box.width = 13, 140
+	m.pane.cursor = paneCursor{x: 3, y: 4, ok: true}
+
+	if m.leftLeavesFocus("s1", "claude") {
+		t.Fatal("Left left the pane from the /model picker, so it stole the effort slider's step down")
+	}
+	if m.rightLeavesFocus("s1", "claude") {
+		t.Fatal("Right left the pane from the /model picker, so it stole the effort slider's step up")
+	}
+}

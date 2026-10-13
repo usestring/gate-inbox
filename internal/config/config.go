@@ -570,6 +570,12 @@ const busyLineWaitOnly = `^[✻✳✶✽✢·✦✧+*] Waiting for \d+ (?:backgr
 // current pattern; one edited by hand keeps what its author wrote.
 const waitingEnterToConfirmBare = `Enter to confirm`
 
+// arrowDialogNavigateOnly is the arrow_dialog_line claude shipped with before
+// the /model effort slider claimed the horizontal arrows. A config carrying it
+// verbatim was written by an older release and takes the current pattern; one
+// edited by hand keeps what its author wrote.
+const arrowDialogNavigateOnly = `(?i)\x{B7} [^\x{B7}\n]*(?:Arrow keys|\x{2190}|\x{2192})[^\x{B7}\n]* to navigate\b`
+
 // codexTurnEndRuleOnly, codexChromeLineMCPOnly and codexWorkingNoHints are
 // the codex patterns shipped before codex 0.154 moved the turn end to a dim
 // label under the reply and 0.157 parked hint rows above the composer. A
@@ -661,6 +667,9 @@ func mergeTool(name string, user, def Tool) Tool {
 	}
 	if name == "claude" && (user.BusyLine == busyLineAgentsOnly || user.BusyLine == busyLineShellsOnly || user.BusyLine == busyLineEveryKind || user.BusyLine == busyLineWaitOnly) {
 		user.BusyLine = def.BusyLine
+	}
+	if name == "claude" && user.ArrowDialogLine == arrowDialogNavigateOnly {
+		user.ArrowDialogLine = def.ArrowDialogLine
 	}
 	if len(user.Rules) == 0 {
 		user.Rules = def.Rules
@@ -1070,7 +1079,8 @@ jump_to_bottom_key = "C-End"
 # too. So require the arrow wording inside that one segment: "Tab/Arrow keys to
 # navigate" claims the arrows, "↑/↓ to navigate" leaves them alone, and a permission
 # prompt ("Enter to confirm · Esc to cancel") has no such segment at all.
-arrow_dialog_line = "(?i)\\x{B7} [^\\x{B7}\\n]*(?:Arrow keys|\\x{2190}|\\x{2192})[^\\x{B7}\\n]* to navigate\\b"
+# The /model picker's effort slider ("◉ xHigh effort ←/→ to adjust") claims them too.
+arrow_dialog_line = "(?i)\\x{B7} [^\\x{B7}\\n]*(?:Arrow keys|\\x{2190}|\\x{2192})[^\\x{B7}\\n]* to navigate\\b|\\x{2190}/\\x{2192} to adjust\\b"
 # The question stepper, drawn above the options whenever the dialog has more
 # than one step: "←  ☐ Shape  ☐ Scope  ✔ Submit  →" for three questions, and
 # "←  ☐ Checks  ✔ Submit  →" for a single multi-select one, which has the

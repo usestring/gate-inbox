@@ -3,7 +3,9 @@
 package status
 
 import (
+	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/usestring/gate-inbox/internal/config"
@@ -258,16 +260,23 @@ func (e *Engine) DeliveryHold(tool, pane string) string {
 // banners under it say nothing either way. Without turn_end there is no later
 // turn to read, so the line stands until the tool stops drawing it.
 func (tr toolRules) isBusy(pane string) bool {
+	_, busy := tr.busyText(pane)
+	return busy
+}
+
+// busyText is the line isBusy found, wrap and all, or "" for a busy line
+// read from the footer below the content region.
+func (tr toolRules) busyText(pane string) (string, bool) {
 	if tr.busyLine == nil {
-		return false
+		return "", false
 	}
 	region, ok := tr.activityRegion(pane)
 	if !ok {
-		return false
+		return "", false
 	}
 	_, footer, _ := strings.Cut(pane[len(region):], "\n")
 	if tr.busyLine.MatchString(footer) {
-		return true
+		return "", true
 	}
 	lines := strings.Split(region, "\n")
 	for i, line := range lines {
@@ -276,12 +285,64 @@ func (tr toolRules) isBusy(pane string) bool {
 		}
 	}
 	for i := len(lines) - 1; i >= 0; i-- {
-		if !tr.busyLine.MatchString(unwrapLine(lines, i)) {
+		line := unwrapLine(lines, i)
+		if !tr.busyLine.MatchString(line) {
 			continue
 		}
-		return tr.turnEnd == nil || tr.lastTurnEndIndex(lines) <= i
+		return line, tr.turnEnd == nil || tr.lastTurnEndIndex(lines) <= i
 	}
-	return false
+	return "", false
+}
+
+// stillRunningTail is a turn-end summary naming work left running behind
+// the turn: "✻ Baked for 26s · done 15:14 · 1 shell still running".
+var stillRunningTail = regexp.MustCompile(`· \d+ [^·]*still running\b`)
+
+// BackgroundRest is the status the pane would read if the "still running"
+// tail on its newest turn-end summary were gone, and whether that tail is
+// the only thing keeping it working. A wait line for background agents or
+// workflows is not such a tail: those spend tokens while they run. The
+// caller decides when a tail has gone on long enough to stop believing it;
+// the pane alone cannot tell a running judge from a shell that died
+// without Claude noticing.
+func (e *Engine) BackgroundRest(tool, pane string) (string, bool) {
+	tr, ok := e.tools[tool]
+	if !ok || tr.turnEnd == nil {
+		return "", false
+	}
+	if _, matched := tr.matchRules(tr.matchScope(pane)); matched {
+		return "", false
+	}
+	line, busy := tr.busyText(pane)
+	if !busy || !tr.turnEnd.MatchString(line) || !stillRunningTail.MatchString(line) {
+		return "", false
+	}
+	state, ok := tr.turnState(pane)
+	if !ok || state == Working {
+		return "", false
+	}
+	return state, true
+}
+
+// BackgroundTailTrust is how long a "still running" tail is believed with
+// nothing written to the conversation: work that is still going writes, and
+// the tails measured on 2026-10-12 that held a row working past it were all
+// wait loops nothing would end, or shells that had already died.
+const BackgroundTailTrust = 2 * time.Hour
+
+// StalledBackground is BackgroundRest once the tail has outlived
+// BackgroundTailTrust by quiet, which reports how long since the
+// conversation was last written. quiet is only asked when the pane is
+// working on a tail alone.
+func StalledBackground(e *Engine, tool, pane string, quiet func() (time.Duration, bool)) (string, bool) {
+	rest, ok := e.BackgroundRest(tool, pane)
+	if !ok {
+		return "", false
+	}
+	if age, known := quiet(); !known || age < BackgroundTailTrust {
+		return "", false
+	}
+	return rest, true
 }
 
 // unwrapLine is lines[i] with the indented rows the tool wrapped it onto

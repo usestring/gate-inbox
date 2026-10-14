@@ -54,7 +54,7 @@
 # dismiss             = ["."]  # skip
 # priority            = ["p"]  # cycle priority: urgent → high → medium → low → none
 # mute                = ["M", "shift+m", "ctrl+m"]  # mute / unmute: keep it out of triage until unmuted
-# quick_prompt        = [" ", "space", "ctrl+]"]  # hotkey menu
+# quick_prompt        = [" ", "space", "ctrl+s"]  # hotkey menu
 # rename_from_agent   = ["r"]  # rename it after its conversation
 # rename              = []  # rename it yourself, and re-pick its tool
 # name_sweep          = []  # name sweep over idle adopted panes
@@ -90,7 +90,7 @@
 # toggle_rail         = ["alt+\\"]  # hide / show the list beside the pane
 # archive             = ["ctrl+x"]  # kill it, asking first
 # help                = ["ctrl+h"]  # this key map
-# quick_prompt        = ["ctrl+]"]  # hotkey menu: send a snippet without leaving the session
+# quick_prompt        = ["ctrl+s"]  # hotkey menu: send a snippet without leaving the session
 # new_session         = ["alt+n", "ctrl+n"]  # new session in this one's group
 # copy_session_id     = ["alt+y"]  # copy the agent's session id
 # last_pane           = ["alt+l"]  # back to the previous pane; again walks further back

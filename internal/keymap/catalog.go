@@ -171,7 +171,7 @@ var Catalog = []Binding{
 	{ContextList, Dismiss, []string{"."}, "skip", false},
 	{ContextList, Priority, []string{"p"}, "cycle priority: urgent → high → medium → low → none", false},
 	{ContextList, Mute, []string{"M", "shift+m", "ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
-	{ContextList, QuickInput, []string{" ", "space", "ctrl+]"}, "hotkey menu", false},
+	{ContextList, QuickInput, []string{" ", "space", "ctrl+s"}, "hotkey menu", false},
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{}, "rename it yourself, and re-pick its tool", false},
 	{ContextList, NameSweep, []string{}, "name sweep over idle adopted panes", false},
@@ -230,10 +230,9 @@ var Catalog = []Binding{
 	{ContextFocus, Help, []string{"ctrl+h"}, "this key map", false},
 	// The hotkey menu from inside the pane: the same snippet menu the list
 	// opens, answering the focused session. One more claimed ctrl key, and
-	// ctrl+] is the cheapest one left: no agent CLI binds it, and readline
-	// only spends it on character search. It is rebindable like every other
+	// ctrl+s is free on both screens. It is rebindable like every other
 	// action for an operator who misses it.
-	{ContextFocus, QuickInput, []string{"ctrl+]"}, "hotkey menu: send a snippet without leaving the session", false},
+	{ContextFocus, QuickInput, []string{"ctrl+s"}, "hotkey menu: send a snippet without leaving the session", false},
 	// Session controls reached from inside the pane: a drain that had to leave
 	// the queue to spawn, copy an id or step back was not one queue. See the
 	// ui package's focusactions.go.

@@ -21,7 +21,7 @@ func menuKey(letter rune) tea.KeyPressMsg {
 
 // menuTrigger is the hotkey menu leader in a focused session.
 func menuTrigger() tea.KeyPressMsg {
-	return tea.KeyPressMsg{Code: ']', Mod: tea.ModCtrl}
+	return tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl}
 }
 
 // writeSnippets replaces the model's snippet file and reloads it, so a test
@@ -545,6 +545,77 @@ func TestLeaderTogglesTheFocusedMenuClosed(t *testing.T) {
 	}
 	if m.mode != modeFocus {
 		t.Fatalf("closing the menu left the session, mode %v", m.mode)
+	}
+}
+
+// Typing while the focused menu owns the keyboard lands nowhere, so the
+// menu names why and how to get the keys back instead of swallowing the key.
+func TestFocusedMenuBlockedTypingShowsPopup(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.enterFocusOn(t, "ask")
+
+	updated, _ := m.handleFocusKey(menuTrigger())
+	m = updated.(*Model)
+	updated, cmd := m.handleFocusKey(letter('x'))
+	m = updated.(*Model)
+	if cmd != nil {
+		m.applyCmd(t, cmd)
+	}
+	if !m.quick.active {
+		t.Fatal("a blocked key closed the menu")
+	}
+	if m.errBar.text != "hotkey menu is open — esc closes it to type" {
+		t.Fatalf("err = %q, want the blocked-typing notice", m.errBar.text)
+	}
+	if m.mode != modeFocus {
+		t.Fatalf("a blocked key left the session, mode %v", m.mode)
+	}
+}
+
+// Enter while the focused menu is up submits nothing, so it gets the same
+// notice rather than silence.
+func TestFocusedMenuBlockedSubmitShowsPopup(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.enterFocusOn(t, "ask")
+
+	updated, _ := m.handleFocusKey(menuTrigger())
+	m = updated.(*Model)
+	updated, _ = m.handleFocusKey(key("enter"))
+	m = updated.(*Model)
+	if !m.quick.active {
+		t.Fatal("enter closed the menu")
+	}
+	if m.errBar.text != "hotkey menu is open — esc closes it to submit" {
+		t.Fatalf("err = %q, want the blocked-submit notice", m.errBar.text)
+	}
+}
+
+// Closing the menu drops its own notice: it names an open menu, so keeping
+// it on screen past the close would explain a state that is gone.
+func TestFocusedMenuCloseClearsBlockedNotice(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.enterFocusOn(t, "ask")
+
+	updated, _ := m.handleFocusKey(menuTrigger())
+	m = updated.(*Model)
+	updated, _ = m.handleFocusKey(letter('x'))
+	m = updated.(*Model)
+	updated, _ = m.handleFocusKey(key("esc"))
+	m = updated.(*Model)
+	if m.quick.active {
+		t.Fatal("esc did not close the menu")
+	}
+	if m.errBar.text != "" {
+		t.Fatalf("closing the menu left %q on the bar", m.errBar.text)
 	}
 }
 

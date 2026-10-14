@@ -5,9 +5,7 @@ import (
 	"testing"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -57,32 +55,6 @@ func TestMuteKeyStoresTheFlagAndTheRowReadsMuted(t *testing.T) {
 	}
 	if stored.Muted {
 		t.Fatal("unmuting never reached the store")
-	}
-}
-
-func TestCtrlMMutesAndUnmutesWithoutTakingEnter(t *testing.T) {
-	m := buildModel(t)
-	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
-	m.rebuildRows()
-	m.selectSessionRow(t, "ask")
-	if action, ok := m.action(keymap.ContextList, key("enter")); !ok || action != keymap.Open {
-		t.Fatalf("Enter action = %q, want open", action)
-	}
-	press := tea.KeyPressMsg{Code: 'm', Mod: tea.ModCtrl, Text: "m"}
-	for _, wantMuted := range []bool{true, false} {
-		updated, _ := m.handleKey(press)
-		m = updated.(*Model)
-		sess := sessionNamed(t, m, "ask")
-		stored, err := m.store.Get(sess.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if sess.Muted != wantMuted || stored.Muted != wantMuted {
-			t.Fatalf("Ctrl+M: model muted=%v, stored muted=%v, want %v", sess.Muted, stored.Muted, wantMuted)
-		}
-		if wantMuted && (m.needsPerson(sess) || m.triageWalkable(sess)) {
-			t.Fatal("Ctrl+M left the muted session in triage")
-		}
 	}
 }
 

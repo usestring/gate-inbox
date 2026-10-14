@@ -215,6 +215,56 @@ instructions say which and why. A disabled extension that has a say in
 which sessions spawn fails closed: every spawn it would have been asked about is refused, with the
 reason, until its section is fixed.
 
+### Skill priority hook
+
+Claude Code can rank a session from an optional skill frontmatter field:
+
+```yaml
+gate-inbox-priority: high
+```
+
+The accepted tiers are `urgent`, `high`, `medium`, and `low`. The last invoked skill with a tier
+wins. The hook reads skills from `$CLAUDE_PROJECT_DIR/skills` first, then
+`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills`. It runs for the `Skill` tool and a prompt beginning
+with `/<skill>`. Skills without a valid tier leave priority unchanged.
+
+The reusable hook lives in [`hooks/skill-gate-inbox-priority.sh`](hooks/skill-gate-inbox-priority.sh).
+It needs Bash and `jq`, and a session launched by Gate Inbox (`GATE_INBOX_BIN`, or
+`AGENT_MANAGER_BIN` for older launchers). Without a board binary it exits successfully without
+changing anything. A launcher that owns the session's tier can set `GATE_INBOX_PRIORITY_LOCKED=1`
+to keep skills from replacing it.
+
+To use it in another project, link to your Gate Inbox checkout instead of copying the script.
+From that project's root, with Gate Inbox checked out in a sibling directory:
+
+```bash
+mkdir -p hooks
+ln -s ../../gate-inbox/hooks/skill-gate-inbox-priority.sh hooks/skill-gate-inbox-priority.sh
+```
+
+Keep that checkout available at the linked path. Merge these entries into the project's
+`.claude/settings.json` hooks, preserving any existing registrations:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Skill",
+        "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/hooks/skill-gate-inbox-priority.sh\""}]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/hooks/skill-gate-inbox-priority.sh\""}]
+      }
+    ]
+  }
+}
+```
+
+Run `bash hooks/skill-gate-inbox-priority.test.sh` from the Gate Inbox checkout to test the hook.
+
 ## Development
 
 ```bash

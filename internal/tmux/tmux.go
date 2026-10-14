@@ -780,8 +780,20 @@ func attachStatusRight(primary, secondary string) string {
 	return " Gate Inbox · " + strings.Join(exits, " / ") + " = back "
 }
 
+// leaveCondition is when C-q and C-\ detach: only in the window a managed
+// session was created with. Any other window the operator opened in that
+// session -- the manager itself among them -- keeps the key, so a manager run
+// inside a gi_ session is not detached from under its own leave keys. A
+// session made before homeOption existed has no home recorded and detaches
+// from every window, as it always did.
+const leaveCondition = "#{&&:#{m:" + prefix + "*,#{session_name}},#{||:#{==:#{window_id},#{" + homeOption + "}},#{==:#{" + homeOption + "},}}}"
+
+// legacyLeaveCondition is the condition earlier runs bound, which detached
+// from every window of a gi_ session. sharedBindings replaces it.
+const legacyLeaveCondition = "#{m:" + prefix + "*,#{session_name}}"
+
 func (d *Driver) EnsureBindings() error {
-	inSession := "#{m:" + prefix + "*,#{session_name}}"
+	inSession := leaveCondition
 	binds := [][]string{
 		{"bind-key", "-n", "C-q", "if-shell", "-F", inSession, "detach-client", "send-keys C-q"},
 		{"bind-key", "-n", `C-\`, "if-shell", "-F", inSession, "detach-client", `send-keys C-\\`},
@@ -819,9 +831,9 @@ func (d *Driver) EnsureBindings() error {
 // Everything else in the list rewrites configuration that belongs to the
 // operator -- an unbind-key drops a binding they may be using, and a binding
 // in the prefix table overwrites what their own config put there -- and a key
-// already bound is theirs too, however much the manager would like it. A
-// binding an earlier run installed reads as bound and is left alone, so a
-// changed binding reaches a shared server only after that key comes free.
+// already bound is theirs too, however much the manager would like it. The
+// one exception is a leave key still carrying legacyLeaveCondition: that
+// binding is ours, and it detached the manager's own client.
 func (d *Driver) sharedBindings(binds [][]string) ([][]string, error) {
 	bound, running, err := d.rootKeys()
 	if err != nil {
@@ -837,7 +849,7 @@ func (d *Driver) sharedBindings(binds [][]string) ([][]string, error) {
 		if len(bind) < 3 || bind[0] != "bind-key" || bind[1] != "-n" {
 			continue
 		}
-		if bound[bind[2]] {
+		if line, ok := bound[bind[2]]; ok && !strings.Contains(line, `"`+legacyLeaveCondition+`"`) {
 			continue
 		}
 		kept = append(kept, bind)
@@ -845,9 +857,9 @@ func (d *Driver) sharedBindings(binds [][]string) ([][]string, error) {
 	return kept, nil
 }
 
-// rootKeys is every key bound in the root table, and whether a server
-// answered at all.
-func (d *Driver) rootKeys() (map[string]bool, bool, error) {
+// rootKeys is every key bound in the root table, with the list-keys line
+// that binds it, and whether a server answered at all.
+func (d *Driver) rootKeys() (map[string]string, bool, error) {
 	out, err := d.combined(d.args("list-keys", "-T", "root"))
 	if err != nil {
 		if noServer(string(out)) {
@@ -855,10 +867,10 @@ func (d *Driver) rootKeys() (map[string]bool, bool, error) {
 		}
 		return nil, false, fmt.Errorf("tmux list-keys: %w: %s", err, strings.TrimSpace(string(out)))
 	}
-	keys := map[string]bool{}
+	keys := map[string]string{}
 	for _, line := range strings.Split(string(out), "\n") {
 		if key := rootKeyName(line); key != "" {
-			keys[key] = true
+			keys[key] = line
 		}
 	}
 	return keys, true, nil

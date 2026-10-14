@@ -174,7 +174,11 @@ turn_end = "^[✻✳✶✽✢·✦✧+*] \\S+ for \\d.*$"
 # streaming below the banner would still read finished -- and only
 # chrome_line is consulted by lastContentIndex, so only chrome_line keeps the
 # banner from masking a blocked_line interrupt above it.
-chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$"
+#
+# The right-aligned "new task? /clear to save 177.6k tokens" hint claude
+# draws under a turn-end summary once the context is large is chrome for the
+# same reason.
+chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$|^\\s*new task\\? /clear to save\\b.*$"
 blocked_line = "Interrupted ·"
 # recap blocks ("※ recap: …") render below the turn-end summary
 trailing_note = "^※"

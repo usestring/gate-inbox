@@ -1051,6 +1051,67 @@ func TestTypingACLIAndPressingEnterCreatesIt(t *testing.T) {
 	}
 }
 
+func TestFormOffersTheTerminalAndOpensAShell(t *testing.T) {
+	m := buildModel(t)
+	m.openForm()
+	found := false
+	for _, name := range m.form.toolNames {
+		if name == shellToolName {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("form tools = %v, want the terminal among them", m.form.toolNames)
+	}
+	typeIntoForm(m, "term")
+	if got := m.selectedToolName(); got != shellToolName {
+		t.Fatalf("tool = %q, want the terminal", got)
+	}
+	m.form.dir.SetValue(t.TempDir())
+	pickGroup(t, m, "")
+	updated, cmd := m.submitForm()
+	*m = *updated.(*Model)
+	m.applyCmd(t, cmd)
+	if m.errBar.text != "" {
+		t.Fatalf("spawn refused: %s", m.errBar.text)
+	}
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || !m.isShell(rows[0].Tool) {
+		t.Fatalf("sessions = %+v, want one shell", rows)
+	}
+}
+
+func TestFormTerminalRefusesAPromptAndAModel(t *testing.T) {
+	for _, field := range []string{"prompt", "model"} {
+		m := buildModel(t)
+		m.openForm()
+		m.selectTool(shellToolName)
+		if field == "prompt" {
+			m.form.prompt.input.SetValue("do the thing")
+		} else {
+			m.form.model.SetValue("opus")
+		}
+		m.form.dir.SetValue(t.TempDir())
+		pickGroup(t, m, "")
+		updated, _ := m.submitForm()
+		*m = *updated.(*Model)
+		if m.mode != modeForm {
+			t.Fatalf("%s: form closed over the refusal", field)
+		}
+		if !strings.Contains(m.errBar.text, "takes no "+field) {
+			t.Fatalf("%s: error = %q, want the field named", field, m.errBar.text)
+		}
+		sessions, err := m.store.ListSessions(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(sessions) != 0 {
+			t.Fatalf("%s: form created %+v despite refusing", field, sessions)
+		}
+	}
+}
+
 func TestFormUpDownMoveTheCaretBetweenPromptRows(t *testing.T) {
 	m := buildModel(t)
 	m.openForm()

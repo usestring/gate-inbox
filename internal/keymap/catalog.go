@@ -170,7 +170,7 @@ var Catalog = []Binding{
 	{ContextList, UndoArchive, []string{"U", "shift+u"}, "bring back what the last kill filed away", false},
 	{ContextList, Dismiss, []string{"."}, "skip", false},
 	{ContextList, Priority, []string{"p"}, "cycle priority: urgent → high → medium → low → none", false},
-	{ContextList, Mute, []string{"M", "shift+m", "ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
+	{ContextList, Mute, []string{"M", "shift+m"}, "mute / unmute: keep it out of triage until unmuted", false},
 	{ContextList, QuickInput, []string{" ", "space", "ctrl+s"}, "hotkey menu", false},
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{}, "rename it yourself, and re-pick its tool", false},
@@ -235,16 +235,17 @@ var Catalog = []Binding{
 	{ContextFocus, QuickInput, []string{"ctrl+s"}, "hotkey menu: send a snippet without leaving the session", false},
 	// Session controls reached from inside the pane: a drain that had to leave
 	// the queue to spawn, copy an id or step back was not one queue. See the
-	// ui package's focusactions.go.
-	{ContextFocus, NewSession, []string{"alt+n", "ctrl+n"}, "new session in this one's group", false},
-	{ContextFocus, CopySessionID, []string{"alt+y"}, "copy the agent's session id", false},
-	{ContextFocus, LastPane, []string{"alt+l"}, "back to the previous pane; again walks further back", false},
+	// ui package's focusactions.go. Option+letter belongs to snippet chords,
+	// so these sit on ctrl or option+punctuation.
+	{ContextFocus, NewSession, []string{"ctrl+n"}, "new session in this one's group", false},
+	{ContextFocus, CopySessionID, []string{"alt+/"}, "copy the agent's session id", false},
+	{ContextFocus, LastPane, []string{"alt+;"}, "back to the previous pane; again walks further back", false},
 	{ContextFocus, JumpPane, []string{"ctrl+g"}, "find a pane by name and focus it", false},
 	{ContextFocus, BackAtPrompt, []string{"right", "left"}, "at a prompt edge, leave; in triage Right advances a finished one", false},
 	{ContextFocus, PreviewUp, []string{"alt+up"}, "scroll the pane up", false},
 	{ContextFocus, PreviewDown, []string{"alt+down"}, "scroll the pane down", false},
-	{ContextFocus, PreviewPageUp, []string{"alt+u", "alt+pgup"}, "scroll a page up", false},
-	{ContextFocus, PreviewPageDown, []string{"alt+d", "alt+pgdown"}, "scroll a page down", false},
+	{ContextFocus, PreviewPageUp, []string{"alt+pgup"}, "scroll a page up", false},
+	{ContextFocus, PreviewPageDown, []string{"alt+pgdown"}, "scroll a page down", false},
 	{ContextFocus, PreviewTop, []string{"alt+home"}, "oldest history", false},
 	{ContextFocus, PreviewBottom, []string{"alt+end"}, "back to the live bottom", false},
 

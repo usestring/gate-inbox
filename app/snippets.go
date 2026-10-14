@@ -15,7 +15,7 @@ type Snippet struct {
 	// Empty falls back to Label, then Text.
 	Preview string
 	// Chord is the direct binding that sends it in one press without the
-	// menu, e.g. "option+shift+r". Empty leaves it on the menu alone.
+	// menu, e.g. "option+r". Empty leaves it on the menu alone.
 	Chord string
 	// Text is what the key sends.
 	Text string

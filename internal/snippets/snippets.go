@@ -13,7 +13,7 @@
 // A snippet fires two ways, and the file names both. Its bare Key answers in
 // the hotkey menu, which a leader opens from the list and from inside a
 // focused session and which is the whole, discoverable namespace. Its optional
-// Chord is a direct binding, e.g. option+shift+c, that sends it in one press
+// Chord is a direct binding, e.g. option+c, that sends it in one press
 // without opening the menu at all. The chord is not derived from the key: the
 // file spells it out, so the two can differ, either can be absent, and § and ±
 // -- not letters a modifier can carry -- can stay menu-only. A lettered entry
@@ -21,16 +21,13 @@
 // had before the file named one; see legacyChords. The chord is the
 // fast path an operator wants when the sentence is known.
 //
-// The default chord is option+shift+<key> because option+shift is the
-// double-hold that survives the wire. ctrl+super never reaches a terminal TUI
-// at all -- macOS keeps Cmd for its own shortcuts, and the only encoding is a
-// kitty-protocol CSI-u tmux never forwards -- so option+command, the obvious
-// choice, is undeliverable. ctrl+alt collided with operator tooling and
-// ctrl+shift arrives with the shift stripped, as the plain ctrl key. An
-// option+shift letter reaches the pane as a Meta-modified shifted letter, and
-// no manager binding claims one: every chord the focused screen owns is a bare
-// option letter (alt+n, alt+y, ...), so the shift keeps the two apart. The
-// agent still loses whatever chord an operator binds; that is the cost of a
+// The default chord is option+<key>. The key map splits the modifiers: ctrl
+// letters and option punctuation are the manager's, and option letters are
+// left to snippets, so no manager binding claims one. ctrl+super never
+// reaches a terminal TUI at all -- macOS keeps Cmd for its own shortcuts, and
+// the only encoding is a kitty-protocol CSI-u tmux never forwards -- so
+// option+command is undeliverable. The agent still loses whatever chord an
+// operator binds, readline's option+b/f/d among them; that is the cost of a
 // one-press snippet and the reason a chord only binds when the file names it.
 //
 // One key sits outside both, on the physical key left of 1 where the
@@ -84,7 +81,7 @@ type Snippet struct {
 	Preview string `json:"preview,omitempty"`
 	// Chord is the direct binding that sends this snippet in one press from
 	// the list or a focused session, without opening the hotkey menu, e.g.
-	// "option+shift+c" (spelled "alt+shift+c" works too). Empty leaves the
+	// "option+c" (spelled "alt+c" works too). Empty leaves the
 	// snippet on the menu alone, which is how § and ± stay. A lettered entry
 	// in the file that leaves the field out keeps option+shift+<key>, the
 	// chord every letter carried before the file named it: see legacyChords.
@@ -323,15 +320,18 @@ func Defaults() []Snippet {
 	}
 }
 
-// defaultChord is the chord a first-run entry carries: option+shift+<key> for a
+// defaultChord is the chord a first-run entry carries: option+<key> for a
 // letter, none for § and ±. The file spells it out afterwards, so an operator
 // can change it or drop it.
 func defaultChord(key string) string {
 	if !singleLetter(key) {
 		return ""
 	}
-	return "alt+shift+" + key
+	return "alt+" + key
 }
+
+// legacyChord is the chord a letter carried before the file could name one.
+func legacyChord(key string) string { return "alt+shift+" + key }
 
 // Load reads the snippets file, writing the defaults first when it does not
 // exist yet, and merges the distribution's entries under it: see
@@ -398,7 +398,7 @@ func validate(parsed []Snippet) Set {
 			// menu's namespace and would be stolen from every pane it types
 			// into. The menu key is where a bare binding belongs.
 			set.Problems = append(set.Problems,
-				entry(i, snip)+"chord "+quote(snip.Chord)+" must be a modifier and a key, like option+shift+"+snip.Key)
+				entry(i, snip)+"chord "+quote(snip.Chord)+" must be a modifier and a key, like option+"+snip.Key)
 		case snip.Chord != "" && shiftsASymbol(snip.Chord):
 			// Most terminals fold shift into the symbol it types -- option+
 			// shift+1 arrives as option+! -- and which symbol is the keyboard
@@ -451,7 +451,7 @@ func validate(parsed []Snippet) Set {
 // keeps it and the older entry falls back to the menu alone.
 func legacyChords(kept []Snippet, legacy []int, chords map[string]int) {
 	for _, i := range legacy {
-		chord := defaultChord(kept[i].Key)
+		chord := legacyChord(kept[i].Key)
 		if _, dup := chords[chord]; dup {
 			continue
 		}

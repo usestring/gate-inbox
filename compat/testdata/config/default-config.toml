@@ -91,17 +91,16 @@ poll_interval = "2s"
 # the content region is the text above the last activity_cutoff match
 # (the tool's input box). If the region's last content line — skipping
 # chrome_line matches (blanks, separators, input-box borders) — is a
-# turn_end marker, the turn just ended: finished, or waiting when the
-# line above it carries a question mark. A blocked_line there (e.g. an
-# interrupt banner) also derives waiting. Otherwise default_status
+# turn_end marker, the turn just ended: finished, even when its prose
+# asks a question, because waiting is a dialog and only a rule sees one.
+# A blocked_line there (e.g. an interrupt banner) derives waiting. Otherwise default_status
 # applies, and a region whose newest content lines changed since the
 # previous poll counts as working (streaming output often renders without
 # any spinner). Only the newest lines count, so a prompt someone is writing
 # -- which grows the input box and scrolls the oldest rows off the top of
 # the pane -- is not mistaken for output. A turn
 # that closes without any turn_end marker still resolves: when a working
-# region stops changing and nothing matches, its last content line
-# decides finished versus waiting (question mark waits).
+# region stops changing and nothing matches, it is finished.
 #
 # None of that runs while a scrolled_line match says the tool has parked
 # its own viewport above the live bottom: the visible screen is history

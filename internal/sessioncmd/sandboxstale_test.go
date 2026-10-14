@@ -3,6 +3,7 @@ package sessioncmd
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 // bwrapFailure is a PostToolUseFailure payload as Claude Code sends it for a
@@ -144,7 +146,7 @@ func TestAStaleWorktreeSourceIsRestoredInPlace(t *testing.T) {
 			"error": "Exit code 1\nbwrap: Can't get type of source " + missing + ": No such file or directory"})
 		for range 2 {
 			note := SandboxStaleHook(h.sessions.configDir, child.ID, flag, payload, time.Now())
-			if !strings.Contains(note, "put an empty placeholder back") {
+			if !strings.Contains(note, "put a placeholder back") {
 				t.Fatalf("note = %s", note)
 			}
 		}
@@ -164,16 +166,137 @@ func TestStaleSourcesThatAreNotWorktreeMetadataAreLeftAlone(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(repo, ".git", "worktrees"), 0o755)
 	for _, path := range []string{
 		filepath.Join(repo, ".git", "config.lock"),
-		filepath.Join(repo, "sub", ".mcp.json"),
+		filepath.Join(repo, ".git", "worktrees", "gone", ".mcp.json"),
+		filepath.Join(repo, "absent", ".mcp.json"),
+		filepath.Join(repo, ".mcp.json"),
 		filepath.Join(repo, ".git", "worktrees", "gone", "index.lock"),
 		filepath.Join(t.TempDir(), "absent", ".git", "worktrees", "gone", "commondir"),
 		"relative/.git/worktrees/gone/commondir",
 	} {
-		if restoreWorktreeSource(path) {
+		if restoreStaleSource(path, time.Now()) {
 			t.Errorf("restored %s", path)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(repo, ".git", "config.lock")); err == nil {
 		t.Fatal("created config.lock")
+	}
+}
+
+// A placeholder has to survive what deletes paths when another session exits:
+// Claude Code unlinks the empty files its sandbox placed, and the SessionEnd
+// hook runs `git worktree prune`. So every file has content and the entry is
+// locked.
+func TestARestoredWorktreePlaceholderSurvivesPruneAndCleanup(t *testing.T) {
+	repo := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd.Env = append(tmuxtest.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return string(out)
+	}
+	git("init", "-q")
+	git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "i")
+	missing := filepath.Join(repo, ".git", "worktrees", "gone", "commondir")
+	if !restoreStaleSource(missing, time.Now()) {
+		t.Fatal("not restored")
+	}
+	git("worktree", "prune")
+	for _, name := range []string{"commondir", "config.worktree", "locked"} {
+		info, err := os.Stat(filepath.Join(repo, ".git", "worktrees", "gone", name))
+		if err != nil || info.Size() == 0 {
+			t.Fatalf("%s: missing or empty after prune (%v)", name, err)
+		}
+	}
+	if out := git("worktree", "list", "--porcelain"); strings.Contains(out, "gone") {
+		t.Fatalf("git worktree list shows the placeholder\n%s", out)
+	}
+}
+
+// An empty, read-only file bwrap left is filled in, and a live worktree's
+// entry is never written to.
+func TestAnEmptyPlaceholderIsFilledAndALiveEntryIsLeftAlone(t *testing.T) {
+	repo := t.TempDir()
+	gone := filepath.Join(repo, ".git", "worktrees", "gone")
+	live := filepath.Join(repo, ".git", "worktrees", "live")
+	for _, dir := range []string{gone, live} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = os.WriteFile(filepath.Join(gone, "config.worktree"), nil, 0o444)
+	_ = os.WriteFile(filepath.Join(live, "gitdir"), []byte("/x/.git\n"), 0o644)
+	if !restoreStaleSource(filepath.Join(gone, "config.worktree"), time.Now()) {
+		t.Fatal("not restored")
+	}
+	if info, _ := os.Stat(filepath.Join(gone, "config.worktree")); info.Size() == 0 {
+		t.Fatal("empty file left empty")
+	}
+	if restoreStaleSource(filepath.Join(live, "commondir"), time.Now()) {
+		t.Fatal("reported a missing file in a live entry as restored")
+	}
+	if _, err := os.Stat(filepath.Join(live, "locked")); err == nil {
+		t.Fatal("locked a live worktree")
+	}
+}
+
+// Old placeholders are swept when a new one is written; anything else under
+// worktrees/ is not.
+func TestOldPlaceholdersAreSwept(t *testing.T) {
+	repo := t.TempDir()
+	worktrees := filepath.Join(repo, ".git", "worktrees")
+	_ = os.MkdirAll(worktrees, 0o755)
+	now := time.Now()
+	if !restoreStaleSource(filepath.Join(worktrees, "old", "commondir"), now) {
+		t.Fatal("not restored")
+	}
+	userLocked := filepath.Join(worktrees, "mine")
+	_ = os.MkdirAll(userLocked, 0o755)
+	_ = os.WriteFile(filepath.Join(userLocked, "locked"), []byte("on a usb disk\n"), 0o644)
+	old := now.Add(-placeholderLifetime - time.Hour)
+	for _, lock := range []string{filepath.Join(worktrees, "old", "locked"), filepath.Join(userLocked, "locked")} {
+		_ = os.Chtimes(lock, old, old)
+	}
+	if !restoreStaleSource(filepath.Join(worktrees, "new", "commondir"), now) {
+		t.Fatal("not restored")
+	}
+	if _, err := os.Stat(filepath.Join(worktrees, "old")); err == nil {
+		t.Fatal("old placeholder kept")
+	}
+	if _, err := os.Stat(userLocked); err != nil {
+		t.Fatal("swept an entry this hook did not write")
+	}
+}
+
+// A subdirectory's .mcp.json comes back declaring no servers, and stays out
+// of the checkout's untracked files.
+func TestAStaleMCPConfigIsRestoredAndExcluded(t *testing.T) {
+	repo := t.TempDir()
+	cmd := exec.Command("git", "-C", repo, "init", "-q")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	sub := filepath.Join(repo, "sub")
+	_ = os.MkdirAll(sub, 0o755)
+	path := filepath.Join(sub, ".mcp.json")
+	for range 2 {
+		if !restoreStaleSource(path, time.Now()) {
+			t.Fatal("not restored")
+		}
+	}
+	raw, _ := os.ReadFile(path)
+	if string(raw) != mcpPlaceholder {
+		t.Fatalf(".mcp.json = %q", raw)
+	}
+	exclude, _ := os.ReadFile(filepath.Join(repo, ".git", "info", "exclude"))
+	if strings.Count(string(exclude), "/sub/.mcp.json\n") != 1 {
+		t.Fatalf("exclude = %q", exclude)
+	}
+	out, _ := exec.Command("git", "-C", repo, "status", "--porcelain").Output()
+	if len(out) != 0 {
+		t.Fatalf("checkout dirty: %s", out)
 	}
 }

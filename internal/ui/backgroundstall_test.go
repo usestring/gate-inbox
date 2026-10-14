@@ -56,6 +56,41 @@ func TestSettleStalledBackgroundRestsAQuietTail(t *testing.T) {
 	}
 }
 
+// Live 2026-10-13: a child stopped for a stale sandbox with a local server
+// still running in a shell. Claude Code touched the transcript hourly
+// with no entry in it, the tail never read as quiet, and the row stayed
+// working: no rest relay to the parent and no sandbox restart.
+func TestSettleStalledBackgroundIgnoresATouchWithNoEntry(t *testing.T) {
+	now := time.Now()
+	sess := store.Session{ID: "child001", Tool: "claude", Cwd: "/work/repo", AgentSessionID: "conv-1"}
+	p := &poller{engine: liveEngine(t)}
+
+	t.Setenv("HOME", t.TempDir())
+	path, err := agentsession.ClaudeTranscriptPath(sess.Cwd, sess.AgentSessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ended := now.Add(-5 * time.Hour).UTC().Format(time.RFC3339Nano)
+	transcript := `{"type":"assistant","timestamp":"` + ended + `"}
+{"type":"ai-title","aiTitle":"probe","sessionId":"conv-1"}
+{"type":"system","subtype":"turn_duration","timestamp":"` + ended + `"}
+{"type":"permission-mode","permissionMode":"auto","sessionId":"conv-1"}
+`
+	if err := os.WriteFile(path, []byte(transcript), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	touched := now.Add(-time.Minute)
+	if err := os.Chtimes(path, touched, touched); err != nil {
+		t.Fatal(err)
+	}
+	if got := p.settleStalledBackground(sess, staleShellPane, status.Working, now); got != status.Finished {
+		t.Fatalf("last entry 5h old, file touched 1m ago: got %q, want finished", got)
+	}
+}
+
 func TestSettleStalledBackgroundKeepsLiveWorkWorking(t *testing.T) {
 	now := time.Now()
 	sess := store.Session{ID: "child001", Tool: "claude", Cwd: "/work/repo", AgentSessionID: "conv-1"}

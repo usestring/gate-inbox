@@ -154,8 +154,8 @@ func (tr toolRules) matchRules(scope string) (string, bool) {
 // RuleMatch reports what the tool's configured rules see, without the
 // limit, busy and turn-end fallbacks Match layers on top. A modal dialog always
 // trips a rule, while a question left on screen at a resting prompt does
-// not, which is how a caller tells "do not type here" from "waiting for
-// an answer".
+// not, which is how a caller tells "do not type here" from a prompt that
+// takes a reply.
 func (e *Engine) RuleMatch(tool, pane string) (string, bool) {
 	tr, ok := e.tools[tool]
 	if !ok {
@@ -587,10 +587,10 @@ func (tr toolRules) activityRegion(pane string) (string, bool) {
 
 // turnState inspects the newest turn in the content region. When nothing
 // but chrome (blanks, separators) and trailing notes (recap blocks) sits
-// below the last turn_end marker, the turn just ended: finished, or
-// waiting when the content line above the marker carries a question mark
-// (the agent asked something in plain text). A blocked_line as the last
-// content (e.g. an interrupt banner) also waits on the user. Anchoring on
+// below the last turn_end marker, the turn just ended: finished, even when
+// its prose ends in a question, since waiting means a dialog that holds the
+// pane and the rules above already caught any. A blocked_line as the last
+// content (e.g. an interrupt banner) waits on the user. Anchoring on
 // the newest marker means markers from older turns, still visible higher
 // in the pane, can never retrigger.
 func (tr toolRules) turnState(pane string) (string, bool) {
@@ -614,28 +614,15 @@ func (tr toolRules) turnState(pane string) (string, bool) {
 	if lastEnd < 0 || !tr.turnIsNewest(lines[lastEnd+1:]) {
 		return "", false
 	}
-	question := lastContentIndex(lines, lastEnd-1, nil)
-	if question >= 0 && strings.Contains(lines[question], "?") {
-		return Waiting, true
-	}
 	return Finished, true
 }
 
 // TurnEndedState infers the resting status of a turn that closed without
 // a turn_end marker: the poller calls it when a region that was working
-// stops changing and no rule matches. A question mark on the last content
-// line means the agent asked something in plain text and waits on the
-// answer; anything else counts as finished.
+// stops changing and no rule matches. No rule means no dialog, so the turn
+// is finished even when its last line asks something in plain text: that
+// question is read like any other prose, at a prompt that takes a reply.
 func (e *Engine) TurnEndedState(tool, region string) string {
-	tr, ok := e.tools[tool]
-	if !ok {
-		return Finished
-	}
-	lines := strings.Split(region, "\n")
-	last := lastContentIndex(lines, len(lines)-1, tr.chromeLine)
-	if last >= 0 && strings.Contains(lines[last], "?") {
-		return Waiting
-	}
 	return Finished
 }
 

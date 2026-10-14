@@ -237,14 +237,14 @@ func TestHookWorkingWinsOverUnmatchedPane(t *testing.T) {
 	}
 }
 
-func TestHookFinishedUpgradesToWaitingOnQuestionTurn(t *testing.T) {
+func TestHookFinishedStaysFinishedOnQuestionTurn(t *testing.T) {
 	m := buildModel(t)
 	sess := store.Session{ID: "hooked03", Tool: "claude-hooked"}
 	writeHookStatus(t, m, sess.ID, status.Finished)
 
 	pane := "Do you want me to proceed?\n\n✻ Baked for 5s\n\n❯ \n"
-	if got := deriveStatus(t, m, sess, pane, true); got != status.Waiting {
-		t.Fatalf("question turn should upgrade hook finished to waiting, got %q", got)
+	if got := deriveStatus(t, m, sess, pane, true); got != status.Finished {
+		t.Fatalf("a question in prose is no dialog: hook finished should stay finished, got %q", got)
 	}
 }
 
@@ -425,7 +425,7 @@ func TestCodexComposerAnimationDoesNotKeepTurnWorking(t *testing.T) {
 	disableQuietEndGrace(t)
 	for _, tc := range []struct{ content, want string }{
 		{"• Done.\n", status.Finished},
-		{"• Continue?\n", status.Waiting},
+		{"• Continue?\n", status.Finished},
 		{"• Working (12s • esc to interrupt)\n", status.Working},
 	} {
 		m := buildModel(t)
@@ -464,14 +464,14 @@ func TestQuietPaneHoldsWorkingUntilGrace(t *testing.T) {
 	}
 }
 
-func TestQuietPaneEndingOnQuestionDerivesWaiting(t *testing.T) {
+func TestQuietPaneEndingOnQuestionDerivesFinished(t *testing.T) {
 	disableQuietEndGrace(t)
 	m := buildModel(t)
 	sess := store.Session{ID: "quiet02", Tool: "claude-hooked", Status: status.Working}
 	pane := "Which of the two options do you prefer?\n❯ \n"
 	seedRegionHash(t, m, sess, pane)
-	if got := deriveStatus(t, m, sess, pane, true); got != status.Waiting {
-		t.Fatalf("quiet pane ending on a question should derive waiting, got %q", got)
+	if got := deriveStatus(t, m, sess, pane, true); got != status.Finished {
+		t.Fatalf("quiet pane ending on a question should derive finished, got %q", got)
 	}
 }
 

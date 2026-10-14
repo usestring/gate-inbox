@@ -2677,8 +2677,8 @@ func claudeBackgroundPending(tracker *agentsession.Background, sess store.Sessio
 }
 
 // applyHookStatus trusts the hook-reported status over pane heuristics
-// for the states hooks can see. They cannot see a plain-text question,
-// an interrupt banner, an error line, or work that outlives the turn that
+// for the states hooks can see. They cannot see a dialog no hook
+// announces, an interrupt banner, an error line, or work that outlives the turn that
 // started it, so a matched pane verdict upgrades finished to waiting,
 // errored or working (Stop fires when the main agent stops responding,
 // which leaves background agents reported as finished while they run),

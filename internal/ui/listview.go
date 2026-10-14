@@ -1564,6 +1564,12 @@ func (m *Model) contentLines(width, height int) []contentLine {
 	var bar []contentLine
 	if m.quick.active {
 		bar = append([]contentLine{{}}, ours(splitLines(m.viewQuickBar(inner, quickBarMaxRows)))...)
+		if m.quickHoldsPane() {
+			bar[0].text = gutter + m.quickDockTitle(inner)
+			for i := range bar {
+				bar[i].bg = quickDockHex()
+			}
+		}
 	}
 	var body []contentLine
 	// The frame's own top rule already seams the header off the body, so the
@@ -1716,6 +1722,12 @@ func (m *Model) previewLines(width, height int, gutter string) []contentLine {
 			lines = append(lines, contentLine{text: previewLine(loader[i], width), raw: true})
 			continue
 		}
+		if m.quickHoldsPane() {
+			// Grayed while the menu holds the keys, so the agent's prompt
+			// stops looking like somewhere a keystroke would land.
+			lines = append(lines, contentLine{text: previewLine(subtleStyle.Render(ansi.Strip(line)), width), raw: true})
+			continue
+		}
 		lines = append(lines, contentLine{text: m.renderPaneRow(i, line, width), raw: true})
 	}
 	// Rows past the capture stay raw too: a painted tail under unpainted
@@ -1864,6 +1876,24 @@ func lastActivity(sess store.Session) time.Time {
 		return sess.CreatedAt
 	}
 	return sess.LastStatusAt
+}
+
+// quickHoldsPane reports whether the hotkey menu is docked over a focused
+// session, where it takes the keys the pane would otherwise get.
+func (m *Model) quickHoldsPane() bool {
+	return m.quick.active && m.mode == modeFocus
+}
+
+// quickDockTitle heads the focused dock, on the row that otherwise only
+// spaces it off the pane: what has the keyboard, and the key that gives it
+// back.
+func (m *Model) quickDockTitle(width int) string {
+	title := annotationStyle.Render("HOTKEY MENU")
+	note := mutedStyle.Render(" · typing paused · esc to type")
+	if textfmt.Width(title)+textfmt.Width(note) > width {
+		return title
+	}
+	return title + note
 }
 
 // viewQuickBar is the docked hotkey menu: the session a key would answer,

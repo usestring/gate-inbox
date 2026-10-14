@@ -39,6 +39,13 @@ func blockHex() string {
 	return themeTone("block", backdropBase(), current.Surface, 0.35)
 }
 
+// quickDockHex is the band under the hotkey menu docked in a focused
+// session: tinted toward the accent so the dock cannot be read as more of
+// the agent's own screen, whose prompt the menu is holding keys back from.
+func quickDockHex() string {
+	return themeTone("quickdock", backdropBase(), current.Accent, 0.18)
+}
+
 // selectedHex is the band under a row being renamed.
 func selectedHex() string { return current.Surface }
 
@@ -364,12 +371,14 @@ func spaces(n int) string {
 // contentLine is one row of the content column: ours to paint, a seam that
 // spans the column edge to edge, or captured output that must keep the
 // terminal's own backdrop. Rail rows also carry the tone their fill uses,
-// so the edge column beside them can match the selected entry's band.
+// so the edge column beside them can match the selected entry's band. bg
+// overrides the column's fill for a row that must stand off it.
 type contentLine struct {
 	text string
 	raw  bool
 	rule bool
 	tone string
+	bg   string
 }
 
 // paintContent paints a content column, leaving raw rows unfilled.
@@ -390,7 +399,11 @@ func paintContent(lines []contentLine, width, height int, bg string) []string {
 			out[i] = plain(lines[i].text, width)
 			continue
 		}
-		out[i] = paint(lines[i].text, width, bg)
+		fill := bg
+		if lines[i].bg != "" {
+			fill = lines[i].bg
+		}
+		out[i] = paint(lines[i].text, width, fill)
 	}
 	return out
 }

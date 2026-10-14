@@ -838,3 +838,47 @@ func TestConfigDirIsTheHooksParent(t *testing.T) {
 		t.Fatalf("configDir() = %q, want %q", got, want)
 	}
 }
+
+// The focused menu holds the keys, so the pane behind it must stop looking
+// typeable: its rows lose the agent's colours, and the dock sits on its own
+// band under a title that says typing is paused.
+func TestFocusedMenuGraysPaneAndTintsDock(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.enterFocusOn(t, "ask")
+	const agentInk = "\x1b[38;2;1;2;3m"
+	m.preview = agentInk + "❯ half a reply\x1b[0m\n"
+
+	paneRow := func() string {
+		for _, row := range m.contentLines(80, 20) {
+			if row.raw && strings.Contains(row.text, "half a reply") {
+				return row.text
+			}
+		}
+		t.Fatal("pane row not drawn")
+		return ""
+	}
+	if !strings.Contains(paneRow(), agentInk) {
+		t.Fatal("closed menu: the pane lost the agent's colours")
+	}
+
+	updated, _ := m.handleFocusKey(menuTrigger())
+	m = updated.(*Model)
+	if strings.Contains(paneRow(), agentInk) {
+		t.Fatal("open menu: the pane kept the agent's colours")
+	}
+	var dock []contentLine
+	for _, row := range m.contentLines(80, 20) {
+		if row.bg != "" {
+			dock = append(dock, row)
+		}
+	}
+	if len(dock) < 2 || dock[0].bg != quickDockHex() {
+		t.Fatalf("dock rows = %+v, want the tinted band", dock)
+	}
+	if !strings.Contains(ansi.Strip(dock[0].text), "typing paused") {
+		t.Fatalf("dock title = %q, want the paused notice", ansi.Strip(dock[0].text))
+	}
+}

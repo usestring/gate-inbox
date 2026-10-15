@@ -77,7 +77,7 @@ func TestFocusBackReopensTheSessionItLeft(t *testing.T) {
 		t.Fatal("the skip did not mute the session it left")
 	}
 
-	m = pressFocused(t, m, jumpKey(t, "alt+l"))
+	m = pressFocused(t, m, jumpKey(t, "alt+;"))
 
 	if got := focusedID(t, m); got != first {
 		t.Fatalf("back landed on %q, want the session it left", got)
@@ -105,7 +105,7 @@ func TestFocusedCopySessionIDWritesTheConversationID(t *testing.T) {
 		return nil
 	}
 
-	updated, cmd := m.handleFocusKey(jumpKey(t, "alt+y"))
+	updated, cmd := m.handleFocusKey(jumpKey(t, "alt+/"))
 	m = updated.(*Model)
 	if cmd != nil {
 		m.applyCmd(t, cmd)

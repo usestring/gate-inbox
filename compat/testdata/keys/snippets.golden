@@ -10,42 +10,42 @@ p  "progress" -> "summarise all current progress in bullet points, including eve
   {
     "key": "y",
     "label": "yes",
-    "chord": "alt+shift+y",
+    "chord": "alt+y",
     "text": "yes",
     "autoSubmit": true
   },
   {
     "key": "c",
     "label": "continue",
-    "chord": "alt+shift+c",
+    "chord": "alt+c",
     "text": "continue",
     "autoSubmit": true
   },
   {
     "key": "e",
     "label": "eli5",
-    "chord": "alt+shift+e",
+    "chord": "alt+e",
     "text": "I'm confused, explain like I'm 5",
     "autoSubmit": true
   },
   {
     "key": "w",
     "label": "wake up",
-    "chord": "alt+shift+w",
+    "chord": "alt+w",
     "text": "Auto wake-up: the previous turn died on a transient API error. Continue where you left off.",
     "autoSubmit": true
   },
   {
     "key": "n",
     "label": "needs?",
-    "chord": "alt+shift+n",
+    "chord": "alt+n",
     "text": "what do you need from me?",
     "autoSubmit": true
   },
   {
     "key": "p",
     "label": "progress",
-    "chord": "alt+shift+p",
+    "chord": "alt+p",
     "text": "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so",
     "autoSubmit": true
   }

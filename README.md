@@ -117,9 +117,9 @@ and `alt+,` hides the key hints.
 
 **Focus.** `enter` focuses a session in place: keys go to the agent while the list stays beside
 it, and `ctrl+q` comes back. `alt+\` hides the list so the pane gets the full width, and
-`alt+u` / `alt+end` scroll back through its output and return to the live bottom. `space`
+`alt+pgup` / `alt+end` scroll back through its output and return to the live bottom. `space`
 opens the hotkey menu, which sends one of your snippets to the selected session without focusing it; a
-lettered snippet also sends on `option+shift+<key>` in one press, no menu. `T` opens a shell tab under the
+lettered snippet also sends on `option+<key>` in one press, no menu. `T` opens a shell tab under the
 selected agent for builds and one-off commands.
 
 ![Focusing a session full-width, typing a three-line instruction, watching the agent answer, and scrolling back through the reply](docs/demo/focus.gif)
@@ -136,7 +136,7 @@ selected agent for builds and one-off commands.
 | `Y` | Show only one CLI's sessions, cycling through the harnesses on the board |
 | `/` | Fuzzy search; `esc` closes the field, deleting the text clears it |
 | `p` | Priority tier for a session or group; each press steps urgent → high → medium → low → none |
-| `M` / `ctrl+m` | Mute / unmute: keep a session out of triage until unmuted; the row reads `muted` |
+| `M` | Mute / unmute: keep a session out of triage until unmuted; the row reads `muted` |
 | `T` | Shell tab under the selected agent |
 | `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |
 | `:` / `ctrl+p` | Quick actions: type what you want, `enter` runs it, and each row shows its key |
@@ -215,6 +215,56 @@ instructions say which and why. A disabled extension that has a say in
 which sessions spawn fails closed: every spawn it would have been asked about is refused, with the
 reason, until its section is fixed.
 
+### Skill priority hook
+
+Claude Code can rank a session from an optional skill frontmatter field:
+
+```yaml
+gate-inbox-priority: high
+```
+
+The accepted tiers are `urgent`, `high`, `medium`, and `low`. The last invoked skill with a tier
+wins. The hook reads skills from `$CLAUDE_PROJECT_DIR/skills` first, then
+`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills`. It runs for the `Skill` tool and a prompt beginning
+with `/<skill>`. Skills without a valid tier leave priority unchanged.
+
+The reusable hook lives in [`hooks/skill-gate-inbox-priority.sh`](hooks/skill-gate-inbox-priority.sh).
+It needs Bash and `jq`, and a session launched by Gate Inbox (`GATE_INBOX_BIN`, or
+`AGENT_MANAGER_BIN` for older launchers). Without a board binary it exits successfully without
+changing anything. A launcher that owns the session's tier can set `GATE_INBOX_PRIORITY_LOCKED=1`
+to keep skills from replacing it.
+
+To use it in another project, link to your Gate Inbox checkout instead of copying the script.
+From that project's root, with Gate Inbox checked out in a sibling directory:
+
+```bash
+mkdir -p hooks
+ln -s ../../gate-inbox/hooks/skill-gate-inbox-priority.sh hooks/skill-gate-inbox-priority.sh
+```
+
+Keep that checkout available at the linked path. Merge these entries into the project's
+`.claude/settings.json` hooks, preserving any existing registrations:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Skill",
+        "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/hooks/skill-gate-inbox-priority.sh\""}]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/hooks/skill-gate-inbox-priority.sh\""}]
+      }
+    ]
+  }
+}
+```
+
+Run `bash hooks/skill-gate-inbox-priority.test.sh` from the Gate Inbox checkout to test the hook.
+
 ## Development
 
 ```bash
@@ -250,7 +300,7 @@ verifies the current pane without ending it. Adopted callers with verified pane 
 Shared-daemon callers whose pane cannot be verified refuse shutdown. Other adopted panes can be stopped by id from
 another session or the board.
 
-**Carry on in the plain CLI.** In a focused session, `alt+y` copies the agent's own conversation
+**Carry on in the plain CLI.** In a focused session, `alt+/` copies the agent's own conversation
 id. From that session's working directory:
 
 | CLI | Resume |

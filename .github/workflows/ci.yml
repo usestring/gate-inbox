@@ -50,6 +50,8 @@ jobs:
             echo "$unformatted" >&2
             exit 1
           fi
+      - name: Test skill priority hook
+        run: bash hooks/skill-gate-inbox-priority.test.sh
       - name: Build
         run: go build ./...
       - name: Vet

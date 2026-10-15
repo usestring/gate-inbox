@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/status"
 )
@@ -264,5 +265,71 @@ func TestMediumPriorityJumpsTheTriageRing(t *testing.T) {
 	row, ok := m.nextTriageInput(sessionID(t, m, "reviewme"), nil)
 	if !ok || m.rows[row].sess.ID != id {
 		t.Fatal("positive priority did not jump the default sessions")
+	}
+}
+
+func ctrlP() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl} }
+
+// ctrl+p reaches the tier from the list and from inside a focused session,
+// where it used to fall through to the agent as an up arrow. The palette it
+// used to open is on ctrl+k.
+func TestCtrlPCyclesPriorityOnBothScreens(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "rest": status.Idle})
+	askID := sessionID(t, m, "ask")
+	restID := sessionID(t, m, "rest")
+
+	m.selectSessionRow(t, "rest")
+	pressKey(t, m, ctrlP())
+	if m.mode == modeQuickActions {
+		t.Fatal("ctrl+p on the list opened quick actions")
+	}
+	if got, _ := m.store.Get(restID); got.Priority != priority.Urgent {
+		t.Fatalf("ctrl+p on the list stored %q, want urgent", got.Priority)
+	}
+
+	m.enterFocusOn(t, "ask")
+	if _, _ = m.handleFocusKey(ctrlP()); m.mode != modeFocus {
+		t.Fatalf("ctrl+p left focus for mode %v", m.mode)
+	}
+	if got, _ := m.store.Get(askID); got.Priority != priority.Urgent {
+		t.Fatalf("ctrl+p in focus stored %q, want urgent", got.Priority)
+	}
+
+	m.leaveFocus()
+	pressKey(t, m, tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
+	if m.mode != modeQuickActions {
+		t.Fatalf("ctrl+k left mode %v, want quick actions", m.mode)
+	}
+}
+
+// A tier change spells itself out on the row and in the status bar until
+// its timer runs out, and a stale timer from an earlier press cannot cut a
+// newer flash short.
+func TestAPriorityChangeFlashesTheRow(t *testing.T) {
+	m := buildModel(t)
+	seedTriageFleet(t, m)
+	m.selectSessionRow(t, "napping")
+	// The press's timer is left unrun, as the runtime would for the length
+	// of the flash.
+	updated, _ := m.handleKey(ctrlP())
+	*m = *updated.(*Model)
+
+	flashed := "napping " + priority.Urgent.Glyph() + " URGENT"
+	if rail := triageRail(m); !strings.Contains(rail, flashed) {
+		t.Fatalf("the changed row does not spell its tier:\n%s", rail)
+	}
+	if !m.errBar.worked() || m.errBar.text != "priority urgent: napping" {
+		t.Fatalf("status bar = %q, want the change named", m.errBar.text)
+	}
+
+	seq := m.priorityFlash.seq
+	m.endPriorityFlash(priorityFlashEndMsg{seq: seq - 1})
+	if !strings.Contains(triageRail(m), flashed) {
+		t.Fatal("a stale timer ended the newer flash")
+	}
+	m.endPriorityFlash(priorityFlashEndMsg{seq: seq})
+	if rail := triageRail(m); strings.Contains(rail, "URGENT") || !strings.Contains(rail, "napping "+priority.Urgent.Glyph()) {
+		t.Fatalf("after the flash the row should wear only its glyph:\n%s", rail)
 	}
 }

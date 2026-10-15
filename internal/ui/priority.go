@@ -105,7 +105,7 @@ func (m *Model) cyclePrioritySelected() (tea.Model, tea.Cmd) {
 // tier spelled out. A glyph that grows by one triangle is easy to miss on
 // a busy rail, and in a focused session the rail may not be on screen at
 // all, so the status bar says it too.
-const priorityFlashFor = 4 * time.Second
+var priorityFlashFor = 4 * time.Second
 
 type priorityFlash struct {
 	key string

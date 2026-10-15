@@ -101,6 +101,7 @@ func (m *Model) handOverOnEnter(sess store.Session, keyAt time.Time) tea.Cmd {
 	if !ok {
 		return nil
 	}
+	start := time.Now()
 	pending.handOver = false
 	pending.early = true
 	if m.heldAckID == sess.ID {
@@ -113,8 +114,11 @@ func (m *Model) handOverOnEnter(sess store.Session, keyAt time.Time) tea.Cmd {
 		to = next.ID
 	}
 	m.handoverTrace = handoverTrace{to: to, keyAt: keyAt}
+	// took runs from the key; switch is the part spent leaving and entering,
+	// so the rest is the key's own send and answer check.
 	logging.Info("triage handover", "from", sess.ID, "to", to,
-		"took", time.Since(keyAt).Round(time.Microsecond).String())
+		"took", time.Since(keyAt).Round(time.Microsecond).String(),
+		"switch", time.Since(start).Round(time.Microsecond).String())
 	return cmd
 }
 

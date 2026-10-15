@@ -212,6 +212,43 @@ func TestEnterHandsOverAtOnce(t *testing.T) {
 	}
 }
 
+// The session an Enter hands over is captured at once rather than after the
+// settle a cursor walking the rail waits out, and the pane left behind is not
+// chased: the next pane's first frame is the one the operator reads.
+func TestEnterCapturesTheNextPaneAtOnce(t *testing.T) {
+	m := drainOnDialog(t, true)
+	updated, cmd := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updated.(*Model)
+	nextID := focusedID(t, m)
+	msgs := make(chan tea.Msg, 64)
+	go func() { msgs <- cmd() }()
+	deadline := time.After(previewSettle * 4)
+	for {
+		select {
+		case msg := <-msgs:
+			switch msg := msg.(type) {
+			case tea.BatchMsg:
+				for _, sub := range msg {
+					if sub != nil {
+						go func() { msgs <- sub() }()
+					}
+				}
+			case previewSettleMsg:
+				t.Fatal("the handover waited out the cursor's settle before capturing")
+			case previewMsg:
+				if msg.chase {
+					t.Fatal("the handover chased the pane it left")
+				}
+				if msg.sessID == nextID {
+					return
+				}
+			}
+		case <-deadline:
+			t.Fatal("no capture of the next pane arrived")
+		}
+	}
+}
+
 // An Enter that answered nothing hands its session back to the queue as soon
 // as the check gives up on it, rather than a poll later.
 func TestAnEnterThatLandsNothingReturnsToTheQueue(t *testing.T) {

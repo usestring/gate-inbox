@@ -1750,6 +1750,25 @@ func (m *Model) previewCmd(sess store.Session, gen uint64, withProc bool) tea.Cm
 	}
 }
 
+// handoverPreviewCmd is the first look at a session a drain has just
+// handed over. A handover is one jump, not a held key walking the rail, so
+// it captures at once rather than after previewSettle, and focusSelected has
+// already resized the pane and started the conversation read the settle would
+// have issued. It skips previewCmd's liveness check, which focusSelected has
+// just made, and the process walk, which the focused pane's own cadence takes:
+// both would sit between the Enter and the frame the operator reads.
+func (m *Model) handoverPreviewCmd(sess store.Session, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		msg := previewMsg{sessID: sess.ID, gen: gen}
+		if pane, err := m.tmux.CapturePane(sess.ID); err == nil {
+			msg.preview = pane
+		}
+		msg.facts, msg.factsOK = readFacts(m.tmux, sess.ID), true
+		msg.at = time.Now()
+		return msg
+	}
+}
+
 // refreshCmd runs one synchronous polling pass; the background poller
 // covers normal operation, this exists for tests and explicit refreshes.
 func (m *Model) refreshCmd() tea.Cmd {

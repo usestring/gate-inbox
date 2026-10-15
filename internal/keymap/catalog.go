@@ -169,7 +169,7 @@ var Catalog = []Binding{
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
 	{ContextList, UndoArchive, []string{"U", "shift+u"}, "bring back what the last kill filed away", false},
 	{ContextList, Dismiss, []string{"."}, "skip", false},
-	{ContextList, Priority, []string{"p"}, "cycle priority: urgent → high → medium → low → none", false},
+	{ContextList, Priority, []string{"ctrl+p", "p"}, "cycle priority: urgent → high → medium → low → none", false},
 	{ContextList, Mute, []string{"M", "shift+m"}, "mute / unmute: keep it out of triage until unmuted", false},
 	{ContextList, QuickInput, []string{" ", "space", "ctrl+s"}, "hotkey menu", false},
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
@@ -199,7 +199,7 @@ var Catalog = []Binding{
 	{ContextList, ToggleChrome, []string{}, "hide / show the key hints along the foot", false},
 	{ContextList, ToggleRail, []string{}, "hide / show the list beside the pane", false},
 	{ContextList, LegendPeek, []string{"?"}, "peek at every available key", false},
-	{ContextList, QuickActions, []string{":", "ctrl+p"}, "quick actions: find any action by name, run it, see its key", false},
+	{ContextList, QuickActions, []string{":", "ctrl+k"}, "quick actions: find any action by name, run it, see its key", false},
 	{ContextList, Help, []string{"h", "H", "shift+h", "ctrl+h"}, "this key map", true},
 	{ContextList, Quit, []string{"q"}, "quit (sessions keep running)", true},
 
@@ -224,6 +224,10 @@ var Catalog = []Binding{
 	{ContextFocus, ToggleChrome, []string{"alt+,"}, "hide / show the key hints along the foot", false},
 	{ContextFocus, ToggleRail, []string{`alt+\`}, "hide / show the list beside the pane", false},
 	{ContextFocus, Archive, []string{"ctrl+x"}, "kill it, asking first", false},
+	// The list's ctrl+p, so the tier moves from wherever the operator is. It
+	// takes the agent's ctrl+p, which every agent CLI also answers on the up
+	// arrow.
+	{ContextFocus, Priority, []string{"ctrl+p"}, "cycle priority: urgent → high → medium → low → none", false},
 	// A chord, like every other key this screen claims: ctrl+h would otherwise
 	// reach the agent as readline's backward-delete, and backspace still sends
 	// that edit under its own name.

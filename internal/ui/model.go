@@ -270,12 +270,15 @@ type Model struct {
 	groupPaths     map[string]string
 	archivedGroups map[string]bool
 	priorityGroups map[string]priority.Tier
-	snap           sysstat.Snapshot
-	proc           sysstat.ProcStat
-	procFor        string
-	preview        string
-	conversation   *conversationView
-	agents         agentStats
+	// priorityFlash is the row that just changed tier, spelled out on the
+	// rail until its timer runs out. See priority.go.
+	priorityFlash priorityFlash
+	snap          sysstat.Snapshot
+	proc          sysstat.ProcStat
+	procFor       string
+	preview       string
+	conversation  *conversationView
+	agents        agentStats
 	// queuedMessages is replaced whole on every refresh rather than merged,
 	// so a delivered message's badge clears itself.
 	queuedMessages map[string]int
@@ -2567,6 +2570,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.errBar.text = msg.err.Error()
+		return m, nil
+
+	case priorityFlashEndMsg:
+		m.endPriorityFlash(msg)
 		return m, nil
 
 	case pasteImageMsg:

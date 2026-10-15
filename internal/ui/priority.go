@@ -1,6 +1,10 @@
 package ui
 
 import (
+	"image/color"
+	"strings"
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/usestring/gate-inbox/internal/priority"
@@ -68,7 +72,8 @@ func (m *Model) cyclePrioritySelected() (tea.Model, tea.Cmd) {
 		}
 		m.rebuildRows()
 		m.requestRefresh()
-		return m, nil
+		m.reportDone(priorityReport(next, baseName(entry.group)))
+		return m, m.flashPriority(groupFlashKey(entry.group))
 	}
 	if !entry.isSession() {
 		return m, nil
@@ -92,7 +97,64 @@ func (m *Model) cyclePrioritySelected() (tea.Model, tea.Cmd) {
 	}
 	m.rebuildRows()
 	m.requestRefresh()
-	return m, nil
+	m.reportDone(priorityReport(next, m.displayName(sess)))
+	return m, m.flashPriority(sess.ID)
+}
+
+// priorityFlashFor is how long a row that just changed tier wears its
+// tier spelled out. A glyph that grows by one triangle is easy to miss on
+// a busy rail, and in a focused session the rail may not be on screen at
+// all, so the status bar says it too.
+const priorityFlashFor = 4 * time.Second
+
+type priorityFlash struct {
+	key string
+	seq uint64
+}
+
+type priorityFlashEndMsg struct{ seq uint64 }
+
+func groupFlashKey(group string) string { return "group:" + group }
+
+func (m *Model) flashPriority(key string) tea.Cmd {
+	m.priorityFlash = priorityFlash{key: key, seq: m.priorityFlash.seq + 1}
+	seq := m.priorityFlash.seq
+	return tea.Tick(priorityFlashFor, func(time.Time) tea.Msg { return priorityFlashEndMsg{seq: seq} })
+}
+
+// endPriorityFlash drops the flash only if no later press has replaced it.
+func (m *Model) endPriorityFlash(msg priorityFlashEndMsg) {
+	if msg.seq == m.priorityFlash.seq {
+		m.priorityFlash.key = ""
+	}
+}
+
+func priorityReport(tier priority.Tier, name string) string {
+	if tier == priority.Unset {
+		return "priority cleared: " + name
+	}
+	return "priority " + tier.Label() + ": " + name
+}
+
+// priorityFlashBadge is the badge a row wears while it flashes: the glyph
+// and the tier's name on a solid ground, or "no priority" when the press
+// cleared it, so the change reads even where the badge vanished.
+func priorityFlashBadge(tier priority.Tier) string {
+	ground := priorityColor(tier)
+	text := tier.Glyph() + " " + strings.ToUpper(tier.Label())
+	if tier == priority.Unset {
+		ground = lipgloss.Color("#6b7280")
+		text = "NO PRIORITY"
+	}
+	return lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#ffffff")).Background(ground).Render(text + " ")
+}
+
+// rowPriorityBadge is the badge for a row given its flash key and tier.
+func (m *Model) rowPriorityBadge(key string, tier priority.Tier) string {
+	if key != "" && m.priorityFlash.key == key {
+		return priorityFlashBadge(tier)
+	}
+	return priorityBadge(tier)
 }
 
 func priorityBadge(tier priority.Tier) string {
@@ -100,18 +162,22 @@ func priorityBadge(tier priority.Tier) string {
 	if glyph == "" {
 		return ""
 	}
-	color := lipgloss.Color("#22c55e")
+	return lipgloss.NewStyle().Foreground(priorityColor(tier)).Render(glyph)
+}
+
+// priorityColor is green for a raised tier and red for one below the default.
+func priorityColor(tier priority.Tier) color.Color {
 	if tier.Rank() > priority.Unset.Rank() {
-		color = lipgloss.Color("#ef4444")
+		return lipgloss.Color("#ef4444")
 	}
-	return lipgloss.NewStyle().Foreground(color).Render(glyph)
+	return lipgloss.Color("#22c55e")
 }
 
 // priorityMarker is the badge a session row wears, or nothing. A session
 // inside a tiered group wears the tier it inherits: the queue treats them
 // alike, and the group row above says where it came from.
 func (m *Model) priorityMarker(sess store.Session) string {
-	badge := priorityBadge(m.tierOf(sess))
+	badge := m.rowPriorityBadge(sess.ID, m.tierOf(sess))
 	if badge == "" {
 		return ""
 	}

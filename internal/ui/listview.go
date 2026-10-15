@@ -1328,7 +1328,7 @@ func (m *Model) renderGroupEntry(entry treeRow, selected bool, width int, pad, g
 		}
 	}
 	head := pad + guides + subtleText(marker) + " " + m.groupNumberLabel(entry.group) + nameStyle.Render(name)
-	if badge := priorityBadge(m.priorityGroups[entry.group]); badge != "" {
+	if badge := m.rowPriorityBadge(groupFlashKey(entry.group), m.priorityGroups[entry.group]); badge != "" {
 		head += " " + badge
 	}
 

@@ -4,7 +4,9 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
+	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -120,6 +122,34 @@ func (m *Model) handOverOnEnter(sess store.Session, keyAt time.Time) tea.Cmd {
 		"took", time.Since(keyAt).Round(time.Microsecond).String(),
 		"switch", time.Since(start).Round(time.Microsecond).String())
 	return cmd
+}
+
+// keyEndsDialog reports whether a key answering the focused pane ends what
+// the session asked, read off the pane before the key reaches it. A dialog
+// part way through is not done with: Enter or a digit on a multi-select ticks
+// a box, and on one question of several it answers that one and steps to the
+// next. Handing over there left the rest of the dialog unanswered behind the
+// operator. Only the dialog's last step ends it: Claude Code's Submit tab,
+// which it also draws for a single multi-select question; opencode's review,
+// or its one single-select question; and Codex's "submit all" question. A tab
+// row whose highlight cannot be read counts as not on Submit, so the operator
+// stays rather than leaving a dialog half answered. A pane with none of these
+// dialogs is a composer or a single question, and the key ends it.
+func (m *Model) keyEndsDialog() bool {
+	if stepper, ok := dialog.ParseStepper(m.preview); ok {
+		return stepper.OnSubmit()
+	}
+	plain := ansi.Strip(m.preview)
+	if ask, ok := dialog.ParseOpencodeAsk(plain); ok {
+		return ask.OnSubmit || (ask.Total == 0 && !ask.Multi && !ask.Typing)
+	}
+	if ask, ok := dialog.ParseCodexAsk(plain); ok {
+		return ask.Total <= 1 || ask.Last
+	}
+	if held, ok := dialog.Inspect(plain); ok && held.MultiSelect {
+		return held.OnSubmit
+	}
+	return true
 }
 
 // handoverTrace times the next session's first fresh frame after an Enter

@@ -39,12 +39,9 @@ func blockHex() string {
 	return themeTone("block", backdropBase(), current.Surface, 0.35)
 }
 
-// quickDockHex is the band under the hotkey menu docked in a focused
-// session: tinted toward the accent so the dock cannot be read as more of
-// the agent's own screen, whose prompt the menu is holding keys back from.
-func quickDockHex() string {
-	return themeTone("quickdock", backdropBase(), current.Accent, 0.18)
-}
+// quickBannerHex is the red band heading the hotkey menu docked in a focused
+// session, which holds the keys back from the agent's prompt above it.
+func quickBannerHex() string { return current.Errored }
 
 // selectedHex is the band under a row being renamed.
 func selectedHex() string { return current.Surface }

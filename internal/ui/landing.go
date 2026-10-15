@@ -421,6 +421,7 @@ func (m *Model) applyLandingCheck(msg landingCheckMsg) tea.Cmd {
 			// The drain left on the strength of the key; with no answer seen,
 			// the session goes back in the queue now rather than a poll later.
 			m.unmute(msg.id)
+			return m.triagePickupCmd()
 		}
 		if pending.handOver {
 			if m.unseenAnswers == nil {

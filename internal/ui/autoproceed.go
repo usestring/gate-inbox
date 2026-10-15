@@ -103,6 +103,9 @@ func (m *Model) handOverOnEnter(sess store.Session, keyAt time.Time) tea.Cmd {
 	}
 	pending.handOver = false
 	pending.early = true
+	if m.heldAckID == sess.ID {
+		m.heldAckID = ""
+	}
 	m.muteUntilSeen(sess, keyAt)
 	cmd := m.moveOnFrom(sess)
 	to := ""

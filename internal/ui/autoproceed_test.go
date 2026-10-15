@@ -465,3 +465,61 @@ func TestSubmissionHonorsNextSessionOutsideTriage(t *testing.T) {
 		}
 	}
 }
+
+func TestEarlyHandoverPreservesTheNextFinishedAlert(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{"done": status.Finished, "next": status.Waiting})
+	m.autoProceed, m.triage = true, true
+	m.rebuildRows()
+	m.enterFocusOn(t, "done")
+	id := focusedID(t, m)
+	if m.heldAckID != id {
+		t.Fatal("the finished session did not hold its acknowledgement")
+	}
+	updated, cmd := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updated.(*Model)
+	if focusedName(t, m) != "next" {
+		t.Fatal("Enter did not hand over immediately")
+	}
+	for _, state := range []string{status.Working, status.Finished} {
+		if err := m.store.UpdateStatus(id, state); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runStoreCmd(t, cmd)
+	if got := storedSession(t, m, "done"); got.Status != status.Finished || got.Acked {
+		t.Fatalf("the next turn lost its alert: status %q acked %v", got.Status, got.Acked)
+	}
+}
+
+func TestFailedEarlyHandoverResumesTheDrainedQueue(t *testing.T) {
+	for _, refused := range []bool{true, false} {
+		t.Run(map[bool]string{true: "refused", false: "timed out"}[refused], func(t *testing.T) {
+			m := buildModel(t)
+			liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+			m.autoProceed, m.triage = true, true
+			m.rebuildRows()
+			m.enterFocusOn(t, "ask")
+			id := focusedID(t, m)
+			stageDialog(m, id)
+			m = pressEnter(m)
+			if m.mode != modeList || !m.triageResume {
+				t.Fatal("the lone session did not leave the drain open on the list")
+			}
+			pending := onlyLanding(t, m)
+			verdict := landingPending
+			if refused {
+				verdict = landingRefused
+			} else {
+				pending.deadline = time.Now().Add(-time.Millisecond)
+			}
+			cmd := m.applyLandingCheck(landingCheckMsg{id: id, gen: pending.gen, verdict: verdict})
+			if cmd == nil || m.mode != modeFocus || focusedID(t, m) != id {
+				t.Fatal("the failed answer did not immediately reopen the lone session")
+			}
+			if m.triageResume || len(m.landings) != 0 || m.latestSubmission.sessionID != "" {
+				t.Fatal("the failed answer left stale drain or submission state")
+			}
+		})
+	}
+}

@@ -91,6 +91,7 @@ func helpSections() []helpSection {
 			bound(focus, keymap.Dismiss, "skip"),
 			bound(focus, keymap.Rescind, "undo the latest submission while its turn is active"),
 			bound(focus, keymap.Archive, "kill it, asking first"),
+			bound(focus, keymap.Priority, "cycle priority: urgent → high → medium → low → none"),
 			bound(focus, keymap.Help, "this key map, in place: only this chord reaches it here"),
 		}},
 		{title: "advanced: the list", rows: []helpRow{

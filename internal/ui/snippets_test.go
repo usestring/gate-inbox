@@ -210,17 +210,17 @@ func TestASymbolChordFiresEitherWayShiftArrives(t *testing.T) {
 func TestManagerBindingOutranksASnippetChord(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{
-		{Key: "p", Chord: "ctrl+p", Text: "list snippet"},
+		{Key: "k", Chord: "ctrl+k", Text: "list snippet"},
 		{Key: "c", Chord: "alt+,", Text: "focus snippet"},
 	})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
 
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	m = updated.(*Model)
 	if m.mode != modeQuickActions {
-		t.Fatalf("ctrl+p left the board in %v, want quick actions over the snippet", m.mode)
+		t.Fatalf("ctrl+k left the board in %v, want quick actions over the snippet", m.mode)
 	}
 	pressKey(t, m, key("esc"))
 

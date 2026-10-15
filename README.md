@@ -135,11 +135,11 @@ selected agent for builds and one-off commands.
 | `w` | Show only what needs attention |
 | `Y` | Show only one CLI's sessions, cycling through the harnesses on the board |
 | `/` | Fuzzy search; `esc` closes the field, deleting the text clears it |
-| `p` | Priority tier for a session or group; each press steps urgent → high → medium → low → none |
+| `ctrl+p` / `p` | Priority tier for a session or group; each press steps urgent → high → medium → low → none. `ctrl+p` also works from a focused session, and the row flashes its new tier |
 | `M` | Mute / unmute: keep a session out of triage until unmuted; the row reads `muted` |
 | `T` | Shell tab under the selected agent |
 | `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |
-| `:` / `ctrl+p` | Quick actions: type what you want, `enter` runs it, and each row shows its key |
+| `:` / `ctrl+k` | Quick actions: type what you want, `enter` runs it, and each row shows its key |
 | `h` / `s` | Key map for the current screen / settings |
 
 Priority defaults to 0 with no marker. Positive levels use green `▲`, `▲▲`, and `▲▲▲`; the negative level (-1) uses a red `▼`. Set a level with `gate-inbox priority <level>` using a number from -1 to 3 or its tier name.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
@@ -709,6 +710,7 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// below moves: once the key has landed the dialog is gone, and the
 	// scrolled-back pane the next lines pull back to its live bottom was
 	// showing history rather than where the key lands.
+	keyAt := time.Now()
 	dialog := m.selectionDialogUp(sess.ID, sess.Tool)
 	// A key that might answer the session arms a landing; whether it did is
 	// for the session to show. Enter submits a composer line or picks a
@@ -791,6 +793,16 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if quiet {
 		m.frameUnchanged()
+	}
+	// Enter is the operator done with this session, so the drain moves on
+	// now rather than after the answer is seen landing. The check armed above
+	// still runs and returns the session to the queue if the answer never
+	// lands; see handOverOnEnter. A key that pulls a scrolled-back pane to its
+	// live bottom was typed at history, not at the prompt, and stays.
+	if landing != nil && resume == nil && key.Code == tea.KeyEnter && m.autoProceeds() {
+		if next := m.handOverOnEnter(sess, keyAt); next != nil {
+			return m, tea.Batch(resume, echo, landing, next)
+		}
 	}
 	return m, tea.Batch(resume, echo, landing)
 }

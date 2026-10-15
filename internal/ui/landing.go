@@ -13,6 +13,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -37,6 +38,15 @@ import (
 // which is the cheap mistake: they press § themselves. Evidence that the
 // answer was turned down, or that a fresh dialog came up, keeps them there
 // too.
+//
+// Plain Enter is the exception. Waiting for the evidence put the agent's own
+// latency between every answer and the next session, and the drain is walked
+// one Enter after another, so Enter moves the drain on with the key. The
+// check still runs: a seen answer is recorded, and one refused or never seen
+// unmutes its session so the queue offers it again. The cost is the mistake
+// above, an Enter that opens a picker or steps a question along, and the
+// queue bringing that session back is how it gets caught. See
+// handOverOnEnter.
 
 // landingWindow is how long an answer has to show up. The hooks land within
 // a few hundred milliseconds of the key; the rest is room for a transcript
@@ -74,7 +84,10 @@ type pendingLanding struct {
 	// when the key is pressed and cleared by anything that says the operator
 	// is not done: another key into the pane, or leaving.
 	handOver bool
-	probe    *landingProbe
+	// early is set when the drain already moved on at the key itself; see
+	// handOverOnEnter.
+	early bool
+	probe *landingProbe
 }
 
 // landingCheckMsg is one look's verdict.
@@ -395,9 +408,21 @@ func (m *Model) applyLandingCheck(msg landingCheckMsg) tea.Cmd {
 	case msg.verdict == landingSeen:
 		m.dropLanding(msg.id)
 		m.noteSettling(msg.id, time.Now())
+		m.logEarlyLanding(pending, "seen")
 		return m.answerLanded(*pending)
 	case msg.verdict == landingRefused, !time.Now().Before(pending.deadline):
 		m.dropLanding(msg.id)
+		if pending.early {
+			outcome := "timeout"
+			if msg.verdict == landingRefused {
+				outcome = "refused"
+			}
+			m.logEarlyLanding(pending, outcome)
+			// The drain left on the strength of the key; with no answer seen,
+			// the session goes back in the queue now rather than a poll later.
+			m.unmute(msg.id)
+			return m.triagePickupCmd()
+		}
 		if pending.handOver {
 			if m.unseenAnswers == nil {
 				m.unseenAnswers = map[string]bool{}
@@ -407,6 +432,17 @@ func (m *Model) applyLandingCheck(msg landingCheckMsg) tea.Cmd {
 		return nil
 	}
 	return landingCheck(msg.id, pending)
+}
+
+// logEarlyLanding records how an answer the drain already moved on from
+// turned out, and how long after the key the check could tell.
+func (m *Model) logEarlyLanding(pending *pendingLanding, outcome string) {
+	if !pending.early {
+		return
+	}
+	logging.Info("triage answer", "id", pending.sess.ID, "outcome", outcome,
+		"dialog", pending.probe.dialog,
+		"took", time.Since(pending.deadline.Add(-landingWindow)).Round(time.Millisecond).String())
 }
 
 // noteSettling marks an answer seen landing on id at at. The row keeps the

@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -18,9 +19,9 @@ import (
 // operator who opened one has already said they mean to walk it, so the
 // handover is the promise and stopping on each session is the part worth
 // asking for. It was off for as long as it was on the argument that reading
-// "done with this one" out of a keystroke is a guess. It no longer is: the
-// handover waits for the answer to be seen landing in the session, and a key
-// that lands nothing leaves the operator where they are. See landing.go. A
+// "done with this one" out of a keystroke is a guess. Other answering keys
+// wait for the answer to be seen landing; Enter hands over at once, and a
+// session whose answer never lands rejoins the queue. See landing.go. A
 // queue that silently does not advance costs more than a missed handover: it
 // reads as the mode being broken rather than as a setting being off, which is
 // exactly how it was reported.
@@ -88,6 +89,51 @@ func (m *Model) handOverFocused(sess store.Session) tea.Cmd {
 func (m *Model) handOverLanded(sess store.Session, at time.Time) tea.Cmd {
 	m.muteUntilSeen(sess, at)
 	return m.moveOnFrom(sess)
+}
+
+// handOverOnEnter is auto-proceed's handover on the Enter itself, keyAt being
+// when the key arrived. The answer check armed for the key keeps running but
+// no longer moves the drain; if it never sees the answer land, the session
+// is unmuted so the queue offers it again. A nil command means nothing
+// was handed over and the operator stays where they are.
+func (m *Model) handOverOnEnter(sess store.Session, keyAt time.Time) tea.Cmd {
+	pending, ok := m.landings[sess.ID]
+	if !ok {
+		return nil
+	}
+	pending.handOver = false
+	pending.early = true
+	if m.heldAckID == sess.ID {
+		m.heldAckID = ""
+	}
+	m.muteUntilSeen(sess, keyAt)
+	cmd := m.moveOnFrom(sess)
+	to := ""
+	if next, ok := m.selected(); ok && m.mode == modeFocus && next.ID != sess.ID {
+		to = next.ID
+	}
+	m.handoverTrace = handoverTrace{to: to, keyAt: keyAt}
+	logging.Info("triage handover", "from", sess.ID, "to", to,
+		"took", time.Since(keyAt).Round(time.Microsecond).String())
+	return cmd
+}
+
+// handoverTrace times the next session's first fresh frame after an Enter
+// handover, the moment the operator can read it.
+type handoverTrace struct {
+	to    string
+	keyAt time.Time
+}
+
+// noteHandoverFrame logs the first fresh frame of the session an Enter
+// handed over to.
+func (m *Model) noteHandoverFrame(sessID string) {
+	if m.handoverTrace.to == "" || m.handoverTrace.to != sessID {
+		return
+	}
+	logging.Info("triage handover frame", "to", sessID,
+		"took", time.Since(m.handoverTrace.keyAt).Round(time.Microsecond).String())
+	m.handoverTrace = handoverTrace{}
 }
 
 // moveOnFrom leaves sess and enters the next session that needs a person.

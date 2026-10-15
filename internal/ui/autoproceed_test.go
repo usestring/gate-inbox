@@ -173,13 +173,85 @@ func pressEnter(m *Model) *Model {
 	return updated.(*Model)
 }
 
+// pressDialogKey answers the staged dialog with its option key, an answer
+// the drain still waits to see land before moving on. Enter moves on with the
+// key itself; see TestEnterHandsOverAtOnce.
+func pressDialogKey(m *Model) *Model {
+	updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: '1', Text: "1"})
+	return updated.(*Model)
+}
+
+// Enter is the operator done with the session, so the drain moves on with the
+// key rather than once the answer is seen landing. The check still runs, and
+// records the answer when it lands without moving the drain a second time.
+func TestEnterHandsOverAtOnce(t *testing.T) {
+	m := drainOnDialog(t, true)
+	askID := focusedID(t, m)
+	m = pressEnter(m)
+	if got := focusedName(t, m); got != "next" {
+		t.Fatalf("Enter focused %q want %q", got, "next")
+	}
+	nextID := focusedID(t, m)
+	if m.handoverTrace.to != nextID {
+		t.Fatal("the handover is not timing the next session's first frame")
+	}
+	m.noteHandoverFrame(nextID)
+	if m.handoverTrace.to != "" {
+		t.Fatal("the handover frame was logged but its trace stayed armed")
+	}
+	recordDialogResult(t, m, askID, "answered")
+	lookForLanding(t, m)
+	if got := focusedName(t, m); got != "next" {
+		t.Fatalf("the answer landing moved the drain again, to %q", got)
+	}
+	if len(m.landings) != 0 {
+		t.Fatal("the landing stayed pending after it was seen")
+	}
+	if m.latestSubmission.sessionID != askID {
+		t.Fatal("a landed answer was not recorded as a submission")
+	}
+}
+
+// An Enter that answered nothing hands its session back to the queue as soon
+// as the check gives up on it, rather than a poll later.
+func TestAnEnterThatLandsNothingReturnsToTheQueue(t *testing.T) {
+	for _, refused := range []bool{true, false} {
+		t.Run(map[bool]string{true: "refused", false: "timed out"}[refused], func(t *testing.T) {
+			m := drainOnDialog(t, true)
+			ask, _ := m.selected()
+			m = pressEnter(m)
+			if !m.isMuted(ask) {
+				t.Fatal("the session handed over on Enter was not muted")
+			}
+			if refused {
+				logHookEvent(t, m, ask.ID, "waiting Notification")
+			} else {
+				onlyLanding(t, m).deadline = time.Now().Add(-time.Millisecond)
+			}
+			lookForLanding(t, m)
+			if len(m.landings) != 0 {
+				t.Fatal("the landing outlived its verdict")
+			}
+			if m.isMuted(ask) {
+				t.Fatal("an answer that never landed kept its session out of the queue")
+			}
+			if m.latestSubmission.sessionID != "" {
+				t.Fatal("an answer that never landed was recorded as a submission")
+			}
+			if got := focusedName(t, m); got != "next" {
+				t.Fatalf("giving up on the answer moved focus to %q", got)
+			}
+		})
+	}
+}
+
 // The point of the setting: answering the dialog is the whole gesture, and
 // the next session that needs somebody comes up by itself -- once the agent
 // is seen to have taken the answer.
 func TestAutoProceedHandsOverOnceTheAnswerLands(t *testing.T) {
 	m := drainOnDialog(t, true)
 	askID := focusedID(t, m)
-	m = pressEnter(m)
+	m = pressDialogKey(m)
 	if got := focusedName(t, m); got != "ask" {
 		t.Fatalf("the key alone handed the session over to %q", got)
 	}
@@ -203,7 +275,7 @@ func TestAutoProceedHandsOverOnceTheAnswerLands(t *testing.T) {
 // and the operator stays where they are.
 func TestAutoProceedStaysWhenNothingLands(t *testing.T) {
 	m := drainOnDialog(t, true)
-	m = pressEnter(m)
+	m = pressDialogKey(m)
 	lookForLanding(t, m)
 	if len(m.landings) == 0 {
 		t.Fatal("a look with nothing to see gave up before the window closed")
@@ -228,7 +300,7 @@ func TestAutoProceedStaysOnARefusalOrANewDialog(t *testing.T) {
 		t.Run(line, func(t *testing.T) {
 			m := drainOnDialog(t, true)
 			askID := focusedID(t, m)
-			m = pressEnter(m)
+			m = pressDialogKey(m)
 			logHookEvent(t, m, askID, line)
 			logHookEvent(t, m, askID, "working PostToolUse")
 			lookForLanding(t, m)
@@ -264,7 +336,7 @@ func TestWithoutAutoProceedAnsweringStaysPut(t *testing.T) {
 func TestAutoProceedStaysWhenTheOperatorKeepsTyping(t *testing.T) {
 	m := drainOnDialog(t, true)
 	askID := focusedID(t, m)
-	m = pressEnter(m)
+	m = pressDialogKey(m)
 	updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyDown})
 	m = updated.(*Model)
 	recordDialogResult(t, m, askID, "answered")
@@ -371,8 +443,8 @@ func TestSubmissionHonorsNextSessionOutsideTriage(t *testing.T) {
 				}
 
 				m = pressEnter(m)
-				if focusedName(t, m) != "answered" {
-					t.Fatal("Enter advanced before the answer landed")
+				if got := focusedName(t, m); got != tc.want {
+					t.Fatalf("Enter focused %q, want %q", got, tc.want)
 				}
 				if state == status.Waiting {
 					recordDialogResult(t, m, id, "answered")
@@ -391,5 +463,63 @@ func TestSubmissionHonorsNextSessionOutsideTriage(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestEarlyHandoverPreservesTheNextFinishedAlert(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{"done": status.Finished, "next": status.Waiting})
+	m.autoProceed, m.triage = true, true
+	m.rebuildRows()
+	m.enterFocusOn(t, "done")
+	id := focusedID(t, m)
+	if m.heldAckID != id {
+		t.Fatal("the finished session did not hold its acknowledgement")
+	}
+	updated, cmd := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updated.(*Model)
+	if focusedName(t, m) != "next" {
+		t.Fatal("Enter did not hand over immediately")
+	}
+	for _, state := range []string{status.Working, status.Finished} {
+		if err := m.store.UpdateStatus(id, state); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runStoreCmd(t, cmd)
+	if got := storedSession(t, m, "done"); got.Status != status.Finished || got.Acked {
+		t.Fatalf("the next turn lost its alert: status %q acked %v", got.Status, got.Acked)
+	}
+}
+
+func TestFailedEarlyHandoverResumesTheDrainedQueue(t *testing.T) {
+	for _, refused := range []bool{true, false} {
+		t.Run(map[bool]string{true: "refused", false: "timed out"}[refused], func(t *testing.T) {
+			m := buildModel(t)
+			liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+			m.autoProceed, m.triage = true, true
+			m.rebuildRows()
+			m.enterFocusOn(t, "ask")
+			id := focusedID(t, m)
+			stageDialog(m, id)
+			m = pressEnter(m)
+			if m.mode != modeList || !m.triageResume {
+				t.Fatal("the lone session did not leave the drain open on the list")
+			}
+			pending := onlyLanding(t, m)
+			verdict := landingPending
+			if refused {
+				verdict = landingRefused
+			} else {
+				pending.deadline = time.Now().Add(-time.Millisecond)
+			}
+			cmd := m.applyLandingCheck(landingCheckMsg{id: id, gen: pending.gen, verdict: verdict})
+			if cmd == nil || m.mode != modeFocus || focusedID(t, m) != id {
+				t.Fatal("the failed answer did not immediately reopen the lone session")
+			}
+			if m.triageResume || len(m.landings) != 0 || m.latestSubmission.sessionID != "" {
+				t.Fatal("the failed answer left stale drain or submission state")
+			}
+		})
 	}
 }

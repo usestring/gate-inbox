@@ -632,6 +632,9 @@ type Model struct {
 	// time. The poll's working transition is the evidence left to see.
 	unseenAnswers  map[string]bool
 	landingLocator *search.Locator
+	// handoverTrace is the Enter handover whose next frame is still to be
+	// timed; see handOverOnEnter.
+	handoverTrace handoverTrace
 	// settling are the sessions whose answer has been seen landing, by the
 	// instant it was, until a poll listed after that has been applied: the
 	// row still shows the state the answer moved it on from. See triage.go.
@@ -2522,6 +2525,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !msg.at.IsZero() && msg.at.Before(m.previewAt) {
 			return m, nil
 		}
+		m.noteHandoverFrame(msg.sessID)
 		if !msg.at.IsZero() {
 			m.previewAt = msg.at
 		}

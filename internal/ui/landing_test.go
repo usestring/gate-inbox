@@ -139,7 +139,7 @@ func appendLandingRecord(t *testing.T, path, record string) {
 func TestBackgroundActivityCannotHandOverAnUnansweredDialog(t *testing.T) {
 	m := drainOnDialog(t, true)
 	id := focusedID(t, m)
-	m = pressEnter(m)
+	m = pressDialogKey(m)
 	logHookEvent(t, m, id, "working PostToolUse")
 	recordDialogResult(t, m, id, "background")
 	lookForLanding(t, m)
@@ -316,10 +316,10 @@ func TestThePaneLandsOnlyWhatNoOtherSourceRefused(t *testing.T) {
 // A look for an older key must not decide the answer that replaced it.
 func TestAStaleLookDecidesNothing(t *testing.T) {
 	m := drainOnDialog(t, true)
-	m = pressEnter(m)
+	m = pressDialogKey(m)
 	askID := focusedID(t, m)
 	stale := onlyLanding(t, m).gen
-	m = pressEnter(m)
+	m = pressDialogKey(m)
 	m.applyLandingCheck(landingCheckMsg{id: askID, gen: stale, verdict: landingSeen})
 	if pending := onlyLanding(t, m); pending.gen == stale {
 		t.Fatal("a look for the replaced key decided the pending answer")
@@ -332,7 +332,7 @@ func TestAStaleLookDecidesNothing(t *testing.T) {
 func TestPasteKeepsALandedAnswerOnItsSession(t *testing.T) {
 	m := drainOnDialog(t, true)
 	askID := focusedID(t, m)
-	m = pressEnter(m)
+	m = pressDialogKey(m)
 	m.handleFocusPaste(tea.PasteMsg{Content: "one more thing"})
 	recordDialogResult(t, m, askID, "answered")
 	lookForLanding(t, m)

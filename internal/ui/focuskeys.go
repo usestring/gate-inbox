@@ -723,6 +723,9 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if !arms {
 		m.keepLandingHere()
 	}
+	// A key inside a dialog that has further to go answers a step of it, not
+	// the session, so it arms the check without a handover; see keyEndsDialog.
+	handsOver := arms && m.autoProceeds() && m.keyEndsDialog()
 	// Typing puts the cursor back on: a caret that blinks out mid-keystroke
 	// reads as a dropped character.
 	quiet := m.cursorOn
@@ -764,7 +767,7 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// anything the key caused.
 	var landing tea.Cmd
 	if arms {
-		landing = m.armLanding(sess, extension.OperatorPane, "", dialog, m.autoProceeds(), baseline)
+		landing = m.armLanding(sess, extension.OperatorPane, "", dialog, handsOver, baseline)
 	}
 	m.poller.noteOperatorInput(sess.ID)
 	// SendRawAt takes the pooled pipe where there is one and forks where
@@ -801,7 +804,7 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// live bottom was typed at history, not at the prompt, and stays. The
 	// echo chase is dropped: its frames are for the pane being left, and its
 	// captures would contend with the next pane's first one.
-	if landing != nil && resume == nil && key.Code == tea.KeyEnter && m.autoProceeds() {
+	if landing != nil && resume == nil && key.Code == tea.KeyEnter && handsOver {
 		if next := m.handOverOnEnter(sess, keyAt); next != nil {
 			return m, tea.Batch(landing, next)
 		}

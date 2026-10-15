@@ -1565,10 +1565,8 @@ func (m *Model) contentLines(width, height int) []contentLine {
 	if m.quick.active {
 		bar = append([]contentLine{{}}, ours(splitLines(m.viewQuickBar(inner, quickBarMaxRows)))...)
 		if m.quickHoldsPane() {
-			bar[0].text = gutter + m.quickDockTitle(inner)
-			for i := range bar {
-				bar[i].bg = quickDockHex()
-			}
+			bar[0].text = gutter + m.quickBanner(inner)
+			bar[0].bg = quickBannerHex()
 		}
 	}
 	var body []contentLine
@@ -1720,12 +1718,6 @@ func (m *Model) previewLines(width, height int, gutter string) []contentLine {
 	for i, line := range pane {
 		if i < len(loader) && loader[i] != "" {
 			lines = append(lines, contentLine{text: previewLine(loader[i], width), raw: true})
-			continue
-		}
-		if m.quickHoldsPane() {
-			// Grayed while the menu holds the keys, so the agent's prompt
-			// stops looking like somewhere a keystroke would land.
-			lines = append(lines, contentLine{text: previewLine(subtleStyle.Render(ansi.Strip(line)), width), raw: true})
 			continue
 		}
 		lines = append(lines, contentLine{text: m.renderPaneRow(i, line, width), raw: true})
@@ -1884,16 +1876,16 @@ func (m *Model) quickHoldsPane() bool {
 	return m.quick.active && m.mode == modeFocus
 }
 
-// quickDockTitle heads the focused dock, on the row that otherwise only
-// spaces it off the pane: what has the keyboard, and the key that gives it
-// back.
-func (m *Model) quickDockTitle(width int) string {
-	title := annotationStyle.Render("HOTKEY MENU")
-	note := mutedStyle.Render(" · typing paused · esc to type")
-	if textfmt.Width(title)+textfmt.Width(note) > width {
-		return title
+// quickBanner heads the focused dock on the red band, on the row that
+// otherwise only spaces it off the pane: what has the keyboard, and the key
+// that gives it back. The pane keeps its colours; the band alone says so.
+func (m *Model) quickBanner(width int) string {
+	ink := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(current.Bg))
+	title := "HOTKEY MENU OPEN"
+	if note := " · esc to close"; textfmt.Width(title+note) <= width {
+		title += note
 	}
-	return title + note
+	return ink.Render(title)
 }
 
 // viewQuickBar is the docked hotkey menu: the session a key would answer,

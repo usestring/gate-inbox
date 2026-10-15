@@ -839,10 +839,9 @@ func TestConfigDirIsTheHooksParent(t *testing.T) {
 	}
 }
 
-// The focused menu holds the keys, so the pane behind it must stop looking
-// typeable: its rows lose the agent's colours, and the dock sits on its own
-// band under a title that says typing is paused.
-func TestFocusedMenuGraysPaneAndTintsDock(t *testing.T) {
+// The focused menu holds the keys, and a single red banner over the dock
+// says so; the pane behind it keeps the agent's colours so it stays readable.
+func TestFocusedMenuBannerKeepsPaneColours(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
@@ -866,8 +865,8 @@ func TestFocusedMenuGraysPaneAndTintsDock(t *testing.T) {
 
 	updated, _ := m.handleFocusKey(menuTrigger())
 	m = updated.(*Model)
-	if strings.Contains(paneRow(), agentInk) {
-		t.Fatal("open menu: the pane kept the agent's colours")
+	if !strings.Contains(paneRow(), agentInk) {
+		t.Fatal("open menu: the pane lost the agent's colours")
 	}
 	var dock []contentLine
 	for _, row := range m.contentLines(80, 20) {
@@ -875,10 +874,10 @@ func TestFocusedMenuGraysPaneAndTintsDock(t *testing.T) {
 			dock = append(dock, row)
 		}
 	}
-	if len(dock) < 2 || dock[0].bg != quickDockHex() {
-		t.Fatalf("dock rows = %+v, want the tinted band", dock)
+	if len(dock) != 1 || dock[0].bg != quickBannerHex() {
+		t.Fatalf("banded rows = %+v, want only the red banner", dock)
 	}
-	if !strings.Contains(ansi.Strip(dock[0].text), "typing paused") {
-		t.Fatalf("dock title = %q, want the paused notice", ansi.Strip(dock[0].text))
+	if !strings.Contains(ansi.Strip(dock[0].text), "esc to close") {
+		t.Fatalf("banner = %q, want the esc notice", ansi.Strip(dock[0].text))
 	}
 }

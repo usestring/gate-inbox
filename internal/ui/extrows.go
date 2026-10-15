@@ -266,8 +266,9 @@ func (m *Model) extensionHeaderLines(entry treeRow, width, index int) []string {
 	styles := viewStyles()
 	lines := make([]string, 0, len(headers))
 	for _, header := range headers {
-		// A header its owner opens is a row of its own: see headrows.go.
-		if m.headOpener(header.owner) != nil {
+		// A header its owner opens, or has a page behind, is a row of its
+		// own: see headrows.go.
+		if m.headsRows(header.owner) {
 			continue
 		}
 		var b strings.Builder

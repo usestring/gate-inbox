@@ -92,10 +92,6 @@ type extraField struct {
 
 func (f extraField) value() string { return f.field.Options[f.choice] }
 
-// fieldTotal is how many fields the form moves through: its own, then the
-// extensions'.
-func (f form) fieldTotal() int { return fieldCount + len(f.extra) }
-
 // focusedExtra is the extension field under the cursor, if it is on one.
 func (f *form) focusedExtra() (*extraField, bool) {
 	i := f.focus - fieldCount
@@ -103,6 +99,15 @@ func (f *form) focusedExtra() (*extraField, bool) {
 		return nil, false
 	}
 	return &f.extra[i], true
+}
+
+// formExtras is the extensions' fields the form offers for the selected
+// CLI: none for a terminal, which the extensions have no say in.
+func (m *Model) formExtras() []extraField {
+	if m.isShell(m.selectedToolName()) {
+		return nil
+	}
+	return m.form.extra
 }
 
 // extraFields builds the extensions' fields at their defaults.
@@ -393,8 +398,20 @@ func orderTools(names []string, raw string) []string {
 	return out
 }
 
+func (m *Model) formToolSelection() ([]string, int) {
+	names := m.pickerNames()
+	current := m.defaultTool()
+	index := 0
+	for i, name := range names {
+		if name == current {
+			index = i
+		}
+	}
+	return names, index
+}
+
 func (m *Model) openForm() {
-	tools, toolIndex := m.defaultToolSelection()
+	tools, toolIndex := m.formToolSelection()
 	if len(tools) == 0 {
 		m.errBar.text = "no CLIs enabled: open settings (s), then CLIs, to turn some on"
 		return
@@ -626,7 +643,7 @@ func (m *Model) moveGroupCursor(delta int) {
 
 func (m *Model) formFocus(delta int) {
 	m.pathSugg.reset()
-	total := m.form.fieldTotal()
+	total := fieldCount + len(m.formExtras())
 	m.form.focus = (m.form.focus + delta + total) % total
 	m.form.name.Blur()
 	m.form.dir.Blur()
@@ -763,6 +780,9 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	toolName := m.selectedToolName()
+	if m.isShell(toolName) {
+		return m.submitFormTerminal(toolName)
+	}
 	if m.form.prompt.pasting() {
 		m.errBar.text = "still reading the pasted image - try again in a moment"
 		return m, nil
@@ -819,6 +839,50 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 		m.focusSession(id)
 		return m, m.refreshCmd()
 	}
+	return m.landInNewSession(id)
+}
+
+func (m *Model) submitFormTerminal(toolName string) (tea.Model, tea.Cmd) {
+	if m.form.prompt.pasting() {
+		m.errBar.text = "still reading the pasted image - try again in a moment"
+		return m, nil
+	}
+	if strings.TrimSpace(m.form.prompt.message()) != "" {
+		m.errBar.text = "a terminal takes no prompt: clear it or pick a CLI"
+		return m, nil
+	}
+	if strings.TrimSpace(m.form.model.Value()) != "" {
+		m.errBar.text = "a terminal takes no model: clear it or pick a CLI"
+		return m, nil
+	}
+	name := strings.TrimSpace(m.form.name.Value())
+	if name == "" {
+		name = toolName + "-" + newID()[:4]
+	}
+	cwd, _ := os.Getwd()
+	dir, ok := resolveExistingDir(m.form.dir.Value(), cwd)
+	if !ok {
+		m.errBar.text = "working directory does not exist: " + dir
+		return m, nil
+	}
+	group := m.selectedGroupPath()
+	tool := m.cfg.Tools[toolName]
+	id := newID()
+	if err := m.launchNewSession(store.Session{
+		ID:         id,
+		Name:       name,
+		Tool:       toolName,
+		Cwd:        dir,
+		Group:      group,
+		NameSource: store.SourceUser,
+		Status:     status.Starting,
+	}, tool, tool.Command); err != nil {
+		m.errBar.text = err.Error()
+		return m, nil
+	}
+	m.statusFilter = statusFilterAll
+	m.toolFilter = ""
+	m.mode = modeList
 	return m.landInNewSession(id)
 }
 

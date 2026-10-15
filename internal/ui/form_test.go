@@ -1051,6 +1051,111 @@ func TestTypingACLIAndPressingEnterCreatesIt(t *testing.T) {
 	}
 }
 
+func TestFormOffersTheTerminalAndOpensAShell(t *testing.T) {
+	m := buildModel(t)
+	m.openForm()
+	found := false
+	for _, name := range m.form.toolNames {
+		if name == shellToolName {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("form tools = %v, want the terminal among them", m.form.toolNames)
+	}
+	typeIntoForm(m, "term")
+	if got := m.selectedToolName(); got != shellToolName {
+		t.Fatalf("tool = %q, want the terminal", got)
+	}
+	m.form.dir.SetValue(t.TempDir())
+	pickGroup(t, m, "")
+	updated, cmd := m.submitForm()
+	*m = *updated.(*Model)
+	m.applyCmd(t, cmd)
+	if m.errBar.text != "" {
+		t.Fatalf("spawn refused: %s", m.errBar.text)
+	}
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || !m.isShell(rows[0].Tool) {
+		t.Fatalf("sessions = %+v, want one shell", rows)
+	}
+}
+
+func TestFormTerminalRefusesAPromptAndAModel(t *testing.T) {
+	for _, field := range []string{"prompt", "model"} {
+		m := buildModel(t)
+		m.openForm()
+		m.selectTool(shellToolName)
+		if field == "prompt" {
+			m.form.prompt.input.SetValue("do the thing")
+		} else {
+			m.form.model.SetValue("opus")
+		}
+		m.form.dir.SetValue(t.TempDir())
+		pickGroup(t, m, "")
+		updated, _ := m.submitForm()
+		*m = *updated.(*Model)
+		if m.mode != modeForm {
+			t.Fatalf("%s: form closed over the refusal", field)
+		}
+		if !strings.Contains(m.errBar.text, "takes no "+field) {
+			t.Fatalf("%s: error = %q, want the field named", field, m.errBar.text)
+		}
+		sessions, err := m.store.ListSessions(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(sessions) != 0 {
+			t.Fatalf("%s: form created %+v despite refusing", field, sessions)
+		}
+	}
+}
+
+// The extensions have no say in a terminal, so the form neither draws their
+// fields nor moves onto them while the terminal is picked.
+func TestFormTerminalHidesTheExtensionFields(t *testing.T) {
+	m := buildModel(t)
+	useItemsExtension(t, &itemsExtension{})
+	m.openForm()
+	m.selectTool(shellToolName)
+	if strings.Contains(m.viewForm(), "level") {
+		t.Fatalf("the form draws an extension field for the terminal:\n%s", m.viewForm())
+	}
+	for range fieldCount {
+		m.formFocus(1)
+		if _, ok := m.form.focusedExtra(); ok {
+			t.Fatalf("focus %d landed on an extension field for the terminal", m.form.focus)
+		}
+	}
+}
+
+// A terminal from the form leaves the remembered CLI alone, as the terminal
+// key does, so the next spawn still opens on the last agent.
+func TestFormTerminalKeepsTheLastCLI(t *testing.T) {
+	m := buildModel(t)
+	if err := m.store.SetSetting(lastToolSetting, "claude-hooked"); err != nil {
+		t.Fatal(err)
+	}
+	m.openForm()
+	m.selectTool(shellToolName)
+	m.form.dir.SetValue(t.TempDir())
+	pickGroup(t, m, "")
+	updated, cmd := m.submitForm()
+	*m = *updated.(*Model)
+	m.applyCmd(t, cmd)
+	if m.errBar.text != "" {
+		t.Fatalf("spawn refused: %s", m.errBar.text)
+	}
+	last, err := m.store.Setting(lastToolSetting)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last != "claude-hooked" {
+		t.Fatalf("last CLI = %q, want the terminal to leave it on claude-hooked", last)
+	}
+}
+
 func TestFormUpDownMoveTheCaretBetweenPromptRows(t *testing.T) {
 	m := buildModel(t)
 	m.openForm()

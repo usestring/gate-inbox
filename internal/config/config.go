@@ -592,6 +592,11 @@ const arrowDialogNavigateOnly = `(?i)\x{B7} [^\x{B7}\n]*(?:Arrow keys|\x{2190}|\
 // takes the current pattern; one edited by hand keeps what its author wrote.
 const codexTurnEndRuleOnly = `(?m)^(?:─+ Worked for [\dhms. ]+─.*|─{20,}\s*)$`
 
+// claudeChromeLineUpdateOnly is the claude chrome_line shipped before the
+// "/clear" hint under a turn-end summary was read as chrome; a config
+// carrying it verbatim takes the current pattern.
+const claudeChromeLineUpdateOnly = `^\s*[─q]{4,}.*$|^[\s─q]*$|^\s*✔ Update installed\b.*$`
+
 const codexChromeLineMCPOnly = `^\s*─*\s*$|^⚠ (?:The \S+ MCP server is not logged in\. Run \x60codex mcp login \S+\x60\.|MCP startup incomplete \(failed: [^)]+\))$`
 
 const codexWorkingNoHints = `(?m)^[ \t]*(?:• )?[^\n]*\([\dhms. ]+ [•·] esc to interrupt\)(?: · [^\n]*)?[ \t]*\n(?:[ \t]+└[^\n]*\n(?:[ \t]{4}[^\n]*\n)*)?[ \t\n]*\z`
@@ -676,6 +681,9 @@ func mergeTool(name string, user, def Tool) Tool {
 	}
 	if name == "claude" && (user.BusyLine == busyLineAgentsOnly || user.BusyLine == busyLineShellsOnly || user.BusyLine == busyLineEveryKind || user.BusyLine == busyLineWaitOnly) {
 		user.BusyLine = def.BusyLine
+	}
+	if name == "claude" && user.ChromeLine == claudeChromeLineUpdateOnly {
+		user.ChromeLine = def.ChromeLine
 	}
 	if name == "claude" && user.ArrowDialogLine == arrowDialogNavigateOnly {
 		user.ArrowDialogLine = def.ArrowDialogLine
@@ -1092,7 +1100,11 @@ turn_end = "^[✻✳✶✽✢·✦✧+*] \\S+ for \\d.*$"
 # streaming below the banner would still read finished -- and only
 # chrome_line is consulted by lastContentIndex, so only chrome_line keeps the
 # banner from masking a blocked_line interrupt above it.
-chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$"
+#
+# The right-aligned "new task? /clear to save 177.6k tokens" hint claude
+# draws under a turn-end summary once the context is large is chrome for the
+# same reason.
+chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$|^\\s*new task\\? /clear to save\\b.*$"
 blocked_line = "Interrupted ·"
 # recap blocks ("※ recap: …") render below the turn-end summary
 trailing_note = "^※"

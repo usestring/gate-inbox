@@ -1089,3 +1089,25 @@ func TestOpenCodeBusyDefaultsPreserveCustomConfiguration(t *testing.T) {
 		t.Fatal("custom rule was replaced")
 	}
 }
+
+func TestLoadDirUpgradesClaudeChromeLineForTheClearHint(t *testing.T) {
+	dir := t.TempDir()
+	legacy := "[tools.claude]\ncommand = \"claude\"\nchrome_line = '" + claudeChromeLineUpdateOnly + "'\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	re := regexp.MustCompile(cfg.Tools["claude"].ChromeLine)
+	for _, line := range []string{
+		"                                        new task? /clear to save 177.6k tokens",
+		"                    ✔ Update installed · Restart to update",
+		"────────",
+	} {
+		if !re.MatchString(line) {
+			t.Errorf("upgraded claude chrome_line %q does not see %q", re, line)
+		}
+	}
+}

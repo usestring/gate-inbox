@@ -44,3 +44,22 @@ func TestBackgroundRestLeavesBackgroundAgentsWorking(t *testing.T) {
 		t.Fatal("BackgroundRest claimed a turn with nothing left running")
 	}
 }
+
+// 2026-10-13 live capture, trimmed: once the context is large Claude
+// right-aligns a "/clear" hint under the turn-end summary. Read as content
+// below the summary, it hid the turn end, so the shell tail never settled and
+// a child that had stopped read working until the operator typed into it.
+func TestBackgroundRestReadsAShellTailUnderAClearHint(t *testing.T) {
+	raw, err := os.ReadFile("testdata/claude-shell-tail-clear-hint.txt")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	engine := defaultEngine(t)
+	if got, _ := engine.Match("claude", string(raw)); got != Working {
+		t.Fatalf("Match = %q, want working while the tail stands", got)
+	}
+	got, ok := engine.BackgroundRest("claude", string(raw))
+	if !ok || got != Finished {
+		t.Fatalf("BackgroundRest = %q, %v; want finished, true", got, ok)
+	}
+}

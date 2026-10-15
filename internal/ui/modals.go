@@ -206,7 +206,7 @@ func (m *Model) viewForm() string {
 	}
 	// The extensions' fields follow the form's own, drawn like the CLI
 	// picker: the value between the arrows that change it.
-	for i, e := range m.form.extra {
+	for i, e := range m.formExtras() {
 		value := subtleStyle.Render("\u25c2 ") + valueStyle.Render(e.value()) + subtleStyle.Render(" \u25b8")
 		b.WriteString(formField(e.field.Label, value, m.form.focus == fieldCount+i))
 	}

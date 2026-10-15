@@ -92,10 +92,6 @@ type extraField struct {
 
 func (f extraField) value() string { return f.field.Options[f.choice] }
 
-// fieldTotal is how many fields the form moves through: its own, then the
-// extensions'.
-func (f form) fieldTotal() int { return fieldCount + len(f.extra) }
-
 // focusedExtra is the extension field under the cursor, if it is on one.
 func (f *form) focusedExtra() (*extraField, bool) {
 	i := f.focus - fieldCount
@@ -103,6 +99,15 @@ func (f *form) focusedExtra() (*extraField, bool) {
 		return nil, false
 	}
 	return &f.extra[i], true
+}
+
+// formExtras is the extensions' fields the form offers for the selected
+// CLI: none for a terminal, which the extensions have no say in.
+func (m *Model) formExtras() []extraField {
+	if m.isShell(m.selectedToolName()) {
+		return nil
+	}
+	return m.form.extra
 }
 
 // extraFields builds the extensions' fields at their defaults.
@@ -638,7 +643,7 @@ func (m *Model) moveGroupCursor(delta int) {
 
 func (m *Model) formFocus(delta int) {
 	m.pathSugg.reset()
-	total := m.form.fieldTotal()
+	total := fieldCount + len(m.formExtras())
 	m.form.focus = (m.form.focus + delta + total) % total
 	m.form.name.Blur()
 	m.form.dir.Blur()
@@ -875,7 +880,6 @@ func (m *Model) submitFormTerminal(toolName string) (tea.Model, tea.Cmd) {
 		m.errBar.text = err.Error()
 		return m, nil
 	}
-	m.rememberTool(toolName)
 	m.statusFilter = statusFilterAll
 	m.toolFilter = ""
 	m.mode = modeList

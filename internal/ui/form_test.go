@@ -1112,6 +1112,50 @@ func TestFormTerminalRefusesAPromptAndAModel(t *testing.T) {
 	}
 }
 
+// The extensions have no say in a terminal, so the form neither draws their
+// fields nor moves onto them while the terminal is picked.
+func TestFormTerminalHidesTheExtensionFields(t *testing.T) {
+	m := buildModel(t)
+	useItemsExtension(t, &itemsExtension{})
+	m.openForm()
+	m.selectTool(shellToolName)
+	if strings.Contains(m.viewForm(), "level") {
+		t.Fatalf("the form draws an extension field for the terminal:\n%s", m.viewForm())
+	}
+	for range fieldCount {
+		m.formFocus(1)
+		if _, ok := m.form.focusedExtra(); ok {
+			t.Fatalf("focus %d landed on an extension field for the terminal", m.form.focus)
+		}
+	}
+}
+
+// A terminal from the form leaves the remembered CLI alone, as the terminal
+// key does, so the next spawn still opens on the last agent.
+func TestFormTerminalKeepsTheLastCLI(t *testing.T) {
+	m := buildModel(t)
+	if err := m.store.SetSetting(lastToolSetting, "claude-hooked"); err != nil {
+		t.Fatal(err)
+	}
+	m.openForm()
+	m.selectTool(shellToolName)
+	m.form.dir.SetValue(t.TempDir())
+	pickGroup(t, m, "")
+	updated, cmd := m.submitForm()
+	*m = *updated.(*Model)
+	m.applyCmd(t, cmd)
+	if m.errBar.text != "" {
+		t.Fatalf("spawn refused: %s", m.errBar.text)
+	}
+	last, err := m.store.Setting(lastToolSetting)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last != "claude-hooked" {
+		t.Fatalf("last CLI = %q, want the terminal to leave it on claude-hooked", last)
+	}
+}
+
 func TestFormUpDownMoveTheCaretBetweenPromptRows(t *testing.T) {
 	m := buildModel(t)
 	m.openForm()

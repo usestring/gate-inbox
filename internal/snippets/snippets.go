@@ -316,6 +316,7 @@ func Defaults() []Snippet {
 		submit("w", "wake up", "Auto wake-up: the previous turn died on a transient API error. "+
 			"Continue where you left off."),
 		submit("n", "needs?", "what do you need from me?"),
+		submit("j", "judgment", "Use your judgment"),
 		submit("p", "progress", progressText),
 	}
 }

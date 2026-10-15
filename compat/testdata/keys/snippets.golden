@@ -4,6 +4,7 @@ c  "continue" -> "continue"
 e  "eli5" -> "I'm confused, explain like I'm 5"
 w  "wake up" -> "Auto wake-up: the previous turn died on a transient API error. Continue where you left off."
 n  "needs?" -> "what do you need from me?"
+j  "judgment" -> "Use your judgment"
 p  "progress" -> "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so"
 --- snippets.json as written
 [
@@ -40,6 +41,13 @@ p  "progress" -> "summarise all current progress in bullet points, including eve
     "label": "needs?",
     "chord": "alt+n",
     "text": "what do you need from me?",
+    "autoSubmit": true
+  },
+  {
+    "key": "j",
+    "label": "judgment",
+    "chord": "alt+j",
+    "text": "Use your judgment",
     "autoSubmit": true
   },
   {

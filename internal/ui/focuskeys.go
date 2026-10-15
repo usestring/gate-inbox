@@ -798,10 +798,12 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// now rather than after the answer is seen landing. The check armed above
 	// still runs and returns the session to the queue if the answer never
 	// lands; see handOverOnEnter. A key that pulls a scrolled-back pane to its
-	// live bottom was typed at history, not at the prompt, and stays.
+	// live bottom was typed at history, not at the prompt, and stays. The
+	// echo chase is dropped: its frames are for the pane being left, and its
+	// captures would contend with the next pane's first one.
 	if landing != nil && resume == nil && key.Code == tea.KeyEnter && m.autoProceeds() {
 		if next := m.handOverOnEnter(sess, keyAt); next != nil {
-			return m, tea.Batch(resume, echo, landing, next)
+			return m, tea.Batch(landing, next)
 		}
 	}
 	return m, tea.Batch(resume, echo, landing)

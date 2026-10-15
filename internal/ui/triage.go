@@ -633,7 +633,7 @@ func (m *Model) advanceTriage(leftID string) tea.Cmd {
 		}
 		_, cmd := m.focusSelected()
 		if m.mode == modeFocus {
-			return tea.Batch(cmd, m.schedulePreview())
+			return tea.Batch(cmd, m.handoverPreviewCmd(next, m.previewGen))
 		}
 	}
 }

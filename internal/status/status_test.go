@@ -355,6 +355,8 @@ func TestCodexRealPanes(t *testing.T) {
 			"• Working (0s • esc to interrupt)\n\n› 1. Yes, proceed (y)", Working},
 		{"codex finished work turn", "codex",
 			"• Ran echo preparing\n  └ preparing\n\n────────────────────────────────\n\n• Final response.\n\n─ Worked for 2m 05s ─────────────\n\n› Ask Codex to do anything\n  gpt-5.6-terra medium · /home/dev", Finished},
+		{"codex finished turn closed by a bulleted label", "codex",
+			"• Final response.\n\n  Worked for 4m 54s • 12:44\n\n› Ask Codex to do anything\n  gpt-5.6-terra medium · ~/work", Finished},
 		{"codex finished turn ending on a question", "codex",
 			"• Which file should I edit, A or B?\n\n─ Worked for 3s ─────────────────\n\n› Ask Codex to do anything\n  gpt-5.6-terra medium · ~/work", Finished},
 		{"codex command-approval modal", "codex",

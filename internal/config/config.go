@@ -597,6 +597,11 @@ const codexTurnEndRuleOnly = `(?m)^(?:─+ Worked for [\dhms. ]+─.*|─{20,}\s
 // carrying it verbatim takes the current pattern.
 const claudeChromeLineUpdateOnly = `^\s*[─q]{4,}.*$|^[\s─q]*$|^\s*✔ Update installed\b.*$`
 
+// codexTurnEndMiddot is the 0.154 turn_end, which read only a middle dot
+// between the duration and the time ("Worked for 1m 5s · 02:41"). Later
+// builds draw a bullet there.
+const codexTurnEndMiddot = `(?m)^(?:─+ Worked for [\dhms. ]+─.*|─{20,}\s*|  (?:Worked for [\dhms ]+ · )?(?:done )?(?:[A-Z][a-z]{2} \d{1,2}(?:, \d{4})? at )?\d{1,2}:\d{2}(?: [AP]M)?(?: · (?:Local tools: |Inference: |WebSocket: |Streams?: |\d+ events received |Responses API |TTFT: |TBT: )[^\n]*)?)$`
+
 const codexChromeLineMCPOnly = `^\s*─*\s*$|^⚠ (?:The \S+ MCP server is not logged in\. Run \x60codex mcp login \S+\x60\.|MCP startup incomplete \(failed: [^)]+\))$`
 
 const codexWorkingNoHints = `(?m)^[ \t]*(?:• )?[^\n]*\([\dhms. ]+ [•·] esc to interrupt\)(?: · [^\n]*)?[ \t]*\n(?:[ \t]+└[^\n]*\n(?:[ \t]{4}[^\n]*\n)*)?[ \t\n]*\z`
@@ -675,7 +680,7 @@ func mergeTool(name string, user, def Tool) Tool {
 		if user.ChromeLine == `^\s*─*\s*$` || user.ChromeLine == codexChromeLineMCPOnly {
 			user.ChromeLine = def.ChromeLine
 		}
-		if user.TurnEnd == codexTurnEndRuleOnly {
+		if user.TurnEnd == codexTurnEndRuleOnly || user.TurnEnd == codexTurnEndMiddot {
 			user.TurnEnd = def.TurnEnd
 		}
 	}
@@ -1354,7 +1359,7 @@ input_line = "^›"
 # Codex 0.154 closes a turn on a dim label under the reply instead ("  02:41",
 # "  done 2:41 AM", "  Worked for 1m 5s · 02:41", "  Sep 3 at 02:41"), with the
 # opt-in runtime metrics after it ("· Local tools: 2 calls (1.2s) • ...").
-turn_end = "(?m)^(?:─+ Worked for [\\dhms. ]+─.*|─{20,}\\s*|  (?:Worked for [\\dhms ]+ · )?(?:done )?(?:[A-Z][a-z]{2} \\d{1,2}(?:, \\d{4})? at )?\\d{1,2}:\\d{2}(?: [AP]M)?(?: · (?:Local tools: |Inference: |WebSocket: |Streams?: |\\d+ events received |Responses API |TTFT: |TBT: )[^\\n]*)?)$"
+turn_end = "(?m)^(?:─+ Worked for [\\dhms. ]+─.*|─{20,}\\s*|  (?:Worked for [\\dhms ]+ [·•] )?(?:done )?(?:[A-Z][a-z]{2} \\d{1,2}(?:, \\d{4})? at )?\\d{1,2}:\\d{2}(?: [AP]M)?(?: · (?:Local tools: |Inference: |WebSocket: |Streams?: |\\d+ events received |Responses API |TTFT: |TBT: )[^\\n]*)?)$"
 # A command codex leaves running in a background terminal outlives the turn,
 # and codex names it on a row under the turn's closing label ("  1:15 AM" over
 # "  1 background terminal running · /ps to view · /stop to close", 0.157).

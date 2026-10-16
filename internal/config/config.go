@@ -599,6 +599,11 @@ const claudeChromeLineUpdateOnly = `^\s*[─q]{4,}.*$|^[\s─q]*$|^\s*✔ Update
 
 const codexChromeLineMCPOnly = `^\s*─*\s*$|^⚠ (?:The \S+ MCP server is not logged in\. Run \x60codex mcp login \S+\x60\.|MCP startup incomplete \(failed: [^)]+\))$`
 
+// codexErroredErrorOnly is the codex errored rule shipped before failed
+// reconnects counted as errored. A config carrying it verbatim takes the
+// current rule, so a dead session no longer reads as idle.
+const codexErroredErrorOnly = `(?im)^\s*■.*\berror\b`
+
 const codexWorkingNoHints = `(?m)^[ \t]*(?:• )?[^\n]*\([\dhms. ]+ [•·] esc to interrupt\)(?: · [^\n]*)?[ \t]*\n(?:[ \t]+└[^\n]*\n(?:[ \t]{4}[^\n]*\n)*)?[ \t\n]*\z`
 
 // mergeTool returns user with any zero-value field filled from def.
@@ -699,6 +704,15 @@ func mergeTool(name string, user, def Tool) Tool {
 	} else if name == "codex" {
 		user.Rules = withDialogRules(user.Rules, def.Rules, codexDialogSamples)
 		for i, rule := range user.Rules {
+			if rule.State == "errored" && rule.Pattern == codexErroredErrorOnly {
+				for _, current := range def.Rules {
+					if current.State == "errored" {
+						user.Rules[i] = current
+						break
+					}
+				}
+				continue
+			}
 			if rule.State != "working" || (rule.Pattern != `(?m)esc to interrupt\b` && rule.Pattern != codexWorkingNoHints) {
 				continue
 			}
@@ -1378,7 +1392,7 @@ rules = [
   # active status row is the final row above the input box; anchoring its full
   # shape keeps an answer that quotes "esc to interrupt" from looking active
   { state = "working", pattern = "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?(?:[ \\t]*\\n|[ \\t]+(?:⚠|↓|Tip: |Copied )[^\\n]*\\n)*[ \\t\\n]*\\z" },
-  { state = "errored", pattern = "(?im)^\\s*■(?:.*\\berror\\b| (?:Automatic reconnect could not restore this session|app-server session could not be restored)\\b)" },
+  { state = "errored", pattern = "(?im)^\\s*■(?:.*\\berror\\b| (?:Automatic reconnect could not restore this session|app-server session could not be restored|Server connection could not be restored)\\b)" },
 ]
 
 # The terminal tab "T" spawns: a shell in the group's directory, listed

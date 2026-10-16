@@ -130,6 +130,28 @@ rules = [
 	}
 }
 
+func TestLoadDirUpgradesLegacyCodexErroredRule(t *testing.T) {
+	dir := t.TempDir()
+	legacy := `
+[tools.codex]
+command = "codex"
+rules = [
+  { state = "errored", pattern = "(?im)^\\s*■.*\\berror\\b" },
+]
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	rule := firstRule(cfg.Tools["codex"].Rules, "errored")
+	if !regexp.MustCompile(rule.Pattern).MatchString("■ Automatic reconnect could not restore this session. Your draft is still editable.") {
+		t.Fatalf("legacy Codex errored rule was not upgraded: %q", rule.Pattern)
+	}
+}
+
 func TestLoadDirUpgradesCodexComposerPatterns(t *testing.T) {
 	defaults, err := Default()
 	if err != nil {

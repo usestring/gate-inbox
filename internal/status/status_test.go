@@ -347,6 +347,8 @@ func TestCodexRealPanes(t *testing.T) {
 			"• Working (12s • esc to interrupt)\n\n■ Connection lost. Attempting to reconnect…\n\n■ Automatic reconnect could not restore this session. Your draft is still editable. Copy it before quitting with Ctrl+C, then\nreconnect with the same command.\n\n■ app-server session could not be restored\n\n› Ask Codex to do anything", Errored},
 		{"codex automatic reconnect could not restore alone", "codex",
 			"■ Automatic reconnect could not restore this session. Your draft is still editable.\n\n› Ask Codex to do anything", Errored},
+		{"codex server connection could not be restored", "codex",
+			"  Worked for 4m 54s • 12:44\n\n■ Server connection could not be restored\n\n• Reconnect failed — check the endpoint, then relaunch (3h 39m 25s)\n\n› Ask Codex to do anything", Errored},
 		{"codex app-server session could not be restored", "codex",
 			"• Working (12s • esc to interrupt)\n\n■ app-server session could not be restored", Errored},
 		{"codex numbered draft is not a dialog", "codex",

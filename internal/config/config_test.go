@@ -314,6 +314,21 @@ func TestLoadDirBackfillsOpencodeInputLine(t *testing.T) {
 // codex repaints slower than the chase's default budget, so its block ships a
 // longer one; a hand-written block inherits it, and a value its author chose
 // survives the merge.
+func TestLoadDirUpgradesTheMiddotCodexTurnEnd(t *testing.T) {
+	dir := t.TempDir()
+	cfg := "[tools.codex]\ncommand = \"codex\"\nturn_end = '" + codexTurnEndMiddot + "'\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	if !regexp.MustCompile(loaded.Tools["codex"].TurnEnd).MatchString("  Worked for 4m 54s • 12:44") {
+		t.Fatalf("middot Codex turn_end was not upgraded: %q", loaded.Tools["codex"].TurnEnd)
+	}
+}
+
 func TestLoadDirBackfillsCodexEchoBudgetAndKeepsACustomOne(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")

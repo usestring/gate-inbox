@@ -131,24 +131,52 @@ rules = [
 }
 
 func TestLoadDirUpgradesLegacyCodexErroredRule(t *testing.T) {
-	dir := t.TempDir()
-	legacy := `
-[tools.codex]
-command = "codex"
-rules = [
-  { state = "errored", pattern = "(?im)^\\s*■.*\\berror\\b" },
-]
-`
-	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(legacy), 0o644); err != nil {
+	defaults, err := Default()
+	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := LoadDir(dir)
-	if err != nil {
-		t.Fatalf("LoadDir: %v", err)
-	}
-	rule := firstRule(cfg.Tools["codex"].Rules, "errored")
-	if !regexp.MustCompile(rule.Pattern).MatchString("■ Automatic reconnect could not restore this session. Your draft is still editable.") {
-		t.Fatalf("legacy Codex errored rule was not upgraded: %q", rule.Pattern)
+	current := firstRule(defaults.Tools["codex"].Rules, "errored").Pattern
+	for _, tt := range []struct {
+		name    string
+		pattern string
+		custom  bool
+	}{
+		{"error only", `(?im)^\s*■.*\berror\b`, false},
+		{"previous reconnect default", `(?im)^\s*■(?:.*\berror\b| (?:Automatic reconnect could not restore this session|app-server session could not be restored)\b)`, false},
+		{"custom", `(?im)^\s*■.*fatal`, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			legacy := "[tools.codex]\ncommand = \"codex\"\nrules = [{ state = \"errored\", pattern = '" + tt.pattern + "' }]\n"
+			if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(legacy), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := LoadDir(dir)
+			if err != nil {
+				t.Fatalf("LoadDir: %v", err)
+			}
+			rule := firstRule(cfg.Tools["codex"].Rules, "errored")
+			want := current
+			if tt.custom {
+				want = tt.pattern
+			}
+			if rule.Pattern != want {
+				t.Fatalf("Codex errored pattern = %q, want %q", rule.Pattern, want)
+			}
+			if tt.custom {
+				return
+			}
+			for _, banner := range []string{
+				"■ error: connection lost",
+				"■ Automatic reconnect could not restore this session. Your draft is still editable.",
+				"■ app-server session could not be restored",
+				"■ Server connection could not be restored",
+			} {
+				if !regexp.MustCompile(rule.Pattern).MatchString(banner) {
+					t.Errorf("upgraded Codex errored rule does not match %q", banner)
+				}
+			}
+		})
 	}
 }
 

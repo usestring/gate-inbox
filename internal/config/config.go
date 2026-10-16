@@ -604,6 +604,8 @@ const codexChromeLineMCPOnly = `^\s*─*\s*$|^⚠ (?:The \S+ MCP server is not l
 // current rule, so a dead session no longer reads as idle.
 const codexErroredErrorOnly = `(?im)^\s*■.*\berror\b`
 
+const codexErroredReconnectOnly = `(?im)^\s*■(?:.*\berror\b| (?:Automatic reconnect could not restore this session|app-server session could not be restored)\b)`
+
 const codexWorkingNoHints = `(?m)^[ \t]*(?:• )?[^\n]*\([\dhms. ]+ [•·] esc to interrupt\)(?: · [^\n]*)?[ \t]*\n(?:[ \t]+└[^\n]*\n(?:[ \t]{4}[^\n]*\n)*)?[ \t\n]*\z`
 
 // mergeTool returns user with any zero-value field filled from def.
@@ -704,7 +706,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	} else if name == "codex" {
 		user.Rules = withDialogRules(user.Rules, def.Rules, codexDialogSamples)
 		for i, rule := range user.Rules {
-			if rule.State == "errored" && rule.Pattern == codexErroredErrorOnly {
+			if rule.State == "errored" && (rule.Pattern == codexErroredErrorOnly || rule.Pattern == codexErroredReconnectOnly) {
 				for _, current := range def.Rules {
 					if current.State == "errored" {
 						user.Rules[i] = current

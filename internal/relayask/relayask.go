@@ -12,6 +12,7 @@ package relayask
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/usestring/gate-inbox/internal/convo"
@@ -83,16 +84,28 @@ func askInput(q convo.AskQuestion) convo.AskQuestion {
 	return out
 }
 
-// ForScreen is the Input for a permission, trust or other choices dialog: its
-// text as the question and its choices as the options, credentials scrubbed
-// as the relay shows them, which is what the screen relay check reads. A
-// dialog with more choices than the tool takes offers the first four, which
-// that check accepts. Nil for a question dialog, which For reads, and for a
-// screen with fewer than two choices.
-func ForScreen(screen dialog.Screen) *Input {
+// Screen is what is known about a child's screen dialog beyond what it
+// draws: who is asking, and the description its pending call gives itself.
+type Screen struct {
+	Child       string
+	Description string
+}
+
+// ForScreen is the Input for a permission, trust or other choices dialog,
+// credentials scrubbed as the relay shows them, which is what the screen
+// relay check reads. A permission prompt about a command is put as a
+// decision (permission below); any other dialog has its text as the
+// question. Its choices are the options; a dialog with more choices than the
+// tool takes offers the first four, which that check accepts. Nil for a
+// question dialog, which For reads, and for a screen with fewer than two
+// choices.
+func ForScreen(screen dialog.Screen, about Screen) *Input {
 	labels := screen.Labels()
 	if screen.Kind == dialog.ScreenQuestion || len(labels) < 2 {
 		return nil
+	}
+	if in := permission(screen, about, labels); in != nil {
+		return in
 	}
 	q := convo.AskQuestion{Header: dialog.ApprovalHeader, Question: logging.ScrubWrapped(screen.Prompt())}
 	for i, label := range labels {
@@ -103,6 +116,69 @@ func ForScreen(screen dialog.Screen) *Input {
 			Description: "Pick this on the child's " + string(screen.Kind)})
 	}
 	return &Input{Questions: []convo.AskQuestion{q}}
+}
+
+// Permission prompts, as a decision.
+//
+// The question used to be the prompt's whole text, command and all, and a
+// 600-character shell loop inside a question is not something anyone reads
+// before answering. Now the question is who wants to run what, in the call's
+// own one-line description, and what the command visibly does (Effects).
+// The command goes in every option's preview, drawn whole beside the option
+// the cursor is on. The question cites the prompt's PromptToken, so the
+// relay check can still tell it asks about that prompt and no other, and
+// the check reads the command back out of the previews: the person picked
+// an option with the exact command in front of them.
+
+func permission(screen dialog.Screen, about Screen, labels []string) *Input {
+	command := screen.Command()
+	if screen.Kind != dialog.ScreenPermission || command == "" {
+		return nil
+	}
+	description := strings.TrimRight(strings.TrimSpace(about.Description), ".")
+	if description == "" {
+		description = strings.TrimRight(screen.Description(), ".")
+	}
+	who := strings.TrimSpace(about.Child)
+	if who == "" {
+		who = "The child"
+	}
+	what := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(screen.Title()), "command"))
+	if what == "" {
+		what = "tool"
+	}
+	var question strings.Builder
+	if description != "" {
+		fmt.Fprintf(&question, "%s wants to run a %s command: %q. ", who, what, logging.ScrubWrapped(description))
+	} else {
+		fmt.Fprintf(&question, "%s wants to run a %s command. ", who, what)
+	}
+	if strings.EqualFold(what, "bash") {
+		question.WriteString(Read(command).Summary() + " ")
+	}
+	fmt.Fprintf(&question, "The full command is in each option's preview %s. Allow it?", screen.PromptToken())
+	preview := "```sh\n" + logging.ScrubWrapped(command) + "\n```"
+	q := convo.AskQuestion{Header: dialog.ApprovalHeader, Question: question.String()}
+	for i, label := range labels {
+		if i == OptionLimit {
+			break
+		}
+		q.Options = append(q.Options, convo.AskOption{Label: logging.ScrubWrapped(label),
+			Description: choiceDescription(label), Preview: preview})
+	}
+	return &Input{Questions: []convo.AskQuestion{q}}
+}
+
+// choiceDescription says what picking a permission prompt's choice does.
+func choiceDescription(label string) string {
+	lower := strings.ToLower(strings.TrimSpace(label))
+	switch {
+	case lower == "yes":
+		return "Run this command once, exactly as in the preview"
+	case strings.HasPrefix(lower, "no"):
+		return "Refuse it; the child is told it was refused"
+	}
+	return "Pick this on the child's permission prompt"
 }
 
 // Line is the sentence a relay message ends on: the input to pass, or "" when

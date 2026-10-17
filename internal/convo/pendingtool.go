@@ -50,6 +50,25 @@ func PendingToolStrings(path string) []string {
 	return out
 }
 
+// PendingToolDescription is the description the one unresolved tool call
+// gives itself -- a Bash call's "description" -- or "" when it gives none or
+// no single call is pending.
+func PendingToolDescription(path string) string {
+	calls, _, err := pendingCalls(path)
+	if err != nil || len(calls) != 1 {
+		return ""
+	}
+	var fields struct {
+		Description string `json:"description"`
+	}
+	for _, call := range calls {
+		if json.Unmarshal(call.input, &fields) != nil {
+			return ""
+		}
+	}
+	return fields.Description
+}
+
 type pendingToolCall struct {
 	name  string
 	input json.RawMessage

@@ -32,10 +32,12 @@ func (s *Sessions) relayAskOn(target store.Session, raw string) *RelayAsk {
 	if !ok || screen.Kind == dialog.ScreenQuestion {
 		return nil
 	}
+	about := relayask.Screen{Child: target.Name}
 	if path := s.transcriptOf(target); path != "" {
 		screen = screen.WithExact(convo.PendingToolStrings(path)...)
+		about.Description = convo.PendingToolDescription(path)
 	}
-	return relayask.ForScreen(screen)
+	return relayask.ForScreen(screen, about)
 }
 
 // Answer picks or types reply into the question dialog targetID is holding;

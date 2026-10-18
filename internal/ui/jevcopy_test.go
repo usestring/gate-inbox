@@ -3,6 +3,7 @@ package ui
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -23,8 +24,41 @@ func TestCopyCandidatesTakesBlocksSpansAndLinksInOrder(t *testing.T) {
 		"Then type `! bun run deploy` and open https://console.cloud.google.com/run, then check `x`.\n" +
 		"The link `https://example.com/inside` is quoted once."
 	got := copyCandidates(message)
-	want := []string{"gcloud auth login", "! bun run deploy", "https://example.com/inside", "https://console.cloud.google.com/run"}
+	want := []string{"gcloud auth login", "! bun run deploy", "https://console.cloud.google.com/run", "https://example.com/inside"}
 	if !slices.Equal(got, want) {
+		t.Fatalf("candidates = %q, want %q", got, want)
+	}
+}
+
+func TestCopyCandidatesPreservesMixedOrderBeforeLimit(t *testing.T) {
+	message := "Open https://example.com/first then run `first-command`.\n"
+	want := []string{"https://example.com/first", "first-command"}
+	for i := range jevCopyCandidates {
+		command := fmt.Sprintf("command-%d", i)
+		message += "```sh\n" + command + "\n```\n"
+		if len(want) < jevCopyCandidates {
+			want = append(want, command)
+		}
+	}
+	if got := copyCandidates(message); !slices.Equal(got, want) {
+		t.Fatalf("candidates = %q, want %q", got, want)
+	}
+}
+
+func TestCopyCandidatesPreservesURLParentheses(t *testing.T) {
+	for _, message := range []string{
+		"https://en.wikipedia.org/wiki/Foo_(bar)",
+		"[link](https://en.wikipedia.org/wiki/Foo_(bar)).",
+		"(https://en.wikipedia.org/wiki/Foo_(bar)),",
+		"https://en.wikipedia.org/wiki/Foo_(bar)).after",
+	} {
+		if got := copyCandidates(message); !slices.Equal(got, []string{"https://en.wikipedia.org/wiki/Foo_(bar)"}) {
+			t.Errorf("message %q: candidates = %q", message, got)
+		}
+	}
+	message := "[nested](https://example.com/a_(b_(c))) and https://example.com/plain."
+	want := []string{"https://example.com/a_(b_(c))", "https://example.com/plain"}
+	if got := copyCandidates(message); !slices.Equal(got, want) {
 		t.Fatalf("candidates = %q, want %q", got, want)
 	}
 }

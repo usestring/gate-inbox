@@ -46,9 +46,10 @@ const jevCopyQuestion = "Does the latest assistant message ask the user to copy 
 	"Answer no for text that only explains or names something, and for commands the agent runs itself. Text: "
 
 var (
-	copyFencePattern = regexp.MustCompile("(?s)```[^\\n`]*\\n(.*?)```")
-	copySpanPattern  = regexp.MustCompile("`([^`\\n]+)`")
-	copyURLPattern   = regexp.MustCompile(`https?://[^\s<>()\[\]"'` + "`" + `]+`)
+	copyFencePattern     = regexp.MustCompile("(?s)```[^\\n`]*\\n(.*?)```")
+	copySpanPattern      = regexp.MustCompile("`([^`\\n]+)`")
+	copyURLPattern       = regexp.MustCompile(`https?://[^\s<>\[\]"'` + "`" + `]+`)
+	copyCandidatePattern = regexp.MustCompile(copyFencePattern.String() + "|" + copySpanPattern.String() + "|(" + copyURLPattern.String() + ")")
 )
 
 // copyItem is one queued piece of text and the session it came from.
@@ -82,7 +83,7 @@ type jevCopiedMsg struct {
 func storedJevCopyQueue(st *store.Store) bool { return storedExperiment(st, jevCopyQueueSetting) }
 
 // copyCandidates is the text in message an operator might lift, in the
-// order it appears: fenced blocks, then code spans and links outside them.
+// order it appears: fenced blocks, code spans and links outside them.
 // Text too short to be worth a key, or too long to send, is left out
 // rather than cut, since a truncated command is worse than none.
 func copyCandidates(message string) []string {
@@ -97,15 +98,28 @@ func copyCandidates(message string) []string {
 		seen[text] = true
 		out = append(out, text)
 	}
-	for _, match := range copyFencePattern.FindAllStringSubmatch(message, -1) {
-		add(match[1])
-	}
-	rest := copyFencePattern.ReplaceAllString(message, "\n")
-	for _, match := range copySpanPattern.FindAllStringSubmatch(rest, -1) {
-		add(match[1])
-	}
-	for _, link := range copyURLPattern.FindAllString(copySpanPattern.ReplaceAllString(rest, " "), -1) {
-		add(strings.TrimRight(link, ".,;:!?"))
+	for _, match := range copyCandidatePattern.FindAllStringSubmatch(message, -1) {
+		switch {
+		case match[1] != "":
+			add(match[1])
+		case match[2] != "":
+			add(match[2])
+		case match[3] != "":
+			link := match[3]
+			depth := 0
+			for i, char := range link {
+				if char == '(' {
+					depth++
+				} else if char == ')' {
+					if depth == 0 {
+						link = link[:i]
+						break
+					}
+					depth--
+				}
+			}
+			add(strings.TrimRight(link, ".,;:!?"))
+		}
 	}
 	return out
 }

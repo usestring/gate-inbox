@@ -80,6 +80,8 @@ same keys bring them back. Answering is the only gesture: a dialog answered with
 hands that session over and promotes the next thing waiting on a person. `alt+.` skips the one in
 front of you, `.` skips the row under the cursor from the list, `ctrl+\` stops. The queue is one live queue: a session that reaches waiting or finished while the first pass is walked joins it in place rather than waiting for another `i`.
 
+Questions go ahead of finished sessions, but not for ever. Once a session has sat finished for 10 minutes it queues with the waiting ones, ordered by priority and then by how long it has waited, so a board that always has somebody waiting still reaches its finished sessions. Closing those out is what takes rows off the board. A question that has only just come in still goes ahead of a session that has only just finished. The threshold is the `triage_finished_age` setting in the state database, a duration such as `"30m"`; `"0"` turns aging off and puts every question first again.
+
 The rest of the session's controls work from inside it: `ctrl+x` ends the session, `ctrl+n` starts a
 new one in its group, `alt+/` copies the agent's session id, `alt+;` steps back to the one you just
 left. `ctrl+s` opens your snippet menu over the session in front of you.

@@ -22,6 +22,11 @@ func triageRail(m *Model) string {
 // remaining tier.
 func seedTriageFleet(t *testing.T, m *Model) {
 	t.Helper()
+	// The fleet's times are fixed in the past, so against the wall clock its
+	// finished session has always sat past any aging threshold. The tests on
+	// it are about the tiers themselves; aging has its own in
+	// triageaging_test.go.
+	m.finishedAgeAfter = 0
 	base := time.Date(2026, 8, 24, 9, 0, 0, 0, time.UTC)
 	for _, seed := range []struct {
 		sess    store.Session

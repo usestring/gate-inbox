@@ -28,6 +28,14 @@ import (
 // is the tier an extension ranks a session at when it is blocked on a
 // decision about a whole piece of work rather than on one question in front
 // of somebody, so the sessions asking a live question are handed over first.
+//
+// A finished session does not stay under them for ever. Once it has sat
+// finished longer than finishedAgeAfter it ranks as waiting, and what orders
+// that tier -- priority, then deadline, then oldest first -- decides between it
+// and the questions. A fresh question still beats a fresh finish, but a fleet that
+// always has somebody waiting cannot starve its finished sessions: closing one
+// out is what takes a row off the board, where answering a question mostly
+// starts more work. See triageRankOf.
 var triageTiers = []string{
 	status.Waiting,
 	triageBlocked,
@@ -64,7 +72,29 @@ func (m *Model) triageRankOf(sess store.Session) int {
 	if m.isStale(sess) {
 		return triageRank(status.Idle)
 	}
+	if m.finishedAged(sess) {
+		return triageRank(status.Waiting)
+	}
 	return triageRank(sess.Status)
+}
+
+// finishedAged is whether a finished session has waited long enough to queue
+// with the waiting ones. It is read against now on every call, and the rows
+// are rebuilt on every poll pass, so a session crossing the line moves up the
+// rail on the next pass the way a running-out deadline moves its row.
+func (m *Model) finishedAged(sess store.Session) bool {
+	if m.finishedAgeAfter <= 0 || sess.Status != status.Finished || sess.LastStatusAt.IsZero() {
+		return false
+	}
+	return m.now().Sub(sess.LastStatusAt) >= m.finishedAgeAfter
+}
+
+// now is the model's clock: the wall clock unless a test pinned one.
+func (m *Model) now() time.Time {
+	if m.clock != nil {
+		return m.clock()
+	}
+	return time.Now()
 }
 
 // requiresInput is the one definition of "this session is waiting on a
@@ -136,9 +166,9 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 // The tier sits under the status rank: an urgent session heads the sessions
 // in the same state as it, but never crosses into a more pressing one -- a
 // question somebody is waiting on this second is handed over before any
-// finished session, urgent or not, and an urgent idle session still waits
-// behind every waiting or finished session. The rail has to read in the
-// order the drain walks. See priority.go.
+// finished session not yet aged into its tier, urgent or not, and an urgent
+// idle session still waits behind every waiting or finished session. The
+// rail has to read in the order the drain walks. See priority.go.
 //
 // LastStatusAt is when the session entered the state it is in, which is
 // exactly how long it has been waiting; the two fields under it only keep
@@ -147,7 +177,7 @@ func (m *Model) triageLess(a, b store.Session) bool {
 	if ka, kb := m.triageKeyOf(a), m.triageKeyOf(b); ka != kb {
 		return ka.before(kb)
 	}
-	return m.triageLessWithin(a, b, time.Now())
+	return m.triageLessWithin(a, b, m.now())
 }
 
 // triageKey is everything the queue orders by before it falls back to who has
@@ -199,7 +229,7 @@ func (m *Model) sortTriage(sessions []store.Session) {
 // the child is drawn directly under it, which is where the contract wants a
 // child that needs a person: right after its parent.
 func (m *Model) sortTriageWithChildren(sessions []store.Session, kids map[string][]store.Session) {
-	now := time.Now()
+	now := m.now()
 	var live map[string]bool
 	if len(kids) > 0 && m.tmux != nil {
 		live = m.livePanes()
@@ -292,9 +322,29 @@ func triageLessByAge(a, b store.Session) bool {
 }
 
 const (
-	triageSetting      = "triage_mode"
-	triageScopeSetting = "triage_scope"
+	triageSetting            = "triage_mode"
+	triageScopeSetting       = "triage_scope"
+	triageFinishedAgeSetting = "triage_finished_age"
 )
+
+// defaultFinishedAgeAfter is how long a finished session waits before triage
+// queues it with the waiting ones, when nothing is stored.
+const defaultFinishedAgeAfter = 10 * time.Minute
+
+// storedFinishedAgeAfter reads the persisted aging threshold, a Go duration
+// such as "10m". "0" turns aging off, which is the strict waiting-first order
+// triage had before it. An unset, unreadable or malformed value is the default.
+func storedFinishedAgeAfter(st *store.Store) time.Duration {
+	raw, err := st.Setting(triageFinishedAgeSetting)
+	if err != nil || raw == "" {
+		return defaultFinishedAgeAfter
+	}
+	after, err := time.ParseDuration(raw)
+	if err != nil || after < 0 {
+		return defaultFinishedAgeAfter
+	}
+	return after
+}
 
 // storedTriage reads the persisted mode. Off is the default: triage
 // rearranges the whole rail, so it is never something a user arrives at

@@ -1,0 +1,165 @@
+package ui
+
+import (
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/search"
+	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
+)
+
+func TestCopyCandidatesTakesBlocksSpansAndLinksInOrder(t *testing.T) {
+	message := "Run this yourself:\n\n```bash\ngcloud auth login\n```\n\n" +
+		"Then type `! bun run deploy` and open https://console.cloud.google.com/run, then check `x`.\n" +
+		"The link `https://example.com/inside` is quoted once."
+	got := copyCandidates(message)
+	want := []string{"gcloud auth login", "! bun run deploy", "https://example.com/inside", "https://console.cloud.google.com/run"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("candidates = %q, want %q", got, want)
+	}
+}
+
+func TestCopyCandidatesLeavesOutWhatIsTooLongRatherThanCutting(t *testing.T) {
+	long := strings.Repeat("a", jevCopyCandidateMax+1)
+	if got := copyCandidates("`" + long + "` and `ok-value`"); !slices.Equal(got, []string{"ok-value"}) {
+		t.Fatalf("candidates = %q", got)
+	}
+}
+
+func TestLatestAssistantTextNeedsTheTurnToEndOnTheAgent(t *testing.T) {
+	messages := []search.Message{{Role: "user", Text: "go"}, {Role: "assistant", Text: "run `make`"}}
+	if got := latestAssistantText(messages); got != "run `make`" {
+		t.Fatalf("got %q", got)
+	}
+	if got := latestAssistantText(append(messages, search.Message{Role: "user", Text: "next"})); got != "" {
+		t.Fatalf("a turn ending on the user gave %q", got)
+	}
+}
+
+func TestAskJevCopyKeepsOnlyConfidentPicks(t *testing.T) {
+	previous := jevHTTPClient
+	t.Cleanup(func() { jevHTTPClient = previous })
+	var questions map[string]struct{ Instructions string }
+	jevHTTPClient = &http.Client{Transport: jevFinishTransport(func(r *http.Request) (*http.Response, error) {
+		var body struct {
+			Questions map[string]struct{ Instructions string }
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		questions = body.Questions
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(
+			`{"model":"` + jevModel + `","answers":{"c1":{"type":"noul","noul":0.95},"c2":{"type":"noul","noul":0.5}}}`))}, nil
+	})}
+	picked, ok := askJevCopy(t.Context(), "key", "message", []string{"gcloud auth login", "README.md"})
+	if !ok || !slices.Equal(picked, []string{"gcloud auth login"}) {
+		t.Fatalf("picked %q ok=%v", picked, ok)
+	}
+	if !strings.HasSuffix(questions["c2"].Instructions, "README.md") {
+		t.Fatalf("question did not quote its candidate: %q", questions["c2"].Instructions)
+	}
+}
+
+func TestCopyQueueDrainsOldestFirstAndRequeuesAFailedWrite(t *testing.T) {
+	m := &Model{jevCopyQueue: true}
+	m.applyJevCopy(jevCopyResultMsg{from: "deploy", texts: []string{"first", "second"}})
+	m.applyJevCopy(jevCopyResultMsg{from: "deploy", texts: []string{"second"}})
+	if len(m.jevCopy.queue) != 2 {
+		t.Fatalf("queue = %+v, want the repeat dropped", m.jevCopy.queue)
+	}
+	if !strings.Contains(m.errBar.text, "JEV queued 2 from deploy") {
+		t.Fatalf("status = %q", m.errBar.text)
+	}
+
+	previous := writeClipboard
+	t.Cleanup(func() { writeClipboard = previous })
+	var wrote []string
+	writeClipboard = func(text string) error {
+		wrote = append(wrote, text)
+		return nil
+	}
+	_, cmd := m.copyNextQueued()
+	m.applyJevCopied(cmd().(jevCopiedMsg))
+	if !slices.Equal(wrote, []string{"first"}) || len(m.jevCopy.queue) != 1 {
+		t.Fatalf("wrote %q, queue %+v", wrote, m.jevCopy.queue)
+	}
+	if !strings.Contains(m.errBar.text, "1 left in the copy queue") {
+		t.Fatalf("status = %q", m.errBar.text)
+	}
+
+	writeClipboard = func(string) error { return errors.New("no clipboard") }
+	_, cmd = m.copyNextQueued()
+	m.applyJevCopied(cmd().(jevCopiedMsg))
+	if len(m.jevCopy.queue) != 1 || m.jevCopy.queue[0].text != "second" {
+		t.Fatalf("a failed write lost its text: %+v", m.jevCopy.queue)
+	}
+}
+
+func TestCopyQueueIsCapped(t *testing.T) {
+	m := &Model{jevCopyQueue: true}
+	for i := range jevCopyQueueCap + 3 {
+		m.applyJevCopy(jevCopyResultMsg{from: "s", texts: []string{strings.Repeat("x", i+1)}})
+	}
+	if len(m.jevCopy.queue) != jevCopyQueueCap || m.jevCopy.queue[0].text != "xxxx" {
+		t.Fatalf("queue kept %d, head %q", len(m.jevCopy.queue), m.jevCopy.queue[0].text)
+	}
+}
+
+func TestCopyQueueOffIgnoresALateResult(t *testing.T) {
+	m := &Model{jevCopy: jevCopyState{busy: true}}
+	m.applyJevCopy(jevCopyResultMsg{from: "s", texts: []string{"value"}})
+	if m.jevCopy.busy || len(m.jevCopy.queue) != 0 {
+		t.Fatalf("state = %+v", m.jevCopy)
+	}
+}
+
+func TestCheckCopyWithJevSeedsThenReadsANewTurnEnd(t *testing.T) {
+	t.Setenv("TYPESAFE_API_KEY", "test-key")
+	home := t.TempDir()
+	sess := store.Session{ID: "waiting", Name: "auth", Tool: "claude", Status: status.Waiting,
+		AgentSessionID: "conversation", LastStatusAt: time.Unix(100, 0)}
+	path := filepath.Join(home, "projects", "project", sess.AgentSessionID+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	line := `{"type":"assistant","message":{"role":"assistant","content":"Please run ` + "`gcloud auth login`" + ` yourself."}}`
+	if err := os.WriteFile(path, []byte(line+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	previous := jevHTTPClient
+	t.Cleanup(func() { jevHTTPClient = previous })
+	calls := 0
+	jevHTTPClient = &http.Client{Transport: jevFinishTransport(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(
+			`{"model":"` + jevModel + `","answers":{"c1":{"type":"noul","noul":0.9}}}`))}, nil
+	})}
+	m := &Model{cfg: config.Config{Tools: map[string]config.Tool{"claude": {Command: "claude"}}},
+		sessions: []store.Session{sess}, jevCopyQueue: true,
+		conversation: &conversationView{locator: search.NewLocator(home, "")}}
+	if cmd := m.checkCopyWithJev(); cmd != nil || calls != 0 {
+		t.Fatal("the first pass should only record where rows stand")
+	}
+	if cmd := m.checkCopyWithJev(); cmd != nil {
+		t.Fatal("an unchanged turn was read again")
+	}
+	m.sessions[0].LastStatusAt = m.sessions[0].LastStatusAt.Add(time.Minute)
+	cmd := m.checkCopyWithJev()
+	if cmd == nil {
+		t.Fatal("a new turn end was not read")
+	}
+	m.applyJevCopy(cmd().(jevCopyResultMsg))
+	if calls != 1 || len(m.jevCopy.queue) != 1 || m.jevCopy.queue[0].text != "gcloud auth login" {
+		t.Fatalf("calls %d, queue %+v", calls, m.jevCopy.queue)
+	}
+}

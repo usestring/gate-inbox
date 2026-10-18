@@ -173,6 +173,7 @@ func (m *Model) openSettings() {
 		outsidePanes:     m.outsidePanesMode(),
 		jevAutoSuggest:   m.jevAutoSuggest,
 		jevFinishCheck:   m.jevFinishCheck,
+		jevCopyQueue:     m.jevCopyQueue,
 		promptSuggest:    m.promptSuggest,
 		compressedFocus:  m.compressedFocus,
 		backdropSync:     storedBackdrop(m.store) == backdropSync,
@@ -344,6 +345,13 @@ func (m *Model) persistSettings() tea.Cmd {
 	}
 	m.persistExperiments()
 	m.jevFinishCheck = m.settings.jevFinishCheck
+	if m.jevCopyQueue != m.settings.jevCopyQueue {
+		// Turned on, the next pass records where every row stands rather
+		// than reading turns that ended while it was off; turned off, the
+		// queue goes with it.
+		m.jevCopy = jevCopyState{busy: m.jevCopy.busy}
+	}
+	m.jevCopyQueue = m.settings.jevCopyQueue
 	if m.promptSuggest != m.settings.promptSuggest {
 		m.promptSnipsSeq++
 	}

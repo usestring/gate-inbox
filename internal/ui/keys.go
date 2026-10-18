@@ -299,6 +299,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.cyclePrioritySelected()
 	case keymap.Mute:
 		return m.toggleMuteSelected()
+	case keymap.CopyQueued:
+		return m.copyNextQueued()
 	case keymap.ReviveAll:
 		return m.reviveAllDead()
 	case keymap.SwitchAccount:

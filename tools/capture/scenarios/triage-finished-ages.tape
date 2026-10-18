@@ -6,10 +6,10 @@
 # finished longest; the seeded claude session waits after it, and the seeded
 # opencode session finishes last. The threshold is a stored setting read at
 # startup, so the scenario leaves the board, sets it to two minutes and comes
-# back, hidden, since the launch line carries the scratch paths. Triage first
-# reads waiting before finished; once the adopted pane has sat finished past
-# the threshold it moves above the younger question, while the newer finish
-# stays below it.
+# back, hidden, since the launch line carries the scratch paths; recording
+# resumes once triage is on. Triage first reads waiting before finished; once
+# the adopted pane has sat finished past the threshold it moves above the
+# younger question, while the newer finish stays below it.
 
 Hide
 Type "q"
@@ -20,10 +20,11 @@ Sleep 2s
 Type "{{LAUNCH}}"
 Enter
 Sleep 12s
-Show
 
 Type "i"
 Sleep 4s
+Show
+Sleep 1s
 Screenshot {{SHOTS}}/01-question-ahead-of-a-fresh-finish.png
 Sleep 1s
 

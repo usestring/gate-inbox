@@ -76,6 +76,7 @@ func TestTriageScopeIncludesSubgroups(t *testing.T) {
 // sessions filed loose under it keep the fleet-wide drain reachable.
 func TestTriageFromRootDrainsTheWholeFleet(t *testing.T) {
 	m := buildModel(t)
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	seedTriageFleet(t, m)
 	m.selectSessionRow(t, "reviewme")
 

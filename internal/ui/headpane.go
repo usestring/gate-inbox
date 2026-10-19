@@ -164,6 +164,10 @@ func (m *Model) leaveHeadPane(advance bool) tea.Cmd {
 	left := ""
 	if sess, ok := m.selected(); ok {
 		left = sess.ID
+		// The walk hands over the head of the queue, so a session left
+		// unmuted, still reading what it was answered in, would be handed
+		// straight back on the next hop. See handOverFocused.
+		m.mute(sess)
 	}
 	return m.advanceTriage(left)
 }

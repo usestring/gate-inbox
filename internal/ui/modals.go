@@ -446,6 +446,10 @@ func (m *Model) viewSettings() string {
 	if m.settings.autoProceed {
 		autoProceed = "on"
 	}
+	smartTriage := "off"
+	if m.settings.smartTriage {
+		smartTriage = "on"
+	}
 	toolValue := ""
 	if len(m.settings.toolNames) > 0 {
 		toolValue = m.settings.toolNames[m.settings.toolIndex]
@@ -498,6 +502,7 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldQuickClose, "after hotkey send", quickClose) + "\n" +
 		row(settingsFieldFocusKey, "session keys", focusKey) + "\n" +
 		row(settingsFieldAutoProceed, "triage auto proceed", autoProceed) + "\n" +
+		row(settingsFieldSmartTriage, "smart triage", smartTriage) + "\n" +
 		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +
 		row(settingsFieldOutsidePanes, "outside panes", outsidePanesLabel(m.settings.outsidePanes)) + "\n" +
 		actionRow(settingsFieldJev, "JEV", m.jevSettingsSummary()) + "\n" +

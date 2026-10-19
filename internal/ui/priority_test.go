@@ -27,6 +27,7 @@ func sessionID(t *testing.T, m *Model, name string) string {
 // read in the order the drain walks.
 func TestPriorityLiftsWithinTheTriageBucket(t *testing.T) {
 	m := buildModel(t)
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	seedTriageFleet(t, m)
 	if err := m.store.SetPriority(sessionID(t, m, "reviewme"), priority.Urgent); err != nil {
 		t.Fatal(err)
@@ -53,6 +54,7 @@ func TestPriorityLiftsWithinTheTriageBucket(t *testing.T) {
 // group sheds it with the group.
 func TestGroupPriorityCoversTheSubtree(t *testing.T) {
 	m := buildModel(t)
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	seedTriageFleet(t, m)
 	if err := m.store.SetGroupPriority("beta", priority.Urgent); err != nil {
 		t.Fatal(err)
@@ -72,6 +74,7 @@ func TestGroupPriorityCoversTheSubtree(t *testing.T) {
 // the finished one ahead of it.
 func TestTriageDrainHandsOverPriorityFirst(t *testing.T) {
 	m := buildModel(t)
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	liveTriageFleet(t, m, map[string]string{
 		"ask":   status.Waiting,
 		"broke": status.Errored,
@@ -140,6 +143,7 @@ func TestPriorityKeyCyclesTheSession(t *testing.T) {
 // carries a session past a more pressing state.
 func TestTiersOrderWithinTheBucket(t *testing.T) {
 	m := buildModel(t)
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	seedTriageFleet(t, m)
 	if err := m.store.SetPriority(sessionID(t, m, "old-block"), priority.Low); err != nil {
 		t.Fatal(err)
@@ -198,6 +202,7 @@ func TestPriorityKeyTogglesTheGroupAndRefusesRoot(t *testing.T) {
 // with an urgent finished session on the board, and the rail agrees.
 func TestARaisedTierNeverJumpsAMorePressingState(t *testing.T) {
 	m := buildModel(t)
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	liveTriageFleet(t, m, map[string]string{
 		"ask":   status.Waiting,
 		"broke": status.Errored,
@@ -255,6 +260,7 @@ func TestNegativePrioritiesSortBelowDefault(t *testing.T) {
 
 func TestMediumPriorityJumpsTheTriageRing(t *testing.T) {
 	m := buildModel(t)
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	seedTriageFleet(t, m)
 	id := sessionID(t, m, "new-block")
 	if err := m.store.SetPriority(id, priority.Medium); err != nil {

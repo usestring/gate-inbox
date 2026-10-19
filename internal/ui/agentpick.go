@@ -654,6 +654,7 @@ func (m *Model) killFromAnywhere(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool)
 	}
 	if m.mode == modeForm || m.mode == modeGroupForm || m.mode == modeRename ||
 		m.mode == modeAgentPick || m.mode == modeFork || m.mode == modeMigrate || m.mode == modeConfirmDelete ||
+		(m.mode == modeSettings && m.settings.jevPasting) ||
 		(m.mode == modeHelp && (m.help.capturing || m.help.clash != nil)) {
 		return nil, nil, false
 	}

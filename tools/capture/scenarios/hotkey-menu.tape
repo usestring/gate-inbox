@@ -30,7 +30,7 @@ Sleep 1s
 # the menu, and the bare key answers the pane in front of you.
 Enter
 Sleep 2s
-Ctrl+s
+Ctrl+S
 Sleep 1500ms
 Screenshot {{SHOTS}}/03-hotkey-menu-in-focus.png
 Sleep 1s

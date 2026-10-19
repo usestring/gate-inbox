@@ -314,7 +314,7 @@ func TestArtifactRowRefusesTheSessionKeys(t *testing.T) {
 		"R":        {Code: 'R', Text: "R"},
 		"v":        {Code: 'v', Text: "v"},
 		"V":        {Code: 'V', Text: "V"},
-		"A":        {Code: 'A', Text: "A"},
+		"ctrl+a":   {Code: 'a', Mod: tea.ModCtrl},
 		"T":        {Code: 'T', Text: "T"},
 		"f":        {Code: 'f', Text: "f"},
 		"r":        {Code: 'r', Text: "r"},

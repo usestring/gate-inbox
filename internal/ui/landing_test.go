@@ -526,3 +526,43 @@ func TestPollRecordsLandingWhileLookIsInFlight(t *testing.T) {
 		t.Fatalf("poll landing log = %s", blob)
 	}
 }
+
+func TestReplacingLandingRecordsDisplacedAnswerOnce(t *testing.T) {
+	m := &Model{}
+	sess := store.Session{ID: "row"}
+	path := filepath.Join(t.TempDir(), "landing.log")
+	logger, err := logging.Open(logging.Options{Path: path, Level: logging.LevelInfo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := logging.SetDefault(logger)
+	t.Cleanup(func() { logging.SetDefault(previous); logger.Close() })
+	first := m.armLanding(sess, time.Now(), extension.OperatorPane, "", false, true, "")
+	old := m.landings[sess.ID]
+	spans := recordSpans(t, func() {
+		m.armLanding(sess, time.Now(), extension.OperatorPane, "", false, true, "")
+		next := m.landings[sess.ID]
+		if next == old {
+			t.Fatal("new answer did not replace the pending landing")
+		}
+		m.applyLandingCheck(first().(landingCheckMsg))
+		if m.landings[sess.ID] != next {
+			t.Fatal("stale check changed the replacement landing")
+		}
+		m.applyLandingCheck(landingCheckMsg{id: sess.ID, gen: next.gen, verdict: landingRefused})
+	})
+	landings := spansNamed(spans, "ui.landing")
+	if len(landings) != 2 || landings[0].str(t, "outcome") != "replaced" || landings[1].str(t, "outcome") != "refused" {
+		t.Fatalf("replacement and final landing spans = %v", landings)
+	}
+	if err := logger.Close(); err != nil {
+		t.Fatal(err)
+	}
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(blob), "triage answer") != 2 || !strings.Contains(string(blob), "outcome=replaced") {
+		t.Fatalf("replacement landing log = %s", blob)
+	}
+}

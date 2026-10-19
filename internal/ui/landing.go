@@ -307,6 +307,9 @@ func (m *Model) armLanding(sess store.Session, started time.Time, via extension.
 		probe:    m.landingProbeFor(sess, dialog, pane),
 	}
 	pending.observed = *pending.probe
+	if previous := m.landings[sess.ID]; previous != nil {
+		recordLanding(previous, "replaced")
+	}
 	m.landings[sess.ID] = pending
 	delete(m.unseenAnswers, sess.ID)
 	return landingLook(sess.ID, pending)

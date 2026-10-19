@@ -180,7 +180,7 @@ fork commands, prompts and MCP registration.
 
 ## Optional integrations
 
-Both are opt-in and talk only to services you run or already use.
+They talk only to services you run or already use.
 
 **Pull requests and tickets.** Gate Inbox finds the pull requests and tickets a session is working
 on from its branch and its output, and hangs them under the session with their CI and review state.
@@ -196,22 +196,12 @@ enabled = false
 enabled = false
 ```
 
-**Artifacts.** An extension that lets agents publish a report or an HTML page and hand back a link
-that opens from any session, whichever CLI it runs. It is off until you enable it, and the store
-behind it is a Cloudflare Worker you deploy yourself; see
-[`extension/artifacts/worker/README.md`](extension/artifacts/worker/README.md).
-
-```toml
-[extensions.artifacts]
-enabled = true
-```
-
-Extensions are Go code compiled into the binary against the public `extension` package; the `app`
-package runs the board with whichever extensions a build carries. A build of your own lists its
-extensions in `app.Options`, and carries the artifacts one by listing `artifacts.New()` from
-`extension/artifacts`. A section an extension refuses switches off that extension alone, and a
-section no extension in the build owns is ignored; the board's `?` key map and each session's MCP
-instructions say which and why. A disabled extension that has a say in
+**Extensions.** Extensions are Go code compiled into the binary against the public `extension`
+package; the `app` package runs the board with whichever extensions a build carries. This build
+carries none, so an `[extensions.artifacts]` section left from an earlier version is ignored. A build
+of your own lists its extensions in `app.Options`. A section an extension refuses switches off that
+extension alone, and a section no extension in the build owns is ignored; the board's `?` key map and
+each session's MCP instructions say which and why. A disabled extension that has a say in
 which sessions spawn fails closed: every spawn it would have been asked about is refused, with the
 reason, until its section is fixed.
 

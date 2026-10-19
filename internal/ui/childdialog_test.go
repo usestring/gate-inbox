@@ -233,3 +233,48 @@ func TestANewDialogOnAWaitingChildIsRelayedAgain(t *testing.T) {
 		t.Errorf("%d relays queued, want the newer to replace the older", n)
 	}
 }
+
+// On 2026-10-17 a parent stood on its own Approval for an hour and a half.
+// Nothing can be typed into a pane holding a dialog, so the relays queued, and
+// three minutes in each was re-sent as an interrupt. When the user answered,
+// those interrupts stopped the turn their answer had started, one after
+// another, and each read "Not yet read after 3m0s" an hour and a half late.
+func TestARelayHeldByTheParentsOwnDialogIsNotEscalated(t *testing.T) {
+	p, st := pollerWithStore(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var pinged []notify.Note
+	p.escalate = func(note notify.Note) bool { pinged = append(pinged, note); return true }
+	parent := seedSession(t, st, store.Session{ID: "parent01", Name: "release-lead", Status: status.Waiting})
+	child := seedSession(t, st, store.Session{ID: "child001", Name: "release-audit", ParentID: parent.ID, Status: status.Working})
+	pane := readDialogFixture(t, "claude-2.1.284-w50-permission-bash.ansi")
+	start := time.Now()
+
+	for _, at := range []time.Duration{0, childDialogUndelivered, time.Hour, 90 * time.Minute} {
+		if err := p.watchChildDialog(child, status.Waiting, pane, start.Add(at)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	head, _, _ := st.HeadMessage(parent.ID)
+	if head.Interrupt || strings.Contains(head.Body, "Not yet read") || len(pinged) != 0 {
+		t.Fatalf("a relay held by the parent's own dialog was escalated: %+v, %d pings", head, len(pinged))
+	}
+
+	// The parent's user answers and its turn runs: the relay gets the same
+	// three minutes from then before it interrupts.
+	if err := st.UpdateStatus(parent.ID, status.Working); err != nil {
+		t.Fatal(err)
+	}
+	back := start.Add(90*time.Minute + time.Second)
+	if err := p.watchChildDialog(child, status.Waiting, pane, back.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if head, _, _ := st.HeadMessage(parent.ID); head.Interrupt {
+		t.Fatalf("the relay interrupted the turn the parent's user had just started: %+v", head)
+	}
+	if err := p.watchChildDialog(child, status.Waiting, pane, back.Add(childDialogUndelivered)); err != nil {
+		t.Fatal(err)
+	}
+	if head, _, _ := st.HeadMessage(parent.ID); !head.Interrupt || len(pinged) != 1 {
+		t.Fatalf("a relay left undelivered by a working parent was not escalated: %+v, %d pings", head, len(pinged))
+	}
+}

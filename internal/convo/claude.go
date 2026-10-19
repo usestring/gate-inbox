@@ -333,20 +333,37 @@ func readHeadBytes(path string, window int64) ([]byte, error) {
 // bytes. The last line is dropped when the window cut it short. Tool
 // results arrive as user records too and are not prompts, and neither is a
 // slash command's expansion or a note the manager typed in on its own
-// account.
+// account. The slash command a skill was started with is one: it is the
+// only record of what the session was opened for.
 func parseHead(raw []byte) []string {
 	lines := bytes.Split(raw, []byte{'\n'})
 	if len(lines) > 0 && int64(len(raw)) >= headBytes {
 		lines = lines[:len(lines)-1]
 	}
 	var prompts []string
+	// command waits on the record after it: a skill's expansion follows as a
+	// meta record, while a built-in such as /clear is followed by its output.
+	var command string
 	for _, line := range lines {
 		line = bytes.TrimSpace(line)
 		if len(line) == 0 || line[0] != '{' {
 			continue
 		}
 		var rec record
-		if json.Unmarshal(line, &rec) != nil || rec.Type != "user" || rec.IsMeta {
+		if json.Unmarshal(line, &rec) != nil || rec.Type != "user" {
+			continue
+		}
+		if rec.IsMeta {
+			if command != "" {
+				prompts = append(prompts, command)
+				command = ""
+				if len(prompts) >= FirstPromptCount {
+					break
+				}
+			}
+			continue
+		}
+		if command = slashCommand(rec.Message.Content); command != "" {
 			continue
 		}
 		prompt := typedPrompt(rec.Message.Content)
@@ -359,6 +376,39 @@ func parseHead(raw []byte) []string {
 		}
 	}
 	return prompts
+}
+
+// slashCommand is the command line a record's command tags hold, "/name
+// args", or empty when the record is not a slash command.
+func slashCommand(content json.RawMessage) string {
+	var text string
+	if json.Unmarshal(content, &text) != nil {
+		var parts []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if json.Unmarshal(content, &parts) != nil || len(parts) == 0 || parts[0].Type != "text" {
+			return ""
+		}
+		text = parts[0].Text
+	}
+	name := tagText(text, "command-name")
+	if !strings.HasPrefix(name, "/") {
+		return ""
+	}
+	if args := tagText(text, "command-args"); args != "" {
+		return name + " " + args
+	}
+	return name
+}
+
+func tagText(text, tag string) string {
+	_, rest, ok := strings.Cut(text, "<"+tag+">")
+	if !ok {
+		return ""
+	}
+	inner, _, _ := strings.Cut(rest, "</"+tag+">")
+	return strings.TrimSpace(inner)
 }
 
 // typedPrompt is the text a person typed in a user record: a bare string, or

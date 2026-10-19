@@ -64,22 +64,25 @@ type copyItem struct {
 // seeded marks the first pass, which records every row's current turn
 // without asking, so turning the feature on does not reread the whole board.
 type jevCopyState struct {
-	busy    bool
-	copying bool
-	seeded  bool
-	checked map[string]string
-	queue   []copyItem
+	generation uint64
+	busy       bool
+	copying    bool
+	seeded     bool
+	checked    map[string]string
+	queue      []copyItem
 }
 
 type jevCopyResultMsg struct {
-	from  string
-	texts []string
+	generation uint64
+	from       string
+	texts      []string
 }
 
 type jevCopiedMsg struct {
-	item  copyItem
-	chars int
-	err   error
+	generation uint64
+	item       copyItem
+	chars      int
+	err        error
 }
 
 func storedJevCopyQueue(st *store.Store) bool { return storedExperiment(st, jevCopyQueueSetting) }
@@ -212,8 +215,9 @@ func (m *Model) checkCopyWithJev() tea.Cmd {
 	tool := historyToolFormats(m.cfg)[sess.Tool]
 	database := opencodeDBPath()
 	from := m.displayName(sess)
+	generation := m.jevCopy.generation
 	return func() tea.Msg {
-		msg := jevCopyResultMsg{from: from}
+		msg := jevCopyResultMsg{from: from, generation: generation}
 		target, found := locator.Target(sess.ID, tool, sess.Cwd, sess.AgentSessionID)
 		if !found {
 			return msg
@@ -236,7 +240,7 @@ func (m *Model) checkCopyWithJev() tea.Cmd {
 
 func (m *Model) applyJevCopy(msg jevCopyResultMsg) {
 	m.jevCopy.busy = false
-	if !m.jevCopyQueue || len(msg.texts) == 0 {
+	if !m.jevCopyQueue || msg.generation != m.jevCopy.generation || len(msg.texts) == 0 {
 		return
 	}
 	added := 0
@@ -291,18 +295,19 @@ func (m *Model) copyNextQueued() (tea.Model, tea.Cmd) {
 	}
 	m.jevCopy.copying = true
 	item := m.jevCopy.queue[0]
+	generation := m.jevCopy.generation
 	m.jevCopy.queue = m.jevCopy.queue[1:]
 	return m, func() tea.Msg {
 		if err := writeClipboard(item.text); err != nil {
-			return jevCopiedMsg{item: item, err: err}
+			return jevCopiedMsg{generation: generation, item: item, err: err}
 		}
-		return jevCopiedMsg{item: item, chars: utf8.RuneCountInString(item.text)}
+		return jevCopiedMsg{generation: generation, item: item, chars: utf8.RuneCountInString(item.text)}
 	}
 }
 
 func (m *Model) applyJevCopied(msg jevCopiedMsg) {
 	m.jevCopy.copying = false
-	if !m.jevCopyQueue {
+	if !m.jevCopyQueue || msg.generation != m.jevCopy.generation {
 		return
 	}
 	if msg.err != nil {

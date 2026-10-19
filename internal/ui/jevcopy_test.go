@@ -273,7 +273,7 @@ func TestCheckCopyWithJevSeedsThenReadsANewTurnEnd(t *testing.T) {
 			`{"model":"` + jevModel + `","answers":{"c1":{"type":"noul","noul":0.9}}}`))}, nil
 	})}
 	m := &Model{cfg: config.Config{Tools: map[string]config.Tool{"claude": {Command: "claude"}}},
-		sessions: []store.Session{sess}, jevCopyQueue: true,
+		sessions: []store.Session{sess}, jevCopyQueue: true, jevCopy: jevCopyState{generation: 3},
 		conversation: &conversationView{locator: search.NewLocator(home, "")}}
 	if cmd := m.checkCopyWithJev(); cmd != nil || calls != 0 {
 		t.Fatal("the first pass should only record where rows stand")
@@ -305,5 +305,50 @@ func TestCheckCopyWithJevSeedsThenReadsANewTurnEnd(t *testing.T) {
 	}
 	if cmd := m.checkCopyWithJev(); cmd != nil {
 		t.Fatal("a checked conversation was read again")
+	}
+}
+
+func TestCopyQueueReenabledIgnoresPreviousActivation(t *testing.T) {
+	for _, kind := range []string{"jev", "clipboard-success", "clipboard-failure"} {
+		t.Run(kind, func(t *testing.T) {
+			m := buildModel(t)
+			m.jevCopyQueue = true
+			m.jevCopy = jevCopyState{busy: kind == "jev", queue: []copyItem{{text: "old item"}}}
+			generation := m.jevCopy.generation
+			var copied jevCopiedMsg
+			if kind != "jev" {
+				previous := writeClipboard
+				t.Cleanup(func() { writeClipboard = previous })
+				writeClipboard = func(string) error {
+					if kind == "clipboard-failure" {
+						return errors.New("clipboard unavailable")
+					}
+					return nil
+				}
+				_, cmd := m.copyNextQueued()
+				copied = cmd().(jevCopiedMsg)
+			}
+			m.openSettings()
+			m.settings.jevCopyQueue = false
+			m.persistSettings()
+			m.settings.jevCopyQueue = true
+			m.persistSettings()
+			if m.jevCopy.generation == generation {
+				t.Fatal("toggling did not invalidate the previous activation")
+			}
+			m.errBar.text = "current status"
+			if kind == "jev" {
+				m.applyJevCopy(jevCopyResultMsg{generation: generation, texts: []string{"old result"}})
+			} else {
+				m.applyJevCopied(copied)
+			}
+			if m.jevCopy.busy || m.jevCopy.copying || len(m.jevCopy.queue) != 0 || m.errBar.text != "current status" {
+				t.Fatalf("stale result changed the new activation: state %+v, status %q", m.jevCopy, m.errBar.text)
+			}
+			m.applyJevCopy(jevCopyResultMsg{generation: m.jevCopy.generation, texts: []string{"new item"}})
+			if len(m.jevCopy.queue) != 1 || m.jevCopy.queue[0].text != "new item" {
+				t.Fatalf("new activation did not accept its result: %+v", m.jevCopy)
+			}
+		})
 	}
 }

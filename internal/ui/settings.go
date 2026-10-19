@@ -349,7 +349,7 @@ func (m *Model) persistSettings() tea.Cmd {
 		// Turned on, the next pass records where every row stands rather
 		// than reading turns that ended while it was off; turned off, the
 		// queue goes with it.
-		m.jevCopy = jevCopyState{busy: m.jevCopy.busy, copying: m.jevCopy.copying}
+		m.jevCopy = jevCopyState{generation: m.jevCopy.generation + 1, busy: m.jevCopy.busy, copying: m.jevCopy.copying}
 	}
 	m.jevCopyQueue = m.settings.jevCopyQueue
 	if m.promptSuggest != m.settings.promptSuggest {

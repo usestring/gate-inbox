@@ -113,7 +113,7 @@ func storedComfortableRows(st *store.Store) bool {
 }
 
 // enterFocuses reports which key opens a session where. Enter focuses the
-// preview and A attaches full screen by default; a stored "attach" choice
+// preview and ctrl+a attaches full screen by default; a stored "attach" choice
 // swaps the pair. Cached on the model because the footer reads it every
 // frame.
 func (m *Model) enterFocuses() bool {

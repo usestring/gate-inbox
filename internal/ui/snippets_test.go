@@ -839,8 +839,10 @@ func TestConfigDirIsTheHooksParent(t *testing.T) {
 	}
 }
 
-// The focused menu holds the keys, and a single red banner over the dock
-// says so; the pane behind it keeps the agent's colours so it stays readable.
+// The focused menu holds the keys, and the dock sits on a red band headed by
+// a banner that says so; the pane behind it keeps the agent's colours so it
+// stays readable. The keys are on the band, and the target line is not: the
+// pane on screen is the target.
 func TestFocusedMenuBannerKeepsPaneColours(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
@@ -874,10 +876,18 @@ func TestFocusedMenuBannerKeepsPaneColours(t *testing.T) {
 			dock = append(dock, row)
 		}
 	}
-	if len(dock) != 1 || dock[0].bg != quickBannerHex() {
-		t.Fatalf("banded rows = %+v, want only the red banner", dock)
+	if len(dock) != 2 {
+		t.Fatalf("banded rows = %+v, want the banner and the snippet keys", dock)
+	}
+	for _, row := range dock {
+		if row.bg != quickBannerHex() {
+			t.Fatalf("dock row %q is on %q, want the red band", ansi.Strip(row.text), row.bg)
+		}
 	}
 	if !strings.Contains(ansi.Strip(dock[0].text), "esc to close") {
 		t.Fatalf("banner = %q, want the esc notice", ansi.Strip(dock[0].text))
+	}
+	if got := ansi.Strip(dock[1].text); !strings.Contains(got, "d ship it now") || strings.Contains(got, "send") {
+		t.Fatalf("band row = %q, want the snippet keys and no target line", got)
 	}
 }

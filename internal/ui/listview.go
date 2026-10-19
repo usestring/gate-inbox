@@ -1566,7 +1566,9 @@ func (m *Model) contentLines(width, height int) []contentLine {
 		bar = append([]contentLine{{}}, ours(splitLines(m.viewQuickBar(inner, quickBarMaxRows)))...)
 		if m.quickHoldsPane() {
 			bar[0].text = gutter + m.quickBanner(inner)
-			bar[0].bg = quickBannerHex()
+			for i := range bar {
+				bar[i].bg = quickBannerHex()
+			}
 		}
 	}
 	var body []contentLine
@@ -1880,16 +1882,31 @@ func (m *Model) quickHoldsPane() bool {
 // otherwise only spaces it off the pane: what has the keyboard, and the key
 // that gives it back. The pane keeps its colours; the band alone says so.
 func (m *Model) quickBanner(width int) string {
-	ink := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(current.Bg))
 	title := "HOTKEY MENU OPEN"
 	if note := " · esc to close"; textfmt.Width(title+note) <= width {
 		title += note
 	}
-	return ink.Render(title)
+	return quickBandInk(true)(title)
+}
+
+// quickBandInk is the text style on the red band: the theme's background
+// colour, since the accent and muted inks the list dock uses wash out on red.
+func quickBandInk(bold bool) func(...string) string {
+	return lipgloss.NewStyle().Bold(bold).Foreground(lipgloss.Color(current.Bg)).Render
+}
+
+// quickMenuInks are the styles the menu's keys, labels and notes render in:
+// the band's own ink when the dock sits on the red band, the list's otherwise.
+func (m *Model) quickMenuInks() (key, label, note func(...string) string) {
+	if m.quickHoldsPane() {
+		return quickBandInk(true), quickBandInk(false), quickBandInk(false)
+	}
+	return keyStyle.Render, mutedStyle.Render, subtleStyle.Render
 }
 
 // viewQuickBar is the docked hotkey menu: the session a key would answer,
-// then every snippet under the key that sends it from here.
+// then every snippet under the key that sends it from here. Over a focused
+// session the target is the pane on screen, so the dock leaves it unnamed.
 func (m *Model) viewQuickBar(width, maxRows int) string {
 	label := func(text string) string { return labelStyle.Render(padRight(text, detailLabelWidth)) }
 	target := rowColumns(label("target")+mutedStyle.Render("no selection"), "", width)
@@ -1909,8 +1926,12 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 	}
 	lines := m.quickMenuLines(width, limit)
 	if suggestion := m.selectedAutoSuggestion(); suggestion != "" && limit > 1 {
+		_, _, note := m.quickMenuInks()
 		lines = m.quickMenuLines(width, limit-1)
-		lines = append(lines, subtleStyle.Render(truncateTail("ctrl+y insert · "+suggestion, width)))
+		lines = append(lines, note(truncateTail("ctrl+y insert · "+suggestion, width)))
+	}
+	if m.quickHoldsPane() {
+		return strings.Join(lines, "\n")
 	}
 	return target + "\n" + strings.Join(lines, "\n")
 }
@@ -1921,11 +1942,16 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 // keeps a long snippets file from pushing the live pane off the screen; the
 // last line says how many did not fit, and the key map lists them all.
 func (m *Model) quickMenuLines(width, limit int) []string {
+	keyInk, labelInk, noteInk := m.quickMenuInks()
 	if m.snipErr != "" {
-		return []string{errStyle.Render(truncateTail("snippets.json could not be read: "+m.snipErr, width))}
+		errInk := errStyle.Render
+		if m.quickHoldsPane() {
+			errInk = keyInk
+		}
+		return []string{errInk(truncateTail("snippets.json could not be read: "+m.snipErr, width))}
 	}
 	if len(m.snips.Snippets) == 0 {
-		return []string{mutedStyle.Render(truncateTail("no snippets yet: add them to "+snippets.Path(m.configDir()), width))}
+		return []string{labelInk(truncateTail("no snippets yet: add them to "+snippets.Path(m.configDir()), width))}
 	}
 	type cell struct {
 		text  string
@@ -1942,7 +1968,7 @@ func (m *Model) quickMenuLines(width, limit int) []string {
 		}
 		title = strings.Join(strings.Fields(title), " ")
 		title = textfmt.TruncateWidth(title, max(1, width-textfmt.Width(key)-1), "…")
-		c := cell{keyStyle.Render(key) + " " + mutedStyle.Render(title), textfmt.Width(key) + 1 + textfmt.Width(title)}
+		c := cell{keyInk(key) + " " + labelInk(title), textfmt.Width(key) + 1 + textfmt.Width(title)}
 		if len(line) > 0 && used+gap+c.width > width {
 			lines, line, used = append(lines, line), nil, 0
 		}
@@ -1995,7 +2021,7 @@ func (m *Model) quickMenuLines(width, limit int) []string {
 		if out[limit-1] != "" {
 			out[limit-1] += sep
 		}
-		out[limit-1] += subtleStyle.Render(truncateTail(more, width))
+		out[limit-1] += noteInk(truncateTail(more, width))
 	}
 	return out
 }

@@ -628,18 +628,32 @@ func (m *Model) newSessionFromAnywhere(msg tea.KeyPressMsg) (tea.Model, tea.Cmd,
 	return m, tea.Batch(cmds...), true
 }
 
-// killFromAnywhere makes the focused screen's kill chord (ctrl+x) reach the
+// killFromAnywhere makes the current screen's kill binding reach the
 // session from every screen that is not taking typed text: the list, the
 // search field, the hotkey menu, the legend peek, help and the pickers drawn
 // over a pane. Each box is closed the way newSessionFromAnywhere closes them,
 // and the kill then lands on the focused session or the row under the cursor,
 // asking first as it always does. A confirm dialog already up keeps the key.
 func (m *Model) killFromAnywhere(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
-	if action, bound := m.action(keymap.ContextFocus, msg); !bound || action != keymap.Archive {
+	ctx := keymap.ContextList
+	if m.mode == modeFocus || (m.mode == modeHelp && m.help.returnMode == modeFocus) ||
+		(m.mode == modePanePicker && m.panePicker.fromFocus) {
+		ctx = keymap.ContextFocus
+	}
+	action, bound := m.action(ctx, msg)
+	// The default kill chord also works on the list when it has no list binding.
+	// Custom focus bindings must not claim unrelated list keys.
+	if ctx == keymap.ContextList && !bound && keyName(msg) == "ctrl+x" {
+		action, bound = m.action(keymap.ContextFocus, msg)
+	}
+	if !bound || action != keymap.Archive {
+		return nil, nil, false
+	}
+	if m.searching && msg.Mod&(tea.ModCtrl|tea.ModAlt) == 0 {
 		return nil, nil, false
 	}
 	if m.mode == modeForm || m.mode == modeGroupForm || m.mode == modeRename ||
-		m.mode == modeAgentPick || m.mode == modeConfirmDelete ||
+		m.mode == modeAgentPick || m.mode == modeFork || m.mode == modeMigrate || m.mode == modeConfirmDelete ||
 		(m.mode == modeHelp && (m.help.capturing || m.help.clash != nil)) {
 		return nil, nil, false
 	}

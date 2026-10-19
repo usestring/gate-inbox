@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 )
 
@@ -349,5 +351,64 @@ func TestListArchiveChordReachesThroughSearch(t *testing.T) {
 	}
 	if m.mode != modeConfirmDelete || m.confirm.action != actionArchive {
 		t.Fatalf("ctrl+x from search left mode %v action %q, want the kill dialog", m.mode, m.confirm.action)
+	}
+}
+
+func TestArchiveChordPreservesForkAndMigrationInput(t *testing.T) {
+	for _, screen := range []mode{modeFork, modeMigrate} {
+		t.Run(fmt.Sprint(screen), func(t *testing.T) {
+			m := shotModel()
+			m.mode = screen
+			m.fork.name = textField("fork name", 60)
+			m.migrate.name = textField("session name", 60)
+			m.fork.name.SetValue("unfinished fork")
+			m.migrate.name.SetValue("unfinished migration")
+			m.handleKey(ctrlX())
+			if m.mode != screen || m.fork.name.Value() != "unfinished fork" || m.migrate.name.Value() != "unfinished migration" {
+				t.Fatalf("kill chord changed the form: mode=%v fork=%q migration=%q", m.mode, m.fork.name.Value(), m.migrate.name.Value())
+			}
+		})
+	}
+}
+
+func TestArchiveBindingUsesUnderlyingContext(t *testing.T) {
+	for _, screen := range []string{"list", "list search", "list menu", "list help", "focus", "focus menu", "focus help", "focus picker"} {
+		t.Run(screen, func(t *testing.T) {
+			m := focusedKillFleet(t, false)
+			m.selectSessionRow(t, "ask")
+			m.keys, _ = m.km().Rebind(keymap.ContextFocus, keymap.Archive, []string{"q"})
+			want := strings.HasPrefix(screen, "focus")
+			if want {
+				m.mode = modeFocus
+			}
+			switch screen {
+			case "list search":
+				m.searching = true
+			case "list menu", "focus menu":
+				m.openQuickMode()
+			case "list help", "focus help":
+				m.openHelp()
+			case "focus picker":
+				m.panePicker.fromFocus = true
+				m.mode = modePanePicker
+			}
+			before := m.mode
+			_, _, handled := m.killFromAnywhere(tea.KeyPressMsg{Code: 'q', Text: "q"})
+			if handled != want {
+				t.Fatalf("handled=%v, want %v", handled, want)
+			}
+			if !want && m.mode != before {
+				t.Fatal("focus binding dismissed a list overlay")
+			}
+		})
+	}
+	m := shotModel()
+	m.keys, _ = m.km().Rebind(keymap.ContextFocus, keymap.Archive, []string{"q"})
+	_, cmd := m.handleKey(tea.KeyPressMsg{Code: 'q', Text: "q"})
+	if cmd == nil {
+		t.Fatal("list quit returned no command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("focus archive binding stole list quit")
 	}
 }

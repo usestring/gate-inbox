@@ -2445,3 +2445,29 @@ func TestRestoreAllBringsBackEveryArchivedSession(t *testing.T) {
 		t.Cleanup(func() { m.tmux.Kill(sess.ID) })
 	}
 }
+
+func TestRestoreAllWarnsAboutDegradedResumes(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), "")
+	sess := m.sessionRows()[0]
+	tool := m.cfg.Tools[sess.Tool]
+	tool.ReviveCommand = "cat"
+	tool.ResumeByIDCommand = "cat {id}"
+	m.cfg.Tools[sess.Tool] = tool
+	if err := m.tmux.Kill(sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.SetArchived(sess.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	m.showArchived = true
+	m.applyCmd(t, m.refreshCmd())
+	m.restoreAllDead()
+	if got, want := m.errBar.text, "restored 1, 1 without a captured id (used --continue)"; got != want {
+		t.Fatalf("notice=%q, want %q", got, want)
+	}
+	if !m.tmux.Exists(sess.ID) {
+		t.Fatal("session was not revived")
+	}
+	t.Cleanup(func() { m.tmux.Kill(sess.ID) })
+}

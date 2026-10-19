@@ -185,7 +185,7 @@ func (m *Model) reviveAllDead() (tea.Model, tea.Cmd) {
 // back out of the archive, which is what restore does for one row. Like
 // reviveMany it carries on past a failure and names the first one.
 func (m *Model) restoreAllDead() (tea.Model, tea.Cmd) {
-	restored := 0
+	restored, degraded := 0, 0
 	var firstErr string
 	fail := func(err error) {
 		if firstErr == "" {
@@ -200,6 +200,9 @@ func (m *Model) restoreAllDead() (tea.Model, tea.Cmd) {
 			if err := m.reviveSession(sess); err != nil {
 				fail(err)
 				continue
+			}
+			if m.degradedResumeNotice(sess) != "" {
+				degraded++
 			}
 		}
 		if sess.Archived {
@@ -216,6 +219,8 @@ func (m *Model) restoreAllDead() (tea.Model, tea.Cmd) {
 		m.errBar.text = "no dead sessions to restore"
 	case firstErr != "":
 		m.errBar.text = fmt.Sprintf("restored %d, first error: %s", restored, firstErr)
+	case degraded > 0:
+		m.errBar.text = fmt.Sprintf("restored %d, %d without a captured id (used --continue)", restored, degraded)
 	default:
 		m.errBar.text = ""
 		m.reportDone(fmt.Sprintf("restored %d", restored))

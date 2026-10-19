@@ -561,9 +561,10 @@ type Model struct {
 	// the cursor was in when triage was turned on -- and is "" for a drain
 	// of the whole fleet.
 	triageScope string
-	// finishedAgeAfter is how long a session may sit finished before triage
-	// ranks it with the waiting ones. Zero never ages one. See triageRankOf.
-	finishedAgeAfter time.Duration
+	// smartTriage mirrors the persisted smart_triage setting: on, triage
+	// orders the walk by weighted wait; off, by the strict state-first order.
+	// See triageScore.
+	smartTriage bool
 	// triageStartupEnter is set when triage was already on at startup, so the
 	// first poll enters the head of the queue the way turning triage on does.
 	// Restoring the mode without the entry leaves the operator on a list they
@@ -882,6 +883,7 @@ type settingsState struct {
 	leaveMode          string
 	newSessionAgent    string
 	autoProceed        bool
+	smartTriage        bool
 	reopenSessions     string
 	outsidePanes       string
 	experimentalPicker bool
@@ -924,6 +926,7 @@ const (
 	settingsFieldQuickClose
 	settingsFieldFocusKey
 	settingsFieldAutoProceed
+	settingsFieldSmartTriage
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
 	settingsFieldJev
@@ -1254,6 +1257,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		triage:          storedTriage(st),
 		triageScope:     storedTriageScope(st),
 		autoProceed:     storedAutoProceed(st),
+		smartTriage:     storedSmartTriage(st),
 		mode:            modeList,
 		version:         version,
 		// Assume the operator is looking until something says otherwise. A
@@ -1266,7 +1270,6 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	model.poller.interruptKeys = interruptKeys
 	model.poller.clearInputKeys = clearInputKeys
 	model.poller.staleAfter = cfg.StaleStatusAfter.Duration
-	model.finishedAgeAfter = storedFinishedAgeAfter(st)
 	model.poller.hogWatch = newHogWatch(cfg.Hogs, "", func(msg store.InboxMessage) error {
 		_, _, err := st.Enqueue(msg, store.DefaultInboxLimits)
 		return err

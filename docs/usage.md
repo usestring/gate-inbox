@@ -34,7 +34,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | `←` / `→` | Focused, at a prompt edge: `←` at the head and `→` at the end return to the manager. In triage, `→` on a finished session opens the next item instead. The tool's prompt marker (`activity_cutoff`) must be on the caret's row; elsewhere in the prompt, the arrow moves the caret as usual. |
 | `K` / `J` (or `shift+↑` / `shift+↓`) | Reorder the row among its visible siblings: swap this session (or group) with the neighbour above or below. Manual order only — triage and sorted views refuse it |
 | `m` | Move a session to a group, a terminal into a session, or a group under another group |
-| `ctrl+p` / `p` | Priority: each press cycles the tier — `urgent`, `high`, `medium`, `low`, then none. Higher tiers sort first in the list and in triage, within the same status. `ctrl+p` also works from a focused session; the changed row shows its new tier as a solid badge for a few seconds and the status bar names it |
+| `ctrl+p` / `p` | Priority: each press cycles the tier — `urgent`, `high`, `medium`, `low`, then none. Higher tiers sort first in the list and weigh more in triage (see smart triage below; with it off, a tier sorts first within the same status). `ctrl+p` also works from a focused session; the changed row shows its new tier as a solid badge for a few seconds and the status bar names it |
 | `r` | Name a session: ask its agent to name itself (`/rename`, or the same request in prose). On an adopted pane, derive the name from its conversation. On a group, open the group card on it: name, parent and default path |
 | `x` | Kill the selected session, or the whole subtree under a group: kills the pane, frees the RAM its agent held, and files the row in the archive. A group with no session filed under it, live or archived, is deleted instead, so its name is free straight away |
 | `v` | Revive a dead session. On a session that is still running it restarts the agent on the conversation it is already on |
@@ -80,7 +80,22 @@ same keys bring them back. Answering is the only gesture: a dialog answered with
 hands that session over and promotes the next thing waiting on a person. `alt+.` skips the one in
 front of you, `.` skips the row under the cursor from the list, `ctrl+\` stops. The queue is one live queue: a session that reaches waiting or finished while the first pass is walked joins it in place rather than waiting for another `i`.
 
-Questions go ahead of finished sessions, but not for ever. Once a session has sat finished for 10 minutes it queues with the waiting ones, ordered by priority and then by how long it has waited, so a board that always has somebody waiting still reaches its finished sessions. Closing those out is what takes rows off the board. A question that has only just come in still goes ahead of a session that has only just finished. The threshold is the `triage_finished_age` setting in the state database, a duration such as `"30m"`; `"0"` turns aging off and puts every question first again.
+Smart triage, on by default, orders the queue by how long each session has waited, weighted by its state and its priority, and hands over the highest score first:
+
+    score = (wait + 1 minute) × state weight × priority weight
+
+| State | Weight | | Priority | Weight |
+| --- | --- | --- | --- | --- |
+| waiting | 2 | | urgent | 8 |
+| blocked (an extension's rank) | 1.5 | | high | 2 |
+| finished | 1 | | medium or none | 1 |
+| finished, seen | 0.8 | | low | 0.5 |
+| errored | 0.7 | | | |
+| idle | 0.5 | | | |
+
+Because the weights are ratios they mean the same thing whatever the waits: a finished session overtakes a question once it has waited twice as long, whether that is 10 minutes against 5 or two days against one, and a low session overtakes a medium one at twice the wait, so nothing on the board waits for ever. For example, a question that came in 20 minutes ago scores (20 + 1) × 2 = 42; a finished session from 50 minutes ago scores (50 + 1) × 1 = 51 and goes first; an urgent session that finished 10 minutes ago scores (10 + 1) × 1 × 8 = 88 and goes ahead of both. Every walkable session is scored, idle ones included, so a session misread as idle still comes round. "Finished, seen" is a finished session you have opened: opening it acknowledges it and the row turns idle, but triage keeps it in the queue on its original wait until you send it something. Working, starting, delegating and dead sessions are never handed over and sort under the scored ones; muted sessions sort last. The order is re-read on every poll, so rows move as their waits grow. A deadline an extension sets puts that session ahead of the scores until it passes. Priority is only read here; smart triage never changes a session's tier.
+
+Turn `smart triage` off in Settings (or store `smart_triage = "off"`) for the strict order: every question first, then every finished session, then idle, then errored, each by priority and then oldest first.
 
 The rest of the session's controls work from inside it: `ctrl+x` ends the session, `ctrl+n` starts a
 new one in its group, `alt+/` copies the agent's session id, `alt+;` steps back to the one you just

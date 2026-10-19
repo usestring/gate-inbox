@@ -57,6 +57,17 @@ type childDialogRelay struct {
 	settledAt time.Time
 	reminders int
 	escalated bool
+	// heldUntil is when the parent was last seen on a dialog of its own,
+	// which holds every message to it; the relay's undelivered wait runs
+	// from then.
+	heldUntil time.Time
+}
+
+func later(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 // watchChildDialog runs every pass for every child. It relays a dialog the
@@ -100,7 +111,14 @@ func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, no
 		}
 	}
 	if relay.settledAt.IsZero() {
-		if now.Sub(relay.sentAt) >= childDialogUndelivered && !relay.escalated {
+		// A parent on its own dialog takes no message until its user answers
+		// it, so the wait is not the parent's to be chased for, and an
+		// interrupt would only stop the turn that answer starts.
+		if parent.Status == status.Waiting {
+			relay.heldUntil = now
+			return nil
+		}
+		if now.Sub(later(relay.sentAt, relay.heldUntil)) >= childDialogUndelivered && !relay.escalated {
 			relay.escalated = true
 			p.pingOperator(sess, parent, "has not taken the relay yet")
 			late := fmt.Sprintf("Not yet read after %s, so this interrupts you. ", now.Sub(relay.sentAt).Round(time.Minute))

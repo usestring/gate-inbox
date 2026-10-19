@@ -206,6 +206,33 @@ func TestCopyQueueWaitsForClipboardResult(t *testing.T) {
 	}
 }
 
+func TestCopyQueueOffIgnoresALateClipboardResult(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprintf("fail=%v", fail), func(t *testing.T) {
+			m := &Model{jevCopyQueue: true, jevCopy: jevCopyState{queue: []copyItem{{text: "first"}, {text: "second"}}}}
+			previous := writeClipboard
+			t.Cleanup(func() { writeClipboard = previous })
+			writeClipboard = func(string) error {
+				if fail {
+					return errors.New("clipboard unavailable")
+				}
+				return nil
+			}
+			_, cmd := m.copyNextQueued()
+			m.jevCopyQueue = false
+			m.jevCopy = jevCopyState{copying: m.jevCopy.copying}
+			m.errBar.text = "queue disabled"
+			m.applyJevCopied(cmd().(jevCopiedMsg))
+			if m.jevCopy.copying || len(m.jevCopy.queue) != 0 {
+				t.Fatalf("disabled queue retained clipboard state: %+v", m.jevCopy)
+			}
+			if m.errBar.text != "queue disabled" {
+				t.Fatalf("late result changed status: %q", m.errBar.text)
+			}
+		})
+	}
+}
+
 func TestCopyQueueIsCapped(t *testing.T) {
 	m := &Model{jevCopyQueue: true}
 	for i := range jevCopyQueueCap + 3 {

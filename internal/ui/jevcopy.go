@@ -302,6 +302,9 @@ func (m *Model) copyNextQueued() (tea.Model, tea.Cmd) {
 
 func (m *Model) applyJevCopied(msg jevCopiedMsg) {
 	m.jevCopy.copying = false
+	if !m.jevCopyQueue {
+		return
+	}
 	if msg.err != nil {
 		// The text stays wanted: put it back at the front for another try.
 		m.jevCopy.queue = append([]copyItem{msg.item}, m.jevCopy.queue...)

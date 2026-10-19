@@ -118,7 +118,7 @@ func copyCandidates(message string) []string {
 					depth--
 				}
 			}
-			add(strings.TrimRight(link, ".,;:!?"))
+			add(link)
 		}
 	}
 	return out
@@ -159,6 +159,10 @@ func askJevCopy(ctx context.Context, key, message string, candidates []string) (
 	return picked, true
 }
 
+func jevCopyIdentity(sess store.Session) string {
+	return jevFinishIdentity(sess) + "\x00" + sess.AgentSessionID
+}
+
 // jevCopyCandidate picks the next row whose turn ended since it was last
 // read.
 func (m *Model) jevCopyCandidate() (store.Session, string, bool) {
@@ -166,7 +170,7 @@ func (m *Model) jevCopyCandidate() (store.Session, string, bool) {
 		if sess.Archived || sess.Status != status.Waiting && sess.Status != status.Finished {
 			continue
 		}
-		identity := jevFinishIdentity(sess)
+		identity := jevCopyIdentity(sess)
 		if m.jevCopy.checked[sess.ID] == identity {
 			continue
 		}
@@ -187,7 +191,7 @@ func (m *Model) checkCopyWithJev() tea.Cmd {
 	if !m.jevCopy.seeded {
 		m.jevCopy.seeded = true
 		for _, sess := range m.sessions {
-			m.jevCopy.checked[sess.ID] = jevFinishIdentity(sess)
+			m.jevCopy.checked[sess.ID] = jevCopyIdentity(sess)
 		}
 		return nil
 	}

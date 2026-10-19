@@ -21,7 +21,7 @@ import (
 
 func TestCopyCandidatesTakesBlocksSpansAndLinksInOrder(t *testing.T) {
 	message := "Run this yourself:\n\n```bash\ngcloud auth login\n```\n\n" +
-		"Then type `! bun run deploy` and open https://console.cloud.google.com/run, then check `x`.\n" +
+		"Then type `! bun run deploy` and open <https://console.cloud.google.com/run>, then check `x`.\n" +
 		"The link `https://example.com/inside` is quoted once."
 	got := copyCandidates(message)
 	want := []string{"gcloud auth login", "! bun run deploy", "https://console.cloud.google.com/run", "https://example.com/inside"}
@@ -56,10 +56,21 @@ func TestCopyCandidatesPreservesURLParentheses(t *testing.T) {
 			t.Errorf("message %q: candidates = %q", message, got)
 		}
 	}
-	message := "[nested](https://example.com/a_(b_(c))) and https://example.com/plain."
+	message := "[nested](https://example.com/a_(b_(c))) and <https://example.com/plain>."
 	want := []string{"https://example.com/a_(b_(c))", "https://example.com/plain"}
 	if got := copyCandidates(message); !slices.Equal(got, want) {
 		t.Fatalf("candidates = %q, want %q", got, want)
+	}
+}
+
+func TestCopyCandidatesPreservesURLTrailingPunctuation(t *testing.T) {
+	for _, suffix := range []string{"!", "?", ".", ",", ";", ":", "!!", "?q=value!"} {
+		link := "https://example.test/run" + suffix
+		for _, message := range []string{link, "[run](" + link + ").", "<" + link + ">,", "`" + link + "`"} {
+			if got := copyCandidates(message); !slices.Equal(got, []string{link}) {
+				t.Errorf("message %q: candidates = %q, want %q", message, got, link)
+			}
+		}
 	}
 }
 
@@ -188,12 +199,28 @@ func TestCheckCopyWithJevSeedsThenReadsANewTurnEnd(t *testing.T) {
 		t.Fatal("an unchanged turn was read again")
 	}
 	m.sessions[0].LastStatusAt = m.sessions[0].LastStatusAt.Add(time.Minute)
+	m.sessions[0].AgentSessionID = ""
 	cmd := m.checkCopyWithJev()
 	if cmd == nil {
 		t.Fatal("a new turn end was not read")
 	}
 	m.applyJevCopy(cmd().(jevCopyResultMsg))
+	if calls != 0 || len(m.jevCopy.queue) != 0 {
+		t.Fatalf("an uncaptured conversation made %d calls, queue %+v", calls, m.jevCopy.queue)
+	}
+	if cmd := m.checkCopyWithJev(); cmd != nil {
+		t.Fatal("an unchanged missing conversation was read again")
+	}
+	m.sessions[0].AgentSessionID = sess.AgentSessionID
+	cmd = m.checkCopyWithJev()
+	if cmd == nil {
+		t.Fatal("the newly captured conversation was not retried")
+	}
+	m.applyJevCopy(cmd().(jevCopyResultMsg))
 	if calls != 1 || len(m.jevCopy.queue) != 1 || m.jevCopy.queue[0].text != "gcloud auth login" {
 		t.Fatalf("calls %d, queue %+v", calls, m.jevCopy.queue)
+	}
+	if cmd := m.checkCopyWithJev(); cmd != nil {
+		t.Fatal("a checked conversation was read again")
 	}
 }

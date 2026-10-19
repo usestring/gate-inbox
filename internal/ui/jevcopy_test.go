@@ -74,6 +74,22 @@ func TestCopyCandidatesPreservesURLTrailingPunctuation(t *testing.T) {
 	}
 }
 
+func TestCopyCandidatesStripsPunctuationBeforeContinuingProse(t *testing.T) {
+	for _, punctuation := range []string{",", ".", ";", ":", "!", "?"} {
+		link := "https://example.test/run"
+		for _, message := range []string{"Open " + link + punctuation + " then continue", link + punctuation + "\tNext step"} {
+			if got := copyCandidates(message); !slices.Equal(got, []string{link}) {
+				t.Errorf("message %q: candidates = %q, want %q", message, got, link)
+			}
+		}
+		for _, message := range []string{"<" + link + punctuation + "> then continue", "[run](" + link + punctuation + ") then continue", "`" + link + punctuation + "` then continue"} {
+			if got := copyCandidates(message); !slices.Equal(got, []string{link + punctuation}) {
+				t.Errorf("message %q: candidates = %q, want %q", message, got, link+punctuation)
+			}
+		}
+	}
+}
+
 func TestCopyCandidatesLeavesOutWhatIsTooLongRatherThanCutting(t *testing.T) {
 	long := strings.Repeat("a", jevCopyCandidateMax+1)
 	if got := copyCandidates("`" + long + "` and `ok-value`"); !slices.Equal(got, []string{"ok-value"}) {
@@ -147,6 +163,46 @@ func TestCopyQueueDrainsOldestFirstAndRequeuesAFailedWrite(t *testing.T) {
 	m.applyJevCopied(cmd().(jevCopiedMsg))
 	if len(m.jevCopy.queue) != 1 || m.jevCopy.queue[0].text != "second" {
 		t.Fatalf("a failed write lost its text: %+v", m.jevCopy.queue)
+	}
+}
+
+func TestCopyQueueWaitsForClipboardResult(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(fmt.Sprintf("fail=%v", fail), func(t *testing.T) {
+			m := &Model{jevCopyQueue: true, jevCopy: jevCopyState{queue: []copyItem{{text: "first"}, {text: "second"}}}}
+			previous := writeClipboard
+			t.Cleanup(func() { writeClipboard = previous })
+			var wrote []string
+			writeClipboard = func(text string) error {
+				wrote = append(wrote, text)
+				if fail && len(wrote) == 1 {
+					return errors.New("clipboard unavailable")
+				}
+				return nil
+			}
+			_, first := m.copyNextQueued()
+			if first == nil {
+				t.Fatal("first item did not start")
+			}
+			result := first().(jevCopiedMsg)
+			_, second := m.copyNextQueued()
+			if second != nil || len(m.jevCopy.queue) != 1 || m.jevCopy.queue[0].text != "second" {
+				t.Fatalf("copy started before result was applied: queue %+v", m.jevCopy.queue)
+			}
+			m.applyJevCopied(result)
+			_, next := m.copyNextQueued()
+			if next == nil {
+				t.Fatal("copy stayed blocked after its result")
+			}
+			m.applyJevCopied(next().(jevCopiedMsg))
+			want := []string{"first", "second"}
+			if fail {
+				want = []string{"first", "first"}
+			}
+			if !slices.Equal(wrote, want) {
+				t.Fatalf("wrote %q, want %q", wrote, want)
+			}
+		})
 	}
 }
 

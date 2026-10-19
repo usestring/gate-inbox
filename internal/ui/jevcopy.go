@@ -46,10 +46,11 @@ const jevCopyQuestion = "Does the latest assistant message ask the user to copy 
 	"Answer no for text that only explains or names something, and for commands the agent runs itself. Text: "
 
 var (
-	copyFencePattern     = regexp.MustCompile("(?s)```[^\\n`]*\\n(.*?)```")
-	copySpanPattern      = regexp.MustCompile("`([^`\\n]+)`")
-	copyURLPattern       = regexp.MustCompile(`https?://[^\s<>\[\]"'` + "`" + `]+`)
-	copyCandidatePattern = regexp.MustCompile(copyFencePattern.String() + "|" + copySpanPattern.String() + "|(" + copyURLPattern.String() + ")")
+	copyFencePattern             = regexp.MustCompile("(?s)```[^\\n`]*\\n(.*?)```")
+	copySpanPattern              = regexp.MustCompile("`([^`\\n]+)`")
+	copyURLPattern               = regexp.MustCompile(`https?://[^\s<>\[\]"'` + "`" + `]+`)
+	copyProseContinuationPattern = regexp.MustCompile(`^[ \t]+\p{L}`)
+	copyCandidatePattern         = regexp.MustCompile(copyFencePattern.String() + "|" + copySpanPattern.String() + "|(" + copyURLPattern.String() + ")")
 )
 
 // copyItem is one queued piece of text and the session it came from.
@@ -64,6 +65,7 @@ type copyItem struct {
 // without asking, so turning the feature on does not reread the whole board.
 type jevCopyState struct {
 	busy    bool
+	copying bool
 	seeded  bool
 	checked map[string]string
 	queue   []copyItem
@@ -98,14 +100,19 @@ func copyCandidates(message string) []string {
 		seen[text] = true
 		out = append(out, text)
 	}
-	for _, match := range copyCandidatePattern.FindAllStringSubmatch(message, -1) {
+	for _, match := range copyCandidatePattern.FindAllStringSubmatchIndex(message, -1) {
 		switch {
-		case match[1] != "":
-			add(match[1])
-		case match[2] != "":
-			add(match[2])
-		case match[3] != "":
-			link := match[3]
+		case match[2] >= 0:
+			add(message[match[2]:match[3]])
+		case match[4] >= 0:
+			add(message[match[4]:match[5]])
+		case match[6] >= 0:
+			start, end := match[6], match[7]
+			link := message[start:end]
+			if (start == 0 || message[start-1] != '<' && message[start-1] != '(') &&
+				copyProseContinuationPattern.MatchString(message[end:]) {
+				link = strings.TrimRight(link, ".,;:!?")
+			}
 			depth := 0
 			for i, char := range link {
 				if char == '(' {
@@ -275,10 +282,14 @@ func (m *Model) copyQueueHint() string {
 // copyNextQueued takes the oldest queued text off the queue and puts it on
 // the clipboard.
 func (m *Model) copyNextQueued() (tea.Model, tea.Cmd) {
+	if m.jevCopy.copying {
+		return m, nil
+	}
 	if len(m.jevCopy.queue) == 0 {
 		m.errBar.text = "the copy queue is empty"
 		return m, nil
 	}
+	m.jevCopy.copying = true
 	item := m.jevCopy.queue[0]
 	m.jevCopy.queue = m.jevCopy.queue[1:]
 	return m, func() tea.Msg {
@@ -290,6 +301,7 @@ func (m *Model) copyNextQueued() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) applyJevCopied(msg jevCopiedMsg) {
+	m.jevCopy.copying = false
 	if msg.err != nil {
 		// The text stays wanted: put it back at the front for another try.
 		m.jevCopy.queue = append([]copyItem{msg.item}, m.jevCopy.queue...)

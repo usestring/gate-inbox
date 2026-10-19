@@ -14,6 +14,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -24,7 +25,7 @@ func TestEnterStartsLookingWithoutATimer(t *testing.T) {
 	landingTick = time.Hour
 	t.Cleanup(func() { landingTick = before })
 	m := &Model{}
-	cmd := m.armLanding(store.Session{ID: "row"}, extension.OperatorPane, "", false, true, "❯ ")
+	cmd := m.armLanding(store.Session{ID: "row"}, time.Now(), extension.OperatorPane, "", false, true, "❯ ")
 	result := make(chan tea.Msg, 1)
 	go func() { result <- cmd() }()
 	select {
@@ -458,5 +459,70 @@ func TestALandedAnswerLetsGoOfTheHeldAck(t *testing.T) {
 	}
 	if got := storedSession(t, m, "done"); got.Acked {
 		t.Fatal("handing over after a landed answer spent the held acknowledgement")
+	}
+}
+
+func TestLandingTimingIncludesBaselineWithoutShorteningWindow(t *testing.T) {
+	m := &Model{}
+	started := time.Now().Add(-5 * time.Second)
+	beforeArm := time.Now()
+	m.armLanding(store.Session{ID: "row"}, started, extension.OperatorPane, "", false, true, "")
+	pending := m.landings["row"]
+	if pending.deadline.Before(beforeArm.Add(landingWindow)) {
+		t.Fatal("baseline time shortened the acceptance window")
+	}
+	spans := recordSpans(t, func() { recordLanding(pending, "timeout") })
+	span := oneSpan(t, spans, "ui.landing")
+	if span.began(t) != started.UnixNano() || span.number(t, "took_ms") < 5000 {
+		t.Fatal("landing timing omitted the time before arming")
+	}
+}
+
+func TestPollRecordsLandingWhileLookIsInFlight(t *testing.T) {
+	m := drainOnDialog(t, true)
+	id := focusedID(t, m)
+	m = pressDialogKey(m)
+	pending := m.landings[id]
+	path := filepath.Join(t.TempDir(), "landing.log")
+	logger, err := logging.Open(logging.Options{Path: path, Level: logging.LevelInfo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := logging.SetDefault(logger)
+	t.Cleanup(func() { logging.SetDefault(previous); logger.Close() })
+	entered, release := make(chan struct{}), make(chan struct{})
+	pending.probe = &landingProbe{paneWorking: func() bool {
+		close(entered)
+		<-release
+		return true
+	}}
+	pending.observed = *pending.probe
+	result := make(chan tea.Msg, 1)
+	go func() { result <- landingLook(id, pending)() }()
+	<-entered
+	spans := recordSpans(t, func() {
+		pollReporting(t, m, "ask", status.Working)
+		close(release)
+		m.applyLandingCheck((<-result).(landingCheckMsg))
+	})
+	landings := spansNamed(spans, "ui.landing")
+	if len(landings) != 1 {
+		t.Fatalf("poll and stale check recorded %d landings, want one", len(landings))
+	}
+	if landings[0].str(t, "outcome") != "seen" || landings[0].str(t, "by") != "poll" {
+		t.Fatal("poll landing lost its outcome or evidence source")
+	}
+	if focusedName(t, m) != "next" || len(m.landings) != 0 {
+		t.Fatal("poll did not finish the pending handover")
+	}
+	if err := logger.Close(); err != nil {
+		t.Fatal(err)
+	}
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(blob), "triage answer") != 1 {
+		t.Fatalf("poll landing log = %s", blob)
 	}
 }

@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -59,7 +61,8 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 		m.requestRefresh()
 		return nil
 	}
-	landing := m.armLanding(sess, extension.OperatorSnippet, text, false, handOver, m.echoBaseline(sess.ID))
+	started := time.Now()
+	landing := m.armLanding(sess, started, extension.OperatorSnippet, text, false, handOver, m.echoBaseline(sess.ID))
 	if err := m.tmux.SendText(sess.ID, text); err != nil {
 		m.dropLanding(sess.ID)
 		m.errBar.text = err.Error()

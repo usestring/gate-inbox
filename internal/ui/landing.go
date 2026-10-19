@@ -90,6 +90,8 @@ type pendingLanding struct {
 	// handOverOnEnter.
 	early bool
 	probe *landingProbe
+	// The next look may still be mutating probe when a poll records the answer.
+	observed landingProbe
 }
 
 // landingCheckMsg is one look's verdict.
@@ -97,6 +99,7 @@ type landingCheckMsg struct {
 	id      string
 	gen     int
 	verdict landingVerdict
+	probe   *landingProbe
 }
 
 // landingProbe holds where each source stood when the key was pressed. Only
@@ -287,7 +290,7 @@ func (p *landingProbe) transcriptVerdict(delta convo.Delta) (seen, refused bool)
 // whether a dialog was up for it to answer, read before the key moved
 // anything, and it must be called before the send so every offset it takes
 // is from before anything the answer caused.
-func (m *Model) armLanding(sess store.Session, via extension.OperatorVia, text string, dialog, handOver bool, pane string) tea.Cmd {
+func (m *Model) armLanding(sess store.Session, started time.Time, via extension.OperatorVia, text string, dialog, handOver bool, pane string) tea.Cmd {
 	m.landingGen++
 	if m.landings == nil {
 		m.landings = map[string]*pendingLanding{}
@@ -298,11 +301,12 @@ func (m *Model) armLanding(sess store.Session, via extension.OperatorVia, text s
 		sess:     sess,
 		via:      via,
 		text:     text,
-		armed:    now,
+		armed:    started,
 		deadline: now.Add(landingWindow),
 		handOver: handOver,
 		probe:    m.landingProbeFor(sess, dialog, pane),
 	}
+	pending.observed = *pending.probe
 	m.landings[sess.ID] = pending
 	delete(m.unseenAnswers, sess.ID)
 	return landingLook(sess.ID, pending)
@@ -433,7 +437,9 @@ func fileSize(path string) int64 {
 func landingLook(id string, pending *pendingLanding) tea.Cmd {
 	probe, gen := pending.probe, pending.gen
 	return func() tea.Msg {
-		return landingCheckMsg{id: id, gen: gen, verdict: probe.look()}
+		verdict := probe.look()
+		observed := *probe
+		return landingCheckMsg{id: id, gen: gen, verdict: verdict, probe: &observed}
 	}
 }
 
@@ -459,6 +465,9 @@ func (m *Model) applyLandingCheck(msg landingCheckMsg) tea.Cmd {
 	pending, ok := m.landings[msg.id]
 	if !ok || msg.gen != pending.gen {
 		return nil
+	}
+	if msg.probe != nil {
+		pending.observed = *msg.probe
 	}
 	switch {
 	case msg.verdict == landingSeen:
@@ -497,7 +506,7 @@ func (m *Model) applyLandingCheck(msg landingCheckMsg) tea.Cmd {
 // without it there is no saying whether that wait is the agent, the source
 // the board read or the board's own looks.
 func recordLanding(pending *pendingLanding, outcome string) {
-	probe, ended := pending.probe, time.Now()
+	probe, ended := &pending.observed, time.Now()
 	took := ended.Sub(pending.armed)
 	logging.Info("triage answer", "id", pending.sess.ID, "tool", pending.sess.Tool,
 		"outcome", outcome, "by", probe.decided, "sources", probe.sources(),

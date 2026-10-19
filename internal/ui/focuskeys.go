@@ -769,7 +769,7 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// anything the key caused.
 	var landing tea.Cmd
 	if arms {
-		landing = m.armLanding(sess, extension.OperatorPane, "", dialog, handsOver, baseline)
+		landing = m.armLanding(sess, keyAt, extension.OperatorPane, "", dialog, handsOver, baseline)
 	}
 	m.poller.noteOperatorInput(sess.ID)
 	// SendRawAt takes the pooled pipe where there is one and forks where

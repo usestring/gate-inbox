@@ -234,7 +234,8 @@ func childDialogBody(sess store.Session, pane string, saved ...string) (body, ke
 	}
 	if screen, ok := dialog.ReadScreenFor(sess.Tool, pane); ok {
 		screen = screen.WithExact(childPendingStrings(sess)...)
-		return childScreenMessage(sess, screen) + relayask.Line(relayask.ForScreen(screen), sess.ID),
+		about := relayask.Screen{Child: sess.Name, Description: childPendingDescription(sess)}
+		return childScreenMessage(sess, screen) + relayask.Line(relayask.ForScreen(screen, about), sess.ID),
 			"s:" + textfmt.Fingerprint(screen.Identity()), false
 	}
 	if lost, ok := asks.Unanswered(childAskTarget(sess)); ok {
@@ -302,6 +303,15 @@ func childPendingStrings(sess store.Session) []string {
 		return nil
 	}
 	return convo.PendingToolStrings(convo.TranscriptFor(convo.ClaudeHome(), sess.AgentSessionID, sess.Cwd))
+}
+
+// childPendingDescription is the description sess's one unresolved tool
+// call gives itself, which a relayed permission prompt leads with.
+func childPendingDescription(sess store.Session) string {
+	if sess.Tool != "claude" || sess.AgentSessionID == "" {
+		return ""
+	}
+	return convo.PendingToolDescription(convo.TranscriptFor(convo.ClaudeHome(), sess.AgentSessionID, sess.Cwd))
 }
 
 // pendingAskFile is where sess's ask-pending hook saves its dialog's call,
@@ -414,6 +424,15 @@ func childScreenMessage(sess store.Session, screen dialog.Screen) string {
 			"keys to press as the options (for example \"Enter\", or \"Down Enter\"). Then call answer_session "+
 			"on session %s with keys set to the keys they chose and relay: true; it sends them and reads back "+
 			"that the screen changed.", sess.ID)
+		return out.String()
+	}
+	if screen.Kind == dialog.ScreenPermission && screen.Command() != "" {
+		fmt.Fprintf(&out, "\nWhether the child may do this is your user's call, never yours. Ask your user with "+
+			"your own question tool, passing the input below as is: its question says what the command does and "+
+			"cites %s, and each option previews the full command, so the question stays readable. Then call "+
+			"answer_session on session %s with answer set to the option they chose and relay: true. It checks "+
+			"your transcript holds that question, with the command in the previews, and their answer before "+
+			"keying anything, and reads back that the dialog cleared.", screen.PromptToken(), sess.ID)
 		return out.String()
 	}
 	labels := make([]string, len(screen.Choices))

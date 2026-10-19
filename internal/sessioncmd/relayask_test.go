@@ -198,8 +198,8 @@ func TestRelayInputForAScreenIsWhatAdmitScreenAccepts(t *testing.T) {
 	screen := dialog.Screen{Kind: dialog.ScreenPermission,
 		Lines:   []string{"Bash command", "", "  rm -rf build/", "", "Do you want to proceed?"},
 		Choices: []dialog.ScreenChoice{{Label: "Yes", Number: 1}, {Label: "No, and tell Claude what to do differently", Number: 2}}}
-	in := relayask.ForScreen(screen)
-	if in == nil || len(in.Questions) != 1 || !asksScreen(in.Questions[0], screen.Prompt(), screen.Labels()) {
+	in := relayask.ForScreen(screen, relayask.Screen{})
+	if in == nil || len(in.Questions) != 1 || !asksScreen(in.Questions[0], screen) {
 		t.Fatalf("input %+v does not match the screen as admitScreen reads it", in)
 	}
 }

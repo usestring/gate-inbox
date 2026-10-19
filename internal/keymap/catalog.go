@@ -142,7 +142,7 @@ var Catalog = []Binding{
 	{ContextList, JumpErrored, []string{}, "enter the next errored or dead session", false},
 	{ContextList, JumpIdle, []string{}, "enter the next idle session", false},
 	{ContextList, JumpWorking, []string{}, "enter the next working session", false},
-	{ContextList, Attach, []string{"A", "shift+a"}, "attach: the pane takes the terminal", false},
+	{ContextList, Attach, []string{"A", "shift+a", "ctrl+a"}, "attach: the pane takes the terminal", false},
 	{ContextList, ReorderUp, []string{"K", "shift+k", "shift+up"}, "reorder the row up", false},
 	{ContextList, ReorderDown, []string{"J", "shift+j", "shift+down"}, "reorder the row down", false},
 	{ContextList, PreviewUp, []string{"alt+up"}, "scroll the preview up", false},

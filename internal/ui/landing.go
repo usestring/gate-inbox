@@ -17,6 +17,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
 // A key that might answer a session only arms a pending landing. The session
@@ -79,6 +80,7 @@ type pendingLanding struct {
 	sess     store.Session
 	via      extension.OperatorVia
 	text     string
+	armed    time.Time
 	deadline time.Time
 	// handOver is whether landing should also move the drain on. It is read
 	// when the key is pressed and cleared by anything that says the operator
@@ -125,32 +127,80 @@ type landingProbe struct {
 	// where the pane cannot confirm: a composer with live hooks, or a pane
 	// that already read working before the key.
 	paneWorking func() bool
+
+	// What the looks cost and which source decided, for recordLanding.
+	looks    int
+	lookTime time.Duration
+	lookMax  time.Duration
+	decided  string
+}
+
+// sources names the evidence this probe watches, so a landing that timed out
+// can be told apart by what it was waiting on.
+func (p *landingProbe) sources() string {
+	var names []string
+	if p.hooks != nil {
+		names = append(names, "hooks")
+	}
+	if p.transcript != "" {
+		names = append(names, "transcript")
+	}
+	if p.rollout != "" {
+		names = append(names, "rollout")
+	}
+	if p.paneWorking != nil {
+		names = append(names, "pane")
+	}
+	return strings.Join(names, ",")
 }
 
 // look reads each source once. A matched refusal wins over completion; an
 // anonymous hook boundary only rules out the pane fallback. A matched result
 // can precede the next question's waiting hook in the same look.
 func (p *landingProbe) look() landingVerdict {
+	started := time.Now()
+	verdict, by := p.lookOnce()
+	took := time.Since(started)
+	p.looks++
+	p.lookTime += took
+	p.lookMax = max(p.lookMax, took)
+	if verdict != landingPending {
+		p.decided = by
+	}
+	return verdict
+}
+
+// lookOnce is one look, naming the source behind a verdict.
+func (p *landingProbe) lookOnce() (landingVerdict, string) {
 	if landingSourceChanged(p.transcript, p.transcriptFile, p.transcriptOffset) ||
 		landingSourceChanged(p.rollout, p.rolloutFile, p.rolloutOffset) {
-		return landingRefused
+		return landingRefused, "source-replaced"
 	}
 	seen, refused, boundary := false, false, false
+	seenBy, refusedBy := "", ""
+	mark := func(by *string, hit bool, name string) {
+		if hit && *by == "" {
+			*by = name
+		}
+	}
 	if p.hooks != nil {
 		if events, next, ok := p.hooks.Events(p.hookID, p.hookOffset); ok {
 			p.hookOffset = next
 			s, r := p.hookVerdict(events)
 			seen, boundary = seen || s, boundary || r
+			mark(&seenBy, s, "hooks")
 		}
 	}
 	if p.transcript != "" {
 		if delta, err := convo.Since(p.transcript, p.transcriptOffset); err == nil {
 			if delta.Rewound {
-				return landingRefused
+				return landingRefused, "transcript-rewound"
 			}
 			p.transcriptOffset = delta.Next
 			s, r := p.transcriptVerdict(delta)
 			seen, refused = seen || s, refused || r
+			mark(&seenBy, s, "transcript")
+			mark(&refusedBy, r, "transcript")
 		}
 	}
 	if p.rollout != "" {
@@ -158,8 +208,11 @@ func (p *landingProbe) look() landingVerdict {
 			if questions, err := p.rolloutQuestions.Update(p.rollout); err == nil {
 				for _, q := range questions {
 					if p.toolID != "" && q.CallID == p.toolID {
-						seen = seen || q.State == codexq.Answered
-						refused = refused || q.State == codexq.Expired || q.State == codexq.Superseded
+						answered := q.State == codexq.Answered
+						lapsed := q.State == codexq.Expired || q.State == codexq.Superseded
+						seen, refused = seen || answered, refused || lapsed
+						mark(&seenBy, answered, "rollout")
+						mark(&refusedBy, lapsed, "rollout")
 					}
 				}
 				p.rolloutOffset = fileSize(p.rollout)
@@ -168,20 +221,21 @@ func (p *landingProbe) look() landingVerdict {
 			if act, err := codexq.Since(p.rollout, p.rolloutOffset); err == nil {
 				p.rolloutOffset = act.Next
 				seen = seen || act.UserMessage
+				mark(&seenBy, act.UserMessage, "rollout")
 			}
 		}
 	}
 	switch {
 	case refused:
-		return landingRefused
+		return landingRefused, refusedBy
 	case seen:
-		return landingSeen
+		return landingSeen, seenBy
 	case boundary:
-		return landingRefused
+		return landingRefused, "hooks-boundary"
 	case p.paneWorking != nil && p.paneWorking():
-		return landingSeen
+		return landingSeen, "pane"
 	}
-	return landingPending
+	return landingPending, ""
 }
 
 // A composer key lands only on UserPromptSubmit. A built-in command such as
@@ -238,12 +292,14 @@ func (m *Model) armLanding(sess store.Session, via extension.OperatorVia, text s
 	if m.landings == nil {
 		m.landings = map[string]*pendingLanding{}
 	}
+	now := time.Now()
 	pending := &pendingLanding{
 		gen:      m.landingGen,
 		sess:     sess,
 		via:      via,
 		text:     text,
-		deadline: time.Now().Add(landingWindow),
+		armed:    now,
+		deadline: now.Add(landingWindow),
 		handOver: handOver,
 		probe:    m.landingProbeFor(sess, dialog, pane),
 	}
@@ -408,16 +464,16 @@ func (m *Model) applyLandingCheck(msg landingCheckMsg) tea.Cmd {
 	case msg.verdict == landingSeen:
 		m.dropLanding(msg.id)
 		m.noteSettling(msg.id, time.Now())
-		m.logEarlyLanding(pending, "seen")
+		recordLanding(pending, "seen")
 		return m.answerLanded(*pending)
 	case msg.verdict == landingRefused, !time.Now().Before(pending.deadline):
 		m.dropLanding(msg.id)
+		outcome := "timeout"
+		if msg.verdict == landingRefused {
+			outcome = "refused"
+		}
+		recordLanding(pending, outcome)
 		if pending.early {
-			outcome := "timeout"
-			if msg.verdict == landingRefused {
-				outcome = "refused"
-			}
-			m.logEarlyLanding(pending, outcome)
 			// The drain left on the strength of the key; with no answer seen,
 			// the session goes back in the queue now rather than a poll later.
 			m.unmute(msg.id)
@@ -434,15 +490,36 @@ func (m *Model) applyLandingCheck(msg landingCheckMsg) tea.Cmd {
 	return landingCheck(msg.id, pending)
 }
 
-// logEarlyLanding records how an answer the drain already moved on from
-// turned out, and how long after the key the check could tell.
-func (m *Model) logEarlyLanding(pending *pendingLanding, outcome string) {
-	if !pending.early {
+// recordLanding records how an answer turned out, how long after the key
+// the board could tell, which source told it and what the looks cost. Every
+// answer is recorded, not only those the drain left early on: an operator
+// held on a session until its answer lands waits exactly this long, and
+// without it there is no saying whether that wait is the agent, the source
+// the board read or the board's own looks.
+func recordLanding(pending *pendingLanding, outcome string) {
+	probe, ended := pending.probe, time.Now()
+	took := ended.Sub(pending.armed)
+	logging.Info("triage answer", "id", pending.sess.ID, "tool", pending.sess.Tool,
+		"outcome", outcome, "by", probe.decided, "sources", probe.sources(),
+		"dialog", probe.dialog, "early", pending.early, "handover", pending.handOver,
+		"looks", probe.looks, "look_max", probe.lookMax.Round(time.Microsecond).String(),
+		"took", took.Round(time.Millisecond).String())
+	if !tracing.Enabled() {
 		return
 	}
-	logging.Info("triage answer", "id", pending.sess.ID, "outcome", outcome,
-		"dialog", pending.probe.dialog,
-		"took", time.Since(pending.deadline.Add(-landingWindow)).Round(time.Millisecond).String())
+	tracing.Record("ui.landing", pending.armed, ended, nil,
+		tracing.Attr{Key: "outcome", Value: outcome},
+		tracing.Attr{Key: "by", Value: probe.decided},
+		tracing.Attr{Key: "sources", Value: probe.sources()},
+		tracing.Attr{Key: "tool", Value: pending.sess.Tool},
+		tracing.Attr{Key: "dialog", Value: probe.dialog},
+		tracing.Attr{Key: "early", Value: pending.early},
+		tracing.Attr{Key: "handover", Value: pending.handOver},
+		tracing.Attr{Key: "via", Value: string(pending.via)},
+		tracing.Attr{Key: "looks", Value: probe.looks},
+		tracing.Attr{Key: "look_total_ms", Value: probe.lookTime.Milliseconds()},
+		tracing.Attr{Key: "look_max_ms", Value: probe.lookMax.Milliseconds()},
+		tracing.Attr{Key: "took_ms", Value: took.Milliseconds()})
 }
 
 // noteSettling marks an answer seen landing on id at at. The row keeps the

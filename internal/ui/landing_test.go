@@ -313,6 +313,30 @@ func TestThePaneLandsOnlyWhatNoOtherSourceRefused(t *testing.T) {
 	}
 }
 
+// Each look is counted and the source that decided is named, so a recorded
+// landing says what the operator waited on.
+func TestALookNamesTheSourceThatDecided(t *testing.T) {
+	working := false
+	p := &landingProbe{dialog: true, paneWorking: func() bool { return working }}
+	p.look()
+	if p.decided != "" {
+		t.Fatalf("a pending look named %q", p.decided)
+	}
+	working = true
+	p.look()
+	if p.decided != "pane" || p.looks != 2 || p.sources() != "pane" {
+		t.Fatalf("decided %q after %d looks over %q, want pane after 2 over pane", p.decided, p.looks, p.sources())
+	}
+
+	m := buildModel(t)
+	logHookEvent(t, m, "declined", "waiting Notification")
+	refusing := &landingProbe{dialog: true, hooks: m.hooks, hookID: "declined", paneWorking: func() bool { return true }}
+	refusing.look()
+	if refusing.decided != "hooks-boundary" || refusing.sources() != "hooks,pane" {
+		t.Fatalf("decided %q over %q, want hooks-boundary over hooks,pane", refusing.decided, refusing.sources())
+	}
+}
+
 // A look for an older key must not decide the answer that replaced it.
 func TestAStaleLookDecidesNothing(t *testing.T) {
 	m := drainOnDialog(t, true)

@@ -512,6 +512,29 @@ func inheritParentEnv(env map[string]string) {
 	}
 }
 
+// KeepPromptsEnv is the Claude Code variable that turns off its two-minute
+// refusal of an unanswered dangerous-rm permission prompt.
+const KeepPromptsEnv = "CLAUDE_CODE_DISABLE_DANGEROUS_RM_TIMEOUT"
+
+// keepPermissionPrompts keeps a managed Claude session's permission prompt
+// standing until someone answers it.
+//
+// In auto mode Claude Code puts a removal its built-in check flags (an rm
+// after a cd, or of a "$VAR/..." path) to the user, and refuses it by itself
+// two minutes later "to avoid blocking progress on an unattended session",
+// showing no prompt at all after three such refusals. A managed session is
+// not unattended: its dialog is relayed to its parent, which asks the user
+// and keys their answer in, and that round trip takes longer than two
+// minutes. So the prompt was gone when the answer arrived, and the child had
+// already been told no person approved it. The variable only removes the
+// countdown. The prompt itself, and every other check, still applies; a
+// value the operator's own shell sets is kept.
+func keepPermissionPrompts(env map[string]string) {
+	if _, set := env[KeepPromptsEnv]; !set {
+		env[KeepPromptsEnv] = "1"
+	}
+}
+
 // checkContributed refuses an extension's variable that the launch sets
 // itself or must never carry. Refused rather than overridden either way: an
 // extension that thinks it sets the session's id or its account token is
@@ -625,6 +648,7 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		return command, env, nil
 	}
 	env[hooks.EnvStatusFile] = manager.StatusFile(id)
+	keepPermissionPrompts(env)
 	plugin := claudeplugin.Path
 	if write {
 		plugin = claudeplugin.Ensure

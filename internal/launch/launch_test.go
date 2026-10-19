@@ -1141,3 +1141,26 @@ func TestAssembleCarriesTheDirectiveOverAPastedImagePath(t *testing.T) {
 		t.Fatal("a slash command must still open its own message")
 	}
 }
+
+// A managed claude's permission prompt waits for its parent's relay instead
+// of being refused by Claude Code's two-minute countdown; a plain tool is
+// left alone, and an operator's own setting stands.
+func TestEnvironmentKeepsAClaudePermissionPromptStanding(t *testing.T) {
+	manager := hooks.NewManager(t.TempDir())
+	hooked := config.Tool{Command: "cat", StatusSource: hooks.StatusSourceClaude, MCP: "claude"}
+	_, env, err := Environment(manager, "hooked", hooked, hooked.Command, "abcd1234", "", "", nil)
+	if err != nil {
+		t.Fatalf("Environment hooked: %v", err)
+	}
+	if env[KeepPromptsEnv] != "1" {
+		t.Fatalf("claude env %s = %q, want 1", KeepPromptsEnv, env[KeepPromptsEnv])
+	}
+	plain := config.Tool{Command: "cat"}
+	if _, env, err = Environment(manager, "plain", plain, plain.Command, "abcd1234", "", "", nil); err != nil || env[KeepPromptsEnv] != "" {
+		t.Fatalf("plain tool env %s = %q, err %v", KeepPromptsEnv, env[KeepPromptsEnv], err)
+	}
+	t.Setenv(KeepPromptsEnv, "0")
+	if _, env, err = Environment(manager, "hooked", hooked, hooked.Command, "abcd1234", "", "", nil); err != nil || env[KeepPromptsEnv] != "0" {
+		t.Fatalf("operator's %s = %q, err %v", KeepPromptsEnv, env[KeepPromptsEnv], err)
+	}
+}

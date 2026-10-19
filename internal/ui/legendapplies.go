@@ -77,6 +77,13 @@ func (m *Model) applies(ctx keymap.Context, action keymap.Action, row treeRow) b
 		return false
 	case keymap.Restore:
 		return anySession(func(candidate store.Session) bool { return candidate.Archived })
+	case keymap.RestoreAll:
+		for _, sess := range m.listedSessions() {
+			if sess.Archived || sess.Status == status.Dead {
+				return true
+			}
+		}
+		return false
 	case keymap.Dismiss:
 		return row.sess.ID != "" && !row.sess.Archived &&
 			(m.isMuted(row.sess) || row.sess.Muted || row.sess.Status == status.Finished ||

@@ -180,6 +180,50 @@ func (m *Model) reviveAllDead() (tea.Model, tea.Cmd) {
 	return m.reviveMany(m.listedSessions(), "no dead sessions to revive")
 }
 
+// restoreAllDead brings back every dead session in the current view: a dead
+// row is revived where it stands, and an archived one is revived and filed
+// back out of the archive, which is what restore does for one row. Like
+// reviveMany it carries on past a failure and names the first one.
+func (m *Model) restoreAllDead() (tea.Model, tea.Cmd) {
+	restored := 0
+	var firstErr string
+	fail := func(err error) {
+		if firstErr == "" {
+			firstErr = err.Error()
+		}
+	}
+	for _, sess := range m.listedSessions() {
+		if !sess.Archived && sess.Status != status.Dead {
+			continue
+		}
+		if !m.tmux.Exists(sess.ID) {
+			if err := m.reviveSession(sess); err != nil {
+				fail(err)
+				continue
+			}
+		}
+		if sess.Archived {
+			if err := m.store.SetArchived(sess.ID, false); err != nil {
+				fail(err)
+				continue
+			}
+			m.markRestoredLocally(sess.ID)
+		}
+		restored++
+	}
+	switch {
+	case restored == 0 && firstErr == "":
+		m.errBar.text = "no dead sessions to restore"
+	case firstErr != "":
+		m.errBar.text = fmt.Sprintf("restored %d, first error: %s", restored, firstErr)
+	default:
+		m.errBar.text = ""
+		m.reportDone(fmt.Sprintf("restored %d", restored))
+	}
+	m.requestRefresh()
+	return m, nil
+}
+
 // reviveMany relaunches every dead session in the list. It revives what it
 // can and names the first failure rather than stopping, so one broken
 // session does not block the rest.

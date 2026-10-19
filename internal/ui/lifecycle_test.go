@@ -2407,3 +2407,41 @@ func TestConfirmKeyCtrlCQuits(t *testing.T) {
 		t.Fatal("ctrl+c should not kill the session")
 	}
 }
+
+// Restore all brings back every dead session in view: an archived one leaves
+// the archive running again, the same as restoring it row by row.
+func TestRestoreAllBringsBackEveryArchivedSession(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	createSession(t, m, "alpha", dir, "")
+	createSession(t, m, "beta", dir, "")
+
+	sessions := m.visibleSessions()
+	for _, sess := range sessions {
+		if err := m.tmux.Kill(sess.ID); err != nil {
+			t.Fatalf("kill %s: %v", sess.Name, err)
+		}
+		if err := m.store.SetArchived(sess.ID, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.showArchived = true
+	m.applyCmd(t, m.refreshCmd())
+
+	if _, _ = m.restoreAllDead(); strings.Contains(m.errBar.text, "error") || strings.HasPrefix(m.errBar.text, "no dead") {
+		t.Fatalf("restore all: %q", m.errBar.text)
+	}
+	for _, sess := range sessions {
+		got, err := m.store.Get(sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Archived {
+			t.Fatalf("restore all left %s in the archive", sess.Name)
+		}
+		if !m.tmux.Exists(sess.ID) {
+			t.Fatalf("restore all should revive %s", sess.Name)
+		}
+		t.Cleanup(func() { m.tmux.Kill(sess.ID) })
+	}
+}

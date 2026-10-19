@@ -861,7 +861,7 @@ func (m *Model) rowLegend() legendSection {
 		text   string
 	}{
 		{keymap.Fork, "fork"}, {keymap.RenameSelf, "rename"}, {keymap.Move, "move"},
-		{keymap.Revive, "revive"}, {keymap.ReviveAll, "revive all"},
+		{keymap.Revive, "revive"}, {keymap.ReviveAll, "revive all"}, {keymap.RestoreAll, "restore all"},
 		{keymap.SwitchAccount, "account"}, {keymap.Restart, "restart"},
 		{keymap.ArchiveAll, "kill all"},
 		// Priority is not repeated here: the row tier above already leads

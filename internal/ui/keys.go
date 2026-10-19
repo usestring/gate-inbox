@@ -43,6 +43,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if model, cmd, ok := m.newSessionFromAnywhere(msg); ok {
 		return model, cmd
 	}
+	if model, cmd, ok := m.killFromAnywhere(msg); ok {
+		return model, cmd
+	}
 
 	switch m.mode {
 	case modeForm:
@@ -313,6 +316,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.archiveAllLive()
 	case keymap.Restore:
 		return m.restoreSelected()
+	case keymap.RestoreAll:
+		return m.restoreAllDead()
 	case keymap.Rescind:
 		return m.rescindLatestSubmission()
 	case keymap.UndoArchive:

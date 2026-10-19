@@ -158,6 +158,7 @@ func helpSections() []helpSection {
 			listRow(keymap.ReviveAll, "revive every dead session"),
 			listRow(keymap.SwitchAccount, "switch account; migrates Claude context over 200k"),
 			listRow(keymap.Restore, "restore it out of the archive (and revive it)"),
+			listRow(keymap.RestoreAll, "restore every dead session listed, archived ones included"),
 			listRow(keymap.UndoArchive, "undo archive: bring back what the last kill filed away"),
 			note("a row left in the archive is deleted for good after 7 days"),
 		}},

@@ -295,3 +295,59 @@ func TestPagingTheKeyMapShowsEveryBinding(t *testing.T) {
 		}
 	}
 }
+
+// ctrl+x kills from the list as well as from a pane, so the chord works the
+// same wherever the operator is.
+func TestListArchiveChordAsksToKillTheRow(t *testing.T) {
+	m := focusedKillFleet(t, false)
+	m.selectSessionRow(t, "ask")
+
+	updated, _ := m.handleKey(ctrlX())
+	m = updated.(*Model)
+
+	if m.mode != modeConfirmDelete || m.confirm.action != actionArchive {
+		t.Fatalf("ctrl+x on the list left mode %v action %q, want the kill dialog", m.mode, m.confirm.action)
+	}
+	if !strings.Contains(m.confirm.label, "kill ask") {
+		t.Fatalf("the dialog does not name the row: %q", m.confirm.label)
+	}
+}
+
+// The hotkey menu drawn over a pane owns its bare keys, but not the kill
+// chord: ctrl+x closes it and asks to end the session underneath.
+func TestFocusedArchiveChordReachesThroughTheHotkeyMenu(t *testing.T) {
+	m := focusedKillFleet(t, false)
+	m.enterFocusOn(t, "ask")
+	m.openQuickMode()
+	if !m.quick.active {
+		t.Fatal("the hotkey menu did not open")
+	}
+
+	updated, _ := m.handleKey(ctrlX())
+	m = updated.(*Model)
+
+	if m.quick.active {
+		t.Fatal("ctrl+x left the hotkey menu up")
+	}
+	if m.mode != modeConfirmDelete || !strings.Contains(m.confirm.label, "kill ask") {
+		t.Fatalf("ctrl+x through the menu left mode %v label %q, want the kill dialog", m.mode, m.confirm.label)
+	}
+}
+
+// The search field takes typed text, but ctrl+x is no character: it closes
+// the field and asks to kill the row under the cursor.
+func TestListArchiveChordReachesThroughSearch(t *testing.T) {
+	m := focusedKillFleet(t, false)
+	m.selectSessionRow(t, "ask")
+	m.searching = true
+
+	updated, _ := m.handleKey(ctrlX())
+	m = updated.(*Model)
+
+	if m.searching {
+		t.Fatal("ctrl+x left the search field open")
+	}
+	if m.mode != modeConfirmDelete || m.confirm.action != actionArchive {
+		t.Fatalf("ctrl+x from search left mode %v action %q, want the kill dialog", m.mode, m.confirm.action)
+	}
+}

@@ -53,6 +53,7 @@ const (
 	Archive       Action = "archive"
 	ArchiveAll    Action = "archive_all"
 	Restore       Action = "restore"
+	RestoreAll    Action = "restore_all"
 	UndoArchive   Action = "undo_archive"
 	Dismiss       Action = "dismiss"
 	Priority      Action = "priority"
@@ -164,9 +165,10 @@ var Catalog = []Binding{
 	{ContextList, SwitchAccount, []string{}, "switch its account: restarts it on its own conversation", false},
 	{ContextList, Restart, []string{}, "restart it on an empty context", false},
 	{ContextList, RestartWith, []string{}, "restart it with extra flags…", false},
-	{ContextList, Archive, []string{"x"}, "kill it and file the row", false},
+	{ContextList, Archive, []string{"x", "ctrl+x"}, "kill it and file the row", false},
 	{ContextList, ArchiveAll, []string{}, "kill every session listed", false},
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
+	{ContextList, RestoreAll, []string{"R", "shift+r"}, "restore every dead session: revive the dead, bring the archived back", false},
 	{ContextList, UndoArchive, []string{"U", "shift+u"}, "bring back what the last kill filed away", false},
 	{ContextList, Dismiss, []string{"."}, "skip", false},
 	{ContextList, Priority, []string{"ctrl+p", "p"}, "cycle priority: urgent → high → medium → low → none", false},

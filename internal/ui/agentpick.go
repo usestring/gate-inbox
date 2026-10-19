@@ -628,6 +628,41 @@ func (m *Model) newSessionFromAnywhere(msg tea.KeyPressMsg) (tea.Model, tea.Cmd,
 	return m, tea.Batch(cmds...), true
 }
 
+// killFromAnywhere makes the focused screen's kill chord (ctrl+x) reach the
+// session from every screen that is not taking typed text: the list, the
+// search field, the hotkey menu, the legend peek, help and the pickers drawn
+// over a pane. Each box is closed the way newSessionFromAnywhere closes them,
+// and the kill then lands on the focused session or the row under the cursor,
+// asking first as it always does. A confirm dialog already up keeps the key.
+func (m *Model) killFromAnywhere(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	if action, bound := m.action(keymap.ContextFocus, msg); !bound || action != keymap.Archive {
+		return nil, nil, false
+	}
+	if m.mode == modeForm || m.mode == modeGroupForm || m.mode == modeRename ||
+		m.mode == modeAgentPick || m.mode == modeConfirmDelete ||
+		(m.mode == modeHelp && (m.help.capturing || m.help.clash != nil)) {
+		return nil, nil, false
+	}
+	var cmds []tea.Cmd
+	for range 4 {
+		if !m.inBox() {
+			break
+		}
+		_, cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+		cmds = append(cmds, cmd)
+	}
+	if m.inBox() {
+		return m, tea.Batch(cmds...), true
+	}
+	var cmd tea.Cmd
+	if sess, ok := m.selected(); ok && m.mode == modeFocus {
+		_, cmd = m.archiveFocused(sess)
+	} else {
+		_, cmd = m.archiveSelected()
+	}
+	return m, tea.Batch(append(cmds, cmd)...), true
+}
+
 // inBox reports whether something is drawn over the list or the focused
 // session and owns the keyboard.
 func (m *Model) inBox() bool {

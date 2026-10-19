@@ -34,6 +34,7 @@ import (
 // and its reason stays in the error bar rather than being carried off screen
 // by a handover.
 func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, handOver bool) tea.Cmd {
+	started := time.Now()
 	if sess.Archived {
 		m.errBar.text = m.displayName(sess) + " is archived — " + m.pressTo(keymap.ContextList, keymap.Restore, "restore it first")
 		return nil
@@ -61,7 +62,6 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 		m.requestRefresh()
 		return nil
 	}
-	started := time.Now()
 	landing := m.armLanding(sess, started, extension.OperatorSnippet, text, false, handOver, m.echoBaseline(sess.ID))
 	if err := m.tmux.SendText(sess.ID, text); err != nil {
 		m.dropLanding(sess.ID)

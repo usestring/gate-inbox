@@ -142,16 +142,16 @@ chmod +x "$shim"
 # capped near 108 bytes — a scratch directory under the run output is long
 # enough to blow that, and tmux reports it as "File name too long".
 sock="$(mktemp -d /tmp/gib-cap.XXXXXX)"
-home="$work/home"
+home="$work/board"
 mkdir -p "$home"
 rm -f "$home/state.db" "$home/state.db-shm" "$home/state.db-wal"
 
 # A HOME of its own, so nothing the board reads from home -- agent transcripts,
 # hooks, the gh login, opencode's store -- is the operator's, and a fixture
 # project under it, so the session's dir is a scratch path rather than this
-# checkout's real one. It is not named home: the rail draws the dir, and a
-# frame reading /home/demo-project fails the public evidence check as a
-# user's home directory.
+# checkout's real one. Neither this nor the board's home is named home: a
+# /home/<name> path, drawn as the rail's dir or written into the run tape,
+# fails the public evidence check as a user's home directory.
 fake_home="$sock/fixture"
 project="$fake_home/demo-project"
 mkdir -p "$project"

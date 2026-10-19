@@ -201,7 +201,7 @@ Re-run it with `--keep-home` and read the board's own log:
 
 ```bash
 grep -ao 'msg=key key=[^ ]* branch=[^ ]* mode=[^ ]* row=[^ ]* name=[^ ]*' \
-  <out>/work/home/logs/gate-inbox.log
+  <out>/work/board/logs/gate-inbox.log
 ```
 
 Every key the board received is there, with the mode that handled it and the row

@@ -94,6 +94,9 @@ func (m *Model) rescindLatestSubmission() (tea.Model, tea.Cmd) {
 	// and the queue brings it back. A later answer still pending for it is
 	// what the interrupt just cut off, so it must not land either.
 	m.unmute(sess.ID)
+	if pending := m.landings[sess.ID]; pending != nil {
+		recordLanding(pending, "cancelled")
+	}
 	m.dropLanding(sess.ID)
 	m.errBar.text = "undid the latest submission to " + m.displayName(sess)
 	m.requestRefresh()

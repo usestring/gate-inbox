@@ -514,7 +514,9 @@ func recordLanding(pending *pendingLanding, outcome string) {
 	logging.Info("triage answer", "id", pending.sess.ID, "tool", pending.sess.Tool,
 		"outcome", outcome, "by", probe.decided, "sources", probe.sources(),
 		"dialog", probe.dialog, "early", pending.early, "handover", pending.handOver,
-		"looks", probe.looks, "look_max", probe.lookMax.Round(time.Microsecond).String(),
+		"via", string(pending.via), "looks", probe.looks,
+		"look_total", probe.lookTime.Round(time.Microsecond).String(),
+		"look_max", probe.lookMax.Round(time.Microsecond).String(),
 		"took", took.Round(time.Millisecond).String())
 	if !tracing.Enabled() {
 		return

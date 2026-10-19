@@ -18,6 +18,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
 func TestEnterStartsLookingWithoutATimer(t *testing.T) {
@@ -564,5 +565,59 @@ func TestReplacingLandingRecordsDisplacedAnswerOnce(t *testing.T) {
 	}
 	if strings.Count(string(blob), "triage answer") != 2 || !strings.Contains(string(blob), "outcome=replaced") {
 		t.Fatalf("replacement landing log = %s", blob)
+	}
+}
+
+func TestRescindingRecordsPendingAnswerOnce(t *testing.T) {
+	m := drainOnDialog(t, true)
+	id := focusedID(t, m)
+	m = pressEnter(m)
+	recordDialogResult(t, m, id, "answered")
+	lookForLanding(t, m)
+	sess, _ := m.sessionByID(id)
+	check := m.armLanding(sess, time.Now(), extension.OperatorSnippet, "second", false, false, "")
+	pending := m.landings[id]
+	spans := recordSpans(t, func() {
+		m.rescindLatestSubmission()
+		if !strings.Contains(m.errBar.text, "undid") {
+			t.Fatalf("rescind result = %q", m.errBar.text)
+		}
+		m.applyLandingCheck(check().(landingCheckMsg))
+	})
+	landings := spansNamed(spans, "ui.landing")
+	if len(landings) != 1 || landings[0].str(t, "outcome") != "cancelled" {
+		t.Fatalf("rescinded landing spans = %v", landings)
+	}
+	if landings[0].str(t, "via") != string(pending.via) || len(m.landings) != 0 || m.latestSubmission.sessionID != "" {
+		t.Fatal("rescinded answer retained pending state or lost its input path")
+	}
+}
+
+func TestLandingLogIncludesInputPathAndTotalLookupWithoutTracing(t *testing.T) {
+	if tracing.Enabled() {
+		t.Fatal("tracing must be disabled to exercise the standalone log")
+	}
+	path := filepath.Join(t.TempDir(), "landing.log")
+	logger, err := logging.Open(logging.Options{Path: path, Level: logging.LevelInfo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := logging.SetDefault(logger)
+	t.Cleanup(func() { logging.SetDefault(previous); logger.Close() })
+	recordLanding(&pendingLanding{
+		sess: store.Session{ID: "row"}, armed: time.Now(), via: extension.OperatorSnippet,
+		observed: landingProbe{looks: 3, lookTime: 12 * time.Millisecond, lookMax: 5 * time.Millisecond},
+	}, "seen")
+	if err := logger.Close(); err != nil {
+		t.Fatal(err)
+	}
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"triage answer", "via=" + string(extension.OperatorSnippet), "look_total=12ms"} {
+		if !strings.Contains(string(blob), want) {
+			t.Fatalf("log missing %q: %s", want, blob)
+		}
 	}
 }

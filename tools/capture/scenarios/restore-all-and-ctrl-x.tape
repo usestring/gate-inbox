@@ -1,5 +1,5 @@
 # ctrl+x kills from the list and from inside search, not only from a pane;
-# R in the archived view then brings every killed session back.
+# D in the archived view then brings every killed session back.
 #
 #   tools/capture/capture.sh --scenario tools/capture/scenarios/restore-all-and-ctrl-x.tape
 
@@ -44,7 +44,7 @@ Enter
 Sleep 2500ms
 Screenshot {{SHOTS}}/05-archive.png
 Sleep 1s
-Type "R"
+Type "D"
 Sleep 4s
 Screenshot {{SHOTS}}/06-restored-all.png
 Sleep 1s

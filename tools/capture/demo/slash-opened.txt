@@ -1,0 +1,8 @@
+╭─ Claude Code ──────────────────────────────────────╮
+│ triage-inbox                                       │
+╰───────────────────────────────────────────────────╯
+❯ /triage-inbox only the last day
+● Twelve threads arrived in the last day; three need a reply.
+❯ draft the three replies
+● Drafted. Each is saved unsent for review.
+❯

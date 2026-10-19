@@ -13,7 +13,4 @@ for test_script in scripts/*.test.sh; do
     bash "$test_script" || status=$?
 done
 
-echo "pre-push: running artifacts worker tests"
-(cd extension/artifacts/worker && bun test) || status=$?
-
 exit "$status"

@@ -38,8 +38,8 @@ git config --local core.hooksPath .githooks
 ```
 
 Every push runs the full Go suite without cached results or `-short`, including E2E tests,
-through the tmux isolation check. It then runs every `scripts/*.test.sh` suite and the artifacts
-worker's `bun test`, so Bun is also required. A failed command blocks the push. Tests that need
+through the tmux isolation check. It then runs every `scripts/*.test.sh` suite. A failed command
+blocks the push. Tests that need
 live accounts, transcripts or other opt-in fixtures still require their documented environment
 variables; the hook does not enable them automatically. Run `.githooks/pre-push` to check locally.
 

@@ -11,14 +11,12 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/usestring/gate-inbox/internal/extension/all"
+	"github.com/usestring/gate-inbox/extension"
 )
-
-const artifactsSection = "[extensions.artifacts]\nenabled = true\nkey_command = \"sh\"\nbase_url = \"https://artifacts.example.test\"\n"
 
 func listProfile(t *testing.T, dir string, profile Profile) ([]*mcp.Tool, string) {
 	t.Helper()
-	session := connectServer(t, NewProfileServer(dir, "session-1", "test", all.Extensions(), "", profile))
+	session := connectServer(t, NewProfileServer(dir, "session-1", "test", []extension.Extension{newSwitchable()}, "", profile))
 	listed, err := session.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("list tools: %v", err)
@@ -39,7 +37,7 @@ func sortedNames(tools []*mcp.Tool) []string {
 // served twice, an extension's tools land on the admin side, and the core
 // server is exactly coreTools.
 func TestProfilesPartitionTheFullSurface(t *testing.T) {
-	dir := configWith(t, artifactsSection)
+	dir := configWith(t, switchOn)
 	full, _ := listProfile(t, dir, ProfileAll)
 	core, _ := listProfile(t, dir, ProfileCore)
 	admin, _ := listProfile(t, dir, ProfileAdmin)
@@ -60,7 +58,7 @@ func TestProfilesPartitionTheFullSurface(t *testing.T) {
 	if !slices.Equal(joined, sortedNames(full)) {
 		t.Fatalf("core + admin = %v, all = %v", joined, sortedNames(full))
 	}
-	if !slices.Contains(adminNames, "publish_artifact") {
+	if !slices.Contains(adminNames, "switch_hello") {
 		t.Fatalf("an extension's tool did not land in admin: %v", adminNames)
 	}
 }
@@ -69,7 +67,7 @@ func TestProfilesPartitionTheFullSurface(t *testing.T) {
 func TestProfileAllIsTheUnprofiledServer(t *testing.T) {
 	dir := configWith(t, "")
 	full, instructions := listProfile(t, dir, ProfileAll)
-	plain := connectServer(t, NewServer(dir, "session-1", "test", all.Extensions(), ""))
+	plain := connectServer(t, NewServer(dir, "session-1", "test", []extension.Extension{newSwitchable()}, ""))
 	listed, err := plain.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +114,7 @@ var notArgs = map[string]string{
 // That is how timeout_seconds reached wait_for_session and subject reached
 // send_children in recorded transcripts.
 func TestDescriptionsNameOnlyTheirOwnArguments(t *testing.T) {
-	tools, _ := listProfile(t, configWith(t, artifactsSection), ProfileAll)
+	tools, _ := listProfile(t, configWith(t, switchOn), ProfileAll)
 	names := map[string]bool{}
 	for _, tool := range tools {
 		names[tool.Name] = true

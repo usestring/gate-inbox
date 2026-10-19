@@ -16,7 +16,7 @@ import (
 // the split of it a launch chooses between.
 func TestMCPProfiles(t *testing.T) {
 	s := newScratch(t)
-	s.writeFile(t, "config.toml", artifactsOn)
+	s.writeFile(t, "config.toml", "")
 	var b strings.Builder
 	for _, profile := range []mcpserver.Profile{mcpserver.ProfileAll, mcpserver.ProfileCore, mcpserver.ProfileAdmin} {
 		listed := listTools(t, mcpserver.NewProfileServer(s.home, "cafe0001", "compat", all.Extensions(), "", profile))

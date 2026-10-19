@@ -1,30 +1,5 @@
 poll_interval = "2s"
 
-# The shared artifact store. Agents publish HTML, markdown or JSON to a URL
-# and hand the link to you or to each other; the link carries its own key, so
-# whoever has it can open that one artifact and nothing else. An artifact
-# published by a session on one account is readable by a session on
-# another -- and by a CLI that has no artifacts of its own.
-#
-# Off until you turn it on. An extension that is off registers no tools, so
-# an agent here neither sees them nor pays context for them. Turning it off
-# again does not break links already handed out, because the worker serving
-# them does not consult this file.
-#
-# It has no store of its own: base_url and key_command name the worker you
-# deployed and how to read its signing key, and until both are set the tools
-# stay off whatever enabled says.
-#
-# [extensions.artifacts]
-# enabled = true
-# base_url = "https://artifacts.example.com"
-# key_secret = "ARTIFACT_SIGNING_KEY"
-# key_command = "pass show {secret}"
-# identity_command = "git config user.email"   # who is recorded as publishing
-# link_ttl = "720h"         # how long a minted link stays valid; Go durations have
-#                           # no day unit, so this is hours (720h = 30 days)
-# max_bytes = 16777216      # largest artifact this client will send
-
 # The tmux server sessions run on. Unset, they run on tmux's own default
 # server, so "tmux ls" lists them and "tmux attach -t gi_<id>" reaches one.
 # Naming a socket here gives them a server nothing else shares, reachable

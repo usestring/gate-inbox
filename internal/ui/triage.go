@@ -2,6 +2,8 @@ package ui
 
 import (
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -440,7 +442,41 @@ const (
 	triageSetting      = "triage_mode"
 	triageScopeSetting = "triage_scope"
 	smartTriageSetting = "smart_triage"
+	triageSkipSetting  = "triage_skip_minutes"
 )
+
+// triageSkipDefault is how long a leave or a skip keeps a session out of a
+// drain. See muteMark.set.
+const triageSkipDefault = 15
+
+// triageSkipChoices is the settings row's cycle, in minutes; 0 never lapses,
+// which is how mutes behaved before they expired.
+var triageSkipChoices = []string{"5", "15", "30", "60", "0"}
+
+// storedTriageSkip reads how many minutes a drain's skip lasts. Anything that
+// is not a whole number of minutes reads as the default.
+func storedTriageSkip(st *store.Store) int {
+	chosen, err := st.Setting(triageSkipSetting)
+	if err != nil {
+		return triageSkipDefault
+	}
+	return normalizeTriageSkip(chosen)
+}
+
+func normalizeTriageSkip(chosen string) int {
+	minutes, err := strconv.Atoi(strings.TrimSpace(chosen))
+	if err != nil || minutes < 0 {
+		return triageSkipDefault
+	}
+	return minutes
+}
+
+func triageSkipLabel(minutes int) string {
+	if minutes == 0 {
+		return "never expires"
+	}
+	return strconv.Itoa(minutes) + " min"
+}
 
 // storedSmartTriage reads whether triage orders by the weighted wait. On is
 // the default; "off" is the strict order triage had before it: every

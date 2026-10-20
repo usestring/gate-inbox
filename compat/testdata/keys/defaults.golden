@@ -38,6 +38,7 @@ restart_with = []  # restart it with extra flags…
 archive = ["x"]  # kill it and file the row
 archive_all = []  # kill every session listed
 restore = ["u"]  # restore it out of the archive
+restore_all = ["D", "shift+d"]  # restore every dead session: revive the dead, bring the archived back
 undo_archive = ["U", "shift+u"]  # bring back what the last kill filed away
 dismiss = ["."]  # skip
 priority = ["ctrl+p", "p"]  # cycle priority: urgent → high → medium → low → none

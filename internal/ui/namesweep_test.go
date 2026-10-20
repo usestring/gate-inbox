@@ -208,6 +208,22 @@ func TestEnterOnAnEmptyPlanSendsNothing(t *testing.T) {
 	}
 }
 
+func TestArchiveChordPreservesASendingNameSweep(t *testing.T) {
+	m := shotModel()
+	m.mode = modeNameSweep
+	stop := make(chan struct{})
+	m.nameSweep = nameSweepState{sending: true, stop: stop}
+	m.handleKey(ctrlX())
+	select {
+	case <-stop:
+		t.Fatal("the kill chord canceled the sweep in flight")
+	default:
+	}
+	if m.mode != modeNameSweep || !m.nameSweep.sending || m.nameSweep.stop != stop {
+		t.Fatal("the kill chord changed the active sweep")
+	}
+}
+
 func TestEscapeDuringASweepStopsItRatherThanClosingTheCard(t *testing.T) {
 	m := buildModel(t)
 	m.mode = modeNameSweep

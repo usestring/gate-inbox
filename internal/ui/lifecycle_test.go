@@ -2471,3 +2471,16 @@ func TestRestoreAllWarnsAboutDegradedResumes(t *testing.T) {
 	}
 	t.Cleanup(func() { m.tmux.Kill(sess.ID) })
 }
+
+// Restore all acts on the whole view, so the legend names it whatever row the
+// cursor is on, an archived one included.
+func TestRestoreAllIsInTheViewLegendOnAnArchivedRow(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "shelved-restore-all", t.TempDir(), "")
+	m.selectSessionRow(t, "shelved-restore-all")
+	archiveInPlace(t, m, "shelved-restore-all")
+	key := m.tightCap(keymap.ContextList, keymap.RestoreAll)
+	if key == "" || !legendHasPair(m.viewLegend(), key) {
+		t.Fatalf("the view legend should offer restore all (%q) on an archived row: %v", key, m.viewLegend().pairs)
+	}
+}

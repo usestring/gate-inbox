@@ -217,6 +217,8 @@ func (m *Model) restoreAllDead() (tea.Model, tea.Cmd) {
 	switch {
 	case restored == 0 && firstErr == "":
 		m.errBar.text = "no dead sessions to restore"
+	case firstErr != "" && degraded > 0:
+		m.errBar.text = fmt.Sprintf("restored %d, %d without a captured id (used --continue), first error: %s", restored, degraded, firstErr)
 	case firstErr != "":
 		m.errBar.text = fmt.Sprintf("restored %d, first error: %s", restored, firstErr)
 	case degraded > 0:

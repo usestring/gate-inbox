@@ -299,6 +299,12 @@ func launchHooks() map[string][]hookMatcher {
 		"Notification":       report("Notification", blockingNotifications, status.Waiting),
 		"Stop":               report("Stop", "", status.Finished),
 		"StopFailure":        run("", stopFailureCommand()),
+		// A compaction fires no turn hook. Run from a resting prompt it ran
+		// under a finished or idle row; mid-turn the row is working already.
+		"PreCompact": report("PreCompact", "", status.Working),
+		// Only /compact comes back to the prompt; an auto compaction's turn
+		// carries on, and its next hook settles the row.
+		"PostCompact": report("PostCompact", "manual", status.Idle),
 		// compact fires SessionStart in the middle of an active turn
 		"SessionStart": append(report("SessionStart", "startup|resume|clear", status.Idle),
 			run("startup|resume|clear|compact", sessionStartCommand())...),

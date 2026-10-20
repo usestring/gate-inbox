@@ -1379,9 +1379,12 @@ func (m *Model) handleConfirmAnswer(msg tea.KeyMsg, confirmed bool) (tea.Model, 
 					m.errBar.text = err.Error()
 					return m, nil
 				}
-				m.markGroup(m.confirm.path, goneMark{archived: false})
+				m.markGroupRestoredLocally(m.confirm.path)
 			}
 			m.errBar.text = ""
+			// The restored rows rejoin the list on this frame rather than on
+			// the next poll, the way an archive's rows leave it.
+			m.rebuildRows()
 		case actionRestart:
 			for _, sess := range m.confirm.sessions {
 				if err := m.restartSessionWithFlags(sess, m.confirm.restartArgs); err != nil {
@@ -1517,6 +1520,30 @@ func (m *Model) markRestoredLocally(id string) {
 		}
 	}
 	m.markSession(id, goneMark{archived: false})
+}
+
+// markGroupRestoredLocally mirrors SetGroupArchived(path, false) on screen:
+// the group, every group under it and every session in that subtree leave
+// the archive on this frame, and each is marked so a stale poll cannot file
+// it again. The map is copied rather than edited because a poll's listing
+// handed it over.
+func (m *Model) markGroupRestoredLocally(path string) {
+	groups := make(map[string]bool, len(m.archivedGroups))
+	for name, archived := range m.archivedGroups {
+		if !inGroupSubtree(name, path) {
+			groups[name] = archived
+		} else if name != path {
+			m.markGroup(name, goneMark{archived: false})
+		}
+	}
+	m.archivedGroups = groups
+	for i := range m.sessions {
+		if inGroupSubtree(m.sessions[i].Group, path) {
+			m.sessions[i].Archived = false
+			m.markSession(m.sessions[i].ID, goneMark{archived: false})
+		}
+	}
+	m.markGroup(path, goneMark{archived: false})
 }
 
 // withoutSessions drops a set of rows from a batch, for the archive that was

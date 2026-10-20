@@ -101,6 +101,33 @@ func resolvedDir(path string) string {
 	return path
 }
 
+// A dead child nobody filed away is read on every pass the same way, and
+// forks no tmux either.
+func TestBoardGetOfADeadSessionForksNoTmux(t *testing.T) {
+	h := newSessionHarness(t)
+	gone := childShowing(t, h, "", "fork005", "gone", "ready\n")
+	if err := h.driver.Kill(gone.ID); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
+	if err := h.store.UpdateStatus(gone.ID, status.Dead); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	sessions, calls := loggedTmux(t, h)
+
+	for range 3 {
+		got, err := sessions.BoardGet(gone.ID)
+		if err != nil {
+			t.Fatalf("BoardGet: %v", err)
+		}
+		if got.Running || got.Directory != gone.Cwd {
+			t.Fatalf("BoardGet = running %v in %q; want stopped in %q", got.Running, got.Directory, gone.Cwd)
+		}
+	}
+	if forks := calls(); len(forks) != 0 {
+		t.Errorf("BoardGet of a dead session forked tmux %d times, want 0:\n%s", len(forks), strings.Join(forks, "\n"))
+	}
+}
+
 // An extension that keeps an archived id on record reads it on every pass.
 // The row is dead and its pane is gone, so a read forks no tmux at all: each
 // fork was a "can't find window" failure and a WARN in the board's log.

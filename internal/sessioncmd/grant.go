@@ -472,7 +472,11 @@ func (s *Sessions) applyGrants(runtime *runtime, target store.Session, force boo
 		out.note = "the session is working, so it was left alone: the change applies when it is next " +
 			"restarted; call again with restart true to restart it now"
 	default:
-		relaunched, err := s.restart(runtime, target)
+		slot, err := s.pace(runtime, target.ID, true)
+		if err != nil {
+			return out, fmt.Errorf("the change is written but the session did not come back: %w", err)
+		}
+		relaunched, err := s.restart(runtime, target, slot)
 		if err != nil {
 			return out, fmt.Errorf("the change is written but the session did not come back: %w", err)
 		}

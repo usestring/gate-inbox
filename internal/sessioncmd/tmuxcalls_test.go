@@ -34,6 +34,7 @@ func countingSessions(t *testing.T, h *sessionHarness) (*Sessions, func() []stri
 		t.Fatalf("tmux driver: %v", err)
 	}
 	sessions := newSessions(h.sessions.configDir, MCPVocabulary(), func(string) (*tmux.Driver, error) { return driver, nil }, git.New)
+	sessions.newPacer = h.sessions.newPacer
 	return sessions, func() []string {
 		raw, err := os.ReadFile(log)
 		if err != nil {

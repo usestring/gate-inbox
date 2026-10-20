@@ -418,19 +418,29 @@ func (s *Sessions) RestartStaleSandboxes(now time.Time) (int, error) {
 		if target.Status == status.Working {
 			continue
 		}
+		// A busy relaunch queue leaves the flag for the next pass: the
+		// session waits at its prompt, still stale, rather than piling
+		// another launch onto the machine.
+		slot, err := s.pace(runtime, target.ID, false)
+		if err != nil {
+			continue
+		}
 		if err := removeFlag(flag); err != nil {
+			slot.Cancel()
 			errs = append(errs, err)
 			continue
 		}
 		if err := runtime.store.SetAgentLaunchedAt(target.ID, now); err != nil {
+			slot.Cancel()
 			errs = append(errs, err)
 			continue
 		}
 		if err := s.endSession(runtime, target, store.EndKilled); err != nil {
+			slot.Cancel()
 			errs = append(errs, err)
 			continue
 		}
-		if _, err := s.relaunch(runtime, target, StaleSandboxResume); err != nil {
+		if _, err := s.relaunch(runtime, target, StaleSandboxResume, slot); err != nil {
 			errs = append(errs, err)
 			continue
 		}

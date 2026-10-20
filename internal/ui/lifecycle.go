@@ -16,6 +16,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/launch"
+	"github.com/usestring/gate-inbox/internal/launchpace"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -388,6 +389,13 @@ func (m *Model) relaunchSession(sess store.Session, tool config.Tool, baseComman
 			_ = m.tmux.Kill(sess.ID)
 			return err
 		}
+	}
+	// The operator asked for this one, and the board cannot wait on the
+	// queue without freezing, so it goes now; it is entered in the queue,
+	// off the event loop since the queue's lock can be held a moment, so
+	// the automatic relaunches behind it wait on it.
+	if dir := m.configDir(); dir != "" {
+		go launchpace.FromConfig(dir, m.cfg.Relaunch, nil).Record(sess.ID)
 	}
 	if err := m.tmux.SetLabel(sess.ID, sessionLabel(sess.Group, sess.Name)); err != nil {
 		return err

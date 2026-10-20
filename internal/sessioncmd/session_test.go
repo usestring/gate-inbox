@@ -177,6 +177,9 @@ func newSessionHarnessWithConfig(t *testing.T, raw string) *sessionHarness {
 		sessions:  newSessions(configDir, MCPVocabulary(), newDriver, git.New),
 		terminals: newTerminals(configDir, MCPVocabulary(), newDriver),
 	}
+	// Relaunches in a test follow one another at once; the queue's own
+	// tests are in relaunchpace_test.go and launchpace.
+	h.sessions.newPacer = unpaced(configDir)
 	t.Cleanup(func() {
 		sessions, _ := st.ListSessions(true)
 		for _, sess := range sessions {

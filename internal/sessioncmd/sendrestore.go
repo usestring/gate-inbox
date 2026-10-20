@@ -47,7 +47,11 @@ func (s *Sessions) restoreForSend(runtime *runtime, caller store.Session, target
 		return "", nil
 	}
 	if !running {
-		if _, err := s.relaunch(runtime, target, ""); err != nil {
+		slot, err := s.pace(runtime, target.ID, true)
+		if err == nil {
+			_, err = s.relaunch(runtime, target, "", slot)
+		}
+		if err != nil {
 			if target.Archived {
 				return "", fmt.Errorf("session %s is your archived child, but it could not be revived to take this message: %w", target.ID, err)
 			}

@@ -22,6 +22,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/band"
 	"github.com/usestring/gate-inbox/internal/codexq"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/git"
@@ -168,6 +169,11 @@ type poller struct {
 	screens    map[string]screenMark
 	stale      map[string]bool
 	staleAfter time.Duration
+	// compactTools is each claude-hooks tool with a compact_window, and
+	// compactFailed the window a session's settings file last failed to
+	// take. See compactwindow.go.
+	compactTools  map[string]config.Tool
+	compactFailed map[string]int
 	// hookCursor is how far into each session's hook log the poller has
 	// read. The newest line says what the session is doing now; the lines
 	// between two passes say what it did meanwhile, and a whole turn can fit
@@ -1183,6 +1189,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 			priorityGroups[g.Name] = g.Priority
 		}
 	}
+	p.syncCompactWindows(sessions, priorityGroups)
 
 	if agents.count > 0 {
 		agents.cpu = min(100, agents.cpu)
@@ -2378,6 +2385,11 @@ func (p *poller) forgetVanished(sessions []store.Session) {
 	for id := range p.hookCursor {
 		if !live[id] {
 			delete(p.hookCursor, id)
+		}
+	}
+	for id := range p.compactFailed {
+		if !live[id] {
+			delete(p.compactFailed, id)
 		}
 	}
 	// A codex tracker holds every question its rollout has shown, so one left

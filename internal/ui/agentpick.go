@@ -649,7 +649,9 @@ func (m *Model) killFromAnywhere(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool)
 	if !bound || action != keymap.Archive {
 		return nil, nil, false
 	}
-	if m.searching && msg.Mod&(tea.ModCtrl|tea.ModAlt) == 0 {
+	// A plain list key stays with the screen it was pressed on: the list's own
+	// dispatch already handles it there, and every other screen owns its letters.
+	if ctx == keymap.ContextList && msg.Mod&(tea.ModCtrl|tea.ModAlt) == 0 {
 		return nil, nil, false
 	}
 	if m.mode == modeForm || m.mode == modeGroupForm || m.mode == modeRename ||

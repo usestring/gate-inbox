@@ -636,7 +636,8 @@ func (m *Model) newSessionFromAnywhere(msg tea.KeyPressMsg) (tea.Model, tea.Cmd,
 // asking first as it always does. A confirm dialog already up keeps the key.
 func (m *Model) killFromAnywhere(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
 	ctx := keymap.ContextList
-	if m.mode == modeFocus || (m.mode == modeHelp && m.help.returnMode == modeFocus) ||
+	if m.mode == modeFocus || m.mode == modeHeadPane ||
+		(m.mode == modeHelp && (m.help.returnMode == modeFocus || m.help.returnMode == modeHeadPane)) ||
 		(m.mode == modePanePicker && m.panePicker.fromFocus) {
 		ctx = keymap.ContextFocus
 	}

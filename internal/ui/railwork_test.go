@@ -520,3 +520,22 @@ func TestANarrowUnfoldedRailRowStillLinks(t *testing.T) {
 		t.Errorf("the short form lost its link: %q", line)
 	}
 }
+
+func TestRestoreAllReachesThroughArtifactRows(t *testing.T) {
+	m := railWorkModel(t)
+	m.poller = &poller{}
+	m.setWorkFolded("add-rate-limiting", false)
+	m.rebuildRows()
+	artifacts := m.artifactRowIndexes()
+	if len(artifacts) != 2 {
+		t.Fatalf("artifact rows = %d, want the pull request and ticket", len(artifacts))
+	}
+	for _, cursor := range artifacts {
+		m.cursor = cursor
+		m.errBar.text = ""
+		m.handleKey(tea.KeyPressMsg{Code: 'D', Text: "D"})
+		if got := m.errBar.text; got != "no dead sessions to restore" {
+			t.Fatalf("restore all on an artifact returned %q, want the restore handler's empty-view notice", got)
+		}
+	}
+}

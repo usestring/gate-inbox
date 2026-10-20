@@ -372,7 +372,7 @@ func TestArchiveChordPreservesForkAndMigrationInput(t *testing.T) {
 }
 
 func TestArchiveBindingUsesUnderlyingContext(t *testing.T) {
-	for _, screen := range []string{"list", "list search", "list menu", "list help", "focus", "focus menu", "focus help", "focus picker"} {
+	for _, screen := range []string{"list", "list search", "list menu", "list help", "focus", "focus menu", "focus help", "focus picker", "focus header", "focus header help"} {
 		t.Run(screen, func(t *testing.T) {
 			m := focusedKillFleet(t, false)
 			m.selectSessionRow(t, "ask")
@@ -387,6 +387,11 @@ func TestArchiveBindingUsesUnderlyingContext(t *testing.T) {
 			case "list menu", "focus menu":
 				m.openQuickMode()
 			case "list help", "focus help":
+				m.openHelp()
+			case "focus header":
+				m.mode = modeHeadPane
+			case "focus header help":
+				m.mode = modeHeadPane
 				m.openHelp()
 			case "focus picker":
 				m.panePicker.fromFocus = true

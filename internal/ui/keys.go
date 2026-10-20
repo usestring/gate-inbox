@@ -437,6 +437,7 @@ var artifactRowActions = map[keymap.Action]bool{
 	keymap.Rescind:  true,
 	// UndoArchive brings back the last kill, wherever the cursor is.
 	keymap.UndoArchive: true,
+	keymap.RestoreAll:  true,
 }
 
 // stepCursor is one move of the selection: the next row that is not an

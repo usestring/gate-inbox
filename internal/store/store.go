@@ -67,6 +67,13 @@ type Session struct {
 	Muted        bool
 	CreatedAt    time.Time
 	LastStatusAt time.Time
+	// OperatorAt is when a person last handed the session something: a
+	// snippet, a key into a focused pane, a turn given while attached, or a
+	// `send --as-human`. Nothing Gate Inbox queues or types on
+	// its own moves it, which is what LastStatusAt cannot say: every turn an
+	// injected message starts moves that one. Zero for a session nobody has
+	// touched since it was created. See SetOperatorAt.
+	OperatorAt time.Time
 	// AgentSessionID is the agent CLI's own conversation id (claude session
 	// UUID, codex rollout id, opencode session id).
 	// Revive resumes this exact conversation instead of the cwd's most recent one.
@@ -550,7 +557,28 @@ CREATE TABLE IF NOT EXISTS settings (
 			}
 		}
 	}
+	if err := s.addOperatorAt(); err != nil {
+		return err
+	}
 	return s.BackfillNameSource()
+}
+
+// addOperatorAt adds the operator_at column and, only in the start that adds
+// it, backfills each existing row with its last_status_at. A row from before
+// the column has no record of its last operator turn, and its last status
+// change is the latest that turn can have been, so the backfill never makes a
+// session look as if it has waited longer than it has. Run on every start, the
+// backfill would also stamp rows created since with whatever their agent last
+// did, which is the clock the column exists to replace.
+func (s *Store) addOperatorAt() error {
+	if _, err := s.db.Exec(`ALTER TABLE sessions ADD COLUMN operator_at INTEGER NOT NULL DEFAULT 0`); err != nil {
+		if strings.Contains(err.Error(), "duplicate column") {
+			return nil
+		}
+		return err
+	}
+	_, err := s.db.Exec(`UPDATE sessions SET operator_at = last_status_at`)
+	return err
 }
 
 // Retained for older binaries; current routing derives ownership from login.
@@ -839,7 +867,7 @@ func (s *Store) ListSessions(includeArchived bool) ([]Session, error) {
 }
 
 func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
-	query := `SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, muted, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, ` + spawnerColumnOf("sessions") + `, launch_prompt, model, account, name_source, priority_tier, role, replaced_by, ` + migrationColumn + `, ` + migrationOpeningColumn + `, sort_order, rowid
+	query := `SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, muted, created_at, last_status_at, operator_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, ` + spawnerColumnOf("sessions") + `, launch_prompt, model, account, name_source, priority_tier, role, replaced_by, ` + migrationColumn + `, ` + migrationOpeningColumn + `, sort_order, rowid
 	          FROM sessions`
 	if !includeArchived {
 		query += ` WHERE archived = 0`
@@ -856,10 +884,10 @@ func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
 		var sess Session
 		var archived, acked, muted, pendingClaimed int
 		var tier string
-		var created, lastStatus, agentLaunched, archivedAt int64
+		var created, lastStatus, operatorAt, agentLaunched, archivedAt int64
 		var pendingInputs, migrationOpening string
 		if err := rows.Scan(&sess.ID, &sess.Name, &sess.Tool, &sess.Cwd,
-			&sess.Group, &sess.Status, &archived, &archivedAt, &acked, &muted, &created, &lastStatus,
+			&sess.Group, &sess.Status, &archived, &archivedAt, &acked, &muted, &created, &lastStatus, &operatorAt,
 			&sess.AgentSessionID,
 			&sess.TmuxSocket, &sess.TmuxPaneID,
 			&agentLaunched, &sess.RetiredAgentSessionID, &pendingInputs, &pendingClaimed, &sess.ParentID, &sess.SpawnedBy, &sess.LaunchPrompt, &sess.Model, &sess.Account, &sess.NameSource, &tier, &sess.Role, &sess.ReplacedBy, &sess.MigrationID, &migrationOpening, &sess.position.SortOrder, &sess.position.RowID); err != nil {
@@ -880,6 +908,7 @@ func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
 		sess.PendingInputClaimed = pendingClaimed != 0
 		sess.CreatedAt = decodeTime(created)
 		sess.LastStatusAt = decodeTime(lastStatus)
+		sess.OperatorAt = decodeTime(operatorAt)
 		sess.AgentLaunchedAt = decodeTime(agentLaunched)
 		sessions = append(sessions, sess)
 	}
@@ -890,13 +919,13 @@ func (s *Store) Get(id string) (Session, error) {
 	var sess Session
 	var archived, acked, muted, pendingClaimed int
 	var tier string
-	var created, lastStatus, agentLaunched, archivedAt int64
+	var created, lastStatus, operatorAt, agentLaunched, archivedAt int64
 	var pendingInputs, migrationOpening string
 	err := s.db.QueryRow(
-		`SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, muted, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, `+spawnerColumnOf("sessions")+`, launch_prompt, model, account, name_source, priority_tier, role, replaced_by, `+migrationColumn+`, `+migrationOpeningColumn+`
+		`SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, muted, created_at, last_status_at, operator_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, `+spawnerColumnOf("sessions")+`, launch_prompt, model, account, name_source, priority_tier, role, replaced_by, `+migrationColumn+`, `+migrationOpeningColumn+`
 		 FROM sessions WHERE id = ?`, id,
 	).Scan(&sess.ID, &sess.Name, &sess.Tool, &sess.Cwd, &sess.Group,
-		&sess.Status, &archived, &archivedAt, &acked, &muted, &created, &lastStatus, &sess.AgentSessionID,
+		&sess.Status, &archived, &archivedAt, &acked, &muted, &created, &lastStatus, &operatorAt, &sess.AgentSessionID,
 		&sess.TmuxSocket, &sess.TmuxPaneID,
 		&agentLaunched, &sess.RetiredAgentSessionID, &pendingInputs, &pendingClaimed, &sess.ParentID, &sess.SpawnedBy, &sess.LaunchPrompt, &sess.Model, &sess.Account, &sess.NameSource, &tier, &sess.Role, &sess.ReplacedBy, &sess.MigrationID, &migrationOpening)
 	if err != nil {
@@ -916,6 +945,7 @@ func (s *Store) Get(id string) (Session, error) {
 	sess.PendingInputClaimed = pendingClaimed != 0
 	sess.CreatedAt = decodeTime(created)
 	sess.LastStatusAt = decodeTime(lastStatus)
+	sess.OperatorAt = decodeTime(operatorAt)
 	sess.AgentLaunchedAt = decodeTime(agentLaunched)
 	return sess, nil
 }
@@ -1251,6 +1281,18 @@ func (s *Store) AcknowledgeFinished(id string) error {
 func (s *Store) SetAcked(id string, acked bool) error {
 	res, err := s.db.Exec(
 		`UPDATE sessions SET acked = ? WHERE id = ?`, boolToInt(acked), id)
+	if err != nil {
+		return err
+	}
+	return requireRow(res, id)
+}
+
+// SetOperatorAt records that a person handed the session something at at.
+// Only the operator's own input calls it: a message Gate Inbox, an extension
+// or another session queued is not a person attending to the session, however
+// it reaches the pane. See Session.OperatorAt.
+func (s *Store) SetOperatorAt(id string, at time.Time) error {
+	res, err := s.db.Exec(`UPDATE sessions SET operator_at = ? WHERE id = ?`, encodeTime(at), id)
 	if err != nil {
 		return err
 	}

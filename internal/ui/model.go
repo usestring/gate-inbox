@@ -1189,7 +1189,9 @@ func deferStoreWrite(write func() error) tea.Cmd {
 
 type attachDoneMsg struct {
 	sessID string
-	err    error
+	// since is when the attach began; see noteAttachedTurn.
+	since time.Time
+	err   error
 }
 
 func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status.Engine, hookManager *hooks.Manager, version string) *Model {
@@ -2652,6 +2654,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pane.geom = map[string][2]int{}
 		}
 		m.pane.geom[msg.sessID] = [2]int{width, height}
+		m.noteAttachedTurn(msg.sessID, msg.since)
 		if msg.err != nil {
 			m.errBar.text = msg.err.Error()
 			m.requestRefresh()

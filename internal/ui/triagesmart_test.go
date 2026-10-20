@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -14,9 +15,11 @@ import (
 // smartNow is the pinned clock every smart triage test reads.
 var smartNow = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
 
-// smartSess is a top-level session that entered st age before smartNow.
+// smartSess is a top-level session the operator last gave a turn age before
+// smartNow, in st since then.
 func smartSess(name, st string, age time.Duration) store.Session {
-	return store.Session{ID: name, Name: name, Status: st, LastStatusAt: smartNow.Add(-age)}
+	at := smartNow.Add(-age)
+	return store.Session{ID: name, Name: name, Status: st, LastStatusAt: at, OperatorAt: at}
 }
 
 // smartFleet puts sessions on a triage rail ordered by smart triage, on the
@@ -145,6 +148,7 @@ func TestSmartTriageLowOvertakesMediumAtTwiceTheWait(t *testing.T) {
 			med.Priority = priority.Medium
 			assertRail(t, smartFleet(t, low, med), "med", "low")
 			low.LastStatusAt = smartNow.Add(-scale.beyond)
+			low.OperatorAt = low.LastStatusAt
 			assertRail(t, smartFleet(t, low, med), "low", "med")
 		})
 	}
@@ -251,8 +255,8 @@ func TestSmartTriageLiftsAParentByItsChildsScore(t *testing.T) {
 	assertRail(t, m, "ask-old", "ask-young", "lead", "kid")
 }
 
-// A finish the operator has looked at is acked and idle, under the finish's
-// LastStatusAt. It keeps that wait at 0.8 of an unseen finish's weight, above
+// A finish the operator has looked at is acked and idle, and looking is not
+// a turn: it keeps its wait at 0.8 of an unseen finish's weight, above
 // a plain idle session, until input moves it on.
 func TestSmartTriageKeepsASeenFinishInTheQueue(t *testing.T) {
 	seen := smartSess("seen", status.Idle, time.Hour)
@@ -351,5 +355,116 @@ func TestSmartTriageOffKeepsTheStrictOrder(t *testing.T) {
 	assertRail(t, m, want...)
 	if got, want := drainOrder(m), slices.DeleteFunc(slices.Clone(want), func(n string) bool { return n == "lead" || n == "kid" }); !slices.Equal(got, want) {
 		t.Fatalf("drain = %v, want %v", got, want)
+	}
+}
+
+// The wait counts from the operator's last turn, not from the last status
+// change. A turn Gate Inbox started -- a queued message, a name sweep, a
+// nudge -- ends in a fresh finish, and a session nobody has looked at in
+// hours must not read as a minute old because of it.
+func TestSmartTriageAGateInboxTurnDoesNotResetTheWait(t *testing.T) {
+	stale := smartSess("stale", status.Finished, 3*time.Hour)
+	stale.LastStatusAt = smartNow.Add(-time.Minute)
+	m := smartFleet(t,
+		smartSess("fresh", status.Finished, time.Hour),
+		stale,
+	)
+	assertRail(t, m, "stale", "fresh")
+	if got, want := m.triageScore(stale, smartNow), (3*time.Hour + triageScoreFloor).Seconds(); got != want {
+		t.Fatalf("score = %v, want %v from the operator's turn", got, want)
+	}
+}
+
+// A session nobody has given a turn since it was made waits from its
+// creation.
+func TestSmartTriageWaitsFromCreationWithNoOperatorTurn(t *testing.T) {
+	untouched := smartSess("untouched", status.Finished, time.Minute)
+	untouched.OperatorAt = time.Time{}
+	m := smartFleet(t, smartSess("touched", status.Finished, time.Hour), untouched)
+	// smartFleet makes every session 72 hours before smartNow.
+	assertRail(t, m, "untouched", "touched")
+}
+
+// Messages Gate Inbox, another session or an extension queued start turns
+// without moving the operator's clock; the operator's own line from a shell
+// moves it.
+func TestSmartTriageOnlyAnOperatorMessageMovesTheWaitClock(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "claude-hooked")
+	deliverAll := func() {
+		t.Helper()
+		for attempt := 0; attempt < 20; attempt++ {
+			if queued, _ := m.store.QueuedCount(sess.ID); queued == 0 {
+				return
+			}
+			if err := deliverInbox(t, m, sess, queuedHeads(t, m), "❯ ", status.Idle, true); err != nil {
+				t.Fatalf("maybeDeliverInbox: %v", err)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Fatal("a message was never delivered")
+	}
+
+	before := time.Now()
+	queueFrom(t, m, sess.ID, store.SystemSenderID, "cache warm")
+	queueFrom(t, m, sess.ID, "sender01", "from another agent")
+	queueFrom(t, m, sess.ID, store.ExtensionSenderID("watcher"), "from an extension")
+	queueFrom(t, m, sess.ID, store.OperatorVoicedSenderID("watcher"), "in the operator's voice")
+	queueFrom(t, m, sess.ID, store.RelayedHumanSenderID, "relayed by a helper")
+	deliverAll()
+	got, err := m.store.Get(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.LastStatusAt.After(before) {
+		t.Fatalf("delivery left LastStatusAt at %v; the test needs the turns to have started", got.LastStatusAt)
+	}
+	if !got.OperatorAt.IsZero() {
+		t.Fatalf("a message nobody typed stamped the operator's turn at %v", got.OperatorAt)
+	}
+
+	queueFrom(t, m, sess.ID, store.HumanSenderID, "yes, ship it")
+	deliverAll()
+	if got, err = m.store.Get(sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got.OperatorAt.Before(before) {
+		t.Fatalf("the operator's own line left their turn at %v", got.OperatorAt)
+	}
+}
+
+// A line or a key the board saw land is the operator's turn.
+func TestSmartTriageABoardSendMovesTheWaitClock(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "claude-hooked")
+	before := time.Now()
+	m.noteOperator(sess, extension.OperatorPrompt, "go on", false)
+	got, err := m.store.Get(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.OperatorAt.Before(before) {
+		t.Fatalf("a landed prompt left the operator's turn at %v", got.OperatorAt)
+	}
+}
+
+// An attached pane's keys never pass through the board. A turn that started
+// while the operator was in it is theirs; going in and out again is a look,
+// which leaves the wait alone like looking at a finish from the board does.
+func TestSmartTriageAnAttachCountsOnlyWhenItGaveATurn(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "claude-hooked")
+	m.noteAttachedTurn(sess.ID, time.Now().Add(time.Second))
+	if got, err := m.store.Get(sess.ID); err != nil || !got.OperatorAt.IsZero() {
+		t.Fatalf("a look stamped the operator's turn: %v, %v", got.OperatorAt, err)
+	}
+
+	since := time.Now().Add(-time.Second)
+	if err := m.store.UpdateStatus(sess.ID, status.Working); err != nil {
+		t.Fatal(err)
+	}
+	m.noteAttachedTurn(sess.ID, since)
+	if got, err := m.store.Get(sess.ID); err != nil || got.OperatorAt.Before(since) {
+		t.Fatalf("a turn given while attached left the operator's turn at %v, %v", got.OperatorAt, err)
 	}
 }

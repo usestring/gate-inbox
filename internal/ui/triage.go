@@ -139,12 +139,28 @@ func (m *Model) triageScoredState(sess store.Session) string {
 // weighted wait overtakes another's moves up the rail on the next pass with
 // no store event, the way a running-out deadline moves its row.
 func (m *Model) triageScore(sess store.Session, now time.Time) float64 {
-	wait := max(now.Sub(sess.LastStatusAt), 0) + triageScoreFloor
+	wait := max(now.Sub(triageWaitingSince(sess)), 0) + triageScoreFloor
 	tier, ok := triageTierWeight[m.tierOf(sess)]
 	if !ok {
 		tier = 1
 	}
 	return wait.Seconds() * triageStateWeight[m.triageScoredState(sess)] * tier
+}
+
+// triageWaitingSince is when a session last had a person's attention, which
+// is what smart triage counts its wait from: the operator's last turn on it
+// (see store.Session.OperatorAt), or its creation when there has been none.
+//
+// Not LastStatusAt. Every turn moves that, and most turns on a board are not
+// the operator's: a message another session or an extension queued, a name
+// sweep, a nudge, each starts a turn that ends in a fresh finish. Counting
+// from there made a session nobody had looked at in hours read as minutes
+// old after every one of them, so the sessions waiting longest never rose.
+func triageWaitingSince(sess store.Session) time.Time {
+	if !sess.OperatorAt.IsZero() {
+		return sess.OperatorAt
+	}
+	return sess.CreatedAt
 }
 
 // now is the model's clock: the wall clock unless a test pinned one.

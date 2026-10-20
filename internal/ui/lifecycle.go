@@ -101,8 +101,9 @@ func (m *Model) attachCmd(id string) tea.Cmd {
 	if prepErr != nil {
 		m.errBar.text = prepErr.Error()
 	}
+	since := time.Now()
 	return tea.ExecProcess(m.tmux.AttachCommand(id), func(err error) tea.Msg {
-		return attachDoneMsg{sessID: id, err: err}
+		return attachDoneMsg{sessID: id, since: since, err: err}
 	})
 }
 
@@ -1622,4 +1623,21 @@ func withoutSessions(sessions, drop []store.Session) []store.Session {
 		}
 	}
 	return kept
+}
+
+// noteAttachedTurn stamps the operator's turn on a session they have just
+// detached from, if one happened. An attached pane takes their keys straight
+// from tmux, so the board never sees what they typed; the session's status
+// moving while they were in it is the sign that they gave it a turn. Going in
+// and coming out again is a look, which leaves the wait where it was, as
+// looking at a finish from the board does. See triageFinishedSeen.
+func (m *Model) noteAttachedTurn(id string, since time.Time) {
+	if m.store == nil || since.IsZero() {
+		return
+	}
+	sess, err := m.store.Get(id)
+	if err != nil || !sess.LastStatusAt.After(since) {
+		return
+	}
+	m.stampOperator(id, time.Now())
 }

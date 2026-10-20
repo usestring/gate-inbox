@@ -104,6 +104,15 @@ model_flag = "--model"
 # account_secret = "CLAUDE_OAUTH_TOKEN_{account}"
 # account_command = "pass show claude/{secret}"
 # accounts_command = "pass ls claude"
+# Priority-scaled auto-compaction is off: every session compacts at claude's
+# own window. To let the sessions that matter most keep more context, give a
+# window in tokens (100000 to 1000000) per tier; the tier is the one the board
+# sorts by, and a tier left out keeps claude's own. It is written as
+# autoCompactWindow into the session's own settings file, which claude 2.1.304
+# reads at launch only: a tier changed mid-session applies at the next revive
+# or restart. CLAUDE_CODE_AUTO_COMPACT_WINDOW in the environment overrides it.
+#
+# compact_window = { urgent = 600000, high = 300000 }
 # claude has no command that prints these; they are the documented aliases.
 # The 1M-context variants sit beside the bare ones because an explicit --model
 # overrides the operator's settings.json default: picking "opus" for someone

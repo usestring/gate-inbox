@@ -52,6 +52,15 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 
 Priority defaults to 0 with no marker. Positive levels use green `▲`, `▲▲`, and `▲▲▲`; the negative level (-1) uses a red `▼`. Set a level with `gate-inbox priority <level>` using a number from -1 to 3 or its tier name.
 
+Priority can also give a Claude session a larger auto-compact window, so the work that matters most keeps more context before it compacts. It is off by default. Turn it on with a window in tokens (100000 to 1000000) per tier under `[tools.claude]`:
+
+```toml
+[tools.claude]
+compact_window = { urgent = 600000, high = 300000 }
+```
+
+The tier is the one the board sorts by: the session's own, or a higher one on a group above it. A tier left out of the table, and a session with no tier, keep Claude Code's own window. The window is written as `autoCompactWindow` into the session's own settings file, which the board keeps in step with the tier on every poll. Claude Code 2.1.304 reads that file at launch only, so a tier changed mid-session takes effect at the session's next revive or restart, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the environment overrides it.
+
 One-off and destructive actions — fork, migrate, restart, restart with flags, account switch, kill-all, fold-all, resize, the archived view, per-state jumps — ship with no key. They all run from quick actions (`:`), which shows each action's current key, and the key map (`h`) puts any of them back on a key.
 
 Navigation is keyboard-driven. The manager claims mouse reporting so the wheel stays inside the app and cannot scroll the TUI out of view: in a focused session it walks that pane's scrollback, where click-drag also selects pane text and copies it. In a focused agent that tracks the mouse, a click passes straight through to its own clickable UI while a drag still selects and copies; hold `alt` to pass a whole drag through instead, for the agent's own text selection or sliders. In the list the wheel does nothing, since moving the selection with it retargets every key that follows.

@@ -16,6 +16,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/mergegate"
+	"github.com/usestring/gate-inbox/internal/priority"
 )
 
 // defaultNameSweepPace paces the bulk rename sweep. Slow enough that a
@@ -126,6 +127,13 @@ type Tool struct {
 	// AccountsCommand prints the secret names that exist, one per line, so a
 	// caller can find an account rather than guess one.
 	AccountsCommand string `toml:"accounts_command"`
+	// CompactWindow is the auto-compact window, in tokens, a session of this
+	// tool gets at each priority tier ("urgent", "high", "medium", "low"),
+	// read off the same tier the board sorts by. A tier left out, and a
+	// session with no tier, keep the CLI's own window. Only claude-hooks
+	// tools carry it: it travels as autoCompactWindow in the session's own
+	// settings file. Empty, which is the default, changes nothing.
+	CompactWindow map[string]int `toml:"compact_window"`
 	// ResumeByIDCommand resumes a specific conversation; "{id}" is replaced
 	// with the session's agent id. Preferred over ReviveCommand, which only
 	// resumes the working directory's most recent conversation.
@@ -520,7 +528,51 @@ func (c Config) validate() error {
 	default:
 		return fmt.Errorf("board.sidebar = %q: want %q or %q", c.Board.Sidebar, SidebarRight, SidebarLeft)
 	}
+	names := make([]string, 0, len(c.Tools))
+	for name := range c.Tools {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		if err := checkCompactWindow(name, c.Tools[name].CompactWindow); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// MinCompactWindow and MaxCompactWindow are the range Claude Code 2.1.304
+// accepts for autoCompactWindow. A value outside it is refused here rather
+// than handed to a settings file the CLI would reject.
+const (
+	MinCompactWindow = 100_000
+	MaxCompactWindow = 1_000_000
+)
+
+func checkCompactWindow(name string, windows map[string]int) error {
+	tiers := make([]string, 0, len(windows))
+	for tier := range windows {
+		tiers = append(tiers, tier)
+	}
+	slices.Sort(tiers)
+	for _, tier := range tiers {
+		if t := priority.Tier(tier); t == priority.Unset || !t.Valid() {
+			return fmt.Errorf("tools.%s.compact_window: %q is not a tier (want urgent, high, medium or low)", name, tier)
+		}
+		if window := windows[tier]; window < MinCompactWindow || window > MaxCompactWindow {
+			return fmt.Errorf("tools.%s.compact_window.%s = %d: want %d to %d tokens", name, tier, window, MinCompactWindow, MaxCompactWindow)
+		}
+	}
+	return nil
+}
+
+// CompactWindowFor is the auto-compact window a session at tier gets, or 0
+// for the CLI's own.
+func (t Tool) CompactWindowFor(tier priority.Tier) int {
+	if tier == priority.Unset {
+		return 0
+	}
+	return t.CompactWindow[string(tier)]
 }
 
 // backfillToolDefaults fills fields the built-in tools gained after a
@@ -1051,6 +1103,15 @@ model_flag = "--model"
 # account_secret = "CLAUDE_OAUTH_TOKEN_{account}"
 # account_command = "pass show claude/{secret}"
 # accounts_command = "pass ls claude"
+# Priority-scaled auto-compaction is off: every session compacts at claude's
+# own window. To let the sessions that matter most keep more context, give a
+# window in tokens (100000 to 1000000) per tier; the tier is the one the board
+# sorts by, and a tier left out keeps claude's own. It is written as
+# autoCompactWindow into the session's own settings file, which claude 2.1.304
+# reads at launch only: a tier changed mid-session applies at the next revive
+# or restart. CLAUDE_CODE_AUTO_COMPACT_WINDOW in the environment overrides it.
+#
+# compact_window = { urgent = 600000, high = 300000 }
 # claude has no command that prints these; they are the documented aliases.
 # The 1M-context variants sit beside the bare ones because an explicit --model
 # overrides the operator's settings.json default: picking "opus" for someone

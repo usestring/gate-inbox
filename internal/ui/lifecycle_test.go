@@ -2484,3 +2484,42 @@ func TestRestoreAllIsInTheViewLegendOnAnArchivedRow(t *testing.T) {
 		t.Fatalf("the view legend should offer restore all (%q) on an archived row: %v", key, m.viewLegend().pairs)
 	}
 }
+
+// A revive files an archived row back out itself, so restore all must not
+// unarchive it a second time: each write takes one off the parent's done
+// tally, and a sibling the view filters out would drop out of "(+N done)".
+func TestRestoreAllUnarchivesARevivedChildOnce(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "parent", t.TempDir(), "")
+	parent := namedSessionRow(t, m, "parent")
+	for _, child := range []store.Session{
+		{ID: "restoredchild", Name: "restored", Tool: parent.Tool},
+		{ID: "filteredchild", Name: "filtered", Tool: "codex"},
+	} {
+		child.Cwd, child.ParentID, child.Status = t.TempDir(), parent.ID, status.Dead
+		child.CreatedAt, child.LastStatusAt = time.Now(), time.Now()
+		if err := m.store.CreateSession(child); err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+		if err := m.store.SetArchived(child.ID, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.showArchived = true
+	m.toolFilter = parent.Tool
+	m.applyCmd(t, m.refreshCmd())
+	m.selectSessionRow(t, "restored")
+
+	m.restoreAllDead()
+	t.Cleanup(func() { m.tmux.Kill("restoredchild") })
+	if !m.tmux.Exists("restoredchild") {
+		t.Fatalf("restore all did not revive the child: %q", m.errBar.text)
+	}
+	counts, err := m.store.ArchivedChildCounts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := counts[parent.ID]; got != 1 {
+		t.Fatalf("parent's done tally = %d, want 1 for the filtered sibling still archived", got)
+	}
+}

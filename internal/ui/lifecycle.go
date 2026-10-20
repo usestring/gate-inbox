@@ -196,19 +196,25 @@ func (m *Model) restoreAllDead() (tea.Model, tea.Cmd) {
 		if !sess.Archived && sess.Status != status.Dead {
 			continue
 		}
+		revived := false
 		if !m.tmux.Exists(sess.ID) {
 			if err := m.reviveSession(sess); err != nil {
 				fail(err)
 				continue
 			}
+			revived = true
 			if m.degradedResumeNotice(sess) != "" {
 				degraded++
 			}
 		}
 		if sess.Archived {
-			if err := m.store.SetArchived(sess.ID, false); err != nil {
-				fail(err)
-				continue
+			// A revive already filed the row back out, and a second write
+			// would take it off the parent's done tally again.
+			if !revived {
+				if err := m.store.SetArchived(sess.ID, false); err != nil {
+					fail(err)
+					continue
+				}
 			}
 			m.markRestoredLocally(sess.ID)
 		}

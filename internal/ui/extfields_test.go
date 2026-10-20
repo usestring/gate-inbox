@@ -244,3 +244,21 @@ func TestUpAndDownMoveBetweenAFormsFields(t *testing.T) {
 		t.Fatalf("values = %+v, want the moves to have changed nothing", got)
 	}
 }
+
+// ctrl+x kills from most screens, but a form's typed field is taking text:
+// the chord must neither close the form nor reach the row behind it.
+func TestTheKillChordLeavesATypedFormFieldAlone(t *testing.T) {
+	m, bridge, sent := viewModel(t)
+	bridge.Open("items", "detail", sampleForm())
+	deliver(t, m, sent)
+	typeInto(t, m, " draft")
+
+	m.handleKey(tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl})
+
+	if m.mode != modeExtensionView || m.extView.fields == nil {
+		t.Fatalf("ctrl+x closed the form: mode %v", m.mode)
+	}
+	if got := m.extView.fields.values()["title"]; got != "topic draft" {
+		t.Fatalf("title = %q, want the draft kept", got)
+	}
+}

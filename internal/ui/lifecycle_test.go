@@ -1716,6 +1716,46 @@ func TestRestoreAgentUnarchivesEveryChild(t *testing.T) {
 	}
 }
 
+func TestRestoreLeavesTheArchivedViewWithoutAPoll(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "returning", t.TempDir(), "")
+	m.selectSessionRow(t, "returning")
+	m.archiveSelected()
+	m.handleConfirmKey(key("y"))
+	m.showArchived = true
+	m.applyCmd(t, m.refreshCmd())
+	m.selectSessionRow(t, "returning")
+	m.restoreSelected()
+	m.handleConfirmKey(key("y"))
+	if got := m.sessionRows(); len(got) != 0 {
+		t.Fatalf("restored row still listed as archived until the next poll: %v", got)
+	}
+}
+
+func TestGroupRestoreLeavesTheArchivedViewWithoutAPoll(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	if err := m.store.CreateGroup("zone", dir); err != nil {
+		t.Fatalf("group: %v", err)
+	}
+	m.applyCmd(t, m.refreshCmd())
+	createSession(t, m, "in-zone", dir, "zone")
+	m.selectGroupRow(t, "zone")
+	m.archiveSelected()
+	m.handleConfirmKey(key("y"))
+	m.showArchived = true
+	m.applyCmd(t, m.refreshCmd())
+	m.selectGroupRow(t, "zone")
+	m.restoreSelected()
+	m.handleConfirmKey(key("y"))
+	if m.groupEffectivelyArchived("zone") {
+		t.Fatal("restored group still reads archived until the next poll")
+	}
+	if got := m.sessionRows(); len(got) != 0 {
+		t.Fatalf("restored group's sessions still listed as archived: %v", got)
+	}
+}
+
 func TestArchiveAndExpiryIncludeChildren(t *testing.T) {
 	m := buildModel(t)
 	dir := t.TempDir()

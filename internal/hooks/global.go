@@ -76,7 +76,7 @@ const globalDisabledName = "global-hooks.disabled"
 // questions. SessionEnd is left out; the poller drops a dead agent's status
 // on its own, and a launch's SessionEnd also prunes git worktrees, which no
 // session outside the board asked for.
-var globalEvents = []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop", "StopFailure"}
+var globalEvents = []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop", "StopFailure", "PreCompact", "PostCompact"}
 
 // matchField is the payload field an event's matchers are compared with.
 var matchField = map[string]string{
@@ -84,6 +84,7 @@ var matchField = map[string]string{
 	"PostToolUse":  "tool_name",
 	"Notification": "notification_type",
 	"SessionStart": "source",
+	"PostCompact":  "trigger",
 }
 
 // AdoptedDir is where the board keeps the adoption markers the global hooks

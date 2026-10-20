@@ -35,7 +35,7 @@ func TestLaunchHooksAreValidHookJSON(t *testing.T) {
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		t.Fatalf("settings is not valid JSON: %v", err)
 	}
-	events := []string{"UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Notification", "Stop", "StopFailure", "SessionStart", "SessionEnd"}
+	events := []string{"UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Notification", "Stop", "StopFailure", "PreCompact", "PostCompact", "SessionStart", "SessionEnd"}
 	if len(parsed.Hooks) != len(events) {
 		t.Fatalf("hooks has %d events, want %d: %v", len(parsed.Hooks), len(events), parsed.Hooks)
 	}

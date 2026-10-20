@@ -92,8 +92,8 @@ func TestHooksFileCarriesTheLaunchHooksAndTheMods(t *testing.T) {
 	if !reflect.DeepEqual(file.Hooks, want) {
 		t.Fatalf("hooks = %+v\nwant the launch hooks then the registered ones %+v", file.Hooks, want)
 	}
-	if len(file.Hooks) != 9 {
-		t.Fatalf("hooks carry %d events, want the 9 the launch has", len(file.Hooks))
+	if len(file.Hooks) != 11 {
+		t.Fatalf("hooks carry %d events, want the 11 the launch has", len(file.Hooks))
 	}
 }
 

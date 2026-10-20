@@ -7,6 +7,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -20,10 +21,13 @@ type submissionRescind struct {
 	lastStatusAt time.Time
 }
 
-// noteOperator tells the board's observer that the operator handed sess
-// something from the board and it reached the pane. An extension that put a
+// noteOperator records that the operator handed sess something from the
+// board and it reached the pane: on the row, which is the clock smart triage
+// measures a wait from, and to the board's observer. An extension that put a
 // question to the operator learns from it that a person has answered.
 func (m *Model) noteOperator(sess store.Session, via extension.OperatorVia, text string, dialog bool) {
+	at := time.Now()
+	m.stampOperator(sess.ID, at)
 	if m.poller == nil || m.poller.observer == nil {
 		return
 	}
@@ -32,8 +36,20 @@ func (m *Model) noteOperator(sess store.Session, via extension.OperatorVia, text
 		Via:       via,
 		Text:      text,
 		Dialog:    dialog,
-		At:        time.Now(),
+		At:        at,
 	})
+}
+
+// stampOperator stores a person's turn on a session. A stamp that did not
+// land costs that session's place in the smart triage order until the next
+// one, so it is logged rather than put in front of the operator.
+func (m *Model) stampOperator(id string, at time.Time) {
+	if m.store == nil {
+		return
+	}
+	if err := ignoreDeletedSession(m.store.SetOperatorAt(id, at)); err != nil {
+		logging.Warn("operator stamp failed", "session", id, "err", err)
+	}
 }
 
 func (m *Model) noteSubmission(sess store.Session) {

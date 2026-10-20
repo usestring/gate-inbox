@@ -1734,6 +1734,16 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 		if err := ignoreDeletedSession(p.store.UpdateStatus(sess.ID, status.Working)); err != nil {
 			return err
 		}
+		// A line the operator sent from a shell is a person's turn on the
+		// session, and the only delivered message that is. One Gate Inbox, an
+		// extension or another session queued leaves the clock smart triage
+		// measures a wait from where it was, and so does a relayed line: a
+		// role session wrote it, whoever it speaks for.
+		if first && msg.SenderID == store.HumanSenderID {
+			if err := ignoreDeletedSession(p.store.SetOperatorAt(sess.ID, at)); err != nil {
+				return err
+			}
+		}
 		// The operator's own words, sent from a shell, reach the board's
 		// extensions here: once, on the delivery that recorded them. A
 		// relayed line is not reported: the relaying extension recorded it

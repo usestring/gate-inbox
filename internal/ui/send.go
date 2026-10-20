@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -32,6 +34,7 @@ import (
 // and its reason stays in the error bar rather than being carried off screen
 // by a handover.
 func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, handOver bool) tea.Cmd {
+	started := time.Now()
 	if sess.Archived {
 		m.errBar.text = m.displayName(sess) + " is archived — " + m.pressTo(keymap.ContextList, keymap.Restore, "restore it first")
 		return nil
@@ -59,7 +62,7 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 		m.requestRefresh()
 		return nil
 	}
-	landing := m.armLanding(sess, extension.OperatorSnippet, text, false, handOver, m.echoBaseline(sess.ID))
+	landing := m.armLanding(sess, started, extension.OperatorSnippet, text, false, handOver, m.echoBaseline(sess.ID))
 	if err := m.tmux.SendText(sess.ID, text); err != nil {
 		m.dropLanding(sess.ID)
 		m.errBar.text = err.Error()

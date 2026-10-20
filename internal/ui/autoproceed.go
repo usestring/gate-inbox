@@ -217,6 +217,10 @@ func (m *Model) handOverOnWork(before string) tea.Cmd {
 	if !m.unseenAnswers[sess.ID] && !(inFlight && pending.handOver) {
 		return nil
 	}
+	if inFlight {
+		pending.observed.decided = "poll"
+		recordLanding(pending, "seen")
+	}
 	m.dropLanding(sess.ID)
 	return m.handOverFocused(sess)
 }

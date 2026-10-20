@@ -14,9 +14,11 @@ import (
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
 func TestEnterStartsLookingWithoutATimer(t *testing.T) {
@@ -24,7 +26,7 @@ func TestEnterStartsLookingWithoutATimer(t *testing.T) {
 	landingTick = time.Hour
 	t.Cleanup(func() { landingTick = before })
 	m := &Model{}
-	cmd := m.armLanding(store.Session{ID: "row"}, extension.OperatorPane, "", false, true, "❯ ")
+	cmd := m.armLanding(store.Session{ID: "row"}, time.Now(), extension.OperatorPane, "", false, true, "❯ ")
 	result := make(chan tea.Msg, 1)
 	go func() { result <- cmd() }()
 	select {
@@ -313,6 +315,30 @@ func TestThePaneLandsOnlyWhatNoOtherSourceRefused(t *testing.T) {
 	}
 }
 
+// Each look is counted and the source that decided is named, so a recorded
+// landing says what the operator waited on.
+func TestALookNamesTheSourceThatDecided(t *testing.T) {
+	working := false
+	p := &landingProbe{dialog: true, paneWorking: func() bool { return working }}
+	p.look()
+	if p.decided != "" {
+		t.Fatalf("a pending look named %q", p.decided)
+	}
+	working = true
+	p.look()
+	if p.decided != "pane" || p.looks != 2 || p.sources() != "pane" {
+		t.Fatalf("decided %q after %d looks over %q, want pane after 2 over pane", p.decided, p.looks, p.sources())
+	}
+
+	m := buildModel(t)
+	logHookEvent(t, m, "declined", "waiting Notification")
+	refusing := &landingProbe{dialog: true, hooks: m.hooks, hookID: "declined", paneWorking: func() bool { return true }}
+	refusing.look()
+	if refusing.decided != "hooks-boundary" || refusing.sources() != "hooks,pane" {
+		t.Fatalf("decided %q over %q, want hooks-boundary over hooks,pane", refusing.decided, refusing.sources())
+	}
+}
+
 // A look for an older key must not decide the answer that replaced it.
 func TestAStaleLookDecidesNothing(t *testing.T) {
 	m := drainOnDialog(t, true)
@@ -434,5 +460,164 @@ func TestALandedAnswerLetsGoOfTheHeldAck(t *testing.T) {
 	}
 	if got := storedSession(t, m, "done"); got.Acked {
 		t.Fatal("handing over after a landed answer spent the held acknowledgement")
+	}
+}
+
+func TestLandingTimingIncludesBaselineWithoutShorteningWindow(t *testing.T) {
+	m := &Model{}
+	started := time.Now().Add(-5 * time.Second)
+	beforeArm := time.Now()
+	m.armLanding(store.Session{ID: "row"}, started, extension.OperatorPane, "", false, true, "")
+	pending := m.landings["row"]
+	if pending.deadline.Before(beforeArm.Add(landingWindow)) {
+		t.Fatal("baseline time shortened the acceptance window")
+	}
+	spans := recordSpans(t, func() { recordLanding(pending, "timeout") })
+	span := oneSpan(t, spans, "ui.landing")
+	if span.began(t) != started.UnixNano() || span.number(t, "took_ms") < 5000 {
+		t.Fatal("landing timing omitted the time before arming")
+	}
+}
+
+func TestPollRecordsLandingWhileLookIsInFlight(t *testing.T) {
+	m := drainOnDialog(t, true)
+	id := focusedID(t, m)
+	m = pressDialogKey(m)
+	pending := m.landings[id]
+	path := filepath.Join(t.TempDir(), "landing.log")
+	logger, err := logging.Open(logging.Options{Path: path, Level: logging.LevelInfo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := logging.SetDefault(logger)
+	t.Cleanup(func() { logging.SetDefault(previous); logger.Close() })
+	entered, release := make(chan struct{}), make(chan struct{})
+	pending.probe = &landingProbe{paneWorking: func() bool {
+		close(entered)
+		<-release
+		return true
+	}}
+	pending.observed = *pending.probe
+	result := make(chan tea.Msg, 1)
+	go func() { result <- landingLook(id, pending)() }()
+	<-entered
+	spans := recordSpans(t, func() {
+		pollReporting(t, m, "ask", status.Working)
+		close(release)
+		m.applyLandingCheck((<-result).(landingCheckMsg))
+	})
+	landings := spansNamed(spans, "ui.landing")
+	if len(landings) != 1 {
+		t.Fatalf("poll and stale check recorded %d landings, want one", len(landings))
+	}
+	if landings[0].str(t, "outcome") != "seen" || landings[0].str(t, "by") != "poll" {
+		t.Fatal("poll landing lost its outcome or evidence source")
+	}
+	if focusedName(t, m) != "next" || len(m.landings) != 0 {
+		t.Fatal("poll did not finish the pending handover")
+	}
+	if err := logger.Close(); err != nil {
+		t.Fatal(err)
+	}
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(blob), "triage answer") != 1 {
+		t.Fatalf("poll landing log = %s", blob)
+	}
+}
+
+func TestReplacingLandingRecordsDisplacedAnswerOnce(t *testing.T) {
+	m := &Model{}
+	sess := store.Session{ID: "row"}
+	path := filepath.Join(t.TempDir(), "landing.log")
+	logger, err := logging.Open(logging.Options{Path: path, Level: logging.LevelInfo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := logging.SetDefault(logger)
+	t.Cleanup(func() { logging.SetDefault(previous); logger.Close() })
+	first := m.armLanding(sess, time.Now(), extension.OperatorPane, "", false, true, "")
+	old := m.landings[sess.ID]
+	spans := recordSpans(t, func() {
+		m.armLanding(sess, time.Now(), extension.OperatorPane, "", false, true, "")
+		next := m.landings[sess.ID]
+		if next == old {
+			t.Fatal("new answer did not replace the pending landing")
+		}
+		m.applyLandingCheck(first().(landingCheckMsg))
+		if m.landings[sess.ID] != next {
+			t.Fatal("stale check changed the replacement landing")
+		}
+		m.applyLandingCheck(landingCheckMsg{id: sess.ID, gen: next.gen, verdict: landingRefused})
+	})
+	landings := spansNamed(spans, "ui.landing")
+	if len(landings) != 2 || landings[0].str(t, "outcome") != "replaced" || landings[1].str(t, "outcome") != "refused" {
+		t.Fatalf("replacement and final landing spans = %v", landings)
+	}
+	if err := logger.Close(); err != nil {
+		t.Fatal(err)
+	}
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(blob), "triage answer") != 2 || !strings.Contains(string(blob), "outcome=replaced") {
+		t.Fatalf("replacement landing log = %s", blob)
+	}
+}
+
+func TestRescindingRecordsPendingAnswerOnce(t *testing.T) {
+	m := drainOnDialog(t, true)
+	id := focusedID(t, m)
+	m = pressEnter(m)
+	recordDialogResult(t, m, id, "answered")
+	lookForLanding(t, m)
+	sess, _ := m.sessionByID(id)
+	check := m.armLanding(sess, time.Now(), extension.OperatorSnippet, "second", false, false, "")
+	pending := m.landings[id]
+	spans := recordSpans(t, func() {
+		m.rescindLatestSubmission()
+		if !strings.Contains(m.errBar.text, "undid") {
+			t.Fatalf("rescind result = %q", m.errBar.text)
+		}
+		m.applyLandingCheck(check().(landingCheckMsg))
+	})
+	landings := spansNamed(spans, "ui.landing")
+	if len(landings) != 1 || landings[0].str(t, "outcome") != "cancelled" {
+		t.Fatalf("rescinded landing spans = %v", landings)
+	}
+	if landings[0].str(t, "via") != string(pending.via) || len(m.landings) != 0 || m.latestSubmission.sessionID != "" {
+		t.Fatal("rescinded answer retained pending state or lost its input path")
+	}
+}
+
+func TestLandingLogIncludesInputPathAndTotalLookupWithoutTracing(t *testing.T) {
+	if tracing.Enabled() {
+		t.Fatal("tracing must be disabled to exercise the standalone log")
+	}
+	path := filepath.Join(t.TempDir(), "landing.log")
+	logger, err := logging.Open(logging.Options{Path: path, Level: logging.LevelInfo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := logging.SetDefault(logger)
+	t.Cleanup(func() { logging.SetDefault(previous); logger.Close() })
+	recordLanding(&pendingLanding{
+		sess: store.Session{ID: "row"}, armed: time.Now(), via: extension.OperatorSnippet,
+		observed: landingProbe{looks: 3, lookTime: 12 * time.Millisecond, lookMax: 5 * time.Millisecond},
+	}, "seen")
+	if err := logger.Close(); err != nil {
+		t.Fatal(err)
+	}
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"triage answer", "via=" + string(extension.OperatorSnippet), "look_total=12ms"} {
+		if !strings.Contains(string(blob), want) {
+			t.Fatalf("log missing %q: %s", want, blob)
+		}
 	}
 }

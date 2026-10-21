@@ -1520,6 +1520,7 @@ func (m *Model) forgetGroupsLocally(paths []string) {
 		delete(m.groupPaths, path)
 		delete(m.archivedGroups, path)
 		delete(m.priorityGroups, path)
+		delete(m.pinnedGroups, path)
 		delete(m.collapsed, path)
 	}
 	m.groups = slices.DeleteFunc(slices.Clone(m.groups), func(g string) bool { return gone[g] })

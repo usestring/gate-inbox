@@ -18,11 +18,13 @@ usage: gate-inbox sessions [--parent <id|me>] [--status <state>] [--include-arch
 $ gate-inbox spawn -h
 exit 0
 --- stdout
-usage: gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--nest] [--keep] [--json]
+usage: gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--directory-reason <why>] [--nest] [--keep] [--json]
   -account string
     	named account it runs on, read from its secret at launch; omit for the board's launch-account setting
   -directory string
     	existing directory it works in; defaults to yours, or to the group's inherited path
+  -directory-reason string
+    	why it must start in --directory although its group pins another; leave empty to start where the group pins
   -group string
     	existing group path for a detached (--nest=false) session; a nested one is always in yours
   -json

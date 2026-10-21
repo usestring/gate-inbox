@@ -101,6 +101,7 @@ type SessionScreen struct {
 type Group struct {
 	Path      string `json:"path" jsonschema:"full group path, slash separated; pass this value as a group argument"`
 	Directory string `json:"directory,omitempty" jsonschema:"group's default working directory, inherited by sessions created in it"`
+	Pinned    bool   `json:"pinned,omitempty" jsonschema:"whether every session spawned into this group starts in its directory, whatever directory it was asked for"`
 	Archived  bool   `json:"archived" jsonschema:"whether the group is archived"`
 	Sessions  int    `json:"sessions" jsonschema:"number of active agent sessions directly in this group"`
 }
@@ -112,7 +113,10 @@ type CreateSessionOptions struct {
 	// deliberately targets the root group.
 	Group     *string
 	Directory string
-	Prompt    string
+	// DirectoryReason is why this launch must start in Directory although
+	// its group pins another one. Empty lets the pin apply.
+	DirectoryReason string
+	Prompt          string
 	// Model launches on a chosen model rather than the CLI's own default.
 	// Empty is that default, and a tool with no model flag refuses one.
 	Model string
@@ -518,6 +522,7 @@ func (s *Sessions) Groups(sessionID string) ([]Group, error) {
 		groups = append(groups, Group{
 			Path:      group.Name,
 			Directory: group.Path,
+			Pinned:    group.PinPath,
 			Archived:  group.Archived,
 			Sessions:  counts[group.Name],
 		})
@@ -745,6 +750,16 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	// dialog; the agent is told to change into dir either way, and the row
 	// below records dir, which is what work and git discovery read.
 	launchDir := launchDirectory(tool, caller.Cwd, dir)
+	reason := strings.TrimSpace(opts.DirectoryReason)
+	if reason == "" {
+		pinned, err := runtime.pinnedDirectory(sess.Group)
+		if err != nil {
+			return Session{}, err
+		}
+		if pinned != "" {
+			launchDir = pinned
+		}
+	}
 	workdir := ""
 	if launchDir != dir {
 		workdir = dir
@@ -788,7 +803,8 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	logging.Info("session created by an agent",
 		"caller", caller.ID, "callerTool", caller.Tool,
 		"session", sess.ID, "parent", sess.ParentID,
-		"tool", sess.Tool, "group", sess.Group, "nest", nest)
+		"tool", sess.Tool, "group", sess.Group, "nest", nest,
+		"launchDir", launchDir, "directoryReason", reason)
 	_ = runtime.driver.SetLabel(sess.ID, sessionLabel(sess.Group, sess.Name))
 	info := runtime.sessionInfo(sess, true, false)
 	// sessionInfo prefers the live pane path, which is where a session has
@@ -834,6 +850,28 @@ func (s *Sessions) Withdraw(sessionID, targetID string) (err error) {
 	sessionhooks.Killed(target, extension.KillByMCP, sessionID)
 	logging.Info("spawn withdrawn after its call was cancelled", "caller", sessionID, "session", target.ID)
 	return nil
+}
+
+// pinnedDirectory is where a session spawned into group has to start because
+// a group at or above it pins its path: the operator's own word for where
+// work under that heading begins, which is a directory they trust and whose
+// project settings they want loaded. Empty when nothing is pinned, or when
+// the pinned directory has gone, since opening no pane is worse than opening
+// in the one that was asked for.
+func (r *runtime) pinnedDirectory(group string) (string, error) {
+	groups, err := r.store.Groups()
+	if err != nil {
+		return "", err
+	}
+	pinned := store.PinnedPath(groups, group)
+	if pinned == "" {
+		return "", nil
+	}
+	resolved, err := resolveTerminalDirectory(pinned)
+	if err != nil {
+		return "", nil
+	}
+	return resolved, nil
 }
 
 func agentToolNames(r *runtime) []string {

@@ -47,6 +47,7 @@ const (
 const (
 	gfName = iota
 	gfParent
+	gfPin
 	gfPath
 	gfCount
 )
@@ -148,7 +149,10 @@ type groupForm struct {
 	name     textinput.Model
 	path     textinput.Model
 	pathAuto bool
-	focus    int
+	// pin starts every session spawned into the group at path rather than
+	// only defaulting to it. See store.PinnedPath.
+	pin   bool
+	focus int
 	// editing is the group this card is editing, empty while it is
 	// creating one -- so submit knows whether to add a group or write
 	// this one back over the group it opened on.
@@ -1033,6 +1037,7 @@ func (m *Model) openGroupEditForm(group string) {
 	m.groupForm = groupForm{
 		name:    name,
 		path:    path,
+		pin:     m.pinnedGroups[group],
 		focus:   gfName,
 		editing: group,
 	}
@@ -1092,6 +1097,10 @@ func (m *Model) handleGroupFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.moveGroupCursor(-1)
 			return m, nil
 		}
+		if m.groupForm.focus == gfPin {
+			m.groupForm.pin = !m.groupForm.pin
+			return m, nil
+		}
 	case "right":
 		if m.groupForm.focus == gfPath && m.pathSugg.browsing {
 			m.descendPath()
@@ -1099,6 +1108,15 @@ func (m *Model) handleGroupFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.groupForm.focus == gfParent {
 			m.moveGroupCursor(1)
+			return m, nil
+		}
+		if m.groupForm.focus == gfPin {
+			m.groupForm.pin = !m.groupForm.pin
+			return m, nil
+		}
+	case "space":
+		if m.groupForm.focus == gfPin {
+			m.groupForm.pin = !m.groupForm.pin
 			return m, nil
 		}
 	case "enter":
@@ -1159,6 +1177,10 @@ func (m *Model) submitGroupForm() (tea.Model, tea.Cmd) {
 		m.errBar.text = err.Error()
 		return m, nil
 	}
+	if err := m.savePin(full); err != nil {
+		m.errBar.text = err.Error()
+		return m, nil
+	}
 	m.materializeGroupsLocal([]string{full})
 	if m.groupPaths == nil {
 		m.groupPaths = map[string]string{}
@@ -1196,6 +1218,10 @@ func (m *Model) saveGroupEdit(old, full, path string) (tea.Model, tea.Cmd) {
 		m.errBar.text = err.Error()
 		return m, nil
 	}
+	if err := m.savePin(full); err != nil {
+		m.errBar.text = err.Error()
+		return m, nil
+	}
 	m.renameGroupLocally(old, full, path)
 	m.relabelSubtree(full)
 	// A group moved under a folded parent would otherwise vanish from the
@@ -1209,6 +1235,23 @@ func (m *Model) saveGroupEdit(old, full, path string) (tea.Model, tea.Cmd) {
 	m.rebuildRows()
 	m.focusGroupRow(full)
 	return m, m.refreshCmd()
+}
+
+// savePin writes the card's pin onto the group and into the local view, so
+// the rail shows it on this frame rather than on the next poll.
+func (m *Model) savePin(group string) error {
+	if err := m.store.SetGroupPinPath(group, m.groupForm.pin); err != nil {
+		return err
+	}
+	if m.pinnedGroups == nil {
+		m.pinnedGroups = map[string]bool{}
+	}
+	if m.groupForm.pin {
+		m.pinnedGroups[group] = true
+	} else {
+		delete(m.pinnedGroups, group)
+	}
+	return nil
 }
 
 // focusGroupRow puts the cursor back on a group after the tree is rebuilt

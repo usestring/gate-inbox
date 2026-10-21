@@ -267,7 +267,9 @@ func (m *Model) railOnRight() bool { return !m.railOnLeft() }
 // anywhere -- before the caret, above it or below it -- Right has nothing to
 // move through. A caret at the head of a typed line shares that shape, so on
 // those tools it reads as the end too; that over-read is the price of the
-// hint being indistinguishable from typed text in a capture. Tools with no
+// hint being indistinguishable from typed text in a capture. Claude's hint is
+// the suggested next prompt it offers after a turn, and that one the capture
+// can tell apart: it is drawn faint, which typed text never is. Tools with no
 // hint leave the head of a typed line to the agent.
 func (m *Model) caretAtInputEnd(sessID, tool string) bool {
 	rows, y, ok := m.caretRows(sessID)
@@ -282,7 +284,7 @@ func (m *Model) caretAtInputEnd(sessID, tool string) bool {
 	if !textAfterCaret(m.engine, tool, row, caretX) {
 		return m.composerEndsBelow(tool, rows, y)
 	}
-	if tool != "codex" && tool != "opencode" {
+	if tool != "codex" && tool != "opencode" && !status.FaintAfterCell(rows[y], caretX) {
 		return false
 	}
 	return !textBeforeCaret(m.engine, tool, row, caretX) &&
@@ -651,6 +653,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.startNewSession()
 		case action == keymap.CopySessionID:
 			return m.copySessionID(sess)
+		case action == keymap.CopyQueued:
+			return m.copyNextQueued()
 		case action == keymap.LastPane:
 			return m.focusBack()
 		case action == keymap.JumpPane:

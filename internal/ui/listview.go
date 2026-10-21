@@ -492,6 +492,8 @@ func (m *Model) groupDetailLines(group, pad string, room int) []string {
 	if path == "" {
 		path = m.groupDefaultDir(group)
 		suffix = " " + subtleStyle.Render("inherited")
+	} else if m.pinnedGroups[group] {
+		suffix = " " + subtleStyle.Render("pinned")
 	}
 	dir := mutedStyle.Render(truncateTail(path, max(room-railFactLabelWidth-textfmt.Width(suffix), 1))) + suffix
 	lines = append(lines, railFact(pad, "dir", dir))

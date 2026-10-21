@@ -1326,6 +1326,68 @@ func TestCreateOutsideTheCallersTreeLaunchesInPlaceWhenTheToolAsks(t *testing.T)
 	}
 }
 
+// A group that pins its path starts a spawn there even when it asked for a
+// directory below it, and hands it that directory to change into. A stated
+// reason opens the one asked for, and list_groups reports the pin.
+func TestCreateInAPinnedGroupStartsAtItsPath(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	if err := h.store.SetGroupPinPath("backend", true); err != nil {
+		t.Fatalf("pin: %v", err)
+	}
+	nested := filepath.Join(h.caller.Cwd, "packages", "api")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{
+		Prompt:    "fix the retry backoff",
+		Directory: nested,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	pane, err := h.driver.PaneCurrentPath(created.ID)
+	if err != nil {
+		t.Fatalf("pane path: %v", err)
+	}
+	if !sameTerminalPath(pane, h.caller.Cwd) {
+		t.Fatalf("pane opened in %q, want the pinned %q", pane, h.caller.Cwd)
+	}
+	if created.Directory != nested {
+		t.Fatalf("created directory = %q, want the requested %q", created.Directory, nested)
+	}
+	screen := waitForSessionOutput(t, h.sessions, h.caller.ID, created.ID, launch.WorkdirDirectivePrefix)
+	if !strings.Contains(strings.ReplaceAll(screen.Output, "\n", ""), "cd '"+nested+"'") {
+		t.Fatalf("the agent was not told to change into %q: %q", nested, screen.Output)
+	}
+
+	kept, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{
+		Prompt:          "reproduce the subdirectory bug",
+		Directory:       nested,
+		DirectoryReason: "the bug only shows when started in packages/api",
+	})
+	if err != nil {
+		t.Fatalf("Create with a reason: %v", err)
+	}
+	pane, err = h.driver.PaneCurrentPath(kept.ID)
+	if err != nil {
+		t.Fatalf("pane path: %v", err)
+	}
+	if !sameTerminalPath(pane, nested) {
+		t.Fatalf("a launch with a reason opened in %q, want the requested %q", pane, nested)
+	}
+
+	groups, err := h.sessions.Groups(h.caller.ID)
+	if err != nil {
+		t.Fatalf("Groups: %v", err)
+	}
+	for _, group := range groups {
+		if group.Path == "backend" && !group.Pinned {
+			t.Fatalf("list_groups does not report the pin: %+v", group)
+		}
+	}
+}
+
 // A spawn inside the caller's tree inherits its trust, so nothing is diverted
 // and no directive is added.
 func TestCreateInsideTheCallersTreeOpensThereUndirected(t *testing.T) {
@@ -1375,6 +1437,40 @@ func TestLaunchDirectoryFallsBackToTheRequestedDirectory(t *testing.T) {
 	// no pane at all would be worse than the dialog this avoids.
 	if got := launchDirectory(tool, filepath.Join(caller, "gone"), outside); got != outside {
 		t.Fatalf("a caller directory that does not exist = %q, want %q", got, outside)
+	}
+}
+
+// A repository nested in the caller's, such as a submodule, keeps its own
+// trust and settings, so a spawn into it opens in the caller's directory, while
+// a plain subdirectory of the caller's repository still opens where it asked.
+func TestLaunchDirectoryDivertsIntoANestedRepository(t *testing.T) {
+	caller := t.TempDir()
+	gitInit(t, caller)
+	plain := filepath.Join(caller, "packages", "api")
+	nested := filepath.Join(caller, "vendor", "lib")
+	for _, dir := range []string{plain, nested} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+	}
+	gitInit(t, nested)
+	var tool config.Tool
+	if got := launchDirectory(tool, caller, nested); got != caller {
+		t.Fatalf("a spawn into a nested repository = %q, want the caller's %q", got, caller)
+	}
+	if got := launchDirectory(tool, caller, plain); got != plain {
+		t.Fatalf("a subdirectory of the caller's repository = %q, want the requested %q", got, plain)
+	}
+	if got := launchDirectory(config.Tool{LaunchInPlace: true}, caller, nested); got != nested {
+		t.Fatalf("a launch_in_place tool into a nested repository = %q, want the requested %q", got, nested)
+	}
+}
+
+func gitInit(t *testing.T, dir string) {
+	t.Helper()
+	cmd := exec.Command("git", "init", "-q", dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init %s: %v: %s", dir, err, out)
 	}
 }
 

@@ -22,6 +22,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/git"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
+	"github.com/usestring/gate-inbox/internal/launchpace"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/migrate"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
@@ -138,6 +139,9 @@ type Sessions struct {
 	// roots are the agent CLIs' state directories a migration locates the
 	// source transcript under; tests point them at fixtures.
 	roots migrate.Roots
+	// newPacer replaces the relaunch queue; tests point it at their own
+	// clock.
+	newPacer func(*runtime) *launchpace.Pacer
 }
 
 func NewSessions(configDir string, words Vocabulary) *Sessions {
@@ -1400,7 +1404,11 @@ func (s *Sessions) Revive(sessionID, targetID string) (revived Session, err erro
 	if runtime.driver.Exists(target.ID) {
 		return Session{}, fmt.Errorf("session %s is still running; revive only applies to dead sessions", target.ID)
 	}
-	tool, err := s.relaunch(runtime, target, "")
+	slot, err := s.pace(runtime, target.ID, true)
+	if err != nil {
+		return Session{}, err
+	}
+	tool, err := s.relaunch(runtime, target, "", slot)
 	if err != nil {
 		return Session{}, err
 	}

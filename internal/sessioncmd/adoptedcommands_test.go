@@ -23,6 +23,7 @@ func TestAdoptedRowIsReadSentAndKilledWithNoBoard(t *testing.T) {
 	sessions := newSessions(h.sessions.configDir, MCPVocabulary(), func(string) (*tmux.Driver, error) {
 		return tmux.NewWithSocket(socket)
 	}, git.New)
+	sessions.newPacer = h.sessions.newPacer
 
 	paneID, _ := newForeignPane(t, socket)
 	if out, err := exec.Command("tmux", "-L", socket, "send-keys", "-t", paneID, "echo adopted-marker", "Enter").CombinedOutput(); err != nil {

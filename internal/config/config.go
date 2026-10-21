@@ -322,6 +322,24 @@ type Integration struct {
 // On reports whether the provider is switched on.
 func (i Integration) On() bool { return i.Enabled == nil || *i.Enabled }
 
+// Relaunch paces relaunches of sessions already on the board -- an account
+// switch, a stale-sandbox restart, a revive -- so a burst of them does not
+// pile up on a busy machine (see launchpace). Zero fields take its defaults.
+type Relaunch struct {
+	// MaxInFlight is how many relaunches may be starting at once.
+	MaxInFlight int `toml:"max_in_flight"`
+	// MinGap is the least time between two relaunches starting.
+	MinGap Duration `toml:"min_gap"`
+	// MaxGap is the most the gap stretches to while the host is loaded.
+	MaxGap Duration `toml:"max_gap"`
+	// Settle is how long one relaunch is waited on to reach its prompt
+	// before the next is let go anyway.
+	Settle Duration `toml:"settle"`
+	// LoadPerCPU is the one-minute load average per CPU above which the gap
+	// stretches in proportion.
+	LoadPerCPU float64 `toml:"load_per_cpu"`
+}
+
 // Hogs configures how the board watches each session's process tree for
 // sustained CPU and memory use, and how firmly it tells the session. Gate
 // Inbox never stops a process itself: the session that started the work is
@@ -436,6 +454,7 @@ type Config struct {
 	Work             Work         `toml:"work"`
 	Integrations     Integrations `toml:"integrations"`
 	Hogs             Hogs         `toml:"hogs"`
+	Relaunch         Relaunch     `toml:"relaunch"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see

@@ -40,6 +40,17 @@ cooldown = "1h"
 notice = [{ percent = 150, for = "15m" }]
 ```
 
+`[relaunch]` paces relaunches of sessions already on the board: an extension's account switch, a stale-sandbox restart, a grant restart, a revive or unpark. Every relaunch runs the CLI's startup hooks before it reaches its prompt, so the board starts one at a time (`max_in_flight`, default `1`), waits for it to reach its prompt or for `settle` (default `"90s"`) before the next, and leaves at least `min_gap` (default `"5s"`) between starts. While the one-minute load average per CPU is above `load_per_cpu` (default `2.0`) the gap grows in proportion, up to `max_gap` (default `"1m"`). The queue is shared by the board, the CLI and every session's MCP server. A switch an extension asks for while the queue is busy is refused and asked again later, and a revive you ask for on the board starts at once but still counts as one in flight.
+
+```toml
+[relaunch]
+max_in_flight = 1
+min_gap = "5s"
+max_gap = "1m"
+settle = "90s"
+load_per_cpu = 2.0
+```
+
 `[board]` holds the frame's layout. `sidebar` (default `"right"`) is the side the sessions list sits on, `"right"` or `"left"`; the session's pane takes the other side. Any other value stops the board at startup with an error naming the key. Settings (`s`) → **sidebar** can pick the other side on one machine, which outranks this file there; picking the file's side in Settings again goes back to following it (see [The board layout](usage.md#the-board-layout)).
 
 The generated file also carries a `[tools.terminal]` block. That one is the shell `T` opens, not an agent CLI: an empty `command` leaves the pane on `$SHELL`, and setting one opens a different shell. `shell = true` is what marks it — never the name — so the tool pickers skip it and the keys that write into a pane refuse it (see [Terminal tabs](usage.md#terminal-tabs)). Any block can carry the flag, and a `[tools.terminal]` block already in your own config keeps whatever it already means.

@@ -20,6 +20,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
+	"github.com/usestring/gate-inbox/internal/launchpace"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -426,7 +427,12 @@ func (s *Sessions) Unpark(sessionID string) (unparked UnparkResult, err error) {
 		if slices.Contains(interrupted, sess.ID) {
 			prompt = continuePrompt
 		}
-		tool, err := s.relaunch(runtime, sess, prompt)
+		slot, err := s.pace(runtime, sess.ID, true)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s (id %s): %v", sess.Name, sess.ID, err))
+			continue
+		}
+		tool, err := s.relaunch(runtime, sess, prompt, slot)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("%s (id %s): %v", sess.Name, sess.ID, err))
 			continue
@@ -531,14 +537,19 @@ func (s *Sessions) endSessionBy(runtime *runtime, target store.Session, pane, re
 // polled (2026-10-09, a grant restart filed two seconds after it began).
 // Stamping first makes the reports from the life being ended predate this
 // launch, so the sweep sees a child that has not reported and leaves it be.
-func (s *Sessions) restart(runtime *runtime, target store.Session) (config.Tool, error) {
+//
+// slot is the relaunch queue's turn, taken (see pace) before anything was
+// changed, so a session waiting for it went on running as it was.
+func (s *Sessions) restart(runtime *runtime, target store.Session, slot launchpace.Slot) (config.Tool, error) {
 	if err := runtime.store.SetAgentLaunchedAt(target.ID, time.Now()); err != nil {
+		slot.Cancel()
 		return config.Tool{}, err
 	}
 	if err := s.endSession(runtime, target, store.EndKilled); err != nil {
+		slot.Cancel()
 		return config.Tool{}, err
 	}
-	return s.relaunch(runtime, target, "")
+	return s.relaunch(runtime, target, "", slot)
 }
 
 // relaunch is the relaunch Revive and Unpark share: the dead row's tool,
@@ -546,7 +557,15 @@ func (s *Sessions) restart(runtime *runtime, target store.Session) (config.Tool,
 // in the tool's default status with its finished alert re-armed. A prompt
 // rides the command line the way a spawn's does, or is queued for the
 // poller to type when the tool takes its prompt as input.
-func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt string) (config.Tool, error) {
+//
+// slot is the relaunch queue's turn the caller took (see pace); a launch
+// that fails gives it back.
+func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt string, slot launchpace.Slot) (tool config.Tool, err error) {
+	defer func() {
+		if err != nil {
+			slot.Cancel()
+		}
+	}()
 	tool, known := runtime.cfg.Tools[target.Tool]
 	if !known {
 		return config.Tool{}, fmt.Errorf("tool %s is no longer configured", target.Tool)

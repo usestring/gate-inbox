@@ -104,7 +104,7 @@ func (m *Model) viewListFrame() string {
 		)...)
 	}
 	bottom := m.boundedRuleRow(leftWidth+1, m.width, "▄")
-	if m.mode == modeFocus && m.pane.box.ok {
+	if m.ringed() && m.pane.box.ok {
 		bottom = m.focusBottomRule(leftWidth+1, m.width)
 	}
 	frame = append(frame, bottom)
@@ -129,7 +129,7 @@ func (m *Model) viewOnePaneFrame(bodyHeight int, footer string) string {
 	tone := panelHex()
 	// No content column, so a click can never land in a pane.
 	m.pane.columnX = m.width + 1
-	if m.mode == modeFocus {
+	if m.ringed() {
 		rows = m.contentLines(paneWidth, bodyHeight)
 		tone = backdropHex()
 		m.pane.columnX = 1
@@ -167,7 +167,10 @@ func (m *Model) searchFieldLine(width int) string {
 	caret := lipgloss.NewStyle().Foreground(colorAccent).Render("▏")
 	hint := keyCapQuiet("esc", "close")
 	if !m.searching {
-		caret, hint = "", keyCapQuiet("/", "edit")
+		caret, hint = "", ""
+		if key := m.cap(keymap.ContextList, keymap.Search); key != "" {
+			hint = keyCapQuiet(key, "edit")
+		}
 	}
 	chrome := railInset + textfmt.Width(glyph) + textfmt.Width(caret)
 
@@ -520,15 +523,20 @@ func promptPlain(prompt string) string {
 func (m *Model) filterBadgeLines() []string {
 	var lines []string
 	badge := func(label, key, action string) {
+		hint := legendLabelStyle.Render(action)
+		if key != "" {
+			hint = keyCap(key, action)
+		}
 		lines = append(lines, spaces(railInset)+scopeBadgeStyle.Render(label)+
-			subtleStyle.Render("  ")+keyCap(key, action))
+			subtleStyle.Render("  ")+hint)
 	}
+	list := keymap.ContextList
 	if m.triage {
 		// The rail has flattened the groups away by the time this paints, so
 		// the badge is the only thing left saying which group the queue was
 		// drawn from. Truncated rather than wrapped: the badge shares its
 		// line with the key that lifts it.
-		label, key, out := "TRIAGE", "i", "back to groups"
+		label, key, out := "TRIAGE", m.hintKey(list, keymap.Triage), "back to groups"
 		if m.triageScope != "" {
 			label += " " + strings.ToUpper(textfmt.TruncateWidth(baseName(m.triageScope), 12, "…"))
 		}
@@ -539,20 +547,20 @@ func (m *Model) filterBadgeLines() []string {
 		// reports the frame. It earns its row because the state hides its
 		// own way out: a focused session with the rail away has no list to
 		// print the key on, so the board has to carry it.
-		badge("WIDE", `\`, "bring the pane back")
+		badge("WIDE", m.hintKey(list, keymap.ToggleRail), "bring the pane back")
 	}
 	if m.showArchived {
-		badge("ARCHIVED", "t", "back to active")
+		badge("ARCHIVED", m.hintKey(list, keymap.ArchivedView), "back to active")
 	}
 	if m.statusFilter.active() {
-		badge(strings.ToUpper(m.statusFilter.label()), "w", "show all")
+		badge(strings.ToUpper(m.statusFilter.label()), m.hintKey(list, keymap.StatusFilter), "show all")
 	}
 	if m.toolFilterActive() {
-		badge(m.toolFilterLabel(), "Y", "show all")
+		badge(m.toolFilterLabel(), m.hintKey(list, keymap.ToolFilter), "show all")
 	}
 	m.extensionFilterBadges(badge)
 	if m.hideEmptyGroups && !m.showArchived {
-		badge("HIDE EMPTY", "e", "show empty")
+		badge("HIDE EMPTY", m.hintKey(list, keymap.EmptyGroups), "show empty")
 	}
 	return lines
 }
@@ -595,7 +603,19 @@ func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentL
 			heights[i] += 2
 		}
 	}
-	start, end := lineWindow(heights, m.cursor-offset, height)
+	top := m.listTop.index
+	if m.listTop.key != "" {
+		for i := range rows {
+			if rowKey(rows[i]) == m.listTop.key {
+				top = i
+				break
+			}
+		}
+	}
+	start, end := lineWindow(heights, m.cursor-offset, height, top)
+	if start < len(rows) {
+		m.listTop = listAnchor{key: rowKey(rows[start]), index: start}
+	}
 
 	var lines []contentLine
 	for i := start; i < end; i++ {
@@ -640,7 +660,7 @@ func (m *Model) entryHeight(entry treeRow) int {
 	// An artifact has no second line to unstack: its state already rides
 	// beside it, and a blank line under every pull request would cost the
 	// rail more rows than the work it is showing.
-	if entry.isArtifact() {
+	if entry.isArtifact() || entry.isHead() {
 		return 1
 	}
 	if m.stackedRows() {
@@ -649,18 +669,29 @@ func (m *Model) entryHeight(entry treeRow) int {
 	return 1
 }
 
+// listAnchor names the rail's top entry by identity, so a row a poll adds or
+// drops above it does not slide the window; the index is the fallback once
+// that entry is gone.
+type listAnchor struct {
+	key   string
+	index int
+}
+
+// scrollMargin is how many entries the window keeps past the cursor before
+// it scrolls, so a step shows what comes next.
+const scrollMargin = 1
+
 // lineWindow keeps the cursor's entry fully visible inside a line budget,
-// scrolling by whole entries so an entry is never cut in half.
-func lineWindow(heights []int, cursor, budget int) (int, int) {
+// scrolling by whole entries so an entry is never cut in half. The window
+// starts where the last frame's did and moves only as far as the cursor and
+// its margin need: a window rebuilt around the cursor every frame slides the
+// whole list under a cursor that stays put, which reads as the list jumping
+// on every step. One line stays free for a "more" counter.
+func lineWindow(heights []int, cursor, budget, top int) (int, int) {
 	if len(heights) == 0 || budget <= 0 {
 		return 0, 0
 	}
-	if cursor < 0 {
-		cursor = 0
-	}
-	if cursor >= len(heights) {
-		cursor = len(heights) - 1
-	}
+	cursor = min(max(cursor, 0), len(heights)-1)
 	total := 0
 	for _, h := range heights {
 		total += h
@@ -668,46 +699,55 @@ func lineWindow(heights []int, cursor, budget int) (int, int) {
 	if total <= budget {
 		return 0, len(heights)
 	}
-	// Grow a window around the cursor, preferring to keep entries above it
-	// on screen so the list does not jump when stepping down.
-	start, end, used := cursor, cursor+1, heights[cursor]
-	for {
-		grew := false
-		if end < len(heights) && used+heights[end] <= budget-1 {
-			used += heights[end]
-			end++
-			grew = true
+	room := budget - 1
+	span := func(from, to int) int {
+		used := 0
+		for i := from; i <= to; i++ {
+			used += heights[i]
 		}
-		if start > 0 && used+heights[start-1] <= budget-1 {
-			start--
-			used += heights[start]
-			grew = true
-		}
-		if !grew {
-			break
-		}
+		return used
+	}
+	start := min(max(top, 0), cursor)
+	start = min(start, max(cursor-scrollMargin, 0))
+	below := min(cursor+scrollMargin, len(heights)-1)
+	for start < cursor && span(start, below) > room {
+		start++
+	}
+	end, used := start, 0
+	for end < len(heights) && used+heights[end] <= room {
+		used += heights[end]
+		end++
+	}
+	if end <= cursor {
+		end = cursor + 1
+	}
+	// Never leave the bottom of the rail empty while entries above are cut.
+	for end == len(heights) && start > 0 && used+heights[start-1] <= room {
+		start--
+		used += heights[start]
 	}
 	return start, end
 }
 
 func (m *Model) emptyRailLines(width, height int) []string {
+	list := keymap.ContextList
 	title := "no sessions yet"
-	hint := keyCap("n", "starts one")
+	hint := m.keyHint(list, keymap.NewSession, "starts one")
 	if m.showArchived {
 		title = "nothing archived"
-		hint = keyCap("t", "back to active")
+		hint = m.keyHint(list, keymap.ArchivedView, "back to active")
 	}
 	if m.triage && m.triageScope != "" {
 		title = "nothing in " + baseName(m.triageScope)
-		hint = keyCap("i", "back to groups")
+		hint = m.keyHint(list, keymap.Triage, "back to groups")
 	}
 	if m.statusFilter.active() {
 		title = "nothing needs " + m.statusFilter.label()
-		hint = keyCap("w", "show all")
+		hint = m.keyHint(list, keymap.StatusFilter, "show all")
 	}
 	if m.toolFilterActive() {
 		title = "nothing on " + m.toolFilter
-		hint = keyCap("Y", "show all")
+		hint = m.keyHint(list, keymap.ToolFilter, "show all")
 	}
 	if search := strings.TrimSpace(m.search); search != "" {
 		title = "no matches"
@@ -859,7 +899,7 @@ func (m *Model) renderTreeRow(entry treeRow, selected bool, width, index int, bg
 		lines[i] = ansi.Cut(line, 1, width-1)
 	}
 	edge := colorDim
-	if m.mode == modeFocus {
+	if m.ringed() {
 		edge = colorAccent
 	}
 	return lipgloss.NewStyle().
@@ -885,6 +925,9 @@ func (m *Model) renderTreeRowContent(entry treeRow, selected bool, width, index 
 
 	if entry.isArtifact() {
 		return m.renderArtifactEntry(entry, selected, width, pad, guides, bg)
+	}
+	if entry.isHead() {
+		return m.renderHeadEntry(entry, selected, width, index, pad, bg)
 	}
 	if entry.isGroup {
 		return m.renderGroupEntry(entry, selected, width, pad, guides, trail, bg)
@@ -1285,7 +1328,7 @@ func (m *Model) renderGroupEntry(entry treeRow, selected bool, width int, pad, g
 		}
 	}
 	head := pad + guides + subtleText(marker) + " " + m.groupNumberLabel(entry.group) + nameStyle.Render(name)
-	if badge := priorityBadge(m.priorityGroups[entry.group]); badge != "" {
+	if badge := m.rowPriorityBadge(groupFlashKey(entry.group), m.priorityGroups[entry.group]); badge != "" {
 		head += " " + badge
 	}
 
@@ -1521,6 +1564,12 @@ func (m *Model) contentLines(width, height int) []contentLine {
 	var bar []contentLine
 	if m.quick.active {
 		bar = append([]contentLine{{}}, ours(splitLines(m.viewQuickBar(inner, quickBarMaxRows)))...)
+		if m.quickHoldsPane() {
+			bar[0].text = gutter + m.quickBanner(inner)
+			for i := range bar {
+				bar[i].bg = quickBannerHex()
+			}
+		}
 	}
 	var body []contentLine
 	// The frame's own top rule already seams the header off the body, so the
@@ -1531,7 +1580,10 @@ func (m *Model) contentLines(width, height int) []contentLine {
 		if group, ok := m.selectedGroup(); ok {
 			body = append(body, ours(splitLines(m.viewGroupAgents(group, inner, rest)))...)
 		} else {
-			if _, ok := m.selected(); !ok {
+			if page, ok := m.headPaneLines(width, rest, gutter); ok {
+				m.previewBodyOffset = len(body)
+				body = append(body, page...)
+			} else if _, ok := m.selected(); !ok {
 				body = append(body, ours(splitLines(mutedStyle.Render("Select a session to inspect it.")))...)
 			} else {
 				m.previewBodyOffset = len(body)
@@ -1552,9 +1604,21 @@ func (m *Model) contentLines(width, height int) []contentLine {
 // notice card is not. corner closes it on the ring's right upright, which is
 // only drawn once there is a pane box for the uprights to run down.
 func (m *Model) focusRuleTail(width int, corner bool) string {
-	title := " focused · ctrl+q back · " + keymap.Display("alt+↑↓") + " scroll "
-	if m.scrolledBack() {
-		title = fmt.Sprintf(" focused · %d lines back · %s or type to catch up ", m.focusScroll, keymap.Display("alt+down"))
+	focus := keymap.ContextFocus
+	title := " focused · "
+	if key := m.fullCap(focus, keymap.Leave); key != "" {
+		title += key + " back · "
+	}
+	// A page scrolls with its own keys, which the footer names.
+	if key := m.pairCap(focus, keymap.PreviewUp, keymap.PreviewDown); key != "" && m.mode != modeHeadPane {
+		title += key + " scroll "
+	}
+	if m.scrolledBack() && m.mode != modeHeadPane {
+		catchUp := "type"
+		if key := m.fullCap(focus, keymap.PreviewDown); key != "" {
+			catchUp = key + " or type"
+		}
+		title = fmt.Sprintf(" focused · %d lines back · %s to catch up ", m.focusScroll, catchUp)
 	}
 	edge := 0
 	if corner {
@@ -1714,8 +1778,11 @@ const (
 func (m *Model) viewGroupAgents(group string, width, height int) string {
 	total := m.groupSessionCount(group)
 	if total == 0 {
-		return subtleStyle.Render("agents") + "\n" +
-			mutedStyle.Render("(none yet — press space to spawn one)")
+		empty := "(none yet)"
+		if key := m.hintKey(keymap.ContextList, keymap.NewSession); key != "" {
+			empty = "(none yet — press " + key + " to start one)"
+		}
+		return subtleStyle.Render("agents") + "\n" + mutedStyle.Render(empty)
 	}
 
 	type rosterRow struct{ name, tool, state string }
@@ -1805,8 +1872,41 @@ func lastActivity(sess store.Session) time.Time {
 	return sess.LastStatusAt
 }
 
+// quickHoldsPane reports whether the hotkey menu is docked over a focused
+// session, where it takes the keys the pane would otherwise get.
+func (m *Model) quickHoldsPane() bool {
+	return m.quick.active && m.mode == modeFocus
+}
+
+// quickBanner heads the focused dock on the red band, on the row that
+// otherwise only spaces it off the pane: what has the keyboard, and the key
+// that gives it back. The pane keeps its colours; the band alone says so.
+func (m *Model) quickBanner(width int) string {
+	title := "HOTKEY MENU OPEN"
+	if note := " · esc to close"; textfmt.Width(title+note) <= width {
+		title += note
+	}
+	return quickBandInk(true)(title)
+}
+
+// quickBandInk is the text style on the red band: the theme's background
+// colour, since the accent and muted inks the list dock uses wash out on red.
+func quickBandInk(bold bool) func(...string) string {
+	return lipgloss.NewStyle().Bold(bold).Foreground(lipgloss.Color(current.Bg)).Render
+}
+
+// quickMenuInks are the styles the menu's keys, labels and notes render in:
+// the band's own ink when the dock sits on the red band, the list's otherwise.
+func (m *Model) quickMenuInks() (key, label, note func(...string) string) {
+	if m.quickHoldsPane() {
+		return quickBandInk(true), quickBandInk(false), quickBandInk(false)
+	}
+	return keyStyle.Render, mutedStyle.Render, subtleStyle.Render
+}
+
 // viewQuickBar is the docked hotkey menu: the session a key would answer,
-// then every snippet under the key that sends it from here.
+// then every snippet under the key that sends it from here. Over a focused
+// session the target is the pane on screen, so the dock leaves it unnamed.
 func (m *Model) viewQuickBar(width, maxRows int) string {
 	label := func(text string) string { return labelStyle.Render(padRight(text, detailLabelWidth)) }
 	target := rowColumns(label("target")+mutedStyle.Render("no selection"), "", width)
@@ -1826,23 +1926,32 @@ func (m *Model) viewQuickBar(width, maxRows int) string {
 	}
 	lines := m.quickMenuLines(width, limit)
 	if suggestion := m.selectedAutoSuggestion(); suggestion != "" && limit > 1 {
+		_, _, note := m.quickMenuInks()
 		lines = m.quickMenuLines(width, limit-1)
-		lines = append(lines, subtleStyle.Render(truncateTail("ctrl+y insert · "+suggestion, width)))
+		lines = append(lines, note(truncateTail("ctrl+y insert · "+suggestion, width)))
+	}
+	if m.quickHoldsPane() {
+		return strings.Join(lines, "\n")
 	}
 	return target + "\n" + strings.Join(lines, "\n")
 }
 
 // quickMenuLines lays the snippets out as the menu's body: each key beside
-// its label, packed across the width and wrapped onto at most limit lines.
+// its preview, packed across the width and wrapped onto at most limit lines.
 // The dock's height is measured from what this returns, so the cap is what
 // keeps a long snippets file from pushing the live pane off the screen; the
 // last line says how many did not fit, and the key map lists them all.
 func (m *Model) quickMenuLines(width, limit int) []string {
+	keyInk, labelInk, noteInk := m.quickMenuInks()
 	if m.snipErr != "" {
-		return []string{errStyle.Render(truncateTail("snippets.json could not be read: "+m.snipErr, width))}
+		errInk := errStyle.Render
+		if m.quickHoldsPane() {
+			errInk = keyInk
+		}
+		return []string{errInk(truncateTail("snippets.json could not be read: "+m.snipErr, width))}
 	}
 	if len(m.snips.Snippets) == 0 {
-		return []string{mutedStyle.Render(truncateTail("no snippets yet: add them to "+snippets.Path(m.configDir()), width))}
+		return []string{labelInk(truncateTail("no snippets yet: add them to "+snippets.Path(m.configDir()), width))}
 	}
 	type cell struct {
 		text  string
@@ -1853,11 +1962,13 @@ func (m *Model) quickMenuLines(width, limit int) []string {
 	var line []cell
 	used := 0
 	for _, snip := range m.snips.Snippets {
-		key, title := snip.Key, snip.Title()
-		if room := width - textfmt.Width(key) - 1; textfmt.Width(title) > room {
-			title = truncateTail(title, max(1, room))
+		key, title := snip.Key, snip.Preview
+		if title == "" {
+			title = snip.Title()
 		}
-		c := cell{keyStyle.Render(key) + " " + mutedStyle.Render(title), textfmt.Width(key) + 1 + textfmt.Width(title)}
+		title = strings.Join(strings.Fields(title), " ")
+		title = textfmt.TruncateWidth(title, max(1, width-textfmt.Width(key)-1), "…")
+		c := cell{keyInk(key) + " " + labelInk(title), textfmt.Width(key) + 1 + textfmt.Width(title)}
 		if len(line) > 0 && used+gap+c.width > width {
 			lines, line, used = append(lines, line), nil, 0
 		}
@@ -1910,7 +2021,7 @@ func (m *Model) quickMenuLines(width, limit int) []string {
 		if out[limit-1] != "" {
 			out[limit-1] += sep
 		}
-		out[limit-1] += subtleStyle.Render(truncateTail(more, width))
+		out[limit-1] += noteInk(truncateTail(more, width))
 	}
 	return out
 }

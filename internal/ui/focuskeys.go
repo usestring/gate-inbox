@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	tea "charm.land/bubbletea/v2"
@@ -655,6 +656,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case action == keymap.JumpPane:
 			m.openPanePicker()
 			return m, tea.ClearScreen
+		case action == keymap.Priority:
+			return m.cyclePrioritySelected()
 		case action == keymap.Dismiss:
 			// The skip a one-at-a-time drain needs: a session that turns
 			// out to want nothing is taken off the queue from inside it,
@@ -709,6 +712,7 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// below moves: once the key has landed the dialog is gone, and the
 	// scrolled-back pane the next lines pull back to its live bottom was
 	// showing history rather than where the key lands.
+	keyAt := time.Now()
 	dialog := m.selectionDialogUp(sess.ID, sess.Tool)
 	// A key that might answer the session arms a landing; whether it did is
 	// for the session to show. Enter submits a composer line or picks a
@@ -721,6 +725,9 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if !arms {
 		m.keepLandingHere()
 	}
+	// A key inside a dialog that has further to go answers a step of it, not
+	// the session, so it arms the check without a handover; see keyEndsDialog.
+	handsOver := arms && m.autoProceeds() && m.keyEndsDialog()
 	// Typing puts the cursor back on: a caret that blinks out mid-keystroke
 	// reads as a dropped character.
 	quiet := m.cursorOn
@@ -742,24 +749,27 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// and in order, and a baseline taken after it could already contain the
 	// echo it is supposed to detect.
 	//
-	// Only when this key is arming a chase. The baseline is a forked capture
-	// and so is every look the chase takes, and a held key repeats faster
+	// Only when this key is arming a chase or an answer check. The baseline
+	// is a forked capture, and so is every look the chase takes. A held key repeats faster
 	// than a chase completes: one each would fork dozens of times a second,
-	// which is the shape that pinned a core on the wheel. A key that arms
+	// which is the shape that pinned a core on the wheel. An answer needs a
+	// fresh baseline even with a chase in flight: the preview may still show
+	// the prompt from before the agent started working. A key that arms
 	// nothing sets echoPending instead, and the chase already out lands a
 	// trailing one for it -- so no character waits on a tick.
 	baseline := ""
 	chase := resume == nil && !m.focusChasing
-	if chase {
+	if chase || arms {
 		baseline = m.echoBaseline(sess.ID)
-	} else if resume == nil {
+	}
+	if !chase && resume == nil {
 		m.echoPending = true
 	}
 	// Armed before the send, so every source it snapshots is from before
 	// anything the key caused.
 	var landing tea.Cmd
 	if arms {
-		landing = m.armLanding(sess, extension.OperatorPane, "", dialog, m.autoProceeds())
+		landing = m.armLanding(sess, keyAt, extension.OperatorPane, "", dialog, handsOver, baseline)
 	}
 	m.poller.noteOperatorInput(sess.ID)
 	// SendRawAt takes the pooled pipe where there is one and forks where
@@ -788,6 +798,18 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if quiet {
 		m.frameUnchanged()
+	}
+	// Enter is the operator done with this session, so the drain moves on
+	// now rather than after the answer is seen landing. The check armed above
+	// still runs and returns the session to the queue if the answer never
+	// lands; see handOverOnEnter. A key that pulls a scrolled-back pane to its
+	// live bottom was typed at history, not at the prompt, and stays. The
+	// echo chase is dropped: its frames are for the pane being left, and its
+	// captures would contend with the next pane's first one.
+	if landing != nil && resume == nil && key.Code == tea.KeyEnter && handsOver {
+		if next := m.handOverOnEnter(sess, keyAt); next != nil {
+			return m, tea.Batch(landing, next)
+		}
 	}
 	return m, tea.Batch(resume, echo, landing)
 }

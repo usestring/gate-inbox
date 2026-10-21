@@ -12,12 +12,16 @@
 package adopt
 
 import (
+	"flag"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/junegunn/go-shellwords"
 
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/tmuxguard"
@@ -111,8 +115,8 @@ func (m Match) strength() int {
 // subset of config.Tool that says what the thing looks like while running.
 type Tool struct {
 	Name string
-	// Command is the launch command as configured; only its program name is
-	// compared, so flags and quoting in the config do not matter here.
+	// Command is the launch command as configured; identification compares
+	// the launched program, including the child of a codex-client wrapper.
 	Command string
 	// Prompt is the tool's input marker, the same expression the status engine
 	// uses to find the start of the live prompt.
@@ -164,9 +168,18 @@ func Identify(c Candidate, tools []Tool, pane string, procs *ProcTable) (Match, 
 // "claude --dangerously-skip-permissions" and "/usr/local/bin/claude" both
 // compare as "claude".
 func programName(command string) string {
-	fields := strings.Fields(command)
-	if len(fields) == 0 {
+	fields, err := shellwords.NewParser().Parse(command)
+	if err != nil || len(fields) == 0 {
 		return ""
+	}
+	if filepath.Base(fields[0]) == "gate-inbox" && len(fields) > 1 && fields[1] == "codex-client" {
+		set := flag.NewFlagSet("codex-client", flag.ContinueOnError)
+		set.SetOutput(io.Discard)
+		set.String("server", "", "")
+		if err := set.Parse(fields[2:]); err != nil || set.NArg() == 0 {
+			return ""
+		}
+		fields = set.Args()
 	}
 	return filepath.Base(fields[0])
 }

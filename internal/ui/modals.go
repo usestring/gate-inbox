@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/textfmt"
+	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
 func (m *Model) cardWidth() int {
@@ -205,7 +206,7 @@ func (m *Model) viewForm() string {
 	}
 	// The extensions' fields follow the form's own, drawn like the CLI
 	// picker: the value between the arrows that change it.
-	for i, e := range m.form.extra {
+	for i, e := range m.formExtras() {
 		value := subtleStyle.Render("\u25c2 ") + valueStyle.Render(e.value()) + subtleStyle.Render(" \u25b8")
 		b.WriteString(formField(e.field.Label, value, m.form.focus == fieldCount+i))
 	}
@@ -420,10 +421,18 @@ func (m *Model) viewSettings() string {
 	if m.settings.quickCloseSend {
 		quickClose = "close"
 	}
-	focusKey := "↵ focus · A attach"
+	focusVerb, attachVerb := "focus", "attach"
 	if !m.settings.enterFocuses {
-		focusKey = "↵ attach · A focus"
+		focusVerb, attachVerb = attachVerb, focusVerb
 	}
+	var focusKeys []string
+	if key := m.cap(keymap.ContextList, keymap.Open); key != "" {
+		focusKeys = append(focusKeys, key+" "+focusVerb)
+	}
+	if key := m.cap(keymap.ContextList, keymap.Attach); key != "" {
+		focusKeys = append(focusKeys, key+" "+attachVerb)
+	}
+	focusKey := strings.Join(focusKeys, " · ")
 	backdrop := "inherit"
 	if m.settings.backdropSync {
 		backdrop = "match theme"
@@ -436,6 +445,10 @@ func (m *Model) viewSettings() string {
 	autoProceed := "off"
 	if m.settings.autoProceed {
 		autoProceed = "on"
+	}
+	smartTriage := "off"
+	if m.settings.smartTriage {
+		smartTriage = "on"
 	}
 	toolValue := ""
 	if len(m.settings.toolNames) > 0 {
@@ -489,6 +502,7 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldQuickClose, "after hotkey send", quickClose) + "\n" +
 		row(settingsFieldFocusKey, "session keys", focusKey) + "\n" +
 		row(settingsFieldAutoProceed, "triage auto proceed", autoProceed) + "\n" +
+		row(settingsFieldSmartTriage, "smart triage", smartTriage) + "\n" +
 		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +
 		row(settingsFieldOutsidePanes, "outside panes", outsidePanesLabel(m.settings.outsidePanes)) + "\n" +
 		actionRow(settingsFieldJev, "JEV", m.jevSettingsSummary()) + "\n" +
@@ -622,7 +636,7 @@ func (m *Model) viewAgentPick() string {
 		hint = [][2]string{{"←→", "pick"}, {"↵", "start"}, {"esc", "cancel"}}
 		room += hintRows - lipgloss.Height(legendInline(hint, cardInnerWidth(m.cardWidth())))
 	}
-	quotaRows := agentPickQuotaRows(m.agentPick.names, m.agentPick.quotas, m.agentPick.recommended, inner)
+	quotaRows := agentPickQuotaRows(m.agentPick.names, m.agentPick.quotas, m.agentPick.recommended, m.agentPick.reason, inner)
 	if room-len(quotaRows) < 1 {
 		quotaRows = nil
 	}
@@ -645,9 +659,10 @@ func (m *Model) viewAgentPick() string {
 
 // agentPickQuotaRows lists each CLI's quota left under the names, in the box's
 // order, with the CLI auto would start marked. It is a blank line and then
-// one row per CLI the chooser could read, each cut to width.
-func agentPickQuotaRows(names []string, quotas map[string]string, recommended string, width int) []string {
-	if len(quotas) == 0 && recommended == "" {
+// one row per CLI the chooser could read, each cut to width, and last why
+// auto picks what it picks, in the chooser's words when it gave them.
+func agentPickQuotaRows(names []string, quotas map[string]string, recommended, reason string, width int) []string {
+	if len(quotas) == 0 && recommended == "" && reason == "" {
 		return nil
 	}
 	rows := []string{""}
@@ -665,7 +680,13 @@ func agentPickQuotaRows(names []string, quotas map[string]string, recommended st
 		}
 		rows = append(rows, ansi.Truncate(label+"  "+subtleStyle.Render(quota), width, "…"))
 	}
-	if recommended != "" {
+	switch {
+	case reason != "":
+		// Wrapped, not cut: the end of a reason is often what says why.
+		for _, line := range strings.Split(ansi.Wordwrap("(auto): "+reason, width, ""), "\n") {
+			rows = append(rows, subtleStyle.Render(ansi.Truncate(line, width, "…")))
+		}
+	case recommended != "":
 		rows = append(rows, subtleStyle.Render(ansi.Truncate("(auto): most quota left before reset", width, "…")))
 	}
 	return rows

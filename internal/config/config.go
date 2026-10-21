@@ -3,6 +3,7 @@
 package config
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,8 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/mergegate"
+	"github.com/usestring/gate-inbox/internal/priority"
 )
 
 // defaultNameSweepPace paces the bulk rename sweep. Slow enough that a
@@ -124,6 +127,13 @@ type Tool struct {
 	// AccountsCommand prints the secret names that exist, one per line, so a
 	// caller can find an account rather than guess one.
 	AccountsCommand string `toml:"accounts_command"`
+	// CompactWindow is the auto-compact window, in tokens, a session of this
+	// tool gets at each priority tier ("urgent", "high", "medium", "low"),
+	// read off the same tier the board sorts by. A tier left out, and a
+	// session with no tier, keep the CLI's own window. Only claude-hooks
+	// tools carry it: it travels as autoCompactWindow in the session's own
+	// settings file. Empty, which is the default, changes nothing.
+	CompactWindow map[string]int `toml:"compact_window"`
 	// ResumeByIDCommand resumes a specific conversation; "{id}" is replaced
 	// with the session's agent id. Preferred over ReviveCommand, which only
 	// resumes the working directory's most recent conversation.
@@ -312,6 +322,24 @@ type Integration struct {
 // On reports whether the provider is switched on.
 func (i Integration) On() bool { return i.Enabled == nil || *i.Enabled }
 
+// Relaunch paces relaunches of sessions already on the board -- an account
+// switch, a stale-sandbox restart, a revive -- so a burst of them does not
+// pile up on a busy machine (see launchpace). Zero fields take its defaults.
+type Relaunch struct {
+	// MaxInFlight is how many relaunches may be starting at once.
+	MaxInFlight int `toml:"max_in_flight"`
+	// MinGap is the least time between two relaunches starting.
+	MinGap Duration `toml:"min_gap"`
+	// MaxGap is the most the gap stretches to while the host is loaded.
+	MaxGap Duration `toml:"max_gap"`
+	// Settle is how long one relaunch is waited on to reach its prompt
+	// before the next is let go anyway.
+	Settle Duration `toml:"settle"`
+	// LoadPerCPU is the one-minute load average per CPU above which the gap
+	// stretches in proportion.
+	LoadPerCPU float64 `toml:"load_per_cpu"`
+}
+
 // Hogs configures how the board watches each session's process tree for
 // sustained CPU and memory use, and how firmly it tells the session. Gate
 // Inbox never stops a process itself: the session that started the work is
@@ -360,6 +388,21 @@ type HogRule struct {
 	For             Duration `toml:"for"`
 }
 
+// Naming configures how sessions get their names.
+type Naming struct {
+	// Ask asks a live agent to name its own session: the rename directive
+	// on a managed launch, the pending note in an adopted pane, and the
+	// silent naming instructions opencode sessions carry. Each costs the
+	// agent a turn. Absent means on: a config written before this section
+	// existed keeps asking. Off leaves every other naming path alone --
+	// rows still take the title the CLI writes itself, and r still asks
+	// on demand.
+	Ask *bool `toml:"ask"`
+}
+
+// Asks reports whether a launch may ask a live agent to name itself.
+func (n Naming) Asks() bool { return n.Ask == nil || *n.Ask }
+
 // The sides the board's sidebar -- the sessions rail -- can sit on.
 const (
 	SidebarRight = "right"
@@ -405,18 +448,24 @@ type Config struct {
 	// likely a misread than a long turn.
 	StaleStatusAfter Duration     `toml:"stale_status_after"`
 	Board            Board        `toml:"board"`
+	Naming           Naming       `toml:"naming"`
 	Log              Log          `toml:"log"`
 	Children         Children     `toml:"children"`
 	Work             Work         `toml:"work"`
 	Integrations     Integrations `toml:"integrations"`
 	Hogs             Hogs         `toml:"hogs"`
+	Relaunch         Relaunch     `toml:"relaunch"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see
 	// the public extension package), so adding an extension never means
 	// editing this file.
 	Extensions map[string]map[string]any `toml:"extensions"`
-	Tools      map[string]Tool           `toml:"tools"`
+	// MergeGate is the standing merge authority the merge-gate mod enforces
+	// ([merge_gate]). Empty owners or authors turns the gate off, and the
+	// mod is not loaded into launched sessions then.
+	MergeGate mergegate.Config `toml:"merge_gate"`
+	Tools     map[string]Tool  `toml:"tools"`
 }
 
 type Duration = extension.Duration
@@ -467,8 +516,16 @@ func LoadDir(dir string) (Config, error) {
 			return Config{}, err
 		}
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, fmt.Errorf("parse config %s: %w", path, err)
+	}
+	key := loadKey{path: path, sum: sha256.Sum256(data), defaults: defaultsIdentity()}
+	if cfg, ok := loaded.get(key); ok {
+		return cfg, nil
+	}
 	var cfg Config
-	if err := decodeInto(path, &cfg); err != nil {
+	if err := decodeInto(path, data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("parse config %s: %w", path, err)
 	}
 	if err := cfg.backfillToolDefaults(); err != nil {
@@ -478,6 +535,7 @@ func LoadDir(dir string) (Config, error) {
 	if err := cfg.validate(); err != nil {
 		return Config{}, fmt.Errorf("config %s: %w", path, err)
 	}
+	loaded.put(key, cfg)
 	return cfg, nil
 }
 
@@ -489,7 +547,51 @@ func (c Config) validate() error {
 	default:
 		return fmt.Errorf("board.sidebar = %q: want %q or %q", c.Board.Sidebar, SidebarRight, SidebarLeft)
 	}
+	names := make([]string, 0, len(c.Tools))
+	for name := range c.Tools {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		if err := checkCompactWindow(name, c.Tools[name].CompactWindow); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// MinCompactWindow and MaxCompactWindow are the range Claude Code 2.1.304
+// accepts for autoCompactWindow. A value outside it is refused here rather
+// than handed to a settings file the CLI would reject.
+const (
+	MinCompactWindow = 100_000
+	MaxCompactWindow = 1_000_000
+)
+
+func checkCompactWindow(name string, windows map[string]int) error {
+	tiers := make([]string, 0, len(windows))
+	for tier := range windows {
+		tiers = append(tiers, tier)
+	}
+	slices.Sort(tiers)
+	for _, tier := range tiers {
+		if t := priority.Tier(tier); t == priority.Unset || !t.Valid() {
+			return fmt.Errorf("tools.%s.compact_window: %q is not a tier (want urgent, high, medium or low)", name, tier)
+		}
+		if window := windows[tier]; window < MinCompactWindow || window > MaxCompactWindow {
+			return fmt.Errorf("tools.%s.compact_window.%s = %d: want %d to %d tokens", name, tier, window, MinCompactWindow, MaxCompactWindow)
+		}
+	}
+	return nil
+}
+
+// CompactWindowFor is the auto-compact window a session at tier gets, or 0
+// for the CLI's own.
+func (t Tool) CompactWindowFor(tier priority.Tier) int {
+	if tier == priority.Unset {
+		return 0
+	}
+	return t.CompactWindow[string(tier)]
 }
 
 // backfillToolDefaults fills fields the built-in tools gained after a
@@ -539,6 +641,21 @@ const busyLineWaitOnly = `^[✻✳✶✽✢·✦✧+*] Waiting for \d+ (?:backgr
 // current pattern; one edited by hand keeps what its author wrote.
 const waitingEnterToConfirmBare = `Enter to confirm`
 
+// waitingAskLegendOneLine and waitingAskReviewOneLine are the AskUserQuestion
+// patterns claude shipped with before they read a line the pane wraps. A
+// config carrying either verbatim takes the current pattern, the way one
+// carrying the bare phrase above does.
+const (
+	waitingAskLegendOneLine = `(?m)^[ \x{A0}]*Enter to select \x{B7} (?:[^\x{B7}\n]+\x{B7} )*Esc to cancel[ \x{A0}]*$`
+	waitingAskReviewOneLine = `(?m)^[ \x{A0}]*Ready to submit your answers\?[ \x{A0}]*$`
+)
+
+// arrowDialogNavigateOnly is the arrow_dialog_line claude shipped with before
+// the /model effort slider claimed the horizontal arrows. A config carrying it
+// verbatim was written by an older release and takes the current pattern; one
+// edited by hand keeps what its author wrote.
+const arrowDialogNavigateOnly = `(?i)\x{B7} [^\x{B7}\n]*(?:Arrow keys|\x{2190}|\x{2192})[^\x{B7}\n]* to navigate\b`
+
 // codexTurnEndRuleOnly, codexChromeLineMCPOnly and codexWorkingNoHints are
 // the codex patterns shipped before codex 0.154 moved the turn end to a dim
 // label under the reply and 0.157 parked hint rows above the composer. A
@@ -546,7 +663,24 @@ const waitingEnterToConfirmBare = `Enter to confirm`
 // takes the current pattern; one edited by hand keeps what its author wrote.
 const codexTurnEndRuleOnly = `(?m)^(?:─+ Worked for [\dhms. ]+─.*|─{20,}\s*)$`
 
+// claudeChromeLineUpdateOnly is the claude chrome_line shipped before the
+// "/clear" hint under a turn-end summary was read as chrome; a config
+// carrying it verbatim takes the current pattern.
+const claudeChromeLineUpdateOnly = `^\s*[─q]{4,}.*$|^[\s─q]*$|^\s*✔ Update installed\b.*$`
+
+// codexTurnEndMiddot is the 0.154 turn_end, which read only a middle dot
+// between the duration and the time ("Worked for 1m 5s · 02:41"). Later
+// builds draw a bullet there.
+const codexTurnEndMiddot = `(?m)^(?:─+ Worked for [\dhms. ]+─.*|─{20,}\s*|  (?:Worked for [\dhms ]+ · )?(?:done )?(?:[A-Z][a-z]{2} \d{1,2}(?:, \d{4})? at )?\d{1,2}:\d{2}(?: [AP]M)?(?: · (?:Local tools: |Inference: |WebSocket: |Streams?: |\d+ events received |Responses API |TTFT: |TBT: )[^\n]*)?)$`
+
 const codexChromeLineMCPOnly = `^\s*─*\s*$|^⚠ (?:The \S+ MCP server is not logged in\. Run \x60codex mcp login \S+\x60\.|MCP startup incomplete \(failed: [^)]+\))$`
+
+// codexErroredErrorOnly is the codex errored rule shipped before failed
+// reconnects counted as errored. A config carrying it verbatim takes the
+// current rule, so a dead session no longer reads as idle.
+const codexErroredErrorOnly = `(?im)^\s*■.*\berror\b`
+
+const codexErroredReconnectOnly = `(?im)^\s*■(?:.*\berror\b| (?:Automatic reconnect could not restore this session|app-server session could not be restored)\b)`
 
 const codexWorkingNoHints = `(?m)^[ \t]*(?:• )?[^\n]*\([\dhms. ]+ [•·] esc to interrupt\)(?: · [^\n]*)?[ \t]*\n(?:[ \t]+└[^\n]*\n(?:[ \t]{4}[^\n]*\n)*)?[ \t\n]*\z`
 
@@ -624,23 +758,39 @@ func mergeTool(name string, user, def Tool) Tool {
 		if user.ChromeLine == `^\s*─*\s*$` || user.ChromeLine == codexChromeLineMCPOnly {
 			user.ChromeLine = def.ChromeLine
 		}
-		if user.TurnEnd == codexTurnEndRuleOnly {
+		if user.TurnEnd == codexTurnEndRuleOnly || user.TurnEnd == codexTurnEndMiddot {
 			user.TurnEnd = def.TurnEnd
 		}
 	}
 	if name == "claude" && (user.BusyLine == busyLineAgentsOnly || user.BusyLine == busyLineShellsOnly || user.BusyLine == busyLineEveryKind || user.BusyLine == busyLineWaitOnly) {
 		user.BusyLine = def.BusyLine
 	}
+	if name == "claude" && user.ChromeLine == claudeChromeLineUpdateOnly {
+		user.ChromeLine = def.ChromeLine
+	}
+	if name == "claude" && user.ArrowDialogLine == arrowDialogNavigateOnly {
+		user.ArrowDialogLine = def.ArrowDialogLine
+	}
 	if len(user.Rules) == 0 {
 		user.Rules = def.Rules
 	} else if name == "claude" {
 		upgradeBareEnterToConfirm(user.Rules, def.Rules)
+		upgradeOneLineAskRules(user.Rules, def.Rules)
 		user.Rules = withAskUserQuestionRules(user.Rules, def.Rules)
 	} else if name == "opencode" {
 		user.Rules = withDialogRules(user.Rules, def.Rules, opencodeDialogSamples)
 	} else if name == "codex" {
 		user.Rules = withDialogRules(user.Rules, def.Rules, codexDialogSamples)
 		for i, rule := range user.Rules {
+			if rule.State == "errored" && (rule.Pattern == codexErroredErrorOnly || rule.Pattern == codexErroredReconnectOnly) {
+				for _, current := range def.Rules {
+					if current.State == "errored" {
+						user.Rules[i] = current
+						break
+					}
+				}
+				continue
+			}
 			if rule.State != "working" || (rule.Pattern != `(?m)esc to interrupt\b` && rule.Pattern != codexWorkingNoHints) {
 				continue
 			}
@@ -665,6 +815,20 @@ func mergeTool(name string, user, def Tool) Tool {
 const askUserQuestionLegend = "Enter to select \u00b7 \u2191/\u2193 to navigate \u00b7 Esc to cancel"
 const askUserQuestionReview = "Ready to submit your answers?"
 
+// The legend as a 40-column pane draws it, and the review question as a
+// 24-column one does.
+const (
+	askUserQuestionLegendWrapped = "Enter to select \u00b7 \u2191/\u2193 to navigate \u00b7 Esc\nto cancel"
+	askUserQuestionReviewWrapped = "Ready to submit your\nanswers?"
+)
+
+// oneLineAskRules maps each superseded one-line pattern to the wrapped line
+// its replacement has to read.
+var oneLineAskRules = map[string]string{
+	waitingAskLegendOneLine: askUserQuestionLegendWrapped,
+	waitingAskReviewOneLine: askUserQuestionReviewWrapped,
+}
+
 var askUserQuestionSamples = []string{askUserQuestionLegend, askUserQuestionReview}
 
 // upgradeBareEnterToConfirm swaps the superseded bare phrase for whichever
@@ -681,6 +845,26 @@ func upgradeBareEnterToConfirm(user, def []Rule) {
 			}
 			user[i] = d
 			break
+		}
+	}
+}
+
+// upgradeOneLineAskRules swaps each superseded one-line pattern for the
+// default rule that reads the same line wrapped, in place.
+func upgradeOneLineAskRules(user, def []Rule) {
+	for i, r := range user {
+		wrapped, superseded := oneLineAskRules[r.Pattern]
+		if r.State != "waiting" || !superseded {
+			continue
+		}
+		for _, d := range def {
+			if d.State != "waiting" {
+				continue
+			}
+			if re, err := regexp.Compile(d.Pattern); err == nil && re.MatchString(wrapped) {
+				user[i] = d
+				break
+			}
 		}
 	}
 }
@@ -834,31 +1018,6 @@ func writeDefault(path string) error {
 
 const defaultConfig = `poll_interval = "2s"
 
-# The shared artifact store. Agents publish HTML, markdown or JSON to a URL
-# and hand the link to you or to each other; the link carries its own key, so
-# whoever has it can open that one artifact and nothing else. An artifact
-# published by a session on one account is readable by a session on
-# another -- and by a CLI that has no artifacts of its own.
-#
-# Off until you turn it on. An extension that is off registers no tools, so
-# an agent here neither sees them nor pays context for them. Turning it off
-# again does not break links already handed out, because the worker serving
-# them does not consult this file.
-#
-# It has no store of its own: base_url and key_command name the worker you
-# deployed and how to read its signing key, and until both are set the tools
-# stay off whatever enabled says.
-#
-# [extensions.artifacts]
-# enabled = true
-# base_url = "https://artifacts.example.com"
-# key_secret = "ARTIFACT_SIGNING_KEY"
-# key_command = "pass show {secret}"
-# identity_command = "git config user.email"   # who is recorded as publishing
-# link_ttl = "720h"         # how long a minted link stays valid; Go durations have
-#                           # no day unit, so this is hours (720h = 30 days)
-# max_bytes = 16777216      # largest artifact this client will send
-
 # The tmux server sessions run on. Unset, they run on tmux's own default
 # server, so "tmux ls" lists them and "tmux attach -t gi_<id>" reaches one.
 # Naming a socket here gives them a server nothing else shares, reachable
@@ -879,6 +1038,14 @@ const defaultConfig = `poll_interval = "2s"
 # goes back to following this file.
 # [board]
 # sidebar = "right"
+
+# Asking a live agent to name its session interrupts it for a housekeeping
+# turn: the rename directive on a managed launch, the pending note in an
+# adopted pane, and the silent naming instructions opencode sessions carry.
+# Off leaves the quiet paths alone: rows still take the title the CLI writes
+# itself, and r still asks on demand.
+# [naming]
+# ask = false
 
 # The pull requests and tickets sessions are on. One that is over -- merged,
 # closed, completed, cancelled -- stays on the board this long after you first
@@ -917,17 +1084,16 @@ const defaultConfig = `poll_interval = "2s"
 # the content region is the text above the last activity_cutoff match
 # (the tool's input box). If the region's last content line — skipping
 # chrome_line matches (blanks, separators, input-box borders) — is a
-# turn_end marker, the turn just ended: finished, or waiting when the
-# line above it carries a question mark. A blocked_line there (e.g. an
-# interrupt banner) also derives waiting. Otherwise default_status
+# turn_end marker, the turn just ended: finished, even when its prose
+# asks a question, because waiting is a dialog and only a rule sees one.
+# A blocked_line there (e.g. an interrupt banner) derives waiting. Otherwise default_status
 # applies, and a region whose newest content lines changed since the
 # previous poll counts as working (streaming output often renders without
 # any spinner). Only the newest lines count, so a prompt someone is writing
 # -- which grows the input box and scrolls the oldest rows off the top of
 # the pane -- is not mistaken for output. A turn
 # that closes without any turn_end marker still resolves: when a working
-# region stops changing and nothing matches, its last content line
-# decides finished versus waiting (question mark waits).
+# region stops changing and nothing matches, it is finished.
 #
 # None of that runs while a scrolled_line match says the tool has parked
 # its own viewport above the live bottom: the visible screen is history
@@ -956,6 +1122,15 @@ model_flag = "--model"
 # account_secret = "CLAUDE_OAUTH_TOKEN_{account}"
 # account_command = "pass show claude/{secret}"
 # accounts_command = "pass ls claude"
+# Priority-scaled auto-compaction is off: every session compacts at claude's
+# own window. To let the sessions that matter most keep more context, give a
+# window in tokens (100000 to 1000000) per tier; the tier is the one the board
+# sorts by, and a tier left out keeps claude's own. It is written as
+# autoCompactWindow into the session's own settings file, which claude 2.1.304
+# reads at launch only: a tier changed mid-session applies at the next revive
+# or restart. CLAUDE_CODE_AUTO_COMPACT_WINDOW in the environment overrides it.
+#
+# compact_window = { urgent = 600000, high = 300000 }
 # claude has no command that prints these; they are the documented aliases.
 # The 1M-context variants sit beside the bare ones because an explicit --model
 # overrides the operator's settings.json default: picking "opus" for someone
@@ -1001,7 +1176,11 @@ turn_end = "^[✻✳✶✽✢·✦✧+*] \\S+ for \\d.*$"
 # streaming below the banner would still read finished -- and only
 # chrome_line is consulted by lastContentIndex, so only chrome_line keeps the
 # banner from masking a blocked_line interrupt above it.
-chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$"
+#
+# The right-aligned "new task? /clear to save 177.6k tokens" hint claude
+# draws under a turn-end summary once the context is large is chrome for the
+# same reason.
+chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$|^\\s*new task\\? /clear to save\\b.*$"
 blocked_line = "Interrupted ·"
 # recap blocks ("※ recap: …") render below the turn-end summary
 trailing_note = "^※"
@@ -1031,7 +1210,8 @@ jump_to_bottom_key = "C-End"
 # too. So require the arrow wording inside that one segment: "Tab/Arrow keys to
 # navigate" claims the arrows, "↑/↓ to navigate" leaves them alone, and a permission
 # prompt ("Enter to confirm · Esc to cancel") has no such segment at all.
-arrow_dialog_line = "(?i)\\x{B7} [^\\x{B7}\\n]*(?:Arrow keys|\\x{2190}|\\x{2192})[^\\x{B7}\\n]* to navigate\\b"
+# The /model picker's effort slider ("◉ xHigh effort ←/→ to adjust") claims them too.
+arrow_dialog_line = "(?i)\\x{B7} [^\\x{B7}\\n]*(?:Arrow keys|\\x{2190}|\\x{2192})[^\\x{B7}\\n]* to navigate\\b|\\x{2190}/\\x{2192} to adjust\\b"
 # The question stepper, drawn above the options whenever the dialog has more
 # than one step: "←  ☐ Shape  ☐ Scope  ✔ Submit  →" for three questions, and
 # "←  ☐ Checks  ✔ Submit  →" for a single multi-select one, which has the
@@ -1068,13 +1248,21 @@ rules = [
   # separated. How many segments sit between them is the dialog's own business
   # -- a multi-question one adds "n to add notes" and "Tab to switch questions"
   # -- so anchor both ends and let the middle be any number of segments.
-  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Enter to select \\x{B7} (?:[^\\x{B7}\\n]+\\x{B7} )*Esc to cancel[ \\x{A0}]*$" },
+  # A pane narrower than the legend wraps it at any space ("… · Esc" over "to
+  # cancel" at 40 columns; the "ctrl+g to edit in nano" segment a focused
+  # free-text row adds wraps it below 76), so a line break stands in for any
+  # space and each segment may wrap once. Missing the wrapped legend reads
+  # the dialog as idle, and the next queued message's Enter ticks a box.
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Enter(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)select(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)\\x{B7}(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)(?:[^\\x{B7}\\n]+(?:\\n[^\\x{B7}\\n]*)?\\x{B7}(?:[ \\x{A0}]+|[ \\x{A0}]*\\n))*Esc(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)cancel[ \\x{A0}]*$" },
   # The review page a stepper dialog ends on: the answers listed, "Ready to
   # submit your answers?", then "❯ 1. Submit answers / 2. Cancel" -- and no
   # legend at all, so the rule above cannot see it, and the marker row is the
   # activity cutoff so the numbered rule cannot either. The question line sits
   # above the cutoff and inside the newest turn, which is where rules look.
-  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Ready to submit your answers\\?[ \\x{A0}]*$" },
+  # Below 29 columns the question wraps, and missing it there lets a queued
+  # message's Enter press "Submit answers", so a break may stand in for any
+  # space here too.
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Ready(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)submit(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)your(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)answers\\?[ \\x{A0}]*$" },
   # spinner row of an active turn, any duration format:
   # "✳ Drizzling… (6s · thinking)" / "✽ Zigzagging… (3m 18s · ↓ 1.4k tokens)"
   { state = "working", pattern = "(?m)^[✻✳✶✽✢·✦✧+*] \\S+… \\(" },
@@ -1242,7 +1430,7 @@ input_line = "^›"
 # Codex 0.154 closes a turn on a dim label under the reply instead ("  02:41",
 # "  done 2:41 AM", "  Worked for 1m 5s · 02:41", "  Sep 3 at 02:41"), with the
 # opt-in runtime metrics after it ("· Local tools: 2 calls (1.2s) • ...").
-turn_end = "(?m)^(?:─+ Worked for [\\dhms. ]+─.*|─{20,}\\s*|  (?:Worked for [\\dhms ]+ · )?(?:done )?(?:[A-Z][a-z]{2} \\d{1,2}(?:, \\d{4})? at )?\\d{1,2}:\\d{2}(?: [AP]M)?(?: · (?:Local tools: |Inference: |WebSocket: |Streams?: |\\d+ events received |Responses API |TTFT: |TBT: )[^\\n]*)?)$"
+turn_end = "(?m)^(?:─+ Worked for [\\dhms. ]+─.*|─{20,}\\s*|  (?:Worked for [\\dhms ]+ [·•] )?(?:done )?(?:[A-Z][a-z]{2} \\d{1,2}(?:, \\d{4})? at )?\\d{1,2}:\\d{2}(?: [AP]M)?(?: · (?:Local tools: |Inference: |WebSocket: |Streams?: |\\d+ events received |Responses API |TTFT: |TBT: )[^\\n]*)?)$"
 # A command codex leaves running in a background terminal outlives the turn,
 # and codex names it on a row under the turn's closing label ("  1:15 AM" over
 # "  1 background terminal running · /ps to view · /stop to close", 0.157).
@@ -1266,7 +1454,7 @@ rules = [
   # active status row is the final row above the input box; anchoring its full
   # shape keeps an answer that quotes "esc to interrupt" from looking active
   { state = "working", pattern = "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?(?:[ \\t]*\\n|[ \\t]+(?:⚠|↓|Tip: |Copied )[^\\n]*\\n)*[ \\t\\n]*\\z" },
-  { state = "errored", pattern = "(?im)^\\s*■(?:.*\\berror\\b| (?:Automatic reconnect could not restore this session|app-server session could not be restored)\\b)" },
+  { state = "errored", pattern = "(?im)^\\s*■(?:.*\\berror\\b| (?:Automatic reconnect could not restore this session|app-server session could not be restored|Server connection could not be restored)\\b)" },
 ]
 
 # The terminal tab "T" spawns: a shell in the group's directory, listed

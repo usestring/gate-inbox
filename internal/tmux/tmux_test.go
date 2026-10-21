@@ -1392,3 +1392,60 @@ func testSocketPath(t *testing.T) string {
 	}
 	return strings.TrimSpace(string(out))
 }
+
+// A manager run in a window of its own inside a managed session lost C-q and
+// C-\ to tmux: the root binding detached the whole client in any gi_ session.
+// Only the session's home window detaches now.
+func TestLeaveKeysDetachOnlyFromTheHomeWindow(t *testing.T) {
+	driver := requireTmux(t)
+	id := "lk" + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "")
+	if err := driver.Create(id, "/tmp", "", nil, 0, 0); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { _ = driver.Kill(id) })
+	out, err := tmuxCmd("new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "="+SessionName(id)+":").CombinedOutput()
+	if err != nil {
+		t.Fatalf("new-window: %v: %s", err, out)
+	}
+	extra := strings.TrimSpace(string(out))
+	home, err := tmuxCmd("list-panes", "-t", "="+SessionName(id)+":"+"{start}", "-F", "#{pane_id}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("home pane: %v: %s", err, home)
+	}
+	for pane, want := range map[string]string{strings.Fields(string(home))[0]: "1", extra: "0"} {
+		got, err := tmuxCmd("display-message", "-p", "-t", pane, leaveCondition).CombinedOutput()
+		if err != nil {
+			t.Fatalf("display-message: %v: %s", err, got)
+		}
+		if strings.TrimSpace(string(got)) != want {
+			t.Fatalf("pane %s: leave condition = %q, want %q", pane, got, want)
+		}
+	}
+}
+
+// A shared server keeps a key someone already bound, but the leave keys an
+// earlier run bound with the every-window condition are ours to replace.
+func TestSharedBindingsReplaceTheLegacyLeaveKeys(t *testing.T) {
+	driver := requireTmux(t)
+	driver.owned = false
+	t.Cleanup(func() { driver.owned = true })
+	if out, err := tmuxCmd("bind-key", "-n", "C-q", "if-shell", "-F", legacyLeaveCondition, "detach-client", "send-keys C-q").CombinedOutput(); err != nil {
+		t.Fatalf("seed legacy C-q: %v: %s", err, out)
+	}
+	if out, err := tmuxCmd("bind-key", "-n", `C-\`, "display-message", "theirs").CombinedOutput(); err != nil {
+		t.Fatalf("seed foreign C-\\: %v: %s", err, out)
+	}
+	if err := driver.EnsureBindings(); err != nil {
+		t.Fatalf("EnsureBindings: %v", err)
+	}
+	bound, _, err := driver.rootKeys()
+	if err != nil {
+		t.Fatalf("rootKeys: %v", err)
+	}
+	if !strings.Contains(bound["C-q"], "#{&&:") {
+		t.Fatalf("legacy C-q not replaced: %q", bound["C-q"])
+	}
+	if !strings.Contains(bound[`C-\`], "theirs") {
+		t.Fatalf("foreign C-\\ overwritten: %q", bound[`C-\`])
+	}
+}

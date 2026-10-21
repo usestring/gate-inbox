@@ -1,30 +1,5 @@
 poll_interval = "2s"
 
-# The shared artifact store. Agents publish HTML, markdown or JSON to a URL
-# and hand the link to you or to each other; the link carries its own key, so
-# whoever has it can open that one artifact and nothing else. An artifact
-# published by a session on one account is readable by a session on
-# another -- and by a CLI that has no artifacts of its own.
-#
-# Off until you turn it on. An extension that is off registers no tools, so
-# an agent here neither sees them nor pays context for them. Turning it off
-# again does not break links already handed out, because the worker serving
-# them does not consult this file.
-#
-# It has no store of its own: base_url and key_command name the worker you
-# deployed and how to read its signing key, and until both are set the tools
-# stay off whatever enabled says.
-#
-# [extensions.artifacts]
-# enabled = true
-# base_url = "https://artifacts.example.com"
-# key_secret = "ARTIFACT_SIGNING_KEY"
-# key_command = "pass show {secret}"
-# identity_command = "git config user.email"   # who is recorded as publishing
-# link_ttl = "720h"         # how long a minted link stays valid; Go durations have
-#                           # no day unit, so this is hours (720h = 30 days)
-# max_bytes = 16777216      # largest artifact this client will send
-
 # The tmux server sessions run on. Unset, they run on tmux's own default
 # server, so "tmux ls" lists them and "tmux attach -t gi_<id>" reaches one.
 # Naming a socket here gives them a server nothing else shares, reachable
@@ -45,6 +20,14 @@ poll_interval = "2s"
 # goes back to following this file.
 # [board]
 # sidebar = "right"
+
+# Asking a live agent to name its session interrupts it for a housekeeping
+# turn: the rename directive on a managed launch, the pending note in an
+# adopted pane, and the silent naming instructions opencode sessions carry.
+# Off leaves the quiet paths alone: rows still take the title the CLI writes
+# itself, and r still asks on demand.
+# [naming]
+# ask = false
 
 # The pull requests and tickets sessions are on. One that is over -- merged,
 # closed, completed, cancelled -- stays on the board this long after you first
@@ -83,17 +66,16 @@ poll_interval = "2s"
 # the content region is the text above the last activity_cutoff match
 # (the tool's input box). If the region's last content line — skipping
 # chrome_line matches (blanks, separators, input-box borders) — is a
-# turn_end marker, the turn just ended: finished, or waiting when the
-# line above it carries a question mark. A blocked_line there (e.g. an
-# interrupt banner) also derives waiting. Otherwise default_status
+# turn_end marker, the turn just ended: finished, even when its prose
+# asks a question, because waiting is a dialog and only a rule sees one.
+# A blocked_line there (e.g. an interrupt banner) derives waiting. Otherwise default_status
 # applies, and a region whose newest content lines changed since the
 # previous poll counts as working (streaming output often renders without
 # any spinner). Only the newest lines count, so a prompt someone is writing
 # -- which grows the input box and scrolls the oldest rows off the top of
 # the pane -- is not mistaken for output. A turn
 # that closes without any turn_end marker still resolves: when a working
-# region stops changing and nothing matches, its last content line
-# decides finished versus waiting (question mark waits).
+# region stops changing and nothing matches, it is finished.
 #
 # None of that runs while a scrolled_line match says the tool has parked
 # its own viewport above the live bottom: the visible screen is history
@@ -122,6 +104,15 @@ model_flag = "--model"
 # account_secret = "CLAUDE_OAUTH_TOKEN_{account}"
 # account_command = "pass show claude/{secret}"
 # accounts_command = "pass ls claude"
+# Priority-scaled auto-compaction is off: every session compacts at claude's
+# own window. To let the sessions that matter most keep more context, give a
+# window in tokens (100000 to 1000000) per tier; the tier is the one the board
+# sorts by, and a tier left out keeps claude's own. It is written as
+# autoCompactWindow into the session's own settings file, which claude 2.1.304
+# reads at launch only: a tier changed mid-session applies at the next revive
+# or restart. CLAUDE_CODE_AUTO_COMPACT_WINDOW in the environment overrides it.
+#
+# compact_window = { urgent = 600000, high = 300000 }
 # claude has no command that prints these; they are the documented aliases.
 # The 1M-context variants sit beside the bare ones because an explicit --model
 # overrides the operator's settings.json default: picking "opus" for someone
@@ -167,7 +158,11 @@ turn_end = "^[✻✳✶✽✢·✦✧+*] \\S+ for \\d.*$"
 # streaming below the banner would still read finished -- and only
 # chrome_line is consulted by lastContentIndex, so only chrome_line keeps the
 # banner from masking a blocked_line interrupt above it.
-chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$"
+#
+# The right-aligned "new task? /clear to save 177.6k tokens" hint claude
+# draws under a turn-end summary once the context is large is chrome for the
+# same reason.
+chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$|^\\s*new task\\? /clear to save\\b.*$"
 blocked_line = "Interrupted ·"
 # recap blocks ("※ recap: …") render below the turn-end summary
 trailing_note = "^※"
@@ -197,7 +192,8 @@ jump_to_bottom_key = "C-End"
 # too. So require the arrow wording inside that one segment: "Tab/Arrow keys to
 # navigate" claims the arrows, "↑/↓ to navigate" leaves them alone, and a permission
 # prompt ("Enter to confirm · Esc to cancel") has no such segment at all.
-arrow_dialog_line = "(?i)\\x{B7} [^\\x{B7}\\n]*(?:Arrow keys|\\x{2190}|\\x{2192})[^\\x{B7}\\n]* to navigate\\b"
+# The /model picker's effort slider ("◉ xHigh effort ←/→ to adjust") claims them too.
+arrow_dialog_line = "(?i)\\x{B7} [^\\x{B7}\\n]*(?:Arrow keys|\\x{2190}|\\x{2192})[^\\x{B7}\\n]* to navigate\\b|\\x{2190}/\\x{2192} to adjust\\b"
 # The question stepper, drawn above the options whenever the dialog has more
 # than one step: "←  ☐ Shape  ☐ Scope  ✔ Submit  →" for three questions, and
 # "←  ☐ Checks  ✔ Submit  →" for a single multi-select one, which has the
@@ -234,13 +230,21 @@ rules = [
   # separated. How many segments sit between them is the dialog's own business
   # -- a multi-question one adds "n to add notes" and "Tab to switch questions"
   # -- so anchor both ends and let the middle be any number of segments.
-  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Enter to select \\x{B7} (?:[^\\x{B7}\\n]+\\x{B7} )*Esc to cancel[ \\x{A0}]*$" },
+  # A pane narrower than the legend wraps it at any space ("… · Esc" over "to
+  # cancel" at 40 columns; the "ctrl+g to edit in nano" segment a focused
+  # free-text row adds wraps it below 76), so a line break stands in for any
+  # space and each segment may wrap once. Missing the wrapped legend reads
+  # the dialog as idle, and the next queued message's Enter ticks a box.
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Enter(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)select(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)\\x{B7}(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)(?:[^\\x{B7}\\n]+(?:\\n[^\\x{B7}\\n]*)?\\x{B7}(?:[ \\x{A0}]+|[ \\x{A0}]*\\n))*Esc(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)cancel[ \\x{A0}]*$" },
   # The review page a stepper dialog ends on: the answers listed, "Ready to
   # submit your answers?", then "❯ 1. Submit answers / 2. Cancel" -- and no
   # legend at all, so the rule above cannot see it, and the marker row is the
   # activity cutoff so the numbered rule cannot either. The question line sits
   # above the cutoff and inside the newest turn, which is where rules look.
-  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Ready to submit your answers\\?[ \\x{A0}]*$" },
+  # Below 29 columns the question wraps, and missing it there lets a queued
+  # message's Enter press "Submit answers", so a break may stand in for any
+  # space here too.
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Ready(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)to(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)submit(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)your(?:[ \\x{A0}]+|[ \\x{A0}]*\\n)answers\\?[ \\x{A0}]*$" },
   # spinner row of an active turn, any duration format:
   # "✳ Drizzling… (6s · thinking)" / "✽ Zigzagging… (3m 18s · ↓ 1.4k tokens)"
   { state = "working", pattern = "(?m)^[✻✳✶✽✢·✦✧+*] \\S+… \\(" },
@@ -408,7 +412,7 @@ input_line = "^›"
 # Codex 0.154 closes a turn on a dim label under the reply instead ("  02:41",
 # "  done 2:41 AM", "  Worked for 1m 5s · 02:41", "  Sep 3 at 02:41"), with the
 # opt-in runtime metrics after it ("· Local tools: 2 calls (1.2s) • ...").
-turn_end = "(?m)^(?:─+ Worked for [\\dhms. ]+─.*|─{20,}\\s*|  (?:Worked for [\\dhms ]+ · )?(?:done )?(?:[A-Z][a-z]{2} \\d{1,2}(?:, \\d{4})? at )?\\d{1,2}:\\d{2}(?: [AP]M)?(?: · (?:Local tools: |Inference: |WebSocket: |Streams?: |\\d+ events received |Responses API |TTFT: |TBT: )[^\\n]*)?)$"
+turn_end = "(?m)^(?:─+ Worked for [\\dhms. ]+─.*|─{20,}\\s*|  (?:Worked for [\\dhms ]+ [·•] )?(?:done )?(?:[A-Z][a-z]{2} \\d{1,2}(?:, \\d{4})? at )?\\d{1,2}:\\d{2}(?: [AP]M)?(?: · (?:Local tools: |Inference: |WebSocket: |Streams?: |\\d+ events received |Responses API |TTFT: |TBT: )[^\\n]*)?)$"
 # A command codex leaves running in a background terminal outlives the turn,
 # and codex names it on a row under the turn's closing label ("  1:15 AM" over
 # "  1 background terminal running · /ps to view · /stop to close", 0.157).
@@ -432,7 +436,7 @@ rules = [
   # active status row is the final row above the input box; anchoring its full
   # shape keeps an answer that quotes "esc to interrupt" from looking active
   { state = "working", pattern = "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?(?:[ \\t]*\\n|[ \\t]+(?:⚠|↓|Tip: |Copied )[^\\n]*\\n)*[ \\t\\n]*\\z" },
-  { state = "errored", pattern = "(?im)^\\s*■(?:.*\\berror\\b| (?:Automatic reconnect could not restore this session|app-server session could not be restored)\\b)" },
+  { state = "errored", pattern = "(?im)^\\s*■(?:.*\\berror\\b| (?:Automatic reconnect could not restore this session|app-server session could not be restored|Server connection could not be restored)\\b)" },
 ]
 
 # The terminal tab "T" spawns: a shell in the group's directory, listed

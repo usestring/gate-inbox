@@ -244,9 +244,12 @@ type execer interface {
 // own words are exempt: the cap exists to break two agents answering each
 // other in a loop, not to stop a person steering one. So is a parent and its
 // child, drawn under it or spawned by it: a coordinator driving its children
-// and their finished notices are the traffic the board exists to carry.
+// and their finished notices are the traffic the board exists to carry. So is
+// a board extension: it is compiled into the board rather than an agent, so
+// nothing a session sends it can draw it into a loop, and its rate cap per
+// recipient still bounds it.
 func pairCap(db execer, msg InboxMessage, limits InboxLimits) (int, error) {
-	if limits.PairCap < 1 || SpeaksAsOperator(msg.SenderID) {
+	if _, extension := ExtensionSender(msg.SenderID); limits.PairCap < 1 || extension || SpeaksAsOperator(msg.SenderID) {
 		return 0, nil
 	}
 	var related int

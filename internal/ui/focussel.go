@@ -500,7 +500,10 @@ func graphemeRangeAtColumns(line string, start, end int) (int, int) {
 }
 
 // selectionText is the selected pane text, newline-joined, with each row's
-// trailing pad dropped the way a terminal's own copy does.
+// trailing pad dropped the way a terminal's own copy does. Conversation rows
+// are boxed on screen (│ content │ with ╭─╮/╰─╯ borders), so the frame is
+// stripped here: without it every copied line carries the box's two-column
+// gutter, which breaks pasted code.
 func (m *Model) selectionText() string {
 	if !m.sel.active {
 		return ""
@@ -515,10 +518,44 @@ func (m *Model) selectionText() string {
 			out = append(out, "")
 			continue
 		}
+		if text, framed := m.unframeConversationRow(row, line, start, end); framed {
+			out = append(out, text)
+			continue
+		}
 		startByte, endByte := graphemeRangeAtColumns(line, start, end)
 		out = append(out, strings.TrimRight(line[startByte:endByte], " "))
 	}
 	return strings.Join(out, "\n")
+}
+
+// unframeConversationRow maps a pane-column selection on a boxed conversation
+// row onto its inner content. It reports framed=false for rows that carry no
+// box frame (terminal output, the working row, blank separators), which the
+// caller copies as before. Border rows (╭─╮/╰─╯) copy as empty so pasted text
+// holds only what was said.
+func (m *Model) unframeConversationRow(row int, line string, start, end int) (string, bool) {
+	if !m.showsConversation() || m.livePaneRow(row) {
+		return "", false
+	}
+	if strings.HasPrefix(line, "╭") || strings.HasPrefix(line, "╰") {
+		return "", true
+	}
+	if !strings.HasPrefix(line, "│") {
+		return "", false
+	}
+	w := textfmt.Width(line)
+	innerStart, innerEnd := 2, w-2
+	if innerEnd < innerStart {
+		innerEnd = innerStart
+	}
+	if end <= innerStart || start >= innerEnd {
+		return "", true
+	}
+	innerStartByte, innerEndByte := graphemeRangeAtColumns(line, innerStart, innerEnd)
+	inner := line[innerStartByte:innerEndByte]
+	cs, ce := max(start, innerStart)-innerStart, min(end, innerEnd)-innerStart
+	sByte, eByte := graphemeRangeAtColumns(inner, cs, ce)
+	return strings.TrimRight(inner[sByte:eByte], " "), true
 }
 
 // copySelectionCmd puts the selection on the system clipboard. The host

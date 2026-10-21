@@ -40,6 +40,7 @@ const handoffBudget = 400 * time.Millisecond
 // or this fixture is not the deaf pane it claims to be and the test would
 // hold with the wait deleted outright.
 func TestThePassDoesNotSpendTheEchoWindowDeliveringAMessage(t *testing.T) {
+	needsQuietBox(t)
 	m := buildModel(t)
 	sess := spawnedSession(t, m, "deaf-tool")
 	queueMessage(t, m, sess.ID, "rebase on main")
@@ -88,6 +89,7 @@ func TestThePassDoesNotSpendTheEchoWindowDeliveringAMessage(t *testing.T) {
 // a moment is the box, while a per-pane wait puts every one of them past
 // the window.
 func TestSeveralDeliveriesInOnePassStayOffIt(t *testing.T) {
+	needsQuietBox(t)
 	m := buildModel(t)
 	const sessions = 5
 	var rows []store.Session

@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/clipboard"
@@ -37,6 +38,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		default:
 			return m, nil
 		}
+	}
+
+	if model, cmd, ok := m.newSessionFromAnywhere(msg); ok {
+		return model, cmd
+	}
+	if model, cmd, ok := m.killFromAnywhere(msg); ok {
+		return model, cmd
 	}
 
 	switch m.mode {
@@ -74,6 +82,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleAgentPickKey(msg)
 	case modeExtensionView:
 		return m.handleExtensionViewKey(msg)
+	case modeHeadPane:
+		return m.handleHeadPaneKey(msg)
 	case modeQuickActions:
 		return m.handleQuickActionsKey(msg)
 	case modePanePicker:
@@ -154,6 +164,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// so a rebound key is still refused, or still allowed, for the reason it
 	// always was.
 	if model, cmd, answered := m.artifactRowAction(action, bound); answered {
+		return model, cmd
+	}
+	// A header row opens what its extension says it heads; every other key
+	// on it acts on the session below. See headrows.go.
+	if model, cmd, answered := m.headRowAction(action, bound); answered {
 		return model, cmd
 	}
 
@@ -301,9 +316,11 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.archiveAllLive()
 	case keymap.Restore:
 		return m.restoreSelected()
+	case keymap.RestoreAll:
+		return m.restoreAllDead()
 	case keymap.Rescind:
 		return m.rescindLatestSubmission()
-	case "U", "shift+u":
+	case keymap.UndoArchive:
 		return m.undoArchive()
 	case keymap.LastPane:
 		return m.focusLastPane()
@@ -418,6 +435,9 @@ var artifactRowActions = map[keymap.Action]bool{
 	// the cursor, so an artifact row is no reason to swallow it.
 	keymap.LastPane: true,
 	keymap.Rescind:  true,
+	// UndoArchive brings back the last kill, wherever the cursor is.
+	keymap.UndoArchive: true,
+	keymap.RestoreAll:  true,
 }
 
 // stepCursor is one move of the selection: the next row that is not an
@@ -561,12 +581,19 @@ func (m *Model) reorderSelected(delta int) (tea.Model, tea.Cmd) {
 	}
 	// Mirror the swap in memory so the list redraws instantly; the next
 	// poll re-reads the authoritative order from the store.
+	mark := reorderMark{group: entry.isGroup, at: time.Now()}
 	if entry.isGroup {
 		m.materializeGroupsLocal(groupSiblings)
 		m.swapGroupLocal(entry.group, target.group)
+		mark.first, mark.second = entry.group, target.group
 	} else {
 		m.swapSessionLocal(entry.sess.ID, target.sess.ID)
+		mark.first, mark.second = entry.sess.ID, target.sess.ID
 	}
+	if delta > 0 {
+		mark.first, mark.second = mark.second, mark.first
+	}
+	m.reorders = append(m.reorders, mark)
 	m.errBar.text = ""
 	m.rebuildRows()
 	m.requestRefresh()
@@ -586,7 +613,7 @@ func (m *Model) visibleReorderTarget(entry treeRow, delta int) (treeRow, bool) {
 		// An artifact is not a sibling of anything, and it carries the very
 		// session the scan started from: left in, it would offer that session
 		// itself as its own swap target.
-		if candidate.isArtifact() {
+		if candidate.isArtifact() || candidate.isHead() {
 			continue
 		}
 		if candidate.isRoot() {

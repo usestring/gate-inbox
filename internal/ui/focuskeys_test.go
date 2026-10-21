@@ -273,11 +273,11 @@ func TestSwappedKeysRouteActions(t *testing.T) {
 	if chosen, err := m.store.Setting(focusKeySetting); err != nil || chosen != "attach" {
 		t.Fatalf("swap did not persist, chosen = %q, err = %v", chosen, err)
 	}
-	// Swapped: A focuses instead.
-	updated, _ = m.handleKey(tea.KeyPressMsg{Code: 'A', Text: "A"})
+	// Swapped: ctrl+a focuses instead.
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
 	*m = *updated.(*Model)
 	if m.mode != modeFocus {
-		t.Fatalf("A did not focus after the swap, mode = %v, err = %q", m.mode, m.errBar.text)
+		t.Fatalf("ctrl+a did not focus after the swap, mode = %v, err = %q", m.mode, m.errBar.text)
 	}
 }
 
@@ -957,10 +957,10 @@ func TestSwappedFocusKeyOnArchivedRowNeverAttaches(t *testing.T) {
 	}
 	archiveInPlace(t, m, "shelved-swap")
 
-	updated, cmd := m.handleKey(tea.KeyPressMsg{Code: 'A', Text: "A"})
+	updated, cmd := m.handleKey(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
 	*m = *updated.(*Model)
 	if cmd != nil {
-		t.Fatal("A (the focus key here) started a command, want no attach")
+		t.Fatal("ctrl+a (the focus key here) started a command, want no attach")
 	}
 	if m.errBar.text != m.archivedFocusHint() {
 		t.Fatalf("err = %q, want %q", m.errBar.text, m.archivedFocusHint())
@@ -988,7 +988,7 @@ func TestArchivedRowLegendOffersAttachAndRestore(t *testing.T) {
 	if strings.Contains(footer, "focus / fold") {
 		t.Fatalf("an archived row still advertises focus on enter:\n%s", footer)
 	}
-	if !strings.Contains(footer, "A attach") {
+	if !strings.Contains(footer, "^a attach") {
 		t.Fatalf("an archived row should name the key that attaches:\n%s", footer)
 	}
 	if !strings.Contains(footer, "u restore to focus") {

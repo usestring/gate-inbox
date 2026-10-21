@@ -11,12 +11,9 @@ what the repository and its binaries contain that is licensed by someone else.
   files of every linked module are copied verbatim under `LICENSES/third_party/<module>/`; MIT,
   BSD and Apache-2.0 all require that text to travel with a binary distribution. Run
   `scripts/third-party-licences.sh --check` to confirm the committed copy is current.
-- **JavaScript/npm**: none. `extension/artifacts/worker/package.json` declares no
-  `dependencies` or `devDependencies` and there is no lockfile; its tests import only `bun:test`
-  and Node built-ins. `wrangler` is invoked as an external CLI at deploy time and nothing from it is
-  vendored or shipped.
+- **JavaScript/npm**: none. The repository has no `package.json` or lockfile.
 - **CI actions** in `.github/workflows/ci.yml` (`actions/checkout`, `actions/setup-go`,
-  `actions/upload-artifact`, `oven-sh/setup-bun`, all MIT) run in CI only and are not distributed.
+  `actions/upload-artifact`, all MIT) run in CI only and are not distributed.
 - **Non-code assets** are listed by hand below; the generator does not touch that section.
 
 ## Non-code assets
@@ -29,10 +26,10 @@ what the repository and its binaries contain that is licensed by someone else.
 | `docs/brand/mark-512.png` | this repository | as above | this repository | 512×512 raster of `mark.svg`. |
 | `docs/brand/README.md` | this repository | Apache-2.0 | this repository | Describes the marks. |
 | JetBrains Mono (glyph outlines only) | 2.211 | OFL-1.1 | https://github.com/JetBrains/JetBrainsMono | No font file is in the repository or embedded in a binary: the brand SVGs/PNG carry glyphs converted to paths. OFL-1.1 treats documents produced with the font as outside its scope; its text is shipped anyway as `LICENSES/OFL-1.1-JetBrains-Mono.txt` while the derived marks remain. The font declares no Reserved Font Name. |
-| Fonts | — | — | — | None: no `.ttf`/`.otf`/`.woff*` file, no `go:embed`, and no font reference in the worker page or the VHS tapes (`tools/capture` sets only `FontSize`). |
+| Fonts | — | — | — | None: no `.ttf`/`.otf`/`.woff*` file, no `go:embed`, and no font reference in the VHS tapes (`tools/capture` sets only `FontSize`). |
 | Other images and icons | — | — | — | None: the four `docs/brand` files are the only images in the tree. `docs/usage.md` still links upstream's `demo-*.gif` and `screenshot-*.png`, which were not imported; the links are dead, and nothing is shipped. |
 | `internal/*/testdata/*.txt`, `internal/ui/testdata/*` | this repo | Apache-2.0 | this repo | Terminal captures of Claude Code, Codex and opencode screens, used as parser goldens. Short functional UI captures; the third-party text in them is interface chrome. Paths, repositories and PR links in them are placeholders (`/home/user`, `example-org/sample-repo`). |
-| `internal/*/testdata/*.json{,l}`, `extension/artifacts/testdata/vectors.json` | this repo | Apache-2.0 | this repo | Synthetic transcripts, decision payloads and signing vectors. No third-party content found. |
+| `internal/*/testdata/*.json{,l}` | this repo | Apache-2.0 | this repo | Synthetic transcripts and decision payloads. No third-party content found. |
 | `tools/capture/demo/*`, `tools/capture/scenarios/*.tape`, `*.toml` | this repo | Apache-2.0 | this repo | Synthetic demo sessions and VHS scripts. Repositories and links in them are placeholders. |
 
 ## Go modules
@@ -114,7 +111,7 @@ Flagged:
 | `github.com/lucasb-eyer/go-colorful` | v1.4.1 | MIT | https://pkg.go.dev/github.com/lucasb-eyer/go-colorful@v1.4.1?tab=licenses | linked (linux, darwin, windows); files: LICENSE; copied to `LICENSES/third_party/github.com/lucasb-eyer/go-colorful/` |
 | `github.com/lufia/plan9stats` | v0.0.0-20211012122336-39d0f177ccd0 | BSD-3-Clause | https://pkg.go.dev/github.com/lufia/plan9stats@v0.0.0-20211012122336-39d0f177ccd0?tab=licenses | module graph only; files: LICENSE |
 | `github.com/mattn/go-isatty` | v0.0.24 | MIT | https://pkg.go.dev/github.com/mattn/go-isatty@v0.0.24?tab=licenses | linked (linux, darwin, windows); files: LICENSE; copied to `LICENSES/third_party/github.com/mattn/go-isatty/` |
-| `github.com/mattn/go-runewidth` | v0.0.27 | MIT | https://pkg.go.dev/github.com/mattn/go-runewidth@v0.0.27?tab=licenses | linked (linux, darwin, windows); files: LICENSE; copied to `LICENSES/third_party/github.com/mattn/go-runewidth/` |
+| `github.com/mattn/go-runewidth` | v0.0.31 | MIT | https://pkg.go.dev/github.com/mattn/go-runewidth@v0.0.31?tab=licenses | linked (linux, darwin, windows); files: LICENSE; copied to `LICENSES/third_party/github.com/mattn/go-runewidth/` |
 | `github.com/modelcontextprotocol/go-sdk` | v1.7.0 | Apache-2.0 + CC-BY-4.0 + MIT | https://pkg.go.dev/github.com/modelcontextprotocol/go-sdk@v1.7.0?tab=licenses | linked (linux, darwin, windows); files: LICENSE; copied to `LICENSES/third_party/github.com/modelcontextprotocol/go-sdk/` |
 | `github.com/muesli/cancelreader` | v0.2.2 | MIT | https://pkg.go.dev/github.com/muesli/cancelreader@v0.2.2?tab=licenses | linked (linux, darwin, windows); files: LICENSE; copied to `LICENSES/third_party/github.com/muesli/cancelreader/` |
 | `github.com/ncruces/go-strftime` | v1.0.0 | MIT | https://pkg.go.dev/github.com/ncruces/go-strftime@v1.0.0?tab=licenses | linked (darwin, windows); files: LICENSE; copied to `LICENSES/third_party/github.com/ncruces/go-strftime/` |

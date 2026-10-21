@@ -343,13 +343,18 @@ func (m *Model) screenBinds(action keymap.Action) bool {
 	return false
 }
 
+// typingInView reports whether the view's focused field takes typed text.
+func (m *Model) typingInView() bool {
+	fields := m.extView.fields
+	return fields != nil && fields.focused().typed()
+}
+
 // pasteIntoView gives a paste to the view's focused field, when it types.
 func (m *Model) pasteIntoView(msg tea.PasteMsg) tea.Cmd {
-	fields := m.extView.fields
-	if fields == nil || !fields.focused().typed() {
+	if !m.typingInView() {
 		return nil
 	}
-	return fields.focused().update(msg)
+	return m.extView.fields.focused().update(msg)
 }
 
 // fieldLines draws the fields at inner cells, and reports the line each

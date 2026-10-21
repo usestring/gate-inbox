@@ -19,22 +19,36 @@ drives the scenario's keystrokes and writes
 <out>/test-results/<run>/video.webm
 ```
 
-which is the layout `skills/ship-ui-feature/scripts/post-to-pr.ts` uploads. The
-run prints the exact command; run it from inside this checkout:
+which is the layout `skills/ship-ui-feature/scripts/post-to-pr.ts` uploads.
 
-```bash
-bun ../skills/ship-ui-feature/scripts/post-to-pr.ts --evidence /tmp/claude/gate-capture/<branch>
-```
+Each run also writes `<out>/media/<run>/capture.json`, through `manifest.sh`:
+the scratch tmux directory, board home and `HOME` the run used, and the sha256
+of every file it wrote. `post-to-pr.ts` publishes nothing without it, refuses a
+manifest that names the operator's own tmux server, board or `HOME`, and
+refuses any file the manifest does not hash. It then scans every frame, and
+because this repository is public, runs the public leak check too; a finding
+uploads nothing. A recording is never committed.
 
 ## What it runs against
 
-Nothing of the operator's. The board gets a scratch `GATE_INBOX_HOME` and its
-own `TMUX_TMPDIR`, so it never lists, moves or kills a session on the live
-board, and the sessions it opens run `demo-agent.sh` — a transcript player —
+Nothing of the operator's. The board gets a scratch `GATE_INBOX_HOME`, its
+own `TMUX_TMPDIR`, a scratch `HOME` and `XDG_*` directories, and no
+`LINEAR_API_KEY`, `GITHUB_TOKEN` or `GH_TOKEN`, so it never lists, moves or
+kills a session on the live board and never reads a real transcript, ticket or
+pull request. It runs in a fixture `demo-project` under that scratch home, never this
+checkout's real path. The driver refuses to start
+when a scratch path would be the live board's home, the real `HOME` or the
+operator's tmux directory, and deletes a recording whose screen text shows the
+operator's home path or login. The sessions it opens run `demo-agent.sh` — a transcript player —
 rather than a real CLI, so a capture spawns no agent and spends no tokens.
 The seeded set is whichever of `claude`, `codex`, `opencode` this machine has
-installed, because the board's agent picker offers no others; each draws a different state (waiting, working, finished) from
-`demo/*.txt`.
+installed, because the board's agent picker offers no others. Each plays a
+transcript in its own pane shape, because the board reads a pane with that
+tool's rules: `claude` plays `demo/waiting.txt`, `codex` plays
+`demo/codex-working.txt` and `opencode` plays `demo/opencode-finished.txt`, so
+with all three installed the board opens on one waiting, one working and one
+finished row. `--transcripts a,b,c` replaces the set in that order; a
+claude-shaped transcript in a codex or opencode pane reads as idle.
 
 ## Theme and size
 
@@ -187,7 +201,7 @@ Re-run it with `--keep-home` and read the board's own log:
 
 ```bash
 grep -ao 'msg=key key=[^ ]* branch=[^ ]* mode=[^ ]* row=[^ ]* name=[^ ]*' \
-  <out>/work/home/logs/gate-inbox.log
+  <out>/work/board/logs/gate-inbox.log
 ```
 
 Every key the board received is there, with the mode that handled it and the row

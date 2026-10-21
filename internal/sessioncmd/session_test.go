@@ -130,11 +130,16 @@ jump_to_bottom_key = "Enter"
 
 func newSessionHarness(t *testing.T) *sessionHarness {
 	t.Helper()
+	return newSessionHarnessWithConfig(t, sessionConfig)
+}
+
+func newSessionHarnessWithConfig(t *testing.T, raw string) *sessionHarness {
+	t.Helper()
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
 	configDir := tmuxtest.ScratchDir(t)
-	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(sessionConfig), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(raw), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	driver, err := tmux.NewWithSocket(tmuxtest.Socket(t, "sess"))
@@ -172,6 +177,9 @@ func newSessionHarness(t *testing.T) *sessionHarness {
 		sessions:  newSessions(configDir, MCPVocabulary(), newDriver, git.New),
 		terminals: newTerminals(configDir, MCPVocabulary(), newDriver),
 	}
+	// Relaunches in a test follow one another at once; the queue's own
+	// tests are in relaunchpace_test.go and launchpace.
+	h.sessions.newPacer = unpaced(configDir)
 	t.Cleanup(func() {
 		sessions, _ := st.ListSessions(true)
 		for _, sess := range sessions {
@@ -496,11 +504,13 @@ func TestSessionGroupsListAndCreate(t *testing.T) {
 func TestSendAndWaitRefuseATargetTheManagerNoLongerPolls(t *testing.T) {
 	t.Parallel()
 	h := newSessionHarness(t)
-	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "worker"})
+	// Another session's, since a send to the caller's own child restores it.
+	stranger := childRow(t, h, store.Session{ID: "a0b1c2d3", Name: "another-agent"}, false)
+	created, err := h.sessions.Create(stranger.ID, CreateSessionOptions{Name: "worker"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := h.sessions.Archive(h.caller.ID, created.ID, true); err != nil {
+	if _, err := h.sessions.Archive(stranger.ID, created.ID, true); err != nil {
 		t.Fatalf("Archive: %v", err)
 	}
 	// The refusal has to name the archive rather than the dead pane: an
@@ -1107,6 +1117,37 @@ func TestCreateOnAChosenModelKeepsItThroughRevive(t *testing.T) {
 	}
 }
 
+// With [naming] ask = false an unnamed spawn still takes a placeholder name,
+// but nothing it launches asks the agent to rename itself: the prompt carries
+// the rename-available note instead of the directive, and nothing waits
+// behind it.
+func TestCreateWithoutAskSendsNoRenameDirective(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarnessWithConfig(t, "[naming]\nask = false\n"+sessionConfig)
+	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Prompt: "do things"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if !strings.HasPrefix(created.Name, "echoer-") {
+		t.Fatalf("Name = %q, want the placeholder", created.Name)
+	}
+	row, err := h.store.Get(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, input := range row.PendingInputs {
+		if strings.Contains(input, launch.DeferredRenameDirective) {
+			t.Fatalf("pending input carries a deferred directive: %q", input)
+		}
+	}
+	if strings.Contains(row.LaunchPrompt, launch.RenameDirective) {
+		t.Fatalf("launch prompt carries the rename directive:\n%s", row.LaunchPrompt)
+	}
+	if !strings.Contains(row.LaunchPrompt, launch.RenameAvailableNote) {
+		t.Fatalf("launch prompt should note rename is available later:\n%s", row.LaunchPrompt)
+	}
+}
+
 // The default is still the default: no model asked for, nothing recorded, and
 // nothing added to the command line.
 func TestCreateWithoutAModelStaysOnTheToolsDefault(t *testing.T) {
@@ -1430,12 +1471,14 @@ func TestSessionsListNarrowsToWhatTheCallerAskedFor(t *testing.T) {
 		t.Fatal("a cursor no list returned was accepted")
 	}
 
-	idle, err := h.sessions.List(h.caller.ID, ListOptions{Status: []string{status.Idle}})
+	// The caller is idle on its own pane and reads delegating while the
+	// children it spawned are still starting, so it is on that side.
+	idle, err := h.sessions.List(h.caller.ID, ListOptions{Status: []string{status.Idle, status.Delegating}})
 	if err != nil {
 		t.Fatalf("List idle: %v", err)
 	}
 	for _, sess := range idle.Sessions {
-		if sess.Status != status.Idle {
+		if sess.Status != status.Idle && sess.Status != status.Delegating {
 			t.Fatalf("status filter returned %+v", sess)
 		}
 	}
@@ -1447,7 +1490,7 @@ func TestSessionsListNarrowsToWhatTheCallerAskedFor(t *testing.T) {
 		t.Fatalf("the two states do not partition the list: idle %d, starting %d, all %d", idle.Matched, rest.Matched, all.Matched)
 	}
 	// A set is a set: both states together are the whole unarchived list.
-	if both, err := h.sessions.List(h.caller.ID, ListOptions{Status: []string{status.Idle, status.Starting}}); err != nil ||
+	if both, err := h.sessions.List(h.caller.ID, ListOptions{Status: []string{status.Idle, status.Delegating, status.Starting}}); err != nil ||
 		both.Matched != all.Matched {
 		t.Fatalf("two states = %+v, err %v", both, err)
 	}

@@ -175,34 +175,45 @@ func jevFinishTurns(messages []search.Message) []suggestMessage {
 
 // askJevFinish posts both noul questions in one call against one state.
 func askJevFinish(ctx context.Context, client *http.Client, endpoint, key string, state []suggestMessage) (jevFinishVerdict, bool) {
+	answers, ok := askJevNoul(ctx, client, endpoint, key, map[string]any{"messages": state}, map[string]string{
+		"finished":       jevFinishedQuestion,
+		"missing_chrome": jevMissingChromeQuestion,
+	})
+	if !ok {
+		return jevFinishVerdict{}, false
+	}
+	return jevFinishVerdict{finished: answers["finished"], missingChrome: answers["missing_chrome"]}, true
+}
+
+// askJevNoul posts yes-no questions in one call against one state and
+// returns each one's probability. Any failed request, or any question left
+// without a probability, fails the whole call.
+func askJevNoul(ctx context.Context, client *http.Client, endpoint, key string, state any, questions map[string]string) (map[string]float64, bool) {
+	asked := make(map[string]any, len(questions))
+	for name, instructions := range questions {
+		asked[name] = map[string]any{"type": "noul", "instructions": instructions}
+	}
 	body, err := json.Marshal(struct {
 		Model     string `json:"model"`
 		State     any    `json:"state"`
 		Questions any    `json:"questions"`
-	}{
-		Model: jevModel,
-		State: map[string]any{"messages": state},
-		Questions: map[string]any{
-			"finished":       map[string]any{"type": "noul", "instructions": jevFinishedQuestion},
-			"missing_chrome": map[string]any{"type": "noul", "instructions": jevMissingChromeQuestion},
-		},
-	})
+	}{Model: jevModel, State: state, Questions: asked})
 	if err != nil {
-		return jevFinishVerdict{}, false
+		return nil, false
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(body)))
 	if err != nil {
-		return jevFinishVerdict{}, false
+		return nil, false
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+key)
 	resp, err := client.Do(req)
 	if err != nil {
-		return jevFinishVerdict{}, false
+		return nil, false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return jevFinishVerdict{}, false
+		return nil, false
 	}
 	var reply struct {
 		Model   string `json:"model"`
@@ -212,21 +223,17 @@ func askJevFinish(ctx context.Context, client *http.Client, endpoint, key string
 		} `json:"answers"`
 	}
 	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&reply) != nil || reply.Model != jevModel {
-		return jevFinishVerdict{}, false
+		return nil, false
 	}
-	probability := func(name string) (float64, bool) {
+	out := make(map[string]float64, len(questions))
+	for name := range questions {
 		answer, ok := reply.Answers[name]
 		if !ok || answer.Type != "noul" || answer.Noul == nil || *answer.Noul < 0 || *answer.Noul > 1 {
-			return 0, false
+			return nil, false
 		}
-		return *answer.Noul, true
+		out[name] = *answer.Noul
 	}
-	finished, okFinished := probability("finished")
-	chrome, okChrome := probability("missing_chrome")
-	if !okFinished || !okChrome {
-		return jevFinishVerdict{}, false
-	}
-	return jevFinishVerdict{finished: finished, missingChrome: chrome}, true
+	return out, true
 }
 
 // jevFinishAction is what a verdict calls for.

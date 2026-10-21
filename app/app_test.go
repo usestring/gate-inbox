@@ -16,6 +16,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/mcpserver"
 )
 
 func TestPrintHelpDoesNotRequireATerminal(t *testing.T) {
@@ -235,9 +236,32 @@ func TestMCPSteeringFlag(t *testing.T) {
 		{[]string{"--nope"}, "", true},
 	}
 	for _, c := range cases {
-		got, err := mcpSteering(c.args)
+		got, _, err := mcpSteering(c.args)
 		if (err != nil) != c.wantErr || got != c.want {
 			t.Errorf("mcpSteering(%q) = %q, %v; want %q, error %v", c.args, got, err, c.want, c.wantErr)
+		}
+	}
+}
+
+// A server started without --profile serves every tool, as every
+// registration written before profiles expects; a profile it does not know
+// fails the start.
+func TestMCPProfileFlag(t *testing.T) {
+	cases := []struct {
+		args    []string
+		want    mcpserver.Profile
+		wantErr bool
+	}{
+		{nil, mcpserver.ProfileAll, false},
+		{[]string{"--profile", "core"}, mcpserver.ProfileCore, false},
+		{[]string{"--profile=admin"}, mcpserver.ProfileAdmin, false},
+		{[]string{"--steering", "opencode", "--profile", "core"}, mcpserver.ProfileCore, false},
+		{[]string{"--profile", "everything"}, "", true},
+	}
+	for _, c := range cases {
+		_, got, err := mcpSteering(c.args)
+		if (err != nil) != c.wantErr || got != c.want {
+			t.Errorf("mcpSteering(%q) profile = %q, %v; want %q, error %v", c.args, got, err, c.want, c.wantErr)
 		}
 	}
 }

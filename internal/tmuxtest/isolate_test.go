@@ -99,6 +99,24 @@ func TestScrubEnvDropsTheInheritedServer(t *testing.T) {
 	}
 }
 
+// A run driven from outside the checkout locates its repository through the
+// environment rather than the working directory. A fixture's git call that
+// inherited that would build its repository there instead: its remote add
+// fails on the origin that is already there, and every read answers from
+// the wrong repository.
+func TestScrubEnvDropsGitDiscovery(t *testing.T) {
+	env := ScrubEnv([]string{"GIT_DIR=/repo/.git", "GIT_WORK_TREE=/repo", "KEEP=1"})
+	for _, kv := range env {
+		key, _, _ := strings.Cut(kv, "=")
+		if key == "GIT_DIR" || key == "GIT_WORK_TREE" {
+			t.Errorf("ScrubEnv kept %s", kv)
+		}
+	}
+	if !slices.Contains(env, "KEEP=1") {
+		t.Errorf("ScrubEnv dropped KEEP=1: %v", env)
+	}
+}
+
 // A test run from inside a board's session must not write that session's exit
 // or status file: the live board would report the session as exited.
 func TestScrubEnvDropsTheLiveSession(t *testing.T) {

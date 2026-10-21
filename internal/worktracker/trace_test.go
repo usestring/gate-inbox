@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/forge"
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 	"github.com/usestring/gate-inbox/internal/tracetest"
 )
 
@@ -16,7 +17,9 @@ import (
 func TestEveryGitForkIsItsOwnSpan(t *testing.T) {
 	requireGit(t)
 	dir := t.TempDir()
-	if out, err := exec.Command("git", "-C", dir, "init").CombinedOutput(); err != nil {
+	cmd := exec.Command("git", "-C", dir, "init")
+	cmd.Env = tmuxtest.Environ()
+	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, out)
 	}
 

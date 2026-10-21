@@ -111,7 +111,7 @@ func TestHotkeyMenuCapsItsLines(t *testing.T) {
 	m := buildModel(t)
 	var many []snippets.Snippet
 	for _, r := range "abcdefghjklnopqrstuvwxyz" {
-		many = append(many, snippets.Snippet{Key: string(r), Label: "a fairly long label", Text: "x"})
+		many = append(many, snippets.Snippet{Key: string(r), Label: "short label", Text: "a fairly long snippet"})
 	}
 	writeSnippets(t, m, many)
 	createSession(t, m, "answer-me", t.TempDir(), "")
@@ -338,5 +338,32 @@ func TestHotkeyMenuArrowsMoveTheSelection(t *testing.T) {
 	}
 	if !m.quick.active {
 		t.Fatal("arrows closed the menu")
+	}
+}
+
+func TestHotkeyMenuSnippetPreviews(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{
+		{Key: "a", Label: "label only", Preview: "  custom preview  ", Text: "actual message"},
+		{Key: "b", Label: "another label", Preview: "  ", Text: "first line\nsecond line"},
+		{Key: "c", Text: strings.Repeat("界", 40)},
+		{Key: "d", Label: "short", Text: "a much longer message"},
+	})
+	lines := m.quickMenuLines(30, 4)
+	got := ansi.Strip(strings.Join(lines, "\n"))
+	for _, want := range []string{"a custom preview", "b another label", "c " + strings.Repeat("界", 13) + "…", "d short"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("menu missing %q: %q", want, got)
+		}
+	}
+	for _, unwanted := range []string{"label only", "actual message", "first line", "much longer"} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("menu contains %q: %q", unwanted, got)
+		}
+	}
+	for _, line := range lines {
+		if ansi.StringWidth(line) > 30 {
+			t.Errorf("menu exceeds width: %q", line)
+		}
 	}
 }

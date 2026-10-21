@@ -119,6 +119,10 @@ func TestArchivedGroupSubtreeExpires(t *testing.T) {
 			archivedID = s.ID
 		}
 	}
+	// An archive ends the pane before it files the row.
+	if err := m.tmux.Kill(archivedID); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
 	if err := m.store.SetArchived(archivedID, true); err != nil {
 		t.Fatalf("archive: %v", err)
 	}
@@ -1712,6 +1716,46 @@ func TestRestoreAgentUnarchivesEveryChild(t *testing.T) {
 	}
 }
 
+func TestRestoreLeavesTheArchivedViewWithoutAPoll(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "returning", t.TempDir(), "")
+	m.selectSessionRow(t, "returning")
+	m.archiveSelected()
+	m.handleConfirmKey(key("y"))
+	m.showArchived = true
+	m.applyCmd(t, m.refreshCmd())
+	m.selectSessionRow(t, "returning")
+	m.restoreSelected()
+	m.handleConfirmKey(key("y"))
+	if got := m.sessionRows(); len(got) != 0 {
+		t.Fatalf("restored row still listed as archived until the next poll: %v", got)
+	}
+}
+
+func TestGroupRestoreLeavesTheArchivedViewWithoutAPoll(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	if err := m.store.CreateGroup("zone", dir); err != nil {
+		t.Fatalf("group: %v", err)
+	}
+	m.applyCmd(t, m.refreshCmd())
+	createSession(t, m, "in-zone", dir, "zone")
+	m.selectGroupRow(t, "zone")
+	m.archiveSelected()
+	m.handleConfirmKey(key("y"))
+	m.showArchived = true
+	m.applyCmd(t, m.refreshCmd())
+	m.selectGroupRow(t, "zone")
+	m.restoreSelected()
+	m.handleConfirmKey(key("y"))
+	if m.groupEffectivelyArchived("zone") {
+		t.Fatal("restored group still reads archived until the next poll")
+	}
+	if got := m.sessionRows(); len(got) != 0 {
+		t.Fatalf("restored group's sessions still listed as archived: %v", got)
+	}
+}
+
 func TestArchiveAndExpiryIncludeChildren(t *testing.T) {
 	m := buildModel(t)
 	dir := t.TempDir()
@@ -1814,7 +1858,7 @@ func TestArchiveAgentConfirmNamesExtraTerminals(t *testing.T) {
 	spawnTerminal(t, m)
 	m.selectSessionRow(t, "coder")
 	m.archiveSelected()
-	want := "kill coder and 2 terminals? frees their RAM, t finds them, deleted for good after 7 days."
+	want := "kill coder and 2 terminals? frees their RAM, the archived view finds them, deleted for good after 7 days."
 	if m.confirm.label != want {
 		t.Fatalf("label = %q, want %q", m.confirm.label, want)
 	}
@@ -2401,5 +2445,121 @@ func TestConfirmKeyCtrlCQuits(t *testing.T) {
 	}
 	if !m.tmux.Exists(sess.ID) {
 		t.Fatal("ctrl+c should not kill the session")
+	}
+}
+
+// Restore all brings back every dead session in view: an archived one leaves
+// the archive running again, the same as restoring it row by row.
+func TestRestoreAllBringsBackEveryArchivedSession(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	createSession(t, m, "alpha", dir, "")
+	createSession(t, m, "beta", dir, "")
+
+	sessions := m.visibleSessions()
+	for _, sess := range sessions {
+		if err := m.tmux.Kill(sess.ID); err != nil {
+			t.Fatalf("kill %s: %v", sess.Name, err)
+		}
+		if err := m.store.SetArchived(sess.ID, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.showArchived = true
+	m.applyCmd(t, m.refreshCmd())
+
+	if _, _ = m.restoreAllDead(); strings.Contains(m.errBar.text, "error") || strings.HasPrefix(m.errBar.text, "no dead") {
+		t.Fatalf("restore all: %q", m.errBar.text)
+	}
+	for _, sess := range sessions {
+		got, err := m.store.Get(sess.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Archived {
+			t.Fatalf("restore all left %s in the archive", sess.Name)
+		}
+		if !m.tmux.Exists(sess.ID) {
+			t.Fatalf("restore all should revive %s", sess.Name)
+		}
+		t.Cleanup(func() { m.tmux.Kill(sess.ID) })
+	}
+}
+
+func TestRestoreAllWarnsAboutDegradedResumes(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), "")
+	sess := m.sessionRows()[0]
+	tool := m.cfg.Tools[sess.Tool]
+	tool.ReviveCommand = "cat"
+	tool.ResumeByIDCommand = "cat {id}"
+	m.cfg.Tools[sess.Tool] = tool
+	if err := m.tmux.Kill(sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.store.SetArchived(sess.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	m.showArchived = true
+	m.applyCmd(t, m.refreshCmd())
+	m.restoreAllDead()
+	if got, want := m.errBar.text, "restored 1, 1 without a captured id (used --continue)"; got != want {
+		t.Fatalf("notice=%q, want %q", got, want)
+	}
+	if !m.tmux.Exists(sess.ID) {
+		t.Fatal("session was not revived")
+	}
+	t.Cleanup(func() { m.tmux.Kill(sess.ID) })
+}
+
+// Restore all acts on the whole view, so the legend names it whatever row the
+// cursor is on, an archived one included.
+func TestRestoreAllIsInTheViewLegendOnAnArchivedRow(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "shelved-restore-all", t.TempDir(), "")
+	m.selectSessionRow(t, "shelved-restore-all")
+	archiveInPlace(t, m, "shelved-restore-all")
+	key := m.tightCap(keymap.ContextList, keymap.RestoreAll)
+	if key == "" || !legendHasPair(m.viewLegend(), key) {
+		t.Fatalf("the view legend should offer restore all (%q) on an archived row: %v", key, m.viewLegend().pairs)
+	}
+}
+
+// A revive files an archived row back out itself, so restore all must not
+// unarchive it a second time: each write takes one off the parent's done
+// tally, and a sibling the view filters out would drop out of "(+N done)".
+func TestRestoreAllUnarchivesARevivedChildOnce(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "parent", t.TempDir(), "")
+	parent := namedSessionRow(t, m, "parent")
+	for _, child := range []store.Session{
+		{ID: "restoredchild", Name: "restored", Tool: parent.Tool},
+		{ID: "filteredchild", Name: "filtered", Tool: "codex"},
+	} {
+		child.Cwd, child.ParentID, child.Status = t.TempDir(), parent.ID, status.Dead
+		child.CreatedAt, child.LastStatusAt = time.Now(), time.Now()
+		if err := m.store.CreateSession(child); err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+		if err := m.store.SetArchived(child.ID, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m.showArchived = true
+	m.toolFilter = parent.Tool
+	m.applyCmd(t, m.refreshCmd())
+	m.selectSessionRow(t, "restored")
+
+	m.restoreAllDead()
+	t.Cleanup(func() { m.tmux.Kill("restoredchild") })
+	if !m.tmux.Exists("restoredchild") {
+		t.Fatalf("restore all did not revive the child: %q", m.errBar.text)
+	}
+	counts, err := m.store.ArchivedChildCounts()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := counts[parent.ID]; got != 1 {
+		t.Fatalf("parent's done tally = %d, want 1 for the filtered sibling still archived", got)
 	}
 }

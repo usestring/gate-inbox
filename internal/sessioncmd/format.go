@@ -112,6 +112,10 @@ func FormatSessionScreen(screen SessionScreen) string {
 	if screen.Digest.Question != "" {
 		parts = append(parts, "waiting on:\n"+screen.Digest.Question)
 	}
+	if screen.Digest.RelayAsk != nil {
+		parts = append(parts, "relay_ask (pass as is to your own AskUserQuestion to put it to your user):\n"+
+			screen.Digest.RelayAsk.JSON())
+	}
 	if screen.Digest.Result != "" {
 		parts = append(parts, "last said:\n"+screen.Digest.Result)
 	}
@@ -139,6 +143,9 @@ func FormatSendResult(result SendResult, targetID string) string {
 		return fmt.Sprintf("relayed; the extension that launched this session took it, and nothing was queued for session %s", targetID)
 	}
 	text := fmt.Sprintf("queued message %d for session %s at position %d", result.MessageID, targetID, result.QueuePosition)
+	if result.Restored != "" {
+		text = result.Restored + ", and " + text
+	}
 	if result.Superseded == 1 {
 		text += ", replacing one of yours still queued on the same subject"
 	} else if result.Superseded > 1 {

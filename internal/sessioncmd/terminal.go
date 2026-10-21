@@ -46,6 +46,8 @@ type TerminalInput struct {
 }
 
 type CreateTerminalOptions struct {
+	// Name labels the row; "" names it after the session it hangs under.
+	Name string
 	// Nil inherits the calling session's group; a pointer to an empty string
 	// deliberately targets the root group.
 	Group     *string
@@ -295,6 +297,9 @@ func (t *Terminals) Create(sessionID string, opts CreateTerminalOptions) (create
 	if err != nil {
 		return Terminal{}, err
 	}
+	if requested := strings.TrimSpace(opts.Name); requested != "" {
+		name = requested
+	}
 	sess := store.Session{
 		ID:     uuid.NewString()[:8],
 		Name:   name,
@@ -453,11 +458,16 @@ func (r *runtime) createTarget(caller store.Session, requestedGroup *string, dir
 // in, with its default cursor on "No, exit", so a child spawned into a
 // directory the CLI has never been trusted with dies there without reaching a
 // first turn -- 16 sessions on this machine, all of them spawned children,
-// against not one of the operator's own. Trust is inherited downward: a
-// brand-new directory under an accepted one starts clean. So a spawn inside the
-// caller's own tree needs nothing, and a spawn outside it opens in the caller's
-// launch directory instead, with the requested directory handed to the agent as
-// a change-directory step (launch.WorkdirDirective).
+// against not one of the operator's own. Trust is inherited downward within one
+// repository: a brand-new directory under an accepted one starts clean. It is
+// not inherited into a nested repository: Claude Code 2.1.305 keys trust on the
+// git root, so a submodule of a trusted superproject raises the dialog again
+// (measured), and the project's shared settings -- its approved MCP servers
+// among them -- stay at the superproject root too. So a spawn inside the
+// caller's own repository needs nothing, and a spawn outside it, or into a
+// repository nested in it, opens in the caller's launch directory instead, with
+// the requested directory handed to the agent as a change-directory step
+// (launch.WorkdirDirective).
 //
 // The caller's launch directory is the trust this can determine reliably: the
 // caller is a live agent that got as far as asking for a child, so whatever its
@@ -480,13 +490,31 @@ func (r *runtime) createTarget(caller store.Session, requestedGroup *string, dir
 // continuing, so opening where it was asked is the launch that survives.
 func launchDirectory(tool config.Tool, callerCwd, requested string) string {
 	caller := strings.TrimSpace(callerCwd)
-	if tool.LaunchInPlace || caller == "" || requested == "" || gitroot.Within(requested, caller) {
+	if tool.LaunchInPlace || caller == "" || requested == "" {
+		return requested
+	}
+	if gitroot.Within(requested, caller) && !nestedRepository(caller, requested) {
 		return requested
 	}
 	if _, err := resolveTerminalDirectory(caller); err != nil {
 		return requested
 	}
 	return caller
+}
+
+// nestedRepository reports whether requested sits in a different git
+// repository from caller, such as a submodule. Either one outside git, or git
+// failing to answer, is no evidence of a boundary.
+func nestedRepository(caller, requested string) bool {
+	callerRoot, err := gitroot.Toplevel(caller, nil)
+	if err != nil || callerRoot == "" {
+		return false
+	}
+	requestedRoot, err := gitroot.Toplevel(requested, nil)
+	if err != nil || requestedRoot == "" {
+		return false
+	}
+	return callerRoot != requestedRoot
 }
 
 func resolveTerminalDirectory(raw string) (string, error) {

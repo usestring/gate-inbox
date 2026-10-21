@@ -128,14 +128,14 @@ func TestKillPaneTakesOnlyTheOwnWindow(t *testing.T) {
 	}
 	stray := strayWindow(t, driver, id)
 
-	if err := driver.KillPane(id, stray); err == nil {
+	if err := driver.KillPane(id, stray, paneField(t, driver.socket, stray, "#{pane_pid}")); err == nil {
 		t.Fatal("KillPane with a stray window's pane should refuse")
 	}
 	if !paneAlive(t, driver, own) || !paneAlive(t, driver, stray) {
 		t.Fatal("a refused KillPane must end nothing")
 	}
 
-	if err := driver.KillPane(id, own); err != nil {
+	if err := driver.KillPane(id, own, paneField(t, driver.socket, own, "#{pane_pid}")); err != nil {
 		t.Fatalf("KillPane: %v", err)
 	}
 	if paneAlive(t, driver, own) {
@@ -154,7 +154,7 @@ func TestKillPaneEndsASessionWithOnlyItsOwnWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PaneID: %v", err)
 	}
-	if err := driver.KillPane(id, own); err != nil {
+	if err := driver.KillPane(id, own, paneField(t, driver.socket, own, "#{pane_pid}")); err != nil {
 		t.Fatalf("KillPane: %v", err)
 	}
 	waitGone(t, driver, id)
@@ -201,6 +201,49 @@ func TestKillFindsTheOwnWindowAfterARespawnAndWithoutTheRecord(t *testing.T) {
 			}
 			if !paneAlive(t, driver, stray) {
 				t.Fatalf("Kill ended %s, a window the manager never started", stray)
+			}
+		})
+	}
+}
+
+func TestKillPanePreservesARespawnedProcess(t *testing.T) {
+	for _, withStray := range []bool{false, true} {
+		name := "only-window"
+		if withStray {
+			name = "with-stray-window"
+		}
+		t.Run(name, func(t *testing.T) {
+			driver := requireTmux(t)
+			id := createManaged(t, driver, "respawnpin", "cat")
+			own, err := driver.PaneID(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			stray := ""
+			if withStray {
+				stray = strayWindow(t, driver, id)
+			}
+			oldPID := paneField(t, driver.socket, own, "#{pane_pid}")
+			if out, err := tmuxOn(driver.socket, "respawn-pane", "-k", "-t", own, "cat").CombinedOutput(); err != nil {
+				t.Fatalf("respawn: %v: %s", err, out)
+			}
+			newPID := paneField(t, driver.socket, own, "#{pane_pid}")
+			if oldPID == newPID {
+				t.Fatal("fixture did not replace the pane process")
+			}
+			for _, pin := range []string{oldPID, "", "invalid"} {
+				if err := driver.KillPane(id, own, pin); err == nil {
+					t.Fatalf("accepted stale or invalid process pin %q", pin)
+				}
+				if !paneAlive(t, driver, own) || withStray && !paneAlive(t, driver, stray) {
+					t.Fatal("refusal ended a replacement or non-target pane")
+				}
+			}
+			if err := driver.KillPane(id, own, newPID); err != nil {
+				t.Fatal(err)
+			}
+			if paneAlive(t, driver, own) || withStray && !paneAlive(t, driver, stray) {
+				t.Fatal("verified shutdown did not preserve its scope")
 			}
 		})
 	}

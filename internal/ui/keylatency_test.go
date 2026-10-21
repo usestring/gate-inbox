@@ -59,6 +59,7 @@ func holdTheWriteLock(t *testing.T, path string) {
 // that writes on the event loop hands the operator a key that does nothing --
 // which is exactly what pressing "i" did.
 func TestTriageKeyDoesNotWaitForTheDatabase(t *testing.T) {
+	needsQuietBox(t)
 	m, dbPath := buildModelWithStorePath(t)
 	createSession(t, m, "one", t.TempDir(), "")
 	holdTheWriteLock(t, dbPath)

@@ -498,6 +498,10 @@ func TestUnlistedParentsLeaveChildrenInStoreOrder(t *testing.T) {
 		}
 	}
 	for _, parent := range rows {
+		// An archive ends the pane before it files the row.
+		if err := m.tmux.Kill(parent.ID); err != nil {
+			t.Fatalf("kill %s: %v", parent.ID, err)
+		}
 		if err := m.store.SetArchived(parent.ID, true); err != nil {
 			t.Fatalf("archive %s: %v", parent.ID, err)
 		}

@@ -47,6 +47,7 @@ const (
 const (
 	gfName = iota
 	gfParent
+	gfPin
 	gfPath
 	gfCount
 )
@@ -92,10 +93,6 @@ type extraField struct {
 
 func (f extraField) value() string { return f.field.Options[f.choice] }
 
-// fieldTotal is how many fields the form moves through: its own, then the
-// extensions'.
-func (f form) fieldTotal() int { return fieldCount + len(f.extra) }
-
 // focusedExtra is the extension field under the cursor, if it is on one.
 func (f *form) focusedExtra() (*extraField, bool) {
 	i := f.focus - fieldCount
@@ -103,6 +100,15 @@ func (f *form) focusedExtra() (*extraField, bool) {
 		return nil, false
 	}
 	return &f.extra[i], true
+}
+
+// formExtras is the extensions' fields the form offers for the selected
+// CLI: none for a terminal, which the extensions have no say in.
+func (m *Model) formExtras() []extraField {
+	if m.isShell(m.selectedToolName()) {
+		return nil
+	}
+	return m.form.extra
 }
 
 // extraFields builds the extensions' fields at their defaults.
@@ -143,7 +149,10 @@ type groupForm struct {
 	name     textinput.Model
 	path     textinput.Model
 	pathAuto bool
-	focus    int
+	// pin starts every session spawned into the group at path rather than
+	// only defaulting to it. See store.PinnedPath.
+	pin   bool
+	focus int
 	// editing is the group this card is editing, empty while it is
 	// creating one -- so submit knows whether to add a group or write
 	// this one back over the group it opened on.
@@ -393,8 +402,20 @@ func orderTools(names []string, raw string) []string {
 	return out
 }
 
+func (m *Model) formToolSelection() ([]string, int) {
+	names := m.pickerNames()
+	current := m.defaultTool()
+	index := 0
+	for i, name := range names {
+		if name == current {
+			index = i
+		}
+	}
+	return names, index
+}
+
 func (m *Model) openForm() {
-	tools, toolIndex := m.defaultToolSelection()
+	tools, toolIndex := m.formToolSelection()
 	if len(tools) == 0 {
 		m.errBar.text = "no CLIs enabled: open settings (s), then CLIs, to turn some on"
 		return
@@ -626,7 +647,7 @@ func (m *Model) moveGroupCursor(delta int) {
 
 func (m *Model) formFocus(delta int) {
 	m.pathSugg.reset()
-	total := m.form.fieldTotal()
+	total := fieldCount + len(m.formExtras())
 	m.form.focus = (m.form.focus + delta + total) % total
 	m.form.name.Blur()
 	m.form.dir.Blur()
@@ -763,6 +784,9 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	toolName := m.selectedToolName()
+	if m.isShell(toolName) {
+		return m.submitFormTerminal(toolName)
+	}
 	if m.form.prompt.pasting() {
 		m.errBar.text = "still reading the pasted image - try again in a moment"
 		return m, nil
@@ -819,6 +843,50 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 		m.focusSession(id)
 		return m, m.refreshCmd()
 	}
+	return m.landInNewSession(id)
+}
+
+func (m *Model) submitFormTerminal(toolName string) (tea.Model, tea.Cmd) {
+	if m.form.prompt.pasting() {
+		m.errBar.text = "still reading the pasted image - try again in a moment"
+		return m, nil
+	}
+	if strings.TrimSpace(m.form.prompt.message()) != "" {
+		m.errBar.text = "a terminal takes no prompt: clear it or pick a CLI"
+		return m, nil
+	}
+	if strings.TrimSpace(m.form.model.Value()) != "" {
+		m.errBar.text = "a terminal takes no model: clear it or pick a CLI"
+		return m, nil
+	}
+	name := strings.TrimSpace(m.form.name.Value())
+	if name == "" {
+		name = toolName + "-" + newID()[:4]
+	}
+	cwd, _ := os.Getwd()
+	dir, ok := resolveExistingDir(m.form.dir.Value(), cwd)
+	if !ok {
+		m.errBar.text = "working directory does not exist: " + dir
+		return m, nil
+	}
+	group := m.selectedGroupPath()
+	tool := m.cfg.Tools[toolName]
+	id := newID()
+	if err := m.launchNewSession(store.Session{
+		ID:         id,
+		Name:       name,
+		Tool:       toolName,
+		Cwd:        dir,
+		Group:      group,
+		NameSource: store.SourceUser,
+		Status:     status.Starting,
+	}, tool, tool.Command); err != nil {
+		m.errBar.text = err.Error()
+		return m, nil
+	}
+	m.statusFilter = statusFilterAll
+	m.toolFilter = ""
+	m.mode = modeList
 	return m.landInNewSession(id)
 }
 
@@ -886,7 +954,12 @@ func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt strin
 	if err != nil {
 		return "", err
 	}
-	plan, err := launch.Assemble(toolName, tool, prompt, "", autoNamed, model, account)
+	// askRename is whether this launch may ask the agent to name itself: only
+	// a placeholder-named session is ever asked, and never when [naming] ask
+	// is off. Without it the prompt carries the rename-available note instead
+	// of the directive, so nothing the agent reads costs it a turn.
+	askRename := autoNamed && m.cfg.Naming.Asks()
+	plan, err := launch.Assemble(toolName, tool, prompt, "", askRename, model, account)
 	if err != nil {
 		return "", err
 	}
@@ -964,6 +1037,7 @@ func (m *Model) openGroupEditForm(group string) {
 	m.groupForm = groupForm{
 		name:    name,
 		path:    path,
+		pin:     m.pinnedGroups[group],
 		focus:   gfName,
 		editing: group,
 	}
@@ -1023,6 +1097,10 @@ func (m *Model) handleGroupFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.moveGroupCursor(-1)
 			return m, nil
 		}
+		if m.groupForm.focus == gfPin {
+			m.groupForm.pin = !m.groupForm.pin
+			return m, nil
+		}
 	case "right":
 		if m.groupForm.focus == gfPath && m.pathSugg.browsing {
 			m.descendPath()
@@ -1030,6 +1108,15 @@ func (m *Model) handleGroupFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.groupForm.focus == gfParent {
 			m.moveGroupCursor(1)
+			return m, nil
+		}
+		if m.groupForm.focus == gfPin {
+			m.groupForm.pin = !m.groupForm.pin
+			return m, nil
+		}
+	case "space":
+		if m.groupForm.focus == gfPin {
+			m.groupForm.pin = !m.groupForm.pin
 			return m, nil
 		}
 	case "enter":
@@ -1090,6 +1177,10 @@ func (m *Model) submitGroupForm() (tea.Model, tea.Cmd) {
 		m.errBar.text = err.Error()
 		return m, nil
 	}
+	if err := m.savePin(full); err != nil {
+		m.errBar.text = err.Error()
+		return m, nil
+	}
 	m.materializeGroupsLocal([]string{full})
 	if m.groupPaths == nil {
 		m.groupPaths = map[string]string{}
@@ -1127,6 +1218,10 @@ func (m *Model) saveGroupEdit(old, full, path string) (tea.Model, tea.Cmd) {
 		m.errBar.text = err.Error()
 		return m, nil
 	}
+	if err := m.savePin(full); err != nil {
+		m.errBar.text = err.Error()
+		return m, nil
+	}
 	m.renameGroupLocally(old, full, path)
 	m.relabelSubtree(full)
 	// A group moved under a folded parent would otherwise vanish from the
@@ -1140,6 +1235,23 @@ func (m *Model) saveGroupEdit(old, full, path string) (tea.Model, tea.Cmd) {
 	m.rebuildRows()
 	m.focusGroupRow(full)
 	return m, m.refreshCmd()
+}
+
+// savePin writes the card's pin onto the group and into the local view, so
+// the rail shows it on this frame rather than on the next poll.
+func (m *Model) savePin(group string) error {
+	if err := m.store.SetGroupPinPath(group, m.groupForm.pin); err != nil {
+		return err
+	}
+	if m.pinnedGroups == nil {
+		m.pinnedGroups = map[string]bool{}
+	}
+	if m.groupForm.pin {
+		m.pinnedGroups[group] = true
+	} else {
+		delete(m.pinnedGroups, group)
+	}
+	return nil
 }
 
 // focusGroupRow puts the cursor back on a group after the tree is rebuilt

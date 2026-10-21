@@ -50,6 +50,8 @@ func (m mode) String() string {
 		return "pane-picker"
 	case modeRestartWith:
 		return "restart-with"
+	case modeHeadPane:
+		return "head-pane"
 	}
 	return fmt.Sprintf("mode(%d)", int(m))
 }
@@ -62,6 +64,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	before := m.mode
 	key, isKey := msg.(tea.KeyPressMsg)
 	logged := logging.Enabled(logging.LevelInfo)
+	// The per-key record is debug. At info it was every keystroke on the
+	// board -- 3,554 lines in 3.5 hours, with the row's session and name --
+	// when what an operator reads the log for is the mode a key changed,
+	// which info still records below.
+	keyLogged := isKey && logging.Enabled(logging.LevelDebug)
 	// Asked once, here: the clock has to be read before the handler runs,
 	// and a board nobody is tracing should not read it at all.
 	traced := tracing.Enabled()
@@ -74,7 +81,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dispatching = true
 	}
 	var snap dispatchSnapshot
-	if isKey && logged {
+	if keyLogged {
 		snap = m.snapshotDispatch(key)
 	}
 	model, cmd := m.update(msg)
@@ -96,12 +103,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if updated, ok := model.(*Model); ok {
 		after = updated.mode
 	}
-	if isKey {
+	if keyLogged {
 		snap.log(after)
 		return model, cmd
 	}
 	if after != before {
-		logging.Info("mode changed", "from", before.String(), "to", after.String(), "reason", fmt.Sprintf("%T", msg))
+		reason := fmt.Sprintf("%T", msg)
+		if isKey {
+			reason = "key " + key.String()
+		}
+		logging.Info("mode changed", "from", before.String(), "to", after.String(), "reason", reason)
 	}
 	return model, cmd
 }
@@ -150,6 +161,8 @@ func (m *Model) snapshotDispatch(key tea.KeyPressMsg) dispatchSnapshot {
 		snap.row, snap.name = "group", entry.group
 	case entry.isArtifact():
 		snap.row, snap.name = "artifact", entry.art.label
+	case entry.isHead():
+		snap.row, snap.name = "header", entry.sess.Name
 	default:
 		snap.row, snap.name = "session", entry.sess.Name
 	}
@@ -204,5 +217,5 @@ func (s dispatchSnapshot) log(after mode) {
 	if after != s.mode {
 		fields = append(fields, "became", after.String())
 	}
-	logging.Info("key", fields...)
+	logging.Debug("key", fields...)
 }

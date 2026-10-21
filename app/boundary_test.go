@@ -29,8 +29,8 @@ import (
 
 const modulePath = "github.com/usestring/gate-inbox"
 
-// fixtureSource is a main in a module of its own that registers one no-op
-// extension and the artifacts one through the public packages.
+// fixtureSource is a main in a module of its own that registers its
+// extensions through the public packages.
 var fixtureSource = filepath.Join("testdata", "external", "main.go")
 
 // badSnippetSource is a build whose snippet defaults cannot bind.
@@ -45,7 +45,7 @@ func TestFixtureImportsOnlyThePublicPackages(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parse fixture: %v", err)
 		}
-		public := map[string]bool{modulePath + "/app": true, modulePath + "/extension": true, modulePath + "/extension/artifacts": true}
+		public := map[string]bool{modulePath + "/app": true, modulePath + "/extension": true}
 		for _, spec := range file.Imports {
 			path, _ := strconv.Unquote(spec.Path.Value)
 			if strings.Contains(path, "/internal/") || strings.HasSuffix(path, "/internal") {
@@ -196,7 +196,7 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 	// before it starts, the MCP face included, rather than serving a session
 	// with the build's extensions silently dropped.
 	t.Run("defaults naming an unowned section stop every face", func(t *testing.T) {
-		const want = "config defaults: [extensions] has section(s) no extension in this build owns: stranger (this build has: noop, artifacts, items, tally, extra)"
+		const want = "config defaults: [extensions] has section(s) no extension in this build owns: stranger (this build has: noop, items, tally, extra)"
 		faces := map[string]*exec.Cmd{
 			"cli": exec.Command(bin, "--version"),
 			"mcp": exec.Command(bin, "mcp"),
@@ -535,18 +535,6 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 		}
 	})
 
-	// The artifacts section is owned once the build registers the public
-	// extension, so a config naming it starts, and enabling it serves the
-	// artifact tools beside the fixture's own.
-	t.Run("mcp artifacts", func(t *testing.T) {
-		session := connectFixture(t, bin, fixtureHome(t, "[extensions.artifacts]\nenabled = true\n"+
-			"base_url = \"https://artifacts.example.test\"\nkey_command = \"sh\"\n"))
-		names := listTools(t, session)
-		if !names["publish_artifact"] || !names["noop_ping"] || !names["rename"] {
-			t.Fatalf("want the artifact tools beside the fixture's and the host's; got %v", names)
-		}
-	})
-
 	// The fixture's driver captures an id with the session-file helpers
 	// extension exports, so a module outside this one needs no copy of the
 	// core's own. Each conversation file below is one those helpers must
@@ -689,7 +677,7 @@ func TestExternalBuildServesEveryEntryPoint(t *testing.T) {
 			t.Fatalf("an unowned section cost the build's extensions their tools; got %v", names)
 		}
 		instructions := session.InitializeResult().Instructions
-		if !strings.Contains(instructions, "ignored [extensions.stranger]: no extension in this build owns it (this build has: noop, artifacts, items, tally, extra)") {
+		if !strings.Contains(instructions, "ignored [extensions.stranger]: no extension in this build owns it (this build has: noop, items, tally, extra)") {
 			t.Fatalf("the instructions do not warn about the unowned section:\n%s", instructions)
 		}
 	})

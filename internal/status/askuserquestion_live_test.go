@@ -70,8 +70,10 @@ func TestEveryLiveClaudeDialogWaitsAndLeavesLeftAlone(t *testing.T) {
 // the only place to read it from. A pane's prose carries arrows far more
 // often: "85% → 60%", "sample-repo#1430 → 95844f0", "one option → the other". 22 of
 // the 63 panes live on the board when this was written held one, and the
-// multi-select dialog above draws two of its own in a progress stepper.
-func TestOnlyTheNavigateSegmentClaimsTheArrows(t *testing.T) {
+// multi-select dialog above draws two of its own in a progress stepper. The
+// /model picker's effort slider is the one claim outside a legend: its
+// "←/→ to adjust" line says what the arrows do there.
+func TestOnlyAStatedUseClaimsTheArrows(t *testing.T) {
 	cfg, err := config.Default()
 	if err != nil {
 		t.Fatalf("default config: %v", err)
@@ -107,6 +109,21 @@ func TestOnlyTheNavigateSegmentClaimsTheArrows(t *testing.T) {
 			"❯ 1. [ ] Resume the three fix rounds (Recommended)",
 			"",
 			"  Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
+		}, true},
+		{"a stepper whose legend switches questions with Tab", []string{
+			"←  ☐ Shape  ☐ Scope  ✔ Submit  →",
+			"  Which shape?",
+			"❯ 1. [ ] Narrow",
+			"",
+			"  ↑/↓ to navigate · n to add notes · Tab to switch questions",
+		}, false},
+		{"the /model effort slider", []string{
+			"   ❯ 2. Opus (1M context) ✔    Opus 5.5 with 1M context · Best for everyday, complex tasks",
+			"     3. Fable                  Fable 5.1 · Most capable for your hardest and longest-running tasks",
+			"",
+			"   ◉ xHigh effort ←/→ to adjust",
+			"",
+			"   Enter to set as default · s to use this session only · Esc to cancel",
 		}, true},
 	}
 	for _, c := range cases {

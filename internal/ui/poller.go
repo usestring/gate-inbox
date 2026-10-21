@@ -1179,6 +1179,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	paths := make(map[string]string, len(groups))
 	archivedGroups := make(map[string]bool, len(groups))
 	priorityGroups := make(map[string]priority.Tier, len(groups))
+	pinnedGroups := make(map[string]bool, len(groups))
 	for i, g := range groups {
 		names[i] = g.Name
 		paths[g.Name] = g.Path
@@ -1187,6 +1188,9 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 		}
 		if g.Priority != priority.Unset {
 			priorityGroups[g.Name] = g.Priority
+		}
+		if g.PinPath {
+			pinnedGroups[g.Name] = true
 		}
 	}
 	p.syncCompactWindows(sessions, priorityGroups)
@@ -1210,6 +1214,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 		groupPaths:       paths,
 		archivedGroups:   archivedGroups,
 		priorityGroups:   priorityGroups,
+		pinnedGroups:     pinnedGroups,
 		proc:             proc,
 		procFor:          selectedID,
 		preview:          preview,

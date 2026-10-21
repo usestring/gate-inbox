@@ -53,10 +53,13 @@ const (
 	Archive       Action = "archive"
 	ArchiveAll    Action = "archive_all"
 	Restore       Action = "restore"
+	RestoreAll    Action = "restore_all"
+	UndoArchive   Action = "undo_archive"
 	Dismiss       Action = "dismiss"
 	Priority      Action = "priority"
 	Mute          Action = "mute"
 	CopySessionID Action = "copy_session_id"
+	CopyQueued    Action = "copy_queued"
 	HandOver      Action = "hand_over"
 	QuickInput    Action = "quick_prompt"
 	RenameSelf    Action = "rename_from_agent"
@@ -141,7 +144,7 @@ var Catalog = []Binding{
 	{ContextList, JumpErrored, []string{}, "enter the next errored or dead session", false},
 	{ContextList, JumpIdle, []string{}, "enter the next idle session", false},
 	{ContextList, JumpWorking, []string{}, "enter the next working session", false},
-	{ContextList, Attach, []string{"A", "shift+a"}, "attach: the pane takes the terminal", false},
+	{ContextList, Attach, []string{"ctrl+a"}, "attach: the pane takes the terminal", false},
 	{ContextList, ReorderUp, []string{"K", "shift+k", "shift+up"}, "reorder the row up", false},
 	{ContextList, ReorderDown, []string{"J", "shift+j", "shift+down"}, "reorder the row down", false},
 	{ContextList, PreviewUp, []string{"alt+up"}, "scroll the preview up", false},
@@ -166,15 +169,18 @@ var Catalog = []Binding{
 	{ContextList, Archive, []string{"x"}, "kill it and file the row", false},
 	{ContextList, ArchiveAll, []string{}, "kill every session listed", false},
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
+	{ContextList, RestoreAll, []string{"D", "shift+d"}, "restore every dead session: revive the dead, bring the archived back", false},
+	{ContextList, UndoArchive, []string{"U", "shift+u"}, "bring back what the last kill filed away", false},
 	{ContextList, Dismiss, []string{"."}, "skip", false},
-	{ContextList, Priority, []string{"p"}, "cycle priority: urgent → high → medium → low → none", false},
-	{ContextList, Mute, []string{"M", "shift+m"}, "mute / unmute: keep it out of triage until unmuted", false},
-	{ContextList, QuickInput, []string{" ", "space", "ctrl+]"}, "hotkey menu", false},
+	{ContextList, Priority, []string{"ctrl+p", "p"}, "cycle priority: urgent → high → medium → low → none", false},
+	{ContextList, Mute, []string{"M", "shift+m", "ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
+	{ContextList, QuickInput, []string{" ", "space", "ctrl+s"}, "hotkey menu", false},
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{}, "rename it yourself, and re-pick its tool", false},
 	{ContextList, NameSweep, []string{}, "name sweep over idle adopted panes", false},
 	{ContextList, TakeOver, []string{}, "take over the adopted panes now; busy ones once they go idle", false},
 	{ContextList, Move, []string{"m"}, "move it to a group", false},
+	{ContextList, CopyQueued, []string{"'"}, "copy the next text JEV queued", false},
 
 	{ContextList, ShowAllWork, []string{}, "show every pull request and ticket, not the first few", false},
 	{ContextList, StatusFilter, []string{"w"}, "filter to what needs attention", false},
@@ -185,7 +191,7 @@ var Catalog = []Binding{
 	{ContextList, FoldAll, []string{}, "fold / unfold everything", false},
 	// No key: the archive is where killed rows wait out their 7-day
 	// retention, visited deliberately rather than toggled past. Quick
-	// actions (:) opens it, and u restores from it.
+	// actions opens it, and Restore brings a row back out of it.
 	{ContextList, ArchivedView, []string{}, "archived view", false},
 	{ContextList, Search, []string{"/"}, "fuzzy session search", false},
 	// No key: esc closes the search field and keeps the filter; the text
@@ -197,7 +203,7 @@ var Catalog = []Binding{
 	{ContextList, ToggleChrome, []string{}, "hide / show the key hints along the foot", false},
 	{ContextList, ToggleRail, []string{}, "hide / show the list beside the pane", false},
 	{ContextList, LegendPeek, []string{"?"}, "peek at every available key", false},
-	{ContextList, QuickActions, []string{":", "ctrl+p"}, "quick actions: find any action by name, run it, see its key", false},
+	{ContextList, QuickActions, []string{":", "ctrl+k"}, "quick actions: find any action by name, run it, see its key", false},
 	{ContextList, Help, []string{"h", "H", "shift+h", "ctrl+h"}, "this key map", true},
 	{ContextList, Quit, []string{"q"}, "quit (sessions keep running)", true},
 
@@ -222,28 +228,36 @@ var Catalog = []Binding{
 	{ContextFocus, ToggleChrome, []string{"alt+,"}, "hide / show the key hints along the foot", false},
 	{ContextFocus, ToggleRail, []string{`alt+\`}, "hide / show the list beside the pane", false},
 	{ContextFocus, Archive, []string{"ctrl+x"}, "kill it, asking first", false},
+	// The list's ctrl+p, so the tier moves from wherever the operator is. It
+	// takes the agent's ctrl+p, which every agent CLI also answers on the up
+	// arrow.
+	{ContextFocus, Priority, []string{"ctrl+p"}, "cycle priority: urgent → high → medium → low → none", false},
+	// The list's mute on the same chord. A terminal without an enhanced
+	// keyboard protocol sends ctrl+m as enter, so there it stays a submit.
+	{ContextFocus, Mute, []string{"ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
 	// A chord, like every other key this screen claims: ctrl+h would otherwise
 	// reach the agent as readline's backward-delete, and backspace still sends
 	// that edit under its own name.
 	{ContextFocus, Help, []string{"ctrl+h"}, "this key map", false},
 	// The hotkey menu from inside the pane: the same snippet menu the list
 	// opens, answering the focused session. One more claimed ctrl key, and
-	// ctrl+] is the cheapest one left: no agent CLI binds it, and readline
-	// only spends it on character search. It is rebindable like every other
+	// ctrl+s is free on both screens. It is rebindable like every other
 	// action for an operator who misses it.
-	{ContextFocus, QuickInput, []string{"ctrl+]"}, "hotkey menu: send a snippet without leaving the session", false},
+	{ContextFocus, QuickInput, []string{"ctrl+s"}, "hotkey menu: send a snippet without leaving the session", false},
 	// Session controls reached from inside the pane: a drain that had to leave
 	// the queue to spawn, copy an id or step back was not one queue. See the
-	// ui package's focusactions.go.
-	{ContextFocus, NewSession, []string{"alt+n"}, "new session in this one's group", false},
-	{ContextFocus, CopySessionID, []string{"alt+y"}, "copy the agent's session id", false},
-	{ContextFocus, LastPane, []string{"alt+l"}, "back to the previous pane; again walks further back", false},
+	// ui package's focusactions.go. Option+letter belongs to snippet chords,
+	// so these sit on ctrl or option+punctuation.
+	{ContextFocus, NewSession, []string{"ctrl+n"}, "new session in this one's group", false},
+	{ContextFocus, CopySessionID, []string{"alt+/"}, "copy the agent's session id", false},
+	{ContextFocus, CopyQueued, []string{"alt+'"}, "copy the next text JEV queued", false},
+	{ContextFocus, LastPane, []string{"alt+;"}, "back to the previous pane; again walks further back", false},
 	{ContextFocus, JumpPane, []string{"ctrl+g"}, "find a pane by name and focus it", false},
 	{ContextFocus, BackAtPrompt, []string{"right", "left"}, "at a prompt edge, leave; in triage Right advances a finished one", false},
 	{ContextFocus, PreviewUp, []string{"alt+up"}, "scroll the pane up", false},
 	{ContextFocus, PreviewDown, []string{"alt+down"}, "scroll the pane down", false},
-	{ContextFocus, PreviewPageUp, []string{"alt+u", "alt+pgup"}, "scroll a page up", false},
-	{ContextFocus, PreviewPageDown, []string{"alt+d", "alt+pgdown"}, "scroll a page down", false},
+	{ContextFocus, PreviewPageUp, []string{"alt+pgup"}, "scroll a page up", false},
+	{ContextFocus, PreviewPageDown, []string{"alt+pgdown"}, "scroll a page down", false},
 	{ContextFocus, PreviewTop, []string{"alt+home"}, "oldest history", false},
 	{ContextFocus, PreviewBottom, []string{"alt+end"}, "back to the live bottom", false},
 

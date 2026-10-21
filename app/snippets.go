@@ -11,8 +11,11 @@ type Snippet struct {
 	Key string
 	// Label is what the board calls the snippet. Empty falls back to Text.
 	Label string
+	// Preview overrides the menu text without changing what the key sends.
+	// Empty falls back to Label, then Text.
+	Preview string
 	// Chord is the direct binding that sends it in one press without the
-	// menu, e.g. "option+shift+r". Empty leaves it on the menu alone.
+	// menu, e.g. "option+r". Empty leaves it on the menu alone.
 	Chord string
 	// Text is what the key sends.
 	Text string
@@ -26,7 +29,7 @@ type Snippet struct {
 func useSnippetDefaults(entries []Snippet) error {
 	converted := make([]snippets.Snippet, len(entries))
 	for i, s := range entries {
-		converted[i] = snippets.Snippet{Key: s.Key, Label: s.Label, Chord: s.Chord, Text: s.Text, AutoSubmit: s.AutoSubmit}
+		converted[i] = snippets.Snippet{Key: s.Key, Label: s.Label, Preview: s.Preview, Chord: s.Chord, Text: s.Text, AutoSubmit: s.AutoSubmit}
 	}
 	_, err := snippets.UseDistribution(converted)
 	return err

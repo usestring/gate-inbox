@@ -4,6 +4,9 @@ import (
 	"errors"
 	"strconv"
 	"time"
+
+	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
 )
 
 // A paste is not finished when it reaches the pane: the Enter behind it has
@@ -89,7 +92,12 @@ func (p *poller) sendInFlight(key string) bool {
 //
 // The caller must hold a slot from reserveSend for key; runSend gives it
 // back.
-func (p *poller) runSend(sessID, key, text string, settle func(error) error) {
+//
+// The pass judged the pane from a capture taken before the paste, so the pane
+// is read again before the Enter: a dialog the agent put up in between would
+// take it as an answer.
+func (p *poller) runSend(sess store.Session, key, text string, settle func(error) error) {
+	sessID := sess.ID
 	finish := func(sendErr error) {
 		// Stamped before settle writes: a pass that reads the outcome must
 		// also find the stamp, or it can type the next message against a
@@ -110,7 +118,11 @@ func (p *poller) runSend(sessID, key, text string, settle func(error) error) {
 		// consumed -- is worth a frame now rather than at the next tick.
 		p.requestRefresh()
 	}
-	if err := p.tmux.SendTextAsync(sessID, text, finish); err != nil {
+	hold := func(pane string) bool {
+		state, matched := p.engine.RuleMatch(sess.Tool, pane)
+		return matched && state == status.Waiting
+	}
+	if err := p.tmux.SendTextAsync(sessID, text, hold, finish); err != nil {
 		// The paste never reached the pane, so no submit is coming and
 		// finish has to be the one to record it.
 		finish(err)

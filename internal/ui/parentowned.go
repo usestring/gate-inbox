@@ -1,8 +1,11 @@
 package ui
 
 import (
+	"slices"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -34,6 +37,13 @@ import (
 // nothing to press on a plain-text question. Folding one of those away left
 // it hidden from the only person who could answer it, for the whole grace
 // period, on the strength of a message telling the parent it could not help.
+//
+// Nor a question headed Approval. The child is asking for the operator's own
+// go, which the parent may only carry word for word: it has to put the same
+// question to the operator and key back what they chose. Folding it away made
+// the operator wait on that round trip, and answer in the parent's pane a
+// question the child's own pane was already showing them. Shown in triage, it
+// is answered where it was asked, and the parent's copy of it is moot.
 //
 // And the fold is not forever. A parent that has been told and has not acted
 // is indistinguishable, from here, from one that never will, so a question
@@ -86,4 +96,16 @@ func (m *Model) parentOwns(child store.Session, now time.Time, live map[string]b
 		return false
 	}
 	return true
+}
+
+// asksForApproval reports whether the dialog on pane holds an unanswered
+// question headed Approval, which makes the wait the operator's however live
+// its parent is. asked is the child's own record of the call: a lone
+// question draws its header as a chip the screen reader does not take, so
+// the header comes from what the child asked.
+func asksForApproval(tool, pane string, asked []convo.AskQuestion) bool {
+	reading, _ := dialog.ReadQuestions(tool, pane, asked)
+	return slices.ContainsFunc(reading.Questions, func(q dialog.Question) bool {
+		return !q.Answered && dialog.IsApproval(q.Header)
+	})
 }

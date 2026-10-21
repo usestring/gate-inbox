@@ -166,7 +166,7 @@ func TestTheDryRunShowsEveryPaneAndWhatWouldHappenToIt(t *testing.T) {
 		"mid-turn",
 		"1 managed, archived or shell row is not in scope",
 		"y/↵ send",
-		"n/esc cancel",
+		"esc/n/q cancel",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("the dry run must say %q", want)
@@ -205,6 +205,22 @@ func TestEnterOnAnEmptyPlanSendsNothing(t *testing.T) {
 	m.nameSweep = nameSweepState{}
 	if _, cmd := m.handleNameSweepKey(tea.KeyPressMsg{Code: 'y', Text: "y"}); cmd != nil {
 		t.Fatal("an empty plan has nothing to send")
+	}
+}
+
+func TestArchiveChordPreservesASendingNameSweep(t *testing.T) {
+	m := shotModel()
+	m.mode = modeNameSweep
+	stop := make(chan struct{})
+	m.nameSweep = nameSweepState{sending: true, stop: stop}
+	m.handleKey(ctrlX())
+	select {
+	case <-stop:
+		t.Fatal("the kill chord canceled the sweep in flight")
+	default:
+	}
+	if m.mode != modeNameSweep || !m.nameSweep.sending || m.nameSweep.stop != stop {
+		t.Fatal("the kill chord changed the active sweep")
 	}
 }
 

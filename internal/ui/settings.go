@@ -113,7 +113,7 @@ func storedComfortableRows(st *store.Store) bool {
 }
 
 // enterFocuses reports which key opens a session where. Enter focuses the
-// preview and A attaches full screen by default; a stored "attach" choice
+// preview and ctrl+a attaches full screen by default; a stored "attach" choice
 // swaps the pair. Cached on the model because the footer reads it every
 // frame.
 func (m *Model) enterFocuses() bool {
@@ -187,11 +187,13 @@ func (m *Model) openSettings() {
 		leaveMode:        normalizeLeaveMode(m.leaveMode),
 		newSessionAgent:  normalizeNewSessionAgent(m.newSessionAgent),
 		autoProceed:      m.autoProceed,
+		smartTriage:      m.smartTriage,
 		reopenSessions:   m.reopenSessionsMode(),
 		outsidePanes:     m.outsidePanesMode(),
 		claudeSetup:      m.claudeSetupSwitch(),
 		jevAutoSuggest:   m.jevAutoSuggest,
 		jevFinishCheck:   m.jevFinishCheck,
+		jevCopyQueue:     m.jevCopyQueue,
 		promptSuggest:    m.promptSuggest,
 		compressedFocus:  m.compressedFocus,
 		backdropSync:     storedBackdrop(m.store) == backdropSync,
@@ -355,6 +357,13 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(autoProceedSetting, autoProceed); err != nil {
 		m.errBar.text = err.Error()
 	}
+	smartTriage := "off"
+	if m.settings.smartTriage {
+		smartTriage = "on"
+	}
+	if err := m.store.SetSetting(smartTriageSetting, smartTriage); err != nil {
+		m.errBar.text = err.Error()
+	}
 	if err := m.store.SetSetting(reopenSessionsSetting, normalizeReopenSessions(m.settings.reopenSessions)); err != nil {
 		m.errBar.text = err.Error()
 	}
@@ -368,6 +377,13 @@ func (m *Model) persistSettings() tea.Cmd {
 	}
 	m.persistExperiments()
 	m.jevFinishCheck = m.settings.jevFinishCheck
+	if m.jevCopyQueue != m.settings.jevCopyQueue {
+		// Turned on, the next pass records where every row stands rather
+		// than reading turns that ended while it was off; turned off, the
+		// queue goes with it.
+		m.jevCopy = jevCopyState{generation: m.jevCopy.generation + 1, busy: m.jevCopy.busy, copying: m.jevCopy.copying}
+	}
+	m.jevCopyQueue = m.settings.jevCopyQueue
 	if m.promptSuggest != m.settings.promptSuggest {
 		m.promptSnipsSeq++
 	}
@@ -380,6 +396,7 @@ func (m *Model) persistSettings() tea.Cmd {
 		m.promptJev = promptJevState{seq: m.promptJev.seq + 1}
 	}
 	m.autoProceed = m.settings.autoProceed
+	m.smartTriage = m.settings.smartTriage
 	m.focusOnEnter = m.settings.enterFocuses
 	m.compressedFocus = storedCompressedFocus(m.store)
 	m.focusView = storedFocusView(m.store)
@@ -634,6 +651,8 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		m.settings.enterFocuses = !m.settings.enterFocuses
 	case settingsFieldAutoProceed:
 		m.settings.autoProceed = !m.settings.autoProceed
+	case settingsFieldSmartTriage:
+		m.settings.smartTriage = !m.settings.smartTriage
 	case settingsFieldReopenSessions:
 		m.settings.reopenSessions = cycleMode(reopenSessionsModes, normalizeReopenSessions(m.settings.reopenSessions), step)
 	case settingsFieldOutsidePanes:

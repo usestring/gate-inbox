@@ -56,47 +56,105 @@ func welcomeIntro() []string {
 
 // welcomeFiveKeys is the whole workflow in five keys, ahead of the fuller
 // sections for when the operator wants more.
-func welcomeFiveKeys() welcomeSection {
-	return welcomeSection{title: "the five keys that matter", rows: [][2]string{
-		{"n", "start a session: pick the agent CLI, then type its task"},
-		{"↵", "focus the session under the cursor; keys go to the agent"},
-		{"ctrl+q", "back to this list from inside a session"},
-		{"i", "triage: every session waiting on you, longest-waiting first"},
-		{"? / H", "? peeks at the keys for this row; H is the full key map"},
-	}}
+func (m *Model) welcomeFiveKeys() welcomeSection {
+	list, focus := keymap.ContextList, keymap.ContextFocus
+	peek, help := m.cap(list, keymap.LegendPeek), m.cap(list, keymap.Help)
+	return welcomeSection{title: "the five keys that matter", rows: welcomeRows(
+		m.welcomeRow(keymap.NewSession, "start a session — pick the agent CLI, then type its task"),
+		m.welcomeRow(keymap.Open, "focus the session under the cursor; keys go to the agent"),
+		[2]string{m.cap(focus, keymap.Leave), "back to this list from inside a session"},
+		m.welcomeRow(keymap.Triage, "triage: every session waiting on you, longest-waiting first"),
+		[2]string{joinKeys(" / ", peek, help), welcomePeekText(peek, help)},
+	)}
 }
 
-func welcomeSections() []welcomeSection {
-	return []welcomeSection{
-		{title: "start something", rows: [][2]string{
-			{"n", "new session in the group under the cursor; it asks which agent"},
-			{"ctrl+n", "the same, asking first: name, CLI, directory, first task"},
-			{"g", "a group: a folder of sessions with its own default path"},
-			{"T", "a shell under the selected agent, for builds and one-off commands"},
-		}},
-		{title: "answer one", rows: [][2]string{
-			{"↵", "focus it: keys reach the agent while the list stays on screen"},
-			{"space", "hotkeys: send a snippet without leaving the list"},
-			{"ctrl+q", "from inside a session, back to this list"},
-		}},
-		{title: "when several are blocked at once", rows: [][2]string{
-			{"w", "filter the list down to what needs you"},
-			{"i", "triage: one queue, longest-blocked first; ctrl+q hops to the next"},
-			{"p", "priority: tier this session, or a whole group, to head that queue"},
-		}},
-		{title: "keep track", rows: [][2]string{
-			{"W", "work view: the pull requests and tickets these sessions are on"},
-			{"x / v", "kill a session to free its RAM / revive it on its conversation"},
-			{"s", "settings: default CLI, theme, density"},
-		}},
+// welcomePeekText describes the peek and the key map together, naming each by
+// its own key so the row still reads once either has moved.
+func welcomePeekText(peek, help string) string {
+	switch {
+	case peek != "" && help != "":
+		return peek + " peeks at the keys for this row; " + help + " is the full key map"
+	case help != "":
+		return "the full key map"
 	}
+	return "peek at the keys for this row"
+}
+
+func (m *Model) welcomeSections() []welcomeSection {
+	list, focus := keymap.ContextList, keymap.ContextFocus
+	triage := "triage: one queue, longest-blocked first"
+	if key := m.cap(focus, keymap.Leave); key != "" {
+		triage += "; " + key + " hops to the next"
+	}
+	return []welcomeSection{
+		{title: "start something", rows: welcomeRows(
+			m.welcomeRow(keymap.NewSession, "new session in the group under the cursor; it asks which agent"),
+			m.welcomeRow(keymap.NewSessionForm, "the same, asking first: name, CLI, directory, first task"),
+			m.welcomeRow(keymap.NewGroup, "a group: a folder of sessions with its own default path"),
+			m.welcomeRow(keymap.NewTerminal, "a shell under the selected agent, for builds and one-off commands"),
+		)},
+		{title: "answer one", rows: welcomeRows(
+			m.welcomeRow(keymap.Open, "focus it: keys reach the agent while the list stays on screen"),
+			m.welcomeRow(keymap.QuickInput, "hotkeys: send a snippet without leaving the list"),
+			[2]string{m.cap(focus, keymap.Leave), "from inside a session, back to this list"},
+		)},
+		{title: "when several are blocked at once", rows: welcomeRows(
+			m.welcomeRow(keymap.StatusFilter, "filter the list down to what needs you"),
+			m.welcomeRow(keymap.Triage, triage),
+			m.welcomeRow(keymap.Priority, "priority: tier this session, or a whole group, to head that queue"),
+		)},
+		{title: "keep track", rows: welcomeRows(
+			m.welcomeRow(keymap.ShowAllWork, "work view: the pull requests and tickets these sessions are on"),
+			[2]string{joinKeys(" / ", m.cap(list, keymap.Archive), m.cap(list, keymap.Revive)),
+				"kill a session to free its RAM / revive it on its conversation"},
+			m.welcomeRow(keymap.Settings, "settings: default CLI, theme, density"),
+		)},
+	}
+}
+
+// welcomeRow is one tour row for a list action. An action the operator has
+// no key for is still taught: quick actions runs it by name, so the row names
+// that route rather than vanishing from the tour.
+func (m *Model) welcomeRow(action keymap.Action, text string) [2]string {
+	if key := m.cap(keymap.ContextList, action); key != "" {
+		return [2]string{key, text}
+	}
+	if route := m.hintKey(keymap.ContextList, action); route != "" {
+		palette, name, _ := strings.Cut(route, " ")
+		return [2]string{palette, name + " — " + text}
+	}
+	return [2]string{}
+}
+
+// welcomeRows drops the rows whose key the operator has taken away: a tour
+// row is a key to press, and one with nothing in its key column is not.
+func welcomeRows(rows ...[2]string) [][2]string {
+	out := rows[:0]
+	for _, row := range rows {
+		if row[0] != "" {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+// joinKeys joins the keys that are bound, so an unbound half leaves no
+// dangling separator.
+func joinKeys(sep string, keys ...string) string {
+	var bound []string
+	for _, key := range keys {
+		if key != "" {
+			bound = append(bound, key)
+		}
+	}
+	return strings.Join(bound, sep)
 }
 
 // welcomeKeyColumn is measured over the whole card rather than fixed, so a
 // row added later cannot render clipped against its own description.
-func welcomeKeyColumn() int {
+func (m *Model) welcomeKeyColumn() int {
 	width := 0
-	for _, section := range append(welcomeSections(), welcomeFiveKeys()) {
+	for _, section := range append(m.welcomeSections(), m.welcomeFiveKeys()) {
 		for _, row := range section.rows {
 			if w := textfmt.Width(row[0]); w > width {
 				width = w
@@ -111,7 +169,7 @@ func welcomeKeyColumn() int {
 // Everything wraps rather than truncating: on a narrow card the half that
 // would be cut is the half that says what a key does.
 func (m *Model) welcomeBodyLines(inner int) []string {
-	column := welcomeKeyColumn()
+	column := m.welcomeKeyColumn()
 	if room := inner / 3; column > room {
 		column = max(room, 4)
 	}
@@ -135,16 +193,20 @@ func (m *Model) welcomeBodyLines(inner int) []string {
 	for _, line := range textfmt.Wrap(m.welcomeRunningLine(), max(inner-2, 8)) {
 		lines = append(lines, "  "+valueStyle.Render(line))
 	}
-	for _, section := range append([]welcomeSection{welcomeFiveKeys()}, welcomeSections()...) {
+	for _, section := range append([]welcomeSection{m.welcomeFiveKeys()}, m.welcomeSections()...) {
 		lines = append(lines, "", sectionStyle.Render(section.title))
 		for _, row := range section.rows {
 			lines = append(lines, welcomeRow("  ", keyStyle.Render(row[0]), valueStyle, row[1], column, inner)...)
 		}
 	}
 	lines = append(lines, "")
-	lines = append(lines, welcomeChoices(column, inner)...)
+	lines = append(lines, m.welcomeChoices(column, inner)...)
 	lines = append(lines, "")
-	wrap("This card shows once. H then w brings it back, and so does settings → welcome guide. "+
+	reopen := "settings → welcome guide brings it back"
+	if key := m.cap(keymap.ContextList, keymap.Help); key != "" {
+		reopen = key + " then w brings it back, and so does settings → welcome guide"
+	}
+	wrap("This card shows once. "+reopen+". "+
 		"The README's \"Stop using it\" section covers quitting, parking every agent and uninstalling.", subtleStyle)
 	return lines
 }
@@ -225,10 +287,10 @@ func welcomeRow(marker, key string, style fastStyle, description string, column,
 }
 
 // welcomeChoices is the pair of answers the card ends on.
-func welcomeChoices(column, inner int) []string {
+func (m *Model) welcomeChoices(column, inner int) []string {
 	pick := lipgloss.NewStyle().Foreground(colorAccent).Render("❯ ")
 	return append(
-		welcomeRow(pick, keyStyle.Render("↵"), valueStyle, "get started", column, inner),
+		welcomeRow(pick, keyStyle.Render(m.cap(keymap.ContextWelcome, keymap.Close)), valueStyle, "get started", column, inner),
 		welcomeRow("  ", keyStyle.Render("n"), valueStyle, "start your first session now", column, inner)...)
 }
 

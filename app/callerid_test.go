@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,8 +50,11 @@ func TestCallerIDFallsBackToTheAdoptedPaneRow(t *testing.T) {
 	t.Setenv("TMUX", "/run/tmux-test/default,4242,0")
 	t.Setenv("TMUX_PANE", "%7")
 	serverStarted := time.Now().Add(-time.Hour)
-	stubPaneServer(t, func(_, pid string) (time.Time, bool) {
-		return serverStarted, pid == "4242"
+	// The stub stands in for the server -L default reaches: the one at
+	// /run/tmux-test/default with pid 4242.
+	live := "/run/tmux-test/default,4242,"
+	stubPaneServer(t, func(socket, tmuxEnv, _ string) (time.Time, bool) {
+		return serverStarted, socket == "default" && strings.HasPrefix(tmuxEnv, live)
 	})
 
 	st, err := store.Open(filepath.Join(dir, "state.db"))
@@ -79,24 +83,28 @@ func TestCallerIDFallsBackToTheAdoptedPaneRow(t *testing.T) {
 	if got := callerID(dir); got != "" {
 		t.Fatalf("callerID on another server = %q, want none", got)
 	}
+	// Another socket directory holds a server also called default, with its
+	// own %7: the name matches the row, the server is not the one it reaches.
+	t.Setenv("TMUX", "/run/elsewhere/default,5151,0")
+	if got := callerID(dir); got != "" {
+		t.Fatalf("callerID on a same-named server elsewhere = %q, want none", got)
+	}
 
 	// The server restarted on the same socket and handed out %7 again: the
 	// row was adopted on the old one and must not answer for the new pane.
 	t.Setenv("TMUX", "/run/tmux-test/default,6262,0")
+	live = "/run/tmux-test/default,6262,"
 	serverStarted = time.Now().Add(time.Minute)
-	stubPaneServer(t, func(_, pid string) (time.Time, bool) {
-		return serverStarted, pid == "6262"
-	})
 	if got := callerID(dir); got != "" {
 		t.Fatalf("callerID on a restarted server = %q, want none", got)
 	}
-	stubPaneServer(t, func(string, string) (time.Time, bool) { return time.Time{}, false })
+	stubPaneServer(t, func(string, string, string) (time.Time, bool) { return time.Time{}, false })
 	if got := callerID(dir); got != "" {
 		t.Fatalf("callerID with the server unreadable = %q, want none", got)
 	}
 }
 
-func stubPaneServer(t *testing.T, fn func(pane, serverPID string) (time.Time, bool)) {
+func stubPaneServer(t *testing.T, fn func(socket, tmuxEnv, pane string) (time.Time, bool)) {
 	t.Helper()
 	prev := paneServerStarted
 	paneServerStarted = fn
@@ -106,15 +114,15 @@ func stubPaneServer(t *testing.T, fn func(pane, serverPID string) (time.Time, bo
 // The socket path is the one $TMUX field that may hold a comma, so the name
 // is read with the pid and session cut from the right.
 func TestTmuxSocketNameKeepsACommaInThePath(t *testing.T) {
-	for _, tc := range []struct{ env, socket, pid string }{
-		{"/run/tmux-test/default,4242,0", "default", "4242"},
-		{"/run/tmux-test/team,blue,4242,0", "team,blue", "4242"},
-		{"/run/a,b/default,4242,0", "default", "4242"},
-		{"", "", ""},
-		{"/run/tmux-test/default", "", ""},
+	for _, tc := range []struct{ env, want string }{
+		{"/run/tmux-test/default,4242,0", "default"},
+		{"/run/tmux-test/team,blue,4242,0", "team,blue"},
+		{"/run/a,b/default,4242,0", "default"},
+		{"", ""},
+		{"/run/tmux-test/default", ""},
 	} {
-		if socket, pid := tmuxSocketName(tc.env); socket != tc.socket || pid != tc.pid {
-			t.Errorf("tmuxSocketName(%q) = %q, %q; want %q, %q", tc.env, socket, pid, tc.socket, tc.pid)
+		if got := tmuxSocketName(tc.env); got != tc.want {
+			t.Errorf("tmuxSocketName(%q) = %q, want %q", tc.env, got, tc.want)
 		}
 	}
 }

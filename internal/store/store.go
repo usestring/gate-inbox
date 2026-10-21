@@ -549,6 +549,9 @@ CREATE TABLE IF NOT EXISTS settings (
 		// stays out of triage across polls and restarts until it is
 		// explicitly unmuted. See Session.Muted.
 		`ALTER TABLE sessions ADD COLUMN muted INTEGER NOT NULL DEFAULT 0`,
+		// A group that pins its path starts every session spawned into it
+		// there. See PinnedPath.
+		`ALTER TABLE groups ADD COLUMN pin_path INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {
@@ -2270,6 +2273,9 @@ type Group struct {
 	// group, or under any group below it, triages at this tier unless it
 	// states a higher one of its own.
 	Priority priority.Tier
+	// PinPath makes Path where every session spawned into the subtree starts,
+	// rather than only the directory one defaults to. See PinnedPath.
+	PinPath bool
 }
 
 func (s *Store) Groups() ([]Group, error) {
@@ -2283,7 +2289,7 @@ func (s *Store) Groups() ([]Group, error) {
 }
 
 func (s *Store) groups() ([]Group, error) {
-	rows, err := s.db.Query(`SELECT name, path, archived, priority_tier FROM groups ORDER BY sort_order, name`)
+	rows, err := s.db.Query(`SELECT name, path, archived, priority_tier, pin_path FROM groups ORDER BY sort_order, name`)
 	if err != nil {
 		return nil, err
 	}
@@ -2291,12 +2297,13 @@ func (s *Store) groups() ([]Group, error) {
 	var groups []Group
 	for rows.Next() {
 		var g Group
-		var archived int
+		var archived, pinned int
 		var tier string
-		if err := rows.Scan(&g.Name, &g.Path, &archived, &tier); err != nil {
+		if err := rows.Scan(&g.Name, &g.Path, &archived, &tier, &pinned); err != nil {
 			return nil, err
 		}
 		g.Archived = archived != 0
+		g.PinPath = pinned != 0
 		g.Priority = priority.Tier(tier)
 		groups = append(groups, g)
 	}
@@ -2335,6 +2342,46 @@ func (s *Store) SetGroupPriority(name string, tier priority.Tier) error {
 		return fmt.Errorf("group %q: %w", name, ErrGroupNotFound)
 	}
 	return nil
+}
+
+// SetGroupPinPath turns a group's path pin on or off.
+func (s *Store) SetGroupPinPath(name string, pinned bool) error {
+	if name == "" {
+		return fmt.Errorf("cannot pin the root group")
+	}
+	value := 0
+	if pinned {
+		value = 1
+	}
+	res, err := s.db.Exec(`UPDATE groups SET pin_path = ? WHERE name = ?`, value, name)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return fmt.Errorf("group %q: %w", name, ErrGroupNotFound)
+	}
+	return nil
+}
+
+// PinnedPath is the directory a session spawned into group must start in:
+// the path of the nearest group at or above it that pins one, or empty when
+// none does. The nearest wins, so a subgroup can pin a narrower root than
+// the group it sits in. A pin with no path pins nothing.
+func PinnedPath(groups []Group, group string) string {
+	byName := make(map[string]Group, len(groups))
+	for _, g := range groups {
+		byName[g.Name] = g
+	}
+	for path := group; path != ""; path = parentPath(path) {
+		if g, ok := byName[path]; ok && g.PinPath && g.Path != "" {
+			return g.Path
+		}
+	}
+	return ""
 }
 
 // EffectiveTier is the tier a session actually triages at: its own, or the

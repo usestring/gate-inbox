@@ -272,6 +272,9 @@ type Model struct {
 	groupPaths     map[string]string
 	archivedGroups map[string]bool
 	priorityGroups map[string]priority.Tier
+	// pinnedGroups are the groups whose path every spawn into them starts
+	// in. See store.PinnedPath.
+	pinnedGroups map[string]bool
 	// priorityFlash is the row that just changed tier, spelled out on the
 	// rail until its timer runs out. See priority.go.
 	priorityFlash priorityFlash
@@ -961,6 +964,7 @@ type refreshMsg struct {
 	groupPaths     map[string]string
 	archivedGroups map[string]bool
 	priorityGroups map[string]priority.Tier
+	pinnedGroups   map[string]bool
 	snap           sysstat.Snapshot
 	snapOK         bool
 	proc           sysstat.ProcStat
@@ -2281,6 +2285,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.groupPaths = msg.groupPaths
 		m.archivedGroups = msg.archivedGroups
 		m.priorityGroups = msg.priorityGroups
+		m.pinnedGroups = msg.pinnedGroups
 		m.agents = msg.agents
 		m.queuedMessages = msg.queuedMessages
 		m.granted = msg.granted

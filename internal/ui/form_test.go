@@ -87,6 +87,55 @@ func TestGroupFormCreatesUnderParent(t *testing.T) {
 	}
 }
 
+// The group card's start field pins the group's path, and editing the group
+// again opens with the pin on and can turn it off.
+func TestGroupFormPinsThePath(t *testing.T) {
+	m := buildModel(t)
+	m.openGroupForm()
+	m.groupForm.name.SetValue("repo")
+	m.groupForm.path.SetValue(t.TempDir())
+	m.groupFormFocus(gfPin - gfName)
+	m.handleGroupFormKey(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	if !m.groupForm.pin {
+		t.Fatal("space on the start field should pin the path")
+	}
+	_, cmd := m.submitGroupForm()
+	if m.mode != modeList {
+		t.Fatalf("group form should close, err=%q", m.errBar.text)
+	}
+	m.applyCmd(t, cmd)
+	if !groupPinned(t, m, "repo") || !m.pinnedGroups["repo"] {
+		t.Fatal("the pin was not saved")
+	}
+
+	m.openGroupEditForm("repo")
+	if !m.groupForm.pin {
+		t.Fatal("the edit card should open with the pin on")
+	}
+	m.groupFormFocus(gfPin - gfName)
+	m.handleGroupFormKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	_, cmd = m.submitGroupForm()
+	m.applyCmd(t, cmd)
+	if groupPinned(t, m, "repo") || m.pinnedGroups["repo"] {
+		t.Fatal("the pin was not cleared")
+	}
+}
+
+func groupPinned(t *testing.T, m *Model, name string) bool {
+	t.Helper()
+	groups, err := m.store.Groups()
+	if err != nil {
+		t.Fatalf("groups: %v", err)
+	}
+	for _, g := range groups {
+		if g.Name == name {
+			return g.PinPath
+		}
+	}
+	t.Fatalf("group %q not found", name)
+	return false
+}
+
 func TestGroupFormShowsNewEmptyGroup(t *testing.T) {
 	m := buildModel(t)
 	m.hideEmptyGroups = true

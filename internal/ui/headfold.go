@@ -101,6 +101,11 @@ func (m *Model) headFoldAction(entry treeRow, action keymap.Action) (tea.Model, 
 		return m, nil, true
 	case keymap.Open:
 		if m.triage && entry.stands {
+			// The session's own warning before it is opened stands,
+			// whichever row it is opened from.
+			if m.holdOpen(action) {
+				return m, nil, true
+			}
 			model, cmd := m.focusSelected()
 			return model, cmd, true
 		}

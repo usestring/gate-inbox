@@ -12,6 +12,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/notify"
+	"github.com/usestring/gate-inbox/internal/relayask"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -56,6 +57,17 @@ type childDialogRelay struct {
 	settledAt time.Time
 	reminders int
 	escalated bool
+	// heldUntil is when the parent was last seen on a dialog of its own,
+	// which holds every message to it; the relay's undelivered wait runs
+	// from then.
+	heldUntil time.Time
+}
+
+func later(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 // watchChildDialog runs every pass for every child. It relays a dialog the
@@ -99,7 +111,14 @@ func (p *poller) watchChildDialog(sess store.Session, newStatus, pane string, no
 		}
 	}
 	if relay.settledAt.IsZero() {
-		if now.Sub(relay.sentAt) >= childDialogUndelivered && !relay.escalated {
+		// A parent on its own dialog takes no message until its user answers
+		// it, so the wait is not the parent's to be chased for, and an
+		// interrupt would only stop the turn that answer starts.
+		if parent.Status == status.Waiting {
+			relay.heldUntil = now
+			return nil
+		}
+		if now.Sub(later(relay.sentAt, relay.heldUntil)) >= childDialogUndelivered && !relay.escalated {
 			relay.escalated = true
 			p.pingOperator(sess, parent, "has not taken the relay yet")
 			late := fmt.Sprintf("Not yet read after %s, so this interrupts you. ", now.Sub(relay.sentAt).Round(time.Minute))
@@ -209,12 +228,15 @@ func childDialogBody(sess store.Session, pane string, saved ...string) (body, ke
 			id.WriteString(q.Header + "\x00" + q.Question + "\x00")
 		}
 		traits := asks.TraitsOf(sess.Tool)
-		return childQuestionsMessageFor(sess, reading.Questions, traits, call.AskedAt), "q:" + textfmt.Fingerprint(id.String()),
-			traits.Expires > 0
+		return childQuestionsMessageFor(sess, reading.Questions, traits, call.AskedAt) +
+				relayask.Line(relayask.For(call.Questions, reading.Questions), sess.ID),
+			"q:" + textfmt.Fingerprint(id.String()), traits.Expires > 0
 	}
 	if screen, ok := dialog.ReadScreenFor(sess.Tool, pane); ok {
 		screen = screen.WithExact(childPendingStrings(sess)...)
-		return childScreenMessage(sess, screen), "s:" + textfmt.Fingerprint(screen.Identity()), false
+		about := relayask.Screen{Child: sess.Name, Description: childPendingDescription(sess)}
+		return childScreenMessage(sess, screen) + relayask.Line(relayask.ForScreen(screen, about), sess.ID),
+			"s:" + textfmt.Fingerprint(screen.Identity()), false
 	}
 	if lost, ok := asks.Unanswered(childAskTarget(sess)); ok {
 		return childLostMessage(sess, lost), "x:" + lost.Call.ID, true
@@ -281,6 +303,15 @@ func childPendingStrings(sess store.Session) []string {
 		return nil
 	}
 	return convo.PendingToolStrings(convo.TranscriptFor(convo.ClaudeHome(), sess.AgentSessionID, sess.Cwd))
+}
+
+// childPendingDescription is the description sess's one unresolved tool
+// call gives itself, which a relayed permission prompt leads with.
+func childPendingDescription(sess store.Session) string {
+	if sess.Tool != "claude" || sess.AgentSessionID == "" {
+		return ""
+	}
+	return convo.PendingToolDescription(convo.TranscriptFor(convo.ClaudeHome(), sess.AgentSessionID, sess.Cwd))
 }
 
 // pendingAskFile is where sess's ask-pending hook saves its dialog's call,
@@ -357,8 +388,9 @@ func childQuestionsMessageFor(sess store.Session, questions []dialog.Question, t
 	}
 	if len(approvals) > 0 {
 		fmt.Fprintf(&out, "\n\nQuestion %s is headed Approval: the child is asking for your user's approval. "+
-			"Never answer it yourself. Ask your user verbatim, then answer with relay: true; any other answer "+
-			"is refused.", strings.Join(approvals, ", "))
+			"Never answer it yourself. Your user is shown it in triage on the board and may answer it at the "+
+			"child's pane; read_session first, and if it is answered there is nothing to carry. Otherwise ask "+
+			"your user verbatim, then answer with relay: true; any other answer is refused.", strings.Join(approvals, ", "))
 	}
 	if len(person) > 0 {
 		fmt.Fprintf(&out, "\n\nQuestion %s is a multi-select, which answer_session cannot tick: only a person at its pane can answer it. Put it to your user word for word, then ask the operator for the keystrokes.", strings.Join(person, ", "))
@@ -383,12 +415,24 @@ func childScreenMessage(sess store.Session, screen dialog.Screen) string {
 	if screen.Legend != "" {
 		fmt.Fprintf(&out, "\nKeys: %s\n", screen.Legend)
 	}
+	if screen.AutoDeny {
+		out.WriteString("\nClaude Code refuses this prompt by itself about two minutes after drawing it, so settle it now.\n")
+	}
 	if len(screen.Choices) < 2 {
 		fmt.Fprintf(&out, "\nanswer_session cannot read this as choices, but it is still yours to settle. Ask "+
 			"your user with your own question tool, quoting the lines above word for word and offering the "+
 			"keys to press as the options (for example \"Enter\", or \"Down Enter\"). Then call answer_session "+
 			"on session %s with keys set to the keys they chose and relay: true; it sends them and reads back "+
 			"that the screen changed.", sess.ID)
+		return out.String()
+	}
+	if screen.Kind == dialog.ScreenPermission && screen.Command() != "" {
+		fmt.Fprintf(&out, "\nWhether the child may do this is your user's call, never yours. Ask your user with "+
+			"your own question tool, passing the input below as is: its question says what the command does and "+
+			"cites %s, and each option previews the full command, so the question stays readable. Then call "+
+			"answer_session on session %s with answer set to the option they chose and relay: true. It checks "+
+			"your transcript holds that question, with the command in the previews, and their answer before "+
+			"keying anything, and reads back that the dialog cleared.", screen.PromptToken(), sess.ID)
 		return out.String()
 	}
 	labels := make([]string, len(screen.Choices))

@@ -28,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
@@ -44,6 +45,8 @@ import (
 	"github.com/usestring/gate-inbox/internal/mcpserver"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
+	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
@@ -352,24 +355,30 @@ func logSettings(cfg config.Config) logging.Settings {
 	}
 }
 
-// mcpSteering reads the mcp verb's only flag: the CLI whose standing
-// instructions the server carries, which a generated config names. A style
-// the server has no steering for is refused, so a typo fails the server's
-// start where the operator sees it rather than serving without the steering.
-func mcpSteering(args []string) (string, error) {
+// mcpSteering reads the mcp verb's flags: the CLI whose standing
+// instructions the server carries, which a generated config names, and the
+// profile of tools it serves (all when omitted). A style the server has no
+// steering for is refused, so a typo fails the server's start where the
+// operator sees it rather than serving without the steering.
+func mcpSteering(args []string) (string, mcpserver.Profile, error) {
 	flags := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	steering := flags.String(strings.TrimPrefix(mcpreg.SteeringFlag, "--"), "", "")
+	profileFlag := flags.String(strings.TrimPrefix(mcpserver.ProfileFlag, "--"), "", "")
 	if err := flags.Parse(args); err != nil {
-		return "", fmt.Errorf("mcp: %w", err)
+		return "", "", fmt.Errorf("mcp: %w", err)
+	}
+	profile, err := mcpserver.ParseProfile(*profileFlag)
+	if err != nil {
+		return "", "", fmt.Errorf("mcp: %w", err)
 	}
 	if *steering == "" {
-		return "", nil
+		return "", profile, nil
 	}
-	if _, ok := mcpreg.ServerSteering(*steering); !ok {
-		return "", fmt.Errorf("mcp: %s %q is not a CLI this build steers", mcpreg.SteeringFlag, *steering)
+	if _, ok := mcpreg.ServerSteering(*steering, true); !ok {
+		return "", "", fmt.Errorf("mcp: %s %q is not a CLI this build steers", mcpreg.SteeringFlag, *steering)
 	}
-	return *steering, nil
+	return *steering, profile, nil
 }
 
 // subcommands is every verb other than the board itself. "mcp" is the one
@@ -378,11 +387,11 @@ func mcpSteering(args []string) (string, error) {
 func subcommands(ctx context.Context, version string, extensions []extension.Extension) map[string]func(args []string) error {
 	table := map[string]func(args []string) error{
 		"mcp": withConfigDir(func(args []string, sessionID, configDir string) error {
-			steering, err := mcpSteering(args)
+			steering, profile, err := mcpSteering(args)
 			if err != nil {
 				return err
 			}
-			return mcpserver.Run(ctx, configDir, sessionID, version, extensions, steering)
+			return mcpserver.Run(ctx, configDir, sessionID, version, extensions, steering, profile)
 		}),
 	}
 	table["hook"] = withConfigDir(func(args []string, sessionID, configDir string) error {
@@ -404,6 +413,12 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 	})
 	table["codex-hooks"] = withConfigDir(func(args []string, _, configDir string) error {
 		return runCodexHooks(os.Stdout, args, configDir)
+	})
+	// merge-gate-check is the merge-gate mod's way back into the Go gate. It
+	// stays out of the cli sections like hook does: it is machine-facing, not
+	// something an operator runs by hand.
+	table["merge-gate-check"] = withConfigDir(func(args []string, _, configDir string) error {
+		return cli.RunMergeGateCheck(os.Stdout, args, configDir)
 	})
 	for name, command := range cli.Commands() {
 		if name != "spawn" && name != "migrate" && name != "revive" && name != "unpark" {
@@ -434,8 +449,9 @@ func withConfigDir(command func(args []string, sessionID, configDir string) erro
 
 // callerID is the board row a subcommand speaks as: the one a launch put in
 // the environment, or, for an agent the board adopted rather than launched,
-// the one its pane's adoption marker names. Without it an adopted agent
-// could not send, read or answer as itself from its shell.
+// the one its pane's adoption marker names, or failing that the board row
+// that owns the pane. Without it an adopted agent could not send, read or
+// answer as itself from its shell.
 //
 // A command codex's shell tool runs comes first, by its thread. Codex runs
 // those commands from its shared daemon, whose environment -- a launch's
@@ -454,15 +470,67 @@ func callerID(configDir string) string {
 	if pane == "" {
 		return ""
 	}
-	id, _ := hooks.NewManager(configDir).AdoptedCaller(os.Getenv("TMUX"), pane, func() []int {
+	tmuxEnv := os.Getenv("TMUX")
+	if id, ok := hooks.NewManager(configDir).AdoptedCaller(tmuxEnv, pane, func() []int {
 		return adopt.Ancestors(int32(os.Getpid()))
-	})
+	}); ok {
+		return id
+	}
+	socket := tmuxSocketName(tmuxEnv)
+	if socket == "" {
+		return ""
+	}
+	// A row names its server by -L name alone, which another socket directory
+	// can reuse, and a server restarted at the same path numbers its panes from
+	// %0 again; so a row only speaks for this pane once the server that name
+	// reaches is the caller's, and only if it was adopted after that started.
+	started, ok := paneServerStarted(socket, tmuxEnv, pane)
+	if !ok {
+		return ""
+	}
+	st, err := store.OpenReadOnly(filepath.Join(configDir, "state.db"))
+	if err != nil {
+		return ""
+	}
+	defer st.Close()
+	id, ok, err := st.SessionAtPane(socket, pane, started)
+	if err != nil || !ok {
+		return ""
+	}
 	return id
 }
 
 // codexThreadEnv is the variable codex sets, to the calling thread's id, on
 // every command its shell tool runs.
 const codexThreadEnv = "CODEX_THREAD_ID"
+
+// tmuxSocketName is the short server name tmux spells in $TMUX, the same
+// spelling an adopted row stores. $TMUX is read from the right, since the
+// socket path is the one field free to contain a comma.
+func tmuxSocketName(tmuxEnv string) string {
+	path := tmuxEnv
+	for range 2 {
+		i := strings.LastIndex(path, ",")
+		if i < 0 {
+			return ""
+		}
+		path = path[:i]
+	}
+	if path == "" {
+		return ""
+	}
+	return filepath.Base(path)
+}
+
+// paneServerStarted asks the server -L socket reaches when it started, and
+// holds that answer back unless it is the server $TMUX names.
+var paneServerStarted = func(socket, tmuxEnv, pane string) (time.Time, bool) {
+	driver, err := tmux.NewWithSocket(socket)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return driver.PaneServerStarted(tmuxEnv, pane)
+}
 
 // extensionCommand is one command an extension adds, with the ID of the
 // extension that owns it.

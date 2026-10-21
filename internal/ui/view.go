@@ -241,7 +241,10 @@ func (m *Model) statusLine() string {
 	case m.scrolledBack():
 		// Nothing typed reaches a pane nobody is focused on, so an unfocused
 		// preview is named its own way back: the wheel, or leaving the row.
-		catchUp := keymap.Display("alt+down") + ", wheel down or type to catch up"
+		catchUp := "wheel down or type to catch up"
+		if key := m.fullCap(keymap.ContextFocus, keymap.PreviewDown); key != "" {
+			catchUp = key + ", " + catchUp
+		}
 		if m.mode != modeFocus {
 			catchUp = "wheel down or move the cursor to catch up"
 		}
@@ -376,7 +379,7 @@ func parentGroup(group string) string {
 func (m *Model) groupStatusBreakdown(group string) string {
 	counts := m.groupStatusCounts(group)
 	var parts []string
-	for _, st := range []string{status.Working, status.Waiting, status.Finished, status.Errored, status.Idle, status.Dead} {
+	for _, st := range []string{status.Working, status.Delegating, status.Waiting, status.Finished, status.Errored, status.Idle, status.Dead} {
 		if counts[st] > 0 {
 			// The count carries the state's color, the word stays quiet: a
 			// rollup line should read as one texture, not as six labels
@@ -404,7 +407,7 @@ func (m *Model) groupStatusCounts(group string) map[string]int {
 func (m *Model) groupStatusGlyphs(group string) string {
 	counts := m.groupStatusCounts(group)
 	var parts []string
-	for _, st := range []string{status.Working, status.Waiting, status.Finished, status.Errored, status.Idle, status.Dead} {
+	for _, st := range []string{status.Working, status.Delegating, status.Waiting, status.Finished, status.Errored, status.Idle, status.Dead} {
 		if counts[st] == 0 {
 			continue
 		}
@@ -583,6 +586,9 @@ func (m *Model) viewFooter() string {
 		}
 		return m.transientFooter(legendSection{title: "Rename", pairs: pairs})
 	}
+	if m.mode == modeHeadPane {
+		return m.transientFooter(m.headPaneLegend())
+	}
 	// Focused, the keyboard belongs to the agent: the tier says so in its
 	// title, carries the few keys the manager keeps, and drops the app-wide
 	// tier, which would name keys the agent receives.
@@ -684,7 +690,7 @@ func (m *Model) defaultRowLegend() legendSection {
 	if !ok {
 		return legendSection{}
 	}
-	if row.isArtifact() {
+	if row.isArtifact() || row.isHead() {
 		return m.rowLegend()
 	}
 	openKey := m.tightCap(keymap.ContextList, keymap.Open)
@@ -791,6 +797,18 @@ func (m *Model) rowLegend() legendSection {
 	if !ok {
 		return legendSection{}
 	}
+	if row.isHead() {
+		// The header opens what its extension says it heads; every other
+		// key on it is the session's, which the session's own row lists.
+		verb := "open"
+		if m.headPaneOf(row.head) != nil {
+			verb = "focus"
+		}
+		return legendSection{title: "Header", pairs: [][2]string{
+			{m.tightCap(keymap.ContextList, keymap.Open), verb},
+			{m.navCap(keymap.ContextList), "navigate"},
+		}}
+	}
 	if row.isArtifact() {
 		title := "Pull request"
 		if row.art.kind == "TICKET" {
@@ -856,7 +874,9 @@ func (m *Model) rowLegend() legendSection {
 		}
 	}
 	if len(m.undo.sessions) > 0 {
-		pairs = append(pairs, [2]string{"U", "undo archive"})
+		if key := m.tightCap(keymap.ContextList, keymap.UndoArchive); key != "" {
+			pairs = append(pairs, [2]string{key, "undo archive"})
+		}
 	}
 	return legendSection{title: title, pairs: pairs}
 }
@@ -872,8 +892,8 @@ func (m *Model) viewLegend() legendSection {
 		{keymap.LastPane, "last pane"},
 		{keymap.NewSession, "new"}, {keymap.NewSessionForm, "new…"},
 		{keymap.NewTerminal, "terminal"}, {keymap.NewGroup, "group"}, {keymap.Search, "search"},
-		{keymap.ArchivedView, "archived"}, {keymap.StatusFilter, "attention"},
-		{keymap.ToolFilter, "CLI"}, {keymap.Triage, "triage"}, {keymap.EmptyGroups, "hide empty"},
+		{keymap.ArchivedView, "archived"}, {keymap.RestoreAll, "restore all"},
+		{keymap.StatusFilter, "attention"}, {keymap.ToolFilter, "CLI"}, {keymap.Triage, "triage"}, {keymap.EmptyGroups, "hide empty"},
 		{keymap.Help, "full key map"}, {keymap.Quit, "quit"},
 		{keymap.FoldAll, "fold all"}, {keymap.Resize, "resize"}, {keymap.Settings, "settings"},
 	} {

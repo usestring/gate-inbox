@@ -38,7 +38,7 @@ func pollReporting(t *testing.T, m *Model, name, st string) {
 func TestTriageAdvancesWhenTheFocusedSessionGoesBackToWork(t *testing.T) {
 	m := drainOnDialog(t, true)
 	askID := focusedID(t, m)
-	m = pressEnter(m)
+	m = pressDialogKey(m)
 	logHookEvent(t, m, askID, "waiting Notification")
 	lookForLanding(t, m)
 	if got := focusedName(t, m); got != "ask" {
@@ -115,7 +115,7 @@ func TestWorkingTransitionAdvancesOnlyAnAutoProceedingDrain(t *testing.T) {
 func TestTriageStaysWhenTheOperatorKeepsWorkingAfterTheAnswer(t *testing.T) {
 	m := drainOnDialog(t, true)
 	askID := focusedID(t, m)
-	m = pressEnter(m)
+	m = pressDialogKey(m)
 	logHookEvent(t, m, askID, "waiting Notification")
 	lookForLanding(t, m)
 	updated, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})

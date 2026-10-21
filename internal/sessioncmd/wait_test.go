@@ -13,6 +13,7 @@ import (
 )
 
 func TestWaitReturnsAsSoonAsTheSessionRests(t *testing.T) {
+	skipWallClockUnderShort(t)
 	h := newSessionHarness(t)
 	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "worker"})
 	if err != nil {
@@ -39,6 +40,7 @@ func TestWaitReturnsAsSoonAsTheSessionRests(t *testing.T) {
 }
 
 func TestWaitTimesOutWithTheCurrentStateRatherThanAnError(t *testing.T) {
+	skipWallClockUnderShort(t)
 	h := newSessionHarness(t)
 	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "worker"})
 	if err != nil {
@@ -95,6 +97,7 @@ func TestWaitSeesAKilledSessionAsDeadWithoutTheManager(t *testing.T) {
 // stored status will never move again. Parking the whole timeout to say
 // "timed out" hides a death the wait had already seen.
 func TestWaitReportsAnObservedDeathWithoutWaitingOut(t *testing.T) {
+	skipWallClockUnderShort(t)
 	h := newSessionHarness(t)
 	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "worker"})
 	if err != nil {
@@ -145,6 +148,7 @@ func TestWaitRefusesSelfAndUnknownStates(t *testing.T) {
 }
 
 func TestWaitHonoursCancellation(t *testing.T) {
+	skipWallClockUnderShort(t)
 	h := newSessionHarness(t)
 	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "worker"})
 	if err != nil {
@@ -225,6 +229,7 @@ func standingFor(result WaitResult, id string) (WaitStanding, bool) {
 // doing. A parent that had to ask afterwards would be back to a list per
 // wait, which is the cost this replaces.
 func TestWaitOnChildrenEndsOnTheFirstArrivalAndReportsTheWholeSet(t *testing.T) {
+	skipWallClockUnderShort(t)
 	h := newSessionHarness(t)
 	children := spawnChildren(t, h, "worker-one", "worker-two", "worker-three")
 	go func() {
@@ -312,6 +317,7 @@ func TestADeadSiblingDoesNotEndAWaitTheRestAreStillRunning(t *testing.T) {
 // in the set, "everything settled" is "this one died", so the wait still
 // returns the moment its pane goes.
 func TestWaitOnASetEndsWhenEveryTargetHasSettled(t *testing.T) {
+	skipWallClockUnderShort(t)
 	h := newSessionHarness(t)
 	children := spawnChildren(t, h, "worker-one", "worker-two")
 	for _, child := range children {

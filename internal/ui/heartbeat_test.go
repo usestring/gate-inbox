@@ -76,6 +76,7 @@ func stampAge(t *testing.T, raw string) time.Duration {
 // one step, into the first query the pass runs behind it, since the store
 // keeps a single connection.
 func TestAStalledLivenessStampDoesNotStallThePass(t *testing.T) {
+	needsQuietBox(t)
 	m, dbPath := buildModelWithStorePath(t)
 	// The first pass sweeps the inbox; from the second on, admin is the
 	// stamp and nothing else.
@@ -87,7 +88,7 @@ func TestAStalledLivenessStampDoesNotStallThePass(t *testing.T) {
 
 	started := time.Now()
 	var stat passStat
-	m.poller.refreshPass(&stat)
+	m.poller.refreshPass(&stat, false)
 	latency := time.Since(started)
 	t.Logf("poll pass with a stamp due: %v (another writer holds the database for %v)",
 		latency.Round(time.Microsecond), heldWrite)
@@ -176,14 +177,14 @@ func TestADroppedStampIsRetriedByTheNextPass(t *testing.T) {
 	m.poller.heartbeatAt = aged
 
 	var blocked passStat
-	m.poller.refreshPass(&blocked)
+	m.poller.refreshPass(&blocked, false)
 	if !m.poller.heartbeatAt.Equal(aged) {
 		t.Fatal("a pass that could not hand its stamp over counted it as sent, so nothing restamps for another period")
 	}
 
 	<-m.poller.beats
 	var retry passStat
-	m.poller.refreshPass(&retry)
+	m.poller.refreshPass(&retry, false)
 	select {
 	case <-m.poller.beats:
 	default:

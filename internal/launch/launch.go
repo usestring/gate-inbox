@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/band"
+	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
@@ -433,6 +434,12 @@ func ReviveCommand(toolName string, tool config.Tool, agentSessionID, model stri
 // inherited one; a name this function sets itself is refused rather than
 // overridden.
 func Environment(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string) (string, map[string]string, error) {
+	return EnvironmentWithProfile(manager, toolName, tool, baseCommand, id, model, account, contributed, "")
+}
+
+// EnvironmentWithProfile is Environment registering an MCP server that
+// serves only profile's tools (mcpreg.ProfileCore); "" serves every tool.
+func EnvironmentWithProfile(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string, profile string) (string, map[string]string, error) {
 	if err := config.CheckInstalled(baseCommand); err != nil {
 		return "", nil, err
 	}
@@ -458,7 +465,7 @@ func Environment(manager *hooks.Manager, toolName string, tool config.Tool, base
 			return "", nil, err
 		}
 	}
-	return compose(manager, toolName, tool, baseCommand, id, model, account, contributed, true)
+	return compose(manager, toolName, tool, baseCommand, id, model, account, contributed, profile, true)
 }
 
 // parentEnvBlocklist are per-process values a launched session must never
@@ -505,6 +512,29 @@ func inheritParentEnv(env map[string]string) {
 	}
 }
 
+// KeepPromptsEnv is the Claude Code variable that turns off its two-minute
+// refusal of an unanswered dangerous-rm permission prompt.
+const KeepPromptsEnv = "CLAUDE_CODE_DISABLE_DANGEROUS_RM_TIMEOUT"
+
+// keepPermissionPrompts keeps a managed Claude session's permission prompt
+// standing until someone answers it.
+//
+// In auto mode Claude Code puts a removal its built-in check flags (an rm
+// after a cd, or of a "$VAR/..." path) to the user, and refuses it by itself
+// two minutes later "to avoid blocking progress on an unattended session",
+// showing no prompt at all after three such refusals. A managed session is
+// not unattended: its dialog is relayed to its parent, which asks the user
+// and keys their answer in, and that round trip takes longer than two
+// minutes. So the prompt was gone when the answer arrived, and the child had
+// already been told no person approved it. The variable only removes the
+// countdown. The prompt itself, and every other check, still applies; a
+// value the operator's own shell sets is kept.
+func keepPermissionPrompts(env map[string]string) {
+	if _, set := env[KeepPromptsEnv]; !set {
+		env[KeepPromptsEnv] = "1"
+	}
+}
+
 // checkContributed refuses an extension's variable that the launch sets
 // itself or must never carry. Refused rather than overridden either way: an
 // extension that thinks it sets the session's id or its account token is
@@ -547,14 +577,14 @@ func validEnvName(key string) bool {
 // a stale claude-settings.json behind a sandbox deny rule is precisely when
 // somebody wants to read the plan rather than run it.
 func Compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string) (string, map[string]string, error) {
-	return compose(manager, toolName, tool, baseCommand, id, model, account, contributed, false)
+	return compose(manager, toolName, tool, baseCommand, id, model, account, contributed, "", false)
 }
 
 // resolveAccount reads an account's token, replaced in tests so a launch
 // plan never reaches a real secret store.
 var resolveAccount = accounts.Resolve
 
-func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string, write bool) (string, map[string]string, error) {
+func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string, profile string, write bool) (string, map[string]string, error) {
 	if err := config.CheckInstalled(baseCommand); err != nil {
 		return "", nil, err
 	}
@@ -601,16 +631,16 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		// it would otherwise pass on.
 		env[tool.AccountEnv] = ""
 	}
-	register := mcpreg.Preview
+	register := mcpreg.PreviewProfile
 	if write {
-		register = mcpreg.Apply
+		register = mcpreg.ApplyProfile
 		// The launch script writes the agent's exit status here and never
 		// creates the directory itself.
 		if err := os.MkdirAll(manager.Dir(), 0o755); err != nil {
 			return "", nil, err
 		}
 	}
-	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model))
+	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model), profile)
 	if err != nil {
 		return "", nil, err
 	}
@@ -618,6 +648,16 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		return command, env, nil
 	}
 	env[hooks.EnvStatusFile] = manager.StatusFile(id)
+	keepPermissionPrompts(env)
+	plugin := claudeplugin.Path
+	if write {
+		plugin = claudeplugin.Ensure
+	}
+	pluginDir, err := plugin(manager.ConfigDir())
+	if err != nil {
+		return "", nil, err
+	}
+	command += " " + claudeplugin.Argv(tmux.ShellQuote(pluginDir))
 	// Composed through hooks.SettingsArgv, which is also what the poller
 	// looks for in a running process's argv to tell a wired session from one
 	// somebody restarted by hand inside its pane. One spelling, so the check

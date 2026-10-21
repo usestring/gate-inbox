@@ -65,7 +65,7 @@ func TestHooklessComposerSubmitLandsOffThePane(t *testing.T) {
 func TestManagedComposerSubmitKeepsTheHooksSource(t *testing.T) {
 	m := buildModel(t)
 	sess := liveHookedSession(t, m, "managed")
-	p := m.landingProbeFor(sess, false)
+	p := m.landingProbeFor(sess, false, "❯ \n")
 	if p.hooks == nil {
 		t.Fatal("a managed claude session lost its hooks source")
 	}
@@ -80,7 +80,7 @@ func TestHooklessComposerSubmitArmsThePaneFallback(t *testing.T) {
 	sess := liveHookedSession(t, m, "adopted")
 	m.hookless = map[string]bool{sess.ID: true}
 	m.preview = "❯ \n"
-	p := m.landingProbeFor(sess, false)
+	p := m.landingProbeFor(sess, false, m.preview)
 	if p.hooks != nil {
 		t.Fatal("a hookless session still armed the dead hooks source")
 	}

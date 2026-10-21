@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/usestring/gate-inbox/extension/textfmt"
+	"github.com/usestring/gate-inbox/internal/agentsession"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -29,7 +31,7 @@ import (
 
 // ReadDigest is the child's state as something to branch on.
 type ReadDigest struct {
-	Status string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, finished, idle, errored or dead"`
+	Status string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead"`
 	// Question is the prompt of the dialog the session is holding, with its
 	// options, or empty when nothing is being asked. A parent answers it with
 	// answer_session.
@@ -43,6 +45,9 @@ type ReadDigest struct {
 	// dialog asking several shows one at a time, and the rest come from the
 	// transcript.
 	Questions []dialog.Question `json:"questions,omitempty" jsonschema:"every question of the dialog the session is holding, with its header, full text, options and whether it is answered; answer them with answer_session"`
+	// RelayAsk is the input for the caller's own AskUserQuestion that relays
+	// the dialog to its user word for word (relayask.go).
+	RelayAsk *RelayAsk `json:"relay_ask,omitempty" jsonschema:"when the session is on a dialog: the exact input for your own AskUserQuestion that puts it to your user word for word, which answer_session relay: true accepts; pass it as is, then answer with the option your user picks"`
 }
 
 // withQuestions records the dialog's questions, and puts all of them in
@@ -151,12 +156,22 @@ func (r *runtime) digest(target store.Session, pane string, running bool, delta 
 			// either way, so read it the way park does.
 			if state, ok := engine.Match(target.Tool, pane); ok {
 				block.Status = state
+				// Settled the way the poller settles it: a tail that has
+				// outlived its conversation's last write is not work.
+				if state == status.Working {
+					if rest, stalled := status.StalledBackground(engine, target.Tool, pane, func() (time.Duration, bool) {
+						return agentsession.ClaudeTranscriptAge(target.Cwd, target.AgentSessionID, time.Now())
+					}); stalled {
+						block.Status = rest
+					}
+				}
 			}
 		}
 		if held, ok := dialog.Parse(pane); ok {
 			block.Question = formatQuestion(held)
 		}
 	}
+	block.Status = r.restingStatus(target.ID, block.Status)
 	block.Result = textfmt.Tail(delta.LastTurn(), dialog.MaxTurnBytes)
 	return block
 }

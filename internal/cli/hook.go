@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/adopt"
+	"github.com/usestring/gate-inbox/internal/agentnudge"
+	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
@@ -86,6 +88,34 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 		if note != "" {
 			fmt.Fprintln(out, note)
 		}
+	case "child-dialogs":
+		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
+		if err != nil {
+			return nil
+		}
+		if note := sessioncmd.ChildNudgeHook(configDir, convo.ClaudeHome(), sessionID, statusSibling(sessioncmd.ChildNudgeSuffix),
+			sessioncmd.ChildSegmentDir(), payload, time.Now()); note != "" {
+			fmt.Fprintln(out, note)
+		}
+	case "sandbox-stale":
+		flag := statusSibling(hooks.SandboxStaleSuffix)
+		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
+		if flag == "" || err != nil {
+			return nil
+		}
+		if note := sessioncmd.SandboxStaleHook(configDir, sessionID, flag, payload, time.Now()); note != "" {
+			fmt.Fprintln(out, note)
+		}
+	case "agent-nudge":
+		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
+		if err != nil || os.Getenv(envname.StatusFile) == "" {
+			return nil
+		}
+		home, _ := os.UserHomeDir()
+		paths := agentnudge.Paths{Dir: agentnudge.StateDir(configDir), SessionID: sessionID, Home: home}
+		if _, note := agentnudge.Hook(payload, paths, time.Now()); note != "" {
+			fmt.Fprintln(out, note)
+		}
 	case "attest-note":
 		payload, err := io.ReadAll(io.LimitReader(in, 1<<20))
 		if err != nil {
@@ -104,12 +134,14 @@ func RunHook(in io.Reader, out io.Writer, args []string, sessionID, configDir st
 	return nil
 }
 
-func attestFlag() string {
+func attestFlag() string { return statusSibling(hooks.AttestPendingSuffix) }
+
+func statusSibling(suffix string) string {
 	status := os.Getenv(envname.StatusFile)
 	if status == "" {
 		return ""
 	}
-	return status + hooks.AttestPendingSuffix
+	return status + suffix
 }
 
 // codexSteering is what an adopted codex hears once: it has no Gate Inbox

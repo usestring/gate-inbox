@@ -1223,6 +1223,33 @@ func TestSessionOfPaneResolvesAManagedPane(t *testing.T) {
 	}
 }
 
+// An adopted row names its server by -L name only, so the start time a
+// caller's pane is checked against comes only from the server that name
+// reaches, and only when it is the one the caller's $TMUX names.
+func TestPaneServerStartedNeedsTheCallersServer(t *testing.T) {
+	driver := requireTmux(t)
+	id := "start" + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "")
+	if err := driver.Create(id, "/tmp", "", nil, 80, 24); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { driver.Kill(id) })
+
+	pane := paneID(t, id)
+	started, ok := driver.PaneServerStarted(tmuxEnv(t, driver), pane)
+	if !ok || started.After(time.Now()) {
+		t.Fatalf("PaneServerStarted = %v, %v; want a past start, true", started, ok)
+	}
+	if _, ok := driver.PaneServerStarted("/tmp/tmux-999/"+driver.SocketName()+","+serverPid(t)+",0", pane); ok {
+		t.Fatal("a same-named socket in another directory answered")
+	}
+	if _, ok := driver.PaneServerStarted(testSocketPath(t)+",1,0", pane); ok {
+		t.Fatal("a server pid from before a restart answered")
+	}
+	if _, ok := driver.PaneServerStarted(tmuxEnv(t, driver), "not-a-pane"); ok {
+		t.Fatal("a malformed pane id answered")
+	}
+}
+
 // Muse starts an MCP server with none of the pane's environment, so the
 // server can only find its session by walking up to the pane's process.
 func TestSessionOfProcessWalksUpToAManagedPane(t *testing.T) {
@@ -1391,4 +1418,61 @@ func testSocketPath(t *testing.T) string {
 		t.Fatalf("socket path: %v: %s", err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// A manager run in a window of its own inside a managed session lost C-q and
+// C-\ to tmux: the root binding detached the whole client in any gi_ session.
+// Only the session's home window detaches now.
+func TestLeaveKeysDetachOnlyFromTheHomeWindow(t *testing.T) {
+	driver := requireTmux(t)
+	id := "lk" + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "")
+	if err := driver.Create(id, "/tmp", "", nil, 0, 0); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { _ = driver.Kill(id) })
+	out, err := tmuxCmd("new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "="+SessionName(id)+":").CombinedOutput()
+	if err != nil {
+		t.Fatalf("new-window: %v: %s", err, out)
+	}
+	extra := strings.TrimSpace(string(out))
+	home, err := tmuxCmd("list-panes", "-t", "="+SessionName(id)+":"+"{start}", "-F", "#{pane_id}").CombinedOutput()
+	if err != nil {
+		t.Fatalf("home pane: %v: %s", err, home)
+	}
+	for pane, want := range map[string]string{strings.Fields(string(home))[0]: "1", extra: "0"} {
+		got, err := tmuxCmd("display-message", "-p", "-t", pane, leaveCondition).CombinedOutput()
+		if err != nil {
+			t.Fatalf("display-message: %v: %s", err, got)
+		}
+		if strings.TrimSpace(string(got)) != want {
+			t.Fatalf("pane %s: leave condition = %q, want %q", pane, got, want)
+		}
+	}
+}
+
+// A shared server keeps a key someone already bound, but the leave keys an
+// earlier run bound with the every-window condition are ours to replace.
+func TestSharedBindingsReplaceTheLegacyLeaveKeys(t *testing.T) {
+	driver := requireTmux(t)
+	driver.owned = false
+	t.Cleanup(func() { driver.owned = true })
+	if out, err := tmuxCmd("bind-key", "-n", "C-q", "if-shell", "-F", legacyLeaveCondition, "detach-client", "send-keys C-q").CombinedOutput(); err != nil {
+		t.Fatalf("seed legacy C-q: %v: %s", err, out)
+	}
+	if out, err := tmuxCmd("bind-key", "-n", `C-\`, "display-message", "theirs").CombinedOutput(); err != nil {
+		t.Fatalf("seed foreign C-\\: %v: %s", err, out)
+	}
+	if err := driver.EnsureBindings(); err != nil {
+		t.Fatalf("EnsureBindings: %v", err)
+	}
+	bound, _, err := driver.rootKeys()
+	if err != nil {
+		t.Fatalf("rootKeys: %v", err)
+	}
+	if !strings.Contains(bound["C-q"], "#{&&:") {
+		t.Fatalf("legacy C-q not replaced: %q", bound["C-q"])
+	}
+	if !strings.Contains(bound[`C-\`], "theirs") {
+		t.Fatalf("foreign C-\\ overwritten: %q", bound[`C-\`])
+	}
 }

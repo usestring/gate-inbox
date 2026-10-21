@@ -7,6 +7,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -68,6 +69,15 @@ func (p *poller) relayChildRest(sess store.Session, newStatus string) error {
 	// 32 of 38 keep-warms sent to children. A death still relays: a pin
 	// holds only while the agent runs.
 	if _, pinned := p.pinnedStatus(sess.ID); pinned && newStatus != status.Dead {
+		return nil
+	}
+	// Nor is a turn the board asked a child to end. A child whose sandbox
+	// stayed stale stops so the board can restart it, and the restart follows
+	// within a sweep and tells it to carry on. On 2026-10-19 a parent read
+	// "has finished its turn", then read the child four seconds later as
+	// working on the restart's prompt. Its rest comes when the restarted turn
+	// ends; a restart that fails leaves the row dead, which relays.
+	if newStatus == status.Finished && p.hooks != nil && sessioncmd.AwaitingStaleRestart(p.hooks.StatusFile(sess.ID)) {
 		return nil
 	}
 	return p.enqueueChildRest(sess, newStatus, childRestMessage(sess, ending))

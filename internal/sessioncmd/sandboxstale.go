@@ -352,6 +352,15 @@ func sweepPlaceholders(worktrees string, now time.Time) {
 	}
 }
 
+// AwaitingStaleRestart reports whether the session whose hook status file is
+// statusFile has ended its turn only so the board can restart it on a fresh
+// sandbox: its flag says the failure persisted, and RestartStaleSandboxes
+// removes the flag as it restarts the session.
+func AwaitingStaleRestart(statusFile string) bool {
+	raw, err := os.ReadFile(statusFile + hooks.SandboxStaleSuffix)
+	return err == nil && strings.TrimSpace(string(raw)) == stalePersistent
+}
+
 func staleSeenBefore(flag string, now time.Time) bool {
 	info, err := os.Stat(flag)
 	return err == nil && now.Sub(info.ModTime()) < staleOnceLifetime

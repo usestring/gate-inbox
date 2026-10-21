@@ -152,6 +152,11 @@ func TestTheRealClaudeSeesTheRelayConnectedWithNoBinary(t *testing.T) {
 	if err != nil {
 		t.Skip("claude not installed")
 	}
+	// CI puts a stub claude on PATH that fails when run, so being found is not
+	// enough: only a claude that answers --version is the real one.
+	if err := exec.Command(bin, "--version").Run(); err != nil {
+		t.Skipf("claude on PATH does not run: %v", err)
+	}
 	configDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", configDir)
 	path, err := ClaudeStatePath()

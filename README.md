@@ -59,7 +59,7 @@ Gate Inbox reads the panes; it does not sit between you and the model.
 ## Install
 
 Gate Inbox runs on Linux and macOS, and on Windows inside WSL2. It needs **tmux 3.1+** and **git**
-on `PATH`, plus at least one agent CLI. Building needs **Go 1.27.1+**.
+on `PATH`, plus at least one agent CLI. Building needs **Go 1.27.2+**.
 
 ```bash
 git clone https://github.com/usestring/gate-inbox.git
@@ -117,9 +117,9 @@ and `alt+,` hides the key hints.
 
 **Focus.** `enter` focuses a session in place: keys go to the agent while the list stays beside
 it, and `ctrl+q` comes back. `alt+\` hides the list so the pane gets the full width, and
-`alt+u` / `alt+end` scroll back through its output and return to the live bottom. `space`
+`alt+pgup` / `alt+end` scroll back through its output and return to the live bottom. `space`
 opens the hotkey menu, which sends one of your snippets to the selected session without focusing it; a
-lettered snippet also sends on `option+shift+<key>` in one press, no menu. `T` opens a shell tab under the
+lettered snippet also sends on `option+<key>` in one press, no menu. `T` opens a shell tab under the
 selected agent for builds and one-off commands.
 
 ![Focusing a session full-width, typing a three-line instruction, watching the agent answer, and scrolling back through the reply](docs/demo/focus.gif)
@@ -135,11 +135,11 @@ selected agent for builds and one-off commands.
 | `w` | Show only what needs attention |
 | `Y` | Show only one CLI's sessions, cycling through the harnesses on the board |
 | `/` | Fuzzy search; `esc` closes the field, deleting the text clears it |
-| `p` | Priority tier for a session or group; each press steps urgent → high → medium → low → none |
+| `ctrl+p` / `p` | Priority tier for a session or group; each press steps urgent → high → medium → low → none. `ctrl+p` also works from a focused session, and the row flashes its new tier |
 | `M` | Mute / unmute: keep a session out of triage until unmuted; the row reads `muted` |
 | `T` | Shell tab under the selected agent |
 | `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |
-| `:` / `ctrl+p` | Quick actions: type what you want, `enter` runs it, and each row shows its key |
+| `:` / `ctrl+k` | Quick actions: type what you want, `enter` runs it, and each row shows its key |
 | `h` / `s` | Key map for the current screen / settings |
 
 Priority defaults to 0 with no marker. Positive levels use green `▲`, `▲▲`, and `▲▲▲`; the negative level (-1) uses a red `▼`. Set a level with `gate-inbox priority <level>` using a number from -1 to 3 or its tier name.
@@ -180,7 +180,7 @@ fork commands, prompts and MCP registration.
 
 ## Optional integrations
 
-Both are opt-in and talk only to services you run or already use.
+They talk only to services you run or already use.
 
 **Pull requests and tickets.** Gate Inbox finds the pull requests and tickets a session is working
 on from its branch and its output, and hangs them under the session with their CI and review state.
@@ -196,24 +196,64 @@ enabled = false
 enabled = false
 ```
 
-**Artifacts.** An extension that lets agents publish a report or an HTML page and hand back a link
-that opens from any session, whichever CLI it runs. It is off until you enable it, and the store
-behind it is a Cloudflare Worker you deploy yourself; see
-[`extension/artifacts/worker/README.md`](extension/artifacts/worker/README.md).
-
-```toml
-[extensions.artifacts]
-enabled = true
-```
-
-Extensions are Go code compiled into the binary against the public `extension` package; the `app`
-package runs the board with whichever extensions a build carries. A build of your own lists its
-extensions in `app.Options`, and carries the artifacts one by listing `artifacts.New()` from
-`extension/artifacts`. A section an extension refuses switches off that extension alone, and a
-section no extension in the build owns is ignored; the board's `?` key map and each session's MCP
-instructions say which and why. A disabled extension that has a say in
+**Extensions.** Extensions are Go code compiled into the binary against the public `extension`
+package; the `app` package runs the board with whichever extensions a build carries. This build
+carries none, so an `[extensions.artifacts]` section left from an earlier version is ignored. A build
+of your own lists its extensions in `app.Options`. A section an extension refuses switches off that
+extension alone, and a section no extension in the build owns is ignored; the board's `?` key map and
+each session's MCP instructions say which and why. A disabled extension that has a say in
 which sessions spawn fails closed: every spawn it would have been asked about is refused, with the
 reason, until its section is fixed.
+
+### Skill priority hook
+
+Claude Code can rank a session from an optional skill frontmatter field:
+
+```yaml
+gate-inbox-priority: high
+```
+
+The accepted tiers are `urgent`, `high`, `medium`, and `low`. The last invoked skill with a tier
+wins. The hook reads skills from `$CLAUDE_PROJECT_DIR/skills` first, then
+`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/skills`. It runs for the `Skill` tool and a prompt beginning
+with `/<skill>`. Skills without a valid tier leave priority unchanged.
+
+The reusable hook lives in [`hooks/skill-gate-inbox-priority.sh`](hooks/skill-gate-inbox-priority.sh).
+It needs Bash and `jq`, and a session launched by Gate Inbox (`GATE_INBOX_BIN`, or
+`AGENT_MANAGER_BIN` for older launchers). Without a board binary it exits successfully without
+changing anything. A launcher that owns the session's tier can set `GATE_INBOX_PRIORITY_LOCKED=1`
+to keep skills from replacing it.
+
+To use it in another project, link to your Gate Inbox checkout instead of copying the script.
+From that project's root, with Gate Inbox checked out in a sibling directory:
+
+```bash
+mkdir -p hooks
+ln -s ../../gate-inbox/hooks/skill-gate-inbox-priority.sh hooks/skill-gate-inbox-priority.sh
+```
+
+Keep that checkout available at the linked path. Merge these entries into the project's
+`.claude/settings.json` hooks, preserving any existing registrations:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Skill",
+        "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/hooks/skill-gate-inbox-priority.sh\""}]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [{"type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/hooks/skill-gate-inbox-priority.sh\""}]
+      }
+    ]
+  }
+}
+```
+
+Run `bash hooks/skill-gate-inbox-priority.test.sh` from the Gate Inbox checkout to test the hook.
 
 ## Development
 
@@ -246,10 +286,11 @@ the same sessions back on their conversations. A single one: `gate-inbox kill <i
 from `gate-inbox sessions`. From inside a managed agent session, `gate-inbox stop` ends that
 session and preserves its row and conversation for an explicit revive. It records an intentional
 stop, so startup recovery does not offer it as a lost session. `gate-inbox stop --dry-run`
-verifies the current pane without ending it. Adopted panes must still be stopped by id from
+verifies the current pane without ending it. Adopted callers with verified pane process ancestry can also stop themselves.
+Shared-daemon callers whose pane cannot be verified refuse shutdown. Other adopted panes can be stopped by id from
 another session or the board.
 
-**Carry on in the plain CLI.** In a focused session, `alt+y` copies the agent's own conversation
+**Carry on in the plain CLI.** In a focused session, `alt+/` copies the agent's own conversation
 id. From that session's working directory:
 
 | CLI | Resume |

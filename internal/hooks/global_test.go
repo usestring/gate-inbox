@@ -343,6 +343,9 @@ func TestDispatchGlobalRunsTheMatchingLaunchCommands(t *testing.T) {
 		{"Notification", `{"notification_type":"elicitation_dialog"}`, "waiting Notification"},
 		{"SessionStart", `{"source":"compact"}`, "waiting Notification"},
 		{"SessionEnd", `{}`, "waiting Notification"},
+		{"PreCompact", `{"trigger":"manual"}`, "working PreCompact"},
+		{"PostCompact", `{"trigger":"auto"}`, "working PreCompact"},
+		{"PostCompact", `{"trigger":"manual"}`, "idle PostCompact"},
 		{"StopFailure", `{"error":"rate_limit"}`, "errored StopFailure"},
 	} {
 		if out := m.DispatchGlobal(step.event, []byte(step.payload)); out != "" {

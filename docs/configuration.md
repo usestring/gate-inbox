@@ -6,7 +6,7 @@ Config lives in your OS user config dir (`~/Library/Application Support/gate-inb
 
 **Launch accounts.** A session that names no account runs on its CLI's own login. A build can carry an extension that chooses the account instead (`extension.AccountChooserProvider`); Settings then offers **launch accounts**, which switches between the CLI's own login and the extension's choice. A migration never takes an account from its caller: it runs on the extension's choice, or the CLI's own login when the build has none. With **new session agent** set to `auto`, `n` asks the same extension which CLI to start; Settings offers `auto` only when the extension can answer, and `n` opens the usual CLI picker whenever it does not.
 
-Top-level: `poll_interval` (default `"2s"`) sets how often panes are polled for status, preview, and stats. `name_sweep_pace` (default `"3s"`) sets how long the name sweep waits between panes; every message it sends starts a turn in a live agent, so a larger board wants a longer gap. `stale_status_after` (default `"2h"`) is how long a session may read `working` or `starting` with its screen unchanged before its row is flagged `stale` and offered up by triage (see [Status](usage.md#status)). `editor` is the command Settings opens the snippets and restart-flags files in, arguments included (`editor = "code -n"`, `editor = "open -a 'Visual Studio Code'"`); it is run directly rather than through a shell, and quotes group an argument carrying a space. Left unset, Gate Inbox falls back to `$GATE_INBOX_EDITOR`, then a GUI editor on `PATH`, then `$VISUAL` / `$EDITOR`, and last a terminal editor on `PATH` (see [Opening the snippets file](usage.md#opening-the-snippets-file)). Nothing here has to be set for the file to open.
+Top-level: `poll_interval` (default `"2s"`) sets how often panes are polled for status, preview, and stats. `name_sweep_pace` (default `"3s"`) sets how long the name sweep waits between panes; every message it sends starts a turn in a live agent, so a larger board wants a longer gap. `[naming] ask = false` stops every automatic rename ask at once — the launch directive, the adopted pending note, and opencode's silent steering — while rows still take the title the CLI writes itself and `r` still asks on demand. `stale_status_after` (default `"2h"`) is how long a session may read `working` or `starting` with its screen unchanged before its row is flagged `stale` and offered up by triage (see [Status](usage.md#status)). `editor` is the command Settings opens the snippets and restart-flags files in, arguments included (`editor = "code -n"`, `editor = "open -a 'Visual Studio Code'"`); it is run directly rather than through a shell, and quotes group an argument carrying a space. Left unset, Gate Inbox falls back to `$GATE_INBOX_EDITOR`, then a GUI editor on `PATH`, then `$VISUAL` / `$EDITOR`, and last a terminal editor on `PATH` (see [Opening the snippets file](usage.md#opening-the-snippets-file)). Nothing here has to be set for the file to open.
 
 `[children]` controls what the board does with sessions an agent spawned. `auto_archive_after` (default `"30m"`) is how long a child whose pane has exited stays on the list when it never reported back. `finished_grace` (default `"10m"`) is how long a *finished* child stays once its spawner has taken the finish in -- the rest notice reached the spawner's prompt, or the spawner ran `read_session` or `wait_for_session` on it after it finished -- before the board archives it through the same teardown as `x`, so the archived view (quick actions) finds it and `u` restores it for the 7-day retention window. A child that is waiting, working, errored, dead without having finished, adopted, spawned with `keep`, or still has live children of its own is never archived by this rule, and neither is a Claude Code child with background work still running (see the usage guide), and archiving a parent takes its descendants with it. `keep_finished = true` turns the finished-child cleanup off board-wide.
 
@@ -23,6 +23,17 @@ setup = false
 [codex]
 setup = false
 ```
+
+`[merge_gate]` is the standing merge authority the merge-gate mod enforces in the Claude Code sessions the board launches. Claude Code's auto-mode classifier refuses `gh pr merge` in a child as "Merge Without Review" even after the user approved that exact merge, so one approved merge becomes two or three questions. The mod rides the board's Claude Code plugin, which every claude session the board starts loads; with this section set, the mod's `tool.check` allows exactly one covered merge after checking the pull request itself with `gh`, and everything else stays on the classifier's flow:
+
+```toml
+[merge_gate]
+owners = ["usestring"]
+authors = ["merge-author"]
+exclude_repos = ["usestring/partiful"]
+```
+
+Covered is one `gh pr merge <n> --squash` with nothing but `--delete-branch`, `--repo` and `--match-head-commit` beside it (a leading `cd <dir> &&`, a trailing `2>&1` and one `| tail` or `| head` are tolerated); never `--admin`. The repository's owner must be in `owners` and the repository must not be in `exclude_repos`. The pull request must be open, not a draft, authored by one of `authors`, and targeting the repository's default branch, which must not be a `deploy-*` branch. GitHub must report it CLEAN with every check green. Anything else, and any error reaching GitHub, refuses, which leaves the merge to the normal permission flow. An empty `owners` or `authors` turns the gate off, and the mod is not loaded then.
 
 <a id="resource-hogs"></a>`[hogs]` sets when the board tells a session its processes are holding the machine (see [Resource hogs](usage.md#status)). It reads `/proc`, so it is Linux only (WSL2 included); elsewhere it is off. `enabled` (default on) switches it off with `false`. `sample_every` (default `"10s"`) is how often the trees are read, `reset_after` (default `"2m"`) is how long every rule of a kind must stay below before its episode ends -- a shorter dip keeps each rule's window open -- and `cooldown` (default `"30m"`) is the least time between two notices of the same tier to one session. Each tier of `[hogs.cpu]` and `[hogs.memory]` is a list of alternative rules; any one held for its `for` puts the session at that tier (`for` left out means the first sample that finds it). A CPU rule sets `percent`, summed over the tree, 100 being one full core. A memory rule sets `gib` (the tree's PSS), `growth_gib_per_min` (its growth over the last minute) and `available_below` (the host's `MemAvailable` as a percentage of RAM), and every one it sets must hold. A tier left out takes the built-in rules below; `stop = []` switches that tier off.
 
@@ -41,6 +52,17 @@ cooldown = "1h"
 
 [hogs.cpu]
 notice = [{ percent = 150, for = "15m" }]
+```
+
+`[relaunch]` paces relaunches of sessions already on the board: an extension's account switch, a stale-sandbox restart, a grant restart, a revive or unpark. Every relaunch runs the CLI's startup hooks before it reaches its prompt, so the board starts one at a time (`max_in_flight`, default `1`), waits for it to reach its prompt or for `settle` (default `"90s"`) before the next, and leaves at least `min_gap` (default `"5s"`) between starts. While the one-minute load average per CPU is above `load_per_cpu` (default `2.0`) the gap grows in proportion, up to `max_gap` (default `"1m"`). The queue is shared by the board, the CLI and every session's MCP server. A switch an extension asks for while the queue is busy is refused and asked again later, and a revive you ask for on the board starts at once but still counts as one in flight.
+
+```toml
+[relaunch]
+max_in_flight = 1
+min_gap = "5s"
+max_gap = "1m"
+settle = "90s"
+load_per_cpu = 2.0
 ```
 
 `[board]` holds the frame's layout. `sidebar` (default `"right"`) is the side the sessions list sits on, `"right"` or `"left"`; the session's pane takes the other side. Any other value stops the board at startup with an error naming the key. Settings (`s`) → **sidebar** can pick the other side on one machine, which outranks this file there; picking the file's side in Settings again goes back to following it (see [The board layout](usage.md#the-board-layout)).

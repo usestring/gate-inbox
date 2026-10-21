@@ -1,0 +1,11 @@
+  ┃  render the board tour for the PR
+  ┃
+
+     Rendered the tour: three stills and the GIF are ready to attach.
+     Build · DeepSeek V4 Pro (New) · 1m 12s · 58.3 tok/s
+
+  ┃
+  ┃
+  ┃  Build auto · DeepSeek V4 Pro (New) OpenCode Go
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  ctrl+p commands

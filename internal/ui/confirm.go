@@ -110,7 +110,11 @@ func (m *Model) viewConfirm() string {
 			body.WriteString(tone.Render(line) + "\n")
 		}
 		if m.confirm.nudged {
-			body.WriteString(errStyle.Render("tick it with space first") + "\n")
+			nudge := "tick it first"
+			if key := m.keysCap(keymap.ContextConfirm, keymap.Toggle); key != "" {
+				nudge = "tick it with " + key + " first"
+			}
+			body.WriteString(errStyle.Render(nudge) + "\n")
 		}
 	}
 
@@ -131,9 +135,11 @@ func (m *Model) viewConfirm() string {
 	}
 	var hint [][2]string
 	if m.confirm.ack != "" {
-		hint = append(hint, [2]string{"space", "tick"})
+		if key := m.keysCap(keymap.ContextConfirm, keymap.Toggle); key != "" {
+			hint = append(hint, [2]string{key, "tick"})
+		}
 	}
-	hint = append(hint, [2]string{"y/↵", answer})
+	hint = append(hint, [2]string{m.keysCap(keymap.ContextConfirm, keymap.Confirm), answer})
 	if m.confirmSilenceable() {
 		if k := m.cap(keymap.ContextConfirm, keymap.ConfirmAlways); k != "" {
 			hint = append(hint, [2]string{k, "don't ask again"})

@@ -1,10 +1,13 @@
 package ui
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
@@ -141,5 +144,37 @@ func TestParentOwnsNothingItCannotAnswer(t *testing.T) {
 	m.answerableWait = map[string]bool{}
 	if m.parentOwns(m.sessions[1], time.Now(), map[string]bool{"parent01": true}) {
 		t.Error("a permission-blocked child reads as its parent's, so triage would hide it from the operator")
+	}
+}
+
+// A child asking for the operator's own go is the operator's to answer, so the
+// pass never marks it as a wait its parent could take, live parent or not.
+// Recorded from Claude Code 2.1.284 holding an AskUserQuestion headed Approval,
+// before and after it was answered.
+func TestAnApprovalQuestionIsTheOperatorsNotTheParents(t *testing.T) {
+	for _, width := range []int{40, 50} {
+		read := func(name string) string {
+			raw, err := os.ReadFile(filepath.Join("..", "dialog", "testdata", fmt.Sprintf("claude-2.1.284-w%d-%s.txt", width, name)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			return string(raw)
+		}
+		asked := []convo.AskQuestion{{Header: "Approval",
+			Question: fmt.Sprintf("May I delete the directory /tmp/sample-9000/gie/work/cache-w%d?", width),
+			Options:  []convo.AskOption{{Label: "Approve", Description: "Delete it"}, {Label: "Deny", Description: "Keep it"}}}}
+		if !asksForApproval("claude", read("approval-asked"), asked) {
+			t.Errorf("w%d: an open Approval question reads as one the parent could answer", width)
+		}
+		if asksForApproval("claude", read("approval-answered"), asked) {
+			t.Errorf("w%d: an answered Approval question still reads as waiting on the operator", width)
+		}
+		other := []convo.AskQuestion{{Header: "Scope", Question: asked[0].Question, Options: asked[0].Options}}
+		if asksForApproval("claude", read("approval-asked"), other) {
+			t.Errorf("w%d: a question headed Scope reads as an Approval", width)
+		}
+		if asksForApproval("claude", read("permission-touch"), nil) {
+			t.Errorf("w%d: a permission prompt reads as an Approval question", width)
+		}
 	}
 }

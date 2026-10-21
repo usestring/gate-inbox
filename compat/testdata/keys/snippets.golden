@@ -1,42 +1,59 @@
 === absent
 y  "yes" -> "yes"
 c  "continue" -> "continue"
-e  "explain like I'm 5" -> "I'm confused, explain like I'm 5"
+e  "eli5" -> "I'm confused, explain like I'm 5"
 w  "wake up" -> "Auto wake-up: the previous turn died on a transient API error. Continue where you left off."
-§  "progress" -> "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so"
+n  "needs?" -> "what do you need from me?"
+j  "judgment" -> "Use your judgment"
+p  "progress" -> "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so"
 --- snippets.json as written
 [
   {
     "key": "y",
     "label": "yes",
-    "chord": "alt+shift+y",
+    "chord": "alt+y",
     "text": "yes",
     "autoSubmit": true
   },
   {
     "key": "c",
     "label": "continue",
-    "chord": "alt+shift+c",
+    "chord": "alt+c",
     "text": "continue",
     "autoSubmit": true
   },
   {
     "key": "e",
-    "label": "explain like I'm 5",
-    "chord": "alt+shift+e",
+    "label": "eli5",
+    "chord": "alt+e",
     "text": "I'm confused, explain like I'm 5",
     "autoSubmit": true
   },
   {
     "key": "w",
     "label": "wake up",
-    "chord": "alt+shift+w",
+    "chord": "alt+w",
     "text": "Auto wake-up: the previous turn died on a transient API error. Continue where you left off.",
     "autoSubmit": true
   },
   {
-    "key": "§",
+    "key": "n",
+    "label": "needs?",
+    "chord": "alt+n",
+    "text": "what do you need from me?",
+    "autoSubmit": true
+  },
+  {
+    "key": "j",
+    "label": "judgment",
+    "chord": "alt+j",
+    "text": "Use your judgment",
+    "autoSubmit": true
+  },
+  {
+    "key": "p",
     "label": "progress",
+    "chord": "alt+p",
     "text": "summarise all current progress in bullet points, including every PR link and its status, and what the next steps are — or, if all the work here is finished, say so",
     "autoSubmit": true
   }

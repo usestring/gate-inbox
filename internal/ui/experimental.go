@@ -32,6 +32,8 @@ var experiments = []experiment{
 		func(s *settingsState) *bool { return &s.compressedFocus }},
 	{jevFinishCheckSetting, "JEV finish check", "On finish, relaunch a Claude session that stopped without Chrome, with --chrome.\nNeeds a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends its last turns to TypeSafe.",
 		func(s *settingsState) *bool { return &s.jevFinishCheck }},
+	{jevCopyQueueSetting, "JEV copy queue", "On a turn end, queue the commands, links and values the agent left for you to copy.\nNeeds a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends its last message to TypeSafe.",
+		func(s *settingsState) *bool { return &s.jevCopyQueue }},
 }
 
 func storedExperiment(st *store.Store, setting string) bool {

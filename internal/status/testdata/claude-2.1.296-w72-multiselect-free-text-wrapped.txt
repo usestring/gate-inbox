@@ -1,0 +1,50 @@
+
+ ▐▛███▛█   Claude Code v2.1.296
+▝▜██████▀  Haiku 5.5 · Claude Max
+ ▝▝   ▝▝   ~/repos/sample-repo
+
+
+❯ Do not use any tool except AskUserQuestion. Immediately ask me ONE
+  multi-select question with AskUserQuestion: multiSelect true, header
+  Checks, question "Which checks?", options Build, Unit tests, Lint,
+  Golden frames, each with a short description. Then wait.
+────────────────────────────────────────────────────────────────────────
+←  ☐ Checks  ✔ Submit  →
+
+Which checks?
+
+  1. [ ] Build
+         Compile the project and confirm it builds cleanly
+  2. [ ] Unit tests
+         Run the unit test suite
+  3. [ ] Lint
+         Run the linter and style checks
+  4. [ ] Golden frames
+         Compare rendered output frames against golden reference images
+❯ 5. [ ] Type something
+     Submit
+────────────────────────────────────────────────────────────────────────
+  6. Chat about this
+
+Enter to select · ↑/↓ to navigate · ctrl+g to edit in nano · Esc to
+cancel
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

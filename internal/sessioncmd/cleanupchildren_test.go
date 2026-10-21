@@ -77,7 +77,7 @@ func TestCleanupChildrenFilesTheDoneChildrenAndSaysWhyTheRestStayed(t *testing.T
 		"asks-ee5": "waiting",
 		"errs-ff6": "errored",
 		"kept-gg7": "keep",
-		"mids-hh8": "gkid-ii9 (working)",
+		"mids-hh8": "delegating",
 	} {
 		if !strings.Contains(reasons[id], want) {
 			t.Errorf("%s reason = %q, want it to mention %q", id, reasons[id], want)

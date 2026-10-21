@@ -194,7 +194,7 @@ func (m *Model) retireFinishedChildren(ids []string) bool {
 	shells := m.shellTools()
 	for _, id := range ids {
 		sess, ok := m.sessionByID(id)
-		if !ok || sess.Archived || sess.Status != status.Finished {
+		if !ok || sess.Archived || (sess.Status != status.Finished && sess.Status != status.Idle) {
 			continue
 		}
 		if retireHeld(m.sessions, id, shells) {

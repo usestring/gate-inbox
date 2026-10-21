@@ -49,21 +49,32 @@ func TestDelegationSteeringNamesEachCLIsOwnSubagentTool(t *testing.T) {
 	}
 }
 
-func TestApplyClaudeAppendsTheDelegationSteering(t *testing.T) {
+// A claude launch appends one line pointing at the Gate Inbox plugin's
+// delegate-with-gate-inbox skill, which says what every other CLI's steering
+// says and owns its children's dialogs the same way.
+func TestClaudeSteeringIsThePluginSkill(t *testing.T) {
 	dir := t.TempDir()
 	command, err := Apply("claude", "/opt/bin/gate-inbox", dir, "claude", map[string]string{}, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, hooks.GeneratedName(claudeSteeringFile, []byte(launchSteering("claude"))))
+	path := filepath.Join(dir, hooks.GeneratedName(claudeSteeringFile, []byte(claudeSteering)))
 	if want := " --append-system-prompt-file " + tmux.ShellQuote(path); !strings.HasSuffix(command, want) {
 		t.Fatalf("command = %q, want it to end with %q", command, want)
 	}
-	content, err := os.ReadFile(path)
+	if appended, err := os.ReadFile(path); err != nil || !strings.Contains(string(appended), "gate-inbox:delegate-with-gate-inbox") {
+		t.Fatalf("appended %q (%v), want the pointer to the skill", appended, err)
+	}
+	skill, err := os.ReadFile(filepath.Join("..", "claudeplugin", "plugindir", "skills", "delegate-with-gate-inbox", "SKILL.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertSteers(t, "claude", string(content), builtinDelegation["claude"])
+	assertSteers(t, "claude skill", string(skill), builtinDelegation["claude"])
+	for _, want := range []string{"Your children's dialogs are yours", "answer_session", "Approval are always your user's to answer"} {
+		if !strings.Contains(string(skill), want) {
+			t.Fatalf("the skill lost the child-dialog rule %q:\n%s", want, skill)
+		}
+	}
 }
 
 // Claude Code keeps only the last --append-system-prompt-file, so ours
@@ -85,7 +96,7 @@ func TestPreviewClaudeWritesNoSteeringFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(command, filepath.Join(dir, hooks.GeneratedName(claudeSteeringFile, []byte(launchSteering("claude"))))) {
+	if !strings.Contains(command, filepath.Join(dir, hooks.GeneratedName(claudeSteeringFile, []byte(claudeSteering)))) {
 		t.Fatalf("preview command = %q, want the steering path a launch would carry", command)
 	}
 	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 0 {
@@ -125,7 +136,7 @@ func TestApplyCodexCarriesTheSteeringAsDeveloperInstructions(t *testing.T) {
 // and delegation steering ride the MCP server's own block. No other CLI's
 // server carries it: theirs rides the launch, where it outranks that block.
 func TestServerSteeringCarriesOpencodeNamingAndDelegation(t *testing.T) {
-	steering, ok := ServerSteering("opencode")
+	steering, ok := ServerSteering("opencode", true)
 	if !ok {
 		t.Fatal("opencode has no server steering")
 	}
@@ -136,8 +147,27 @@ func TestServerSteeringCarriesOpencodeNamingAndDelegation(t *testing.T) {
 		}
 	}
 	for _, style := range []string{"", "claude", "codex", "none"} {
-		if text, ok := ServerSteering(style); ok || text != "" {
+		if text, ok := ServerSteering(style, true); ok || text != "" {
 			t.Fatalf("ServerSteering(%q) = %q, %v; want nothing", style, text, ok)
+		}
+	}
+}
+
+// Without ask, the server carries delegation alone: nothing the agent reads
+// asks it to spend a turn on a name, while the parent rule still rides.
+func TestServerSteeringWithoutAskCarriesDelegationAlone(t *testing.T) {
+	steering, ok := ServerSteering("opencode", false)
+	if !ok {
+		t.Fatal("opencode has no server steering")
+	}
+	for _, want := range []string{"# Delegating work", parentSteeringHeading} {
+		if !strings.Contains(steering, want) {
+			t.Fatalf("unasked server steering is missing %q:\n%s", want, steering)
+		}
+	}
+	for _, want := range []string{"# Session naming", "not as your first action"} {
+		if strings.Contains(steering, want) {
+			t.Fatalf("unasked server steering still asks for a name (%q):\n%s", want, steering)
 		}
 	}
 }
@@ -154,7 +184,7 @@ func TestEveryCLISteeringCarriesTheChildDialogRule(t *testing.T) {
 			}
 		}
 	}
-	if text, _ := ServerSteering("opencode"); !strings.Contains(text, childDialogSteering) {
+	if text, _ := ServerSteering("opencode", true); !strings.Contains(text, childDialogSteering) {
 		t.Error("OpenCode's server-carried steering lacks the child-dialog rule")
 	}
 }

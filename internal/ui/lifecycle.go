@@ -16,6 +16,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/launch"
+	"github.com/usestring/gate-inbox/internal/launchpace"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -59,8 +60,7 @@ const archiveWindowPhrase = "deleted for good after 7 days"
 // pane and the manager stops watching it, so focus could only forward keys
 // into a snapshot frozen at the moment it was archived.
 func (m *Model) archivedFocusHint() string {
-	return "archived session - press " + m.cap(keymap.ContextList, keymap.Restore) +
-		" to restore it before entering"
+	return "archived session - " + m.pressTo(keymap.ContextList, keymap.Restore, "restore it before entering")
 }
 
 // shellPromptHint refuses to write into a shell. SendText pastes and then
@@ -102,8 +102,9 @@ func (m *Model) attachCmd(id string) tea.Cmd {
 	if prepErr != nil {
 		m.errBar.text = prepErr.Error()
 	}
+	since := time.Now()
 	return tea.ExecProcess(m.tmux.AttachCommand(id), func(err error) tea.Msg {
-		return attachDoneMsg{sessID: id, err: err}
+		return attachDoneMsg{sessID: id, since: since, err: err}
 	})
 }
 
@@ -179,6 +180,63 @@ func (m *Model) reviveSelected() (tea.Model, tea.Cmd) {
 // each by its captured id where one exists.
 func (m *Model) reviveAllDead() (tea.Model, tea.Cmd) {
 	return m.reviveMany(m.listedSessions(), "no dead sessions to revive")
+}
+
+// restoreAllDead brings back every dead session in the current view: a dead
+// row is revived where it stands, and an archived one is revived and filed
+// back out of the archive, which is what restore does for one row. Like
+// reviveMany it carries on past a failure and names the first one.
+func (m *Model) restoreAllDead() (tea.Model, tea.Cmd) {
+	restored, degraded := 0, 0
+	var firstErr string
+	fail := func(err error) {
+		if firstErr == "" {
+			firstErr = err.Error()
+		}
+	}
+	for _, sess := range m.listedSessions() {
+		if !sess.Archived && sess.Status != status.Dead {
+			continue
+		}
+		revived := false
+		if !m.tmux.Exists(sess.ID) {
+			if err := m.reviveSession(sess); err != nil {
+				fail(err)
+				continue
+			}
+			revived = true
+			if m.degradedResumeNotice(sess) != "" {
+				degraded++
+			}
+		}
+		if sess.Archived {
+			// A revive already filed the row back out, and a second write
+			// would take it off the parent's done tally again.
+			if !revived {
+				if err := m.store.SetArchived(sess.ID, false); err != nil {
+					fail(err)
+					continue
+				}
+			}
+			m.markRestoredLocally(sess.ID)
+		}
+		restored++
+	}
+	switch {
+	case restored == 0 && firstErr == "":
+		m.errBar.text = "no dead sessions to restore"
+	case firstErr != "" && degraded > 0:
+		m.errBar.text = fmt.Sprintf("restored %d, %d without a captured id (used --continue), first error: %s", restored, degraded, firstErr)
+	case firstErr != "":
+		m.errBar.text = fmt.Sprintf("restored %d, first error: %s", restored, firstErr)
+	case degraded > 0:
+		m.errBar.text = fmt.Sprintf("restored %d, %d without a captured id (used --continue)", restored, degraded)
+	default:
+		m.errBar.text = ""
+		m.reportDone(fmt.Sprintf("restored %d", restored))
+	}
+	m.requestRefresh()
+	return m, nil
 }
 
 // reviveMany relaunches every dead session in the list. It revives what it
@@ -332,11 +390,24 @@ func (m *Model) relaunchSession(sess store.Session, tool config.Tool, baseComman
 			return err
 		}
 	}
+	// The operator asked for this one, and the board cannot wait on the
+	// queue without freezing, so it goes now; it is entered in the queue,
+	// off the event loop since the queue's lock can be held a moment, so
+	// the automatic relaunches behind it wait on it.
+	if dir := m.configDir(); dir != "" {
+		go launchpace.FromConfig(dir, m.cfg.Relaunch, nil).Record(sess.ID)
+	}
 	if err := m.tmux.SetLabel(sess.ID, sessionLabel(sess.Group, sess.Name)); err != nil {
 		return err
 	}
 	if err := m.store.UpdateStatus(sess.ID, newStatus); err != nil {
 		return err
+	}
+	// A live agent under an archived row runs where no sweep looks.
+	if sess.Archived {
+		if err := m.store.SetArchived(sess.ID, false); err != nil {
+			return err
+		}
 	}
 	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account)
 	// A leftover ack from the previous life must not swallow the relaunched
@@ -508,12 +579,12 @@ func (m *Model) archiveSelected() (tea.Model, tea.Cmd) {
 		// count in the note is what warns about them.
 		subtree := stillLive(m.sessionsInGroup(entry.group))
 		_, adopted := splitAdopted(subtree)
-		label := fmt.Sprintf("kill group %s (%d sessions)? frees their RAM, t finds them, %s.%s",
-			entry.group, len(subtree), archiveWindowPhrase, adoptedSetNote(len(adopted)))
+		label := fmt.Sprintf("kill group %s (%d sessions)? frees their RAM, %s finds them, %s.%s",
+			entry.group, len(subtree), m.archiveFinder(), archiveWindowPhrase, adoptedSetNote(len(adopted)))
 		if len(subtree) == 0 {
 			// Only archived rows are left under it. Filing the group away
 			// with them beats an "(0 sessions)" the reader has to decode.
-			label = fmt.Sprintf("kill group %s? nothing is running in it, t finds it.", entry.group)
+			label = fmt.Sprintf("kill group %s? nothing is running in it, %s finds it.", entry.group, m.archiveFinder())
 		}
 		m.confirm = confirmTarget{
 			isGroup:  true,
@@ -560,7 +631,7 @@ func stillLive(sessions []store.Session) []store.Session {
 // reason already on the bar.
 func (m *Model) archiveConfirmFor(sess store.Session) (confirmTarget, bool) {
 	if sess.Archived {
-		m.errBar.text = sess.Name + " is already archived - u restores it"
+		m.errBar.text = sess.Name + " is already archived - " + m.keyOr(keymap.ContextList, keymap.Restore, "restore") + " brings it back"
 		return confirmTarget{}, false
 	}
 	sessions, err := m.sessionAndChildren(sess)
@@ -580,10 +651,10 @@ func (m *Model) archiveConfirmFor(sess store.Session) (confirmTarget, bool) {
 		}
 	}
 	label := followConfirmLabel("kill", sess.Name, len(sessions)-1-len(spawned),
-		"frees its RAM, t finds it, "+archiveWindowPhrase+".",
-		"frees their RAM, t finds them, "+archiveWindowPhrase+".")
+		"frees its RAM, "+m.archiveFinder()+" finds it, "+archiveWindowPhrase+".",
+		"frees their RAM, "+m.archiveFinder()+" finds them, "+archiveWindowPhrase+".")
 	if len(sessions) == 1 && sessions[0].TmuxPaneID != "" {
-		label = adoptedArchiveLabel(sessions[0])
+		label = m.adoptedArchiveLabel(sessions[0])
 	} else {
 		_, adopted := splitAdopted(sessions)
 		label += adoptedSetNote(len(adopted))
@@ -622,8 +693,8 @@ func (m *Model) archiveAllLive() (tea.Model, tea.Cmd) {
 	m.confirm = confirmTarget{
 		action:   actionArchive,
 		sessions: managed,
-		label: fmt.Sprintf("kill every session listed (%d)? frees their RAM, t finds them, %s.%s",
-			len(managed), archiveWindowPhrase, sweepSkippedNote(len(adopted))),
+		label: fmt.Sprintf("kill every session listed (%d)? frees their RAM, %s finds them, %s.%s",
+			len(managed), m.archiveFinder(), archiveWindowPhrase, sweepSkippedNote(len(adopted))),
 		ack: fmt.Sprintf("yes, kill all %d and start their 7 days", len(managed)),
 	}
 	m.mode = modeConfirmDelete
@@ -1205,13 +1276,19 @@ func adoptedSetNote(adopted int) string {
 }
 
 // adoptedArchiveLabel warns that ending a pane the manager never started
-// reaches past the row. "frees its RAM, t to find it" is a sentence about
+// reaches past the row. "frees its RAM, t finds it" is a sentence about
 // housekeeping -- and the row does come back, but the agent in the pane does
 // not. An operator draining a queue at speed has to
 // read that here, in the same words the kill and delete dialogs use.
-func adoptedArchiveLabel(sess store.Session) string {
-	return fmt.Sprintf("the manager did not start %s. it is %s. kill it? this kills the pane, not just the row: the agent running in it dies, and whatever it has not saved dies with it. t finds the row again, the agent is gone.",
-		sess.Name, adoptedWhere(sess))
+func (m *Model) adoptedArchiveLabel(sess store.Session) string {
+	return fmt.Sprintf("the manager did not start %s. it is %s. kill it? this kills the pane, not just the row: the agent running in it dies, and whatever it has not saved dies with it. %s finds the row again, the agent is gone.",
+		sess.Name, adoptedWhere(sess), m.archiveFinder())
+}
+
+// archiveFinder names the way to the archived view for a sentence about
+// finding a row there: its key, or the view itself while it has none.
+func (m *Model) archiveFinder() string {
+	return m.keyOr(keymap.ContextList, keymap.ArchivedView, "the archived view")
 }
 
 // deadSessions are the members of set that are not running, skipping the one
@@ -1368,9 +1445,12 @@ func (m *Model) handleConfirmAnswer(msg tea.KeyMsg, confirmed bool) (tea.Model, 
 					m.errBar.text = err.Error()
 					return m, nil
 				}
-				m.markGroup(m.confirm.path, goneMark{archived: false})
+				m.markGroupRestoredLocally(m.confirm.path)
 			}
 			m.errBar.text = ""
+			// The restored rows rejoin the list on this frame rather than on
+			// the next poll, the way an archive's rows leave it.
+			m.rebuildRows()
 		case actionRestart:
 			for _, sess := range m.confirm.sessions {
 				if err := m.restartSessionWithFlags(sess, m.confirm.restartArgs); err != nil {
@@ -1440,6 +1520,7 @@ func (m *Model) forgetGroupsLocally(paths []string) {
 		delete(m.groupPaths, path)
 		delete(m.archivedGroups, path)
 		delete(m.priorityGroups, path)
+		delete(m.pinnedGroups, path)
 		delete(m.collapsed, path)
 	}
 	m.groups = slices.DeleteFunc(slices.Clone(m.groups), func(g string) bool { return gone[g] })
@@ -1508,6 +1589,30 @@ func (m *Model) markRestoredLocally(id string) {
 	m.markSession(id, goneMark{archived: false})
 }
 
+// markGroupRestoredLocally mirrors SetGroupArchived(path, false) on screen:
+// the group, every group under it and every session in that subtree leave
+// the archive on this frame, and each is marked so a stale poll cannot file
+// it again. The map is copied rather than edited because a poll's listing
+// handed it over.
+func (m *Model) markGroupRestoredLocally(path string) {
+	groups := make(map[string]bool, len(m.archivedGroups))
+	for name, archived := range m.archivedGroups {
+		if !inGroupSubtree(name, path) {
+			groups[name] = archived
+		} else if name != path {
+			m.markGroup(name, goneMark{archived: false})
+		}
+	}
+	m.archivedGroups = groups
+	for i := range m.sessions {
+		if inGroupSubtree(m.sessions[i].Group, path) {
+			m.sessions[i].Archived = false
+			m.markSession(m.sessions[i].ID, goneMark{archived: false})
+		}
+	}
+	m.markGroup(path, goneMark{archived: false})
+}
+
 // withoutSessions drops a set of rows from a batch, for the archive that was
 // told to leave the children where they are. A terminal nested under a
 // child that stays stays with it: ending the shell of an agent the operator
@@ -1527,4 +1632,21 @@ func withoutSessions(sessions, drop []store.Session) []store.Session {
 		}
 	}
 	return kept
+}
+
+// noteAttachedTurn stamps the operator's turn on a session they have just
+// detached from, if one happened. An attached pane takes their keys straight
+// from tmux, so the board never sees what they typed; the session's status
+// moving while they were in it is the sign that they gave it a turn. Going in
+// and coming out again is a look, which leaves the wait where it was, as
+// looking at a finish from the board does. See triageFinishedSeen.
+func (m *Model) noteAttachedTurn(id string, since time.Time) {
+	if m.store == nil || since.IsZero() {
+		return
+	}
+	sess, err := m.store.Get(id)
+	if err != nil || !sess.LastStatusAt.After(since) {
+		return
+	}
+	m.stampOperator(id, time.Now())
 }

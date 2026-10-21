@@ -186,7 +186,7 @@ func TestAnAdoptedOutsideClaudeReportsThroughTheGlobalHooks(t *testing.T) {
 	// The row went on the board with no conversation; the hooks name the
 	// one the pane is in now, the /clear's, and a pass binds the row to it.
 	var pass passStat
-	m.poller.refreshPass(&pass)
+	m.poller.refreshPass(&pass, false)
 	stored, err := m.store.Get(id)
 	if err != nil {
 		t.Fatal(err)

@@ -22,6 +22,7 @@ func tracePass(started time.Time, msg tea.Msg, stat passStat) {
 	attrs := []tracing.Attr{
 		{Key: "sessions", Value: stat.sessions},
 		{Key: "live", Value: stat.live},
+		{Key: "captured", Value: stat.captured},
 	}
 	for socket, count := range stat.failures {
 		attrs = append(attrs, tracing.Attr{Key: "capture.failed." + socket, Value: count})

@@ -3,6 +3,9 @@
 package ui
 
 import (
+	"strings"
+	"unicode"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/usestring/gate-inbox/internal/keymap"
@@ -81,10 +84,15 @@ func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // arrows that retarget the menu on the list do nothing here: moving the
 // cursor under a session being typed into would aim the next key at a row
 // nobody is looking at.
+//
+// Typing and enter reach the pane when the menu is closed, so attempting
+// either while it owns the keyboard names why nothing landed and how to get
+// the keys back.
 func (m *Model) handleFocusQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if action, bound := m.action(keymap.ContextFocus, msg); bound {
 		switch action {
 		case keymap.QuickInput:
+			m.clearQuickBlockedNotice()
 			m.quick.active = false
 			return m, nil
 		case keymap.ToggleConversation:
@@ -105,11 +113,13 @@ func (m *Model) handleFocusQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	if msg.String() == "esc" {
+		m.clearQuickBlockedNotice()
 		m.quick.active = false
 		return m, nil
 	}
 	snip, ok := m.menuSnippetFor(msg.String())
 	if !ok {
+		m.noteQuickBlocked(msg)
 		return m, nil
 	}
 	if m.quick.closeAfterSend {
@@ -140,4 +150,24 @@ func (m *Model) quickCloseAfterSend() bool {
 		return false
 	}
 	return chosen == "close"
+}
+
+func (m *Model) noteQuickBlocked(msg tea.KeyPressMsg) {
+	if msg.String() == "enter" {
+		m.errBar.text = "hotkey menu is open — esc closes it to submit"
+		return
+	}
+	if r := []rune(msg.String()); len(r) != 1 || !unicode.IsPrint(r[0]) {
+		return
+	}
+	if _, bound := m.action(keymap.ContextFocus, msg); bound {
+		return
+	}
+	m.errBar.text = "hotkey menu is open — esc closes it to type"
+}
+
+func (m *Model) clearQuickBlockedNotice() {
+	if strings.HasPrefix(m.errBar.text, "hotkey menu is open") {
+		m.errBar.text = ""
+	}
 }

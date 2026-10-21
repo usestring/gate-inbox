@@ -1,0 +1,7 @@
+❯ add the suggested prompt to the focus key check
+
+⏺ Done. Right now reads the faint suggestion as an empty prompt.
+
+✻ Worked for 38s · done 12:04 AM
+
+❯ [2mrun the focus tests again[0m[2C

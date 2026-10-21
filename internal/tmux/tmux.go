@@ -2244,6 +2244,39 @@ func (d *Driver) SessionOfPane(tmuxEnv, paneID string) (string, error) {
 	return id, nil
 }
 
+// PaneServerStarted reports when this driver's server started, and false
+// unless paneID is on it and it is the server tmuxEnv names. Like
+// SessionOfPane it compares the resolved socket path, since two servers in
+// different socket directories can share a name, and the pid, since one
+// restarted at the same path reuses pane ids. A server that does not answer
+// within ScanTimeout is no answer, so a CLI command asking falls back rather
+// than hanging behind a busy tmux.
+func (d *Driver) PaneServerStarted(tmuxEnv, paneID string) (time.Time, bool) {
+	if !paneIDPattern.MatchString(paneID) {
+		return time.Time{}, false
+	}
+	socket, pid, ok := socketAndPid(tmuxEnv)
+	if !ok {
+		return time.Time{}, false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), ScanTimeout)
+	defer cancel()
+	out, err := d.combinedWithin(ctx, d.args("display-message", "-p", "-t", paneID, "#{start_time} #{socket_path} #{pid}"))
+	if err != nil {
+		return time.Time{}, false
+	}
+	rest, serverPid, _ := cutLast(strings.TrimRight(string(out), "\n"), " ")
+	started, serverSocket, _ := strings.Cut(rest, " ")
+	if resolvedSocket(socket) != resolvedSocket(serverSocket) || pid != serverPid {
+		return time.Time{}, false
+	}
+	secs, err := strconv.ParseInt(started, 10, 64)
+	if err != nil || secs <= 0 {
+		return time.Time{}, false
+	}
+	return time.Unix(secs, 0), true
+}
+
 var paneIDPattern = regexp.MustCompile(`^%[0-9]+$`)
 
 // SessionOfProcess names the managed session whose pane process is pid or

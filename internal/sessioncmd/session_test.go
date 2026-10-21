@@ -1440,6 +1440,40 @@ func TestLaunchDirectoryFallsBackToTheRequestedDirectory(t *testing.T) {
 	}
 }
 
+// A repository nested in the caller's, such as a submodule, keeps its own
+// trust and settings, so a spawn into it opens in the caller's directory, while
+// a plain subdirectory of the caller's repository still opens where it asked.
+func TestLaunchDirectoryDivertsIntoANestedRepository(t *testing.T) {
+	caller := t.TempDir()
+	gitInit(t, caller)
+	plain := filepath.Join(caller, "packages", "api")
+	nested := filepath.Join(caller, "vendor", "lib")
+	for _, dir := range []string{plain, nested} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+	}
+	gitInit(t, nested)
+	var tool config.Tool
+	if got := launchDirectory(tool, caller, nested); got != caller {
+		t.Fatalf("a spawn into a nested repository = %q, want the caller's %q", got, caller)
+	}
+	if got := launchDirectory(tool, caller, plain); got != plain {
+		t.Fatalf("a subdirectory of the caller's repository = %q, want the requested %q", got, plain)
+	}
+	if got := launchDirectory(config.Tool{LaunchInPlace: true}, caller, nested); got != nested {
+		t.Fatalf("a launch_in_place tool into a nested repository = %q, want the requested %q", got, nested)
+	}
+}
+
+func gitInit(t *testing.T, dir string) {
+	t.Helper()
+	cmd := exec.Command("git", "init", "-q", dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init %s: %v: %s", dir, err, out)
+	}
+}
+
 // The unfiltered list is the whole table, and on a board that has run for
 // months that is mostly archived and dead rows nobody asked for. Every
 // narrowing below is a filter an agent had no way to express before.

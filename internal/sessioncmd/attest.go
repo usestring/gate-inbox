@@ -66,11 +66,16 @@ func (s *Sessions) SendAttested(sessionID, targetID, message, subject string, in
 	if err != nil {
 		return SendResult{}, err
 	}
+	restored, err := s.restoreForSend(runtime, caller, target.ID)
+	if err != nil {
+		return SendResult{}, err
+	}
 	result, err = runtime.enqueue(sender{callerID: caller.ID, id: caller.ID, name: caller.Name}, target.ID,
 		message, subject, interrupt)
 	if err != nil {
 		return SendResult{}, err
 	}
+	result.Restored = restored
 	nonce := rand.Text()
 	withdraw := func(cause error) (SendResult, error) {
 		if dropErr := runtime.store.MarkDropped(result.MessageID, time.Now()); dropErr != nil {

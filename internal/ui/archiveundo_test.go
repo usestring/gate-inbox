@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
 // answerDialog says yes to the dialog on screen, ticking its box first when
@@ -77,8 +79,8 @@ func TestArchiveWithoutAskingFilesItAndNamesTheWayBack(t *testing.T) {
 	if !m.errBar.worked() {
 		t.Errorf("the notice read as a failure: %q", m.errBar.text)
 	}
-	if !strings.Contains(m.errBar.text, "U") {
-		t.Errorf("notice %q does not name the key that takes it back", m.errBar.text)
+	if undo := m.hintKey(keymap.ContextList, keymap.UndoArchive); !strings.Contains(m.errBar.text, undo+" undoes it") {
+		t.Errorf("notice %q does not name %q, the way to take it back", m.errBar.text, undo)
 	}
 }
 
@@ -202,7 +204,7 @@ func TestUndoRefusesWithNothingArchived(t *testing.T) {
 	}
 }
 
-// The footer names U only once there is something to take back.
+// The footer names undo's key only once there is something to take back.
 func TestTheFooterNamesUndoOnlyAfterAnArchive(t *testing.T) {
 	m := buildModel(t)
 	dir := t.TempDir()

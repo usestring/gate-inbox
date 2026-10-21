@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
@@ -350,5 +351,44 @@ func TestManagedHostingSessionIsHiddenWithoutDeletingIt(t *testing.T) {
 		if err != nil || len(rows) != 2 {
 			t.Fatalf("outside the hosting server, got %d rows, err %v", len(rows), err)
 		}
+	}
+}
+
+func TestCodexLaunchConfigIdentifiesOnlyCodex(t *testing.T) {
+	for _, command := range []string{"", "codex", "gate-inbox codex-client -- codex"} {
+		t.Run(command, func(t *testing.T) {
+			dir := t.TempDir()
+			if command != "" {
+				text := "[tools.codex]\ncommand = \"" + command + "\"\n"
+				if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(text), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cfg, err := config.LoadDir(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			m := &Model{cfg: cfg}
+			tools := m.adoptTools()
+			for _, tc := range []struct {
+				process string
+				want    bool
+			}{
+				{"codex", true},
+				{"/opt/bin/codex --remote unix:///tmp/client.sock", true},
+				{"node /opt/bin/codex", true},
+				{"gate-inbox", false},
+				{"gate-inbox mcp", false},
+				{"gate-inbox codex-client -- codex", false},
+				{"ls /opt/bin/codex", false},
+				{"sh -c ls /opt/bin/codex", false},
+			} {
+				match, ok := adopt.Identify(adopt.Candidate{Command: tc.process}, tools, "› prompt text", nil)
+				confident := ok && match.Tool == "codex" && match.Confident()
+				if confident != tc.want {
+					t.Errorf("command %q with process %q: match = %#v, want confident Codex = %v", cfg.Tools["codex"].Command, tc.process, match, tc.want)
+				}
+			}
+		})
 	}
 }

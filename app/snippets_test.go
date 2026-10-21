@@ -22,7 +22,7 @@ func clearSnippetDefaults(t *testing.T) {
 func TestRunLaysSnippetDefaultsUnderTheOperatorsFile(t *testing.T) {
 	clearSnippetDefaults(t)
 	t.Setenv(config.HomeEnv, t.TempDir())
-	supplied := Snippet{Key: "r", Label: "review the diff", Chord: "option+shift+r", Text: "review the diff for mistakes"}
+	supplied := Snippet{Key: "r", Label: "review the diff", Preview: "check for mistakes", Chord: "option+shift+r", Text: "review the diff for mistakes"}
 	if err := Run(context.Background(), []string{"--version"}, Options{SnippetDefaults: []Snippet{supplied}}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestRunLaysSnippetDefaultsUnderTheOperatorsFile(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	got, ok := set.Get("r")
-	if !ok || got.Text != supplied.Text || got.Label != supplied.Label {
+	if !ok || got.Text != supplied.Text || got.Label != supplied.Label || got.Preview != supplied.Preview {
 		t.Fatalf("r = %+v, %v; want the build's snippet", got, ok)
 	}
 	if got, ok := set.Chord("alt+shift+r"); !ok || got.Key != "r" {

@@ -27,9 +27,15 @@ For every relayed answer, the parent's own transcript must hold an AskUserQuesti
 
 - asks the child's dialog word for word. For a question, that is its text and its option labels in
   order. For a permission or trust screen, the question must contain the dialog's text (the tool,
-  the command or path, the prompt) and its options must be the dialog's choices. For `keys`, the
-  question must quote the screen. The comparison ignores whitespace and case only, because the
-  child's pane breaks long paths and commands inside a word at its own width;
+  the command or path, the prompt) and its options must be the dialog's choices. A permission
+  prompt about a command may instead be asked as a decision, which is what the relay offers: the
+  question cites the prompt's token, `[prompt ` and the first twelve hex digits of the SHA-256 of
+  its whole text, and every option's `preview` holds the command. The user then reads a short
+  question and has the exact command beside whichever option they pick. The question's summary
+  of what the command does is Gate Inbox's reading of its words and is not checked, as any other
+  words a parent adds around the dialog's text are not; the previews are. For `keys`, the question
+  must quote the screen. The comparison ignores whitespace and case only, because the child's pane
+  breaks long paths and commands inside a word at its own width;
 - was answered after the child stopped on the dialog. For a question, that is the time of the
   child's AskUserQuestion call. For a screen, it is when the child last turned waiting, or its
   launch;

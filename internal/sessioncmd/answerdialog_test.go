@@ -1,6 +1,7 @@
 package sessioncmd
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -556,5 +557,47 @@ func TestResolveAcceptsTruncatedTabLabels(t *testing.T) {
 		if err != nil || got != want {
 			t.Errorf("Resolve(%q) = %d, %v; want %d", ref, got, err, want)
 		}
+	}
+}
+
+// A long question's tab draws only its last wrapped lines: the prompt read
+// off the screen is the tail of the question the transcript holds whole.
+// The tab check accepts that tail as the same question; otherwise a relayed
+// answer failed there and still spent the user's answer, so they were asked
+// twice.
+func TestTabShowsToleratesATruncatedPrompt(t *testing.T) {
+	full := "How should the merge authority get past the classifier when the request covers shipping it?"
+	for _, prompt := range []string{
+		full,
+		"get past the classifier when the request covers shipping it?",
+		"…get past the classifier when the request covers shipping it?",
+	} {
+		if !tabShows(prompt, full) {
+			t.Errorf("tabShows(%q) = false, want true", prompt)
+		}
+	}
+	for _, prompt := range []string{"", "Should I notify the channel?", "How should the merge authority get past review?"} {
+		if tabShows(prompt, full) {
+			t.Errorf("tabShows(%q) = true, want false", prompt)
+		}
+	}
+	if !errors.Is(unkeyed(errDialogMoved), errUnkeyedHere) {
+		t.Error("a tab refusal does not mark itself unkeyed")
+	}
+}
+
+// A refusal before any answer key reaches the child keys nothing, so the
+// batch reports it as nothing keyed and the user's answer is not spent.
+func TestFillDialogRefusalBeforeAnyKeyIsUnkeyed(t *testing.T) {
+	fastSettle(t)
+	sim := newTabbedDialog(fourQuestions)
+	questions := questionsOf(t, sim, fourQuestions)
+	questions[0].Question = "Something else entirely?"
+	_, err := fillDialog(sim, questions, []QuestionAnswer{{Question: "1", Answer: "Bun"}}, true)
+	if err == nil || !errors.Is(err, errNothingKeyed) {
+		t.Fatalf("err = %v, want one wrapping nothing-keyed", err)
+	}
+	if len(sim.keys) != 0 {
+		t.Errorf("keys were pressed before the refusal: %v", sim.keys)
 	}
 }

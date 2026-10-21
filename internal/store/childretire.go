@@ -37,9 +37,13 @@ const (
 	AbsorbedByNotice = "rest notice delivered to its spawner"
 	// AbsorbedByRead is a finish the spawner read or waited on.
 	AbsorbedByRead = "spawner read or waited on it after it finished"
+	// AbsorbedBySpawnerGone is a finish with nobody left to take it in: the
+	// spawner's row is deleted, archived or dead. On 2026-10-12 one such
+	// child had sat finished for 217 hours with its agent still running.
+	AbsorbedBySpawnerGone = "its spawner is gone"
 )
 
-// RetirableChildren is every finished child whose spawner took in the finish
+// RetirableChildren is every finished or idle child whose spawner took in the finish
 // at or before cutoff, which is the grace window already applied.
 //
 // Left out, whatever else holds: a child its spawner asked to keep, a pane the
@@ -57,10 +61,14 @@ func (s *Store) RetirableChildren(cutoff time.Time) ([]RetirableChild, error) {
 		            AND i.delivered_at != 0
 		            AND i.sent_at >= s.last_status_at
 		        ), 0) AS noticed,
-		        CASE WHEN s.spawner_read_at >= s.last_status_at THEN s.spawner_read_at ELSE 0 END AS seen
+		        CASE WHEN s.spawner_read_at >= s.last_status_at THEN s.spawner_read_at ELSE 0 END AS seen,
+		        CASE WHEN NOT EXISTS (
+		          SELECT 1 FROM sessions p
+		          WHERE p.id = `+spawnerColumnOf("s")+` AND p.archived = 0 AND p.status != ?
+		        ) THEN s.last_status_at ELSE 0 END AS orphaned
 		 FROM sessions s
 		 WHERE s.parent_id != '' AND s.archived = 0
-		   AND s.status = ?
+		   AND s.status IN (?, ?)
 		   AND s.keep_child = 0
 		   AND s.tmux_pane_id = ''
 		   AND s.last_status_at != 0
@@ -69,7 +77,7 @@ func (s *Store) RetirableChildren(cutoff time.Time) ([]RetirableChild, error) {
 		     WHERE q.session_id = s.id AND q.delivered_at = 0
 		       AND q.dropped_at = 0 AND q.superseded_by = 0
 		   )
-		 ORDER BY s.id`, ChildRestSubject(""), status.Finished)
+		 ORDER BY s.id`, ChildRestSubject(""), status.Dead, status.Finished, status.Idle)
 	if err != nil {
 		return nil, err
 	}
@@ -78,13 +86,16 @@ func (s *Store) RetirableChildren(cutoff time.Time) ([]RetirableChild, error) {
 	var children []RetirableChild
 	for rows.Next() {
 		var id string
-		var noticed, read int64
-		if err := rows.Scan(&id, &noticed, &read); err != nil {
+		var noticed, read, orphaned int64
+		if err := rows.Scan(&id, &noticed, &read, &orphaned); err != nil {
 			return nil, err
 		}
 		at, via := noticed, AbsorbedByNotice
 		if read != 0 && (at == 0 || read < at) {
 			at, via = read, AbsorbedByRead
+		}
+		if orphaned != 0 && (at == 0 || orphaned < at) {
+			at, via = orphaned, AbsorbedBySpawnerGone
 		}
 		if at == 0 || at > limit {
 			continue

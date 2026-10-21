@@ -95,8 +95,8 @@ type SessionInfo struct {
 	// Directory is the session's current working directory, or its launch
 	// directory when it is not running.
 	Directory string
-	// Status is the board's status: starting, working, waiting, finished,
-	// idle, errored or dead.
+	// Status is the board's status: starting, working, waiting, delegating,
+	// finished, idle, errored or dead.
 	Status   string
 	Running  bool
 	Archived bool
@@ -206,3 +206,19 @@ type Screen struct {
 	// Result is the last thing the session said, bounded.
 	Result string
 }
+
+// Approvals is implemented by the SessionService a session's own command
+// line gets: it spends that session's user's approval of one action.
+//
+// A command an agent's shell is refused names an Approval question word for
+// word, with ApproveOption among its options. The agent asks it in its own
+// dialog (a child's parent passes its user's answer on verbatim), and the
+// command then calls SpendApproval with the same question. It returns nil
+// once, for an answer of ApproveOption given by the user within the last 30
+// minutes; an error otherwise, saying why.
+type Approvals interface {
+	SpendApproval(ctx context.Context, question string) error
+}
+
+// ApproveOption is the option label that approves an action.
+const ApproveOption = "Approve"

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -58,9 +59,9 @@ func TestMuteKeyStoresTheFlagAndTheRowReadsMuted(t *testing.T) {
 	}
 }
 
-// A persistently muted session never reappears in triage, on the rail or in the
-// drain, until it is explicitly unmuted.
-func TestMutedSessionStaysOutOfTriageUntilUnmuted(t *testing.T) {
+// A persistently muted session stays on the triage rail reading "muted",
+// sorted last, and the drain walks past it until it is explicitly unmuted.
+func TestMutedSessionStaysVisibleButSkippedInTriageUntilUnmuted(t *testing.T) {
 	m := buildModel(t)
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "other": status.Waiting})
 	m.rebuildRows()
@@ -70,11 +71,15 @@ func TestMutedSessionStaysOutOfTriageUntilUnmuted(t *testing.T) {
 
 	m.triage = true
 	m.rebuildRows()
-	if rail := triageRail(m); strings.Contains(rail, "ask") {
-		t.Fatalf("a muted session reappeared in triage:\n%s", rail)
+	rail := triageRail(m)
+	if !strings.Contains(rail, "ask") {
+		t.Fatalf("a muted session left the triage rail:\n%s", rail)
 	}
-	if names := sessionNames(m); len(names) != 1 || names[0] != "other" {
-		t.Fatalf("triage queue = %v, want only other", names)
+	if !strings.Contains(rail, mutedStatusLabel) {
+		t.Fatalf("a muted session does not read %q in triage:\n%s", mutedStatusLabel, rail)
+	}
+	if names := sessionNames(m); len(names) != 2 || names[1] != "ask" {
+		t.Fatalf("triage queue = %v, want ask sorted last", names)
 	}
 	if cmd := m.enterTriageHead(); cmd != nil {
 		m.applyCmd(t, cmd)
@@ -83,7 +88,7 @@ func TestMutedSessionStaysOutOfTriageUntilUnmuted(t *testing.T) {
 		t.Fatalf("the drain handed over %q, want other", got)
 	}
 
-	// Unmuting from the list brings the row back to the queue.
+	// Unmuting from the list returns the row to its queue position.
 	m.mode = modeList
 	m.triage = false
 	m.rebuildRows()
@@ -94,6 +99,9 @@ func TestMutedSessionStaysOutOfTriageUntilUnmuted(t *testing.T) {
 	m.rebuildRows()
 	if rail := triageRail(m); !strings.Contains(rail, "ask") {
 		t.Fatalf("an unmuted session did not return to triage:\n%s", rail)
+	}
+	if names := sessionNames(m); len(names) != 2 {
+		t.Fatalf("triage queue = %v, want both sessions back", names)
 	}
 }
 
@@ -114,9 +122,8 @@ func TestSkipKeyUnmutesADurablyMutedRow(t *testing.T) {
 	}
 }
 
-// A muted child is off triage the same as a muted top-level row. It is not
-// drawn under its parent, and it does not lift that parent up the queue.
-func TestMutedChildStaysOutOfTriage(t *testing.T) {
+// A muted child stays visible at the end of triage without lifting its parent.
+func TestMutedChildStaysVisibleButSkippedInTriage(t *testing.T) {
 	m := childModel(t)
 	for i := range m.sessions {
 		if m.sessions[i].ID == "c2" {
@@ -125,8 +132,86 @@ func TestMutedChildStaysOutOfTriage(t *testing.T) {
 	}
 	m.triage = true
 	m.rebuildRows()
+	if got := joined(rowIDs(m)); !strings.Contains(got, "c2") {
+		t.Fatalf("triage rows = %q, want the muted child kept on the rail", got)
+	}
+	if rail := triageRail(m); !strings.Contains(rail, mutedStatusLabel) {
+		t.Fatalf("a muted child does not read %q in triage:\n%s", mutedStatusLabel, rail)
+	}
+	if ids := rowIDs(m); ids[len(ids)-1] != "c2" {
+		t.Fatalf("triage rows = %v, want the muted child after every unmuted row", ids)
+	}
+}
+
+func TestTriageMovesMutedRowsBelowUnmutedDescendantsAndSiblings(t *testing.T) {
+	for _, tc := range []struct {
+		mutedIDs                    []string
+		childDepth, grandchildDepth int
+	}{
+		{[]string{"p1"}, 0, 1},
+		{[]string{"c1", "c2"}, 0, 0},
+		{[]string{"p1", "c2"}, 1, 0},
+	} {
+		mutedIDs := tc.mutedIDs
+		t.Run(joined(mutedIDs), func(t *testing.T) {
+			m := childModel(t)
+			m.sessions = append(m.sessions, childSess("g1", "nested", m.sessions[0].Group, "c2", status.Idle, time.Minute))
+			for i := range m.sessions {
+				for _, id := range mutedIDs {
+					if m.sessions[i].ID == id {
+						m.sessions[i].Muted = true
+					}
+				}
+			}
+			m.extUIs = []ExtensionUI{{Owner: "caption", OpenHeader: func(Press) error { return nil }}}
+			m.extHeaders = map[string][]extHeader{"c2": {{owner: "caption", spans: []Span{{Text: "child work"}}}}}
+			m.triage = true
+			m.rebuildRows()
+			if ids := rowIDs(m); len(ids) != len(m.sessions) {
+				t.Fatalf("triage rows = %v, want every session visible", ids)
+			}
+			seenMuted := false
+			for i, row := range m.rows {
+				if seenMuted && !row.sess.Muted {
+					t.Fatalf("unmuted row %s followed a muted row in %v", row.sess.ID, rowIDs(m))
+				}
+				seenMuted = seenMuted || row.sess.Muted
+				if row.isSession() && row.sess.ID == "c2" && row.depth != tc.childDepth {
+					t.Fatalf("child depth = %d, want %d", row.depth, tc.childDepth)
+				}
+				if row.isSession() && row.sess.ID == "g1" && row.depth != tc.grandchildDepth {
+					t.Fatalf("grandchild depth = %d, want %d", row.depth, tc.grandchildDepth)
+				}
+				if row.isHead() && (i+1 == len(m.rows) || !m.rows[i+1].isSession() || m.rows[i+1].sess.ID != row.sess.ID) {
+					t.Fatalf("header for %s separated from its session", row.sess.ID)
+				}
+			}
+		})
+	}
+}
+
+// A question the parent is answering folds its child off the rail, but not a
+// muted one: the mute is the operator's, and the rail is where they undo it.
+func TestMutedChildStaysVisibleInTriageWhileItsParentOwnsItsQuestion(t *testing.T) {
+	m := childModel(t)
+	owned := func(muted bool) {
+		for i := range m.sessions {
+			if m.sessions[i].ID == "c2" {
+				m.sessions[i].Muted = muted
+				m.sessions[i].LastStatusAt = time.Now().Add(-time.Minute)
+			}
+		}
+		m.answerableWait = map[string]bool{"c2": true}
+		m.triage = true
+		m.rebuildRows()
+	}
+	owned(false)
 	if got := joined(rowIDs(m)); strings.Contains(got, "c2") {
-		t.Fatalf("triage rows = %q, want the muted child left out", got)
+		t.Fatalf("triage rows = %q, want the parent-owned child folded away", got)
+	}
+	owned(true)
+	if got := joined(rowIDs(m)); !strings.Contains(got, "c2") {
+		t.Fatalf("triage rows = %q, want the muted child kept on the rail", got)
 	}
 }
 
@@ -249,5 +334,31 @@ func TestMutedWorkingRowDropsTheSpinner(t *testing.T) {
 		if strings.HasPrefix(got, ansi.Strip(frame)) {
 			t.Fatalf("working row = %q still leads with the spinner", got)
 		}
+	}
+}
+
+// ctrl+m mutes from the list and from inside a focused session. Without an
+// enhanced keyboard protocol the terminal sends it as enter, which stays a
+// submit; the test presses the chord as the enhanced protocol reports it.
+func TestCtrlMMutesOnBothScreens(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "rest": status.Idle})
+	ctrlM := tea.KeyPressMsg{Code: 'm', Mod: tea.ModCtrl}
+
+	m.selectSessionRow(t, "rest")
+	pressKey(t, m, ctrlM)
+	if !sessionNamed(t, m, "rest").Muted {
+		t.Fatalf("ctrl+m on the list did not mute: %s", m.errBar.text)
+	}
+
+	m.enterFocusOn(t, "ask")
+	if _, _ = m.handleFocusKey(ctrlM); m.mode != modeFocus {
+		t.Fatalf("ctrl+m left focus for mode %v", m.mode)
+	}
+	if got, _ := m.store.Get(sessionID(t, m, "ask")); !got.Muted {
+		t.Fatal("ctrl+m in focus never reached the store")
+	}
+	if _, _ = m.handleFocusKey(ctrlM); sessionNamed(t, m, "ask").Muted {
+		t.Fatal("ctrl+m in focus did not unmute")
 	}
 }

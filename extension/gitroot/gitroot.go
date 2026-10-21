@@ -44,6 +44,15 @@ func Superproject(dir string, run Runner) (string, error) {
 	return run(current, "rev-parse", "--show-toplevel")
 }
 
+// Toplevel is the root of the working tree dir is in: the submodule itself
+// when dir is inside one, unlike Superproject.
+func Toplevel(dir string, run Runner) (string, error) {
+	if run == nil {
+		run = execGit
+	}
+	return run(dir, "rev-parse", "--show-toplevel")
+}
+
 // maxSubmoduleDepth bounds the walk out of nested submodules. Real repositories
 // rarely nest more than two deep; the rest is headroom, and the bound is what keeps a
 // surprising git answer from becoming a loop.

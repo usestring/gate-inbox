@@ -3,7 +3,9 @@
 package status
 
 import (
+	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/usestring/gate-inbox/internal/config"
@@ -20,6 +22,11 @@ const (
 	// agent first draws to the pane, so a new row appears immediately instead
 	// of after the next poll.
 	Starting = "starting"
+	// Delegating is a session at rest with work still owed to it: a child
+	// it spawned is still going, or a child's report has not been typed in
+	// yet. Nothing derives it from a pane and nothing stores it; it is laid
+	// over a finished or idle row by store.ApplyDelegation.
+	Delegating = "delegating"
 )
 
 type rule struct {
@@ -147,8 +154,8 @@ func (tr toolRules) matchRules(scope string) (string, bool) {
 // RuleMatch reports what the tool's configured rules see, without the
 // limit, busy and turn-end fallbacks Match layers on top. A modal dialog always
 // trips a rule, while a question left on screen at a resting prompt does
-// not, which is how a caller tells "do not type here" from "waiting for
-// an answer".
+// not, which is how a caller tells "do not type here" from a prompt that
+// takes a reply.
 func (e *Engine) RuleMatch(tool, pane string) (string, bool) {
 	tr, ok := e.tools[tool]
 	if !ok {
@@ -253,16 +260,23 @@ func (e *Engine) DeliveryHold(tool, pane string) string {
 // banners under it say nothing either way. Without turn_end there is no later
 // turn to read, so the line stands until the tool stops drawing it.
 func (tr toolRules) isBusy(pane string) bool {
+	_, busy := tr.busyText(pane)
+	return busy
+}
+
+// busyText is the line isBusy found, wrap and all, or "" for a busy line
+// read from the footer below the content region.
+func (tr toolRules) busyText(pane string) (string, bool) {
 	if tr.busyLine == nil {
-		return false
+		return "", false
 	}
 	region, ok := tr.activityRegion(pane)
 	if !ok {
-		return false
+		return "", false
 	}
 	_, footer, _ := strings.Cut(pane[len(region):], "\n")
 	if tr.busyLine.MatchString(footer) {
-		return true
+		return "", true
 	}
 	lines := strings.Split(region, "\n")
 	for i, line := range lines {
@@ -271,12 +285,64 @@ func (tr toolRules) isBusy(pane string) bool {
 		}
 	}
 	for i := len(lines) - 1; i >= 0; i-- {
-		if !tr.busyLine.MatchString(unwrapLine(lines, i)) {
+		line := unwrapLine(lines, i)
+		if !tr.busyLine.MatchString(line) {
 			continue
 		}
-		return tr.turnEnd == nil || tr.lastTurnEndIndex(lines) <= i
+		return line, tr.turnEnd == nil || tr.lastTurnEndIndex(lines) <= i
 	}
-	return false
+	return "", false
+}
+
+// stillRunningTail is a turn-end summary naming work left running behind
+// the turn: "✻ Baked for 26s · done 15:14 · 1 shell still running".
+var stillRunningTail = regexp.MustCompile(`· \d+ [^·]*still running\b`)
+
+// BackgroundRest is the status the pane would read if the "still running"
+// tail on its newest turn-end summary were gone, and whether that tail is
+// the only thing keeping it working. A wait line for background agents or
+// workflows is not such a tail: those spend tokens while they run. The
+// caller decides when a tail has gone on long enough to stop believing it;
+// the pane alone cannot tell a running judge from a shell that died
+// without Claude noticing.
+func (e *Engine) BackgroundRest(tool, pane string) (string, bool) {
+	tr, ok := e.tools[tool]
+	if !ok || tr.turnEnd == nil {
+		return "", false
+	}
+	if _, matched := tr.matchRules(tr.matchScope(pane)); matched {
+		return "", false
+	}
+	line, busy := tr.busyText(pane)
+	if !busy || !tr.turnEnd.MatchString(line) || !stillRunningTail.MatchString(line) {
+		return "", false
+	}
+	state, ok := tr.turnState(pane)
+	if !ok || state == Working {
+		return "", false
+	}
+	return state, true
+}
+
+// BackgroundTailTrust is how long a "still running" tail is believed with
+// nothing written to the conversation: work that is still going writes, and
+// the tails measured on 2026-10-12 that held a row working past it were all
+// wait loops nothing would end, or shells that had already died.
+const BackgroundTailTrust = 2 * time.Hour
+
+// StalledBackground is BackgroundRest once the tail has outlived
+// BackgroundTailTrust by quiet, which reports how long since the
+// conversation was last written. quiet is only asked when the pane is
+// working on a tail alone.
+func StalledBackground(e *Engine, tool, pane string, quiet func() (time.Duration, bool)) (string, bool) {
+	rest, ok := e.BackgroundRest(tool, pane)
+	if !ok {
+		return "", false
+	}
+	if age, known := quiet(); !known || age < BackgroundTailTrust {
+		return "", false
+	}
+	return rest, true
 }
 
 // unwrapLine is lines[i] with the indented rows the tool wrapped it onto
@@ -521,10 +587,10 @@ func (tr toolRules) activityRegion(pane string) (string, bool) {
 
 // turnState inspects the newest turn in the content region. When nothing
 // but chrome (blanks, separators) and trailing notes (recap blocks) sits
-// below the last turn_end marker, the turn just ended: finished, or
-// waiting when the content line above the marker carries a question mark
-// (the agent asked something in plain text). A blocked_line as the last
-// content (e.g. an interrupt banner) also waits on the user. Anchoring on
+// below the last turn_end marker, the turn just ended: finished, even when
+// its prose ends in a question, since waiting means a dialog that holds the
+// pane and the rules above already caught any. A blocked_line as the last
+// content (e.g. an interrupt banner) waits on the user. Anchoring on
 // the newest marker means markers from older turns, still visible higher
 // in the pane, can never retrigger.
 func (tr toolRules) turnState(pane string) (string, bool) {
@@ -548,28 +614,15 @@ func (tr toolRules) turnState(pane string) (string, bool) {
 	if lastEnd < 0 || !tr.turnIsNewest(lines[lastEnd+1:]) {
 		return "", false
 	}
-	question := lastContentIndex(lines, lastEnd-1, nil)
-	if question >= 0 && strings.Contains(lines[question], "?") {
-		return Waiting, true
-	}
 	return Finished, true
 }
 
 // TurnEndedState infers the resting status of a turn that closed without
 // a turn_end marker: the poller calls it when a region that was working
-// stops changing and no rule matches. A question mark on the last content
-// line means the agent asked something in plain text and waits on the
-// answer; anything else counts as finished.
+// stops changing and no rule matches. No rule means no dialog, so the turn
+// is finished even when its last line asks something in plain text: that
+// question is read like any other prose, at a prompt that takes a reply.
 func (e *Engine) TurnEndedState(tool, region string) string {
-	tr, ok := e.tools[tool]
-	if !ok {
-		return Finished
-	}
-	lines := strings.Split(region, "\n")
-	last := lastContentIndex(lines, len(lines)-1, tr.chromeLine)
-	if last >= 0 && strings.Contains(lines[last], "?") {
-		return Waiting
-	}
 	return Finished
 }
 

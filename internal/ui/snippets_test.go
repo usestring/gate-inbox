@@ -21,7 +21,7 @@ func menuKey(letter rune) tea.KeyPressMsg {
 
 // menuTrigger is the hotkey menu leader in a focused session.
 func menuTrigger() tea.KeyPressMsg {
-	return tea.KeyPressMsg{Code: ']', Mod: tea.ModCtrl}
+	return tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl}
 }
 
 // writeSnippets replaces the model's snippet file and reloads it, so a test
@@ -46,7 +46,7 @@ func writeSnippets(t testing.TB, m *Model, snips []snippets.Snippet) {
 // one bare key, and the operator's own sentence is in the pane, submitted.
 func TestMenuKeySendsIntoTheFocusedPane(t *testing.T) {
 	m := buildModel(t)
-	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Text: "ship it now"}})
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Preview: "custom preview", Text: "ship it now"}})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.rebuildRows()
 	m.enterFocusOn(t, "ask")
@@ -210,17 +210,17 @@ func TestASymbolChordFiresEitherWayShiftArrives(t *testing.T) {
 func TestManagerBindingOutranksASnippetChord(t *testing.T) {
 	m := buildModel(t)
 	writeSnippets(t, m, []snippets.Snippet{
-		{Key: "p", Chord: "ctrl+p", Text: "list snippet"},
+		{Key: "k", Chord: "ctrl+k", Text: "list snippet"},
 		{Key: "c", Chord: "alt+,", Text: "focus snippet"},
 	})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.rebuildRows()
 	m.selectSessionRow(t, "ask")
 
-	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'p', Mod: tea.ModCtrl})
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'k', Mod: tea.ModCtrl})
 	m = updated.(*Model)
 	if m.mode != modeQuickActions {
-		t.Fatalf("ctrl+p left the board in %v, want quick actions over the snippet", m.mode)
+		t.Fatalf("ctrl+k left the board in %v, want quick actions over the snippet", m.mode)
 	}
 	pressKey(t, m, key("esc"))
 
@@ -548,10 +548,81 @@ func TestLeaderTogglesTheFocusedMenuClosed(t *testing.T) {
 	}
 }
 
+// Typing while the focused menu owns the keyboard lands nowhere, so the
+// menu names why and how to get the keys back instead of swallowing the key.
+func TestFocusedMenuBlockedTypingShowsPopup(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.enterFocusOn(t, "ask")
+
+	updated, _ := m.handleFocusKey(menuTrigger())
+	m = updated.(*Model)
+	updated, cmd := m.handleFocusKey(letter('x'))
+	m = updated.(*Model)
+	if cmd != nil {
+		m.applyCmd(t, cmd)
+	}
+	if !m.quick.active {
+		t.Fatal("a blocked key closed the menu")
+	}
+	if m.errBar.text != "hotkey menu is open — esc closes it to type" {
+		t.Fatalf("err = %q, want the blocked-typing notice", m.errBar.text)
+	}
+	if m.mode != modeFocus {
+		t.Fatalf("a blocked key left the session, mode %v", m.mode)
+	}
+}
+
+// Enter while the focused menu is up submits nothing, so it gets the same
+// notice rather than silence.
+func TestFocusedMenuBlockedSubmitShowsPopup(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.enterFocusOn(t, "ask")
+
+	updated, _ := m.handleFocusKey(menuTrigger())
+	m = updated.(*Model)
+	updated, _ = m.handleFocusKey(key("enter"))
+	m = updated.(*Model)
+	if !m.quick.active {
+		t.Fatal("enter closed the menu")
+	}
+	if m.errBar.text != "hotkey menu is open — esc closes it to submit" {
+		t.Fatalf("err = %q, want the blocked-submit notice", m.errBar.text)
+	}
+}
+
+// Closing the menu drops its own notice: it names an open menu, so keeping
+// it on screen past the close would explain a state that is gone.
+func TestFocusedMenuCloseClearsBlockedNotice(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.enterFocusOn(t, "ask")
+
+	updated, _ := m.handleFocusKey(menuTrigger())
+	m = updated.(*Model)
+	updated, _ = m.handleFocusKey(letter('x'))
+	m = updated.(*Model)
+	updated, _ = m.handleFocusKey(key("esc"))
+	m = updated.(*Model)
+	if m.quick.active {
+		t.Fatal("esc did not close the menu")
+	}
+	if m.errBar.text != "" {
+		t.Fatalf("closing the menu left %q on the bar", m.errBar.text)
+	}
+}
+
 // The focused menu paints on screen: the snippets and how to leave.
 func TestFocusedMenuRendersInTheFrame(t *testing.T) {
 	m := buildModel(t)
-	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Text: "ship it now"}})
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Label: "deploy", Preview: "custom preview", Text: "ship it now"}})
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.rebuildRows()
 	m.enterFocusOn(t, "ask")
@@ -560,7 +631,7 @@ func TestFocusedMenuRendersInTheFrame(t *testing.T) {
 	updated, _ := m.handleFocusKey(menuTrigger())
 	m = updated.(*Model)
 	frame := ansi.Strip(m.frame())
-	for _, want := range []string{"Hotkeys", "d", "deploy", "send snippet", "close"} {
+	for _, want := range []string{"Hotkeys", "d", "custom preview", "send snippet", "close"} {
 		if !strings.Contains(frame, want) {
 			t.Errorf("the focused frame is missing %q:\n%s", want, frame)
 		}
@@ -647,7 +718,7 @@ func TestHelpExplainsARefusedEntry(t *testing.T) {
 
 func TestFooterAdvertisesSnippets(t *testing.T) {
 	m := buildModel(t)
-	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Chord: "alt+shift+d", Label: "deploy", Text: "ship it now"}})
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Chord: "alt+shift+d", Label: "deploy", Preview: "custom preview", Text: "ship it now"}})
 
 	section := m.snippetLegend()
 	if len(section.pairs) != 1 || section.pairs[0][0] != keymap.Display("alt+shift+d") || section.pairs[0][1] != "deploy" {
@@ -765,5 +836,58 @@ func TestConfigDirIsTheHooksParent(t *testing.T) {
 	m := buildModel(t)
 	if got, want := m.configDir(), filepath.Dir(m.hooks.Dir()); got != want {
 		t.Fatalf("configDir() = %q, want %q", got, want)
+	}
+}
+
+// The focused menu holds the keys, and the dock sits on a red band headed by
+// a banner that says so; the pane behind it keeps the agent's colours so it
+// stays readable. The keys are on the band, and the target line is not: the
+// pane on screen is the target.
+func TestFocusedMenuBannerKeepsPaneColours(t *testing.T) {
+	m := buildModel(t)
+	writeSnippets(t, m, []snippets.Snippet{{Key: "d", Text: "ship it now"}})
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	m.enterFocusOn(t, "ask")
+	const agentInk = "\x1b[38;2;1;2;3m"
+	m.preview = agentInk + "❯ half a reply\x1b[0m\n"
+
+	paneRow := func() string {
+		for _, row := range m.contentLines(80, 20) {
+			if row.raw && strings.Contains(row.text, "half a reply") {
+				return row.text
+			}
+		}
+		t.Fatal("pane row not drawn")
+		return ""
+	}
+	if !strings.Contains(paneRow(), agentInk) {
+		t.Fatal("closed menu: the pane lost the agent's colours")
+	}
+
+	updated, _ := m.handleFocusKey(menuTrigger())
+	m = updated.(*Model)
+	if !strings.Contains(paneRow(), agentInk) {
+		t.Fatal("open menu: the pane lost the agent's colours")
+	}
+	var dock []contentLine
+	for _, row := range m.contentLines(80, 20) {
+		if row.bg != "" {
+			dock = append(dock, row)
+		}
+	}
+	if len(dock) != 2 {
+		t.Fatalf("banded rows = %+v, want the banner and the snippet keys", dock)
+	}
+	for _, row := range dock {
+		if row.bg != quickBannerHex() {
+			t.Fatalf("dock row %q is on %q, want the red band", ansi.Strip(row.text), row.bg)
+		}
+	}
+	if !strings.Contains(ansi.Strip(dock[0].text), "esc to close") {
+		t.Fatalf("banner = %q, want the esc notice", ansi.Strip(dock[0].text))
+	}
+	if got := ansi.Strip(dock[1].text); !strings.Contains(got, "d ship it now") || strings.Contains(got, "send") {
+		t.Fatalf("band row = %q, want the snippet keys and no target line", got)
 	}
 }

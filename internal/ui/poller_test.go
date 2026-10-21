@@ -237,14 +237,14 @@ func TestHookWorkingWinsOverUnmatchedPane(t *testing.T) {
 	}
 }
 
-func TestHookFinishedUpgradesToWaitingOnQuestionTurn(t *testing.T) {
+func TestHookFinishedStaysFinishedOnQuestionTurn(t *testing.T) {
 	m := buildModel(t)
 	sess := store.Session{ID: "hooked03", Tool: "claude-hooked"}
 	writeHookStatus(t, m, sess.ID, status.Finished)
 
 	pane := "Do you want me to proceed?\n\n✻ Baked for 5s\n\n❯ \n"
-	if got := deriveStatus(t, m, sess, pane, true); got != status.Waiting {
-		t.Fatalf("question turn should upgrade hook finished to waiting, got %q", got)
+	if got := deriveStatus(t, m, sess, pane, true); got != status.Finished {
+		t.Fatalf("a question in prose is no dialog: hook finished should stay finished, got %q", got)
 	}
 }
 
@@ -425,7 +425,7 @@ func TestCodexComposerAnimationDoesNotKeepTurnWorking(t *testing.T) {
 	disableQuietEndGrace(t)
 	for _, tc := range []struct{ content, want string }{
 		{"• Done.\n", status.Finished},
-		{"• Continue?\n", status.Waiting},
+		{"• Continue?\n", status.Finished},
 		{"• Working (12s • esc to interrupt)\n", status.Working},
 	} {
 		m := buildModel(t)
@@ -464,14 +464,14 @@ func TestQuietPaneHoldsWorkingUntilGrace(t *testing.T) {
 	}
 }
 
-func TestQuietPaneEndingOnQuestionDerivesWaiting(t *testing.T) {
+func TestQuietPaneEndingOnQuestionDerivesFinished(t *testing.T) {
 	disableQuietEndGrace(t)
 	m := buildModel(t)
 	sess := store.Session{ID: "quiet02", Tool: "claude-hooked", Status: status.Working}
 	pane := "Which of the two options do you prefer?\n❯ \n"
 	seedRegionHash(t, m, sess, pane)
-	if got := deriveStatus(t, m, sess, pane, true); got != status.Waiting {
-		t.Fatalf("quiet pane ending on a question should derive waiting, got %q", got)
+	if got := deriveStatus(t, m, sess, pane, true); got != status.Finished {
+		t.Fatalf("quiet pane ending on a question should derive finished, got %q", got)
 	}
 }
 
@@ -818,6 +818,30 @@ func writeCodexRollout(t *testing.T, path, sessionID, cwd string, modTime time.T
 	}
 	if err := os.Chtimes(path, modTime, modTime); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCaptureAgentSessionIDsDoesNotGuessForAnAdoptedPane(t *testing.T) {
+	st, err := store.Open(filepath.Join(tmuxtest.ScratchDir(t), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	root, cwd := t.TempDir(), t.TempDir()
+	t.Setenv("CODEX_HOME", root)
+	now := time.Now()
+	writeCodexRollout(t, filepath.Join(root, "sessions", "rollout-other.jsonl"), "other", cwd, now)
+	sess := store.Session{ID: "adopted", Tool: "codex", Cwd: cwd, CreatedAt: now, TmuxSocket: "default", TmuxPaneID: "%1"}
+	if err := st.CreateSession(sess); err != nil {
+		t.Fatal(err)
+	}
+	p := &poller{store: st, sessionStores: map[string]string{"codex": "codex"}}
+	if captured, err := p.captureAgentSessionIDs([]store.Session{sess}, map[string]int{sess.ID: 123}); err != nil || captured != 0 {
+		t.Fatalf("adopted pane guessed a conversation: captured %d, err %v", captured, err)
+	}
+	got, err := st.Get(sess.ID)
+	if err != nil || got.AgentSessionID != "" {
+		t.Fatalf("adopted conversation = %q, err %v", got.AgentSessionID, err)
 	}
 }
 
@@ -1458,7 +1482,7 @@ func TestThePollAccountsForWhatAdminSpent(t *testing.T) {
 	m.applyCmd(t, m.refreshCmd())
 
 	var pass passStat
-	m.poller.refreshPass(&pass)
+	m.poller.refreshPass(&pass, false)
 	if pass.phases.mu <= 0 {
 		t.Fatal("the pass charged nothing to the mutex it took")
 	}
@@ -1470,7 +1494,7 @@ func TestThePollAccountsForWhatAdminSpent(t *testing.T) {
 	}
 
 	var quiet passStat
-	m.poller.refreshPass(&quiet)
+	m.poller.refreshPass(&quiet, false)
 
 	rendered := map[string]bool{}
 	fields := quiet.phases.fields()

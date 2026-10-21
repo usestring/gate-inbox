@@ -131,127 +131,11 @@ func TestAskJevCopyKeepsOnlyConfidentPicks(t *testing.T) {
 	}
 }
 
-func TestCopyQueueDrainsOldestFirstAndRequeuesAFailedWrite(t *testing.T) {
-	m := &Model{jevCopyQueue: true}
-	m.applyJevCopy(jevCopyResultMsg{from: "deploy", texts: []string{"first", "second"}})
-	m.applyJevCopy(jevCopyResultMsg{from: "deploy", texts: []string{"second"}})
-	if len(m.jevCopy.queue) != 2 {
-		t.Fatalf("queue = %+v, want the repeat dropped", m.jevCopy.queue)
-	}
-	if !strings.Contains(m.errBar.text, "JEV queued 2 from deploy") {
-		t.Fatalf("status = %q", m.errBar.text)
-	}
-
-	previous := writeClipboard
-	t.Cleanup(func() { writeClipboard = previous })
-	var wrote []string
-	writeClipboard = func(text string) error {
-		wrote = append(wrote, text)
-		return nil
-	}
-	_, cmd := m.copyNextQueued()
-	m.applyJevCopied(cmd().(jevCopiedMsg))
-	if !slices.Equal(wrote, []string{"first"}) || len(m.jevCopy.queue) != 1 {
-		t.Fatalf("wrote %q, queue %+v", wrote, m.jevCopy.queue)
-	}
-	if !strings.Contains(m.errBar.text, "1 left in the copy queue") {
-		t.Fatalf("status = %q", m.errBar.text)
-	}
-
-	writeClipboard = func(string) error { return errors.New("no clipboard") }
-	_, cmd = m.copyNextQueued()
-	m.applyJevCopied(cmd().(jevCopiedMsg))
-	if len(m.jevCopy.queue) != 1 || m.jevCopy.queue[0].text != "second" {
-		t.Fatalf("a failed write lost its text: %+v", m.jevCopy.queue)
-	}
-}
-
-func TestCopyQueueWaitsForClipboardResult(t *testing.T) {
-	for _, fail := range []bool{false, true} {
-		t.Run(fmt.Sprintf("fail=%v", fail), func(t *testing.T) {
-			m := &Model{jevCopyQueue: true, jevCopy: jevCopyState{queue: []copyItem{{text: "first"}, {text: "second"}}}}
-			previous := writeClipboard
-			t.Cleanup(func() { writeClipboard = previous })
-			var wrote []string
-			writeClipboard = func(text string) error {
-				wrote = append(wrote, text)
-				if fail && len(wrote) == 1 {
-					return errors.New("clipboard unavailable")
-				}
-				return nil
-			}
-			_, first := m.copyNextQueued()
-			if first == nil {
-				t.Fatal("first item did not start")
-			}
-			result := first().(jevCopiedMsg)
-			_, second := m.copyNextQueued()
-			if second != nil || len(m.jevCopy.queue) != 1 || m.jevCopy.queue[0].text != "second" {
-				t.Fatalf("copy started before result was applied: queue %+v", m.jevCopy.queue)
-			}
-			m.applyJevCopied(result)
-			_, next := m.copyNextQueued()
-			if next == nil {
-				t.Fatal("copy stayed blocked after its result")
-			}
-			m.applyJevCopied(next().(jevCopiedMsg))
-			want := []string{"first", "second"}
-			if fail {
-				want = []string{"first", "first"}
-			}
-			if !slices.Equal(wrote, want) {
-				t.Fatalf("wrote %q, want %q", wrote, want)
-			}
-		})
-	}
-}
-
-func TestCopyQueueOffIgnoresALateClipboardResult(t *testing.T) {
-	for _, fail := range []bool{false, true} {
-		t.Run(fmt.Sprintf("fail=%v", fail), func(t *testing.T) {
-			m := &Model{jevCopyQueue: true, jevCopy: jevCopyState{queue: []copyItem{{text: "first"}, {text: "second"}}}}
-			previous := writeClipboard
-			t.Cleanup(func() { writeClipboard = previous })
-			writeClipboard = func(string) error {
-				if fail {
-					return errors.New("clipboard unavailable")
-				}
-				return nil
-			}
-			_, cmd := m.copyNextQueued()
-			m.jevCopyQueue = false
-			m.jevCopy = jevCopyState{copying: m.jevCopy.copying}
-			m.errBar.text = "queue disabled"
-			m.applyJevCopied(cmd().(jevCopiedMsg))
-			if m.jevCopy.copying || len(m.jevCopy.queue) != 0 {
-				t.Fatalf("disabled queue retained clipboard state: %+v", m.jevCopy)
-			}
-			if m.errBar.text != "queue disabled" {
-				t.Fatalf("late result changed status: %q", m.errBar.text)
-			}
-		})
-	}
-}
-
-func TestCopyQueueIsCapped(t *testing.T) {
-	m := &Model{jevCopyQueue: true}
-	for i := range jevCopyQueueCap + 3 {
-		m.applyJevCopy(jevCopyResultMsg{from: "s", texts: []string{strings.Repeat("x", i+1)}})
-	}
-	if len(m.jevCopy.queue) != jevCopyQueueCap || m.jevCopy.queue[0].text != "xxxx" {
-		t.Fatalf("queue kept %d, head %q", len(m.jevCopy.queue), m.jevCopy.queue[0].text)
-	}
-}
-
-func TestCopyQueueOffIgnoresALateResult(t *testing.T) {
-	m := &Model{jevCopy: jevCopyState{busy: true}}
-	m.applyJevCopy(jevCopyResultMsg{from: "s", texts: []string{"value"}})
-	if m.jevCopy.busy || len(m.jevCopy.queue) != 0 {
-		t.Fatalf("state = %+v", m.jevCopy)
-	}
-}
-
-func TestCheckCopyWithJevSeedsThenReadsANewTurnEnd(t *testing.T) {
+// copyTurn writes a Claude transcript whose last message is text and returns
+// a model with JEV copy on, a session for it, and a count of JEV calls that
+// answer each candidate with the matching score.
+func copyTurn(t *testing.T, text string, scores ...float64) (*Model, store.Session, *int) {
+	t.Helper()
 	t.Setenv("TYPESAFE_API_KEY", "test-key")
 	home := t.TempDir()
 	sess := store.Session{ID: "waiting", Name: "auth", Tool: "claude", Status: status.Waiting,
@@ -260,7 +144,8 @@ func TestCheckCopyWithJevSeedsThenReadsANewTurnEnd(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	line := `{"type":"assistant","message":{"role":"assistant","content":"Please run ` + "`gcloud auth login`" + ` yourself."}}`
+	content, _ := json.Marshal(text)
+	line := `{"type":"assistant","message":{"role":"assistant","content":` + string(content) + `}}`
 	if err := os.WriteFile(path, []byte(line+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -269,85 +154,170 @@ func TestCheckCopyWithJevSeedsThenReadsANewTurnEnd(t *testing.T) {
 	calls := 0
 	jevHTTPClient = &http.Client{Transport: jevFinishTransport(func(r *http.Request) (*http.Response, error) {
 		calls++
+		var answers []string
+		for i, score := range scores {
+			answers = append(answers, fmt.Sprintf(`"c%d":{"type":"noul","noul":%v}`, i+1, score))
+		}
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(
-			`{"model":"` + jevModel + `","answers":{"c1":{"type":"noul","noul":0.9}}}`))}, nil
+			`{"model":"` + jevModel + `","answers":{` + strings.Join(answers, ",") + `}}`))}, nil
 	})}
 	m := &Model{cfg: config.Config{Tools: map[string]config.Tool{"claude": {Command: "claude"}}},
-		sessions: []store.Session{sess}, jevCopyQueue: true, jevCopy: jevCopyState{generation: 3},
+		sessions: []store.Session{sess}, jevCopyOn: true,
 		conversation: &conversationView{locator: search.NewLocator(home, "")}}
-	if cmd := m.checkCopyWithJev(); cmd != nil || calls != 0 {
-		t.Fatal("the first pass should only record where rows stand")
-	}
-	if cmd := m.checkCopyWithJev(); cmd != nil {
-		t.Fatal("an unchanged turn was read again")
-	}
-	m.sessions[0].LastStatusAt = m.sessions[0].LastStatusAt.Add(time.Minute)
-	m.sessions[0].AgentSessionID = ""
-	cmd := m.checkCopyWithJev()
-	if cmd == nil {
-		t.Fatal("a new turn end was not read")
-	}
-	m.applyJevCopy(cmd().(jevCopyResultMsg))
-	if calls != 0 || len(m.jevCopy.queue) != 0 {
-		t.Fatalf("an uncaptured conversation made %d calls, queue %+v", calls, m.jevCopy.queue)
-	}
-	if cmd := m.checkCopyWithJev(); cmd != nil {
-		t.Fatal("an unchanged missing conversation was read again")
-	}
-	m.sessions[0].AgentSessionID = sess.AgentSessionID
-	cmd = m.checkCopyWithJev()
-	if cmd == nil {
-		t.Fatal("the newly captured conversation was not retried")
-	}
-	m.applyJevCopy(cmd().(jevCopyResultMsg))
-	if calls != 1 || len(m.jevCopy.queue) != 1 || m.jevCopy.queue[0].text != "gcloud auth login" {
-		t.Fatalf("calls %d, queue %+v", calls, m.jevCopy.queue)
-	}
-	if cmd := m.checkCopyWithJev(); cmd != nil {
-		t.Fatal("a checked conversation was read again")
+	return m, sess, &calls
+}
+
+// pressCopy presses the copy key on sess and runs what it starts to the end.
+func pressCopy(t *testing.T, m *Model, sess store.Session) {
+	t.Helper()
+	_, cmd := m.copyWithJev(sess)
+	for cmd != nil {
+		switch msg := cmd().(type) {
+		case jevCopyResultMsg:
+			cmd = m.applyJevCopy(msg)
+		case jevCopiedMsg:
+			m.applyJevCopied(msg)
+			cmd = nil
+		default:
+			t.Fatalf("unexpected message %T", msg)
+		}
 	}
 }
 
-func TestCopyQueueReenabledIgnoresPreviousActivation(t *testing.T) {
+func stubClipboard(t *testing.T, fail func(string) bool) *[]string {
+	t.Helper()
+	previous := writeClipboard
+	t.Cleanup(func() { writeClipboard = previous })
+	var wrote []string
+	writeClipboard = func(text string) error {
+		wrote = append(wrote, text)
+		if fail != nil && fail(text) {
+			return errors.New("clipboard unavailable")
+		}
+		return nil
+	}
+	return &wrote
+}
+
+func TestCopyWithJevReadsOnTheKeyThenWalksItsPicks(t *testing.T) {
+	m, sess, calls := copyTurn(t, "Run `gcloud auth login`, then open https://console.example.test/run and read `README.md`.", 0.9, 0.95, 0.1)
+	wrote := stubClipboard(t, nil)
+	if *calls != 0 {
+		t.Fatal("JEV was asked before the key")
+	}
+	pressCopy(t, m, sess)
+	if *calls != 1 || !slices.Equal(*wrote, []string{"gcloud auth login"}) {
+		t.Fatalf("calls %d, wrote %q", *calls, *wrote)
+	}
+	if !strings.Contains(m.errBar.text, "copied 17 chars from auth (1 of 2)") {
+		t.Fatalf("status = %q", m.errBar.text)
+	}
+	pressCopy(t, m, sess)
+	pressCopy(t, m, sess)
+	want := []string{"gcloud auth login", "https://console.example.test/run", "gcloud auth login"}
+	if *calls != 1 || !slices.Equal(*wrote, want) {
+		t.Fatalf("the same turn was not walked from what JEV picked: calls %d, wrote %q", *calls, *wrote)
+	}
+	sess.LastStatusAt = sess.LastStatusAt.Add(time.Minute)
+	pressCopy(t, m, sess)
+	if *calls != 2 {
+		t.Fatalf("a later turn was not read again: calls %d", *calls)
+	}
+}
+
+func TestCopyWithJevSaysWhyNothingWasCopied(t *testing.T) {
+	m, sess, calls := copyTurn(t, "Read `README.md` for the details.", 0.2)
+	wrote := stubClipboard(t, nil)
+	pressCopy(t, m, sess)
+	if *calls != 1 || len(*wrote) != 0 || !strings.Contains(m.errBar.text, "JEV found nothing") {
+		t.Fatalf("calls %d, wrote %q, status %q", *calls, *wrote, m.errBar.text)
+	}
+
+	m, sess, calls = copyTurn(t, "All done, nothing for you to run.")
+	pressCopy(t, m, sess)
+	if *calls != 0 || !strings.Contains(m.errBar.text, "nothing to copy") {
+		t.Fatalf("a message with no candidates made %d calls, status %q", *calls, m.errBar.text)
+	}
+}
+
+func TestCopyWithJevIsOffUntilEnabled(t *testing.T) {
+	m, sess, calls := copyTurn(t, "Run `gcloud auth login`.", 0.9)
+	m.jevCopyOn = false
+	if _, cmd := m.copyWithJev(sess); cmd != nil || *calls != 0 {
+		t.Fatal("the key acted with the experiment off")
+	}
+}
+
+func TestCopyWithJevRetriesAFailedWriteOnTheSamePick(t *testing.T) {
+	m, sess, _ := copyTurn(t, "Run `first-command` then `second-command`.", 0.9, 0.9)
+	failed := false
+	wrote := stubClipboard(t, func(string) bool {
+		if failed {
+			return false
+		}
+		failed = true
+		return true
+	})
+	pressCopy(t, m, sess)
+	if !strings.Contains(m.errBar.text, "could not copy") {
+		t.Fatalf("status = %q", m.errBar.text)
+	}
+	pressCopy(t, m, sess)
+	if !slices.Equal(*wrote, []string{"first-command", "first-command"}) {
+		t.Fatalf("wrote %q", *wrote)
+	}
+}
+
+func TestCopyWithJevTakesOnePressAtATime(t *testing.T) {
+	m, sess, calls := copyTurn(t, "Run `first-command` then `second-command`.", 0.9, 0.9)
+	wrote := stubClipboard(t, nil)
+	_, read := m.copyWithJev(sess)
+	if _, again := m.copyWithJev(sess); again != nil {
+		t.Fatal("a second press started while JEV was reading")
+	}
+	write := m.applyJevCopy(read().(jevCopyResultMsg))
+	if _, again := m.copyWithJev(sess); again != nil {
+		t.Fatal("a second press started while the clipboard was being written")
+	}
+	m.applyJevCopied(write().(jevCopiedMsg))
+	pressCopy(t, m, sess)
+	if *calls != 1 || !slices.Equal(*wrote, []string{"first-command", "second-command"}) {
+		t.Fatalf("calls %d, wrote %q", *calls, *wrote)
+	}
+}
+
+func TestCopyWithJevReenabledIgnoresPreviousActivation(t *testing.T) {
 	for _, kind := range []string{"jev", "clipboard-success", "clipboard-failure"} {
 		t.Run(kind, func(t *testing.T) {
 			m := buildModel(t)
-			m.jevCopyQueue = true
-			m.jevCopy = jevCopyState{busy: kind == "jev", queue: []copyItem{{text: "old item"}}}
+			m.jevCopyOn = true
+			m.jevCopy = jevCopyState{turn: "old", from: "s", picks: []string{"old pick", "other pick"}}
 			generation := m.jevCopy.generation
 			var copied jevCopiedMsg
-			if kind != "jev" {
-				previous := writeClipboard
-				t.Cleanup(func() { writeClipboard = previous })
-				writeClipboard = func(string) error {
-					if kind == "clipboard-failure" {
-						return errors.New("clipboard unavailable")
-					}
-					return nil
-				}
-				_, cmd := m.copyNextQueued()
-				copied = cmd().(jevCopiedMsg)
+			if kind == "jev" {
+				m.jevCopy.busy = true
+			} else {
+				stubClipboard(t, func(string) bool { return kind == "clipboard-failure" })
+				copied = m.copyNextPick()().(jevCopiedMsg)
 			}
 			m.openSettings()
-			m.settings.jevCopyQueue = false
+			m.settings.jevCopyOn = false
 			m.persistSettings()
-			m.settings.jevCopyQueue = true
+			m.settings.jevCopyOn = true
 			m.persistSettings()
-			if m.jevCopy.generation == generation {
-				t.Fatal("toggling did not invalidate the previous activation")
+			if m.jevCopy.generation == generation || len(m.jevCopy.picks) != 0 {
+				t.Fatalf("toggling kept the previous activation: %+v", m.jevCopy)
 			}
 			m.errBar.text = "current status"
 			if kind == "jev" {
-				m.applyJevCopy(jevCopyResultMsg{generation: generation, texts: []string{"old result"}})
+				if cmd := m.applyJevCopy(jevCopyResultMsg{generation: generation, turn: "old", texts: []string{"old result"}}); cmd != nil {
+					t.Fatal("a stale read started a copy")
+				}
 			} else {
 				m.applyJevCopied(copied)
 			}
-			if m.jevCopy.busy || m.jevCopy.copying || len(m.jevCopy.queue) != 0 || m.errBar.text != "current status" {
+			if m.jevCopy.busy || m.jevCopy.copying || len(m.jevCopy.picks) != 0 || m.errBar.text != "current status" {
 				t.Fatalf("stale result changed the new activation: state %+v, status %q", m.jevCopy, m.errBar.text)
-			}
-			m.applyJevCopy(jevCopyResultMsg{generation: m.jevCopy.generation, texts: []string{"new item"}})
-			if len(m.jevCopy.queue) != 1 || m.jevCopy.queue[0].text != "new item" {
-				t.Fatalf("new activation did not accept its result: %+v", m.jevCopy)
 			}
 		})
 	}

@@ -12,23 +12,22 @@ import (
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/search"
-	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-// The JEV copy queue reads a session's latest assistant message each time
-// its row turns waiting or finished, picks out the text an operator might
-// lift from it -- fenced blocks, code spans and links -- and asks JEV which
-// of them the operator will need on the clipboard: a command to run
-// themselves, a link to open, a value to paste into a form. Those land on a
-// queue the copy key drains oldest first, so the steps of one message come
-// off in the order the agent wrote them.
+// JEV copy acts when the operator presses its key. It reads the latest
+// assistant message of the session the key was pressed on, picks out the
+// text an operator might lift from it -- fenced blocks, code spans and
+// links -- and asks JEV which of them the agent left for the operator to use
+// themselves: a command to run in their own terminal, a link to open, a value
+// to paste into a form. The first pick goes on the clipboard, and pressing
+// the key again on the same turn walks through the rest in the order the
+// agent wrote them, so one message's steps come off in sequence.
 //
-// Nothing is written to the clipboard until the operator asks: a board that
-// overwrote it on every turn end would take away whatever they had copied
-// themselves.
+// Nothing is read or sent until the key is pressed, and nothing is written
+// to the clipboard except on that key.
 
-const jevCopyQueueSetting = "experimental_jev_copy_queue"
+const jevCopySetting = "experimental_jev_copy"
 
 const (
 	jevCopyThreshold    = 0.80
@@ -36,7 +35,6 @@ const (
 	jevCopyCandidateMax = 1000
 	jevCopyMinChars     = 4
 	jevCopyMessageChars = 1500
-	jevCopyQueueCap     = 20
 	jevCopyTimeout      = 6 * time.Second
 )
 
@@ -53,39 +51,39 @@ var (
 	copyCandidatePattern         = regexp.MustCompile(copyFencePattern.String() + "|" + copySpanPattern.String() + "|(" + copyURLPattern.String() + ")")
 )
 
-// copyItem is one queued piece of text and the session it came from.
-type copyItem struct {
-	from string
-	text string
-}
-
-// jevCopyState is what the queue remembers between passes. checked holds
-// the turn end each row was last read at, so one turn costs one call;
-// seeded marks the first pass, which records every row's current turn
-// without asking, so turning the feature on does not reread the whole board.
+// jevCopyState is what the copy key remembers between presses: the picks JEV
+// made from one turn and which of them goes on the clipboard next. turn names
+// the turn they came from, so a press on another row or a later turn reads
+// afresh while a press on the same turn costs no call.
 type jevCopyState struct {
 	generation uint64
 	busy       bool
 	copying    bool
-	seeded     bool
-	checked    map[string]string
-	queue      []copyItem
+	turn       string
+	from       string
+	picks      []string
+	next       int
 }
 
 type jevCopyResultMsg struct {
 	generation uint64
+	turn       string
 	from       string
 	texts      []string
+	// note says why there is nothing to copy when texts is empty.
+	note string
 }
 
 type jevCopiedMsg struct {
 	generation uint64
-	item       copyItem
+	from       string
+	index      int
+	total      int
 	chars      int
 	err        error
 }
 
-func storedJevCopyQueue(st *store.Store) bool { return storedExperiment(st, jevCopyQueueSetting) }
+func storedJevCopy(st *store.Store) bool { return storedExperiment(st, jevCopySetting) }
 
 // copyCandidates is the text in message an operator might lift, in the
 // order it appears: fenced blocks, code spans and links outside them.
@@ -173,148 +171,132 @@ func jevCopyIdentity(sess store.Session) string {
 	return jevFinishIdentity(sess) + "\x00" + sess.AgentSessionID
 }
 
-// jevCopyCandidate picks the next row whose turn ended since it was last
-// read.
-func (m *Model) jevCopyCandidate() (store.Session, string, bool) {
-	for _, sess := range m.sessions {
-		if sess.Archived || sess.Status != status.Waiting && sess.Status != status.Finished {
-			continue
-		}
-		identity := jevCopyIdentity(sess)
-		if m.jevCopy.checked[sess.ID] == identity {
-			continue
-		}
-		return sess, identity, true
+// copySelectedWithJev runs the copy key on the list's selected row.
+func (m *Model) copySelectedWithJev() (tea.Model, tea.Cmd) {
+	sess, ok := m.selected()
+	if !ok || sess.Archived {
+		return m, nil
 	}
-	return store.Session{}, "", false
+	return m.copyWithJev(sess)
 }
 
-// checkCopyWithJev reads one turn end per poll pass, off the event loop.
-func (m *Model) checkCopyWithJev() tea.Cmd {
+// copyWithJev puts the next pick from sess's latest turn on the clipboard,
+// first reading that turn and asking JEV, off the event loop, when the picks
+// on hand came from another one.
+func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
+	if !m.jevCopyOn || m.jevCopy.busy || m.jevCopy.copying {
+		return m, nil
+	}
+	turn := jevCopyIdentity(sess)
+	if turn == m.jevCopy.turn && len(m.jevCopy.picks) > 0 {
+		return m, m.copyNextPick()
+	}
 	key, _ := m.jevKey()
-	if !m.jevCopyQueue || key == "" || m.jevCopy.busy || m.conversation == nil {
-		return nil
+	if key == "" {
+		m.errBar.text = "JEV copy needs a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY)"
+		return m, nil
 	}
-	if m.jevCopy.checked == nil {
-		m.jevCopy.checked = map[string]string{}
+	if m.conversation == nil {
+		return m, nil
 	}
-	if !m.jevCopy.seeded {
-		m.jevCopy.seeded = true
-		for _, sess := range m.sessions {
-			m.jevCopy.checked[sess.ID] = jevCopyIdentity(sess)
-		}
-		return nil
-	}
-	sess, identity, ok := m.jevCopyCandidate()
-	if !ok {
-		return nil
-	}
-	m.jevCopy.checked[sess.ID] = identity
 	m.jevCopy.busy = true
 	locator := search.NewLocator(m.conversation.locator.ClaudeHome, m.conversation.locator.CodexRoot)
 	tool := historyToolFormats(m.cfg)[sess.Tool]
 	database := opencodeDBPath()
 	from := m.displayName(sess)
 	generation := m.jevCopy.generation
-	return func() tea.Msg {
-		msg := jevCopyResultMsg{from: from, generation: generation}
+	m.reportDone("JEV is reading " + from + "'s last message")
+	return m, func() tea.Msg {
+		msg := jevCopyResultMsg{generation: generation, turn: turn, from: from}
 		target, found := locator.Target(sess.ID, tool, sess.Cwd, sess.AgentSessionID)
 		if !found {
+			msg.note = "no conversation found for " + from
 			return msg
 		}
 		messages, err := search.ReadMessages(target, database)
 		if err != nil {
+			msg.note = "could not read " + from + ": " + err.Error()
 			return msg
 		}
 		text := latestAssistantText(messages)
 		candidates := copyCandidates(text)
 		if len(candidates) == 0 {
+			msg.note = "nothing to copy in " + from + "'s last message"
 			return msg
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), jevCopyTimeout)
 		defer cancel()
-		msg.texts, _ = askJevCopy(ctx, key, text, candidates)
+		texts, ok := askJevCopy(ctx, key, text, candidates)
+		switch {
+		case !ok:
+			msg.note = "JEV did not answer; nothing copied"
+		case len(texts) == 0:
+			msg.note = "JEV found nothing in " + from + "'s last message left for you to copy"
+		}
+		msg.texts = texts
 		return msg
 	}
 }
 
-func (m *Model) applyJevCopy(msg jevCopyResultMsg) {
+func (m *Model) applyJevCopy(msg jevCopyResultMsg) tea.Cmd {
 	m.jevCopy.busy = false
-	if !m.jevCopyQueue || msg.generation != m.jevCopy.generation || len(msg.texts) == 0 {
-		return
+	if !m.jevCopyOn || msg.generation != m.jevCopy.generation {
+		return nil
 	}
-	added := 0
-	for _, text := range msg.texts {
-		if m.queuedForCopy(text) {
-			continue
-		}
-		m.jevCopy.queue = append(m.jevCopy.queue, copyItem{from: msg.from, text: text})
-		added++
+	if len(msg.texts) == 0 {
+		m.errBar.text = msg.note
+		return nil
 	}
-	if over := len(m.jevCopy.queue) - jevCopyQueueCap; over > 0 {
-		m.jevCopy.queue = m.jevCopy.queue[over:]
-	}
-	if added == 0 {
-		return
-	}
-	logging.Info("jev copy queue", "from", msg.from, "added", added, "queued", len(m.jevCopy.queue))
-	m.reportDone(fmt.Sprintf("JEV queued %d from %s to copy · %s", added, msg.from, m.copyQueueHint()))
+	logging.Info("jev copy", "from", msg.from, "picks", len(msg.texts))
+	m.jevCopy.turn, m.jevCopy.from, m.jevCopy.picks, m.jevCopy.next = msg.turn, msg.from, msg.texts, 0
+	return m.copyNextPick()
 }
 
-func (m *Model) queuedForCopy(text string) bool {
-	for _, item := range m.jevCopy.queue {
-		if item.text == text {
-			return true
-		}
-	}
-	return false
-}
-
-// copyQueueHint names the queue's length and the key that drains it.
-func (m *Model) copyQueueHint() string {
-	hint := fmt.Sprintf("%d in the copy queue", len(m.jevCopy.queue))
-	screen := keymap.ContextList
-	if m.mode == modeFocus {
-		screen = keymap.ContextFocus
-	}
-	if key := m.fullCap(screen, keymap.CopyQueued); key != "" {
-		hint += ", " + key + " copies the next"
-	}
-	return hint
-}
-
-// copyNextQueued takes the oldest queued text off the queue and puts it on
-// the clipboard.
-func (m *Model) copyNextQueued() (tea.Model, tea.Cmd) {
-	if m.jevCopy.copying {
-		return m, nil
-	}
-	if len(m.jevCopy.queue) == 0 {
-		m.errBar.text = "the copy queue is empty"
-		return m, nil
-	}
+// copyNextPick writes the next pick to the clipboard, wrapping to the first
+// after the last. One write at a time, so a slow clipboard cannot land an
+// older pick over a newer one.
+func (m *Model) copyNextPick() tea.Cmd {
 	m.jevCopy.copying = true
-	item := m.jevCopy.queue[0]
-	generation := m.jevCopy.generation
-	m.jevCopy.queue = m.jevCopy.queue[1:]
-	return m, func() tea.Msg {
-		if err := writeClipboard(item.text); err != nil {
-			return jevCopiedMsg{generation: generation, item: item, err: err}
+	index := m.jevCopy.next
+	text := m.jevCopy.picks[index]
+	m.jevCopy.next = (index + 1) % len(m.jevCopy.picks)
+	msg := jevCopiedMsg{generation: m.jevCopy.generation, from: m.jevCopy.from, index: index, total: len(m.jevCopy.picks)}
+	return func() tea.Msg {
+		if err := writeClipboard(text); err != nil {
+			msg.err = err
+			return msg
 		}
-		return jevCopiedMsg{generation: generation, item: item, chars: utf8.RuneCountInString(item.text)}
+		msg.chars = utf8.RuneCountInString(text)
+		return msg
 	}
 }
 
 func (m *Model) applyJevCopied(msg jevCopiedMsg) {
 	m.jevCopy.copying = false
-	if !m.jevCopyQueue || msg.generation != m.jevCopy.generation {
+	if !m.jevCopyOn || msg.generation != m.jevCopy.generation {
 		return
 	}
 	if msg.err != nil {
-		// The text stays wanted: put it back at the front for another try.
-		m.jevCopy.queue = append([]copyItem{msg.item}, m.jevCopy.queue...)
+		// The same pick is still wanted: the next press tries it again.
+		m.jevCopy.next = msg.index
 		m.errBar.text = "could not copy: " + msg.err.Error()
 		return
 	}
-	m.reportDone(fmt.Sprintf("copied %d chars from %s · %d left in the copy queue", msg.chars, msg.item.from, len(m.jevCopy.queue)))
+	text := fmt.Sprintf("copied %d chars from %s", msg.chars, msg.from)
+	if msg.total > 1 {
+		text += fmt.Sprintf(" (%d of %d)", msg.index+1, msg.total)
+		if key := m.copyKeyName(); key != "" {
+			text += " · " + key + " copies the next"
+		}
+	}
+	m.reportDone(text)
+}
+
+// copyKeyName is the copy key on the screen the operator is on.
+func (m *Model) copyKeyName() string {
+	screen := keymap.ContextList
+	if m.mode == modeFocus {
+		screen = keymap.ContextFocus
+	}
+	return m.fullCap(screen, keymap.CopyJev)
 }

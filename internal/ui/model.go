@@ -134,7 +134,7 @@ type Model struct {
 	jevSavedKey    string
 	jevFinishCheck bool
 	jevFinish      jevFinishState
-	jevCopyQueue   bool
+	jevCopyOn      bool
 	jevCopy        jevCopyState
 	promptSuggest  bool
 	promptSnipsSeq int
@@ -899,7 +899,7 @@ type settingsState struct {
 	jevInput           textinput.Model
 	jevAutoSuggest     bool
 	jevFinishCheck     bool
-	jevCopyQueue       bool
+	jevCopyOn          bool
 	promptSuggest      bool
 	compressedFocus    bool
 	// backdropSync is the backdrop mode as the picker holds it: true
@@ -1257,7 +1257,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		compressedFocus: storedCompressedFocus(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
 		jevFinishCheck:  storedJevFinishCheck(st),
-		jevCopyQueue:    storedJevCopyQueue(st),
+		jevCopyOn:       storedJevCopy(st),
 		promptSuggest:   storedPromptSuggestions(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),
@@ -2200,8 +2200,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyJevFinish(msg)
 		return m, nil
 	case jevCopyResultMsg:
-		m.applyJevCopy(msg)
-		return m, nil
+		return m, m.applyJevCopy(msg)
 	case jevCopiedMsg:
 		m.applyJevCopied(msg)
 		return m, nil
@@ -2324,7 +2323,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sweep := m.sweepExpiredArchives()
 		// Off the loop, so a busy tmux server delays a child's filing rather
 		// than the board's next frame. What it finds lands as childSweptMsg.
-		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev(), m.checkCopyWithJev())
+		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev())
 		m.settleInstall()
 		m.rebuildRows()
 		if focusClosed {

@@ -77,6 +77,7 @@ app TestHogNoticesE2E                        # needs GATE_INBOX_E2E_HOGS; burns 
 app TestHogStopReachesClaudeMidTurnE2E        # needs GATE_INBOX_E2E_HOGS_CLAUDE and a logged-in claude; spends two haiku turns
 app TestHogWatchOverheadE2E                   # needs GATE_INBOX_E2E_HOGS_OVERHEAD; holds a scratch board for two measured windows
 app TestAdoptedClaudeE2E                       # needs GATE_INBOX_E2E_CLAUDE, claude and ANTHROPIC_API_KEY; spends about a dozen haiku turns
+internal/codexprobe TestCodexProbeE2E           # needs GATE_INBOX_E2E_CODEX, codex and a codex login; spends three short model turns
 
 # Not a test: the child body TestTheRawWalkEntersTheKernelFarLessOften
 # re-execs with SYSSTAT_WALK_PROBE set. That parent runs in CI.

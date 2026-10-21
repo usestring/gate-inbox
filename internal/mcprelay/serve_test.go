@@ -122,3 +122,28 @@ func TestServeGivesAnAdoptedSessionTheBoardsTools(t *testing.T) {
 		t.Fatalf("tools after the marker went = %v", names)
 	}
 }
+
+// The relay is a claude's: a codex or opencode adopted in the pane, even one
+// the relay's claude was started under, does not give that claude its row.
+func TestServeTakesOnlyAClaudesMarker(t *testing.T) {
+	configDir := t.TempDir()
+	t.Setenv("TMUX", "/run/tmux-test/default,4242,0")
+	t.Setenv("TMUX_PANE", "%7")
+	manager := hooks.NewManager(configDir)
+	caller := claudeCaller(manager, false)
+	for _, c := range []struct {
+		tool string
+		want bool
+	}{{"", true}, {"codex", false}, {"opencode", false}} {
+		// This process's parent stands in for the agent the marker names.
+		if err := manager.SyncAdopted([]hooks.AdoptedPane{{ID: "a1b2c3d4", ServerPID: 4242, PaneID: "%7", AgentPID: os.Getppid(), Tool: c.tool}}); err != nil {
+			t.Fatal(err)
+		}
+		if id, ok := caller(); ok != c.want || (ok && id != "a1b2c3d4") {
+			t.Errorf("tool %q: caller = %q, %v; want adopted %v", c.tool, id, ok, c.want)
+		}
+	}
+	if _, ok := claudeCaller(manager, true)(); ok {
+		t.Error("a launched session's relay took the marker")
+	}
+}

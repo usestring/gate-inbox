@@ -445,11 +445,10 @@ func withConfigDir(command func(args []string, sessionID, configDir string) erro
 }
 
 // callerID is the board row a subcommand speaks as: the one a launch put in
-// the environment, or the one an adopted pane names. A claude carries an
-// adoption marker from the hooks; every other adopted CLI is named by the
-// board row that owns its pane, since nothing else recorded the pairing.
-// Without it an adopted agent could not send, read or answer as itself from
-// its shell.
+// the environment, or, for an agent the board adopted rather than launched,
+// the one its pane's adoption marker names, or failing that the board row
+// that owns the pane. Without it an adopted agent could not send, read or
+// answer as itself from its shell.
 func callerID(configDir string) string {
 	if id := envname.Get(hooks.EnvSessionID); id != "" {
 		return id

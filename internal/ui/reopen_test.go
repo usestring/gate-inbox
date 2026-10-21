@@ -334,3 +334,43 @@ func TestTheScanRecordsTheConversationAPaneIsRunning(t *testing.T) {
 		t.Fatalf("row %+v err %v, want the sidecar's conversation", row, err)
 	}
 }
+
+// The Claude Code setup switch is the file the board's setup loop watches:
+// switching it off writes it, back on removes it, and a config.toml that
+// switched the setup off holds the row where it is.
+func TestSettingsSwitchesTheClaudeCodeSetup(t *testing.T) {
+	m := buildModel(t)
+	m.openSettings()
+	m.settings.field = settingsFieldClaudeSetup
+	if out := ansi.Strip(m.frame()); !strings.Contains(out, "claude code setup") || !strings.Contains(out, "automatic") {
+		t.Fatalf("settings missing the claude code setup row:\n%s", out)
+	}
+	m.cycleSetting(1)
+	m.saveAndCloseSettings()
+	if !m.hooks.GlobalDisabled() {
+		t.Fatal("switching the setup off did not reach the board's switch")
+	}
+	m.openSettings()
+	m.settings.field = settingsFieldClaudeSetup
+	m.cycleSetting(1)
+	m.saveAndCloseSettings()
+	if m.hooks.GlobalDisabled() {
+		t.Fatal("switching the setup back on left it off")
+	}
+
+	off := false
+	m.cfg.ClaudeCode.Setup = &off
+	m.openSettings()
+	m.settings.field = settingsFieldClaudeSetup
+	m.cycleSetting(1)
+	if !m.settings.claudeSetup || !strings.Contains(m.errBar.text, "config.toml") {
+		t.Fatalf("a config opt-out let the row step: on=%v notice=%q", m.settings.claudeSetup, m.errBar.text)
+	}
+	if out := ansi.Strip(m.frame()); !strings.Contains(out, "off in config.toml") {
+		t.Fatalf("settings does not say config.toml switched it off:\n%s", out)
+	}
+	m.saveAndCloseSettings()
+	if m.hooks.GlobalDisabled() {
+		t.Fatal("closing settings under a config opt-out wrote the switch")
+	}
+}

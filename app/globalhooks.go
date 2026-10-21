@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -8,8 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"github.com/usestring/gate-inbox/internal/cli"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
@@ -18,67 +20,160 @@ import (
 
 const claudeHooksUsage = "claude-hooks [install | uninstall [--all] | status]"
 
-// claudeHooksHelp lists the command beside the session commands.
-var claudeHooksHelp = cli.HelpSection{Title: "Setup", Commands: []cli.HelpEntry{{
-	Usage: claudeHooksUsage,
-	About: "register Gate Inbox's hooks and MCP relay in your Claude Code user config, so a claude started outside the board works fully once adopted; the board installs them at startup",
-}}}
+// claudeSetupEvery is how often a running board checks that its Claude Code
+// entries are still in place. A check that finds them reads two files and
+// writes nothing, so this only bounds how long an entry deleted by hand, or
+// left naming a binary that has since moved, goes unrepaired.
+const claudeSetupEvery = 5 * time.Minute
 
-// registerGlobalHooks puts the global hooks in the user's Claude Code settings
-// at board startup (hooks.RegisterGlobal). It never fails the board: a file it
-// cannot read or write costs adopted sessions their hooks, and a warning.
+// claudeSwitchEvery is how often it looks at the Settings switch, one stat,
+// so switching the setup off there takes the entries out within seconds.
+const claudeSwitchEvery = 5 * time.Second
+
+// claudeSetup keeps Gate Inbox's hooks and MCP relay in the user's Claude
+// Code config for as long as the board runs, or keeps them out when the
+// operator switched them off. Nobody runs a command for it: opening the board
+// is the setup. It never fails the board: a file it cannot read or write
+// costs adopted sessions their hooks or tools, and one warning.
+type claudeSetup struct {
+	dir string
+	// configOn is config.toml's [claude_code] setup, read at startup.
+	configOn bool
+	bin      func() string
+	// applied is what the last pass did, so the switch ticker only syncs on
+	// a change.
+	applied bool
+	// warned holds the last warning per entry, so a settings file that stays
+	// malformed is reported once rather than every few minutes.
+	warned map[string]string
+}
+
+func newClaudeSetup(dir string, configOn bool) *claudeSetup {
+	return &claudeSetup{dir: dir, configOn: configOn, bin: launch.Installed, warned: map[string]string{}}
+}
+
+// keepClaudeSetup syncs the entries once before the board draws anything,
+// then again every claudeSetupEvery, and whenever the Settings switch flips,
+// until stop is called.
 //
 // It stands down for a board whose home is a scratch directory, which is what
 // a test or a trial run uses: those homes vanish, and a user's settings must
-// not be left naming them. `claude-hooks install` still registers one by hand.
-func registerGlobalHooks(dir string) {
-	manager := hooks.NewManager(dir)
-	if manager.GlobalDisabled() {
-		logging.Info("global claude hooks left off", "reason", "removed by the operator")
-		return
-	}
+// not be left naming them.
+func keepClaudeSetup(dir string, configOn bool) (stop func()) {
 	if underTempDir(dir) {
-		logging.Info("global claude hooks left off", "reason", "scratch home", "home", dir)
-		return
+		logging.Info("claude code setup left off", "reason", "scratch home", "home", dir)
+		return func() {}
 	}
-	bin := launch.Installed()
-	if bin == "" {
-		logging.Info("global claude hooks left off", "reason", "no installed binary")
-		return
+	setup := newClaudeSetup(dir, configOn)
+	setup.sync()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		setup.run(ctx, claudeSetupEvery, claudeSwitchEvery)
+	}()
+	return func() {
+		cancel()
+		<-done
 	}
-	path, err := hooks.GlobalSettingsPath()
-	if err != nil {
-		logging.Warn("global claude hooks not registered", logging.Err(err))
-		return
-	}
-	registerGlobalHooksAt(path, dir, bin)
-	registerRelay(dir, bin)
 }
 
-// registerRelay puts the MCP relay in the user's Claude Code config, so an
-// adopted claude gets the board's tools. Like the hooks, it never fails the
-// board, and it costs nothing when the config already carries it: the claude
-// CLI runs only to change the entry.
-func registerRelay(dir, bin string) {
-	path, err := mcprelay.ClaudeStatePath()
-	if err != nil {
-		logging.Warn("gate-inbox MCP relay not registered", logging.Err(err))
+func (s *claudeSetup) run(ctx context.Context, every, switchEvery time.Duration) {
+	full, flip := time.NewTicker(every), time.NewTicker(switchEvery)
+	defer full.Stop()
+	defer flip.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-full.C:
+			s.sync()
+		case <-flip.C:
+			if s.wanted() != s.applied {
+				s.sync()
+			}
+		}
+	}
+}
+
+// wanted is the operator's choice: config.toml and the Settings switch must
+// both leave the setup on. The switch is the hooks/global-hooks.disabled file
+// `claude-hooks uninstall` has always written, so a board that was opted out
+// that way stays opted out.
+func (s *claudeSetup) wanted() bool {
+	return s.configOn && !hooks.NewManager(s.dir).GlobalDisabled()
+}
+
+// sync makes the user's Claude Code config match wanted. Each half is a read
+// that changes nothing when the entries are already right; only a difference
+// writes the settings file or runs the claude CLI.
+func (s *claudeSetup) sync() {
+	want := s.wanted()
+	s.applied = want
+	settings, settingsErr := hooks.GlobalSettingsPath()
+	state, stateErr := mcprelay.ClaudeStatePath()
+	if !want {
+		if settingsErr == nil {
+			changed, err := hooks.UnregisterGlobal(settings, s.dir)
+			s.report("hooks", "global claude hooks removed", "settings", settings, changed, err)
+		}
+		if stateErr == nil {
+			changed, err := mcprelay.Unregister(claudeOnPath, state, s.dir, false)
+			s.report("relay", "gate-inbox MCP relay removed", "config", state, changed, err)
+		}
 		return
 	}
-	if state, err := mcprelay.Lookup(path, dir, bin); err == nil && state == mcprelay.Current {
+	bin := s.bin()
+	if bin == "" {
+		s.report("hooks", "", "", "", false, errors.New("no installed binary"))
 		return
 	}
+	if settingsErr != nil {
+		s.report("hooks", "", "", "", false, settingsErr)
+	} else {
+		changed, err := hooks.RegisterGlobal(settings, s.dir, bin)
+		s.report("hooks", "global claude hooks registered", "settings", settings, changed, err)
+	}
+	if stateErr != nil {
+		s.report("relay", "", "", "", false, stateErr)
+	} else {
+		changed, err := mcprelay.Register(claudeOnPath, state, s.dir, bin)
+		s.report("relay", "gate-inbox MCP relay registered", "config", state, changed, err)
+	}
+}
+
+// report logs a change once and a failure once per distinct message. A
+// machine with no claude on it is not a fault, so that one is info.
+func (s *claudeSetup) report(entry, did, key, path string, changed bool, err error) {
+	if err == nil {
+		delete(s.warned, entry)
+		if changed {
+			logging.Info(did, key, path)
+		}
+		return
+	}
+	if s.warned[entry] == err.Error() {
+		return
+	}
+	s.warned[entry] = err.Error()
+	if errors.Is(err, errNoClaude) {
+		logging.Info("claude code setup: "+entry+" left off", "reason", err.Error())
+		return
+	}
+	logging.Warn("claude code setup: "+entry+" not in place", logging.Err(err))
+}
+
+var errNoClaude = errors.New("no claude on PATH")
+
+// claudeOnPath runs the claude found on PATH at the moment it is needed, so a
+// board started before claude was installed picks it up on a later pass, and
+// a pass with nothing to change never looks.
+func claudeOnPath(args ...string) error {
 	claude, err := claudeCLI()
 	if err != nil {
-		logging.Info("gate-inbox MCP relay left off", "reason", err.Error())
-		return
+		return err
 	}
-	changed, err := mcprelay.Register(claude, path, dir, bin)
-	if err != nil {
-		logging.Warn("gate-inbox MCP relay not registered", "config", path, logging.Err(err))
-		return
-	}
-	logging.Info("gate-inbox MCP relay registered", "config", path, "changed", changed)
+	return claude(args...)
 }
 
 // claudeCLI runs the claude on PATH, for the MCP commands that edit its user
@@ -86,7 +181,7 @@ func registerRelay(dir, bin string) {
 func claudeCLI() (mcprelay.Claude, error) {
 	bin, err := exec.LookPath("claude")
 	if err != nil {
-		return nil, errors.New("no claude on PATH")
+		return nil, errNoClaude
 	}
 	return func(args ...string) error {
 		out, err := exec.Command(bin, args...).CombinedOutput()
@@ -141,18 +236,6 @@ func relayStatus(configDir, bin string) string {
 	return path + ": " + words[state]
 }
 
-// registerGlobalHooksAt is the write itself. A settings file that is
-// malformed, read-only or otherwise unwritable is left exactly as it was, and
-// the board starts anyway.
-func registerGlobalHooksAt(path, dir, bin string) {
-	changed, err := hooks.RegisterGlobal(path, dir, bin)
-	if err != nil {
-		logging.Warn("global claude hooks not registered", "settings", path, logging.Err(err))
-		return
-	}
-	logging.Info("global claude hooks registered", "settings", path, "changed", changed)
-}
-
 func underTempDir(dir string) bool {
 	temp, err := filepath.EvalSymlinks(os.TempDir())
 	if err != nil {
@@ -166,8 +249,9 @@ func underTempDir(dir string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// runClaudeHooks is the claude-hooks command. uninstall also keeps the board
-// from putting them back; install clears that.
+// runClaudeHooks is the claude-hooks command, a maintenance tool the help
+// leaves out: the board does this itself. uninstall flips the same switch as
+// Settings, so the board keeps them out; install flips it back.
 func runClaudeHooks(out io.Writer, args []string, configDir string) error {
 	verb := "status"
 	if len(args) > 0 {
@@ -238,13 +322,26 @@ func runClaudeHooks(out io.Writer, args []string, configDir string) error {
 		if registered {
 			state = "registered"
 		}
-		if manager.GlobalDisabled() {
-			state += " (the board will not register them; run `" + Name + " claude-hooks install`)"
+		switch {
+		case !configSetupOn(configDir):
+			state += " (switched off by [claude_code] setup = false in config.toml; the board removes them)"
+		case manager.GlobalDisabled():
+			state += " (claude code setup is switched off in Settings; the board removes them)"
 		}
 		_, err = fmt.Fprintf(out, "%s: %s\n%s\n", path, state, relayStatus(configDir, bin))
 		return err
 	}
 	return fmt.Errorf("usage: %s %s", Name, claudeHooksUsage)
+}
+
+// configSetupOn reads [claude_code] setup from the board's config, without
+// writing a default config where there is none.
+func configSetupOn(configDir string) bool {
+	if _, err := os.Stat(filepath.Join(configDir, "config.toml")); err != nil {
+		return true
+	}
+	cfg, err := config.LoadDir(configDir)
+	return err != nil || cfg.ClaudeCode.SetupOn()
 }
 
 func describeChange(changed bool, did, already string) string {

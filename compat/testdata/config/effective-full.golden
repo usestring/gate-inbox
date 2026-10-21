@@ -9,6 +9,7 @@ file*    children.auto_archive_after = "1h0m0s"
          (file: "1h")
 default  children.finished_grace = "10m0s"
 default  children.keep_finished = false
+default  claude_code.setup = <unset>
 file     editor = "vi"
 file     extensions.artifacts.base_url = "https://artifacts.example.test"
 file     extensions.artifacts.enabled = true

@@ -103,10 +103,6 @@ Board hygiene
   gate-inbox sweep [--json] [--db <path>] [--idle 72h] [--waiting 24h] [--errored 24h] [--dead 1h] [--mail 1h]
       list stale sessions and undelivered mail with the call that would clear each; reads state.db read-only and changes nothing
 
-Setup
-  gate-inbox claude-hooks [install | uninstall [--all] | status]
-      register Gate Inbox's hooks and MCP relay in your Claude Code user config, so a claude started outside the board works fully once adopted; the board installs them at startup
-
 Options:
   -h, --help     Show this help text
   -v, --version  Print the installed version

@@ -10,6 +10,13 @@ Top-level: `poll_interval` (default `"2s"`) sets how often panes are polled for 
 
 `[children]` controls what the board does with sessions an agent spawned. `auto_archive_after` (default `"30m"`) is how long a child whose pane has exited stays on the list when it never reported back. `finished_grace` (default `"10m"`) is how long a *finished* child stays once its spawner has taken the finish in -- the rest notice reached the spawner's prompt, or the spawner ran `read_session` or `wait_for_session` on it after it finished -- before the board archives it through the same teardown as `x`, so the archived view (quick actions) finds it and `u` restores it for the 7-day retention window. A child that is waiting, working, errored, dead without having finished, adopted, spawned with `keep`, or still has live children of its own is never archived by this rule, and neither is a Claude Code child with background work still running (see the usage guide), and archiving a parent takes its descendants with it. `keep_finished = true` turns the finished-child cleanup off board-wide.
 
+<a id="claude-code-setup"></a>`[claude_code]` covers your own Claude Code config. `setup` (default on) has the board keep its hooks in `~/.claude/settings.json` and its MCP relay, a server named `gate-inbox`, in `~/.claude.json` (the files under `CLAUDE_CONFIG_DIR` when that is set), which is how a `claude` you started outside the board reports status and gets the board's tools once it is adopted (see [Status](usage.md#status)). There is no command to run: the board registers them when it starts and checks them every few minutes while it runs. `setup = false` makes the board remove them instead; the "claude code setup" setting does the same on one machine without editing this file. Named accounts need nothing more: they swap the token a session runs on, not the Claude Code config directory, so one registration covers them all.
+
+```toml
+[claude_code]
+setup = false
+```
+
 `[merge_gate]` is the standing merge authority the merge-gate mod enforces in the Claude Code sessions the board launches. Claude Code's auto-mode classifier refuses `gh pr merge` in a child as "Merge Without Review" even after the user approved that exact merge, so one approved merge becomes two or three questions. The mod rides the board's Claude Code plugin, which every claude session the board starts loads; with this section set, the mod's `tool.check` allows exactly one covered merge after checking the pull request itself with `gh`, and everything else stays on the classifier's flow:
 
 ```toml

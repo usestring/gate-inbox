@@ -867,30 +867,33 @@ type quickState struct {
 }
 
 type settingsState struct {
-	toolNames          []string
-	toolIndex          int
-	accountRouting     string
-	chooserAvailable   bool
-	themeIndex         int
-	field              int
-	quickCloseSend     bool
-	enterFocuses       bool
-	comfortableRows    bool
-	layout             string
-	sidebar            string
-	palette            string
-	glyphs             string
-	archiveConfirm     string
-	deleteConfirm      string
-	restartConfirm     string
-	listSort           string
-	chrome             string
-	leaveMode          string
-	newSessionAgent    string
-	autoProceed        bool
-	smartTriage        bool
-	reopenSessions     string
-	outsidePanes       string
+	toolNames        []string
+	toolIndex        int
+	accountRouting   string
+	chooserAvailable bool
+	themeIndex       int
+	field            int
+	quickCloseSend   bool
+	enterFocuses     bool
+	comfortableRows  bool
+	layout           string
+	sidebar          string
+	palette          string
+	glyphs           string
+	archiveConfirm   string
+	deleteConfirm    string
+	restartConfirm   string
+	listSort         string
+	chrome           string
+	leaveMode        string
+	newSessionAgent  string
+	autoProceed      bool
+	smartTriage      bool
+	reopenSessions   string
+	outsidePanes     string
+	// claudeSetup is the Settings switch for the board's entries in the
+	// operator's Claude Code config, as the picker holds it.
+	claudeSetup        bool
 	experimentalPicker bool
 	experimentalCursor int
 	jevPanel           bool
@@ -935,6 +938,7 @@ const (
 	settingsFieldSmartTriage
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
+	settingsFieldClaudeSetup
 	settingsFieldJev
 	settingsFieldExperimental
 	settingsFieldSnippets

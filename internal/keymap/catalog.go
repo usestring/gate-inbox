@@ -59,6 +59,7 @@ const (
 	Priority      Action = "priority"
 	Mute          Action = "mute"
 	CopySessionID Action = "copy_session_id"
+	CopyQueued    Action = "copy_queued"
 	HandOver      Action = "hand_over"
 	QuickInput    Action = "quick_prompt"
 	RenameSelf    Action = "rename_from_agent"
@@ -172,13 +173,14 @@ var Catalog = []Binding{
 	{ContextList, UndoArchive, []string{"U", "shift+u"}, "bring back what the last kill filed away", false},
 	{ContextList, Dismiss, []string{"."}, "skip", false},
 	{ContextList, Priority, []string{"ctrl+p", "p"}, "cycle priority: urgent → high → medium → low → none", false},
-	{ContextList, Mute, []string{"M", "shift+m"}, "mute / unmute: keep it out of triage until unmuted", false},
+	{ContextList, Mute, []string{"M", "shift+m", "ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
 	{ContextList, QuickInput, []string{" ", "space", "ctrl+s"}, "hotkey menu", false},
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{}, "rename it yourself, and re-pick its tool", false},
 	{ContextList, NameSweep, []string{}, "name sweep over idle adopted panes", false},
 	{ContextList, TakeOver, []string{}, "take over the adopted panes now; busy ones once they go idle", false},
 	{ContextList, Move, []string{"m"}, "move it to a group", false},
+	{ContextList, CopyQueued, []string{"'"}, "copy the next text JEV queued", false},
 
 	{ContextList, ShowAllWork, []string{}, "show every pull request and ticket, not the first few", false},
 	{ContextList, StatusFilter, []string{"w"}, "filter to what needs attention", false},
@@ -230,6 +232,9 @@ var Catalog = []Binding{
 	// takes the agent's ctrl+p, which every agent CLI also answers on the up
 	// arrow.
 	{ContextFocus, Priority, []string{"ctrl+p"}, "cycle priority: urgent → high → medium → low → none", false},
+	// The list's mute on the same chord. A terminal without an enhanced
+	// keyboard protocol sends ctrl+m as enter, so there it stays a submit.
+	{ContextFocus, Mute, []string{"ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
 	// A chord, like every other key this screen claims: ctrl+h would otherwise
 	// reach the agent as readline's backward-delete, and backspace still sends
 	// that edit under its own name.
@@ -245,6 +250,7 @@ var Catalog = []Binding{
 	// so these sit on ctrl or option+punctuation.
 	{ContextFocus, NewSession, []string{"ctrl+n"}, "new session in this one's group", false},
 	{ContextFocus, CopySessionID, []string{"alt+/"}, "copy the agent's session id", false},
+	{ContextFocus, CopyQueued, []string{"alt+'"}, "copy the next text JEV queued", false},
 	{ContextFocus, LastPane, []string{"alt+;"}, "back to the previous pane; again walks further back", false},
 	{ContextFocus, JumpPane, []string{"ctrl+g"}, "find a pane by name and focus it", false},
 	{ContextFocus, BackAtPrompt, []string{"right", "left"}, "at a prompt edge, leave; in triage Right advances a finished one", false},

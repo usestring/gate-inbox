@@ -67,6 +67,7 @@ func helpSections() []helpSection {
 			listRow(keymap.QuickInput, "hotkeys: send a snippet to the session without entering it"),
 			listRow(keymap.Priority, "priority: steps urgent → high → medium → low → none"),
 			listRow(keymap.Mute, "mute / unmute: keep it out of triage until unmuted"),
+			listRow(keymap.CopyQueued, "copy the next text JEV queued (experimental JEV copy queue)"),
 			listRow(keymap.LastPane, "back to the previous pane; again walks further back"),
 			listRow(keymap.Rescind, "undo the latest submission while its turn is active"),
 			listRow(keymap.NewSession, "new session here: asks the agent; new session form asks everything"),
@@ -92,6 +93,7 @@ func helpSections() []helpSection {
 			bound(focus, keymap.Rescind, "undo the latest submission while its turn is active"),
 			bound(focus, keymap.Archive, "kill it, asking first"),
 			bound(focus, keymap.Priority, "cycle priority: urgent → high → medium → low → none"),
+			bound(focus, keymap.Mute, "mute / unmute: keep it out of triage until unmuted"),
 			bound(focus, keymap.Help, "this key map, in place: only this chord reaches it here"),
 		}},
 		{title: "advanced: the list", rows: []helpRow{
@@ -189,6 +191,7 @@ func helpSections() []helpSection {
 			bound(focus, keymap.PreviewPageUp, "scroll a page up"),
 			bound(focus, keymap.PreviewPageDown, "scroll a page down"),
 			bound(focus, keymap.CopySessionID, "copy the agent's session id"),
+			bound(focus, keymap.CopyQueued, "copy the next text JEV queued (experimental JEV copy queue)"),
 			bound(focus, keymap.PreviewUp, "focused: scroll a step without a wheel"),
 			bound(focus, keymap.PreviewDown, "focused: scroll a step down"),
 			bound(focus, keymap.PreviewTop, "focused: oldest history"),

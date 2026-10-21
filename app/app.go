@@ -28,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
@@ -44,6 +45,8 @@ import (
 	"github.com/usestring/gate-inbox/internal/mcpserver"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
+	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
@@ -440,9 +443,11 @@ func withConfigDir(command func(args []string, sessionID, configDir string) erro
 }
 
 // callerID is the board row a subcommand speaks as: the one a launch put in
-// the environment, or, for a claude the board adopted rather than launched,
-// the one its pane's adoption marker names. Without it an adopted agent
-// could not send, read or answer as itself from its shell.
+// the environment, or the one an adopted pane names. A claude carries an
+// adoption marker from the hooks; every other adopted CLI is named by the
+// board row that owns its pane, since nothing else recorded the pairing.
+// Without it an adopted agent could not send, read or answer as itself from
+// its shell.
 func callerID(configDir string) string {
 	if id := envname.Get(hooks.EnvSessionID); id != "" {
 		return id
@@ -451,10 +456,62 @@ func callerID(configDir string) string {
 	if pane == "" {
 		return ""
 	}
-	id, _ := hooks.NewManager(configDir).AdoptedCaller(os.Getenv("TMUX"), pane, func() []int {
+	tmuxEnv := os.Getenv("TMUX")
+	if id, ok := hooks.NewManager(configDir).AdoptedCaller(tmuxEnv, pane, func() []int {
 		return adopt.Ancestors(int32(os.Getpid()))
-	})
+	}); ok {
+		return id
+	}
+	socket := tmuxSocketName(tmuxEnv)
+	if socket == "" {
+		return ""
+	}
+	// A row names its server by -L name alone, which another socket directory
+	// can reuse, and a server restarted at the same path numbers its panes from
+	// %0 again; so a row only speaks for this pane once the server that name
+	// reaches is the caller's, and only if it was adopted after that started.
+	started, ok := paneServerStarted(socket, tmuxEnv, pane)
+	if !ok {
+		return ""
+	}
+	st, err := store.OpenReadOnly(filepath.Join(configDir, "state.db"))
+	if err != nil {
+		return ""
+	}
+	defer st.Close()
+	id, ok, err := st.SessionAtPane(socket, pane, started)
+	if err != nil || !ok {
+		return ""
+	}
 	return id
+}
+
+// tmuxSocketName is the short server name tmux spells in $TMUX, the same
+// spelling an adopted row stores. $TMUX is read from the right, since the
+// socket path is the one field free to contain a comma.
+func tmuxSocketName(tmuxEnv string) string {
+	path := tmuxEnv
+	for range 2 {
+		i := strings.LastIndex(path, ",")
+		if i < 0 {
+			return ""
+		}
+		path = path[:i]
+	}
+	if path == "" {
+		return ""
+	}
+	return filepath.Base(path)
+}
+
+// paneServerStarted asks the server -L socket reaches when it started, and
+// holds that answer back unless it is the server $TMUX names.
+var paneServerStarted = func(socket, tmuxEnv, pane string) (time.Time, bool) {
+	driver, err := tmux.NewWithSocket(socket)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return driver.PaneServerStarted(tmuxEnv, pane)
 }
 
 // extensionCommand is one command an extension adds, with the ID of the

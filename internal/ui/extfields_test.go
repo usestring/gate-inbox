@@ -197,6 +197,22 @@ func TestAScreensSubmitKeyReplacesCtrlS(t *testing.T) {
 	}
 }
 
+// A screen that binds submit to ctrl+s lists it once, under its own label.
+func TestAScreensOwnSubmitIsHintedOnce(t *testing.T) {
+	m, bridge, sent := viewModel(t,
+		ExtensionKey{Screen: "detail", Action: string(ActionSubmit), Keys: []string{"ctrl+s"}, Label: "save the ranking"},
+	)
+	bridge.Open("items", "detail", sampleForm())
+	deliver(t, m, sent)
+	frame := ansi.Strip(m.viewExtension())
+	if n := strings.Count(frame, "ctrl+s"); n != 1 {
+		t.Fatalf("the hint lists ctrl+s %d times, want once:\n%s", n, frame)
+	}
+	if !strings.Contains(frame, "save the ranking") {
+		t.Fatalf("the hint lost the screen's submit label:\n%s", frame)
+	}
+}
+
 // Up and down move between fields as tab and shift+tab do, wrapping at the
 // ends. A multi-line box keeps them for its own rows, and hands them on only
 // from its first row going up or its last row going down.

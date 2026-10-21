@@ -100,9 +100,11 @@ type createSessionArgs struct {
 	Model      string  `json:"model,omitempty" jsonschema:"model that CLI should run on, in whatever names it uses (claude: sonnet, opus, haiku, plus the 1M-context opus[1m] and sonnet[1m]; opencode: provider/model); call list_models for the names a CLI accepts rather than guessing one, since an unknown name is refused by the CLI and the session dies on launch; omit for the CLI's own default"`
 	Account    string  `json:"account,omitempty" jsonschema:"optional named account from list_accounts; omit to follow the board's launch-account setting (the CLI's own login unless the build's extension chooses); a child does not inherit its parent's account; a named account requires a CLI that accepts a token"`
 	Group      *string `json:"group,omitempty" jsonschema:"existing group path for a detached session (nest false) to sit in; pass an empty string for the root group; a nested session is always in this agent's group and refuses any other; call list_groups for the existing ones"`
-	Directory  string  `json:"directory,omitempty" jsonschema:"existing directory the session works in; defaults to this agent's own directory, or to the selected group's inherited path when group is set"`
-	Nest       *bool   `json:"nest,omitempty" jsonschema:"omit it: the new session is this session's child, drawn under it, and its questions, rests and finishes are relayed to this session, which is how a fan-out gets steered; false detaches it into a top-level session that belongs to the user, not to this session: it still records this session in spawned_by, but this session is not told of its questions, rests or finishes and cannot answer its dialogs, and the two talk only through send_session and read_session; only for work that is not this session's, such as a standalone session the user asked for"`
-	Keep       bool    `json:"keep,omitempty" jsonschema:"keep this child on the list after it finishes: Gate Inbox otherwise archives a finished child on its own once you have read or been told of its finish and left it alone for the grace period (10 minutes by default); a child with background work still running is not finished"`
+	Directory  string  `json:"directory,omitempty" jsonschema:"existing directory the session works in; defaults to this agent's own directory, or to the selected group's inherited path when group is set; a group that pins its directory (list_groups pinned) starts the session there and hands it this one to change into, unless directory_reason is given"`
+	// DirectoryReason opts one launch out of its group's pinned directory.
+	DirectoryReason string `json:"directory_reason,omitempty" jsonschema:"why this session must start in directory itself although its group pins another; rarely needed, since a pinned group's directory is where the user wants work to start, so leave it empty unless the task only works when started there"`
+	Nest            *bool  `json:"nest,omitempty" jsonschema:"omit it: the new session is this session's child, drawn under it, and its questions, rests and finishes are relayed to this session, which is how a fan-out gets steered; false detaches it into a top-level session that belongs to the user, not to this session: it still records this session in spawned_by, but this session is not told of its questions, rests or finishes and cannot answer its dialogs, and the two talk only through send_session and read_session; only for work that is not this session's, such as a standalone session the user asked for"`
+	Keep            bool   `json:"keep,omitempty" jsonschema:"keep this child on the list after it finishes: Gate Inbox otherwise archives a finished child on its own once you have read or been told of its finish and left it alone for the grace period (10 minutes by default); a child with background work still running is not finished"`
 	// CallerSessionID carries the caller's own session id when the MCP
 	// server's startup value cannot be trusted: opencode multiplexes
 	// same-cwd conversations through one shared MCP server (serve daemon),
@@ -600,15 +602,16 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			return nil, sessioncmd.Session{}, err
 		}
 		created, err := createSession(configDir, callerID, sessioncmd.CreateSessionOptions{
-			Tool:      args.Tool,
-			Name:      args.Name,
-			Group:     args.Group,
-			Directory: args.Directory,
-			Prompt:    prompt,
-			Model:     args.Model,
-			Account:   args.Account,
-			Nest:      args.Nest,
-			Keep:      args.Keep,
+			Tool:            args.Tool,
+			Name:            args.Name,
+			Group:           args.Group,
+			Directory:       args.Directory,
+			DirectoryReason: args.DirectoryReason,
+			Prompt:          prompt,
+			Model:           args.Model,
+			Account:         args.Account,
+			Nest:            args.Nest,
+			Keep:            args.Keep,
 		}, sessions.Create)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err

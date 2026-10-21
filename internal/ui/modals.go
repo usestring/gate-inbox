@@ -379,6 +379,11 @@ func (m *Model) viewGroupForm() string {
 	var b strings.Builder
 	b.WriteString(formField("name", m.groupForm.name.View(), m.groupForm.focus == gfName))
 	b.WriteString(formField("parent", groupBadge(displayGroup(m.selectedGroupPath())), m.groupForm.focus == gfParent))
+	start := "default to path"
+	if m.groupForm.pin {
+		start = "always at path"
+	}
+	b.WriteString(formField("start", start, m.groupForm.focus == gfPin))
 	b.WriteString(formField("path", m.groupForm.path.View(), m.groupForm.focus == gfPath))
 	if m.groupForm.focus == gfPath && m.pathSugg.showing() {
 		b.WriteString(m.viewPathSuggestions() + "\n")
@@ -393,6 +398,9 @@ func (m *Model) viewGroupForm() string {
 	hint := [][2]string{{"tab/↑↓", "move"}, {"↵", submit}, {"esc", "cancel"}}
 	if m.groupForm.focus == gfParent {
 		hint = [][2]string{{"←→", "pick parent"}, {"tab/↑↓", "move"}, {"↵", submit}, {"esc", "cancel"}}
+	}
+	if m.groupForm.focus == gfPin {
+		hint = [][2]string{{"←→/space", "toggle"}, {"tab/↑↓", "move"}, {"↵", submit}, {"esc", "cancel"}}
 	}
 	if m.groupForm.focus == gfPath && m.pathSugg.showing() {
 		hint = pathSuggestHint(m.pathSugg)

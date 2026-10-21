@@ -387,6 +387,42 @@ func TestInboxDeliveryReadsTheRecipientAsWorking(t *testing.T) {
 	}
 }
 
+// A pending prompt typed in starts a turn just as a delivered message does.
+// Live 2026-10-19: a child restarted for a stale sandbox was typed its resume
+// prompt, read_session read its pane as working, and its row still said idle
+// until the next capture.
+func TestPendingInputDeliveryReadsTheSessionAsWorking(t *testing.T) {
+	disableQuietEndGrace(t)
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "ready-tool")
+	if len(sess.PendingInputs) == 0 {
+		t.Fatal("the spawn left no launch input, so this proves nothing")
+	}
+	pane := settledPane(t, m, sess.ID, "❯")
+	if err := m.store.UpdateStatus(sess.ID, status.Idle); err != nil {
+		t.Fatal(err)
+	}
+	seedRegionHash(t, m, sess, pane)
+
+	if msg, failed := m.poller.refreshOnce().(errMsg); failed {
+		t.Fatalf("refreshOnce: %v", msg.err)
+	}
+	if !m.poller.awaitSends(10 * time.Second) {
+		t.Fatal("the send never settled")
+	}
+
+	got, err := m.store.Get(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.PendingInputs) == len(sess.PendingInputs) {
+		t.Fatal("the pass never typed the launch input in, so it proves nothing")
+	}
+	if got.Status != status.Working {
+		t.Fatalf("after the pass that typed the launch input in: status %q, want working", got.Status)
+	}
+}
+
 // An agent holds one front or the other, so the envelope has to send the
 // reader after a reply it can actually make: a session whose CLI carries
 // no MCP client cannot call a tool.

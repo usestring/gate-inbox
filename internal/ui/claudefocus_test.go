@@ -96,6 +96,39 @@ func TestClaudePromptEndLeavesFocus(t *testing.T) {
 	}
 }
 
+// After a turn claude offers a suggested next prompt, drawn faint past the
+// caret in the empty composer. The rows are the shape a live capture takes:
+// the composer between its two rules, the marker and its non-breaking space,
+// then the hint in SGR 2. Stripped, the hint reads as a typed line with the
+// caret at its head.
+func TestClaudeSuggestionLeavesFocusOnRight(t *testing.T) {
+	m := &Model{engine: liveEngine(t), mode: modeFocus}
+	m.pane.forID = "s1"
+	m.pane.cursor = paneCursor{x: 2, y: 1, ok: true}
+	frame := func(composer string) string {
+		return "────────────\n" + composer + "\n────────────\n  ⏵⏵ auto mode on\n"
+	}
+
+	m.preview = frame("\x1b[39m❯ \x1b[2mrun the tests again\x1b[0m")
+	if !m.rightLeavesFocus("s1", "claude") {
+		t.Fatal("Right does not leave an empty prompt showing claude's suggestion")
+	}
+
+	// The same words typed, with the caret moved to their head, are a line
+	// Right still walks through.
+	m.preview = frame("\x1b[39m❯ run the tests again\x1b[0m")
+	if m.rightLeavesFocus("s1", "claude") {
+		t.Fatal("Right left from the head of a typed line")
+	}
+
+	// Faint text after typed text is not an empty composer.
+	m.preview = frame("\x1b[39m❯ run \x1b[2mthe tests again\x1b[0m")
+	m.pane.cursor = paneCursor{x: 6, y: 1, ok: true}
+	if m.rightLeavesFocus("s1", "claude") {
+		t.Fatal("Right left with typed text before the caret")
+	}
+}
+
 // The reported bug, end to end on the frame it was reported from: a
 // multi-select question, the caret parked on the dialog's own marker, and
 // Left refusing to return to the list.

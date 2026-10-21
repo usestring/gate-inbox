@@ -586,6 +586,10 @@
         "description": "full group path, slash separated; pass this value as a group argument",
         "type": "string"
       },
+      "pinned": {
+        "description": "whether every session spawned into this group starts in its directory, whatever directory it was asked for",
+        "type": "boolean"
+      },
       "sessions": {
         "description": "number of active agent sessions directly in this group",
         "type": "integer"
@@ -621,7 +625,11 @@
         "type": "string"
       },
       "directory": {
-        "description": "existing directory the session works in; defaults to this agent's own directory, or to the selected group's inherited path when group is set",
+        "description": "existing directory the session works in; defaults to this agent's own directory, or to the selected group's inherited path when group is set; a group that pins its directory (list_groups pinned) starts the session there and hands it this one to change into, unless directory_reason is given",
+        "type": "string"
+      },
+      "directory_reason": {
+        "description": "why this session must start in directory itself although its group pins another; rarely needed, since a pinned group's directory is where the user wants work to start, so leave it empty unless the task only works when started there",
         "type": "string"
       },
       "group": {
@@ -1374,6 +1382,10 @@
             "path": {
               "description": "full group path, slash separated; pass this value as a group argument",
               "type": "string"
+            },
+            "pinned": {
+              "description": "whether every session spawned into this group starts in its directory, whatever directory it was asked for",
+              "type": "boolean"
             },
             "sessions": {
               "description": "number of active agent sessions directly in this group",

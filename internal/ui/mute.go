@@ -81,6 +81,13 @@ func (m *Model) isMuted(sess store.Session) bool {
 	if sess.Status == mark.status && !sess.LastStatusAt.After(mark.at) {
 		return true
 	}
+	// Leaving or skipping a finished session acknowledges it, which turns it
+	// idle and acked under the same LastStatusAt. That is the finish the mark
+	// was made on, seen, not news; smart triage still scores it, so letting
+	// the mark lapse here would hand it straight back.
+	if mark.status == status.Finished && sess.Status == status.Idle && sess.Acked && sess.LastStatusAt.Equal(mark.at) {
+		return true
+	}
 	delete(m.muted, sess.ID)
 	return false
 }
@@ -190,6 +197,9 @@ func (m *Model) skipSelected() (tea.Model, tea.Cmd) {
 			m.errBar.text = err.Error()
 			return m, nil
 		}
+		// Smart triage still scores a seen finish, so the skip mutes it too
+		// for the walk to get past it. See isMuted.
+		m.mute(sess)
 		m.requestRefresh()
 	} else if m.triageWalkable(sess) {
 		m.mute(sess)

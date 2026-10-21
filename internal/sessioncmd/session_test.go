@@ -130,11 +130,16 @@ jump_to_bottom_key = "Enter"
 
 func newSessionHarness(t *testing.T) *sessionHarness {
 	t.Helper()
+	return newSessionHarnessWithConfig(t, sessionConfig)
+}
+
+func newSessionHarnessWithConfig(t *testing.T, raw string) *sessionHarness {
+	t.Helper()
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux not installed")
 	}
 	configDir := tmuxtest.ScratchDir(t)
-	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(sessionConfig), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(raw), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	driver, err := tmux.NewWithSocket(tmuxtest.Socket(t, "sess"))
@@ -172,6 +177,9 @@ func newSessionHarness(t *testing.T) *sessionHarness {
 		sessions:  newSessions(configDir, MCPVocabulary(), newDriver, git.New),
 		terminals: newTerminals(configDir, MCPVocabulary(), newDriver),
 	}
+	// Relaunches in a test follow one another at once; the queue's own
+	// tests are in relaunchpace_test.go and launchpace.
+	h.sessions.newPacer = unpaced(configDir)
 	t.Cleanup(func() {
 		sessions, _ := st.ListSessions(true)
 		for _, sess := range sessions {
@@ -496,11 +504,13 @@ func TestSessionGroupsListAndCreate(t *testing.T) {
 func TestSendAndWaitRefuseATargetTheManagerNoLongerPolls(t *testing.T) {
 	t.Parallel()
 	h := newSessionHarness(t)
-	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "worker"})
+	// Another session's, since a send to the caller's own child restores it.
+	stranger := childRow(t, h, store.Session{ID: "a0b1c2d3", Name: "another-agent"}, false)
+	created, err := h.sessions.Create(stranger.ID, CreateSessionOptions{Name: "worker"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := h.sessions.Archive(h.caller.ID, created.ID, true); err != nil {
+	if _, err := h.sessions.Archive(stranger.ID, created.ID, true); err != nil {
 		t.Fatalf("Archive: %v", err)
 	}
 	// The refusal has to name the archive rather than the dead pane: an
@@ -1107,6 +1117,37 @@ func TestCreateOnAChosenModelKeepsItThroughRevive(t *testing.T) {
 	}
 }
 
+// With [naming] ask = false an unnamed spawn still takes a placeholder name,
+// but nothing it launches asks the agent to rename itself: the prompt carries
+// the rename-available note instead of the directive, and nothing waits
+// behind it.
+func TestCreateWithoutAskSendsNoRenameDirective(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarnessWithConfig(t, "[naming]\nask = false\n"+sessionConfig)
+	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Prompt: "do things"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if !strings.HasPrefix(created.Name, "echoer-") {
+		t.Fatalf("Name = %q, want the placeholder", created.Name)
+	}
+	row, err := h.store.Get(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, input := range row.PendingInputs {
+		if strings.Contains(input, launch.DeferredRenameDirective) {
+			t.Fatalf("pending input carries a deferred directive: %q", input)
+		}
+	}
+	if strings.Contains(row.LaunchPrompt, launch.RenameDirective) {
+		t.Fatalf("launch prompt carries the rename directive:\n%s", row.LaunchPrompt)
+	}
+	if !strings.Contains(row.LaunchPrompt, launch.RenameAvailableNote) {
+		t.Fatalf("launch prompt should note rename is available later:\n%s", row.LaunchPrompt)
+	}
+}
+
 // The default is still the default: no model asked for, nothing recorded, and
 // nothing added to the command line.
 func TestCreateWithoutAModelStaysOnTheToolsDefault(t *testing.T) {
@@ -1285,6 +1326,68 @@ func TestCreateOutsideTheCallersTreeLaunchesInPlaceWhenTheToolAsks(t *testing.T)
 	}
 }
 
+// A group that pins its path starts a spawn there even when it asked for a
+// directory below it, and hands it that directory to change into. A stated
+// reason opens the one asked for, and list_groups reports the pin.
+func TestCreateInAPinnedGroupStartsAtItsPath(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	if err := h.store.SetGroupPinPath("backend", true); err != nil {
+		t.Fatalf("pin: %v", err)
+	}
+	nested := filepath.Join(h.caller.Cwd, "packages", "api")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{
+		Prompt:    "fix the retry backoff",
+		Directory: nested,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	pane, err := h.driver.PaneCurrentPath(created.ID)
+	if err != nil {
+		t.Fatalf("pane path: %v", err)
+	}
+	if !sameTerminalPath(pane, h.caller.Cwd) {
+		t.Fatalf("pane opened in %q, want the pinned %q", pane, h.caller.Cwd)
+	}
+	if created.Directory != nested {
+		t.Fatalf("created directory = %q, want the requested %q", created.Directory, nested)
+	}
+	screen := waitForSessionOutput(t, h.sessions, h.caller.ID, created.ID, launch.WorkdirDirectivePrefix)
+	if !strings.Contains(strings.ReplaceAll(screen.Output, "\n", ""), "cd '"+nested+"'") {
+		t.Fatalf("the agent was not told to change into %q: %q", nested, screen.Output)
+	}
+
+	kept, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{
+		Prompt:          "reproduce the subdirectory bug",
+		Directory:       nested,
+		DirectoryReason: "the bug only shows when started in packages/api",
+	})
+	if err != nil {
+		t.Fatalf("Create with a reason: %v", err)
+	}
+	pane, err = h.driver.PaneCurrentPath(kept.ID)
+	if err != nil {
+		t.Fatalf("pane path: %v", err)
+	}
+	if !sameTerminalPath(pane, nested) {
+		t.Fatalf("a launch with a reason opened in %q, want the requested %q", pane, nested)
+	}
+
+	groups, err := h.sessions.Groups(h.caller.ID)
+	if err != nil {
+		t.Fatalf("Groups: %v", err)
+	}
+	for _, group := range groups {
+		if group.Path == "backend" && !group.Pinned {
+			t.Fatalf("list_groups does not report the pin: %+v", group)
+		}
+	}
+}
+
 // A spawn inside the caller's tree inherits its trust, so nothing is diverted
 // and no directive is added.
 func TestCreateInsideTheCallersTreeOpensThereUndirected(t *testing.T) {
@@ -1334,6 +1437,40 @@ func TestLaunchDirectoryFallsBackToTheRequestedDirectory(t *testing.T) {
 	// no pane at all would be worse than the dialog this avoids.
 	if got := launchDirectory(tool, filepath.Join(caller, "gone"), outside); got != outside {
 		t.Fatalf("a caller directory that does not exist = %q, want %q", got, outside)
+	}
+}
+
+// A repository nested in the caller's, such as a submodule, keeps its own
+// trust and settings, so a spawn into it opens in the caller's directory, while
+// a plain subdirectory of the caller's repository still opens where it asked.
+func TestLaunchDirectoryDivertsIntoANestedRepository(t *testing.T) {
+	caller := t.TempDir()
+	gitInit(t, caller)
+	plain := filepath.Join(caller, "packages", "api")
+	nested := filepath.Join(caller, "vendor", "lib")
+	for _, dir := range []string{plain, nested} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+	}
+	gitInit(t, nested)
+	var tool config.Tool
+	if got := launchDirectory(tool, caller, nested); got != caller {
+		t.Fatalf("a spawn into a nested repository = %q, want the caller's %q", got, caller)
+	}
+	if got := launchDirectory(tool, caller, plain); got != plain {
+		t.Fatalf("a subdirectory of the caller's repository = %q, want the requested %q", got, plain)
+	}
+	if got := launchDirectory(config.Tool{LaunchInPlace: true}, caller, nested); got != nested {
+		t.Fatalf("a launch_in_place tool into a nested repository = %q, want the requested %q", got, nested)
+	}
+}
+
+func gitInit(t *testing.T, dir string) {
+	t.Helper()
+	cmd := exec.Command("git", "init", "-q", dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init %s: %v: %s", dir, err, out)
 	}
 }
 
@@ -1430,12 +1567,14 @@ func TestSessionsListNarrowsToWhatTheCallerAskedFor(t *testing.T) {
 		t.Fatal("a cursor no list returned was accepted")
 	}
 
-	idle, err := h.sessions.List(h.caller.ID, ListOptions{Status: []string{status.Idle}})
+	// The caller is idle on its own pane and reads delegating while the
+	// children it spawned are still starting, so it is on that side.
+	idle, err := h.sessions.List(h.caller.ID, ListOptions{Status: []string{status.Idle, status.Delegating}})
 	if err != nil {
 		t.Fatalf("List idle: %v", err)
 	}
 	for _, sess := range idle.Sessions {
-		if sess.Status != status.Idle {
+		if sess.Status != status.Idle && sess.Status != status.Delegating {
 			t.Fatalf("status filter returned %+v", sess)
 		}
 	}
@@ -1447,7 +1586,7 @@ func TestSessionsListNarrowsToWhatTheCallerAskedFor(t *testing.T) {
 		t.Fatalf("the two states do not partition the list: idle %d, starting %d, all %d", idle.Matched, rest.Matched, all.Matched)
 	}
 	// A set is a set: both states together are the whole unarchived list.
-	if both, err := h.sessions.List(h.caller.ID, ListOptions{Status: []string{status.Idle, status.Starting}}); err != nil ||
+	if both, err := h.sessions.List(h.caller.ID, ListOptions{Status: []string{status.Idle, status.Delegating, status.Starting}}); err != nil ||
 		both.Matched != all.Matched {
 		t.Fatalf("two states = %+v, err %v", both, err)
 	}

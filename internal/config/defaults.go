@@ -3,7 +3,6 @@ package config
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -99,13 +98,13 @@ func currentDefaults() map[string]any {
 	return defaults
 }
 
-// decodeInto reads the operator's file at path into cfg, over the
+// decodeInto reads data, the operator's file at path, into cfg, over the
 // distribution defaults when there are any.
-func decodeInto(path string, cfg *Config) error {
+func decodeInto(path string, data []byte, cfg *Config) error {
 	// The file is decoded on its own first, so a mistake in it is reported
 	// against its own name and line whether or not defaults are laid under
 	// it.
-	meta, err := toml.DecodeFile(path, cfg)
+	meta, err := toml.Decode(string(data), cfg)
 	if err != nil {
 		return err
 	}
@@ -117,10 +116,6 @@ func decodeInto(path string, cfg *Config) error {
 	base := currentDefaults()
 	if base == nil {
 		return nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
 	}
 	var own map[string]any
 	if _, err := toml.Decode(string(data), &own); err != nil {

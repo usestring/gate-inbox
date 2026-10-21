@@ -10,17 +10,13 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/mcptool"
-	"github.com/usestring/gate-inbox/internal/extension/all"
 )
 
-// configWith writes a config directory holding exactly this artifacts
-// section. key_command is a binary that certainly exists, so the test turns
-// on what it means to turn on rather than on whether gcloud is installed
-// wherever this runs.
-func configWith(t *testing.T, artifacts string) string {
+// configWith writes a config directory holding exactly these sections.
+func configWith(t *testing.T, sections string) string {
 	t.Helper()
 	dir := t.TempDir()
-	body := "poll_interval = \"2s\"\n\n" + artifacts
+	body := "poll_interval = \"2s\"\n\n" + sections
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
@@ -53,16 +49,40 @@ func newBareServer() *mcp.Server {
 	return mcp.NewServer(&mcp.Implementation{Name: "gate-inbox", Version: "test"}, nil)
 }
 
-func TestEnabledExtensionAddsItsTools(t *testing.T) {
-	dir := configWith(t, "[extensions.artifacts]\nenabled = true\nkey_command = \"sh\"\nbase_url = \"https://artifacts.example.test\"\n")
-	server := newBareServer()
-	configureAndRegister(server, dir, all.Extensions())
+// switchable is an extension its config turns on, with one tool, as a build's
+// own extensions are; this build ships none.
+type switchable struct{ on *bool }
 
-	names := toolNames(t, server)
-	for _, want := range []string{"publish_artifact", "read_artifact", "list_artifacts"} {
-		if !names[want] {
-			t.Fatalf("%s is missing; got %v", want, names)
-		}
+type switchableArgs struct{}
+
+func newSwitchable() switchable { return switchable{on: new(bool)} }
+
+func (switchable) Descriptor() extension.Descriptor { return extension.Descriptor{ID: "switch"} }
+func (s switchable) Configure(cfg extension.Config) error {
+	var settings struct {
+		Enabled bool `toml:"enabled"`
+	}
+	err := cfg.Decode(&settings)
+	*s.on = settings.Enabled
+	return err
+}
+func (s switchable) Enabled() bool { return *s.on }
+func (switchable) RegisterMCP(r *extension.Registrar, _ extension.SessionContext) error {
+	return extension.AddTool(r, &mcp.Tool{Name: "switch_hello", Description: "Say hello."},
+		func(context.Context, *mcp.CallToolRequest, switchableArgs) (*mcp.CallToolResult, any, error) {
+			return mcptool.Text("hello"), nil, nil
+		})
+}
+
+const switchOn = "[extensions.switch]\nenabled = true\n"
+
+func TestEnabledExtensionAddsItsTools(t *testing.T) {
+	dir := configWith(t, switchOn)
+	server := newBareServer()
+	configureAndRegister(server, dir, []extension.Extension{newSwitchable()})
+
+	if names := toolNames(t, server); !names["switch_hello"] {
+		t.Fatalf("switch_hello is missing; got %v", names)
 	}
 }
 
@@ -71,26 +91,14 @@ func TestEnabledExtensionAddsItsTools(t *testing.T) {
 // so a section that configures everything but never says enabled = true
 // registers nothing either.
 func TestUnenabledExtensionRegistersNothing(t *testing.T) {
-	dir := configWith(t, "[extensions.artifacts]\nkey_command = \"sh\"\nbase_url = \"https://artifacts.example.test\"\n")
-	server := newBareServer()
-	configureAndRegister(server, dir, all.Extensions())
-
-	for name := range toolNames(t, server) {
-		if strings.Contains(name, "artifact") {
-			t.Fatalf("a disabled extension registered %s", name)
-		}
-	}
-}
-
-// There is no default worker to fall back on, so an enabled extension with
-// a blank base_url has nowhere to publish and registers no tools.
-func TestBlankBaseURLRegistersNoTools(t *testing.T) {
-	dir := configWith(t, "[extensions.artifacts]\nenabled = true\nbase_url = \"\"\nkey_command = \"sh\"\n")
-	server := newBareServer()
-	configureAndRegister(server, dir, all.Extensions())
-
-	if toolNames(t, server)["publish_artifact"] {
-		t.Fatal("an artifact store with no worker named registered its tools")
+	for name, section := range map[string]string{"absent": "", "no enabled": "[extensions.switch]\n", "enabled false": "[extensions.switch]\nenabled = false\n"} {
+		t.Run(name, func(t *testing.T) {
+			server := newBareServer()
+			configureAndRegister(server, configWith(t, section), []extension.Extension{newSwitchable()})
+			if names := toolNames(t, server); len(names) != 0 {
+				t.Fatalf("a disabled extension registered %v", names)
+			}
+		})
 	}
 }
 
@@ -102,7 +110,7 @@ func TestUnreadableConfigIsNotFatal(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 	server := newBareServer()
-	configureAndRegister(server, dir, all.Extensions())
+	configureAndRegister(server, dir, []extension.Extension{newSwitchable()})
 	if len(toolNames(t, server)) != 0 {
 		t.Fatal("registered something from a broken config")
 	}
@@ -141,11 +149,10 @@ func TestExtensionCannotDisplaceAManagerTool(t *testing.T) {
 // A section no extension in this build owns is a warning: it disables
 // nothing, and the extensions that are configured still register.
 func TestUnownedSectionDisablesNothing(t *testing.T) {
-	dir := configWith(t, "[extensions.stranger]\nenabled = true\n\n"+
-		"[extensions.artifacts]\nenabled = true\nkey_command = \"sh\"\nbase_url = \"https://artifacts.example.test\"\n")
+	dir := configWith(t, "[extensions.stranger]\nenabled = true\n\n"+switchOn)
 	server := newBareServer()
-	notes := configureAndRegister(server, dir, all.Extensions())
-	if !toolNames(t, server)["publish_artifact"] {
+	notes := configureAndRegister(server, dir, []extension.Extension{newSwitchable()})
+	if !toolNames(t, server)["switch_hello"] {
 		t.Fatal("an unowned section cost a configured extension its tools")
 	}
 	if len(notes) != 1 || !strings.Contains(notes[0], "[extensions.stranger]") {

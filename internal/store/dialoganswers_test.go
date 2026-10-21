@@ -56,3 +56,32 @@ func TestDialogAnswerLedger(t *testing.T) {
 		t.Fatal("a relayed row read as an agent's")
 	}
 }
+
+// Releasing a row whose handoff failed before any key reached the child drops
+// its evidence, so the user's answer can be passed on again.
+func TestReleaseAnswerFreesEvidence(t *testing.T) {
+	st, err := Open(filepath.Join(tmuxtest.ScratchDir(t), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	relayed := DialogAnswer{TargetSession: "child", TargetToolUseID: "toolu_c3", QuestionHash: "q1", Answer: "Yes",
+		BySession: "parent", Mode: AnswerRelayedUser, EvidenceToolUseID: "toolu_p"}
+	id, err := st.RecordAnswer(relayed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReleaseAnswer(id); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := st.AnswersFor("child", "toolu_c3")
+	if err != nil || len(rows) != 1 || rows[0].State != AnswerReleased {
+		t.Fatalf("rows = %+v, %v; want one released row", rows, err)
+	}
+	if used, _ := st.EvidenceUsed("toolu_p", "q1"); used {
+		t.Fatal("a released row still spends its evidence")
+	}
+	if _, err := st.RecordAnswer(relayed); err != nil {
+		t.Fatalf("the same answer cannot be relayed again: %v", err)
+	}
+}

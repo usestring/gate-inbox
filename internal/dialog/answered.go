@@ -137,9 +137,14 @@ func solid(text string) string { return Compact(strings.ReplaceAll(text, wrapJoi
 
 // SameQuestion reports whether a question as one part of the screen draws it
 // is the one another part draws: equal words, or one cut short of the other,
-// because a dialog's prompt is read off its last few lines.
+// because a dialog's prompt is read off its last few lines. A question taller
+// than the dialog is drawn as a window of it, its end cut with "…", and that
+// window reads as the question it is part of.
 func SameQuestion(a, b string) bool {
 	if x, y := solid(a), solid(b); x != "" && y != "" && (x == y || strings.HasSuffix(x, y) || strings.HasSuffix(y, x)) {
+		return true
+	}
+	if window(a, b) || window(b, a) {
 		return true
 	}
 	return anyReading(a, b, func(a, b string) bool {
@@ -148,6 +153,17 @@ func SameQuestion(a, b string) bool {
 		}
 		return a == b || strings.HasSuffix(a, b) || strings.HasSuffix(b, a)
 	})
+}
+
+// window reports whether drawn is a part of question cut off with "…", as a
+// dialog draws a question too tall for it.
+func window(drawn, question string) bool {
+	cut, clipped := strings.CutSuffix(strings.TrimSpace(Readable(drawn)), "…")
+	if !clipped {
+		return false
+	}
+	cut = solid(strings.TrimPrefix(strings.TrimSpace(cut), "…"))
+	return cut != "" && strings.Contains(solid(question), cut)
 }
 
 func trimJoins(text string) string { return strings.Trim(text, " "+wrapJoin) }

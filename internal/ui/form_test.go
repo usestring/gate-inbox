@@ -87,6 +87,55 @@ func TestGroupFormCreatesUnderParent(t *testing.T) {
 	}
 }
 
+// The group card's start field pins the group's path, and editing the group
+// again opens with the pin on and can turn it off.
+func TestGroupFormPinsThePath(t *testing.T) {
+	m := buildModel(t)
+	m.openGroupForm()
+	m.groupForm.name.SetValue("repo")
+	m.groupForm.path.SetValue(t.TempDir())
+	m.groupFormFocus(gfPin - gfName)
+	m.handleGroupFormKey(tea.KeyPressMsg{Code: tea.KeySpace, Text: " "})
+	if !m.groupForm.pin {
+		t.Fatal("space on the start field should pin the path")
+	}
+	_, cmd := m.submitGroupForm()
+	if m.mode != modeList {
+		t.Fatalf("group form should close, err=%q", m.errBar.text)
+	}
+	m.applyCmd(t, cmd)
+	if !groupPinned(t, m, "repo") || !m.pinnedGroups["repo"] {
+		t.Fatal("the pin was not saved")
+	}
+
+	m.openGroupEditForm("repo")
+	if !m.groupForm.pin {
+		t.Fatal("the edit card should open with the pin on")
+	}
+	m.groupFormFocus(gfPin - gfName)
+	m.handleGroupFormKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	_, cmd = m.submitGroupForm()
+	m.applyCmd(t, cmd)
+	if groupPinned(t, m, "repo") || m.pinnedGroups["repo"] {
+		t.Fatal("the pin was not cleared")
+	}
+}
+
+func groupPinned(t *testing.T, m *Model, name string) bool {
+	t.Helper()
+	groups, err := m.store.Groups()
+	if err != nil {
+		t.Fatalf("groups: %v", err)
+	}
+	for _, g := range groups {
+		if g.Name == name {
+			return g.PinPath
+		}
+	}
+	t.Fatalf("group %q not found", name)
+	return false
+}
+
 func TestGroupFormShowsNewEmptyGroup(t *testing.T) {
 	m := buildModel(t)
 	m.hideEmptyGroups = true
@@ -590,6 +639,33 @@ func TestSpawnMarksDeferredDirective(t *testing.T) {
 	}
 }
 
+func TestSpawnWithoutAskSendsNoRenameDirective(t *testing.T) {
+	m := buildModel(t)
+	no := false
+	m.cfg.Naming.Ask = &no
+	dir := t.TempDir()
+
+	if err := m.spawnSession("claude", "claude-aaaa", dir, "", "/compact", true); err != nil {
+		t.Fatalf("slash spawn: %v", err)
+	}
+	if err := m.spawnSession("claude", "claude-bbbb", dir, "", "do things", true); err != nil {
+		t.Fatalf("plain spawn: %v", err)
+	}
+	m.applyCmd(t, m.refreshCmd())
+	rows := m.sessionRows()
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d, want 2", len(rows))
+	}
+	for _, sess := range rows {
+		if sessionHasPendingInput(t, m, sess.ID, launch.DeferredRenameDirective) {
+			t.Fatalf("session %q defers a directive with ask off", sess.Name)
+		}
+		if strings.Contains(sess.LaunchPrompt, launch.RenameDirective) {
+			t.Fatalf("session %q carries the directive with ask off:\n%s", sess.Name, sess.LaunchPrompt)
+		}
+	}
+}
+
 func TestDeferredDirectiveSentWhenPaneReady(t *testing.T) {
 	m := buildModel(t)
 	if err := m.spawnSession("ready-tool", "ready-tool-abcd", t.TempDir(), "", "", true); err != nil {
@@ -1021,6 +1097,111 @@ func TestTypingACLIAndPressingEnterCreatesIt(t *testing.T) {
 	}
 	if sessions[0].Tool != "quietchat" {
 		t.Fatalf("tool = %q, want the typed CLI rather than the settings default", sessions[0].Tool)
+	}
+}
+
+func TestFormOffersTheTerminalAndOpensAShell(t *testing.T) {
+	m := buildModel(t)
+	m.openForm()
+	found := false
+	for _, name := range m.form.toolNames {
+		if name == shellToolName {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("form tools = %v, want the terminal among them", m.form.toolNames)
+	}
+	typeIntoForm(m, "term")
+	if got := m.selectedToolName(); got != shellToolName {
+		t.Fatalf("tool = %q, want the terminal", got)
+	}
+	m.form.dir.SetValue(t.TempDir())
+	pickGroup(t, m, "")
+	updated, cmd := m.submitForm()
+	*m = *updated.(*Model)
+	m.applyCmd(t, cmd)
+	if m.errBar.text != "" {
+		t.Fatalf("spawn refused: %s", m.errBar.text)
+	}
+	m.leaveFocusForFixture(t)
+	rows := m.sessionRows()
+	if len(rows) != 1 || !m.isShell(rows[0].Tool) {
+		t.Fatalf("sessions = %+v, want one shell", rows)
+	}
+}
+
+func TestFormTerminalRefusesAPromptAndAModel(t *testing.T) {
+	for _, field := range []string{"prompt", "model"} {
+		m := buildModel(t)
+		m.openForm()
+		m.selectTool(shellToolName)
+		if field == "prompt" {
+			m.form.prompt.input.SetValue("do the thing")
+		} else {
+			m.form.model.SetValue("opus")
+		}
+		m.form.dir.SetValue(t.TempDir())
+		pickGroup(t, m, "")
+		updated, _ := m.submitForm()
+		*m = *updated.(*Model)
+		if m.mode != modeForm {
+			t.Fatalf("%s: form closed over the refusal", field)
+		}
+		if !strings.Contains(m.errBar.text, "takes no "+field) {
+			t.Fatalf("%s: error = %q, want the field named", field, m.errBar.text)
+		}
+		sessions, err := m.store.ListSessions(false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(sessions) != 0 {
+			t.Fatalf("%s: form created %+v despite refusing", field, sessions)
+		}
+	}
+}
+
+// The extensions have no say in a terminal, so the form neither draws their
+// fields nor moves onto them while the terminal is picked.
+func TestFormTerminalHidesTheExtensionFields(t *testing.T) {
+	m := buildModel(t)
+	useItemsExtension(t, &itemsExtension{})
+	m.openForm()
+	m.selectTool(shellToolName)
+	if strings.Contains(m.viewForm(), "level") {
+		t.Fatalf("the form draws an extension field for the terminal:\n%s", m.viewForm())
+	}
+	for range fieldCount {
+		m.formFocus(1)
+		if _, ok := m.form.focusedExtra(); ok {
+			t.Fatalf("focus %d landed on an extension field for the terminal", m.form.focus)
+		}
+	}
+}
+
+// A terminal from the form leaves the remembered CLI alone, as the terminal
+// key does, so the next spawn still opens on the last agent.
+func TestFormTerminalKeepsTheLastCLI(t *testing.T) {
+	m := buildModel(t)
+	if err := m.store.SetSetting(lastToolSetting, "claude-hooked"); err != nil {
+		t.Fatal(err)
+	}
+	m.openForm()
+	m.selectTool(shellToolName)
+	m.form.dir.SetValue(t.TempDir())
+	pickGroup(t, m, "")
+	updated, cmd := m.submitForm()
+	*m = *updated.(*Model)
+	m.applyCmd(t, cmd)
+	if m.errBar.text != "" {
+		t.Fatalf("spawn refused: %s", m.errBar.text)
+	}
+	last, err := m.store.Setting(lastToolSetting)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if last != "claude-hooked" {
+		t.Fatalf("last CLI = %q, want the terminal to leave it on claude-hooked", last)
 	}
 }
 

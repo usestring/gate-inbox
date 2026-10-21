@@ -94,6 +94,12 @@ func (p *process) Stop() {
 func Serve(in io.Reader, out io.Writer, configDir, bin, version string) error {
 	launched := os.Getenv(hooks.EnvSessionID) != "" || os.Getenv(hooks.EnvStatusFile) != ""
 	manager := hooks.NewManager(configDir)
+	// The relay starts with its claude, so it is a second way a session
+	// started outside the board tells a running board where it is, for a
+	// claude whose hooks did not.
+	if !launched {
+		manager.Announce(os.Getenv("TMUX"), os.Getenv("TMUX_PANE"), os.Getppid())
+	}
 	stamp := binaryStamp(bin)
 	relay := Relay{
 		In:      in,

@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -398,7 +399,15 @@ func (e *codexE2E) stepB() {
 	time.Sleep(2 * time.Second)
 	screen := e.plain.screen("plain")
 	e.save("b-turn.txt", screen)
-	boardFiles, _ := filepath.Glob(filepath.Join(e.giHome, "hooks", "*"))
+	// The board's start in a made the arrivals directory a claude announces
+	// itself into; a file anywhere under hooks is what would count.
+	var boardFiles []string
+	_ = filepath.WalkDir(filepath.Join(e.giHome, "hooks"), func(path string, entry fs.DirEntry, err error) error {
+		if err == nil && !entry.IsDir() {
+			boardFiles = append(boardFiles, path)
+		}
+		return nil
+	})
 	e.record("b", "a turn outside the board answers, shows no hook output or warning, and writes nothing for the board",
 		ok && !codexHookNoise.MatchString(screen) && !strings.Contains(screen, adoptedCodexSteering) && len(boardFiles) == 0,
 		fmt.Sprintf("answered: %v, board hook files: %v\n%s", ok, boardFiles, lastLines(screen, 10)))

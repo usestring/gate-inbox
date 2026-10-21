@@ -213,6 +213,8 @@ func NewSession(id, name, toolName string, source store.Session, plan launch.Pla
 		Model:            plan.Model,
 		Account:          plan.Account,
 		NameSource:       store.SourceUser,
+		SpawnedBy:        source.SpawnedBy,
+		Priority:         source.Priority,
 	}
 }
 

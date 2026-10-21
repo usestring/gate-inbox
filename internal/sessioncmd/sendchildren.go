@@ -111,6 +111,9 @@ func (s *Sessions) SendChildrenAbout(sessionID, message, subject string) (ChildS
 		case skipsSendChildren(child) != "":
 			delivery.Skipped = skipsSendChildren(child)
 		default:
+			if err := runtime.reach(child); err != nil {
+				return ChildSend{}, err
+			}
 			if err := runtime.deliverable(child); err != nil {
 				delivery.Skipped = err.Error()
 				break

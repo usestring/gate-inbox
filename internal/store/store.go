@@ -1964,17 +1964,19 @@ func (s *Store) SetTmuxTarget(id, socket, paneID string) error {
 // SessionAtPane names the live session adopted on socket/pane. A pane the
 // manager adopted never carried GATE_INBOX_SESSION_ID, and only the claude
 // hooks leave an adoption marker, so a command run inside an adopted opencode
-// or codex pane has nothing else to speak as.
-func (s *Store) SessionAtPane(socket, pane string) (string, bool, error) {
-	if socket == "" || pane == "" {
+// or codex pane has nothing else to speak as. The adoption scan writes a new
+// row for each pane it takes, so a row created before serverStarted was
+// adopted on an earlier server at that socket, whose pane ids this one reuses.
+func (s *Store) SessionAtPane(socket, pane string, serverStarted time.Time) (string, bool, error) {
+	if socket == "" || pane == "" || serverStarted.IsZero() {
 		return "", false, nil
 	}
 	var id string
 	err := s.db.QueryRow(
 		`SELECT id FROM sessions
-		  WHERE tmux_socket = ? AND tmux_pane_id = ? AND archived = 0 AND status <> ?
+		  WHERE tmux_socket = ? AND tmux_pane_id = ? AND archived = 0 AND status <> ? AND created_at >= ?
 		  ORDER BY rowid DESC LIMIT 1`,
-		socket, pane, status.Dead).Scan(&id)
+		socket, pane, status.Dead, encodeTime(serverStarted)).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", false, nil
 	}

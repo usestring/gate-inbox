@@ -5,6 +5,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestAdoptedTmuxTargetSurvivesAnUnrelatedUpdate(t *testing.T) {
@@ -104,14 +105,21 @@ func TestSessionAtPaneNamesTheAdoptedRow(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 
-	id, ok, err := st.SessionAtPane("default", "%7")
+	started := time.Now().Add(-time.Hour)
+	id, ok, err := st.SessionAtPane("default", "%7", started)
 	if err != nil || !ok || id != "a" {
 		t.Fatalf("SessionAtPane = %q, %v, %v; want a, true", id, ok, err)
 	}
-	if _, ok, _ := st.SessionAtPane("other", "%7"); ok {
+	if _, ok, _ := st.SessionAtPane("default", "%7", time.Now().Add(time.Hour)); ok {
+		t.Fatal("a row adopted before the server started named a session")
+	}
+	if _, ok, _ := st.SessionAtPane("default", "%7", time.Time{}); ok {
+		t.Fatal("an unknown server start named a session")
+	}
+	if _, ok, _ := st.SessionAtPane("other", "%7", started); ok {
 		t.Fatal("another server with the same pane id named a session")
 	}
-	if _, ok, _ := st.SessionAtPane("default", "%8"); ok {
+	if _, ok, _ := st.SessionAtPane("default", "%8", started); ok {
 		t.Fatal("another pane named a session")
 	}
 
@@ -120,7 +128,7 @@ func TestSessionAtPaneNamesTheAdoptedRow(t *testing.T) {
 	if err := st.CreateSession(archived); err != nil {
 		t.Fatalf("create archived: %v", err)
 	}
-	if _, ok, _ := st.SessionAtPane("default", "%8"); ok {
+	if _, ok, _ := st.SessionAtPane("default", "%8", started); ok {
 		t.Fatal("an archived row named a session")
 	}
 
@@ -129,7 +137,7 @@ func TestSessionAtPaneNamesTheAdoptedRow(t *testing.T) {
 	if err := st.CreateSession(dead); err != nil {
 		t.Fatalf("create dead: %v", err)
 	}
-	if _, ok, _ := st.SessionAtPane("default", "%9"); ok {
+	if _, ok, _ := st.SessionAtPane("default", "%9", started); ok {
 		t.Fatal("a dead row named a session")
 	}
 }

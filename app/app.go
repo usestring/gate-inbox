@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime/debug"
@@ -28,6 +29,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
@@ -447,8 +449,14 @@ func callerID(configDir string) string {
 	}); ok {
 		return id
 	}
-	socket := tmuxSocketName(tmuxEnv)
+	socket, serverPID := tmuxSocketName(tmuxEnv)
 	if socket == "" {
+		return ""
+	}
+	// A server restarted on the same socket numbers its panes from %0 again,
+	// so a row only speaks for this pane if it was adopted on this server.
+	started, ok := paneServerStarted(pane, serverPID)
+	if !ok {
 		return ""
 	}
 	st, err := store.OpenReadOnly(filepath.Join(configDir, "state.db"))
@@ -456,7 +464,7 @@ func callerID(configDir string) string {
 		return ""
 	}
 	defer st.Close()
-	id, ok, err := st.SessionAtPane(socket, pane)
+	id, ok, err := st.SessionAtPane(socket, pane, started)
 	if err != nil || !ok {
 		return ""
 	}
@@ -464,21 +472,41 @@ func callerID(configDir string) string {
 }
 
 // tmuxSocketName is the short server name tmux spells in $TMUX, the same
-// spelling an adopted row stores. $TMUX is read from the right, since the
-// socket path is the one field free to contain a comma.
-func tmuxSocketName(tmuxEnv string) string {
+// spelling an adopted row stores, and the server pid beside it. $TMUX is read
+// from the right, since the socket path is the one field free to contain a
+// comma.
+func tmuxSocketName(tmuxEnv string) (socket, serverPID string) {
 	path := tmuxEnv
 	for range 2 {
 		i := strings.LastIndex(path, ",")
 		if i < 0 {
-			return ""
+			return "", ""
 		}
+		serverPID = path[i+1:]
 		path = path[:i]
 	}
-	if path == "" {
-		return ""
+	if path == "" || serverPID == "" {
+		return "", ""
 	}
-	return filepath.Base(path)
+	return filepath.Base(path), serverPID
+}
+
+// paneServerStarted asks the server $TMUX names when it started, and holds
+// that answer back unless the server is still the process $TMUX recorded.
+var paneServerStarted = func(pane, serverPID string) (time.Time, bool) {
+	out, err := exec.Command("tmux", "display-message", "-p", "-t", pane, "#{pid} #{start_time}").Output()
+	if err != nil {
+		return time.Time{}, false
+	}
+	pid, secs, ok := strings.Cut(strings.TrimSpace(string(out)), " ")
+	if !ok || pid != serverPID {
+		return time.Time{}, false
+	}
+	n, err := strconv.ParseInt(secs, 10, 64)
+	if err != nil || n <= 0 {
+		return time.Time{}, false
+	}
+	return time.Unix(n, 0), true
 }
 
 // extensionCommand is one command an extension adds, with the ID of the

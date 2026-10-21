@@ -47,6 +47,14 @@ type UI struct {
 	// shows it, the keys that focus a session focus it, and the keys that
 	// leave a focused session leave it. It takes the place of OpenHeader.
 	HeaderPane *HeaderPane
+	// FoldHeaders makes this extension's header rows fold the session they
+	// head, with everything drawn under it, the way a group folds its
+	// sessions: folded until the operator unfolds it. While folded the
+	// header stands in for the session -- it carries the session's status,
+	// the triage queue hands it over, and in triage the open key on it opens
+	// the session rather than the header. It needs headers that are rows:
+	// OpenHeader or HeaderPane.
+	FoldHeaders bool
 }
 
 // HeaderPane is the page behind an extension's header rows.

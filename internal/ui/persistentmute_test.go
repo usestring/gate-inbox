@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -333,5 +334,31 @@ func TestMutedWorkingRowDropsTheSpinner(t *testing.T) {
 		if strings.HasPrefix(got, ansi.Strip(frame)) {
 			t.Fatalf("working row = %q still leads with the spinner", got)
 		}
+	}
+}
+
+// ctrl+m mutes from the list and from inside a focused session. Without an
+// enhanced keyboard protocol the terminal sends it as enter, which stays a
+// submit; the test presses the chord as the enhanced protocol reports it.
+func TestCtrlMMutesOnBothScreens(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "rest": status.Idle})
+	ctrlM := tea.KeyPressMsg{Code: 'm', Mod: tea.ModCtrl}
+
+	m.selectSessionRow(t, "rest")
+	pressKey(t, m, ctrlM)
+	if !sessionNamed(t, m, "rest").Muted {
+		t.Fatalf("ctrl+m on the list did not mute: %s", m.errBar.text)
+	}
+
+	m.enterFocusOn(t, "ask")
+	if _, _ = m.handleFocusKey(ctrlM); m.mode != modeFocus {
+		t.Fatalf("ctrl+m left focus for mode %v", m.mode)
+	}
+	if got, _ := m.store.Get(sessionID(t, m, "ask")); !got.Muted {
+		t.Fatal("ctrl+m in focus never reached the store")
+	}
+	if _, _ = m.handleFocusKey(ctrlM); sessionNamed(t, m, "ask").Muted {
+		t.Fatal("ctrl+m in focus did not unmute")
 	}
 }

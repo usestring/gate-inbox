@@ -5,9 +5,7 @@ package ui
 import (
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/accounts"
@@ -172,7 +170,6 @@ func (m *Model) openSettings() {
 		newSessionAgent:  normalizeNewSessionAgent(m.newSessionAgent),
 		autoProceed:      m.autoProceed,
 		smartTriage:      m.smartTriage,
-		triageSkip:       int(m.triageSkip / time.Minute),
 		reopenSessions:   m.reopenSessionsMode(),
 		outsidePanes:     m.outsidePanesMode(),
 		jevAutoSuggest:   m.jevAutoSuggest,
@@ -347,9 +344,6 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(smartTriageSetting, smartTriage); err != nil {
 		m.errBar.text = err.Error()
 	}
-	if err := m.store.SetSetting(triageSkipSetting, strconv.Itoa(m.settings.triageSkip)); err != nil {
-		m.errBar.text = err.Error()
-	}
 	if err := m.store.SetSetting(reopenSessionsSetting, normalizeReopenSessions(m.settings.reopenSessions)); err != nil {
 		m.errBar.text = err.Error()
 	}
@@ -371,7 +365,6 @@ func (m *Model) persistSettings() tea.Cmd {
 	}
 	m.autoProceed = m.settings.autoProceed
 	m.smartTriage = m.settings.smartTriage
-	m.triageSkip = time.Duration(m.settings.triageSkip) * time.Minute
 	m.focusOnEnter = m.settings.enterFocuses
 	m.compressedFocus = storedCompressedFocus(m.store)
 	m.focusView = storedFocusView(m.store)
@@ -628,8 +621,6 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		m.settings.autoProceed = !m.settings.autoProceed
 	case settingsFieldSmartTriage:
 		m.settings.smartTriage = !m.settings.smartTriage
-	case settingsFieldTriageSkip:
-		m.settings.triageSkip = normalizeTriageSkip(cycleMode(triageSkipChoices, strconv.Itoa(m.settings.triageSkip), step))
 	case settingsFieldReopenSessions:
 		m.settings.reopenSessions = cycleMode(reopenSessionsModes, normalizeReopenSessions(m.settings.reopenSessions), step)
 	case settingsFieldOutsidePanes:

@@ -503,7 +503,6 @@ func (m *Model) viewSettings() string {
 		row(settingsFieldFocusKey, "session keys", focusKey) + "\n" +
 		row(settingsFieldAutoProceed, "triage auto proceed", autoProceed) + "\n" +
 		row(settingsFieldSmartTriage, "smart triage", smartTriage) + "\n" +
-		row(settingsFieldTriageSkip, "triage skip lasts", triageSkipLabel(m.settings.triageSkip)) + "\n" +
 		row(settingsFieldReopenSessions, "on reopen", reopenSessionsLabel(m.settings.reopenSessions)) + "\n" +
 		row(settingsFieldOutsidePanes, "outside panes", outsidePanesLabel(m.settings.outsidePanes)) + "\n" +
 		actionRow(settingsFieldJev, "JEV", m.jevSettingsSummary()) + "\n" +

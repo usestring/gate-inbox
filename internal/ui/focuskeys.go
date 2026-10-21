@@ -662,6 +662,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, tea.ClearScreen
 		case action == keymap.Priority:
 			return m.cyclePrioritySelected()
+		case action == keymap.Mute:
+			return m.toggleMuteSelected()
 		case action == keymap.Dismiss:
 			// The skip a one-at-a-time drain needs: a session that turns
 			// out to want nothing is taken off the queue from inside it,

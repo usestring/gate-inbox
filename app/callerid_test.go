@@ -75,3 +75,19 @@ func TestCallerIDFallsBackToTheAdoptedPaneRow(t *testing.T) {
 		t.Fatalf("callerID on another server = %q, want none", got)
 	}
 }
+
+// The socket path is the one $TMUX field that may hold a comma, so the name
+// is read with the pid and session cut from the right.
+func TestTmuxSocketNameKeepsACommaInThePath(t *testing.T) {
+	for _, tc := range []struct{ env, want string }{
+		{"/run/tmux-test/default,4242,0", "default"},
+		{"/run/tmux-test/team,blue,4242,0", "team,blue"},
+		{"/run/a,b/default,4242,0", "default"},
+		{"", ""},
+		{"/run/tmux-test/default", ""},
+	} {
+		if got := tmuxSocketName(tc.env); got != tc.want {
+			t.Errorf("tmuxSocketName(%q) = %q, want %q", tc.env, got, tc.want)
+		}
+	}
+}

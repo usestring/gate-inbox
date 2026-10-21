@@ -464,9 +464,17 @@ func callerID(configDir string) string {
 }
 
 // tmuxSocketName is the short server name tmux spells in $TMUX, the same
-// spelling an adopted row stores.
+// spelling an adopted row stores. $TMUX is read from the right, since the
+// socket path is the one field free to contain a comma.
 func tmuxSocketName(tmuxEnv string) string {
-	path, _, _ := strings.Cut(tmuxEnv, ",")
+	path := tmuxEnv
+	for range 2 {
+		i := strings.LastIndex(path, ",")
+		if i < 0 {
+			return ""
+		}
+		path = path[:i]
+	}
 	if path == "" {
 		return ""
 	}

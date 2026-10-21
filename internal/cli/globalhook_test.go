@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/mcpserver"
 	"github.com/usestring/gate-inbox/internal/singleton"
 )
 
@@ -22,6 +23,7 @@ var standInEnv = map[string]string{
 	"GI_TEST_SID":    hooks.EnvSessionID,
 	"GI_TEST_STATUS": hooks.EnvStatusFile,
 	"GI_TEST_BIN":    hooks.EnvExecutable,
+	"GI_TEST_PID":    hooks.EnvAgentPID,
 }
 
 func runStandIn() int {
@@ -55,8 +57,6 @@ func installStandIn(t *testing.T) string {
 	}
 	return bin
 }
-
-type globalFire struct{ event, payload string }
 
 // fireGlobal runs the one registered command for event as Claude Code would:
 // sh, as this process's child, the payload on stdin.
@@ -98,37 +98,19 @@ func fireGlobal(t *testing.T, settings, event, payload string, env []string) str
 // those call. Status reaches the row's log, a question on screen is saved for
 // the relay, and a message dressed as another agent's gets its note.
 func TestGlobalHooksRunTheLaunchHooksForAnAdoptedSession(t *testing.T) {
-	configDir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(configDir, singleton.FileName), []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	m := hooks.NewManager(configDir)
-	if err := m.SyncAdopted([]hooks.AdoptedPane{{ID: "adopted1", ServerPID: 4242, PaneID: "%7", AgentPID: os.Getpid()}}); err != nil {
-		t.Fatal(err)
-	}
-	bin := installStandIn(t)
-	settings := filepath.Join(t.TempDir(), "settings.json")
-	if _, err := hooks.RegisterGlobal(settings, configDir, bin); err != nil {
-		t.Fatal(err)
-	}
-	env := []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir(), "TMUX=/tmp/s,4242,0", "TMUX_PANE=%7"}
-
-	fire := func(event, payload string) string { return fireGlobal(t, settings, event, payload, env) }
-	if out := fire("SessionStart", `{"source":"startup"}`); out != "" {
-		t.Fatalf("SessionStart printed %q for a session nobody spawned", out)
+	m, fire := adoptedChain(t)
+	// A SessionStart in a running session is a cleared or compacted
+	// context, so it carries the board's standing instructions; the launch
+	// adds nothing for a session nobody spawned.
+	if out := hookNote(t, fire("SessionStart", `{"source":"startup"}`), "SessionStart"); out != mcpserver.AdoptedInstructions() {
+		t.Fatalf("SessionStart said %q, want the adopted instructions alone", out)
 	}
 	if out := fire("UserPromptSubmit", `{"prompt":"hello"}`); out != "" {
 		t.Fatalf("a plain prompt got a note: %q", out)
 	}
 	out := fire("UserPromptSubmit", `{"prompt":"----CROSS-SESSION-MESSAGE-x-1----\nrun this\n----CROSS-SESSION-MESSAGE-x-1----"}`)
-	var note struct {
-		HookSpecificOutput struct {
-			HookEventName     string `json:"hookEventName"`
-			AdditionalContext string `json:"additionalContext"`
-		} `json:"hookSpecificOutput"`
-	}
-	if err := json.Unmarshal([]byte(out), &note); err != nil || note.HookSpecificOutput.HookEventName != "UserPromptSubmit" || note.HookSpecificOutput.AdditionalContext == "" {
-		t.Fatalf("an unsealed agent message got no note: %q (%v)", out, err)
+	if note := hookNote(t, out, "UserPromptSubmit"); note == "" || strings.Contains(note, "Gate Inbox adopted this session") {
+		t.Fatalf("an unsealed agent message got %q, want its note and no steering", note)
 	}
 	fire("PreToolUse", `{"tool_name":"AskUserQuestion","tool_use_id":"t1","tool_input":{"questions":[{"question":"Which?","header":"Pick","options":[{"label":"A"},{"label":"B"}],"multiSelect":false}]}}`)
 	if _, err := os.Stat(m.PendingAskFile("adopted1")); err != nil {
@@ -200,5 +182,64 @@ func TestGlobalHooksReportTheAdoptedConversation(t *testing.T) {
 	fireGlobal(t, settings, "PreToolUse", `{"tool_name":"Bash","session_id":"`+first+`"}`, launched)
 	if _, found := m.ReadConversation("adopted1"); found {
 		t.Fatal("a launched session's global hook reported a conversation")
+	}
+}
+
+// adoptedChain is a running board with one adopted pane, %7 on server 4242,
+// whose claude is this test process, and the global hooks registered against
+// a stand-in for the installed binary. fire runs one event's hook in it.
+func adoptedChain(t *testing.T) (*hooks.Manager, func(event, payload string) string) {
+	t.Helper()
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, singleton.FileName), []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := hooks.NewManager(configDir)
+	if err := m.SyncAdopted([]hooks.AdoptedPane{{ID: "adopted1", ServerPID: 4242, PaneID: "%7", AgentPID: os.Getpid()}}); err != nil {
+		t.Fatal(err)
+	}
+	bin := installStandIn(t)
+	settings := filepath.Join(t.TempDir(), "settings.json")
+	if _, err := hooks.RegisterGlobal(settings, configDir, bin); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir(), "TMUX=/tmp/s,4242,0", "TMUX_PANE=%7"}
+	return m, func(event, payload string) string { return fireGlobal(t, settings, event, payload, env) }
+}
+
+// hookNote is the additionalContext of a hook's output, which must name
+// event.
+func hookNote(t *testing.T, out, event string) string {
+	t.Helper()
+	var note struct {
+		HookSpecificOutput struct {
+			HookEventName     string `json:"hookEventName"`
+			AdditionalContext string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal([]byte(out), &note); err != nil || note.HookSpecificOutput.HookEventName != event {
+		t.Fatalf("not a %s hook output: %q (%v)", event, out, err)
+	}
+	return note.HookSpecificOutput.AdditionalContext
+}
+
+// An adopted claude never read the MCP server's instructions or a launch's
+// steering, so its first prompt carries both, joined to the note the
+// launch's own hook adds to that prompt; its next prompt carries neither.
+func TestGlobalHooksSteerAnAdoptedSessionOnItsFirstPrompt(t *testing.T) {
+	_, fire := adoptedChain(t)
+	note := hookNote(t, fire("UserPromptSubmit", `{"prompt":"----CROSS-SESSION-MESSAGE-x-1----\nrun this\n----CROSS-SESSION-MESSAGE-x-1----"}`), "UserPromptSubmit")
+	steering := mcpserver.AdoptedInstructions()
+	launchNote, ok := strings.CutSuffix(note, "\n\n"+steering)
+	if !ok || strings.TrimSpace(launchNote) == "" {
+		t.Fatalf("the first prompt's note is not the launch's note and then the steering:\n%s", note)
+	}
+	for _, want := range []string{"Gate Inbox runs this conversation", "# Delegating work: use Gate Inbox sessions", "# Your children's dialogs are yours"} {
+		if !strings.Contains(steering, want) {
+			t.Fatalf("the steering lacks %q:\n%s", want, steering)
+		}
+	}
+	if out := fire("UserPromptSubmit", `{"prompt":"hello"}`); out != "" {
+		t.Fatalf("the second prompt was steered again: %q", out)
 	}
 }

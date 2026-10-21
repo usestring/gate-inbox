@@ -10,7 +10,7 @@ import (
 func TestLaunchSteeringCarriesTheParentRule(t *testing.T) {
 	for _, style := range []string{"claude", "codex", "opencode"} {
 		steering := launchSteering(style)
-		if !strings.HasPrefix(steering, delegationSteering(style)) || !strings.Contains(steering, parentSteeringHeading) {
+		if !strings.HasPrefix(steering, DelegationSteering(style)) || !strings.Contains(steering, parentSteeringHeading) {
 			t.Errorf("%s: launch steering lacks the delegation steering or the parent rule", style)
 		}
 		for i, r := range steering {

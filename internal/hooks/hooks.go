@@ -48,6 +48,10 @@ const EnvSessionID = envname.SessionID
 // name its own agent chose.
 const EnvExecutable = envname.Executable
 
+// EnvAgentPID is the adopted claude a global hook runs for; see
+// globalCommand.
+const EnvAgentPID = envname.AgentPID
+
 // StatusSourceClaude is the status_source config value that enables this
 // package for a tool.
 const StatusSourceClaude = "claude-hooks"

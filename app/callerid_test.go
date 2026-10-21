@@ -111,6 +111,34 @@ func TestCallerIDFromUnderAnAdoptedCodex(t *testing.T) {
 	}
 }
 
+// A command codex's shell tool runs carries CODEX_THREAD_ID, and its
+// GATE_INBOX_SESSION_ID, when it has one, is the daemon's: whichever pane
+// started it. A thread the board holds names the row; any other thread
+// falls through to the environment as before.
+func TestCallerIDResolvesACodexThread(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("TMUX", "")
+	t.Setenv("TMUX_PANE", "")
+	t.Setenv(hooks.EnvSessionID, "daemonrow")
+	const thread = "0190a000-0000-7000-8000-00000000000a"
+	t.Setenv(codexThreadEnv, thread)
+	if got := callerID(dir); got != "daemonrow" {
+		t.Fatalf("callerID for an unbound thread = %q, want the environment's daemonrow", got)
+	}
+	if err := hooks.NewManager(dir).SyncCodex([]hooks.CodexRow{
+		{ID: "adoptedcx", Thread: thread, Adopted: true, Socket: "/run/gi-test.sock", Pane: "%3"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := callerID(dir); got != "adoptedcx" {
+		t.Fatalf("callerID for a bound thread = %q, want adoptedcx", got)
+	}
+	t.Setenv(codexThreadEnv, "")
+	if got := callerID(dir); got != "daemonrow" {
+		t.Fatalf("callerID without a thread = %q, want daemonrow", got)
+	}
+}
+
 // An adopted pane whose marker is missing or names another process leaves
 // the board row that owns the pane as the only record of which session a
 // command in it speaks as.

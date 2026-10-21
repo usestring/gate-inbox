@@ -17,6 +17,13 @@ Top-level: `poll_interval` (default `"2s"`) sets how often panes are polled for 
 setup = false
 ```
 
+<a id="codex-setup"></a>`[codex]` covers your own Codex config. `setup` (default on) has the board keep two hook entries, `UserPromptSubmit` and `Stop`, in Codex's `config.toml` (under `CODEX_HOME`, or `~/.codex`), on a machine with `codex` installed. That is how a `codex` you started outside the board reports status and hears the board's steering once it is adopted (see [Adopted panes](usage.md#adopted-codex)). The board registers them when it starts and checks them every few minutes, and touches nothing else in the file: comments, your own hooks and Codex's trust records stay byte for byte. Codex asks once to trust new hooks ("Hooks need review"; pick "Trust all and continue"), and the entries' text stays the same across Gate Inbox upgrades, so it does not ask again. `setup = false` makes the board remove them, and so does `gate-inbox codex-hooks uninstall`, which also keeps them out until `gate-inbox codex-hooks install`.
+
+```toml
+[codex]
+setup = false
+```
+
 `[merge_gate]` is the standing merge authority the merge-gate mod enforces in the Claude Code sessions the board launches. Claude Code's auto-mode classifier refuses `gh pr merge` in a child as "Merge Without Review" even after the user approved that exact merge, so one approved merge becomes two or three questions. The mod rides the board's Claude Code plugin, which every claude session the board starts loads; with this section set, the mod's `tool.check` allows exactly one covered merge after checking the pull request itself with `gh`, and everything else stays on the classifier's flow:
 
 ```toml

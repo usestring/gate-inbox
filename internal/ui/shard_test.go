@@ -293,8 +293,8 @@ func listTests() ([]string, error) {
 // needsQuietBox is for a test whose assertion is a wall-clock budget that
 // holds on a quiet box and not against eight shards' worth of tmux traffic.
 // It skips under -short, so a sharded run leaves it for the quiet phase and
-// runs it there, alone and in full. Each caller passed 15 of 15 runs alone and
-// failed in the shards.
+// runs it there, alone and in full. Each caller either passed 15 of 15 runs
+// alone and failed in the shards, or has failed on a box loaded by other runs.
 func needsQuietBox(t testing.TB) {
 	t.Helper()
 	if testing.Short() {

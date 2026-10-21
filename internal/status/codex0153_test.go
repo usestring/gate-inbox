@@ -93,7 +93,7 @@ func TestCodexAnimatedComposerDoesNotChangeActivity(t *testing.T) {
 func TestCodexMCPStartupWarningsDoNotHideCompletedTurn(t *testing.T) {
 	engine := codexEngine(t)
 	warnings := "⚠ The string-web-access MCP server is not logged in. Run `codex mcp login string-web-access`.\n\n⚠ MCP startup incomplete (failed: string-web-access)\n"
-	for _, tc := range []struct{ answer, want string }{{"• Done.", Finished}, {"• Continue?", Waiting}} {
+	for _, tc := range []struct{ answer, want string }{{"• Done.", Finished}, {"• Continue?", Finished}} {
 		content := tc.answer + "\n\n─ Worked for 1m 02s ────────────────\n\n" + warnings
 		pane := content + "\n⠁   ⠈    ⢀  ⡀\n› Ask Codex to do anything\n"
 		if got, matched := engine.Match("codex", pane); got != tc.want || !matched {

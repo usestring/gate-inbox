@@ -2,13 +2,17 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/usestring/gate-inbox/extension/textfmt"
+	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
 func TestChildRestMessageNamesTheChildAndWhereTheWorkIs(t *testing.T) {
@@ -227,5 +231,76 @@ func TestARepeatedChildRestReplacesTheNoticeAlreadyQueued(t *testing.T) {
 	}
 	if !strings.Contains(head.Body, "stopped with an error") {
 		t.Fatalf("the parent reads the stale notice: %q", head.Body)
+	}
+}
+
+// Live 2026-10-12: the cache warden pinned a child at finished while its
+// row read idle, the pin read as an idle->finished transition, and the
+// parent was woken for a keep-warm turn -- 32 of 38 keep-warms to children.
+func TestRelayChildRestSkipsAPinnedChild(t *testing.T) {
+	p, st := pollerWithStore(t)
+	parent := seedSession(t, st, store.Session{ID: "parent01", Name: "google-flights-hotels", Status: status.Working})
+	child := seedSession(t, st, store.Session{ID: "child001", Name: "flights-signed-rpc-switch", ParentID: parent.ID, Status: status.Idle})
+	p.pins = fixedPins{child.ID: status.Finished}
+
+	if err := p.relayChildRest(child, status.Finished); err != nil {
+		t.Fatalf("relayChildRest: %v", err)
+	}
+	if _, found, err := st.HeadMessage(parent.ID); err != nil || found {
+		t.Fatalf("parent was woken for a pinned keep-warm turn (found=%v err=%v)", found, err)
+	}
+
+	if err := p.relayChildRest(child, status.Dead); err != nil {
+		t.Fatalf("relayChildRest: %v", err)
+	}
+	if _, found, _ := st.HeadMessage(parent.ID); !found {
+		t.Fatal("a pinned child that died was not reported")
+	}
+}
+
+// Live 2026-10-19: a child's sandbox stayed stale, so it ended its turn for
+// the board to restart it. Its parent was told it had finished, then read it
+// working on the restart's prompt four seconds later.
+func TestRelayChildRestSkipsAChildAwaitingAStaleSandboxRestart(t *testing.T) {
+	p, st := pollerWithStore(t)
+	p.hooks = hooks.NewManager(tmuxtest.ScratchDir(t))
+	if err := os.MkdirAll(p.hooks.Dir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	failure := []byte(`{"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"ls"},` +
+		`"error":"Exit code 1\nbwrap: Can't get type of source /r/.git/worktrees/gone/commondir: No such file or directory"}`)
+	staleFailures := func(child store.Session, n int) {
+		flag := p.hooks.StatusFile(child.ID) + hooks.SandboxStaleSuffix
+		for range n {
+			sessioncmd.SandboxStaleHook(p.hooks.ConfigDir(), child.ID, flag, failure, time.Now())
+		}
+	}
+	cases := []struct {
+		name     string
+		failures int
+		relayed  bool
+	}{
+		{"one failure is retried in place", 1, true},
+		{"a failure that persisted waits for the restart", 2, false},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			parent := seedSession(t, st, store.Session{ID: fmt.Sprintf("parent%02d", i), Name: "site-graph-endpoint", Status: status.Working})
+			child := seedSession(t, st, store.Session{ID: fmt.Sprintf("child%03d", i), Name: "native-signing-solver", ParentID: parent.ID, SpawnedBy: parent.ID, Status: status.Working})
+			staleFailures(child, tc.failures)
+
+			if err := p.relayChildRest(child, status.Finished); err != nil {
+				t.Fatalf("relayChildRest: %v", err)
+			}
+			if _, found, err := st.HeadMessage(parent.ID); err != nil || found != tc.relayed {
+				t.Fatalf("finished relayed=%v, want %v (err=%v)", found, tc.relayed, err)
+			}
+			if err := p.relayChildRest(child, status.Dead); err != nil {
+				t.Fatalf("relayChildRest: %v", err)
+			}
+			if _, found, _ := st.HeadMessage(parent.ID); !found {
+				t.Fatal("a child that died was not reported")
+			}
+		})
 	}
 }

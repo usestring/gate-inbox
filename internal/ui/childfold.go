@@ -110,7 +110,7 @@ func (m *Model) foldsAway(child store.Session) bool {
 // childStatusOrder is the order a badge reads in: what is running, then what
 // is blocked on a person, then what is over. It is not the triage order,
 // which ranks by who needs attention first; a badge is a census.
-var childStatusOrder = []string{status.Working, status.Starting, status.Waiting, status.Finished, status.Errored, status.Dead}
+var childStatusOrder = []string{status.Working, status.Starting, status.Delegating, status.Waiting, status.Finished, status.Errored, status.Dead}
 
 // childCounts is a parent's live children by status, in the order above.
 func (m *Model) childCounts(sessions []store.Session, parentID string) map[string]int {

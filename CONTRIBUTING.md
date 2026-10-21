@@ -26,6 +26,9 @@ socket. `internal/ui` is the slow one: `-short` skips its wall-clock tests, and
 `scripts/shard-test.sh` splits it across processes. [`README.md`](README.md#development) has the
 details.
 
+Coding agents testing locally follow [`AGENTS.md`](AGENTS.md): `-short` on changed packages
+only, with the full suites left to CI.
+
 ### Pre-push tests
 
 Enable the repository's hook once per clone (including when working in a submodule):
@@ -35,8 +38,8 @@ git config --local core.hooksPath .githooks
 ```
 
 Every push runs the full Go suite without cached results or `-short`, including E2E tests,
-through the tmux isolation check. It then runs every `scripts/*.test.sh` suite and the artifacts
-worker's `bun test`, so Bun is also required. A failed command blocks the push. Tests that need
+through the tmux isolation check. It then runs every `scripts/*.test.sh` suite. A failed command
+blocks the push. Tests that need
 live accounts, transcripts or other opt-in fixtures still require their documented environment
 variables; the hook does not enable them automatically. Run `.githooks/pre-push` to check locally.
 

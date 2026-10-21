@@ -146,3 +146,26 @@ func TestDraftTextReadsClaudesComposerWithShippedDefaults(t *testing.T) {
 		t.Fatalf("an empty composer read as %q", got)
 	}
 }
+
+func TestFaintAfterCell(t *testing.T) {
+	cases := []struct {
+		name string
+		row  string
+		from int
+		want bool
+	}{
+		{"faint hint", "❯ \x1b[2mrun the tests\x1b[0m", 2, true},
+		{"plain text", "❯ run the tests", 2, false},
+		{"nothing after the caret", "❯ \x1b[2m\x1b[0m", 2, false},
+		{"faint reset part way", "❯ \x1b[2mrun\x1b[22m tests", 2, false},
+		{"faint before the caret only", "\x1b[2m❯\x1b[0m run", 2, false},
+		{"truecolour is not faint", "❯ \x1b[38;2;10;10;10mrun", 2, false},
+		{"faint after a truecolour", "❯ \x1b[38;2;10;10;10;2mrun", 2, true},
+		{"a hyperlink is not cells", "❯ \x1b]8;;x\x1b\\\x1b[2mrun", 2, true},
+	}
+	for _, c := range cases {
+		if got := FaintAfterCell(c.row, c.from); got != c.want {
+			t.Errorf("%s: FaintAfterCell(%q, %d) = %v, want %v", c.name, c.row, c.from, got, c.want)
+		}
+	}
+}

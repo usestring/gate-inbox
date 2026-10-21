@@ -166,6 +166,57 @@ func TextBetweenCells(row string, from, to int) bool {
 	return false
 }
 
+// FaintAfterCell reports whether the styled row has text from a display
+// column on and all of it is drawn faint. Claude draws its suggested next
+// prompt that way into an empty composer, and the stripped capture every
+// other check reads cannot tell that hint from a typed line: the styling is
+// the only thing that does.
+func FaintAfterCell(row string, from int) bool {
+	faint, seen := false, false
+	cell := 0
+	var state byte
+	for len(row) > 0 {
+		seq, width, n, next := ansi.DecodeSequence(row, state, nil)
+		row, state = row[n:], next
+		if width == 0 {
+			if strings.HasPrefix(seq, "\x1b[") && strings.HasSuffix(seq, "m") {
+				faint = faintAfterSGR(faint, seq[2:len(seq)-1])
+			}
+			continue
+		}
+		if cell >= from && strings.TrimSpace(seq) != "" {
+			if !faint {
+				return false
+			}
+			seen = true
+		}
+		cell += width
+	}
+	return seen
+}
+
+// faintAfterSGR applies one SGR's parameters to the faint attribute: 2 sets
+// it, 22 and a reset clear it. A colour's own arguments are skipped, since
+// the 2 in 38;2;r;g;b introduces a truecolour and is not faint.
+func faintAfterSGR(faint bool, params string) bool {
+	fields := strings.Split(params, ";")
+	for i := 0; i < len(fields); i++ {
+		switch fields[i] {
+		case "", "0", "22":
+			faint = false
+		case "2":
+			faint = true
+		case "38", "48", "58":
+			if i+1 < len(fields) && fields[i+1] == "5" {
+				i += 2
+			} else if i+1 < len(fields) && fields[i+1] == "2" {
+				i += 4
+			}
+		}
+	}
+	return faint
+}
+
 // runeAtColumn finds which rune sits at a display column, since tmux
 // reports the caret in cells and a wide rune covers two.
 func runeAtColumn(line []rune, column int) int {

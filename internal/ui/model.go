@@ -78,6 +78,9 @@ const (
 	modeQuickActions
 	modePanePicker
 	modeRestartWith
+	// modeHeadPane routes the keyboard into the page behind an extension's
+	// header row, drawn where a session's pane is. See headpane.go.
+	modeHeadPane
 )
 
 type treeRow struct {
@@ -93,14 +96,20 @@ type treeRow struct {
 	// that reaches an artifact row and acts on sess acts on the session that
 	// opened the artifact, which is the only session the row has ever meant.
 	art *workRow
+	// head is the extension whose header this row is, drawn over sess: see
+	// headrows.go.
+	head string
 }
 
 // isArtifact marks a row that draws a pull request or a ticket.
 func (e treeRow) isArtifact() bool { return e.art != nil }
 
+// isHead marks a row that is an extension's header over a session.
+func (e treeRow) isHead() bool { return e.head != "" }
+
 // isSession marks a row that is a session itself, as against the group above
-// it or the work hanging off it.
-func (e treeRow) isSession() bool { return !e.isGroup && e.art == nil }
+// it, the header over it or the work hanging off it.
+func (e treeRow) isSession() bool { return !e.isGroup && e.art == nil && e.head == "" }
 
 type Model struct {
 	cfg    config.Config
@@ -125,6 +134,8 @@ type Model struct {
 	jevSavedKey    string
 	jevFinishCheck bool
 	jevFinish      jevFinishState
+	jevCopyQueue   bool
+	jevCopy        jevCopyState
 	promptSuggest  bool
 	promptSnipsSeq int
 	autoSuggestSeq int
@@ -146,7 +157,7 @@ type Model struct {
 	extBadges map[string][]Badge
 	// extHeaders, extHidden, extOwned and extFilters are the rows' headers,
 	// the hidden and owned rows, and the list filters: see extrows.go.
-	extHeaders map[string][][]Span
+	extHeaders map[string][]extHeader
 	extHidden  map[string]bool
 	extOwned   map[string]bool
 	extFilters []*listFilter
@@ -157,6 +168,11 @@ type Model struct {
 	// extView is the view on screen in modeExtensionView.
 	extScreens map[keymap.Context]bool
 	extView    openView
+	// headPanes are the pages behind the header rows, by row key; see
+	// headpane.go. headReturn is a card opened from a focused page, which
+	// hands the keyboard back to that page when it closes.
+	headPanes  map[string]*openView
+	headReturn bool
 
 	// extensionNotes are the build's extensions the operator's config
 	// switched off, and the config sections nothing owns, each with its
@@ -256,12 +272,18 @@ type Model struct {
 	groupPaths     map[string]string
 	archivedGroups map[string]bool
 	priorityGroups map[string]priority.Tier
-	snap           sysstat.Snapshot
-	proc           sysstat.ProcStat
-	procFor        string
-	preview        string
-	conversation   *conversationView
-	agents         agentStats
+	// pinnedGroups are the groups whose path every spawn into them starts
+	// in. See store.PinnedPath.
+	pinnedGroups map[string]bool
+	// priorityFlash is the row that just changed tier, spelled out on the
+	// rail until its timer runs out. See priority.go.
+	priorityFlash priorityFlash
+	snap          sysstat.Snapshot
+	proc          sysstat.ProcStat
+	procFor       string
+	preview       string
+	conversation  *conversationView
+	agents        agentStats
 	// queuedMessages is replaced whole on every refresh rather than merged,
 	// so a delivered message's badge clears itself.
 	queuedMessages map[string]int
@@ -509,8 +531,10 @@ type Model struct {
 	focusHistory      []string
 	previewBodyOffset int
 	cursor            int
-	mode              mode
-	showArchived      bool
+	// listTop is the first entry the rail drew last frame; see entryLines.
+	listTop      listAnchor
+	mode         mode
+	showArchived bool
 	// showAllWork lifts the cap on the pull requests and tickets a session
 	// hangs on the rail, for a reader who came for the tail. Off at every
 	// start: the cap is what keeps one busy session off the whole screen.
@@ -542,6 +566,10 @@ type Model struct {
 	// the cursor was in when triage was turned on -- and is "" for a drain
 	// of the whole fleet.
 	triageScope string
+	// smartTriage mirrors the persisted smart_triage setting: on, triage
+	// orders the walk by weighted wait; off, by the strict state-first order.
+	// See triageScore.
+	smartTriage bool
 	// triageStartupEnter is set when triage was already on at startup, so the
 	// first poll enters the head of the queue the way turning triage on does.
 	// Restoring the mode without the entry leaves the operator on a list they
@@ -616,6 +644,9 @@ type Model struct {
 	// time. The poll's working transition is the evidence left to see.
 	unseenAnswers  map[string]bool
 	landingLocator *search.Locator
+	// handoverTrace is the Enter handover whose next frame is still to be
+	// timed; see handOverOnEnter.
+	handoverTrace handoverTrace
 	// settling are the sessions whose answer has been seen landing, by the
 	// instant it was, until a poll listed after that has been applied: the
 	// row still shows the state the answer moved it on from. See triage.go.
@@ -685,6 +716,9 @@ type Model struct {
 	// archived, restored, or deleted a group, a poll that listed the store
 	// before that moment must not put the old state back on the tree.
 	goneGroups map[string]goneMark
+	// reorders are this run's manual swaps a poll may not have listed yet;
+	// see holdReorders.
+	reorders []reorderMark
 	// terminalKeyAt is when the last T finished being handled. Held down it
 	// autorepeats into a burst of keystrokes, and T is the only key that
 	// spawns on the keystroke itself rather than opening a form that would
@@ -854,6 +888,7 @@ type settingsState struct {
 	leaveMode        string
 	newSessionAgent  string
 	autoProceed      bool
+	smartTriage      bool
 	reopenSessions   string
 	outsidePanes     string
 	// claudeSetup is the Settings switch for the board's entries in the
@@ -867,6 +902,7 @@ type settingsState struct {
 	jevInput           textinput.Model
 	jevAutoSuggest     bool
 	jevFinishCheck     bool
+	jevCopyQueue       bool
 	promptSuggest      bool
 	compressedFocus    bool
 	// backdropSync is the backdrop mode as the picker holds it: true
@@ -899,6 +935,7 @@ const (
 	settingsFieldQuickClose
 	settingsFieldFocusKey
 	settingsFieldAutoProceed
+	settingsFieldSmartTriage
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
 	settingsFieldClaudeSetup
@@ -931,6 +968,7 @@ type refreshMsg struct {
 	groupPaths     map[string]string
 	archivedGroups map[string]bool
 	priorityGroups map[string]priority.Tier
+	pinnedGroups   map[string]bool
 	snap           sysstat.Snapshot
 	snapOK         bool
 	proc           sysstat.ProcStat
@@ -1162,7 +1200,9 @@ func deferStoreWrite(write func() error) tea.Cmd {
 
 type attachDoneMsg struct {
 	sessID string
-	err    error
+	// since is when the attach began; see noteAttachedTurn.
+	since time.Time
+	err   error
 }
 
 func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status.Engine, hookManager *hooks.Manager, version string) *Model {
@@ -1172,6 +1212,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	shellTools := make(map[string]bool, len(cfg.Tools))
 	interruptKeys := make(map[string][]string, len(cfg.Tools))
 	clearInputKeys := make(map[string][]string, len(cfg.Tools))
+	var compactTools map[string]config.Tool
 	for name, tool := range cfg.Tools {
 		statusSources[name] = tool.StatusSource
 		sessionStores[name] = tool.SessionStore
@@ -1179,6 +1220,12 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		shellTools[name] = tool.Shell
 		interruptKeys[name] = tool.InterruptKeys
 		clearInputKeys[name] = tool.ClearInputKeys
+		if len(tool.CompactWindow) > 0 && tool.StatusSource == hooks.StatusSourceClaude {
+			if compactTools == nil {
+				compactTools = map[string]config.Tool{}
+			}
+			compactTools[name] = tool
+		}
 	}
 	// A missing git binary only disables what reads a repository's root;
 	// everything else works without it, so the error surfaces on first use.
@@ -1214,6 +1261,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		compressedFocus: storedCompressedFocus(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
 		jevFinishCheck:  storedJevFinishCheck(st),
+		jevCopyQueue:    storedJevCopyQueue(st),
 		promptSuggest:   storedPromptSuggestions(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),
@@ -1230,6 +1278,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		triage:          storedTriage(st),
 		triageScope:     storedTriageScope(st),
 		autoProceed:     storedAutoProceed(st),
+		smartTriage:     storedSmartTriage(st),
 		mode:            modeList,
 		version:         version,
 		// Assume the operator is looking until something says otherwise. A
@@ -1241,6 +1290,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	}
 	model.poller.interruptKeys = interruptKeys
 	model.poller.clearInputKeys = clearInputKeys
+	model.poller.compactTools = compactTools
 	model.poller.staleAfter = cfg.StaleStatusAfter.Duration
 	model.poller.hogWatch = newHogWatch(cfg.Hogs, "", func(msg store.InboxMessage) error {
 		_, _, err := st.Enqueue(msg, store.DefaultInboxLimits)
@@ -1306,6 +1356,9 @@ func (m *Model) seedFromStore() {
 	if err != nil || len(sessions) == 0 {
 		logging.Info("store seeded", "sessions", 0, logging.Err(err))
 		return
+	}
+	if shown, err := m.poller.delegated(sessions); err == nil {
+		sessions = shown
 	}
 	m.sessions = sessions
 	m.adoptRestored = true
@@ -1629,6 +1682,11 @@ func (m *Model) selectedIndex() (int, bool) {
 		return 0, false
 	}
 	index := m.cursor
+	// A header row heads the session drawn just below it, past any other
+	// extension's header over the same session.
+	for index < len(m.rows)-1 && m.rows[index].isHead() {
+		index++
+	}
 	for index > 0 && m.rows[index].isArtifact() {
 		index--
 	}
@@ -1714,10 +1772,30 @@ func (m *Model) previewCmd(sess store.Session, gen uint64, withProc bool) tea.Cm
 		if withProc {
 			if pid, err := m.tmux.PanePID(sess.ID); err == nil {
 				memTotal, _ := sysstat.MemTotalBytes()
-				msg.proc = sysstat.Trees([]int{pid})[pid].ScaleToHost(sysstat.LogicalCPUs(), memTotal)
+				stat, _ := sysstat.Tree(pid)
+				msg.proc = stat.ScaleToHost(sysstat.LogicalCPUs(), memTotal)
 				msg.procOK = true
 			}
 		}
+		msg.at = time.Now()
+		return msg
+	}
+}
+
+// handoverPreviewCmd is the first look at a session a drain has just
+// handed over. A handover is one jump, not a held key walking the rail, so
+// it captures at once rather than after previewSettle, and focusSelected has
+// already resized the pane and started the conversation read the settle would
+// have issued. It skips previewCmd's liveness check, which focusSelected has
+// just made, and the process walk, which the focused pane's own cadence takes:
+// both would sit between the Enter and the frame the operator reads.
+func (m *Model) handoverPreviewCmd(sess store.Session, gen uint64) tea.Cmd {
+	return func() tea.Msg {
+		msg := previewMsg{sessID: sess.ID, gen: gen}
+		if pane, err := m.tmux.CapturePane(sess.ID); err == nil {
+			msg.preview = pane
+		}
+		msg.facts, msg.factsOK = readFacts(m.tmux, sess.ID), true
 		msg.at = time.Now()
 		return msg
 	}
@@ -2125,6 +2203,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case jevFinishResultMsg:
 		m.applyJevFinish(msg)
 		return m, nil
+	case jevCopyResultMsg:
+		m.applyJevCopy(msg)
+		return m, nil
+	case jevCopiedMsg:
+		m.applyJevCopied(msg)
+		return m, nil
 	case promptJevTickMsg:
 		return m, m.runPromptJev(msg.seq)
 	case promptJevResultMsg:
@@ -2201,9 +2285,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// own is no longer marked as adopted.
 		m.syncAdoptedHooks(time.Now())
 		m.groups = msg.groups
+		m.holdReorders(msg.listedAt)
 		m.groupPaths = msg.groupPaths
 		m.archivedGroups = msg.archivedGroups
 		m.priorityGroups = msg.priorityGroups
+		m.pinnedGroups = msg.pinnedGroups
 		m.agents = msg.agents
 		m.queuedMessages = msg.queuedMessages
 		m.granted = msg.granted
@@ -2242,7 +2328,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sweep := m.sweepExpiredArchives()
 		// Off the loop, so a busy tmux server delays a child's filing rather
 		// than the board's next frame. What it finds lands as childSweptMsg.
-		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev())
+		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev(), m.checkCopyWithJev())
 		m.settleInstall()
 		m.rebuildRows()
 		if focusClosed {
@@ -2497,6 +2583,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !msg.at.IsZero() && msg.at.Before(m.previewAt) {
 			return m, nil
 		}
+		m.noteHandoverFrame(msg.sessID)
 		if !msg.at.IsZero() {
 			m.previewAt = msg.at
 		}
@@ -2538,6 +2625,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case errMsg:
 		m.errBar.text = msg.err.Error()
+		return m, nil
+
+	case priorityFlashEndMsg:
+		m.endPriorityFlash(msg)
 		return m, nil
 
 	case pasteImageMsg:
@@ -2582,6 +2673,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pane.geom = map[string][2]int{}
 		}
 		m.pane.geom[msg.sessID] = [2]int{width, height}
+		m.noteAttachedTurn(msg.sessID, msg.since)
 		if msg.err != nil {
 			m.errBar.text = msg.err.Error()
 			m.requestRefresh()
@@ -2649,7 +2741,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeSettings && m.settings.jevPasting {
 			return m, m.pasteIntoJevKey(msg)
 		}
-		if m.mode == modeExtensionView {
+		if m.mode == modeExtensionView || m.mode == modeHeadPane {
 			return m, m.pasteIntoView(msg)
 		}
 		if m.mode == modeFocus {
@@ -2883,6 +2975,8 @@ func rowKey(entry treeRow) string {
 		return "g:" + entry.group
 	case entry.isArtifact():
 		return "a:" + entry.sess.ID + ":" + entry.art.kind + ":" + entry.art.label
+	case entry.isHead():
+		return "h:" + entry.head + ":" + entry.sess.ID
 	}
 	return "s:" + entry.sess.ID
 }
@@ -3115,6 +3209,7 @@ func (m *Model) buildTree() {
 		if extHides(sess) {
 			return
 		}
+		rows = append(rows, m.headRows(sess, depth)...)
 		rows = append(rows, treeRow{sess: sess, depth: depth})
 		rows = append(rows, m.artifactRows(sess, depth+1)...)
 		appendChildren(sess, depth, map[string]bool{sess.ID: true})
@@ -3140,22 +3235,27 @@ func (m *Model) buildTree() {
 				continue
 			}
 			// Triage draws every child except the ones somebody else is
-			// already answering; see parentOwns.
-			if m.triage && m.foldsAway(child) && m.parentOwns(child, time.Now(), livePanes) {
-				continue
-			}
-			// A muted child is off triage the same as a muted top-level
-			// session, and takes what hangs under it along.
-			if m.triage && child.Muted {
+			// already answering; see parentOwns. A muted child stays on the
+			// rail reading "muted" whoever owns its question, so it can be
+			// unmuted from here, and the drain walks past it; see
+			// persistentmute.go and triageHandable.
+			if m.triage && !child.Muted && m.foldsAway(child) && m.parentOwns(child, time.Now(), livePanes) {
 				continue
 			}
 			if drawn[child.ID] {
 				continue
 			}
 			drawn[child.ID] = true
-			rows = append(rows, treeRow{sess: child, depth: childDepth})
-			rows = append(rows, m.artifactRows(child, childDepth+1)...)
-			appendChildren(child, childDepth, drawn)
+			rowDepth := childDepth
+			// Mute partitions separate these branches on screen, so keeping
+			// their nesting would attach a child to an unrelated session.
+			if m.triage && child.Muted != sess.Muted {
+				rowDepth = 0
+			}
+			rows = append(rows, m.headRows(child, rowDepth)...)
+			rows = append(rows, treeRow{sess: child, depth: rowDepth})
+			rows = append(rows, m.artifactRows(child, rowDepth+1)...)
+			appendChildren(child, rowDepth, drawn)
 		}
 	}
 	// A search is answered by the sessions it matched and triage by the
@@ -3189,13 +3289,9 @@ func (m *Model) buildTree() {
 				continue
 			}
 			for _, sess := range groupSessions {
-				// A persistently muted session is off the triage queue entirely:
-				// it is not a thing the drain walks past, it is not on the
-				// rail the drain reads. Its row is still on the list, where
-				// it reads "muted"; see persistentmute.go.
-				if m.triage && sess.Muted {
-					continue
-				}
+				// A persistently muted session stays on the triage rail reading
+				// "muted", sorted last; the drain walks past it rather than
+				// handing it over. See persistentmute.go and triageHandable.
 				kept[sess.ID] = true
 			}
 		}
@@ -3212,6 +3308,17 @@ func (m *Model) buildTree() {
 		}
 		for _, sess := range queue {
 			appendSession(sess, 0)
+		}
+		if m.triage {
+			slices.SortStableFunc(rows, func(a, b treeRow) int {
+				if a.sess.Muted == b.sess.Muted {
+					return 0
+				}
+				if a.sess.Muted {
+					return 1
+				}
+				return -1
+			})
 		}
 		connectMigrationRows(rows)
 		m.rows = rows
@@ -3261,6 +3368,7 @@ func (m *Model) buildTree() {
 }
 
 func (m *Model) restoreCursor(previousKey string) {
+	defer m.settleHeadPanes()
 	if previousKey != "" {
 		for i, entry := range m.rows {
 			if rowKey(entry) == previousKey {

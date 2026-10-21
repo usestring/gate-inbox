@@ -18,7 +18,7 @@ import (
 
 const (
 	usageSessions      = "sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json]"
-	usageSpawn         = "spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--nest] [--keep] [--json]"
+	usageSpawn         = "spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--directory-reason <why>] [--nest] [--keep] [--json]"
 	usageSend          = `send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--relay_question <question>] [--json]`
 	usageRead          = "read <session-id> [--since <cursor>] [--json]"
 	usageSendChildren  = "send-children \"<message>\" [--json]"
@@ -104,7 +104,7 @@ func runSessions(out io.Writer, sessions sessionCommands, args []string, session
 	set := cmdline.NewFlagSet(usageSessions)
 	var states stringList
 	parent := set.String("parent", "", `keep only the sessions one spawned; "`+sessioncmd.SelfParent+`" is this session's own children`)
-	set.Var(&states, "status", "state to keep, repeatable or comma separated: starting, working, waiting, finished, idle, errored or dead")
+	set.Var(&states, "status", "state to keep, repeatable or comma separated: starting, working, waiting, delegating, finished, idle, errored or dead")
 	includeArchived := set.Bool("include-archived", false, "also list rows archived out of the active list, which on an old board are most of them")
 	limit := set.Int("limit", sessioncmd.DefaultSessionLimit, fmt.Sprintf("how many rows to print, at most %d; the last line says what was left out", sessioncmd.MaxSessionLimit))
 	asJSON := cmdline.JSONFlag(set)
@@ -132,6 +132,7 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 	account := set.String("account", "", "named account it runs on, read from its secret at launch; omit for the board's launch-account setting")
 	group := set.String("group", "", "existing group path for a detached (--nest=false) session; a nested one is always in yours")
 	directory := set.String("directory", "", "existing directory it works in; defaults to yours, or to the group's inherited path")
+	directoryReason := set.String("directory-reason", "", "why it must start in --directory although its group pins another; leave empty to start where the group pins")
 	nest := set.Bool("nest", true, "file it under this session, where its questions and rests reach you; --nest=false detaches it: the user's, not yours, and nothing about it is relayed to you")
 	keep := set.Bool("keep", false, "keep it on the list after it finishes, where Gate Inbox would otherwise archive it once you have read its finish and the grace period has passed")
 	asJSON := cmdline.JSONFlag(set)
@@ -139,13 +140,14 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 		return err
 	}
 	opts := sessioncmd.CreateSessionOptions{
-		Tool:      *tool,
-		Name:      *name,
-		Directory: *directory,
-		Prompt:    *prompt,
-		Model:     *model,
-		Account:   *account,
-		Keep:      *keep,
+		Tool:            *tool,
+		Name:            *name,
+		Directory:       *directory,
+		DirectoryReason: *directoryReason,
+		Prompt:          *prompt,
+		Model:           *model,
+		Account:         *account,
+		Keep:            *keep,
 	}
 	// An omitted group inherits this session's and an omitted nest the
 	// engine's own, so only a flag the caller actually typed is passed on.

@@ -88,7 +88,7 @@ func TestSendChildrenReportsWhatItPassedOver(t *testing.T) {
 	for _, delivery := range sent.Deliveries {
 		reasons[delivery.SessionID] = delivery.Skipped
 	}
-	if reasons["kid-dead"] != "dead" || reasons["kid-gone"] != "archived" {
+	if !strings.HasPrefix(reasons["kid-dead"], "dead; send_session") || !strings.HasPrefix(reasons["kid-gone"], "archived; send_session") {
 		t.Errorf("skip reasons = %v, want them named per child", reasons)
 	}
 }

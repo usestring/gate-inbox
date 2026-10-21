@@ -4,7 +4,10 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
+	"github.com/usestring/gate-inbox/internal/dialog"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -18,9 +21,9 @@ import (
 // operator who opened one has already said they mean to walk it, so the
 // handover is the promise and stopping on each session is the part worth
 // asking for. It was off for as long as it was on the argument that reading
-// "done with this one" out of a keystroke is a guess. It no longer is: the
-// handover waits for the answer to be seen landing in the session, and a key
-// that lands nothing leaves the operator where they are. See landing.go. A
+// "done with this one" out of a keystroke is a guess. Other answering keys
+// wait for the answer to be seen landing; Enter hands over at once, and a
+// session whose answer never lands rejoins the queue. See landing.go. A
 // queue that silently does not advance costs more than a missed handover: it
 // reads as the mode being broken rather than as a setting being off, which is
 // exactly how it was reported.
@@ -90,6 +93,83 @@ func (m *Model) handOverLanded(sess store.Session, at time.Time) tea.Cmd {
 	return m.moveOnFrom(sess)
 }
 
+// handOverOnEnter is auto-proceed's handover on the Enter itself, keyAt being
+// when the key arrived. The answer check armed for the key keeps running but
+// no longer moves the drain; if it never sees the answer land, the session
+// is unmuted so the queue offers it again. A nil command means nothing
+// was handed over and the operator stays where they are.
+func (m *Model) handOverOnEnter(sess store.Session, keyAt time.Time) tea.Cmd {
+	pending, ok := m.landings[sess.ID]
+	if !ok {
+		return nil
+	}
+	start := time.Now()
+	pending.handOver = false
+	pending.early = true
+	if m.heldAckID == sess.ID {
+		m.heldAckID = ""
+	}
+	m.muteUntilSeen(sess, keyAt)
+	cmd := m.moveOnFrom(sess)
+	to := ""
+	if next, ok := m.selected(); ok && m.mode == modeFocus && next.ID != sess.ID {
+		to = next.ID
+	}
+	m.handoverTrace = handoverTrace{to: to, keyAt: keyAt}
+	// took runs from the key; switch is the part spent leaving and entering,
+	// so the rest is the key's own send and answer check.
+	logging.Info("triage handover", "from", sess.ID, "to", to,
+		"took", time.Since(keyAt).Round(time.Microsecond).String(),
+		"switch", time.Since(start).Round(time.Microsecond).String())
+	return cmd
+}
+
+// keyEndsDialog reports whether a key answering the focused pane ends what
+// the session asked, read off the pane before the key reaches it. A dialog
+// part way through is not done with: Enter or a digit on a multi-select ticks
+// a box, and on one question of several it answers that one and steps to the
+// next. Handing over there left the rest of the dialog unanswered behind the
+// operator. Only the dialog's last step ends it: Claude Code's Submit tab,
+// which it also draws for a single multi-select question; opencode's review,
+// or its one single-select question; and Codex's "submit all" question. A tab
+// row whose highlight cannot be read counts as not on Submit, so the operator
+// stays rather than leaving a dialog half answered. A pane with none of these
+// dialogs is a composer or a single question, and the key ends it.
+func (m *Model) keyEndsDialog() bool {
+	if stepper, ok := dialog.ParseStepper(m.preview); ok {
+		return stepper.OnSubmit()
+	}
+	plain := ansi.Strip(m.preview)
+	if ask, ok := dialog.ParseOpencodeAsk(plain); ok {
+		return ask.OnSubmit || (ask.Total == 0 && !ask.Multi && !ask.Typing)
+	}
+	if ask, ok := dialog.ParseCodexAsk(plain); ok {
+		return ask.Total <= 1 || ask.Last
+	}
+	if held, ok := dialog.Inspect(plain); ok && held.MultiSelect {
+		return held.OnSubmit
+	}
+	return true
+}
+
+// handoverTrace times the next session's first fresh frame after an Enter
+// handover, the moment the operator can read it.
+type handoverTrace struct {
+	to    string
+	keyAt time.Time
+}
+
+// noteHandoverFrame logs the first fresh frame of the session an Enter
+// handed over to.
+func (m *Model) noteHandoverFrame(sessID string) {
+	if m.handoverTrace.to == "" || m.handoverTrace.to != sessID {
+		return
+	}
+	logging.Info("triage handover frame", "to", sessID,
+		"took", time.Since(m.handoverTrace.keyAt).Round(time.Microsecond).String())
+	m.handoverTrace = handoverTrace{}
+}
+
 // moveOnFrom leaves sess and enters the next session that needs a person.
 // When the queue is drained the operator lands on the list with the drain
 // still open (see triageResume), so work arriving on a later poll joins the
@@ -136,6 +216,10 @@ func (m *Model) handOverOnWork(before string) tea.Cmd {
 	pending, inFlight := m.landings[sess.ID]
 	if !m.unseenAnswers[sess.ID] && !(inFlight && pending.handOver) {
 		return nil
+	}
+	if inFlight {
+		pending.observed.decided = "poll"
+		recordLanding(pending, "seen")
 	}
 	m.dropLanding(sess.ID)
 	return m.handOverFocused(sess)

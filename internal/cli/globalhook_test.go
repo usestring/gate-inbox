@@ -152,3 +152,53 @@ func TestGlobalHooksRunTheLaunchHooksForAnAdoptedSession(t *testing.T) {
 		t.Fatalf("status log = %v\nwant %s", got, want)
 	}
 }
+
+// Every global hook leaves the conversation its payload names for the poller
+// to bind the adopted row to, and a /clear's new id replaces the old one. A
+// payload with no usable id leaves the mailbox as it was, and a session the
+// board launched, whose own hooks already ran, writes nothing.
+func TestGlobalHooksReportTheAdoptedConversation(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, singleton.FileName), []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := hooks.NewManager(configDir)
+	if err := m.SyncAdopted([]hooks.AdoptedPane{{ID: "adopted1", ServerPID: 4242, PaneID: "%7", AgentPID: os.Getpid()}}); err != nil {
+		t.Fatal(err)
+	}
+	bin := installStandIn(t)
+	settings := filepath.Join(t.TempDir(), "settings.json")
+	if _, err := hooks.RegisterGlobal(settings, configDir, bin); err != nil {
+		t.Fatal(err)
+	}
+	env := []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir(), "TMUX=/tmp/s,4242,0", "TMUX_PANE=%7"}
+	fire := func(event, payload string) { fireGlobal(t, settings, event, payload, env) }
+	reported := func() string {
+		got, _ := m.ReadConversation("adopted1")
+		return got
+	}
+
+	const first, cleared = "2f1c7a4e-6b0d-4c9a-9e3f-1a2b3c4d5e6f", "8d3e5f70-1a2b-4c3d-8e4f-5a6b7c8d9e0f"
+	fire("PreToolUse", `{"tool_name":"Bash","session_id":"`+first+`"}`)
+	if got := reported(); got != first {
+		t.Fatalf("after the first hook the mailbox holds %q, want %s", got, first)
+	}
+	fire("SessionStart", `{"source":"clear","session_id":"`+cleared+`"}`)
+	if got := reported(); got != cleared {
+		t.Fatalf("after /clear the mailbox holds %q, want %s", got, cleared)
+	}
+	fire("Stop", `{"session_id":"../../etc/passwd"}`)
+	fire("Stop", `{}`)
+	if got := reported(); got != cleared {
+		t.Fatalf("a payload without a usable id changed the mailbox to %q", got)
+	}
+
+	if err := m.RemoveConversation("adopted1"); err != nil {
+		t.Fatal(err)
+	}
+	launched := append(append([]string(nil), env...), hooks.EnvStatusFile+"="+filepath.Join(t.TempDir(), "launched.status"))
+	fireGlobal(t, settings, "PreToolUse", `{"tool_name":"Bash","session_id":"`+first+`"}`, launched)
+	if _, found := m.ReadConversation("adopted1"); found {
+		t.Fatal("a launched session's global hook reported a conversation")
+	}
+}

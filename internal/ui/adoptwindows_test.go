@@ -679,3 +679,26 @@ func TestUntitledAdoptedRowsQueueOneRenameAcrossScans(t *testing.T) {
 		}
 	}
 }
+
+// With [naming] ask = false an adopted pane with no title keeps its quiet
+// placeholder: no rename request is queued into its live session.
+func TestUntitledAdoptedRowsQueueNothingWhenAskIsOff(t *testing.T) {
+	dir := t.TempDir()
+	socket := windowFixture(t, "main", 2, dir)
+	st := newFixtureStore(t)
+	run := newFixtureRun(t, st, socket)
+	no := false
+	run.naming.Ask = &no
+	if taken, err := run.take(adopt.Panes(socket), adopt.NewProcTable()); err != nil || taken != 2 {
+		t.Fatalf("take = %d, %v", taken, err)
+	}
+	rows, err := st.ListSessions(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.NameSource != store.SourceDerived || len(row.PendingInputs) != 0 {
+			t.Fatalf("row %q: source %q, pending %v", row.Name, row.NameSource, row.PendingInputs)
+		}
+	}
+}

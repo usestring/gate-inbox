@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -99,6 +101,8 @@ type autoRouteMsg struct {
 	selected bool
 	mode     string
 	err      error
+	// reason is the chooser's account of its answer, when it gives one.
+	reason string
 }
 
 // toolChooser is the build's chooser for a new session's CLI, when its
@@ -111,6 +115,15 @@ func toolChooser() (extension.ToolChooser, bool) {
 	}
 	tools, ok := chooser.(extension.ToolChooser)
 	return tools, ok
+}
+
+// chooseTool asks chooser for a CLI, with its reason when it can give one.
+func chooseTool(ctx context.Context, chooser extension.ToolChooser, req extension.ToolRequest) (name, reason string, err error) {
+	if explainer, ok := chooser.(extension.ToolChoiceExplainer); ok {
+		return explainer.ExplainToolChoice(ctx, req)
+	}
+	name, err = chooser.ChooseTool(ctx, req)
+	return name, "", err
 }
 
 func (m *Model) startAutoRoute() (tea.Model, tea.Cmd) {
@@ -159,6 +172,7 @@ type agentPickQuotaMsg struct {
 	generation  uint64
 	quotas      map[string]string
 	recommended string
+	reason      string
 }
 
 // agentPickQuotaCmd asks the build's chooser, off the event loop, how much
@@ -188,9 +202,11 @@ func (m *Model) agentPickQuotaCmd() tea.Cmd {
 		if reporter != nil {
 			msg.quotas = reporter.ToolQuotaSummaries(ctx, names)
 		}
-		if name, err := chooser.ChooseTool(ctx, req); err == nil {
+		name, reason, err := chooseTool(ctx, chooser, req)
+		if err == nil {
 			msg.recommended = name
 		}
+		msg.reason = reason
 		return msg
 	}
 }
@@ -199,7 +215,13 @@ func (m *Model) finishAgentPickQuota(msg agentPickQuotaMsg) {
 	if m.mode != modeAgentPick || msg.generation != m.agentPick.generation {
 		return
 	}
-	m.agentPick.quotas, m.agentPick.recommended = msg.quotas, msg.recommended
+	m.agentPick.quotas, m.agentPick.recommended, m.agentPick.reason = msg.quotas, msg.recommended, msg.reason
+	// The box opened on the last CLI used only because the chooser had not
+	// answered yet. Until the operator presses a key, auto's pick replaces
+	// it, so n then enter starts what auto would.
+	if !m.agentPick.touched && slices.Contains(m.agentPick.names, msg.recommended) {
+		m.setAgentPick(msg.recommended)
+	}
 }
 
 // activeByTool counts the sessions each CLI already has in flight, which a
@@ -227,7 +249,7 @@ func (m *Model) autoRouteCmd(req autoRouteMsg) tea.Cmd {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		msg.name, msg.err = chooser.ChooseTool(ctx, req.request)
+		msg.name, msg.reason, msg.err = chooseTool(ctx, chooser, req.request)
 		return msg
 	}
 }
@@ -250,6 +272,9 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil || msg.name == "" {
 		m.openPinnedAgentPick(msg)
 		m.errBar.text = "no CLI chosen: choose one"
+		if msg.reason != "" {
+			m.errBar.text = "no CLI chosen (" + msg.reason + "): choose one"
+		}
 		return m, nil
 	}
 	// The chooser answered for the launch-account mode read when n was
@@ -268,7 +293,11 @@ func (m *Model) finishAutoRoute(msg autoRouteMsg) (tea.Model, tea.Cmd) {
 	}
 	for _, name := range m.enabledToolNames() {
 		if name == msg.name {
-			return m.spawnInstantIn(name, msg.group)
+			model, cmd := m.spawnInstantIn(name, msg.group)
+			if m.errBar.text == "" && msg.reason != "" {
+				m.reportDone("auto: " + msg.reason)
+			}
+			return model, cmd
 		}
 	}
 	m.openPinnedAgentPick(msg)
@@ -326,16 +355,20 @@ type agentPick struct {
 	// against fresh text replaces the whole of it, which is what makes a
 	// prefilled box overridable without a backspace per character.
 	fresh bool
+	// touched marks a box the operator has pressed a key in, after which a
+	// late recommendation no longer moves the selection.
+	touched bool
 	// group and row pin the launch to what an auto choice captured when n was
 	// pressed, so a fallback picker does not follow a cursor moved meanwhile.
 	group       string
 	row         treeRow
 	rowSelected bool
 	pinned      bool
-	// quotas and recommended are the build chooser's answer, once it lands:
-	// each CLI's quota left and the CLI auto would start.
+	// quotas, recommended and reason are the build chooser's answer, once
+	// it lands: each CLI's quota left, the CLI auto would start, and why.
 	quotas      map[string]string
 	recommended string
+	reason      string
 }
 
 func (m *Model) openAgentPick() {
@@ -484,6 +517,9 @@ func (m *Model) handleAgentPickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.submitAgentPick()
+	}
+	m.agentPick.touched = true
+	switch msg.String() {
 	case "tab", "down", "right":
 		m.cycleAgentPick(1)
 		return m, nil
@@ -559,4 +595,97 @@ func (m *Model) openPinnedTerminal() (tea.Model, tea.Cmd) {
 		row.sess = sess
 	}
 	return m.openTerminalAt(row, true)
+}
+
+// newSessionFromAnywhere lets the list's new-session key start a session
+// from inside any box: the box closes the way esc closes it, then the key does
+// what it does on the screen underneath, the form on the list and the CLI box
+// in a focused session. The form and the CLI box are already starting one,
+// and a key-map capture is waiting for exactly this key to bind it.
+func (m *Model) newSessionFromAnywhere(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	if action, bound := m.action(keymap.ContextList, msg); !bound || action != keymap.NewSessionForm {
+		return nil, nil, false
+	}
+	if !m.inBox() || m.mode == modeForm || m.mode == modeAgentPick ||
+		(m.mode == modeHelp && (m.help.capturing || m.help.clash != nil)) {
+		return nil, nil, false
+	}
+	// A box can sit on another (a search inside help), so esc is pressed
+	// until the screen underneath shows, and a box esc cannot close keeps
+	// the key rather than letting it type into the box.
+	var cmds []tea.Cmd
+	for range 4 {
+		if !m.inBox() {
+			break
+		}
+		_, cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+		cmds = append(cmds, cmd)
+	}
+	if !m.inBox() {
+		_, cmd := m.handleKey(msg)
+		cmds = append(cmds, cmd)
+	}
+	return m, tea.Batch(cmds...), true
+}
+
+// killFromAnywhere makes the current screen's kill binding reach the
+// session from every screen that is not taking typed text: the list, the
+// search field, the hotkey menu, the legend peek, help and the pickers drawn
+// over a pane. Each box is closed the way newSessionFromAnywhere closes them,
+// and the kill then lands on the focused session or the row under the cursor,
+// asking first as it always does. A confirm dialog already up keeps the key.
+func (m *Model) killFromAnywhere(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	ctx := keymap.ContextList
+	if m.mode == modeFocus || m.mode == modeHeadPane ||
+		(m.mode == modeHelp && (m.help.returnMode == modeFocus || m.help.returnMode == modeHeadPane)) ||
+		(m.mode == modePanePicker && m.panePicker.fromFocus) {
+		ctx = keymap.ContextFocus
+	}
+	action, bound := m.action(ctx, msg)
+	// The default kill chord also works on the list when it has no list binding.
+	// Custom focus bindings must not claim unrelated list keys.
+	if ctx == keymap.ContextList && !bound && keyName(msg) == "ctrl+x" {
+		action, bound = m.action(keymap.ContextFocus, msg)
+	}
+	if !bound || action != keymap.Archive {
+		return nil, nil, false
+	}
+	// A plain list key stays with the screen it was pressed on: the list's own
+	// dispatch already handles it there, and every other screen owns its letters.
+	if ctx == keymap.ContextList && msg.Mod&(tea.ModCtrl|tea.ModAlt) == 0 {
+		return nil, nil, false
+	}
+	if m.mode == modeForm || m.mode == modeGroupForm || m.mode == modeRename ||
+		m.mode == modeAgentPick || m.mode == modeFork || m.mode == modeMigrate || m.mode == modeConfirmDelete ||
+		(m.mode == modeSettings && m.settings.jevPasting) ||
+		(m.mode == modeNameSweep && m.nameSweep.sending) ||
+		(m.mode == modeHelp && (m.help.capturing || m.help.clash != nil)) ||
+		((m.mode == modeExtensionView || m.mode == modeHeadPane) && m.typingInView()) {
+		return nil, nil, false
+	}
+	var cmds []tea.Cmd
+	for range 4 {
+		if !m.inBox() {
+			break
+		}
+		_, cmd := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+		cmds = append(cmds, cmd)
+	}
+	if m.inBox() {
+		return m, tea.Batch(cmds...), true
+	}
+	var cmd tea.Cmd
+	if sess, ok := m.selected(); ok && m.mode == modeFocus {
+		_, cmd = m.archiveFocused(sess)
+	} else {
+		_, cmd = m.archiveSelected()
+	}
+	return m, tea.Batch(append(cmds, cmd)...), true
+}
+
+// inBox reports whether something is drawn over the list or the focused
+// session and owns the keyboard.
+func (m *Model) inBox() bool {
+	return (m.mode != modeList && m.mode != modeFocus) ||
+		m.searching || m.quick.active || m.legendPeek.visible
 }

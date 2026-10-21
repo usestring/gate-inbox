@@ -170,11 +170,9 @@ func (r *runtime) answerScreen(target store.Session, pane dialogPane, screen dia
 // answer itself to its user.
 func screenRelayRefusal(target store.Session, screen dialog.Screen) error {
 	return fmt.Errorf("%w: session %s is on a %s, and whether to allow it is your user's call, never an "+
-		"agent's, so answer_session keys it only with relay: true. Ask your user with your own question tool, "+
-		"copying the question %q and the options %s word for word, then call answer_session on session %s "+
-		"with answer set to the option they chose and relay: true",
-		errScreenNeedsRelay, target.ID, screen.Kind, logging.ScrubWrapped(screen.Prompt()),
-		quoteAll(scrubAll(screen.Labels())), target.ID)
+		"agent's, so answer_session keys it only with relay: true. To put it to them, %s, then call "+
+		"answer_session on session %s with answer set to the option they chose and relay: true",
+		errScreenNeedsRelay, target.ID, screen.Kind, howToAsk(screen), target.ID)
 }
 
 // pickChoice moves the marker to choice n, sees it there, presses Enter and
@@ -255,24 +253,35 @@ func waitForLong(pane dialogPane, done func(raw string) bool) (string, error) {
 
 // admitScreen checks that choice n of screen is the caller's user's own
 // answer and records it, before any key is sent. The user's dialog must ask
-// the screen's text word for word -- inside a longer question is fine -- with
-// its choices as the options, and the user's answer must be choice n.
+// about this screen (asksScreen) with its choices as the options, and the
+// user's answer must be choice n.
 func (g *answerGuard) admitScreen(screen dialog.Screen, n int) error {
 	prompt := screen.Prompt()
 	labels := screen.Labels()
 	choice := labels[n-1]
 	hash := screenHash(prompt, labels)
 	evidence, err := g.evidence(g.since(), hash,
-		func(q convo.AskQuestion) bool { return asksScreen(q, prompt, labels) },
+		func(q convo.AskQuestion) bool { return asksScreen(q, screen) },
 		func(given string) bool { return sameText(given, choice) },
 		choice,
-		fmt.Sprintf("no dialog of yours asks this %s word for word with its choices as the options; ask your "+
-			"user with your own question tool, copying the question %q and the options %s, then answer with "+
-			"their choice and relay: true", screen.Kind, logging.ScrubWrapped(prompt), quoteAll(scrubAll(labels))))
+		fmt.Sprintf("no dialog of yours asks about this %s with its choices as the options; %s, then answer "+
+			"with their choice and relay: true", screen.Kind, howToAsk(screen)))
 	if err != nil {
 		return err
 	}
 	return g.record(hash, choice, evidence)
+}
+
+// howToAsk says how to put screen to the user: for a permission prompt about
+// a command, the relay's input as is; for any other dialog, its text copied
+// word for word.
+func howToAsk(screen dialog.Screen) string {
+	if screen.Kind == dialog.ScreenPermission && screen.Command() != "" {
+		return fmt.Sprintf("ask your user with the AskUserQuestion input read_session's digest.relay_ask "+
+			"gives, as is: its question cites %s and every option previews the command", screen.PromptToken())
+	}
+	return fmt.Sprintf("ask your user with your own question tool, copying the question %q and the options %s",
+		logging.ScrubWrapped(screen.Prompt()), quoteAll(scrubAll(screen.Labels())))
 }
 
 // admitKeys checks that the caller's user chose exactly spelled, asked with
@@ -323,14 +332,19 @@ func (g *answerGuard) since() time.Time {
 	return g.target.LaunchTime()
 }
 
-// asksScreen is the parent's question quoting prompt with labels as its
-// options, compared as dialog.Compact so a word the pane broke across two
-// rows still matches. A dialog with more choices than AskUserQuestion takes
-// (four) matches on any four of them.
-func asksScreen(q convo.AskQuestion, prompt string, labels []string) bool {
-	if !quotes(q.Question, prompt) || len(q.Options) == 0 {
+// asksScreen is the parent's question asking about screen with its labels
+// as the options, compared as dialog.Compact so a word the pane broke across
+// two rows still matches. It asks about screen when it quotes the prompt
+// word for word, or, for a permission prompt about a command, when it cites
+// the prompt's PromptToken and every option's preview quotes the command: the
+// person was shown that command, whole, beside the option they picked. A
+// dialog with more choices than AskUserQuestion takes (four) matches on any
+// four of them.
+func asksScreen(q convo.AskQuestion, screen dialog.Screen) bool {
+	if len(q.Options) == 0 || !quotes(q.Question, screen.Prompt()) && !citesPrompt(q, screen) {
 		return false
 	}
+	labels := screen.Labels()
 	if len(labels) <= 4 && len(q.Options) != len(labels) {
 		return false
 	}
@@ -342,6 +356,21 @@ func asksScreen(q convo.AskQuestion, prompt string, labels []string) bool {
 			continue
 		}
 		if !containsText(labels, option.Label) {
+			return false
+		}
+	}
+	return true
+}
+
+// citesPrompt is q naming screen's permission prompt by its PromptToken with
+// the command in every option's preview.
+func citesPrompt(q convo.AskQuestion, screen dialog.Screen) bool {
+	command := screen.Command()
+	if screen.Kind != dialog.ScreenPermission || command == "" || !quotes(q.Question, screen.PromptToken()) {
+		return false
+	}
+	for _, option := range q.Options {
+		if !quotes(option.Preview, command) {
 			return false
 		}
 	}

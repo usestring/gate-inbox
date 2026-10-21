@@ -117,10 +117,70 @@ func TestNoteSpawnerReadStampsOnlyAFinishedChild(t *testing.T) {
 	}
 }
 
-func TestRetirableChildrenLeavesEveryStateButFinished(t *testing.T) {
+// Idle is a finish someone acknowledged; it is no less over. Live
+// 2026-10-12: absorbed children read idle once the operator looked, and the
+// sweep, asking only for finished, never took them.
+func TestRetirableChildrenTakesAnAbsorbedIdleChild(t *testing.T) {
 	st := withParent(t)
 	now := time.Now()
-	for _, state := range []string{"waiting", "working", "starting", "errored", "idle", "dead"} {
+	childOf(t, st, "p1", "seen", "idle", time.Hour)
+	restNotice(t, st, "p1", "seen", now.Add(-59*time.Minute), now.Add(-59*time.Minute))
+	if got := retirable(t, st, 10*time.Minute); got != "seen" {
+		t.Fatalf("retirable = %q, want the absorbed idle child", got)
+	}
+}
+
+// Acknowledging a finish does not start a new rest. It used to move
+// last_status_at, so an absorbed child became unretirable the moment anyone
+// looked at it.
+func TestRetirableChildrenKeepsAnAbsorbedFinishThroughItsAcknowledgement(t *testing.T) {
+	st := withParent(t)
+	now := time.Now()
+	childOf(t, st, "p1", "acked", "finished", time.Hour)
+	restNotice(t, st, "p1", "acked", now.Add(-59*time.Minute), now.Add(-59*time.Minute))
+	if err := st.AcknowledgeFinished("acked"); err != nil {
+		t.Fatalf("AcknowledgeFinished: %v", err)
+	}
+	childOf(t, st, "p1", "derived", "finished", time.Hour)
+	restNotice(t, st, "p1", "derived", now.Add(-59*time.Minute), now.Add(-59*time.Minute))
+	if err := st.ApplyDerivedStates(now, []DerivedState{{ID: "derived", Status: "idle"}}); err != nil {
+		t.Fatalf("ApplyDerivedStates: %v", err)
+	}
+	if got := retirable(t, st, 10*time.Minute); got != "acked,derived" {
+		t.Fatalf("retirable = %q, want both acknowledged children", got)
+	}
+}
+
+// Live 2026-10-12: a child whose spawner row had been deleted sat finished
+// for 217 hours with its agent running, because nobody was left to take the
+// finish in. An archived or dead spawner is the same.
+func TestRetirableChildrenTakesAChildWhoseSpawnerIsGone(t *testing.T) {
+	st := withParent(t)
+	if err := st.CreateSession(sample("gone", "")); err != nil {
+		t.Fatalf("parent: %v", err)
+	}
+	childOf(t, st, "gone", "orphan", "finished", time.Hour)
+	if err := st.Delete("gone"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if err := st.CreateSession(sample("p2", "")); err != nil {
+		t.Fatalf("parent: %v", err)
+	}
+	if err := st.SetArchived("p2", true); err != nil {
+		t.Fatalf("SetArchived: %v", err)
+	}
+	childOf(t, st, "p2", "filed", "idle", time.Hour)
+	childOf(t, st, "p1", "fresh", "finished", time.Minute)
+	childOf(t, st, "p1", "unheard", "finished", time.Hour)
+	if got := retirable(t, st, 10*time.Minute); got != "filed,orphan" {
+		t.Fatalf("retirable = %q, want the children whose spawner is gone, past the grace", got)
+	}
+}
+
+func TestRetirableChildrenLeavesEveryStateButARest(t *testing.T) {
+	st := withParent(t)
+	now := time.Now()
+	for _, state := range []string{"waiting", "working", "starting", "errored", "dead"} {
 		childOf(t, st, "p1", state, state, time.Hour)
 		restNotice(t, st, "p1", state, now.Add(-59*time.Minute), now.Add(-59*time.Minute))
 		if err := st.NoteSpawnerRead(state, now.Add(-59*time.Minute)); err != nil {

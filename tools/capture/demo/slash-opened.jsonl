@@ -1,0 +1,5 @@
+{"type": "user", "sessionId": "slash-opened", "message": {"role": "user", "content": "<command-message>triage-inbox</command-message>\n<command-name>/triage-inbox</command-name>\n<command-args>only the last day</command-args>"}}
+{"type": "user", "sessionId": "slash-opened", "isMeta": true, "message": {"role": "user", "content": [{"type": "text", "text": "# Triage Inbox\n\nSort the recent threads by who needs a reply."}]}}
+{"type": "assistant", "sessionId": "slash-opened", "message": {"role": "assistant", "content": [{"type": "text", "text": "Twelve threads arrived in the last day; three need a reply."}]}}
+{"type": "user", "sessionId": "slash-opened", "message": {"role": "user", "content": "draft the three replies"}}
+{"type": "assistant", "sessionId": "slash-opened", "message": {"role": "assistant", "content": [{"type": "text", "text": "Drafted. Each is saved unsent for review."}]}}

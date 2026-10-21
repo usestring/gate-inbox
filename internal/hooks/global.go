@@ -19,7 +19,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/internal/config"
-	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/singleton"
 )
 
@@ -39,7 +38,7 @@ import (
 // prelude of shell builtins that ends the hook, exit 0, no output, unless:
 //
 //   - GATE_INBOX_STATUS_FILE is unset. A session the board launched has it,
-//     and its --settings hooks already fire; running both would log every
+//     and its plugin hooks already fire; running both would log every
 //     event twice.
 //   - The pane the process runs in has an adoption marker, which the board
 //     writes under hooks/adopted/ for every adopted pane it holds. The marker
@@ -87,7 +86,7 @@ const globalDisabledName = "global-hooks.disabled"
 // questions. SessionEnd is left out; the poller drops a dead agent's status
 // on its own, and a launch's SessionEnd also prunes git worktrees, which no
 // session outside the board asked for.
-var globalEvents = []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop", "StopFailure"}
+var globalEvents = []string{"SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop", "StopFailure", "PreCompact", "PostCompact"}
 
 // matchField is the payload field an event's matchers are compared with.
 var matchField = map[string]string{
@@ -95,6 +94,7 @@ var matchField = map[string]string{
 	"PostToolUse":  "tool_name",
 	"Notification": "notification_type",
 	"SessionStart": "source",
+	"PostCompact":  "trigger",
 }
 
 // AdoptedDir is where the board keeps the adoption markers the global hooks
@@ -393,14 +393,6 @@ func (m *Manager) DispatchGlobal(event string, payload []byte) string {
 	if !slices.Contains(globalEvents, event) {
 		return ""
 	}
-	content, err := settingsContent(parentseal.KeyDir(m.root))
-	if err != nil {
-		return ""
-	}
-	var launched settingsFile
-	if json.Unmarshal(content, &launched) != nil {
-		return ""
-	}
 	value := ""
 	if field, ok := matchField[event]; ok {
 		var fields map[string]any
@@ -416,7 +408,7 @@ func (m *Manager) DispatchGlobal(event string, payload []byte) string {
 			outputs = append(outputs, denied)
 		}
 	}
-	for _, group := range launched.Hooks[event] {
+	for _, group := range launchHooks()[event] {
 		if !matcherTakes(group.Matcher, value) {
 			continue
 		}

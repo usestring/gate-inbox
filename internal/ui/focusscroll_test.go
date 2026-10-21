@@ -74,18 +74,26 @@ func focusedWithHistory(t testing.TB, name string) (*Model, string) {
 }
 
 // paneHistorySize asks tmux for the pane's history depth, which the model
-// otherwise learns from a capture's pane facts.
+// otherwise learns from a capture's pane facts. A busy tmux can answer the
+// format with an empty string just after the pane prints, so it polls until
+// the answer parses.
 func paneHistorySize(t testing.TB, m *Model, sessID string) int {
 	t.Helper()
-	out, err := m.tmux.PaneState(sessID, "#{history_size}")
-	if err != nil {
-		t.Fatalf("history query: %v", err)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		out, err := m.tmux.PaneState(sessID, "#{history_size}")
+		if err != nil {
+			t.Fatalf("history query: %v", err)
+		}
+		size, err := strconv.Atoi(strings.TrimSpace(out))
+		if err == nil {
+			return size
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("history size %q: %v", out, err)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	size, err := strconv.Atoi(strings.TrimSpace(out))
-	if err != nil {
-		t.Fatalf("history size %q: %v", out, err)
-	}
-	return size
 }
 
 // seedLive pulls the pane's current bottom into the model's preview.

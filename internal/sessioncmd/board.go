@@ -94,7 +94,9 @@ func (s *Sessions) BoardGet(targetID string) (got Session, err error) {
 	if err := runtime.reach(target); err != nil {
 		return Session{}, err
 	}
-	return runtime.sessionInfo(target, runtime.driver.Exists(target.ID), false), nil
+	got = runtime.currentInfo(target, false)
+	got.Status = runtime.restingStatus(target.ID, got.Status)
+	return got, nil
 }
 
 // BoardList is the agent sessions opts keeps, as List reports them, without a
@@ -130,7 +132,8 @@ func (s *Sessions) BoardRead(targetID string) (read BoardPane, err error) {
 	if err := runtime.reach(target); err != nil {
 		return BoardPane{}, err
 	}
-	live := runtime.driver.Exists(target.ID)
+	info := runtime.currentInfo(target, false)
+	live := info.Running
 	var pane string
 	if live {
 		pane, err = runtime.driver.CapturePane(target.ID)
@@ -143,7 +146,7 @@ func (s *Sessions) BoardRead(targetID string) (read BoardPane, err error) {
 	clean := ansi.Strip(pane)
 	pane = strings.TrimRight(clean, "\r\n")
 	read = BoardPane{
-		Session: runtime.sessionInfo(target, live, false),
+		Session: info,
 		Text:    pane,
 		Live:    live,
 	}

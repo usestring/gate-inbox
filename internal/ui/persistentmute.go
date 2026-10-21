@@ -9,9 +9,9 @@ import (
 // the session rather than remembered for one pass. It is a different thing
 // from the drain's ephemeral mark in mute.go: that one lapses the moment the
 // pane changes and is cleared when triage is re-opened, so the walk
-// converges; this one holds until somebody unmutes it, and a muted session is
-// left out of triage altogether while its row stays on the list reading
-// "muted".
+// converges; this one holds until somebody unmutes it. A muted session stays
+// on the rail reading "muted", sorted last in triage, and the drain walks
+// past it instead of handing it over.
 //
 // The flag reaches the store the same way priority does, because it is a
 // fact about the work rather than about one pass, and outlives the process.

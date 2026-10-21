@@ -87,6 +87,9 @@ internal/sysstat TestWalkSyscallProbe
 internal/sessioncmd TestModelsAsksTheInstalledOpencode?             # opencode on PATH
 internal/launch TestEnvironmentWritesOpencodeV2ModelIntoItsConfig?  # opencode v2 on PATH
 
+# Real claude. CI puts a stub claude on PATH that does not run, so this skips there.
+internal/mcprelay TestTheRealClaudeSeesTheRelayConnectedWithNoBinary?  # a claude on PATH that runs
+
 # Launch a pane under /usr/bin/zsh, which the runner image does not ship.
 internal/launch TestComposeReachesAPaneUnderTheOperatorShell?
 

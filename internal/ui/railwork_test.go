@@ -314,7 +314,7 @@ func TestArtifactRowRefusesTheSessionKeys(t *testing.T) {
 		"R":        {Code: 'R', Text: "R"},
 		"v":        {Code: 'v', Text: "v"},
 		"V":        {Code: 'V', Text: "V"},
-		"A":        {Code: 'A', Text: "A"},
+		"ctrl+a":   {Code: 'a', Mod: tea.ModCtrl},
 		"T":        {Code: 'T', Text: "T"},
 		"f":        {Code: 'f', Text: "f"},
 		"r":        {Code: 'r', Text: "r"},
@@ -518,5 +518,24 @@ func TestANarrowUnfoldedRailRowStillLinks(t *testing.T) {
 	}
 	if !strings.Contains(line, "\x1b]8;;https://github.com/example-org/sample-repo/pull/838\x1b\\") {
 		t.Errorf("the short form lost its link: %q", line)
+	}
+}
+
+func TestRestoreAllReachesThroughArtifactRows(t *testing.T) {
+	m := railWorkModel(t)
+	m.poller = &poller{}
+	m.setWorkFolded("add-rate-limiting", false)
+	m.rebuildRows()
+	artifacts := m.artifactRowIndexes()
+	if len(artifacts) != 2 {
+		t.Fatalf("artifact rows = %d, want the pull request and ticket", len(artifacts))
+	}
+	for _, cursor := range artifacts {
+		m.cursor = cursor
+		m.errBar.text = ""
+		m.handleKey(tea.KeyPressMsg{Code: 'D', Text: "D"})
+		if got := m.errBar.text; got != "no dead sessions to restore" {
+			t.Fatalf("restore all on an artifact returned %q, want the restore handler's empty-view notice", got)
+		}
 	}
 }

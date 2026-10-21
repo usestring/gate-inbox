@@ -100,7 +100,7 @@ func TestAPassWhoseScanTimedOutPrunesNothing(t *testing.T) {
 		p.goneAdopted[sess.ID] = adoptedGonePasses - 1
 
 		var stat passStat
-		p.refreshPass(&stat)
+		p.refreshPass(&stat, false)
 
 		if !rowGone(t, m.store, sess.ID) {
 			t.Fatal("a server that answered and did not name the pane left the row in place; the rest of this test proves nothing")
@@ -116,7 +116,7 @@ func TestAPassWhoseScanTimedOutPrunesNothing(t *testing.T) {
 
 		var stat passStat
 		start := time.Now()
-		msg := p.refreshPass(&stat)
+		msg := p.refreshPass(&stat, false)
 		elapsed := time.Since(start)
 
 		failed, isErr := msg.(errMsg)

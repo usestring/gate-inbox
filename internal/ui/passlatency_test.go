@@ -25,6 +25,7 @@ const latencyBudget = heldPass / 4
 // pass has taken as long as thirty seconds, and every key pressed in that
 // window was queued behind it.
 func TestTheEventLoopDoesNotWaitForAPassInFlight(t *testing.T) {
+	needsQuietBox(t)
 	m := buildModel(t)
 	createSession(t, m, "one", t.TempDir(), "")
 

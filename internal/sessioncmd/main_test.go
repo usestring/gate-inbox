@@ -41,3 +41,13 @@ func serverAlreadyGone(out string) bool {
 	return strings.Contains(out, "no server running") ||
 		strings.Contains(out, "server exited unexpectedly")
 }
+
+// skipWallClockUnderShort is for a test whose assertion is a real-time ceiling
+// on a wait: it holds on a quiet box and fails on one running other suites, so
+// a -short run leaves it to the full run CI does.
+func skipWallClockUnderShort(t testing.TB) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("asserts a wall-clock ceiling that a loaded box can miss; runs in the full suite")
+	}
+}

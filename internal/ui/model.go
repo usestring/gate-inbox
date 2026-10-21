@@ -99,6 +99,9 @@ type treeRow struct {
 	// head is the extension whose header this row is, drawn over sess: see
 	// headrows.go.
 	head string
+	// stands marks a header row over a session folded behind it, which is
+	// that session's entry in the tree: see headfold.go.
+	stands bool
 }
 
 // isArtifact marks a row that draws a pull request or a ticket.
@@ -110,6 +113,10 @@ func (e treeRow) isHead() bool { return e.head != "" }
 // isSession marks a row that is a session itself, as against the group above
 // it, the header over it or the work hanging off it.
 func (e treeRow) isSession() bool { return !e.isGroup && e.art == nil && e.head == "" }
+
+// entersAs marks the row that is a session's entry in the tree: its own row,
+// or the header standing in for it while it is folded.
+func (e treeRow) entersAs() bool { return e.isSession() || e.stands }
 
 type Model struct {
 	cfg    config.Config
@@ -1668,6 +1675,11 @@ func (m *Model) selectedRow() (treeRow, bool) {
 	if !ok {
 		return treeRow{}, false
 	}
+	// A header standing in for a folded session is that session to every
+	// key that acts on one.
+	if row := m.rows[index]; row.stands {
+		return treeRow{sess: row.sess, depth: row.depth}, true
+	}
 	return m.rows[index], true
 }
 
@@ -1679,8 +1691,9 @@ func (m *Model) selectedIndex() (int, bool) {
 	}
 	index := m.cursor
 	// A header row heads the session drawn just below it, past any other
-	// extension's header over the same session.
-	for index < len(m.rows)-1 && m.rows[index].isHead() {
+	// extension's header over the same session -- unless the session is
+	// folded behind it, when the header is all of the session there is.
+	for index < len(m.rows)-1 && m.rows[index].isHead() && !m.rows[index].stands {
 		index++
 	}
 	for index > 0 && m.rows[index].isArtifact() {
@@ -1705,7 +1718,7 @@ func (m *Model) cursorRow() (treeRow, bool) {
 // where it was.
 func (m *Model) focusSession(id string) bool {
 	for i, row := range m.rows {
-		if row.isSession() && row.sess.ID == id {
+		if row.entersAs() && row.sess.ID == id {
 			m.cursor = i
 			// The cursor decides which session's work is open, so a cursor
 			// put somewhere rather than stepped there rebuilds too.
@@ -3205,7 +3218,11 @@ func (m *Model) buildTree() {
 		if extHides(sess) {
 			return
 		}
-		rows = append(rows, m.headRows(sess, depth)...)
+		folded := m.headFolded(sess, query)
+		rows = append(rows, m.headRows(sess, depth, folded)...)
+		if folded {
+			return
+		}
 		rows = append(rows, treeRow{sess: sess, depth: depth})
 		rows = append(rows, m.artifactRows(sess, depth+1)...)
 		appendChildren(sess, depth, map[string]bool{sess.ID: true})
@@ -3248,7 +3265,11 @@ func (m *Model) buildTree() {
 			if m.triage && child.Muted != sess.Muted {
 				rowDepth = 0
 			}
-			rows = append(rows, m.headRows(child, rowDepth)...)
+			folded := m.headFolded(child, query)
+			rows = append(rows, m.headRows(child, rowDepth, folded)...)
+			if folded {
+				continue
+			}
 			rows = append(rows, treeRow{sess: child, depth: rowDepth})
 			rows = append(rows, m.artifactRows(child, rowDepth+1)...)
 			appendChildren(child, rowDepth, drawn)

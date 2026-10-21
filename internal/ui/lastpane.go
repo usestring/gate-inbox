@@ -75,7 +75,7 @@ func (m *Model) focusLastPane() (tea.Model, tea.Cmd) {
 			continue
 		}
 		for r, row := range m.rows {
-			if row.isSession() && row.sess.ID == id {
+			if row.entersAs() && row.sess.ID == id {
 				destIndex, index = i, r
 				break
 			}

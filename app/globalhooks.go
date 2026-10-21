@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,7 +16,9 @@ import (
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/mcprelay"
+	"github.com/usestring/gate-inbox/internal/opencode"
 )
 
 const claudeHooksUsage = "claude-hooks [install | uninstall [--all] | status]"
@@ -52,6 +55,40 @@ type claudeSetup struct {
 	// warned holds the last warning per entry, so a settings file that stays
 	// malformed is reported once rather than every few minutes.
 	warned map[string]string
+	// opencode is the OpenCode half, or nil for a setup that keeps only the
+	// Claude Code entries.
+	opencode *opencodeSetup
+}
+
+// opencodeSetup keeps Gate Inbox's plugin in OpenCode's global plugins
+// directory, or keeps it out when [opencode] setup is false. It rides the
+// Claude Code setup's passes: a pass that finds the file in place reads it
+// and writes nothing.
+type opencodeSetup struct {
+	// on is config.toml's [opencode] setup, read at startup.
+	on bool
+	// tools are the configured tools that run opencode.
+	tools []string
+	// dir is OpenCode's global config directory.
+	dir func() (string, error)
+	// installed reports an opencode on this machine.
+	installed func() bool
+}
+
+func newOpencodeSetup(cfg config.Config) *opencodeSetup {
+	var tools []string
+	for name, tool := range cfg.Tools {
+		if !tool.Shell && mcpreg.Style(name, tool.MCP) == "opencode" {
+			tools = append(tools, name)
+		}
+	}
+	slices.Sort(tools)
+	return &opencodeSetup{
+		on:        cfg.OpenCode.SetupOn(),
+		tools:     tools,
+		dir:       opencode.GlobalConfigDir,
+		installed: func() bool { return opencode.Installed(exec.LookPath) },
+	}
 }
 
 func newClaudeSetup(dir string, configOn, codexOn bool) *claudeSetup {
@@ -66,21 +103,22 @@ func codexOnPath() bool {
 	return err == nil
 }
 
-// keepClaudeSetup keeps the Claude Code entries and the Codex hooks
-// (codexOn, from config.toml's [codex] setup) in step with the board. It
-// syncs them once before the board draws anything,
+// keepClaudeSetup keeps the Claude Code entries, the Codex hooks (codexOn,
+// from config.toml's [codex] setup) and the OpenCode plugin (oc) in step with
+// the board. It syncs them once before the board draws anything,
 // then again every claudeSetupEvery, and whenever the Settings switch flips,
 // until stop is called.
 //
 // It stands down for a board whose home is a scratch directory, which is what
 // a test or a trial run uses: those homes vanish, and a user's settings must
 // not be left naming them.
-func keepClaudeSetup(dir string, configOn, codexOn bool) (stop func()) {
+func keepClaudeSetup(dir string, configOn, codexOn bool, oc *opencodeSetup) (stop func()) {
 	if underTempDir(dir) {
 		logging.Info("claude code setup left off", "reason", "scratch home", "home", dir)
 		return func() {}
 	}
 	setup := newClaudeSetup(dir, configOn, codexOn)
+	setup.opencode = oc
 	setup.sync()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -125,6 +163,7 @@ func (s *claudeSetup) wanted() bool {
 // writes the settings file or runs the claude CLI.
 func (s *claudeSetup) sync() {
 	s.syncCodex()
+	s.syncOpencode()
 	want := s.wanted()
 	s.applied = want
 	settings, settingsErr := hooks.GlobalSettingsPath()
@@ -198,6 +237,40 @@ func (s *claudeSetup) syncCodex() {
 
 var errNoCodex = errors.New("no codex on PATH")
 
+// syncOpencode makes OpenCode's global plugins directory match [opencode]
+// setup. A machine with no opencode gets nothing written, and one where it
+// is switched off has the board's plugin removed, opencode or not.
+func (s *claudeSetup) syncOpencode() {
+	oc := s.opencode
+	if oc == nil {
+		return
+	}
+	dir, err := oc.dir()
+	if err != nil {
+		s.report("opencode", "", "", "", false, err)
+		return
+	}
+	path := opencode.PluginPath(dir, s.dir)
+	if !oc.on {
+		changed, err := opencode.UnregisterPlugin(dir, s.dir)
+		s.report("opencode", "gate-inbox opencode plugin removed", "plugin", path, changed, err)
+		return
+	}
+	if !oc.installed() {
+		s.report("opencode", "", "", "", false, opencode.ErrNotInstalled)
+		return
+	}
+	bin := s.bin()
+	if bin == "" {
+		s.report("opencode", "", "", "", false, errors.New("no installed binary"))
+		return
+	}
+	changed, err := opencode.RegisterPlugin(dir, opencode.Plugin{
+		Home: s.dir, Bin: bin, Tools: oc.tools, Steering: mcpreg.AdoptedPluginSteering("opencode"),
+	})
+	s.report("opencode", "gate-inbox opencode plugin registered", "plugin", path, changed, err)
+}
+
 // report logs a change once and a failure once per distinct message. A
 // machine with no claude on it is not a fault, so that one is info.
 func (s *claudeSetup) report(entry, did, key, path string, changed bool, err error) {
@@ -212,8 +285,8 @@ func (s *claudeSetup) report(entry, did, key, path string, changed bool, err err
 		return
 	}
 	s.warned[entry] = err.Error()
-	if errors.Is(err, errNoClaude) || errors.Is(err, errNoCodex) {
-		logging.Info("claude code setup: "+entry+" left off", "reason", err.Error())
+	if errors.Is(err, errNoClaude) || errors.Is(err, errNoCodex) || errors.Is(err, opencode.ErrNotInstalled) {
+		logging.Info("agent setup: "+entry+" left off", "reason", err.Error())
 		return
 	}
 	logging.Warn("claude code setup: "+entry+" not in place", logging.Err(err))

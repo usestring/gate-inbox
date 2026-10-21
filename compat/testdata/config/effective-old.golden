@@ -89,6 +89,7 @@ default  merge_gate.exclude_repos = []
 default  merge_gate.owners = []
 default  name_sweep_pace = "3s"
 default  naming.ask = <unset>
+default  opencode.setup = <unset>
 file     poll_interval = "2s"
 default  relaunch.load_per_cpu = 0
 default  relaunch.max_gap = "0s"

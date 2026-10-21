@@ -48,7 +48,7 @@ func (m *Model) adoptedAgentRows() []adoptedAgentRow {
 		}
 		rows = append(rows, adoptedAgentRow{
 			id: sess.ID, socket: sess.TmuxSocket, pane: sess.TmuxPaneID,
-			tool: sess.Tool, command: tool.Command,
+			tool: sess.Tool, command: tool.Command, conversation: sess.AgentSessionID,
 			claude: tool.StatusSource == hooks.StatusSourceClaude,
 		})
 	}
@@ -60,6 +60,9 @@ type adoptedAgentRow struct {
 	// tool and command are the row's configured tool and its launch
 	// command, which names the program to look for in the pane.
 	tool, command string
+	// conversation is the agent's own conversation id the row is bound to,
+	// which a non-claude marker carries for opencode's global plugin.
+	conversation string
 	// claude is a hooks-driven claude, found by its session file rather
 	// than its command line, whose marker the global hooks read.
 	claude bool
@@ -75,7 +78,7 @@ func (m *Model) syncAdoptedHooks(now time.Time) {
 	rows := m.adoptedAgentRows()
 	parts := make([]string, 0, len(rows))
 	for _, row := range rows {
-		parts = append(parts, row.id+"@"+row.socket+row.pane)
+		parts = append(parts, row.id+"@"+row.socket+row.pane+"#"+row.conversation)
 	}
 	slices.Sort(parts)
 	key := strings.Join(parts, ",")
@@ -133,5 +136,5 @@ func (m *Model) adoptedPane(row adoptedAgentRow, procs *adopt.ProcTable, claude 
 	if !ok {
 		return hooks.AdoptedPane{}, false
 	}
-	return hooks.AdoptedPane{ID: row.id, ServerPID: server, PaneID: row.pane, AgentPID: agent, Tool: row.tool}, true
+	return hooks.AdoptedPane{ID: row.id, ServerPID: server, PaneID: row.pane, AgentPID: agent, Tool: row.tool, Conversation: row.conversation}, true
 }

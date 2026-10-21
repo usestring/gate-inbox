@@ -24,6 +24,13 @@ setup = false
 setup = false
 ```
 
+<a id="opencode-setup"></a>`[opencode]` covers your own OpenCode config. `setup` (default on) has the board keep one plugin file, `gate-inbox-<id>.js`, in OpenCode's global plugins directory (`~/.config/opencode/plugins`, or the one under `OPENCODE_CONFIG_DIR` or `XDG_CONFIG_HOME`), which is how an `opencode` you started outside the board speaks as its row, binds to its conversation and gets the board's steering once it is adopted (see [Panes started outside the board](usage.md#panes-started-outside-the-board)). Nothing else in that directory or in your `opencode.json` is touched. The board writes it when it starts, only on a machine with opencode installed, and checks it every few minutes while it runs; `setup = false` makes the board remove it instead.
+
+```toml
+[opencode]
+setup = false
+```
+
 `[merge_gate]` is the standing merge authority the merge-gate mod enforces in the Claude Code sessions the board launches. Claude Code's auto-mode classifier refuses `gh pr merge` in a child as "Merge Without Review" even after the user approved that exact merge, so one approved merge becomes two or three questions. The mod rides the board's Claude Code plugin, which every claude session the board starts loads; with this section set, the mod's `tool.check` allows exactly one covered merge after checking the pull request itself with `gh`, and everything else stays on the classifier's flow:
 
 ```toml

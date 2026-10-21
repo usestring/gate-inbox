@@ -32,6 +32,7 @@ const echoBudget = 250 * time.Millisecond
 // a 300ms timer. This test pins both: nothing attaches to the operator's
 // session, AND the character is on screen quickly.
 func TestFocusedAdoptedPaneEchoesQuicklyWithNoClientOfItsOwn(t *testing.T) {
+	needsQuietBox(t)
 	m, socket, _ := adoptedFocus(t, "cat")
 	sess, ok := m.selected()
 	if !ok {

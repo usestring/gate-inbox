@@ -3,6 +3,7 @@
 package tmux
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -49,7 +50,7 @@ func TestSendTextAsyncReturnsWithoutWaitingOutThePasteWindow(t *testing.T) {
 
 	submitted := make(chan error, 1)
 	start := time.Now()
-	if err := driver.SendTextAsync("x1", "hello world", func(err error) { submitted <- err }); err != nil {
+	if err := driver.SendTextAsync("x1", "hello world", nil, func(err error) { submitted <- err }); err != nil {
 		t.Fatalf("SendTextAsync: %v", err)
 	}
 	handoff := time.Since(start)
@@ -102,7 +103,7 @@ func TestSendTextAsyncStillSubmitsIntoAPaneThatReadsLate(t *testing.T) {
 
 	time.Sleep(100 * time.Millisecond)
 	submitted := make(chan error, 1)
-	if err := driver.SendTextAsync(id, text, func(err error) { submitted <- err }); err != nil {
+	if err := driver.SendTextAsync(id, text, nil, func(err error) { submitted <- err }); err != nil {
 		t.Fatalf("SendTextAsync: %v", err)
 	}
 	select {
@@ -126,6 +127,47 @@ func TestSendTextAsyncStillSubmitsIntoAPaneThatReadsLate(t *testing.T) {
 	t.Fatalf("pane reads = %q, want the paste to end a read (%q) before the Enter", got, want)
 }
 
+// A pane that put a dialog up after the caller last looked swallows the
+// paste and would take the Enter as its answer, ticking or picking the row
+// under its cursor. Shown that pane, hold keeps the Enter from going out.
+func TestSendTextAsyncLeavesTheEnterUnpressedOnADialog(t *testing.T) {
+	driver := requireTmux(t)
+	id := "asyncheld" + strings.ReplaceAll(time.Now().Format("150405.000000"), ".", "")
+	reads := "/tmp/gi-asyncheld-" + id
+	t.Cleanup(func() { os.Remove(reads) })
+
+	legend := "Enter to select · ↑/↓ to navigate · Esc to cancel"
+	command := "stty raw -echo; printf '\\033[?2004h'; printf '%s' " + ShellQuote(legend) + "; " +
+		"while :; do dd bs=4096 count=1 2>/dev/null >> " + ShellQuote(reads) + "; done"
+	if err := driver.Create(id, "/tmp", command, nil, 0, 0); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { driver.Kill(id) })
+
+	time.Sleep(200 * time.Millisecond)
+	hold := func(pane string) bool { return strings.Contains(pane, legend) }
+	submitted := make(chan error, 1)
+	if err := driver.SendTextAsync(id, "rebase on main", hold, func(err error) { submitted <- err }); err != nil {
+		t.Fatalf("SendTextAsync: %v", err)
+	}
+	select {
+	case err := <-submitted:
+		if !errors.Is(err, ErrSubmitHeld) {
+			t.Fatalf("submit = %v, want ErrSubmitHeld", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the deferred submit never settled")
+	}
+	time.Sleep(200 * time.Millisecond)
+	got, _ := os.ReadFile(reads)
+	if !strings.Contains(string(got), "rebase on main") {
+		t.Fatalf("pane reads = %q, want the paste to have arrived", got)
+	}
+	if strings.Contains(string(got), "\r") {
+		t.Fatalf("pane reads = %q: Enter reached a pane showing a dialog", got)
+	}
+}
+
 // What a deferred submit makes newly possible, and must not allow: a pane
 // left mid-send. Between the paste and the Enter it owes, that pane holds
 // text nothing has submitted yet -- so a second paste arriving in the gap
@@ -139,7 +181,7 @@ func TestASecondPasteWaitsForTheEnterTheFirstIsOwed(t *testing.T) {
 	driver, callLog := stubDriver(t, window)
 
 	submitted := make(chan error, 1)
-	if err := driver.SendTextAsync("x1", "first message", func(err error) { submitted <- err }); err != nil {
+	if err := driver.SendTextAsync("x1", "first message", nil, func(err error) { submitted <- err }); err != nil {
 		t.Fatalf("SendTextAsync: %v", err)
 	}
 	// Straight into the gap, the way a second send on a later pass would.
@@ -175,7 +217,7 @@ func TestAPaneIsReleasedOnceItsSubmitHasGoneOut(t *testing.T) {
 	driver, _ := stubDriver(t, window)
 
 	submitted := make(chan error, 1)
-	if err := driver.SendTextAsync("x1", "first message", func(err error) { submitted <- err }); err != nil {
+	if err := driver.SendTextAsync("x1", "first message", nil, func(err error) { submitted <- err }); err != nil {
 		t.Fatalf("SendTextAsync: %v", err)
 	}
 	if err := <-submitted; err != nil {

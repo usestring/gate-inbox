@@ -34,6 +34,41 @@ type UI struct {
 	// Aliases carry the operator's stored choices over from the names they
 	// were kept under before this extension took them over.
 	Aliases Aliases
+	// OpenHeader, when set, makes this extension's headers rows of their
+	// own (see UIHost.Group): the cursor lands on one, and the board's open
+	// key there calls OpenHeader with the session it heads instead of
+	// opening that session. Every other key on the row still acts on the
+	// session. It is called off the event loop, and an error it returns is
+	// put on the status bar.
+	OpenHeader func(ctx context.Context, press Press) error
+	// HeaderPane, when set, makes this extension's headers rows of their
+	// own the way OpenHeader does, and gives each a page the board draws
+	// where a session's pane is drawn: the cursor arriving on the header
+	// shows it, the keys that focus a session focus it, and the keys that
+	// leave a focused session leave it. It takes the place of OpenHeader.
+	HeaderPane *HeaderPane
+	// FoldHeaders makes this extension's header rows fold the session they
+	// head, with everything drawn under it, the way a group folds its
+	// sessions: folded until the operator unfolds it. While folded the
+	// header stands in for the session -- it carries the session's status,
+	// the triage queue hands it over, and in triage the open key on it opens
+	// the session rather than the header. It needs headers that are rows:
+	// OpenHeader or HeaderPane.
+	FoldHeaders bool
+}
+
+// HeaderPane is the page behind an extension's header rows.
+type HeaderPane struct {
+	// Screen is the screen the page's keys resolve on, one this extension
+	// declares keys for. Its close action leaves the page for the list.
+	Screen string
+	// View is the page for the session a header is over. It is called on
+	// the board's event loop the first time the cursor lands on that
+	// header, and must return promptly: the page loads off the loop and
+	// calls Refresh on handle. The board keeps the page while the header
+	// stands, so it is called once per header, not once per visit. Close
+	// on handle hands the keyboard back to the list.
+	View func(press Press, handle ViewHandle) View
 }
 
 // Aliases are old names for this extension's filters and actions. Where an
@@ -154,7 +189,9 @@ type UIHost interface {
 	// Group replaces this extension's header over a session's row: one line
 	// drawn above the row, at its depth in the tree, that says what the row
 	// belongs to. It is part of the row's entry rather than a row of its
-	// own, so a key pressed there is pressed on the session. Called with an
+	// own, so a key pressed there is pressed on the session -- unless the
+	// extension's UI sets OpenHeader, which makes it a row the cursor
+	// lands on and opens. Called with an
 	// empty line, it clears the header. Headers from several extensions
 	// stack in build order. Like Decorate, Group, Hide and Own may be called
 	// from any goroutine and never block on the board.

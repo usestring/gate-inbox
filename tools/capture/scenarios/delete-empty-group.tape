@@ -3,6 +3,9 @@
 # group, kills it, shows the archived view does not hold it, and makes a
 # group under the same name again.
 #
+# The archived view ships with no key, so it is opened and closed the way an
+# unbound action is reached: quick actions (:), its name, Enter.
+#
 #   tools/capture/capture.sh --scenario tools/capture/scenarios/delete-empty-group.tape
 
 Sleep 3s
@@ -24,11 +27,19 @@ Type "y"
 Sleep 800ms
 Screenshot {{SHOTS}}/04-group-deleted.png
 Sleep 2s
-Type "t"
+Type ":"
+Sleep 1s
+Type "archived view"
+Sleep 1s
+Enter
 Sleep 2s
 Screenshot {{SHOTS}}/05-not-in-the-archive.png
 Sleep 1s
-Type "t"
+Type ":"
+Sleep 1s
+Type "archived view"
+Sleep 1s
+Enter
 Sleep 1500ms
 Type "g"
 Sleep 1500ms

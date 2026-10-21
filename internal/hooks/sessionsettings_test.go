@@ -9,7 +9,7 @@ import (
 	"github.com/usestring/gate-inbox/grant"
 )
 
-func TestSessionSettingsCarryHooksAndGrants(t *testing.T) {
+func TestSessionSettingsCarryGrantsAndNoHooks(t *testing.T) {
 	m := NewManager(t.TempDir())
 	if got := m.LaunchSettingsPath("abc12345"); got != m.SettingsPath() {
 		t.Fatalf("ungranted launch carries %s, want the shared file", got)
@@ -25,8 +25,8 @@ func TestSessionSettingsCarryHooksAndGrants(t *testing.T) {
 		t.Fatalf("another session's launch carries %s, want the shared file", got)
 	}
 	settings := readJSON(t, path)
-	if _, ok := settings["hooks"].(map[string]any)["Stop"]; !ok {
-		t.Fatalf("session file has no hooks: %v", settings)
+	if _, ok := settings["hooks"]; ok {
+		t.Fatalf("session file carries hooks, which ride the plugin: %v", settings)
 	}
 	if allow := settings["permissions"].(map[string]any)["allow"]; len(allow.([]any)) != 1 {
 		t.Fatalf("allow = %v", allow)
@@ -37,7 +37,7 @@ func TestSessionSettingsCarryHooksAndGrants(t *testing.T) {
 		}
 	}
 
-	// A refresh replaces the hooks and keeps the grants.
+	// A refresh drops hooks an older build wrote and keeps the grants.
 	settings["hooks"] = map[string]any{"stale": true}
 	raw, _ := json.Marshal(settings)
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
@@ -47,7 +47,7 @@ func TestSessionSettingsCarryHooksAndGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	refreshed := readJSON(t, path)
-	if _, stale := refreshed["hooks"].(map[string]any)["stale"]; stale {
+	if _, stale := refreshed["hooks"]; stale {
 		t.Fatal("refresh kept the stale hooks")
 	}
 	if refreshed["sandbox"].(map[string]any)["excludedCommands"].([]any)[0] != "tools/x.sh" {
@@ -85,4 +85,125 @@ func readJSON(t *testing.T, path string) map[string]any {
 		t.Fatal(err)
 	}
 	return out
+}
+
+// A window alone gives a session its own file; grants written after it keep
+// it, a refresh keeps it, and taking both away sends the session back to the
+// shared file.
+func TestSessionSettingsCarryTheCompactWindow(t *testing.T) {
+	m := NewManager(t.TempDir())
+	const id = "abc12345"
+	path := m.SessionSettingsPath(id)
+
+	if err := m.SetSessionCompactWindow(id, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("no window made a file: %v", err)
+	}
+
+	if err := m.SetSessionCompactWindow(id, 600000); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.LaunchSettingsPath(id); got != path {
+		t.Fatalf("a session with a window launches on %s, want its own %s", got, path)
+	}
+	if got := readJSON(t, path)["autoCompactWindow"]; got != float64(600000) {
+		t.Fatalf("autoCompactWindow = %v, want 600000", got)
+	}
+
+	if _, err := m.WriteSessionSettings(id, []grant.Grant{{Kind: grant.KindUnsandboxed, Value: "tools/x.sh"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RefreshSessionSettings(id); err != nil {
+		t.Fatal(err)
+	}
+	settings := readJSON(t, path)
+	if settings["autoCompactWindow"] != float64(600000) {
+		t.Fatalf("a grant dropped the window: %v", settings)
+	}
+	if settings["sandbox"].(map[string]any)["excludedCommands"].([]any)[0] != "tools/x.sh" {
+		t.Fatalf("the grant is missing: %v", settings)
+	}
+
+	if err := m.SetSessionCompactWindow(id, 300000); err != nil {
+		t.Fatal(err)
+	}
+	settings = readJSON(t, path)
+	if settings["autoCompactWindow"] != float64(300000) || settings["sandbox"] == nil {
+		t.Fatalf("a new window lost it or the grant: %v", settings)
+	}
+
+	// The grants go; the window keeps the file.
+	if _, err := m.WriteSessionSettings(id, nil); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if readJSON(t, path)["autoCompactWindow"] != float64(300000) || strings.Contains(string(raw), "tools/x.sh") {
+		t.Fatalf("after the grants went: %s", raw)
+	}
+
+	// And then the window goes, and nothing is left to keep a file for.
+	if err := m.SetSessionCompactWindow(id, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("a file with nothing left in it was kept: %v", err)
+	}
+	if got := m.LaunchSettingsPath(id); got != m.SettingsPath() {
+		t.Fatalf("launch carries %s, want the shared file", got)
+	}
+}
+
+// Taking the window out of a file that holds grants keeps the file and the
+// grants.
+func TestSessionSettingsClearingTheWindowKeepsGrants(t *testing.T) {
+	m := NewManager(t.TempDir())
+	const id = "abc12345"
+	path, err := m.WriteSessionSettings(id, []grant.Grant{{Kind: grant.KindDomain, Value: "example.com"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetSessionCompactWindow(id, 600000); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetSessionCompactWindow(id, 0); err != nil {
+		t.Fatal(err)
+	}
+	settings := readJSON(t, path)
+	if _, ok := settings["autoCompactWindow"]; ok {
+		t.Fatalf("the window was kept: %v", settings)
+	}
+	if settings["sandbox"] == nil {
+		t.Fatalf("the grant went with the window: %v", settings)
+	}
+}
+
+// The poller calls this every pass, so a window the file already says is
+// not written again.
+func TestSessionSettingsSameWindowIsNotRewritten(t *testing.T) {
+	m := NewManager(t.TempDir())
+	const id = "abc12345"
+	if err := m.SetSessionCompactWindow(id, 600000); err != nil {
+		t.Fatal(err)
+	}
+	path := m.SessionSettingsPath(id)
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetSessionCompactWindow(id, 600000); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A write replaces the file by rename, so it would be a new inode.
+	if !os.SameFile(before, after) {
+		t.Fatal("an unchanged window was written again")
+	}
 }

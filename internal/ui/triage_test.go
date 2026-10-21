@@ -50,6 +50,7 @@ func seedTriageFleet(t *testing.T, m *Model) {
 
 func TestTriageRailOrdersByUrgencyThenOldest(t *testing.T) {
 	m := buildModel(t)
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	seedTriageFleet(t, m)
 	m.collapsed["beta"] = true
 	m.rebuildRows()
@@ -383,6 +384,7 @@ func TestTriageDrainCarriesOnIntoIdleSessions(t *testing.T) {
 // just left.
 func TestTriageIdleWaitsBehindWaitingSessions(t *testing.T) {
 	m := buildModel(t)
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	liveTriageFleet(t, m, map[string]string{
 		"ask":   status.Waiting,
 		"broke": status.Errored,
@@ -609,6 +611,7 @@ func TestTriageWalkKeepsGoingPastLandedAnswerUntilNextPoll(t *testing.T) {
 // the deadlines as each pass brings them, not only when a status changes.
 func TestTriageTieBreaksOnQueueDeadlines(t *testing.T) {
 	m := buildModel(t)
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	seedTriageFleet(t, m)
 	m.triage = true
 	m.rebuildRows()
@@ -654,6 +657,7 @@ func TestTriageTieBreaksOnQueueDeadlines(t *testing.T) {
 
 func TestTriageDrainHandsOverIdleBeforeErrored(t *testing.T) {
 	m := buildModel(t)
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	liveTriageFleet(t, m, map[string]string{
 		"ask":   status.Waiting,
 		"done":  status.Finished,

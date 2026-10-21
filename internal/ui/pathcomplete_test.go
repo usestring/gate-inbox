@@ -133,8 +133,8 @@ func TestGroupPickerExitsToAdjacentFields(t *testing.T) {
 	m.groupFormFocus(1)
 	m.form.groupIndex = len(m.form.groups) - 1
 	m.handleGroupFormKey(tea.KeyPressMsg{Code: tea.KeyDown})
-	if m.groupForm.focus != gfPath {
-		t.Fatalf("down past last parent should focus path, focus=%d", m.groupForm.focus)
+	if m.groupForm.focus != gfPin {
+		t.Fatalf("down past last parent should focus start, focus=%d", m.groupForm.focus)
 	}
 
 	m.openForm()

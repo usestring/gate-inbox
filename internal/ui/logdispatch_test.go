@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,9 +19,15 @@ import (
 // ambient state is exactly the fixture that breaks on a second checkout.
 func logToTemp(t *testing.T) string {
 	t.Helper()
+	return logToTempAt(t, logging.LevelInfo)
+}
+
+// logToTempAt is logToTemp at level, for the records written below info.
+func logToTempAt(t *testing.T, level slog.Level) string {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "gate-inbox.log")
 	logger, err := logging.Open(logging.Options{
-		Path: path, Level: logging.LevelInfo, MaxSizeMB: 1, MaxBackups: 1, MaxTotalMB: 4,
+		Path: path, Level: level, MaxSizeMB: 1, MaxBackups: 1, MaxTotalMB: 4,
 	})
 	if err != nil {
 		t.Fatalf("logging.Open: %v", err)
@@ -58,7 +65,7 @@ func dispatchModel() *Model {
 }
 
 func TestKeyPressIsLoggedWithTheBranchItTook(t *testing.T) {
-	path := logToTemp(t)
+	path := logToTempAt(t, logging.LevelDebug)
 	m := dispatchModel()
 	m.cursor = 1
 	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
@@ -78,7 +85,7 @@ func TestKeyPressIsLoggedWithTheBranchItTook(t *testing.T) {
 // The bug that motivated this log is a dispatch question: which handler ran
 // while the search field was open. The record has to say so.
 func TestSearchKeysRecordTheSearchBranchAndTheQuery(t *testing.T) {
-	path := logToTemp(t)
+	path := logToTempAt(t, logging.LevelDebug)
 	m := dispatchModel()
 	m.cursor = 1
 	m.searching = true
@@ -94,7 +101,7 @@ func TestSearchKeysRecordTheSearchBranchAndTheQuery(t *testing.T) {
 }
 
 func TestArchivedRowIsNamedInTheRecord(t *testing.T) {
-	path := logToTemp(t)
+	path := logToTempAt(t, logging.LevelDebug)
 	m := dispatchModel()
 	m.cursor = 2
 	m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
@@ -106,7 +113,7 @@ func TestArchivedRowIsNamedInTheRecord(t *testing.T) {
 }
 
 func TestModeChangeIsLoggedWithItsReason(t *testing.T) {
-	path := logToTemp(t)
+	path := logToTempAt(t, logging.LevelDebug)
 	m := dispatchModel()
 	m.cursor = 1
 	m.Update(tea.KeyPressMsg{Code: 'H', Text: "H"})
@@ -114,6 +121,26 @@ func TestModeChangeIsLoggedWithItsReason(t *testing.T) {
 	body := readLog(t, path)
 	if !strings.Contains(body, "became=help") {
 		t.Fatalf("the mode the key moved to is not in the record:\n%s", body)
+	}
+}
+
+// At info a keystroke writes nothing of its own: the per-key record was
+// every key on the board, 3,554 lines in 3.5 hours. A key that changes the
+// mode is still recorded, as the mode change it caused.
+func TestKeyPressesStayOutOfTheInfoLog(t *testing.T) {
+	path := logToTemp(t)
+	m := dispatchModel()
+	m.cursor = 1
+	m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	m.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	m.Update(tea.KeyPressMsg{Code: 'H', Text: "H"})
+
+	body := readLog(t, path)
+	if strings.Contains(body, "msg=key") {
+		t.Fatalf("a keystroke was logged at info:\n%s", body)
+	}
+	if strings.Count(body, `msg="mode changed"`) != 1 || !strings.Contains(body, "to=help") || !strings.Contains(body, `reason="key H"`) {
+		t.Fatalf("the key that opened help is not recorded as the mode change it caused:\n%s", body)
 	}
 }
 

@@ -136,6 +136,36 @@ func setupInPlace(t *testing.T, setup *claudeSetup, settings, state string) bool
 	return hooksOn && relay == mcprelay.Current
 }
 
+// setupReady is setupInPlace for a poll that races the loop's own writes: a
+// file caught half-written is not in place yet rather than a failure.
+func setupReady(setup *claudeSetup, settings, state string) bool {
+	hooksOn, err := hooks.GlobalRegistered(settings, setup.dir, setup.bin())
+	if err != nil {
+		return false
+	}
+	relay, err := mcprelay.Lookup(state, setup.dir, setup.bin())
+	return err == nil && hooksOn && relay == mcprelay.Current
+}
+
+// runSetup runs setup's loop until stop is called or the test ends, however
+// it ends: a loop left running writes into whatever Claude Code config the
+// next test sets.
+func runSetup(t *testing.T, setup *claudeSetup, every, switchEvery time.Duration) (stop func()) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		setup.run(ctx, every, switchEvery)
+	}()
+	stop = func() {
+		cancel()
+		<-done
+	}
+	t.Cleanup(stop)
+	return stop
+}
+
 // With nothing set up, one pass registers both; a second finds them in
 // place and neither writes nor runs claude.
 func TestClaudeSetupRegistersWithNoCommand(t *testing.T) {
@@ -165,23 +195,11 @@ func TestClaudeSetupLoopRestoresDeletedEntries(t *testing.T) {
 	if err := os.WriteFile(state, []byte(`{}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		setup.run(ctx, 10*time.Millisecond, time.Hour)
-	}()
-	deadline := time.Now().Add(5 * time.Second)
-	for !setupInPlace(t, setup, settings, state) {
-		if time.Now().After(deadline) {
-			cancel()
-			<-done
-			t.Fatal("the loop did not put the deleted entries back")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	cancel()
-	<-done
+	stop := runSetup(t, setup, 10*time.Millisecond, time.Hour)
+	waitFor(t, "the loop to put the deleted entries back", func() bool {
+		return setupReady(setup, settings, state)
+	})
+	stop()
 	if raw, _ := os.ReadFile(settings); !strings.HasPrefix(string(raw), `{"theme":"dark","hooks":`) {
 		t.Fatalf("settings after the repair:\n%s", raw)
 	}
@@ -231,13 +249,7 @@ func TestClaudeSetupOptOutRemovesEntries(t *testing.T) {
 		if err := manager.SetGlobalDisabled(true); err != nil {
 			t.Fatal(err)
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			setup.run(ctx, time.Hour, 10*time.Millisecond)
-		}()
-		defer func() { cancel(); <-done }()
+		runSetup(t, setup, time.Hour, 10*time.Millisecond)
 		waitFor(t, "the switch to remove the entries", func() bool {
 			relay, _ := mcprelay.Lookup(state, setup.dir, setup.bin())
 			raw, _ := os.ReadFile(settings)
@@ -247,7 +259,7 @@ func TestClaudeSetupOptOutRemovesEntries(t *testing.T) {
 			t.Fatal(err)
 		}
 		waitFor(t, "the switch to restore the entries", func() bool {
-			return setupInPlace(t, setup, settings, state)
+			return setupReady(setup, settings, state)
 		})
 	})
 }
@@ -356,12 +368,7 @@ func TestCodexSetupFollowsTheBoard(t *testing.T) {
 	if err := manager.SetCodexDisabled(true); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		setup.run(ctx, time.Hour, 10*time.Millisecond)
-	}()
+	stop := runSetup(t, setup, time.Hour, 10*time.Millisecond)
 	waitFor(t, "the codex switch to remove the hooks", func() bool {
 		raw, _ := os.ReadFile(path)
 		return !strings.Contains(string(raw), "gate-inbox-codex-hook")
@@ -373,8 +380,7 @@ func TestCodexSetupFollowsTheBoard(t *testing.T) {
 		ok, _ := hooks.CodexRegistered(path, setup.dir, setup.bin())
 		return ok
 	})
-	cancel()
-	<-done
+	stop()
 
 	off := newClaudeSetup(setup.dir, true, false)
 	off.bin, off.codexInstalled = setup.bin, setup.codexInstalled

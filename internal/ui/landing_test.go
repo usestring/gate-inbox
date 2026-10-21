@@ -9,13 +9,112 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/codexq"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tracing"
 )
+
+func TestEnterStartsLookingWithoutATimer(t *testing.T) {
+	before := landingTick
+	landingTick = time.Hour
+	t.Cleanup(func() { landingTick = before })
+	m := &Model{}
+	cmd := m.armLanding(store.Session{ID: "row"}, time.Now(), extension.OperatorPane, "", false, true, "❯ ")
+	result := make(chan tea.Msg, 1)
+	go func() { result <- cmd() }()
+	select {
+	case msg := <-result:
+		if got, ok := msg.(landingCheckMsg); !ok || got.id != "row" || got.verdict != landingPending {
+			t.Fatalf("first look = %#v", msg)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Enter delayed its first acceptance check")
+	}
+}
+
+func TestStaleRolloutStillChecksOnlyTheAnsweredPane(t *testing.T) {
+	m := buildModel(t)
+	tool := m.cfg.Tools["claude"]
+	tool.SessionStore = search.ToolCodex
+	m.cfg.Tools["claude"] = tool
+	engine, err := status.NewEngine(config.Config{Tools: map[string]config.Tool{
+		"claude": {DefaultStatus: status.Idle, Rules: []config.Rule{{State: status.Working, Pattern: "WORKING-NOW"}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.engine = engine
+	liveTriageFleet(t, m, map[string]string{"answer": status.Idle, "other": status.Idle})
+	m.enterFocusOn(t, "answer")
+	sess, _ := m.selected()
+	sess.AgentSessionID = "stale"
+	root := t.TempDir()
+	path := filepath.Join(root, "rollout-stale.jsonl")
+	appendLandingRecord(t, path, `{"payload":{"type":"message","role":"user","content":[]}}`)
+	m.landingLocator = search.NewLocator("", root)
+	p := m.landingProbeFor(sess, false, m.echoBaseline(sess.ID))
+	if p.rollout != path || p.paneWorking == nil {
+		t.Fatal("a bound rollout disabled the current pane fallback")
+	}
+	sess.TmuxSocket, sess.TmuxPaneID = "default", "%1"
+	adopted := m.landingProbeFor(sess, false, m.echoBaseline(sess.ID))
+	if adopted.rollout != "" || adopted.paneWorking == nil {
+		t.Fatal("an adopted Codex pane trusted an unverified conversation binding")
+	}
+	for _, row := range m.sessions {
+		if row.ID != sess.ID {
+			if err := m.tmux.SendText(row.ID, "WORKING-NOW"); err != nil {
+				t.Fatal(err)
+			}
+			waitForPaneText(t, m, row.ID, "WORKING-NOW")
+		}
+	}
+	if got := p.look(); got != landingPending {
+		t.Fatalf("another pane landed this answer: %v", got)
+	}
+	appendLandingRecord(t, path, `{"payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"unrelated answer"}]}}`)
+	if got := adopted.look(); got != landingPending {
+		t.Fatalf("the stale rollout landed the adopted pane's answer: %v", got)
+	}
+	if err := m.tmux.SendText(sess.ID, "WORKING-NOW"); err != nil {
+		t.Fatal(err)
+	}
+	waitForPaneText(t, m, sess.ID, "WORKING-NOW")
+	if got := adopted.look(); got != landingSeen {
+		t.Fatalf("the current pane's transition did not land: %v", got)
+	}
+}
+
+func TestEnterDuringAnEchoChaseSnapshotsWorkAlreadyOnThePane(t *testing.T) {
+	m := buildModel(t)
+	engine, err := status.NewEngine(config.Config{Tools: map[string]config.Tool{
+		"claude": {DefaultStatus: status.Idle, Rules: []config.Rule{{State: status.Working, Pattern: "WORKING-NOW"}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.engine = engine
+	liveTriageFleet(t, m, map[string]string{"answer": status.Idle})
+	m.enterFocusOn(t, "answer")
+	id := focusedID(t, m)
+	if err := m.tmux.SendText(id, "WORKING-NOW"); err != nil {
+		t.Fatal(err)
+	}
+	waitForPaneText(t, m, id, "WORKING-NOW")
+	m.preview = "❯ "
+	m.focusChasing = true
+	m = pressEnter(m)
+	if onlyLanding(t, m).probe.paneWorking != nil {
+		t.Fatal("Enter trusted the stale preview instead of the fresh working pane")
+	}
+}
 
 func recordDialogResult(t *testing.T, m *Model, id, callID string) {
 	t.Helper()
@@ -42,7 +141,7 @@ func appendLandingRecord(t *testing.T, path, record string) {
 func TestBackgroundActivityCannotHandOverAnUnansweredDialog(t *testing.T) {
 	m := drainOnDialog(t, true)
 	id := focusedID(t, m)
-	m = pressEnter(m)
+	m = pressDialogKey(m)
 	logHookEvent(t, m, id, "working PostToolUse")
 	recordDialogResult(t, m, id, "background")
 	lookForLanding(t, m)
@@ -103,7 +202,7 @@ func TestLandingSnapshotSelectsTheDialogCall(t *testing.T) {
 	appendLandingRecord(t, path, `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"background","name":"Bash"},{"type":"tool_use","id":"ask","name":"AskUserQuestion"}]}}`)
 	m.landingLocator = search.NewLocator(root, "")
 	m.preview = askPane
-	p := m.landingProbeFor(store.Session{ID: "row", Tool: "claude", AgentSessionID: "conversation"}, true)
+	p := m.landingProbeFor(store.Session{ID: "row", Tool: "claude", AgentSessionID: "conversation"}, true, m.preview)
 	if p.toolID != "ask" {
 		t.Fatalf("target = %q, want ask", p.toolID)
 	}
@@ -216,13 +315,37 @@ func TestThePaneLandsOnlyWhatNoOtherSourceRefused(t *testing.T) {
 	}
 }
 
+// Each look is counted and the source that decided is named, so a recorded
+// landing says what the operator waited on.
+func TestALookNamesTheSourceThatDecided(t *testing.T) {
+	working := false
+	p := &landingProbe{dialog: true, paneWorking: func() bool { return working }}
+	p.look()
+	if p.decided != "" {
+		t.Fatalf("a pending look named %q", p.decided)
+	}
+	working = true
+	p.look()
+	if p.decided != "pane" || p.looks != 2 || p.sources() != "pane" {
+		t.Fatalf("decided %q after %d looks over %q, want pane after 2 over pane", p.decided, p.looks, p.sources())
+	}
+
+	m := buildModel(t)
+	logHookEvent(t, m, "declined", "waiting Notification")
+	refusing := &landingProbe{dialog: true, hooks: m.hooks, hookID: "declined", paneWorking: func() bool { return true }}
+	refusing.look()
+	if refusing.decided != "hooks-boundary" || refusing.sources() != "hooks,pane" {
+		t.Fatalf("decided %q over %q, want hooks-boundary over hooks,pane", refusing.decided, refusing.sources())
+	}
+}
+
 // A look for an older key must not decide the answer that replaced it.
 func TestAStaleLookDecidesNothing(t *testing.T) {
 	m := drainOnDialog(t, true)
-	m = pressEnter(m)
+	m = pressDialogKey(m)
 	askID := focusedID(t, m)
 	stale := onlyLanding(t, m).gen
-	m = pressEnter(m)
+	m = pressDialogKey(m)
 	m.applyLandingCheck(landingCheckMsg{id: askID, gen: stale, verdict: landingSeen})
 	if pending := onlyLanding(t, m); pending.gen == stale {
 		t.Fatal("a look for the replaced key decided the pending answer")
@@ -235,7 +358,7 @@ func TestAStaleLookDecidesNothing(t *testing.T) {
 func TestPasteKeepsALandedAnswerOnItsSession(t *testing.T) {
 	m := drainOnDialog(t, true)
 	askID := focusedID(t, m)
-	m = pressEnter(m)
+	m = pressDialogKey(m)
 	m.handleFocusPaste(tea.PasteMsg{Content: "one more thing"})
 	recordDialogResult(t, m, askID, "answered")
 	lookForLanding(t, m)
@@ -337,5 +460,164 @@ func TestALandedAnswerLetsGoOfTheHeldAck(t *testing.T) {
 	}
 	if got := storedSession(t, m, "done"); got.Acked {
 		t.Fatal("handing over after a landed answer spent the held acknowledgement")
+	}
+}
+
+func TestLandingTimingIncludesBaselineWithoutShorteningWindow(t *testing.T) {
+	m := &Model{}
+	started := time.Now().Add(-5 * time.Second)
+	beforeArm := time.Now()
+	m.armLanding(store.Session{ID: "row"}, started, extension.OperatorPane, "", false, true, "")
+	pending := m.landings["row"]
+	if pending.deadline.Before(beforeArm.Add(landingWindow)) {
+		t.Fatal("baseline time shortened the acceptance window")
+	}
+	spans := recordSpans(t, func() { recordLanding(pending, "timeout") })
+	span := oneSpan(t, spans, "ui.landing")
+	if span.began(t) != started.UnixNano() || span.number(t, "took_ms") < 5000 {
+		t.Fatal("landing timing omitted the time before arming")
+	}
+}
+
+func TestPollRecordsLandingWhileLookIsInFlight(t *testing.T) {
+	m := drainOnDialog(t, true)
+	id := focusedID(t, m)
+	m = pressDialogKey(m)
+	pending := m.landings[id]
+	path := filepath.Join(t.TempDir(), "landing.log")
+	logger, err := logging.Open(logging.Options{Path: path, Level: logging.LevelInfo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := logging.SetDefault(logger)
+	t.Cleanup(func() { logging.SetDefault(previous); logger.Close() })
+	entered, release := make(chan struct{}), make(chan struct{})
+	pending.probe = &landingProbe{paneWorking: func() bool {
+		close(entered)
+		<-release
+		return true
+	}}
+	pending.observed = *pending.probe
+	result := make(chan tea.Msg, 1)
+	go func() { result <- landingLook(id, pending)() }()
+	<-entered
+	spans := recordSpans(t, func() {
+		pollReporting(t, m, "ask", status.Working)
+		close(release)
+		m.applyLandingCheck((<-result).(landingCheckMsg))
+	})
+	landings := spansNamed(spans, "ui.landing")
+	if len(landings) != 1 {
+		t.Fatalf("poll and stale check recorded %d landings, want one", len(landings))
+	}
+	if landings[0].str(t, "outcome") != "seen" || landings[0].str(t, "by") != "poll" {
+		t.Fatal("poll landing lost its outcome or evidence source")
+	}
+	if focusedName(t, m) != "next" || len(m.landings) != 0 {
+		t.Fatal("poll did not finish the pending handover")
+	}
+	if err := logger.Close(); err != nil {
+		t.Fatal(err)
+	}
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(blob), "triage answer") != 1 {
+		t.Fatalf("poll landing log = %s", blob)
+	}
+}
+
+func TestReplacingLandingRecordsDisplacedAnswerOnce(t *testing.T) {
+	m := &Model{}
+	sess := store.Session{ID: "row"}
+	path := filepath.Join(t.TempDir(), "landing.log")
+	logger, err := logging.Open(logging.Options{Path: path, Level: logging.LevelInfo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := logging.SetDefault(logger)
+	t.Cleanup(func() { logging.SetDefault(previous); logger.Close() })
+	first := m.armLanding(sess, time.Now(), extension.OperatorPane, "", false, true, "")
+	old := m.landings[sess.ID]
+	spans := recordSpans(t, func() {
+		m.armLanding(sess, time.Now(), extension.OperatorPane, "", false, true, "")
+		next := m.landings[sess.ID]
+		if next == old {
+			t.Fatal("new answer did not replace the pending landing")
+		}
+		m.applyLandingCheck(first().(landingCheckMsg))
+		if m.landings[sess.ID] != next {
+			t.Fatal("stale check changed the replacement landing")
+		}
+		m.applyLandingCheck(landingCheckMsg{id: sess.ID, gen: next.gen, verdict: landingRefused})
+	})
+	landings := spansNamed(spans, "ui.landing")
+	if len(landings) != 2 || landings[0].str(t, "outcome") != "replaced" || landings[1].str(t, "outcome") != "refused" {
+		t.Fatalf("replacement and final landing spans = %v", landings)
+	}
+	if err := logger.Close(); err != nil {
+		t.Fatal(err)
+	}
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(blob), "triage answer") != 2 || !strings.Contains(string(blob), "outcome=replaced") {
+		t.Fatalf("replacement landing log = %s", blob)
+	}
+}
+
+func TestRescindingRecordsPendingAnswerOnce(t *testing.T) {
+	m := drainOnDialog(t, true)
+	id := focusedID(t, m)
+	m = pressEnter(m)
+	recordDialogResult(t, m, id, "answered")
+	lookForLanding(t, m)
+	sess, _ := m.sessionByID(id)
+	check := m.armLanding(sess, time.Now(), extension.OperatorSnippet, "second", false, false, "")
+	pending := m.landings[id]
+	spans := recordSpans(t, func() {
+		m.rescindLatestSubmission()
+		if !strings.Contains(m.errBar.text, "undid") {
+			t.Fatalf("rescind result = %q", m.errBar.text)
+		}
+		m.applyLandingCheck(check().(landingCheckMsg))
+	})
+	landings := spansNamed(spans, "ui.landing")
+	if len(landings) != 1 || landings[0].str(t, "outcome") != "cancelled" {
+		t.Fatalf("rescinded landing spans = %v", landings)
+	}
+	if landings[0].str(t, "via") != string(pending.via) || len(m.landings) != 0 || m.latestSubmission.sessionID != "" {
+		t.Fatal("rescinded answer retained pending state or lost its input path")
+	}
+}
+
+func TestLandingLogIncludesInputPathAndTotalLookupWithoutTracing(t *testing.T) {
+	if tracing.Enabled() {
+		t.Fatal("tracing must be disabled to exercise the standalone log")
+	}
+	path := filepath.Join(t.TempDir(), "landing.log")
+	logger, err := logging.Open(logging.Options{Path: path, Level: logging.LevelInfo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := logging.SetDefault(logger)
+	t.Cleanup(func() { logging.SetDefault(previous); logger.Close() })
+	recordLanding(&pendingLanding{
+		sess: store.Session{ID: "row"}, armed: time.Now(), via: extension.OperatorSnippet,
+		observed: landingProbe{looks: 3, lookTime: 12 * time.Millisecond, lookMax: 5 * time.Millisecond},
+	}, "seen")
+	if err := logger.Close(); err != nil {
+		t.Fatal(err)
+	}
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"triage answer", "via=" + string(extension.OperatorSnippet), "look_total=12ms"} {
+		if !strings.Contains(string(blob), want) {
+			t.Fatalf("log missing %q: %s", want, blob)
+		}
 	}
 }

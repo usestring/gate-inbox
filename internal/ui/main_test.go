@@ -49,6 +49,9 @@ func TestMain(m *testing.M) {
 	// The suite runs as if at the machine it runs on, even when the
 	// developer reached it over SSH.
 	remoteTerminal = localTerminal
+	// pressKey runs the command a key returns, and a priority press returns
+	// the flash's timer: at full length every press would sleep through it.
+	priorityFlashFor = 0
 	// tmuxtest.Guard clears the inherited TMUX/TMUX_PANE, sweeps strays from
 	// earlier runs, and takes this run's server and the clients that outlive
 	// it down afterwards. Shared with every other package here that drives

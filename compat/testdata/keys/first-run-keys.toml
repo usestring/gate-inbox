@@ -27,7 +27,7 @@
 # jump_errored        = []  # enter the next errored or dead session
 # jump_idle           = []  # enter the next idle session
 # jump_working        = []  # enter the next working session
-# attach              = ["A", "shift+a"]  # attach: the pane takes the terminal
+# attach              = ["ctrl+a"]  # attach: the pane takes the terminal
 # reorder_up          = ["K", "shift+k", "shift+up"]  # reorder the row up
 # reorder_down        = ["J", "shift+j", "shift+down"]  # reorder the row down
 # preview_scroll_up   = ["alt+up"]  # scroll the preview up
@@ -50,10 +50,12 @@
 # archive             = ["x"]  # kill it and file the row
 # archive_all         = []  # kill every session listed
 # restore             = ["u"]  # restore it out of the archive
+# restore_all         = ["D", "shift+d"]  # restore every dead session: revive the dead, bring the archived back
+# undo_archive        = ["U", "shift+u"]  # bring back what the last kill filed away
 # dismiss             = ["."]  # skip
-# priority            = ["p"]  # cycle priority: urgent → high → medium → low → none
-# mute                = ["M", "shift+m"]  # mute / unmute: keep it out of triage until unmuted
-# quick_prompt        = [" ", "space", "ctrl+]"]  # hotkey menu
+# priority            = ["ctrl+p", "p"]  # cycle priority: urgent → high → medium → low → none
+# mute                = ["M", "shift+m", "ctrl+m"]  # mute / unmute: keep it out of triage until unmuted
+# quick_prompt        = [" ", "space", "ctrl+s"]  # hotkey menu
 # rename_from_agent   = ["r"]  # rename it after its conversation
 # rename              = []  # rename it yourself, and re-pick its tool
 # name_sweep          = []  # name sweep over idle adopted panes
@@ -61,6 +63,7 @@
 # bring_in            = ["a"]  # bring an outside pane in: resume it as a board session once idle
 # leave_out           = ["o"]  # leave an outside pane off the board, still running
 # move                = ["m"]  # move it to a group
+# copy_queued         = ["'"]  # copy the next text JEV queued
 # show_all_work       = []  # show every pull request and ticket, not the first few
 # status_filter       = ["w"]  # filter to what needs attention
 # tool_filter         = ["Y"]  # filter to one CLI, or show all
@@ -76,7 +79,7 @@
 # toggle_chrome       = []  # hide / show the key hints along the foot
 # toggle_rail         = []  # hide / show the list beside the pane
 # legend_peek         = ["?"]  # peek at every available key
-# quick_actions       = [":", "ctrl+p"]  # quick actions: find any action by name, run it, see its key
+# quick_actions       = [":", "ctrl+k"]  # quick actions: find any action by name, run it, see its key
 # help                = ["h", "H", "shift+h", "ctrl+h"]  # this key map (cannot be unbound)
 # quit                = ["q"]  # quit (sessions keep running) (cannot be unbound)
 
@@ -90,17 +93,20 @@
 # toggle_chrome       = ["alt+,"]  # hide / show the key hints along the foot
 # toggle_rail         = ["alt+\\"]  # hide / show the list beside the pane
 # archive             = ["ctrl+x"]  # kill it, asking first
+# priority            = ["ctrl+p"]  # cycle priority: urgent → high → medium → low → none
+# mute                = ["ctrl+m"]  # mute / unmute: keep it out of triage until unmuted
 # help                = ["ctrl+h"]  # this key map
-# quick_prompt        = ["ctrl+]"]  # hotkey menu: send a snippet without leaving the session
-# new_session         = ["alt+n"]  # new session in this one's group
-# copy_session_id     = ["alt+y"]  # copy the agent's session id
-# last_pane           = ["alt+l"]  # back to the previous pane; again walks further back
+# quick_prompt        = ["ctrl+s"]  # hotkey menu: send a snippet without leaving the session
+# new_session         = ["ctrl+n"]  # new session in this one's group
+# copy_session_id     = ["alt+/"]  # copy the agent's session id
+# copy_queued         = ["alt+'"]  # copy the next text JEV queued
+# last_pane           = ["alt+;"]  # back to the previous pane; again walks further back
 # jump_pane           = ["ctrl+g"]  # find a pane by name and focus it
 # leave_at_prompt     = ["right", "left"]  # at a prompt edge, leave; in triage Right advances a finished one
 # preview_scroll_up   = ["alt+up"]  # scroll the pane up
 # preview_scroll_down = ["alt+down"]  # scroll the pane down
-# preview_page_up     = ["alt+u", "alt+pgup"]  # scroll a page up
-# preview_page_down   = ["alt+d", "alt+pgdown"]  # scroll a page down
+# preview_page_up     = ["alt+pgup"]  # scroll a page up
+# preview_page_down   = ["alt+pgdown"]  # scroll a page down
 # preview_top         = ["alt+home"]  # oldest history
 # preview_bottom      = ["alt+end"]  # back to the live bottom
 

@@ -565,10 +565,6 @@ type Model struct {
 	// orders the walk by weighted wait; off, by the strict state-first order.
 	// See triageScore.
 	smartTriage bool
-	// triageSkip mirrors the persisted triage_skip_minutes setting: how long
-	// a leave or a skip keeps a session out of the drain, 0 for as long as
-	// its state holds. See muteMark.set.
-	triageSkip time.Duration
 	// triageStartupEnter is set when triage was already on at startup, so the
 	// first poll enters the head of the queue the way turning triage on does.
 	// Restoring the mode without the entry leaves the operator on a list they
@@ -888,7 +884,6 @@ type settingsState struct {
 	newSessionAgent    string
 	autoProceed        bool
 	smartTriage        bool
-	triageSkip         int
 	reopenSessions     string
 	outsidePanes       string
 	experimentalPicker bool
@@ -932,7 +927,6 @@ const (
 	settingsFieldFocusKey
 	settingsFieldAutoProceed
 	settingsFieldSmartTriage
-	settingsFieldTriageSkip
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
 	settingsFieldJev
@@ -1273,7 +1267,6 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		triageScope:     storedTriageScope(st),
 		autoProceed:     storedAutoProceed(st),
 		smartTriage:     storedSmartTriage(st),
-		triageSkip:      time.Duration(storedTriageSkip(st)) * time.Minute,
 		mode:            modeList,
 		version:         version,
 		// Assume the operator is looking until something says otherwise. A

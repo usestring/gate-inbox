@@ -35,14 +35,6 @@ type muteMark struct {
 	// news. Held to the state, a session whose answer changed nothing the
 	// poller sees would stay muted for the rest of the drain.
 	settle time.Time
-	// set is when a leave or a skip made the mark. A drain that is left
-	// open hands over only what is unmuted, so a session the operator walked
-	// past without answering would otherwise stay out of the queue for as
-	// long as its state holds -- days, for one that is waiting on them --
-	// while every new arrival is handed over ahead of it. The mark lapses
-	// triageSkip after this and the session rejoins the queue at its score.
-	// A settle-keyed mark leaves it zero: the next poll lapses that one.
-	set time.Time
 }
 
 // muteUntilSeen silences sess until the board has polled it after at, the
@@ -61,7 +53,7 @@ func (m *Model) mute(sess store.Session) {
 	if m.muted == nil {
 		m.muted = map[string]muteMark{}
 	}
-	m.muted[sess.ID] = muteMark{status: sess.Status, at: sess.LastStatusAt, set: m.now()}
+	m.muted[sess.ID] = muteMark{status: sess.Status, at: sess.LastStatusAt}
 }
 
 func (m *Model) unmute(id string) {
@@ -83,10 +75,6 @@ func (m *Model) isMuted(sess store.Session) bool {
 		if !m.statusesAsOf.After(mark.settle) {
 			return true
 		}
-		delete(m.muted, sess.ID)
-		return false
-	}
-	if m.triageSkip > 0 && !m.now().Before(mark.set.Add(m.triageSkip)) {
 		delete(m.muted, sess.ID)
 		return false
 	}

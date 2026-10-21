@@ -272,6 +272,11 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 			m.toggleRailWork()
 			return m, nil
 		}
+		// Then back behind the header it was unfolded from, as a session's
+		// children fold back into it.
+		if entry, ok := m.cursorRow(); ok && m.foldUnderHead(entry) {
+			return m, nil
+		}
 		if entry, ok := m.selectedRow(); ok && entry.isGroup && !m.collapsed[entry.group] {
 			m.toggleCollapse()
 		}
@@ -738,6 +743,17 @@ func (m *Model) toggleCollapseAll() {
 			continue
 		}
 		m.setChildrenFolded(sess.ID, false)
+	}
+	// Headers that fold their session fold by default as well.
+	for _, sess := range m.sessions {
+		if !m.headFoldable(sess.ID) {
+			continue
+		}
+		if collapse {
+			delete(m.collapsed, headOpenPrefix+sess.ID)
+			continue
+		}
+		m.collapsed[headOpenPrefix+sess.ID] = true
 	}
 	m.persistCollapsed()
 	m.rebuildRows()

@@ -577,7 +577,7 @@ func (m *Model) toggleTriage() tea.Cmd {
 		// keeps working whatever the queue comes to put above its first
 		// session.
 		for i, row := range m.rows {
-			if row.isSession() {
+			if row.entersAs() {
 				m.cursor = i
 				break
 			}
@@ -616,7 +616,7 @@ func (m *Model) nextTriageInput(leftID string, tried map[string]bool) (int, bool
 // triageHandable is whether a drain could hand a row over at all, whatever
 // pass is asking.
 func (m *Model) triageHandable(row treeRow, leftID string, tried map[string]bool) bool {
-	if !row.isSession() || row.sess.ID == leftID || tried[row.sess.ID] || row.sess.Archived {
+	if !row.entersAs() || row.sess.ID == leftID || tried[row.sess.ID] || row.sess.Archived {
 		return false
 	}
 	// A persistently muted session is off the operator's queue until they say
@@ -686,7 +686,7 @@ func (m *Model) triagePickupCmd() tea.Cmd {
 		return nil
 	}
 	for _, row := range m.rows {
-		if !row.isSession() || !m.triageHandable(row, "", nil) || !m.needsPerson(row.sess) {
+		if !row.entersAs() || !m.triageHandable(row, "", nil) || !m.needsPerson(row.sess) {
 			continue
 		}
 		// The flag clears only on entry: a session that refuses to be
@@ -762,7 +762,7 @@ func (m *Model) moveOnFromClosedFocus() tea.Cmd {
 		return nil
 	}
 	for i, row := range m.rows {
-		if row.isSession() && row.sess.Status != status.Dead {
+		if row.entersAs() && row.sess.Status != status.Dead {
 			m.cursor = i
 			m.clearPreviewState()
 			m.previewGen++

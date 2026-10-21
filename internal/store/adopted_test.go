@@ -1,6 +1,7 @@
 package store
 
 import (
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 	"path/filepath"
 	"testing"
@@ -91,6 +92,45 @@ func TestSetTmuxTargetAdoptsAndReleases(t *testing.T) {
 	}
 	if err := st.SetTmuxTarget("missing", "s", "%1"); err == nil {
 		t.Fatal("want an error setting a target on a session that is gone")
+	}
+}
+
+func TestSessionAtPaneNamesTheAdoptedRow(t *testing.T) {
+	st := newTestStore(t)
+	sess := sample("a", "g1")
+	sess.TmuxSocket = "default"
+	sess.TmuxPaneID = "%7"
+	if err := st.CreateSession(sess); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	id, ok, err := st.SessionAtPane("default", "%7")
+	if err != nil || !ok || id != "a" {
+		t.Fatalf("SessionAtPane = %q, %v, %v; want a, true", id, ok, err)
+	}
+	if _, ok, _ := st.SessionAtPane("other", "%7"); ok {
+		t.Fatal("another server with the same pane id named a session")
+	}
+	if _, ok, _ := st.SessionAtPane("default", "%8"); ok {
+		t.Fatal("another pane named a session")
+	}
+
+	archived := sample("b", "g1")
+	archived.TmuxSocket, archived.TmuxPaneID, archived.Archived = "default", "%8", true
+	if err := st.CreateSession(archived); err != nil {
+		t.Fatalf("create archived: %v", err)
+	}
+	if _, ok, _ := st.SessionAtPane("default", "%8"); ok {
+		t.Fatal("an archived row named a session")
+	}
+
+	dead := sample("c", "g1")
+	dead.TmuxSocket, dead.TmuxPaneID, dead.Status = "default", "%9", status.Dead
+	if err := st.CreateSession(dead); err != nil {
+		t.Fatalf("create dead: %v", err)
+	}
+	if _, ok, _ := st.SessionAtPane("default", "%9"); ok {
+		t.Fatal("a dead row named a session")
 	}
 }
 

@@ -2,9 +2,11 @@ package app
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/store"
 )
 
 // A claude the board adopted has no GATE_INBOX_SESSION_ID, so its shell
@@ -34,5 +36,42 @@ func TestCallerIDFallsBackToTheAdoptionMarker(t *testing.T) {
 	t.Setenv("TMUX_PANE", "")
 	if got := callerID(dir); got != "" {
 		t.Fatalf("callerID outside tmux = %q, want none", got)
+	}
+}
+
+// An adopted opencode or codex pane leaves no adoption marker, so the board
+// row that owns the pane is the only record of which session a command in it
+// speaks as.
+func TestCallerIDFallsBackToTheAdoptedPaneRow(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(hooks.EnvSessionID, "")
+	t.Setenv("TMUX", "/run/tmux-test/default,4242,0")
+	t.Setenv("TMUX_PANE", "%7")
+
+	st, err := store.Open(filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if err := st.CreateSession(store.Session{
+		ID: "0a75de01", Name: "adopted", Tool: "opencode", Cwd: "/tmp", Status: "idle",
+		TmuxSocket: "default", TmuxPaneID: "%7",
+	}); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	if got := callerID(dir); got != "0a75de01" {
+		t.Fatalf("callerID in an adopted pane = %q, want 0a75de01", got)
+	}
+	t.Setenv("TMUX_PANE", "%8")
+	if got := callerID(dir); got != "" {
+		t.Fatalf("callerID in another pane = %q, want none", got)
+	}
+	t.Setenv("TMUX", "/run/tmux-test/other,5151,0")
+	t.Setenv("TMUX_PANE", "%7")
+	if got := callerID(dir); got != "" {
+		t.Fatalf("callerID on another server = %q, want none", got)
 	}
 }

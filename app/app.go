@@ -42,6 +42,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/mcpserver"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
+	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
@@ -427,9 +428,11 @@ func withConfigDir(command func(args []string, sessionID, configDir string) erro
 }
 
 // callerID is the board row a subcommand speaks as: the one a launch put in
-// the environment, or, for a claude the board adopted rather than launched,
-// the one its pane's adoption marker names. Without it an adopted agent
-// could not send, read or answer as itself from its shell.
+// the environment, or the one an adopted pane names. A claude carries an
+// adoption marker from the hooks; every other adopted CLI is named by the
+// board row that owns its pane, since nothing else recorded the pairing.
+// Without it an adopted agent could not send, read or answer as itself from
+// its shell.
 func callerID(configDir string) string {
 	if id := envname.Get(hooks.EnvSessionID); id != "" {
 		return id
@@ -438,10 +441,36 @@ func callerID(configDir string) string {
 	if pane == "" {
 		return ""
 	}
-	id, _ := hooks.NewManager(configDir).AdoptedCaller(os.Getenv("TMUX"), pane, func() []int {
+	tmuxEnv := os.Getenv("TMUX")
+	if id, ok := hooks.NewManager(configDir).AdoptedCaller(tmuxEnv, pane, func() []int {
 		return adopt.Ancestors(int32(os.Getpid()))
-	})
+	}); ok {
+		return id
+	}
+	socket := tmuxSocketName(tmuxEnv)
+	if socket == "" {
+		return ""
+	}
+	st, err := store.OpenReadOnly(filepath.Join(configDir, "state.db"))
+	if err != nil {
+		return ""
+	}
+	defer st.Close()
+	id, ok, err := st.SessionAtPane(socket, pane)
+	if err != nil || !ok {
+		return ""
+	}
 	return id
+}
+
+// tmuxSocketName is the short server name tmux spells in $TMUX, the same
+// spelling an adopted row stores.
+func tmuxSocketName(tmuxEnv string) string {
+	path, _, _ := strings.Cut(tmuxEnv, ",")
+	if path == "" {
+		return ""
+	}
+	return filepath.Base(path)
 }
 
 // extensionCommand is one command an extension adds, with the ID of the

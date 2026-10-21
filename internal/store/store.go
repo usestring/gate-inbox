@@ -1961,6 +1961,29 @@ func (s *Store) SetTmuxTarget(id, socket, paneID string) error {
 	return requireRow(res, id)
 }
 
+// SessionAtPane names the live session adopted on socket/pane. A pane the
+// manager adopted never carried GATE_INBOX_SESSION_ID, and only the claude
+// hooks leave an adoption marker, so a command run inside an adopted opencode
+// or codex pane has nothing else to speak as.
+func (s *Store) SessionAtPane(socket, pane string) (string, bool, error) {
+	if socket == "" || pane == "" {
+		return "", false, nil
+	}
+	var id string
+	err := s.db.QueryRow(
+		`SELECT id FROM sessions
+		  WHERE tmux_socket = ? AND tmux_pane_id = ? AND archived = 0 AND status <> ?
+		  ORDER BY rowid DESC LIMIT 1`,
+		socket, pane, status.Dead).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return id, true, nil
+}
+
 // UpdateTool changes which tool status rules and revive use for a session.
 // Clears the captured and retired agent conversation ids: those ids only make
 // sense for the tool that minted them, and a manual tool swap means the user

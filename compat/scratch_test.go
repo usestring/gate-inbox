@@ -230,12 +230,18 @@ var uuidPattern = regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 // content it hashes holds scratch paths, so the stamp changes every run.
 var stampPattern = regexp.MustCompile(`-[0-9a-f]{12}(\.json|\.md)\b`)
 
+// pluginStampPattern is the Gate Inbox plugin's content stamp, in its
+// directory name and its version (claudeplugin.Ensure), which every change to
+// the plugin moves.
+var pluginStampPattern = regexp.MustCompile(`(plugins/gate-inbox/|\+)[0-9a-f]{12}\b`)
+
 // redact makes text independent of where and when it was produced: the
 // scratch root becomes <scratch>, a freshly minted id becomes <uuid> and a
 // generated file's content stamp becomes <stamp>.
 func (s *scratch) redact(text string) string {
 	text = strings.ReplaceAll(text, s.root, "<scratch>")
 	text = uuidPattern.ReplaceAllString(text, "<uuid>")
+	text = pluginStampPattern.ReplaceAllString(text, "$1<stamp>")
 	return stampPattern.ReplaceAllString(text, "-<stamp>$1")
 }
 

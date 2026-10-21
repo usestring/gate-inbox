@@ -87,6 +87,11 @@ func (s *Sessions) CleanupChildren(sessionID string, opts CleanupOptions) (clean
 	if err != nil {
 		return ChildCleanup{}, err
 	}
+	// A child at rest on its own fan-out is not done, and neither is the
+	// one holding it: the default states leave both standing.
+	if sessions, err = runtime.delegated(sessions); err != nil {
+		return ChildCleanup{}, err
+	}
 	result := ChildCleanup{DryRun: opts.DryRun}
 	for _, child := range sessions {
 		// The tracker, as send_children reads it: a caller that is itself a
@@ -141,7 +146,7 @@ func cleanupStates(opts CleanupOptions) (map[string]bool, error) {
 	if len(states) == 0 {
 		states = DefaultCleanupStatuses
 	}
-	known := []string{status.Starting, status.Working, status.Waiting, status.Finished, status.Idle, status.Errored, status.Dead}
+	known := []string{status.Starting, status.Working, status.Waiting, status.Delegating, status.Finished, status.Idle, status.Errored, status.Dead}
 	wanted := make(map[string]bool, len(states))
 	for _, state := range states {
 		state = strings.ToLower(strings.TrimSpace(state))

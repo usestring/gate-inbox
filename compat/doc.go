@@ -8,7 +8,7 @@
 //   - the CLI: the help text, every command's and verb's usage, and the exit
 //     status of a success, an unknown command and a usage error;
 //   - the MCP server: every tool's name, description, annotations and
-//     schemas, and the server instructions, with extensions off and on;
+//     schemas, and the server instructions;
 //   - the config: config.toml, keys.toml and snippets.json as the board
 //     resolves them from an absent, an empty, an old, a minimal and a full
 //     file, with every setting marked as written, rewritten or backfilled;

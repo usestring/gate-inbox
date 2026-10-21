@@ -381,21 +381,24 @@ func TestIsBindingAdmitsOnlyTheBareKey(t *testing.T) {
 	}
 }
 
-// The default on § is pinned by what it has to ask for rather than by its
-// exact wording.
-func TestDefaultsCarryTheProgressSummaryOnTheSectionKey(t *testing.T) {
+// The progress default is pinned by what it has to ask for rather than by its
+// exact wording, and sits on a letter every keyboard has.
+func TestDefaultsCarryTheProgressSummaryOnALetter(t *testing.T) {
 	var found *Snippet
 	for _, snip := range Defaults() {
-		if snip.Key == SectionKey {
+		if snip.Label == "progress" {
 			found = &snip
 		}
 	}
 	if found == nil {
-		t.Fatal("no default on §")
+		t.Fatal("no progress default")
+	}
+	if !singleLetter(found.Key) {
+		t.Errorf("progress default on %q, want a letter", found.Key)
 	}
 	for _, want := range []string{"bullet points", "PR link", "status", "next steps", "finished"} {
 		if !strings.Contains(found.Text, want) {
-			t.Errorf("the § default does not ask for %q: %q", want, found.Text)
+			t.Errorf("the progress default does not ask for %q: %q", want, found.Text)
 		}
 	}
 	// It prints in the agent's pane. A key that could send something outward

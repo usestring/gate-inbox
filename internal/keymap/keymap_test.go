@@ -365,6 +365,21 @@ func TestABrokenFileIsAnErrorNotAPanic(t *testing.T) {
 	}
 }
 
+func TestDisplayPairMergesASharedModifier(t *testing.T) {
+	for _, tc := range []struct{ first, second, want string }{
+		{"alt+↑", "alt+↓", "alt+↑↓"},
+		{"alt+shift+↑", "alt+shift+↓", "alt+shift+↑↓"},
+		{"⌥↑", "⌥↓", "⌥↑↓"},
+		{"⌥shift+↑", "⌥shift+↓", "⌥shift+↑↓"},
+		{"⌥↑", "ctrl+↓", "⌥↑/ctrl+↓"},
+		{"x", "y", "x/y"},
+	} {
+		if got := DisplayPair(tc.first, tc.second); got != tc.want {
+			t.Errorf("DisplayPair(%q, %q) = %q, want %q", tc.first, tc.second, got, tc.want)
+		}
+	}
+}
+
 func TestDisplayUsesOSModifierNames(t *testing.T) {
 	for _, tc := range []struct{ key, mac, other string }{
 		{"alt+o", "⌥o", "alt+o"},
@@ -455,7 +470,7 @@ func TestRetiredGateStillLoads(t *testing.T) {
 		if !strings.Contains(problem.Reason, "removed") {
 			t.Errorf("problem %q does not say the action was removed", problem.Error())
 		}
-		if problem.Action == "gate" && !strings.Contains(problem.Reason, "triage with i") {
+		if problem.Action == "gate" && !strings.Contains(problem.Reason, "use triage") {
 			t.Errorf("problem %q does not point at triage", problem.Error())
 		}
 	}
@@ -481,8 +496,8 @@ func TestRetiredRestoreScreenStillLoads(t *testing.T) {
 		t.Fatalf("decode: %v", err)
 	}
 	m, problems := New(overrides)
-	if len(problems) != 1 || !strings.Contains(problems[0].Reason, "V revives") {
-		t.Fatalf("got problems %v, want one pointing at V", problems)
+	if len(problems) != 1 || !strings.Contains(problems[0].Reason, "revive_all revives") {
+		t.Fatalf("got problems %v, want one pointing at revive_all", problems)
 	}
 	if got := m.Key(ContextList, ReviveAll); got != "R" {
 		t.Errorf("the retired screen cost the override beside it: revive_all on %q", got)

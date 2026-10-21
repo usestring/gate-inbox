@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -822,5 +823,30 @@ func TestScanPanesCountsAServerThatIsNotRunningAsGone(t *testing.T) {
 	}
 	if !scan.Gone[adoptedID] {
 		t.Fatalf("a pane on a server that is not running is gone, got Gone = %v", scan.Gone)
+	}
+}
+
+func TestKillAdoptedPaneRefusesChangedProcessIdentity(t *testing.T) {
+	driver := requireTmux(t)
+	socket, panes := foreignServer(t)
+	id := uniqueID("pinnedadopted")
+	adopt(t, driver, id, socket, panes[1])
+	pid, err := driver.PaneState(id, "#{pane_pid}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range [][2]string{{panes[0], strings.TrimSpace(pid)}, {panes[1], "1"}, {panes[1], ""}} {
+		if err := driver.KillAdoptedPane(id, bad[0], bad[1]); err == nil {
+			t.Fatalf("accepted foreign identity %v", bad)
+		}
+		if got := livePanes(t, socket); !slices.Contains(got, panes[0]) || !slices.Contains(got, panes[1]) {
+			t.Fatalf("refusal ended a pane: %v", got)
+		}
+	}
+	if err := driver.KillAdoptedPane(id, panes[1], strings.TrimSpace(pid)); err != nil {
+		t.Fatal(err)
+	}
+	if got := livePanes(t, socket); !slices.Contains(got, panes[0]) || slices.Contains(got, panes[1]) {
+		t.Fatalf("non-target sentinel: %v", got)
 	}
 }

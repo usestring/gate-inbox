@@ -10,10 +10,10 @@ import (
 	"github.com/usestring/gate-inbox/internal/keymap"
 )
 
-func TestQuickActionsOpensOnColonAndCtrlP(t *testing.T) {
+func TestQuickActionsOpensOnColonAndCtrlK(t *testing.T) {
 	for _, press := range []tea.KeyPressMsg{
 		{Code: ':', Text: ":"},
-		{Code: 'p', Mod: tea.ModCtrl},
+		{Code: 'k', Mod: tea.ModCtrl},
 	} {
 		m := buildModel(t)
 		pressKey(t, m, press)

@@ -44,6 +44,24 @@ func displayForOS(key, goos string) string {
 	return b.String()
 }
 
+// DisplayPair renders two displayed keys that share a modifier as one
+// chord: "alt+↑↓" rather than "alt+↑/alt+↓". On a Mac the modifier is the
+// ⌥ glyph with no plus after it, so the shared prefix is the glyph
+// instead: "⌥↑↓" rather than "⌥↑/⌥↓". Keys that share nothing are joined
+// plainly.
+func DisplayPair(first, second string) string {
+	i, j := strings.LastIndex(first, "+"), strings.LastIndex(second, "+")
+	if i > 0 && i == j && first[:i] == second[:j] {
+		return first + second[j+1:]
+	}
+	firstTail, firstOK := strings.CutPrefix(first, optionGlyph)
+	secondTail, secondOK := strings.CutPrefix(second, optionGlyph)
+	if firstOK && secondOK && firstTail != "" && secondTail != "" {
+		return first + secondTail
+	}
+	return first + "/" + second
+}
+
 // WHY: Key files accept the names shown on screen, including the legacy
 // "option+" spelling, but bubbletea reports both as alt.
 func canonicalKey(key string) string {

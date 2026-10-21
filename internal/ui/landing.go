@@ -13,9 +13,11 @@ import (
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
 // A key that might answer a session only arms a pending landing. The session
@@ -37,6 +39,15 @@ import (
 // which is the cheap mistake: they press § themselves. Evidence that the
 // answer was turned down, or that a fresh dialog came up, keeps them there
 // too.
+//
+// Plain Enter is the exception. Waiting for the evidence put the agent's own
+// latency between every answer and the next session, and the drain is walked
+// one Enter after another, so Enter moves the drain on with the key. The
+// check still runs: a seen answer is recorded, and one refused or never seen
+// unmutes its session so the queue offers it again. The cost is the mistake
+// above, an Enter that opens a picker or steps a question along, and the
+// queue bringing that session back is how it gets caught. See
+// handOverOnEnter.
 
 // landingWindow is how long an answer has to show up. The hooks land within
 // a few hundred milliseconds of the key; the rest is room for a transcript
@@ -69,12 +80,18 @@ type pendingLanding struct {
 	sess     store.Session
 	via      extension.OperatorVia
 	text     string
+	armed    time.Time
 	deadline time.Time
 	// handOver is whether landing should also move the drain on. It is read
 	// when the key is pressed and cleared by anything that says the operator
 	// is not done: another key into the pane, or leaving.
 	handOver bool
-	probe    *landingProbe
+	// early is set when the drain already moved on at the key itself; see
+	// handOverOnEnter.
+	early bool
+	probe *landingProbe
+	// The next look may still be mutating probe when a poll records the answer.
+	observed landingProbe
 }
 
 // landingCheckMsg is one look's verdict.
@@ -82,6 +99,7 @@ type landingCheckMsg struct {
 	id      string
 	gen     int
 	verdict landingVerdict
+	probe   *landingProbe
 }
 
 // landingProbe holds where each source stood when the key was pressed. Only
@@ -109,35 +127,83 @@ type landingProbe struct {
 	rolloutQuestions *codexq.Tracker
 
 	// paneWorking reports the pane showing the agent at work. It is nil
-	// where the pane cannot confirm: a composer on a tool with a better
-	// source, or a pane that already read working before the key.
+	// where the pane cannot confirm: a composer with live hooks, or a pane
+	// that already read working before the key.
 	paneWorking func() bool
+
+	// What the looks cost and which source decided, for recordLanding.
+	looks    int
+	lookTime time.Duration
+	lookMax  time.Duration
+	decided  string
+}
+
+// sources names the evidence this probe watches, so a landing that timed out
+// can be told apart by what it was waiting on.
+func (p *landingProbe) sources() string {
+	var names []string
+	if p.hooks != nil {
+		names = append(names, "hooks")
+	}
+	if p.transcript != "" {
+		names = append(names, "transcript")
+	}
+	if p.rollout != "" {
+		names = append(names, "rollout")
+	}
+	if p.paneWorking != nil {
+		names = append(names, "pane")
+	}
+	return strings.Join(names, ",")
 }
 
 // look reads each source once. A matched refusal wins over completion; an
 // anonymous hook boundary only rules out the pane fallback. A matched result
 // can precede the next question's waiting hook in the same look.
 func (p *landingProbe) look() landingVerdict {
+	started := time.Now()
+	verdict, by := p.lookOnce()
+	took := time.Since(started)
+	p.looks++
+	p.lookTime += took
+	p.lookMax = max(p.lookMax, took)
+	if verdict != landingPending {
+		p.decided = by
+	}
+	return verdict
+}
+
+// lookOnce is one look, naming the source behind a verdict.
+func (p *landingProbe) lookOnce() (landingVerdict, string) {
 	if landingSourceChanged(p.transcript, p.transcriptFile, p.transcriptOffset) ||
 		landingSourceChanged(p.rollout, p.rolloutFile, p.rolloutOffset) {
-		return landingRefused
+		return landingRefused, "source-replaced"
 	}
 	seen, refused, boundary := false, false, false
+	seenBy, refusedBy := "", ""
+	mark := func(by *string, hit bool, name string) {
+		if hit && *by == "" {
+			*by = name
+		}
+	}
 	if p.hooks != nil {
 		if events, next, ok := p.hooks.Events(p.hookID, p.hookOffset); ok {
 			p.hookOffset = next
 			s, r := p.hookVerdict(events)
 			seen, boundary = seen || s, boundary || r
+			mark(&seenBy, s, "hooks")
 		}
 	}
 	if p.transcript != "" {
 		if delta, err := convo.Since(p.transcript, p.transcriptOffset); err == nil {
 			if delta.Rewound {
-				return landingRefused
+				return landingRefused, "transcript-rewound"
 			}
 			p.transcriptOffset = delta.Next
 			s, r := p.transcriptVerdict(delta)
 			seen, refused = seen || s, refused || r
+			mark(&seenBy, s, "transcript")
+			mark(&refusedBy, r, "transcript")
 		}
 	}
 	if p.rollout != "" {
@@ -145,8 +211,11 @@ func (p *landingProbe) look() landingVerdict {
 			if questions, err := p.rolloutQuestions.Update(p.rollout); err == nil {
 				for _, q := range questions {
 					if p.toolID != "" && q.CallID == p.toolID {
-						seen = seen || q.State == codexq.Answered
-						refused = refused || q.State == codexq.Expired || q.State == codexq.Superseded
+						answered := q.State == codexq.Answered
+						lapsed := q.State == codexq.Expired || q.State == codexq.Superseded
+						seen, refused = seen || answered, refused || lapsed
+						mark(&seenBy, answered, "rollout")
+						mark(&refusedBy, lapsed, "rollout")
 					}
 				}
 				p.rolloutOffset = fileSize(p.rollout)
@@ -155,20 +224,21 @@ func (p *landingProbe) look() landingVerdict {
 			if act, err := codexq.Since(p.rollout, p.rolloutOffset); err == nil {
 				p.rolloutOffset = act.Next
 				seen = seen || act.UserMessage
+				mark(&seenBy, act.UserMessage, "rollout")
 			}
 		}
 	}
 	switch {
 	case refused:
-		return landingRefused
+		return landingRefused, refusedBy
 	case seen:
-		return landingSeen
+		return landingSeen, seenBy
 	case boundary:
-		return landingRefused
+		return landingRefused, "hooks-boundary"
 	case p.paneWorking != nil && p.paneWorking():
-		return landingSeen
+		return landingSeen, "pane"
 	}
-	return landingPending
+	return landingPending, ""
 }
 
 // A composer key lands only on UserPromptSubmit. A built-in command such as
@@ -220,23 +290,29 @@ func (p *landingProbe) transcriptVerdict(delta convo.Delta) (seen, refused bool)
 // whether a dialog was up for it to answer, read before the key moved
 // anything, and it must be called before the send so every offset it takes
 // is from before anything the answer caused.
-func (m *Model) armLanding(sess store.Session, via extension.OperatorVia, text string, dialog, handOver bool) tea.Cmd {
+func (m *Model) armLanding(sess store.Session, started time.Time, via extension.OperatorVia, text string, dialog, handOver bool, pane string) tea.Cmd {
 	m.landingGen++
 	if m.landings == nil {
 		m.landings = map[string]*pendingLanding{}
 	}
+	now := time.Now()
 	pending := &pendingLanding{
 		gen:      m.landingGen,
 		sess:     sess,
 		via:      via,
 		text:     text,
-		deadline: time.Now().Add(landingWindow),
+		armed:    started,
+		deadline: now.Add(landingWindow),
 		handOver: handOver,
-		probe:    m.landingProbeFor(sess, dialog),
+		probe:    m.landingProbeFor(sess, dialog, pane),
+	}
+	pending.observed = *pending.probe
+	if previous := m.landings[sess.ID]; previous != nil {
+		recordLanding(previous, "replaced")
 	}
 	m.landings[sess.ID] = pending
 	delete(m.unseenAnswers, sess.ID)
-	return landingCheck(sess.ID, pending)
+	return landingLook(sess.ID, pending)
 }
 
 // dropLanding forgets the answer pending for a session: the send it was
@@ -255,19 +331,22 @@ func (m *Model) dropLanding(id string) {
 // fallback off a submit nothing will ever write an event for, and a composer
 // key into it would never be seen to land. So the dead source is left out and
 // the pane answers, exactly as it does for a tool whose rules carry no hooks.
-func (m *Model) landingProbeFor(sess store.Session, dialog bool) *landingProbe {
+func (m *Model) landingProbeFor(sess store.Session, dialog bool, pane string) *landingProbe {
 	p := &landingProbe{dialog: dialog}
 	if m.hooks != nil && m.poller != nil && m.poller.statusSources[sess.Tool] == hooks.StatusSourceClaude && !m.isHookless(sess) {
 		p.hooks, p.hookID = m.hooks, sess.ID
 		p.hookOffset = fileSize(m.hooks.StatusFile(sess.ID))
 	}
 	format := historyToolFormats(m.cfg)[sess.Tool]
-	if m.landingLocator != nil && (format == search.ToolClaude || format == search.ToolCodex) {
+	// Older adopted Codex rows can carry a directory-and-time guess. Such a
+	// rollout cannot confirm this pane's answer, even if it receives a message.
+	boundSource := format == search.ToolClaude || (format == search.ToolCodex && sess.TmuxSocket == "")
+	if m.landingLocator != nil && boundSource {
 		if target, ok := m.landingLocator.Target(sess.ID, format, sess.Cwd, sess.AgentSessionID); ok {
 			if format == search.ToolClaude {
 				p.transcript, p.transcriptOffset = target.Path, fileSize(target.Path)
 				if dialog {
-					if name, ok := landingToolName(m.preview); ok {
+					if name, ok := landingToolName(pane); ok {
 						if id, next, err := convo.PendingTool(target.Path, name); err == nil {
 							p.toolID, p.transcriptOffset = id, next
 						}
@@ -276,7 +355,7 @@ func (m *Model) landingProbeFor(sess store.Session, dialog bool) *landingProbe {
 				p.transcriptFile, _ = os.Stat(target.Path)
 			} else {
 				p.rollout, p.rolloutOffset = target.Path, fileSize(target.Path)
-				if dialog && landingCodexQuestion(m.preview) {
+				if dialog && landingCodexQuestion(pane) {
 					p.rolloutQuestions = &codexq.Tracker{}
 					if questions, err := p.rolloutQuestions.Update(target.Path); err == nil {
 						for _, q := range questions {
@@ -298,11 +377,10 @@ func (m *Model) landingProbeFor(sess store.Session, dialog bool) *landingProbe {
 	// The pane is the fallback source. A dialog that gives way to the agent
 	// working has been answered however long the call it allowed then runs,
 	// which the transcript and rollout only report once the call ends. On
-	// a composer it is the only source a tool without hooks or a transcript
-	// has. Either way it counts only as a change: a pane that already read
-	// working says nothing about this key.
-	paneOnly := p.hooks == nil && p.transcript == "" && p.rollout == ""
-	if (dialog || paneOnly) && m.tmux != nil && m.engine != nil && !paneWorks(m.engine, sess.Tool, m.preview) {
+	// a composer without live hooks it also covers a stale conversation
+	// binding. Only a change from a fresh pre-send capture counts: an older
+	// preview may predate work that had already started before this key.
+	if (dialog || p.hooks == nil) && pane != "" && m.tmux != nil && m.engine != nil && !paneWorks(m.engine, sess.Tool, pane) {
 		driver, engine, id, tool := m.tmux, m.engine, sess.ID, sess.Tool
 		p.paneWorking = func() bool {
 			pane, err := driver.CapturePane(id)
@@ -356,13 +434,22 @@ func fileSize(path string) int64 {
 	return info.Size()
 }
 
-// landingCheck schedules the next look. The look runs in the command's
+// landingLook runs the first look immediately after the send, in the command's
 // goroutine, off the event loop; the probe is the pending's own, and only
 // this chain of looks touches it.
-func landingCheck(id string, pending *pendingLanding) tea.Cmd {
+func landingLook(id string, pending *pendingLanding) tea.Cmd {
 	probe, gen := pending.probe, pending.gen
+	return func() tea.Msg {
+		verdict := probe.look()
+		observed := *probe
+		return landingCheckMsg{id: id, gen: gen, verdict: verdict, probe: &observed}
+	}
+}
+
+func landingCheck(id string, pending *pendingLanding) tea.Cmd {
+	look := landingLook(id, pending)
 	return tea.Tick(landingTick, func(time.Time) tea.Msg {
-		return landingCheckMsg{id: id, gen: gen, verdict: probe.look()}
+		return look()
 	})
 }
 
@@ -382,13 +469,28 @@ func (m *Model) applyLandingCheck(msg landingCheckMsg) tea.Cmd {
 	if !ok || msg.gen != pending.gen {
 		return nil
 	}
+	if msg.probe != nil {
+		pending.observed = *msg.probe
+	}
 	switch {
 	case msg.verdict == landingSeen:
 		m.dropLanding(msg.id)
 		m.noteSettling(msg.id, time.Now())
+		recordLanding(pending, "seen")
 		return m.answerLanded(*pending)
 	case msg.verdict == landingRefused, !time.Now().Before(pending.deadline):
 		m.dropLanding(msg.id)
+		outcome := "timeout"
+		if msg.verdict == landingRefused {
+			outcome = "refused"
+		}
+		recordLanding(pending, outcome)
+		if pending.early {
+			// The drain left on the strength of the key; with no answer seen,
+			// the session goes back in the queue now rather than a poll later.
+			m.unmute(msg.id)
+			return m.triagePickupCmd()
+		}
 		if pending.handOver {
 			if m.unseenAnswers == nil {
 				m.unseenAnswers = map[string]bool{}
@@ -398,6 +500,40 @@ func (m *Model) applyLandingCheck(msg landingCheckMsg) tea.Cmd {
 		return nil
 	}
 	return landingCheck(msg.id, pending)
+}
+
+// recordLanding records how an answer turned out, how long after the key
+// the board could tell, which source told it and what the looks cost. Every
+// answer is recorded, not only those the drain left early on: an operator
+// held on a session until its answer lands waits exactly this long, and
+// without it there is no saying whether that wait is the agent, the source
+// the board read or the board's own looks.
+func recordLanding(pending *pendingLanding, outcome string) {
+	probe, ended := &pending.observed, time.Now()
+	took := ended.Sub(pending.armed)
+	logging.Info("triage answer", "id", pending.sess.ID, "tool", pending.sess.Tool,
+		"outcome", outcome, "by", probe.decided, "sources", probe.sources(),
+		"dialog", probe.dialog, "early", pending.early, "handover", pending.handOver,
+		"via", string(pending.via), "looks", probe.looks,
+		"look_total", probe.lookTime.Round(time.Microsecond).String(),
+		"look_max", probe.lookMax.Round(time.Microsecond).String(),
+		"took", took.Round(time.Millisecond).String())
+	if !tracing.Enabled() {
+		return
+	}
+	tracing.Record("ui.landing", pending.armed, ended, nil,
+		tracing.Attr{Key: "outcome", Value: outcome},
+		tracing.Attr{Key: "by", Value: probe.decided},
+		tracing.Attr{Key: "sources", Value: probe.sources()},
+		tracing.Attr{Key: "tool", Value: pending.sess.Tool},
+		tracing.Attr{Key: "dialog", Value: probe.dialog},
+		tracing.Attr{Key: "early", Value: pending.early},
+		tracing.Attr{Key: "handover", Value: pending.handOver},
+		tracing.Attr{Key: "via", Value: string(pending.via)},
+		tracing.Attr{Key: "looks", Value: probe.looks},
+		tracing.Attr{Key: "look_total_ms", Value: probe.lookTime.Milliseconds()},
+		tracing.Attr{Key: "look_max_ms", Value: probe.lookMax.Milliseconds()},
+		tracing.Attr{Key: "took_ms", Value: took.Milliseconds()})
 }
 
 // noteSettling marks an answer seen landing on id at at. The row keeps the

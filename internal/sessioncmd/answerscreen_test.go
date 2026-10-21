@@ -14,6 +14,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
+	"github.com/usestring/gate-inbox/internal/relayask"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -179,12 +180,12 @@ func TestAScreenChoiceIsRefusedUnlessItIsTheUsersOwn(t *testing.T) {
 		answer string
 		says   string
 	}{
-		"without relay": {false, nil, "Yes", "Ask your user with your own question tool, copying the question"},
+		"without relay": {false, nil, "Yes", "the AskUserQuestion input read_session's digest.relay_ask gives"},
 		"a paraphrase": {true, func(f *relayFixture, screen dialog.Screen) {
 			q := "May the child touch a file?"
 			f.parentSays(t, (&transcript{}).ask("p1", relayStart.Add(time.Minute), convo.AskQuestion{Question: q,
 				Options: []convo.AskOption{{Label: "Yes"}, {Label: "No"}}}).answer("p1", relayStart.Add(2*time.Minute), map[string]string{q: "Yes"}))
-		}, "Yes", "word for word"},
+		}, "Yes", "asks about this permission prompt"},
 		"another answer": {true, func(f *relayFixture, screen dialog.Screen) {
 			userAnswered(f, t, screen, "No", relayStart.Add(time.Minute))
 		}, "Yes", `answered "No", not "Yes"`},
@@ -196,7 +197,7 @@ func TestAScreenChoiceIsRefusedUnlessItIsTheUsersOwn(t *testing.T) {
 		}, "Yes, delete everything", "names none of its choices"},
 		"no dialog of the parent's": {true, func(f *relayFixture, screen dialog.Screen) {
 			f.parentSays(t, &transcript{})
-		}, "Yes", "word for word"},
+		}, "Yes", "asks about this permission prompt"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := screenFixture(t)
@@ -332,5 +333,52 @@ func TestOpencodePermissionChoiceMovesSidewaysAndReadsBack(t *testing.T) {
 	}
 	if !got.Verified || got.Selected != "Reject" || strings.Join(pane.keys, ",") != "Right,Right,Enter" {
 		t.Fatalf("result %+v, keys %q", got, pane.keys)
+	}
+}
+
+// A permission prompt put to the user as a decision -- the question citing
+// the prompt's token, the command in each option's preview -- is admitted;
+// the same question with a preview dropped or changed, or citing another
+// prompt, is not.
+func TestACompactPermissionRelayIsAdmittedOnlyWithTheCommandInItsPreviews(t *testing.T) {
+	fastSettle(t)
+	fixture := "claude-2.1.286-w60-permission-bash.ansi"
+	for name, tc := range map[string]struct {
+		edit  func(q *convo.AskQuestion)
+		admit bool
+	}{
+		"as relayed":        {func(*convo.AskQuestion) {}, true},
+		"a preview dropped": {func(q *convo.AskQuestion) { q.Options[2].Preview = "" }, false},
+		"another command previewed": {func(q *convo.AskQuestion) {
+			for i := range q.Options {
+				q.Options[i].Preview = "```sh\ntouch other.txt\n```"
+			}
+		}, false},
+		"another prompt's token": {func(q *convo.AskQuestion) {
+			q.Question = regexp.MustCompile(`\[prompt [0-9a-f]+\]`).ReplaceAllString(q.Question, "[prompt 000000000000]")
+		}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := screenFixture(t)
+			pane := newScreenPane(t, fixture, "")
+			screen := readPane(t, pane)
+			in := relayask.ForScreen(screen, relayask.Screen{Child: "probe"})
+			q := in.Questions[0]
+			q.Options = append([]convo.AskOption(nil), q.Options...)
+			if strings.Contains(q.Question, "touch perm-probe.txt") {
+				t.Fatalf("question carries the command: %s", q.Question)
+			}
+			tc.edit(&q)
+			at := relayStart.Add(time.Minute)
+			f.parentSays(t, (&transcript{}).ask("toolu_parent_compact", at, q).
+				answer("toolu_parent_compact", at.Add(time.Minute), map[string]string{q.Question: "Yes"}))
+			_, err := (&runtime{}).answerScreen(f.child, pane, screen, "Yes", "parent", f.parent.ID, f.guard(true))
+			if tc.admit && (err != nil || !pane.closed) {
+				t.Fatalf("relay refused: %v (keys %v)", err, pane.keys)
+			}
+			if !tc.admit && (!errors.Is(err, errRelayRefused) || len(pane.keys) > 0) {
+				t.Fatalf("admitted: err %v, keys %v", err, pane.keys)
+			}
+		})
 	}
 }

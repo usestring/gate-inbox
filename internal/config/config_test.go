@@ -19,8 +19,12 @@ func TestLoadWritesAndParsesDefault(t *testing.T) {
 	if err := writeDefault(path); err != nil {
 		t.Fatalf("writeDefault: %v", err)
 	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var cfg Config
-	if err := decodeInto(path, &cfg); err != nil {
+	if err := decodeInto(path, data, &cfg); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 	cfg.applyDefaults()
@@ -123,6 +127,56 @@ rules = [
 	}
 	if !strings.Contains(rule.Pattern, `\z`) {
 		t.Fatalf("upgraded Codex working rule is not scoped to the activity-region tail: %q", rule.Pattern)
+	}
+}
+
+func TestLoadDirUpgradesLegacyCodexErroredRule(t *testing.T) {
+	defaults, err := Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := firstRule(defaults.Tools["codex"].Rules, "errored").Pattern
+	for _, tt := range []struct {
+		name    string
+		pattern string
+		custom  bool
+	}{
+		{"error only", `(?im)^\s*■.*\berror\b`, false},
+		{"previous reconnect default", `(?im)^\s*■(?:.*\berror\b| (?:Automatic reconnect could not restore this session|app-server session could not be restored)\b)`, false},
+		{"custom", `(?im)^\s*■.*fatal`, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			legacy := "[tools.codex]\ncommand = \"codex\"\nrules = [{ state = \"errored\", pattern = '" + tt.pattern + "' }]\n"
+			if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(legacy), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := LoadDir(dir)
+			if err != nil {
+				t.Fatalf("LoadDir: %v", err)
+			}
+			rule := firstRule(cfg.Tools["codex"].Rules, "errored")
+			want := current
+			if tt.custom {
+				want = tt.pattern
+			}
+			if rule.Pattern != want {
+				t.Fatalf("Codex errored pattern = %q, want %q", rule.Pattern, want)
+			}
+			if tt.custom {
+				return
+			}
+			for _, banner := range []string{
+				"■ error: connection lost",
+				"■ Automatic reconnect could not restore this session. Your draft is still editable.",
+				"■ app-server session could not be restored",
+				"■ Server connection could not be restored",
+			} {
+				if !regexp.MustCompile(rule.Pattern).MatchString(banner) {
+					t.Errorf("upgraded Codex errored rule does not match %q", banner)
+				}
+			}
+		})
 	}
 }
 
@@ -260,6 +314,21 @@ func TestLoadDirBackfillsOpencodeInputLine(t *testing.T) {
 // codex repaints slower than the chase's default budget, so its block ships a
 // longer one; a hand-written block inherits it, and a value its author chose
 // survives the merge.
+func TestLoadDirUpgradesTheMiddotCodexTurnEnd(t *testing.T) {
+	dir := t.TempDir()
+	cfg := "[tools.codex]\ncommand = \"codex\"\nturn_end = '" + codexTurnEndMiddot + "'\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(cfg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	if !regexp.MustCompile(loaded.Tools["codex"].TurnEnd).MatchString("  Worked for 4m 54s • 12:44") {
+		t.Fatalf("middot Codex turn_end was not upgraded: %q", loaded.Tools["codex"].TurnEnd)
+	}
+}
+
 func TestLoadDirBackfillsCodexEchoBudgetAndKeepsACustomOne(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -467,6 +536,36 @@ func TestBackfillSkipRenameDirective(t *testing.T) {
 	}
 	if cfg.Tools["claude"].SkipRenameDirective {
 		t.Fatal("claude must keep the launch rename directive")
+	}
+}
+
+// Asking is the default: a config written before [naming] existed carries
+// no key, and launches keep the rename directive they always had.
+func TestNamingAskDefaultsOn(t *testing.T) {
+	if !(Naming{}).Asks() {
+		t.Fatal("zero Naming must ask")
+	}
+	dir := t.TempDir()
+	cfg, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	if !cfg.Naming.Asks() {
+		t.Fatal("default config must ask agents to rename")
+	}
+}
+
+func TestNamingAskOff(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("[naming]\nask = false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	if cfg.Naming.Asks() {
+		t.Fatal("[naming] ask = false must stop rename asks")
 	}
 }
 
@@ -787,6 +886,94 @@ rules = [
 	}
 }
 
+// A config written before the question legend and review page were read
+// wrapped carries their one-line patterns verbatim, and keeps reading a narrow
+// question as idle unless the load swaps each for the current one, in its own
+// position.
+func TestLoadDirUpgradesTheOneLineQuestionRules(t *testing.T) {
+	dir := t.TempDir()
+	legacy := `
+[tools.claude]
+command = "claude"
+rules = [
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Enter to select \\x{B7} (?:[^\\x{B7}\\n]+\\x{B7} )*Esc to cancel[ \\x{A0}]*$" },
+  { state = "waiting", pattern = "(?m)^[ \\x{A0}]*Ready to submit your answers\\?[ \\x{A0}]*$" },
+  { state = "working", pattern = "esc to interrupt" },
+]
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	rules := cfg.Tools["claude"].Rules
+	if len(rules) == 0 || rules[0].State != "waiting" || rules[len(rules)-1].State != "working" {
+		t.Fatalf("claude rules lost their shape: %+v", rules)
+	}
+	for _, r := range rules {
+		if _, superseded := oneLineAskRules[r.Pattern]; superseded {
+			t.Fatalf("one-line pattern %q survived the upgrade", r.Pattern)
+		}
+	}
+	for i, lines := range [][]string{
+		{askUserQuestionLegend, askUserQuestionLegendWrapped},
+		{askUserQuestionReview, askUserQuestionReviewWrapped},
+	} {
+		re, err := regexp.Compile(rules[i].Pattern)
+		if err != nil {
+			t.Fatalf("compile upgraded pattern: %v", err)
+		}
+		for _, line := range lines {
+			if !re.MatchString(line) {
+				t.Fatalf("upgraded pattern %q does not read %q", rules[i].Pattern, line)
+			}
+		}
+	}
+}
+
+// A claude block written before the /model effort slider claimed the arrows
+// carries the old arrow_dialog_line verbatim and takes the current one, so
+// the slider's "←/→ to adjust" keeps Left and Right in the pane. One edited
+// by hand keeps what its author wrote.
+func TestLoadDirUpgradesClaudeArrowDialogLine(t *testing.T) {
+	const custom = `to navigate\b`
+	for _, c := range []struct {
+		name, pattern string
+		upgraded      bool
+	}{
+		{"shipped pattern", arrowDialogNavigateOnly, true},
+		{"hand-edited pattern", custom, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			legacy := "[tools.claude]\ncommand = \"claude\"\narrow_dialog_line = '" + c.pattern + "'\n"
+			if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(legacy), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := LoadDir(dir)
+			if err != nil {
+				t.Fatalf("LoadDir: %v", err)
+			}
+			got := cfg.Tools["claude"].ArrowDialogLine
+			if !c.upgraded {
+				if got != c.pattern {
+					t.Fatalf("hand-edited arrow_dialog_line rewritten to %q", got)
+				}
+				return
+			}
+			re, err := regexp.Compile(got)
+			if err != nil {
+				t.Fatalf("upgraded arrow_dialog_line does not compile: %q: %v", got, err)
+			}
+			if !re.MatchString("   \u25c9 xHigh effort \u2190/\u2192 to adjust") {
+				t.Fatalf("upgraded arrow_dialog_line %q does not see the /model effort slider", got)
+			}
+		})
+	}
+}
+
 // A config written before either opencode overlay was recognized carries a
 // rules array with no waiting rule at all, so both a permission ask and an
 // agent's select prompt read working off the spinner row that sits above the
@@ -965,5 +1152,27 @@ func TestOpenCodeBusyDefaultsPreserveCustomConfiguration(t *testing.T) {
 	}
 	if !slices.Contains(got.Rules, user.Rules[0]) {
 		t.Fatal("custom rule was replaced")
+	}
+}
+
+func TestLoadDirUpgradesClaudeChromeLineForTheClearHint(t *testing.T) {
+	dir := t.TempDir()
+	legacy := "[tools.claude]\ncommand = \"claude\"\nchrome_line = '" + claudeChromeLineUpdateOnly + "'\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadDir(dir)
+	if err != nil {
+		t.Fatalf("LoadDir: %v", err)
+	}
+	re := regexp.MustCompile(cfg.Tools["claude"].ChromeLine)
+	for _, line := range []string{
+		"                                        new task? /clear to save 177.6k tokens",
+		"                    ✔ Update installed · Restart to update",
+		"────────",
+	} {
+		if !re.MatchString(line) {
+			t.Errorf("upgraded claude chrome_line %q does not see %q", re, line)
+		}
 	}
 }

@@ -421,6 +421,7 @@ func seedRepo(t *testing.T) string {
 	} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
+		cmd.Env = tmuxtest.Environ()
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}
@@ -441,6 +442,7 @@ func initGitRepo(t *testing.T, dir string) {
 	} {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
+		cmd.Env = tmuxtest.Environ()
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v: %s", args, err, out)
 		}

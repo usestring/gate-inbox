@@ -435,7 +435,7 @@ func withSteering(instructions, style string, askRename bool) string {
 // configuring the extensions, something a prompt hook should not wait on.
 func AdoptedInstructions() string {
 	return "Gate Inbox adopted this session onto the user's board. Its gate-inbox MCP tools may reach your tool list only after this message.\n\n" +
-		withSteering(serverInstructions, "claude") + "\n\n" + strings.TrimSpace(mcpreg.DelegationSteering("claude"))
+		withSteering(serverInstructions, "claude", false) + "\n\n" + strings.TrimSpace(mcpreg.DelegationSteering("claude"))
 }
 
 // withExtensionNotes is instructions with a closing paragraph naming the

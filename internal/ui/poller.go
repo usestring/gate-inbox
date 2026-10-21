@@ -1004,6 +1004,14 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 						return errMsg{err}
 					}
 					if sent {
+						// A prompt typed in starts a turn the way a delivered
+						// message does, and the row says so on this pass, not
+						// the next: read_session reads the pane live and saw a
+						// restarted child working while its row still read idle.
+						// An adopted rename is housekeeping, not a turn.
+						if !strings.HasPrefix(sess.PendingInputs[0], adoptedRenamePrefix) {
+							newStatus = status.Working
+						}
 						sessions[i].PendingInputs = sessions[i].PendingInputs[1:]
 					}
 					phases.inbox += lap(&step)

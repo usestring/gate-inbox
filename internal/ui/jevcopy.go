@@ -62,6 +62,7 @@ type jevCopyState struct {
 	turn       string
 	from       string
 	picks      []string
+	note       string
 	next       int
 }
 
@@ -70,6 +71,7 @@ type jevCopyResultMsg struct {
 	turn       string
 	from       string
 	texts      []string
+	ok         bool
 	// note says why there is nothing to copy when texts is empty.
 	note string
 }
@@ -188,7 +190,11 @@ func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	turn := jevCopyIdentity(sess)
-	if turn == m.jevCopy.turn && len(m.jevCopy.picks) > 0 {
+	if turn == m.jevCopy.turn {
+		if len(m.jevCopy.picks) == 0 {
+			m.errBar.text = m.jevCopy.note
+			return m, nil
+		}
 		return m, m.copyNextPick()
 	}
 	key, _ := m.jevKey()
@@ -221,6 +227,7 @@ func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
 		text := latestAssistantText(messages)
 		candidates := copyCandidates(text)
 		if len(candidates) == 0 {
+			msg.ok = true
 			msg.note = "nothing to copy in " + from + "'s last message"
 			return msg
 		}
@@ -233,7 +240,7 @@ func (m *Model) copyWithJev(sess store.Session) (tea.Model, tea.Cmd) {
 		case len(texts) == 0:
 			msg.note = "JEV found nothing in " + from + "'s last message left for you to copy"
 		}
-		msg.texts = texts
+		msg.texts, msg.ok = texts, ok
 		return msg
 	}
 }
@@ -243,12 +250,15 @@ func (m *Model) applyJevCopy(msg jevCopyResultMsg) tea.Cmd {
 	if !m.jevCopyOn || msg.generation != m.jevCopy.generation {
 		return nil
 	}
+	if msg.ok || len(msg.texts) > 0 {
+		m.jevCopy.turn, m.jevCopy.from, m.jevCopy.picks, m.jevCopy.next = msg.turn, msg.from, msg.texts, 0
+		m.jevCopy.note = msg.note
+	}
 	if len(msg.texts) == 0 {
 		m.errBar.text = msg.note
 		return nil
 	}
 	logging.Info("jev copy", "from", msg.from, "picks", len(msg.texts))
-	m.jevCopy.turn, m.jevCopy.from, m.jevCopy.picks, m.jevCopy.next = msg.turn, msg.from, msg.texts, 0
 	return m.copyNextPick()
 }
 

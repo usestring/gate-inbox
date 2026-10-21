@@ -240,6 +240,43 @@ func TestCopyWithJevSaysWhyNothingWasCopied(t *testing.T) {
 	}
 }
 
+func TestCopyWithJevCachesEmptyVerdictsForTheCurrentTurn(t *testing.T) {
+	m, sess, calls := copyTurn(t, "Read `README.md` for the details.", 0.2)
+	wrote := stubClipboard(t, nil)
+	pressCopy(t, m, sess)
+	status := m.errBar.text
+	m.errBar.text = "another status"
+	pressCopy(t, m, sess)
+	if *calls != 1 || len(*wrote) != 0 || m.errBar.text != status {
+		t.Fatalf("calls %d, wrote %q, status %q", *calls, *wrote, m.errBar.text)
+	}
+	sess.LastStatusAt = sess.LastStatusAt.Add(time.Minute)
+	pressCopy(t, m, sess)
+	if *calls != 2 {
+		t.Fatalf("a later turn reused an empty verdict: calls %d", *calls)
+	}
+}
+
+func TestCopyWithJevRetriesFailedRequests(t *testing.T) {
+	m, sess, calls := copyTurn(t, "Run `example command`.", 0.9)
+	wrote := stubClipboard(t, nil)
+	workingClient := jevHTTPClient
+	failedCalls := 0
+	jevHTTPClient = &http.Client{Transport: jevFinishTransport(func(*http.Request) (*http.Response, error) {
+		failedCalls++
+		return nil, errors.New("service unavailable")
+	})}
+	pressCopy(t, m, sess)
+	if failedCalls == 0 || len(*wrote) != 0 || !strings.Contains(m.errBar.text, "JEV did not answer") {
+		t.Fatalf("failed calls %d, wrote %q, status %q", failedCalls, *wrote, m.errBar.text)
+	}
+	jevHTTPClient = workingClient
+	pressCopy(t, m, sess)
+	if *calls != 1 || !slices.Equal(*wrote, []string{"example command"}) {
+		t.Fatalf("failed request was not retried: calls %d, wrote %q", *calls, *wrote)
+	}
+}
+
 func TestCopyWithJevIsOffUntilEnabled(t *testing.T) {
 	m, sess, calls := copyTurn(t, "Run `gcloud auth login`.", 0.9)
 	m.jevCopyOn = false

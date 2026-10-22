@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -398,7 +399,14 @@ func TestUnmuteAllListedRespectsSearch(t *testing.T) {
 				m.historyHits = map[string]search.Hit{visible.ID: {Key: visible.ID}}
 			}
 			m.rebuildRows()
+			wantApplies := !tc.wantVisibleMuted || !tc.wantHiddenMuted
+			if got := m.applies(keymap.ContextList, keymap.UnmuteAll, treeRow{}); got != wantApplies {
+				t.Errorf("unmute-all applies = %v, want %v", got, wantApplies)
+			}
 			m.unmuteAllListed()
+			if m.applies(keymap.ContextList, keymap.UnmuteAll, treeRow{}) {
+				t.Error("unmute-all still offered after unmuting every match")
+			}
 			for id, want := range map[string]bool{visible.ID: tc.wantVisibleMuted, hidden.ID: tc.wantHiddenMuted} {
 				sess, ok := m.sessionByID(id)
 				if !ok {

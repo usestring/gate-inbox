@@ -19,6 +19,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/launch"
+	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -2561,5 +2562,51 @@ func TestRestoreAllUnarchivesARevivedChildOnce(t *testing.T) {
 	}
 	if got := counts[parent.ID]; got != 1 {
 		t.Fatalf("parent's done tally = %d, want 1 for the filtered sibling still archived", got)
+	}
+}
+
+func TestRestoreAllFromFocusRespectsSearch(t *testing.T) {
+	for _, source := range []string{"metadata", "pane", "history", "no matches"} {
+		t.Run(source, func(t *testing.T) {
+			m := buildModel(t)
+			createSession(t, m, "live", t.TempDir(), "")
+			live := sessionNamed(t, m, "live")
+			var candidates []store.Session
+			for _, name := range []string{"needle987", "hidden"} {
+				sess := store.Session{ID: newID(), Name: name, Tool: live.Tool, Cwd: t.TempDir(), Status: status.Dead, CreatedAt: time.Now(), LastStatusAt: time.Now()}
+				if source != "metadata" && name == "needle987" {
+					sess.Name = "candidate"
+				}
+				if err := m.store.CreateSession(sess); err != nil {
+					t.Fatal(err)
+				}
+				candidates = append(candidates, sess)
+				t.Cleanup(func() { m.tmux.Kill(sess.ID) })
+			}
+			loadStoredRows(t, m)
+			m.search = "  NEEDLE987  "
+			m.searchText = map[string]string{live.ID: "needle987"}
+			if source == "pane" {
+				m.searchText[candidates[0].ID] = "needle987"
+			}
+			if source == "history" {
+				m.historyQuery = "needle987"
+				m.historyHits = map[string]search.Hit{candidates[0].ID: {Key: candidates[0].ID}}
+			}
+			m.rebuildRows()
+			m.selectSessionRow(t, "live")
+			wantRestore := source != "no matches"
+			if got := m.applies(keymap.ContextList, keymap.RestoreAll, treeRow{}); got != wantRestore {
+				t.Fatalf("restore-all applies = %v, want %v", got, wantRestore)
+			}
+			m.mode = modeFocus
+			m.handleFocusKey(tea.KeyPressMsg{Code: 'd', Mod: tea.ModAlt})
+			if got := m.tmux.Exists(candidates[0].ID); got != wantRestore {
+				t.Errorf("matching session revived = %v, want %v: %s", got, wantRestore, m.errBar.text)
+			}
+			if m.tmux.Exists(candidates[1].ID) {
+				t.Error("restore-all revived a session hidden by search")
+			}
+		})
 	}
 }

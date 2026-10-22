@@ -32,11 +32,12 @@ Gate Inbox reads the panes; it does not sit between you and the model.
 2. **Start it.** Run `gate-inbox`, inside tmux or outside it. The welcome card lists which of your
    agent CLIs are ready, the five keys that matter, and any agents you already have running in
    tmux. `n` on the card starts your first session.
-3. **Agents you already had.** Anything you started by hand in tmux shows up on the board as-is.
-   The board then takes each one over: once it is idle, it is relaunched on the same conversation
-   as a board session, and a busy one is never interrupted. What a pane kept as-is would miss is
-   [below](#kept-as-is-or-relaunched); settings (`s`) has "outside panes" to keep them as-is
-   instead.
+3. **Agents you already had.** Anything you started by hand in tmux shows up on the board as-is,
+   and stays where it is: the board never ends your process unasked. `a` on its row (or on the
+   toast that names a pane started while the board is up) brings it in: once it is idle, it is
+   relaunched on the same conversation as a board session. `o` leaves it off the board. What a
+   pane kept as-is misses is [below](#kept-as-is-or-relaunched); settings (`s`) has "outside
+   panes" to take them over once idle without asking.
 4. **The loop.** `n` starts an agent, `enter` focuses it, `ctrl+q` comes back to the list, `i`
    walks everything waiting on you, and `h` shows every key.
 5. **Leaving and coming back.** `q` quits and the agents keep running. When you start it again,
@@ -45,7 +46,7 @@ Gate Inbox reads the panes; it does not sit between you and the model.
 
 ### Kept as-is or relaunched?
 
-| An agent pane you started by hand, kept as-is... | Relaunched into the board, it... |
+| An agent pane you started by hand, kept as-is (the default)... | Brought into the board (`a`), it... |
 |---|---|
 | keeps running where it is, in its own window | is ended once idle and resumed on the same conversation as a board session |
 | gets the board's MCP tools (spawn, message, tasks) through the relay the board registers in your Claude Code user config (Claude Code only; other CLIs get none) | gets them |

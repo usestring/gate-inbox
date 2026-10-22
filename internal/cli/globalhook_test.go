@@ -8,10 +8,15 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/usestring/gate-inbox/grant"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/mcpserver"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/singleton"
+	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
 )
 
 // hookBinEnv turns this test binary into the installed binary's hook verb.
@@ -241,5 +246,51 @@ func TestGlobalHooksSteerAnAdoptedSessionOnItsFirstPrompt(t *testing.T) {
 	}
 	if out := fire("UserPromptSubmit", `{"prompt":"hello"}`); out != "" {
 		t.Fatalf("the second prompt was steered again: %q", out)
+	}
+}
+
+// An adopted claude's grants ride its global hooks: a granted call is let
+// through, and the refusal of the sealing keys stands over any grant.
+func TestGlobalHooksApplyAnAdoptedSessionsGrants(t *testing.T) {
+	m, fire := adoptedChain(t)
+	st, err := store.Open(filepath.Join(m.ConfigDir(), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.CreateSession(store.Session{ID: "adopted1", Name: "outside", Tool: "claude", Cwd: t.TempDir(),
+		Status: status.Idle, TmuxSocket: "default", TmuxPaneID: "%7"}); err != nil {
+		t.Fatal(err)
+	}
+	granted := []grant.Grant{{Kind: grant.KindRule, Value: "Bash(./bin/fetch:*)"}, {Kind: grant.KindSoft, Value: "tools/deploy.sh"}}
+	now := time.Now()
+	for _, g := range granted {
+		if _, err := st.RecordGrant(store.PermissionGrant{SessionID: "adopted1", Kind: string(g.Kind), Value: g.Value,
+			GrantedBy: "parent01", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := m.WriteSessionSettings("adopted1", granted); err != nil {
+		t.Fatal(err)
+	}
+	decision := func(out string) string {
+		var parsed struct {
+			H map[string]string `json:"hookSpecificOutput"`
+		}
+		_ = json.Unmarshal([]byte(out), &parsed)
+		return parsed.H["permissionDecision"]
+	}
+	if got := decision(fire("PreToolUse", `{"tool_name":"Bash","tool_input":{"command":"./bin/fetch --all"}}`)); got != "allow" {
+		t.Fatalf("a granted call = %q, want allow", got)
+	}
+	if out := fire("PreToolUse", `{"tool_name":"Bash","tool_input":{"command":"./bin/other"}}`); out != "" {
+		t.Fatalf("an ungranted call printed %q", out)
+	}
+	keys := `{"tool_name":"Bash","tool_input":{"command":"./bin/fetch ` + parentseal.KeyDir(m.ConfigDir()) + `"}}`
+	if got := decision(fire("PreToolUse", keys)); got != "deny" {
+		t.Fatalf("a granted command naming the keys = %q, want deny", got)
+	}
+	if out := fire("PostToolUse", `{"tool_name":"Bash","tool_input":{"command":"ls"}}`); !strings.Contains(out, "tools/deploy.sh") {
+		t.Fatalf("the soft grant was not noted: %q", out)
 	}
 }

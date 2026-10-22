@@ -156,11 +156,17 @@ func ApprovalQuestionFor(target store.Session, gs []grant.Grant, ttl time.Durati
 		what, it = fmt.Sprintf("these %d permissions: %s", len(gs), strings.Join(parts, "; ")), "them"
 		write = "Write all of these for that session; they can be revoked later"
 	}
+	applies := fmt.Sprintf("Gate Inbox writes %s into that session's own settings only, restarts it to apply, "+
+		"and revokes %s when the time is up.", it, it)
+	if target.TmuxPaneID != "" {
+		applies = fmt.Sprintf("That session was started outside Gate Inbox, so Gate Inbox applies %s to that "+
+			"session only, through its hooks where they can carry %s and otherwise once it is resumed, and "+
+			"revokes %s when the time is up.", it, it, it)
+	}
 	return convo.AskQuestion{
 		Header: dialog.ApprovalHeader,
-		Question: fmt.Sprintf("Grant child session %q (%s), for %s, %s? Gate Inbox writes %s into that "+
-			"session's own settings only, restarts it to apply, and revokes %s when the time is up.",
-			target.Name, target.ID, window(ttl), what, it, it),
+		Question: fmt.Sprintf("Grant child session %q (%s), for %s, %s? %s",
+			target.Name, target.ID, window(ttl), what, applies),
 		Options: []convo.AskOption{
 			{Label: grantOption, Description: write},
 			{Label: refuseOption, Description: "Leave the session's permissions as they are"},
@@ -274,52 +280,61 @@ func (s *Sessions) Grant(sessionID, targetID string, req GrantRequest) (GrantRes
 				return have.Kind == string(g.Kind) && have.Value == g.Value
 			})
 		}
-		gs = slices.DeleteFunc(gs, held)
-		if len(gs) == 0 {
+		pending := slices.DeleteFunc(slices.Clone(gs), held)
+		switch {
+		case len(pending) == 0 && req.Restart:
+			// Nothing new is granted, so no approval is spent: this resumes
+			// the session on what it already holds, which is how the part of
+			// a grant an adopted session could not take live reaches it.
+			result.Action = "reapplied"
+		case len(pending) == 0:
 			return GrantResult{}, fmt.Errorf("session %s already holds that permission", target.ID)
 		}
-		standing, err := runtime.store.Grants(store.StandingSession, true)
-		if err != nil {
-			return GrantResult{}, err
-		}
-		// What the user already approved for every session is not asked
-		// again: the decision is on record, and the child only needs the
-		// restart that puts it in its process.
-		stands := func(g grant.Grant) bool {
-			return slices.ContainsFunc(standing, func(have store.PermissionGrant) bool {
-				return have.Kind == string(g.Kind) && have.Value == g.Value
-			})
-		}
-		if fresh := slices.DeleteFunc(slices.Clone(gs), stands); len(fresh) == 0 {
-			result.Standing = true
-			req.Restart = true
-		} else {
-			gs = fresh
-			ttl, err := grantTTL(req)
+		if result.Action == "" {
+			gs = pending
+			standing, err := runtime.store.Grants(store.StandingSession, true)
 			if err != nil {
 				return GrantResult{}, err
 			}
-			evidence, hash, err := s.grantApproval(runtime.store, caller, target, gs, ttl)
-			if err != nil {
-				return GrantResult{}, err
+			// What the user already approved for every session is not asked
+			// again: the decision is on record, and the child only needs the
+			// restart that puts it in its process.
+			stands := func(g grant.Grant) bool {
+				return slices.ContainsFunc(standing, func(have store.PermissionGrant) bool {
+					return have.Kind == string(g.Kind) && have.Value == g.Value
+				})
 			}
-			result.Question = ApprovalQuestionFor(target, gs, ttl).Question
-			now := time.Now()
-			owner, expires := target.ID, now.Add(ttl)
-			if ttl == 0 {
-				owner, expires, result.Standing = store.StandingSession, time.Time{}, true
-			}
-			for _, g := range gs {
-				if _, err := runtime.store.RecordGrant(store.PermissionGrant{
-					SessionID: owner, Kind: string(g.Kind), Value: g.Value,
-					GrantedBy: caller.ID, EvidenceToolUseID: evidence, QuestionHash: hash,
-					CreatedAt: now, ExpiresAt: expires,
-				}); err != nil {
+			if fresh := slices.DeleteFunc(slices.Clone(gs), stands); len(fresh) == 0 {
+				result.Standing = true
+				req.Restart = true
+			} else {
+				gs = fresh
+				ttl, err := grantTTL(req)
+				if err != nil {
 					return GrantResult{}, err
 				}
+				evidence, hash, err := s.grantApproval(runtime.store, caller, target, gs, ttl)
+				if err != nil {
+					return GrantResult{}, err
+				}
+				result.Question = ApprovalQuestionFor(target, gs, ttl).Question
+				now := time.Now()
+				owner, expires := target.ID, now.Add(ttl)
+				if ttl == 0 {
+					owner, expires, result.Standing = store.StandingSession, time.Time{}, true
+				}
+				for _, g := range gs {
+					if _, err := runtime.store.RecordGrant(store.PermissionGrant{
+						SessionID: owner, Kind: string(g.Kind), Value: g.Value,
+						GrantedBy: caller.ID, EvidenceToolUseID: evidence, QuestionHash: hash,
+						CreatedAt: now, ExpiresAt: expires,
+					}); err != nil {
+						return GrantResult{}, err
+					}
+				}
 			}
+			result.Action = "granted"
 		}
-		result.Action = "granted"
 	}
 	if err := s.syncStanding(runtime); err != nil {
 		return GrantResult{}, err
@@ -329,6 +344,9 @@ func (s *Sessions) Grant(sessionID, targetID string, req GrantRequest) (GrantRes
 		return GrantResult{}, err
 	}
 	result.Settings, result.Restarted, result.Note = applied.settings, applied.restarted, applied.note
+	if applied.adopted {
+		result.Note = adoptedGrantNote(gs, req.Revoke)
+	}
 	result.Target = runtime.sessionInfo(applied.target, applied.running, false)
 	result.Grants, err = grantInfos(runtime.store, target.ID)
 	for _, g := range gs {
@@ -437,7 +455,10 @@ type applied struct {
 	settings  string
 	running   bool
 	restarted bool
-	note      string
+	// adopted is a running session adopted from outside the board, left
+	// running: its grants apply through its hooks (AdoptedGrantDecision).
+	adopted bool
+	note    string
 }
 
 // applyGrants rewrites target's own settings file from the grants in force on
@@ -464,10 +485,22 @@ func (s *Sessions) applyGrants(runtime *runtime, target store.Session, force boo
 	if len(grants) > 0 {
 		out.settings = path
 	}
+	adopted := target.TmuxPaneID != ""
+	if adopted {
+		if err := runtime.reach(target); err != nil {
+			return out, err
+		}
+	}
 	out.running = runtime.driver.Exists(target.ID)
 	switch {
 	case !out.running:
 		out.note = "the session is not running; it launches with this at its next revive"
+	case adopted && !force:
+		// Restarting it would move its conversation out of the user's
+		// own pane. What its hooks can carry applies from its next call;
+		// the rest waits for a resume the caller asks for.
+		out.adopted = true
+		out.note = "the session was started outside Gate Inbox and keeps running; its hooks apply its grants"
 	case target.Status == status.Working && !force:
 		out.note = "the session is working, so it was left alone: the change applies when it is next " +
 			"restarted; call again with restart true to restart it now"
@@ -476,7 +509,12 @@ func (s *Sessions) applyGrants(runtime *runtime, target store.Session, force boo
 		if err != nil {
 			return out, fmt.Errorf("the change is written but the session did not come back: %w", err)
 		}
-		relaunched, err := s.restart(runtime, target, slot)
+		restart := s.restart
+		if adopted {
+			restart = s.restartAdopted
+			out.target.TmuxSocket, out.target.TmuxPaneID = "", ""
+		}
+		relaunched, err := restart(runtime, target, slot)
 		if err != nil {
 			return out, fmt.Errorf("the change is written but the session did not come back: %w", err)
 		}
@@ -522,7 +560,9 @@ func (s *Sessions) ExpireGrants(now time.Time) (int, error) {
 		case err != nil:
 			errs = append(errs, err)
 			continue
-		case target.Status == status.Working && runtime.driver.Exists(target.ID):
+		case target.Status == status.Working && target.TmuxPaneID == "" && runtime.driver.Exists(target.ID):
+			// An adopted session's hooks stop honouring a grant the moment
+			// it lapses, so only a launched one keeps it until it rests.
 			continue
 		}
 		for _, g := range grants {
@@ -632,6 +672,38 @@ func (s *Sessions) grantApproval(st *store.Store, caller, target store.Session, 
 		}
 	}
 	return "", "", need(reason)
+}
+
+// adoptedGrantNote says what a grant or revoke did for a running session
+// adopted from outside the board, which was not restarted: what its hooks
+// apply from its next tool call, and plainly what needs a resume.
+func adoptedGrantNote(gs []grant.Grant, revoked bool) string {
+	if revoked {
+		return "the session was started outside Gate Inbox, so it was not restarted: its hooks stop applying " +
+			"the permission from its next tool call"
+	}
+	var lives, resumes []string
+	for _, g := range gs {
+		live, resume := grant.Live(g)
+		if live != "" {
+			lives = append(lives, live)
+		}
+		if resume != "" {
+			resumes = append(resumes, resume)
+		}
+	}
+	var parts []string
+	if len(lives) > 0 {
+		parts = append(parts, "the session was started outside Gate Inbox, so it was not restarted; from its "+
+			"next tool call its hooks apply "+strings.Join(lives, "; "))
+	}
+	if len(resumes) > 0 {
+		parts = append(parts, "NEEDS A RESUME: "+strings.Join(resumes, "; ")+" cannot reach a session Gate Inbox did not launch while it "+
+			"runs, so that part applies only once the session is resumed on the board. Call grant_permission "+
+			"again with the same kind and value and restart true to resume it now -- its conversation moves "+
+			"out of the user's pane into a board session -- or leave it until it is taken over")
+	}
+	return strings.Join(parts, ". ")
 }
 
 // unsupportedGrant says why a CLI other than Claude Code cannot be granted a

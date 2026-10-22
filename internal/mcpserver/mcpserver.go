@@ -725,6 +725,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"A step that runs several commands -- add, commit, push, merge -- is one decision: pass every prefix in values and the one question names them all. A prefix is one command, so chaining with && or ; is refused; list each command instead. " +
 			"Prefer soft_command: it is enough for the classifier to pass a refused step, including one run with dangerouslyDisableSandbox, and the classifier still judges each call. Use rule or unsandboxed_command only when a soft grant is still refused. " +
 			"Wildcards, whole tools, and anything touching settings files, sudo or credentials are refused with no way past. Only Claude Code children can be granted to. " +
+			"A child adopted from outside the board is not restarted: rule and command-prefix grants and soft notes reach it through its hooks from its next tool call, and the result says plainly when part of a grant (a sandbox exclusion, a domain) needs a resume, which calling again with restart true does. " +
 			"revoke true takes a permission back; list_sessions shows what a session holds. After a restart the child is idle: pass message with the instruction the grant is for, and it is queued for the child carrying your user's Grant as an attestation.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args grantPermissionArgs) (*mcp.CallToolResult, sessioncmd.GrantResult, error) {

@@ -552,6 +552,28 @@ func (s *Sessions) restart(runtime *runtime, target store.Session, slot launchpa
 	return s.relaunch(runtime, target, "", slot)
 }
 
+// restartAdopted is restart for a session adopted from outside the board.
+// Its pane is gone once it ends, so it comes back as a board session on its
+// own conversation, launched with its settings file -- which is the resume a
+// sandbox or domain grant needed.
+func (s *Sessions) restartAdopted(runtime *runtime, target store.Session, slot launchpace.Slot) (config.Tool, error) {
+	if err := runtime.store.SetAgentLaunchedAt(target.ID, time.Now()); err != nil {
+		slot.Cancel()
+		return config.Tool{}, err
+	}
+	if err := s.endSession(runtime, target, store.EndKilled); err != nil {
+		slot.Cancel()
+		return config.Tool{}, err
+	}
+	runtime.driver.Release(target.ID)
+	if err := runtime.store.PromoteAdopted(target.ID, target.Cwd, target.AgentSessionID); err != nil {
+		slot.Cancel()
+		return config.Tool{}, err
+	}
+	target.TmuxSocket, target.TmuxPaneID = "", ""
+	return s.relaunch(runtime, target, "", slot)
+}
+
 // relaunch is the relaunch Revive and Unpark share: the dead row's tool,
 // directory and conversation id decide the command, and the row comes back
 // in the tool's default status with its finished alert re-armed. A prompt

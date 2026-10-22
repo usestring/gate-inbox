@@ -14,6 +14,8 @@ import (
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
+const snippetSenderID = store.HumanSenderID + "/snippet"
+
 // sendSentence is the guarded path behind every key that answers a session
 // with a canned line: each of the operator's own snippets, from any surface.
 //
@@ -70,7 +72,7 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 	if m.poller.offline() {
 		id, _, err := m.store.Enqueue(store.InboxMessage{
 			SessionID:   sess.ID,
-			SenderID:    store.HumanSenderID,
+			SenderID:    snippetSenderID,
 			Body:        text,
 			Fingerprint: textfmt.Fingerprint(text),
 			SentAt:      time.Now(),
@@ -84,7 +86,6 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 			m.heldSnippets = map[int64]*pendingLanding{}
 		}
 		m.heldSnippets[id] = m.landings[sess.ID]
-		m.heldSnippets[id].fromInbox = true
 		delete(m.landings, sess.ID)
 		m.errBar.text = "offline — " + quoted + " is held for " + m.displayName(sess) + " and sends when the network returns"
 		m.requestRefresh()
@@ -153,7 +154,7 @@ func (m *Model) dialogHold(sess store.Session) string {
 func (m *Model) resumeHeldSnippets() tea.Cmd {
 	var checks []tea.Cmd
 	for id, pending := range m.heldSnippets {
-		msg, err := m.store.Message(id, store.HumanSenderID)
+		msg, err := m.store.Message(id, snippetSenderID)
 		if err != nil {
 			m.errBar.text = err.Error()
 			delete(m.heldSnippets, id)

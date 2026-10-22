@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/netwatch"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -70,7 +71,7 @@ func TestAnOfflineSnippetGoesToTheOutboxAsTheOperatorsWords(t *testing.T) {
 	if !ok {
 		t.Fatalf("nothing queued; error bar: %q", m.errBar.text)
 	}
-	if head.SenderID != store.HumanSenderID || head.Body != "ship it" {
+	if head.SenderID != snippetSenderID || head.Body != "ship it" {
 		t.Fatalf("queued %q from %q, want the operator's line", head.Body, head.SenderID)
 	}
 	if capture, _ := m.tmux.CapturePane(sess.ID); strings.Contains(capture, "ship it") {
@@ -160,10 +161,11 @@ func TestOfflineLimitRecoveryAppearsPendingUntilRestored(t *testing.T) {
 
 func TestHeldSnippetPreservesHandoverUntilDelivery(t *testing.T) {
 	for _, tc := range []struct {
-		name                   string
-		handOver, cancel, drop bool
+		name                         string
+		handOver, cancel, drop, poll bool
 	}{
 		{name: "auto proceed", handOver: true},
+		{name: "poll confirms landing", handOver: true, poll: true},
 		{name: "stay here"},
 		{name: "operator kept typing", handOver: true, cancel: true},
 		{name: "dropped", handOver: true, drop: true},
@@ -203,7 +205,18 @@ func TestHeldSnippetPreservesHandoverUntilDelivery(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			m.Update(refreshMsg{sessions: m.sessions, listedAt: time.Now()})
+			if got := operatorInputs(observer); len(got) != 0 {
+				t.Fatalf("snippet reported at delivery instead of landing: %+v", got)
+			}
+			refreshed := append([]store.Session(nil), m.sessions...)
+			if tc.poll {
+				for i := range refreshed {
+					if refreshed[i].ID == sess.ID {
+						refreshed[i].Status = status.Working
+					}
+				}
+			}
+			m.Update(refreshMsg{sessions: refreshed, listedAt: time.Now()})
 			if len(m.heldSnippets) != 0 {
 				t.Fatal("settled message still held")
 			}
@@ -213,12 +226,25 @@ func TestHeldSnippetPreservesHandoverUntilDelivery(t *testing.T) {
 				}
 				return
 			}
-			if m.landings[sess.ID] != pending || !pending.deadline.After(time.Now()) {
+			if !tc.poll && (m.landings[sess.ID] != pending || !pending.deadline.After(time.Now())) {
 				t.Fatal("delivery did not resume the landing with a fresh window")
 			}
-			landAnswer(t, m, sess.ID)
-			if got := operatorInputs(observer); len(got) != 1 {
+			if got := operatorInputs(observer); !tc.poll && len(got) != 0 {
+				t.Fatalf("snippet reported before landing: %+v", got)
+			}
+			if got := inboxEnvelope(head, "", true, messageContext{}); got != "ship it" {
+				t.Fatalf("snippet delivered as %q, want the operator's words", got)
+			}
+			if !tc.poll {
+				landAnswer(t, m, sess.ID)
+			}
+			got := operatorInputs(observer)
+			if len(got) != 1 {
 				t.Fatalf("operator input reported %d times, want once", len(got))
+			}
+			if got[0].Via != extension.OperatorSnippet || got[0].MessageID != 0 ||
+				got[0].SessionID != sess.ID || got[0].Text != "ship it" || got[0].Dialog || got[0].At.IsZero() {
+				t.Fatalf("snippet provenance lost: %+v", got[0])
 			}
 			want := "ask"
 			if tc.handOver && !tc.cancel {

@@ -85,8 +85,7 @@ type pendingLanding struct {
 	// handOver is whether landing should also move the drain on. It is read
 	// when the key is pressed and cleared by anything that says the operator
 	// is not done: another key into the pane, or leaving.
-	handOver  bool
-	fromInbox bool
+	handOver bool
 	// early is set when the drain already moved on at the key itself; see
 	// handOverOnEnter.
 	early bool
@@ -573,9 +572,7 @@ func (m *Model) settleLandings(listedAt time.Time, unseen map[string]bool) {
 // has seen the new one start. The new turn raises its own alert when it ends.
 func (m *Model) answerLanded(pending pendingLanding) tea.Cmd {
 	m.noteSubmission(pending.sess)
-	if !pending.fromInbox {
-		m.noteOperator(pending.sess, pending.via, pending.text, pending.probe.dialog)
-	}
+	m.noteOperator(pending.sess, pending.via, pending.text, pending.probe.dialog)
 	if m.heldAckID == pending.sess.ID {
 		m.heldAckID = ""
 	}

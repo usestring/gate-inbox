@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/usestring/gate-inbox/internal/band"
 )
 
 const NoneOfTheAbove = "None of the above"
@@ -130,12 +132,23 @@ func recordCall(line []byte, calls *[]Call, index map[string]int) {
 				text = append(text, part.Text)
 			}
 		}
+		reply := strings.Join(text, "\n")
+		// Board relays also have role=user; they cannot answer the operator's question.
+		if band.Has(strings.TrimSpace(reply)) {
+			return
+		}
+		pendingAsync := 0
+		for _, call := range *calls {
+			if call.Async && call.State == Outstanding {
+				pendingAsync++
+			}
+		}
 		for i := range *calls {
 			call := &(*calls)[i]
 			if call.State == Outstanding || call.State == Expired {
 				call.State = Superseded
-				if call.Async && call.Reply == "" {
-					call.Reply, call.ReplyAt = strings.Join(text, "\n"), at
+				if call.Async && pendingAsync == 1 && call.Reply == "" {
+					call.Reply, call.ReplyAt = reply, at
 				}
 			}
 		}

@@ -47,6 +47,7 @@ import (
 // inside a tmux attach. The UI receives the results as refreshMsg values
 // and merely renders them.
 type poller struct {
+	snippetRecipients sync.Map
 	// net reads whether the machine is online. Nil, as in every test that
 	// does not set one, reads online.
 	net           *netwatch.Watcher
@@ -1670,6 +1671,12 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 	msg, queued := heads[sess.ID]
 	if !queued {
 		return false, nil
+	}
+	if msg.SenderID == snippetSenderID {
+		recipient, ready := p.snippetRecipients.Load(msg.ID)
+		if !ready || recipient != sess.ID {
+			return false, nil
+		}
 	}
 	// The pass captures the panes before it reads the queue, and a send to
 	// this session can settle between the two. The head it read is then the

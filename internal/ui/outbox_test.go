@@ -256,3 +256,91 @@ func TestHeldSnippetPreservesHandoverUntilDelivery(t *testing.T) {
 		})
 	}
 }
+
+func TestHeldSnippetRestoresAfterRestartAndForwarding(t *testing.T) {
+	for _, tc := range []struct {
+		name                     string
+		restart, forward, cancel bool
+	}{
+		{name: "restart", restart: true},
+		{name: "forward", forward: true},
+		{name: "restart and forward", restart: true, forward: true},
+		{name: "cancel survives restart", restart: true, cancel: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := buildModel(t)
+			sess := spawnedSession(t, m, "claude-hooked")
+			observer := &recordingObserver{}
+			m.ObserveBoard(observer)
+			restore := goOffline(t, m)
+			m.sendSentence(sess, "ship it", `"ship it"`, true, true)
+			head := queuedHeads(t, m)[sess.ID]
+			oldProbe := m.heldSnippets[head.ID].probe
+			if tc.cancel {
+				m.keepLandingHere()
+			}
+			if tc.restart {
+				m.heldSnippets = nil
+				m.heldSnippetsRestored = false
+				m.poller.snippetRecipients.Clear()
+			}
+			recipient := sess
+			if tc.forward {
+				spawnedSession(t, m, "claude-hooked")
+				for _, row := range m.sessionRows() {
+					if row.ID != sess.ID {
+						var err error
+						recipient, err = m.store.Get(row.ID)
+						if err != nil {
+							t.Fatal(err)
+						}
+						break
+					}
+				}
+				if recipient.ID == sess.ID {
+					t.Fatal("replacement was not created")
+				}
+				if _, err := m.store.ForwardInbox(sess.ID, recipient.ID); err != nil {
+					t.Fatal(err)
+				}
+			}
+			restore()
+			if tc.restart || tc.forward {
+				if err := deliverInbox(t, m, recipient, queuedHeads(t, m), "❯ ", status.Idle, true); err != nil {
+					t.Fatal(err)
+				}
+				msg, err := m.store.Message(head.ID, snippetSenderID)
+				if err != nil || !msg.DeliveredAt.IsZero() {
+					t.Fatalf("delivered before recipient baseline: %+v, %v", msg, err)
+				}
+			}
+			m.resumeHeldSnippets()
+			pending := m.heldSnippets[head.ID]
+			if pending == nil || pending.sess.ID != recipient.ID || pending.probe == oldProbe && (tc.restart || tc.forward) {
+				t.Fatal("held landing not rebuilt for current recipient")
+			}
+			if pending.handOver == tc.cancel {
+				t.Fatalf("handover = %v, cancelled = %v", pending.handOver, tc.cancel)
+			}
+			if err := deliverInbox(t, m, recipient, queuedHeads(t, m), "❯ ", status.Idle, true); err != nil {
+				t.Fatal(err)
+			}
+			if got := operatorInputs(observer); len(got) != 0 {
+				t.Fatalf("event before landing: %+v", got)
+			}
+			m.resumeHeldSnippets()
+			if m.landings[recipient.ID] == nil {
+				t.Fatal("delivered snippet has no landing")
+			}
+			landAnswer(t, m, recipient.ID)
+			got := operatorInputs(observer)
+			if len(got) != 1 || got[0].SessionID != recipient.ID || got[0].Via != extension.OperatorSnippet || got[0].Text != "ship it" {
+				t.Fatalf("restored snippet event: %+v", got)
+			}
+			held, err := m.store.HeldSnippets()
+			if err != nil || len(held) != 0 {
+				t.Fatalf("settled snippet still durable: %+v, %v", held, err)
+			}
+		})
+	}
+}

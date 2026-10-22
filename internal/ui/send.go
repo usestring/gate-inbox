@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"database/sql"
+	"errors"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,7 +16,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-const snippetSenderID = store.HumanSenderID + "/snippet"
+const snippetSenderID = store.SnippetSenderID
 
 // sendSentence is the guarded path behind every key that answers a session
 // with a canned line: each of the operator's own snippets, from any surface.
@@ -70,13 +72,13 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 	// the poller types it in once the network is back (see netwatch). No
 	// landing check runs: nothing reaches the pane until then.
 	if m.poller.offline() {
-		id, _, err := m.store.Enqueue(store.InboxMessage{
+		id, err := m.store.EnqueueHeldSnippet(store.InboxMessage{
 			SessionID:   sess.ID,
 			SenderID:    snippetSenderID,
 			Body:        text,
 			Fingerprint: textfmt.Fingerprint(text),
 			SentAt:      time.Now(),
-		}, store.DefaultInboxLimits)
+		}, handOver)
 		if err != nil {
 			m.errBar.text = err.Error()
 			return nil
@@ -86,6 +88,8 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 			m.heldSnippets = map[int64]*pendingLanding{}
 		}
 		m.heldSnippets[id] = m.landings[sess.ID]
+		m.heldSnippets[id].inboxID = id
+		m.poller.snippetRecipients.Store(id, sess.ID)
 		delete(m.landings, sess.ID)
 		m.errBar.text = "offline — " + quoted + " is held for " + m.displayName(sess) + " and sends when the network returns"
 		m.requestRefresh()
@@ -153,22 +157,72 @@ func (m *Model) dialogHold(sess store.Session) string {
 
 func (m *Model) resumeHeldSnippets() tea.Cmd {
 	var checks []tea.Cmd
+	if !m.heldSnippetsRestored {
+		held, err := m.store.HeldSnippets()
+		if err != nil {
+			m.errBar.text = err.Error()
+			return nil
+		}
+		if m.heldSnippets == nil {
+			m.heldSnippets = map[int64]*pendingLanding{}
+		}
+		for id, handOver := range held {
+			if m.heldSnippets[id] == nil {
+				m.heldSnippets[id] = &pendingLanding{inboxID: id, via: extension.OperatorSnippet, handOver: handOver}
+			}
+		}
+		m.heldSnippetsRestored = true
+	}
 	for id, pending := range m.heldSnippets {
 		msg, err := m.store.Message(id, snippetSenderID)
 		if err != nil {
 			m.errBar.text = err.Error()
-			delete(m.heldSnippets, id)
+			if errors.Is(err, sql.ErrNoRows) {
+				if err := m.store.ForgetHeldSnippet(id); err != nil {
+					m.errBar.text = err.Error()
+					continue
+				}
+				m.poller.snippetRecipients.Delete(id)
+				delete(m.heldSnippets, id)
+			}
 			continue
 		}
 		if !msg.DroppedAt.IsZero() || msg.SupersededBy != 0 {
+			if err := m.store.ForgetHeldSnippet(id); err != nil {
+				m.errBar.text = err.Error()
+				continue
+			}
+			m.poller.snippetRecipients.Delete(id)
 			delete(m.heldSnippets, id)
 			continue
 		}
+		if pending.sess.ID != msg.SessionID {
+			sess, err := m.store.Get(msg.SessionID)
+			if err != nil {
+				m.errBar.text = err.Error()
+				continue
+			}
+			m.landingGen++
+			pending.gen = m.landingGen
+			pending.sess = sess
+			pending.text = msg.Body
+			pending.armed = msg.SentAt
+			pending.probe = m.landingProbeFor(sess, false, m.echoBaseline(sess.ID))
+			pending.observed = *pending.probe
+		}
 		if msg.DeliveredAt.IsZero() {
+			m.poller.snippetRecipients.Store(id, msg.SessionID)
 			continue
 		}
 		delete(m.heldSnippets, id)
+		m.poller.snippetRecipients.Delete(id)
 		pending.deadline = time.Now().Add(landingWindow)
+		if m.landings == nil {
+			m.landings = map[string]*pendingLanding{}
+		}
+		if previous := m.landings[msg.SessionID]; previous != nil {
+			m.dropLanding(msg.SessionID)
+		}
 		m.landings[msg.SessionID] = pending
 		checks = append(checks, landingLook(msg.SessionID, pending))
 	}

@@ -93,6 +93,7 @@
 # toggle_chrome       = ["alt+,"]  # hide / show the key hints along the foot
 # toggle_rail         = ["alt+\\"]  # hide / show the list beside the pane
 # archive             = ["ctrl+x"]  # kill it, asking first
+# attach              = ["ctrl+a"]  # attach: the pane takes the terminal
 # priority            = ["ctrl+p"]  # cycle priority: urgent → high → medium → low → none
 # mute                = ["ctrl+m"]  # mute / unmute: keep it out of triage until unmuted
 # help                = ["ctrl+h"]  # this key map

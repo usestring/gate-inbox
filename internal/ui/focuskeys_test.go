@@ -281,6 +281,28 @@ func TestSwappedKeysRouteActions(t *testing.T) {
 	}
 }
 
+// ctrl+a inside a focused session attaches it rather than reaching the agent
+// as readline's line-start.
+func TestFocusCtrlAAttaches(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "attachme", t.TempDir(), "")
+	m.selectSessionRow(t, "attachme")
+
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	*m = *updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("after enter, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+	updated, cmd := m.handleKey(tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl})
+	*m = *updated.(*Model)
+	if cmd == nil {
+		t.Fatalf("ctrl+a in focus did not attach, err = %q", m.errBar.text)
+	}
+	if m.mode != modeList {
+		t.Fatalf("mode = %v, want the list under the attach", m.mode)
+	}
+}
+
 // Enter on a live session row focuses it; typed keys land in its pane and
 // ctrl+q returns to the list without touching the pane.
 func TestFocusModeForwardsKeys(t *testing.T) {

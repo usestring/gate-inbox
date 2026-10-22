@@ -235,10 +235,6 @@ var Catalog = []Binding{
 	{ContextFocus, ToggleChrome, []string{"alt+,"}, "hide / show the key hints along the foot", false},
 	{ContextFocus, ToggleRail, []string{`alt+\`}, "hide / show the list beside the pane", false},
 	{ContextFocus, Archive, []string{"ctrl+x"}, "kill it, asking first", false},
-	// The list's attach, so a focused pane takes the whole terminal without a
-	// trip back to the list. It takes readline's line-start from the agent;
-	// home still sends that.
-	{ContextFocus, Attach, []string{"ctrl+a"}, "attach: the pane takes the terminal", false},
 	// The list's ctrl+p, so the tier moves from wherever the operator is. It
 	// takes the agent's ctrl+p, which every agent CLI also answers on the up
 	// arrow.
@@ -271,6 +267,10 @@ var Catalog = []Binding{
 	{ContextFocus, PreviewPageDown, []string{"alt+pgdown"}, "scroll a page down", false},
 	{ContextFocus, PreviewTop, []string{"alt+home"}, "oldest history", false},
 	{ContextFocus, PreviewBottom, []string{"alt+end"}, "back to the live bottom", false},
+	// The list's attach, so a focused pane takes the whole terminal without a
+	// trip back to the list. It takes readline's line-start from the agent;
+	// home still sends that.
+	{ContextFocus, Attach, []string{"ctrl+a"}, "attach: the pane takes the terminal", false},
 
 	// ---- the name sweep ----
 	{ContextNameSweep, Cancel, []string{"esc", "n", "q"}, "cancel the sweep", true},

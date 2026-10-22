@@ -93,7 +93,6 @@
 # toggle_chrome       = ["alt+,"]  # hide / show the key hints along the foot
 # toggle_rail         = ["alt+\\"]  # hide / show the list beside the pane
 # archive             = ["ctrl+x"]  # kill it, asking first
-# attach              = ["ctrl+a"]  # attach: the pane takes the terminal
 # priority            = ["ctrl+p"]  # cycle priority: urgent → high → medium → low → none
 # mute                = ["ctrl+m"]  # mute / unmute: keep it out of triage until unmuted
 # help                = ["ctrl+h"]  # this key map
@@ -110,6 +109,7 @@
 # preview_page_down   = ["alt+pgdown"]  # scroll a page down
 # preview_top         = ["alt+home"]  # oldest history
 # preview_bottom      = ["alt+end"]  # back to the live bottom
+# attach              = ["ctrl+a"]  # attach: the pane takes the terminal
 
 # [name_sweep]
 # cancel      = ["esc", "n", "q"]  # cancel the sweep (cannot be unbound)

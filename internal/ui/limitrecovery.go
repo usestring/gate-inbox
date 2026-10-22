@@ -95,3 +95,16 @@ func (p *poller) maybeRecoverLimit(sess store.Session, states map[string]store.L
 	})
 	return true, nil
 }
+
+func heldLimitContinuations(sessions []store.Session, recoveries map[string]store.LimitRecovery, now time.Time) map[string]bool {
+	held := make(map[string]bool)
+	for _, sess := range sessions {
+		recovery, ok := recoveries[sess.ID]
+		if ok && sess.Tool == "codex" && sess.Status == status.Errored && !sess.Archived &&
+			recovery.LaunchAt.Equal(sess.LaunchTime()) && recovery.AttemptedAt.IsZero() &&
+			!now.Before(recovery.ResetAt.Add(limitResetGrace)) {
+			held[sess.ID] = true
+		}
+	}
+	return held
+}

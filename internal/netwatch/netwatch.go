@@ -135,9 +135,7 @@ func (w *Watcher) Run(ctx context.Context, onRestore func()) {
 		return
 	}
 	for {
-		probeCtx, cancel := context.WithTimeout(ctx, ProbeTimeout)
-		restored := w.Check(probeCtx, time.Now())
-		cancel()
+		restored := w.Check(ctx, time.Now())
 		if restored && onRestore != nil {
 			onRestore()
 		}

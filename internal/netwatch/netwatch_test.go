@@ -92,3 +92,37 @@ func TestHTTPProbeTriesEveryTargetBeforeGivingUp(t *testing.T) {
 		t.Fatal("a live second target was not tried")
 	}
 }
+
+func TestRunTriesFallbackAfterFirstTargetTimesOut(t *testing.T) {
+	stalled := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer stalled.Close()
+	live := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer live.Close()
+	probe := HTTPProbe([]string{stalled.URL, live.URL}, ProbeTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*ProbeTimeout)
+	defer cancel()
+	var connected bool
+	watcher := New(func(ctx context.Context) bool {
+		connected = probe(ctx)
+		cancel()
+		return connected
+	})
+	watcher.Run(ctx, nil)
+	if !connected {
+		t.Fatal("a timed-out first target prevented the live fallback from being reached")
+	}
+}
+
+func TestHTTPProbeHonorsParentCancellation(t *testing.T) {
+	stalled := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer stalled.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if HTTPProbe([]string{stalled.URL}, time.Second)(ctx) {
+		t.Fatal("a canceled probe read as connected")
+	}
+}

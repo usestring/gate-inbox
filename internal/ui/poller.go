@@ -1226,7 +1226,11 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 		return errMsg{err}
 	}
 	if p.offline() {
-		shown = store.ApplyOutbox(shown, queued)
+		recoveries, err := p.store.LimitRecoveries()
+		if err != nil {
+			return errMsg{err}
+		}
+		shown = store.ApplyOutbox(shown, queued, heldLimitContinuations(shown, recoveries, now))
 	}
 
 	msg := refreshMsg{

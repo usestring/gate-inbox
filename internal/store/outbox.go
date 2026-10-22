@@ -29,17 +29,17 @@ var pendingFrom = map[string]bool{
 
 // held reports whether sess has a send the outbox would hold: an inbox
 // message queued for it, per queued, or a launch prompt or directive not
-// yet typed in.
-func held(sess Session, queued map[string]int) bool {
-	return queued[sess.ID] > 0 || len(sess.PendingInputs) > 0 && !sess.PendingInputClaimed
+// yet typed in, or a due limit continuation.
+func held(sess Session, queued map[string]int, limitContinuations map[string]bool) bool {
+	return queued[sess.ID] > 0 || len(sess.PendingInputs) > 0 && !sess.PendingInputClaimed || limitContinuations[sess.ID]
 }
 
 // ApplyOutbox sets Status to pending on every live row at rest with a send
 // held for it. Call it only while offline. It rewrites sessions in place and
 // returns it.
-func ApplyOutbox(sessions []Session, queued map[string]int) []Session {
+func ApplyOutbox(sessions []Session, queued map[string]int, limitContinuations map[string]bool) []Session {
 	for i, sess := range sessions {
-		if sess.Archived || !pendingFrom[sess.Status] || !held(sess, queued) {
+		if sess.Archived || !pendingFrom[sess.Status] || !held(sess, queued, limitContinuations) {
 			continue
 		}
 		sessions[i].Status = status.Pending

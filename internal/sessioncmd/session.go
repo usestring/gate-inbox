@@ -786,6 +786,9 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		return Session{}, err
 	}
 	manager := hooks.NewManager(s.configDir)
+	if err := writeSpawnCompactWindow(runtime.store, manager, tool, sess); err != nil {
+		logging.Warn("compact window not written at spawn", "session", id, logging.Err(err))
+	}
 	command, env, err := launch.EnvironmentWithProfile(manager, toolName, tool, plan.Command, id, plan.Model, plan.Account, contributed, mcpProfile(sess))
 	if err != nil {
 		return Session{}, err

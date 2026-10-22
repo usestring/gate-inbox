@@ -2401,6 +2401,33 @@ func EffectiveTier(groupTiers map[string]priority.Tier, sess Session) priority.T
 	return tier
 }
 
+// InheritedTier is EffectiveTier raised to the effective tier of every
+// session above sess in the chain of trackers (TrackerOf), which is the tier
+// that sizes the session's resources rather than its place on the board: a
+// child doing an urgent session's work needs that session's room to do it.
+//
+// The chain follows TrackerOf, so a detached spawn inherits nothing -- it was
+// handed to the user as its own piece of work, not done on the maker's
+// behalf. lookup resolves a tracker by id; one it cannot resolve ends the
+// walk, and so does an id already visited, so a cycle written by a
+// placement or a migration cannot hang the caller.
+//
+// The board does not sort by this: EffectiveTier stays the order the
+// operator set, so a child never jumps the queue on its parent's word.
+func InheritedTier(groupTiers map[string]priority.Tier, sess Session, lookup func(id string) (Session, bool)) priority.Tier {
+	tier := EffectiveTier(groupTiers, sess)
+	seen := map[string]bool{sess.ID: true}
+	for id := TrackerOf(sess); id != "" && !seen[id]; id = TrackerOf(sess) {
+		seen[id] = true
+		var ok bool
+		if sess, ok = lookup(id); !ok {
+			break
+		}
+		tier = priority.Better(tier, EffectiveTier(groupTiers, sess))
+	}
+	return tier
+}
+
 // SetGroupArchived flips the archived flag on a group, every descendant
 // group, and every session in the subtree, in one transaction.
 func (s *Store) SetGroupArchived(path string, archived bool) error {

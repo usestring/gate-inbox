@@ -121,7 +121,9 @@ usage: gate-inbox kill <session-id> [--json]
 $ gate-inbox stop -h
 exit 0
 --- stdout
-usage: gate-inbox stop [--dry-run] [--json]
+usage: gate-inbox stop [--archive] [--dry-run] [--json]
+  -archive
+    	also file the ended session out of the active list
   -dry-run
     	verify the calling session without ending it
   -if-managed

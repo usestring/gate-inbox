@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -340,6 +341,106 @@ func TestHeldSnippetRestoresAfterRestartAndForwarding(t *testing.T) {
 			held, err := m.store.HeldSnippets()
 			if err != nil || len(held) != 0 {
 				t.Fatalf("settled snippet still durable: %+v, %v", held, err)
+			}
+		})
+	}
+}
+
+func TestHeldSnippetBaselineWaitsForEarlierQueueDelivery(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "claude-hooked")
+	earlier := queueMessage(t, m, sess.ID, "earlier prompt")
+	restore := goOffline(t, m)
+	m.sendSentence(sess, "/model", `"/model"`, true, true)
+	m.resumeHeldSnippets()
+	held, err := m.store.HeldSnippets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id int64
+	for key := range held {
+		id = key
+	}
+	if id == 0 {
+		t.Fatal("no held snippet")
+	}
+	if _, ready := m.poller.snippetRecipients.Load(id); ready {
+		t.Fatal("snippet was armed behind an earlier message")
+	}
+	restore()
+	if err := deliverInbox(t, m, sess, queuedHeads(t, m), "❯ ", status.Idle, true); err != nil {
+		t.Fatal(err)
+	}
+	delivered, err := m.store.Message(earlier, "sender01")
+	if err != nil || delivered.DeliveredAt.IsZero() {
+		t.Fatalf("earlier delivery: %+v, %v", delivered, err)
+	}
+	appendHookLog(t, m, sess.ID, "working UserPromptSubmit\n")
+	if err := deliverInbox(t, m, sess, queuedHeads(t, m), "❯ ", status.Idle, true); err != nil {
+		t.Fatal(err)
+	}
+	msg, err := m.store.Message(id, snippetSenderID)
+	if err != nil || !msg.DeliveredAt.IsZero() {
+		t.Fatalf("snippet sent before rebasing: %+v, %v", msg, err)
+	}
+	m.resumeHeldSnippets()
+	pending := m.heldSnippets[id]
+	if _, ready := m.poller.snippetRecipients.Load(id); !ready {
+		t.Fatal("head snippet was not armed")
+	}
+	if got := pending.probe.look(); got != landingPending {
+		t.Fatalf("earlier prompt confirmed snippet: %v", got)
+	}
+	appendHookLog(t, m, sess.ID, "working UserPromptSubmit\n")
+	if got := pending.probe.look(); got != landingSeen {
+		t.Fatalf("new prompt did not confirm snippet: %v", got)
+	}
+}
+
+func TestHeldSnippetDeliveredBeforeRestartIsFinalizedOnce(t *testing.T) {
+	for _, handOver := range []bool{false, true} {
+		t.Run(fmt.Sprint(handOver), func(t *testing.T) {
+			m := buildModel(t)
+			liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "next": status.Waiting})
+			m.triage = true
+			m.rebuildRows()
+			m.enterFocusOn(t, "ask")
+			sess := sessionNamed(t, m, "ask")
+			sess.Tool = "claude-hooked"
+			observer := &recordingObserver{}
+			m.ObserveBoard(observer)
+			restore := goOffline(t, m)
+			m.sendSentence(sess, "ship it", `"ship it"`, true, handOver)
+			head := queuedHeads(t, m)[sess.ID]
+			m.resumeHeldSnippets()
+			restore()
+			if err := deliverInbox(t, m, sess, queuedHeads(t, m), "❯ ", status.Idle, true); err != nil {
+				t.Fatal(err)
+			}
+			appendHookLog(t, m, sess.ID, "working UserPromptSubmit\n")
+			m.heldSnippets = nil
+			m.heldSnippetsRestored = false
+			m.poller.snippetRecipients.Clear()
+			m.resumeHeldSnippets()
+			m.resumeHeldSnippets()
+			got := operatorInputs(observer)
+			if len(got) != 1 || got[0].SessionID != sess.ID || got[0].Via != extension.OperatorSnippet || got[0].Text != "ship it" {
+				t.Fatalf("restored delivery event: %+v", got)
+			}
+			row, err := m.store.Get(sess.ID)
+			if err != nil || row.OperatorAt.IsZero() {
+				t.Fatalf("operator timestamp: %v, %v", row.OperatorAt, err)
+			}
+			held, err := m.store.HeldSnippets()
+			if err != nil || len(held) != 0 || m.landings[sess.ID] != nil || m.heldSnippets[head.ID] != nil {
+				t.Fatalf("delivery still pending: %+v, %v", held, err)
+			}
+			want := "ask"
+			if handOver {
+				want = "next"
+			}
+			if got := focusedName(t, m); got != want {
+				t.Fatalf("focused %q, want %q", got, want)
 			}
 		})
 	}

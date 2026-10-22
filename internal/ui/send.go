@@ -89,7 +89,6 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 		}
 		m.heldSnippets[id] = m.landings[sess.ID]
 		m.heldSnippets[id].inboxID = id
-		m.poller.snippetRecipients.Store(id, sess.ID)
 		delete(m.landings, sess.ID)
 		m.errBar.text = "offline — " + quoted + " is held for " + m.displayName(sess) + " and sends when the network returns"
 		m.requestRefresh()
@@ -157,6 +156,11 @@ func (m *Model) dialogHold(sess store.Session) string {
 
 func (m *Model) resumeHeldSnippets() tea.Cmd {
 	var checks []tea.Cmd
+	heads, err := m.store.HeadMessages()
+	if err != nil {
+		m.errBar.text = err.Error()
+		return nil
+	}
 	if !m.heldSnippetsRestored {
 		held, err := m.store.HeldSnippets()
 		if err != nil {
@@ -196,7 +200,10 @@ func (m *Model) resumeHeldSnippets() tea.Cmd {
 			delete(m.heldSnippets, id)
 			continue
 		}
-		if pending.sess.ID != msg.SessionID {
+		restoredDelivery := pending.probe == nil && !msg.DeliveredAt.IsZero()
+		recipient, ready := m.poller.snippetRecipients.Load(id)
+		prepare := msg.DeliveredAt.IsZero() && msg.ClaimedAt.IsZero() && heads[msg.SessionID].ID == id && (!ready || recipient != msg.SessionID)
+		if pending.sess.ID != msg.SessionID || prepare {
 			sess, err := m.store.Get(msg.SessionID)
 			if err != nil {
 				m.errBar.text = err.Error()
@@ -206,12 +213,14 @@ func (m *Model) resumeHeldSnippets() tea.Cmd {
 			pending.gen = m.landingGen
 			pending.sess = sess
 			pending.text = msg.Body
-			pending.armed = msg.SentAt
+			pending.armed = time.Now()
 			pending.probe = m.landingProbeFor(sess, false, m.echoBaseline(sess.ID))
 			pending.observed = *pending.probe
 		}
 		if msg.DeliveredAt.IsZero() {
-			m.poller.snippetRecipients.Store(id, msg.SessionID)
+			if prepare {
+				m.poller.snippetRecipients.Store(id, msg.SessionID)
+			}
 			continue
 		}
 		delete(m.heldSnippets, id)
@@ -224,7 +233,11 @@ func (m *Model) resumeHeldSnippets() tea.Cmd {
 			m.dropLanding(msg.SessionID)
 		}
 		m.landings[msg.SessionID] = pending
-		checks = append(checks, landingLook(msg.SessionID, pending))
+		if restoredDelivery {
+			checks = append(checks, m.applyLandingCheck(landingCheckMsg{id: msg.SessionID, gen: pending.gen, verdict: landingSeen}))
+		} else {
+			checks = append(checks, landingLook(msg.SessionID, pending))
+		}
 	}
 	return tea.Batch(checks...)
 }

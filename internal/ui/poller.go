@@ -209,7 +209,8 @@ type poller struct {
 // update loop, which it must not hold up either.
 type BoardObserver interface {
 	Transition(id, from, to string, at time.Time)
-	Pass(at time.Time, sessions []store.Session)
+	// groupTiers are each group's tier, for a session's effective one.
+	Pass(at time.Time, sessions []store.Session, groupTiers map[string]priority.Tier)
 	Operator(input extension.OperatorInput)
 }
 
@@ -1256,7 +1257,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	}
 	phases.sample = lap(&mark)
 	if p.observer != nil {
-		p.observer.Pass(now, sessions)
+		p.observer.Pass(now, sessions, priorityGroups)
 	}
 	p.paneSamples = samples
 	return msg

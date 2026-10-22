@@ -402,4 +402,8 @@ type Pass struct {
 type SessionStatus struct {
 	ID     string
 	Status string
+	// Priority is the tier the session triages at: its own, or the highest
+	// of any group above it. One of "urgent", "high", "medium", "low", or
+	// "" for none, which ranks between medium and low.
+	Priority string
 }

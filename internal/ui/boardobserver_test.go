@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -25,7 +26,7 @@ func (r *recordingObserver) Transition(id, from, to string, _ time.Time) {
 	r.moves = append(r.moves, recordedMove{id, from, to})
 }
 
-func (r *recordingObserver) Pass(_ time.Time, sessions []store.Session) {
+func (r *recordingObserver) Pass(_ time.Time, sessions []store.Session, _ map[string]priority.Tier) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.passes = append(r.passes, sessions)

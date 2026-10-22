@@ -95,6 +95,8 @@ func helpSections() []helpSection {
 			bound(focus, keymap.Archive, "kill it, asking first"),
 			bound(focus, keymap.Priority, "cycle priority: urgent → high → medium → low → none"),
 			bound(focus, keymap.Mute, "mute / unmute: keep it out of triage until unmuted"),
+			bound(focus, keymap.UnmuteAll, "unmute every muted session listed"),
+			bound(focus, keymap.RestoreAll, "restore every dead session listed"),
 			bound(focus, keymap.Help, "this key map, in place: only this chord reaches it here"),
 		}},
 		{title: "advanced: the list", rows: []helpRow{

@@ -172,7 +172,7 @@ var Catalog = []Binding{
 	{ContextList, Archive, []string{"x"}, "kill it and file the row", false},
 	{ContextList, ArchiveAll, []string{}, "kill every session listed", false},
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
-	{ContextList, RestoreAll, []string{"D", "shift+d"}, "restore every dead session: revive the dead, bring the archived back", false},
+	{ContextList, RestoreAll, []string{"D", "shift+d", "alt+d"}, "restore every dead session: revive the dead, bring the archived back", false},
 	{ContextList, UndoArchive, []string{"U", "shift+u"}, "bring back what the last kill filed away", false},
 	{ContextList, Dismiss, []string{"."}, "skip", false},
 	{ContextList, Priority, []string{"ctrl+p", "p"}, "cycle priority: urgent → high → medium → low → none", false},
@@ -244,6 +244,11 @@ var Catalog = []Binding{
 	// The list's mute on the same chord. A terminal without an enhanced
 	// keyboard protocol sends ctrl+m as enter, so there it stays a submit.
 	{ContextFocus, Mute, []string{"ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
+	// The list's mass chords, so a drain clears the board without leaving the
+	// pane. Each takes an option+letter from the agent: alt+d is readline's
+	// delete-word-forward, which ctrl+delete still sends.
+	{ContextFocus, UnmuteAll, []string{"alt+m"}, "unmute every muted session listed", false},
+	{ContextFocus, RestoreAll, []string{"alt+d"}, "restore every dead session listed", false},
 	// A chord, like every other key this screen claims: ctrl+h would otherwise
 	// reach the agent as readline's backward-delete, and backspace still sends
 	// that edit under its own name.

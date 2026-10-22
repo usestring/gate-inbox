@@ -307,6 +307,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.cyclePrioritySelected()
 	case keymap.Mute:
 		return m.toggleMuteSelected()
+	case keymap.UnmuteAll:
+		return m.unmuteAllListed()
 	case keymap.CopyQueued:
 		return m.copyNextQueued()
 	case keymap.ReviveAll:
@@ -449,6 +451,7 @@ var artifactRowActions = map[keymap.Action]bool{
 	// UndoArchive brings back the last kill, wherever the cursor is.
 	keymap.UndoArchive: true,
 	keymap.RestoreAll:  true,
+	keymap.UnmuteAll:   true,
 }
 
 // stepCursor is one move of the selection: the next row that is not an

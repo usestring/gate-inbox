@@ -90,6 +90,13 @@ func (m *Model) applies(ctx keymap.Context, action keymap.Action, row treeRow) b
 				m.triageWalkable(row.sess))
 	case keymap.Mute:
 		return row.sess.ID != "" && !row.sess.Archived
+	case keymap.UnmuteAll:
+		for _, sess := range m.listedSessions() {
+			if sess.Muted && !sess.Archived {
+				return true
+			}
+		}
+		return false
 	case keymap.CopyQueued:
 		return len(m.jevCopy.queue) > 0
 	case keymap.Priority:

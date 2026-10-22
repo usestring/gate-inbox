@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -51,6 +53,43 @@ func (m *Model) setMuted(sess store.Session, muted bool) (tea.Model, tea.Cmd) {
 		m.errBar.text = m.displayName(sess) + " muted — out of triage until unmuted"
 	} else {
 		m.errBar.text = m.displayName(sess) + " unmuted"
+	}
+	m.rebuildRows()
+	m.requestRefresh()
+	return m, nil
+}
+
+// unmuteAllListed lifts the persistent mute from every session in the current
+// view. Like restoreAllDead it carries on past a failed write and names the
+// first one.
+func (m *Model) unmuteAllListed() (tea.Model, tea.Cmd) {
+	unmuted := 0
+	var firstErr string
+	for _, sess := range m.listedSessions() {
+		if !sess.Muted || sess.Archived {
+			continue
+		}
+		if err := m.store.SetMuted(sess.ID, false); err != nil {
+			if firstErr == "" {
+				firstErr = err.Error()
+			}
+			continue
+		}
+		for i := range m.sessions {
+			if m.sessions[i].ID == sess.ID {
+				m.sessions[i].Muted = false
+			}
+		}
+		unmuted++
+	}
+	switch {
+	case unmuted == 0 && firstErr == "":
+		m.errBar.text = "no muted sessions to unmute"
+	case firstErr != "":
+		m.errBar.text = fmt.Sprintf("unmuted %d, first error: %s", unmuted, firstErr)
+	default:
+		m.errBar.text = ""
+		m.reportDone(fmt.Sprintf("unmuted %d", unmuted))
 	}
 	m.rebuildRows()
 	m.requestRefresh()

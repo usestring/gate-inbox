@@ -67,6 +67,7 @@ func helpSections() []helpSection {
 			listRow(keymap.QuickInput, "hotkeys: send a snippet to the session without entering it"),
 			listRow(keymap.Priority, "priority: steps urgent → high → medium → low → none"),
 			listRow(keymap.Mute, "mute / unmute: keep it out of triage until unmuted"),
+			listRow(keymap.UnmuteAll, "unmute every muted session listed"),
 			listRow(keymap.CopyQueued, "copy the next text JEV queued (experimental JEV copy queue)"),
 			listRow(keymap.LastPane, "back to the previous pane; again walks further back"),
 			listRow(keymap.Rescind, "undo the latest submission while its turn is active"),

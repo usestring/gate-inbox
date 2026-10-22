@@ -60,6 +60,7 @@ const (
 	Dismiss       Action = "dismiss"
 	Priority      Action = "priority"
 	Mute          Action = "mute"
+	UnmuteAll     Action = "unmute_all"
 	CopySessionID Action = "copy_session_id"
 	CopyQueued    Action = "copy_queued"
 	HandOver      Action = "hand_over"
@@ -176,6 +177,7 @@ var Catalog = []Binding{
 	{ContextList, Dismiss, []string{"."}, "skip", false},
 	{ContextList, Priority, []string{"ctrl+p", "p"}, "cycle priority: urgent → high → medium → low → none", false},
 	{ContextList, Mute, []string{"M", "shift+m", "ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
+	{ContextList, UnmuteAll, []string{"alt+m"}, "unmute every muted session listed", false},
 	{ContextList, QuickInput, []string{" ", "space", "ctrl+s"}, "hotkey menu", false},
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{}, "rename it yourself, and re-pick its tool", false},

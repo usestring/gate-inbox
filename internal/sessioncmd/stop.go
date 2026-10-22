@@ -22,11 +22,15 @@ type StopResult struct {
 	Managed bool    `json:"managed"`
 	Target  Session `json:"session"`
 	DryRun  bool    `json:"dry_run"`
+	Archive bool    `json:"archive"`
 }
 
 // Stop leaves the lifecycle worker outside the pane it will end, so killing
 // the caller cannot interrupt the end record or the extensions' kill notices.
-func (s *Sessions) Stop(sessionID string, dryRun bool) (StopResult, error) {
+// With archive the worker also files the row out of the active list once the
+// session has ended: a session cannot archive itself through Archive, which
+// would end its caller before the row is written.
+func (s *Sessions) Stop(sessionID string, dryRun, archive bool) (StopResult, error) {
 	if sessionID == "" {
 		if _, err := os.Stat(filepath.Join(s.configDir, "state.db")); errors.Is(err, os.ErrNotExist) {
 			return StopResult{}, ErrUnmanagedCaller
@@ -54,7 +58,7 @@ func (s *Sessions) Stop(sessionID string, dryRun bool) (StopResult, error) {
 	if !owned {
 		return StopResult{}, errors.New("stop must run inside its own managed session pane")
 	}
-	result := StopResult{Managed: true, Target: runtime.sessionInfo(target, true, true), DryRun: dryRun}
+	result := StopResult{Managed: true, Target: runtime.sessionInfo(target, true, true), DryRun: dryRun, Archive: archive}
 	if dryRun {
 		return result, nil
 	}
@@ -73,7 +77,11 @@ func (s *Sessions) Stop(sessionID string, dryRun bool) (StopResult, error) {
 	if err != nil {
 		return StopResult{}, err
 	}
-	command = append(command, executable, "_finish-stop", target.LaunchTime().Format(time.RFC3339Nano), pane, pin)
+	command = append(command, executable, "_finish-stop")
+	if archive {
+		command = append(command, "--archive")
+	}
+	command = append(command, target.LaunchTime().Format(time.RFC3339Nano), pane, pin)
 	for i, word := range command {
 		command[i] = tmux.ShellQuote(word)
 	}
@@ -94,7 +102,7 @@ func (s *Sessions) Stop(sessionID string, dryRun bool) (StopResult, error) {
 
 // FinishStop pins the queued request to one launch and pane: an intervening
 // revive must not let the old worker end a new agent on the same board row.
-func (s *Sessions) FinishStop(sessionID, launched, pane, processPin string) (Session, error) {
+func (s *Sessions) FinishStop(sessionID, launched, pane, processPin string, archive bool) (Session, error) {
 	runtime, err := s.open()
 	if err != nil {
 		return Session{}, err
@@ -121,7 +129,7 @@ func (s *Sessions) FinishStop(sessionID, launched, pane, processPin string) (Ses
 	if err != nil || currentPin != processPin {
 		return Session{}, errors.New("stop request no longer matches this pane process")
 	}
-	return s.stopSession(runtime, target, extension.KillByCLI, target.ID, func(id string) error {
+	stopped, err := s.stopSession(runtime, target, extension.KillByCLI, target.ID, func(id string) error {
 		row, err := runtime.store.Get(id)
 		if err != nil {
 			return err
@@ -138,6 +146,14 @@ func (s *Sessions) FinishStop(sessionID, launched, pane, processPin string) (Ses
 		}
 		return runtime.driver.KillPane(id, pane, pid)
 	})
+	if err != nil || !archive {
+		return stopped, err
+	}
+	if err := runtime.store.SetArchived(target.ID, true); err != nil {
+		return Session{}, err
+	}
+	stopped.Archived = true
+	return stopped, nil
 }
 
 func (r *runtime) stopCaller(id string) (store.Session, error) {

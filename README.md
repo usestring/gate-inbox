@@ -286,8 +286,9 @@ set. It runs from any shell, and `--dry-run` prints the plan first. `gate-inbox 
 the same sessions back on their conversations. A single one: `gate-inbox kill <id>`, with the id
 from `gate-inbox sessions`. From inside a managed agent session, `gate-inbox stop` ends that
 session and preserves its row and conversation for an explicit revive. It records an intentional
-stop, so startup recovery does not offer it as a lost session. `gate-inbox stop --dry-run`
-verifies the current pane without ending it. Adopted callers with verified pane process ancestry can also stop themselves.
+stop, so startup recovery does not offer it as a lost session. `gate-inbox stop --archive` also
+files the ended row out of the active list, where `archive --restore` can bring it back for 7 days.
+`gate-inbox stop --dry-run` verifies the current pane without ending it. Adopted callers with verified pane process ancestry can also stop themselves.
 Shared-daemon callers whose pane cannot be verified refuse shutdown. Other adopted panes can be stopped by id from
 another session or the board.
 

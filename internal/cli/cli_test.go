@@ -142,9 +142,9 @@ func (f *fakeSessions) Kill(sessionID, targetID string, _ extension.KillSource) 
 	return f.session, f.failWith
 }
 
-func (f *fakeSessions) Stop(sessionID string, dryRun bool) (sessioncmd.StopResult, error) {
+func (f *fakeSessions) Stop(sessionID string, dryRun, archive bool) (sessioncmd.StopResult, error) {
 	f.callerID, f.dryRun = sessionID, dryRun
-	return sessioncmd.StopResult{Target: f.session, DryRun: dryRun}, f.failWith
+	return sessioncmd.StopResult{Target: f.session, DryRun: dryRun, Archive: archive}, f.failWith
 }
 
 func (f *fakeSessions) Park(sessionID string, dryRun bool) (sessioncmd.ParkResult, error) {

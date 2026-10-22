@@ -1,7 +1,10 @@
 package dialog
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -51,9 +54,18 @@ type Screen struct {
 	Legend string
 	// choiceLines are the indexes into Lines the choices were read from.
 	choiceLines map[int]bool
+	// ruledLines are the indexes into Lines drawn between two dashed rules:
+	// Claude Code 2.1.286 sets a permission prompt's command there instead
+	// of behind a gutter.
+	ruledLines map[int]bool
 	// exact is the text the gutter block was drawn from, when WithExact
 	// matched it, written in its place by Prompt.
 	exact string
+	// AutoDeny is set when Claude Code drew its countdown to refusing the
+	// prompt by itself. The countdown is left out of Lines: it ticks every
+	// second, and a dialog that read differently on every pass was forwarded
+	// to the parent on every pass, with a question no answer could match.
+	AutoDeny bool
 }
 
 // ScreenChoice is one choice of a held dialog.
@@ -101,7 +113,7 @@ func (s Screen) Prompt() string {
 		if s.choiceLines[i] {
 			continue
 		}
-		body, inGutter := gutterBody(line)
+		body, inGutter := s.blockBody(i, line)
 		if inGutter && s.exact != "" {
 			if !wroteExact {
 				kept = append(kept, s.exact)
@@ -129,6 +141,62 @@ func gutterBody(line string) (string, bool) {
 	return line, false
 }
 
+// blockBody is line i without its gutter, and whether it belongs to the
+// block a permission prompt asks about: behind the gutter, or between the
+// dashed rules.
+func (s Screen) blockBody(i int, line string) (string, bool) {
+	body, inGutter := gutterBody(line)
+	return body, inGutter || s.ruledLines[i]
+}
+
+// Command is the command, path or URL a permission prompt asks about: the
+// text WithExact matched, or else the block's lines as drawn, joined with
+// single spaces. "" when the dialog draws no such block.
+func (s Screen) Command() string {
+	if s.exact != "" {
+		return s.exact
+	}
+	var kept []string
+	for i, line := range s.Lines {
+		if body, ok := s.blockBody(i, line); ok && !s.choiceLines[i] && body != "" {
+			kept = append(kept, body)
+		}
+	}
+	return strings.Join(kept, " ")
+}
+
+// Title is the dialog's first line, such as "Bash command", or "".
+func (s Screen) Title() string {
+	for i, line := range s.Lines {
+		if _, ok := s.blockBody(i, line); !ok && !s.choiceLines[i] && strings.TrimSpace(line) != "" {
+			return strings.TrimSpace(line)
+		}
+	}
+	return ""
+}
+
+// Description is what a permission prompt says the call does, the lines
+// between its title and its block: Claude Code draws a Bash call's own
+// description there. "" when there are none.
+func (s Screen) Description() string {
+	var kept []string
+	title := true
+	for i, line := range s.Lines {
+		_, inBlock := s.blockBody(i, line)
+		body := strings.TrimSpace(line)
+		switch {
+		case inBlock || s.choiceLines[i]:
+			return strings.Join(kept, " ")
+		case body == "":
+		case title:
+			title = false
+		default:
+			kept = append(kept, body)
+		}
+	}
+	return ""
+}
+
 // WithExact is the screen with its gutter block read as the one of
 // candidates it was drawn from -- the pending tool call's command, path or
 // URL, from the child's own transcript.
@@ -145,7 +213,7 @@ func (s Screen) WithExact(candidates ...string) Screen {
 	}
 	var block strings.Builder
 	for i, line := range s.Lines {
-		if body, ok := gutterBody(line); ok && !s.choiceLines[i] {
+		if body, ok := s.blockBody(i, line); ok && !s.choiceLines[i] {
 			block.WriteString(body)
 		}
 	}
@@ -193,6 +261,16 @@ func Compact(text string) string {
 		}
 	}
 	return out.String()
+}
+
+// PromptToken names one permission prompt's exact text in a few characters:
+// "[prompt " and the first twelve hex digits of the SHA-256 of its prompt as
+// Compact, then "]". A relayed question that cites it, with the command in
+// its options' previews, asks about that prompt and no other, without
+// carrying the command in the question a person reads.
+func (s Screen) PromptToken() string {
+	sum := sha256.Sum256([]byte(Compact(s.Prompt())))
+	return "[prompt " + hex.EncodeToString(sum[:6]) + "]"
 }
 
 // Text is the dialog's lines joined.
@@ -256,14 +334,33 @@ func ReadScreen(pane string) (Screen, bool) {
 		top = legendAt - 40
 	}
 	screen := Screen{Legend: legend}
+	var ruled []bool
+	inRules := false
 	for _, line := range lines[top:legendAt] {
 		if isSeparator(line) {
+			inRules = !inRules
 			continue
 		}
 		if strings.TrimSpace(line) == "" && (len(screen.Lines) == 0 || screen.Lines[len(screen.Lines)-1] == "") {
 			continue
 		}
 		screen.Lines = append(screen.Lines, line)
+		ruled = append(ruled, inRules)
+	}
+	if from, to, ok := autoDenyRange(screen.Lines); ok {
+		screen.Lines = slices.Concat(screen.Lines[:from], screen.Lines[to:])
+		ruled = slices.Concat(ruled[:from], ruled[to:])
+		screen.AutoDeny = true
+	}
+	// A block the second rule never closed is not a block.
+	if inRules {
+		ruled = nil
+	}
+	screen.ruledLines = map[int]bool{}
+	for i, in := range ruled {
+		if in {
+			screen.ruledLines[i] = true
+		}
 	}
 	for len(screen.Lines) > 0 && screen.Lines[len(screen.Lines)-1] == "" {
 		screen.Lines = screen.Lines[:len(screen.Lines)-1]
@@ -419,4 +516,36 @@ func screenKind(screen Screen) ScreenKind {
 		return ScreenQuestion
 	}
 	return ScreenOther
+}
+
+// autoDenyStart opens Claude Code's countdown notice on a prompt held in an
+// unattended session: "⚠ Claude Code will automatically deny this request in
+// 1:58, to avoid blocking progress on an unattended session", wrapped to the
+// pane's width.
+var autoDenyStart = regexp.MustCompile(`(?i)will automatically deny this\s+request`)
+
+// autoDenyRange is where the countdown notice sits in a dialog's lines,
+// lines[from:to], and whether there is one. The notice runs from its first
+// line to the one that ends it with "session", at most four lines.
+func autoDenyRange(lines []string) (from, to int, ok bool) {
+	for i := range lines {
+		if !opensAutoDeny(lines, i) {
+			continue
+		}
+		end := i
+		for end < len(lines)-1 && end < i+3 && !strings.HasSuffix(strings.TrimSpace(lines[end]), "session") {
+			end++
+		}
+		return i, end + 1, true
+	}
+	return 0, 0, false
+}
+
+// opensAutoDeny reports whether the notice starts on line i, read alone or
+// with the next line when the pane broke "this request" across the two.
+func opensAutoDeny(lines []string, i int) bool {
+	if autoDenyStart.MatchString(lines[i]) {
+		return true
+	}
+	return i+1 < len(lines) && autoDenyStart.MatchString(lines[i]+" "+strings.TrimSpace(lines[i+1]))
 }

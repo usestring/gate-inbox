@@ -202,3 +202,20 @@ func TestJevFeaturesStayOffWithASavedKeyUntilEnabled(t *testing.T) {
 		t.Fatal("no key at all still queued a request")
 	}
 }
+
+func TestArchiveChordPreservesJevKeyInput(t *testing.T) {
+	m := buildModel(t)
+	openJevSettings(t, m)
+	m.settings.jevCursor = 1
+	m.handleSettingsKey(key("enter"))
+	m.settings.jevInput.SetValue(testJevKey)
+
+	m.handleKey(ctrlX())
+
+	if m.mode != modeSettings || !m.settings.jevPanel || !m.settings.jevPasting {
+		t.Fatal("kill chord closed the API key editor")
+	}
+	if m.settings.jevInput.Value() != testJevKey {
+		t.Fatal("kill chord changed the entered API key")
+	}
+}

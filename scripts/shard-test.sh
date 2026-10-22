@@ -86,14 +86,17 @@ pkgdir=$(go list -f '{{.Dir}}' "$pkg")
 [ -x "$bin" ] || { echo "no test binary for $pkg (no test files?)" >&2; exit 0; }
 
 "$bin" -test.list '.*' | grep '^Test' | sort > "$work/all"
-total=$(wc -l < "$work/all")
+# BSD wc pads its count, so a bare $(wc -l) prints "       12" on macOS and
+# the summary lines below carry the padding with them. Strip it everywhere
+# a count is captured.
+total=$(wc -l < "$work/all" | tr -d ' ')
 [ "$total" -gt 0 ] || { echo "no tests in $pkg" >&2; exit 0; }
 
 awk -v re="$serial" -v s="$work/serial" -v b="$work/bulk" \
 	'{ print > ((re != "" && $0 ~ re) ? s : b) }' "$work/all"
 touch "$work/serial" "$work/bulk"
-nserial=$(wc -l < "$work/serial")
-nbulk=$(wc -l < "$work/bulk")
+nserial=$(wc -l < "$work/serial" | tr -d ' ')
+nbulk=$(wc -l < "$work/bulk" | tr -d ' ')
 # A renamed or added budget test would otherwise fall into the shard pool in
 # silence, and surface later as somebody else's flaky rate assertion.
 [ -z "$serial" ] || [ "$nserial" -gt 0 ] || echo "warning: --serial matched no test in $pkg" >&2
@@ -171,7 +174,7 @@ if [ "${#short_probe[@]}" -gt 0 ]; then
 	# the tests themselves rather than from a list kept here.
 	awk '/^[[:space:]]*--- SKIP/ { sub(/^[[:space:]]*--- SKIP: /, ""); sub(/ \(.*/, "");
 	     if (index($0, "/") == 0) print }' "$work"/shard.*.out | sort -u > "$work/quiet"
-	nquiet=$(wc -l < "$work/quiet")
+	nquiet=$(wc -l < "$work/quiet" | tr -d ' ')
 	if [ "$nquiet" -gt 0 ]; then
 		phase=$SECONDS
 		run "$work/quiet" || failed=1

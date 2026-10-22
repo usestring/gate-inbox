@@ -1,0 +1,470 @@
+package ui
+
+import (
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/priority"
+	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
+)
+
+// smartNow is the pinned clock every smart triage test reads.
+var smartNow = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
+
+// smartSess is a top-level session the operator last gave a turn age before
+// smartNow, in st since then.
+func smartSess(name, st string, age time.Duration) store.Session {
+	at := smartNow.Add(-age)
+	return store.Session{ID: name, Name: name, Status: st, LastStatusAt: at, OperatorAt: at}
+}
+
+// smartFleet puts sessions on a triage rail ordered by smart triage, on the
+// pinned clock.
+func smartFleet(t *testing.T, sessions ...store.Session) *Model {
+	t.Helper()
+	m := buildModel(t)
+	m.cfg.Tools = map[string]config.Tool{"claude": {}}
+	m.clock = func() time.Time { return smartNow }
+	m.smartTriage = true
+	for i := range sessions {
+		sessions[i].Tool = "claude"
+		sessions[i].Cwd = "/tmp"
+		sessions[i].CreatedAt = smartNow.Add(-72 * time.Hour)
+	}
+	m.sessions = sessions
+	m.triage = true
+	m.rebuildRows()
+	return m
+}
+
+// drainOrder walks the whole queue the way successive handovers do.
+func drainOrder(m *Model) []string {
+	var handed []string
+	left := ""
+	tried := map[string]bool{}
+	for {
+		i, ok := m.nextTriageInput(left, tried)
+		if !ok {
+			return handed
+		}
+		left = m.rows[i].sess.ID
+		tried[left] = true
+		handed = append(handed, m.rows[i].sess.Name)
+	}
+}
+
+func assertRail(t *testing.T, m *Model, want ...string) {
+	t.Helper()
+	if got := sessionNames(m); !slices.Equal(got, want) {
+		t.Fatalf("rail = %v, want %v", got, want)
+	}
+}
+
+func TestSmartTriageDefaultsOn(t *testing.T) {
+	m := buildModel(t)
+	if !storedSmartTriage(m.store) {
+		t.Fatal("smart triage is off with nothing stored")
+	}
+	for raw, want := range map[string]bool{"off": false, "on": true, "": true} {
+		if err := m.store.SetSetting(smartTriageSetting, raw); err != nil {
+			t.Fatal(err)
+		}
+		if got := storedSmartTriage(m.store); got != want {
+			t.Fatalf("stored %q = %v, want %v", raw, got, want)
+		}
+	}
+}
+
+func TestSmartTriageSettingsRowTogglesAndSaves(t *testing.T) {
+	m := buildModel(t)
+	m.smartTriage = true
+	m.openSettings()
+	m.settings.field = settingsFieldSmartTriage
+	m.cycleSetting(1)
+	m.persistSettings()
+	if m.smartTriage {
+		t.Fatal("the settings row did not turn smart triage off")
+	}
+	if storedSmartTriage(m.store) {
+		t.Fatal("smart triage off was not saved")
+	}
+}
+
+func TestSmartTriagePutsAFreshQuestionAboveAFreshFinish(t *testing.T) {
+	m := smartFleet(t,
+		smartSess("done", status.Finished, time.Minute),
+		smartSess("ask", status.Waiting, time.Minute),
+	)
+	assertRail(t, m, "ask", "done")
+}
+
+// A finished session overtakes a question once it has waited twice as long,
+// counting the minute every wait starts from, at any scale.
+func TestSmartTriageFinishOvertakesAQuestionAtTwiceTheWait(t *testing.T) {
+	for _, scale := range []struct {
+		name          string
+		ask           time.Duration
+		under, beyond time.Duration
+	}{
+		// (5m+1m) x 2 = 12m: the finish needs more than 11m.
+		{"minutes", 5 * time.Minute, 10 * time.Minute, 12 * time.Minute},
+		// (1d+1m) x 2 = 2d+2m: the finish needs more than 2d+1m.
+		{"days", 24 * time.Hour, 48 * time.Hour, 48*time.Hour + 2*time.Minute},
+	} {
+		t.Run(scale.name, func(t *testing.T) {
+			m := smartFleet(t,
+				smartSess("done", status.Finished, scale.under),
+				smartSess("ask", status.Waiting, scale.ask),
+			)
+			assertRail(t, m, "ask", "done")
+			m = smartFleet(t,
+				smartSess("done", status.Finished, scale.beyond),
+				smartSess("ask", status.Waiting, scale.ask),
+			)
+			assertRail(t, m, "done", "ask")
+		})
+	}
+}
+
+// A low session overtakes a medium one in the same state once it has waited
+// twice as long, so nothing low waits for ever.
+func TestSmartTriageLowOvertakesMediumAtTwiceTheWait(t *testing.T) {
+	for _, scale := range []struct {
+		name          string
+		medium        time.Duration
+		under, beyond time.Duration
+	}{
+		{"minutes", 20 * time.Minute, 40 * time.Minute, 42 * time.Minute},
+		{"days", 24 * time.Hour, 48 * time.Hour, 48*time.Hour + 2*time.Minute},
+	} {
+		t.Run(scale.name, func(t *testing.T) {
+			low := smartSess("low", status.Finished, scale.under)
+			low.Priority = priority.Low
+			med := smartSess("med", status.Finished, scale.medium)
+			med.Priority = priority.Medium
+			assertRail(t, smartFleet(t, low, med), "med", "low")
+			low.LastStatusAt = smartNow.Add(-scale.beyond)
+			low.OperatorAt = low.LastStatusAt
+			assertRail(t, smartFleet(t, low, med), "low", "med")
+		})
+	}
+}
+
+func TestSmartTriagePutsUrgentAtTheHead(t *testing.T) {
+	urgent := smartSess("urgent", status.Finished, 10*time.Minute)
+	urgent.Priority = priority.Urgent
+	m := smartFleet(t,
+		smartSess("q-old", status.Waiting, 40*time.Minute),
+		smartSess("done-old", status.Finished, time.Hour),
+		urgent,
+		smartSess("q-fresh", status.Waiting, time.Minute),
+	)
+	assertRail(t, m, "urgent", "q-old", "done-old", "q-fresh")
+}
+
+// Idle is scored like everything else on the walk, so a session wrongly
+// read as idle is not buried for ever; what is never handed over sorts
+// under every scored row.
+func TestSmartTriageScoresIdle(t *testing.T) {
+	m := smartFleet(t,
+		smartSess("grinder", status.Working, 5*time.Hour),
+		smartSess("calm-fresh", status.Idle, time.Minute),
+		smartSess("done", status.Finished, time.Hour),
+		smartSess("calm-old", status.Idle, 3*time.Hour),
+		smartSess("gone", status.Dead, 4*time.Hour),
+	)
+	// calm-old: 181m x 0.5 beats done: 61m x 1.
+	assertRail(t, m, "calm-old", "done", "calm-fresh", "grinder", "gone")
+	if got, want := drainOrder(m), []string{"calm-old", "done", "calm-fresh"}; !slices.Equal(got, want) {
+		t.Fatalf("drain = %v, want %v and never the working or dead row", got, want)
+	}
+}
+
+func TestSmartTriageLeavesAMutedSessionLast(t *testing.T) {
+	muted := smartSess("muted", status.Waiting, 5*time.Hour)
+	muted.Muted = true
+	m := smartFleet(t,
+		muted,
+		smartSess("ask", status.Waiting, time.Minute),
+		smartSess("grinder", status.Working, time.Hour),
+	)
+	assertRail(t, m, "ask", "grinder", "muted")
+	if got := drainOrder(m); slices.Contains(got, "muted") {
+		t.Fatalf("drain = %v handed over a muted session", got)
+	}
+}
+
+func TestSmartTriageDrainsInRailOrder(t *testing.T) {
+	high := smartSess("high", status.Errored, 20*time.Minute)
+	high.Priority = priority.High
+	m := smartFleet(t,
+		smartSess("q-old", status.Waiting, 40*time.Minute),
+		smartSess("done-aged", status.Finished, 90*time.Minute),
+		high,
+		smartSess("q-fresh", status.Waiting, time.Minute),
+		smartSess("calm", status.Idle, 2*time.Hour),
+		smartSess("grinder", status.Working, time.Hour),
+	)
+	// done-aged 91, q-old 82, calm 60.5, high 21 x 0.7 x 2 = 29.4, q-fresh 4.
+	want := []string{"done-aged", "q-old", "calm", "high", "q-fresh"}
+	assertRail(t, m, append(want, "grinder")...)
+	if got := drainOrder(m); !slices.Equal(got, want) {
+		t.Fatalf("drain = %v, want the rail's order %v", got, want)
+	}
+	// A hop from the middle of the queue still hands over its head.
+	if i, ok := m.nextTriageInput("calm", nil); !ok || m.rows[i].sess.Name != "done-aged" {
+		t.Fatalf("hop from calm landed on row %d, want the head of the queue", i)
+	}
+}
+
+// The score is read against the clock on every rebuild, so a row moves with
+// no store event. A question gains on a finish at twice its rate.
+func TestSmartTriageRowMovesAsTimePasses(t *testing.T) {
+	m := smartFleet(t,
+		smartSess("done", status.Finished, 30*time.Minute),
+		smartSess("ask", status.Waiting, 10*time.Minute),
+	)
+	assertRail(t, m, "done", "ask")
+	m.clock = func() time.Time { return smartNow.Add(20 * time.Minute) }
+	m.rebuildRows()
+	assertRail(t, m, "ask", "done")
+}
+
+// A working parent is lifted to its child's score and queues on the child's
+// wait, not its own.
+func TestSmartTriageLiftsAParentByItsChildsScore(t *testing.T) {
+	kid := smartSess("kid", status.Finished, 50*time.Minute)
+	kid.ParentID, kid.SpawnedBy = "lead", "lead"
+	m := smartFleet(t,
+		smartSess("ask-old", status.Waiting, 30*time.Minute),
+		smartSess("lead", status.Working, 3*time.Hour),
+		kid,
+		smartSess("ask-young", status.Waiting, 20*time.Minute),
+	)
+	// ask-old 62, kid 51, ask-young 42.
+	assertRail(t, m, "ask-old", "lead", "kid", "ask-young")
+
+	// Forty minutes on the kid (91) has overtaken neither question
+	// (142, 122): they gain at twice its rate.
+	m.clock = func() time.Time { return smartNow.Add(40 * time.Minute) }
+	m.rebuildRows()
+	assertRail(t, m, "ask-old", "ask-young", "lead", "kid")
+}
+
+// A finish the operator has looked at is acked and idle, and looking is not
+// a turn: it keeps its wait at 0.8 of an unseen finish's weight, above
+// a plain idle session, until input moves it on.
+func TestSmartTriageKeepsASeenFinishInTheQueue(t *testing.T) {
+	seen := smartSess("seen", status.Idle, time.Hour)
+	seen.Acked = true
+	m := smartFleet(t,
+		smartSess("calm", status.Idle, time.Hour),
+		seen,
+		smartSess("done", status.Finished, time.Hour),
+	)
+	// done 61, seen 48.8, calm 30.5.
+	assertRail(t, m, "done", "seen", "calm")
+
+	// It overtakes an unseen finish that has waited less than 0.8 of its
+	// wait: 61 x 0.8 = 48.8 against 46.
+	m = smartFleet(t, seen, smartSess("done", status.Finished, 45*time.Minute))
+	assertRail(t, m, "seen", "done")
+
+	// Input moves it on: working, it is off the walk.
+	seen.Status = status.Working
+	m = smartFleet(t, seen, smartSess("calm", status.Idle, time.Minute))
+	assertRail(t, m, "calm", "seen")
+	if got := drainOrder(m); slices.Contains(got, "seen") {
+		t.Fatalf("drain = %v handed over a working session", got)
+	}
+}
+
+// Skipping a finished session acknowledges it, and the seen finish is still
+// scored; the walk must get past it anyway.
+func TestSmartTriageMuteOnAFinishOutlastsItsAck(t *testing.T) {
+	done := smartSess("done", status.Finished, time.Hour)
+	m := smartFleet(t, done, smartSess("calm", status.Idle, time.Minute))
+	m.mute(done)
+	m.sessions[0].Status, m.sessions[0].Acked = status.Idle, true
+	m.rebuildRows()
+	if got := drainOrder(m); !slices.Equal(got, []string{"calm"}) {
+		t.Fatalf("drain = %v, want the acked finish still muted", got)
+	}
+}
+
+// Leaving a page in a walk hands its session over. The walk starts from the
+// head of the queue, so the session left behind must be muted or the next
+// hop hands it straight back.
+func TestSmartTriageLeavingAPageMutesItsSession(t *testing.T) {
+	m := smartFleet(t,
+		smartSess("ask", status.Waiting, time.Hour),
+		smartSess("calm", status.Idle, time.Minute),
+	)
+	m.cursor = 0
+	m.leaveHeadPane(true)
+	if !m.isMuted(m.sessions[0]) {
+		t.Fatal("leaving the page did not mute the session it was over")
+	}
+	if i, ok := m.nextTriageInput("calm", nil); ok {
+		t.Fatalf("the walk past calm handed over %q, want the drain over", m.rows[i].sess.Name)
+	}
+}
+
+// A deadline still ahead goes before the score in the scored band.
+func TestSmartTriageDeadlineGoesBeforeTheScore(t *testing.T) {
+	m := smartFleet(t,
+		smartSess("ask", status.Waiting, time.Hour),
+		smartSess("calm", status.Idle, time.Minute),
+	)
+	m.queueDeadlines = map[string]time.Time{"calm": smartNow.Add(time.Minute)}
+	m.rebuildRows()
+	assertRail(t, m, "calm", "ask")
+	m.clock = func() time.Time { return smartNow.Add(2 * time.Minute) }
+	m.rebuildRows()
+	assertRail(t, m, "ask", "calm")
+}
+
+// Smart triage off is the strict order exactly: state first, then tier, then
+// oldest, with a seen finish ranked as the idle row it reads as.
+func TestSmartTriageOffKeepsTheStrictOrder(t *testing.T) {
+	urgent := smartSess("urgent-done", status.Finished, time.Minute)
+	urgent.Priority = priority.Urgent
+	seen := smartSess("seen", status.Idle, 3*time.Hour)
+	seen.Acked = true
+	kid := smartSess("kid", status.Finished, 50*time.Minute)
+	kid.ParentID, kid.SpawnedBy = "lead", "lead"
+	fleet := []store.Session{
+		smartSess("calm", status.Idle, 5*time.Hour),
+		smartSess("done-aged", status.Finished, 2*time.Hour),
+		smartSess("broke", status.Errored, 4*time.Hour),
+		urgent,
+		seen,
+		smartSess("q-fresh", status.Waiting, time.Minute),
+		smartSess("q-old", status.Waiting, 40*time.Minute),
+		smartSess("lead", status.Working, 3*time.Hour),
+		kid,
+	}
+	m := smartFleet(t, fleet...)
+	m.smartTriage = false
+	m.rebuildRows()
+	want := []string{"q-old", "q-fresh", "urgent-done", "done-aged", "lead", "kid", "calm", "seen", "broke"}
+	assertRail(t, m, want...)
+	if got, want := drainOrder(m), slices.DeleteFunc(slices.Clone(want), func(n string) bool { return n == "lead" || n == "kid" }); !slices.Equal(got, want) {
+		t.Fatalf("drain = %v, want %v", got, want)
+	}
+}
+
+// The wait counts from the operator's last turn, not from the last status
+// change. A turn Gate Inbox started -- a queued message, a name sweep, a
+// nudge -- ends in a fresh finish, and a session nobody has looked at in
+// hours must not read as a minute old because of it.
+func TestSmartTriageAGateInboxTurnDoesNotResetTheWait(t *testing.T) {
+	stale := smartSess("stale", status.Finished, 3*time.Hour)
+	stale.LastStatusAt = smartNow.Add(-time.Minute)
+	m := smartFleet(t,
+		smartSess("fresh", status.Finished, time.Hour),
+		stale,
+	)
+	assertRail(t, m, "stale", "fresh")
+	if got, want := m.triageScore(stale, smartNow), (3*time.Hour + triageScoreFloor).Seconds(); got != want {
+		t.Fatalf("score = %v, want %v from the operator's turn", got, want)
+	}
+}
+
+// A session nobody has given a turn since it was made waits from its
+// creation.
+func TestSmartTriageWaitsFromCreationWithNoOperatorTurn(t *testing.T) {
+	untouched := smartSess("untouched", status.Finished, time.Minute)
+	untouched.OperatorAt = time.Time{}
+	m := smartFleet(t, smartSess("touched", status.Finished, time.Hour), untouched)
+	// smartFleet makes every session 72 hours before smartNow.
+	assertRail(t, m, "untouched", "touched")
+}
+
+// Messages Gate Inbox, another session or an extension queued start turns
+// without moving the operator's clock; the operator's own line from a shell
+// moves it.
+func TestSmartTriageOnlyAnOperatorMessageMovesTheWaitClock(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "claude-hooked")
+	deliverAll := func() {
+		t.Helper()
+		for attempt := 0; attempt < 20; attempt++ {
+			if queued, _ := m.store.QueuedCount(sess.ID); queued == 0 {
+				return
+			}
+			if err := deliverInbox(t, m, sess, queuedHeads(t, m), "❯ ", status.Idle, true); err != nil {
+				t.Fatalf("maybeDeliverInbox: %v", err)
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		t.Fatal("a message was never delivered")
+	}
+
+	before := time.Now()
+	queueFrom(t, m, sess.ID, store.SystemSenderID, "cache warm")
+	queueFrom(t, m, sess.ID, "sender01", "from another agent")
+	queueFrom(t, m, sess.ID, store.ExtensionSenderID("watcher"), "from an extension")
+	queueFrom(t, m, sess.ID, store.OperatorVoicedSenderID("watcher"), "in the operator's voice")
+	queueFrom(t, m, sess.ID, store.RelayedHumanSenderID, "relayed by a helper")
+	deliverAll()
+	got, err := m.store.Get(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.LastStatusAt.After(before) {
+		t.Fatalf("delivery left LastStatusAt at %v; the test needs the turns to have started", got.LastStatusAt)
+	}
+	if !got.OperatorAt.IsZero() {
+		t.Fatalf("a message nobody typed stamped the operator's turn at %v", got.OperatorAt)
+	}
+
+	queueFrom(t, m, sess.ID, store.HumanSenderID, "yes, ship it")
+	deliverAll()
+	if got, err = m.store.Get(sess.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got.OperatorAt.Before(before) {
+		t.Fatalf("the operator's own line left their turn at %v", got.OperatorAt)
+	}
+}
+
+// A line or a key the board saw land is the operator's turn.
+func TestSmartTriageABoardSendMovesTheWaitClock(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "claude-hooked")
+	before := time.Now()
+	m.noteOperator(sess, extension.OperatorPrompt, "go on", false)
+	got, err := m.store.Get(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.OperatorAt.Before(before) {
+		t.Fatalf("a landed prompt left the operator's turn at %v", got.OperatorAt)
+	}
+}
+
+// An attached pane's keys never pass through the board. A turn that started
+// while the operator was in it is theirs; going in and out again is a look,
+// which leaves the wait alone like looking at a finish from the board does.
+func TestSmartTriageAnAttachCountsOnlyWhenItGaveATurn(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "claude-hooked")
+	m.noteAttachedTurn(sess.ID, time.Now().Add(time.Second))
+	if got, err := m.store.Get(sess.ID); err != nil || !got.OperatorAt.IsZero() {
+		t.Fatalf("a look stamped the operator's turn: %v, %v", got.OperatorAt, err)
+	}
+
+	since := time.Now().Add(-time.Second)
+	if err := m.store.UpdateStatus(sess.ID, status.Working); err != nil {
+		t.Fatal(err)
+	}
+	m.noteAttachedTurn(sess.ID, since)
+	if got, err := m.store.Get(sess.ID); err != nil || got.OperatorAt.Before(since) {
+		t.Fatalf("a turn given while attached left the operator's turn at %v, %v", got.OperatorAt, err)
+	}
+}

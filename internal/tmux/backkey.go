@@ -30,8 +30,10 @@ const RowOption = "@gi_row"
 // clientOption is the session option naming the client the board attached.
 const clientOption = "@gi_client"
 
-// backCondition is true where the back key means back to the board.
-const backCondition = "#{||:#{m:" + prefix + "*,#{session_name}},#{&&:#{" + RowOption + "},#{==:#{" + clientOption + "},#{client_name}}}}"
+// backCondition is true where the back key means back to the board: a
+// managed session's home window (leaveCondition), or an adopted pane in the
+// client the board attached.
+const backCondition = "#{||:" + leaveCondition + ",#{&&:#{" + RowOption + "},#{==:#{" + clientOption + "},#{client_name}}}}"
 
 // backBindings are the root-table bindings of the back keys.
 func backBindings() [][]string {

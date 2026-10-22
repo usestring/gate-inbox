@@ -106,6 +106,7 @@ CREATE INDEX tasks_claimable ON tasks (state, created_at)
    4 worktree                     TEXT     notnull=1 default='' pk=0
    5 priority                     INTEGER  notnull=1 default=0 pk=0
    6 priority_tier                TEXT     notnull=1 default='' pk=0
+   7 pin_path                     INTEGER  notnull=1 default=0 pk=0
   index sqlite_autoindex_groups_1 unique=1 origin=pk partial=0 (name)
 
 === table permission_grants
@@ -220,6 +221,7 @@ CREATE INDEX tasks_claimable ON tasks (state, created_at)
   32 keep_child                   INTEGER  notnull=1 default=0 pk=0
   33 spawner_read_at              INTEGER  notnull=1 default=0 pk=0
   34 muted                        INTEGER  notnull=1 default=0 pk=0
+  35 operator_at                  INTEGER  notnull=1 default=0 pk=0
   index sqlite_autoindex_sessions_1 unique=1 origin=pk partial=0 (id)
 
 === table settings

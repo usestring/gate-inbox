@@ -63,6 +63,7 @@ func startFixture(t *testing.T, script string) *exec.Cmd {
 func registerFixtureCleanup(t *testing.T, cmd *exec.Cmd) {
 	t.Helper()
 	pgid := cmd.Process.Pid // Setpgid makes the leader's pid the group id.
+	watchdog := startFixtureWatchdog(pgid)
 	t.Cleanup(func() {
 		// Negative pid is the group. SIGKILL rather than SIGTERM because a
 		// `sh -c` running a background job ignores a term aimed at the
@@ -73,7 +74,27 @@ func registerFixtureCleanup(t *testing.T, cmd *exec.Cmd) {
 		// the run. The other group members were never this process's
 		// direct children to wait for.
 		_ = cmd.Wait()
+		if watchdog != nil {
+			_ = watchdog.Wait()
+		}
 	})
+}
+
+// startFixtureWatchdog covers what a t.Cleanup cannot: a -timeout panic or a
+// SIGKILL ends the test binary without running a single cleanup, and the
+// group's busy loop then runs until reboot -- one ran for six days. The
+// watchdog joins the fixture's group without being a child of its shell, so
+// the trees the tests measure keep their shape, polls this binary's pid, and
+// kills the group once the binary is gone. The ordinary cleanup's group kill
+// takes the watchdog with it.
+func startFixtureWatchdog(pgid int) *exec.Cmd {
+	script := fmt.Sprintf(`while kill -0 %d 2>/dev/null; do sleep 1; done; kill -9 -%d`, os.Getpid(), pgid)
+	cmd := exec.Command("sh", "-c", script)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pgid: pgid}
+	if err := cmd.Start(); err != nil {
+		return nil
+	}
+	return cmd
 }
 
 // fixtureProcs counts the live processes carrying this binary's marker. It

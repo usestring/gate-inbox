@@ -76,7 +76,7 @@ func TestAGrantReachesAnAdoptedChildLive(t *testing.T) {
 		!strings.Contains(q, "started outside Gate Inbox") {
 		t.Fatalf("the approval question for an adopted child says %q", q)
 	}
-	result, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{Kind: string(rule.Kind), Value: rule.Value})
+	result, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{ExpiresIn: DefaultGrantTTL, Kind: string(rule.Kind), Value: rule.Value})
 	if err != nil {
 		t.Fatalf("grant: %v", err)
 	}
@@ -141,7 +141,7 @@ func TestAnAdoptedChildIsToldWhatNeedsAResume(t *testing.T) {
 	approveAll(t, h, child, domain, probe)
 
 	for _, g := range []grant.Grant{domain, probe} {
-		result, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{Kind: string(g.Kind), Value: g.Value})
+		result, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{ExpiresIn: DefaultGrantTTL, Kind: string(g.Kind), Value: g.Value})
 		if err != nil {
 			t.Fatalf("grant %s: %v", g.Kind, err)
 		}
@@ -154,7 +154,7 @@ func TestAnAdoptedChildIsToldWhatNeedsAResume(t *testing.T) {
 		t.Fatalf("the command-prefix half of an unsandboxed grant = %q, want allow", got)
 	}
 
-	result, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{Kind: string(domain.Kind), Value: domain.Value, Restart: true})
+	result, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{ExpiresIn: DefaultGrantTTL, Kind: string(domain.Kind), Value: domain.Value, Restart: true})
 	if err != nil {
 		t.Fatalf("resume: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestASoftGrantIsNotedToAnAdoptedChildOnce(t *testing.T) {
 	child, _ := adoptedChild(t, h)
 	soft := grant.Grant{Kind: grant.KindSoft, Value: "tools/deploy.sh"}
 	approveAll(t, h, child, soft)
-	if _, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{Kind: string(soft.Kind), Value: soft.Value}); err != nil {
+	if _, err := h.sessions.Grant(h.caller.ID, child.ID, GrantRequest{ExpiresIn: DefaultGrantTTL, Kind: string(soft.Kind), Value: soft.Value}); err != nil {
 		t.Fatal(err)
 	}
 	dir, now := h.sessions.configDir, time.Now()

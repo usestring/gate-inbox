@@ -4,24 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/usestring/gate-inbox/extension"
-	"github.com/usestring/gate-inbox/extension/artifacts"
 	"github.com/usestring/gate-inbox/internal/extension/all"
 	"github.com/usestring/gate-inbox/internal/mcpserver"
 )
-
-const artifactsOn = `
-[extensions.artifacts]
-enabled = true
-base_url = "https://artifacts.example.test"
-key_command = "printf fake-signing-key"
-identity_command = "printf ada@example.test"
-`
 
 // TestMCPSurface records what a session's MCP client is offered: the
 // server's identity and instructions, and every tool whole -- name,
@@ -33,65 +22,6 @@ func TestMCPSurface(t *testing.T) {
 	core := listTools(t, mcpserver.NewServer(s.home, "cafe0001", "compat", all.Extensions(), ""))
 	golden(t, "mcp/server.golden", s.redact(core.server))
 	golden(t, "mcp/tools-core.golden", s.redact(renderTools(t, core.tools)))
-
-	s.writeFile(t, "config.toml", artifactsOn)
-	withArtifacts := listTools(t, mcpserver.NewServer(s.home, "cafe0001", "compat", all.Extensions(), ""))
-	var added []*mcp.Tool
-	coreNames := map[string]bool{}
-	for _, tool := range core.tools {
-		coreNames[tool.Name] = true
-	}
-	for _, tool := range withArtifacts.tools {
-		if !coreNames[tool.Name] {
-			added = append(added, tool)
-		}
-	}
-	if len(withArtifacts.tools) != len(core.tools)+len(added) {
-		t.Fatalf("switching artifacts on removed a core tool: %d core, %d with artifacts, %d added",
-			len(core.tools), len(withArtifacts.tools), len(added))
-	}
-	golden(t, "mcp/tools-artifacts.golden", s.redact(renderTools(t, added)))
-}
-
-// TestExtensionSettings records what the artifacts extension resolves its
-// section to, left empty and written out in full: which defaults it fills
-// in is the part a private overlay has to reproduce.
-func TestExtensionSettings(t *testing.T) {
-	for _, scenario := range []struct {
-		name    string
-		section map[string]any
-	}{
-		{name: "defaults", section: map[string]any{"enabled": true}},
-		{name: "explicit", section: map[string]any{
-			"enabled":          true,
-			"base_url":         "https://artifacts.example.test/",
-			"key_secret":       "EXAMPLE_ARTIFACT_KEY",
-			"key_command":      "printf fake-signing-key",
-			"identity_command": "printf ada@example.test",
-			"link_ttl":         "24h",
-			"max_bytes":        int64(1024),
-		}},
-	} {
-		t.Run(scenario.name, func(t *testing.T) {
-			ext := artifacts.New()
-			if err := ext.Configure(extension.NewConfig(scenario.section)); err != nil {
-				t.Fatalf("configure: %v", err)
-			}
-			// The resolved settings are the extension's own; reflect reads
-			// them without the package having to export them for a test.
-			out := map[string]string{}
-			settings := reflect.ValueOf(ext).Elem().FieldByName("settings")
-			if !settings.IsValid() {
-				t.Fatalf("the artifacts extension has no settings field to record")
-			}
-			flatten("", settings, out)
-			var b strings.Builder
-			for _, key := range sortedKeys(out) {
-				fmt.Fprintf(&b, "%s = %s\n", key, out[key])
-			}
-			golden(t, "config/extension-artifacts-"+scenario.name+".golden", b.String())
-		})
-	}
 }
 
 type listing struct {

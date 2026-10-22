@@ -20,6 +20,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
+	"github.com/usestring/gate-inbox/internal/launchpace"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -426,7 +427,12 @@ func (s *Sessions) Unpark(sessionID string) (unparked UnparkResult, err error) {
 		if slices.Contains(interrupted, sess.ID) {
 			prompt = continuePrompt
 		}
-		tool, err := s.relaunch(runtime, sess, prompt)
+		slot, err := s.pace(runtime, sess.ID, true)
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s (id %s): %v", sess.Name, sess.ID, err))
+			continue
+		}
+		tool, err := s.relaunch(runtime, sess, prompt, slot)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("%s (id %s): %v", sess.Name, sess.ID, err))
 			continue
@@ -521,12 +527,67 @@ func (s *Sessions) endSessionBy(runtime *runtime, target store.Session, pane, re
 	return runtime.store.UpdateStatus(target.ID, status.Dead)
 }
 
+// restart ends a running session and relaunches it on its own conversation,
+// for a change that only a fresh process picks up: a grant, an account.
+//
+// The launch is stamped before the kill. Between the two the row reads dead
+// with no pane, which is exactly what the child sweep files away: a child
+// whose report reached its spawner since its last launch is archived on
+// sight, and the relaunch then came up under an archived row that nothing
+// polled (2026-10-09, a grant restart filed two seconds after it began).
+// Stamping first makes the reports from the life being ended predate this
+// launch, so the sweep sees a child that has not reported and leaves it be.
+//
+// slot is the relaunch queue's turn, taken (see pace) before anything was
+// changed, so a session waiting for it went on running as it was.
+func (s *Sessions) restart(runtime *runtime, target store.Session, slot launchpace.Slot) (config.Tool, error) {
+	if err := runtime.store.SetAgentLaunchedAt(target.ID, time.Now()); err != nil {
+		slot.Cancel()
+		return config.Tool{}, err
+	}
+	if err := s.endSession(runtime, target, store.EndKilled); err != nil {
+		slot.Cancel()
+		return config.Tool{}, err
+	}
+	return s.relaunch(runtime, target, "", slot)
+}
+
+// restartAdopted is restart for a session adopted from outside the board.
+// Its pane is gone once it ends, so it comes back as a board session on its
+// own conversation, launched with its settings file -- which is the resume a
+// sandbox or domain grant needed.
+func (s *Sessions) restartAdopted(runtime *runtime, target store.Session, slot launchpace.Slot) (config.Tool, error) {
+	if err := runtime.store.SetAgentLaunchedAt(target.ID, time.Now()); err != nil {
+		slot.Cancel()
+		return config.Tool{}, err
+	}
+	if err := s.endSession(runtime, target, store.EndKilled); err != nil {
+		slot.Cancel()
+		return config.Tool{}, err
+	}
+	runtime.driver.Release(target.ID)
+	if err := runtime.store.PromoteAdopted(target.ID, target.Cwd, target.AgentSessionID); err != nil {
+		slot.Cancel()
+		return config.Tool{}, err
+	}
+	target.TmuxSocket, target.TmuxPaneID = "", ""
+	return s.relaunch(runtime, target, "", slot)
+}
+
 // relaunch is the relaunch Revive and Unpark share: the dead row's tool,
 // directory and conversation id decide the command, and the row comes back
 // in the tool's default status with its finished alert re-armed. A prompt
 // rides the command line the way a spawn's does, or is queued for the
 // poller to type when the tool takes its prompt as input.
-func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt string) (config.Tool, error) {
+//
+// slot is the relaunch queue's turn the caller took (see pace); a launch
+// that fails gives it back.
+func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt string, slot launchpace.Slot) (tool config.Tool, err error) {
+	defer func() {
+		if err != nil {
+			slot.Cancel()
+		}
+	}()
 	tool, known := runtime.cfg.Tools[target.Tool]
 	if !known {
 		return config.Tool{}, fmt.Errorf("tool %s is no longer configured", target.Tool)
@@ -547,7 +608,7 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 	if err != nil {
 		return config.Tool{}, err
 	}
-	command, env, err := launch.Environment(hooks.NewManager(s.configDir), target.Tool, tool, base, target.ID, target.Model, target.Account, contributed)
+	command, env, err := launch.EnvironmentWithProfile(hooks.NewManager(s.configDir), target.Tool, tool, base, target.ID, target.Model, target.Account, contributed, mcpProfile(target))
 	if err != nil {
 		return config.Tool{}, err
 	}
@@ -555,6 +616,9 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 		return config.Tool{}, err
 	}
 	_ = runtime.driver.SetLabel(target.ID, sessionLabel(target.Group, target.Name))
+	if err := restoreRelaunched(runtime.store, target); err != nil {
+		return config.Tool{}, err
+	}
 	// Stamped the way the board's revive stamps it: the child sweep reads
 	// the launch to tell this life's reports from the last one's.
 	if err := runtime.store.SetAgentLaunchedAt(target.ID, time.Now()); err != nil {
@@ -573,4 +637,15 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 	}
 	accounts.RecordLaunch(target.ID, target.Tool, target.Account)
 	return tool, nil
+}
+
+// restoreRelaunched puts a relaunched row back on the active list. An
+// archived row is one every sweep passes over, so an agent relaunched under
+// it runs unseen: on 2026-10-12 six archived rows held live agents, two of
+// them relaunched in the same second they were archived, one for six days.
+func restoreRelaunched(st *store.Store, target store.Session) error {
+	if !target.Archived {
+		return nil
+	}
+	return st.SetArchived(target.ID, false)
 }

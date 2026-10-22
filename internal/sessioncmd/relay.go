@@ -202,6 +202,12 @@ func (g *answerGuard) finish(err error) {
 		state = store.AnswerFailed
 	}
 	for _, id := range g.rows {
+		if errors.Is(err, errNothingKeyed) {
+			if releaseErr := g.store.ReleaseAnswer(id); releaseErr != nil {
+				logging.Warn("could not release an unkeyed dialog answer", "id", id, "err", releaseErr)
+			}
+			continue
+		}
 		if markErr := g.store.MarkAnswer(id, state); markErr != nil {
 			logging.Warn("could not mark a dialog answer", "id", id, "err", markErr)
 		}

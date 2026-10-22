@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/logging"
@@ -241,3 +242,15 @@ func info(sess sessioncmd.Session) extension.SessionInfo {
 		ReplacedBy:     sess.ReplacedBy,
 	}
 }
+
+func (s *sessions) SpendApproval(ctx context.Context, question string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s.operator || s.caller == "" {
+		return errors.New("only a session's own command can spend its approval")
+	}
+	return s.cmds.SpendApproval(s.caller, question, time.Now())
+}
+
+var _ extension.Approvals = (*sessions)(nil)

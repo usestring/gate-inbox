@@ -60,6 +60,24 @@ func TestScanPanesGivesUpOnAServerThatNeverAnswers(t *testing.T) {
 	}
 }
 
+// A command in an adopted pane asks its server who it is before it can speak
+// as the row; a server that never answers leaves it without that identity
+// rather than hanging the command.
+func TestPaneServerStartedGivesUpOnAServerThatNeverAnswers(t *testing.T) {
+	driver := fakeTmux(t, hangingOn("scan-timeout-test"))
+
+	start := time.Now()
+	_, ok := driver.PaneServerStarted("/tmp/tmux-1000/scan-timeout-test,4242,0", "%7")
+	elapsed := time.Since(start)
+
+	if ok {
+		t.Fatal("PaneServerStarted answered for a server that never did")
+	}
+	if elapsed > abandonedBy {
+		t.Errorf("PaneServerStarted took %s, want it abandoned near %s", elapsed.Round(time.Millisecond), ScanTimeout)
+	}
+}
+
 // abandonedBy is the bound the timing assertions use. The fake sleeps for
 // thirty seconds, so the question they are really asking is whether the
 // deadline fired at all; doubling the budget leaves that answer intact and

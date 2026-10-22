@@ -185,8 +185,8 @@ func TestDefaultRulesRealPanes(t *testing.T) {
 			"Do you want to proceed?\n ❯ 1. Yes\n   2. No, and tell Claude what to do differently", Waiting},
 		{"claude done with ghost suggestion in prompt", "claude",
 			"✻ Cogitated for 13s\n────\n❯ count from 1 to 300", Finished},
-		{"claude plain-text question (real capture)", "claude",
-			"⏺ What color now, what color want?\n✻ Crunched for 9s\n────\n❯ \n────\n  ▎ ✧ /plan  enter plan mode", Waiting},
+		{"claude plain-text question is finished (real capture)", "claude",
+			"⏺ What color now, what color want?\n✻ Crunched for 9s\n────\n❯ \n────\n  ▎ ✧ /plan  enter plan mode", Finished},
 		{"claude old question, newer statement turn", "claude",
 			"⏺ What color now?\n✻ Crunched for 9s\n  DONE\n✻ Worked for 10s\n────\n❯ \n────", Finished},
 		{"claude interrupted turn (real capture)", "claude",
@@ -270,7 +270,7 @@ func TestDefaultRulesRealPanes(t *testing.T) {
 		{"opencode old question, newer statement turn", "opencode",
 			"     What color?\n     Build · DeepSeek V4 Pro (New) · 9.7s · 66.7 tok/s\n     DONE\n     Build · DeepSeek V4 Pro (New) · 4.2s · 66.7 tok/s\n  ┃\n  ╹▀▀▀▀", Finished},
 		{"opencode question with trailing pad", "opencode",
-			"     Which fruit do you want to know more about?   \n     Build · DeepSeek V4 Pro (New) · 10.4s · 66.7 tok/s   \n     \n  ┃     \n  ┃  Build auto · DeepSeek V4 Pro (New) OpenCode Go   \n  ╹▀▀▀▀", Waiting},
+			"     Which fruit do you want to know more about?   \n     Build · DeepSeek V4 Pro (New) · 10.4s · 66.7 tok/s   \n     \n  ┃     \n  ┃  Build auto · DeepSeek V4 Pro (New) OpenCode Go   \n  ╹▀▀▀▀", Finished},
 		{"opencode out of credits", "opencode",
 			"  ┃  This request requires more credits, or fewer max_tokens.", Errored},
 		{"opencode usage limit reached", "opencode",
@@ -283,7 +283,7 @@ func TestDefaultRulesRealPanes(t *testing.T) {
 		{"opencode v2 finished with duration and tok/s", "opencode",
 			"     HELLO\n     Build · DeepSeek V4 Pro (New) · 4.8s · 66.7 tok/s\n  ┃\n  ┃  Build auto · DeepSeek V4 Pro (New) OpenCode Go\n  ╹▀▀▀▀", Finished},
 		{"opencode v2 question", "opencode",
-			"     Which file?\n     Build · DeepSeek V4 Pro (New) · 4.8s · 66.7 tok/s\n  ┃\n  ┃  Build auto · DeepSeek V4 Pro (New) OpenCode Go\n  ╹▀▀▀▀", Waiting},
+			"     Which file?\n     Build · DeepSeek V4 Pro (New) · 4.8s · 66.7 tok/s\n  ┃\n  ┃  Build auto · DeepSeek V4 Pro (New) OpenCode Go\n  ╹▀▀▀▀", Finished},
 		{"opencode v2 fresh prompt, composer row is not a turn end", "opencode",
 			"  ┃  Ask anything...\n  ┃\n  ┃  Build auto · DeepSeek V4 Pro (New) OpenCode Go\n  ╹▀▀▀▀", Idle},
 		{"opencode v2 wide pane, sidebar shares the finished row", "opencode",
@@ -347,6 +347,8 @@ func TestCodexRealPanes(t *testing.T) {
 			"• Working (12s • esc to interrupt)\n\n■ Connection lost. Attempting to reconnect…\n\n■ Automatic reconnect could not restore this session. Your draft is still editable. Copy it before quitting with Ctrl+C, then\nreconnect with the same command.\n\n■ app-server session could not be restored\n\n› Ask Codex to do anything", Errored},
 		{"codex automatic reconnect could not restore alone", "codex",
 			"■ Automatic reconnect could not restore this session. Your draft is still editable.\n\n› Ask Codex to do anything", Errored},
+		{"codex server connection could not be restored", "codex",
+			"  Worked for 4m 54s • 12:44\n\n■ Server connection could not be restored\n\n• Reconnect failed — check the endpoint, then relaunch (3h 39m 25s)\n\n› Ask Codex to do anything", Errored},
 		{"codex app-server session could not be restored", "codex",
 			"• Working (12s • esc to interrupt)\n\n■ app-server session could not be restored", Errored},
 		{"codex numbered draft is not a dialog", "codex",
@@ -355,8 +357,10 @@ func TestCodexRealPanes(t *testing.T) {
 			"• Working (0s • esc to interrupt)\n\n› 1. Yes, proceed (y)", Working},
 		{"codex finished work turn", "codex",
 			"• Ran echo preparing\n  └ preparing\n\n────────────────────────────────\n\n• Final response.\n\n─ Worked for 2m 05s ─────────────\n\n› Ask Codex to do anything\n  gpt-5.6-terra medium · /home/dev", Finished},
+		{"codex finished turn closed by a bulleted label", "codex",
+			"• Final response.\n\n  Worked for 4m 54s • 12:44\n\n› Ask Codex to do anything\n  gpt-5.6-terra medium · ~/work", Finished},
 		{"codex finished turn ending on a question", "codex",
-			"• Which file should I edit, A or B?\n\n─ Worked for 3s ─────────────────\n\n› Ask Codex to do anything\n  gpt-5.6-terra medium · /home/dev", Waiting},
+			"• Which file should I edit, A or B?\n\n─ Worked for 3s ─────────────────\n\n› Ask Codex to do anything\n  gpt-5.6-terra medium · ~/work", Finished},
 		{"codex command-approval modal", "codex",
 			"  $ echo hello world\n\n› 1. Yes, proceed (y)\n  2. Yes, and don't ask again for commands that start with `echo hello world` (p)\n  3. No, and tell Codex what to do differently (esc)\n\n  Press enter to confirm or esc to cancel", Waiting},
 		{"codex command-approval modal overrides stale working signal", "codex",
@@ -387,8 +391,8 @@ func TestTurnEndedState(t *testing.T) {
 		want   string
 	}{
 		{"plain response", "• Final response.\n\n", Finished},
-		{"question response", "• Which file should I edit, A or B?\n\n", Waiting},
-		{"question above trailing separator", "• Which file?\n\n────────────\n", Waiting},
+		{"question response", "• Which file should I edit, A or B?\n\n", Finished},
+		{"question above trailing separator", "• Which file?\n\n────────────\n", Finished},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -430,7 +434,7 @@ func TestLongTurnAndMidLineQuestion(t *testing.T) {
 		{"claude long duration with hidden-messages suffix (real capture)", "claude",
 			"  Done, runtime-proven.\n✻ Crunched for 8m 48s · 6 messages hidden (/focus to show)\n────\n❯ \n────\n  ⏵⏵ bypass permissions on", Finished},
 		{"claude question mid final line (real capture)", "claude",
-			"  Approve commit? Then I'll redeploy to staging so you can feel it there.\n✻ Crunched for 8m 48s · 6 messages hidden (/focus to show)\n────\n❯ \n────\n  ⏵⏵ bypass permissions on", Waiting},
+			"  Approve commit? Then I'll redeploy to staging so you can feel it there.\n✻ Crunched for 8m 48s · 6 messages hidden (/focus to show)\n────\n❯ \n────\n  ⏵⏵ bypass permissions on", Finished},
 		{"claude statement after older mid-line question", "claude",
 			"  Approve commit? ok.\n✻ Crunched for 8m 48s\n  Deployed. All done.\n✻ Worked for 12s\n────\n❯ \n────", Finished},
 		{"opencode long duration", "opencode",
@@ -458,7 +462,7 @@ func TestRealPaneEdgeCases(t *testing.T) {
 		{"claude separator carrying hint text (real capture)", "claude",
 			"  Approve commit? Then I'll redeploy to staging.\n✻ Crunched for 8m 48s · 6 messages hidden (/focus to show)\n\n──────────────────    /rc · focus\n❯ nice! works! BUT older prompt echo\n\n✻ Crunched for 2m 2s\n\n──────────────────\n❯ ", Finished},
 		{"claude question with dec-graphics separator", "claude",
-			"  Ship it now?\n✻ Crunched for 2m 2s\nqqqqqqqqqqqqqqqqqq\n❯ ", Waiting},
+			"  Ship it now?\n✻ Crunched for 2m 2s\nqqqqqqqqqqqqqqqqqq\n❯ ", Finished},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -496,7 +500,7 @@ func TestQuotedSignalsDoNotTrigger(t *testing.T) {
 				"✻ Crunched for 2m 2s\n────\n❯ \n────\n  ⏵⏵ bypass permissions on", Finished},
 		{"claude quoting menu text then real question", "claude",
 			"  We match \" ❯ 1.\" for dialogs. Should I apply it?\n" +
-				"✻ Crunched for 1m 5s\n────\n❯ \n────", Waiting},
+				"✻ Crunched for 1m 5s\n────\n❯ \n────", Finished},
 		{"claude real spinner during turn still working", "claude",
 			"  old output\n✻ Crunched for 2m 2s\n  streaming new answer\n✳ Drizzling… (6s · thinking)\n────\n❯ ", Working},
 		{"codex marker-less turn quoting interrupt hint", "codex",
@@ -533,7 +537,7 @@ func TestRuleMatchLeavesTheFallbacksToMatch(t *testing.T) {
 	}{
 		{"a question left at a resting prompt", "claude",
 			"⏺ What color now, what color want?\n✻ Crunched for 9s\n────\n❯ \n────\n  ▎ ✧ /plan  enter plan mode",
-			Waiting, ""},
+			Finished, ""},
 		{"a background wait outliving its turn", "claude",
 			"⏺ Security agent done. 2 left (logic, backend/API).\n✻ Waiting for 2 background agents to finish\n────\n❯ \n────\n  ⏵⏵ bypass permissions on",
 			Working, ""},

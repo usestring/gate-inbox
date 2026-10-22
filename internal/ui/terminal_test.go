@@ -16,6 +16,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -429,8 +430,8 @@ func TestShellRowLegendDropsTheConversationKeys(t *testing.T) {
 			t.Fatalf("legend offers %q on a shell row, which refuses it", pair[0])
 		}
 	}
-	if !slices.ContainsFunc(legend.pairs, func(pair [2]string) bool { return pair[0] == "p" }) {
-		t.Fatal("legend should still offer the keys a shell answers, p included")
+	if !slices.ContainsFunc(legend.pairs, func(pair [2]string) bool { return pair[0] == m.tightCap(keymap.ContextList, keymap.Priority) }) {
+		t.Fatal("legend should still offer the keys a shell answers, priority included")
 	}
 	if !slices.ContainsFunc(legend.pairs, func(pair [2]string) bool { return pair[0] == "x" }) {
 		t.Fatal("legend should still offer the keys a shell answers, x included")

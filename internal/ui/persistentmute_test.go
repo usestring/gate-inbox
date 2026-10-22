@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -360,5 +361,60 @@ func TestCtrlMMutesOnBothScreens(t *testing.T) {
 	}
 	if _, _ = m.handleFocusKey(ctrlM); sessionNamed(t, m, "ask").Muted {
 		t.Fatal("ctrl+m in focus did not unmute")
+	}
+}
+
+func TestUnmuteAllListedRespectsSearch(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		query            string
+		paneText         string
+		history          bool
+		wantVisibleMuted bool
+		wantHiddenMuted  bool
+	}{
+		{name: "no search"},
+		{name: "metadata", query: "  VISIBLE  ", wantHiddenMuted: true},
+		{name: "pane", query: "needle987", paneText: "needle987", wantHiddenMuted: true},
+		{name: "history", query: "needle987", history: true, wantHiddenMuted: true},
+		{name: "no matches", query: "needle987", wantVisibleMuted: true, wantHiddenMuted: true},
+		{name: "muted label", query: "muted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := buildModel(t)
+			liveTriageFleet(t, m, map[string]string{"visible": status.Waiting, "hidden": status.Waiting})
+			for i := range m.sessions {
+				if err := m.store.SetMuted(m.sessions[i].ID, true); err != nil {
+					t.Fatal(err)
+				}
+				m.sessions[i].Muted = true
+			}
+			visible := sessionNamed(t, m, "visible")
+			hidden := sessionNamed(t, m, "hidden")
+			m.search = tc.query
+			m.searchText = map[string]string{visible.ID: tc.paneText}
+			if tc.history {
+				m.historyQuery = tc.query
+				m.historyHits = map[string]search.Hit{visible.ID: {Key: visible.ID}}
+			}
+			m.rebuildRows()
+			m.unmuteAllListed()
+			for id, want := range map[string]bool{visible.ID: tc.wantVisibleMuted, hidden.ID: tc.wantHiddenMuted} {
+				sess, ok := m.sessionByID(id)
+				if !ok {
+					t.Fatalf("session %s missing from model", id)
+				}
+				if sess.Muted != want {
+					t.Errorf("%s local muted = %v, want %v", sess.Name, sess.Muted, want)
+				}
+				stored, err := m.store.Get(sess.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if stored.Muted != want {
+					t.Errorf("%s stored muted = %v, want %v", sess.Name, stored.Muted, want)
+				}
+			}
+		})
 	}
 }

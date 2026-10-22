@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -65,7 +66,13 @@ func (m *Model) setMuted(sess store.Session, muted bool) (tea.Model, tea.Cmd) {
 func (m *Model) unmuteAllListed() (tea.Model, tea.Cmd) {
 	unmuted := 0
 	var firstErr string
+	query := strings.ToLower(strings.TrimSpace(m.search))
 	for _, sess := range m.listedSessions() {
+		if query != "" && !matchesSearch(sess, query, m.searchText[sess.ID]) {
+			if _, ok := m.historyHit(sess); !ok {
+				continue
+			}
+		}
 		if !sess.Muted || sess.Archived {
 			continue
 		}

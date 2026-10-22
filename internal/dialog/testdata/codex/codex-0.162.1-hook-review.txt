@@ -1,0 +1,19 @@
+• Preparation complete.
+
+  Worked for 1m 5s • 4:19 AM
+
+  UserPromptSubmit hooks
+  1 hook needs review before it can run.
+
+› [!]  1  Unnamed hook · new
+  [x]  2  Unnamed hook
+  [x]  3  Routing example
+
+  Event     UserPromptSubmit
+  Source    User config - ~/.codex/config.toml
+  Command   example-hook
+  Mode      Sync
+  Timeout   30s
+  Trust     New hook - review required
+
+  t trust · esc back

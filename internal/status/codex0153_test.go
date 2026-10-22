@@ -121,3 +121,24 @@ func TestCodexTrustPromptReadsWaiting(t *testing.T) {
 		t.Fatalf("codex trust prompt = %q, want %q", got, Waiting)
 	}
 }
+
+func TestCodexHookReviewHoldsDelivery(t *testing.T) {
+	raw, err := os.ReadFile("../dialog/testdata/codex/codex-0.162.1-hook-review.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := codexEngine(t)
+	for _, pane := range []string{string(raw), strings.Replace(string(raw),
+		"Worked for 1m 5s • 4:19 AM", "• Preparing fixtures (12s • esc to interrupt)", 1)} {
+		if got, matched := engine.Match("codex", pane); got != Waiting || !matched {
+			t.Errorf("hook review status = %q, matched=%v; want waiting", got, matched)
+		}
+		if got := engine.DeliveryHold("codex", pane); got != Waiting {
+			t.Errorf("hook review delivery hold = %q; want waiting", got)
+		}
+	}
+	quoted := "• The hook dialog says t trust · esc back.\n\n  4:20 AM\n\n› Continue\n"
+	if got := engine.DeliveryHold("codex", quoted); got != "" {
+		t.Errorf("quoted hook-review legend holds a normal composer: %q", got)
+	}
+}

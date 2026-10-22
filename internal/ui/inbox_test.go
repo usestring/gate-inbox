@@ -82,6 +82,31 @@ func TestInboxHoldsAMessageWhileTheAgentSitsOnADialog(t *testing.T) {
 	}
 }
 
+func TestInboxDoesNotRecordDeliveryIntoCodexHookReview(t *testing.T) {
+	m := buildModel(t)
+	configureLimitCodex(t, m)
+	sess := spawnedSession(t, m, "codex")
+	id := queueMessage(t, m, sess.ID, "The preparation result is ready.")
+	pane := readDialogFixture(t, "codex/codex-0.162.1-hook-review.txt")
+	if err := deliverInbox(t, m, sess, queuedHeads(t, m), pane, status.Finished, true); err != nil {
+		t.Fatal(err)
+	}
+	message, err := m.store.Message(id, "sender01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !message.ClaimedAt.IsZero() || !message.DeliveredAt.IsZero() || !message.DroppedAt.IsZero() {
+		t.Fatalf("hook-review message must stay queued without a delivery attempt: %+v", message)
+	}
+	actual, err := m.tmux.CapturePane(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(actual, message.Body) {
+		t.Fatal("message was pasted despite the hook-review dialog")
+	}
+}
+
 func TestInboxHoldsAMessageWhileTheAgentIsWorking(t *testing.T) {
 	m := buildModel(t)
 	sess := spawnedSession(t, m, "claude-hooked")

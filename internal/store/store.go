@@ -1446,6 +1446,21 @@ func (s *Store) SetArchived(id string, archived bool) error {
 	return err
 }
 
+func (s *Store) ArchiveStoppedLaunch(sess Session) (bool, error) {
+	result, err := s.db.Exec(`UPDATE sessions SET archived = 1, archived_at = ?
+		WHERE id = ? AND archived = 0 AND status = 'dead'
+		AND CASE WHEN agent_launched_at = 0 THEN created_at ELSE agent_launched_at END IN (?, ?)`,
+		encodeTime(time.Now()), sess.ID, encodeTime(sess.LaunchTime()), sess.LaunchTime().Unix())
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil || n == 0 {
+		return false, err
+	}
+	return true, s.tallyChildArchive(sess.ID, true)
+}
+
 func (s *Store) setArchived(id string, archived bool) error {
 	stamp := int64(0)
 	if archived {

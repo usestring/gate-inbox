@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -130,5 +131,42 @@ func TestFinishStopArchiveFilesTheEndedRow(t *testing.T) {
 	}
 	if end := ends[row.ID]; end.Reason != store.EndKilled || !end.Matches(filed) {
 		t.Fatalf("intentional end: %+v", end)
+	}
+}
+
+func TestFinishStopArchiveDoesNotHideRevivedLaunch(t *testing.T) {
+	h := newSessionHarness(t)
+	worker := childShowing(t, h, h.caller.ID, "a0000001", "worker", "working\n")
+	row, err := h.store.Get(worker.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pane, err := h.driver.PaneID(row.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime, err := h.sessions.open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin, err := runtime.paneProcess(row)
+	runtime.store.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reviveErr error
+	useWatcher(t, &launchWatcher{onKilled: func(kill extension.KillContext) {
+		_, reviveErr = h.sessions.Revive(h.caller.ID, kill.Session.ID)
+	}})
+	stopped, err := h.sessions.FinishStop(row.ID, row.LaunchTime().Format(time.RFC3339Nano), pane, pin, true)
+	if err != nil || reviveErr != nil {
+		t.Fatalf("stop: %v, revive: %v", err, reviveErr)
+	}
+	revived, err := h.store.Get(row.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped.Archived || revived.Archived || !h.driver.Exists(row.ID) || revived.LaunchTime().Equal(row.LaunchTime()) {
+		t.Fatalf("revived launch hidden or lost: stopped=%+v, revived=%+v", stopped, revived)
 	}
 }

@@ -149,10 +149,11 @@ func (s *Sessions) FinishStop(sessionID, launched, pane, processPin string, arch
 	if err != nil || !archive {
 		return stopped, err
 	}
-	if err := runtime.store.SetArchived(target.ID, true); err != nil {
+	archived, err := runtime.store.ArchiveStoppedLaunch(target)
+	if err != nil {
 		return Session{}, err
 	}
-	stopped.Archived = true
+	stopped.Archived = archived
 	return stopped, nil
 }
 

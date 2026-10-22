@@ -90,7 +90,8 @@ func unlinkMigration(tx *sql.Tx, id string) error {
 // CompleteMigration files fromID away now that toID, the row a migration
 // made of it, is up: toID takes over the sessions fromID spawned and drew
 // under it and the reports they queued for it that nothing has started
-// delivering, and fromID is archived. Until this runs the source is left
+// delivering, gets a copy of the pull requests fromID opened, and fromID is
+// archived. Until this runs the source is left
 // exactly as it was, so a migration that fails on the way loses nothing.
 //
 // One transaction, so no reader sees the children still filed under a
@@ -106,6 +107,12 @@ func (s *Store) CompleteMigration(fromID, toID string) error {
 	}
 	defer tx.Rollback()
 	if err := adoptMigratedChildren(tx, fromID, toID); err != nil {
+		return err
+	}
+	// The board finds a session's pull requests by its id, and they are the
+	// new row's work as much as the old one's; the source keeps its record.
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO session_prs (session_id, url, first_seen)
+		 SELECT ?, url, first_seen FROM session_prs WHERE session_id = ?`, toID, fromID); err != nil {
 		return err
 	}
 	res, err := tx.Exec(`UPDATE sessions SET archived = 1, archived_at = ? WHERE id = ?`, encodeTime(time.Now()), fromID)

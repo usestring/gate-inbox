@@ -131,3 +131,34 @@ func TestMigrationOfAChildKeepsItsOwnSpawnerAndHandsOverItsSpawns(t *testing.T) 
 		}
 	}
 }
+
+// The pull requests a session opened are its work, and the board finds them
+// by the session's id: the new row carries them on, and the archived source
+// keeps its own record of them.
+func TestMigrationCarriesTheSourcesOpenedPRs(t *testing.T) {
+	st := newTestStore(t)
+	if err := st.CreateSession(sample("source", "work")); err != nil {
+		t.Fatal(err)
+	}
+	urls := []string{"https://github.com/o/r/pull/1", "https://github.com/o/r/pull/2"}
+	if err := st.RecordOpenedPRs("source", urls, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	moved := sample("moved", "work")
+	moved.MigrationID = "source"
+	if err := st.CreateSession(moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RecordOpenedPRs("moved", urls[1:], time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.CompleteMigration("source", "moved"); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"moved", "source"} {
+		got, err := st.OpenedPRs(id)
+		if err != nil || len(got) != 2 || got[0] != urls[0] || got[1] != urls[1] {
+			t.Fatalf("%s opened PRs = %v, %v, want %v", id, got, err, urls)
+		}
+	}
+}

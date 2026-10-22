@@ -630,3 +630,22 @@ func rowLabels(rows []workRow) []string {
 	}
 	return labels
 }
+
+// A migrated row's launch prompt is the hand-over brief, so the task it was
+// given -- and the tickets and pull requests that task named -- is read off
+// the opening the migration carried over.
+func TestWorkLaunchOfAMigratedRowKeepsTheOriginalTask(t *testing.T) {
+	sess := store.Session{
+		LaunchPrompt:     "Read the transcript and continue the work.",
+		MigrationOpening: []string{"Fix the retry loop for ENG-42, see https://github.com/o/r/pull/7"},
+	}
+	refs := workspec.ScanText(workLaunch(sess), "", workspec.FromText)
+	var ticket, pr bool
+	for _, ref := range refs {
+		ticket = ticket || ref.Kind == workspec.KindTicket
+		pr = pr || ref.Kind == workspec.KindPR
+	}
+	if !ticket || !pr {
+		t.Fatalf("refs = %+v, want the original task's ticket and pull request", refs)
+	}
+}

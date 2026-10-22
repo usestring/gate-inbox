@@ -157,3 +157,76 @@ func TestOfflineLimitRecoveryAppearsPendingUntilRestored(t *testing.T) {
 	}
 	settledPane(t, m, sess.ID, "Continue the interrupted task")
 }
+
+func TestHeldSnippetPreservesHandoverUntilDelivery(t *testing.T) {
+	for _, tc := range []struct {
+		name                   string
+		handOver, cancel, drop bool
+	}{
+		{name: "auto proceed", handOver: true},
+		{name: "stay here"},
+		{name: "operator kept typing", handOver: true, cancel: true},
+		{name: "dropped", handOver: true, drop: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := buildModel(t)
+			liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "next": status.Waiting})
+			m.triage = true
+			m.rebuildRows()
+			m.enterFocusOn(t, "ask")
+			sess := sessionNamed(t, m, "ask")
+			sess.Tool = "claude-hooked"
+			observer := &recordingObserver{}
+			m.ObserveBoard(observer)
+			restore := goOffline(t, m)
+			m.sendSentence(sess, "ship it", `"ship it"`, true, tc.handOver)
+			head := queuedHeads(t, m)[sess.ID]
+			pending := m.heldSnippets[head.ID]
+			if pending == nil {
+				t.Fatalf("no held snippet: %s", m.errBar.text)
+			}
+			pending.deadline = time.Now().Add(-time.Hour)
+			m.resumeHeldSnippets()
+			if len(m.landings) != 0 || focusedName(t, m) != "ask" {
+				t.Fatal("a queued snippet started its landing check or moved focus")
+			}
+			if tc.cancel {
+				m.keepLandingHere()
+			}
+			if tc.drop {
+				if err := m.store.MarkDropped(head.ID, time.Now()); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				restore()
+				if err := deliverInbox(t, m, sess, queuedHeads(t, m), "❯ ", status.Idle, true); err != nil {
+					t.Fatal(err)
+				}
+			}
+			m.Update(refreshMsg{sessions: m.sessions, listedAt: time.Now()})
+			if len(m.heldSnippets) != 0 {
+				t.Fatal("settled message still held")
+			}
+			if tc.drop {
+				if len(m.landings) != 0 || focusedName(t, m) != "ask" {
+					t.Fatal("a dropped snippet started a landing or handed over")
+				}
+				return
+			}
+			if m.landings[sess.ID] != pending || !pending.deadline.After(time.Now()) {
+				t.Fatal("delivery did not resume the landing with a fresh window")
+			}
+			landAnswer(t, m, sess.ID)
+			if got := operatorInputs(observer); len(got) != 1 {
+				t.Fatalf("operator input reported %d times, want once", len(got))
+			}
+			want := "ask"
+			if tc.handOver && !tc.cancel {
+				want = "next"
+			}
+			if got := focusedName(t, m); got != want {
+				t.Fatalf("after delivery and landing, focused %q, want %q", got, want)
+			}
+		})
+	}
+}

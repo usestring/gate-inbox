@@ -85,7 +85,8 @@ type pendingLanding struct {
 	// handOver is whether landing should also move the drain on. It is read
 	// when the key is pressed and cleared by anything that says the operator
 	// is not done: another key into the pane, or leaving.
-	handOver bool
+	handOver  bool
+	fromInbox bool
 	// early is set when the drain already moved on at the key itself; see
 	// handOverOnEnter.
 	early bool
@@ -457,6 +458,9 @@ func landingCheck(id string, pending *pendingLanding) tea.Cmd {
 // has gone on typing into the session, or left it, so it is no longer the
 // board's to move them off. The answers still count as sent once they land.
 func (m *Model) keepLandingHere() {
+	for _, pending := range m.heldSnippets {
+		pending.handOver = false
+	}
 	for _, pending := range m.landings {
 		pending.handOver = false
 	}
@@ -569,7 +573,9 @@ func (m *Model) settleLandings(listedAt time.Time, unseen map[string]bool) {
 // has seen the new one start. The new turn raises its own alert when it ends.
 func (m *Model) answerLanded(pending pendingLanding) tea.Cmd {
 	m.noteSubmission(pending.sess)
-	m.noteOperator(pending.sess, pending.via, pending.text, pending.probe.dialog)
+	if !pending.fromInbox {
+		m.noteOperator(pending.sess, pending.via, pending.text, pending.probe.dialog)
+	}
 	if m.heldAckID == pending.sess.ID {
 		m.heldAckID = ""
 	}

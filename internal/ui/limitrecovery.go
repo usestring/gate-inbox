@@ -62,7 +62,7 @@ func (p *poller) maybeRecoverLimit(sess store.Session, states map[string]store.L
 		old = &previous
 		logging.Info("usage limit recovery scheduled", "session", sess.ID, "reset_at", resetAt, "retry_at", resetAt.Add(limitResetGrace))
 	}
-	if derived != status.Errored || !inputAvailable || !previous.AttemptedAt.IsZero() || now.Before(previous.ResetAt.Add(limitResetGrace)) {
+	if derived != status.Errored || !inputAvailable || p.offline() || !previous.AttemptedAt.IsZero() || now.Before(previous.ResetAt.Add(limitResetGrace)) {
 		return false, nil
 	}
 	if p.engine.TypingHold(sess.Tool, clean) != "" || p.operatorEcho(sess.ID) || p.operatorTyping(sess, capture.State) {

@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -18,12 +19,14 @@ import (
 	"github.com/usestring/gate-inbox/internal/clipboard"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/git"
 	"github.com/usestring/gate-inbox/internal/hogs"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
+	"github.com/usestring/gate-inbox/internal/netwatch"
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/promptsnips"
@@ -1482,6 +1485,12 @@ func (m *Model) StartPoller(send func(tea.Msg)) {
 		m.poller.locator = newHistoryLocator()
 		m.poller.historyFormats = historyToolFormats(m.cfg)
 		go m.runHistoryIndex(send)
+	}
+	// Probing starts here for the same reason: a test Model never touches
+	// the network, so its poller always reads online.
+	if envname.Get(envname.Outbox) != "off" {
+		m.poller.net = netwatch.New(netwatch.HTTPProbe(netwatch.DefaultTargets, netwatch.ProbeTimeout))
+		go m.poller.net.Run(context.Background(), m.poller.requestRefresh)
 	}
 	go m.poller.run(send)
 }

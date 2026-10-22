@@ -27,6 +27,10 @@ const (
 	// yet. Nothing derives it from a pane and nothing stores it; it is laid
 	// over a finished or idle row by store.ApplyDelegation.
 	Delegating = "delegating"
+	// Pending is a session at rest with a send held for it in the outbox
+	// because the machine is offline. Like Delegating it is never derived
+	// from a pane or stored; store.ApplyOutbox lays it over the row.
+	Pending = "pending"
 )
 
 type rule struct {

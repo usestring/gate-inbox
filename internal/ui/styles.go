@@ -156,6 +156,8 @@ func statusColor(s string) color.Color {
 		return colorFinished
 	case status.Errored, status.Dead:
 		return colorErrored
+	// Pending stays the idle tint: nothing is running and nothing needs a
+	// person; the glyph says what it is waiting for.
 	default:
 		return colorIdle
 	}
@@ -164,8 +166,11 @@ func statusColor(s string) color.Color {
 // statusLabel is the human text for a status; most match the raw value, but
 // the transient launch state reads better spelled out.
 func statusLabel(s string) string {
-	if s == status.Starting {
+	switch s {
+	case status.Starting:
 		return "starting up"
+	case status.Pending:
+		return "pending (offline)"
 	}
 	return s
 }

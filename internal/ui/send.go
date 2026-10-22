@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -59,6 +60,25 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 			return nil
 		}
 		m.errBar.text = "typed " + quoted + " into " + m.displayName(sess) + " — press enter to send"
+		m.requestRefresh()
+		return nil
+	}
+	// Offline, a line typed into the pane is a turn the agent starts and cannot
+	// finish. It waits in the outbox as the operator's own words instead, and
+	// the poller types it in once the network is back (see netwatch). No
+	// landing is armed: nothing reaches the pane until then.
+	if m.poller.offline() {
+		if _, _, err := m.store.Enqueue(store.InboxMessage{
+			SessionID:   sess.ID,
+			SenderID:    store.HumanSenderID,
+			Body:        text,
+			Fingerprint: textfmt.Fingerprint(text),
+			SentAt:      time.Now(),
+		}, store.DefaultInboxLimits); err != nil {
+			m.errBar.text = err.Error()
+			return nil
+		}
+		m.errBar.text = "offline — " + quoted + " is held for " + m.displayName(sess) + " and sends when the network returns"
 		m.requestRefresh()
 		return nil
 	}

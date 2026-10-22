@@ -269,3 +269,21 @@ func TestDescendantsFollowsTheSpawnerNotTheDrawing(t *testing.T) {
 		t.Fatalf("Descendants(kid) = %q", got)
 	}
 }
+
+// A parent restarting in place -- an account switch, a grant -- is ended and
+// relaunched on the same row, and reads dead between the two. That moment is
+// not its children's spawner being gone: their finishes stay its to take in
+// until it has been dead for the grace too.
+func TestRetirableChildrenWaitsOutTheGraceAfterTheSpawnerDies(t *testing.T) {
+	st := withParent(t)
+	childOf(t, st, "p1", "done", "finished", time.Hour)
+	if err := st.UpdateStatus("p1", "dead"); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+	if got := retirable(t, st, 10*time.Minute); got != "" {
+		t.Fatalf("retirable = %q, want nothing while its spawner has only just died", got)
+	}
+	if got := retirable(t, st, -time.Minute); got != "done" {
+		t.Fatalf("retirable = %q, want the child once its spawner has been dead past the grace", got)
+	}
+}

@@ -18,6 +18,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/git"
 	"github.com/usestring/gate-inbox/internal/launch"
+	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -1204,6 +1205,9 @@ func TestSwitchAccountRestartsALiveSessionOnTheNewAccount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
+	if err := h.store.SetPriority(created.ID, priority.High); err != nil {
+		t.Fatal(err)
+	}
 	switched, err := h.sessions.SwitchAccount(h.caller.ID, created.ID, "alice1")
 	if err != nil {
 		t.Fatalf("SwitchAccount: %v", err)
@@ -1211,8 +1215,8 @@ func TestSwitchAccountRestartsALiveSessionOnTheNewAccount(t *testing.T) {
 	if switched.Account != "ALICE1" || !switched.Running || !h.driver.Exists(created.ID) {
 		t.Fatalf("switched = %+v", switched)
 	}
-	if row, _ := h.store.Get(created.ID); row.Account != "ALICE1" {
-		t.Errorf("row Account = %q", row.Account)
+	if row, _ := h.store.Get(created.ID); row.Account != "ALICE1" || row.Priority != priority.High {
+		t.Errorf("row Account = %q, Priority = %q", row.Account, row.Priority)
 	}
 	if text := FormatSession(switched); !strings.Contains(text, "as ALICE1") {
 		t.Errorf("the formatted session hides the account: %s", text)

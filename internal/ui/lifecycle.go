@@ -338,6 +338,12 @@ func (m *Model) reviveSession(sess store.Session) error {
 // are stale".
 func (m *Model) resumeSession(sess store.Session) error {
 	if m.tmux.Exists(sess.ID) {
+		// Stamped before the kill, as sessioncmd's restart is: between the
+		// two the row reads dead, and the child sweep archives a dead child
+		// whose report since its last launch reached its spawner.
+		if err := m.store.SetAgentLaunchedAt(sess.ID, time.Now()); err != nil {
+			return err
+		}
 		if err := m.killSession(sess); err != nil {
 			return err
 		}

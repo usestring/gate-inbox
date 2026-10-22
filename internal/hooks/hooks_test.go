@@ -18,15 +18,10 @@ import (
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
 
-func TestEnsureSettingsWritesValidHookJSON(t *testing.T) {
-	manager := NewManager(t.TempDir())
-	path, err := manager.EnsureSettings()
+func TestLaunchHooksAreValidHookJSON(t *testing.T) {
+	raw, err := json.Marshal(map[string]any{"hooks": LaunchHooks()})
 	if err != nil {
-		t.Fatalf("EnsureSettings: %v", err)
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read settings: %v", err)
+		t.Fatal(err)
 	}
 	var parsed struct {
 		Hooks map[string][]struct {
@@ -40,7 +35,7 @@ func TestEnsureSettingsWritesValidHookJSON(t *testing.T) {
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		t.Fatalf("settings is not valid JSON: %v", err)
 	}
-	events := []string{"UserPromptSubmit", "PreToolUse", "PostToolUse", "Notification", "Stop", "StopFailure", "SessionStart", "SessionEnd"}
+	events := []string{"UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "Notification", "Stop", "StopFailure", "PreCompact", "PostCompact", "SessionStart", "SessionEnd"}
 	if len(parsed.Hooks) != len(events) {
 		t.Fatalf("hooks has %d events, want %d: %v", len(parsed.Hooks), len(events), parsed.Hooks)
 	}
@@ -68,6 +63,10 @@ func TestEnsureSettingsWritesValidHookJSON(t *testing.T) {
 		!strings.HasSuffix(askAnsweredCommand(), "exit 0") || post[2].Matcher != "*" ||
 		post[2].Hooks[0].Command != attestNoteCommand() {
 		t.Fatalf("PostToolUse = %+v, want the status writer, the ask-answered hook, then the attest-note hook", post)
+	}
+	if failed := parsed.Hooks["PostToolUseFailure"]; len(failed) != 1 || failed[0].Matcher != "Bash" ||
+		failed[0].Hooks[0].Command != sandboxStaleCommand() {
+		t.Fatalf("PostToolUseFailure = %+v, want the stale-sandbox check on Bash", failed)
 	}
 	// The attest-note hook starts no process unless an attestation is waiting.
 	if cmd := attestNoteCommand(); !strings.Contains(cmd, `[ ! -f "$f`+AttestPendingSuffix+`" ] ||`) ||
@@ -141,8 +140,8 @@ func TestSettingsDenyTheKeyDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	for key := range parsed {
-		if key != "hooks" && key != "permissions" && key != "sandbox" {
-			t.Fatalf("settings carry %q; only hooks and the key-dir denials belong there", key)
+		if key != "permissions" && key != "sandbox" {
+			t.Fatalf("settings carry %q; only the key-dir denials belong there, the hooks ride the plugin", key)
 		}
 	}
 	var rules struct {
@@ -817,5 +816,45 @@ func TestReadNameDropsTheRequestLine(t *testing.T) {
 	}
 	if name, found := manager.ReadName("x"); !found || name != "fix auth bug" {
 		t.Fatalf("ReadName = %q, %v; want the name alone", name, found)
+	}
+}
+
+// The stale-sandbox check starts the executable, handing it the payload, only
+// for a failure that mentions bwrap's missing-source error.
+func TestSandboxStaleCommandFiresOnlyOnTheBwrapSignature(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "gi")
+	called := filepath.Join(dir, "called")
+	if err := os.WriteFile(exe, []byte("#!/bin/sh\necho \"$@\" > "+called+"\ncat > "+called+".in\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name    string
+		payload string
+		want    bool
+	}{
+		{"stale", `{"tool_name":"Bash","error":"Exit code 1\nbwrap: Can't get type of source /r/.git/worktrees/x/commondir: No such file or directory"}`, true},
+		{"older bwrap wording", `{"tool_name":"Bash","error":"Exit code 1\nbwrap: Can't find source path /r/.git/worktrees/x/commondir: No such file or directory"}`, true},
+		{"ordinary failure", `{"tool_name":"Bash","error":"Exit code 2\ngrep: foo: No such file or directory"}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_ = os.Remove(called)
+			cmd := exec.Command("sh", "-c", sandboxStaleCommand())
+			cmd.Env = append(tmuxtest.Environ(), EnvStatusFile+"="+filepath.Join(dir, "s.status"), EnvExecutable+"="+exe, EnvSessionID+"=abc")
+			cmd.Stdin = strings.NewReader(tc.payload)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("command failed: %v %s", err, out)
+			}
+			got, err := os.ReadFile(called)
+			if fired := err == nil; fired != tc.want {
+				t.Fatalf("fired = %v, want %v", fired, tc.want)
+			}
+			if tc.want && strings.TrimSpace(string(got)) != "hook sandbox-stale" {
+				t.Fatalf("called with %q", got)
+			}
+			if in, _ := os.ReadFile(called + ".in"); tc.want && string(in) != tc.payload {
+				t.Fatalf("hook read %q, want the payload passed through", in)
+			}
+		})
 	}
 }

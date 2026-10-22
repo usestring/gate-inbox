@@ -99,3 +99,48 @@ func TestQuestionsReadAMultiSelectsTicks(t *testing.T) {
 		t.Errorf("ticks = %v, want only Lint", ticked)
 	}
 }
+
+// The countdown Claude Code draws on a prompt in an unattended session ticks
+// every second. Read with it, one prompt was forwarded to the parent ten times
+// in twenty seconds (2026-10-12), each with a question no answer could match.
+func TestReadScreenLeavesOutTheAutoDenyCountdown(t *testing.T) {
+	pane := func(left string) string {
+		return strings.Join([]string{
+			strings.Repeat("─", 60),
+			" Bash command (unsandboxed)",
+			"",
+			"   │ cd $W/gen/ts && ls node_modules",
+			"   Build the dist",
+			"",
+			" This shell -c script runs rm and could not be",
+			" checked",
+			"",
+			" ⚠ Claude Code will automatically deny this request",
+			" in " + left + ", to avoid blocking progress on an unattended",
+			" session",
+			"",
+			" Do you want to proceed?",
+			" ❯ 1. Yes",
+			"   2. No",
+			"",
+			" Esc to cancel · Tab to amend",
+		}, "\n")
+	}
+	first, ok := ReadScreen(pane("1:58"))
+	if !ok {
+		t.Fatal("prompt not read")
+	}
+	later, _ := ReadScreen(pane("1:41"))
+	if first.Identity() != later.Identity() || first.Prompt() != later.Prompt() {
+		t.Fatalf("the countdown changed the dialog:\n%q\n%q", first.Prompt(), later.Prompt())
+	}
+	if !first.AutoDeny {
+		t.Error("AutoDeny not set")
+	}
+	if strings.Contains(first.Prompt(), "automatically deny") || !strings.Contains(first.Prompt(), "Do you want to proceed?") {
+		t.Errorf("prompt = %q", first.Prompt())
+	}
+	if len(first.Choices) != 2 {
+		t.Errorf("choices = %v", first.Choices)
+	}
+}

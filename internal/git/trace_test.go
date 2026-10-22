@@ -4,6 +4,7 @@ import (
 	"os/exec"
 	"testing"
 
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 	"github.com/usestring/gate-inbox/internal/tracetest"
 )
 
@@ -16,7 +17,9 @@ func TestEachForkIsNamedBySubcommand(t *testing.T) {
 		t.Skip("git not installed")
 	}
 	dir := t.TempDir()
-	if out, err := exec.Command("git", "-C", dir, "init").CombinedOutput(); err != nil {
+	cmd := exec.Command("git", "-C", dir, "init")
+	cmd.Env = tmuxtest.Environ()
+	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, out)
 	}
 	driver, err := New()
@@ -73,7 +76,9 @@ func TestOnlyTheSubcommandIsRecorded(t *testing.T) {
 		t.Skip("git not installed")
 	}
 	dir := t.TempDir()
-	if out, err := exec.Command("git", "-C", dir, "init").CombinedOutput(); err != nil {
+	cmd := exec.Command("git", "-C", dir, "init")
+	cmd.Env = tmuxtest.Environ()
+	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, out)
 	}
 	driver, err := New()

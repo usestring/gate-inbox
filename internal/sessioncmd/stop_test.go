@@ -22,16 +22,8 @@ func TestStopDryRunRequiresItsOwnLivePane(t *testing.T) {
 	fields := strings.Fields(string(out))
 	t.Setenv("TMUX", fields[0])
 	t.Setenv("TMUX_PANE", fields[1])
-	result, err := h.sessions.Stop(h.caller.ID, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.DryRun || !result.Target.Self || !h.driver.Exists(h.caller.ID) {
-		t.Fatalf("dry run: %+v", result)
-	}
-	ends, err := h.store.SessionEnds()
-	if err != nil || len(ends) != 0 {
-		t.Fatalf("dry run wrote ends: %v, %v", ends, err)
+	if _, err := h.sessions.Stop(h.caller.ID, true); err == nil {
+		t.Fatal("accepted pane environment without caller process ancestry")
 	}
 	t.Setenv("TMUX_PANE", "%9999999")
 	if _, err := h.sessions.Stop(h.caller.ID, true); err == nil {
@@ -50,16 +42,31 @@ func TestFinishStopPreservesHistoryAndPinsTheLaunch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	runtime, err := h.sessions.open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pin, err := runtime.paneProcess(row)
+	runtime.store.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
 	launch := row.LaunchTime().Format(time.RFC3339Nano)
 	for _, bad := range [][2]string{{"old-launch", pane}, {launch, "%9999999"}, {launch, ""}} {
-		if _, err := h.sessions.FinishStop(row.ID, bad[0], bad[1]); err == nil {
+		if _, err := h.sessions.FinishStop(row.ID, bad[0], bad[1], pin); err == nil {
 			t.Fatalf("accepted stale request: %v", bad)
 		}
 		if !h.driver.Exists(row.ID) {
 			t.Fatal("stale request stopped session")
 		}
 	}
-	stopped, err := h.sessions.FinishStop(row.ID, launch, pane)
+	if _, err := h.sessions.FinishStop(row.ID, launch, pane, ""); err == nil {
+		t.Fatal("accepted empty pane process pin")
+	}
+	if _, err := h.sessions.FinishStop(row.ID, launch, pane, "1:old-start"); err == nil {
+		t.Fatal("accepted foreign pane process pin")
+	}
+	stopped, err := h.sessions.FinishStop(row.ID, launch, pane, pin)
 	if err != nil {
 		t.Fatal(err)
 	}

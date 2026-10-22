@@ -970,7 +970,7 @@ func TestAgentBoxListsQuotaAndMarksTheRecommendedCLI(t *testing.T) {
 // A recommended CLI with no reading still shows, marked unread, so the mark
 // is never missing.
 func TestAgentBoxMarksAnUnreadRecommendation(t *testing.T) {
-	rows := agentPickQuotaRows([]string{"claude", "codex"}, map[string]string{"claude": "5h 10% left"}, "codex", 80)
+	rows := agentPickQuotaRows([]string{"claude", "codex"}, map[string]string{"claude": "5h 10% left"}, "codex", "", 80)
 	got := ansi.Strip(strings.Join(rows, "\n"))
 	if !strings.Contains(got, "claude  5h 10% left") || !strings.Contains(got, "codex (auto)  quota unread") {
 		t.Fatalf("rows = %q", got)
@@ -1021,6 +1021,113 @@ func TestAgentBoxIgnoresQuotaFromEarlierOpening(t *testing.T) {
 			}
 			if got := m.agentPick.recommended; got != "claude" {
 				t.Fatalf("recommendation = %q, want current opening's choice", got)
+			}
+		})
+	}
+}
+
+// The box opens on the last CLI used, then moves to auto's pick when the
+// chooser answers, so n then enter starts what auto would.
+func TestAgentBoxMovesToTheRecommendedCLI(t *testing.T) {
+	m := buildModel(t)
+	fake := quotaChooserFake{toolChooserFake: toolChooserFake{choose: func(extension.ToolRequest) (string, error) { return "ready-tool", nil }}}
+	t.Cleanup(accounts.UseChooser(func() (extension.AccountChooser, error) { return fake, nil }))
+	m.openAgentPick()
+	if got := m.agentPickName(); got == "ready-tool" {
+		t.Fatal("test needs the box to open on another CLI")
+	}
+	m.update(m.agentPickQuotaCmd()())
+	if got := m.agentPickName(); got != "ready-tool" {
+		t.Fatalf("selection = %q, want the recommended CLI", got)
+	}
+	if got := m.agentPick.input.Value(); got != "ready-tool" {
+		t.Fatalf("box shows %q, want the recommended CLI", got)
+	}
+}
+
+// A recommendation that lands after the operator has started choosing leaves
+// their choice alone.
+func TestAgentBoxKeepsTheOperatorsChoiceOverALateRecommendation(t *testing.T) {
+	m := buildModel(t)
+	fake := quotaChooserFake{toolChooserFake: toolChooserFake{choose: func(extension.ToolRequest) (string, error) { return "ready-tool", nil }}}
+	t.Cleanup(accounts.UseChooser(func() (extension.AccountChooser, error) { return fake, nil }))
+	m.openAgentPick()
+	cmd := m.agentPickQuotaCmd()
+	m.handleAgentPickKey(tea.KeyPressMsg{Code: tea.KeyTab})
+	chosen := m.agentPickName()
+	m.update(cmd())
+	if got := m.agentPickName(); got != chosen {
+		t.Fatalf("selection = %q, want the operator's %q", got, chosen)
+	}
+	if m.agentPick.recommended != "ready-tool" {
+		t.Fatalf("recommendation = %q, still want it marked", m.agentPick.recommended)
+	}
+}
+
+// explainingChooserFake is a chooser that gives the reason for its answer.
+type explainingChooserFake struct {
+	toolChooserFake
+	reason string
+}
+
+func (f explainingChooserFake) ExplainToolChoice(_ context.Context, req extension.ToolRequest) (string, string, error) {
+	name, err := f.choose(req)
+	return name, f.reason, err
+}
+
+func useExplainingChooser(t *testing.T, reason string, choose func(extension.ToolRequest) (string, error)) {
+	t.Helper()
+	fake := explainingChooserFake{toolChooserFake: toolChooserFake{choose: choose}, reason: reason}
+	t.Cleanup(accounts.UseChooser(func() (extension.AccountChooser, error) { return fake, nil }))
+}
+
+// An auto start says on the status bar why the chooser picked that CLI.
+func TestAutoRouteReportsTheChoosersReason(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
+	m.newSessionAgent = newSessionAgentAuto
+	useExplainingChooser(t, "rank 1: ready-tool has quota above its reserve", func(extension.ToolRequest) (string, error) { return "ready-tool", nil })
+	_, cmd := m.startNewSession()
+	m.update(cmd())
+	if !m.errBar.worked() || m.errBar.text != "auto: rank 1: ready-tool has quota above its reserve" {
+		t.Fatalf("status bar = %q (worked %v)", m.errBar.text, m.errBar.worked())
+	}
+}
+
+// When auto chooses nothing, the box it falls back to says why.
+func TestAutoRouteFallbackSaysWhyNoCLIWasChosen(t *testing.T) {
+	m := buildModel(t)
+	groupAt(t, m, "proj", filepath.Join(t.TempDir(), "sample-repo"))
+	m.newSessionAgent = newSessionAgentAuto
+	useExplainingChooser(t, "rank 1: claude quota unread", func(extension.ToolRequest) (string, error) { return "", errNoChoice })
+	_, cmd := m.startNewSession()
+	m.update(cmd())
+	if m.mode != modeAgentPick || m.errBar.text != "no CLI chosen (rank 1: claude quota unread): choose one" {
+		t.Fatalf("mode %v, status bar %q", m.mode, m.errBar.text)
+	}
+}
+
+// The box gives the chooser's reason in place of the generic one, and
+// gives it even when the chooser picked nothing.
+func TestAgentBoxShowsTheChoosersReason(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		choose func(extension.ToolRequest) (string, error)
+		reason string
+	}{
+		{"picked", func(extension.ToolRequest) (string, error) { return "ready-tool", nil }, "rank 1: ready-tool has quota above its reserve"},
+		{"none", func(extension.ToolRequest) (string, error) { return "", errNoChoice }, "rank 1: claude quota unread"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := buildModel(t)
+			useExplainingChooser(t, tc.reason, tc.choose)
+			m.openAgentPick()
+			m.update(m.agentPickQuotaCmd()())
+			view := ansi.Strip(m.viewAgentPick())
+			// The reason wraps inside the box, so it is read as words.
+			words := strings.Join(strings.Fields(strings.ReplaceAll(view, "│", " ")), " ")
+			if !strings.Contains(words, "(auto): "+tc.reason) || strings.Contains(view, "most quota left before reset") {
+				t.Fatalf("box does not give the chooser's reason:\n%s", view)
 			}
 		})
 	}

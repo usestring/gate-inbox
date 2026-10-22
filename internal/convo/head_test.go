@@ -39,6 +39,26 @@ func TestParseHeadSkipsWhatNobodyTyped(t *testing.T) {
 	}
 }
 
+// A session opened with a skill's slash command has no other record of what
+// it was started for, so the command line stands as its opening prompt. A
+// built-in is followed by its output rather than an expansion and is not one.
+func TestParseHeadKeepsTheSkillCommandASessionOpenedWith(t *testing.T) {
+	raw := strings.Join([]string{
+		`{"type":"user","message":{"role":"user","content":"<command-name>/mcp</command-name>\n<command-message>mcp</command-message>\n<command-args>string-web-access</command-args>"}}`,
+		`{"type":"user","message":{"role":"user","content":"<local-command-stdout>Connected.</local-command-stdout>"}}`,
+		`{"type":"user","message":{"role":"user","content":"<command-message>triage-gmail-inbox</command-message>\n<command-name>/triage-gmail-inbox</command-name>"}}`,
+		`{"type":"user","isMeta":true,"message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /x"}]}}`,
+		`{"type":"user","message":{"role":"user","content":"<command-message>advance-goals</command-message>\n<command-name>/advance-goals</command-name>\n<command-args>for goal x</command-args>"}}`,
+		`{"type":"user","isMeta":true,"message":{"role":"user","content":"# Advance Goals"}}`,
+		`{"type":"user","message":{"role":"user","content":"typed"}}`,
+	}, "\n")
+	got := parseHead([]byte(raw))
+	want := []string{"/triage-gmail-inbox", "/advance-goals for goal x", "typed"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("first prompts = %q, want %q", got, want)
+	}
+}
+
 // A head short of the count is read again once the file grows; a full one
 // is never read again.
 func TestReadHeadRereadsOnlyWhileShort(t *testing.T) {

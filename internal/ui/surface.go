@@ -39,6 +39,10 @@ func blockHex() string {
 	return themeTone("block", backdropBase(), current.Surface, 0.35)
 }
 
+// quickBannerHex is the red band heading the hotkey menu docked in a focused
+// session, which holds the keys back from the agent's prompt above it.
+func quickBannerHex() string { return current.Errored }
+
 // selectedHex is the band under a row being renamed.
 func selectedHex() string { return current.Surface }
 
@@ -75,7 +79,7 @@ func (m *Model) railTopRow(paneWidth, width int) string {
 // row says. paneWidth is the rail's run, counted in from the rail's edge of
 // the frame: the right edge by default, the left with the sidebar there.
 func (m *Model) topRule(paneWidth, width int) string {
-	if m.mode != modeFocus {
+	if !m.ringed() {
 		return m.railTopRow(paneWidth, width)
 	}
 	if paneWidth >= width {
@@ -195,7 +199,7 @@ func (m *Model) bleedColumn(height int) []string {
 		lines[i] = cell
 	}
 	// Keep the edge joined to the footer even before a full capture arrives.
-	if m.mode == modeFocus && m.pane.box.ok {
+	if m.ringed() && m.pane.box.ok {
 		edge := paint(focusEdgeStyle.Render("│"), 1, panelHex())
 		corner := paint(focusEdgeStyle.Render(ringCorner), 1, panelHex())
 		top := m.pane.box.y - m.listChromeRows()
@@ -225,7 +229,7 @@ func (m *Model) focusRightColumn(height int) []string {
 // edge rather than the seam's side, topped by corner in focus mode.
 func (m *Model) focusOuterColumn(height int, corner string) []string {
 	lines := paintRows(nil, 1, height, backdropHex())
-	if m.mode != modeFocus || !m.pane.box.ok {
+	if !m.ringed() || !m.pane.box.ok {
 		return lines
 	}
 	top := m.pane.box.y - m.listChromeRows()
@@ -364,12 +368,14 @@ func spaces(n int) string {
 // contentLine is one row of the content column: ours to paint, a seam that
 // spans the column edge to edge, or captured output that must keep the
 // terminal's own backdrop. Rail rows also carry the tone their fill uses,
-// so the edge column beside them can match the selected entry's band.
+// so the edge column beside them can match the selected entry's band. bg
+// overrides the column's fill for a row that must stand off it.
 type contentLine struct {
 	text string
 	raw  bool
 	rule bool
 	tone string
+	bg   string
 }
 
 // paintContent paints a content column, leaving raw rows unfilled.
@@ -390,7 +396,11 @@ func paintContent(lines []contentLine, width, height int, bg string) []string {
 			out[i] = plain(lines[i].text, width)
 			continue
 		}
-		out[i] = paint(lines[i].text, width, bg)
+		fill := bg
+		if lines[i].bg != "" {
+			fill = lines[i].bg
+		}
+		out[i] = paint(lines[i].text, width, fill)
 	}
 	return out
 }

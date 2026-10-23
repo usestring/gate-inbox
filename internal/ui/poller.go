@@ -29,6 +29,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
+	"github.com/usestring/gate-inbox/internal/netwatch"
 	"github.com/usestring/gate-inbox/internal/notify"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/priority"
@@ -46,6 +47,10 @@ import (
 // inside a tmux attach. The UI receives the results as refreshMsg values
 // and merely renders them.
 type poller struct {
+	snippetRecipients sync.Map
+	// net reads whether the machine is online. Nil, as in every test that
+	// does not set one, reads online.
+	net           *netwatch.Watcher
 	store         *store.Store
 	tmux          *tmux.Driver
 	engine        *status.Engine
@@ -1221,6 +1226,13 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	if err != nil {
 		return errMsg{err}
 	}
+	if p.offline() {
+		recoveries, err := p.store.LimitRecoveries()
+		if err != nil {
+			return errMsg{err}
+		}
+		shown = store.ApplyOutbox(shown, queued, heldLimitContinuations(shown, recoveries, now))
+	}
 
 	msg := refreshMsg{
 		sessions:         shown,
@@ -1500,6 +1512,11 @@ func (p *poller) maybeSendPendingInputWhenReady(sess store.Session, capture tmux
 			return false, nil
 		}
 	}
+	// A launch prompt waits out an outage like a queued message. A claimed
+	// one is already on its way and is reconciled whatever the network does.
+	if !sess.PendingInputClaimed && p.offline() {
+		return false, nil
+	}
 	if !sess.PendingInputClaimed && !pendingDeliverable(derived, p.engine.TypeAhead(sess.Tool)) {
 		return false, nil
 	}
@@ -1655,12 +1672,24 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 	if !queued {
 		return false, nil
 	}
+	if msg.SenderID == snippetSenderID {
+		recipient, ready := p.snippetRecipients.Load(msg.ID)
+		if !ready || recipient != sess.ID {
+			return false, nil
+		}
+	}
 	// The pass captures the panes before it reads the queue, and a send to
 	// this session can settle between the two. The head it read is then the
 	// message behind one just submitted, while the capture shows the pane
 	// from before that submit: typed now, it lands on a turn the tool has not
 	// drawn yet. It waits for a capture taken after the send.
 	if p.settledSince(sess.ID, capture.At) {
+		return false, nil
+	}
+	// Offline, the message waits in the outbox: typed now, it would start a
+	// turn whose first request fails. Held before the interrupt, too, so a
+	// working agent is not stopped for a message that is not going in.
+	if p.offline() {
 		return false, nil
 	}
 	if msg.Interrupt && derived == status.Working && msg.ClaimedAt.IsZero() {
@@ -2823,6 +2852,12 @@ func (p *poller) applyHookStatus(sess store.Session, text, hookStatus string, di
 		}
 	}
 	return hookStatus
+}
+
+// offline reports whether sends are being held for the network.
+func (p *poller) offline() bool {
+	offline, _ := p.net.Offline()
+	return offline
 }
 
 // delegated is the rows as the board shows them: a parent at rest on its

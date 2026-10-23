@@ -71,6 +71,10 @@ func (m *Model) smartRenameSelected() (tea.Model, tea.Cmd) {
 	// it is having, and answers by running `gate-inbox rename`, which the
 	// poller picks up like any other self-chosen name.
 	if command := m.renameCommandFor(sess); command != "" {
+		if m.poller.offline() {
+			m.errBar.text = "offline — rename not sent; retry when the network returns"
+			return m, nil
+		}
 		if err := m.tmux.SendText(sess.ID, command); err != nil {
 			m.errBar.text = "rename: " + err.Error()
 			return m, nil

@@ -33,6 +33,7 @@ type glyphSet struct {
 	errored       string
 	idle          string
 	delegating    string
+	pending       string
 	muted         string
 	deaf          string
 	hookless      string
@@ -63,7 +64,9 @@ var shapeGlyphs = glyphSet{
 	errored:  "✕",
 	idle:     "○",
 	// ◎ is ○ with something inside it: at rest, and still holding work.
-	delegating:    "◎",
+	delegating: "◎",
+	// ◍ is ○ barred shut: at rest, with a send held at the door.
+	pending:       "◍",
 	muted:         "⊘",
 	deaf:          "⊗",
 	hookless:      "⊙",
@@ -99,6 +102,7 @@ var emojiGlyphs = glyphSet{
 	errored:       "❌",
 	idle:          "💤",
 	delegating:    "📤",
+	pending:       "📡",
 	muted:         "🔕",
 	deaf:          "🔇",
 	hookless:      "🔌",
@@ -172,6 +176,8 @@ func statusGlyph(s string) string {
 		return currentGlyphs.finished
 	case status.Delegating:
 		return currentGlyphs.delegating
+	case status.Pending:
+		return currentGlyphs.pending
 	case status.Errored, status.Dead:
 		return currentGlyphs.errored
 	default:

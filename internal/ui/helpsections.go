@@ -260,6 +260,7 @@ func legendSections() []helpSection {
 			lit("● finished", "the turn ended; entering the session clears it to idle"),
 			lit("○ idle", "nothing running"),
 			lit("◎ delegating", "at rest, waiting on its children's results"),
+			lit("◍ pending", "offline: a send is held in the outbox until the network returns"),
 			lit("✕ errored", "the tool reported an error, or the session is dead"),
 			lit("◌ starting", "the pane is still launching"),
 		}},

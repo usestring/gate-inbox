@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -18,12 +19,14 @@ import (
 	"github.com/usestring/gate-inbox/internal/clipboard"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/git"
 	"github.com/usestring/gate-inbox/internal/hogs"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
+	"github.com/usestring/gate-inbox/internal/netwatch"
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/promptsnips"
@@ -646,8 +649,10 @@ type Model struct {
 	// transcripts they are read from; see landing.go. The locator is the
 	// event loop's own, since a Locator is not safe to share with the
 	// goroutines the other copies run on.
-	landings   map[string]*pendingLanding
-	landingGen int
+	heldSnippets         map[int64]*pendingLanding
+	heldSnippetsRestored bool
+	landings             map[string]*pendingLanding
+	landingGen           int
 	// unseenAnswers are the sessions whose last answer would have moved the
 	// drain on but was never seen arriving: the check refused it or ran out of
 	// time. The poll's working transition is the evidence left to see.
@@ -1483,6 +1488,12 @@ func (m *Model) StartPoller(send func(tea.Msg)) {
 		m.poller.historyFormats = historyToolFormats(m.cfg)
 		go m.runHistoryIndex(send)
 	}
+	// Probing starts here for the same reason: a test Model never touches
+	// the network, so its poller always reads online.
+	if envname.Get(envname.Outbox) != "off" && len(m.cfg.OutboxProbeTargets) > 0 {
+		m.poller.net = netwatch.New(netwatch.HTTPProbe(m.cfg.OutboxProbeTargets, netwatch.ProbeTimeout))
+		go m.poller.net.Run(context.Background(), m.poller.requestRefresh)
+	}
 	go m.poller.run(send)
 }
 
@@ -2269,6 +2280,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.listedAt.After(m.statusesAsOf) {
 			m.statusesAsOf = msg.listedAt
 		}
+		heldLandings := m.resumeHeldSnippets()
 		m.settleLandings(msg.listedAt, msg.unseen)
 		m.dropHeldAckOnNewTurn()
 		// A pane taken by the last adopt scan is on the board under its
@@ -2383,12 +2395,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {
 			m.syncPollInput()
 			m.previewGen++
-			return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick())
+			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick())
 		}
 		m.proc = msg.proc
 		m.procFor = msg.procFor
 		m.setPreviewAt(msg.preview, msg.previewAt)
-		return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick())
+		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick())
 
 	case childSweptMsg:
 		m.applyChildSweep(msg)

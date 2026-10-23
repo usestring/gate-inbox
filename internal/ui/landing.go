@@ -74,6 +74,7 @@ const (
 // sessions keep theirs, since a snippet or a prompt sent from the list to one
 // row is followed by the next row well inside the window.
 type pendingLanding struct {
+	inboxID int64
 	// gen tells this pending from the ones it replaced, so a look still in
 	// flight for an older key cannot decide the newer one.
 	gen      int
@@ -309,6 +310,7 @@ func (m *Model) armLanding(sess store.Session, started time.Time, via extension.
 	pending.observed = *pending.probe
 	if previous := m.landings[sess.ID]; previous != nil {
 		recordLanding(previous, "replaced")
+		m.dropLanding(sess.ID)
 	}
 	m.landings[sess.ID] = pending
 	delete(m.unseenAnswers, sess.ID)
@@ -318,6 +320,11 @@ func (m *Model) armLanding(sess store.Session, started time.Time, via extension.
 // dropLanding forgets the answer pending for a session: the send it was
 // armed for failed, or it has been decided.
 func (m *Model) dropLanding(id string) {
+	if pending := m.landings[id]; pending != nil && pending.inboxID != 0 {
+		if err := m.store.ForgetHeldSnippet(pending.inboxID); err != nil {
+			m.errBar.text = err.Error()
+		}
+	}
 	delete(m.landings, id)
 	delete(m.unseenAnswers, id)
 }
@@ -457,6 +464,12 @@ func landingCheck(id string, pending *pendingLanding) tea.Cmd {
 // has gone on typing into the session, or left it, so it is no longer the
 // board's to move them off. The answers still count as sent once they land.
 func (m *Model) keepLandingHere() {
+	if err := m.store.KeepHeldSnippetsHere(); err != nil {
+		m.errBar.text = err.Error()
+	}
+	for _, pending := range m.heldSnippets {
+		pending.handOver = false
+	}
 	for _, pending := range m.landings {
 		pending.handOver = false
 	}

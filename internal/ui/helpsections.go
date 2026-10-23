@@ -91,6 +91,7 @@ func helpSections() []helpSection {
 			bound(focus, keymap.QuickInput, "hotkey menu: send a snippet without leaving"),
 			bound(focus, keymap.Dismiss, "skip"),
 			bound(focus, keymap.Rescind, "undo the latest submission while its turn is active"),
+			bound(focus, keymap.Attach, "attach: the pane takes the terminal"),
 			bound(focus, keymap.Archive, "kill it, asking first"),
 			bound(focus, keymap.Priority, "cycle priority: urgent → high → medium → low → none"),
 			bound(focus, keymap.Mute, "mute / unmute: keep it out of triage until unmuted"),

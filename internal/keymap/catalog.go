@@ -267,6 +267,10 @@ var Catalog = []Binding{
 	{ContextFocus, PreviewPageDown, []string{"alt+pgdown"}, "scroll a page down", false},
 	{ContextFocus, PreviewTop, []string{"alt+home"}, "oldest history", false},
 	{ContextFocus, PreviewBottom, []string{"alt+end"}, "back to the live bottom", false},
+	// The list's attach, so a focused pane takes the whole terminal without a
+	// trip back to the list. It takes readline's line-start from the agent;
+	// home still sends that.
+	{ContextFocus, Attach, []string{"ctrl+a"}, "attach: the pane takes the terminal", false},
 
 	// ---- the name sweep ----
 	{ContextNameSweep, Cancel, []string{"esc", "n", "q"}, "cancel the sweep", true},

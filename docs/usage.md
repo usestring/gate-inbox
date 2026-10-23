@@ -109,7 +109,7 @@ Because the weights are ratios they mean the same thing whatever the waits: a fi
 
 Turn `smart triage` off in Settings (or store `smart_triage = "off"`) for the strict order: every question first, then every finished session, then idle, then errored, each by priority and then oldest first.
 
-The rest of the session's controls work from inside it: `ctrl+x` ends the session, `ctrl+n` starts a
+The rest of the session's controls work from inside it: `ctrl+a` attaches, `ctrl+x` ends the session, `ctrl+n` starts a
 new one in its group, `alt+/` copies the agent's session id, `alt+;` steps back to the one you just
 left. `ctrl+s` opens your snippet menu over the session in front of you.
 

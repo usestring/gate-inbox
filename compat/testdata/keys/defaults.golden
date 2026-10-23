@@ -97,6 +97,7 @@ preview_page_up = ["alt+pgup"]  # scroll a page up
 preview_page_down = ["alt+pgdown"]  # scroll a page down
 preview_top = ["alt+home"]  # oldest history
 preview_bottom = ["alt+end"]  # back to the live bottom
+attach = ["ctrl+a"]  # attach: the pane takes the terminal
 
 [name_sweep]
 cancel = ["esc", "n", "q"]  # cancel the sweep (required)

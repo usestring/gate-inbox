@@ -142,6 +142,9 @@ func (m *Model) launchFork(source store.Session, tool config.Tool, managerID, ac
 		Status:         status.Starting,
 		AgentSessionID: agentID,
 		Account:        account,
+		// A fork carries on the conversation as the operator set it up.
+		SkipPermissions:         source.SkipPermissions,
+		ChildrenSkipPermissions: source.ChildrenSkipPermissions,
 	}
 	launch := func() error { return m.launchNewSession(forked, tool, baseCommand) }
 	if err := launch(); err != nil {

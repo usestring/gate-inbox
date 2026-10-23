@@ -168,6 +168,9 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 	}
 	moved := migrate.NewSession(id, name, toolName, source, plan)
 	moved.MigrationOpening = m.openingPrompts(source)
+	// Moving to a CLI that cannot skip permissions brings its prompts back
+	// rather than refusing the move: that direction is never the unsafe one.
+	moved.SkipPermissions = moved.SkipPermissions && tool.SkipPermissionsFlag != ""
 	if err := m.launchNewSession(moved, tool, plan.Command); err != nil {
 		m.reportLaunchError(err)
 		return m, nil

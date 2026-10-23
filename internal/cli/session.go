@@ -134,6 +134,7 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 	directory := set.String("directory", "", "existing directory it works in; defaults to yours, or to the group's inherited path")
 	directoryReason := set.String("directory-reason", "", "why it must start in --directory although its group pins another; leave empty to start where the group pins")
 	nest := set.Bool("nest", true, "file it under this session, where its questions and rests reach you; --nest=false detaches it: the user's, not yours, and nothing about it is relayed to you")
+	skipPermissions := set.Bool("skip-permissions", false, "launch it with its CLI's permission prompts off; omit to follow the setting for this session's children, and refused unless the user allowed it there")
 	keep := set.Bool("keep", false, "keep it on the list after it finishes, where Gate Inbox would otherwise archive it once you have read its finish and the grace period has passed")
 	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
@@ -157,6 +158,8 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 			opts.Group = group
 		case "nest":
 			opts.Nest = nest
+		case "skip-permissions":
+			opts.SkipPermissions = skipPermissions
 		}
 	})
 	created, err := sessions.Create(sessionID, opts)

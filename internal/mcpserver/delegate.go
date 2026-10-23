@@ -183,6 +183,9 @@ func spawnArgs(opts sessioncmd.CreateSessionOptions) []string {
 	if opts.Nest != nil {
 		args = append(args, "--nest="+strconv.FormatBool(*opts.Nest))
 	}
+	if opts.SkipPermissions != nil {
+		args = append(args, "--skip-permissions="+strconv.FormatBool(*opts.SkipPermissions))
+	}
 	return args
 }
 

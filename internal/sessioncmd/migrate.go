@@ -123,6 +123,13 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 		return Session{}, err
 	}
 	sess := migrate.NewSession(id, name, toolName, source, plan)
+	// Moving to a CLI that cannot skip permissions brings its prompts back
+	// rather than refusing the move: that direction is never the unsafe one.
+	sess.SkipPermissions = sess.SkipPermissions && tool.SkipPermissionsFlag != ""
+	base, err := launch.WithSkipPermissions(tool, plan.Command, sess.SkipPermissions)
+	if err != nil {
+		return Session{}, err
+	}
 	sessionHooks, err := sessionhooks.Current()
 	if err != nil {
 		return Session{}, err
@@ -131,7 +138,7 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	if err != nil {
 		return Session{}, err
 	}
-	command, env, err := launch.EnvironmentWithProfile(hooks.NewManager(s.configDir), toolName, tool, plan.Command, id, plan.Model, plan.Account, contributed, mcpProfile(sess))
+	command, env, err := launch.EnvironmentWithProfile(hooks.NewManager(s.configDir), toolName, tool, base, id, plan.Model, plan.Account, contributed, mcpProfile(sess))
 	if err != nil {
 		return Session{}, err
 	}

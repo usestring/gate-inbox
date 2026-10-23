@@ -599,6 +599,10 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 	if err != nil {
 		return config.Tool{}, err
 	}
+	revive, err = launch.WithSkipPermissions(tool, revive, target.SkipPermissions)
+	if err != nil {
+		return config.Tool{}, err
+	}
 	base := launch.WithPrompt(tool, revive, prompt)
 	sessionHooks, err := sessionhooks.Current()
 	if err != nil {

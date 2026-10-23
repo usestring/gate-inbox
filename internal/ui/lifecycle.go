@@ -396,7 +396,7 @@ func (m *Model) relaunchSession(sess store.Session, tool config.Tool, baseComman
 	if err != nil {
 		return err
 	}
-	command, env, err := m.buildLaunch(sess.Tool, tool, baseCommand, sess.ID, sess.Model, sess.Account, contributed)
+	command, env, err := m.buildLaunch(sess.Tool, tool, baseCommand, sess.ID, sess.Model, sess.Account, sess.SkipPermissions, contributed)
 	if err != nil {
 		return err
 	}

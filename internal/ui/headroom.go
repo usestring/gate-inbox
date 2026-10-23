@@ -71,7 +71,8 @@ func (m *Model) headroomLines(width int) []string {
 	pad := spaces(railInset)
 	lines := []string{pad + subtleStyle.Render("subscription")}
 	for _, name := range slices.Sorted(maps.Keys(m.headroom)) {
-		lines = append(lines, pad+labelStyle.Width(9).Render(name)+valueStyle.Render(textfmt.TruncateWidth(m.headroom[name], max(width-railInset-9, 1), "…")))
+		label := textfmt.TruncateWidth(name, 9, "…")
+		lines = append(lines, pad+labelStyle.Width(9).Render(label)+valueStyle.Render(textfmt.TruncateWidth(m.headroom[name], max(width-railInset-9, 1), "…")))
 	}
 	return lines
 }

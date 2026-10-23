@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/store"
 )
 
 // Both toggles start off, flip with space on their own rows, and say so on
@@ -51,5 +52,32 @@ func TestBuildLaunchCarriesTheSkipPermissionsFlag(t *testing.T) {
 	tool.SkipPermissionsFlag = ""
 	if _, _, err := m.buildLaunch("claude", tool, tool.Command, "skip0002", "", "", true, nil); err == nil {
 		t.Fatal("a CLI with no flag launched with skip permissions on")
+	}
+}
+
+// The migrate card opens on the source's settings, flips them on their own
+// rows, and asks for a change only where the operator made one.
+func TestMigrateCardSkipPermissionToggles(t *testing.T) {
+	m := buildModel(t)
+	m.migrate = migrateState{
+		source:       store.Session{SkipPermissions: true},
+		name:         textField("session name", 60),
+		toolNames:    []string{"claude"},
+		skip:         true,
+		childrenSkip: false,
+	}
+	if self, children := m.migratePermissions(); self != nil || children != nil {
+		t.Fatal("an untouched card asked to change the source's settings")
+	}
+	m.handleMigrateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	m.handleMigrateKey(tea.KeyPressMsg{Code: tea.KeySpace})
+	m.handleMigrateKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	m.handleMigrateKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	self, children := m.migratePermissions()
+	if self == nil || *self || children == nil || !*children {
+		t.Fatalf("card asked self=%v children=%v, want self off and children on", self, children)
+	}
+	if m.migrate.name.Value() != "" {
+		t.Fatalf("toggle keys typed into the name: %q", m.migrate.name.Value())
 	}
 }

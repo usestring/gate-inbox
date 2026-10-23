@@ -104,7 +104,7 @@ type createSessionArgs struct {
 	// DirectoryReason opts one launch out of its group's pinned directory.
 	DirectoryReason string `json:"directory_reason,omitempty" jsonschema:"why this session must start in directory itself although its group pins another; rarely needed, since a pinned group's directory is where the user wants work to start, so leave it empty unless the task only works when started there"`
 	Nest            *bool  `json:"nest,omitempty" jsonschema:"omit it: the new session is this session's child, drawn under it, and its questions, rests and finishes are relayed to this session, which is how a fan-out gets steered; false detaches it into a top-level session that belongs to the user, not to this session: it still records this session in spawned_by, but this session is not told of its questions, rests or finishes and cannot answer its dialogs, and the two talk only through send_session and read_session; only for work that is not this session's, such as a standalone session the user asked for"`
-	SkipPermissions *bool  `json:"skip_permissions,omitempty" jsonschema:"omit it: the child follows the setting the user chose for this session's children; true launches it with its CLI's permission prompts off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox) and is refused unless the user allowed that for this session's children; false keeps its prompts on"`
+	SkipPermissions *bool  `json:"skip_permissions,omitempty" jsonschema:"omit it: the child follows the setting the user chose for this session's children; true launches it with its CLI's permission prompts off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox) and is refused unless the user allowed that for this session's children, or for a CLI with no such flag (opencode); false keeps its prompts on"`
 	Keep            bool   `json:"keep,omitempty" jsonschema:"keep this child on the list after it finishes: Gate Inbox otherwise archives a finished child on its own once you have read or been told of its finish and left it alone for the grace period (10 minutes by default); a child with background work still running is not finished"`
 	// CallerSessionID carries the caller's own session id when the MCP
 	// server's startup value cannot be trusted: opencode multiplexes
@@ -141,6 +141,9 @@ type migrateSessionArgs struct {
 	SessionID string `json:"session_id" jsonschema:"session id returned by list_sessions whose conversation moves to another CLI"`
 	Tool      string `json:"tool" jsonschema:"agent CLI the conversation moves to, such as claude, codex or opencode; call list_sessions to see which are in use"`
 	Name      string `json:"name,omitempty" jsonschema:"kebab-case name for the new session; defaults to the source's name with the tool appended"`
+	// Nil keeps the source's setting; see sessioncmd.MigrateOptions.
+	SkipPermissions         *bool `json:"skip_permissions,omitempty" jsonschema:"omit it to keep the source's setting; false relaunches the moved session with its permission prompts on, true with them off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox), refused unless the source already has it or is a child of yours whose skipping the user allowed, and for a CLI with no such flag (opencode)"`
+	ChildrenSkipPermissions *bool `json:"children_skip_permissions,omitempty" jsonschema:"omit it to keep the source's setting; whether sessions the moved session spawns skip their permission prompts by default; true is refused on the same terms as skip_permissions"`
 }
 
 type archiveSessionArgs struct {
@@ -859,7 +862,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args migrateSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
 		created, err := migrateSession(configDir, sessionID, args.SessionID,
-			sessioncmd.MigrateOptions{Tool: args.Tool, Name: args.Name}, sessions.Migrate)
+			sessioncmd.MigrateOptions{Tool: args.Tool, Name: args.Name, SkipPermissions: args.SkipPermissions, ChildrenSkipPermissions: args.ChildrenSkipPermissions}, sessions.Migrate)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}

@@ -213,8 +213,8 @@ func NewSession(id, name, toolName string, source store.Session, plan launch.Pla
 		Model:            plan.Model,
 		Account:          plan.Account,
 		NameSource:       store.SourceUser,
-		// Carried so the move keeps what the operator chose; a target tool
-		// with no skip-permissions flag drops SkipPermissions at launch.
+		// Carried so the move keeps what the operator chose; the caller
+		// settles them through SkipPermissions before the launch.
 		SkipPermissions:         source.SkipPermissions,
 		ChildrenSkipPermissions: source.ChildrenSkipPermissions,
 	}

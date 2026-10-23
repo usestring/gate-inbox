@@ -761,13 +761,17 @@ func agentPickRows(names []string, selected string, budget int) []string {
 // flip it, in the warning colour while on, and says so where the selected CLI
 // has no flag to honour it.
 func (m *Model) viewSkipToggle(on, supported bool) string {
+	return m.viewSkipToggleFor(on, supported, m.selectedToolName())
+}
+
+func (m *Model) viewSkipToggleFor(on, supported bool, toolName string) string {
 	value := valueStyle.Render("ask")
 	if on {
 		value = errStyle.Render("skip all prompts")
 	}
 	out := subtleStyle.Render("◂ ") + value + subtleStyle.Render(" ▸")
 	if !supported {
-		out += subtleStyle.Render("  (no flag on " + m.selectedToolName() + ")")
+		out += subtleStyle.Render("  (no flag on " + toolName + ")")
 	}
 	return out
 }

@@ -154,6 +154,12 @@ func migrateArgs(targetID string, opts sessioncmd.MigrateOptions) []string {
 	if opts.Name != "" {
 		args = append(args, "--name", opts.Name)
 	}
+	if opts.SkipPermissions != nil {
+		args = append(args, "--skip-permissions="+strconv.FormatBool(*opts.SkipPermissions))
+	}
+	if opts.ChildrenSkipPermissions != nil {
+		args = append(args, "--children-skip-permissions="+strconv.FormatBool(*opts.ChildrenSkipPermissions))
+	}
 	return append(args, "--", targetID)
 }
 

@@ -33,12 +33,11 @@ import (
 )
 
 type Session struct {
-	ID      string `json:"id" jsonschema:"agent session id"`
-	Name    string `json:"name" jsonschema:"session name shown in Gate Inbox"`
-	Tool    string `json:"tool" jsonschema:"agent CLI the session runs"`
-	Model   string `json:"model,omitempty" jsonschema:"model that CLI runs on; empty is the CLI's own default"`
-	Account string `json:"account,omitempty" jsonschema:"named subscription the session runs on; empty is the CLI's own login"`
-	// SkipPermissions and ChildrenSkipPermissions mirror the store row.
+	ID                      string `json:"id" jsonschema:"agent session id"`
+	Name                    string `json:"name" jsonschema:"session name shown in Gate Inbox"`
+	Tool                    string `json:"tool" jsonschema:"agent CLI the session runs"`
+	Model                   string `json:"model,omitempty" jsonschema:"model that CLI runs on; empty is the CLI's own default"`
+	Account                 string `json:"account,omitempty" jsonschema:"named subscription the session runs on; empty is the CLI's own login"`
 	SkipPermissions         bool   `json:"skip_permissions,omitempty" jsonschema:"the session runs with its CLI's permission prompts off"`
 	ChildrenSkipPermissions bool   `json:"children_skip_permissions,omitempty" jsonschema:"sessions it spawns run with their permission prompts off unless the spawn says otherwise"`
 	Group                   string `json:"group" jsonschema:"group path holding the session; empty is the root"`
@@ -635,10 +634,13 @@ func (s *Sessions) DeleteGroup(sessionID, path string) (GroupRemoval, error) {
 // childSkipPermissions is whether a child of caller launches with permissions
 // skipped: what the call asked for, else the caller's setting for its
 // children. Asking for it where the operator has not allowed it is refused
-// rather than downgraded, so the caller is not left believing it got it.
-func childSkipPermissions(caller store.Session, asked *bool) (bool, error) {
+// rather than downgraded, so the caller is not left believing it got it. The
+// inherited setting is dropped for a CLI with no flag to honour it (supported
+// false): a child that keeps its prompts is the safe way to be wrong, and
+// refusing would make the parent's setting block every spawn onto that CLI.
+func childSkipPermissions(caller store.Session, asked *bool, supported bool) (bool, error) {
 	if asked == nil {
-		return caller.ChildrenSkipPermissions, nil
+		return caller.ChildrenSkipPermissions && supported, nil
 	}
 	if *asked && !caller.ChildrenSkipPermissions {
 		return false, errors.New("skip_permissions true is refused: the operator has not allowed this session's " +
@@ -750,7 +752,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		// whole subtree it spawns.
 		ChildrenSkipPermissions: caller.ChildrenSkipPermissions,
 	}
-	sess.SkipPermissions, err = childSkipPermissions(caller, opts.SkipPermissions)
+	sess.SkipPermissions, err = childSkipPermissions(caller, opts.SkipPermissions, tool.SkipPermissionsFlag != "")
 	if err != nil {
 		return Session{}, err
 	}

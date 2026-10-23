@@ -367,12 +367,24 @@ func runMigrate(out io.Writer, sessions sessionCommands, args []string, sessionI
 	set := cmdline.NewFlagSet(usageMigrate)
 	tool := set.String("tool", "", "agent CLI the conversation moves to")
 	name := set.String("name", "", "name for the new session; defaults to the source's name with the tool appended")
+	skipPermissions := set.Bool("skip-permissions", false, "run the moved session with its permission prompts off; omit to keep the source's setting")
+	childrenSkip := set.Bool("children-skip-permissions", false, "let the sessions it spawns skip their permission prompts by default; omit to keep the source's setting")
 	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
 	}
-	migrated, err := sessions.Migrate(sessionID, operands[0], sessioncmd.MigrateOptions{Tool: *tool, Name: *name})
+	opts := sessioncmd.MigrateOptions{Tool: *tool, Name: *name}
+	// Only a flag the caller typed replaces the source's setting.
+	set.Visit(func(given *flag.Flag) {
+		switch given.Name {
+		case "skip-permissions":
+			opts.SkipPermissions = skipPermissions
+		case "children-skip-permissions":
+			opts.ChildrenSkipPermissions = childrenSkip
+		}
+	})
+	migrated, err := sessions.Migrate(sessionID, operands[0], opts)
 	if err != nil {
 		return err
 	}

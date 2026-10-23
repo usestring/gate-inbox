@@ -109,6 +109,7 @@ type record struct {
 		CallID    string          `json:"call_id"`
 		Arguments string          `json:"arguments"`
 		Output    json.RawMessage `json:"output"`
+		Content   []messagePart   `json:"content"`
 		Meta      *struct {
 			CreateTime float64 `json:"create_time"`
 		} `json:"internal_chat_message_metadata_passthrough"`
@@ -216,7 +217,9 @@ func (t *Tracker) record(line []byte) {
 		if p.Role != "user" {
 			return
 		}
-		t.supersede()
+		if _, operator := operatorMessage(p.Content); operator {
+			t.supersede()
+		}
 	case "function_call":
 		if p.Name != askTool && p.Name != askToolAsync {
 			return

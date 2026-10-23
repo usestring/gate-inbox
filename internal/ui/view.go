@@ -379,7 +379,7 @@ func parentGroup(group string) string {
 func (m *Model) groupStatusBreakdown(group string) string {
 	counts := m.groupStatusCounts(group)
 	var parts []string
-	for _, st := range []string{status.Working, status.Delegating, status.Waiting, status.Finished, status.Errored, status.Idle, status.Dead} {
+	for _, st := range []string{status.Working, status.Delegating, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Dead} {
 		if counts[st] > 0 {
 			// The count carries the state's color, the word stays quiet: a
 			// rollup line should read as one texture, not as six labels
@@ -407,7 +407,7 @@ func (m *Model) groupStatusCounts(group string) map[string]int {
 func (m *Model) groupStatusGlyphs(group string) string {
 	counts := m.groupStatusCounts(group)
 	var parts []string
-	for _, st := range []string{status.Working, status.Delegating, status.Waiting, status.Finished, status.Errored, status.Idle, status.Dead} {
+	for _, st := range []string{status.Working, status.Delegating, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Dead} {
 		if counts[st] == 0 {
 			continue
 		}
@@ -892,7 +892,7 @@ func (m *Model) viewLegend() legendSection {
 		{keymap.LastPane, "last pane"},
 		{keymap.NewSession, "new"}, {keymap.NewSessionForm, "new…"},
 		{keymap.NewTerminal, "terminal"}, {keymap.NewGroup, "group"}, {keymap.Search, "search"},
-		{keymap.ArchivedView, "archived"}, {keymap.RestoreAll, "restore all"},
+		{keymap.ArchivedView, "archived"}, {keymap.RestoreAll, "restore all"}, {keymap.UnmuteAll, "unmute all"},
 		{keymap.StatusFilter, "attention"}, {keymap.ToolFilter, "CLI"}, {keymap.Triage, "triage"}, {keymap.EmptyGroups, "hide empty"},
 		{keymap.Help, "full key map"}, {keymap.Quit, "quit"},
 		{keymap.FoldAll, "fold all"}, {keymap.Resize, "resize"}, {keymap.Settings, "settings"},

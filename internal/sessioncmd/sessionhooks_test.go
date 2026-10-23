@@ -21,6 +21,7 @@ import (
 type launchWatcher struct {
 	refuse      string
 	failMigrate bool
+	onKilled    func(extension.KillContext)
 	env         map[string]string
 	shape       extension.SpawnShape
 
@@ -79,8 +80,11 @@ func (w *launchWatcher) Migrated(_ context.Context, migration extension.Migratio
 
 func (w *launchWatcher) Killed(_ context.Context, kill extension.KillContext) {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	w.killed = append(w.killed, kill)
+	w.mu.Unlock()
+	if w.onKilled != nil {
+		w.onKilled(kill)
+	}
 }
 
 func (w *launchWatcher) kills() []extension.KillContext {

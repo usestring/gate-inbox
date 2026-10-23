@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
@@ -507,6 +508,26 @@ func (e *adoptedE2E) transcript(dir string) string {
 	return all.String()
 }
 
+// globalHookCount is how many global hooks a board registers, read from a
+// registration into a scratch settings file so the checks follow the event
+// list rather than a number written down when it was shorter.
+func globalHookCount(t *testing.T) int {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if _, err := hooks.RegisterGlobal(path, t.TempDir(), "/bin/true"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Count(string(raw), ": gate-inbox-global-hook")
+}
+
+// requestBlob marks the copy of a request Claude Code keeps in the
+// transcript beside the entries it was built from.
+const requestBlob = `"type":"api-request-blob"`
+
 func transcriptLines(text string, all ...string) []string {
 	var out []string
 	for _, line := range strings.Split(text, "\n") {
@@ -583,6 +604,7 @@ func (e *adoptedE2E) turn(h tmuxHost, target, dir, prompt, token string, limit t
 
 // a. Registration on a plain board start.
 func (e *adoptedE2E) stepA() {
+	want := globalHookCount(e.t)
 	e.startBoard()
 	settings := filepath.Join(e.claudeD, "settings.json")
 	state := filepath.Join(e.claudeD, ".claude.json")
@@ -590,7 +612,7 @@ func (e *adoptedE2E) stepA() {
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) && !(hooksOK && relayOK) {
 		raw, _ := os.ReadFile(settings)
-		hooksOK = strings.Count(string(raw), ": gate-inbox-global-hook") == 7
+		hooksOK = strings.Count(string(raw), ": gate-inbox-global-hook") == want
 		relayOK = relayEntry(state) != ""
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -606,7 +628,7 @@ func (e *adoptedE2E) stepA() {
 		events = append(events, event)
 	}
 	slices.Sort(events)
-	e.record("a", "board start registers the 7 global hooks in <CLAUDE_CONFIG_DIR>/settings.json, keeping the operator's permissions",
+	e.record("a", fmt.Sprintf("board start registers the %d global hooks in <CLAUDE_CONFIG_DIR>/settings.json, keeping the operator's permissions", want),
 		hooksOK && parsed.Permissions != nil,
 		fmt.Sprintf("events: %v\npermissions kept: %v", events, parsed.Permissions))
 	entry := relayEntry(state)
@@ -647,7 +669,7 @@ func (e *adoptedE2E) stepA() {
 	back := false
 	waitUntilQuiet(60*time.Second, func() bool {
 		raw, _ := os.ReadFile(settings)
-		back = strings.Count(string(raw), ": gate-inbox-global-hook") == 7 && relayEntry(state) != ""
+		back = strings.Count(string(raw), ": gate-inbox-global-hook") == want && relayEntry(state) != ""
 		return back
 	})
 	// b runs with no board at all, so the plain claude is outside it.
@@ -710,7 +732,7 @@ func (e *adoptedE2E) stepB() {
 		}
 	}
 	e.record("b", "global hook preludes outside the board print nothing, exit 0, and return at once",
-		runs == 14 && len(noisy) == 0 && worst < 250*time.Millisecond,
+		runs == 2*globalHookCount(t) && len(noisy) == 0 && worst < 250*time.Millisecond,
 		fmt.Sprintf("runs: %d, slowest: %s, noisy: %v", runs, worst.Round(time.Millisecond), noisy))
 
 	out, err := e.claudeCmd(e.workA, "mcp", "list")
@@ -886,7 +908,7 @@ func (e *adoptedE2E) stepC() string {
 	// transcript keeps each hook's additionalContext as an attachment.
 	steered := 0
 	for _, line := range transcriptLines(text, steeringMark) {
-		if !strings.Contains(line, `"type":"assistant"`) {
+		if !strings.Contains(line, `"type":"assistant"`) && !strings.Contains(line, requestBlob) {
 			steered++
 		}
 	}
@@ -897,7 +919,7 @@ func (e *adoptedE2E) stepC() string {
 	answer := strings.Join(transcriptLines(text, `"type":"assistant"`, "STEER-"), "\n")
 	again := 0
 	for _, line := range transcriptLines(text, steeringMark) {
-		if !strings.Contains(line, `"type":"assistant"`) {
+		if !strings.Contains(line, `"type":"assistant"`) && !strings.Contains(line, requestBlob) {
 			again++
 		}
 	}

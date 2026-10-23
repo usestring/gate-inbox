@@ -24,6 +24,9 @@ const (
 	Editor = "GATE_INBOX_EDITOR"
 	// Golden re-records the golden files when set to "write".
 	Golden = "GATE_INBOX_GOLDEN"
+	// Outbox set to "off" stops the manager probing the network, so sends
+	// are never held as offline.
+	Outbox = "GATE_INBOX_OUTBOX"
 )
 
 // Get reads a variable, treating a blank value as unset.

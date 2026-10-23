@@ -46,8 +46,13 @@ func TestCodexRolloutAnswersForItsSession(t *testing.T) {
 		t.Fatalf("ResultOf the async call = %+v, %v; want it answered by the next message", async, ok)
 	}
 	answered, err := AnsweredSince(target, async.Call.AskedAt)
-	if err != nil || len(answered) != 1 || answered[0].Answers["Which CI?"] != "Buildkite, self-hosted" {
+	if err != nil || len(answered) != 2 || answered[0].Answers[async.Call.Questions[0].Question] != async.Reply ||
+		answered[1].Answers["Which CI?"] != "Buildkite, self-hosted" {
 		t.Fatalf("AnsweredSince = %+v, %v; want the note as the answer", answered, err)
+	}
+	answered, err = AnsweredSince(target, async.At)
+	if err != nil || len(answered) != 1 || answered[0].Answers["Which CI?"] != "Buildkite, self-hosted" {
+		t.Fatalf("AnsweredSince the async reply = %+v, %v; want only the later answer", answered, err)
 	}
 	if TraitsOf("codex").Expires != CodexExpiry || TraitsOf("codex").MultiSelectAnswerable {
 		t.Fatal("codex traits are wrong")

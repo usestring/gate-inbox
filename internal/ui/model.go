@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -18,12 +19,14 @@ import (
 	"github.com/usestring/gate-inbox/internal/clipboard"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/git"
 	"github.com/usestring/gate-inbox/internal/hogs"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
+	"github.com/usestring/gate-inbox/internal/netwatch"
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/promptsnips"
@@ -261,6 +264,9 @@ type Model struct {
 	meterMemo    []string
 	meterMemoKey meterKey
 	meterMemoOK  bool
+	// headroom is the build's last subscription quota summary per CLI,
+	// drawn under the machine meters. See headroom.go.
+	headroom map[string]string
 	// workMemo holds one answer per session for the length of a frame or a
 	// rebuild, which is also the longest either treats a session's work as
 	// fixed. Nil outside both, which is when the tracker is free to move.
@@ -376,6 +382,8 @@ type Model struct {
 	// adoptFirstDone is set once the first adopt scan has answered.
 	adoptFirstDone  bool
 	adoptFinishedAt time.Time
+	// adoptBusy is set while an adopt scan is out on its own goroutine.
+	adoptBusy bool
 	// nameAfterRefresh asks the next sweep to run a naming pass, for rows an
 	// adopt scan has just created and the board has not seen yet.
 	nameAfterRefresh bool
@@ -644,8 +652,10 @@ type Model struct {
 	// transcripts they are read from; see landing.go. The locator is the
 	// event loop's own, since a Locator is not safe to share with the
 	// goroutines the other copies run on.
-	landings   map[string]*pendingLanding
-	landingGen int
+	heldSnippets         map[int64]*pendingLanding
+	heldSnippetsRestored bool
+	landings             map[string]*pendingLanding
+	landingGen           int
 	// unseenAnswers are the sessions whose last answer would have moved the
 	// drain on but was never seen arriving: the check refused it or ran out of
 	// time. The poll's working transition is the evidence left to see.
@@ -674,6 +684,10 @@ type Model struct {
 	takeover    takeoverState
 	// adoptedHooks keeps the global hooks' markers for adopted panes.
 	adoptedHooks adoptedHooksState
+	// arrivals is the panes agents announced and the board has yet to scan.
+	arrivals arrivalsState
+	// offer is the toast naming panes just adopted, while it is up.
+	offer adoptOffer
 	// restoreArmed is set by Init, so only a real startup marks the sessions
 	// that died while the board was closed; a Model built directly never does.
 	restoreArmed bool
@@ -1477,6 +1491,12 @@ func (m *Model) StartPoller(send func(tea.Msg)) {
 		m.poller.historyFormats = historyToolFormats(m.cfg)
 		go m.runHistoryIndex(send)
 	}
+	// Probing starts here for the same reason: a test Model never touches
+	// the network, so its poller always reads online.
+	if envname.Get(envname.Outbox) != "off" && len(m.cfg.OutboxProbeTargets) > 0 {
+		m.poller.net = netwatch.New(netwatch.HTTPProbe(m.cfg.OutboxProbeTargets, netwatch.ProbeTimeout))
+		go m.poller.net.Run(context.Background(), m.poller.requestRefresh)
+	}
 	go m.poller.run(send)
 }
 
@@ -1503,7 +1523,7 @@ func (m *Model) Init() tea.Cmd {
 	// read any session state, and a first run has none to wait for.
 	m.maybeOpenWelcome()
 	m.syncPollInput()
-	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips())
+	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.headroomStart(), m.arrivalStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips())
 }
 
 // pasteSweepMsg carries the result of one pass over the pastes directory.
@@ -1590,6 +1610,22 @@ func (m *Model) listedSessions() []store.Session {
 		m.frameListed = listed
 	}
 	return listed
+}
+
+func (m *Model) searchedListedSessions() []store.Session {
+	listed := m.listedSessions()
+	query := m.historyQueryText()
+	if query == "" {
+		return listed
+	}
+	matched := make([]store.Session, 0, len(listed))
+	for _, sess := range listed {
+		_, historyMatch := m.historyHit(sess)
+		if matchesSearch(sess, query, m.searchText[sess.ID]) || historyMatch {
+			matched = append(matched, sess)
+		}
+	}
+	return matched
 }
 
 func (m *Model) computeListedSessions() []store.Session {
@@ -2203,6 +2239,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.frameUnchanged()
 		return m, tea.Batch(m.previewCmd(sess, m.previewGen, m.procDue()), m.previewTick())
 
+	case headroomTickMsg:
+		return m, tea.Batch(m.headroomCmd(), headroomTick())
+	case headroomMsg:
+		m.headroom = msg.quotas
+		return m, nil
+
 	case conversationTickMsg:
 		return m, tea.Batch(m.readConversation(), conversationTick(), m.startStartupTick())
 	case conversationMsg:
@@ -2263,6 +2305,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.listedAt.After(m.statusesAsOf) {
 			m.statusesAsOf = msg.listedAt
 		}
+		heldLandings := m.resumeHeldSnippets()
 		m.settleLandings(msg.listedAt, msg.unseen)
 		m.dropHeldAckOnNewTurn()
 		// A pane taken by the last adopt scan is on the board under its
@@ -2377,21 +2420,30 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {
 			m.syncPollInput()
 			m.previewGen++
-			return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick())
+			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick())
 		}
 		m.proc = msg.proc
 		m.procFor = msg.procFor
 		m.setPreviewAt(msg.preview, msg.previewAt)
-		return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick())
+		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick())
 
 	case childSweptMsg:
 		m.applyChildSweep(msg)
 		return m, nil
 
 	case adoptTickMsg:
+		if m.adoptBusy {
+			// One scan at a time: two at once would each think a pane the
+			// other is taking is free. The arrival poll catches up after.
+			return m, m.adoptTick()
+		}
 		return m, tea.Batch(m.adoptScan(), m.adoptTick())
 
+	case arrivalTickMsg:
+		return m, tea.Batch(m.scanArrivals(time.Now()), m.arrivalTick())
+
 	case adoptedMsg:
+		m.adoptBusy = false
 		if msg.err != nil {
 			m.errBar.text = "adopting a pane: " + msg.err.Error()
 		}
@@ -2668,6 +2720,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.refreshPromptSnips()
 
 	case attachDoneMsg:
+		m.tmux.AttachDone(msg.sessID)
 		// An agent that repainted the terminal background for itself leaves
 		// it on ours; the resume's WindowSizeMsg skips its own sync when the
 		// size is unchanged, so the detach restores the theme's here.
@@ -2956,7 +3009,7 @@ func (m *Model) ageError() {
 		return
 	}
 	m.errBar.age++
-	if m.errBar.age >= 2 {
+	if m.errBar.age >= 2 && !m.offerLive(time.Now()) {
 		m.errBar = errBar{}
 	}
 }

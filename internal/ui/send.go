@@ -1,17 +1,22 @@
 package ui
 
 import (
+	"database/sql"
+	"errors"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/extension/textfmt"
 
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
+
+const snippetSenderID = store.SnippetSenderID
 
 // sendSentence is the guarded path behind every key that answers a session
 // with a canned line: each of the operator's own snippets, from any surface.
@@ -59,6 +64,33 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 			return nil
 		}
 		m.errBar.text = "typed " + quoted + " into " + m.displayName(sess) + " — press enter to send"
+		m.requestRefresh()
+		return nil
+	}
+	// Offline, a line typed into the pane is a turn the agent starts and cannot
+	// finish. It waits in the outbox as the operator's own words instead, and
+	// the poller types it in once the network is back (see netwatch). No
+	// landing check runs: nothing reaches the pane until then.
+	if m.poller.offline() {
+		id, err := m.store.EnqueueHeldSnippet(store.InboxMessage{
+			SessionID:   sess.ID,
+			SenderID:    snippetSenderID,
+			Body:        text,
+			Fingerprint: textfmt.Fingerprint(text),
+			SentAt:      time.Now(),
+		}, handOver)
+		if err != nil {
+			m.errBar.text = err.Error()
+			return nil
+		}
+		m.armLanding(sess, started, extension.OperatorSnippet, text, false, handOver, m.echoBaseline(sess.ID))
+		if m.heldSnippets == nil {
+			m.heldSnippets = map[int64]*pendingLanding{}
+		}
+		m.heldSnippets[id] = m.landings[sess.ID]
+		m.heldSnippets[id].inboxID = id
+		delete(m.landings, sess.ID)
+		m.errBar.text = "offline — " + quoted + " is held for " + m.displayName(sess) + " and sends when the network returns"
 		m.requestRefresh()
 		return nil
 	}
@@ -120,4 +152,93 @@ func (m *Model) dialogHold(sess store.Session) string {
 		return ""
 	}
 	return m.displayName(sess) + " has a dialog open - enter it to answer; a pasted line would answer the dialog"
+}
+
+func (m *Model) resumeHeldSnippets() tea.Cmd {
+	var checks []tea.Cmd
+	heads, err := m.store.HeadMessages()
+	if err != nil {
+		m.errBar.text = err.Error()
+		return nil
+	}
+	if !m.heldSnippetsRestored {
+		held, err := m.store.HeldSnippets()
+		if err != nil {
+			m.errBar.text = err.Error()
+			return nil
+		}
+		if m.heldSnippets == nil {
+			m.heldSnippets = map[int64]*pendingLanding{}
+		}
+		for id, handOver := range held {
+			if m.heldSnippets[id] == nil {
+				m.heldSnippets[id] = &pendingLanding{inboxID: id, via: extension.OperatorSnippet, handOver: handOver}
+			}
+		}
+		m.heldSnippetsRestored = true
+	}
+	for id, pending := range m.heldSnippets {
+		msg, err := m.store.Message(id, snippetSenderID)
+		if err != nil {
+			m.errBar.text = err.Error()
+			if errors.Is(err, sql.ErrNoRows) {
+				if err := m.store.ForgetHeldSnippet(id); err != nil {
+					m.errBar.text = err.Error()
+					continue
+				}
+				m.poller.snippetRecipients.Delete(id)
+				delete(m.heldSnippets, id)
+			}
+			continue
+		}
+		if !msg.DroppedAt.IsZero() || msg.SupersededBy != 0 {
+			if err := m.store.ForgetHeldSnippet(id); err != nil {
+				m.errBar.text = err.Error()
+				continue
+			}
+			m.poller.snippetRecipients.Delete(id)
+			delete(m.heldSnippets, id)
+			continue
+		}
+		restoredDelivery := pending.probe == nil && !msg.DeliveredAt.IsZero()
+		recipient, ready := m.poller.snippetRecipients.Load(id)
+		prepare := msg.DeliveredAt.IsZero() && heads[msg.SessionID].ID == id && (!ready || recipient != msg.SessionID)
+		if pending.sess.ID != msg.SessionID || prepare {
+			sess, err := m.store.Get(msg.SessionID)
+			if err != nil {
+				m.errBar.text = err.Error()
+				continue
+			}
+			m.landingGen++
+			pending.gen = m.landingGen
+			pending.sess = sess
+			pending.text = msg.Body
+			pending.armed = time.Now()
+			pending.probe = m.landingProbeFor(sess, false, m.echoBaseline(sess.ID))
+			pending.observed = *pending.probe
+		}
+		if msg.DeliveredAt.IsZero() {
+			if prepare {
+				m.poller.snippetRecipients.Store(id, msg.SessionID)
+			}
+			continue
+		}
+		delete(m.heldSnippets, id)
+		m.poller.snippetRecipients.Delete(id)
+		pending.deadline = time.Now().Add(landingWindow)
+		if m.landings == nil {
+			m.landings = map[string]*pendingLanding{}
+		}
+		if previous := m.landings[msg.SessionID]; previous != nil {
+			m.dropLanding(msg.SessionID)
+		}
+		m.landings[msg.SessionID] = pending
+		if restoredDelivery {
+			m.dropLanding(msg.SessionID)
+			recordLanding(pending, "restored-unconfirmed")
+		} else {
+			checks = append(checks, landingLook(msg.SessionID, pending))
+		}
+	}
+	return tea.Batch(checks...)
 }

@@ -55,6 +55,10 @@ import (
 //   - The board is running: the pid in its singleton lock answers kill -0.
 //   - The installed binary is still there and executable.
 //
+// SessionStart alone does one thing more when the pane has no marker: with
+// the board running, it announces the pane (arrivals.go), so the board can
+// take it at once rather than on its next scan.
+//
 // Gate Inbox deleted without unregistering leaves entries that fail the first
 // test they reach and stay silent. The prelude's own stderr goes to
 // /dev/null, so nothing it trips over reaches the session either.
@@ -76,6 +80,10 @@ const adoptedDirName = "adopted"
 // that has been given the board's standing instructions; see
 // AdoptedSteering.
 const adoptedSteeringDirName = "adopted-steering"
+
+// adoptedNotesDirName holds, for each adopted row, the pid of the claude its
+// grant notes were said to and which ones; see NoteOnce.
+const adoptedNotesDirName = "adopted-grants"
 
 // globalDisabledName is the file that keeps the board from registering the
 // global hooks again after an operator removed them.
@@ -246,31 +254,64 @@ func (m *Manager) AdoptedSteering(event, id string, agentPID int, text func() st
 	return string(out)
 }
 
-// pruneAdoptedSteering drops the stamps of claudes that have exited, whose
-// pid can match no marker again. A stamp is kept while its claude runs, even
-// when the row is let go: the board lets every row go as it exits, and the
-// session that hears the steering again on the board's next start already
-// has it.
-func (m *Manager) pruneAdoptedSteering() error {
-	dir := filepath.Join(m.dir, adoptedSteeringDirName)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-		return err
+// NoteOnce reports whether the note named key has yet to be said to the
+// claude agentPID adopted as row id, and records it as said. The stamp under
+// hooks/adopted-grants/ is named for the row and holds the claude's pid and
+// the keys said to it, so a new claude adopted into the row hears each again.
+// A stamp that cannot be written says nothing, rather than saying it on every
+// call.
+func (m *Manager) NoteOnce(id string, agentPID int, key string) bool {
+	if checkID(id) != nil || agentPID <= 0 || key == "" || strings.ContainsAny(key, " \t\n") {
+		return false
 	}
+	dir := filepath.Join(m.dir, adoptedNotesDirName)
+	path := filepath.Join(dir, id)
+	pid := strconv.Itoa(agentPID)
+	var said []string
+	if raw, err := os.ReadFile(path); err == nil {
+		if fields := strings.Fields(string(raw)); len(fields) > 0 && fields[0] == pid {
+			said = fields[1:]
+		}
+	}
+	if slices.Contains(said, key) {
+		return false
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return false
+	}
+	return WriteWhole(path, strings.Join(append([]string{pid}, append(said, key)...), " ")+"\n") == nil
+}
+
+// pruneAdoptedSteering drops the stamps of claudes that have exited, whose
+// pid can match no marker again: the steering stamps and the grant-note
+// stamps alike, each opening with that pid. A stamp is kept while its claude
+// runs, even when the row is let go: the board lets every row go as it exits,
+// and the session that hears the steering again on the board's next start
+// already has it.
+func (m *Manager) pruneAdoptedSteering() error {
 	var errs []error
-	for _, entry := range entries {
-		path := filepath.Join(dir, entry.Name())
-		raw, err := os.ReadFile(path)
+	for _, name := range []string{adoptedSteeringDirName, adoptedNotesDirName} {
+		dir := filepath.Join(m.dir, name)
+		entries, err := os.ReadDir(dir)
 		if err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				errs = append(errs, err)
+			}
 			continue
 		}
-		if pid, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && pid > 0 && syscall.Kill(pid, 0) != syscall.ESRCH {
-			continue
+		for _, entry := range entries {
+			path := filepath.Join(dir, entry.Name())
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			if fields := strings.Fields(string(raw)); len(fields) > 0 {
+				if pid, err := strconv.Atoi(fields[0]); err == nil && pid > 0 && syscall.Kill(pid, 0) != syscall.ESRCH {
+					continue
+				}
+			}
+			errs = append(errs, removeIfExists(path))
 		}
-		errs = append(errs, removeIfExists(path))
 	}
 	return errors.Join(errs...)
 }
@@ -352,12 +393,22 @@ func globalMark(configDir string) string {
 // board stops at the first or second.
 func globalCommand(configDir, bin, event string) string {
 	hooksDir := filepath.Join(configDir, "hooks")
+	lock := shellQuote(filepath.Join(configDir, singleton.FileName))
+	unmarked := `[ -f "$m" ] || exit 0; `
+	if event == arrivalEvent {
+		// A pane with no marker yet is one the board may not know about:
+		// announce it (see arrivals.go), still only with builtins, and
+		// only to a board that is running.
+		unmarked = `[ -f "$m" ] || { read -r b < ` + lock + `; [ -n "$b" ] && kill -0 "$b" && ` +
+			`printf '%s\n' "$TMUX" "$TMUX_PANE" "$PPID" > ` +
+			shellQuote(filepath.Join(hooksDir, arrivalsDirName)+"/") + `"${t%%,*}$TMUX_PANE"; exit 0; }; `
+	}
 	return globalMark(configDir) + `exec 2>/dev/null; ` +
 		`[ -z "$` + EnvStatusFile + `" ] || exit 0; [ -n "$TMUX_PANE" ] || exit 0; ` +
 		`t="${TMUX#*,}"; m=` + shellQuote(filepath.Join(hooksDir, adoptedDirName)+"/") + `"${t%%,*}$TMUX_PANE"; ` +
-		`[ -f "$m" ] || exit 0; read -r i p < "$m"; [ "$p" = "$PPID" ] || exit 0; ` +
+		unmarked + `read -r i p < "$m"; [ "$p" = "$PPID" ] || exit 0; ` +
 		`case "$i" in ''|*[!A-Za-z0-9_-]*) exit 0;; esac; ` +
-		`read -r b < ` + shellQuote(filepath.Join(configDir, singleton.FileName)) + `; [ -n "$b" ] && kill -0 "$b" || exit 0; ` +
+		`read -r b < ` + lock + `; [ -n "$b" ] && kill -0 "$b" || exit 0; ` +
 		`[ -x ` + shellQuote(bin) + ` ] || exit 0; ` +
 		EnvSessionID + `="$i"; ` +
 		EnvStatusFile + `=` + shellQuote(hooksDir+"/") + `"$i.status"; ` +
@@ -462,6 +513,20 @@ func matcherTakes(matcher, value string) bool {
 		return true
 	}
 	return slices.Contains(strings.Split(matcher, "|"), value)
+}
+
+// OutputSays reports whether a hook output already carries field in its
+// hookSpecificOutput: a permission decision, which a second hook must not
+// contradict, or a classifierContext, whose cap the hooks on one call share.
+func OutputSays(output, field string) bool {
+	var parsed struct {
+		Specific map[string]any `json:"hookSpecificOutput"`
+	}
+	if json.Unmarshal([]byte(output), &parsed) != nil {
+		return false
+	}
+	_, ok := parsed.Specific[field]
+	return ok
 }
 
 // MergeHookOutputs is mergeHookOutputs over the outputs that are not empty,

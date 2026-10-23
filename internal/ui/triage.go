@@ -38,6 +38,7 @@ var triageTiers = []string{
 	status.Finished,
 	status.Idle,
 	status.Delegating,
+	status.Pending,
 	status.Errored,
 	status.Working,
 	status.Starting,

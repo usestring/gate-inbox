@@ -5,6 +5,7 @@ package config
 import (
 	"crypto/sha256"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/mergegate"
+	"github.com/usestring/gate-inbox/internal/netwatch"
 	"github.com/usestring/gate-inbox/internal/priority"
 )
 
@@ -84,6 +86,13 @@ type Tool struct {
 	// about the first write there. Left unset, such a launch carries only
 	// the change-directory note, which is all a tool without the flag gets.
 	AddDirFlag string `toml:"add_dir_flag"`
+	// SkipPermissionsFlag launches a session with no permission prompts at
+	// all (claude "--dangerously-skip-permissions", codex
+	// "--dangerously-bypass-approvals-and-sandbox"), for a session the operator
+	// chose to run that way. Left unset, the tool cannot be launched so, and
+	// a launch asking for it is refused rather than run with prompts the
+	// operator thought were off.
+	SkipPermissionsFlag string `toml:"skip_permissions_flag"`
 	// LaunchInPlace opens a spawn's pane in the directory it asked for even
 	// when that lies outside the caller's tree. Set it for a CLI whose
 	// first-run trust dialog defaults to continuing: diverting such a CLI
@@ -459,7 +468,8 @@ type Board struct {
 }
 
 type Config struct {
-	PollInterval Duration `toml:"poll_interval"`
+	PollInterval       Duration `toml:"poll_interval"`
+	OutboxProbeTargets []string `toml:"outbox_probe_targets"`
 	// AdoptSockets names extra tmux servers to scan for agent panes the
 	// manager did not start. The default server is always scanned; this is
 	// for sessions kept on a named socket.
@@ -584,6 +594,12 @@ func LoadDir(dir string) (Config, error) {
 // validate refuses values the board has no reading for, so a misspelt
 // choice is named at startup rather than quietly drawn as the default.
 func (c Config) validate() error {
+	for _, target := range c.OutboxProbeTargets {
+		u, err := url.Parse(target)
+		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+			return fmt.Errorf("outbox_probe_targets: each target must be an HTTP or HTTPS URL")
+		}
+	}
 	switch c.Board.Sidebar {
 	case SidebarRight, SidebarLeft:
 	default:
@@ -765,6 +781,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	}
 	fill(&user.SessionIDFlag, def.SessionIDFlag)
 	fill(&user.AddDirFlag, def.AddDirFlag)
+	fill(&user.SkipPermissionsFlag, def.SkipPermissionsFlag)
 	fill(&user.ResumeByIDCommand, def.ResumeByIDCommand)
 	fill(&user.ResumePickerCommand, def.ResumePickerCommand)
 	fill(&user.ForkCommand, def.ForkCommand)
@@ -994,6 +1011,9 @@ func Default() (Config, error) {
 }
 
 func (c *Config) applyDefaults() {
+	if c.OutboxProbeTargets == nil {
+		c.OutboxProbeTargets = slices.Clone(netwatch.DefaultTargets)
+	}
 	if c.PollInterval.Duration <= 0 {
 		c.PollInterval.Duration = 2 * time.Second
 	}
@@ -1213,6 +1233,8 @@ session_id_flag = "--session-id"
 # a spawn whose pane opens outside the directory it asked for is granted
 # that directory too, so its first write there is not denied
 add_dir_flag = "--add-dir"
+# a session launched with "skip permissions" on runs with no permission prompts
+skip_permissions_flag = "--dangerously-skip-permissions"
 resume_by_id_command = "claude --resume {id}"
 resume_picker_command = "claude --resume"
 fork_command = "claude --resume {id} --fork-session --session-id {new_id} --name {name}"
@@ -1346,6 +1368,8 @@ command = "opencode"
 # "provider/model" into the generated OPENCODE_CONFIG instead.
 # No add_dir_flag: opencode has no flag granting a second directory, so a
 # spawn diverted to another directory is only told to change into it.
+# No skip_permissions_flag: opencode's TUI has no flag that turns its
+# permission prompts off, so a session on it cannot be launched that way.
 # every provider/model pair this login can reach, one per line
 models_command = "opencode models"
 # opencode mints its own session id; capture it after launch and resume it
@@ -1453,6 +1477,8 @@ command = "codex"
 model_flag = "--model"
 # codex-cli 0.157.0: --add-dir <DIR>, writable alongside the primary workspace
 add_dir_flag = "--add-dir"
+# no approval prompts and no sandbox, for a session launched with "skip permissions"
+skip_permissions_flag = "--dangerously-bypass-approvals-and-sandbox"
 # Codex's trust dialog defaults to "Trust and continue", while a codex started
 # in an untrusted directory runs read-only and exits on --add-dir. A spawn
 # outside the caller's tree therefore opens where it asked to work.
@@ -1460,6 +1486,11 @@ launch_in_place = true
 # codex repaints a typed character in 27-45ms against Claude Code's 10-25ms,
 # so the default chase gives up mid-repaint and the key waits for a tick
 echo_budget = "90ms"
+# codex-cli 0.163: text pasted and submitted while a turn runs is taken as a
+# steer and read at the turn's next step. Without this a message to a codex
+# that stays busy -- a coordinator waiting on its children -- queues until a
+# rest that may not come for an hour.
+type_ahead = true
 # No rename_command on purpose. Codex ships a BUILT-IN /rename ("rename the
 # current thread") which shadows any prompt file of that name, so typing it
 # renamed codex's own thread and never reached the manager: a rename that

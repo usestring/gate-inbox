@@ -455,7 +455,6 @@ func (m *Model) sessionDetailLines(width int) []string {
 			factRoom, "…")
 	}
 	lines := []string{
-		pad + subtleStyle.Render("session"),
 		railFact(pad, "cli", chipStyle.Render(textfmt.TruncateWidth(tool, max(factRoom-2, 1), "…"))),
 		railFact(pad, "group", lipgloss.NewStyle().Foreground(colorAccent2).Render(textfmt.TruncateWidth(displayGroup(sess.Group), factRoom, "…"))),
 		railFact(pad, "dir", mutedStyle.Render(truncateTail(sess.Cwd, factRoom))),
@@ -1059,6 +1058,11 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	if m.isHookless(sess) {
 		head += " " + subtleText(hooklessGlyph())
 	}
+	// Errored tint, like ⊗: not a fault, but the one thing about the row
+	// the operator must never forget is true of it.
+	if sess.SkipPermissions {
+		head += " " + statusTint(status.Errored, skipPermsGlyph())
+	}
 	if m.isDiedWhileClosed(sess) {
 		head += " " + statusTint(status.Errored, diedGlyph())
 	}
@@ -1390,13 +1394,14 @@ type meterKey struct {
 	net        netStats
 	hasContext bool
 	usage      search.TokenUsage
+	headroom   string
 }
 
 // computerLines is the machine block docked at the rail's foot: a label
 // and one thin meter per resource.
 func (m *Model) computerLines(width int) []string {
 	usage, hasContext := m.selectedTokenUsage()
-	key := meterKey{gen: renderGen, width: width, snap: m.snap, net: m.net, hasContext: hasContext, usage: usage}
+	key := meterKey{gen: renderGen, width: width, snap: m.snap, net: m.net, hasContext: hasContext, usage: usage, headroom: m.headroomKey()}
 	if m.meterMemoOK && m.meterMemoKey == key {
 		return m.meterMemo
 	}
@@ -1477,6 +1482,10 @@ func (m *Model) buildComputerLines(width int) []string {
 		lines = append(lines, pad+labelStyle.Width(5).Render("net")+
 			valueStyle.Render("↓ "+humanBytes(m.net.down)+"/s")+
 			subtleStyle.Render("  ↑ "+humanBytes(m.net.up)+"/s"))
+	}
+
+	if sub := m.headroomLines(width); len(sub) > 0 {
+		lines = append(append(lines, ""), sub...)
 	}
 
 	return append(lines, "")

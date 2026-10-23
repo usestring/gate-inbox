@@ -183,6 +183,8 @@ func (m *Model) viewForm() string {
 	var b strings.Builder
 	b.WriteString(formField("tool", m.viewToolField(), m.form.focus == fieldTool))
 	b.WriteString(formField("model", m.form.model.View(), m.form.focus == fieldModel))
+	b.WriteString(formField("perms", m.viewSkipToggle(m.form.skip, m.formSkipSupported()), m.form.focus == fieldSkip))
+	b.WriteString(formField("children", m.viewSkipToggle(m.form.childrenSkip, true), m.form.focus == fieldChildrenSkip))
 	b.WriteString(formField("name", m.form.name.View(), m.form.focus == fieldName))
 	// Chips are tokens inside the typed text, so they wrap and reflow with
 	// the words around them; painting happens on the rendered prompt.
@@ -753,4 +755,23 @@ func agentPickRows(names []string, selected string, budget int) []string {
 		lines = append(lines, line.String())
 	}
 	return lines
+}
+
+// viewSkipToggle draws a skip-permissions toggle between the arrows that
+// flip it, in the warning colour while on, and says so where the selected CLI
+// has no flag to honour it.
+func (m *Model) viewSkipToggle(on, supported bool) string {
+	return m.viewSkipToggleFor(on, supported, m.selectedToolName())
+}
+
+func (m *Model) viewSkipToggleFor(on, supported bool, toolName string) string {
+	value := valueStyle.Render("ask")
+	if on {
+		value = errStyle.Render("skip all prompts")
+	}
+	out := subtleStyle.Render("◂ ") + value + subtleStyle.Render(" ▸")
+	if !supported {
+		out += subtleStyle.Render("  (no flag on " + toolName + ")")
+	}
+	return out
 }

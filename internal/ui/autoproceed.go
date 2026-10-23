@@ -220,6 +220,8 @@ func (m *Model) handOverOnWork(before string) tea.Cmd {
 	if inFlight {
 		pending.observed.decided = "poll"
 		recordLanding(pending, "seen")
+		m.noteSubmission(pending.sess)
+		m.noteOperator(pending.sess, pending.via, pending.text, pending.probe.dialog)
 	}
 	m.dropLanding(sess.ID)
 	return m.handOverFocused(sess)

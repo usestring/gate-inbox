@@ -31,7 +31,20 @@ type migrateState struct {
 	// transcript is located when the card opens, so a session with nothing
 	// to move is refused before a name is typed.
 	transcript migrate.Transcript
+	// skip and childrenSkip open on the source's settings, so a move left
+	// alone keeps them. focus is the card row ↑↓ is on: the name, then
+	// these two.
+	skip         bool
+	childrenSkip bool
+	focus        int
 }
+
+const (
+	migrateFocusName = iota
+	migrateFocusSkip
+	migrateFocusChildrenSkip
+	migrateFocusCount
+)
 
 func (m *Model) openMigrate() {
 	entry, ok := m.selectedRow()
@@ -61,7 +74,8 @@ func (m *Model) openMigrate() {
 	name.SetValue(entry.sess.Name + "-" + tools[0])
 	name.CursorEnd()
 	name.Focus()
-	m.migrate = migrateState{source: entry.sess, name: name, toolNames: tools, transcript: transcript}
+	m.migrate = migrateState{source: entry.sess, name: name, toolNames: tools, transcript: transcript,
+		skip: entry.sess.SkipPermissions, childrenSkip: entry.sess.ChildrenSkipPermissions}
 	m.errBar.text = ""
 	m.mode = modeMigrate
 }
@@ -80,10 +94,50 @@ func (m *Model) handleMigrateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.submitMigrate()
+	case "up":
+		m.moveMigrateFocus(-1)
+		return m, nil
+	case "down":
+		m.moveMigrateFocus(1)
+		return m, nil
+	case "space", "left", "right":
+		switch m.migrate.focus {
+		case migrateFocusSkip:
+			m.migrate.skip = !m.migrate.skip
+			return m, nil
+		case migrateFocusChildrenSkip:
+			m.migrate.childrenSkip = !m.migrate.childrenSkip
+			return m, nil
+		}
+	}
+	if m.migrate.focus != migrateFocusName {
+		return m, nil
 	}
 	var cmd tea.Cmd
 	m.migrate.name, cmd = m.migrate.name.Update(msg)
 	return m, cmd
+}
+
+func (m *Model) moveMigrateFocus(delta int) {
+	m.migrate.focus = (m.migrate.focus + delta + migrateFocusCount) % migrateFocusCount
+	if m.migrate.focus == migrateFocusName {
+		m.migrate.name.Focus()
+	} else {
+		m.migrate.name.Blur()
+	}
+}
+
+// migratePermissions is what the card asks of migrate.SkipPermissions: a
+// setting only where the operator changed it, so one left alone follows the
+// source the way an agent's move does.
+func (m *Model) migratePermissions() (self, children *bool) {
+	if m.migrate.skip != m.migrate.source.SkipPermissions {
+		self = &m.migrate.skip
+	}
+	if m.migrate.childrenSkip != m.migrate.source.ChildrenSkipPermissions {
+		children = &m.migrate.childrenSkip
+	}
+	return self, children
 }
 
 // cycleMigrateTool steps the target and follows it in the name when the
@@ -168,6 +222,12 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 	}
 	moved := migrate.NewSession(id, name, toolName, source, plan)
 	moved.MigrationOpening = m.openingPrompts(source)
+	self, children := m.migratePermissions()
+	moved.SkipPermissions, moved.ChildrenSkipPermissions, err = migrate.SkipPermissions(source, tool, self, children)
+	if err != nil {
+		m.reportLaunchError(err)
+		return m, nil
+	}
 	if err := m.launchNewSession(moved, tool, plan.Command); err != nil {
 		m.reportLaunchError(err)
 		return m, nil
@@ -221,6 +281,14 @@ func (m *Model) viewMigrate() string {
 	body := "  source  " + valueStyle.Render(m.migrate.source.Name) + "  " + mutedStyle.Render("on "+m.migrate.source.Tool) + "\n" +
 		"  reads   " + mutedStyle.Render(from) + "\n" +
 		"  to      " + valueStyle.Render(m.migrateTool()) + "  " + mutedStyle.Render("tab cycles") + "\n" +
-		formField("name", m.migrate.name.View(), true)
-	return m.card("⇄ Migrate Session", body, [][2]string{{"↵", "create"}, {"tab", "tool"}, {"esc", "cancel"}})
+		formField("name", m.migrate.name.View(), m.migrate.focus == migrateFocusName) +
+		formField("perms", m.viewMigrateSkipToggle(m.migrate.skip), m.migrate.focus == migrateFocusSkip) +
+		formField("children", m.viewSkipToggle(m.migrate.childrenSkip, true), m.migrate.focus == migrateFocusChildrenSkip)
+	return m.card("⇄ Migrate Session", body, [][2]string{{"↵", "create"}, {"tab", "tool"}, {"↑↓", "move"}, {"←→", "change"}, {"esc", "cancel"}})
+}
+
+// viewMigrateSkipToggle is the session's own toggle on the migrate card,
+// which says when the destination CLI cannot honour it.
+func (m *Model) viewMigrateSkipToggle(on bool) string {
+	return m.viewSkipToggleFor(on, m.cfg.Tools[m.migrateTool()].SkipPermissionsFlag != "", m.migrateTool())
 }

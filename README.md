@@ -32,11 +32,12 @@ Gate Inbox reads the panes; it does not sit between you and the model.
 2. **Start it.** Run `gate-inbox`, inside tmux or outside it. The welcome card lists which of your
    agent CLIs are ready, the five keys that matter, and any agents you already have running in
    tmux. `n` on the card starts your first session.
-3. **Agents you already had.** Anything you started by hand in tmux shows up on the board as-is.
-   The board then takes each one over: once it is idle, it is relaunched on the same conversation
-   as a board session, and a busy one is never interrupted. What a pane kept as-is would miss is
-   [below](#kept-as-is-or-relaunched); settings (`s`) has "outside panes" to keep them as-is
-   instead.
+3. **Agents you already had.** Anything you started by hand in tmux shows up on the board as-is,
+   and stays where it is: the board never ends your process unasked. `a` on its row (or on the
+   toast that names a pane started while the board is up) brings it in: once it is idle, it is
+   relaunched on the same conversation as a board session. `o` leaves it off the board. What a
+   pane kept as-is misses is [below](#kept-as-is-or-relaunched); settings (`s`) has "outside
+   panes" to take them over once idle without asking.
 4. **The loop.** `n` starts an agent, `enter` focuses it, `ctrl+q` comes back to the list, `i`
    walks everything waiting on you, and `h` shows every key.
 5. **Leaving and coming back.** `q` quits and the agents keep running. When you start it again,
@@ -45,7 +46,7 @@ Gate Inbox reads the panes; it does not sit between you and the model.
 
 ### Kept as-is or relaunched?
 
-| An agent pane you started by hand, kept as-is... | Relaunched into the board, it... |
+| An agent pane you started by hand, kept as-is (the default)... | Brought into the board (`a`), it... |
 |---|---|
 | keeps running where it is, in its own window | is ended once idle and resumed on the same conversation as a board session |
 | gets the board's MCP tools (spawn, message, tasks) through the relay the board registers in your Claude Code user config (Claude Code only; other CLIs get none) | gets them |
@@ -53,7 +54,7 @@ Gate Inbox reads the panes; it does not sit between you and the model.
 | reports status through the hooks the board registers in your Claude Code user settings (Claude Code only) | reports status through the hooks it is launched with |
 | lacks the `GATE_INBOX_*` environment, extension settings and a fresh account token | gets all three |
 | can't be forked, migrated, restarted or revived without a conversation id | can, on its own conversation |
-| doesn't get the back-to-board keys or the pane's title and colours | gets them |
+| gets the back-to-board keys when the board attaches it (`A`), not its title and colours | gets them all |
 | keeps the flags and `--model` it was started with | is started from your config, so it doesn't keep them |
 
 ## Install
@@ -285,8 +286,9 @@ set. It runs from any shell, and `--dry-run` prints the plan first. `gate-inbox 
 the same sessions back on their conversations. A single one: `gate-inbox kill <id>`, with the id
 from `gate-inbox sessions`. From inside a managed agent session, `gate-inbox stop` ends that
 session and preserves its row and conversation for an explicit revive. It records an intentional
-stop, so startup recovery does not offer it as a lost session. `gate-inbox stop --dry-run`
-verifies the current pane without ending it. Adopted callers with verified pane process ancestry can also stop themselves.
+stop, so startup recovery does not offer it as a lost session. `gate-inbox stop --archive` also
+files the ended row out of the active list, where `archive --restore` can bring it back for 7 days.
+`gate-inbox stop --dry-run` verifies the current pane without ending it. Adopted callers with verified pane process ancestry can also stop themselves.
 Shared-daemon callers whose pane cannot be verified refuse shutdown. Other adopted panes can be stopped by id from
 another session or the board.
 
@@ -318,7 +320,8 @@ directory's most recent one.
 4. Remove the launch scripts and pasted images it left in your temp directory:
    `rm -f "${TMPDIR:-/tmp}"/gi-launch-*.sh` and `rm -rf "${TMPDIR:-/tmp}/gate-inbox-pastes"`.
 5. Undo the tmux key bindings it added (`ctrl+q` and `ctrl+\`, plus `alt+o` from older releases,
-   which act only inside `gi_*` sessions):
+   which act only inside `gi_*` sessions and adopted panes the board attached), on each tmux
+   server it adopted a pane on:
    `tmux unbind-key -n C-q \; unbind-key -n 'C-\' \; unbind-key -n M-o`, or
    restart tmux. If the board didn't exit cleanly, `tmux kill-session -t gi_poll-anchor` removes
    its helper session. If you gave it a private tmux socket, `tmux -L <name> kill-server` does

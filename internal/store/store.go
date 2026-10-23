@@ -119,6 +119,14 @@ type Session struct {
 	// spends the same person's usage window, not whoever is logged in now.
 	// It is a name, never the token.
 	Account string
+	// SkipPermissions launches the session with its CLI's skip-permissions
+	// flag (config skip_permissions_flag). Kept so a revive, a restart and a
+	// migration come back the way the operator chose, not quietly safer or
+	// quietly less safe.
+	SkipPermissions bool
+	// ChildrenSkipPermissions is the default for sessions this one spawns
+	// through create_session; the call can still say otherwise per child.
+	ChildrenSkipPermissions bool
 	// LaunchPrompt is the prompt handed to the agent on its command line.
 	// Pending input waits for it to show in the pane, because an agent
 	// taking it clears the composer and anything pasted there.
@@ -552,6 +560,10 @@ CREATE TABLE IF NOT EXISTS settings (
 		// A group that pins its path starts every session spawned into it
 		// there. See PinnedPath.
 		`ALTER TABLE groups ADD COLUMN pin_path INTEGER NOT NULL DEFAULT 0`,
+		// Whether a session launches with its CLI's skip-permissions flag,
+		// and whether the sessions it spawns do. See Session.SkipPermissions.
+		`ALTER TABLE sessions ADD COLUMN skip_permissions INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE sessions ADD COLUMN children_skip_permissions INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {
@@ -743,12 +755,13 @@ func (s *Store) insertSession(sess Session, anchorID string, leaf bool, launch f
 		sess.SpawnedBy = sess.ParentID
 	}
 	_, err = tx.Exec(
-		`INSERT INTO sessions (id, name, tool, cwd, group_name, status, archived, muted, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, pending_inputs, parent_id, spawned_by, launch_prompt, model, account, name_source, priority_tier, role, sort_order)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+		`INSERT INTO sessions (id, name, tool, cwd, group_name, status, archived, muted, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, pending_inputs, parent_id, spawned_by, launch_prompt, model, account, skip_permissions, children_skip_permissions, name_source, priority_tier, role, sort_order)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 		         (SELECT COALESCE(MAX(sort_order)+1, 0) FROM sessions WHERE group_name = ? AND parent_id = ?))`,
 		sess.ID, sess.Name, sess.Tool, sess.Cwd, sess.Group, sess.Status,
 		boolToInt(sess.Archived), boolToInt(sess.Muted), encodeTime(sess.CreatedAt), encodeTime(sess.LastStatusAt), sess.AgentSessionID,
 		sess.TmuxSocket, sess.TmuxPaneID, pendingInputs, sess.ParentID, sess.SpawnedBy, sess.LaunchPrompt, sess.Model, sess.Account,
+		boolToInt(sess.SkipPermissions), boolToInt(sess.ChildrenSkipPermissions),
 		nameSourceOr(sess.NameSource), string(sess.Priority), sess.Role,
 		sess.Group, sess.ParentID,
 	)
@@ -870,7 +883,7 @@ func (s *Store) ListSessions(includeArchived bool) ([]Session, error) {
 }
 
 func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
-	query := `SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, muted, created_at, last_status_at, operator_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, ` + spawnerColumnOf("sessions") + `, launch_prompt, model, account, name_source, priority_tier, role, replaced_by, ` + migrationColumn + `, ` + migrationOpeningColumn + `, sort_order, rowid
+	query := `SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, muted, created_at, last_status_at, operator_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, ` + spawnerColumnOf("sessions") + `, launch_prompt, model, account, skip_permissions, children_skip_permissions, name_source, priority_tier, role, replaced_by, ` + migrationColumn + `, ` + migrationOpeningColumn + `, sort_order, rowid
 	          FROM sessions`
 	if !includeArchived {
 		query += ` WHERE archived = 0`
@@ -889,11 +902,12 @@ func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
 		var tier string
 		var created, lastStatus, operatorAt, agentLaunched, archivedAt int64
 		var pendingInputs, migrationOpening string
+		var skip, childrenSkip int
 		if err := rows.Scan(&sess.ID, &sess.Name, &sess.Tool, &sess.Cwd,
 			&sess.Group, &sess.Status, &archived, &archivedAt, &acked, &muted, &created, &lastStatus, &operatorAt,
 			&sess.AgentSessionID,
 			&sess.TmuxSocket, &sess.TmuxPaneID,
-			&agentLaunched, &sess.RetiredAgentSessionID, &pendingInputs, &pendingClaimed, &sess.ParentID, &sess.SpawnedBy, &sess.LaunchPrompt, &sess.Model, &sess.Account, &sess.NameSource, &tier, &sess.Role, &sess.ReplacedBy, &sess.MigrationID, &migrationOpening, &sess.position.SortOrder, &sess.position.RowID); err != nil {
+			&agentLaunched, &sess.RetiredAgentSessionID, &pendingInputs, &pendingClaimed, &sess.ParentID, &sess.SpawnedBy, &sess.LaunchPrompt, &sess.Model, &sess.Account, &skip, &childrenSkip, &sess.NameSource, &tier, &sess.Role, &sess.ReplacedBy, &sess.MigrationID, &migrationOpening, &sess.position.SortOrder, &sess.position.RowID); err != nil {
 			return nil, err
 		}
 		sess.position.Group, sess.position.Created = sess.Group, created
@@ -908,6 +922,8 @@ func (s *Store) listSessions(includeArchived bool) ([]Session, error) {
 		sess.ArchivedAt = decodeTime(archivedAt)
 		sess.Acked = acked != 0
 		sess.Muted = muted != 0
+		sess.SkipPermissions = skip != 0
+		sess.ChildrenSkipPermissions = childrenSkip != 0
 		sess.PendingInputClaimed = pendingClaimed != 0
 		sess.CreatedAt = decodeTime(created)
 		sess.LastStatusAt = decodeTime(lastStatus)
@@ -924,13 +940,14 @@ func (s *Store) Get(id string) (Session, error) {
 	var tier string
 	var created, lastStatus, operatorAt, agentLaunched, archivedAt int64
 	var pendingInputs, migrationOpening string
+	var skip, childrenSkip int
 	err := s.db.QueryRow(
-		`SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, muted, created_at, last_status_at, operator_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, `+spawnerColumnOf("sessions")+`, launch_prompt, model, account, name_source, priority_tier, role, replaced_by, `+migrationColumn+`, `+migrationOpeningColumn+`
+		`SELECT id, name, tool, cwd, group_name, status, archived, archived_at, acked, muted, created_at, last_status_at, operator_at, agent_session_id, tmux_socket, tmux_pane_id, agent_launched_at, retired_agent_session_id, pending_inputs, pending_claimed, parent_id, `+spawnerColumnOf("sessions")+`, launch_prompt, model, account, skip_permissions, children_skip_permissions, name_source, priority_tier, role, replaced_by, `+migrationColumn+`, `+migrationOpeningColumn+`
 		 FROM sessions WHERE id = ?`, id,
 	).Scan(&sess.ID, &sess.Name, &sess.Tool, &sess.Cwd, &sess.Group,
 		&sess.Status, &archived, &archivedAt, &acked, &muted, &created, &lastStatus, &operatorAt, &sess.AgentSessionID,
 		&sess.TmuxSocket, &sess.TmuxPaneID,
-		&agentLaunched, &sess.RetiredAgentSessionID, &pendingInputs, &pendingClaimed, &sess.ParentID, &sess.SpawnedBy, &sess.LaunchPrompt, &sess.Model, &sess.Account, &sess.NameSource, &tier, &sess.Role, &sess.ReplacedBy, &sess.MigrationID, &migrationOpening)
+		&agentLaunched, &sess.RetiredAgentSessionID, &pendingInputs, &pendingClaimed, &sess.ParentID, &sess.SpawnedBy, &sess.LaunchPrompt, &sess.Model, &sess.Account, &skip, &childrenSkip, &sess.NameSource, &tier, &sess.Role, &sess.ReplacedBy, &sess.MigrationID, &migrationOpening)
 	if err != nil {
 		return Session{}, err
 	}
@@ -945,6 +962,8 @@ func (s *Store) Get(id string) (Session, error) {
 	sess.ArchivedAt = decodeTime(archivedAt)
 	sess.Acked = acked != 0
 	sess.Muted = muted != 0
+	sess.SkipPermissions = skip != 0
+	sess.ChildrenSkipPermissions = childrenSkip != 0
 	sess.PendingInputClaimed = pendingClaimed != 0
 	sess.CreatedAt = decodeTime(created)
 	sess.LastStatusAt = decodeTime(lastStatus)
@@ -1444,6 +1463,21 @@ func (s *Store) SetArchived(id string, archived bool) error {
 	// walks the group's ancestors -- so the direction is on the span.
 	recordOp("store.SetArchived", start, err, true, tracing.Attr{Key: "archived", Value: archived})
 	return err
+}
+
+func (s *Store) ArchiveStoppedLaunch(sess Session) (bool, error) {
+	result, err := s.db.Exec(`UPDATE sessions SET archived = 1, archived_at = ?
+		WHERE id = ? AND archived = 0 AND status = 'dead'
+		AND CASE WHEN agent_launched_at = 0 THEN created_at ELSE agent_launched_at END IN (?, ?)`,
+		encodeTime(time.Now()), sess.ID, encodeTime(sess.LaunchTime()), sess.LaunchTime().Unix())
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil || n == 0 {
+		return false, err
+	}
+	return true, s.tallyChildArchive(sess.ID, true)
 }
 
 func (s *Store) setArchived(id string, archived bool) error {
@@ -2397,6 +2431,33 @@ func EffectiveTier(groupTiers map[string]priority.Tier, sess Session) priority.T
 	tier := sess.Priority
 	for path := sess.Group; path != ""; path = parentPath(path) {
 		tier = priority.Better(tier, groupTiers[path])
+	}
+	return tier
+}
+
+// InheritedTier is EffectiveTier raised to the effective tier of every
+// session above sess in the chain of trackers (TrackerOf), which is the tier
+// that sizes the session's resources rather than its place on the board: a
+// child doing an urgent session's work needs that session's room to do it.
+//
+// The chain follows TrackerOf, so a detached spawn inherits nothing -- it was
+// handed to the user as its own piece of work, not done on the maker's
+// behalf. lookup resolves a tracker by id; one it cannot resolve ends the
+// walk, and so does an id already visited, so a cycle written by a
+// placement or a migration cannot hang the caller.
+//
+// The board does not sort by this: EffectiveTier stays the order the
+// operator set, so a child never jumps the queue on its parent's word.
+func InheritedTier(groupTiers map[string]priority.Tier, sess Session, lookup func(id string) (Session, bool)) priority.Tier {
+	tier := EffectiveTier(groupTiers, sess)
+	seen := map[string]bool{sess.ID: true}
+	for id := TrackerOf(sess); id != "" && !seen[id]; id = TrackerOf(sess) {
+		seen[id] = true
+		var ok bool
+		if sess, ok = lookup(id); !ok {
+			break
+		}
+		tier = priority.Better(tier, EffectiveTier(groupTiers, sess))
 	}
 	return tier
 }

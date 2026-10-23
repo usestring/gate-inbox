@@ -406,6 +406,11 @@ launch_in_place = true
 # codex repaints a typed character in 27-45ms against Claude Code's 10-25ms,
 # so the default chase gives up mid-repaint and the key waits for a tick
 echo_budget = "90ms"
+# codex-cli 0.163: text pasted and submitted while a turn runs is taken as a
+# steer and read at the turn's next step. Without this a message to a codex
+# that stays busy -- a coordinator waiting on its children -- queues until a
+# rest that may not come for an hour.
+type_ahead = true
 # No rename_command on purpose. Codex ships a BUILT-IN /rename ("rename the
 # current thread") which shadows any prompt file of that name, so typing it
 # renamed codex's own thread and never reached the manager: a rename that

@@ -760,7 +760,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Name: "send_session",
 		Description: "Queue a message for another agent, to give a session you spawned its next task, answer a question read_session surfaced, or redirect work going the wrong way. " +
 			"The other agent has no view of this conversation, so send a self-contained instruction. " +
-			"The message is not typed in the instant you send it: Gate Inbox holds it until that agent can read it -- at rest, or for Claude Code mid-turn, where it is queued and read after the running tool call -- so it can never land on an approval prompt and answer it. " +
+			"The message is not typed in the instant you send it: Gate Inbox holds it until that agent can read it -- at rest, for Claude Code mid-turn, or through supported Codex active-turn steering. Codex steering uses the local app-server control socket and waits for an acknowledgment; embedded, remote, older or unavailable servers keep the message queued until idle. Messages never answer approval or trust dialogs. " +
 			"A successful send means queued, not delivered: do not tell anyone the agent has it until message_status says delivered. " +
 			"Two modes. By default (interrupt false) the agent finishes the tool call in hand and then reads the message. With interrupt true, Gate Inbox first stops the agent's running turn (Escape for Claude Code) and types the message in as its next turn: use it when the work in progress is wrong and every further step is waste. " +
 			"Interrupt is refused for a CLI with no safe way to stop a turn, and neither mode ever sends keys while a permission or question dialog is showing: the message is held and the result says so. " +
@@ -792,12 +792,12 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "message_status",
-		Description: "Check what happened to a message send_session queued: still queued, held, delivered into the agent's prompt, dropped, or answered. " +
+		Description: "Check what happened to a message send_session queued: still queued, held, delivered, dropped, or answered. Delivered means submitted to the agent, not proof it has read or acted on the message. " +
 			"Works for a message you sent and for any message sent to a session you spawned, so you can audit what reached your children. " +
 			"Call it when you need to know a handoff landed before you build on it, instead of reading the other agent's screen. " +
 			"Superseded means a later message you sent on the same subject replaced it, and that one is what the agent reads. " +
 			"Held means nothing will type it in as things stand: the recipient's screen is showing a dialog that has to be answered first, or its session is archived or no longer running, and reason says which. " +
-			"Dropped means it never reached the prompt and will not be retried, so send it again.",
+			"Dropped means delivery could not be confirmed and will not be retried automatically; the input may have arrived, so read the session before deciding whether to resend.",
 		Annotations: mcptool.Annotations(true, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args messageStatusArgs) (*mcp.CallToolResult, sessioncmd.MessageState, error) {
 		state, err := sessions.MessageStatus(sessionID, args.MessageID)

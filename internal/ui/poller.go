@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"errors"
@@ -21,6 +22,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/agentsession"
 	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/band"
+	"github.com/usestring/gate-inbox/internal/codexinput"
 	"github.com/usestring/gate-inbox/internal/codexq"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
@@ -47,6 +49,7 @@ import (
 // inside a tmux attach. The UI receives the results as refreshMsg values
 // and merely renders them.
 type poller struct {
+	steerCodex        func(context.Context, string, string, codexinput.Claim) (codexinput.Outcome, error)
 	snippetRecipients sync.Map
 	// net reads whether the machine is online. Nil, as in every test that
 	// does not set one, reads online.
@@ -1652,8 +1655,8 @@ func (p *poller) maybeDeliverInbox(sess store.Session, heads map[string]store.In
 	return err
 }
 
-// deliverInboxHead is maybeDeliverInbox reporting whether it handed a
-// message to the pane, which starts a turn only the next capture can show.
+// A delivery starts asynchronously, so the caller must wait for a fresh
+// capture before making another decision about the recipient.
 func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.InboxMessage, capture tmux.Capture, derived string, agentAlive bool) (bool, error) {
 	if !agentAlive {
 		return false, nil
@@ -1692,16 +1695,24 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 	if p.offline() {
 		return false, nil
 	}
+	steering := sess.Tool == "codex" && derived == status.Working
+	if steering && (msg.Interrupt || sess.AgentSessionID == "") {
+		return false, nil
+	}
 	if msg.Interrupt && derived == status.Working && msg.ClaimedAt.IsZero() {
 		if waiting, err := p.interruptForMessage(sess, msg, capture); waiting || err != nil {
 			return false, err
 		}
 	}
-	if !pendingDeliverable(derived, p.engine.TypeAhead(sess.Tool)) {
+	if !steering && !pendingDeliverable(derived, p.engine.TypeAhead(sess.Tool)) {
 		return false, nil
 	}
 	clean := ansi.Strip(capture.Text)
-	if p.engine.DeliveryHold(sess.Tool, clean) != "" {
+	if steering {
+		if p.engine.TypingHold(sess.Tool, clean) == status.Waiting || p.engine.LimitBanner(sess.Tool, clean) != "" {
+			return false, nil
+		}
+	} else if p.engine.DeliveryHold(sess.Tool, clean) != "" {
 		return false, nil
 	}
 	// A claim this old with no delivery means the manager died between the
@@ -1719,6 +1730,9 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 			return false, err
 		}
 		return false, fmt.Errorf("dropped an unconfirmed message to %s from %s to avoid delivering it twice", sess.Name, msg.SenderName)
+	}
+	if steering {
+		return p.steerInbox(sess, msg)
 	}
 	if p.operatorTyping(sess, capture.State) {
 		p.restartDraftHold(sess.ID)
@@ -1773,42 +1787,7 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 				fmt.Errorf("dropped a message to %s from %s: %w", sess.Name, msg.SenderName, err),
 				p.store.MarkDropped(msg.ID, time.Now()))
 		}
-		at := time.Now()
-		first, err := p.store.MarkDeliveredFirst(msg.ID, at)
-		if err != nil {
-			return err
-		}
-		// The pass that claimed this message already read the row as
-		// working; stamping it again after the delivery is what lets a wait
-		// for the handoff tell the new turn from the one before it.
-		if err := ignoreDeletedSession(p.store.UpdateStatus(sess.ID, status.Working)); err != nil {
-			return err
-		}
-		// A line the operator sent from a shell is a person's turn on the
-		// session, and the only delivered message that is. One Gate Inbox, an
-		// extension or another session queued leaves the clock smart triage
-		// measures a wait from where it was, and so does a relayed line: a
-		// role session wrote it, whoever it speaks for.
-		if first && msg.SenderID == store.HumanSenderID {
-			if err := ignoreDeletedSession(p.store.SetOperatorAt(sess.ID, at)); err != nil {
-				return err
-			}
-		}
-		// The operator's own words, sent from a shell, reach the board's
-		// extensions here: once, on the delivery that recorded them. A
-		// relayed line is not reported: the relaying extension recorded it
-		// at send, and reporting it again at delivery would let it answer
-		// whatever was asked in between.
-		if first && msg.SenderID == store.HumanSenderID && p.observer != nil {
-			p.observer.Operator(extension.OperatorInput{
-				SessionID: sess.ID,
-				Via:       extension.OperatorCLI,
-				Text:      msg.Body,
-				MessageID: msg.ID,
-				At:        at,
-			})
-		}
-		return nil
+		return p.recordInboxDelivery(sess, msg)
 	}
 	p.runSend(sess, key, p.envelope(sess, msg), func(err error) error {
 		return errors.Join(settle(err), p.restoreDraft(sess, draft))
@@ -2871,4 +2850,42 @@ func (p *poller) delegated(sessions []store.Session) ([]store.Session, error) {
 	return store.ApplyDelegation(slices.Clone(sessions), reports, func(sess store.Session) bool {
 		return p.shellTools[sess.Tool]
 	}), nil
+}
+
+func (p *poller) recordInboxDelivery(sess store.Session, msg store.InboxMessage) error {
+	at := time.Now()
+	first, err := p.store.MarkDeliveredFirst(msg.ID, at)
+	if err != nil {
+		return err
+	}
+	// Stamping the status after delivery lets a handoff waiter distinguish
+	// work following this input from the activity observed before it.
+	if err := ignoreDeletedSession(p.store.UpdateStatus(sess.ID, status.Working)); err != nil {
+		return err
+	}
+	// A line the operator sent from a shell is a person's turn on the
+	// session, and the only delivered message that is. One Gate Inbox, an
+	// extension or another session queued leaves the clock smart triage
+	// measures a wait from where it was, and so does a relayed line: a
+	// role session wrote it, whoever it speaks for.
+	if first && msg.SenderID == store.HumanSenderID {
+		if err := ignoreDeletedSession(p.store.SetOperatorAt(sess.ID, at)); err != nil {
+			return err
+		}
+	}
+	// The operator's own words, sent from a shell, reach the board's
+	// extensions here: once, on the delivery that recorded them. A
+	// relayed line is not reported: the relaying extension recorded it
+	// at send, and reporting it again at delivery would let it answer
+	// whatever was asked in between.
+	if first && msg.SenderID == store.HumanSenderID && p.observer != nil {
+		p.observer.Operator(extension.OperatorInput{
+			SessionID: sess.ID,
+			Via:       extension.OperatorCLI,
+			Text:      msg.Body,
+			MessageID: msg.ID,
+			At:        at,
+		})
+	}
+	return nil
 }

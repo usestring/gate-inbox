@@ -1176,7 +1176,7 @@ func (s *Sessions) MessageStatus(sessionID string, messageID int64) (MessageStat
 			store.DropRecipientEnded, msg.SessionID, runtime.words.Revive)
 	case !msg.DroppedAt.IsZero():
 		state.State = "dropped"
-		state.Reason = "Gate Inbox could not type it into the pane, and never retries a message; send it again"
+		state.Reason = "Gate Inbox could not confirm delivery and will not retry automatically because the input may already have arrived; read the session before deciding whether to resend"
 	case !msg.ReadAt.IsZero():
 		state.State = "answered"
 		state.DeliveredAt = msg.DeliveredAt.Format(time.RFC3339)
@@ -1239,6 +1239,9 @@ func (r *runtime) heldReason(sessionID string) (string, error) {
 	if engine.TypingHold(target.Tool, clean) == status.Waiting {
 		return fmt.Sprintf("session %s is sitting on a dialog, and nothing is typed into a session while one is on its screen; read that screen and answer it", sessionID), nil
 	}
+	if target.Tool == "codex" && target.Status == status.Working {
+		return "", nil
+	}
 	// The same two reads the poller makes before it pastes. A person's
 	// draft is a hold that clears when they submit or clear it, which can
 	// be a while; a keystroke a moment ago clears on its own.
@@ -1255,8 +1258,8 @@ type MessageState struct {
 	MessageID   int64  `json:"message_id"`
 	SessionID   string `json:"session_id" jsonschema:"session the message was addressed to"`
 	Body        string `json:"body"`
-	State       string `json:"state" jsonschema:"queued (waiting for the agent to be at rest), superseded (a later message from you on the same subject replaced it), held (nothing will type it in as things stand: the recipient is sitting on a dialog, has a person typing or a draft at its prompt, is archived or not running, and reason says which), delivered (typed into its prompt), dropped (it never reached the prompt and is not retried; reason starts 'recipient ended' when the session it was sent to ended first), or answered (it has since messaged back)"`
-	DeliveredAt string `json:"delivered_at,omitempty" jsonschema:"RFC3339 time the message reached the prompt"`
+	State       string `json:"state" jsonschema:"queued (awaiting safe input delivery), superseded (a later message from you on the same subject replaced it), held (a dialog, typing, archive or stopped session prevents delivery; reason says which), delivered (submitted to the prompt or acknowledged by Codex active-turn steering, not proof it was read), dropped (delivery was not confirmed and will not be retried; it may already have arrived; reason starts 'recipient ended' when the recipient ended first), or answered (it has since messaged back)"`
+	DeliveredAt string `json:"delivered_at,omitempty" jsonschema:"RFC3339 time input submission was confirmed"`
 	Reason      string `json:"reason,omitempty" jsonschema:"why the message is in that state, and what to do about it"`
 	Interrupt   bool   `json:"interrupt,omitempty" jsonschema:"sent with interrupt: the recipient's running turn is stopped before it is typed in, unless a dialog is showing"`
 }

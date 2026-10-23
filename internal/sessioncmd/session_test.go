@@ -660,9 +660,8 @@ func TestASpawnerSeesMessagesToItsChildButAStrangerDoesNot(t *testing.T) {
 	}
 }
 
-// A message the manager could not type is retired so nothing retypes it,
-// which leaves it looking exactly like a delivered one in the queue. The
-// sender has no other way to find out it never landed.
+// An uncertain send must not encourage automatic retries or become answered
+// when an unrelated reply arrives.
 func TestASenderIsToldWhenItsMessageWasDropped(t *testing.T) {
 	t.Parallel()
 	h := newSessionHarness(t)
@@ -685,10 +684,7 @@ func TestASenderIsToldWhenItsMessageWasDropped(t *testing.T) {
 	if state.State != "dropped" || state.DeliveredAt != "" {
 		t.Fatalf("dropped message reported as %+v", state)
 	}
-	if !strings.Contains(state.Reason, "send it again") {
-		t.Fatalf("a dropped message does not say what to do about it: %+v", state)
-	}
-	// A reply must not turn a message that never arrived into an answered one.
+	// A reply must not turn uncertain delivery into an answered message.
 	if _, err := h.sessions.Send(worker.ID, h.caller.ID, "rebased, tests pass", "", false); err != nil {
 		t.Fatalf("reply: %v", err)
 	}

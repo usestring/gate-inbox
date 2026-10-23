@@ -24,6 +24,20 @@ It is a thin layer over the CLIs you already have. Each session launches your in
 so your login, config files, MCP servers and every feature the tool ships carry over unchanged.
 Gate Inbox reads the panes; it does not sit between you and the model.
 
+Queued messages can reach a working Codex turn through its local app-server control socket.
+Gate Inbox checks the thread's active turn and pending dialogs, then sends the documented
+[`turn/steer` request](https://developers.openai.com/codex/app-server#steer-an-active-turn).
+It does not interrupt tools, type into the terminal, or answer approvals. A message is marked
+delivered only after Codex acknowledges the expected turn; this confirms input acceptance, not
+that the agent has acted on it.
+
+This requires a daemon-hosted thread reachable through the board's `CODEX_HOME` (or `~/.codex`)
+control socket and support for `thread/turns/list` and `turn/steer`, verified with Codex 0.163.0.
+Embedded sessions, remote servers and older versions keep messages queued until a safe idle
+prompt is available. An explicit rejection leaves the message queued. If the acknowledgment is
+lost, delivery is reported as unconfirmed and is not retried automatically, because the input may
+already have arrived. Approval and trust dialogs continue to hold delivery.
+
 ## Your first 5 minutes
 
 1. **Install.** You need tmux 3.1+, git and at least one agent CLI (Claude Code, Codex or

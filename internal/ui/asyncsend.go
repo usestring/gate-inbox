@@ -98,26 +98,7 @@ func (p *poller) sendInFlight(key string) bool {
 // take it as an answer.
 func (p *poller) runSend(sess store.Session, key, text string, settle func(error) error) {
 	sessID := sess.ID
-	finish := func(sendErr error) {
-		// Stamped before settle writes: a pass that reads the outcome must
-		// also find the stamp, or it can type the next message against a
-		// capture taken before this one was submitted.
-		p.mu.Lock()
-		if p.settledAt == nil {
-			p.settledAt = make(map[string]time.Time)
-		}
-		p.settledAt[sessID] = time.Now()
-		p.mu.Unlock()
-		if err := settle(sendErr); err != nil {
-			p.mu.Lock()
-			p.sendErr = errors.Join(p.sendErr, err)
-			p.mu.Unlock()
-		}
-		p.releaseSend(key)
-		// The row this send changed -- a message off the queue, an input
-		// consumed -- is worth a frame now rather than at the next tick.
-		p.requestRefresh()
-	}
+	finish := func(err error) { p.finishSend(sess, key, err, settle) }
 	hold := func(pane string) bool {
 		state, matched := p.engine.RuleMatch(sess.Tool, pane)
 		return matched && state == status.Waiting
@@ -164,4 +145,25 @@ func (p *poller) awaitSends(within time.Duration) bool {
 		}
 		time.Sleep(sendDrainPoll)
 	}
+}
+
+func (p *poller) finishSend(sess store.Session, key string, sendErr error, settle func(error) error) {
+	// Stamped before settle writes: a pass that reads the outcome must
+	// also find the stamp, or it can type the next message against a
+	// capture taken before this one was submitted.
+	p.mu.Lock()
+	if p.settledAt == nil {
+		p.settledAt = make(map[string]time.Time)
+	}
+	p.settledAt[sess.ID] = time.Now()
+	p.mu.Unlock()
+	if err := settle(sendErr); err != nil {
+		p.mu.Lock()
+		p.sendErr = errors.Join(p.sendErr, err)
+		p.mu.Unlock()
+	}
+	p.releaseSend(key)
+	// The row this send changed -- a message off the queue, an input
+	// consumed -- is worth a frame now rather than at the next tick.
+	p.requestRefresh()
 }

@@ -448,6 +448,14 @@ func (s *Store) MarkDelivered(id int64, at time.Time) error {
 	return err
 }
 
+// Only an explicit rejection permits another attempt; a lost acknowledgment
+// must keep its claim so the same input cannot be delivered twice.
+func (s *Store) ReleaseMessageClaim(id int64, claimedAt time.Time) error {
+	_, err := s.db.Exec(`UPDATE session_inbox SET claimed_at = 0
+ WHERE id = ? AND claimed_at = ? AND delivered_at = 0`, id, encodeTime(claimedAt))
+	return err
+}
+
 // MarkDeliveredFirst records a delivery and reports whether this call is
 // the one that recorded it: false for a message already marked delivered,
 // so whatever follows a delivery happens once however often it is marked.
@@ -462,10 +470,9 @@ func (s *Store) MarkDeliveredFirst(id int64, at time.Time) (bool, error) {
 	return affected == 1, err
 }
 
-// MarkDropped retires a message that never reached the pane. It leaves the
-// queue exactly as a delivered one does, since delivery is at most once and
-// nothing may retype it, and dropped_at is what tells its sender the
-// difference.
+// MarkDropped retires a failed or unconfirmed delivery. It leaves the
+// queue exactly as a delivered one does, since retrying uncertain input
+// could deliver it twice; dropped_at tells its sender the difference.
 // ForwardInbox re-addresses a retired session's undelivered messages to the
 // session that replaced it, and reports how many moved.
 //

@@ -11,6 +11,7 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/ultraviolet v0.0.0-20260811164956-006e29f97886
 	github.com/charmbracelet/x/ansi v0.11.8
+	github.com/coder/websocket v1.8.15
 	github.com/distatus/battery v0.11.0
 	github.com/google/uuid v1.6.0
 	github.com/junegunn/fzf v0.74.4

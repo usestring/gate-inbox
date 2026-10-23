@@ -234,3 +234,35 @@ func TestAPaneIsReleasedOnceItsSubmitHasGoneOut(t *testing.T) {
 		t.Fatal("a pane whose Enter has already gone out is still marked mid-send: every later write into it blocks forever")
 	}
 }
+
+func TestSubmitDoesNotPressEnterWhenSafetyCaptureFails(t *testing.T) {
+	driver, callLog := stubDriver(t, time.Second)
+	dir := t.TempDir()
+	marker := ShellQuote(dir + "/echoed")
+	ready := ShellQuote(dir + "/ready")
+	script := "#!/bin/sh\necho \"$@\" >> " + ShellQuote(callLog) + "\n" +
+		"case \"$*\" in *capture-pane*)\n" +
+		"if [ -e " + marker + " ]; then exit 1; fi\n" +
+		"if [ -e " + ready + " ]; then touch " + marker + "; echo 'hello world'; " +
+		"else touch " + ready + "; echo 'an empty composer'; fi\n;; esac\n"
+	if err := os.WriteFile(driver.bin, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	holdCalled := false
+	submit, err := driver.pasteHoldingSubmit("x1", "hello world", func(string) bool {
+		holdCalled = true
+		return false
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := submit(); err == nil {
+		t.Error("submit succeeded without checking whether the pane shows a dialog")
+	}
+	if holdCalled {
+		t.Error("hold received a pane that could not be captured")
+	}
+	if strings.Contains(stubCalls(t, callLog), "send-keys") {
+		t.Fatalf("sent a key without a safety capture:\n%s", stubCalls(t, callLog))
+	}
+}

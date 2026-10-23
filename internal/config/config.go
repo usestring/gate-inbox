@@ -5,6 +5,7 @@ package config
 import (
 	"crypto/sha256"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/mergegate"
+	"github.com/usestring/gate-inbox/internal/netwatch"
 	"github.com/usestring/gate-inbox/internal/priority"
 )
 
@@ -459,7 +461,8 @@ type Board struct {
 }
 
 type Config struct {
-	PollInterval Duration `toml:"poll_interval"`
+	PollInterval       Duration `toml:"poll_interval"`
+	OutboxProbeTargets []string `toml:"outbox_probe_targets"`
 	// AdoptSockets names extra tmux servers to scan for agent panes the
 	// manager did not start. The default server is always scanned; this is
 	// for sessions kept on a named socket.
@@ -584,6 +587,12 @@ func LoadDir(dir string) (Config, error) {
 // validate refuses values the board has no reading for, so a misspelt
 // choice is named at startup rather than quietly drawn as the default.
 func (c Config) validate() error {
+	for _, target := range c.OutboxProbeTargets {
+		u, err := url.Parse(target)
+		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+			return fmt.Errorf("outbox_probe_targets: each target must be an HTTP or HTTPS URL")
+		}
+	}
 	switch c.Board.Sidebar {
 	case SidebarRight, SidebarLeft:
 	default:
@@ -994,6 +1003,9 @@ func Default() (Config, error) {
 }
 
 func (c *Config) applyDefaults() {
+	if c.OutboxProbeTargets == nil {
+		c.OutboxProbeTargets = slices.Clone(netwatch.DefaultTargets)
+	}
 	if c.PollInterval.Duration <= 0 {
 		c.PollInterval.Duration = 2 * time.Second
 	}

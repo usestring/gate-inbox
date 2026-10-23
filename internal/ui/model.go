@@ -1490,8 +1490,8 @@ func (m *Model) StartPoller(send func(tea.Msg)) {
 	}
 	// Probing starts here for the same reason: a test Model never touches
 	// the network, so its poller always reads online.
-	if envname.Get(envname.Outbox) != "off" {
-		m.poller.net = netwatch.New(netwatch.HTTPProbe(netwatch.DefaultTargets, netwatch.ProbeTimeout))
+	if envname.Get(envname.Outbox) != "off" && len(m.cfg.OutboxProbeTargets) > 0 {
+		m.poller.net = netwatch.New(netwatch.HTTPProbe(m.cfg.OutboxProbeTargets, netwatch.ProbeTimeout))
 		go m.poller.net.Run(context.Background(), m.poller.requestRefresh)
 	}
 	go m.poller.run(send)

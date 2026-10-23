@@ -234,7 +234,8 @@ func (m *Model) resumeHeldSnippets() tea.Cmd {
 		}
 		m.landings[msg.SessionID] = pending
 		if restoredDelivery {
-			checks = append(checks, m.applyLandingCheck(landingCheckMsg{id: msg.SessionID, gen: pending.gen, verdict: landingSeen}))
+			m.dropLanding(msg.SessionID)
+			recordLanding(pending, "restored-unconfirmed")
 		} else {
 			checks = append(checks, landingLook(msg.SessionID, pending))
 		}

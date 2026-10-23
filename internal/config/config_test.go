@@ -1176,3 +1176,37 @@ func TestLoadDirUpgradesClaudeChromeLineForTheClearHint(t *testing.T) {
 		}
 	}
 }
+
+func TestOutboxProbeTargetsConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name, setting string
+		want          []string
+		invalid       bool
+	}{
+		{name: "defaults", want: []string{"https://api.anthropic.com", "https://api.openai.com"}},
+		{name: "local provider", setting: `outbox_probe_targets = ["http://127.0.0.1:11434"]`, want: []string{"http://127.0.0.1:11434"}},
+		{name: "local only", setting: `outbox_probe_targets = []`, want: []string{}},
+		{name: "bad scheme", setting: `outbox_probe_targets = ["file:///model"]`, invalid: true},
+		{name: "missing host", setting: `outbox_probe_targets = ["https://"]`, invalid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(tc.setting), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := LoadDir(dir)
+			if tc.invalid {
+				if err == nil || !strings.Contains(err.Error(), "outbox_probe_targets") {
+					t.Fatalf("invalid target error: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(cfg.OutboxProbeTargets, tc.want) {
+				t.Fatalf("targets = %v, want %v", cfg.OutboxProbeTargets, tc.want)
+			}
+		})
+	}
+}

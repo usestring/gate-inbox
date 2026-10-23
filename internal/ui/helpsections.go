@@ -67,6 +67,7 @@ func helpSections() []helpSection {
 			listRow(keymap.QuickInput, "hotkeys: send a snippet to the session without entering it"),
 			listRow(keymap.Priority, "priority: steps urgent → high → medium → low → none"),
 			listRow(keymap.Mute, "mute / unmute: keep it out of triage until unmuted"),
+			listRow(keymap.UnmuteAll, "unmute every muted session listed"),
 			listRow(keymap.CopyQueued, "copy the next text JEV queued (experimental JEV copy queue)"),
 			listRow(keymap.LastPane, "back to the previous pane; again walks further back"),
 			listRow(keymap.Rescind, "undo the latest submission while its turn is active"),
@@ -95,6 +96,8 @@ func helpSections() []helpSection {
 			bound(focus, keymap.Archive, "kill it, asking first"),
 			bound(focus, keymap.Priority, "cycle priority: urgent → high → medium → low → none"),
 			bound(focus, keymap.Mute, "mute / unmute: keep it out of triage until unmuted"),
+			bound(focus, keymap.UnmuteAll, "unmute every muted session listed"),
+			bound(focus, keymap.RestoreAll, "restore every dead session listed"),
 			bound(focus, keymap.Help, "this key map, in place: only this chord reaches it here"),
 		}},
 		{title: "advanced: the list", rows: []helpRow{

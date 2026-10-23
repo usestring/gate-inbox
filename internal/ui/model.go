@@ -1609,6 +1609,22 @@ func (m *Model) listedSessions() []store.Session {
 	return listed
 }
 
+func (m *Model) searchedListedSessions() []store.Session {
+	listed := m.listedSessions()
+	query := m.historyQueryText()
+	if query == "" {
+		return listed
+	}
+	matched := make([]store.Session, 0, len(listed))
+	for _, sess := range listed {
+		_, historyMatch := m.historyHit(sess)
+		if matchesSearch(sess, query, m.searchText[sess.ID]) || historyMatch {
+			matched = append(matched, sess)
+		}
+	}
+	return matched
+}
+
 func (m *Model) computeListedSessions() []store.Session {
 	visible := m.visibleSessions()
 	extFiltered := m.extensionFiltersOn()

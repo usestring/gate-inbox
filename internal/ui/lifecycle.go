@@ -207,7 +207,7 @@ func (m *Model) restoreAllDead() (tea.Model, tea.Cmd) {
 			firstErr = err.Error()
 		}
 	}
-	for _, sess := range m.listedSessions() {
+	for _, sess := range m.searchedListedSessions() {
 		if !sess.Archived && sess.Status != status.Dead {
 			continue
 		}

@@ -892,7 +892,7 @@ func (m *Model) viewLegend() legendSection {
 		{keymap.LastPane, "last pane"},
 		{keymap.NewSession, "new"}, {keymap.NewSessionForm, "new…"},
 		{keymap.NewTerminal, "terminal"}, {keymap.NewGroup, "group"}, {keymap.Search, "search"},
-		{keymap.ArchivedView, "archived"}, {keymap.RestoreAll, "restore all"},
+		{keymap.ArchivedView, "archived"}, {keymap.RestoreAll, "restore all"}, {keymap.UnmuteAll, "unmute all"},
 		{keymap.StatusFilter, "attention"}, {keymap.ToolFilter, "CLI"}, {keymap.Triage, "triage"}, {keymap.EmptyGroups, "hide empty"},
 		{keymap.Help, "full key map"}, {keymap.Quit, "quit"},
 		{keymap.FoldAll, "fold all"}, {keymap.Resize, "resize"}, {keymap.Settings, "settings"},

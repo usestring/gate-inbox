@@ -189,7 +189,7 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 		Source:        source,
 		SourceTool:    source.Tool,
 		Transcript:    m.migrate.transcript,
-		SourceRunning: m.tmux.Exists(source.ID) && !source.Archived,
+		SourceRunning: source.TmuxPaneID != "" && m.tmux.Exists(source.ID) && !source.Archived,
 		ReadAction:    words.Read,
 		SendAction:    words.Send,
 	})
@@ -232,6 +232,7 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 		m.reportLaunchError(err)
 		return m, nil
 	}
+	retireErr := m.retireMigrated(moved)
 	m.sessions, err = m.poller.listSessions(true)
 	if err != nil {
 		m.errBar.text = err.Error()
@@ -240,7 +241,33 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 	m.statusFilter = statusFilterAll
 	m.mode = modeList
 	m.errBar.text = ""
+	if retireErr != nil {
+		m.errBar.text = retireErr.Error()
+	}
 	return m.landInNewSession(moved.ID)
+}
+
+// retireMigrated hands the source's children and their queued reports to
+// sess, the session a migration just started, and files the source away
+// with its pane ended. Only once sess's pane is up, so a launch that died
+// leaves the source as it was; and never for an adopted source, whose pane
+// belongs to whoever started it and which keeps its children. An error is only reported: the migration
+// itself already happened.
+func (m *Model) retireMigrated(sess store.Session) error {
+	if !m.tmux.Exists(sess.ID) {
+		return nil
+	}
+	source, err := m.store.Get(sess.MigrationID)
+	if err != nil || source.TmuxPaneID != "" {
+		return nil
+	}
+	if err := m.store.CompleteMigration(source.ID, sess.ID); err != nil {
+		return fmt.Errorf("%s's children could not be handed to %s: %w", source.Name, sess.Name, err)
+	}
+	if err := m.killSession(source); err != nil {
+		return fmt.Errorf("%s took over, but ending %s failed: %w", sess.Name, source.Name, err)
+	}
+	return nil
 }
 
 func (m *Model) viewMigrate() string {

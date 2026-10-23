@@ -367,8 +367,8 @@ func TestAccountCardMigratesLargeContextsOnChosenSubscription(t *testing.T) {
 				t.Fatalf("wrong migration: %+v", moved)
 			}
 			kept, err := m.store.Get(source.ID)
-			if err != nil || kept.Account != "ALICE1" || !m.tmux.Exists(source.ID) {
-				t.Fatalf("source changed: %+v %v", kept, err)
+			if err != nil || kept.Account != "ALICE1" || !kept.Archived || m.tmux.Exists(source.ID) {
+				t.Fatalf("source not retired on its own account: %+v %v", kept, err)
 			}
 			deadline := time.Now().Add(3 * time.Second)
 			var prompt []byte

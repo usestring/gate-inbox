@@ -564,6 +564,28 @@ CREATE TABLE IF NOT EXISTS settings (
 		// and whether the sessions it spawns do. See Session.SkipPermissions.
 		`ALTER TABLE sessions ADD COLUMN skip_permissions INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE sessions ADD COLUMN children_skip_permissions INTEGER NOT NULL DEFAULT 0`,
+		// Asks for the operator's review, one row per ask. See reviews.go.
+		`CREATE TABLE IF NOT EXISTS review_requests (
+			repo         TEXT NOT NULL,
+			number       INTEGER NOT NULL,
+			trigger      TEXT NOT NULL,
+			trigger_id   TEXT NOT NULL,
+			title        TEXT NOT NULL DEFAULT '',
+			author       TEXT NOT NULL DEFAULT '',
+			url          TEXT NOT NULL DEFAULT '',
+			head_sha     TEXT NOT NULL DEFAULT '',
+			draft        INTEGER NOT NULL DEFAULT 0,
+			additions    INTEGER NOT NULL DEFAULT 0,
+			deletions    INTEGER NOT NULL DEFAULT 0,
+			changed      INTEGER NOT NULL DEFAULT 0,
+			checks       TEXT NOT NULL DEFAULT '',
+			triggered_at INTEGER NOT NULL DEFAULT 0,
+			state        TEXT NOT NULL DEFAULT 'pending',
+			session_id   TEXT NOT NULL DEFAULT '',
+			created_at   INTEGER NOT NULL,
+			updated_at   INTEGER NOT NULL,
+			PRIMARY KEY (repo, number, trigger, trigger_id)
+		)`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {

@@ -317,7 +317,81 @@ type Work struct {
 type Integrations struct {
 	GitHub Integration `toml:"github"`
 	Linear Integration `toml:"linear"`
+	// Reviews is the review queue: pull requests someone asked the operator
+	// to review from GitHub, fetched on the ingest key.
+	Reviews Reviews `toml:"reviews"`
 }
+
+// Reviews configures what counts as a request for the operator's review, and
+// how a review session starts.
+type Reviews struct {
+	// Enabled is a pointer so that absent means on; it is still inert until
+	// the ingest key is pressed.
+	Enabled *bool `toml:"enabled"`
+	// Triggers is which asks count: requested (named as a reviewer), label,
+	// and comment. Empty is all three.
+	Triggers []string `toml:"triggers"`
+	// Label and Command are searched only within Orgs, so with no orgs only
+	// review requests are found.
+	Label   string   `toml:"label"`
+	Command string   `toml:"command"`
+	Orgs    []string `toml:"orgs"`
+	// Commenters, when set, is who may ask by comment.
+	Commenters []string `toml:"commenters"`
+	// Ack is the reaction left on each new ask: "eyes", or "none" for none.
+	Ack string `toml:"ack"`
+	// Prompt starts a review session; {repo}, {number}, {head} and {url}
+	// are filled in.
+	Prompt    string `toml:"prompt"`
+	Tool      string `toml:"tool"`
+	Model     string `toml:"model"`
+	Directory string `toml:"directory"`
+}
+
+// On reports whether the review queue is switched on.
+func (r Reviews) On() bool { return r.Enabled == nil || *r.Enabled }
+
+// Default review settings, for any field left unset.
+const (
+	DefaultReviewLabel   = "gate-review"
+	DefaultReviewCommand = "/gate review"
+	DefaultReviewPrompt  = "Review {repo}#{number} at {head} ({url}). Do not post to GitHub."
+)
+
+// TriggerList is the configured triggers, or all three when none are named.
+func (r Reviews) TriggerList() []string {
+	if len(r.Triggers) == 0 {
+		return []string{"requested", "label", "comment"}
+	}
+	return r.Triggers
+}
+
+// LabelOrDefault is the review label, or the default when unset.
+func (r Reviews) LabelOrDefault() string {
+	if r.Label == "" {
+		return DefaultReviewLabel
+	}
+	return r.Label
+}
+
+// CommandOrDefault is the review command, or the default when unset.
+func (r Reviews) CommandOrDefault() string {
+	if r.Command == "" {
+		return DefaultReviewCommand
+	}
+	return r.Command
+}
+
+// PromptOrDefault is the review session's prompt template, or the default.
+func (r Reviews) PromptOrDefault() string {
+	if r.Prompt == "" {
+		return DefaultReviewPrompt
+	}
+	return r.Prompt
+}
+
+// Acks reports whether new asks get a reaction.
+func (r Reviews) Acks() bool { return r.Ack != "none" }
 
 // Integration is one provider's switch. Linear also needs LINEAR_API_KEY in
 // the environment to read ticket state; without it ticket rows are still drawn,

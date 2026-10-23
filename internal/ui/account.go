@@ -141,7 +141,8 @@ func (m *Model) submitAccountSwitch() (tea.Model, tea.Cmd) {
 	if large {
 		name := textField("session name", 60)
 		name.SetValue(sess.Name + "-" + sess.Tool)
-		m.migrate = migrateState{source: sess, name: name, toolNames: []string{sess.Tool}, transcript: transcript, account: &account}
+		m.migrate = migrateState{source: sess, name: name, toolNames: []string{sess.Tool}, transcript: transcript, account: &account,
+			skip: sess.SkipPermissions, childrenSkip: sess.ChildrenSkipPermissions}
 		return m.submitMigrate()
 	}
 	if err := m.store.SetAccount(sess.ID, account); err != nil {

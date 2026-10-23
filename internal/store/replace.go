@@ -67,11 +67,12 @@ func (s *Store) ReplaceSession(sess Session, oldID, snapshot string, launch func
 	}
 	// Inserted at the old row's own order; takeSeat moves it straight after.
 	if _, err := tx.Exec(
-		`INSERT INTO sessions (id, name, tool, cwd, group_name, status, archived, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, pending_inputs, parent_id, spawned_by, launch_prompt, model, account, name_source, priority_tier, role, sort_order)
-		 VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO sessions (id, name, tool, cwd, group_name, status, archived, created_at, last_status_at, agent_session_id, tmux_socket, tmux_pane_id, pending_inputs, parent_id, spawned_by, launch_prompt, model, account, skip_permissions, children_skip_permissions, name_source, priority_tier, role, sort_order)
+		 VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		sess.ID, sess.Name, sess.Tool, sess.Cwd, sess.Group, sess.Status,
 		encodeTime(sess.CreatedAt), encodeTime(sess.LastStatusAt), sess.AgentSessionID,
 		sess.TmuxSocket, sess.TmuxPaneID, pendingInputs, sess.ParentID, sess.SpawnedBy, sess.LaunchPrompt, sess.Model, sess.Account,
+		boolToInt(sess.SkipPermissions), boolToInt(sess.ChildrenSkipPermissions),
 		nameSourceOr(sess.NameSource), string(sess.Priority), sess.Role, at.order,
 	); err != nil {
 		return Replacement{}, err

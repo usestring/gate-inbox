@@ -86,6 +86,13 @@ type Tool struct {
 	// about the first write there. Left unset, such a launch carries only
 	// the change-directory note, which is all a tool without the flag gets.
 	AddDirFlag string `toml:"add_dir_flag"`
+	// SkipPermissionsFlag launches a session with no permission prompts at
+	// all (claude "--dangerously-skip-permissions", codex
+	// "--dangerously-bypass-approvals-and-sandbox"), for a session the operator
+	// chose to run that way. Left unset, the tool cannot be launched so, and
+	// a launch asking for it is refused rather than run with prompts the
+	// operator thought were off.
+	SkipPermissionsFlag string `toml:"skip_permissions_flag"`
 	// LaunchInPlace opens a spawn's pane in the directory it asked for even
 	// when that lies outside the caller's tree. Set it for a CLI whose
 	// first-run trust dialog defaults to continuing: diverting such a CLI
@@ -774,6 +781,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	}
 	fill(&user.SessionIDFlag, def.SessionIDFlag)
 	fill(&user.AddDirFlag, def.AddDirFlag)
+	fill(&user.SkipPermissionsFlag, def.SkipPermissionsFlag)
 	fill(&user.ResumeByIDCommand, def.ResumeByIDCommand)
 	fill(&user.ResumePickerCommand, def.ResumePickerCommand)
 	fill(&user.ForkCommand, def.ForkCommand)
@@ -1225,6 +1233,8 @@ session_id_flag = "--session-id"
 # a spawn whose pane opens outside the directory it asked for is granted
 # that directory too, so its first write there is not denied
 add_dir_flag = "--add-dir"
+# a session launched with "skip permissions" on runs with no permission prompts
+skip_permissions_flag = "--dangerously-skip-permissions"
 resume_by_id_command = "claude --resume {id}"
 resume_picker_command = "claude --resume"
 fork_command = "claude --resume {id} --fork-session --session-id {new_id} --name {name}"
@@ -1358,6 +1368,8 @@ command = "opencode"
 # "provider/model" into the generated OPENCODE_CONFIG instead.
 # No add_dir_flag: opencode has no flag granting a second directory, so a
 # spawn diverted to another directory is only told to change into it.
+# No skip_permissions_flag: opencode's TUI has no flag that turns its
+# permission prompts off, so a session on it cannot be launched that way.
 # every provider/model pair this login can reach, one per line
 models_command = "opencode models"
 # opencode mints its own session id; capture it after launch and resume it
@@ -1465,6 +1477,8 @@ command = "codex"
 model_flag = "--model"
 # codex-cli 0.157.0: --add-dir <DIR>, writable alongside the primary workspace
 add_dir_flag = "--add-dir"
+# no approval prompts and no sandbox, for a session launched with "skip permissions"
+skip_permissions_flag = "--dangerously-bypass-approvals-and-sandbox"
 # Codex's trust dialog defaults to "Trust and continue", while a codex started
 # in an untrusted directory runs read-only and exits on --add-dir. A spawn
 # outside the caller's tree therefore opens where it asked to work.

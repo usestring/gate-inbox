@@ -1058,6 +1058,11 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	if m.isHookless(sess) {
 		head += " " + subtleText(hooklessGlyph())
 	}
+	// Errored tint, like ⊗: not a fault, but the one thing about the row
+	// the operator must never forget is true of it.
+	if sess.SkipPermissions {
+		head += " " + statusTint(status.Errored, skipPermsGlyph())
+	}
 	if m.isDiedWhileClosed(sess) {
 		head += " " + statusTint(status.Errored, diedGlyph())
 	}

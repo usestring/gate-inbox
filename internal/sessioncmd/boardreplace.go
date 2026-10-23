@@ -305,6 +305,9 @@ func (s *Sessions) prepareReplace(runtime *runtime, targetID, rolePrefix string,
 		// the spawn policies, which see the row as it will be filed.
 		Group:    old.Group,
 		ParentID: old.ParentID,
+		// The replacement takes the old seat as the operator set it up.
+		SkipPermissions:         old.SkipPermissions,
+		ChildrenSkipPermissions: old.ChildrenSkipPermissions,
 	}
 	if sess.Name == "" {
 		sess.Name = old.Name

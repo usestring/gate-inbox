@@ -32,6 +32,10 @@ const (
 	// The model qualifies the CLI above it, so it sits with it rather than
 	// among the fields that decorate a session the tool has already shaped.
 	fieldModel
+	// Whether the session runs with its CLI's permission prompts off, and
+	// whether the sessions it spawns do. They qualify the CLI too.
+	fieldSkip
+	fieldChildrenSkip
 	fieldName
 	fieldPrompt
 	fieldGroup
@@ -73,12 +77,16 @@ type form struct {
 	toolFilter textinput.Model
 	// model is free text: what a CLI accepts is the CLI's business, and a
 	// picker here would need this program to track every vendor's names.
-	model      textinput.Model
-	toolNames  []string
-	toolIndex  int
-	groups     []groupOption
-	groupIndex int
-	focus      int
+	model textinput.Model
+	// skip and childrenSkip become store.Session.SkipPermissions and
+	// ChildrenSkipPermissions; both start off.
+	skip         bool
+	childrenSkip bool
+	toolNames    []string
+	toolIndex    int
+	groups       []groupOption
+	groupIndex   int
+	focus        int
 	// extra is the fields the extensions add, drawn after the form's own and
 	// focused as fieldCount+i.
 	extra []extraField
@@ -573,7 +581,7 @@ func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.moveGroupCursor(-1)
 			return m, nil
 		}
-		if m.cycleExtra(-1) {
+		if m.flipSkip() || m.cycleExtra(-1) {
 			return m, nil
 		}
 	case "right":
@@ -589,11 +597,11 @@ func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.moveGroupCursor(1)
 			return m, nil
 		}
-		if m.cycleExtra(1) {
+		if m.flipSkip() || m.cycleExtra(1) {
 			return m, nil
 		}
 	case "space":
-		if m.cycleExtra(1) {
+		if m.flipSkip() || m.cycleExtra(1) {
 			return m, nil
 		}
 	case "enter":
@@ -643,6 +651,25 @@ func (m *Model) moveGroupCursor(delta int) {
 	if m.mode == modeGroupForm && m.groupForm.pathAuto {
 		m.groupForm.path.SetValue(m.ancestorGroupDir(m.selectedGroupPath()))
 	}
+}
+
+// flipSkip toggles the focused skip-permissions field, if it is on one.
+func (m *Model) flipSkip() bool {
+	switch m.form.focus {
+	case fieldSkip:
+		m.form.skip = !m.form.skip
+	case fieldChildrenSkip:
+		m.form.childrenSkip = !m.form.childrenSkip
+	default:
+		return false
+	}
+	return true
+}
+
+// formSkipSupported reports whether the selected CLI can be launched with
+// its permission prompts off; the card says so rather than hiding the field.
+func (m *Model) formSkipSupported() bool {
+	return m.cfg.Tools[m.selectedToolName()].SkipPermissionsFlag != ""
 }
 
 func (m *Model) formFocus(delta int) {
@@ -812,11 +839,17 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.form.skip && !m.formSkipSupported() {
+		m.errBar.text = toolName + " has no skip-permissions flag: turn skip permissions off or pick another CLI"
+		return m, nil
+	}
+
 	values := m.form.formValues()
+	perms := skipPermissions{self: m.form.skip, children: m.form.childrenSkip}
 	var id string
 	spawn := func() error {
 		var err error
-		id, err = m.spawnSessionWith(toolName, m.formModel(), name, dir, group, prompt, autoNamed, store.SourceUser, values)
+		id, err = m.spawnSessionWith(toolName, m.formModel(), name, dir, group, prompt, autoNamed, store.SourceUser, values, perms)
 		return err
 	}
 	if err := spawn(); err != nil {
@@ -857,6 +890,10 @@ func (m *Model) submitFormTerminal(toolName string) (tea.Model, tea.Cmd) {
 	}
 	if strings.TrimSpace(m.form.model.Value()) != "" {
 		m.errBar.text = "a terminal takes no model: clear it or pick a CLI"
+		return m, nil
+	}
+	if m.form.skip || m.form.childrenSkip {
+		m.errBar.text = "a terminal has no permissions to skip: turn them off or pick a CLI"
 		return m, nil
 	}
 	name := strings.TrimSpace(m.form.name.Value())
@@ -942,12 +979,16 @@ func (m *Model) spawnSession(toolName, name, dir, group, prompt string, autoName
 func (m *Model) formModel() string { return strings.TrimSpace(m.form.model.Value()) }
 
 func (m *Model) spawnSessionAs(toolName, model, name, dir, group, prompt string, autoNamed bool, nameSource string) (string, error) {
-	return m.spawnSessionWith(toolName, model, name, dir, group, prompt, autoNamed, nameSource, nil)
+	return m.spawnSessionWith(toolName, model, name, dir, group, prompt, autoNamed, nameSource, nil, skipPermissions{})
 }
+
+// skipPermissions is the new-session card's two permission toggles: for the
+// session itself, and the default for the sessions it spawns.
+type skipPermissions struct{ self, children bool }
 
 // spawnSessionWith is spawnSessionAs carrying the values of the extensions'
 // form fields, which only the new-session form has.
-func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt string, autoNamed bool, nameSource string, form map[string]string) (string, error) {
+func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt string, autoNamed bool, nameSource string, form map[string]string, perms skipPermissions) (string, error) {
 	tool := m.cfg.Tools[toolName]
 	id := newID()
 	account, err := accounts.Select(m.store, tool, "", accounts.Request{SessionID: id, ToolName: toolName, Reason: extension.LaunchSpawn})
@@ -964,14 +1005,16 @@ func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt strin
 		return "", err
 	}
 	if err := m.launchNewSessionWith(store.Session{
-		ID:         id,
-		Name:       name,
-		Tool:       toolName,
-		Cwd:        dir,
-		Group:      group,
-		NameSource: nameSource,
-		Model:      plan.Model,
-		Account:    plan.Account,
+		ID:                      id,
+		Name:                    name,
+		Tool:                    toolName,
+		Cwd:                     dir,
+		Group:                   group,
+		NameSource:              nameSource,
+		Model:                   plan.Model,
+		Account:                 plan.Account,
+		SkipPermissions:         perms.self,
+		ChildrenSkipPermissions: perms.children,
 		// Starting until the agent first draws to its pane, so the row shows
 		// a launch state immediately; the poller flips it to the real status.
 		Status:         status.Starting,
@@ -995,7 +1038,11 @@ func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt strin
 	return id, nil
 }
 
-func (m *Model) buildLaunch(toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string) (string, map[string]string, error) {
+func (m *Model) buildLaunch(toolName string, tool config.Tool, baseCommand, id, model, account string, skip bool, contributed map[string]string) (string, map[string]string, error) {
+	baseCommand, err := launch.WithSkipPermissions(tool, baseCommand, skip)
+	if err != nil {
+		return "", nil, err
+	}
 	return launch.Environment(m.hooks, toolName, tool, baseCommand, id, model, account, contributed)
 }
 

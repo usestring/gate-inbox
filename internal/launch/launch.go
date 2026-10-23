@@ -391,6 +391,23 @@ func WithAddDir(tool config.Tool, command, workdir string) string {
 	return command + " " + tool.AddDirFlag + " " + tmux.ShellQuote(workdir)
 }
 
+// WithSkipPermissions puts the tool's skip-permissions flag on a command
+// line for a session launched with skip permissions on, and refuses when the
+// tool has no such flag. Refused for the reason WithModel refuses: a session
+// launched without it would stop on every prompt the operator turned off,
+// and look like it obeyed until the first one.
+func WithSkipPermissions(tool config.Tool, command string, skip bool) (string, error) {
+	if !skip {
+		return command, nil
+	}
+	if tool.SkipPermissionsFlag == "" {
+		return "", fmt.Errorf("%s cannot be launched with permissions skipped: its config names no "+
+			"skip_permissions_flag, so it would stop on its prompts anyway; launch it with skip permissions off",
+			tool.Command)
+	}
+	return command + " " + tool.SkipPermissionsFlag, nil
+}
+
 // ReviveCommand is the base command a dead session comes back on. When
 // its own conversation id was captured, it resumes that exact
 // conversation instead of the working directory's most recent one, which

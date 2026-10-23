@@ -332,6 +332,10 @@
         "description": "whether the session is archived out of the active list",
         "type": "boolean"
       },
+      "children_skip_permissions": {
+        "description": "sessions it spawns run with their permission prompts off unless the spawn says otherwise",
+        "type": "boolean"
+      },
       "detached": {
         "description": "whether this session was created detached (nest false): its creator, in spawned_by, is told nothing of its questions or finishes and cannot answer its dialogs, and the two talk only through send_session",
         "type": "boolean"
@@ -380,6 +384,10 @@
       },
       "self": {
         "description": "whether this row is the calling session itself",
+        "type": "boolean"
+      },
+      "skip_permissions": {
+        "description": "the session runs with its CLI's permission prompts off",
         "type": "boolean"
       },
       "spawned_by": {
@@ -666,6 +674,13 @@
         "description": "absolute path of a file holding the first task, used instead of prompt when the brief is long; the server reads it, so write the brief once and name it here",
         "type": "string"
       },
+      "skip_permissions": {
+        "description": "omit it: the child follows the setting the user chose for this session's children; true launches it with its CLI's permission prompts off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox) and is refused unless the user allowed that for this session's children, or for a CLI with no such flag (opencode); false keeps its prompts on",
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
       "tool": {
         "description": "agent CLI to run, such as claude, codex or opencode; defaults to the CLI this session runs, and is required when this session is a terminal; call list_sessions to see which are in use",
         "type": "string"
@@ -683,6 +698,10 @@
       },
       "archived": {
         "description": "whether the session is archived out of the active list",
+        "type": "boolean"
+      },
+      "children_skip_permissions": {
+        "description": "sessions it spawns run with their permission prompts off unless the spawn says otherwise",
         "type": "boolean"
       },
       "detached": {
@@ -733,6 +752,10 @@
       },
       "self": {
         "description": "whether this row is the calling session itself",
+        "type": "boolean"
+      },
+      "skip_permissions": {
+        "description": "the session runs with its CLI's permission prompts off",
         "type": "boolean"
       },
       "spawned_by": {
@@ -1125,6 +1148,10 @@
             "description": "whether the session is archived out of the active list",
             "type": "boolean"
           },
+          "children_skip_permissions": {
+            "description": "sessions it spawns run with their permission prompts off unless the spawn says otherwise",
+            "type": "boolean"
+          },
           "detached": {
             "description": "whether this session was created detached (nest false): its creator, in spawned_by, is told nothing of its questions or finishes and cannot answer its dialogs, and the two talk only through send_session",
             "type": "boolean"
@@ -1173,6 +1200,10 @@
           },
           "self": {
             "description": "whether this row is the calling session itself",
+            "type": "boolean"
+          },
+          "skip_permissions": {
+            "description": "the session runs with its CLI's permission prompts off",
             "type": "boolean"
           },
           "spawned_by": {
@@ -1249,6 +1280,10 @@
         "description": "whether the session is archived out of the active list",
         "type": "boolean"
       },
+      "children_skip_permissions": {
+        "description": "sessions it spawns run with their permission prompts off unless the spawn says otherwise",
+        "type": "boolean"
+      },
       "detached": {
         "description": "whether this session was created detached (nest false): its creator, in spawned_by, is told nothing of its questions or finishes and cannot answer its dialogs, and the two talk only through send_session",
         "type": "boolean"
@@ -1297,6 +1332,10 @@
       },
       "self": {
         "description": "whether this row is the calling session itself",
+        "type": "boolean"
+      },
+      "skip_permissions": {
+        "description": "the session runs with its CLI's permission prompts off",
         "type": "boolean"
       },
       "spawned_by": {
@@ -1579,6 +1618,10 @@
               "description": "whether the session is archived out of the active list",
               "type": "boolean"
             },
+            "children_skip_permissions": {
+              "description": "sessions it spawns run with their permission prompts off unless the spawn says otherwise",
+              "type": "boolean"
+            },
             "detached": {
               "description": "whether this session was created detached (nest false): its creator, in spawned_by, is told nothing of its questions or finishes and cannot answer its dialogs, and the two talk only through send_session",
               "type": "boolean"
@@ -1627,6 +1670,10 @@
             },
             "self": {
               "description": "whether this row is the calling session itself",
+              "type": "boolean"
+            },
+            "skip_permissions": {
+              "description": "the session runs with its CLI's permission prompts off",
               "type": "boolean"
             },
             "spawned_by": {
@@ -1830,6 +1877,13 @@
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
+      "children_skip_permissions": {
+        "description": "omit it to keep the source's setting; whether sessions the moved session spawns skip their permission prompts by default; true is refused on the same terms as skip_permissions",
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
       "name": {
         "description": "kebab-case name for the new session; defaults to the source's name with the tool appended",
         "type": "string"
@@ -1837,6 +1891,13 @@
       "session_id": {
         "description": "session id returned by list_sessions whose conversation moves to another CLI",
         "type": "string"
+      },
+      "skip_permissions": {
+        "description": "omit it to keep the source's setting; false relaunches the moved session with its permission prompts on, true with them off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox), refused unless the source already has it or is a child of yours whose skipping the user allowed, and for a CLI with no such flag (opencode)",
+        "type": [
+          "null",
+          "boolean"
+        ]
       },
       "tool": {
         "description": "agent CLI the conversation moves to, such as claude, codex or opencode; call list_sessions to see which are in use",
@@ -1859,6 +1920,10 @@
       },
       "archived": {
         "description": "whether the session is archived out of the active list",
+        "type": "boolean"
+      },
+      "children_skip_permissions": {
+        "description": "sessions it spawns run with their permission prompts off unless the spawn says otherwise",
         "type": "boolean"
       },
       "detached": {
@@ -1909,6 +1974,10 @@
       },
       "self": {
         "description": "whether this row is the calling session itself",
+        "type": "boolean"
+      },
+      "skip_permissions": {
+        "description": "the session runs with its CLI's permission prompts off",
         "type": "boolean"
       },
       "spawned_by": {
@@ -1981,6 +2050,10 @@
         "description": "whether the session is archived out of the active list",
         "type": "boolean"
       },
+      "children_skip_permissions": {
+        "description": "sessions it spawns run with their permission prompts off unless the spawn says otherwise",
+        "type": "boolean"
+      },
       "detached": {
         "description": "whether this session was created detached (nest false): its creator, in spawned_by, is told nothing of its questions or finishes and cannot answer its dialogs, and the two talk only through send_session",
         "type": "boolean"
@@ -2029,6 +2102,10 @@
       },
       "self": {
         "description": "whether this row is the calling session itself",
+        "type": "boolean"
+      },
+      "skip_permissions": {
+        "description": "the session runs with its CLI's permission prompts off",
         "type": "boolean"
       },
       "spawned_by": {
@@ -2102,6 +2179,10 @@
         "description": "whether the session is archived out of the active list",
         "type": "boolean"
       },
+      "children_skip_permissions": {
+        "description": "sessions it spawns run with their permission prompts off unless the spawn says otherwise",
+        "type": "boolean"
+      },
       "detached": {
         "description": "whether this session was created detached (nest false): its creator, in spawned_by, is told nothing of its questions or finishes and cannot answer its dialogs, and the two talk only through send_session",
         "type": "boolean"
@@ -2150,6 +2231,10 @@
       },
       "self": {
         "description": "whether this row is the calling session itself",
+        "type": "boolean"
+      },
+      "skip_permissions": {
+        "description": "the session runs with its CLI's permission prompts off",
         "type": "boolean"
       },
       "spawned_by": {
@@ -2410,6 +2495,10 @@
             "description": "whether the session is archived out of the active list",
             "type": "boolean"
           },
+          "children_skip_permissions": {
+            "description": "sessions it spawns run with their permission prompts off unless the spawn says otherwise",
+            "type": "boolean"
+          },
           "detached": {
             "description": "whether this session was created detached (nest false): its creator, in spawned_by, is told nothing of its questions or finishes and cannot answer its dialogs, and the two talk only through send_session",
             "type": "boolean"
@@ -2458,6 +2547,10 @@
           },
           "self": {
             "description": "whether this row is the calling session itself",
+            "type": "boolean"
+          },
+          "skip_permissions": {
+            "description": "the session runs with its CLI's permission prompts off",
             "type": "boolean"
           },
           "spawned_by": {
@@ -2828,6 +2921,10 @@
         "description": "whether the session is archived out of the active list",
         "type": "boolean"
       },
+      "children_skip_permissions": {
+        "description": "sessions it spawns run with their permission prompts off unless the spawn says otherwise",
+        "type": "boolean"
+      },
       "detached": {
         "description": "whether this session was created detached (nest false): its creator, in spawned_by, is told nothing of its questions or finishes and cannot answer its dialogs, and the two talk only through send_session",
         "type": "boolean"
@@ -2876,6 +2973,10 @@
       },
       "self": {
         "description": "whether this row is the calling session itself",
+        "type": "boolean"
+      },
+      "skip_permissions": {
+        "description": "the session runs with its CLI's permission prompts off",
         "type": "boolean"
       },
       "spawned_by": {
@@ -3222,6 +3323,10 @@
         "description": "whether the session is archived out of the active list",
         "type": "boolean"
       },
+      "children_skip_permissions": {
+        "description": "sessions it spawns run with their permission prompts off unless the spawn says otherwise",
+        "type": "boolean"
+      },
       "detached": {
         "description": "whether this session was created detached (nest false): its creator, in spawned_by, is told nothing of its questions or finishes and cannot answer its dialogs, and the two talk only through send_session",
         "type": "boolean"
@@ -3270,6 +3375,10 @@
       },
       "self": {
         "description": "whether this row is the calling session itself",
+        "type": "boolean"
+      },
+      "skip_permissions": {
+        "description": "the session runs with its CLI's permission prompts off",
         "type": "boolean"
       },
       "spawned_by": {
@@ -3612,6 +3721,10 @@
             "description": "whether the session is archived out of the active list",
             "type": "boolean"
           },
+          "children_skip_permissions": {
+            "description": "sessions it spawns run with their permission prompts off unless the spawn says otherwise",
+            "type": "boolean"
+          },
           "detached": {
             "description": "whether this session was created detached (nest false): its creator, in spawned_by, is told nothing of its questions or finishes and cannot answer its dialogs, and the two talk only through send_session",
             "type": "boolean"
@@ -3662,6 +3775,10 @@
             "description": "whether this row is the calling session itself",
             "type": "boolean"
           },
+          "skip_permissions": {
+            "description": "the session runs with its CLI's permission prompts off",
+            "type": "boolean"
+          },
           "spawned_by": {
             "description": "session that spawned this one, which is the only session that can answer its questions or reach it with send_children unless it is detached; empty for a session nobody spawned",
             "type": "string"
@@ -3708,6 +3825,10 @@
                 },
                 "archived": {
                   "description": "whether the session is archived out of the active list",
+                  "type": "boolean"
+                },
+                "children_skip_permissions": {
+                  "description": "sessions it spawns run with their permission prompts off unless the spawn says otherwise",
                   "type": "boolean"
                 },
                 "detached": {
@@ -3758,6 +3879,10 @@
                 },
                 "self": {
                   "description": "whether this row is the calling session itself",
+                  "type": "boolean"
+                },
+                "skip_permissions": {
+                  "description": "the session runs with its CLI's permission prompts off",
                   "type": "boolean"
                 },
                 "spawned_by": {

@@ -33,18 +33,20 @@ import (
 )
 
 type Session struct {
-	ID        string `json:"id" jsonschema:"agent session id"`
-	Name      string `json:"name" jsonschema:"session name shown in Gate Inbox"`
-	Tool      string `json:"tool" jsonschema:"agent CLI the session runs"`
-	Model     string `json:"model,omitempty" jsonschema:"model that CLI runs on; empty is the CLI's own default"`
-	Account   string `json:"account,omitempty" jsonschema:"named subscription the session runs on; empty is the CLI's own login"`
-	Group     string `json:"group" jsonschema:"group path holding the session; empty is the root"`
-	Directory string `json:"directory" jsonschema:"session's current working directory, or its launch directory when stopped"`
-	Status    string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead"`
-	Running   bool   `json:"running" jsonschema:"whether the session currently has a live tmux pane"`
-	Archived  bool   `json:"archived" jsonschema:"whether the session is archived out of the active list"`
-	Muted     bool   `json:"muted" jsonschema:"whether the operator has muted this session out of their triage queue until it is unmuted"`
-	Self      bool   `json:"self" jsonschema:"whether this row is the calling session itself"`
+	ID                      string `json:"id" jsonschema:"agent session id"`
+	Name                    string `json:"name" jsonschema:"session name shown in Gate Inbox"`
+	Tool                    string `json:"tool" jsonschema:"agent CLI the session runs"`
+	Model                   string `json:"model,omitempty" jsonschema:"model that CLI runs on; empty is the CLI's own default"`
+	Account                 string `json:"account,omitempty" jsonschema:"named subscription the session runs on; empty is the CLI's own login"`
+	SkipPermissions         bool   `json:"skip_permissions,omitempty" jsonschema:"the session runs with its CLI's permission prompts off"`
+	ChildrenSkipPermissions bool   `json:"children_skip_permissions,omitempty" jsonschema:"sessions it spawns run with their permission prompts off unless the spawn says otherwise"`
+	Group                   string `json:"group" jsonschema:"group path holding the session; empty is the root"`
+	Directory               string `json:"directory" jsonschema:"session's current working directory, or its launch directory when stopped"`
+	Status                  string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead"`
+	Running                 bool   `json:"running" jsonschema:"whether the session currently has a live tmux pane"`
+	Archived                bool   `json:"archived" jsonschema:"whether the session is archived out of the active list"`
+	Muted                   bool   `json:"muted" jsonschema:"whether the operator has muted this session out of their triage queue until it is unmuted"`
+	Self                    bool   `json:"self" jsonschema:"whether this row is the calling session itself"`
 	// ParentID is where the board draws this row, and SpawnedBy is who owns
 	// it. Nothing the tools hand back used to carry either, so a fan-out that
 	// landed flat -- every spawn a sibling of the session that asked for it --
@@ -132,6 +134,11 @@ type CreateSessionOptions struct {
 	// it away on its own, and cleanup_children takes it only when asked for
 	// all. See cleanupchildren.go.
 	Keep bool
+	// SkipPermissions launches the child with its CLI's skip-permissions
+	// flag. Nil follows the caller's ChildrenSkipPermissions. True is refused
+	// unless that setting is on: the operator turns prompts off for a
+	// session's children, and an agent cannot turn them off for itself.
+	SkipPermissions *bool
 }
 
 type Sessions struct {
@@ -253,22 +260,24 @@ func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 // sessionInfoIn is sessionInfo with the directory already read.
 func (r *runtime) sessionInfoIn(sess store.Session, dir string, running, self bool) Session {
 	return Session{
-		ID:        sess.ID,
-		Name:      sess.Name,
-		Tool:      sess.Tool,
-		Model:     sess.Model,
-		Account:   sess.Account,
-		Group:     sess.Group,
-		Directory: dir,
-		Status:    sess.Status,
-		Running:   running,
-		Archived:  sess.Archived,
-		Muted:     sess.Muted,
-		Self:      self,
-		ParentID:  sess.ParentID,
-		SpawnedBy: store.SpawnerOf(sess),
-		Detached:  store.Detached(sess),
-		Role:      sess.Role,
+		ID:                      sess.ID,
+		Name:                    sess.Name,
+		Tool:                    sess.Tool,
+		Model:                   sess.Model,
+		Account:                 sess.Account,
+		Group:                   sess.Group,
+		Directory:               dir,
+		SkipPermissions:         sess.SkipPermissions,
+		ChildrenSkipPermissions: sess.ChildrenSkipPermissions,
+		Status:                  sess.Status,
+		Running:                 running,
+		Archived:                sess.Archived,
+		Muted:                   sess.Muted,
+		Self:                    self,
+		ParentID:                sess.ParentID,
+		SpawnedBy:               store.SpawnerOf(sess),
+		Detached:                store.Detached(sess),
+		Role:                    sess.Role,
 
 		AgentSessionID: sess.AgentSessionID,
 		Terminal:       r.cfg.Tools[sess.Tool].Shell,
@@ -622,6 +631,24 @@ func (s *Sessions) DeleteGroup(sessionID, path string) (GroupRemoval, error) {
 	return GroupRemoval{Removed: removed, Moved: moved}, nil
 }
 
+// childSkipPermissions is whether a child of caller launches with permissions
+// skipped: what the call asked for, else the caller's setting for its
+// children. Asking for it where the operator has not allowed it is refused
+// rather than downgraded, so the caller is not left believing it got it. The
+// inherited setting is dropped for a CLI with no flag to honour it (supported
+// false): a child that keeps its prompts is the safe way to be wrong, and
+// refusing would make the parent's setting block every spawn onto that CLI.
+func childSkipPermissions(caller store.Session, asked *bool, supported bool) (bool, error) {
+	if asked == nil {
+		return caller.ChildrenSkipPermissions && supported, nil
+	}
+	if *asked && !caller.ChildrenSkipPermissions {
+		return false, errors.New("skip_permissions true is refused: the operator has not allowed this session's " +
+			"children to skip permissions; leave it unset or false")
+	}
+	return *asked, nil
+}
+
 func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created Session, err error) {
 	// The most expensive thing this package does, and the one a fan-out
 	// repeats: a pane, a CLI process behind it, and the row filed for both.
@@ -721,6 +748,13 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		ParentID:  parentID,
 		SpawnedBy: caller.ID,
 		Model:     strings.TrimSpace(opts.Model),
+		// The operator's choice for the caller's children holds for the
+		// whole subtree it spawns.
+		ChildrenSkipPermissions: caller.ChildrenSkipPermissions,
+	}
+	sess.SkipPermissions, err = childSkipPermissions(caller, opts.SkipPermissions, tool.SkipPermissionsFlag != "")
+	if err != nil {
+		return Session{}, err
 	}
 	// Shaped and then put to the policies before an account is chosen or a
 	// file written, so a refusal costs nothing to undo, and a policy is
@@ -789,7 +823,11 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if err := writeSpawnCompactWindow(runtime.store, manager, tool, sess); err != nil {
 		logging.Warn("compact window not written at spawn", "session", id, logging.Err(err))
 	}
-	command, env, err := launch.EnvironmentWithProfile(manager, toolName, tool, plan.Command, id, plan.Model, plan.Account, contributed, mcpProfile(sess))
+	base, err := launch.WithSkipPermissions(tool, plan.Command, sess.SkipPermissions)
+	if err != nil {
+		return Session{}, err
+	}
+	command, env, err := launch.EnvironmentWithProfile(manager, toolName, tool, base, id, plan.Model, plan.Account, contributed, mcpProfile(sess))
 	if err != nil {
 		return Session{}, err
 	}

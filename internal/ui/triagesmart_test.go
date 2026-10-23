@@ -130,9 +130,9 @@ func TestSmartTriageFinishOvertakesAQuestionAtTwiceTheWait(t *testing.T) {
 	}
 }
 
-// A low session overtakes a medium one in the same state once it has waited
-// twice as long, so nothing low waits for ever.
-func TestSmartTriageLowOvertakesMediumAtTwiceTheWait(t *testing.T) {
+// A low session never overtakes a medium one, however long it has waited:
+// the tier is the operator's order, not a weight the wait can outgrow.
+func TestSmartTriageLowNeverOvertakesMedium(t *testing.T) {
 	for _, scale := range []struct {
 		name          string
 		medium        time.Duration
@@ -149,7 +149,7 @@ func TestSmartTriageLowOvertakesMediumAtTwiceTheWait(t *testing.T) {
 			assertRail(t, smartFleet(t, low, med), "med", "low")
 			low.LastStatusAt = smartNow.Add(-scale.beyond)
 			low.OperatorAt = low.LastStatusAt
-			assertRail(t, smartFleet(t, low, med), "low", "med")
+			assertRail(t, smartFleet(t, low, med), "med", "low")
 		})
 	}
 }
@@ -209,14 +209,14 @@ func TestSmartTriageDrainsInRailOrder(t *testing.T) {
 		smartSess("calm", status.Idle, 2*time.Hour),
 		smartSess("grinder", status.Working, time.Hour),
 	)
-	// done-aged 91, q-old 82, calm 60.5, high 21 x 0.7 x 2 = 29.4, q-fresh 4.
-	want := []string{"done-aged", "q-old", "calm", "high", "q-fresh"}
+	// high leads on its tier; then done-aged 91, q-old 82, calm 60.5, q-fresh 4.
+	want := []string{"high", "done-aged", "q-old", "calm", "q-fresh"}
 	assertRail(t, m, append(want, "grinder")...)
 	if got := drainOrder(m); !slices.Equal(got, want) {
 		t.Fatalf("drain = %v, want the rail's order %v", got, want)
 	}
 	// A hop from the middle of the queue still hands over its head.
-	if i, ok := m.nextTriageInput("calm", nil); !ok || m.rows[i].sess.Name != "done-aged" {
+	if i, ok := m.nextTriageInput("calm", nil); !ok || m.rows[i].sess.Name != "high" {
 		t.Fatalf("hop from calm landed on row %d, want the head of the queue", i)
 	}
 }
@@ -328,7 +328,7 @@ func TestSmartTriageDeadlineGoesBeforeTheScore(t *testing.T) {
 	assertRail(t, m, "ask", "calm")
 }
 
-// Smart triage off is the strict order exactly: state first, then tier, then
+// Smart triage off is the strict order exactly: tier first, then state, then
 // oldest, with a seen finish ranked as the idle row it reads as.
 func TestSmartTriageOffKeepsTheStrictOrder(t *testing.T) {
 	urgent := smartSess("urgent-done", status.Finished, time.Minute)
@@ -351,7 +351,7 @@ func TestSmartTriageOffKeepsTheStrictOrder(t *testing.T) {
 	m := smartFleet(t, fleet...)
 	m.smartTriage = false
 	m.rebuildRows()
-	want := []string{"q-old", "q-fresh", "urgent-done", "done-aged", "lead", "kid", "calm", "seen", "broke"}
+	want := []string{"urgent-done", "q-old", "q-fresh", "done-aged", "lead", "kid", "calm", "seen", "broke"}
 	assertRail(t, m, want...)
 	if got, want := drainOrder(m), slices.DeleteFunc(slices.Clone(want), func(n string) bool { return n == "lead" || n == "kid" }); !slices.Equal(got, want) {
 		t.Fatalf("drain = %v, want %v", got, want)

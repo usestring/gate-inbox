@@ -90,24 +90,24 @@ same keys bring them back. Answering is the only gesture: a dialog answered with
 hands that session over and promotes the next thing waiting on a person. `alt+.` skips the one in
 front of you, `.` skips the row under the cursor from the list, `ctrl+\` stops. The queue is one live queue: a session that reaches waiting or finished while the first pass is walked joins it in place rather than waiting for another `i`.
 
-Smart triage, on by default, orders the queue by how long each session has waited, weighted by its state and its priority, and hands over the highest score first:
+Triage hands over every session of a higher priority before any of a lower one: urgent, then high, then medium, then none, then low, however long the lower ones have waited. Within one priority, smart triage, on by default, orders the queue by how long each session has waited, weighted by its state, and hands over the highest score first:
 
-    score = (wait + 1 minute) × state weight × priority weight
+    score = (wait + 1 minute) × state weight
 
-| State | Weight | | Priority | Weight |
-| --- | --- | --- | --- | --- |
-| waiting | 2 | | urgent | 8 |
-| blocked (an extension's rank) | 1.5 | | high | 2 |
-| finished | 1 | | medium or none | 1 |
-| finished, seen | 0.8 | | low | 0.5 |
-| errored | 0.7 | | | |
-| idle | 0.5 | | | |
+| State | Weight |
+| --- | --- |
+| waiting | 2 |
+| blocked (an extension's rank) | 1.5 |
+| finished | 1 |
+| finished, seen | 0.8 |
+| errored | 0.7 |
+| idle | 0.5 |
 
 The wait counts from your last turn on the session: a snippet, a key that submitted a line or answered a dialog in a focused pane, `gate-inbox send --as-human`, or attaching to its pane and giving it a turn there. Nothing Gate Inbox sends on its own resets it: messages from other sessions and from extensions (including a line a helper session relays in your voice), its own notices, name requests, nudges, limit-recovery continuations and launch prompts all start turns, but a session nobody has looked at in hours keeps its hours however many of those it has finished since. Attaching and leaving without giving the agent a turn, like opening a finished session from the board, is a look and leaves the wait alone. A session you have never given a turn waits from when it was created.
 
-Because the weights are ratios they mean the same thing whatever the waits: a finished session overtakes a question once it has waited twice as long, whether that is 10 minutes against 5 or two days against one, and a low session overtakes a medium one at twice the wait, so nothing on the board waits for ever. For example, a question that came in 20 minutes ago scores (20 + 1) × 2 = 42; a finished session from 50 minutes ago scores (50 + 1) × 1 = 51 and goes first; an urgent session that finished 10 minutes ago scores (10 + 1) × 1 × 8 = 88 and goes ahead of both. Every walkable session is scored, idle ones included, so a session misread as idle still comes round. "Finished, seen" is a finished session you have opened: opening it acknowledges it and the row turns idle, but triage keeps it in the queue on its original wait until you send it something. Working, starting, delegating and dead sessions are never handed over and sort under the scored ones; muted sessions sort last. The order is re-read on every poll, so rows move as their waits grow. A deadline an extension sets puts that session ahead of the scores until it passes. Priority is only read here; smart triage never changes a session's tier.
+Because the weights are ratios they mean the same thing whatever the waits: a finished session overtakes a question of the same priority once it has waited twice as long, whether that is 10 minutes against 5 or two days against one. For example, a question that came in 20 minutes ago scores (20 + 1) × 2 = 42; a finished session from 50 minutes ago scores (50 + 1) × 1 = 51 and goes first; an urgent session that finished a minute ago goes ahead of both, whatever its score. Every walkable session is scored, idle ones included, so a session misread as idle still comes round. "Finished, seen" is a finished session you have opened: opening it acknowledges it and the row turns idle, but triage keeps it in the queue on its original wait until you send it something. Working, starting, delegating and dead sessions are never handed over and sort under the scored ones; muted sessions sort last. The order is re-read on every poll, so rows move as their waits grow. A deadline an extension sets puts that session ahead of the scores until it passes. Priority is only read here; smart triage never changes a session's tier.
 
-Turn `smart triage` off in Settings (or store `smart_triage = "off"`) for the strict order: every question first, then every finished session, then idle, then errored, each by priority and then oldest first.
+Turn `smart triage` off in Settings (or store `smart_triage = "off"`) for the strict order: within each priority, every question first, then every finished session, then idle, then errored, each oldest first.
 
 The rest of the session's controls work from inside it: `ctrl+a` attaches, `ctrl+x` ends the session, `ctrl+n` starts a
 new one in its group, `alt+/` copies the agent's session id, `alt+;` steps back to the one you just

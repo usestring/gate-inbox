@@ -5,7 +5,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -86,16 +85,16 @@ func (m *Model) triageStateOf(sess store.Session) string {
 const triageFinishedSeen = "finished-seen"
 
 // Smart triage scores every walkable session by how long it has waited,
-// weighted by its state and its priority tier:
+// weighted by its state:
 //
-//	score = (wait + triageScoreFloor) x state weight x tier weight
+//	score = (wait + triageScoreFloor) x state weight
 //
-// and hands over the highest score first. The weights are ratios, so they
-// mean the same thing whether the waits are minutes or days: a finished
-// session overtakes a question once it has waited twice as long, and a low
-// one overtakes a medium one that has waited half as long, so nothing on the
-// walk waits for ever. Urgent's eight effectively jumps the queue. The tier
-// is only read here; the stored priority does not move.
+// and, inside one priority tier, hands over the highest score first. The tier
+// is not a weight: a weight let an untiered session that had waited long
+// enough overtake an urgent one, which is the operator's stated order
+// ignored. The state weights are ratios, so they mean the same thing whether
+// the waits are minutes or days: a finished session overtakes a question in
+// its tier once it has waited twice as long.
 var (
 	triageStateWeight = map[string]float64{
 		status.Waiting:     2,
@@ -104,13 +103,6 @@ var (
 		triageFinishedSeen: 0.8,
 		status.Errored:     0.7,
 		status.Idle:        0.5,
-	}
-	triageTierWeight = map[priority.Tier]float64{
-		priority.Urgent: 8,
-		priority.High:   2,
-		priority.Medium: 1,
-		priority.Unset:  1,
-		priority.Low:    0.5,
 	}
 )
 
@@ -141,11 +133,7 @@ func (m *Model) triageScoredState(sess store.Session) string {
 // no store event, the way a running-out deadline moves its row.
 func (m *Model) triageScore(sess store.Session, now time.Time) float64 {
 	wait := max(now.Sub(triageWaitingSince(sess)), 0) + triageScoreFloor
-	tier, ok := triageTierWeight[m.tierOf(sess)]
-	if !ok {
-		tier = 1
-	}
-	return wait.Seconds() * triageStateWeight[m.triageScoredState(sess)] * tier
+	return wait.Seconds() * triageStateWeight[m.triageScoredState(sess)]
 }
 
 // triageWaitingSince is when a session last had a person's attention, which
@@ -239,12 +227,12 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 // The rail has to read in the order the drain walks; the drain hands over the
 // first row it can, so the two cannot disagree. See nextTriageInput.
 //
-// With smart triage on, the scored band is every walkable session, highest
-// score first (see triageScore), and the walkable band is empty. Below it,
-// and in every band of the strict order, a session sorts by the status rank,
-// then the priority tier, then oldest first. There the tier sits under the
-// status rank: an urgent session heads the sessions in the same state as it,
-// but never crosses into a more pressing one. See priority.go.
+// Inside every band the priority tier comes first: a higher tier is handed
+// over before any lower one, however long the lower one has waited. Within a
+// tier, smart triage orders the scored band (every walkable session; the
+// walkable band is then empty) highest score first (see triageScore); every
+// other band, and the strict order, sorts by the status rank, then oldest
+// first. See priority.go.
 //
 // LastStatusAt is when the session entered the state it is in, which is
 // exactly how long it has been waiting; the two fields under it only keep
@@ -298,13 +286,13 @@ func (k triageKey) before(o triageKey) bool {
 	if k.band != o.band {
 		return k.band < o.band
 	}
+	if k.priority != o.priority {
+		return k.priority < o.priority
+	}
 	if k.score != o.score {
 		return k.score > o.score
 	}
-	if k.tier != o.tier {
-		return k.tier < o.tier
-	}
-	return k.priority < o.priority
+	return k.tier < o.tier
 }
 
 // triageKeyOf reads one session's key. A persistently muted session sorts

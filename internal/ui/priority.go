@@ -23,12 +23,11 @@ import (
 // subtree -- because it is a fact about the work rather than about one
 // pass, which is what sets it apart from a mute (see mute.go).
 //
-// It lifts a session among the sessions in the same state rather than over
-// every other: an urgent finished session still waits behind a session that
-// is blocked on an answer, and an urgent idle one behind both, because the
-// drain hands over the most pressing states first and the rail must read in
-// the same order the drain walks. Within each state the tiers order highest
-// first and the rest follow in the usual order.
+// It lifts a session over every session of a lower tier, whatever either is
+// doing: an urgent finished session goes before an untiered question, because
+// a tier the wait or the state could outrank is a tier the operator cannot
+// rely on. Within a tier the usual order holds, and the rail reads in the
+// same order the drain walks.
 //
 // The scale itself lives in internal/priority, because a goal's frontmatter
 // and a session's own declaration write the same tiers this key cycles.

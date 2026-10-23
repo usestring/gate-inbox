@@ -342,7 +342,7 @@ func reviewChecks(node reviewPRNode) ChecksState {
 	}
 }
 
-// Acknowledge reacts 👀 on each subject, so whoever asked sees the ask was picked up. One
+// Acknowledge leaves an eyes reaction on each subject, so whoever asked sees the ask was picked up. One
 // mutation for all of them; a reaction the viewer already left is a no-op on GitHub's side.
 func (g *GitHub) Acknowledge(subjects []string) error {
 	var parts []string

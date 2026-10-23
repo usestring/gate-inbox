@@ -331,7 +331,7 @@ type sessionCommands interface {
 // it stays under that; what individual tool descriptions already carry (the
 // queueing rules) is left to them. The full delegation rule, naming each
 // CLI's own subagent tool, rides that CLI's launch as well (see
-// mcpreg.delegationSteering), where it outranks an MCP block; a CLI whose
+// mcpreg.DelegationSteering), where it outranks an MCP block; a CLI whose
 // launch has nowhere to put it gets it appended here (mcpreg.ServerSteering).
 //
 // The reading paragraph is here rather than on each arriving message because
@@ -421,6 +421,21 @@ func withSteering(instructions, style string, askRename bool) string {
 		return instructions
 	}
 	return instructions + "\n\n" + text
+}
+
+// AdoptedInstructions is what a claude the board adopted mid-session is told
+// once, through its prompt hook: the block this server would have given it
+// at connect, and the delegation steering a claude launch appends to its
+// system prompt. Neither reaches it otherwise. Claude Code reads a server's
+// instructions only when it connects, and the relay an adopted session
+// connected to answered that itself, long before there was a row to serve;
+// its system prompt was fixed when it started. The launch's second rule, on
+// messages from the session that spawned it, is left out: nothing spawned
+// an adopted session. So are the extension notes, which come from
+// configuring the extensions, something a prompt hook should not wait on.
+func AdoptedInstructions() string {
+	return "Gate Inbox adopted this session onto the user's board. Its gate-inbox MCP tools may reach your tool list only after this message.\n\n" +
+		withSteering(serverInstructions, "claude", false) + "\n\n" + strings.TrimSpace(mcpreg.DelegationSteering("claude"))
 }
 
 // withExtensionNotes is instructions with a closing paragraph naming the
@@ -710,6 +725,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"A step that runs several commands -- add, commit, push, merge -- is one decision: pass every prefix in values and the one question names them all. A prefix is one command, so chaining with && or ; is refused; list each command instead. " +
 			"Prefer soft_command: it is enough for the classifier to pass a refused step, including one run with dangerouslyDisableSandbox, and the classifier still judges each call. Use rule or unsandboxed_command only when a soft grant is still refused. " +
 			"Wildcards, whole tools, and anything touching settings files, sudo or credentials are refused with no way past. Only Claude Code children can be granted to. " +
+			"A child adopted from outside the board is not restarted: rule and command-prefix grants and soft notes reach it through its hooks from its next tool call, and the result says plainly when part of a grant (a sandbox exclusion, a domain) needs a resume, which calling again with restart true does. " +
 			"revoke true takes a permission back; list_sessions shows what a session holds. After a restart the child is idle: pass message with the instruction the grant is for, and it is queued for the child carrying your user's Grant as an attestation.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args grantPermissionArgs) (*mcp.CallToolResult, sessioncmd.GrantResult, error) {

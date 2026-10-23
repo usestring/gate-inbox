@@ -5,6 +5,7 @@ package config
 import (
 	"crypto/sha256"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/mergegate"
+	"github.com/usestring/gate-inbox/internal/netwatch"
 	"github.com/usestring/gate-inbox/internal/priority"
 )
 
@@ -388,6 +390,45 @@ type HogRule struct {
 	For             Duration `toml:"for"`
 }
 
+// ClaudeCode configures what the board keeps in the operator's own Claude Code
+// config, as opposed to the per-session config a launch passes.
+type ClaudeCode struct {
+	// Setup keeps Gate Inbox's hooks and MCP relay registered in the Claude
+	// Code user config, which is what gives a claude started outside the
+	// board status and tools once it is adopted. A pointer so that absent
+	// means on: nobody has to find a command to get it. false takes the
+	// entries back out.
+	Setup *bool `toml:"setup"`
+}
+
+// SetupOn reports whether the board keeps its Claude Code entries registered.
+func (c ClaudeCode) SetupOn() bool { return c.Setup == nil || *c.Setup }
+
+// Codex configures what the board keeps in the operator's own Codex config.
+type Codex struct {
+	// Setup keeps Gate Inbox's two hook entries in the Codex user config
+	// (config.toml under CODEX_HOME or ~/.codex), which is what gives a
+	// codex started outside the board status and steering once it is
+	// adopted. Absent means on; false takes the entries back out.
+	Setup *bool `toml:"setup"`
+}
+
+// SetupOn reports whether the board keeps its Codex hooks registered.
+func (c Codex) SetupOn() bool { return c.Setup == nil || *c.Setup }
+
+// OpenCode configures what the board keeps in the operator's own OpenCode
+// config, as opposed to the config a launch generates.
+type OpenCode struct {
+	// Setup keeps Gate Inbox's plugin in OpenCode's global plugins
+	// directory, which is what gives an opencode started outside the board
+	// its row, steering and conversation binding once it is adopted. Absent
+	// means on; false takes the plugin back out.
+	Setup *bool `toml:"setup"`
+}
+
+// SetupOn reports whether the board keeps its OpenCode plugin registered.
+func (c OpenCode) SetupOn() bool { return c.Setup == nil || *c.Setup }
+
 // Naming configures how sessions get their names.
 type Naming struct {
 	// Ask asks a live agent to name its own session: the rename directive
@@ -420,7 +461,8 @@ type Board struct {
 }
 
 type Config struct {
-	PollInterval Duration `toml:"poll_interval"`
+	PollInterval       Duration `toml:"poll_interval"`
+	OutboxProbeTargets []string `toml:"outbox_probe_targets"`
 	// AdoptSockets names extra tmux servers to scan for agent panes the
 	// manager did not start. The default server is always scanned; this is
 	// for sessions kept on a named socket.
@@ -454,6 +496,9 @@ type Config struct {
 	Work             Work         `toml:"work"`
 	Integrations     Integrations `toml:"integrations"`
 	Hogs             Hogs         `toml:"hogs"`
+	ClaudeCode       ClaudeCode   `toml:"claude_code"`
+	Codex            Codex        `toml:"codex"`
+	OpenCode         OpenCode     `toml:"opencode"`
 	Relaunch         Relaunch     `toml:"relaunch"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
@@ -542,6 +587,12 @@ func LoadDir(dir string) (Config, error) {
 // validate refuses values the board has no reading for, so a misspelt
 // choice is named at startup rather than quietly drawn as the default.
 func (c Config) validate() error {
+	for _, target := range c.OutboxProbeTargets {
+		u, err := url.Parse(target)
+		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+			return fmt.Errorf("outbox_probe_targets: each target must be an HTTP or HTTPS URL")
+		}
+	}
 	switch c.Board.Sidebar {
 	case SidebarRight, SidebarLeft:
 	default:
@@ -952,6 +1003,9 @@ func Default() (Config, error) {
 }
 
 func (c *Config) applyDefaults() {
+	if c.OutboxProbeTargets == nil {
+		c.OutboxProbeTargets = slices.Clone(netwatch.DefaultTargets)
+	}
 	if c.PollInterval.Duration <= 0 {
 		c.PollInterval.Duration = 2 * time.Second
 	}
@@ -1052,6 +1106,34 @@ const defaultConfig = `poll_interval = "2s"
 # see it that way, then leaves the rail and the counts for good.
 # [work]
 # settle_after = "24h"
+
+# Your own Claude Code config. While the board runs it keeps its hooks in
+# ~/.claude/settings.json and an MCP server named gate-inbox in ~/.claude.json
+# (or the ones under CLAUDE_CONFIG_DIR), so a claude started outside the board
+# reports status and gets the board's tools once the board adopts it. Both
+# stay silent in any session the board has not adopted. false removes them,
+# and so does switching "claude code setup" off in Settings.
+# [claude_code]
+# setup = true
+
+# Your own Codex config. While the board runs, on a machine with codex
+# installed, it keeps two hook entries (UserPromptSubmit and Stop) in
+# config.toml under CODEX_HOME or ~/.codex, so a codex started outside the
+# board reports status and hears the board's steering once the board adopts
+# it. They do nothing in any codex session the board does not hold. Codex
+# asks you to trust new hooks once ("Hooks need review"). false removes them,
+# and so does "gate-inbox codex-hooks uninstall".
+# [codex]
+# setup = true
+
+# Your own OpenCode config. While the board runs it keeps a plugin in
+# OpenCode's global plugins directory (~/.config/opencode/plugins, or the one
+# under OPENCODE_CONFIG_DIR or XDG_CONFIG_HOME), so an opencode started
+# outside the board speaks as its row and gets the board's steering once the
+# board adopts it. It does nothing in any session the board has not adopted.
+# false removes it.
+# [opencode]
+# setup = true
 
 # The diagnostic log. It is a file log only -- this program owns the
 # terminal, so nothing is ever printed to the screen. "gate-inbox

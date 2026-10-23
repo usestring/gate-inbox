@@ -3,6 +3,7 @@
 package ui
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -18,12 +19,14 @@ import (
 	"github.com/usestring/gate-inbox/internal/clipboard"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/git"
 	"github.com/usestring/gate-inbox/internal/hogs"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
+	"github.com/usestring/gate-inbox/internal/netwatch"
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/promptsnips"
@@ -99,6 +102,9 @@ type treeRow struct {
 	// head is the extension whose header this row is, drawn over sess: see
 	// headrows.go.
 	head string
+	// stands marks a header row over a session folded behind it, which is
+	// that session's entry in the tree: see headfold.go.
+	stands bool
 }
 
 // isArtifact marks a row that draws a pull request or a ticket.
@@ -110,6 +116,10 @@ func (e treeRow) isHead() bool { return e.head != "" }
 // isSession marks a row that is a session itself, as against the group above
 // it, the header over it or the work hanging off it.
 func (e treeRow) isSession() bool { return !e.isGroup && e.art == nil && e.head == "" }
+
+// entersAs marks the row that is a session's entry in the tree: its own row,
+// or the header standing in for it while it is folded.
+func (e treeRow) entersAs() bool { return e.isSession() || e.stands }
 
 type Model struct {
 	cfg    config.Config
@@ -254,6 +264,9 @@ type Model struct {
 	meterMemo    []string
 	meterMemoKey meterKey
 	meterMemoOK  bool
+	// headroom is the build's last subscription quota summary per CLI,
+	// drawn under the machine meters. See headroom.go.
+	headroom map[string]string
 	// workMemo holds one answer per session for the length of a frame or a
 	// rebuild, which is also the longest either treats a session's work as
 	// fixed. Nil outside both, which is when the tracker is free to move.
@@ -369,6 +382,8 @@ type Model struct {
 	// adoptFirstDone is set once the first adopt scan has answered.
 	adoptFirstDone  bool
 	adoptFinishedAt time.Time
+	// adoptBusy is set while an adopt scan is out on its own goroutine.
+	adoptBusy bool
 	// nameAfterRefresh asks the next sweep to run a naming pass, for rows an
 	// adopt scan has just created and the board has not seen yet.
 	nameAfterRefresh bool
@@ -637,8 +652,10 @@ type Model struct {
 	// transcripts they are read from; see landing.go. The locator is the
 	// event loop's own, since a Locator is not safe to share with the
 	// goroutines the other copies run on.
-	landings   map[string]*pendingLanding
-	landingGen int
+	heldSnippets         map[int64]*pendingLanding
+	heldSnippetsRestored bool
+	landings             map[string]*pendingLanding
+	landingGen           int
 	// unseenAnswers are the sessions whose last answer would have moved the
 	// drain on but was never seen arriving: the check refused it or ran out of
 	// time. The poll's working transition is the evidence left to see.
@@ -667,6 +684,10 @@ type Model struct {
 	takeover    takeoverState
 	// adoptedHooks keeps the global hooks' markers for adopted panes.
 	adoptedHooks adoptedHooksState
+	// arrivals is the panes agents announced and the board has yet to scan.
+	arrivals arrivalsState
+	// offer is the toast naming panes just adopted, while it is up.
+	offer adoptOffer
 	// restoreArmed is set by Init, so only a real startup marks the sessions
 	// that died while the board was closed; a Model built directly never does.
 	restoreArmed bool
@@ -867,30 +888,33 @@ type quickState struct {
 }
 
 type settingsState struct {
-	toolNames          []string
-	toolIndex          int
-	accountRouting     string
-	chooserAvailable   bool
-	themeIndex         int
-	field              int
-	quickCloseSend     bool
-	enterFocuses       bool
-	comfortableRows    bool
-	layout             string
-	sidebar            string
-	palette            string
-	glyphs             string
-	archiveConfirm     string
-	deleteConfirm      string
-	restartConfirm     string
-	listSort           string
-	chrome             string
-	leaveMode          string
-	newSessionAgent    string
-	autoProceed        bool
-	smartTriage        bool
-	reopenSessions     string
-	outsidePanes       string
+	toolNames        []string
+	toolIndex        int
+	accountRouting   string
+	chooserAvailable bool
+	themeIndex       int
+	field            int
+	quickCloseSend   bool
+	enterFocuses     bool
+	comfortableRows  bool
+	layout           string
+	sidebar          string
+	palette          string
+	glyphs           string
+	archiveConfirm   string
+	deleteConfirm    string
+	restartConfirm   string
+	listSort         string
+	chrome           string
+	leaveMode        string
+	newSessionAgent  string
+	autoProceed      bool
+	smartTriage      bool
+	reopenSessions   string
+	outsidePanes     string
+	// claudeSetup is the Settings switch for the board's entries in the
+	// operator's Claude Code config, as the picker holds it.
+	claudeSetup        bool
 	experimentalPicker bool
 	experimentalCursor int
 	jevPanel           bool
@@ -935,6 +959,7 @@ const (
 	settingsFieldSmartTriage
 	settingsFieldReopenSessions
 	settingsFieldOutsidePanes
+	settingsFieldClaudeSetup
 	settingsFieldJev
 	settingsFieldExperimental
 	settingsFieldSnippets
@@ -1466,6 +1491,12 @@ func (m *Model) StartPoller(send func(tea.Msg)) {
 		m.poller.historyFormats = historyToolFormats(m.cfg)
 		go m.runHistoryIndex(send)
 	}
+	// Probing starts here for the same reason: a test Model never touches
+	// the network, so its poller always reads online.
+	if envname.Get(envname.Outbox) != "off" && len(m.cfg.OutboxProbeTargets) > 0 {
+		m.poller.net = netwatch.New(netwatch.HTTPProbe(m.cfg.OutboxProbeTargets, netwatch.ProbeTimeout))
+		go m.poller.net.Run(context.Background(), m.poller.requestRefresh)
+	}
 	go m.poller.run(send)
 }
 
@@ -1492,7 +1523,7 @@ func (m *Model) Init() tea.Cmd {
 	// read any session state, and a first run has none to wait for.
 	m.maybeOpenWelcome()
 	m.syncPollInput()
-	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips())
+	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.headroomStart(), m.arrivalStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips())
 }
 
 // pasteSweepMsg carries the result of one pass over the pastes directory.
@@ -1579,6 +1610,22 @@ func (m *Model) listedSessions() []store.Session {
 		m.frameListed = listed
 	}
 	return listed
+}
+
+func (m *Model) searchedListedSessions() []store.Session {
+	listed := m.listedSessions()
+	query := m.historyQueryText()
+	if query == "" {
+		return listed
+	}
+	matched := make([]store.Session, 0, len(listed))
+	for _, sess := range listed {
+		_, historyMatch := m.historyHit(sess)
+		if matchesSearch(sess, query, m.searchText[sess.ID]) || historyMatch {
+			matched = append(matched, sess)
+		}
+	}
+	return matched
 }
 
 func (m *Model) computeListedSessions() []store.Session {
@@ -1668,6 +1715,11 @@ func (m *Model) selectedRow() (treeRow, bool) {
 	if !ok {
 		return treeRow{}, false
 	}
+	// A header standing in for a folded session is that session to every
+	// key that acts on one.
+	if row := m.rows[index]; row.stands {
+		return treeRow{sess: row.sess, depth: row.depth}, true
+	}
 	return m.rows[index], true
 }
 
@@ -1679,8 +1731,9 @@ func (m *Model) selectedIndex() (int, bool) {
 	}
 	index := m.cursor
 	// A header row heads the session drawn just below it, past any other
-	// extension's header over the same session.
-	for index < len(m.rows)-1 && m.rows[index].isHead() {
+	// extension's header over the same session -- unless the session is
+	// folded behind it, when the header is all of the session there is.
+	for index < len(m.rows)-1 && m.rows[index].isHead() && !m.rows[index].stands {
 		index++
 	}
 	for index > 0 && m.rows[index].isArtifact() {
@@ -1705,7 +1758,7 @@ func (m *Model) cursorRow() (treeRow, bool) {
 // where it was.
 func (m *Model) focusSession(id string) bool {
 	for i, row := range m.rows {
-		if row.isSession() && row.sess.ID == id {
+		if row.entersAs() && row.sess.ID == id {
 			m.cursor = i
 			// The cursor decides which session's work is open, so a cursor
 			// put somewhere rather than stepped there rebuilds too.
@@ -2186,6 +2239,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.frameUnchanged()
 		return m, tea.Batch(m.previewCmd(sess, m.previewGen, m.procDue()), m.previewTick())
 
+	case headroomTickMsg:
+		return m, tea.Batch(m.headroomCmd(), headroomTick())
+	case headroomMsg:
+		m.headroom = msg.quotas
+		return m, nil
+
 	case conversationTickMsg:
 		return m, tea.Batch(m.readConversation(), conversationTick(), m.startStartupTick())
 	case conversationMsg:
@@ -2245,6 +2304,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.listedAt.After(m.statusesAsOf) {
 			m.statusesAsOf = msg.listedAt
 		}
+		heldLandings := m.resumeHeldSnippets()
 		m.settleLandings(msg.listedAt, msg.unseen)
 		m.dropHeldAckOnNewTurn()
 		// A pane taken by the last adopt scan is on the board under its
@@ -2359,21 +2419,30 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {
 			m.syncPollInput()
 			m.previewGen++
-			return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick())
+			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick())
 		}
 		m.proc = msg.proc
 		m.procFor = msg.procFor
 		m.setPreviewAt(msg.preview, msg.previewAt)
-		return m, tea.Batch(focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick())
+		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick())
 
 	case childSweptMsg:
 		m.applyChildSweep(msg)
 		return m, nil
 
 	case adoptTickMsg:
+		if m.adoptBusy {
+			// One scan at a time: two at once would each think a pane the
+			// other is taking is free. The arrival poll catches up after.
+			return m, m.adoptTick()
+		}
 		return m, tea.Batch(m.adoptScan(), m.adoptTick())
 
+	case arrivalTickMsg:
+		return m, tea.Batch(m.scanArrivals(time.Now()), m.arrivalTick())
+
 	case adoptedMsg:
+		m.adoptBusy = false
 		if msg.err != nil {
 			m.errBar.text = "adopting a pane: " + msg.err.Error()
 		}
@@ -2650,6 +2719,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.refreshPromptSnips()
 
 	case attachDoneMsg:
+		m.tmux.AttachDone(msg.sessID)
 		// An agent that repainted the terminal background for itself leaves
 		// it on ours; the resume's WindowSizeMsg skips its own sync when the
 		// size is unchanged, so the detach restores the theme's here.
@@ -2938,7 +3008,7 @@ func (m *Model) ageError() {
 		return
 	}
 	m.errBar.age++
-	if m.errBar.age >= 2 {
+	if m.errBar.age >= 2 && !m.offerLive(time.Now()) {
 		m.errBar = errBar{}
 	}
 }
@@ -3204,7 +3274,11 @@ func (m *Model) buildTree() {
 		if extHides(sess) {
 			return
 		}
-		rows = append(rows, m.headRows(sess, depth)...)
+		folded := m.headFolded(sess, query)
+		rows = append(rows, m.headRows(sess, depth, folded)...)
+		if folded {
+			return
+		}
 		rows = append(rows, treeRow{sess: sess, depth: depth})
 		rows = append(rows, m.artifactRows(sess, depth+1)...)
 		appendChildren(sess, depth, map[string]bool{sess.ID: true})
@@ -3247,7 +3321,11 @@ func (m *Model) buildTree() {
 			if m.triage && child.Muted != sess.Muted {
 				rowDepth = 0
 			}
-			rows = append(rows, m.headRows(child, rowDepth)...)
+			folded := m.headFolded(child, query)
+			rows = append(rows, m.headRows(child, rowDepth, folded)...)
+			if folded {
+				continue
+			}
 			rows = append(rows, treeRow{sess: child, depth: rowDepth})
 			rows = append(rows, m.artifactRows(child, rowDepth+1)...)
 			appendChildren(child, rowDepth, drawn)

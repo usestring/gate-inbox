@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -94,5 +95,24 @@ func TestSessionToolsReachAnAdoptedPaneWithNoBoard(t *testing.T) {
 	}
 	if row.Status != status.Dead || ends[adopted.ID].Reason != store.EndKilled {
 		t.Fatalf("after kill_session: status %q, end %+v", row.Status, ends[adopted.ID])
+	}
+}
+
+// An adopted claude is told what a launched one reads at startup: this
+// server's own instructions, word for word, and the launch's delegation
+// steering, but not the rule about the session that spawned it, since none
+// did.
+func TestAdoptedInstructionsAreTheServerBlockAndTheLaunchSteering(t *testing.T) {
+	got := AdoptedInstructions()
+	for _, want := range []string{serverInstructions, strings.TrimSpace(mcpreg.DelegationSteering("claude"))} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("the adopted instructions lack:\n%s\n\ngot:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "# Messages from the session that spawned you") {
+		t.Fatalf("an adopted session was given its parent's rule:\n%s", got)
+	}
+	if got != strings.TrimSpace(got) {
+		t.Fatal("the adopted instructions carry surrounding whitespace")
 	}
 }

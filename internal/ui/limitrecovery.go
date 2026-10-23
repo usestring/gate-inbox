@@ -62,7 +62,7 @@ func (p *poller) maybeRecoverLimit(sess store.Session, states map[string]store.L
 		old = &previous
 		logging.Info("usage limit recovery scheduled", "session", sess.ID, "reset_at", resetAt, "retry_at", resetAt.Add(limitResetGrace))
 	}
-	if derived != status.Errored || !inputAvailable || !previous.AttemptedAt.IsZero() || now.Before(previous.ResetAt.Add(limitResetGrace)) {
+	if derived != status.Errored || !inputAvailable || p.offline() || !previous.AttemptedAt.IsZero() || now.Before(previous.ResetAt.Add(limitResetGrace)) {
 		return false, nil
 	}
 	if p.engine.TypingHold(sess.Tool, clean) != "" || p.operatorEcho(sess.ID) || p.operatorTyping(sess, capture.State) {
@@ -94,4 +94,17 @@ func (p *poller) maybeRecoverLimit(sess store.Session, states map[string]store.L
 		return nil
 	})
 	return true, nil
+}
+
+func heldLimitContinuations(sessions []store.Session, recoveries map[string]store.LimitRecovery, now time.Time) map[string]bool {
+	held := make(map[string]bool)
+	for _, sess := range sessions {
+		recovery, ok := recoveries[sess.ID]
+		if ok && sess.Tool == "codex" && sess.Status == status.Errored && !sess.Archived &&
+			recovery.LaunchAt.Equal(sess.LaunchTime()) && recovery.AttemptedAt.IsZero() &&
+			!now.Before(recovery.ResetAt.Add(limitResetGrace)) {
+			held[sess.ID] = true
+		}
+	}
+	return held
 }

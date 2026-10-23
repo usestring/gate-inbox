@@ -101,3 +101,38 @@ func TestCompactWindowOffWritesNothing(t *testing.T) {
 		t.Fatalf("a board without compact_window wrote a settings file: %v", err)
 	}
 }
+
+// A child takes the window its tracker's tier earns, through as many
+// spawners as there are, while a detached spawn and a session that tracks
+// itself round a cycle keep their own.
+func TestChildTakesItsParentsCompactWindow(t *testing.T) {
+	m := buildModel(t)
+	m.poller.compactTools = map[string]config.Tool{"claude": {
+		StatusSource:  hooks.StatusSourceClaude,
+		CompactWindow: map[string]int{"urgent": 600000, "high": 300000},
+	}}
+	parent := store.Session{ID: "parent", Tool: "claude", Priority: priority.High}
+	child := store.Session{ID: "child", Tool: "claude", ParentID: "parent", SpawnedBy: "parent"}
+	grandchild := store.Session{ID: "grand", Tool: "claude", ParentID: "parent", SpawnedBy: "child"}
+	detached := store.Session{ID: "loose", Tool: "claude", SpawnedBy: "parent"}
+	m.poller.syncCompactWindows([]store.Session{parent, child, grandchild, detached}, nil)
+	for id, want := range map[string]int{"parent": 300000, "child": 300000, "grand": 300000, "loose": 0} {
+		if got := compactWindowOf(t, m, id); got != want {
+			t.Fatalf("%s window = %d, want %d", id, got, want)
+		}
+	}
+
+	// The child's own higher tier still wins over the parent's.
+	child.Priority = priority.Urgent
+	m.poller.syncCompactWindows([]store.Session{parent, child, grandchild}, nil)
+	if got := compactWindowOf(t, m, "grand"); got != 600000 {
+		t.Fatalf("grandchild of an urgent child window = %d, want 600000", got)
+	}
+
+	a := store.Session{ID: "a", Tool: "claude", ParentID: "b", SpawnedBy: "b"}
+	b := store.Session{ID: "b", Tool: "claude", ParentID: "a", SpawnedBy: "a"}
+	m.poller.syncCompactWindows([]store.Session{a, b}, nil)
+	if got := compactWindowOf(t, m, "a"); got != 0 {
+		t.Fatalf("an untiered cycle window = %d, want 0", got)
+	}
+}

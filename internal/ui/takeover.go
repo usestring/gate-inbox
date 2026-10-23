@@ -24,13 +24,11 @@ import (
 // up, one pane at a time once it is idle and no client is attached, so no
 // turn or unsubmitted input is lost to it.
 //
-// Nothing asks first. With outside panes on their default, every adopted
-// pane is owed to the takeover the moment the board sees it, whether it was
-// on the board at start or adopted later in the run: the idle ones go on the
-// next pass, the busy ones on the first pass that finds each idle. An owned
-// row is one the naming sweep can title, which an adopted pane on a tool it
-// cannot read, or with no conversation it can attribute, never is. O runs
-// the same pass by hand, for a board set to keep panes as they are.
+// It runs when asked: a brings one pane in (adoptoffer.go), take over in
+// quick actions brings every one. With outside panes set to "take them over
+// once idle", every adopted pane is owed to it the moment the board sees
+// it: the idle ones go on the next pass, the busy ones on the first pass
+// that finds each idle.
 
 type takeoverState struct {
 	// pending is the set the background pass is still owed: adopted rows
@@ -75,7 +73,7 @@ func takeoverReady(sess store.Session) bool {
 	return sess.Status == status.Idle
 }
 
-// takeOverAdopted is the O key: every adopted pane on the board now, owed
+// takeOverAdopted is take over: every adopted pane on the board now, owed
 // to the takeover at once whatever the setting says, including one an
 // earlier pass refused, since pressing the key is asking again.
 func (m *Model) takeOverAdopted() (tea.Model, tea.Cmd) {
@@ -102,7 +100,7 @@ func (m *Model) oweTakeover(id string) {
 }
 
 // autoTakeover owes the pass every adopted pane it has not tried yet, when
-// outside panes are set to be taken over, which is the default. Only a real
+// outside panes are set to be taken over. Only a real
 // startup does this: a Model built without Init takes nothing on its own.
 func (m *Model) autoTakeover() {
 	if !m.restoreArmed || m.outsidePanesMode() != paneRelaunch {

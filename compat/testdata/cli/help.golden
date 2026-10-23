@@ -26,7 +26,7 @@ Agent sessions
       check whether a message you sent is queued, held, delivered, dropped or answered
   gate-inbox kill <session-id> [--json]
       stop another agent's process, ending whatever it is doing; its row keeps the last screen
-  gate-inbox stop [--dry-run] [--json]
+  gate-inbox stop [--archive] [--dry-run] [--json]
       end this managed session intentionally, preserving its history and excluding it from crash restoration
   gate-inbox revive <session-id> [--json]
       bring a dead session back on its old row, resuming the conversation it held
@@ -102,10 +102,6 @@ How much this session matters
 Board hygiene
   gate-inbox sweep [--json] [--db <path>] [--idle 72h] [--waiting 24h] [--errored 24h] [--dead 1h] [--mail 1h]
       list stale sessions and undelivered mail with the call that would clear each; reads state.db read-only and changes nothing
-
-Setup
-  gate-inbox claude-hooks [install | uninstall [--all] | status]
-      register Gate Inbox's hooks in your Claude Code user settings, so a claude started outside the board works fully once adopted; the board installs them at startup
 
 Options:
   -h, --help     Show this help text

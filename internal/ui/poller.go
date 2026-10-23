@@ -29,6 +29,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
+	"github.com/usestring/gate-inbox/internal/netwatch"
 	"github.com/usestring/gate-inbox/internal/notify"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/priority"
@@ -46,6 +47,10 @@ import (
 // inside a tmux attach. The UI receives the results as refreshMsg values
 // and merely renders them.
 type poller struct {
+	snippetRecipients sync.Map
+	// net reads whether the machine is online. Nil, as in every test that
+	// does not set one, reads online.
+	net           *netwatch.Watcher
 	store         *store.Store
 	tmux          *tmux.Driver
 	engine        *status.Engine
@@ -179,6 +184,9 @@ type poller struct {
 	// between two passes say what it did meanwhile, and a whole turn can fit
 	// there. See missedTurn.
 	hookCursor map[string]int64
+	// codexHooks is what the last publish of the board's codex rows for
+	// the global codex hooks covered; see codexhooks.go.
+	codexHooks codexHooksState
 	// goneAdopted counts the consecutive passes each adopted session's pane
 	// has been proven missing, so a row is dropped on a finding that held
 	// still rather than on a single look.
@@ -768,6 +776,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	}
 	phases.scan = lap(&mark)
 	panes := scan.PIDs
+	p.syncCodexHooks(sessions, panes, time.Now())
 	// A queued delivery must use a fresh screen, even on a resting row.
 	heads, err := p.store.HeadMessages()
 	if err != nil {
@@ -901,6 +910,9 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 			return errMsg{err}
 		}
 		if err := p.applyPendingPriority(&sessions[i]); err != nil {
+			return errMsg{err}
+		}
+		if err := p.applyPendingConversation(&sessions[i]); err != nil {
 			return errMsg{err}
 		}
 		phases.rename += lap(&step)
@@ -1214,6 +1226,13 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	if err != nil {
 		return errMsg{err}
 	}
+	if p.offline() {
+		recoveries, err := p.store.LimitRecoveries()
+		if err != nil {
+			return errMsg{err}
+		}
+		shown = store.ApplyOutbox(shown, queued, heldLimitContinuations(shown, recoveries, now))
+	}
 
 	msg := refreshMsg{
 		sessions:         shown,
@@ -1360,6 +1379,7 @@ func (p *poller) forgetAdopted(id string) error {
 	for _, remove := range []func(string) error{
 		p.hooks.Remove,
 		p.hooks.RemoveName,
+		p.hooks.RemoveConversation,
 	} {
 		if err := remove(id); err != nil {
 			return err
@@ -1491,6 +1511,11 @@ func (p *poller) maybeSendPendingInputWhenReady(sess store.Session, capture tmux
 		if derived != status.Idle && derived != status.Finished {
 			return false, nil
 		}
+	}
+	// A launch prompt waits out an outage like a queued message. A claimed
+	// one is already on its way and is reconciled whatever the network does.
+	if !sess.PendingInputClaimed && p.offline() {
+		return false, nil
 	}
 	if !sess.PendingInputClaimed && !pendingDeliverable(derived, p.engine.TypeAhead(sess.Tool)) {
 		return false, nil
@@ -1647,12 +1672,24 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 	if !queued {
 		return false, nil
 	}
+	if msg.SenderID == snippetSenderID {
+		recipient, ready := p.snippetRecipients.Load(msg.ID)
+		if !ready || recipient != sess.ID {
+			return false, nil
+		}
+	}
 	// The pass captures the panes before it reads the queue, and a send to
 	// this session can settle between the two. The head it read is then the
 	// message behind one just submitted, while the capture shows the pane
 	// from before that submit: typed now, it lands on a turn the tool has not
 	// drawn yet. It waits for a capture taken after the send.
 	if p.settledSince(sess.ID, capture.At) {
+		return false, nil
+	}
+	// Offline, the message waits in the outbox: typed now, it would start a
+	// turn whose first request fails. Held before the interrupt, too, so a
+	// working agent is not stopped for a message that is not going in.
+	if p.offline() {
 		return false, nil
 	}
 	if msg.Interrupt && derived == status.Working && msg.ClaimedAt.IsZero() {
@@ -2359,6 +2396,31 @@ func (p *poller) applyPendingPriority(sess *store.Session) error {
 	return p.hooks.RemovePriority(sess.ID)
 }
 
+// applyPendingConversation binds an adopted row to the conversation its
+// global hooks last reported (hooks.RecordConversation), keeping the manager
+// the sole database writer for the same reason applyPendingRename does. It
+// fills an id adoption could not find, and follows the pane to a new one
+// after a /clear or a resume there. Only an adopted row is read: a launched
+// one carries the id the board gave it, and its hooks never write the file.
+func (p *poller) applyPendingConversation(sess *store.Session) error {
+	if sess.TmuxPaneID == "" {
+		return nil
+	}
+	conversation, found := p.hooks.ReadConversation(sess.ID)
+	if !found {
+		return nil
+	}
+	if conversation != "" && conversation != sess.AgentSessionID {
+		if err := ignoreDeletedSession(p.store.SetAgentSessionID(sess.ID, conversation)); err != nil {
+			return err
+		}
+		logging.Info("adopted row bound to its conversation",
+			"session", sess.ID, "from", sess.AgentSessionID, "to", conversation)
+		sess.AgentSessionID = conversation
+	}
+	return p.hooks.RemoveConversation(sess.ID)
+}
+
 // reflowSessions drops activity-region hashes for ids and runs reflow
 // while the poller is paused (runMu held). A poll must not capture mid-
 // resize against a pre-resize hash: that comparison treats reflow as
@@ -2584,6 +2646,13 @@ func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAli
 			}
 		}
 	}
+	// A codex row the global codex hooks answer for has its turn's start
+	// and end from them, weighed against the pane; see codexhooks.go.
+	if agentAlive && !pinned {
+		if derived := p.codexHookStatus(sess, text, displaced); derived != "" {
+			return codexQuestionStatus(derived, p.unansweredCodexQuestions(sess)), nil
+		}
+	}
 	newStatus, matched := p.engine.Match(sess.Tool, text)
 	if displaced {
 		delete(p.quietSince, sess.ID)
@@ -2783,6 +2852,12 @@ func (p *poller) applyHookStatus(sess store.Session, text, hookStatus string, di
 		}
 	}
 	return hookStatus
+}
+
+// offline reports whether sends are being held for the network.
+func (p *poller) offline() bool {
+	offline, _ := p.net.Offline()
+	return offline
 }
 
 // delegated is the rows as the board shows them: a parent at rest on its

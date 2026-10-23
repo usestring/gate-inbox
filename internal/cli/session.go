@@ -27,7 +27,7 @@ const (
 	usageWait          = "wait [<session-id>...] [--children] [--until <state>] [--timeout <duration>] [--json]"
 	usageMessageStatus = "message-status <message-id> [--json]"
 	usageKill          = "kill <session-id> [--json]"
-	usageStop          = "stop [--dry-run] [--json]"
+	usageStop          = "stop [--archive] [--dry-run] [--json]"
 	usageRevive        = "revive <session-id> [--json]"
 	usageMigrate       = "migrate <session-id> --tool <cli> [--name <name>] [--json]"
 	usageArchive       = "archive <session-id> [--restore] [--json]"
@@ -55,7 +55,7 @@ type sessionCommands interface {
 	Wait(ctx context.Context, sessionID string, opts sessioncmd.WaitOptions) (sessioncmd.WaitResult, error)
 	MessageStatus(sessionID string, messageID int64) (sessioncmd.MessageState, error)
 	Kill(sessionID, targetID string, via extension.KillSource) (sessioncmd.Session, error)
-	Stop(sessionID string, dryRun bool) (sessioncmd.StopResult, error)
+	Stop(sessionID string, dryRun, archive bool) (sessioncmd.StopResult, error)
 	Revive(sessionID, targetID string) (sessioncmd.Session, error)
 	Migrate(sessionID, targetID string, opts sessioncmd.MigrateOptions) (sessioncmd.Session, error)
 	Archive(sessionID, targetID string, archived bool) (sessioncmd.Session, error)

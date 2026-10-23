@@ -1446,6 +1446,21 @@ func (s *Store) SetArchived(id string, archived bool) error {
 	return err
 }
 
+func (s *Store) ArchiveStoppedLaunch(sess Session) (bool, error) {
+	result, err := s.db.Exec(`UPDATE sessions SET archived = 1, archived_at = ?
+		WHERE id = ? AND archived = 0 AND status = 'dead'
+		AND CASE WHEN agent_launched_at = 0 THEN created_at ELSE agent_launched_at END IN (?, ?)`,
+		encodeTime(time.Now()), sess.ID, encodeTime(sess.LaunchTime()), sess.LaunchTime().Unix())
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil || n == 0 {
+		return false, err
+	}
+	return true, s.tallyChildArchive(sess.ID, true)
+}
+
 func (s *Store) setArchived(id string, archived bool) error {
 	stamp := int64(0)
 	if archived {
@@ -2397,6 +2412,33 @@ func EffectiveTier(groupTiers map[string]priority.Tier, sess Session) priority.T
 	tier := sess.Priority
 	for path := sess.Group; path != ""; path = parentPath(path) {
 		tier = priority.Better(tier, groupTiers[path])
+	}
+	return tier
+}
+
+// InheritedTier is EffectiveTier raised to the effective tier of every
+// session above sess in the chain of trackers (TrackerOf), which is the tier
+// that sizes the session's resources rather than its place on the board: a
+// child doing an urgent session's work needs that session's room to do it.
+//
+// The chain follows TrackerOf, so a detached spawn inherits nothing -- it was
+// handed to the user as its own piece of work, not done on the maker's
+// behalf. lookup resolves a tracker by id; one it cannot resolve ends the
+// walk, and so does an id already visited, so a cycle written by a
+// placement or a migration cannot hang the caller.
+//
+// The board does not sort by this: EffectiveTier stays the order the
+// operator set, so a child never jumps the queue on its parent's word.
+func InheritedTier(groupTiers map[string]priority.Tier, sess Session, lookup func(id string) (Session, bool)) priority.Tier {
+	tier := EffectiveTier(groupTiers, sess)
+	seen := map[string]bool{sess.ID: true}
+	for id := TrackerOf(sess); id != "" && !seen[id]; id = TrackerOf(sess) {
+		seen[id] = true
+		var ok bool
+		if sess, ok = lookup(id); !ok {
+			break
+		}
+		tier = priority.Better(tier, EffectiveTier(groupTiers, sess))
 	}
 	return tier
 }

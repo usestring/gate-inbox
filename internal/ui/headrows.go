@@ -44,11 +44,13 @@ func (m *Model) headsRows(owner string) bool {
 }
 
 // headRows are the header rows over a session, owners in build order.
-func (m *Model) headRows(sess store.Session, depth int) []treeRow {
+// folded marks them as standing in for a session folded behind them: see
+// headfold.go.
+func (m *Model) headRows(sess store.Session, depth int, folded bool) []treeRow {
 	var rows []treeRow
 	for _, header := range m.extHeaders[sess.ID] {
 		if m.headsRows(header.owner) {
-			rows = append(rows, treeRow{sess: sess, depth: depth, head: header.owner})
+			rows = append(rows, treeRow{sess: sess, depth: depth, head: header.owner, stands: folded})
 		}
 	}
 	return rows
@@ -82,18 +84,40 @@ func (m *Model) headSpans(entry treeRow) []Span {
 // renderHeadEntry draws a header row at its session's guides, as the line
 // over the session was drawn before it became a row.
 func (m *Model) renderHeadEntry(entry treeRow, selected bool, width, index int, pad, bg string) string {
-	target := index
-	for target < len(m.rows)-1 && m.rows[target].isHead() {
-		target++
-	}
 	styles := viewStyles()
 	var b strings.Builder
 	for _, span := range m.headSpans(entry) {
 		bold := span.Bold || selected
 		b.WriteString(styles[viewStyleKey{span.Tone, bold}].Render(span.Text))
 	}
-	line := textfmt.TruncateWidth(pad+m.treeGuidesAbove(target)+b.String(), width, "…")
+	if entry.stands {
+		return m.renderStandingHead(entry, b.String(), width, index, pad, bg)
+	}
+	target := index
+	for target < len(m.rows)-1 && m.rows[target].isHead() {
+		target++
+	}
+	mark := ""
+	if m.foldsHeaders(entry.head) {
+		mark = subtleText(headUnfoldedMark)
+	}
+	line := textfmt.TruncateWidth(pad+m.treeGuidesAbove(target)+mark+b.String(), width, "…")
 	return paint(line, width, bg)
+}
+
+// renderStandingHead draws a header standing in for the session folded
+// behind it: at the session's own guides, with its status mark ahead of the
+// header and its state at the end, which is how a question the session is
+// holding still shows on the folded row.
+func (m *Model) renderStandingHead(entry treeRow, header string, width, index int, pad, bg string) string {
+	left := pad + m.treeGuidesAt(index) + subtleText(headFoldedMark) + m.sessionGlyph(entry.sess) + " " + header
+	state := "  " + m.displayStatusText(entry.sess, m.displayStatusLabel(entry.sess))
+	room := width - railGutter - textfmt.Width(state)
+	if room < textfmt.Width(left) {
+		left = textfmt.TruncateWidth(left, max(room, 0), "…")
+	}
+	line := left + spaces(max(room-textfmt.Width(left), 0)) + state
+	return paint(textfmt.TruncateWidth(line, width, "…"), width, bg)
 }
 
 // headRowAction answers the open keys on a header row by opening what the
@@ -103,6 +127,9 @@ func (m *Model) headRowAction(action keymap.Action, bound bool) (tea.Model, tea.
 	entry, ok := m.cursorRow()
 	if !ok || !entry.isHead() || !bound {
 		return m, nil, false
+	}
+	if model, cmd, answered := m.headFoldAction(entry, action); answered {
+		return model, cmd, true
 	}
 	switch action {
 	case keymap.Open, keymap.StepIn:

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/singleton"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -141,13 +142,15 @@ func TestAnAdoptedOutsideClaudeReportsThroughTheGlobalHooks(t *testing.T) {
 	if _, err := hooks.RegisterGlobal(settings, configDir, bin); err != nil {
 		t.Fatal(err)
 	}
+	const first, cleared = "2f1c7a4e-6b0d-4c9a-9e3f-1a2b3c4d5e6f", "8d3e5f70-1a2b-4c3d-8e4f-5a6b7c8d9e0f"
 	runs := []struct{ event, payload string }{
-		{"SessionStart", `{"source":"startup"}`},
-		{"UserPromptSubmit", `{"prompt":"hello"}`},
-		{"PreToolUse", `{"tool_name":"AskUserQuestion","tool_use_id":"t1","tool_input":{"questions":[]}}`},
-		{"PostToolUse", `{"tool_name":"AskUserQuestion"}`},
-		{"Notification", `{"notification_type":"permission_prompt"}`},
-		{"Stop", `{}`},
+		{"SessionStart", `{"source":"startup","session_id":"` + first + `"}`},
+		{"UserPromptSubmit", `{"prompt":"hello","session_id":"` + first + `"}`},
+		{"PreToolUse", `{"tool_name":"AskUserQuestion","tool_use_id":"t1","tool_input":{"questions":[]},"session_id":"` + first + `"}`},
+		{"PostToolUse", `{"tool_name":"AskUserQuestion","session_id":"` + first + `"}`},
+		{"Notification", `{"notification_type":"permission_prompt","session_id":"` + first + `"}`},
+		{"SessionStart", `{"source":"clear","session_id":"` + cleared + `"}`},
+		{"Stop", `{"session_id":"` + cleared + `"}`},
 	}
 	for n, run := range runs {
 		dir := filepath.Join(work, fmt.Sprintf("run.%02d", n))
@@ -177,14 +180,119 @@ func TestAnAdoptedOutsideClaudeReportsThroughTheGlobalHooks(t *testing.T) {
 	for _, ev := range events {
 		got = append(got, ev.State+" "+ev.Name)
 	}
-	want := "idle SessionStart,working UserPromptSubmit,waiting PreToolUse,working PostToolUse,waiting Notification,finished Stop"
+	want := "idle SessionStart,working UserPromptSubmit,waiting PreToolUse,working PostToolUse,waiting Notification,idle SessionStart,finished Stop"
 	if strings.Join(got, ",") != want {
 		t.Fatalf("status log = %v, want %s", got, want)
+	}
+	// The row went on the board with no conversation; the hooks name the
+	// one the pane is in now, the /clear's, and a pass binds the row to it.
+	var pass passStat
+	m.poller.refreshPass(&pass, false)
+	stored, err := m.store.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.AgentSessionID != cleared {
+		t.Fatalf("AgentSessionID = %q, want the conversation the hooks reported, %s", stored.AgentSessionID, cleared)
 	}
 	// Let the pane go: the marker goes with it.
 	m.sessions = nil
 	m.syncAdoptedHooks(time.Now())
 	if left, _ := os.ReadDir(m.hooks.AdoptedDir()); len(left) != 0 {
 		t.Fatalf("markers left after the pane was let go: %v", left)
+	}
+}
+
+// fakeAgentScript stands in for a codex or opencode somebody started from a
+// shell in their own pane: named for its tool so the process tree carries the
+// name, recording its pid, and never exec'ing away from it.
+func fakeAgentScript(t *testing.T, dir, name string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	script := "#!/bin/sh\necho $$ > '" + filepath.Join(dir, name+".pid") + "'\nexec 0</dev/null\nwhile :; do sleep 1; done\n"
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// Adopted codex and opencode rows get markers too, naming the agent process
+// the pane's tree runs as their tool and the tool itself, so the board's CLI
+// run from them speaks as their row. A shell row, or a row whose pane runs
+// nothing like its tool, gets none.
+func TestEveryAdoptedAgentGetsAMarker(t *testing.T) {
+	m := buildModel(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	m.cfg.Tools["codex"] = config.Tool{Command: "codex --no-alt-screen", DefaultStatus: status.Idle}
+	m.cfg.Tools["opencode"] = config.Tool{Command: "/opt/opencode/bin/opencode", DefaultStatus: status.Idle}
+
+	work := t.TempDir()
+	type row struct{ id, tool, command string }
+	rows := []row{
+		{"codex1", "codex", "sh -c \"'" + fakeAgentScript(t, work, "codex") + "'; exit\""},
+		{"open1", "opencode", "sh -c \"'" + fakeAgentScript(t, work, "opencode") + "'; exit\""},
+		{"shell1", "terminal", "sh"},
+		// Configured as codex, running something else: nothing to name.
+		{"codex2", "codex", "sh"},
+	}
+	panes := map[string]string{}
+	for _, r := range rows {
+		socket, pane := uiForeignServer(t, r.command)
+		panes[r.id] = pane
+		if err := m.store.CreateSession(store.Session{
+			ID: r.id, Name: r.id, Tool: r.tool, Cwd: work,
+			Status: status.Idle, CreatedAt: time.Now(), LastStatusAt: time.Now(),
+			TmuxSocket: socket, TmuxPaneID: pane,
+		}); err != nil {
+			t.Fatalf("CreateSession: %v", err)
+		}
+		if err := m.tmux.Adopt(r.id, tmux.Target{Socket: socket, Name: pane}); err != nil {
+			t.Fatalf("Adopt: %v", err)
+		}
+	}
+	codexPID := strings.TrimSpace(waitForFile(t, filepath.Join(work, "codex.pid")))
+	openPID := strings.TrimSpace(waitForFile(t, filepath.Join(work, "opencode.pid")))
+	var err error
+	if m.sessions, err = m.store.ListSessions(false); err != nil {
+		t.Fatal(err)
+	}
+
+	m.syncAdoptedHooks(time.Now())
+	got := map[string]string{}
+	entries, _ := os.ReadDir(m.hooks.AdoptedDir())
+	for _, entry := range entries {
+		raw, err := os.ReadFile(filepath.Join(m.hooks.AdoptedDir(), entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got[string(raw)] = entry.Name()
+	}
+	want := []string{"codex1 " + codexPID + " codex\n", "open1 " + openPID + " opencode\n"}
+	if len(got) != len(want) {
+		t.Fatalf("markers = %v, want exactly %q", got, want)
+	}
+	for _, content := range want {
+		name, ok := got[content]
+		if !ok {
+			t.Fatalf("markers = %v, missing %q", got, content)
+		}
+		id, _, _ := strings.Cut(content, " ")
+		if !strings.HasSuffix(name, panes[id]) {
+			t.Fatalf("marker %q is named %s, want it for pane %s", content, name, panes[id])
+		}
+	}
+
+	// A row bound to its conversation since -- opencode's plugin reports
+	// it -- has its marker carry the id at once, not on the next tick.
+	if err := m.store.SetAgentSessionID("open1", "ses_bound1"); err != nil {
+		t.Fatal(err)
+	}
+	if m.sessions, err = m.store.ListSessions(false); err != nil {
+		t.Fatal(err)
+	}
+	m.syncAdoptedHooks(time.Now())
+	raw, err := os.ReadFile(filepath.Join(m.hooks.AdoptedDir(), got["open1 "+openPID+" opencode\n"]))
+	if err != nil || string(raw) != "open1 "+openPID+" opencode ses_bound1\n" {
+		t.Fatalf("bound opencode marker = %q, %v", raw, err)
 	}
 }

@@ -599,3 +599,26 @@ func TestRDerivesForAnAdoptedPaneEvenWithARenameCommand(t *testing.T) {
 		t.Fatalf("an adopted row would be sent %q", command)
 	}
 }
+
+func TestRRefusesAgentRenameWhileOffline(t *testing.T) {
+	m := buildModel(t)
+	tool := m.cfg.Tools["claude"]
+	tool.RenameCommand = "/rename"
+	m.cfg.Tools["claude"] = tool
+	createSession(t, m, "sample-repo", t.TempDir(), "")
+	m.applyCmd(t, nil)
+	m.selectSessionRow(t, "sample-repo")
+	restore := goOffline(t, m)
+	m.smartRenameSelected()
+	if !strings.Contains(m.errBar.text, "offline") {
+		t.Fatalf("missing offline refusal: %q", m.errBar.text)
+	}
+	id := m.sessionRows()[0].ID
+	pane, err := m.tmux.CapturePane(id)
+	if err != nil || strings.Contains(pane, "/rename") {
+		t.Fatalf("offline rename reached pane: %q, %v", pane, err)
+	}
+	restore()
+	m.smartRenameSelected()
+	waitForPaneText(t, m, id, "/rename")
+}

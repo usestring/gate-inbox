@@ -79,6 +79,26 @@ func TestHelpAndLegendPeekHaveSeparateKeys(t *testing.T) {
 	}
 }
 
+func TestFocusCtrlAOverridesKeepExistingActions(t *testing.T) {
+	for _, binding := range Catalog {
+		if binding.Context != ContextFocus || binding.Action == Attach {
+			continue
+		}
+		t.Run(string(binding.Action), func(t *testing.T) {
+			m, problems := New(Overrides{ContextFocus: {binding.Action: {"ctrl+a"}}})
+			if action, ok := m.Action(ContextFocus, "ctrl+a"); !ok || action != binding.Action {
+				t.Fatalf("ctrl+a answers %q, want %s", action, binding.Action)
+			}
+			if m.Bound(ContextFocus, Attach) {
+				t.Fatal("attach kept the existing action's key")
+			}
+			if len(problems) != 1 || problems[0].Action != Attach || problems[0].Key != "ctrl+a" {
+				t.Fatalf("collision problems = %v, want attach losing ctrl+a", problems)
+			}
+		})
+	}
+}
+
 func TestOverrideMovesAKey(t *testing.T) {
 	m := resolve(t, Overrides{ContextList: {NewSession: {"z"}}})
 	if got := m.Key(ContextList, NewSession); got != "z" {

@@ -152,7 +152,7 @@ func (m *Model) nextJumpRow(jump statusJump, tried map[string]bool) (int, bool) 
 			index += len(m.rows)
 		}
 		row := m.rows[index]
-		if !row.isSession() || index == start || tried[row.sess.ID] {
+		if !row.entersAs() || index == start || tried[row.sess.ID] {
 			continue
 		}
 		if m.jumpWants(jump, row.sess) {
@@ -190,7 +190,7 @@ func (m *Model) foldedJumpTarget(jump statusJump, tried map[string]bool) (store.
 	}
 	shown := make(map[string]bool, len(m.rows))
 	for _, row := range m.rows {
-		if row.isSession() {
+		if row.entersAs() {
 			shown[row.sess.ID] = true
 		}
 	}
@@ -220,9 +220,10 @@ func (m *Model) revealSession(sess store.Session) (int, bool) {
 	if sess.ParentID != "" {
 		m.setChildrenFolded(sess.ParentID, false)
 	}
+	m.openHeadsAbove(sess)
 	m.rebuildRows()
 	for index, row := range m.rows {
-		if row.isSession() && row.sess.ID == sess.ID {
+		if row.entersAs() && row.sess.ID == sess.ID {
 			return index, true
 		}
 	}

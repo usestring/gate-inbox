@@ -2,12 +2,17 @@ package app
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/mcprelay"
+	"github.com/usestring/gate-inbox/internal/opencode"
 )
 
 // claude-hooks install, status and uninstall against a scratch user settings
@@ -17,6 +22,7 @@ func TestClaudeHooksCommandInstallsAndRemoves(t *testing.T) {
 	claudeDir, home := t.TempDir(), t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", claudeDir)
 	t.Setenv("GATE_INBOX_HOME", home)
+	calls := fakeClaude(t, filepath.Join(claudeDir, ".claude.json"))
 	settings := filepath.Join(claudeDir, "settings.json")
 	if err := os.WriteFile(settings, []byte(`{"theme":"dark"}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -39,21 +45,24 @@ func TestClaudeHooksCommandInstallsAndRemoves(t *testing.T) {
 	if got := run("install"); !strings.Contains(got, "already carries") {
 		t.Fatalf("second install = %q", got)
 	}
-	if got := run(); !strings.HasSuffix(got, ": registered\n") {
+	if got := run(); !strings.Contains(got, ": registered\n") || !strings.HasSuffix(got, ": MCP relay registered\n") {
 		t.Fatalf("status after install = %q", got)
+	}
+	if got := readCalls(t, calls); got != "mcp add-json -s user gate-inbox" {
+		t.Fatalf("claude calls after two installs = %q, want one add", got)
 	}
 	raw, _ := os.ReadFile(settings)
 	if !strings.HasPrefix(string(raw), `{"theme":"dark","hooks":`) || !strings.Contains(string(raw), "gate-inbox-global-hook") {
 		t.Fatalf("settings after install:\n%s", raw)
 	}
 
-	if got := run("uninstall"); !strings.Contains(got, "removed") {
+	if got := run("uninstall"); !strings.Contains(got, "removed Gate Inbox's hooks") || !strings.Contains(got, "removed the Gate Inbox MCP relay") {
 		t.Fatalf("uninstall = %q", got)
 	}
 	if !hooks.NewManager(home).GlobalDisabled() {
 		t.Fatal("uninstall did not keep the board from registering again")
 	}
-	if got := run("status"); !strings.Contains(got, "not registered") || !strings.Contains(got, "will not register") {
+	if got := run("status"); !strings.Contains(got, "not registered") || !strings.Contains(got, "switched off in Settings; the board removes them") {
 		t.Fatalf("status after uninstall = %q", got)
 	}
 	raw, _ = os.ReadFile(settings)
@@ -72,20 +81,197 @@ func TestClaudeHooksCommandInstallsAndRemoves(t *testing.T) {
 }
 
 // A board on a scratch home -- every test's, and any trial run's -- leaves the
-// user's settings alone.
+// user's settings alone, and starts no loop that could touch them later.
 func TestBoardStartupSkipsGlobalHooksForAScratchHome(t *testing.T) {
 	claudeDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", claudeDir)
+	codexDir := t.TempDir()
+	t.Setenv("CODEX_HOME", codexDir)
+	calls := fakeClaude(t, filepath.Join(claudeDir, ".claude.json"))
 	home := t.TempDir()
 	if !underTempDir(home) {
 		t.Fatalf("%s is not recognised as scratch", home)
 	}
-	registerGlobalHooks(home)
+	keepClaudeSetup(home, true, true, nil)()
 	if _, err := os.Stat(filepath.Join(claudeDir, "settings.json")); err == nil {
 		t.Fatal("a scratch board wrote the user's settings")
 	}
+	if got := readCalls(t, calls); got != "" {
+		t.Fatalf("a scratch board ran claude: %q", got)
+	}
+	if _, err := os.Stat(filepath.Join(codexDir, "config.toml")); err == nil {
+		t.Fatal("a scratch board wrote the user's codex config")
+	}
 	if underTempDir("/var/lib/gate-inbox") {
 		t.Fatal("a real home was taken for scratch")
+	}
+}
+
+// scratchSetup is a claudeSetup over a scratch Claude Code config and a fake
+// claude, called directly because keepClaudeSetup rightly refuses the scratch
+// home a test has.
+func scratchSetup(t *testing.T, configOn bool) (setup *claudeSetup, settings, state, calls string) {
+	t.Helper()
+	claudeDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeDir)
+	state = filepath.Join(claudeDir, ".claude.json")
+	calls = fakeClaude(t, state)
+	t.Setenv("CODEX_HOME", t.TempDir())
+	setup = newClaudeSetup(t.TempDir(), configOn, configOn)
+	setup.bin = func() string { return "/opt/gate-inbox/bin/gate-inbox" }
+	setup.codexInstalled = func() bool { return true }
+	return setup, filepath.Join(claudeDir, "settings.json"), state, calls
+}
+
+func setupInPlace(t *testing.T, setup *claudeSetup, settings, state string) bool {
+	t.Helper()
+	hooksOn, err := hooks.GlobalRegistered(settings, setup.dir, setup.bin())
+	if err != nil {
+		t.Fatal(err)
+	}
+	relay, err := mcprelay.Lookup(state, setup.dir, setup.bin())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return hooksOn && relay == mcprelay.Current
+}
+
+// setupReady is setupInPlace for a poll that races the loop's own writes: a
+// file caught half-written is not in place yet rather than a failure.
+func setupReady(setup *claudeSetup, settings, state string) bool {
+	hooksOn, err := hooks.GlobalRegistered(settings, setup.dir, setup.bin())
+	if err != nil {
+		return false
+	}
+	relay, err := mcprelay.Lookup(state, setup.dir, setup.bin())
+	return err == nil && hooksOn && relay == mcprelay.Current
+}
+
+// runSetup runs setup's loop until stop is called or the test ends, however
+// it ends: a loop left running writes into whatever Claude Code config the
+// next test sets.
+func runSetup(t *testing.T, setup *claudeSetup, every, switchEvery time.Duration) (stop func()) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		setup.run(ctx, every, switchEvery)
+	}()
+	stop = func() {
+		cancel()
+		<-done
+	}
+	t.Cleanup(stop)
+	return stop
+}
+
+// With nothing set up, one pass registers both; a second finds them in
+// place and neither writes nor runs claude.
+func TestClaudeSetupRegistersWithNoCommand(t *testing.T) {
+	setup, settings, state, calls := scratchSetup(t, true)
+	setup.sync()
+	if !setupInPlace(t, setup, settings, state) {
+		t.Fatal("the first pass left the setup incomplete")
+	}
+	info, _ := os.Stat(settings)
+	setup.sync()
+	if again, _ := os.Stat(settings); !os.SameFile(info, again) {
+		t.Fatal("a pass with nothing to change rewrote the settings")
+	}
+	if got := readCalls(t, calls); got != "mcp add-json -s user gate-inbox" {
+		t.Fatalf("claude calls = %q, want one add", got)
+	}
+}
+
+// Entries deleted by hand while the board runs come back on the loop's next
+// pass, with no restart.
+func TestClaudeSetupLoopRestoresDeletedEntries(t *testing.T) {
+	setup, settings, state, _ := scratchSetup(t, true)
+	setup.sync()
+	if err := os.WriteFile(settings, []byte(`{"theme":"dark"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(state, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stop := runSetup(t, setup, 10*time.Millisecond, time.Hour)
+	waitFor(t, "the loop to put the deleted entries back", func() bool {
+		return setupReady(setup, settings, state)
+	})
+	stop()
+	if raw, _ := os.ReadFile(settings); !strings.HasPrefix(string(raw), `{"theme":"dark","hooks":`) {
+		t.Fatalf("settings after the repair:\n%s", raw)
+	}
+}
+
+// A binary that moved -- a new home, an upgrade installed elsewhere -- has
+// both entries rewritten to name the new path.
+func TestClaudeSetupFollowsAMovedBinary(t *testing.T) {
+	setup, settings, state, calls := scratchSetup(t, true)
+	setup.sync()
+	setup.bin = func() string { return "/usr/local/bin/gate-inbox" }
+	setup.sync()
+	if !setupInPlace(t, setup, settings, state) {
+		t.Fatal("the entries still name the old binary")
+	}
+	if raw, _ := os.ReadFile(settings); strings.Contains(string(raw), "/opt/gate-inbox") {
+		t.Fatalf("the old binary is still in the settings:\n%s", raw)
+	}
+	want := "mcp add-json -s user gate-inbox\nmcp remove -s user gate-inbox\nmcp add-json -s user gate-inbox"
+	if got := readCalls(t, calls); got != want {
+		t.Fatalf("claude calls = %q, want %q", got, want)
+	}
+}
+
+// Opting out takes the entries out rather than only ceasing to add them,
+// from config.toml at startup or from the Settings switch while running;
+// switching it back on restores them.
+func TestClaudeSetupOptOutRemovesEntries(t *testing.T) {
+	t.Run("config", func(t *testing.T) {
+		on, settings, state, _ := scratchSetup(t, true)
+		on.sync()
+		off := newClaudeSetup(on.dir, false, false)
+		off.bin = on.bin
+		off.codexInstalled = on.codexInstalled
+		off.sync()
+		if raw, _ := os.ReadFile(settings); strings.Contains(string(raw), "gate-inbox-global-hook") {
+			t.Fatalf("config opt-out left the hooks:\n%s", raw)
+		}
+		if relay, _ := mcprelay.Lookup(state, on.dir, on.bin()); relay != mcprelay.Absent {
+			t.Fatalf("config opt-out left the relay: %v", relay)
+		}
+	})
+	t.Run("settings switch", func(t *testing.T) {
+		setup, settings, state, _ := scratchSetup(t, true)
+		setup.sync()
+		manager := hooks.NewManager(setup.dir)
+		if err := manager.SetGlobalDisabled(true); err != nil {
+			t.Fatal(err)
+		}
+		runSetup(t, setup, time.Hour, 10*time.Millisecond)
+		waitFor(t, "the switch to remove the entries", func() bool {
+			relay, _ := mcprelay.Lookup(state, setup.dir, setup.bin())
+			raw, _ := os.ReadFile(settings)
+			return relay == mcprelay.Absent && !strings.Contains(string(raw), "gate-inbox-global-hook")
+		})
+		if err := manager.SetGlobalDisabled(false); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, "the switch to restore the entries", func() bool {
+			return setupReady(setup, settings, state)
+		})
+	})
+}
+
+func waitFor(t *testing.T, what string, done func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !done() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
@@ -103,13 +289,230 @@ func TestBoardStartupLeavesAnUnusableSettingsFileAlone(t *testing.T) {
 			if name == "read-only" && os.Geteuid() == 0 {
 				t.Skip("root writes through any mode")
 			}
-			path := filepath.Join(t.TempDir(), "settings.json")
+			claude, _, _, _ := scratchSetup(t, true)
+			path, _ := hooks.GlobalSettingsPath()
 			setup(path)
 			before, _ := os.ReadFile(path)
-			registerGlobalHooksAt(path, t.TempDir(), "/bin/gate-inbox")
+			claude.sync()
+			claude.sync()
 			if after, _ := os.ReadFile(path); !bytes.Equal(after, before) {
 				t.Fatalf("the settings file changed:\n%s", after)
 			}
 		})
+	}
+}
+
+// fakeClaude puts a claude on PATH that records each call's first five
+// arguments and keeps the user-scope MCP entry in the state file at state the
+// way the real one does, for the two commands the relay registration runs.
+func fakeClaude(t *testing.T, state string) string {
+	t.Helper()
+	bin, calls := t.TempDir(), filepath.Join(t.TempDir(), "calls")
+	script := `#!/bin/sh
+printf '%s %s %s %s %s\n' "$1" "$2" "$3" "$4" "$5" >> ` + calls + `
+case "$2" in
+add-json) printf '{"mcpServers":{"%s":%s}}' "$5" "$6" > ` + state + `;;
+remove) printf '{}' > ` + state + `;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return calls
+}
+
+func readCalls(t *testing.T, path string) string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+func codexConfigFile(t *testing.T) string {
+	t.Helper()
+	path, err := hooks.CodexConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// The codex hooks ride the same passes as the Claude Code setup: registered
+// with no command when codex is installed, left untouched by a pass with
+// nothing to change, never written on a machine without codex, and taken
+// out by codex-hooks.disabled while the board runs or by [codex] setup =
+// false at startup.
+func TestCodexSetupFollowsTheBoard(t *testing.T) {
+	setup, _, _, _ := scratchSetup(t, true)
+	path := codexConfigFile(t)
+	setup.codexInstalled = func() bool { return false }
+	setup.sync()
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("a machine with no codex had its codex config written")
+	}
+	setup.codexInstalled = func() bool { return true }
+	setup.sync()
+	if ok, err := hooks.CodexRegistered(path, setup.dir, setup.bin()); err != nil || !ok {
+		t.Fatalf("codex hooks registered = %v, %v", ok, err)
+	}
+	info, _ := os.Stat(path)
+	setup.sync()
+	if again, _ := os.Stat(path); !os.SameFile(info, again) {
+		t.Fatal("a pass with nothing to change rewrote the codex config")
+	}
+
+	manager := hooks.NewManager(setup.dir)
+	if err := manager.SetCodexDisabled(true); err != nil {
+		t.Fatal(err)
+	}
+	stop := runSetup(t, setup, time.Hour, 10*time.Millisecond)
+	waitFor(t, "the codex switch to remove the hooks", func() bool {
+		raw, _ := os.ReadFile(path)
+		return !strings.Contains(string(raw), "gate-inbox-codex-hook")
+	})
+	if err := manager.SetCodexDisabled(false); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the codex switch to restore the hooks", func() bool {
+		ok, _ := hooks.CodexRegistered(path, setup.dir, setup.bin())
+		return ok
+	})
+	stop()
+
+	off := newClaudeSetup(setup.dir, true, false)
+	off.bin, off.codexInstalled = setup.bin, setup.codexInstalled
+	off.sync()
+	if raw, _ := os.ReadFile(path); strings.Contains(string(raw), "gate-inbox-codex-hook") {
+		t.Fatalf("[codex] setup = false left the hooks:\n%s", raw)
+	}
+}
+
+func TestCodexHooksCommandInstallsAndRemoves(t *testing.T) {
+	t.Setenv("CODEX_HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("GATE_INBOX_HOME", home)
+	path := codexConfigFile(t)
+	if err := os.WriteFile(path, []byte("# mine\nmodel = \"x\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run := func(args ...string) string {
+		t.Helper()
+		var out bytes.Buffer
+		if err := runCodexHooks(&out, args, home); err != nil {
+			t.Fatalf("codex-hooks %v: %v", args, err)
+		}
+		return out.String()
+	}
+	if got := run(); !strings.Contains(got, "codex hooks not registered") {
+		t.Fatalf("status before install = %q", got)
+	}
+	if got := run("install"); !strings.Contains(got, "registered Gate Inbox's codex hooks") || !strings.Contains(got, "Hooks need review") {
+		t.Fatalf("install = %q", got)
+	}
+	if got := run("status"); !strings.Contains(got, ": codex hooks registered\n") {
+		t.Fatalf("status after install = %q", got)
+	}
+	if got := run("uninstall"); !strings.Contains(got, "removed Gate Inbox's codex hooks") {
+		t.Fatalf("uninstall = %q", got)
+	}
+	if raw, _ := os.ReadFile(path); string(raw) != "# mine\nmodel = \"x\"\n" {
+		t.Fatalf("config after uninstall:\n%s", raw)
+	}
+	if got := run("status"); !strings.Contains(got, "switched off by codex-hooks uninstall") {
+		t.Fatalf("status after uninstall = %q", got)
+	}
+	var out bytes.Buffer
+	if err := runCodexHooks(&out, []string{"bogus"}, home); err == nil || !strings.Contains(err.Error(), "usage:") {
+		t.Fatalf("an unknown verb: %v", err)
+	}
+}
+
+// scratchOpencode is an opencodeSetup over a scratch global config
+// directory, on a machine that has opencode unless told otherwise.
+func scratchOpencode(t *testing.T, on bool) (*opencodeSetup, string) {
+	t.Helper()
+	dir := t.TempDir()
+	return &opencodeSetup{
+		on:        on,
+		tools:     []string{"opencode"},
+		dir:       func() (string, error) { return dir, nil },
+		installed: func() bool { return true },
+	}, dir
+}
+
+// The board writes its OpenCode plugin with no command, writes nothing when
+// it is in place, rewrites it for a moved binary, and takes it out when
+// [opencode] setup is false. A machine with no opencode gets nothing.
+func TestOpencodeSetupKeepsThePluginInPlace(t *testing.T) {
+	setup, _, _, _ := scratchSetup(t, true)
+	oc, dir := scratchOpencode(t, true)
+	setup.opencode = oc
+	path := opencode.PluginPath(dir, setup.dir)
+	setup.sync()
+	first, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("plugin not written: %v", err)
+	}
+	if !strings.Contains(string(first), `"/opt/gate-inbox/bin/gate-inbox"`) || !strings.Contains(string(first), "GATE_INBOX_BIN") {
+		t.Fatalf("plugin does not name the binary:\n%s", first)
+	}
+	stat, _ := os.Stat(path)
+	setup.sync()
+	again, _ := os.Stat(path)
+	if !again.ModTime().Equal(stat.ModTime()) {
+		t.Fatal("a pass with the plugin in place rewrote it")
+	}
+	setup.bin = func() string { return "/usr/local/bin/gate-inbox" }
+	setup.sync()
+	if raw, _ := os.ReadFile(path); !strings.Contains(string(raw), `"/usr/local/bin/gate-inbox"`) {
+		t.Fatal("a moved binary was not followed")
+	}
+
+	oc.on = false
+	setup.sync()
+	if _, err := os.Stat(path); err == nil {
+		t.Fatal("[opencode] setup = false left the plugin")
+	}
+
+	none, noneDir := scratchOpencode(t, true)
+	none.installed = func() bool { return false }
+	setup.opencode = none
+	setup.sync()
+	if entries, _ := os.ReadDir(noneDir); len(entries) != 0 {
+		t.Fatalf("a machine with no opencode got %d entries", len(entries))
+	}
+}
+
+// Only the configured tools that run opencode are ones whose markers the
+// plugin may speak for.
+func TestOpencodeSetupNamesTheOpencodeTools(t *testing.T) {
+	cfg := config.Config{Tools: map[string]config.Tool{
+		"opencode":  {Command: "opencode"},
+		"oc-fast":   {Command: "opencode", MCP: "opencode"},
+		"claude":    {Command: "claude"},
+		"codex":     {Command: "codex"},
+		"terminal":  {Command: "sh", Shell: true},
+		"something": {Command: "something"},
+	}}
+	got := newOpencodeSetup(cfg)
+	if strings.Join(got.tools, ",") != "oc-fast,opencode" || !got.on {
+		t.Fatalf("tools %v on %v", got.tools, got.on)
+	}
+	off := false
+	cfg.OpenCode.Setup = &off
+	if newOpencodeSetup(cfg).on {
+		t.Fatal("[opencode] setup = false read as on")
+	}
+}
+
+// A scratch home writes no OpenCode plugin either.
+func TestBoardStartupSkipsTheOpencodePluginForAScratchHome(t *testing.T) {
+	oc, dir := scratchOpencode(t, true)
+	keepClaudeSetup(t.TempDir(), true, true, oc)()
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("a scratch board wrote %d entries into the opencode config", len(entries))
 	}
 }

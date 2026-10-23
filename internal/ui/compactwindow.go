@@ -12,9 +12,9 @@ import (
 // It runs on every pass rather than at each place a tier is written, because
 // a tier moves by more roads than one: the p key on a session or on a group
 // above it, a declaration through the priority command or its MCP tool, and
-// a session filed into or out of a tiered group. The tier is store.EffectiveTier
-// over the same group tiers the board sorts by, so the window follows the
-// order the operator sees. The file is read every pass and written only when
+// a session filed into or out of a tiered group. The tier is
+// store.InheritedTier over the same group tiers the board sorts by, so a
+// child sized by its parent's tier changes when that parent's does. The file is read every pass and written only when
 // it says something else, so a board with no compact_window costs nothing and
 // one with it costs a small read per session.
 //
@@ -28,12 +28,20 @@ func (p *poller) syncCompactWindows(sessions []store.Session, groupTiers map[str
 	if len(p.compactTools) == 0 || p.hooks == nil {
 		return
 	}
+	byID := make(map[string]store.Session, len(sessions))
+	for _, sess := range sessions {
+		byID[sess.ID] = sess
+	}
+	lookup := func(id string) (store.Session, bool) {
+		sess, ok := byID[id]
+		return sess, ok
+	}
 	for _, sess := range sessions {
 		tool, ok := p.compactTools[sess.Tool]
 		if !ok || sess.Archived {
 			continue
 		}
-		window := tool.CompactWindowFor(store.EffectiveTier(groupTiers, sess))
+		window := tool.CompactWindowFor(store.InheritedTier(groupTiers, sess, lookup))
 		if failed, ok := p.compactFailed[sess.ID]; ok && failed == window {
 			continue
 		}

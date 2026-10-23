@@ -272,6 +272,11 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 			m.toggleRailWork()
 			return m, nil
 		}
+		// Then back behind the header it was unfolded from, as a session's
+		// children fold back into it.
+		if entry, ok := m.cursorRow(); ok && m.foldUnderHead(entry) {
+			return m, nil
+		}
 		if entry, ok := m.selectedRow(); ok && entry.isGroup && !m.collapsed[entry.group] {
 			m.toggleCollapse()
 		}
@@ -302,6 +307,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.cyclePrioritySelected()
 	case keymap.Mute:
 		return m.toggleMuteSelected()
+	case keymap.UnmuteAll:
+		return m.unmuteAllListed()
 	case keymap.CopyJev:
 		return m.copySelectedWithJev()
 	case keymap.ReviveAll:
@@ -362,6 +369,10 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m, m.openNameSweep()
 	case keymap.TakeOver:
 		return m.takeOverAdopted()
+	case keymap.BringIn:
+		return m.bringIn()
+	case keymap.LeaveOut:
+		return m.leaveOut()
 	case keymap.Move:
 		m.openMove()
 	case keymap.ToggleChrome:
@@ -440,6 +451,7 @@ var artifactRowActions = map[keymap.Action]bool{
 	// UndoArchive brings back the last kill, wherever the cursor is.
 	keymap.UndoArchive: true,
 	keymap.RestoreAll:  true,
+	keymap.UnmuteAll:   true,
 }
 
 // stepCursor is one move of the selection: the next row that is not an
@@ -738,6 +750,17 @@ func (m *Model) toggleCollapseAll() {
 			continue
 		}
 		m.setChildrenFolded(sess.ID, false)
+	}
+	// Headers that fold their session fold by default as well.
+	for _, sess := range m.sessions {
+		if !m.headFoldable(sess.ID) {
+			continue
+		}
+		if collapse {
+			delete(m.collapsed, headOpenPrefix+sess.ID)
+			continue
+		}
+		m.collapsed[headOpenPrefix+sess.ID] = true
 	}
 	m.persistCollapsed()
 	m.rebuildRows()

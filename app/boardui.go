@@ -35,7 +35,8 @@ func startUI(ctx context.Context, registry *extension.Registry, model *ui.Model,
 		keys, filters := uiKeys(ctx, result.ID, result.UI.Keys), uiFilters(result.UI.Filters)
 		applyAliases(result.ID, result.UI.Aliases, keys, filters)
 		uis = append(uis, ui.ExtensionUI{Owner: result.ID, Keys: keys, Filters: filters,
-			OpenHeader: uiOpenHeader(ctx, result.UI.OpenHeader), HeaderPane: uiHeaderPane(result.UI.HeaderPane)})
+			OpenHeader: uiOpenHeader(ctx, result.UI.OpenHeader), HeaderPane: uiHeaderPane(result.UI.HeaderPane),
+			FoldHeaders: result.UI.FoldHeaders})
 	}
 	model.InstallExtensions(uis, bridge)
 	bridge.Attach(send)

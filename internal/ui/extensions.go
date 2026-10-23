@@ -41,6 +41,9 @@ type ExtensionUI struct {
 	// HeaderPane, when set, makes the owner's headers rows with a page the
 	// board draws in the session's place: see headpane.go.
 	HeaderPane *HeaderPane
+	// FoldHeaders makes the owner's header rows fold the session they head:
+	// see headfold.go.
+	FoldHeaders bool
 }
 
 // HeaderPane is an extension's page behind its header rows.
@@ -354,7 +357,7 @@ func (m *Model) InstallExtensions(uis []ExtensionUI, bridge *ExtensionBridge) {
 	m.extUIs = nil
 	m.extFilters = nil
 	for _, ui := range uis {
-		kept := ExtensionUI{Owner: ui.Owner, OpenHeader: ui.OpenHeader, HeaderPane: ui.HeaderPane}
+		kept := ExtensionUI{Owner: ui.Owner, OpenHeader: ui.OpenHeader, HeaderPane: ui.HeaderPane, FoldHeaders: ui.FoldHeaders}
 		keys := append([]ExtensionKey(nil), ui.Keys...)
 		for _, filter := range ui.Filters {
 			listed := m.newListFilter(ui.Owner, filter)

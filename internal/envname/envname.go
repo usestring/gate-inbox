@@ -17,10 +17,16 @@ const (
 	// ExitFile is where a managed pane's launch script records how its
 	// agent exited.
 	ExitFile = "GATE_INBOX_EXIT_FILE"
+	// AgentPID is the pid of the adopted claude a global hook runs for, which
+	// the hook's prelude has already matched against the pane's marker.
+	AgentPID = "GATE_INBOX_AGENT_PID"
 	// Editor overrides the editor Settings opens the snippets file in.
 	Editor = "GATE_INBOX_EDITOR"
 	// Golden re-records the golden files when set to "write".
 	Golden = "GATE_INBOX_GOLDEN"
+	// Outbox set to "off" stops the manager probing the network, so sends
+	// are never held as offline.
+	Outbox = "GATE_INBOX_OUTBOX"
 )
 
 // Get reads a variable, treating a blank value as unset.

@@ -1,4 +1,4 @@
-42 commands and verbs
+41 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -121,7 +121,9 @@ usage: gate-inbox kill <session-id> [--json]
 $ gate-inbox stop -h
 exit 0
 --- stdout
-usage: gate-inbox stop [--dry-run] [--json]
+usage: gate-inbox stop [--archive] [--dry-run] [--json]
+  -archive
+    	also file the ended session out of the active list
   -dry-run
     	verify the calling session without ending it
   -if-managed
@@ -408,8 +410,3 @@ usage: gate-inbox sweep [--json] [--db <path>] [--idle 72h] [--waiting 24h] [--e
     	how old an undelivered message is before it is reported (default 1h0m0s)
   -waiting duration
     	how long a session waits on a dialog before it is stale (default 24h0m0s)
-
-$ gate-inbox claude-hooks -h
-exit 0
---- stdout
-usage: gate-inbox claude-hooks [install | uninstall [--all] | status]

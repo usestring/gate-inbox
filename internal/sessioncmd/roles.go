@@ -47,6 +47,13 @@ func (s *Sessions) relay(r *runtime, spec extension.RoleSpec, caller, target sto
 	if err != nil {
 		return "", err
 	}
+	// Either end may be a pane the manager adopted, which reads as not
+	// running until the driver is told where it is.
+	for _, sess := range []store.Session{caller, target} {
+		if err := r.reach(sess); err != nil {
+			return "", err
+		}
+	}
 	deliver, err := sessionhooks.Relay(hooksNow, caller, target, r.driver.Exists(caller.ID), r.driver.Exists(target.ID), message)
 	if err != nil {
 		return "", err

@@ -36,7 +36,7 @@ func TestDelegationSteeringNamesEachCLIsOwnSubagentTool(t *testing.T) {
 		"codex":    "spawn_agent",
 		"opencode": "task tool",
 	} {
-		steering := delegationSteering(style)
+		steering := DelegationSteering(style)
 		assertSteers(t, style, steering, builtinDelegation[style])
 		if !strings.Contains(steering, want) {
 			t.Errorf("%s steering never names %q", style, want)
@@ -176,7 +176,7 @@ func TestServerSteeringWithoutAskCarriesDelegationAlone(t *testing.T) {
 // children's dialogs, wherever that CLI reads its standing instructions.
 func TestEveryCLISteeringCarriesTheChildDialogRule(t *testing.T) {
 	for style := range builtinDelegation {
-		text := delegationSteering(style)
+		text := DelegationSteering(style)
 		for _, want := range []string{"Your children's dialogs are yours", "word for word", "answer_session",
 			"relay: true", "Never tell your user to answer at the child's pane"} {
 			if !strings.Contains(text, want) {
@@ -186,5 +186,21 @@ func TestEveryCLISteeringCarriesTheChildDialogRule(t *testing.T) {
 	}
 	if text, _ := ServerSteering("opencode", true); !strings.Contains(text, childDialogSteering) {
 		t.Error("OpenCode's server-carried steering lacks the child-dialog rule")
+	}
+}
+
+// An adopted opencode has no gate-inbox tools, so its steering names the CLI
+// its shell can run as the session, and no MCP tool it does not have.
+func TestAdoptedPluginSteeringNamesOnlyTheCLI(t *testing.T) {
+	text := AdoptedPluginSteering("opencode")
+	for _, want := range []string{`"$GATE_INBOX_BIN" spawn`, `"$GATE_INBOX_BIN" sessions`, "--relay", builtinDelegation["opencode"], "CROSS-SESSION-MESSAGE", "rename"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("steering lacks %q", want)
+		}
+	}
+	for _, tool := range []string{"create_session", "send_session", "list_sessions", "answer_session"} {
+		if strings.Contains(text, tool) {
+			t.Errorf("steering names the MCP tool %s", tool)
+		}
 	}
 }

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"image/color"
@@ -15,6 +16,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/namesweep"
+	"github.com/usestring/gate-inbox/internal/netwatch"
 	"github.com/usestring/gate-inbox/internal/promptcache"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/tmux"
@@ -121,11 +123,18 @@ func (m *Model) sendNameSweep() tea.Cmd {
 	m.nameSweep.stop = stop
 	pace := m.cfg.NameSweepPace.Duration
 	gate := sweepGate{
-		tmux:   m.tmux,
-		engine: m.engine,
-		cache:  promptcache.NewReader(promptcache.DefaultRoot()),
+		tmux:    m.tmux,
+		engine:  m.engine,
+		cache:   promptcache.NewReader(promptcache.DefaultRoot()),
+		network: m.poller.net,
 	}
-	send := m.tmux.SendText
+	driver, network := m.tmux, m.poller.net
+	send := func(id, text string) error {
+		if offline, _ := network.Offline(); offline {
+			return errors.New("offline — rename not sent; retry when the network returns")
+		}
+		return driver.SendText(id, text)
+	}
 	return func() tea.Msg {
 		return nameSweepDoneMsg{result: namesweep.Send(targets, gate, send, time.Now, pace, time.Sleep, stop)}
 	}
@@ -133,12 +142,16 @@ func (m *Model) sendNameSweep() tea.Cmd {
 
 // sweepGate re-answers both gates for one pane immediately before its send.
 type sweepGate struct {
-	tmux   *tmux.Driver
-	engine *status.Engine
-	cache  *promptcache.Reader
+	tmux    *tmux.Driver
+	engine  *status.Engine
+	cache   *promptcache.Reader
+	network *netwatch.Watcher
 }
 
 func (g sweepGate) Status(target namesweep.Verdict) (string, error) {
+	if offline, _ := g.network.Offline(); offline {
+		return "offline", nil
+	}
 	if !g.tmux.Exists(target.ID) {
 		return status.Dead, nil
 	}

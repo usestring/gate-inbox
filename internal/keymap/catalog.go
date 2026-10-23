@@ -44,6 +44,8 @@ const (
 	Fork           Action = "fork"
 	Migrate        Action = "migrate"
 	TakeOver       Action = "take_over"
+	BringIn        Action = "bring_in"
+	LeaveOut       Action = "leave_out"
 
 	Revive        Action = "revive"
 	ReviveAll     Action = "revive_all"
@@ -58,6 +60,7 @@ const (
 	Dismiss       Action = "dismiss"
 	Priority      Action = "priority"
 	Mute          Action = "mute"
+	UnmuteAll     Action = "unmute_all"
 	CopySessionID Action = "copy_session_id"
 	CopyJev       Action = "copy_jev"
 	HandOver      Action = "hand_over"
@@ -169,16 +172,22 @@ var Catalog = []Binding{
 	{ContextList, Archive, []string{"x"}, "kill it and file the row", false},
 	{ContextList, ArchiveAll, []string{}, "kill every session listed", false},
 	{ContextList, Restore, []string{"u"}, "restore it out of the archive", false},
-	{ContextList, RestoreAll, []string{"D", "shift+d"}, "restore every dead session: revive the dead, bring the archived back", false},
+	{ContextList, RestoreAll, []string{"D", "shift+d", "alt+d"}, "restore every dead session: revive the dead, bring the archived back", false},
 	{ContextList, UndoArchive, []string{"U", "shift+u"}, "bring back what the last kill filed away", false},
 	{ContextList, Dismiss, []string{"."}, "skip", false},
 	{ContextList, Priority, []string{"ctrl+p", "p"}, "cycle priority: urgent → high → medium → low → none", false},
-	{ContextList, Mute, []string{"M", "shift+m"}, "mute / unmute: keep it out of triage until unmuted", false},
+	{ContextList, Mute, []string{"M", "shift+m", "ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
+	{ContextList, UnmuteAll, []string{"alt+m"}, "unmute every muted session listed", false},
 	{ContextList, QuickInput, []string{" ", "space", "ctrl+s"}, "hotkey menu", false},
 	{ContextList, RenameSelf, []string{"r"}, "rename it after its conversation", false},
 	{ContextList, Rename, []string{}, "rename it yourself, and re-pick its tool", false},
 	{ContextList, NameSweep, []string{}, "name sweep over idle adopted panes", false},
 	{ContextList, TakeOver, []string{}, "take over the adopted panes now; busy ones once they go idle", false},
+	// A pane started outside the board stays as it is until asked: a brings
+	// the one under the cursor, or the ones a toast just named, in, and o
+	// leaves them off the board.
+	{ContextList, BringIn, []string{"a"}, "bring an outside pane in: resume it as a board session once idle", false},
+	{ContextList, LeaveOut, []string{"o"}, "leave an outside pane off the board, still running", false},
 	{ContextList, Move, []string{"m"}, "move it to a group", false},
 	{ContextList, CopyJev, []string{"'"}, "copy what JEV reads as left for you to copy", false},
 
@@ -232,6 +241,14 @@ var Catalog = []Binding{
 	// takes the agent's ctrl+p, which every agent CLI also answers on the up
 	// arrow.
 	{ContextFocus, Priority, []string{"ctrl+p"}, "cycle priority: urgent → high → medium → low → none", false},
+	// The list's mute on the same chord. A terminal without an enhanced
+	// keyboard protocol sends ctrl+m as enter, so there it stays a submit.
+	{ContextFocus, Mute, []string{"ctrl+m"}, "mute / unmute: keep it out of triage until unmuted", false},
+	// The list's mass chords, so a drain clears the board without leaving the
+	// pane. Each takes an option+letter from the agent: alt+d is readline's
+	// delete-word-forward, which ctrl+delete still sends.
+	{ContextFocus, UnmuteAll, []string{"alt+m"}, "unmute every muted session listed", false},
+	{ContextFocus, RestoreAll, []string{"alt+d"}, "restore every dead session listed", false},
 	// A chord, like every other key this screen claims: ctrl+h would otherwise
 	// reach the agent as readline's backward-delete, and backspace still sends
 	// that edit under its own name.
@@ -257,6 +274,10 @@ var Catalog = []Binding{
 	{ContextFocus, PreviewPageDown, []string{"alt+pgdown"}, "scroll a page down", false},
 	{ContextFocus, PreviewTop, []string{"alt+home"}, "oldest history", false},
 	{ContextFocus, PreviewBottom, []string{"alt+end"}, "back to the live bottom", false},
+	// The list's attach, so a focused pane takes the whole terminal without a
+	// trip back to the list. It takes readline's line-start from the agent;
+	// home still sends that.
+	{ContextFocus, Attach, []string{"ctrl+a"}, "attach: the pane takes the terminal", false},
 
 	// ---- the name sweep ----
 	{ContextNameSweep, Cancel, []string{"esc", "n", "q"}, "cancel the sweep", true},

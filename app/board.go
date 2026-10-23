@@ -153,8 +153,13 @@ func runBoard(version string, registry *extension.Registry) error {
 	installed := launch.Install()
 	logging.Info("manager binary installed", "path", installed)
 	// The same hooks, in the user's own Claude Code settings, are what a
-	// claude started outside the board reports through once it is adopted.
-	registerGlobalHooks(dir)
+	// claude started outside the board reports through once it is adopted,
+	// and the MCP relay beside them is how it gets the board's tools. The
+	// board keeps both in place for as long as it runs.
+	// An opencode started outside the board gets the same from a plugin in
+	// its global config, kept by the same passes.
+	stopClaudeSetup := keepClaudeSetup(dir, cfg.ClaudeCode.SetupOn(), cfg.Codex.SetupOn(), newOpencodeSetup(cfg))
+	defer stopClaudeSetup()
 	// A board that quits lets go of its adopted panes: their hooks stop
 	// reporting rather than writing to rows no board is reading.
 	defer func() { _ = hooks.NewManager(dir).SyncAdopted(nil) }()

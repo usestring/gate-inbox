@@ -97,6 +97,7 @@ default  merge_gate.owners = []
 file     name_sweep_pace = "10s"
 file     naming.ask = false
 default  opencode.setup = <unset>
+default  outbox_probe_targets = ["https://api.anthropic.com", "https://api.openai.com"]
 file     poll_interval = "5s"
 default  relaunch.load_per_cpu = 0
 default  relaunch.max_gap = "0s"

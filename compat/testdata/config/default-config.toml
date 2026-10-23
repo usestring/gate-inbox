@@ -153,6 +153,8 @@ session_id_flag = "--session-id"
 # a spawn whose pane opens outside the directory it asked for is granted
 # that directory too, so its first write there is not denied
 add_dir_flag = "--add-dir"
+# a session launched with "skip permissions" on runs with no permission prompts
+skip_permissions_flag = "--dangerously-skip-permissions"
 resume_by_id_command = "claude --resume {id}"
 resume_picker_command = "claude --resume"
 fork_command = "claude --resume {id} --fork-session --session-id {new_id} --name {name}"
@@ -286,6 +288,8 @@ command = "opencode"
 # "provider/model" into the generated OPENCODE_CONFIG instead.
 # No add_dir_flag: opencode has no flag granting a second directory, so a
 # spawn diverted to another directory is only told to change into it.
+# No skip_permissions_flag: opencode's TUI has no flag that turns its
+# permission prompts off, so a session on it cannot be launched that way.
 # every provider/model pair this login can reach, one per line
 models_command = "opencode models"
 # opencode mints its own session id; capture it after launch and resume it
@@ -393,6 +397,8 @@ command = "codex"
 model_flag = "--model"
 # codex-cli 0.157.0: --add-dir <DIR>, writable alongside the primary workspace
 add_dir_flag = "--add-dir"
+# no approval prompts and no sandbox, for a session launched with "skip permissions"
+skip_permissions_flag = "--dangerously-bypass-approvals-and-sandbox"
 # Codex's trust dialog defaults to "Trust and continue", while a codex started
 # in an untrusted directory runs read-only and exits on --add-dir. A spawn
 # outside the caller's tree therefore opens where it asked to work.

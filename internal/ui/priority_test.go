@@ -154,10 +154,15 @@ func TestTiersOrderTheQueue(t *testing.T) {
 	if err := m.store.SetPriority(sessionID(t, m, "reviewme"), priority.High); err != nil {
 		t.Fatal(err)
 	}
+	if err := m.store.SetPriority(sessionID(t, m, "grinder"), priority.High); err != nil {
+		t.Fatal(err)
+	}
 	loadStoredRows(t, m)
 	pressKey(t, m, key("i"))
 
-	want := []string{"crashed", "new-block", "reviewme", "napping", "old-block", "grinder", "booting", "gone"}
+	// The tier outranks the band: a high working session sits above an
+	// untiered idle one, and a low question below every untiered row.
+	want := []string{"crashed", "new-block", "reviewme", "grinder", "napping", "booting", "gone", "old-block"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}

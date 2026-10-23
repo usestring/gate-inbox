@@ -227,12 +227,12 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 // The rail has to read in the order the drain walks; the drain hands over the
 // first row it can, so the two cannot disagree. See nextTriageInput.
 //
-// Inside every band the priority tier comes first: a higher tier is handed
-// over before any lower one, however long the lower one has waited. Within a
-// tier, smart triage orders the scored band (every walkable session; the
-// walkable band is then empty) highest score first (see triageScore); every
-// other band, and the strict order, sorts by the status rank, then oldest
-// first. See priority.go.
+// The priority tier comes before everything but a mute: a higher tier sorts
+// above any lower one whatever its band, state, deadline or wait. Within a
+// tier the bands follow, and smart triage orders the scored band (every
+// walkable session; the walkable band is then empty) highest score first
+// (see triageScore); every other band, and the strict order, sorts by the
+// status rank, then oldest first. See priority.go.
 //
 // LastStatusAt is when the session entered the state it is in, which is
 // exactly how long it has been waiting; the two fields under it only keep
@@ -247,9 +247,9 @@ func (m *Model) triageLess(a, b store.Session) bool {
 //
 // In the scored band a deadline still ahead comes before the score, as it
 // came before the age in a strict tier: an extension setting one is saying
-// the session cannot wait its turn.
+// the session cannot wait its turn. It cannot jump a higher tier.
 func (m *Model) triageBefore(ka, kb triageKey, a, b store.Session, now time.Time) bool {
-	if ka.band == triageBandScored && kb.band == triageBandScored {
+	if ka.band == triageBandScored && kb.band == triageBandScored && ka.priority == kb.priority {
 		if before, differ := m.deadlineBefore(a.ID, b.ID, now); differ {
 			return before
 		}
@@ -269,8 +269,8 @@ const (
 )
 
 // triageKey is everything the queue orders by before it falls back to who has
-// waited longest: the band, a scored session's score, the status rank, and
-// how much the work matters. It is a value rather than comparisons in a row
+// waited longest: how much the work matters, the band, a scored session's
+// score, and the status rank. It is a value rather than comparisons in a row
 // because a parent adopts the best key in its lineage, and "best" has to mean
 // the same thing there as it does here.
 //
@@ -283,11 +283,14 @@ type triageKey struct {
 }
 
 func (k triageKey) before(o triageKey) bool {
-	if k.band != o.band {
-		return k.band < o.band
+	if muted, oMuted := k.band == triageBandMuted, o.band == triageBandMuted; muted != oMuted {
+		return oMuted
 	}
 	if k.priority != o.priority {
 		return k.priority < o.priority
+	}
+	if k.band != o.band {
+		return k.band < o.band
 	}
 	if k.score != o.score {
 		return k.score > o.score

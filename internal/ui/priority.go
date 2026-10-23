@@ -18,16 +18,18 @@ import (
 // wait has been, which is the right queue for a fleet of equals. A fleet
 // rarely is one: the session on the release, or the group holding the
 // customer's fix, matters more than a side experiment that happens to have
-// been waiting longer. The tier is the second key that lets that be said,
+// been waiting longer. The tier is the first key, and what lets that be said;
 // and it is stored on the session -- or the group, whose tier covers the
 // subtree -- because it is a fact about the work rather than about one
 // pass, which is what sets it apart from a mute (see mute.go).
 //
-// It lifts a session over every session of a lower tier, whatever either is
-// doing: an urgent finished session goes before an untiered question, because
-// a tier the wait or the state could outrank is a tier the operator cannot
-// rely on. Within a tier the usual order holds, and the rail reads in the
-// same order the drain walks.
+// It lifts a session over every unmuted session of a lower tier, whatever
+// either is doing: an urgent finished session goes before an untiered
+// question, and an urgent working one sits above both on the rail, because a
+// tier the wait, the state or an extension's deadline could outrank is a tier
+// the operator cannot rely on. The drain still enters only the rows it can,
+// so a working row leads the rail without being handed over. Within a tier
+// the usual order holds. A mute still sorts last: it says skip this one.
 //
 // The scale itself lives in internal/priority, because a goal's frontmatter
 // and a session's own declaration write the same tiers this key cycles.

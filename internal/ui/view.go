@@ -690,7 +690,7 @@ func (m *Model) defaultRowLegend() legendSection {
 	if !ok {
 		return legendSection{}
 	}
-	if row.isArtifact() || row.isHead() {
+	if row.isArtifact() || row.isHead() || row.reviews {
 		return m.rowLegend()
 	}
 	openKey := m.tightCap(keymap.ContextList, keymap.Open)
@@ -796,6 +796,13 @@ func (m *Model) rowLegend() legendSection {
 	row, ok := m.cursorRow()
 	if !ok {
 		return legendSection{}
+	}
+	if row.reviews {
+		return legendSection{title: "Reviews", pairs: [][2]string{
+			{m.tightCap(keymap.ContextList, keymap.Open), "focus"},
+			{m.tightCap(keymap.ContextList, keymap.IngestReviews), "fetch new"},
+			{m.navCap(keymap.ContextList), "navigate"},
+		}}
 	}
 	if row.isHead() {
 		// The header opens what its extension says it heads; every other

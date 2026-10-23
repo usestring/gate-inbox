@@ -202,7 +202,7 @@ func (m *Model) resumeHeldSnippets() tea.Cmd {
 		}
 		restoredDelivery := pending.probe == nil && !msg.DeliveredAt.IsZero()
 		recipient, ready := m.poller.snippetRecipients.Load(id)
-		prepare := msg.DeliveredAt.IsZero() && msg.ClaimedAt.IsZero() && heads[msg.SessionID].ID == id && (!ready || recipient != msg.SessionID)
+		prepare := msg.DeliveredAt.IsZero() && heads[msg.SessionID].ID == id && (!ready || recipient != msg.SessionID)
 		if pending.sess.ID != msg.SessionID || prepare {
 			sess, err := m.store.Get(msg.SessionID)
 			if err != nil {

@@ -445,3 +445,69 @@ func TestHeldSnippetDeliveredBeforeRestartIsFinalizedOnce(t *testing.T) {
 		})
 	}
 }
+
+func TestHeldSnippetClaimSurvivesRestartWithoutResending(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		age   time.Duration
+		stale bool
+	}{
+		{name: "recent claim", age: time.Second},
+		{name: "abandoned claim", age: inboxClaimGrace + time.Minute, stale: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := buildModel(t)
+			sess := spawnedSession(t, m, "claude-hooked")
+			observer := &recordingObserver{}
+			m.ObserveBoard(observer)
+			restore := goOffline(t, m)
+			m.sendSentence(sess, "ambiguous snippet", `"ambiguous snippet"`, true, true)
+			head := queuedHeads(t, m)[sess.ID]
+			claimed, err := m.store.ClaimMessage(head.ID, time.Now().Add(-tc.age))
+			if err != nil || !claimed {
+				t.Fatalf("claim = %v, %v", claimed, err)
+			}
+			later := queueMessage(t, m, sess.ID, "later prompt")
+			m.heldSnippets = nil
+			m.heldSnippetsRestored = false
+			m.poller.snippetRecipients.Clear()
+			restore()
+			m.resumeHeldSnippets()
+			err = deliverInbox(t, m, sess, queuedHeads(t, m), "❯ ", status.Idle, true)
+			if tc.stale && (err == nil || !strings.Contains(err.Error(), "avoid delivering it twice")) {
+				t.Fatalf("abandoned claim was not retired: %v", err)
+			}
+			if !tc.stale && err != nil {
+				t.Fatal(err)
+			}
+			msg, err := m.store.Message(head.ID, snippetSenderID)
+			if err != nil || msg.DeliveredAt.IsZero() == tc.stale || msg.DroppedAt.IsZero() == tc.stale {
+				t.Fatalf("claim disposition: %+v, %v", msg, err)
+			}
+			if pane, _ := m.tmux.CapturePane(sess.ID); strings.Contains(pane, "ambiguous snippet") {
+				t.Fatal("claimed snippet was sent again")
+			}
+			if len(operatorInputs(observer)) != 0 {
+				t.Fatal("ambiguous snippet reported as operator input")
+			}
+			if !tc.stale {
+				return
+			}
+			m.resumeHeldSnippets()
+			held, err := m.store.HeldSnippets()
+			if err != nil || len(held) != 0 {
+				t.Fatalf("retired marker retained: %+v, %v", held, err)
+			}
+			if queuedHeads(t, m)[sess.ID].ID != later {
+				t.Fatal("later message remains blocked")
+			}
+			if err := deliverInbox(t, m, sess, queuedHeads(t, m), "❯ ", status.Idle, true); err != nil {
+				t.Fatal(err)
+			}
+			msg, err = m.store.Message(later, "sender01")
+			if err != nil || msg.DeliveredAt.IsZero() {
+				t.Fatalf("later message was not delivered: %+v, %v", msg, err)
+			}
+		})
+	}
+}

@@ -1045,21 +1045,23 @@ rules = [
 	}
 }
 
-// Claude Code queues what is typed into it mid-turn, and a user's own claude
-// block written before the field existed still gets it.
-func TestClaudeTypesAheadEvenInAnOlderUserBlock(t *testing.T) {
+// Claude Code and Codex queue what is typed into them mid-turn, and a user's
+// own block written before the field existed still gets it.
+func TestTypeAheadToolsTypeAheadEvenInAnOlderUserBlock(t *testing.T) {
 	def, err := Default()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !def.Tools["claude"].TypeAhead {
-		t.Fatal("the built-in claude block does not set type_ahead")
+	for _, name := range []string{"claude", "codex"} {
+		if !def.Tools[name].TypeAhead {
+			t.Fatalf("the built-in %s block does not set type_ahead", name)
+		}
+		merged := mergeTool(name, Tool{Command: name}, def.Tools[name])
+		if !merged.TypeAhead {
+			t.Fatalf("a user's %s block lost type_ahead in the merge", name)
+		}
 	}
-	merged := mergeTool("claude", Tool{Command: "claude"}, def.Tools["claude"])
-	if !merged.TypeAhead {
-		t.Fatal("a user's claude block lost type_ahead in the merge")
-	}
-	if def.Tools["codex"].TypeAhead {
+	if def.Tools["opencode"].TypeAhead {
 		t.Fatal("type_ahead reached a tool that was never shown to queue typed input")
 	}
 }

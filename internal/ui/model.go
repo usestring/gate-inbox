@@ -264,6 +264,9 @@ type Model struct {
 	meterMemo    []string
 	meterMemoKey meterKey
 	meterMemoOK  bool
+	// headroom is the build's last subscription quota summary per CLI,
+	// drawn under the machine meters. See headroom.go.
+	headroom map[string]string
 	// workMemo holds one answer per session for the length of a frame or a
 	// rebuild, which is also the longest either treats a session's work as
 	// fixed. Nil outside both, which is when the tracker is free to move.
@@ -1520,7 +1523,7 @@ func (m *Model) Init() tea.Cmd {
 	// read any session state, and a first run has none to wait for.
 	m.maybeOpenWelcome()
 	m.syncPollInput()
-	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.arrivalStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips())
+	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.headroomStart(), m.arrivalStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips())
 }
 
 // pasteSweepMsg carries the result of one pass over the pastes directory.
@@ -2235,6 +2238,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// this call failing to.
 		m.frameUnchanged()
 		return m, tea.Batch(m.previewCmd(sess, m.previewGen, m.procDue()), m.previewTick())
+
+	case headroomTickMsg:
+		return m, tea.Batch(m.headroomCmd(), headroomTick())
+	case headroomMsg:
+		m.headroom = msg.quotas
+		return m, nil
 
 	case conversationTickMsg:
 		return m, tea.Batch(m.readConversation(), conversationTick(), m.startStartupTick())

@@ -7,8 +7,8 @@
 # store the way an ingest records them, and comes back. The Reviews row sits
 # under the root; enter opens its page, j moves, x dismisses an ask.
 #
-# The setup stays out of frame: a session's first seconds read "0s ago", which
-# the public evidence check's OCR takes for an @handle.
+# The setup stays out of frame: OCR reads a fresh session's "0s ago" as a
+# handle, which the public evidence check refuses.
 
 Hide
 Sleep 30s

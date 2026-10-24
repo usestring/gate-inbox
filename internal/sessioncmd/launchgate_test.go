@@ -14,7 +14,9 @@ func gatedHarness(t *testing.T, asked bool) (*sessionHarness, store.Session) {
 	t.Helper()
 	h, child := grantHarness(t)
 	h.sessions.gateLaunches = true
-	h.sessions.voicedLaunch = func(*runtime, store.Session, time.Time) bool { return true }
+	h.sessions.voicedLaunch = func(*runtime, store.Session, time.Time) (store.InboxMessage, bool) {
+		return store.InboxMessage{ID: 1, Body: "launch a session for the retry fix"}, true
+	}
 	h.sessions.userAskedLaunch = func(*runtime, store.Session) bool { return asked }
 	return h, child
 }
@@ -52,12 +54,39 @@ func TestTopLevelLaunchSkipsTheQuestionWhenTheUserAskedForIt(t *testing.T) {
 	if _, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "probe-one"}); err != nil {
 		t.Fatalf("launch the user asked for: %v", err)
 	}
+	var needed *LaunchApprovalNeeded
+	if _, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "probe-two"}); !errors.As(err, &needed) {
+		t.Fatalf("second launch on one request: err = %v", err)
+	}
+}
+
+// A confirmed launch that fails before a session starts keeps the user's go
+// for the retry.
+func TestFailedLaunchKeepsTheConfirmation(t *testing.T) {
+	h, _ := gatedHarness(t, false)
+	opts := CreateSessionOptions{Name: "probe-one", Prompt: "read the payload builder"}
+	question := LaunchQuestion(opts.Name, opts.Prompt)
+	asked := time.Now().Add(-time.Minute)
+	(&transcript{}).ask("toolu_launch", asked, question).
+		answer("toolu_launch", asked.Add(time.Second), map[string]string{question.Question: LaunchOption}).
+		write(t, h.sessions.claudeHome, "conv-parent")
+
+	bad := opts
+	bad.Tool = "no-such-cli"
+	if _, err := h.sessions.Create(h.caller.ID, bad); err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("launch onto an unknown tool: err = %v", err)
+	}
+	if _, err := h.sessions.Create(h.caller.ID, opts); err != nil {
+		t.Fatalf("retry on the same confirmation: %v", err)
+	}
 }
 
 // A turn the user typed launches without the question.
 func TestTypedTurnLaunchIsNotGated(t *testing.T) {
 	h, _ := gatedHarness(t, false)
-	h.sessions.voicedLaunch = func(*runtime, store.Session, time.Time) bool { return false }
+	h.sessions.voicedLaunch = func(*runtime, store.Session, time.Time) (store.InboxMessage, bool) {
+		return store.InboxMessage{}, false
+	}
 	if _, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "probe-one"}); err != nil {
 		t.Fatalf("launch from a typed turn: %v", err)
 	}

@@ -160,7 +160,7 @@ type Sessions struct {
 	gateLaunches bool
 	// voicedLaunch and userAskedLaunch replace the voice and JEV checks;
 	// tests answer them themselves.
-	voicedLaunch    func(*runtime, store.Session, time.Time) bool
+	voicedLaunch    func(*runtime, store.Session, time.Time) (store.InboxMessage, bool)
 	userAskedLaunch func(*runtime, store.Session) bool
 }
 
@@ -681,9 +681,17 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if err != nil {
 		return Session{}, err
 	}
-	if err := s.confirmLaunch(runtime, caller, opts, time.Now()); err != nil {
+	release, err := s.confirmLaunch(runtime, caller, opts, time.Now())
+	if err != nil {
 		return Session{}, err
 	}
+	// The user's go is for one session that starts, so a launch refused or
+	// failed from here on hands it back for the retry.
+	defer func() {
+		if err != nil {
+			release()
+		}
+	}()
 	toolName := strings.TrimSpace(opts.Tool)
 	if toolName == "" {
 		// A spawn with no tool named runs whatever the caller runs, which a

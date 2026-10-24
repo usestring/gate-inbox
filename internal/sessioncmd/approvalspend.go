@@ -51,15 +51,17 @@ func (s *Sessions) SpendApproval(callerID, question string, now time.Time) (err 
 	if err != nil {
 		return err
 	}
-	return s.spendAnswer(runtime, caller, question, ApproveOption, now)
+	_, err = s.spendAnswer(runtime, caller, question, ApproveOption, now)
+	return err
 }
 
 // spendAnswer spends the caller's user's answer of option to the Approval
-// question, or reports why there is none to spend.
-func (s *Sessions) spendAnswer(runtime *runtime, caller store.Session, question, option string, now time.Time) error {
+// question and returns the ledger row that spent it, or reports why there is
+// none to spend.
+func (s *Sessions) spendAnswer(runtime *runtime, caller store.Session, question, option string, now time.Time) (int64, error) {
 	answered, err := asks.AnsweredSince(s.askTarget(caller), now.Add(-approvalFreshness))
 	if err != nil {
-		return err
+		return 0, err
 	}
 	reason := "this session's own transcript holds no Approval dialog asking it word for word in the last 30 minutes"
 	for i := len(answered) - 1; i >= 0; i-- {
@@ -75,13 +77,13 @@ func (s *Sessions) spendAnswer(runtime *runtime, caller store.Session, question,
 			}
 			typed, err := runtime.store.AgentAnswered(caller.ID, ask.ToolUseID)
 			if err != nil {
-				return err
+				return 0, err
 			}
 			if typed {
 				reason = "that answer was keyed by an agent, not given by the user"
 				continue
 			}
-			_, err = runtime.store.RecordAnswer(store.DialogAnswer{
+			id, err := runtime.store.RecordAnswer(store.DialogAnswer{
 				TargetSession:     caller.ID,
 				TargetToolUseID:   ask.ToolUseID,
 				QuestionHash:      questionHash(q),
@@ -95,8 +97,8 @@ func (s *Sessions) spendAnswer(runtime *runtime, caller store.Session, question,
 				reason = "that approval has already been spent on this action once"
 				continue
 			}
-			return err
+			return id, err
 		}
 	}
-	return fmt.Errorf("%w: %s", ErrNotApproved, reason)
+	return 0, fmt.Errorf("%w: %s", ErrNotApproved, reason)
 }

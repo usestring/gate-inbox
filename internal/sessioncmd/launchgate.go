@@ -11,6 +11,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/jev"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/migrate"
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/search"
@@ -27,7 +28,7 @@ import (
 // its user's latest turn, it launches only on the user's own words: either the
 // JEV classifier is confident that turn tells it to launch a session, or the
 // agent puts the launch Approval question to its user and they answer
-// LaunchOption. The answer is spent once, on one launch. A turn the operator
+// LaunchOption. Either is spent once, on one launch that starts. A turn the operator
 // typed launches as it always has. Children are not gated: their parent was,
 // and steering a fan-out is what a child's spawn is for.
 
@@ -46,9 +47,6 @@ const (
 	launchJevMessages     = 3
 	launchJevMessageChars = 2000
 	launchBriefChars      = 160
-	// launchVoicedMessages is how far back the inbox is read for the latest
-	// voiced message.
-	launchVoicedMessages = 20
 	// launchVoicedFreshness is how long a voiced message counts as the latest
 	// turn when the transcript cannot say whether the user typed since.
 	launchVoicedFreshness = 10 * time.Minute
@@ -97,59 +95,85 @@ func (r *runtime) gatesLaunch(caller store.Session) bool {
 	return caller.ParentID == "" && !r.cfg.Tools[caller.Tool].Shell
 }
 
-// confirmLaunch lets caller launch, or refuses with the question to ask.
-func (s *Sessions) confirmLaunch(runtime *runtime, caller store.Session, opts CreateSessionOptions, now time.Time) error {
+// confirmLaunch lets caller launch, or refuses with the question to ask. The
+// returned release hands back what the launch spent, for a launch that then
+// fails to start.
+func (s *Sessions) confirmLaunch(runtime *runtime, caller store.Session, opts CreateSessionOptions, now time.Time) (func(), error) {
+	none := func() {}
 	if !s.gateLaunches || !runtime.gatesLaunch(caller) {
-		return nil
+		return none, nil
 	}
 	voiced := s.voicedLaunch
 	if voiced == nil {
 		voiced = s.voicedTurn
 	}
-	if !voiced(runtime, caller, now) {
-		return nil
+	message, ok := voiced(runtime, caller, now)
+	if !ok {
+		return none, nil
 	}
 	asked := s.userAskedLaunch
 	if asked == nil {
 		asked = s.jevAskedLaunch
 	}
-	if asked(runtime, caller) {
-		return nil
-	}
-	question := LaunchQuestion(opts.Name, opts.Prompt)
-	err := s.spendAnswer(runtime, caller, question.Question, LaunchOption, now)
-	if err == nil {
-		return nil
-	}
-	if !errors.Is(err, ErrNotApproved) {
-		return err
-	}
-	reason := strings.TrimPrefix(err.Error(), ErrNotApproved.Error()+": ")
-	return &LaunchApprovalNeeded{Question: question, Reason: reason}
-}
-
-// voicedTurn reports whether the caller's user's latest turn is a message a
-// board extension delivered in their voice. Without a readable transcript a
-// voiced message delivered in the last launchVoicedFreshness counts, so a
-// transcript the board cannot read never opens the gate.
-func (s *Sessions) voicedTurn(runtime *runtime, caller store.Session, now time.Time) bool {
-	delivered := false
-	messages, err := runtime.store.Inbox(caller.ID, store.InboxFilter{Pending: &delivered, Limit: launchVoicedMessages})
-	if err != nil {
-		return true
-	}
-	var voiced *store.InboxMessage
-	for i := range messages {
-		if store.OperatorVoiced(messages[i].SenderID) {
-			voiced = &messages[i]
-			break
+	// The user's request launches one session, like a spoken answer: the
+	// voiced message is spent on it, and another launch from the same turn
+	// asks.
+	if message.ID != 0 && asked(runtime, caller) {
+		id, err := runtime.store.RecordAnswer(store.DialogAnswer{
+			TargetSession:     caller.ID,
+			QuestionHash:      launchRequestHash,
+			Answer:            message.Body,
+			BySession:         caller.ID,
+			Mode:              store.AnswerSpentOnAction,
+			EvidenceToolUseID: fmt.Sprintf("voiced-inbox:%d", message.ID),
+			CreatedAt:         now,
+		})
+		if err == nil {
+			return s.releaseAnswer(runtime, id), nil
+		}
+		if !errors.Is(err, store.ErrEvidenceUsed) {
+			return none, err
 		}
 	}
-	if voiced == nil {
-		return false
+	question := LaunchQuestion(opts.Name, opts.Prompt)
+	id, err := s.spendAnswer(runtime, caller, question.Question, LaunchOption, now)
+	if err == nil {
+		return s.releaseAnswer(runtime, id), nil
+	}
+	if !errors.Is(err, ErrNotApproved) {
+		return none, err
+	}
+	reason := strings.TrimPrefix(err.Error(), ErrNotApproved.Error()+": ")
+	return none, &LaunchApprovalNeeded{Question: question, Reason: reason}
+}
+
+// launchRequestHash marks a ledger row spending a voiced message the user
+// asked for a launch in.
+const launchRequestHash = "launch-request"
+
+func (s *Sessions) releaseAnswer(runtime *runtime, id int64) func() {
+	return func() {
+		if err := runtime.store.ReleaseAnswer(id); err != nil {
+			logging.Warn("launch approval not released", "answer", id, logging.Err(err))
+		}
+	}
+}
+
+// voicedTurn returns the voiced message when the caller's user's latest turn
+// is one a board extension delivered in their voice. Without a readable
+// transcript a voiced message delivered in the last launchVoicedFreshness
+// counts, so a transcript the board cannot read never opens the gate.
+func (s *Sessions) voicedTurn(runtime *runtime, caller store.Session, now time.Time) (store.InboxMessage, bool) {
+	delivered := false
+	messages, err := runtime.store.Inbox(caller.ID, store.InboxFilter{Pending: &delivered, OperatorVoiced: true, Limit: 1})
+	if err != nil {
+		return store.InboxMessage{}, true
+	}
+	if len(messages) == 0 {
+		return store.InboxMessage{}, false
 	}
 	turns, ok := s.userTurns(runtime, caller)
-	return latestTurnIsVoiced(turns, ok, *voiced, now)
+	return messages[0], latestTurnIsVoiced(turns, ok, messages[0], now)
 }
 
 // latestTurnIsVoiced decides voicedTurn once the inbox and transcript are

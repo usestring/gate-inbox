@@ -177,6 +177,30 @@ func (m *Model) onDivider(x int) bool {
 	return x >= div-splitHitSlop && x <= div+splitHitSlop
 }
 
+// railHitMap is where the last painted rail sat and the link each of its
+// body rows opens, so a click resolves against what is on screen rather
+// than against layout arithmetic redone in the handler.
+type railHitMap struct {
+	x, width int
+	links    []string
+}
+
+func newRailHitMap(rows []contentLine, x, width int) railHitMap {
+	links := make([]string, len(rows))
+	for i, row := range rows {
+		links[i] = row.link
+	}
+	return railHitMap{x: x, width: width, links: links}
+}
+
+// linkAt is the link under column x of body row y, or "" for none.
+func (h railHitMap) linkAt(x, y int) string {
+	if x < h.x || x >= h.x+h.width || y < 0 || y >= len(h.links) {
+		return ""
+	}
+	return h.links[y]
+}
+
 func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// Focus mode owns the mouse: clicks build a selection over the pane
 	// instead of moving the list cursor, which would silently retarget
@@ -190,7 +214,9 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// the previewed pane, the same way it does under focus. Over the rail it
 	// is still swallowed: there a notch would move the session cursor,
 	// silently retargeting every keystroke that follows (#110). Clicks only
-	// drive the divider while resize mode is armed.
+	// drive the divider while resize mode is armed, apart from a click on a
+	// pull request or ticket row, which opens its link without moving the
+	// cursor.
 	if wheel, ok := msg.(tea.MouseWheelMsg); ok {
 		// The divider drag owns the frame while it is armed, down to its own
 		// legend tier: a notch mid-drag is a slip, not a scroll.
@@ -214,6 +240,13 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			}
 			m.frameUnchanged()
 			return m, nil
+		}
+		// Mouse reporting keeps the terminal from following the row's OSC 8
+		// link itself, so the press is answered here, the way ↵ answers it.
+		if click, ok := msg.(tea.MouseClickMsg); ok && click.Button == tea.MouseLeft && m.mode == modeList {
+			if url := m.railHit.linkAt(click.X, click.Y-m.listChromeRows()); url != "" {
+				return m, openLink(url)
+			}
 		}
 		return m, nil
 	}

@@ -439,6 +439,8 @@ type Model struct {
 	// selection drag or forwarded click.
 	pending pendingClick
 	pane    paneMirror
+	// railHit is the rail's hit-test geometry, written during paint.
+	railHit railHitMap
 	// visible is whether the operator is looking at the manager: its tmux
 	// window is the one their client shows, or the terminal reports focus.
 	// It gates every window pin -- see visible.go. It starts true so a

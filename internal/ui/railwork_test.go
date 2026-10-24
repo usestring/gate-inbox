@@ -11,6 +11,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/keymap"
 
 	"github.com/usestring/gate-inbox/extension/textfmt"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/forge"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -263,6 +264,56 @@ func TestArtifactRowOpensItsLink(t *testing.T) {
 		default:
 			t.Fatalf("%v opened nothing", key)
 		}
+	}
+}
+
+// Mouse reporting keeps the terminal from following a row's OSC 8 link, so a
+// click on a pull request opens it from the board, on either side of the
+// split, while a click on a session still does nothing at all.
+func TestClickingAnArtifactRowOpensItsLink(t *testing.T) {
+	for _, side := range []string{config.SidebarRight, config.SidebarLeft} {
+		t.Run(side, func(t *testing.T) {
+			m := railWorkModel(t)
+			m.selectSessionRow(t, "add-rate-limiting")
+			updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+			*m = *updated.(*Model)
+			m.sidebar = side
+			m.selectSessionRow(t, "flaky-e2e")
+			cursor := m.cursor
+
+			opened := make(chan string, 4)
+			restore := openBrowser
+			openBrowser = func(target string) error { opened <- target; return nil }
+			t.Cleanup(func() { openBrowser = restore })
+
+			screen := strings.Split(ansi.Strip(m.viewListFrame()), "\n")
+			click := func(needle string) tea.Cmd {
+				t.Helper()
+				for y, line := range screen {
+					if i := strings.Index(line, needle); i >= 0 {
+						_, cmd := m.handleMouse(tea.MouseClickMsg{X: ansi.StringWidth(line[:i]), Y: y, Button: tea.MouseLeft})
+						return cmd
+					}
+				}
+				t.Fatalf("no line shows %q:\n%s", needle, strings.Join(screen, "\n"))
+				return nil
+			}
+
+			if cmd := click("flaky-e2e"); cmd != nil {
+				t.Fatal("a click on a session row returned a command")
+			}
+			cmd := click("#838")
+			if cmd == nil {
+				t.Fatal("a click on the pull request returned no command")
+			}
+			cmd()
+			if got := <-opened; got != "https://github.com/example-org/sample-repo/pull/838" {
+				t.Fatalf("opened %q", got)
+			}
+			if m.cursor != cursor {
+				t.Fatalf("a click moved the cursor from %d to %d", cursor, m.cursor)
+			}
+		})
 	}
 }
 

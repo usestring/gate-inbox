@@ -72,14 +72,19 @@ const reviewPRFields = `
 		author { login }
 		repository { nameWithOwner }
 		commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
-		timelineItems(last: 30, itemTypes: [REVIEW_REQUESTED_EVENT, LABELED_EVENT]) { nodes {
+		timelineItems(last: 30, itemTypes: [REVIEW_REQUESTED_EVENT, LABELED_EVENT]) {` + reviewTimelineFields + `}
+		comments(last: 50) { nodes { id body createdAt author { login } } }
+	}
+`
+
+const reviewTimelineFields = `
+		pageInfo { hasPreviousPage startCursor }
+		nodes {
 			__typename
 			... on ReviewRequestedEvent { id createdAt requestedReviewer {
 				__typename ... on User { login } } }
 			... on LabeledEvent { id createdAt label { name } }
-		} }
-		comments(last: 50) { nodes { id body createdAt author { login } } }
-	}
+		}
 `
 
 type reviewPRNode struct {
@@ -109,6 +114,10 @@ type reviewPRNode struct {
 		} `json:"nodes"`
 	} `json:"commits"`
 	TimelineItems struct {
+		PageInfo struct {
+			HasPreviousPage bool   `json:"hasPreviousPage"`
+			StartCursor     string `json:"startCursor"`
+		} `json:"pageInfo"`
 		Nodes []struct {
 			Typename          string    `json:"__typename"`
 			ID                string    `json:"id"`
@@ -168,7 +177,7 @@ func reviewQuery(search ReviewSearch) (string, bool) {
 	return "query { rateLimit { remaining resetAt } viewer { login } " + strings.Join(parts, " ") + "}", true
 }
 
-// ReviewRequests asks GitHub for every open ask for the operator's review, in one request.
+// ReviewRequests asks GitHub for every open ask for the operator's review.
 //
 // A search hit is only a candidate. The comment search matches the phrase anywhere in any comment,
 // so each hit is confirmed against the comments themselves: a comment counts when one of its lines
@@ -218,7 +227,16 @@ func (g *GitHub) ReviewRequests(search ReviewSearch) ([]ReviewRequest, Health) {
 			if node.Number == 0 {
 				continue
 			}
-			requests = append(requests, reviewRequestsFrom(node, trigger, search, viewer.Login)...)
+			asks := reviewRequestsFrom(node, trigger, search, viewer.Login)
+			for len(asks) == 0 && trigger != TriggerComment && node.TimelineItems.PageInfo.HasPreviousPage {
+				page, health := g.olderReviewTimeline(node)
+				if !health.OK {
+					return nil, health
+				}
+				node.TimelineItems = page.TimelineItems
+				asks = reviewRequestsFrom(node, trigger, search, viewer.Login)
+			}
+			requests = append(requests, asks...)
 		}
 	}
 
@@ -234,6 +252,44 @@ func (g *GitHub) ReviewRequests(search ReviewSearch) ([]ReviewRequest, Health) {
 		}
 	}
 	return requests, health
+}
+
+func (g *GitHub) olderReviewTimeline(node reviewPRNode) (reviewPRNode, Health) {
+	cursor := node.TimelineItems.PageInfo.StartCursor
+	if cursor == "" {
+		return reviewPRNode{}, Health{Reason: "review timeline is missing its pagination cursor"}
+	}
+	query := fmt.Sprintf(`query { rateLimit { remaining resetAt } node(id: %q) {
+		... on PullRequest { timelineItems(last: 100, before: %q,
+			itemTypes: [REVIEW_REQUESTED_EVENT, LABELED_EVENT]) { %s } }
+	} }`, node.ID, cursor, reviewTimelineFields)
+	out, runErr := g.Run("api", "graphql", "-f", "query="+query)
+	var response prResponse
+	if err := json.Unmarshal(out, &response); err != nil {
+		if runErr != nil {
+			return reviewPRNode{}, g.failed(ghReason(runErr), rateLimitedBy(runErr), nil)
+		}
+		return reviewPRNode{}, Health{Reason: "could not read review timeline response"}
+	}
+	for _, failure := range response.Errors {
+		if strings.EqualFold(failure.Type, "RATE_LIMITED") {
+			return reviewPRNode{}, g.failed("GitHub rate limit reached", true, response.budget())
+		}
+	}
+	if len(response.Errors) > 0 {
+		return reviewPRNode{}, Health{Reason: firstLine(response.Errors[0].Message)}
+	}
+	if runErr != nil {
+		return reviewPRNode{}, g.failed(ghReason(runErr), rateLimitedBy(runErr), response.budget())
+	}
+	var page reviewPRNode
+	if err := json.Unmarshal(response.Data["node"], &page); err != nil || len(page.TimelineItems.Nodes) == 0 {
+		return reviewPRNode{}, Health{Reason: "could not read older review timeline events"}
+	}
+	if page.TimelineItems.PageInfo.HasPreviousPage && (page.TimelineItems.PageInfo.StartCursor == "" || page.TimelineItems.PageInfo.StartCursor == cursor) {
+		return reviewPRNode{}, Health{Reason: "review timeline pagination did not advance"}
+	}
+	return page, Health{OK: true}
 }
 
 // reviewRequestsFrom is the asks one search hit stands for under one trigger: none when the hit
@@ -260,19 +316,18 @@ func reviewRequestsFrom(node reviewPRNode, trigger Trigger, search ReviewSearch,
 
 	switch trigger {
 	case TriggerRequested:
-		// The latest request naming the operator, or a team they are on. A request GitHub
-		// reports without its event falls back to the pull request itself, which still
-		// dedups: it is the same ask until a new event names one.
-		base.TriggerID, base.TriggeredAt = node.ID, node.UpdatedAt
 		for _, item := range node.TimelineItems.Nodes {
 			if item.Typename != "ReviewRequestedEvent" || item.RequestedReviewer == nil {
 				continue
 			}
 			who := item.RequestedReviewer
-			if who.Typename == "User" && !strings.EqualFold(who.Login, viewer) {
+			if who.Typename != "User" || !strings.EqualFold(who.Login, viewer) {
 				continue
 			}
 			base.TriggerID, base.TriggeredAt = item.ID, item.CreatedAt
+		}
+		if base.TriggerID == "" {
+			return nil
 		}
 		return []ReviewRequest{base}
 	case TriggerLabel:
@@ -283,9 +338,7 @@ func reviewRequestsFrom(node reviewPRNode, trigger Trigger, search ReviewSearch,
 			}
 		}
 		if !found {
-			// Labelled before the last 30 timeline events: the label is still there, which is
-			// what the search said, so the ask stands under the pull request's own name.
-			base.TriggerID, base.TriggeredAt = node.ID, node.UpdatedAt
+			return nil
 		}
 		return []ReviewRequest{base}
 	case TriggerComment:

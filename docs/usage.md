@@ -414,9 +414,11 @@ A custom tool opts in with `mcp = "<style>"` in its config section. Set `mcp = "
 
 ## Sorting the board
 
-The board is in the order the move keys wrote it — `manual`, and the default, because a board somebody arranged stays arranged. Settings (`s`) has a `sort` row with two other orders: `activity` puts the most recently active session first, and `name` sorts alphabetically. Both sort **within each group**, so the structure you built stays.
+The board is in the order the move keys wrote it — `manual`, and the default, because a board somebody arranged stays arranged. Settings (`s`) has a `sort` row with three other orders: `activity` puts the most recently active session first, `recent` puts the session you last interacted with first, and `name` sorts alphabetically. All three sort **within each group**, so the structure you built stays.
 
-Under `activity` the manager also opens on the freshest session rather than on whatever the manual order happened to put first.
+`recent` counts only your own hand on a session — a key typed into its focused pane, a turn given while attached, a snippet, a `send --as-human` — so a session kept busy by other agents' messages does not climb past the one you were just in. A session you have never touched ranks by when it was created. The `recent_sort` action in quick actions (`:`) toggles it on and back to whichever order you had before; it has no key by default, and the key map (`h`) can bind one.
+
+Under `activity` or `recent` the manager also opens on the freshest session rather than on whatever the manual order happened to put first.
 
 Triage and search are unaffected — each already answers with its own order (who needs a person, and how well a row matched). While a non-manual sort is on, `K`/`J` say why they do nothing instead of writing an order you would not see until you set the sort back to `manual`.
 

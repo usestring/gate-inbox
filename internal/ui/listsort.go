@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -24,12 +26,17 @@ const (
 	listSortManual = "manual"
 	// listSortActivity is most recently active first.
 	listSortActivity = "activity"
+	// listSortRecent is the session the operator last handed something
+	// first. Activity is the wrong clock for "what was I just working in":
+	// every turn another session or an extension starts moves it, so a
+	// fleet's busiest panes float to the top whether anyone looked at them.
+	listSortRecent = "recent"
 	// listSortName sorts by name, for a board read as a directory.
 	listSortName = "name"
 )
 
 // listSortModes is the setting's cycle order.
-var listSortModes = []string{listSortManual, listSortActivity, listSortName}
+var listSortModes = []string{listSortManual, listSortActivity, listSortRecent, listSortName}
 
 func storedListSort(st *store.Store) string {
 	chosen, err := st.Setting(listSortSetting)
@@ -95,6 +102,21 @@ func (m *Model) sortGroupSessions(sessions []store.Session) {
 			}
 			return a.ID < b.ID
 		})
+	case listSortRecent:
+		sort.SliceStable(sessions, func(i, j int) bool {
+			a, b := sessions[i], sessions[j]
+			// The same clock smart triage counts a wait from: a session
+			// nobody has touched ranks by when it was created, so a new
+			// launch lands near the top rather than under every old one.
+			ta, tb := triageWaitingSince(a), triageWaitingSince(b)
+			if !ta.Equal(tb) {
+				return ta.After(tb)
+			}
+			if !a.CreatedAt.Equal(b.CreatedAt) {
+				return a.CreatedAt.After(b.CreatedAt)
+			}
+			return a.ID < b.ID
+		})
 	case listSortName:
 		sort.SliceStable(sessions, func(i, j int) bool {
 			a, b := sessions[i], sessions[j]
@@ -118,8 +140,40 @@ func (m *Model) listSortRefusal() string {
 	switch normalizeListSort(m.listSort) {
 	case listSortActivity:
 		return "the list is ordered by last activity — " + m.pressTo(keymap.ContextList, keymap.Settings, "open settings") + " and set sort to manual before reordering"
+	case listSortRecent:
+		return "the list is ordered by your last interaction — " + m.pressTo(keymap.ContextList, keymap.RecentSort, "toggle the recent sort off") + " before reordering"
 	case listSortName:
 		return "the list is ordered by name — press " + m.cap(keymap.ContextList, keymap.Settings) + " and set sort to manual before reordering"
 	}
 	return ""
+}
+
+// toggleRecentSort flips the board between the recent order and whatever
+// order it was in before, and persists the result like the settings row
+// does, so the toggle and the panel never disagree about the sort. A board
+// that opened on recent goes back to manual, the default.
+func (m *Model) toggleRecentSort() tea.Cmd {
+	if m.showArchived {
+		return nil
+	}
+	previousKey := ""
+	if entry, ok := m.selectedRow(); ok {
+		previousKey = rowKey(entry)
+	}
+	current := normalizeListSort(m.listSort)
+	next := listSortRecent
+	if current == listSortRecent {
+		next = normalizeListSort(m.listSortBeforeRecent)
+		if next == listSortRecent {
+			next = listSortManual
+		}
+	} else {
+		m.listSortBeforeRecent = current
+	}
+	m.listSort = next
+	if err := m.store.SetSetting(listSortSetting, next); err != nil {
+		m.errBar.text = err.Error()
+	}
+	m.rebuildRows()
+	return m.afterListFilter(previousKey)
 }

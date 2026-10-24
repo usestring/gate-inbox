@@ -136,6 +136,7 @@ func helpSections() []helpSection {
 			listRow(keymap.ShowAllWork, "show all of a session's pull requests and tickets"),
 			listRow(keymap.ArchivedView, "archived view: killed rows wait 7 days; restore brings one back"),
 			listRow(keymap.EmptyGroups, "hide / show empty groups"),
+			listRow(keymap.RecentSort, "sort each group by your last interaction, or back to the prior order"),
 			listRow(keymap.FoldAll, "fold / unfold every group and every session's work"),
 			listRow(keymap.Resize, "resize the split (←→ or hl, or drag; ↵ commits, esc cancels)"),
 			listRow(keymap.NameSweep, "name sweep: ask idle, warm adopted panes to name themselves"),

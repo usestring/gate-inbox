@@ -377,6 +377,23 @@ func unwrapLine(lines []string, i int) string {
 	return line
 }
 
+// tailWrapRows is how many rows a narrow pane wrapped a "still running"
+// tail of line i onto, or 0 when the line carries no such tail. Other
+// indented rows under a summary are output of their own, not its wrap.
+func tailWrapRows(lines []string, i int) int {
+	if stillRunningTail.MatchString(lines[i]) || !stillRunningTail.MatchString(unwrapLine(lines, i)) {
+		return 0
+	}
+	n := 0
+	for _, next := range lines[i+1 : min(len(lines), i+1+maxWrapRows)] {
+		if strings.TrimSpace(next) == "" || !strings.HasPrefix(next, "  ") {
+			break
+		}
+		n++
+	}
+	return n
+}
+
 // maxWrapRows is how many rows unwrapLine joins back onto a line.
 const maxWrapRows = 4
 
@@ -623,7 +640,7 @@ func (tr toolRules) turnState(pane string) (string, bool) {
 	}
 
 	lastEnd := tr.lastTurnEndIndex(lines)
-	if lastEnd < 0 || !tr.turnIsNewest(lines[lastEnd+1:]) {
+	if lastEnd < 0 || !tr.turnIsNewest(lines[lastEnd+1+tailWrapRows(lines, lastEnd):]) {
 		return "", false
 	}
 	return Finished, true

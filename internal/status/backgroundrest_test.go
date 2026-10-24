@@ -95,3 +95,13 @@ func TestSettleBackgroundTiersAShellTail(t *testing.T) {
 		t.Fatalf("SettleBackground = %q, true for background agents", got)
 	}
 }
+
+// A narrow pane wraps the tail onto a row of its own. Read as content below
+// the summary, that row hid the turn end, so the session never tiered.
+func TestBackgroundRestReadsAWrappedShellTail(t *testing.T) {
+	pane := "⏺ ok\n✻ Sautéed for 8m 35s · done 0:41 · 2 shells still\n  running\n────\n❯ \n────"
+	got, ok := defaultEngine(t).BackgroundRest("claude", pane)
+	if !ok || got != Finished {
+		t.Fatalf("BackgroundRest = %q, %v; want finished, true", got, ok)
+	}
+}

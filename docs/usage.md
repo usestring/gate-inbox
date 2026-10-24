@@ -49,6 +49,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | `/` | Search: session name, tool, group, status, what the pane is showing, and what the session has said or run. `esc` closes the field and keeps the filter; delete the text (`ctrl+u` wipes the field) to clear it |
 | `h` / `ctrl+h` | The key map for the current screen (`H` also works), split into common and advanced keys. It opens with its search on: type to narrow it down to one line, `enter` leaves the field, `esc` on an empty search closes it. It scrolls (`↑↓`/`jk`, `ctrl+u`/`ctrl+d`, `g`/`G`). `ctrl+h` opens it from anywhere, including inside a session, and closes it again. Inside a session only the `ctrl+h` chord reaches the key map — plain `h` and `?` go to the agent |
 | `:` / `ctrl+k` | Quick actions: type what you want to do, `↑↓` pick, `enter` runs it. Each row shows the action's current key, what it does, and the name `keys.toml` gives it, and running one leaves a note with the key that would have done it in one press. Recently run actions lead the list |
+| `P` | Fetch the pull request reviews asked of you on GitHub into the Reviews row (see [The review queue](#the-review-queue)) |
 | `q` | Quit (sessions keep running) |
 
 Priority defaults to 0 with no marker. Positive levels use green `▲`, `▲▲`, and `▲▲▲`; the negative level (-1) uses a red `▼`. Set a level with `gate-inbox priority <level>` using a number from -1 to 3 or its tier name.
@@ -114,6 +115,45 @@ Turn `smart triage` off in Settings (or store `smart_triage = "off"`) for the st
 The rest of the session's controls work from inside it: `ctrl+a` attaches, `ctrl+x` ends the session, `ctrl+n` starts a
 new one in its group, `alt+/` copies the agent's session id, `alt+;` steps back to the one you just
 left. `ctrl+s` opens your snippet menu over the session in front of you.
+
+## The review queue
+
+`P` asks GitHub for the pull requests waiting on your review and queues the new ones in a **Reviews** row at the top of the board. Nothing polls: the queue changes only when you press the key. Three asks count:
+
+- you are requested as a reviewer;
+- the pull request carries the review label (`gate-review` by default);
+- a comment on it holds the review command (`/gate review` by default).
+
+The label and comment asks are searched only in the organisations named in `orgs`, so with none set only review requests are found. Each new ask gets a 👀 reaction, on the comment for a comment ask and on the pull request otherwise, and the label stays where it is. The status bar says how many asks were new and how many were already queued. A failed search says why, and is never reported as zero reviews.
+
+Each ask is stored once. Fetching it again refreshes its title, size and checks but never brings back one you dismissed. A new ask on the same pull request, such as a fresh review request or another comment, queues it again.
+
+`enter` on the Reviews row opens its page: one entry per pull request, with its repo and number, title, author, what asked and when, lines added and removed, files, checks, and whether it is a draft or already has a review session.
+
+| Key | Action |
+|-----|--------|
+| `s` / `enter` | Start a review session on the pull request, or land in the one already running |
+| `o` | Open the pull request on GitHub |
+| `x` | Dismiss it; a new ask on it queues it again |
+| `P` | Fetch new reviews |
+| `esc` / `q` | Back to the list |
+
+A review session starts with the `prompt` below, where `{repo}`, `{number}`, `{head}` and `{url}` are filled in. It uses the configured CLI, model and directory, falling back to the default tool and the root group's directory.
+
+```toml
+[integrations.reviews]
+enabled = true                       # false switches the key off
+triggers = ["requested", "label", "comment"]
+label = "gate-review"
+command = "/gate review"
+orgs = ["my-org"]                    # where label and comment asks are searched
+commenters = []                      # when set, only these logins may ask by comment
+ack = "eyes"                         # "none" leaves no reaction
+prompt = "Review {repo}#{number} at {head} ({url}). Do not post to GitHub."
+tool = "claude"
+model = ""
+directory = "~/src/my-repo"
+```
 
 ## Hotkey menu
 

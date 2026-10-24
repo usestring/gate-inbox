@@ -155,20 +155,37 @@ func TestHelpSearchOnASectionTitleKeepsItsRows(t *testing.T) {
 }
 
 // The built-in review screen is gone, so no key in the map may still offer
-// it and nothing may still bind ctrl+r.
+// it and nothing may still bind ctrl+r. The review queue is GitHub's pull
+// request reviews, not that screen, so its own section is let through.
 func TestHelpNeverAdvertisesReview(t *testing.T) {
 	review := regexp.MustCompile(`(?i)\breview`)
+	queue := "advanced: the review queue"
+	exempt := []string{queue}
 	for _, section := range helpSectionsOf() {
+		if section.title == queue {
+			for _, row := range section.rows {
+				exempt = append(exempt, row.text)
+			}
+			continue
+		}
 		if review.MatchString(section.title) {
 			t.Errorf("key map still carries a %q section", section.title)
 		}
 		for _, row := range section.rows {
+			if row.action == keymap.IngestReviews {
+				exempt = append(exempt, row.text)
+				continue
+			}
 			if strings.EqualFold(row.key, "ctrl+r") || review.MatchString(row.text) {
 				t.Errorf("key map still advertises review: %q / %q", row.key, row.text)
 			}
 		}
 	}
-	if frame := ansi.Strip(helpModel().frame()); review.MatchString(frame) {
+	frame := ansi.Strip(helpModel().frame())
+	for _, text := range exempt {
+		frame = strings.ReplaceAll(frame, text, "")
+	}
+	if review.MatchString(frame) {
 		t.Errorf("the key map screen still mentions review:\n%s", frame)
 	}
 }

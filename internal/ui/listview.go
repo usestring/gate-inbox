@@ -940,6 +940,9 @@ func (m *Model) renderTreeRowContent(entry treeRow, selected bool, width, index 
 		return row
 	}
 
+	if entry.reviews {
+		return m.renderReviewsEntry(selected, width, pad, bg)
+	}
 	if entry.isArtifact() {
 		return m.renderArtifactEntry(entry, selected, width, pad, guides, bg)
 	}

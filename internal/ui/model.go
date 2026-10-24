@@ -106,6 +106,8 @@ type treeRow struct {
 	// stands marks a header row over a session folded behind it, which is
 	// that session's entry in the tree: see headfold.go.
 	stands bool
+	// reviews marks the review queue's row: see reviews.go.
+	reviews bool
 }
 
 // isArtifact marks a row that draws a pull request or a ticket.
@@ -116,7 +118,9 @@ func (e treeRow) isHead() bool { return e.head != "" }
 
 // isSession marks a row that is a session itself, as against the group above
 // it, the header over it or the work hanging off it.
-func (e treeRow) isSession() bool { return !e.isGroup && e.art == nil && e.head == "" }
+func (e treeRow) isSession() bool {
+	return !e.isGroup && e.art == nil && e.head == "" && !e.reviews
+}
 
 // entersAs marks the row that is a session's entry in the tree: its own row,
 // or the header standing in for it while it is folded.
@@ -186,6 +190,13 @@ type Model struct {
 	// hands the keyboard back to that page when it closes.
 	headPanes  map[string]*openView
 	headReturn bool
+
+	// reviews are the open asks for the operator's review, drawn as the
+	// Reviews row; reviewsPage is the page behind it, and reviewsFetching
+	// marks an ingest in flight. See reviews.go.
+	reviews         []store.ReviewRequest
+	reviewsPage     *openView
+	reviewsFetching bool
 
 	// extensionNotes are the build's extensions the operator's config
 	// switched off, and the config sections nothing owns, each with its
@@ -1533,7 +1544,7 @@ func (m *Model) Init() tea.Cmd {
 	// read any session state, and a first run has none to wait for.
 	m.maybeOpenWelcome()
 	m.syncPollInput()
-	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.headroomStart(), m.arrivalStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips())
+	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.headroomStart(), m.arrivalStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips(), m.loadReviews())
 }
 
 // pasteSweepMsg carries the result of one pass over the pastes directory.
@@ -1740,6 +1751,10 @@ func (m *Model) selectedIndex() (int, bool) {
 		return 0, false
 	}
 	index := m.cursor
+	// The review queue's row is no session's, so nothing is selected on it.
+	if m.rows[index].reviews {
+		return 0, false
+	}
 	// A header row heads the session drawn just below it, past any other
 	// extension's header over the same session -- unless the session is
 	// folded behind it, when the header is all of the session there is.
@@ -2052,6 +2067,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch msg := msg.(type) {
+	case reviewsMsg:
+		return m.finishReviews(msg)
 	case autoRouteMsg:
 		return m.finishAutoRoute(msg)
 	case agentPickQuotaMsg:
@@ -3048,6 +3065,8 @@ func rowsBelowRoot(rows []treeRow) []treeRow {
 
 func rowKey(entry treeRow) string {
 	switch {
+	case entry.reviews:
+		return "r:reviews"
 	case entry.isGroup:
 		return "g:" + entry.group
 	case entry.isArtifact():
@@ -3406,7 +3425,7 @@ func (m *Model) buildTree() {
 			})
 		}
 		connectMigrationRows(rows)
-		m.rows = rows
+		m.rows = m.withReviewsRow(rows, query)
 		m.clearGroupNumbers()
 		// The fold column is a fact about the rows on screen, so every
 		// build has to count them. Reading the count a previous tree build
@@ -3447,7 +3466,7 @@ func (m *Model) buildTree() {
 	}
 
 	connectMigrationRows(rows)
-	m.rows = rows
+	m.rows = m.withReviewsRow(rows, query)
 	m.railWorkColumn = m.anyRailWork(rows)
 	m.restoreCursor(previousKey)
 }
@@ -3461,9 +3480,12 @@ func (m *Model) restoreCursor(previousKey string) {
 				break
 			}
 		}
-	} else if m.cursor == 0 && len(m.rows) > 1 && m.rows[0].isRoot() {
-		// A launch opens on a session, not on root's rollup.
-		m.cursor = 1
+	} else if m.cursor == 0 {
+		// A launch opens on a session, not on root's rollup or the review
+		// queue.
+		for m.cursor < len(m.rows)-1 && (m.rows[m.cursor].isRoot() || m.rows[m.cursor].reviews) {
+			m.cursor++
+		}
 	}
 	if m.cursor >= len(m.rows) {
 		m.cursor = len(m.rows) - 1

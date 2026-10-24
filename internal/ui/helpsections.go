@@ -56,6 +56,7 @@ var selfEvident = map[keymap.Context]map[keymap.Action]bool{
 	keymap.ContextList:      {keymap.CursorUp: true, keymap.CursorDown: true, keymap.StepIn: true, keymap.StepOut: true},
 	keymap.ContextNameSweep: {keymap.CursorUp: true, keymap.CursorDown: true},
 	keymap.ContextWelcome:   {keymap.CursorUp: true, keymap.CursorDown: true},
+	keymap.ContextReviews:   {keymap.CursorUp: true, keymap.CursorDown: true},
 }
 
 func helpSections() []helpSection {
@@ -139,6 +140,7 @@ func helpSections() []helpSection {
 			listRow(keymap.FoldAll, "fold / unfold every group and every session's work"),
 			listRow(keymap.Resize, "resize the split (←→ or hl, or drag; ↵ commits, esc cancels)"),
 			listRow(keymap.NameSweep, "name sweep: ask idle, warm adopted panes to name themselves"),
+			listRow(keymap.IngestReviews, "fetch the reviews asked of you on GitHub into the Reviews row"),
 			listRow(keymap.TakeOver, "take over the adopted panes now; busy ones once they go idle"),
 			listRow(keymap.BringIn, "bring an outside pane in: resumed as a board session once idle"),
 			listRow(keymap.LeaveOut, "leave an outside pane off the board; it keeps running"),
@@ -227,6 +229,13 @@ func helpSections() []helpSection {
 			bound(keymap.ContextConfirm, keymap.Toggle, "answer the tick a destructive dialog asks for"),
 			lit("k", "keep the children rather than ending them with the parent"),
 			lit("esc", "any other key cancels"),
+		}},
+		{title: "advanced: the review queue", rows: []helpRow{
+			bound(keymap.ContextReviews, keymap.ReviewStart, "start a review session on the pull request"),
+			bound(keymap.ContextReviews, keymap.ReviewOpen, "open the pull request on GitHub"),
+			bound(keymap.ContextReviews, keymap.ReviewDismiss, "dismiss it: a new ask on it queues it again"),
+			bound(keymap.ContextReviews, keymap.Refresh, "fetch new reviews"),
+			bound(keymap.ContextReviews, keymap.Close, "back to the list"),
 		}},
 		{title: "advanced: the welcome guide", rows: []helpRow{
 			bound(keymap.ContextWelcome, keymap.Close, "close it"),

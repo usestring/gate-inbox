@@ -39,6 +39,9 @@ func (m *Model) headPaneOf(owner string) *HeaderPane {
 // asked for. ok is false for a row that is not a header with a page, and for
 // an extension that offered none for this header.
 func (m *Model) headPaneAt(entry treeRow) (*openView, bool) {
+	if entry.reviews {
+		return m.reviewsPane(), true
+	}
 	// Triage hands over sessions, so a header standing in for a folded one
 	// shows that session there, not the header's page.
 	if !entry.isHead() || (entry.stands && m.triage) {
@@ -145,6 +148,10 @@ func (m *Model) focusHeadPane() bool {
 // stashHeadPane writes the focused page's state back to the page it was
 // taken from, so its fields keep what was typed into them.
 func (m *Model) stashHeadPane() {
+	if m.reviewsPage != nil && m.reviewsPage.id == m.extView.id {
+		*m.reviewsPage = m.extView
+		return
+	}
 	for _, pane := range m.headPanes {
 		if pane.id == m.extView.id {
 			*pane = m.extView
@@ -205,6 +212,9 @@ func (m *Model) handleHeadPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	action, bound := m.action(m.extView.screen, msg)
 	if bound && action == ActionClose {
 		return m, m.leaveHeadPane(false)
+	}
+	if m.extView.screen == keymap.ContextReviews {
+		return m.handleReviewsKey(action, bound)
 	}
 	if m.extView.fields != nil {
 		if handled, cmd := m.handleViewFieldKey(msg, action, bound); handled {

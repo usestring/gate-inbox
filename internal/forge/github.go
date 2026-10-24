@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/workspec"
@@ -44,6 +45,9 @@ type GitHub struct {
 	// Run executes gh, injected so tests can describe a response without a network.
 	Run func(args ...string) ([]byte, error)
 	Now func() time.Time
+
+	mu    sync.Mutex
+	login string
 }
 
 func NewGitHub() *GitHub {

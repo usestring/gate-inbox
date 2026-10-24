@@ -85,6 +85,16 @@ const (
 	QuickActions Action = "quick_actions"
 	Help         Action = "help"
 	Quit         Action = "quit"
+	// IngestReviews asks GitHub for the reviews the operator was asked for
+	// and queues the new ones: see reviews.go in the ui package.
+	IngestReviews Action = "ingest_reviews"
+)
+
+// Review queue actions.
+const (
+	ReviewOpen    Action = "review_open"
+	ReviewDismiss Action = "review_dismiss"
+	ReviewStart   Action = "review_start"
 )
 
 // Focus actions.
@@ -166,6 +176,7 @@ var Catalog = []Binding{
 
 	{ContextList, Revive, []string{"v"}, "revive it, or restart a live one on its own conversation", false},
 	{ContextList, ReviveAll, []string{"V", "shift+v"}, "revive every dead session", false},
+	{ContextList, IngestReviews, []string{"P", "shift+p"}, "fetch reviews asked of you on GitHub", false},
 	{ContextList, SwitchAccount, []string{}, "switch its account: restarts it on its own conversation", false},
 	{ContextList, Restart, []string{}, "restart it on an empty context", false},
 	{ContextList, RestartWith, []string{}, "restart it with extra flags…", false},
@@ -301,4 +312,13 @@ var Catalog = []Binding{
 	{ContextConfirm, Toggle, []string{" ", "space"}, "answer the tick", false},
 	{ContextConfirm, Confirm, []string{"y", "enter"}, "go ahead", true},
 	{ContextConfirm, ConfirmAlways, []string{"A", "shift+a"}, "go ahead and stop asking", false},
+
+	// ---- the review queue ----
+	{ContextReviews, Close, []string{"esc", "q"}, "back to the list", true},
+	{ContextReviews, CursorUp, []string{"up", "k"}, "move up", true},
+	{ContextReviews, CursorDown, []string{"down", "j"}, "move down", true},
+	{ContextReviews, ReviewStart, []string{"s", "enter"}, "start the review", false},
+	{ContextReviews, ReviewOpen, []string{"o"}, "open on GitHub", false},
+	{ContextReviews, ReviewDismiss, []string{"x"}, "dismiss", false},
+	{ContextReviews, Refresh, []string{"P", "shift+p"}, "fetch new reviews", false},
 }

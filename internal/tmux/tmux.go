@@ -1019,7 +1019,11 @@ func (d *Driver) pasteHoldingSubmit(id, text string, hold func(pane string) bool
 			d.awaitPasteEcho(id, before, text)
 		}
 		if hold != nil {
-			if pane, err := d.capturePlain(id); err == nil && hold(pane) {
+			pane, err := d.capturePlain(id)
+			if err != nil {
+				return fmt.Errorf("capture pane before submitting: %w", err)
+			}
+			if hold(pane) {
 				return ErrSubmitHeld
 			}
 		}

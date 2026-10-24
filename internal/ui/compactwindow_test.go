@@ -2,8 +2,12 @@ package ui
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension"
 
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/hooks"
@@ -125,8 +129,9 @@ func TestPriorityChangeRewritesTheCompactWindow(t *testing.T) {
 	}
 }
 
-// A smaller window waits out the delay, survives a board restart with the
-// time it began, and a tier put back up before it runs out drops it.
+// A drop waits out the delay, for the window here and for the tier
+// extensions read off the pass alike, survives a board restart with the time
+// it began, and a tier put back up before it runs out drops it.
 func TestCompactDowngradeWaitsOutItsDelay(t *testing.T) {
 	m := buildModel(t)
 	seedTriageFleet(t, m)
@@ -154,6 +159,10 @@ func TestCompactDowngradeWaitsOutItsDelay(t *testing.T) {
 	if view.PendingTo != 300000 || !view.PendingAt.Equal(now.Add(10*time.Minute)) {
 		t.Fatalf("pending downgrade = %+v, want 300000 at +10m", view)
 	}
+	// Extensions read the same hold off the pass.
+	if sized := m.poller.sizing[id]; sized.Tier != priority.Urgent || sized.LowersTo != priority.High || !sized.LowersAt.Equal(now.Add(10*time.Minute)) {
+		t.Fatalf("sizing handed to extensions = %+v, want urgent lowering to high at +10m", sized)
+	}
 
 	// Put back up inside the delay: nothing is written and the wait goes.
 	*now = now.Add(5 * time.Minute)
@@ -172,13 +181,13 @@ func TestCompactDowngradeWaitsOutItsDelay(t *testing.T) {
 	// keeps the time it began.
 	setTier(priority.High)
 	sync()
-	m.poller.compactPending = nil
+	m.poller.sizingHolds = nil
 	*now = now.Add(9 * time.Minute)
 	sync()
 	if got := compactWindowOf(t, m, id); got != 600000 {
 		t.Fatalf("window 9m into the wait after a restart = %d, want 600000", got)
 	}
-	m.poller.compactPending = nil
+	m.poller.sizingHolds = nil
 	*now = now.Add(time.Minute)
 	sync()
 	if got := compactWindowOf(t, m, id); got != 300000 {
@@ -250,8 +259,8 @@ func TestChildTakesItsParentsCompactWindow(t *testing.T) {
 	}
 }
 
-// The rail says a window waits for a restart only while the process runs on
-// another one, and counts a pending downgrade down against the clock it is
+// The rail says "now · … after restart" only while the process runs on a
+// window other than the one its next launch gets, and counts a pending downgrade down against the clock it is
 // painted at.
 func TestCompactFactFollowsTheLaunchAndTheClock(t *testing.T) {
 	now := time.Date(2026, 10, 24, 9, 0, 0, 0, time.UTC)
@@ -260,12 +269,30 @@ func TestCompactFactFollowsTheLaunchAndTheClock(t *testing.T) {
 		want string
 	}{
 		{compactView{Window: 600000, Launched: 600000, LaunchKnown: true}, "600k"},
-		{compactView{Window: 600000, Launched: 300000, LaunchKnown: true}, "300k → 600k at restart"},
-		{compactView{Window: 600000, Launched: 600000, LaunchKnown: true, PendingTo: 300000, PendingAt: now.Add(6*time.Minute + time.Second)}, "600k → 300k in 7m at restart"},
-		{compactView{Window: 600000, PendingTo: 0, PendingAt: now.Add(30 * time.Second)}, "600k → default in 30s at restart"},
+		{compactView{Window: 600000, Launched: 0, LaunchKnown: true}, "claude default now · 600k after restart"},
+		{compactView{Window: 600000, Launched: 600000, LaunchKnown: true, PendingTo: 300000, PendingAt: now.Add(6*time.Minute + time.Second)}, "600k · lowers to 300k in 7m"},
+		{compactView{Window: 600000, PendingTo: 0, PendingAt: now.Add(30 * time.Second)}, "600k · lowers to claude default in 30s"},
 	} {
 		if got := compactFact(c.view, now); got != c.want {
 			t.Errorf("compactFact(%+v) = %q, want %q", c.view, got, c.want)
 		}
+	}
+}
+
+// An extension that compacts the session itself owns the auto-compact line,
+// counted down at paint time, and the settings file's window moves to a line
+// of its own named for the CLI.
+func TestBoardCompactionOwnsTheAutoCompactLine(t *testing.T) {
+	m := shotModel()
+	sess, _ := m.selected()
+	m.compactWindows = map[string]compactView{sess.ID: {Window: 600000}}
+	plain := func() string { return ansi.Strip(strings.Join(m.sessionDetailLines(90), "\n")) }
+	if got := plain(); !strings.Contains(got, "auto-compact  600k") {
+		t.Fatalf("without an extension the settings window is the auto-compact line: %q", got)
+	}
+	m.extFacts = map[string][]extension.Fact{sess.ID: {{Label: compactLabel, Text: "600k", Then: "lowers to 300k", At: time.Now().Add(7 * time.Minute)}}}
+	got := plain()
+	if !strings.Contains(got, "auto-compact  600k · lowers to 300k in 7m") || !strings.Contains(got, "claude window  600k") {
+		t.Fatalf("detail block = %q, want the board's line counting down and the CLI's window beside it", got)
 	}
 }

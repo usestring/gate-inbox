@@ -176,14 +176,18 @@ type poller struct {
 	staleAfter time.Duration
 	// compactTools is each claude-hooks tool with a compact_window,
 	// compactFailed the window a session's settings file last failed to
-	// take, compactPending the downgrades waiting out their delay and
-	// compactViews what the last pass found for the rail. compactClock
-	// stands in for time.Now in tests. See compactwindow.go.
-	compactTools   map[string]config.Tool
-	compactFailed  map[string]int
-	compactPending map[string]compactDowngrade
-	compactViews   map[string]compactView
-	compactClock   func() time.Time
+	// take, and compactViews what the last pass found for the rail.
+	// sizingHolds is each session's sizing tier as held, sizing the same as
+	// the last pass handed it to extensions, and downgradeDelays each tool's
+	// compact_downgrade_delay. compactClock stands in for time.Now in tests.
+	// See compactwindow.go.
+	compactTools    map[string]config.Tool
+	compactFailed   map[string]int
+	compactViews    map[string]compactView
+	sizingHolds     map[string]store.SizingHold
+	sizing          map[string]store.Sizing
+	downgradeDelays map[string]time.Duration
+	compactClock    func() time.Time
 	// hookCursor is how far into each session's hook log the poller has
 	// read. The newest line says what the session is doing now; the lines
 	// between two passes say what it did meanwhile, and a whole turn can fit
@@ -219,8 +223,9 @@ type poller struct {
 // update loop, which it must not hold up either.
 type BoardObserver interface {
 	Transition(id, from, to string, at time.Time)
-	// groupTiers are each group's tier, for a session's effective one.
-	Pass(at time.Time, sessions []store.Session, groupTiers map[string]priority.Tier)
+	// groupTiers are each group's tier, for a session's effective one, and
+	// sizing each session's sizing tier as the pass held it.
+	Pass(at time.Time, sessions []store.Session, groupTiers map[string]priority.Tier, sizing map[string]store.Sizing)
 	Operator(input extension.OperatorInput)
 }
 
@@ -1275,7 +1280,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	}
 	phases.sample = lap(&mark)
 	if p.observer != nil {
-		p.observer.Pass(now, sessions, priorityGroups)
+		p.observer.Pass(now, sessions, priorityGroups, p.sizing)
 	}
 	p.paneSamples = samples
 	return msg
@@ -2484,15 +2489,15 @@ func (p *poller) forgetVanished(sessions []store.Session) {
 			delete(p.compactFailed, id)
 		}
 	}
-	prunedPending := false
-	for id := range p.compactPending {
+	prunedHolds := false
+	for id := range p.sizingHolds {
 		if !live[id] {
-			delete(p.compactPending, id)
-			prunedPending = true
+			delete(p.sizingHolds, id)
+			prunedHolds = true
 		}
 	}
-	if prunedPending {
-		p.saveCompactPending()
+	if prunedHolds {
+		p.saveSizingHolds()
 	}
 	// A codex tracker holds every question its rollout has shown, so one left
 	// behind by an ended session is a leak that grows with the conversation.

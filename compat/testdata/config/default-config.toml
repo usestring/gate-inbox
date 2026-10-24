@@ -139,9 +139,10 @@ model_flag = "--model"
 # autoCompactWindow into the session's own settings file, which claude 2.1.310
 # reads at launch only: a tier changed mid-session applies at the next revive
 # or restart. CLAUDE_CODE_AUTO_COMPACT_WINDOW in the environment overrides it.
-# A larger window is written on the next poll; a smaller one waits
+# A raise in tier applies on the next poll; a drop waits
 # compact_downgrade_delay and is dropped if the tier goes back up first, so a
-# tier lowered by mistake costs nothing.
+# tier lowered by mistake costs nothing. Board extensions that compact by tier
+# read the same held tier, live.
 #
 # compact_window = { urgent = 600000, high = 300000 }
 compact_downgrade_delay = "10m"

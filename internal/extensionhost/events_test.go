@@ -104,7 +104,7 @@ func TestBoardReleaseEndsEverySubscriptionOfThatExtension(t *testing.T) {
 	// A goroutine the extension left behind cannot subscribe again.
 	host.Subscribe(func(extension.StatusEvent) { calls <- "late" })
 	board.Transition("a", "working", "finished", time.Now())
-	board.Pass(time.Now(), []store.Session{{ID: "a", Status: "finished"}}, nil)
+	board.Pass(time.Now(), []store.Session{{ID: "a", Status: "finished"}}, nil, nil)
 	within(t, "the other extension's event", seen)
 	select {
 	case call := <-calls:
@@ -166,16 +166,17 @@ func TestBoardPassesSkipArchivedAndCoalesceToTheNewest(t *testing.T) {
 			close(done)
 		}
 	})
-	board.Pass(time.Unix(1, 0), []store.Session{{ID: "a", Status: "working", Group: "ops/fixes", Priority: priority.Low}, {ID: "z", Status: "idle", Archived: true}}, map[string]priority.Tier{"ops": priority.Urgent})
+	board.Pass(time.Unix(1, 0), []store.Session{{ID: "a", Status: "working", Group: "ops/fixes", Priority: priority.Low}, {ID: "z", Status: "idle", Archived: true}}, map[string]priority.Tier{"ops": priority.Urgent},
+		map[string]store.Sizing{"a": {Tier: priority.Urgent, LowersTo: priority.Medium, LowersAt: time.Unix(60, 0)}})
 	within(t, "the first pass", entered)
-	board.Pass(time.Unix(2, 0), nil, nil)
-	board.Pass(time.Unix(3, 0), []store.Session{{ID: "a", Status: "finished"}}, nil)
+	board.Pass(time.Unix(2, 0), nil, nil, nil)
+	board.Pass(time.Unix(3, 0), []store.Session{{ID: "a", Status: "finished"}}, nil, nil)
 	close(unblock)
 	within(t, "the newest pass", done)
 	mu.Lock()
 	defer mu.Unlock()
-	if len(got[0].Sessions) != 1 || got[0].Sessions[0] != (extension.SessionStatus{ID: "a", Status: "working", Priority: "urgent"}) {
-		t.Fatalf("first pass = %+v, want the archived row left out and its group's tier over its own", got[0])
+	if len(got[0].Sessions) != 1 || got[0].Sessions[0] != (extension.SessionStatus{ID: "a", Status: "working", Priority: "urgent", SizingTier: "urgent", LowersTo: "medium", LowersAt: time.Unix(60, 0)}) {
+		t.Fatalf("first pass = %+v, want the archived row left out, its group's tier over its own and its sizing hold", got[0])
 	}
 	if !got[1].At.Equal(time.Unix(3, 0)) || got[1].Sessions[0].Status != "finished" {
 		t.Fatalf("second delivery = %+v, want only the newest pass", got[1])

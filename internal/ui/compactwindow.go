@@ -4,46 +4,48 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"strings"
 	"time"
 
+	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/extension/textfmt"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-// syncCompactWindows keeps each claude session's own settings file carrying
-// the auto-compact window its tier is configured for (compact_window).
+// syncCompactWindows holds each session's sizing tier and keeps each claude
+// session's own settings file carrying the auto-compact window that tier is
+// configured for (compact_window).
 //
 // It runs on every pass rather than at each place a tier is written, because
 // a tier moves by more roads than one: the p key on a session or on a group
 // above it, a declaration through the priority command or its MCP tool, and
 // a session filed into or out of a tiered group. The tier is
 // store.InheritedTier over the same group tiers the board sorts by, so a
-// child sized by its parent's tier changes when that parent's does. The file is read every pass and written only when
-// it says something else, so a board with no compact_window costs nothing and
-// one with it costs a small read per session.
+// child sized by its parent's tier changes when that parent's does.
 //
-// A larger window is written on the pass that sees it. A smaller one, the
-// CLI's own counting as smallest, waits out compact_downgrade_delay from the
-// first pass that wanted it, and a tier put back up before then drops the
-// wait: a tier lowered by mistake should not cost a session its context.
-// The waits are kept in the store with the time each began, so a board
-// restarted mid-wait finishes it on time, rather than skipping it or starting
-// it over, which would let restarts hold a downgrade off for good.
+// A raise applies on the pass that sees it; a drop waits out the tool's
+// compact_downgrade_delay (store.SizingHold). The holds are what extensions
+// read off the pass as SizingTier, so a board extension that compacts by tier
+// follows the same tier, held the same way, as the window here. They are kept
+// in the store with the time each wait began, so a board restarted mid-wait
+// finishes it on time, rather than skipping it or starting it over, which
+// would let restarts hold a drop off for good.
 //
-// Claude Code reads the window at launch only, so a change takes effect at
-// the session's next revive or restart; nothing here restarts it.
+// The settings file is read every pass and written only when it says
+// something else, so a board with no compact_window costs nothing and one
+// with it costs a small read per session. Claude Code reads the window at
+// launch only, so a change takes effect at the session's next revive or
+// restart; nothing here restarts it.
 //
 // A write that fails is logged once per session and window and not retried
 // until the window wanted changes: the board is not held up over a setting
 // that, at worst, leaves a session compacting at the CLI's own window.
 func (p *poller) syncCompactWindows(sessions []store.Session, groupTiers map[string]priority.Tier) {
-	if len(p.compactTools) == 0 || p.hooks == nil {
-		p.compactViews = nil
-		return
-	}
-	p.loadCompactPending()
-	before := maps.Clone(p.compactPending)
+	p.loadSizingHolds()
+	before := maps.Clone(p.sizingHolds)
 	now := p.compactNow()
 	byID := make(map[string]store.Session, len(sessions))
 	for _, sess := range sessions {
@@ -53,43 +55,35 @@ func (p *poller) syncCompactWindows(sessions []store.Session, groupTiers map[str
 		sess, ok := byID[id]
 		return sess, ok
 	}
+	sizing := make(map[string]store.Sizing, len(sessions))
 	views := map[string]compactView{}
 	for _, sess := range sessions {
-		tool, ok := p.compactTools[sess.Tool]
-		if !ok || sess.Archived {
+		if sess.Archived {
 			continue
 		}
-		want := tool.CompactWindowFor(store.InheritedTier(groupTiers, sess, lookup))
+		delay := p.downgradeDelay(sess.Tool)
+		held, known := p.sizingHolds[sess.ID]
+		held = held.Step(store.InheritedTier(groupTiers, sess, lookup), known, now, delay)
+		p.sizingHolds[sess.ID] = held
+		sized := held.Sizing(delay)
+		sizing[sess.ID] = sized
+		tool, ok := p.compactTools[sess.Tool]
+		if !ok || p.hooks == nil {
+			continue
+		}
+		window := tool.CompactWindowFor(sized.Tier)
+		view := compactView{Window: window}
+		view.Launched, view.LaunchKnown = p.hooks.LaunchedCompactWindow(sess.ID)
+		if to := tool.CompactWindowFor(sized.LowersTo); sized.LowersAt.After(now) && to != window {
+			view.PendingTo, view.PendingAt = to, sized.LowersAt
+		}
+		if view.Window != 0 || view.Pending() || view.Launched != 0 {
+			views[sess.ID] = view
+		}
 		have, err := p.hooks.SessionCompactWindow(sess.ID)
 		if err != nil {
 			logging.Warn("compact window not read", "session", sess.ID, logging.Err(err))
 			continue
-		}
-		delay := tool.CompactDowngradeDelayOrDefault()
-		window := want
-		if want < have {
-			pending, ok := p.compactPending[sess.ID]
-			if !ok {
-				pending = compactDowngrade{Since: now}
-			}
-			pending.To = want
-			if now.Before(pending.Since.Add(delay)) {
-				p.compactPending[sess.ID] = pending
-				window = have
-			} else {
-				delete(p.compactPending, sess.ID)
-			}
-		} else {
-			delete(p.compactPending, sess.ID)
-		}
-		view := compactView{Window: window}
-		view.Launched, view.LaunchKnown = p.hooks.LaunchedCompactWindow(sess.ID)
-		if pending, ok := p.compactPending[sess.ID]; ok {
-			view.PendingTo = pending.To
-			view.PendingAt = pending.Since.Add(delay)
-		}
-		if view.Window != 0 || view.Pending() || view.Launched != 0 {
-			views[sess.ID] = view
 		}
 		if window == have {
 			delete(p.compactFailed, sess.ID)
@@ -108,17 +102,18 @@ func (p *poller) syncCompactWindows(sessions []store.Session, groupTiers map[str
 		}
 		delete(p.compactFailed, sess.ID)
 	}
+	p.sizing = sizing
 	p.compactViews = views
-	if !maps.Equal(before, p.compactPending) {
-		p.saveCompactPending()
+	if !maps.Equal(before, p.sizingHolds) {
+		p.saveSizingHolds()
 	}
 }
 
-// compactDowngrade is a smaller window waiting out the downgrade delay: the
-// window it will write and when the wait began.
-type compactDowngrade struct {
-	To    int       `json:"to"`
-	Since time.Time `json:"since"`
+func (p *poller) downgradeDelay(tool string) time.Duration {
+	if delay, ok := p.downgradeDelays[tool]; ok {
+		return delay
+	}
+	return config.DefaultCompactDowngradeDelay
 }
 
 // compactView is what the rail says about a session's window: the one its
@@ -134,30 +129,64 @@ type compactView struct {
 
 func (v compactView) Pending() bool { return !v.PendingAt.IsZero() }
 
-// compactFact is the rail's compact line: the window, a downgrade counting
-// down to its write, and "at restart" while the running process is on a
-// window other than the one it is headed for, since Claude Code reads the
-// window at launch only.
+// compactFact is the rail's auto-compact line: the window the session runs
+// on, the one its settings file holds for the next launch when that differs
+// ("now · … after restart", since Claude Code reads the window at launch
+// only), and a downgrade counting down to its write.
 func compactFact(v compactView, now time.Time) string {
 	running := v.Window
 	if v.LaunchKnown {
 		running = v.Launched
 	}
-	target := v.Window
-	var fact string
-	switch {
-	case v.Pending():
-		target = v.PendingTo
-		fact = compactTokens(v.Window) + " → " + compactTokens(v.PendingTo) + " in " + countdown(v.PendingAt.Sub(now))
-	case running != v.Window:
-		fact = compactTokens(running) + " → " + compactTokens(v.Window)
-	default:
-		fact = compactTokens(v.Window)
+	fact := compactTokens(v.Window)
+	if running != v.Window {
+		fact = compactTokens(running) + " now · " + compactTokens(v.Window) + " after restart"
 	}
-	if running != target {
-		fact += " at restart"
+	if v.Pending() {
+		fact += " · lowers to " + compactTokens(v.PendingTo) + " in " + countdown(v.PendingAt.Sub(now))
 	}
 	return fact
+}
+
+// compactLabel is the detail line that says where a session compacts.
+const compactLabel = "auto-compact"
+
+// wideFact is a detail line whose label is wider than the column the others
+// share, so the value follows the label rather than the column, and wraps at
+// its " · " breaks: cut short, it would lose its end, where a countdown sits.
+func wideFact(pad, label, text string, room int) []string {
+	label = textfmt.TruncateWidth(label, max(room/2, 1), "…") + "  "
+	valueRoom := max(room-textfmt.Width(label), 1)
+	lead := pad + labelStyle.Render(label)
+	var lines []string
+	for _, part := range wrapParts(strings.Split(text, " · "), " · ", valueRoom) {
+		lines = append(lines, lead+textfmt.TruncateWidth(part, valueRoom, "…"))
+		lead = pad + spaces(textfmt.Width(label))
+	}
+	return lines
+}
+
+// extensionFactText is an extension's line as painted at now: its Then
+// counted down while its At is ahead.
+func extensionFactText(fact extension.Fact, now time.Time) string {
+	if fact.Then == "" || !fact.At.After(now) {
+		return fact.Text
+	}
+	return fact.Text + " · " + fact.Then + " in " + countdown(fact.At.Sub(now))
+}
+
+// wrapParts joins parts with sep into as few lines no wider than width as it
+// can, never splitting a part.
+func wrapParts(parts []string, sep string, width int) []string {
+	var lines []string
+	for _, part := range parts {
+		if n := len(lines); n > 0 && textfmt.Width(lines[n-1]+sep+part) <= width {
+			lines[n-1] += sep + part
+			continue
+		}
+		lines = append(lines, part)
+	}
+	return lines
 }
 
 // compactTokens reads a window the way compact_window is written, 0 being
@@ -165,7 +194,7 @@ func compactFact(v compactView, now time.Time) string {
 func compactTokens(n int) string {
 	switch {
 	case n == 0:
-		return "default"
+		return "claude default"
 	case n%1_000_000 == 0:
 		return fmt.Sprintf("%dM", n/1_000_000)
 	case n%1000 == 0:
@@ -190,9 +219,8 @@ func countdown(d time.Duration) string {
 	return fmt.Sprintf("%dh%02dm", minutes/60, minutes%60)
 }
 
-// compactPendingSetting is where the waiting downgrades are kept between
-// board runs.
-const compactPendingSetting = "compact_downgrades"
+// sizingHoldsSetting is where the sizing holds are kept between board runs.
+const sizingHoldsSetting = "sizing_holds"
 
 func (p *poller) compactNow() time.Time {
 	if p.compactClock != nil {
@@ -201,33 +229,33 @@ func (p *poller) compactNow() time.Time {
 	return time.Now()
 }
 
-func (p *poller) loadCompactPending() {
-	if p.compactPending != nil {
+func (p *poller) loadSizingHolds() {
+	if p.sizingHolds != nil {
 		return
 	}
-	p.compactPending = map[string]compactDowngrade{}
+	p.sizingHolds = map[string]store.SizingHold{}
 	if p.store == nil {
 		return
 	}
-	raw, err := p.store.Setting(compactPendingSetting)
+	raw, err := p.store.Setting(sizingHoldsSetting)
 	if err != nil || raw == "" {
 		return
 	}
-	if err := json.Unmarshal([]byte(raw), &p.compactPending); err != nil {
-		logging.Warn("compact downgrades not read", logging.Err(err))
-		p.compactPending = map[string]compactDowngrade{}
+	if err := json.Unmarshal([]byte(raw), &p.sizingHolds); err != nil {
+		logging.Warn("sizing holds not read", logging.Err(err))
+		p.sizingHolds = map[string]store.SizingHold{}
 	}
 }
 
-func (p *poller) saveCompactPending() {
+func (p *poller) saveSizingHolds() {
 	if p.store == nil {
 		return
 	}
-	raw, err := json.Marshal(p.compactPending)
+	raw, err := json.Marshal(p.sizingHolds)
 	if err == nil {
-		err = p.store.SetSetting(compactPendingSetting, string(raw))
+		err = p.store.SetSetting(sizingHoldsSetting, string(raw))
 	}
 	if err != nil {
-		logging.Warn("compact downgrades not saved", logging.Err(err))
+		logging.Warn("sizing holds not saved", logging.Err(err))
 	}
 }

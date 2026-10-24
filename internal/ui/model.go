@@ -16,6 +16,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/clipboard"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
@@ -165,6 +166,8 @@ type Model struct {
 	extKeys   map[keymap.Context]map[keymap.Action]extensionKey
 	extBridge *ExtensionBridge
 	extBadges map[string][]Badge
+	// extFacts is each session's extension lines in its detail block.
+	extFacts map[string][]extension.Fact
 	// extHeaders, extHidden, extOwned and extFilters are the rows' headers,
 	// the hidden and owned rows, and the list filters: see extrows.go.
 	extHeaders map[string][]extHeader
@@ -1238,6 +1241,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	interruptKeys := make(map[string][]string, len(cfg.Tools))
 	clearInputKeys := make(map[string][]string, len(cfg.Tools))
 	var compactTools map[string]config.Tool
+	downgradeDelays := make(map[string]time.Duration, len(cfg.Tools))
 	for name, tool := range cfg.Tools {
 		statusSources[name] = tool.StatusSource
 		sessionStores[name] = tool.SessionStore
@@ -1245,6 +1249,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		shellTools[name] = tool.Shell
 		interruptKeys[name] = tool.InterruptKeys
 		clearInputKeys[name] = tool.ClearInputKeys
+		downgradeDelays[name] = tool.CompactDowngradeDelayOrDefault()
 		if len(tool.CompactWindow) > 0 && tool.StatusSource == hooks.StatusSourceClaude {
 			if compactTools == nil {
 				compactTools = map[string]config.Tool{}
@@ -1316,6 +1321,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	model.poller.interruptKeys = interruptKeys
 	model.poller.clearInputKeys = clearInputKeys
 	model.poller.compactTools = compactTools
+	model.poller.downgradeDelays = downgradeDelays
 	model.poller.staleAfter = cfg.StaleStatusAfter.Duration
 	model.poller.hogWatch = newHogWatch(cfg.Hogs, "", func(msg store.InboxMessage) error {
 		_, _, err := st.Enqueue(msg, store.DefaultInboxLimits)

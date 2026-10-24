@@ -26,7 +26,7 @@ func (r *recordingObserver) Transition(id, from, to string, _ time.Time) {
 	r.moves = append(r.moves, recordedMove{id, from, to})
 }
 
-func (r *recordingObserver) Pass(_ time.Time, sessions []store.Session, _ map[string]priority.Tier) {
+func (r *recordingObserver) Pass(_ time.Time, sessions []store.Session, _ map[string]priority.Tier, _ map[string]store.Sizing) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.passes = append(r.passes, sessions)

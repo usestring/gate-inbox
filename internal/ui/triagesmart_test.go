@@ -268,8 +268,8 @@ func TestSmartTriageMuteOnAFinishOutlastsItsAck(t *testing.T) {
 // hop hands it straight back.
 func TestSmartTriageLeavingAPageMutesItsSession(t *testing.T) {
 	m := smartFleet(t,
-		smartSess("ask", status.Waiting, time.Hour),
-		smartSess("calm", status.Idle, time.Minute),
+		smartSess("ask", status.Waiting, time.Minute),
+		smartSess("calm", status.Idle, time.Hour),
 	)
 	m.cursor = 0
 	m.leaveHeadPane(true)

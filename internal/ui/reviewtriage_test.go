@@ -38,21 +38,21 @@ func reviewDrain(m *Model) []string {
 	}
 }
 
-func TestReviewQueuesByItsOldestAskAmongSessions(t *testing.T) {
+func TestReviewQueuesByItsNewestAskAmongSessions(t *testing.T) {
 	m := smartFleet(t,
 		smartSess("asking", status.Waiting, 30*time.Minute),
 		smartSess("done", status.Finished, time.Minute),
 	)
 	m.reviews = []store.ReviewRequest{reviewAsk(2, 20*time.Minute), reviewAsk(1, 3*time.Hour)}
 	m.rebuildRows()
-	if got, want := reviewDrain(m), []string{"reviews", "asking", "done"}; !slices.Equal(got, want) {
-		t.Fatalf("a three-hour-old ask: drain = %v, want %v", got, want)
+	if got, want := reviewDrain(m), []string{"done", "reviews", "asking"}; !slices.Equal(got, want) {
+		t.Fatalf("a twenty-minute-old ask beside a three-hour-old one: drain = %v, want %v", got, want)
 	}
 
-	m.reviews = []store.ReviewRequest{reviewAsk(1, 2*time.Minute)}
+	m.reviews = []store.ReviewRequest{reviewAsk(1, 30*time.Second)}
 	m.rebuildRows()
-	if got, want := reviewDrain(m), []string{"asking", "reviews", "done"}; !slices.Equal(got, want) {
-		t.Fatalf("a two-minute-old ask: drain = %v, want %v", got, want)
+	if got, want := reviewDrain(m), []string{"reviews", "done", "asking"}; !slices.Equal(got, want) {
+		t.Fatalf("a thirty-second-old ask: drain = %v, want %v", got, want)
 	}
 }
 

@@ -135,7 +135,7 @@ type reviewPRNode struct {
 }
 
 // reviewQuery is one GraphQL document holding a search per enabled trigger, aliased by trigger.
-func reviewQuery(search ReviewSearch) (string, bool) {
+func reviewQuery(search ReviewSearch, login string) (string, bool) {
 	scope := ""
 	for _, org := range search.Orgs {
 		if org = strings.TrimSpace(org); org != "" {
@@ -151,7 +151,9 @@ func reviewQuery(search ReviewSearch) (string, bool) {
 	for _, trigger := range search.Triggers {
 		switch trigger {
 		case TriggerRequested:
-			add(trigger, "review-requested:@me")
+			if login != "" {
+				add(trigger, "review-requested:"+login)
+			}
 		case TriggerLabel:
 			if scope != "" && search.Label != "" {
 				add(trigger, fmt.Sprintf("label:%q", search.Label)+scope)
@@ -165,7 +167,24 @@ func reviewQuery(search ReviewSearch) (string, bool) {
 	if len(parts) == 0 {
 		return "", false
 	}
-	return "query { rateLimit { remaining resetAt } viewer { login } " + strings.Join(parts, " ") + "}", true
+	return "query { rateLimit { remaining resetAt } " + strings.Join(parts, " ") + "}", true
+}
+
+// viewerLogin is the login gh is signed in as, asked once and kept: the requested search names it.
+func (g *GitHub) viewerLogin() (string, Health) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.login != "" {
+		return g.login, Health{OK: true}
+	}
+	out, err := g.Run("api", "user", "--jq", ".login")
+	if err != nil {
+		return "", g.failed(ghReason(err), rateLimitedBy(err), nil)
+	}
+	if g.login = strings.TrimSpace(string(out)); g.login == "" {
+		return "", Health{Reason: "gh did not say which login it is signed in as"}
+	}
+	return g.login, Health{OK: true}
 }
 
 // ReviewRequests asks GitHub for every open ask for the operator's review, in one request.
@@ -175,7 +194,14 @@ func reviewQuery(search ReviewSearch) (string, bool) {
 // starts with the command. A label hit carries the labelling that applied it, and a requested hit
 // the request that named the operator, so the same ask is the same key across ingests.
 func (g *GitHub) ReviewRequests(search ReviewSearch) ([]ReviewRequest, Health) {
-	query, ok := reviewQuery(search)
+	login := ""
+	if slices.Contains(search.Triggers, TriggerRequested) {
+		var health Health
+		if login, health = g.viewerLogin(); !health.OK {
+			return nil, health
+		}
+	}
+	query, ok := reviewQuery(search, login)
 	if !ok {
 		return nil, Health{OK: true}
 	}
@@ -201,11 +227,6 @@ func (g *GitHub) ReviewRequests(search ReviewSearch) ([]ReviewRequest, Health) {
 		return nil, g.failed("GitHub rate limit reached", true, response.budget())
 	}
 
-	var viewer struct {
-		Login string `json:"login"`
-	}
-	_ = json.Unmarshal(response.Data["viewer"], &viewer)
-
 	var requests []ReviewRequest
 	for _, trigger := range search.Triggers {
 		var result struct {
@@ -218,7 +239,7 @@ func (g *GitHub) ReviewRequests(search ReviewSearch) ([]ReviewRequest, Health) {
 			if node.Number == 0 {
 				continue
 			}
-			requests = append(requests, reviewRequestsFrom(node, trigger, search, viewer.Login)...)
+			requests = append(requests, reviewRequestsFrom(node, trigger, search, login)...)
 		}
 	}
 

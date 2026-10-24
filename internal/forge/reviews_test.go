@@ -7,7 +7,6 @@ import (
 
 const reviewSearchResponse = `{"data":{
 	"rateLimit":{"remaining":4000,"resetAt":"2026-10-23T12:00:00Z"},
-	"viewer":{"login":"me"},
 	"requested":{"nodes":[{"id":"PR_1","number":7,"title":"Fix it","url":"u","headRefOid":"abc",
 		"author":{"login":"ann"},"repository":{"nameWithOwner":"o/r"},
 		"commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]},
@@ -30,6 +29,7 @@ const reviewSearchResponse = `{"data":{
 // the command and its author may ask.
 func TestReviewRequestsKeyOnTheAsk(t *testing.T) {
 	gh, queries := githubReturning(t, reviewSearchResponse)
+	gh.login = "me"
 	search := ReviewSearch{
 		Triggers:   []Trigger{TriggerRequested, TriggerLabel, TriggerComment},
 		Label:      "gate-review",
@@ -69,8 +69,8 @@ func TestReviewSearchWithoutOrgsAsksOnlyForRequests(t *testing.T) {
 	query, ok := reviewQuery(ReviewSearch{
 		Triggers: []Trigger{TriggerRequested, TriggerLabel, TriggerComment},
 		Label:    "gate-review", Command: "/gate review",
-	})
-	if !ok || !strings.Contains(query, "review-requested:@me") || strings.Contains(query, "label:") || strings.Contains(query, "in:comments") {
+	}, "me")
+	if !ok || !strings.Contains(query, "review-requested:me") || strings.Contains(query, "label:") || strings.Contains(query, "in:comments") {
 		t.Fatalf("query = %s", query)
 	}
 }

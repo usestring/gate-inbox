@@ -17,16 +17,19 @@ import (
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-// A top-level agent launches a new session only when its user asked for one.
+// A top-level agent working from a voiced turn launches a new session only
+// when its user asked for one.
 //
-// Agents read "split this into parallel parts" as licence to spawn, and the
-// operator ends up with sessions nobody asked for. So a session with no
-// parent -- the one the operator talks to -- launches only on the user's own
-// words: either the JEV classifier is confident the user's latest message
-// tells it to launch a session, or the agent puts the launch Approval
-// question to its user and they answer LaunchOption. The answer is spent
-// once, on one launch. Children are not gated: their parent was, and
-// steering a fan-out is what a child's spawn is for.
+// A turn a board extension queued in the operator's voice is a transcription,
+// and an agent reads a loose spoken "split this up" as licence to spawn, so
+// the operator ends up with sessions nobody asked for. So while a session
+// with no parent -- the one the operator talks to -- has a voiced message as
+// its user's latest turn, it launches only on the user's own words: either the
+// JEV classifier is confident that turn tells it to launch a session, or the
+// agent puts the launch Approval question to its user and they answer
+// LaunchOption. The answer is spent once, on one launch. A turn the operator
+// typed launches as it always has. Children are not gated: their parent was,
+// and steering a fan-out is what a child's spawn is for.
 
 // LaunchOption is the option that approves one launch.
 const LaunchOption = "Launch new session"
@@ -43,6 +46,12 @@ const (
 	launchJevMessages     = 3
 	launchJevMessageChars = 2000
 	launchBriefChars      = 160
+	// launchVoicedMessages is how far back the inbox is read for the latest
+	// voiced message.
+	launchVoicedMessages = 20
+	// launchVoicedFreshness is how long a voiced message counts as the latest
+	// turn when the transcript cannot say whether the user typed since.
+	launchVoicedFreshness = 10 * time.Minute
 )
 
 const launchJevQuestion = "Does the user's latest message explicitly tell the assistant to launch, start, open or spawn " +
@@ -93,6 +102,13 @@ func (s *Sessions) confirmLaunch(runtime *runtime, caller store.Session, opts Cr
 	if !s.gateLaunches || !runtime.gatesLaunch(caller) {
 		return nil
 	}
+	voiced := s.voicedLaunch
+	if voiced == nil {
+		voiced = s.voicedTurn
+	}
+	if !voiced(runtime, caller, now) {
+		return nil
+	}
 	asked := s.userAskedLaunch
 	if asked == nil {
 		asked = s.jevAskedLaunch
@@ -112,6 +128,56 @@ func (s *Sessions) confirmLaunch(runtime *runtime, caller store.Session, opts Cr
 	return &LaunchApprovalNeeded{Question: question, Reason: reason}
 }
 
+// voicedTurn reports whether the caller's user's latest turn is a message a
+// board extension delivered in their voice. Without a readable transcript a
+// voiced message delivered in the last launchVoicedFreshness counts, so a
+// transcript the board cannot read never opens the gate.
+func (s *Sessions) voicedTurn(runtime *runtime, caller store.Session, now time.Time) bool {
+	delivered := false
+	messages, err := runtime.store.Inbox(caller.ID, store.InboxFilter{Pending: &delivered, Limit: launchVoicedMessages})
+	if err != nil {
+		return true
+	}
+	var voiced *store.InboxMessage
+	for i := range messages {
+		if store.OperatorVoiced(messages[i].SenderID) {
+			voiced = &messages[i]
+			break
+		}
+	}
+	if voiced == nil {
+		return false
+	}
+	turns, ok := s.userTurns(runtime, caller)
+	return latestTurnIsVoiced(turns, ok, *voiced, now)
+}
+
+// latestTurnIsVoiced decides voicedTurn once the inbox and transcript are
+// read: the latest user turn carries the voiced message's text.
+func latestTurnIsVoiced(turns []search.Message, readable bool, voiced store.InboxMessage, now time.Time) bool {
+	body := strings.Join(strings.Fields(voiced.Body), " ")
+	for i := len(turns) - 1; readable && i >= 0; i-- {
+		turn := turns[i]
+		if turn.Role != "user" || strings.Contains(turn.Text, crossSessionFence) || strings.TrimSpace(turn.Text) == "" {
+			continue
+		}
+		return body != "" && strings.Contains(strings.Join(strings.Fields(turn.Text), " "), body)
+	}
+	return now.Sub(voiced.DeliveredAt) <= launchVoicedFreshness
+}
+
+// userTurns is the caller's transcript as conversation messages, and whether
+// it could be read.
+func (s *Sessions) userTurns(runtime *runtime, caller store.Session) ([]search.Message, bool) {
+	format := migrate.Format(caller.Tool, runtime.cfg.Tools[caller.Tool])
+	target, ok := search.NewLocator(s.claudeHome, s.roots.CodexRoot).Target(caller.ID, format, caller.Cwd, caller.AgentSessionID)
+	if !ok {
+		return nil, false
+	}
+	messages, err := search.ReadMessages(target, opencode.DBPath())
+	return messages, err == nil
+}
+
 // jevAskedLaunch asks JEV whether the caller's user just told it to launch a
 // session. No key, no transcript, or any failure is a no: the question is
 // the fallback, never the launch.
@@ -120,13 +186,8 @@ func (s *Sessions) jevAskedLaunch(runtime *runtime, caller store.Session) bool {
 	if key == "" {
 		return false
 	}
-	format := migrate.Format(caller.Tool, runtime.cfg.Tools[caller.Tool])
-	target, ok := search.NewLocator(s.claudeHome, s.roots.CodexRoot).Target(caller.ID, format, caller.Cwd, caller.AgentSessionID)
+	messages, ok := s.userTurns(runtime, caller)
 	if !ok {
-		return false
-	}
-	messages, err := search.ReadMessages(target, opencode.DBPath())
-	if err != nil {
 		return false
 	}
 	state := launchJevTurns(messages)

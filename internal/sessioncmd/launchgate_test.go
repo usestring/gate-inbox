@@ -14,12 +14,13 @@ func gatedHarness(t *testing.T, asked bool) (*sessionHarness, store.Session) {
 	t.Helper()
 	h, child := grantHarness(t)
 	h.sessions.gateLaunches = true
+	h.sessions.voicedLaunch = func(*runtime, store.Session, time.Time) bool { return true }
 	h.sessions.userAskedLaunch = func(*runtime, store.Session) bool { return asked }
 	return h, child
 }
 
-// A top-level agent launches only on its user's "Launch new session", and
-// that answer launches one session.
+// A top-level agent on a voiced turn launches only on its user's "Launch new
+// session", and that answer launches one session.
 func TestTopLevelLaunchNeedsTheUsersConfirmationOnce(t *testing.T) {
 	h, _ := gatedHarness(t, false)
 	opts := CreateSessionOptions{Name: "probe-one", Prompt: "read the payload builder"}
@@ -50,6 +51,41 @@ func TestTopLevelLaunchSkipsTheQuestionWhenTheUserAskedForIt(t *testing.T) {
 	h, _ := gatedHarness(t, true)
 	if _, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "probe-one"}); err != nil {
 		t.Fatalf("launch the user asked for: %v", err)
+	}
+}
+
+// A turn the user typed launches without the question.
+func TestTypedTurnLaunchIsNotGated(t *testing.T) {
+	h, _ := gatedHarness(t, false)
+	h.sessions.voicedLaunch = func(*runtime, store.Session, time.Time) bool { return false }
+	if _, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "probe-one"}); err != nil {
+		t.Fatalf("launch from a typed turn: %v", err)
+	}
+}
+
+// The gate holds while the voiced message is the user's latest turn, and
+// lifts once they type after it.
+func TestLatestTurnIsVoiced(t *testing.T) {
+	now := time.Now()
+	voiced := store.InboxMessage{Body: "split the retry fix\ninto two", DeliveredAt: now.Add(-time.Hour)}
+	spoken := search.Message{Role: "user", Text: "split the retry fix into two"}
+	typed := search.Message{Role: "user", Text: "never mind, do it yourself"}
+	fenced := search.Message{Role: "user", Text: crossSessionFence + "parent-1234----\nhi\n"}
+	for _, tc := range []struct {
+		name     string
+		turns    []search.Message
+		readable bool
+		voiced   store.InboxMessage
+		want     bool
+	}{
+		{"voiced is latest", []search.Message{typed, spoken, fenced}, true, voiced, true},
+		{"typed since", []search.Message{spoken, typed}, true, voiced, false},
+		{"unreadable and stale", nil, false, voiced, false},
+		{"unreadable and fresh", nil, false, store.InboxMessage{Body: "x", DeliveredAt: now}, true},
+	} {
+		if got := latestTurnIsVoiced(tc.turns, tc.readable, tc.voiced, now); got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
 

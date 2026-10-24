@@ -73,7 +73,13 @@ func OperatorVoicedSenderID(id string) string {
 // FromOperator), or queued in the operator's voice by a compiled-in
 // extension.
 func SpeaksAsOperator(senderID string) bool {
-	return FromOperator(senderID) || strings.HasPrefix(senderID, operatorVoicedPrefix)
+	return FromOperator(senderID) || OperatorVoiced(senderID)
+}
+
+// OperatorVoiced reports whether a message from senderID was queued in the
+// operator's voice by an extension rather than typed or relayed by them.
+func OperatorVoiced(senderID string) bool {
+	return strings.HasPrefix(senderID, operatorVoicedPrefix)
 }
 
 // SystemSenderID marks a notice Gate Inbox itself queued for a session, such

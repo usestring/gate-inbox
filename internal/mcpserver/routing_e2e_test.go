@@ -17,7 +17,6 @@ import (
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/accounts/accountstest"
 	"github.com/usestring/gate-inbox/internal/config"
-	"github.com/usestring/gate-inbox/internal/jev"
 	"github.com/usestring/gate-inbox/internal/promptcache"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -253,13 +252,6 @@ func newRoutingHarness(t *testing.T) *routingHarness {
 	socket := tmuxtest.Socket(t, "routing")
 	t.Setenv(tmux.SocketEnv, socket)
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "fixture-parent-named-token")
-	// The parent's user approved each launch; the transcript holding that is
-	// under ~/.claude, so HOME is a scratch one.
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("CLAUDE_CONFIG_DIR", "")
-	t.Setenv(jev.KeyEnv, "")
-	writeLaunchApprovals(t, filepath.Join(home, ".claude"), "conv-routing", "routing-fixture", 3)
 	text := `[tools.claude]
 command = "sh -c 'if [ -n \"$CLAUDE_CODE_OAUTH_TOKEN\" ]; then printenv CLAUDE_CODE_OAUTH_TOKEN; else echo fixture-local-login; fi'; echo"
 default_status = "idle"
@@ -279,7 +271,7 @@ accounts_command = "printf 'CLAUDE_OAUTH_TOKEN_OWNER\\nCLAUDE_OAUTH_TOKEN_ALICE1
 	if err != nil {
 		t.Fatal(err)
 	}
-	caller := store.Session{ID: "abcdef01", Name: "routing-parent", Tool: "claude", Cwd: t.TempDir(), Status: status.Idle, Account: "POOL2", AgentSessionID: "conv-routing"}
+	caller := store.Session{ID: "abcdef01", Name: "routing-parent", Tool: "claude", Cwd: t.TempDir(), Status: status.Idle, Account: "POOL2"}
 	if err := driver.Create(caller.ID, caller.Cwd, "", nil, 80, 24); err != nil {
 		t.Fatal(err)
 	}
@@ -309,38 +301,4 @@ func waitForRoutingOutput(t *testing.T, sessions *sessioncmd.Sessions, caller, c
 		time.Sleep(25 * time.Millisecond)
 	}
 	t.Fatalf("child %s did not launch with selected account %s", child, want)
-}
-
-// writeLaunchApprovals is a top-level agent's transcript in which its user
-// answered "Launch new session" for name count times, one per launch.
-func writeLaunchApprovals(t *testing.T, claudeHome, conversation, name string, count int) {
-	t.Helper()
-	question := sessioncmd.LaunchQuestion(name, "")
-	at := time.Now().Add(-time.Minute)
-	var lines []string
-	for i := 0; i < count; i++ {
-		id := fmt.Sprintf("toolu_launch_%d", i)
-		for _, record := range []map[string]any{
-			{"type": "assistant", "timestamp": at.Format(time.RFC3339Nano), "message": map[string]any{"role": "assistant", "content": []any{map[string]any{
-				"type": "tool_use", "id": id, "name": "AskUserQuestion", "input": map[string]any{"questions": []any{question}},
-			}}}},
-			{"type": "user", "timestamp": at.Add(time.Second).Format(time.RFC3339Nano), "message": map[string]any{"role": "user", "content": []any{map[string]any{
-				"type": "tool_result", "tool_use_id": id, "content": "The user answered.",
-			}}}, "toolUseResult": map[string]any{"answers": map[string]string{question.Question: sessioncmd.LaunchOption}}},
-		} {
-			raw, err := json.Marshal(record)
-			if err != nil {
-				t.Fatal(err)
-			}
-			lines = append(lines, string(raw))
-		}
-		at = at.Add(2 * time.Second)
-	}
-	path := filepath.Join(claudeHome, "projects", "routing", conversation+".jsonl")
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 }

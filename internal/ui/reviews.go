@@ -262,7 +262,7 @@ func (v *reviewsView) Render(width, height int) [][]Span {
 			meta = append(meta, Span{Text: text, Tone: tone})
 		}
 		if r.Author != "" {
-			add("@"+r.Author, ToneMuted)
+			add("by "+r.Author, ToneMuted)
 		}
 		add(triggerLabel(r.Trigger)+" "+reviewAge(time.Since(r.TriggeredAt)), ToneMuted)
 		meta = append(meta, Span{Text: " · ", Tone: ToneMuted},

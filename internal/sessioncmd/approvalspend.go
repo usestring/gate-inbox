@@ -51,6 +51,12 @@ func (s *Sessions) SpendApproval(callerID, question string, now time.Time) (err 
 	if err != nil {
 		return err
 	}
+	return s.spendAnswer(runtime, caller, question, ApproveOption, now)
+}
+
+// spendAnswer spends the caller's user's answer of option to the Approval
+// question, or reports why there is none to spend.
+func (s *Sessions) spendAnswer(runtime *runtime, caller store.Session, question, option string, now time.Time) error {
 	answered, err := asks.AnsweredSince(s.askTarget(caller), now.Add(-approvalFreshness))
 	if err != nil {
 		return err
@@ -63,8 +69,8 @@ func (s *Sessions) SpendApproval(callerID, question string, now time.Time) (err 
 				continue
 			}
 			given, ok := answerFor(ask.Answers, q.Question)
-			if !ok || normalise(given) != ApproveOption {
-				reason = fmt.Sprintf("the user answered %q, not %q", given, ApproveOption)
+			if !ok || normalise(given) != option {
+				reason = fmt.Sprintf("the user answered %q, not %q", given, option)
 				continue
 			}
 			typed, err := runtime.store.AgentAnswered(caller.ID, ask.ToolUseID)

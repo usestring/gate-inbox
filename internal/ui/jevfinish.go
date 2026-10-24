@@ -2,14 +2,13 @@ package ui
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/jev"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/search"
@@ -185,55 +184,8 @@ func askJevFinish(ctx context.Context, client *http.Client, endpoint, key string
 	return jevFinishVerdict{finished: answers["finished"], missingChrome: answers["missing_chrome"]}, true
 }
 
-// askJevNoul posts yes-no questions in one call against one state and
-// returns each one's probability. Any failed request, or any question left
-// without a probability, fails the whole call.
 func askJevNoul(ctx context.Context, client *http.Client, endpoint, key string, state any, questions map[string]string) (map[string]float64, bool) {
-	asked := make(map[string]any, len(questions))
-	for name, instructions := range questions {
-		asked[name] = map[string]any{"type": "noul", "instructions": instructions}
-	}
-	body, err := json.Marshal(struct {
-		Model     string `json:"model"`
-		State     any    `json:"state"`
-		Questions any    `json:"questions"`
-	}{Model: jevModel, State: state, Questions: asked})
-	if err != nil {
-		return nil, false
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(string(body)))
-	if err != nil {
-		return nil, false
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+key)
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, false
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, false
-	}
-	var reply struct {
-		Model   string `json:"model"`
-		Answers map[string]struct {
-			Type string   `json:"type"`
-			Noul *float64 `json:"noul"`
-		} `json:"answers"`
-	}
-	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&reply) != nil || reply.Model != jevModel {
-		return nil, false
-	}
-	out := make(map[string]float64, len(questions))
-	for name := range questions {
-		answer, ok := reply.Answers[name]
-		if !ok || answer.Type != "noul" || answer.Noul == nil || *answer.Noul < 0 || *answer.Noul > 1 {
-			return nil, false
-		}
-		out[name] = *answer.Noul
-	}
-	return out, true
+	return jev.AskNoul(ctx, client, endpoint, key, state, questions)
 }
 
 // jevFinishAction is what a verdict calls for.

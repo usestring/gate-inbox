@@ -12,20 +12,19 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/jev"
 	"github.com/usestring/gate-inbox/internal/search"
 )
 
 const (
-	jevEndpoint       = "https://api.typesafe.ai/v1/systemone"
-	jevModel          = "jev-1.13.0"
+	jevEndpoint       = jev.Endpoint
+	jevModel          = jev.Model
 	autoSuggestDelay  = 500 * time.Millisecond
 	autoSuggestLimit  = 8
 	autoSuggestMinLen = 12
 )
 
-var jevHTTPClient = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
-	return http.ErrUseLastResponse
-}}
+var jevHTTPClient = jev.HTTPClient
 
 type suggestMessage struct {
 	Role string `json:"role"`

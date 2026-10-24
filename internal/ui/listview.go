@@ -463,6 +463,9 @@ func (m *Model) sessionDetailLines(width int) []string {
 	if usage != "" {
 		lines = append(lines, railFact(pad, "usage", usage))
 	}
+	if view, ok := m.compactWindows[sess.ID]; ok {
+		lines = append(lines, railFact(pad, "compact", textfmt.TruncateWidth(compactFact(view, time.Now()), factRoom, "…")))
+	}
 	// What its spawner granted it on its user's approval, one line each:
 	// a widened permission is the one fact about a session nobody should
 	// have to go looking for.

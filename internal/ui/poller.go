@@ -174,11 +174,16 @@ type poller struct {
 	screens    map[string]screenMark
 	stale      map[string]bool
 	staleAfter time.Duration
-	// compactTools is each claude-hooks tool with a compact_window, and
+	// compactTools is each claude-hooks tool with a compact_window,
 	// compactFailed the window a session's settings file last failed to
-	// take. See compactwindow.go.
-	compactTools  map[string]config.Tool
-	compactFailed map[string]int
+	// take, compactPending the downgrades waiting out their delay and
+	// compactViews what the last pass found for the rail. compactClock
+	// stands in for time.Now in tests. See compactwindow.go.
+	compactTools   map[string]config.Tool
+	compactFailed  map[string]int
+	compactPending map[string]compactDowngrade
+	compactViews   map[string]compactView
+	compactClock   func() time.Time
 	// hookCursor is how far into each session's hook log the poller has
 	// read. The newest line says what the session is doing now; the lines
 	// between two passes say what it did meanwhile, and a whole turn can fit
@@ -1250,6 +1255,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 		agents:           agents,
 		queuedMessages:   queued,
 		granted:          granted,
+		compactWindows:   p.compactViews,
 		archivedChildren: archivedKids,
 		searchText:       searchText,
 		answerableWait:   answerableWait,
@@ -2477,6 +2483,16 @@ func (p *poller) forgetVanished(sessions []store.Session) {
 		if !live[id] {
 			delete(p.compactFailed, id)
 		}
+	}
+	prunedPending := false
+	for id := range p.compactPending {
+		if !live[id] {
+			delete(p.compactPending, id)
+			prunedPending = true
+		}
+	}
+	if prunedPending {
+		p.saveCompactPending()
 	}
 	// A codex tracker holds every question its rollout has shown, so one left
 	// behind by an ended session is a leak that grows with the conversation.

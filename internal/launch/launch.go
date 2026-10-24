@@ -675,6 +675,11 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		return "", nil, err
 	}
 	command += " " + claudeplugin.Argv(tmux.ShellQuote(pluginDir))
+	if write && id != "" && len(tool.CompactWindow) > 0 {
+		// Only the sidebar reads it, to say a tier change waits for a
+		// restart; a launch is not held up over that.
+		_ = manager.RecordLaunchedCompactWindow(id)
+	}
 	// Composed through hooks.SettingsArgv, which is also what the poller
 	// looks for in a running process's argv to tell a wired session from one
 	// somebody restarted by hand inside its pane. One spelling, so the check

@@ -304,6 +304,9 @@ type Model struct {
 	// grant_permission, by session, replaced whole like queuedMessages so a
 	// revoke clears it.
 	granted map[string][]string
+	// compactWindows is each claude session's auto-compact window as the
+	// last pass left it, replaced whole like granted.
+	compactWindows map[string]compactView
 
 	// archivedChildren counts each parent's archived children, which the
 	// list itself cannot see: it drops archived rows, so a fan-out that has
@@ -1001,6 +1004,7 @@ type refreshMsg struct {
 	agents           agentStats
 	queuedMessages   map[string]int
 	granted          map[string][]string
+	compactWindows   map[string]compactView
 	archivedChildren map[string]int
 	searchText       map[string]string
 	answerableWait   map[string]bool
@@ -2349,6 +2353,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agents = msg.agents
 		m.queuedMessages = msg.queuedMessages
 		m.granted = msg.granted
+		m.compactWindows = msg.compactWindows
 		m.archivedChildren = msg.archivedChildren
 		m.searchText = msg.searchText
 		m.answerableWait = msg.answerableWait

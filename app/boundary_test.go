@@ -22,6 +22,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/extension/textfmt"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/jev"
+	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
@@ -110,7 +112,8 @@ func fixtureHome(t *testing.T, config string) []string {
 	if err := os.WriteFile(filepath.Join(home, "config.toml"), []byte("poll_interval = \"2s\"\n\n"+config), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return append(tmuxtest.Environ(), "GATE_INBOX_HOME="+home, "GATE_INBOX_SESSION_ID=fixture-session")
+	return append(tmuxtest.Environ(), "GATE_INBOX_HOME="+home, "GATE_INBOX_SESSION_ID=fixture-session",
+		"CLAUDE_CONFIG_DIR="+filepath.Join(home, "claude"), jev.KeyEnv+"=")
 }
 
 // TestExternalBuildServesEveryEntryPoint is the acceptance proof for the
@@ -1209,7 +1212,7 @@ func seedSessions(t *testing.T, path string) {
 	defer st.Close()
 	now := time.Now()
 	for _, sess := range []store.Session{
-		{ID: "ca11e400", Name: "the caller", Tool: "claude", Status: "working", CreatedAt: now},
+		{ID: "ca11e400", Name: "the caller", Tool: "claude", Status: "working", AgentSessionID: "conv-caller", CreatedAt: now},
 		{ID: "c41d0001", Name: "the child", Tool: "claude", Status: "dead", ParentID: "ca11e400", CreatedAt: now},
 	} {
 		if err := st.CreateSession(sess); err != nil {
@@ -1217,6 +1220,46 @@ func seedSessions(t *testing.T, path string) {
 		}
 	}
 	if err := st.SetSnapshot("c41d0001", "the child's last screen"); err != nil {
+		t.Fatal(err)
+	}
+	writeLaunchApprovals(t, filepath.Join(filepath.Dir(path), "claude"), "conv-caller")
+}
+
+// fixtureLaunches is every name the tests launch as the seeded caller.
+var fixtureLaunches = []string{"asks-the-operator", "claude-hog", "detached", "just-working", "launched",
+	"one-too-many", "over-budget", "self-stop", "sentinel", "within-budget", "worker"}
+
+// writeLaunchApprovals is the seeded caller's transcript, in which its user
+// answered "Launch new session" a few times for each name the tests launch.
+func writeLaunchApprovals(t *testing.T, claudeHome, conversation string) {
+	t.Helper()
+	at := time.Now().Add(-time.Minute)
+	var lines []string
+	for _, name := range fixtureLaunches {
+		question := sessioncmd.LaunchQuestion(name, "")
+		for i := 0; i < 4; i++ {
+			id := fmt.Sprintf("toolu_%s_%d", name, i)
+			for _, record := range []map[string]any{
+				{"type": "assistant", "timestamp": at.Format(time.RFC3339Nano), "message": map[string]any{"role": "assistant", "content": []any{map[string]any{
+					"type": "tool_use", "id": id, "name": "AskUserQuestion", "input": map[string]any{"questions": []any{question}},
+				}}}},
+				{"type": "user", "timestamp": at.Format(time.RFC3339Nano), "message": map[string]any{"role": "user", "content": []any{map[string]any{
+					"type": "tool_result", "tool_use_id": id, "content": "The user answered.",
+				}}}, "toolUseResult": map[string]any{"answers": map[string]string{question.Question: sessioncmd.LaunchOption}}},
+			} {
+				raw, err := json.Marshal(record)
+				if err != nil {
+					t.Fatal(err)
+				}
+				lines = append(lines, string(raw))
+			}
+		}
+	}
+	path := filepath.Join(claudeHome, "projects", "fixture", conversation+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

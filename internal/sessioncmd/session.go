@@ -153,10 +153,19 @@ type Sessions struct {
 	// newPacer replaces the relaunch queue; tests point it at their own
 	// clock.
 	newPacer func(*runtime) *launchpace.Pacer
+	// gateLaunches makes a top-level agent confirm each launch with its
+	// user (see launchgate.go). Only NewSessions sets it, so a test that
+	// spawns from a top-level caller to check something else need not
+	// approve first.
+	gateLaunches bool
+	// userAskedLaunch replaces the JEV check; tests answer it themselves.
+	userAskedLaunch func(*runtime, store.Session) bool
 }
 
 func NewSessions(configDir string, words Vocabulary) *Sessions {
-	return newSessions(configDir, words, tmux.NewWithSocket, git.New)
+	s := newSessions(configDir, words, tmux.NewWithSocket, git.New)
+	s.gateLaunches = true
+	return s
 }
 
 func newSessions(configDir string, words Vocabulary, newDriver func(socket string) (*tmux.Driver, error), newGit func() (*git.Driver, error)) *Sessions {
@@ -668,6 +677,9 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	defer runtime.store.Close()
 	caller, err := runtime.caller(sessionID)
 	if err != nil {
+		return Session{}, err
+	}
+	if err := s.confirmLaunch(runtime, caller, opts, time.Now()); err != nil {
 		return Session{}, err
 	}
 	toolName := strings.TrimSpace(opts.Tool)

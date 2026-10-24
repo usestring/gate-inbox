@@ -62,6 +62,13 @@ func TestMigrateStartsTheConversationOverOnAnotherToolWithRealTmux(t *testing.T)
 	t.Parallel()
 	h := newSessionHarness(t)
 	source, transcript := claudeSource(t, h)
+	child := store.Session{ID: "c0ffee01", Name: "helper", Tool: "claude", Cwd: source.Cwd, Status: status.Finished, ParentID: source.ID}
+	if err := h.store.CreateSession(child); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.driver.Create(source.ID, source.Cwd, "cat", nil, 80, 24); err != nil {
+		t.Fatal(err)
+	}
 
 	moved, err := h.sessions.Migrate(h.caller.ID, source.ID, MigrateOptions{Tool: "echoer"})
 	if err != nil {
@@ -87,10 +94,15 @@ func TestMigrateStartsTheConversationOverOnAnotherToolWithRealTmux(t *testing.T)
 	// pointed at the transcript rather than handed an empty brief. The pane
 	// wraps the path at its own width, so the screen is read unwrapped.
 	waitForUnwrappedOutput(t, h.sessions, h.caller.ID, moved.ID, transcript)
-	// The source is left alone: still on the board, still the same row.
+	// The new session carries on, so it takes the source's children and the
+	// source is ended and filed away.
 	kept, err := h.store.Get(source.ID)
-	if err != nil || kept.Archived || kept.Tool != "claude" {
+	if err != nil || !kept.Archived || kept.Status != status.Dead || h.driver.Exists(source.ID) {
 		t.Fatalf("source after migrate = %+v, err %v", kept, err)
+	}
+	adopted, err := h.store.Get(child.ID)
+	if err != nil || adopted.ParentID != moved.ID || store.TrackerOf(adopted) != moved.ID {
+		t.Fatalf("child after migrate = %+v, err %v", adopted, err)
 	}
 }
 
@@ -160,8 +172,8 @@ func TestSwitchAccountMigratesLargeContextInsteadOfResuming(t *testing.T) {
 				t.Fatalf("not migrated to chosen account: %+v", row)
 			}
 			kept, err := h.store.Get(source.ID)
-			if err != nil || kept.Account != "OLD" || !h.driver.Exists(source.ID) {
-				t.Fatalf("source changed: %+v %v", kept, err)
+			if err != nil || kept.Account != "OLD" || !kept.Archived || h.driver.Exists(source.ID) {
+				t.Fatalf("source not retired on its own account: %+v %v", kept, err)
 			}
 			waitForUnwrappedOutput(t, h.sessions, h.caller.ID, moved.ID, "continue the work")
 		})

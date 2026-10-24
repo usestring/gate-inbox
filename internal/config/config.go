@@ -143,6 +143,11 @@ type Tool struct {
 	// tools carry it: it travels as autoCompactWindow in the session's own
 	// settings file. Empty, which is the default, changes nothing.
 	CompactWindow map[string]int `toml:"compact_window"`
+	// CompactDowngradeDelay is how long a session's tier has to stay lowered
+	// before its smaller window is written, so a tier dropped by mistake can
+	// be put back first. A larger window is written on the next pass. A tool
+	// that sets none waits DefaultCompactDowngradeDelay.
+	CompactDowngradeDelay Duration `toml:"compact_downgrade_delay"`
 	// ResumeByIDCommand resumes a specific conversation; "{id}" is replaced
 	// with the session's agent id. Preferred over ReviveCommand, which only
 	// resumes the working directory's most recent conversation.
@@ -717,6 +722,19 @@ func checkCompactWindow(name string, windows map[string]int) error {
 	return nil
 }
 
+// DefaultCompactDowngradeDelay is how long a smaller window waits when
+// compact_downgrade_delay is not set.
+const DefaultCompactDowngradeDelay = 10 * time.Minute
+
+// CompactDowngradeDelayOrDefault is how long a smaller window waits before
+// it is written.
+func (t Tool) CompactDowngradeDelayOrDefault() time.Duration {
+	if t.CompactDowngradeDelay.Duration > 0 {
+		return t.CompactDowngradeDelay.Duration
+	}
+	return DefaultCompactDowngradeDelay
+}
+
 // CompactWindowFor is the auto-compact window a session at tier gets, or 0
 // for the CLI's own.
 func (t Tool) CompactWindowFor(tier priority.Tier) int {
@@ -852,6 +870,9 @@ func mergeTool(name string, user, def Tool) Tool {
 	}
 	if user.EchoBudget.Duration <= 0 {
 		user.EchoBudget = def.EchoBudget
+	}
+	if user.CompactDowngradeDelay.Duration <= 0 {
+		user.CompactDowngradeDelay = def.CompactDowngradeDelay
 	}
 	fill(&user.SessionIDFlag, def.SessionIDFlag)
 	fill(&user.AddDirFlag, def.AddDirFlag)
@@ -1290,11 +1311,16 @@ model_flag = "--model"
 # own window. To let the sessions that matter most keep more context, give a
 # window in tokens (100000 to 1000000) per tier; the tier is the one the board
 # sorts by, and a tier left out keeps claude's own. It is written as
-# autoCompactWindow into the session's own settings file, which claude 2.1.304
+# autoCompactWindow into the session's own settings file, which claude 2.1.310
 # reads at launch only: a tier changed mid-session applies at the next revive
 # or restart. CLAUDE_CODE_AUTO_COMPACT_WINDOW in the environment overrides it.
+# A raise in tier applies on the next poll; a drop waits
+# compact_downgrade_delay and is dropped if the tier goes back up first, so a
+# tier lowered by mistake costs nothing. Board extensions that compact by tier
+# read the same held tier, live.
 #
 # compact_window = { urgent = 600000, high = 300000 }
+compact_downgrade_delay = "10m"
 # claude has no command that prints these; they are the documented aliases.
 # The 1M-context variants sit beside the bare ones because an explicit --model
 # overrides the operator's settings.json default: picking "opus" for someone

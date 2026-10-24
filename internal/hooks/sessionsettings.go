@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/usestring/gate-inbox/grant"
@@ -36,7 +37,11 @@ import (
 // reads it at launch only (measured: a session launched on 300000 still
 // reported 300000 from /autocompact after the file was rewritten to 600000,
 // whether replaced by rename or written in place), and
-// CLAUDE_CODE_AUTO_COMPACT_WINDOW in its environment overrides it.
+// CLAUDE_CODE_AUTO_COMPACT_WINDOW in its environment overrides it. 2.1.310
+// still does, and watches no other file for it either: a session launched
+// without --settings kept the window its project's settings.local.json gave
+// it at launch after that file was rewritten, and a turn taken in between
+// changed neither.
 
 // sessionSettingsPrefix starts every settings file a launch carries, the
 // shared one and each session's own. The poller looks for it in a running
@@ -139,6 +144,46 @@ func (m *Manager) SetSessionCompactWindow(id string, window int) error {
 		return removeIfExists(path)
 	}
 	return writeSettings(m.dir, path, settings)
+}
+
+// Launched compact window.
+//
+// The settings file says what id's next launch will compact at, which is not
+// what the running process does once the tier has moved. A launch records
+// the window it carried, so the board can say a change waits for a restart.
+
+func (m *Manager) launchedCompactPath(id string) string {
+	return filepath.Join(m.dir, "compact-launched."+id)
+}
+
+// RecordLaunchedCompactWindow notes the window id's own settings file carries
+// as id launches on it.
+func (m *Manager) RecordLaunchedCompactWindow(id string) error {
+	if err := checkID(id); err != nil {
+		return err
+	}
+	window, err := m.SessionCompactWindow(id)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(m.dir, 0o755); err != nil {
+		return err
+	}
+	return WriteWhole(m.launchedCompactPath(id), strconv.Itoa(window))
+}
+
+// LaunchedCompactWindow is the window id last launched on, 0 for the CLI's
+// own, and false when no launch recorded one.
+func (m *Manager) LaunchedCompactWindow(id string) (int, bool) {
+	if checkID(id) != nil {
+		return 0, false
+	}
+	raw, err := os.ReadFile(m.launchedCompactPath(id))
+	if err != nil {
+		return 0, false
+	}
+	window, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	return window, err == nil
 }
 
 // readSessionSettings is id's own settings file, or nil when it has none.

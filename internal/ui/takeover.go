@@ -226,6 +226,11 @@ func (m *Model) takeOver(sess store.Session, procs *adopt.ProcTable, claude []co
 	if !m.tmux.Exists(sess.ID) {
 		return fmt.Errorf("its pane is already gone")
 	}
+	if _, adopted := m.tmux.AdoptedTarget(sess.ID); !adopted {
+		// Exists found gi_<id>: the row was relaunched under the manager and
+		// only its adopted pane id was left behind.
+		return m.promoteAdoptedRow(sess)
+	}
 	convID, cwd := sess.AgentSessionID, sess.Cwd
 	if sess.Tool == "claude" {
 		if pid, err := m.tmux.PanePID(sess.ID); err == nil && pid != 0 {

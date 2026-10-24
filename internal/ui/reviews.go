@@ -400,11 +400,16 @@ func (m *Model) setReviewState(r store.ReviewRequest, state, sessionID string) {
 // startReview launches the review session for an ask, or lands on the one
 // already running for it.
 func (m *Model) startReview(r store.ReviewRequest) (tea.Model, tea.Cmd) {
-	if r.SessionID != "" {
+	for _, ask := range m.reviews {
+		if ask.Repo != r.Repo || ask.Number != r.Number || ask.SessionID == "" {
+			continue
+		}
 		for _, sess := range m.sessions {
-			if sess.ID == r.SessionID {
+			if sess.ID == ask.SessionID {
+				m.setReviewState(r, store.ReviewStarted, sess.ID)
 				m.leaveHeadPane(false)
 				m.statusFilter = statusFilterAll
+				m.toolFilter = ""
 				return m.landInNewSession(sess.ID)
 			}
 		}
@@ -438,6 +443,7 @@ func (m *Model) startReview(r store.ReviewRequest) (tea.Model, tea.Cmd) {
 	m.setReviewState(r, store.ReviewStarted, id)
 	m.leaveHeadPane(false)
 	m.statusFilter = statusFilterAll
+	m.toolFilter = ""
 	m.errBar.text = ""
 	return m.landInNewSession(id)
 }

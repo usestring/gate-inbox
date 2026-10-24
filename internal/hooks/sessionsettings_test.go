@@ -207,3 +207,24 @@ func TestSessionSettingsSameWindowIsNotRewritten(t *testing.T) {
 		t.Fatal("an unchanged window was written again")
 	}
 }
+
+// A launch records the window it carried, and a later rewrite of the
+// settings file does not move it: the running process is still on the old one.
+func TestLaunchedCompactWindowKeepsWhatTheLaunchCarried(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if _, ok := m.LaunchedCompactWindow("s1"); ok {
+		t.Fatal("a session that never launched has a launched window")
+	}
+	if err := m.SetSessionCompactWindow("s1", 300000); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.RecordLaunchedCompactWindow("s1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.SetSessionCompactWindow("s1", 600000); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := m.LaunchedCompactWindow("s1"); !ok || got != 300000 {
+		t.Fatalf("launched window = %d, %v; want 300000", got, ok)
+	}
+}

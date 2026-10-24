@@ -22,6 +22,12 @@ const (
 	// agent first draws to the pane, so a new row appears immediately instead
 	// of after the next poll.
 	Starting = "starting"
+	// Background is a session whose turn has ended with only a shell,
+	// monitor or task left running behind it: nothing is on screen and
+	// nothing spends tokens, but Claude wakes itself when that work ends.
+	// The pane reads it as working; the poller settles it here through
+	// SettleBackground.
+	Background = "background"
 	// Delegating is a session at rest with work still owed to it: a child
 	// it spawned is still going, or a child's report has not been typed in
 	// yet. Nothing derives it from a pane and nothing stores it; it is laid
@@ -334,17 +340,19 @@ func (e *Engine) BackgroundRest(tool, pane string) (string, bool) {
 // wait loops nothing would end, or shells that had already died.
 const BackgroundTailTrust = 2 * time.Hour
 
-// StalledBackground is BackgroundRest once the tail has outlived
-// BackgroundTailTrust by quiet, which reports how long since the
-// conversation was last written. quiet is only asked when the pane is
-// working on a tail alone.
-func StalledBackground(e *Engine, tool, pane string, quiet func() (time.Duration, bool)) (string, bool) {
+// SettleBackground is what a pane working on a "still running" tail alone
+// reads as: Background while the tail is believed, and BackgroundRest once it
+// has outlived BackgroundTailTrust by quiet, which reports how long since the
+// conversation was last written. A quiet that cannot be read keeps the tail
+// believed. ok is false when the pane is working on anything else. quiet is
+// only asked when the pane is working on a tail alone.
+func SettleBackground(e *Engine, tool, pane string, quiet func() (time.Duration, bool)) (string, bool) {
 	rest, ok := e.BackgroundRest(tool, pane)
 	if !ok {
 		return "", false
 	}
 	if age, known := quiet(); !known || age < BackgroundTailTrust {
-		return "", false
+		return Background, true
 	}
 	return rest, true
 }

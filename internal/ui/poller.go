@@ -1018,7 +1018,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 						return errMsg{err}
 					}
 					if agentAlive {
-						derived = p.settleStalledBackground(sess, clean, derived, now)
+						derived = p.settleBackground(sess, clean, derived, now)
 					}
 					phases.status += lap(&step)
 					newStatus = derived
@@ -1647,7 +1647,7 @@ const (
 // is let through for a tool that queues typed input itself (config.TypeAhead).
 func inboxDeliverable(derived string, typeAhead bool) bool {
 	return derived == status.Idle || derived == status.Finished || derived == status.Waiting ||
-		typeAhead && derived == status.Working
+		derived == status.Background || typeAhead && derived == status.Working
 }
 
 // maybeDeliverInbox types one queued message into a session that is at
@@ -2732,10 +2732,11 @@ func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAli
 
 // turnInFlight reports whether a status means a turn is running or resting
 // unacknowledged. Only then can a quiet region mean the turn just ended;
-// finished and waiting stay in the set so the inferred status persists
-// across polls instead of collapsing to idle on the next pass.
+// finished, waiting and background stay in the set so the inferred status
+// persists across polls instead of collapsing to idle on the next pass.
 func turnInFlight(current string) bool {
-	return current == status.Working || current == status.Finished || current == status.Waiting
+	return current == status.Working || current == status.Finished || current == status.Waiting ||
+		current == status.Background
 }
 
 // missedTurn reports whether the session ran a turn the row never showed:

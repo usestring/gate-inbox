@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // 2026-10-12 live capture, trimmed: the turn ended at 15:14 six days before,
@@ -61,5 +62,36 @@ func TestBackgroundRestReadsAShellTailUnderAClearHint(t *testing.T) {
 	got, ok := engine.BackgroundRest("claude", string(raw))
 	if !ok || got != Finished {
 		t.Fatalf("BackgroundRest = %q, %v; want finished, true", got, ok)
+	}
+}
+
+// A shell tail reads background until BackgroundTailTrust runs out, then the
+// turn it ended on. A background agent's wait spends tokens and stays working.
+func TestSettleBackgroundTiersAShellTail(t *testing.T) {
+	raw, err := os.ReadFile("testdata/claude-stale-shell-tail.txt")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	engine := defaultEngine(t)
+	quiet := func(age time.Duration, known bool) func() (time.Duration, bool) {
+		return func() (time.Duration, bool) { return age, known }
+	}
+	for _, tc := range []struct {
+		name  string
+		age   time.Duration
+		known bool
+		want  string
+	}{
+		{"fresh", 10 * time.Minute, true, Background},
+		{"unreadable", 0, false, Background},
+		{"stalled", BackgroundTailTrust, true, Finished},
+	} {
+		if got, ok := SettleBackground(engine, "claude", string(raw), quiet(tc.age, tc.known)); !ok || got != tc.want {
+			t.Errorf("%s: SettleBackground = %q, %v; want %q, true", tc.name, got, ok, tc.want)
+		}
+	}
+	agents := strings.Replace(string(raw), "✻ Baked for 26s · done 15:14 · 1 shell still running", "✻ Waiting for 2 background agents to finish", 1)
+	if got, ok := SettleBackground(engine, "claude", agents, quiet(time.Minute, true)); ok {
+		t.Fatalf("SettleBackground = %q, true for background agents", got)
 	}
 }

@@ -362,6 +362,12 @@ func HoldCall(configDir, session, toolUseID string, questions []convo.AskQuestio
 		return ""
 	}
 	defer cleanup(base)
+	// A consumer answers one call at a time, so a call that arrives while it
+	// holds another would only wait. It writes its own hold before looking,
+	// so two calls racing here both draw rather than both wait.
+	if anotherHeld(configDir, base, clock.Now()) {
+		return ""
+	}
 	for {
 		if output, ok := takeAnswer(base, hold, lease); ok {
 			return output
@@ -379,6 +385,30 @@ func HoldCall(configDir, session, toolUseID string, questions []convo.AskQuestio
 }
 
 // awaitClaimed waits briefly for the answer a consumer claimed the hold for.
+// anotherHeld reports whether a call other than base's is held or claimed
+// and not past its deadline. A hook that was killed leaves its file behind;
+// the deadline is what stops it counting.
+func anotherHeld(configDir, base string, now time.Time) bool {
+	entries, err := os.ReadDir(holdDir(configDir))
+	if err != nil {
+		return false
+	}
+	own := filepath.Base(base)
+	for _, entry := range entries {
+		name := entry.Name()
+		stem := strings.TrimSuffix(strings.TrimSuffix(name, ".hold"), ".claimed")
+		if stem == name || stem == own {
+			continue
+		}
+		var hold Hold
+		raw, err := os.ReadFile(filepath.Join(holdDir(configDir), name))
+		if err == nil && json.Unmarshal(raw, &hold) == nil && now.Before(hold.Deadline) {
+			return true
+		}
+	}
+	return false
+}
+
 func awaitClaimed(base string, hold Hold, lease Lease, clock Clock) string {
 	deadline := clock.Now().Add(receiptWait)
 	for clock.Now().Before(deadline) {

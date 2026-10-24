@@ -232,3 +232,32 @@ func TestOneConsumerHoldsTheLeaseUntilItLapses(t *testing.T) {
 		t.Fatal("the old token released the new lease")
 	}
 }
+
+// A consumer answers one call at a time: a call asked while another is held
+// draws at once instead of waiting behind it. A hold its hook left behind
+// stops counting at its deadline.
+func TestACallIsNotHeldBehindAnother(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	lease(t, dir, now)
+	other := Hold{Version: Version, Session: "first", ToolUseID: "toolu_1", Revision: Revision(questions), Questions: questions, Deadline: now.Add(30 * time.Second)}
+	if err := writeJSON(filepath.Join(holdDir(dir), "first.toolu_1.hold"), other); err != nil {
+		t.Fatal(err)
+	}
+	slept := false
+	clock := Clock{Now: func() time.Time { return now }, Sleep: func(time.Duration) { slept = true }}
+	if out := HoldCall(dir, "second", "toolu_2", questions, clock); out != "" || slept {
+		t.Fatalf("behind a live hold: output %q, slept %v", out, slept)
+	}
+	if _, err := os.Stat(filepath.Join(holdDir(dir), "second.toolu_2.hold")); !os.IsNotExist(err) {
+		t.Fatalf("the second call's hold was left behind: %v", err)
+	}
+
+	c := &fakeClock{now: now.Add(31 * time.Second)}
+	c.step = func(time.Time) { slept = true }
+	_, _ = Renew(dir, "voice", "", true, 45*time.Second, 10*time.Second, c.now)
+	HoldCall(dir, "second", "toolu_2", questions, c.clock())
+	if !slept {
+		t.Fatal("a hold past its deadline still kept another call from being held")
+	}
+}

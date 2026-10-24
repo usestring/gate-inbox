@@ -182,7 +182,7 @@ func latestTurnIsVoiced(turns []search.Message, readable bool, voiced store.Inbo
 	body := strings.Join(strings.Fields(voiced.Body), " ")
 	for i := len(turns) - 1; readable && i >= 0; i-- {
 		turn := turns[i]
-		if turn.Role != "user" || strings.Contains(turn.Text, crossSessionFence) || strings.TrimSpace(turn.Text) == "" {
+		if !isLaunchUserTurn(turn) {
 			continue
 		}
 		return body != "" && strings.Contains(strings.Join(strings.Fields(turn.Text), " "), body)
@@ -236,16 +236,20 @@ func launchJevTurns(messages []search.Message) []launchJevMessage {
 	var out []launchJevMessage
 	for i := len(messages) - 1; i >= 0 && len(out) < launchJevMessages; i-- {
 		message := messages[i]
-		if message.Role != "user" || strings.Contains(message.Text, crossSessionFence) {
+		if !isLaunchUserTurn(message) {
 			continue
 		}
 		text := strings.TrimSpace(message.Text)
-		if text == "" {
-			continue
-		}
 		out = append([]launchJevMessage{{Role: "user", Text: truncateRunes(text, launchJevMessageChars)}}, out...)
 	}
 	return out
+}
+
+func isLaunchUserTurn(message search.Message) bool {
+	return message.Role == "user" && strings.TrimSpace(message.Text) != "" &&
+		!strings.Contains(message.Text, crossSessionFence) &&
+		!strings.Contains(message.Text, "----GATE-INBOX-NOTICE-") &&
+		!strings.Contains(message.Text, "----EXTENSION-MESSAGE-")
 }
 
 func truncateRunes(text string, limit int) string {

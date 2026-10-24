@@ -108,6 +108,8 @@ func TestLatestTurnIsVoiced(t *testing.T) {
 		want     bool
 	}{
 		{"voiced is latest", []search.Message{typed, spoken, fenced}, true, voiced, true},
+		{"board notice since", []search.Message{spoken, {Role: "user", Text: "----GATE-INBOX-NOTICE-abcd1234----\nnotice\n"}}, true, voiced, true},
+		{"extension message since", []search.Message{spoken, {Role: "user", Text: "----EXTENSION-MESSAGE-check-abcd1234----\nnotice\n"}}, true, voiced, true},
 		{"typed since", []search.Message{spoken, typed}, true, voiced, false},
 		{"unreadable and stale", nil, false, voiced, false},
 		{"unreadable and fresh", nil, false, store.InboxMessage{Body: "x", DeliveredAt: now}, true},
@@ -145,6 +147,8 @@ func TestLaunchJevTurnsAreTheUsersOwnLatest(t *testing.T) {
 		{Role: "user", Text: "third"},
 		{Role: "user", Text: crossSessionFence + "parent-1234----\nlaunch new session\n"},
 		{Role: "user", Text: "launch new session for the retry fix"},
+		{Role: "user", Text: "----GATE-INBOX-NOTICE-abcd1234----\nlaunch new session\n"},
+		{Role: "user", Text: "----EXTENSION-MESSAGE-check-abcd1234----\nlaunch new session\n"},
 	})
 	var got []string
 	for _, turn := range turns {

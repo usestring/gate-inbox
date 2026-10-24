@@ -1,5 +1,54 @@
 # Changelog
 
+## [1.1.0](https://github.com/usestring/gate-inbox/compare/v1.0.0...v1.1.0) (2026-10-24)
+
+
+### Features
+
+* add skip-permissions toggles for a session and its children ([#429](https://github.com/usestring/gate-inbox/issues/429)) ([211013b](https://github.com/usestring/gate-inbox/commit/211013b66733151003108b4a8ec38352bcdcd2d3))
+* **adopt:** keep outside panes as-is by default and offer to bring them in [stack 13/15] ([#277](https://github.com/usestring/gate-inbox/issues/277)) ([d9ff666](https://github.com/usestring/gate-inbox/commit/d9ff6660aaa9f84aee643c5d455dd08da7c5d6db))
+* **adopt:** take a Claude Code pane the moment it announces itself [stack 12/15] ([#276](https://github.com/usestring/gate-inbox/issues/276)) ([0826a9d](https://github.com/usestring/gate-inbox/commit/0826a9dff4d5e455b8c914b2a309d6e0c2ddf176))
+* delay compact-window downgrades and show the window in the rail ([#433](https://github.com/usestring/gate-inbox/issues/433)) ([d0c0ca5](https://github.com/usestring/gate-inbox/commit/d0c0ca5b4245232be415ef06e8d821fdd738bc5c))
+* **extension:** give each pass row the session's effective priority tier ([#417](https://github.com/usestring/gate-inbox/issues/417)) ([b654036](https://github.com/usestring/gate-inbox/commit/b654036dc8db5e8feb934af4445cee4743ecb428))
+* **grant:** apply a parent's grants to an adopted Claude Code session live [stack 15/15] ([#279](https://github.com/usestring/gate-inbox/issues/279)) ([819d7c0](https://github.com/usestring/gate-inbox/commit/819d7c09e9a4f5878e6c362c608b6cea5573133c))
+* **groups:** pin a group's path so every spawn into it starts there ([#401](https://github.com/usestring/gate-inbox/issues/401)) ([eafb5e2](https://github.com/usestring/gate-inbox/commit/eafb5e29399786959f9caf433de6edf6fbe560a9))
+* **hooks:** bind an adopted claude row to its conversation from hook payloads [stack 3/15] ([#257](https://github.com/usestring/gate-inbox/issues/257)) ([9606b81](https://github.com/usestring/gate-inbox/commit/9606b81beb0488620e78568077c0cd9e9599f122))
+* **hooks:** give adopted Claude Code sessions the board's steering [stack 5/15] ([#259](https://github.com/usestring/gate-inbox/issues/259)) ([2ee2003](https://github.com/usestring/gate-inbox/commit/2ee200334853291e41f19648e607d99de76aef30))
+* **hooks:** give adopted Codex sessions status, steering and identity through global hooks [stack 10/15] ([#274](https://github.com/usestring/gate-inbox/issues/274)) ([7c6d12f](https://github.com/usestring/gate-inbox/commit/7c6d12fc493d4802c79d6fe05421ae195c3695e3))
+* **hooks:** keep every Claude Code session out of the sealing keys [stack 7/15] ([#261](https://github.com/usestring/gate-inbox/issues/261)) ([d9aa1e3](https://github.com/usestring/gate-inbox/commit/d9aa1e3fda909c4c7e3937ad94931ecdef66d958))
+* **hooks:** mark every adopted agent's pane, not only claude's [stack 8/15] ([#263](https://github.com/usestring/gate-inbox/issues/263)) ([83d55ab](https://github.com/usestring/gate-inbox/commit/83d55abaa7e8678e21fb21ef99d4fb26d17afb6b))
+* **keys:** mute and unmute with ctrl+m on the list and inside a session ([#411](https://github.com/usestring/gate-inbox/issues/411)) ([ede60ef](https://github.com/usestring/gate-inbox/commit/ede60ef2b9a58ed6f9b69f68fbfe9b4104846d51))
+* **mcp:** give adopted Claude Code sessions the board's tools ([#250](https://github.com/usestring/gate-inbox/issues/250)) ([bbb8f49](https://github.com/usestring/gate-inbox/commit/bbb8f49788067f10881e58d560afdd94b7f32e5a))
+* **opencode:** give adopted opencode sessions their row, binding and steering [stack 11/15] ([#275](https://github.com/usestring/gate-inbox/issues/275)) ([dd5a0b6](https://github.com/usestring/gate-inbox/commit/dd5a0b6bf97e74ee35e45435f7261d8fdb9fc681))
+* **reviews:** queue GitHub review asks in a Reviews row ([#435](https://github.com/usestring/gate-inbox/issues/435)) ([dbd051c](https://github.com/usestring/gate-inbox/commit/dbd051c17c1274dd8c38cfe95b6a194fe415e1b7))
+* **reviews:** queue the Reviews row in triage by its oldest ask ([#438](https://github.com/usestring/gate-inbox/issues/438)) ([dff7ee8](https://github.com/usestring/gate-inbox/commit/dff7ee8bb4c02c61cb0e98b40edf5ddebdaabdf1))
+* **setup:** keep Claude Code hooks and MCP relay registered with no command [stack 1/15] ([#255](https://github.com/usestring/gate-inbox/issues/255)) ([86a1426](https://github.com/usestring/gate-inbox/commit/86a1426eb58a607f04bd3b41a739bef96ec281f2))
+* **stop:** let a session archive its own row as it stops ([#423](https://github.com/usestring/gate-inbox/issues/423)) ([07e9f9d](https://github.com/usestring/gate-inbox/commit/07e9f9d06904d68cd883541f7bbd3d1c9070a3b1))
+* **tmux:** give adopted panes the back-to-board key [stack 14/15] ([#278](https://github.com/usestring/gate-inbox/issues/278)) ([7c23721](https://github.com/usestring/gate-inbox/commit/7c2372110286c8dcca5c14770942e085ecce489a))
+* **ui:** ctrl+a attaches from a focused session ([#420](https://github.com/usestring/gate-inbox/issues/420)) ([8f15f6d](https://github.com/usestring/gate-inbox/commit/8f15f6d97163b92a6e3c02dfefa386b876eff9bd))
+* **ui:** JEV copy reads a turn on its key instead of queueing every turn end ([#410](https://github.com/usestring/gate-inbox/issues/410)) ([90fee4a](https://github.com/usestring/gate-inbox/commit/90fee4a9d4a8db263a67c28ee369f44929e996ba))
+* **ui:** let an extension's header rows fold the session they head ([#412](https://github.com/usestring/gate-inbox/issues/412)) ([9fb22ff](https://github.com/usestring/gate-inbox/commit/9fb22ffaee5ed320e849d7af288a86b60a89d9f8))
+* **ui:** queue text JEV expects you to copy from a turn's last message ([#382](https://github.com/usestring/gate-inbox/issues/382)) ([3d53948](https://github.com/usestring/gate-inbox/commit/3d5394895e18293e359745c886938b7c0b961183))
+
+
+### Bug Fixes
+
+* **adopt:** promote a dead adopted row when it is relaunched ([#434](https://github.com/usestring/gate-inbox/issues/434)) ([b52ffce](https://github.com/usestring/gate-inbox/commit/b52ffcea3a785fbe438046f2281c34f59c2376ab))
+* **answer:** reach an adopted child's pane before answering its dialog [stack 2/15] ([#256](https://github.com/usestring/gate-inbox/issues/256)) ([f06ec3e](https://github.com/usestring/gate-inbox/commit/f06ec3e14d527f3d1503d011c72419233edccef3))
+* **childsweep:** don't archive a restarting parent's finished children ([#414](https://github.com/usestring/gate-inbox/issues/414)) ([ad1e11e](https://github.com/usestring/gate-inbox/commit/ad1e11e99e4b8bfe9bceb9b560c8589b0b6b6b9e))
+* **codex:** type queued messages into a working Codex session ([#426](https://github.com/usestring/gate-inbox/issues/426)) ([8f339e2](https://github.com/usestring/gate-inbox/commit/8f339e2c33879a901a88d00d3735f93d762b4013))
+* **compact:** give child sessions the compact window their parent's tier earns ([#416](https://github.com/usestring/gate-inbox/issues/416)) ([e29342c](https://github.com/usestring/gate-inbox/commit/e29342cc499282cf9bb11af59380eb980e07c577))
+* **focus:** let Right leave a Claude prompt showing its suggestion ([#394](https://github.com/usestring/gate-inbox/issues/394)) ([c8398a0](https://github.com/usestring/gate-inbox/commit/c8398a0a66cf077464049a5848964adea2d60c9e))
+* **migrate:** hand a migrated session's children, priority and spawner to the new session and retire the source ([#413](https://github.com/usestring/gate-inbox/issues/413)) ([a2494b3](https://github.com/usestring/gate-inbox/commit/a2494b3c362836ef7bc025b3dbb60eb94f2322ee))
+* **relay:** accept human answers to Codex async questions ([#418](https://github.com/usestring/gate-inbox/issues/418)) ([358b7c0](https://github.com/usestring/gate-inbox/commit/358b7c0f0153f1f2bdf2ca7bb5148093fc12823a))
+* **sessioncmd:** reach adopted panes before every liveness read [stack 4/15] ([#258](https://github.com/usestring/gate-inbox/issues/258)) ([0897cb7](https://github.com/usestring/gate-inbox/commit/0897cb76c50eb1beed3bfda216a6a6c7703dc0d9))
+* **spawn:** divert a spawn into a nested repository past the trust dialog ([#400](https://github.com/usestring/gate-inbox/issues/400)) ([c976442](https://github.com/usestring/gate-inbox/commit/c976442c0c03957e4ffaa62d74040a548bf46c73))
+* **status:** don't tell a parent its child finished when the board is about to restart it ([#405](https://github.com/usestring/gate-inbox/issues/405)) ([2df20ec](https://github.com/usestring/gate-inbox/commit/2df20ecaa6c8299720a5f39e5700c48346b027bf))
+* **status:** read a session as working on the pass that types its pending prompt ([#406](https://github.com/usestring/gate-inbox/issues/406)) ([a0ef749](https://github.com/usestring/gate-inbox/commit/a0ef749bfc51e02431ea37d0a177cc4978c1afb3))
+* **tmux:** filter macOS MallocStackLogging noise out of Claude panes ([#437](https://github.com/usestring/gate-inbox/issues/437)) ([5ae6fa2](https://github.com/usestring/gate-inbox/commit/5ae6fa2a59096120f0a85fd23f4eaa85f579504e))
+* **triage:** hand over higher-priority sessions first ([#432](https://github.com/usestring/gate-inbox/issues/432)) ([c64d5a4](https://github.com/usestring/gate-inbox/commit/c64d5a40549fe3923d5b521cc5dc62a1b8cf48a9))
+* **ui:** show a screen's own submit key once in the field footer ([#404](https://github.com/usestring/gate-inbox/issues/404)) ([9cf0611](https://github.com/usestring/gate-inbox/commit/9cf0611bb56a9c1718f214c5f6a147e4a0a2a276))
+
 ## [1.0.0](https://github.com/usestring/gate-inbox/compare/v0.12.0...v1.0.0) (2026-10-21)
 
 

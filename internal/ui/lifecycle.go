@@ -385,9 +385,14 @@ func (m *Model) launchOnHeldConversation(sess store.Session) error {
 // under its old id, keeping its name, group and history. Both revive and
 // restart end here; they differ only in the command they hand it and in
 // bindConversation, which records the conversation the new pane is on once
-// the launch has actually taken. A launch that fails leaves the row exactly
-// as it was, still pointing at the conversation it can be revived on.
+// the launch has actually taken. A launch that fails leaves the row as it
+// was, still pointing at the conversation it can be revived on, except that
+// an adopted row whose pane is gone has already been made a managed one.
 func (m *Model) relaunchSession(sess store.Session, tool config.Tool, baseCommand, newStatus string, bindConversation func() error) error {
+	sess, err := m.promoteDeadAdopted(sess)
+	if err != nil {
+		return err
+	}
 	sessionHooks, err := sessionhooks.Current()
 	if err != nil {
 		return err

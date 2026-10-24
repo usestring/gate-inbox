@@ -176,15 +176,28 @@ func extensionFactText(fact extension.Fact, now time.Time) string {
 }
 
 // wrapParts joins parts with sep into as few lines no wider than width as it
-// can, never splitting a part.
+// can. A part too wide for a line of its own is broken between its words.
 func wrapParts(parts []string, sep string, width int) []string {
 	var lines []string
+	add := func(piece, glue string) {
+		if n := len(lines); n > 0 && textfmt.Width(lines[n-1]+glue+piece) <= width {
+			lines[n-1] += glue + piece
+			return
+		}
+		lines = append(lines, piece)
+	}
 	for _, part := range parts {
-		if n := len(lines); n > 0 && textfmt.Width(lines[n-1]+sep+part) <= width {
-			lines[n-1] += sep + part
+		if textfmt.Width(part) <= width {
+			add(part, sep)
 			continue
 		}
-		lines = append(lines, part)
+		for i, word := range strings.Fields(part) {
+			glue := " "
+			if i == 0 {
+				glue = sep
+			}
+			add(word, glue)
+		}
 	}
 	return lines
 }

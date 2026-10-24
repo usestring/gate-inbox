@@ -2064,6 +2064,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case reviewsMsg:
 		return m.finishReviews(msg)
+	case prDetailMsg:
+		return m.finishPullRequest(msg)
 	case autoRouteMsg:
 		return m.finishAutoRoute(msg)
 	case agentPickQuotaMsg:

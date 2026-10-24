@@ -12,6 +12,8 @@ package ui
 import (
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -97,17 +99,26 @@ func (m *Model) reviewsTriageAt(rows []treeRow, from int) int {
 	return len(rows)
 }
 
-// handOverReviews focuses the review page with its cursor on the oldest ask
-// the drain has not handed over yet.
-func (m *Model) handOverReviews() bool {
+// handOverReviews focuses the review page on the pull request of the oldest
+// ask the drain has not handed over yet, or on the queue when every ask has
+// been handed over before.
+func (m *Model) handOverReviews() (bool, tea.Cmd) {
 	view := m.reviewsPane().view.(*reviewsView)
+	next := -1
 	for i, r := range m.reviews {
 		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) {
-			view.cursor = i
+			next = i
 			break
 		}
 	}
-	return m.focusHeadPane()
+	if !m.focusHeadPane() {
+		return false, nil
+	}
+	if next < 0 {
+		return true, nil
+	}
+	view.cursor = next
+	return true, m.openPullRequest(m.reviews[next])
 }
 
 // withReviewsTriage puts the Reviews row into a triage queue where its key

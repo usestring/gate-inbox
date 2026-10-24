@@ -740,8 +740,8 @@ func (m *Model) advanceTriage(leftID string) tea.Cmd {
 		m.previewGen++
 		if m.rows[index].reviews {
 			tried[reviewsTriedKey] = true
-			if m.handOverReviews() {
-				return m.schedulePreview()
+			if handed, open := m.handOverReviews(); handed {
+				return tea.Batch(m.schedulePreview(), open)
 			}
 			continue
 		}

@@ -213,13 +213,19 @@ func (m *Model) reviewsPane() *openView {
 }
 
 // reviewsView is the review page: every open ask, in the shape GitHub lists
-// review requests in.
+// review requests in, or the one pull request opened from it. See
+// reviewpage.go.
 type reviewsView struct {
 	m      *Model
 	cursor int
+	page   *prPage
+	cache  prCache
 }
 
 func (v *reviewsView) Title() string {
+	if v.page != nil {
+		return v.pageTitle()
+	}
 	pending, _ := v.m.reviewCounts()
 	return "Reviews · " + countOf(pending, "pending request")
 }
@@ -237,6 +243,9 @@ func (v *reviewsView) selected() (store.ReviewRequest, bool) {
 const reviewLines = 3
 
 func (v *reviewsView) Render(width, height int) [][]Span {
+	if v.page != nil {
+		return v.renderPage(width, height)
+	}
 	if len(v.m.reviews) == 0 {
 		return [][]Span{{{Text: "Nothing is waiting for your review.", Tone: ToneMuted}}}
 	}
@@ -369,6 +378,8 @@ func (m *Model) handleReviewsKey(action keymap.Action, bound bool) (tea.Model, t
 		return m, nil
 	case keymap.ReviewStart:
 		return m.startReview(r)
+	case keymap.ReviewView:
+		return m, m.openPullRequest(r)
 	}
 	return m, nil
 }

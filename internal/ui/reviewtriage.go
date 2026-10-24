@@ -10,6 +10,7 @@ package ui
 // on its own.
 
 import (
+	"slices"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/priority"
@@ -45,9 +46,9 @@ func (m *Model) markReviewsSeen() {
 }
 
 // reviewsTriageKey is the Reviews row's key in the triage order. In smart
-// triage it scores as one waiting row of its own: the oldest pending ask's
-// wait at the review weight, with no priority tier, since an ask carries none.
-func (m *Model) reviewsTriageKey(now time.Time) triageKey {
+// triage it queues as one row of its own on the newest pending ask's recency,
+// at the review rank and with no priority tier, since an ask carries none.
+func (m *Model) reviewsTriageKey() triageKey {
 	key := triageKey{band: triageBandRest, priority: priority.Unset.Rank(), tier: triageRank(triageReview)}
 	if !m.reviewsWaiting() {
 		return key
@@ -56,18 +57,18 @@ func (m *Model) reviewsTriageKey(now time.Time) triageKey {
 	if !m.smartTriage {
 		return key
 	}
-	var oldest time.Time
+	var newest time.Time
 	for _, r := range m.reviews {
 		at := r.TriggeredAt
 		if at.IsZero() {
 			at = r.CreatedAt
 		}
-		if r.State == store.ReviewPending && (oldest.IsZero() || at.Before(oldest)) {
-			oldest = at
+		if r.State == store.ReviewPending && at.After(newest) {
+			newest = at
 		}
 	}
-	wait := max(now.Sub(oldest), 0) + triageScoreFloor
-	key.band, key.score = triageBandScored, wait.Seconds()*triageStateWeight[triageReview]
+	key.band, key.score = triageBandScored, triageRecency(newest)
+	key.tier = slices.Index(triageScoredTiers, triageReview)
 	return key
 }
 
@@ -77,7 +78,7 @@ func (m *Model) reviewsTriageKey(now time.Time) triageKey {
 // splits a session from its children or its work.
 func (m *Model) reviewsTriageAt(rows []treeRow, from int) int {
 	now := m.now()
-	key := m.reviewsTriageKey(now)
+	key := m.reviewsTriageKey()
 	for i := from; i < len(rows); i++ {
 		row := rows[i]
 		if row.depth != 0 || !(row.isHead() || row.isSession()) {

@@ -607,7 +607,7 @@ type Model struct {
 	// of the whole fleet.
 	triageScope string
 	// smartTriage mirrors the persisted smart_triage setting: on, triage
-	// orders the walk by weighted wait; off, by the strict state-first order.
+	// orders the walk newest turn first; off, by the strict state-first order.
 	// See triageScore.
 	smartTriage bool
 	// triageStartupEnter is set when triage was already on at startup, so the

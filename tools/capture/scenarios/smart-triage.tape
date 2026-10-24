@@ -1,5 +1,5 @@
 # Smart triage is a row in Settings, on by default. Triage first orders the
-# queue by weighted wait; turned off, the same board is back on the strict
+# queue newest turn first; turned off, the same board is back on the strict
 # state-first order.
 #
 #   tools/capture/capture.sh --scenario tools/capture/scenarios/smart-triage.tape

@@ -171,7 +171,11 @@ func (m *Model) leaveHeadPane(advance bool) tea.Cmd {
 		return nil
 	}
 	left := ""
-	if sess, ok := m.selected(); ok {
+	if m.cursor >= 0 && m.cursor < len(m.rows) && m.rows[m.cursor].reviews {
+		// The Reviews row has no session to mute: what moves the walk past
+		// it is the asks it was handed over for being seen.
+		m.markReviewsSeen()
+	} else if sess, ok := m.selected(); ok {
 		left = sess.ID
 		// The walk hands over the head of the queue, so a session left
 		// unmuted, still reading what it was answered in, would be handed

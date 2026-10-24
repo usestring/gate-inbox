@@ -194,6 +194,11 @@ type Model struct {
 	reviews         []store.ReviewRequest
 	reviewsPage     *openView
 	reviewsFetching bool
+	// reviewsSeen is the newest ask a triage drain has handed the operator
+	// the Reviews page for, and triageLineage each queued session's key as
+	// the last triage sort lifted it. See reviewtriage.go.
+	reviewsSeen   time.Time
+	triageLineage map[string]triageKey
 
 	// extensionNotes are the build's extensions the operator's config
 	// switched off, and the config sections nothing owns, each with its
@@ -3414,7 +3419,7 @@ func (m *Model) buildTree() {
 			})
 		}
 		connectMigrationRows(rows)
-		m.rows = m.withReviewsRow(rows, query)
+		m.rows = m.withReviewsTriage(rows, query)
 		m.clearGroupNumbers()
 		// The fold column is a fact about the rows on screen, so every
 		// build has to count them. Reading the count a previous tree build

@@ -24,7 +24,12 @@ import (
 // operator a session with nothing to say yet. It is never walkable on its
 // own; a child that needs a person lifts it through the child's own rank.
 //
-// triageBlocked sits between waiting and finished. No status reaches it: it
+// triageReview is the Reviews row's tier, and no session's: a pull request
+// somebody asked the operator to review is a person waiting on them, but not
+// a turn stalled this second, so it comes after the questions and before
+// everything else. See reviewtriage.go.
+//
+// triageBlocked sits between review and finished. No status reaches it: it
 // is the tier an extension ranks a session at when it is blocked on a
 // decision about a whole piece of work rather than on one question in front
 // of somebody, so the sessions asking a live question are handed over first.
@@ -34,6 +39,7 @@ import (
 // (see triageScore) and keeps these tiers for the rows it never hands over.
 var triageTiers = []string{
 	status.Waiting,
+	triageReview,
 	triageBlocked,
 	status.Finished,
 	status.Idle,
@@ -99,6 +105,7 @@ const triageFinishedSeen = "finished-seen"
 var (
 	triageStateWeight = map[string]float64{
 		status.Waiting:     2,
+		triageReview:       1.5,
 		triageBlocked:      1.5,
 		status.Finished:    1,
 		triageFinishedSeen: 0.8,
@@ -380,6 +387,7 @@ func (m *Model) sortTriageWithChildren(sessions []store.Session, kids map[string
 		keys[sess.ID] = best
 		waited[sess.ID] = holder
 	}
+	m.triageLineage = keys
 	sort.SliceStable(sessions, func(i, j int) bool {
 		a, b := sessions[i], sessions[j]
 		return m.triageBefore(keys[a.ID], keys[b.ID], waited[a.ID], waited[b.ID], now)
@@ -607,7 +615,7 @@ func (m *Model) toggleTriage() tea.Cmd {
 // already sorts.
 func (m *Model) nextTriageInput(leftID string, tried map[string]bool) (int, bool) {
 	for i, row := range m.rows {
-		if m.triageHandable(row, leftID, tried) && m.triageWalkable(row.sess) {
+		if m.reviewsHandable(row, tried) || m.triageHandable(row, leftID, tried) && m.triageWalkable(row.sess) {
 			return i, true
 		}
 	}
@@ -727,11 +735,18 @@ func (m *Model) advanceTriage(leftID string) tea.Cmd {
 		if !ok {
 			return nil
 		}
-		next := m.rows[index].sess
-		tried[next.ID] = true
 		m.cursor = index
 		m.clearPreviewState()
 		m.previewGen++
+		if m.rows[index].reviews {
+			tried[reviewsTriedKey] = true
+			if m.handOverReviews() {
+				return m.schedulePreview()
+			}
+			continue
+		}
+		next := m.rows[index].sess
+		tried[next.ID] = true
 		// A session with a page over it is answered from the page.
 		if m.headPaneTriage(index) {
 			return m.schedulePreview()

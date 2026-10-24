@@ -229,8 +229,7 @@ func (m *Model) takeOver(sess store.Session, procs *adopt.ProcTable, claude []co
 	if _, adopted := m.tmux.AdoptedTarget(sess.ID); !adopted {
 		// Exists found gi_<id>: the row was relaunched under the manager and
 		// only its adopted pane id was left behind.
-		m.promoteRelaunchedAdopted(sess)
-		return nil
+		return m.promoteAdoptedRow(sess)
 	}
 	convID, cwd := sess.AgentSessionID, sess.Cwd
 	if sess.Tool == "claude" {

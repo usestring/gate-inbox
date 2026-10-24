@@ -388,6 +388,10 @@ func (m *Model) launchOnHeldConversation(sess store.Session) error {
 // the launch has actually taken. A launch that fails leaves the row exactly
 // as it was, still pointing at the conversation it can be revived on.
 func (m *Model) relaunchSession(sess store.Session, tool config.Tool, baseCommand, newStatus string, bindConversation func() error) error {
+	sess, err := m.promoteDeadAdopted(sess)
+	if err != nil {
+		return err
+	}
 	sessionHooks, err := sessionhooks.Current()
 	if err != nil {
 		return err

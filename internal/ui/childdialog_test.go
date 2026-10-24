@@ -38,9 +38,19 @@ func TestChildWaitingOnADialogNotifiesTheParentWithItsFullContent(t *testing.T) 
 	cases := []struct {
 		name       string
 		fixture    string
+		tool       string
 		transcript bool
 		want       []string
 	}{
+		{
+			name:    "Codex hook review",
+			fixture: "codex/codex-0.162.1-hook-review.txt",
+			tool:    "codex",
+			want: []string{
+				"stopped on a permission prompt", "UserPromptSubmit hooks", "Command   example-hook",
+				"t trust · esc back", "your user", "relay: true",
+			},
+		},
 		{
 			name:       "four-question stepper at 50 columns",
 			fixture:    "claude-2.1.284-w50-stepper4-first.ansi",
@@ -112,7 +122,7 @@ func TestChildWaitingOnADialogNotifiesTheParentWithItsFullContent(t *testing.T) 
 			parent := seedSession(t, st, store.Session{ID: "parent01", Name: "release-lead", Status: status.Working})
 			child := seedSession(t, st, store.Session{
 				ID: "child001", Name: "release-audit", ParentID: parent.ID, Status: status.Working,
-				AgentSessionID: "conv-4q", Cwd: "/work",
+				AgentSessionID: "conv-4q", Cwd: "/work", Tool: tc.tool,
 			})
 			if tc.transcript {
 				writeChildTranscript(t, child, stepperAskRecord)

@@ -928,11 +928,11 @@ func upgradeOneLineAskRules(user, def []Rule) {
 	}
 }
 
-// codexDialogSamples is the legend of codex's first-run folder-trust dialog,
-// recognized after the tool block shipped.
+// codexDialogSamples are trust-dialog legends recognized after the tool block shipped.
 var codexDialogSamples = []string{
 	"enter continue \u00b7 esc quit",
 	"enter continue \u00b7 esc back",
+	"t trust \u00b7 esc back",
 }
 
 // opencodeDialogSamples are the rows of opencode's two blocking overlays: the
@@ -1552,6 +1552,7 @@ rules = [
   # the 0.157 first-run folder-trust dialog, whose "› 1. Trust and continue"
   # row reads as the composer line
   { state = "waiting", pattern = "(?m)^\\s*enter continue · esc (?:quit|back)\\b" },
+  { state = "waiting", pattern = "(?m)^[ \\t]*t trust · esc back[ \\t]*$" },
   # active status row is the final row above the input box; anchoring its full
   # shape keeps an answer that quotes "esc to interrupt" from looking active
   { state = "working", pattern = "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?(?:[ \\t]*\\n|[ \\t]+(?:⚠|↓|Tip: |Copied )[^\\n]*\\n)*[ \\t\\n]*\\z" },

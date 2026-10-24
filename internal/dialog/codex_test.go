@@ -156,3 +156,21 @@ func TestCodexExecApprovalKeepsTheCommand(t *testing.T) {
 		t.Fatalf("the screen took in the conversation above the prompt:\n%s", screen.Text())
 	}
 }
+
+func TestCodexHookReviewIsAPermissionScreen(t *testing.T) {
+	raw, err := os.ReadFile("testdata/codex/codex-0.162.1-hook-review.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	screen, ok := ReadScreenFor("codex", string(raw))
+	if !ok || screen.Kind != ScreenPermission {
+		t.Fatalf("hook review screen = %+v, read=%v", screen, ok)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(screen.Lines[0]), "UserPromptSubmit hooks") ||
+		!strings.Contains(screen.Text(), "Command   example-hook") || len(screen.Choices) != 0 {
+		t.Fatalf("hook review lost its context or treated hook rows as answers: %+v", screen)
+	}
+	if _, ok := Parse(string(raw)); ok {
+		t.Fatal("hook trust was exposed as an agent-answerable question")
+	}
+}

@@ -463,6 +463,22 @@ func (m *Model) sessionDetailLines(width int) []string {
 	if usage != "" {
 		lines = append(lines, railFact(pad, "usage", usage))
 	}
+	now := time.Now()
+	boardCompacts := false
+	for _, fact := range m.extFacts[sess.ID] {
+		boardCompacts = boardCompacts || fact.Label == compactLabel
+		lines = append(lines, wideFact(pad, fact.Label, extensionFactText(fact, now), room)...)
+	}
+	// Where an extension compacts the session itself, its line is the
+	// auto-compact one and the settings file's window is only the CLI's own
+	// fallback, so that one is named for what it is.
+	if view, ok := m.compactWindows[sess.ID]; ok {
+		label := compactLabel
+		if boardCompacts {
+			label = "claude window"
+		}
+		lines = append(lines, wideFact(pad, label, compactFact(view, now), room)...)
+	}
 	// What its spawner granted it on its user's approval, one line each:
 	// a widened permission is the one fact about a session nobody should
 	// have to go looking for.

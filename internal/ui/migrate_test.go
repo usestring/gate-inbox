@@ -103,6 +103,10 @@ func testMigrateLaunch(t *testing.T, target string) {
 	t.Helper()
 	m := buildModel(t)
 	source, transcript := seedMigrateSource(t, m)
+	child := store.Session{ID: "migrate-child", Name: "helper", Tool: "claude", Cwd: source.Cwd, Status: status.Finished, ParentID: source.ID}
+	if err := m.store.CreateSession(child); err != nil {
+		t.Fatal(err)
+	}
 	promptFile := filepath.Join(t.TempDir(), "prompt")
 	// The prompt rides the command line as its last argument, so the tool
 	// writes what it was handed and then sits, as an agent would.
@@ -144,9 +148,14 @@ func testMigrateLaunch(t *testing.T, target string) {
 	if moved.NameSource != store.SourceUser {
 		t.Fatalf("name source = %q", moved.NameSource)
 	}
+	// The new session carries on, so the source is filed away and its
+	// children are the new session's.
 	kept, err := m.store.Get(source.ID)
-	if err != nil || kept.Tool != "claude" || kept.Archived {
+	if err != nil || kept.Tool != "claude" || !kept.Archived {
 		t.Fatalf("source after migrate = %+v, err %v", kept, err)
+	}
+	if child, err := m.store.Get("migrate-child"); err != nil || child.ParentID != moved.ID {
+		t.Fatalf("child after migrate = %+v, err %v", child, err)
 	}
 	if !store.Linked(kept, moved) {
 		t.Fatalf("migration sessions are not linked: %+v, %+v", kept, moved)

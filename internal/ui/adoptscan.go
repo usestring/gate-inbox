@@ -3,6 +3,7 @@ package ui
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -618,6 +619,13 @@ func (m *Model) restoreAdopted() {
 		if sess.TmuxPaneID == "" {
 			continue
 		}
+		// An unregistered id makes Exists ask for gi_<id>: a row relaunched
+		// under the manager with its dead pane id still on it would otherwise
+		// be registered onto that pane and pruned as gone.
+		if _, registered := m.tmux.AdoptedTarget(sess.ID); !registered && m.tmux.Exists(sess.ID) {
+			m.promoteRelaunchedAdopted(sess)
+			continue
+		}
 		target := tmux.Target{Socket: sess.TmuxSocket, Name: sess.TmuxPaneID}
 		if err := m.tmux.Adopt(sess.ID, target); err != nil {
 			m.errBar.text = err.Error()
@@ -630,6 +638,54 @@ func (m *Model) restoreAdopted() {
 			logging.Info("adopted pane not given the back key", "session", sess.ID, logging.Err(err))
 		}
 	}
+}
+
+// promoteDeadAdopted makes an adopted row whose pane is gone a managed one,
+// so a relaunch under gi_<id> does not leave the row pointing at the dead
+// pane. Whether Create would refuse the relaunch depends on the registry,
+// and the registry is not the row: restoreAdopted only reads the active
+// list, so an archived adopted row restored after a board restart was
+// relaunched with its old pane id still on it, and every command outside
+// the board then addressed that pane instead of gi_<id>. It registers the
+// pane first so a live one is refused here rather than launched beside.
+func (m *Model) promoteDeadAdopted(sess store.Session) (store.Session, error) {
+	if sess.TmuxPaneID == "" {
+		return sess, nil
+	}
+	if err := m.tmux.Adopt(sess.ID, tmux.Target{Socket: sess.TmuxSocket, Name: sess.TmuxPaneID}); err != nil {
+		return sess, err
+	}
+	if m.tmux.Exists(sess.ID) {
+		return sess, fmt.Errorf("%s is still running in its adopted pane %s", sess.Name, sess.TmuxPaneID)
+	}
+	if err := m.promoteAdoptedRow(sess); err != nil {
+		return sess, err
+	}
+	sess.TmuxSocket, sess.TmuxPaneID = "", ""
+	return sess, nil
+}
+
+// promoteRelaunchedAdopted clears the adopted pane off a row that already
+// runs as gi_<id>, the state builds before promoteDeadAdopted left behind.
+func (m *Model) promoteRelaunchedAdopted(sess store.Session) {
+	if err := m.promoteAdoptedRow(sess); err != nil {
+		logging.Warn("relaunched adopted row not promoted", "session", sess.ID, logging.Err(err))
+		return
+	}
+	logging.Info("promoted a relaunched adopted row", "session", sess.ID, "name", sess.Name, "pane", sess.TmuxPaneID)
+}
+
+func (m *Model) promoteAdoptedRow(sess store.Session) error {
+	m.tmux.Release(sess.ID)
+	if err := m.store.PromoteAdopted(sess.ID, sess.Cwd, sess.AgentSessionID); err != nil {
+		return err
+	}
+	for i := range m.sessions {
+		if m.sessions[i].ID == sess.ID {
+			m.sessions[i].TmuxSocket, m.sessions[i].TmuxPaneID = "", ""
+		}
+	}
+	return nil
 }
 
 // dropSelfRow deletes a row pointing at the manager's own pane.

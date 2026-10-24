@@ -16,6 +16,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/clipboard"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
@@ -169,6 +170,8 @@ type Model struct {
 	extKeys   map[keymap.Context]map[keymap.Action]extensionKey
 	extBridge *ExtensionBridge
 	extBadges map[string][]Badge
+	// extFacts is each session's extension lines in its detail block.
+	extFacts map[string][]extension.Fact
 	// extHeaders, extHidden, extOwned and extFilters are the rows' headers,
 	// the hidden and owned rows, and the list filters: see extrows.go.
 	extHeaders map[string][]extHeader
@@ -320,6 +323,9 @@ type Model struct {
 	// grant_permission, by session, replaced whole like queuedMessages so a
 	// revoke clears it.
 	granted map[string][]string
+	// compactWindows is each claude session's auto-compact window as the
+	// last pass left it, replaced whole like granted.
+	compactWindows map[string]compactView
 
 	// archivedChildren counts each parent's archived children, which the
 	// list itself cannot see: it drops archived rows, so a fan-out that has
@@ -1017,6 +1023,7 @@ type refreshMsg struct {
 	agents           agentStats
 	queuedMessages   map[string]int
 	granted          map[string][]string
+	compactWindows   map[string]compactView
 	archivedChildren map[string]int
 	searchText       map[string]string
 	answerableWait   map[string]bool
@@ -1250,6 +1257,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	interruptKeys := make(map[string][]string, len(cfg.Tools))
 	clearInputKeys := make(map[string][]string, len(cfg.Tools))
 	var compactTools map[string]config.Tool
+	downgradeDelays := make(map[string]time.Duration, len(cfg.Tools))
 	for name, tool := range cfg.Tools {
 		statusSources[name] = tool.StatusSource
 		sessionStores[name] = tool.SessionStore
@@ -1257,6 +1265,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		shellTools[name] = tool.Shell
 		interruptKeys[name] = tool.InterruptKeys
 		clearInputKeys[name] = tool.ClearInputKeys
+		downgradeDelays[name] = tool.CompactDowngradeDelayOrDefault()
 		if len(tool.CompactWindow) > 0 && tool.StatusSource == hooks.StatusSourceClaude {
 			if compactTools == nil {
 				compactTools = map[string]config.Tool{}
@@ -1328,6 +1337,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 	model.poller.interruptKeys = interruptKeys
 	model.poller.clearInputKeys = clearInputKeys
 	model.poller.compactTools = compactTools
+	model.poller.downgradeDelays = downgradeDelays
 	model.poller.staleAfter = cfg.StaleStatusAfter.Duration
 	model.poller.hogWatch = newHogWatch(cfg.Hogs, "", func(msg store.InboxMessage) error {
 		_, _, err := st.Enqueue(msg, store.DefaultInboxLimits)
@@ -2371,6 +2381,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agents = msg.agents
 		m.queuedMessages = msg.queuedMessages
 		m.granted = msg.granted
+		m.compactWindows = msg.compactWindows
 		m.archivedChildren = msg.archivedChildren
 		m.searchText = msg.searchText
 		m.answerableWait = msg.answerableWait

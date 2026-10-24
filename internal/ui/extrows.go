@@ -108,7 +108,7 @@ func setMark(marks map[string]map[string]bool, owner, sessionID string, on bool)
 // change how rows paint.
 func (m *Model) applyRowMarks(marks rowMarks) {
 	heads := maps.Equal(m.headKeys(m.extHeaders), m.headKeys(marks.headers))
-	m.extBadges, m.extHeaders = marks.badges, marks.headers
+	m.extBadges, m.extHeaders, m.extFacts = marks.badges, marks.headers, marks.facts
 	if heads && maps.Equal(m.extHidden, marks.hidden) && maps.Equal(m.extOwned, marks.owned) &&
 		maps.Equal(m.extAttention, marks.attention) {
 		return

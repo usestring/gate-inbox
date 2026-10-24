@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 )
@@ -217,6 +218,13 @@ type UIHost interface {
 	// wins. Like Decorate, it may be called from any goroutine and never
 	// blocks on the board.
 	Attention(sessionID string, attention Attention)
+	// Fact replaces this extension's line in the selected session's detail
+	// block: Label in the label column, Text after it. With Then and At set,
+	// the board adds " · <Then> in <time left>" while At is ahead, counting
+	// down at every paint, so the time stays current without another push.
+	// The zero Fact clears it. Like Decorate, it may be called from any
+	// goroutine and never blocks on the board.
+	Fact(sessionID string, fact Fact)
 	// ConfirmOpen sets the warning the board shows before it opens this
 	// session from the list. With a warning set, the first open key on the
 	// row puts it on the status bar and opens nothing; the same key again,
@@ -238,6 +246,14 @@ type UIHost interface {
 	// view, when the request reaches it: a press whose load took a while
 	// must not take the screen from an operator who has moved on.
 	Open(screen string, view View) ViewHandle
+}
+
+// Fact is one line an extension adds to a session's detail block.
+type Fact struct {
+	Label string
+	Text  string
+	Then  string
+	At    time.Time
 }
 
 // View is a screen of an extension's own, drawn as a card over the list. The

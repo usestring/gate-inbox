@@ -62,7 +62,7 @@ const (
 	Mute          Action = "mute"
 	UnmuteAll     Action = "unmute_all"
 	CopySessionID Action = "copy_session_id"
-	CopyQueued    Action = "copy_queued"
+	CopyJev       Action = "copy_jev"
 	HandOver      Action = "hand_over"
 	QuickInput    Action = "quick_prompt"
 	RenameSelf    Action = "rename_from_agent"
@@ -201,7 +201,7 @@ var Catalog = []Binding{
 	{ContextList, BringIn, []string{"a"}, "bring an outside pane in: resume it as a board session once idle", false},
 	{ContextList, LeaveOut, []string{"o"}, "leave an outside pane off the board, still running", false},
 	{ContextList, Move, []string{"m"}, "move it to a group", false},
-	{ContextList, CopyQueued, []string{"'"}, "copy the next text JEV queued", false},
+	{ContextList, CopyJev, []string{"'"}, "copy what JEV reads as left for you to copy", false},
 
 	{ContextList, ShowAllWork, []string{}, "show every pull request and ticket, not the first few", false},
 	{ContextList, StatusFilter, []string{"w"}, "filter to what needs attention", false},
@@ -277,7 +277,7 @@ var Catalog = []Binding{
 	// so these sit on ctrl or option+punctuation.
 	{ContextFocus, NewSession, []string{"ctrl+n"}, "new session in this one's group", false},
 	{ContextFocus, CopySessionID, []string{"alt+/"}, "copy the agent's session id", false},
-	{ContextFocus, CopyQueued, []string{"alt+'"}, "copy the next text JEV queued", false},
+	{ContextFocus, CopyJev, []string{"alt+'"}, "copy what JEV reads as left for you to copy", false},
 	{ContextFocus, LastPane, []string{"alt+;"}, "back to the previous pane; again walks further back", false},
 	{ContextFocus, JumpPane, []string{"ctrl+g"}, "find a pane by name and focus it", false},
 	{ContextFocus, BackAtPrompt, []string{"right", "left"}, "at a prompt edge, leave; in triage Right advances a finished one", false},

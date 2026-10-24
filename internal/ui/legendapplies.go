@@ -97,8 +97,8 @@ func (m *Model) applies(ctx keymap.Context, action keymap.Action, row treeRow) b
 			}
 		}
 		return false
-	case keymap.CopyQueued:
-		return len(m.jevCopy.queue) > 0
+	case keymap.CopyJev:
+		return m.jevCopyOn && row.sess.ID != "" && !row.sess.Archived
 	case keymap.Priority:
 		return row.isGroup || (row.sess.ID != "" && !row.sess.Archived)
 	case keymap.Rename, keymap.Move:

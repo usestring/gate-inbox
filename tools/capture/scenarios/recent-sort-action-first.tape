@@ -4,7 +4,7 @@
 # still sorts below the waiting and finished rows once recent is on.
 #
 # The toggle ships with no key, so the scenario binds one in keys.toml and
-# restarts the board to read it.
+# restarts the board to read it, hidden so no scratch path reaches a frame.
 #
 #   tools/capture/capture.sh --scenario tools/capture/scenarios/recent-sort-action-first.tape
 
@@ -25,6 +25,7 @@ Sleep 1500ms
 Ctrl+q
 Sleep 1500ms
 
+Hide
 Type "q"
 Sleep 2s
 Type `printf '[list]\nrecent_sort = ["ctrl+t"]\n' > {{HOME}}/keys.toml`
@@ -33,6 +34,7 @@ Sleep 1s
 Type "{{LAUNCH}}"
 Enter
 Sleep 4s
+Show
 
 Ctrl+t
 Sleep 2500ms

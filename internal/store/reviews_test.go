@@ -38,3 +38,30 @@ func TestReviewIngestDoesNotResurrectClosedAsks(t *testing.T) {
 		t.Fatalf("open = %+v, want only C_2", open)
 	}
 }
+
+// Once a review goes out its drafts are done with, so a later ask on the same pull request opens
+// with none of them.
+func TestSubmittedDraftsLeaveThePullRequest(t *testing.T) {
+	s := newTestStore(t)
+	now := time.Unix(1700000000, 0)
+	d, err := s.AddReviewDraft(ReviewDraft{Repo: "o/r", Number: 7, Path: "a.go", Line: 3, Body: "why?", Author: DraftByAgent}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetReviewDraft(d.ID, DraftKept, "why here?", now); err != nil {
+		t.Fatal(err)
+	}
+	drafts, _ := s.ReviewDrafts("o/r", 7)
+	if len(drafts) != 1 || drafts[0].State != DraftKept || drafts[0].Body != "why here?" || drafts[0].Side != "RIGHT" {
+		t.Fatalf("drafts = %+v", drafts)
+	}
+	if err := s.FinishReviewDrafts("o/r", 7, now); err != nil {
+		t.Fatal(err)
+	}
+	if drafts, _ := s.ReviewDrafts("o/r", 7); len(drafts) != 0 {
+		t.Fatalf("drafts after submit = %+v", drafts)
+	}
+	if err := s.SetReviewDraft(d.ID, DraftDropped, "", now); err == nil {
+		t.Fatal("a submitted draft changed state")
+	}
+}

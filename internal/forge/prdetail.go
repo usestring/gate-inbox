@@ -15,6 +15,7 @@ import (
 // the review threads on its lines, its checks, and every changed file with its patch.
 type PRDetail struct {
 	Repo      string
+	NodeID    string
 	Number    int
 	Title     string
 	URL       string
@@ -80,7 +81,7 @@ type PRFile struct {
 const prDetailQuery = `query($owner: String!, $name: String!, $number: Int!) {
 	rateLimit { remaining resetAt }
 	repository(owner: $owner, name: $name) { pullRequest(number: $number) {
-		number title url body isDraft headRefOid baseRefName headRefName additions deletions
+		id number title url body isDraft headRefOid baseRefName headRefName additions deletions
 		author { login }
 		commitCount: commits { totalCount }
 		comments(first: 100) { nodes { body createdAt author { login } } }
@@ -97,6 +98,7 @@ const prDetailQuery = `query($owner: String!, $name: String!, $number: Int!) {
 }`
 
 type prDetailNode struct {
+	ID          string `json:"id"`
 	Number      int    `json:"number"`
 	Title       string `json:"title"`
 	URL         string `json:"url"`
@@ -262,7 +264,7 @@ func (g *GitHub) pullRequestFiles(repo string, number int) ([]PRFile, Health) {
 func prDetailFrom(node prDetailNode, repo string, at time.Time) *PRDetail {
 	detail := &PRDetail{
 		Repo: repo, Number: node.Number, Title: node.Title, URL: node.URL, Body: node.Body,
-		Author: node.Author.name(), Draft: node.IsDraft, HeadSHA: node.HeadRefOid,
+		Author: node.Author.name(), Draft: node.IsDraft, HeadSHA: node.HeadRefOid, NodeID: node.ID,
 		BaseRef: node.BaseRefName, HeadRef: node.HeadRefName, Commits: node.CommitCount.TotalCount,
 		Additions: node.Additions, Deletions: node.Deletions, Checks: ChecksNone, FetchedAt: at,
 	}

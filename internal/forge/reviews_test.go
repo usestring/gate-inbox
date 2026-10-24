@@ -1,6 +1,7 @@
 package forge
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -160,5 +161,27 @@ func TestReviewRequestsDoNotInventIdentity(t *testing.T) {
 				t.Fatalf("health = %+v", health)
 			}
 		})
+	}
+}
+
+// A comment body is free text, so quotes and newlines in it must not break the mutation, and a
+// review GitHub refuses reports GitHub's reason rather than succeeding.
+func TestSubmitReviewQuotesBodiesAndSurfacesRefusals(t *testing.T) {
+	var query string
+	g := &GitHub{Run: func(args ...string) ([]byte, error) {
+		query = args[len(args)-1]
+		return []byte(`{"errors":[{"message":"Pull request review thread line must be part of the diff"}]}`), errors.New("exit 1")
+	}}
+	err := g.SubmitReview("PR_1", "abc", ReviewRequestChanges, "", []DraftThread{
+		{Path: "a.go", Line: 3, Side: "RIGHT", Body: "say \"no\"\nhere"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "part of the diff") {
+		t.Fatalf("err = %v", err)
+	}
+	for _, want := range []string{`pullRequestId: "PR_1"`, `commitOID: "abc"`, `event: REQUEST_CHANGES`,
+		`{path: "a.go", line: 3, side: RIGHT, body: "say \"no\"\nhere"}`} {
+		if !strings.Contains(query, want) {
+			t.Errorf("mutation lacks %s:\n%s", want, query)
+		}
 	}
 }

@@ -439,3 +439,45 @@ func (g *GitHub) Acknowledge(subjects []string) error {
 	}
 	return nil
 }
+
+// Review events SubmitReview accepts, as GitHub names them.
+const (
+	ReviewComment        = "COMMENT"
+	ReviewApprove        = "APPROVE"
+	ReviewRequestChanges = "REQUEST_CHANGES"
+)
+
+// DraftThread is one inline comment a review carries.
+type DraftThread struct {
+	Path string
+	Line int
+	Side string
+	Body string
+}
+
+// SubmitReview posts one review on the pull request with node id prID, pinned to headSHA so a push
+// since the page loaded fails it rather than landing comments on lines that moved.
+func (g *GitHub) SubmitReview(prID, headSHA, event, body string, threads []DraftThread) error {
+	var parts []string
+	for _, t := range threads {
+		parts = append(parts, fmt.Sprintf(`{path: %s, line: %d, side: %s, body: %s}`,
+			gqlString(t.Path), t.Line, t.Side, gqlString(t.Body)))
+	}
+	mutation := fmt.Sprintf(`mutation { addPullRequestReview(input: {pullRequestId: %s, commitOID: %s, event: %s, body: %s, threads: [%s]}) { pullRequestReview { id } } }`,
+		gqlString(prID), gqlString(headSHA), event, gqlString(body), strings.Join(parts, ", "))
+	out, err := g.Run("api", "graphql", "-f", "query="+mutation)
+	var response prResponse
+	if json.Unmarshal(out, &response) == nil && len(response.Errors) > 0 {
+		return fmt.Errorf("%s", firstLine(response.Errors[0].Message))
+	}
+	if err != nil {
+		return fmt.Errorf("%s", ghReason(err))
+	}
+	return nil
+}
+
+// gqlString quotes s as a GraphQL string literal; JSON's escapes are a subset GraphQL accepts.
+func gqlString(s string) string {
+	quoted, _ := json.Marshal(s)
+	return string(quoted)
+}

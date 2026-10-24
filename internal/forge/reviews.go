@@ -73,7 +73,7 @@ const reviewPRFields = `
 		repository { nameWithOwner }
 		commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
 		timelineItems(last: 30, itemTypes: [REVIEW_REQUESTED_EVENT, LABELED_EVENT]) {` + reviewTimelineFields + `}
-		comments(last: 50) { nodes { id body createdAt author { login } } }
+		comments(last: 50) {` + reviewCommentFields + `}
 	}
 `
 
@@ -85,6 +85,11 @@ const reviewTimelineFields = `
 				__typename ... on User { login } } }
 			... on LabeledEvent { id createdAt label { name } }
 		}
+`
+
+const reviewCommentFields = `
+		pageInfo { hasPreviousPage startCursor }
+		nodes { id body createdAt author { login } }
 `
 
 type reviewPRNode struct {
@@ -132,6 +137,10 @@ type reviewPRNode struct {
 		} `json:"nodes"`
 	} `json:"timelineItems"`
 	Comments struct {
+		PageInfo struct {
+			HasPreviousPage bool   `json:"hasPreviousPage"`
+			StartCursor     string `json:"startCursor"`
+		} `json:"pageInfo"`
 		Nodes []struct {
 			ID        string    `json:"id"`
 			Body      string    `json:"body"`
@@ -250,12 +259,20 @@ func (g *GitHub) ReviewRequests(search ReviewSearch) ([]ReviewRequest, Health) {
 			}
 			asks := reviewRequestsFrom(node, trigger, search, login)
 			for len(asks) == 0 && trigger != TriggerComment && node.TimelineItems.PageInfo.HasPreviousPage {
-				page, health := g.olderReviewTimeline(node)
+				page, health := g.olderReviewPage(node, trigger)
 				if !health.OK {
 					return nil, health
 				}
 				node.TimelineItems = page.TimelineItems
 				asks = reviewRequestsFrom(node, trigger, search, login)
+			}
+			for trigger == TriggerComment && node.Comments.PageInfo.HasPreviousPage {
+				page, health := g.olderReviewPage(node, trigger)
+				if !health.OK {
+					return nil, health
+				}
+				node.Comments = page.Comments
+				asks = append(asks, reviewRequestsFrom(node, trigger, search, login)...)
 			}
 			requests = append(requests, asks...)
 		}
@@ -275,22 +292,26 @@ func (g *GitHub) ReviewRequests(search ReviewSearch) ([]ReviewRequest, Health) {
 	return requests, health
 }
 
-func (g *GitHub) olderReviewTimeline(node reviewPRNode) (reviewPRNode, Health) {
+func (g *GitHub) olderReviewPage(node reviewPRNode, trigger Trigger) (reviewPRNode, Health) {
 	cursor := node.TimelineItems.PageInfo.StartCursor
+	connection, filters, fields := "timelineItems", ", itemTypes: [REVIEW_REQUESTED_EVENT, LABELED_EVENT]", reviewTimelineFields
+	if trigger == TriggerComment {
+		cursor = node.Comments.PageInfo.StartCursor
+		connection, filters, fields = "comments", "", reviewCommentFields
+	}
 	if cursor == "" {
-		return reviewPRNode{}, Health{Reason: "review timeline is missing its pagination cursor"}
+		return reviewPRNode{}, Health{Reason: "review connection is missing its pagination cursor"}
 	}
 	query := fmt.Sprintf(`query { rateLimit { remaining resetAt } node(id: %q) {
-		... on PullRequest { timelineItems(last: 100, before: %q,
-			itemTypes: [REVIEW_REQUESTED_EVENT, LABELED_EVENT]) { %s } }
-	} }`, node.ID, cursor, reviewTimelineFields)
+		... on PullRequest { %s(last: 100, before: %q%s) { %s } }
+	} }`, node.ID, connection, cursor, filters, fields)
 	out, runErr := g.Run("api", "graphql", "-f", "query="+query)
 	var response prResponse
 	if err := json.Unmarshal(out, &response); err != nil {
 		if runErr != nil {
 			return reviewPRNode{}, g.failed(ghReason(runErr), rateLimitedBy(runErr), nil)
 		}
-		return reviewPRNode{}, Health{Reason: "could not read review timeline response"}
+		return reviewPRNode{}, Health{Reason: "could not read review pagination response"}
 	}
 	for _, failure := range response.Errors {
 		if strings.EqualFold(failure.Type, "RATE_LIMITED") {
@@ -304,11 +325,20 @@ func (g *GitHub) olderReviewTimeline(node reviewPRNode) (reviewPRNode, Health) {
 		return reviewPRNode{}, g.failed(ghReason(runErr), rateLimitedBy(runErr), response.budget())
 	}
 	var page reviewPRNode
-	if err := json.Unmarshal(response.Data["node"], &page); err != nil || len(page.TimelineItems.Nodes) == 0 {
-		return reviewPRNode{}, Health{Reason: "could not read older review timeline events"}
+	if err := json.Unmarshal(response.Data["node"], &page); err != nil {
+		return reviewPRNode{}, Health{Reason: "could not read older review events"}
 	}
-	if page.TimelineItems.PageInfo.HasPreviousPage && (page.TimelineItems.PageInfo.StartCursor == "" || page.TimelineItems.PageInfo.StartCursor == cursor) {
-		return reviewPRNode{}, Health{Reason: "review timeline pagination did not advance"}
+	count := len(page.TimelineItems.Nodes)
+	hasPrevious, nextCursor := page.TimelineItems.PageInfo.HasPreviousPage, page.TimelineItems.PageInfo.StartCursor
+	if trigger == TriggerComment {
+		count = len(page.Comments.Nodes)
+		hasPrevious, nextCursor = page.Comments.PageInfo.HasPreviousPage, page.Comments.PageInfo.StartCursor
+	}
+	if count == 0 {
+		return reviewPRNode{}, Health{Reason: "could not read older review events"}
+	}
+	if hasPrevious && (nextCursor == "" || nextCursor == cursor) {
+		return reviewPRNode{}, Health{Reason: "review pagination did not advance"}
 	}
 	return page, Health{OK: true}
 }

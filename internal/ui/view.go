@@ -900,7 +900,7 @@ func (m *Model) viewLegend() legendSection {
 		{keymap.NewSession, "new"}, {keymap.NewSessionForm, "new…"},
 		{keymap.NewTerminal, "terminal"}, {keymap.NewGroup, "group"}, {keymap.Search, "search"},
 		{keymap.ArchivedView, "archived"}, {keymap.RestoreAll, "restore all"}, {keymap.UnmuteAll, "unmute all"},
-		{keymap.StatusFilter, "attention"}, {keymap.ToolFilter, "CLI"}, {keymap.Triage, "triage"}, {keymap.EmptyGroups, "hide empty"},
+		{keymap.StatusFilter, "attention"}, {keymap.ToolFilter, "CLI"}, {keymap.Triage, "triage"}, {keymap.EmptyGroups, "hide empty"}, {keymap.RecentSort, "recent first"},
 		{keymap.Help, "full key map"}, {keymap.Quit, "quit"},
 		{keymap.FoldAll, "fold all"}, {keymap.Resize, "resize"}, {keymap.Settings, "settings"},
 	} {
@@ -937,6 +937,10 @@ func (m *Model) viewLegend() legendSection {
 		case keymap.EmptyGroups:
 			if m.hideEmptyGroups {
 				text = "show empty"
+			}
+		case keymap.RecentSort:
+			if normalizeListSort(m.listSort) == listSortRecent {
+				text = "previous order"
 			}
 		case keymap.FoldAll:
 			if m.allFoldsCollapsed() {

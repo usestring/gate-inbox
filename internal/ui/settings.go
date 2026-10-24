@@ -193,7 +193,7 @@ func (m *Model) openSettings() {
 		claudeSetup:      m.claudeSetupSwitch(),
 		jevAutoSuggest:   m.jevAutoSuggest,
 		jevFinishCheck:   m.jevFinishCheck,
-		jevCopyQueue:     m.jevCopyQueue,
+		jevCopyOn:        m.jevCopyOn,
 		promptSuggest:    m.promptSuggest,
 		compressedFocus:  m.compressedFocus,
 		backdropSync:     storedBackdrop(m.store) == backdropSync,
@@ -377,13 +377,12 @@ func (m *Model) persistSettings() tea.Cmd {
 	}
 	m.persistExperiments()
 	m.jevFinishCheck = m.settings.jevFinishCheck
-	if m.jevCopyQueue != m.settings.jevCopyQueue {
-		// Turned on, the next pass records where every row stands rather
-		// than reading turns that ended while it was off; turned off, the
-		// queue goes with it.
+	if m.jevCopyOn != m.settings.jevCopyOn {
+		// Either way, what JEV picked before the switch is dropped, and a
+		// read still in flight lands on a generation that no longer counts.
 		m.jevCopy = jevCopyState{generation: m.jevCopy.generation + 1, busy: m.jevCopy.busy, copying: m.jevCopy.copying}
 	}
-	m.jevCopyQueue = m.settings.jevCopyQueue
+	m.jevCopyOn = m.settings.jevCopyOn
 	if m.promptSuggest != m.settings.promptSuggest {
 		m.promptSnipsSeq++
 	}

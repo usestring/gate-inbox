@@ -2610,3 +2610,38 @@ func TestRestoreAllFromFocusRespectsSearch(t *testing.T) {
 		})
 	}
 }
+
+// An archived adopted row is not on the active list a restarted board
+// re-registers adoptions from, so its restore once relaunched gi_<id> with
+// the dead pane id still on the row, and stop then read that pane as having
+// no process.
+func TestReviveOfAnUnregisteredDeadAdoptedRowPromotesIt(t *testing.T) {
+	m := buildModel(t)
+	id, socket, pane := adoptedRow(t, m, "borrowed", "")
+	// A second window keeps the foreign server up once the adopted pane goes.
+	if out, err := exec.Command("tmux", "-L", socket, "new-window", "-d", "cat").CombinedOutput(); err != nil {
+		t.Fatalf("new-window: %v: %s", err, out)
+	}
+	if out, err := exec.Command("tmux", "-L", socket, "kill-pane", "-t", pane).CombinedOutput(); err != nil {
+		t.Fatalf("kill-pane: %v: %s", err, out)
+	}
+	m.tmux.Release(id)
+	sess, err := m.store.Get(id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if err := m.reviveSession(sess); err != nil {
+		t.Fatalf("reviveSession: %v", err)
+	}
+	t.Cleanup(func() { _ = m.tmux.Kill(id) })
+	row, err := m.store.Get(id)
+	if err != nil {
+		t.Fatalf("Get after revive: %v", err)
+	}
+	if row.TmuxPaneID != "" || row.TmuxSocket != "" {
+		t.Fatalf("revived row still points at adopted pane %q on %q", row.TmuxPaneID, row.TmuxSocket)
+	}
+	if !m.tmux.Exists(id) {
+		t.Fatal("revive did not start gi_" + id)
+	}
+}

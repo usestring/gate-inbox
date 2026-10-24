@@ -402,4 +402,18 @@ type Pass struct {
 type SessionStatus struct {
 	ID     string
 	Status string
+	// Priority is the tier the session triages at: its own, or the highest
+	// of any group above it. One of "urgent", "high", "medium", "low", or
+	// "" for none, which ranks between medium and low.
+	Priority string
+	// SizingTier is the tier the session's resources are sized at, such as
+	// how much context it keeps before it is compacted: Priority raised to
+	// that of every session it works for, with a drop held back for the
+	// board's compact_downgrade_delay so a tier lowered by mistake changes
+	// nothing if it is put back in time. A raise reaches it on the next pass.
+	SizingTier string
+	// LowersTo and LowersAt are a held drop: the tier SizingTier falls to,
+	// and when. LowersAt is zero when no drop is held.
+	LowersTo string
+	LowersAt time.Time
 }

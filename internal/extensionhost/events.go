@@ -10,6 +10,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -68,8 +69,9 @@ func (b *Events) Transition(id, from, to string, at time.Time) {
 	}
 }
 
-// Pass is a poll pass having finished with sessions.
-func (b *Events) Pass(at time.Time, sessions []store.Session) {
+// Pass is a poll pass having finished with sessions, groupTiers being each
+// group's tier and sizing each session's sizing tier as the pass held it.
+func (b *Events) Pass(at time.Time, sessions []store.Session, groupTiers map[string]priority.Tier, sizing map[string]store.Sizing) {
 	b.mu.Lock()
 	subs := b.passes
 	b.mu.Unlock()
@@ -81,7 +83,15 @@ func (b *Events) Pass(at time.Time, sessions []store.Session) {
 		if sess.Archived {
 			continue
 		}
-		pass.Sessions = append(pass.Sessions, extension.SessionStatus{ID: sess.ID, Status: sess.Status})
+		sized := sizing[sess.ID]
+		pass.Sessions = append(pass.Sessions, extension.SessionStatus{
+			ID:         sess.ID,
+			Status:     sess.Status,
+			Priority:   string(store.EffectiveTier(groupTiers, sess)),
+			SizingTier: string(sized.Tier),
+			LowersTo:   string(sized.LowersTo),
+			LowersAt:   sized.LowersAt,
+		})
 	}
 	for _, sub := range subs {
 		// Each subscriber gets its own slice, so one that keeps or edits

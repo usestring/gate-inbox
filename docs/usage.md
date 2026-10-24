@@ -34,7 +34,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | `←` / `→` | Focused, at a prompt edge: `←` at the head and `→` at the end return to the manager. In triage, `→` on a finished session opens the next item instead. The tool's prompt marker (`activity_cutoff`) must be on the caret's row; elsewhere in the prompt, the arrow moves the caret as usual. |
 | `K` / `J` (or `shift+↑` / `shift+↓`) | Reorder the row among its visible siblings: swap this session (or group) with the neighbour above or below. Manual order only — triage and sorted views refuse it |
 | `m` | Move a session to a group, a terminal into a session, or a group under another group |
-| `ctrl+p` / `p` | Priority: each press cycles the tier — `urgent`, `high`, `medium`, `low`, then none. Higher tiers sort first in the list and weigh more in triage (see smart triage below; with it off, a tier sorts first within the same status). `ctrl+p` also works from a focused session; the changed row shows its new tier as a solid badge for a few seconds and the status bar names it |
+| `ctrl+p` / `p` | Priority: each press cycles the tier — `urgent`, `high`, `medium`, `low`, then none. Higher tiers sort first in the list and in triage, ahead of every lower tier whatever its state or wait (see triage below). `ctrl+p` also works from a focused session; the changed row shows its new tier as a solid badge for a few seconds and the status bar names it |
 | `r` | Name a session: ask its agent to name itself (`/rename`, or the same request in prose). On an adopted pane, derive the name from its conversation. On a group, open the group card on it: name, parent, start and default path |
 | `x` | Kill the selected session, or the whole subtree under a group: kills the pane, frees the RAM its agent held, and files the row in the archive. A group with no session filed under it, live or archived, is deleted instead, so its name is free straight away |
 | `v` | Revive a dead session. On a session that is still running it restarts the agent on the conversation it is already on |
@@ -61,7 +61,9 @@ Priority can also give a Claude session a larger auto-compact window, so the wor
 compact_window = { urgent = 600000, high = 300000 }
 ```
 
-The tier is the one the board sorts by: the session's own, or a higher one on a group above it. A tier left out of the table, and a session with no tier, keep Claude Code's own window. The window is written as `autoCompactWindow` into the session's own settings file, which the board keeps in step with the tier on every poll. Claude Code 2.1.304 reads that file at launch only, so a tier changed mid-session takes effect at the session's next revive or restart, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the environment overrides it.
+The tier is the one the board sorts by: the session's own, or a higher one on a group above it. A tier left out of the table, and a session with no tier, keep Claude Code's own window. The window is written as `autoCompactWindow` into the session's own settings file, which the board keeps in step with the tier on every poll. Claude Code reads that file at launch only (measured again on 2.1.310), so a tier changed mid-session takes effect at the session's next revive or restart, and `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the environment overrides it.
+
+A raise in tier applies on the next poll. A drop waits `compact_downgrade_delay` (default `"10m"`, set beside `compact_window`) and is dropped if the tier goes back up first, so a tier lowered by mistake costs the session nothing. A wait survives a board restart and keeps the time it began. Board extensions read the same held tier off each pass as `SizingTier` (with `LowersTo` and `LowersAt` while a drop waits), so an extension that compacts sessions itself follows it live, with no restart. The session's detail block in the rail shows the result on an `auto-compact` line: `600k`, `600k · lowers to 300k in 7m` while a drop waits, and `claude default now · 600k after restart` while the running session is still on the window it launched with. Where an extension compacts the session itself, its line is the `auto-compact` one and the settings-file window moves to a `claude window` line.
 
 One-off and destructive actions — fork, migrate, restart, restart with flags, account switch, kill-all, fold-all, resize, the archived view, per-state jumps — ship with no key. They all run from quick actions (`:`), which shows each action's current key, and the key map (`h`) puts any of them back on a key.
 
@@ -91,25 +93,25 @@ same keys bring them back. Answering is the only gesture: a dialog answered with
 hands that session over and promotes the next thing waiting on a person. `alt+.` skips the one in
 front of you, `.` skips the row under the cursor from the list, `ctrl+\` stops. The queue is one live queue: a session that reaches waiting or finished while the first pass is walked joins it in place rather than waiting for another `i`.
 
-Smart triage, on by default, orders the queue by how long each session has waited, weighted by its state and its priority, and hands over the highest score first:
+Priority outranks everything else in triage except a mute: every session of a higher priority sorts before any of a lower one (urgent, then high, then medium, then none, then low), whatever its state, wait or deadline. Within one priority, smart triage, on by default, orders the queue by how long each session has waited, weighted by its state, and hands over the highest score first:
 
-    score = (wait + 1 minute) × state weight × priority weight
+    score = (wait + 1 minute) × state weight
 
-| State | Weight | | Priority | Weight |
-| --- | --- | --- | --- | --- |
-| waiting | 2 | | urgent | 8 |
-| reviews | 1.5 | | high | 2 |
-| blocked (an extension's rank) | 1.5 | | | |
-| finished | 1 | | medium or none | 1 |
-| finished, seen | 0.8 | | low | 0.5 |
-| errored | 0.7 | | | |
-| idle | 0.5 | | | |
+| State | Weight |
+| --- | --- |
+| waiting | 2 |
+| reviews | 1.5 |
+| blocked (an extension's rank) | 1.5 |
+| finished | 1 |
+| finished, seen | 0.8 |
+| errored | 0.7 |
+| idle | 0.5 |
 
 The wait counts from your last turn on the session: a snippet, a key that submitted a line or answered a dialog in a focused pane, `gate-inbox send --as-human`, or attaching to its pane and giving it a turn there. Nothing Gate Inbox sends on its own resets it: messages from other sessions and from extensions (including a line a helper session relays in your voice), its own notices, name requests, nudges, limit-recovery continuations and launch prompts all start turns, but a session nobody has looked at in hours keeps its hours however many of those it has finished since. Attaching and leaving without giving the agent a turn, like opening a finished session from the board, is a look and leaves the wait alone. A session you have never given a turn waits from when it was created.
 
-Because the weights are ratios they mean the same thing whatever the waits: a finished session overtakes a question once it has waited twice as long, whether that is 10 minutes against 5 or two days against one, and a low session overtakes a medium one at twice the wait, so nothing on the board waits for ever. For example, a question that came in 20 minutes ago scores (20 + 1) × 2 = 42; a finished session from 50 minutes ago scores (50 + 1) × 1 = 51 and goes first; an urgent session that finished 10 minutes ago scores (10 + 1) × 1 × 8 = 88 and goes ahead of both. Every walkable session is scored, idle ones included, so a session misread as idle still comes round. "Finished, seen" is a finished session you have opened: opening it acknowledges it and the row turns idle, but triage keeps it in the queue on its original wait until you send it something. Working, starting, delegating and dead sessions are never handed over and sort under the scored ones; muted sessions sort last. The order is re-read on every poll, so rows move as their waits grow. A deadline an extension sets puts that session ahead of the scores until it passes. Priority is only read here; smart triage never changes a session's tier.
+Because the weights are ratios they mean the same thing whatever the waits: a finished session overtakes a question of the same priority once it has waited twice as long, whether that is 10 minutes against 5 or two days against one. For example, a question that came in 20 minutes ago scores (20 + 1) × 2 = 42; a finished session from 50 minutes ago scores (50 + 1) × 1 = 51 and goes first; an urgent session that finished a minute ago goes ahead of both, whatever its score. Every walkable session is scored, idle ones included, so a session misread as idle still comes round. "Finished, seen" is a finished session you have opened: opening it acknowledges it and the row turns idle, but triage keeps it in the queue on its original wait until you send it something. Working, starting, delegating and dead sessions are never handed over and sort under the scored ones of their priority, so an urgent working session leads the rail while the drain hands over the next row it can enter; muted sessions sort last. The order is re-read on every poll, so rows move as their waits grow. A deadline an extension sets puts that session ahead of the scores of its priority until it passes. Priority is only read here; smart triage never changes a session's tier.
 
-Turn `smart triage` off in Settings (or store `smart_triage = "off"`) for the strict order: every question first, then the Reviews row, then every finished session, then idle, then errored, each by priority and then oldest first.
+Turn `smart triage` off in Settings (or store `smart_triage = "off"`) for the strict order: within each priority, every question first, then the Reviews row, then every finished session, then idle, then errored, each oldest first.
 
 The rest of the session's controls work from inside it: `ctrl+a` attaches, `ctrl+x` ends the session, `ctrl+n` starts a
 new one in its group, `alt+/` copies the agent's session id, `alt+;` steps back to the one you just
@@ -125,7 +127,7 @@ left. `ctrl+s` opens your snippet menu over the session in front of you.
 
 The label and comment asks are searched only in the organisations named in `orgs`, so with none set only review requests are found. Each new ask gets a 👀 reaction, on the comment for a comment ask and on the pull request otherwise, and the label stays where it is. The status bar says how many asks were new and how many were already queued. A failed search says why, and is never reported as zero reviews.
 
-In triage the Reviews row queues among the sessions as one item while it holds a pending ask you have not been handed yet. Its wait is the oldest pending ask's age, from when it was asked on GitHub, at weight 1.5 and no priority; with smart triage off it comes after every question and before every finished session. Reaching it opens the pull request of the oldest new ask. Leaving the review page moves the drain on and takes the row out of the queue until a new ask is fetched; it stays on the list either way. An ask with a review session running is worked through that session, which queues like any other.
+In triage the Reviews row queues among the sessions as one item while it holds a pending ask you have not been handed yet. Its wait is the oldest pending ask's age, from when it was asked on GitHub, at weight 1.5 and no priority; with smart triage off it comes after every question and before every finished session of the same priority. Reaching it opens the pull request of the oldest new ask. Leaving the review page moves the drain on and takes the row out of the queue until a new ask is fetched; it stays on the list either way. An ask with a review session running is worked through that session, which queues like any other.
 
 Each ask is stored once. Fetching it again refreshes its title, size and checks but never brings back one you dismissed. A new ask on the same pull request, such as a fresh review request or another comment, queues it again.
 
@@ -196,7 +198,7 @@ With **Prompt suggestions** and **JEV Auto Suggest** both on and `TYPESAFE_API_K
 
 **JEV finish check** reads a Claude session each time its row turns finished. With `TYPESAFE_API_KEY` set, it sends the session's last six user and assistant turns (1,500 characters each) to TypeSafe in one request and asks two yes-no questions: is the work done, and did the agent stop because it had no Chrome browser control. When JEV is at least 80% sure Chrome was missing and at most 20% sure the work is done, the board ends the pane, resumes the same conversation on the same model with `--chrome`, and sends `continue`. It does this at most once per session while the board runs; a session that still reads as missing Chrome afterwards is reported on the status bar and left alone. A confident "done" with no Chrome problem is reported on the status bar. Anything less certain, a missing key, a failed request, or an unreadable transcript changes nothing. Panes the manager did not start are never checked, since the remedy kills the pane.
 
-**JEV copy queue** reads a session's latest assistant message each time its row turns waiting or finished. With `TYPESAFE_API_KEY` set, it picks out the fenced code blocks, code spans and links in that message (up to eight, 1,000 characters each; longer ones are skipped rather than cut) and sends them with the message (1,500 characters) to TypeSafe in one request, asking of each whether the agent wants you to copy it: a command to run in your own terminal, a link to open, a value to paste somewhere. Those JEV is at least 80% sure of join the copy queue, and the status bar says how many arrived. `'` on the list, or `alt+'` inside a session, puts the oldest queued text on your clipboard and takes it off the queue, so the steps of one message come off in the order the agent wrote them. Nothing reaches the clipboard until you press the key. The queue holds the latest 20 items, lives only while the board runs, and empties when the feature is turned off. Turns that had already ended when the board started, or when you turned the feature on, are not read.
+**JEV copy** acts when you press its key: `'` on the list, or `alt+'` inside a session. It reads that session's latest assistant message, picks out the fenced code blocks, code spans and links in it (up to eight, 1,000 characters each; longer ones are skipped rather than cut) and sends them with the message (1,500 characters) to TypeSafe in one request, asking of each whether the agent wants you to copy it: a command to run in your own terminal, a link to open, a value to paste somewhere. The first one JEV is at least 80% sure of goes on your clipboard, and the status bar says how many it found. Pressing the key again on the same turn copies the next, in the order the agent wrote them, without asking TypeSafe again; after the last it starts over. Once the session ends another turn, the next press reads afresh. When nothing qualifies, the status bar says why. It needs a TypeSafe key (Settings → JEV, or `TYPESAFE_API_KEY`), and nothing is read or sent until you press the key.
 
 `space`, `ctrl+s` or `esc` closes the menu. Snippets that do not fit on its lines are counted on the last one, and the key map (`?`) lists them all.
 
@@ -478,9 +480,11 @@ A custom tool opts in with `mcp = "<style>"` in its config section. Set `mcp = "
 
 ## Sorting the board
 
-The board is in the order the move keys wrote it — `manual`, and the default, because a board somebody arranged stays arranged. Settings (`s`) has a `sort` row with two other orders: `activity` puts the most recently active session first, and `name` sorts alphabetically. Both sort **within each group**, so the structure you built stays.
+The board is in the order the move keys wrote it — `manual`, and the default, because a board somebody arranged stays arranged. Settings (`s`) has a `sort` row with three other orders: `activity` puts the most recently active session first, `recent` puts the session you last interacted with first, and `name` sorts alphabetically. All three sort **within each group**, so the structure you built stays.
 
-Under `activity` the manager also opens on the freshest session rather than on whatever the manual order happened to put first.
+`recent` counts only your own hand on a session — a key typed into its focused pane, a turn given while attached, a snippet, a `send --as-human` — so a session kept busy by other agents' messages does not climb past the one you were just in. A session you have never touched ranks by when it was created. The `recent_sort` action in quick actions (`:`) toggles it on and back to whichever order you had before; it has no key by default, and the key map (`h`) can bind one.
+
+Under `activity` or `recent` the manager also opens on the freshest session rather than on whatever the manual order happened to put first.
 
 Triage and search are unaffected — each already answers with its own order (who needs a person, and how well a row matched). While a non-manual sort is on, `K`/`J` say why they do nothing instead of writing an order you would not see until you set the sort back to `manual`.
 

@@ -25,6 +25,7 @@ var pendingFrom = map[string]bool{
 	status.Finished:   true,
 	status.Errored:    true,
 	status.Delegating: true,
+	status.Background: true,
 }
 
 // held reports whether sess has a send the outbox would hold: an inbox

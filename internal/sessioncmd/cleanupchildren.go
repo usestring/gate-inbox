@@ -152,7 +152,7 @@ func cleanupStates(opts CleanupOptions) (map[string]bool, error) {
 	if len(states) == 0 {
 		states = DefaultCleanupStatuses
 	}
-	known := []string{status.Starting, status.Working, status.Waiting, status.Delegating, status.Finished, status.Idle, status.Errored, status.Dead}
+	known := []string{status.Starting, status.Working, status.Waiting, status.Delegating, status.Background, status.Finished, status.Idle, status.Errored, status.Dead}
 	wanted := make(map[string]bool, len(states))
 	for _, state := range states {
 		state = strings.ToLower(strings.TrimSpace(state))

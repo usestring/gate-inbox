@@ -162,3 +162,52 @@ func TestReviewRequestsDoNotInventIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestReviewRequestsFindCommandsAcrossCommentPages(t *testing.T) {
+	for _, recentAsks := range []bool{false, true} {
+		t.Run(fmt.Sprintf("recent asks %t", recentAsks), func(t *testing.T) {
+			recent := `{"id":"recent","body":"ordinary discussion"}`
+			if recentAsks {
+				recent = `{"id":"recent","body":"/gate review","author":{"login":"ann"}}`
+			}
+			responses := []string{
+				fmt.Sprintf(`{"data":{"comment":{"nodes":[{"id":"PR_1","number":7,"repository":{"nameWithOwner":"o/r"},
+					"comments":{"pageInfo":{"hasPreviousPage":true,"startCursor":"recent-page"},"nodes":[%s]}}]}}}`, recent),
+				`{"data":{"node":{"comments":{"pageInfo":{"hasPreviousPage":true,"startCursor":"middle-page"},
+					"nodes":[{"id":"unauthorized","body":"/gate review","author":{"login":"eve"}}]}}}}`,
+				`{"data":{"node":{"comments":{"pageInfo":{"hasPreviousPage":false},
+					"nodes":[{"id":"old-ask","body":"/gate review please","author":{"login":"ann"}}]}}}}`,
+			}
+			calls := 0
+			gh := &GitHub{Run: func(args ...string) ([]byte, error) {
+				if calls >= len(responses) {
+					t.Fatal("comment pagination did not stop")
+				}
+				if calls > 0 {
+					cursor := []string{"recent-page", "middle-page"}[calls-1]
+					query := strings.Join(args, " ")
+					if !strings.Contains(query, fmt.Sprintf("comments(last: 100, before: %q)", cursor)) {
+						t.Fatalf("wrong comment pagination query: %s", query)
+					}
+				}
+				response := responses[calls]
+				calls++
+				return []byte(response), nil
+			}}
+			asks, health := gh.ReviewRequests(ReviewSearch{
+				Triggers: []Trigger{TriggerComment}, Orgs: []string{"o"}, Command: "/gate review", Commenters: []string{"ann"},
+			})
+			want := 1
+			if recentAsks {
+				want++
+			}
+			if !health.OK || len(asks) != want || calls != 3 {
+				t.Fatalf("asks = %+v, health = %+v, calls = %d", asks, health, calls)
+			}
+			old := asks[len(asks)-1]
+			if old.Key() != "o/r#7/comment/old-ask" || old.AckSubject != "old-ask" {
+				t.Fatalf("older ask = %+v", old)
+			}
+		})
+	}
+}

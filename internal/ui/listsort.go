@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -105,6 +106,14 @@ func (m *Model) sortGroupSessions(sessions []store.Session) {
 	case listSortRecent:
 		sort.SliceStable(sessions, func(i, j int) bool {
 			a, b := sessions[i], sessions[j]
+			// A session waiting on a question or holding a finish needs the
+			// operator, so it comes before every row that does not, however
+			// recently that row was touched. The session just handed a turn
+			// is working, and recency alone floated it over the work it had
+			// to be put down for.
+			if aa, ab := m.recentNeedsAction(a), m.recentNeedsAction(b); aa != ab {
+				return aa
+			}
 			// The same clock smart triage orders by: a session
 			// nobody has touched ranks by when it was created, so a new
 			// launch lands near the top rather than under every old one.
@@ -146,6 +155,21 @@ func (m *Model) listSortRefusal() string {
 		return "the list is ordered by name — press " + m.cap(keymap.ContextList, keymap.Settings) + " and set sort to manual before reordering"
 	}
 	return ""
+}
+
+// recentNeedsAction is whether the recent sort lifts a session into its
+// first band: waiting or finished, read the way triage reads the state.
+// Errored is left out on purpose: the error has already happened and blocks
+// no turn, which is also why triage hands it over after a finish.
+func (m *Model) recentNeedsAction(sess store.Session) bool {
+	if sess.Muted {
+		return false
+	}
+	switch m.triageStateOf(sess) {
+	case status.Waiting, status.Finished:
+		return true
+	}
+	return false
 }
 
 // toggleRecentSort flips the board between the recent order and whatever

@@ -75,6 +75,7 @@ const (
 	ToolFilter   Action = "tool_filter"
 	Triage       Action = "triage"
 	EmptyGroups  Action = "empty_groups"
+	RecentSort   Action = "recent_sort"
 	FoldAll      Action = "fold_all"
 	ArchivedView Action = "archived_view"
 	Search       Action = "search"
@@ -208,6 +209,7 @@ var Catalog = []Binding{
 	{ContextList, Triage, []string{"i"}, "triage this group as one queue", false},
 	{ContextList, ToggleConversation, []string{"f3"}, "show full / shortened conversation", false},
 	{ContextList, EmptyGroups, []string{}, "hide / show empty groups", false},
+	{ContextList, RecentSort, []string{}, "sort by your last interaction / back to the previous order", false},
 	{ContextList, FoldAll, []string{}, "fold / unfold everything", false},
 	// No key: the archive is where killed rows wait out their 7-day
 	// retention, visited deliberately rather than toggled past. Quick

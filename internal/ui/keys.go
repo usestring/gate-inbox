@@ -359,6 +359,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.terminalKey()
 	case keymap.EmptyGroups:
 		return m, m.toggleEmptyGroups()
+	case keymap.RecentSort:
+		return m, m.toggleRecentSort()
 	case keymap.Triage:
 		return m, m.toggleTriage()
 	case keymap.Search:
@@ -447,7 +449,7 @@ var artifactRowActions = map[keymap.Action]bool{
 	keymap.QuickActions: true,
 	keymap.NameSweep:    true, keymap.TakeOver: true, keymap.Settings: true, keymap.Resize: true,
 	keymap.ArchivedView: true, keymap.StatusFilter: true, keymap.ToolFilter: true,
-	keymap.EmptyGroups: true, keymap.Triage: true, keymap.ToggleChrome: true,
+	keymap.EmptyGroups: true, keymap.RecentSort: true, keymap.Triage: true, keymap.ToggleChrome: true,
 	keymap.ToggleRail: true,
 	// LastPane reads the history it walks back through, not the row under
 	// the cursor, so an artifact row is no reason to swallow it.

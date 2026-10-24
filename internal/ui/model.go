@@ -545,6 +545,9 @@ type Model struct {
 	// listSort is the persisted order the board's sessions are shown in
 	// within each group. See listsort.go.
 	listSort string
+	// listSortBeforeRecent is the order the recent toggle returns to. It is
+	// not persisted: a manager that opens on recent toggles back to manual.
+	listSortBeforeRecent string
 	// chrome is the persisted override for the legend under the list. See
 	// layout.go.
 	chrome string

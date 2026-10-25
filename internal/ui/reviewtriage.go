@@ -14,6 +14,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/scoring"
 )
 
 const triageReview = "review"
@@ -66,8 +67,8 @@ func (m *Model) reviewsTriageKey(now time.Time) triageKey {
 			oldest = at
 		}
 	}
-	wait := max(now.Sub(oldest), 0) + triageScoreFloor
-	key.band, key.score = triageBandScored, wait.Seconds()*triageStateWeight[triageReview]
+	score := scoring.Triage(scoring.TriageInput{Wait: now.Sub(oldest), StateWeight: triageStateWeight[triageReview]}, m.triageWeights)
+	key.band, key.score = triageBandScored, score.Total()
 	return key
 }
 

@@ -41,6 +41,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tracing"
 	"github.com/usestring/gate-inbox/internal/worktracker"
+	"github.com/usestring/gate-inbox/scoring"
 )
 
 type mode int
@@ -361,6 +362,8 @@ type Model struct {
 	hogBadges map[string]hogs.Badge
 	// queueDeadlines mirrors refreshMsg.queueDeadlines.
 	queueDeadlines map[string]time.Time
+	// expectedTurns mirrors refreshMsg.expectedTurns.
+	expectedTurns map[string]time.Duration
 	// history is the full-text index over the board's transcripts, nil when
 	// disabled or unavailable. historyHits is the last answer, valid for
 	// historyQuery alone; historySeq tags the debounce timer so only the
@@ -607,9 +610,12 @@ type Model struct {
 	// of the whole fleet.
 	triageScope string
 	// smartTriage mirrors the persisted smart_triage setting: on, triage
-	// orders the walk by weighted wait; off, by the strict state-first order.
+	// orders the walk by score; off, by the strict state-first order.
 	// See triageScore.
 	smartTriage bool
+	// triageWeights are smart triage's term weights, read from the store at
+	// startup. See storedTriageWeights.
+	triageWeights scoring.TriageWeights
 	// triageStartupEnter is set when triage was already on at startup, so the
 	// first poll enters the head of the queue the way turning triage on does.
 	// Restoring the mode without the entry leaves the operator on a list they
@@ -1050,6 +1056,10 @@ type refreshMsg struct {
 	// queueDeadlines is the extensions' deadlines by session; triage breaks
 	// ties on them.
 	queueDeadlines map[string]time.Time
+	// expectedTurns is how long each session's next turn is expected to run,
+	// for smart triage's horizon term. A session missing from it has no
+	// estimate. See turnhorizon.go.
+	expectedTurns map[string]time.Duration
 }
 
 // previewMsg is every pane frame the model receives. There used to be three
@@ -1328,6 +1338,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		triageScope:     storedTriageScope(st),
 		autoProceed:     storedAutoProceed(st),
 		smartTriage:     storedSmartTriage(st),
+		triageWeights:   storedTriageWeights(st),
 		mode:            modeList,
 		version:         version,
 		// Assume the operator is looking until something says otherwise. A
@@ -2392,6 +2403,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.stale = msg.stale
 		m.hogBadges = msg.hogBadges
 		m.queueDeadlines = msg.queueDeadlines
+		m.expectedTurns = msg.expectedTurns
 		if msg.snapOK {
 			m.snap = msg.snap
 			m.updateNetRates(msg.snap)

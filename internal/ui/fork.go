@@ -28,7 +28,19 @@ var forkOpencodeConversation = opencode.Fork
 type forkState struct {
 	source store.Session
 	name   textinput.Model
+	// skip and childrenSkip open on the source's settings, as the migrate
+	// card's do. focus is the card row ↑↓ is on: the name, then these two.
+	skip         bool
+	childrenSkip bool
+	focus        int
 }
+
+const (
+	forkFocusName = iota
+	forkFocusSkip
+	forkFocusChildrenSkip
+	forkFocusCount
+)
 
 func (m *Model) openFork() {
 	entry, ok := m.selectedRow()
@@ -52,7 +64,8 @@ func (m *Model) openFork() {
 	name.SetValue(entry.sess.Name + "-fork")
 	name.CursorEnd()
 	name.Focus()
-	m.fork = forkState{source: entry.sess, name: name}
+	m.fork = forkState{source: entry.sess, name: name,
+		skip: entry.sess.SkipPermissions, childrenSkip: entry.sess.ChildrenSkipPermissions}
 	m.errBar.text = ""
 	m.mode = modeFork
 }
@@ -65,10 +78,37 @@ func (m *Model) handleForkKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "enter":
 		return m.submitFork()
+	case "up":
+		m.moveForkFocus(-1)
+		return m, nil
+	case "down":
+		m.moveForkFocus(1)
+		return m, nil
+	case "space", "left", "right":
+		switch m.fork.focus {
+		case forkFocusSkip:
+			m.fork.skip = !m.fork.skip
+			return m, nil
+		case forkFocusChildrenSkip:
+			m.fork.childrenSkip = !m.fork.childrenSkip
+			return m, nil
+		}
+	}
+	if m.fork.focus != forkFocusName {
+		return m, nil
 	}
 	var cmd tea.Cmd
 	m.fork.name, cmd = m.fork.name.Update(msg)
 	return m, cmd
+}
+
+func (m *Model) moveForkFocus(delta int) {
+	m.fork.focus = (m.fork.focus + delta + forkFocusCount) % forkFocusCount
+	if m.fork.focus == forkFocusName {
+		m.fork.name.Focus()
+	} else {
+		m.fork.name.Blur()
+	}
 }
 
 func (m *Model) submitFork() (tea.Model, tea.Cmd) {
@@ -93,6 +133,10 @@ func (m *Model) submitFork() (tea.Model, tea.Cmd) {
 	}
 	if !isDir(source.Cwd) {
 		m.errBar.text = "working directory no longer exists: " + source.Cwd
+		return m, nil
+	}
+	if m.fork.skip && tool.SkipPermissionsFlag == "" {
+		m.errBar.text = source.Tool + " has no skip-permissions flag: turn skip permissions off"
 		return m, nil
 	}
 
@@ -142,9 +186,9 @@ func (m *Model) launchFork(source store.Session, tool config.Tool, managerID, ac
 		Status:         status.Starting,
 		AgentSessionID: agentID,
 		Account:        account,
-		// A fork carries on the conversation as the operator set it up.
-		SkipPermissions:         source.SkipPermissions,
-		ChildrenSkipPermissions: source.ChildrenSkipPermissions,
+		// The card's toggles, which open on the source's settings.
+		SkipPermissions:         m.fork.skip,
+		ChildrenSkipPermissions: m.fork.childrenSkip,
 	}
 	launch := func() error { return m.launchNewSession(forked, tool, baseCommand) }
 	if err := launch(); err != nil {
@@ -210,6 +254,8 @@ func expandForkCommand(template, sourceID, sessionFile, newID, name string) stri
 func (m *Model) viewFork() string {
 	body := "  source  " + valueStyle.Render(m.fork.source.Name) + "\n" +
 		"  group   " + groupBadge(displayGroup(m.fork.source.Group)) + "\n" +
-		formField("name", m.fork.name.View(), true)
-	return m.card("↳ Fork Session", body, [][2]string{{"↵", "create"}, {"esc", "cancel"}})
+		formField("name", m.fork.name.View(), m.fork.focus == forkFocusName) +
+		formField("perms", m.viewSkipToggleFor(m.fork.skip, m.cfg.Tools[m.fork.source.Tool].SkipPermissionsFlag != "", m.fork.source.Tool), m.fork.focus == forkFocusSkip) +
+		formField("children", m.viewSkipToggle(m.fork.childrenSkip, true), m.fork.focus == forkFocusChildrenSkip)
+	return m.card("↳ Fork Session", body, [][2]string{{"↵", "create"}, {"↑↓", "move"}, {"←→", "change"}, {"esc", "cancel"}})
 }

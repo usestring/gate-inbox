@@ -361,6 +361,8 @@ type Model struct {
 	hogBadges map[string]hogs.Badge
 	// queueDeadlines mirrors refreshMsg.queueDeadlines.
 	queueDeadlines map[string]time.Time
+	// expectedTurns mirrors refreshMsg.expectedTurns.
+	expectedTurns map[string]time.Duration
 	// history is the full-text index over the board's transcripts, nil when
 	// disabled or unavailable. historyHits is the last answer, valid for
 	// historyQuery alone; historySeq tags the debounce timer so only the
@@ -1050,6 +1052,10 @@ type refreshMsg struct {
 	// queueDeadlines is the extensions' deadlines by session; triage breaks
 	// ties on them.
 	queueDeadlines map[string]time.Time
+	// expectedTurns is how long each session's next turn is expected to run,
+	// for smart triage's horizon term. A session missing from it has no
+	// estimate. See turnhorizon.go.
+	expectedTurns map[string]time.Duration
 }
 
 // previewMsg is every pane frame the model receives. There used to be three
@@ -2392,6 +2398,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.stale = msg.stale
 		m.hogBadges = msg.hogBadges
 		m.queueDeadlines = msg.queueDeadlines
+		m.expectedTurns = msg.expectedTurns
 		if msg.snapOK {
 			m.snap = msg.snap
 			m.updateNetRates(msg.snap)

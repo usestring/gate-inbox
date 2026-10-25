@@ -19,8 +19,10 @@ const planModeTurn = scoring.HorizonReference
 
 // claudeModeLine is Claude Code's permission-mode footer: "⏸ plan mode on
 // (shift+tab to cycle)", "⏸ manual mode on", "⏵⏵ auto mode on · 1 shell".
-// The mode is the words before "mode on".
-var claudeModeLine = regexp.MustCompile(`(?m)^\s*(?:⏸|⏵⏵|⏵)\s+([a-z][a-z ]*?) mode on\b`)
+// The mode is the words before "mode on". The glyphs are escaped because
+// they are matched, not drawn: the board's own literals stay in the widely
+// drawn repertoire.
+var claudeModeLine = regexp.MustCompile(`(?m)^\s*(?:\x{23F8}|\x{23F5}\x{23F5}|\x{23F5})\s+([a-z][a-z ]*?) mode on\b`)
 
 // paneMode is the permission mode a pane's footer shows, false when it shows
 // none. The footer is the bottom-most match: a transcript scrolled above it

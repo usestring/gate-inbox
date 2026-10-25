@@ -183,6 +183,18 @@ func (m *Model) onDivider(x int) bool {
 type railHitMap struct {
 	x, width int
 	links    []string
+	covered  []railHitCover
+}
+
+type railHitCover struct {
+	x, y, width int
+}
+
+func (h *railHitMap) cover(x, y, width int) {
+	if y < 0 || y >= len(h.links) || width <= 0 || x >= h.x+h.width || x+width <= h.x {
+		return
+	}
+	h.covered = append(h.covered, railHitCover{x: x, y: y, width: width})
 }
 
 func newRailHitMap(rows []contentLine, x, width int) railHitMap {
@@ -197,6 +209,11 @@ func newRailHitMap(rows []contentLine, x, width int) railHitMap {
 func (h railHitMap) linkAt(x, y int) string {
 	if x < h.x || x >= h.x+h.width || y < 0 || y >= len(h.links) {
 		return ""
+	}
+	for _, cover := range h.covered {
+		if y == cover.y && x >= cover.x && x < cover.x+cover.width {
+			return ""
+		}
 	}
 	return h.links[y]
 }

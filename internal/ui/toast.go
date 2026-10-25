@@ -78,6 +78,7 @@ func (m *Model) overlayTopRight(frame string, box []string, top int) string {
 			continue
 		}
 		lines[row] = spliceAtColumn(lines[row], patch, left)
+		m.railHit.cover(left, row-m.listChromeRows(), textfmt.Width(patch))
 	}
 	return strings.Join(lines, "\n")
 }

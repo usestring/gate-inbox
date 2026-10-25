@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -38,15 +39,16 @@ type Answer struct {
 }
 
 type Call struct {
-	CallID     string
-	Async      bool
-	AskedAt    time.Time
-	Questions  []AskedQuestion
-	State      State
-	Answers    map[string]Answer
-	ResolvedAt time.Time
-	Reply      string
-	ReplyAt    time.Time
+	CallID      string
+	Async       bool
+	AskedAt     time.Time
+	Questions   []AskedQuestion
+	State       State
+	Answers     map[string]Answer
+	AnswerTimes map[string]time.Time
+	ResolvedAt  time.Time
+	Reply       string
+	ReplyAt     time.Time
 }
 
 type callRecord struct {
@@ -137,6 +139,10 @@ func recordCall(line []byte, calls *[]Call, index map[string]int) {
 		if band.Has(strings.TrimSpace(reply)) {
 			return
 		}
+		if strings.Contains(reply, questionReplyOpen) || strings.Contains(reply, questionReplyClose) {
+			applyQuestionReply(reply, at, *calls, index)
+			return
+		}
 		pendingAsync := 0
 		for _, call := range *calls {
 			if call.Async && call.State == Outstanding {
@@ -146,6 +152,9 @@ func recordCall(line []byte, calls *[]Call, index map[string]int) {
 		for i := range *calls {
 			call := &(*calls)[i]
 			if call.State == Outstanding || call.State == Expired {
+				if call.Async && (pendingAsync != 1 || approvalNeedsChoice(*call, reply)) {
+					continue
+				}
 				call.State = Superseded
 				if call.Async && pendingAsync == 1 && call.Reply == "" {
 					call.Reply, call.ReplyAt = reply, at
@@ -158,6 +167,11 @@ func recordCall(line []byte, calls *[]Call, index map[string]int) {
 		}
 		call := Call{CallID: p.CallID, Async: p.Name == askToolAsync, AskedAt: at, State: Outstanding,
 			Questions: parseQuestions(p.Arguments)}
+		if call.Async {
+			for i := range call.Questions {
+				call.Questions[i].ID = call.CallID + ":" + strconv.Itoa(i)
+			}
+		}
 		if at, seen := index[call.CallID]; seen {
 			(*calls)[at] = call
 			return

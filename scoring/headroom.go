@@ -174,13 +174,11 @@ func Headroom(u Usage, now time.Time) Standing {
 			continue
 		}
 		head := ceiling - used
-		if name == FiveHour {
-			out.FiveHourHeadroom = head
-		}
 		if head < out.Margin {
 			out.Margin, out.MarginWindow = head, name
 		}
 		if name == FiveHour {
+			out.FiveHourHeadroom = head
 			continue
 		}
 		if score := HeadroomScore(head, left).Total(); score < out.Score {

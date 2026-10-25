@@ -814,6 +814,10 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	toolName := m.selectedToolName()
+	if m.toolMissing(toolName) {
+		m.errBar.text = m.noMatchText(m.form.toolNames, toolName)
+		return m, nil
+	}
 	if m.isShell(toolName) {
 		return m.submitFormTerminal(toolName)
 	}

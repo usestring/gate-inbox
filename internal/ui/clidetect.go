@@ -42,6 +42,11 @@ func (m *Model) detectCLIsCmd(report bool) tea.Cmd {
 
 func (m *Model) finishCLIDetect(msg cliDetectMsg) {
 	m.missingTools = msg.missing
+	if m.mode == modeForm && m.toolMissing(m.selectedToolName()) {
+		if matches := m.formToolMatches(); len(matches) > 0 {
+			m.selectTool(matches[0])
+		}
+	}
 	if !msg.report {
 		return
 	}

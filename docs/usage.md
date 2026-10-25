@@ -204,6 +204,8 @@ With **Prompt suggestions** and **JEV Auto Suggest** both on and `TYPESAFE_API_K
 
 The new-session form's optional `prompt` field launches an agent with a first task, and its `↑↓` move the caret between rows, `↑` leaving the field only from its top row and `↓` only from its bottom row. It takes `ctrl+v` and its chips too, since a first task is often the screenshot that explains it: paste the design to match or the crash to read, and the agent opens the file on its first turn. Leaving the form without creating the session releases the images it was holding. Tools whose CLI takes the prompt behind a flag declare it with `prompt_flag`, while a persistent CLI with no startup-prompt argument uses `prompt_mode = "send"` (see [Configuration](configuration.md)).
 
+Under `model`, the new-session form has two toggles, both off: `perms` launches the session with its CLI's permission prompts off, and `children` lets the sessions it spawns launch that way. Move to one with `tab` or `↑↓` and flip it with `space` or `←→`. A CLI with no skip-permissions flag, OpenCode for one, shows `(no flag on <cli>)` beside `perms`, and the form refuses to create the session with it on. Both settings are kept on the row, so a revive or restart comes back the same way (see "Skipping permissions" in [Configuration](configuration.md)).
+
 ## Which CLIs you get offered
 
 Every configured tool is offered when you create a session, which is more than most people run. Settings (`s`) has a `CLIs` row: `enter` opens a checklist, `space` or `enter` unchecks the tool under the cursor, `esc` saves, and the ones left checked are what the `ctrl+n` form's `tool` picker cycles through. The last checked tool cannot be unchecked, since a picker with nothing in it could not create a session. It only narrows the pickers, so a session already on an unchecked tool keeps running and revives on that same tool. The last row, `request CLI support`, opens an issue for a CLI we do not ship rules for yet.
@@ -325,9 +327,10 @@ Whatever a default does on the way in is said in one line on the status bar.
 
 1. Select a session and run fork from quick actions (`:`).
 2. Enter a name.
-3. Press `enter`.
+3. Optionally, `↓` to the `perms` and `children` toggles and flip them with `space` or `←→`.
+4. Press `enter`.
 
-The fork uses the source session's tool, group, working directory, and conversation history.
+The fork uses the source session's tool, group, working directory, and conversation history. Its `perms` and `children` toggles open on the source's settings, so a fork left alone keeps them. As on the new-session form, `perms` shows `(no flag on <cli>)` for a CLI with no skip-permissions flag, and the card refuses to fork with it on.
 
 Claude Code offers to resume a large conversation from a summary instead, with the summary preselected. A fork answered that way keeps a summary rather than the responses it was made for, so Gate Inbox picks "Resume full session as-is" for you when that dialog appears in a fork's pane. Other tools, and a `claude` block that clears `fork_dialog_option`, leave the dialog for you.
 

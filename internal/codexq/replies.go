@@ -2,6 +2,7 @@ package codexq
 
 import (
 	"encoding/json"
+	"maps"
 	"strings"
 	"time"
 )
@@ -64,6 +65,9 @@ func applyQuestionReply(text string, at time.Time, calls []Call, index map[strin
 	}
 	for _, update := range updates {
 		call := &calls[update.call]
+		// Incremental readers may still hold the previous result.
+		call.Answers = maps.Clone(call.Answers)
+		call.AnswerTimes = maps.Clone(call.AnswerTimes)
 		if call.Answers == nil {
 			call.Answers = map[string]Answer{}
 			call.AnswerTimes = map[string]time.Time{}

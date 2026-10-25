@@ -142,6 +142,7 @@ func helpSections() []helpSection {
 			listRow(keymap.Resize, "resize the split (←→ or hl, or drag; ↵ commits, esc cancels)"),
 			listRow(keymap.NameSweep, "name sweep: ask idle, warm adopted panes to name themselves"),
 			listRow(keymap.IngestReviews, "fetch the reviews asked of you on GitHub into the Reviews row"),
+			listRow(keymap.RefreshCLIs, "re-detect installed CLIs; pickers gray out the ones not on PATH"),
 			listRow(keymap.TakeOver, "take over the adopted panes now; busy ones once they go idle"),
 			listRow(keymap.BringIn, "bring an outside pane in: resumed as a board session once idle"),
 			listRow(keymap.LeaveOut, "leave an outside pane off the board; it keeps running"),

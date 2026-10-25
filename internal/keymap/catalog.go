@@ -82,6 +82,7 @@ const (
 	ClearSearch  Action = "clear_search"
 	Resize       Action = "resize_split"
 	Settings     Action = "settings"
+	RefreshCLIs  Action = "refresh_clis"
 	LegendPeek   Action = "legend_peek"
 	QuickActions Action = "quick_actions"
 	Help         Action = "help"
@@ -222,6 +223,8 @@ var Catalog = []Binding{
 	{ContextList, ClearSearch, []string{}, "clear the search", false},
 	{ContextList, Resize, []string{}, "resize the split", false},
 	{ContextList, Settings, []string{"s"}, "settings", false},
+	// No key: what is installed changes rarely, and quick actions finds it.
+	{ContextList, RefreshCLIs, []string{}, "refresh installed CLIs: look on PATH again for each agent CLI", false},
 	{ContextList, ToggleChrome, []string{}, "hide / show the key hints along the foot", false},
 	{ContextList, ToggleRail, []string{}, "hide / show the list beside the pane", false},
 	{ContextList, LegendPeek, []string{"?"}, "peek at every available key", false},

@@ -583,7 +583,10 @@ type Model struct {
 	// open manager runs the sweep on its own clock rather than every poll.
 	archiveSweptAt  time.Time
 	hideEmptyGroups bool
-	statusFilter    statusFilter
+	// missingTools is the configured agent CLIs the last PATH lookup did not
+	// find; the pickers gray them out. See clidetect.go.
+	missingTools map[string]bool
+	statusFilter statusFilter
 	// toolFilter narrows the list and the triage queue to one harness --
 	// the CLI in sess.Tool -- and is "" for every harness. See toolfilter.go.
 	toolFilter string
@@ -1552,7 +1555,7 @@ func (m *Model) Init() tea.Cmd {
 	// read any session state, and a first run has none to wait for.
 	m.maybeOpenWelcome()
 	m.syncPollInput()
-	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.headroomStart(), m.arrivalStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips(), m.loadReviews())
+	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.headroomStart(), m.arrivalStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips(), m.loadReviews(), m.detectCLIsCmd(false))
 }
 
 // pasteSweepMsg carries the result of one pass over the pastes directory.
@@ -2533,6 +2536,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case workLoadedMsg:
 		// Work that has just resolved is work the tree can hang rows off.
 		m.rebuildRows()
+		return m, nil
+
+	case cliDetectMsg:
+		m.finishCLIDetect(msg)
 		return m, nil
 
 	case pasteSweepMsg:

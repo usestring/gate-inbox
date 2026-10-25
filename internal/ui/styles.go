@@ -53,6 +53,8 @@ var (
 	errStyle    fastStyle
 	doneStyle   fastStyle
 	keyStyle    fastStyle
+	// A configured CLI the PATH lookup did not find: drawn, never picked.
+	missingToolStyle fastStyle
 
 	// The key map's own selection: the row the rebind cursor is on. It is a
 	// band rather than a tint because the card has no gutter to put a marker
@@ -99,6 +101,7 @@ func rebuildStyles() {
 	errStyle = newFastStyle(lipgloss.NewStyle().Foreground(colorErrored).Bold(true))
 	doneStyle = newFastStyle(lipgloss.NewStyle().Foreground(colorFinished))
 	keyStyle = newFastStyle(lipgloss.NewStyle().Foreground(colorAccent).Bold(true))
+	missingToolStyle = newFastStyle(lipgloss.NewStyle().Foreground(colorDim).Faint(true).Strikethrough(true))
 	selectedKeyStyle = newFastStyle(lipgloss.NewStyle().Background(colorSelBg).Foreground(colorBright).Bold(true))
 	selectedTextStyle = newFastStyle(lipgloss.NewStyle().Background(colorSelBg).Foreground(colorBright))
 

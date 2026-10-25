@@ -1,0 +1,13 @@
+[integrations.github]
+enabled = false
+[integrations.linear]
+enabled = false
+
+[tools.alpha-cli]
+command = "true"
+
+[tools.beta-cli]
+command = "beta-cli-not-installed"
+
+[tools.gamma-cli]
+command = "true"

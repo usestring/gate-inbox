@@ -143,7 +143,27 @@
 # close          = ["esc", "q"]  # back to the list (cannot be unbound)
 # cursor_up      = ["up", "k"]  # move up (cannot be unbound)
 # cursor_down    = ["down", "j"]  # move down (cannot be unbound)
-# review_start   = ["s", "enter"]  # start the review
+# review_view    = ["enter"]  # open the pull request (cannot be unbound)
+# review_start   = ["s"]  # start the review
 # review_open    = ["o"]  # open on GitHub
 # review_dismiss = ["x"]  # dismiss
 # refresh        = ["P", "shift+p"]  # fetch new reviews
+
+# [review_page]
+# close               = ["esc", "q"]  # back to the queue (cannot be unbound)
+# review_next_tab     = ["tab"]  # next tab (cannot be unbound)
+# review_conversation = ["1"]  # conversation
+# review_files        = ["2"]  # files changed
+# review_checks       = ["3"]  # checks
+# cursor_up           = ["up", "k"]  # scroll up (cannot be unbound)
+# cursor_down         = ["down", "j"]  # scroll down (cannot be unbound)
+# page_up             = ["ctrl+u", "pgup"]  # a page up
+# page_down           = ["ctrl+d", "pgdown", " ", "space"]  # a page down
+# top                 = ["g", "home"]  # the top
+# bottom              = ["G", "end"]  # the bottom
+# review_next_file    = ["n"]  # next file
+# review_prev_file    = ["p"]  # previous file
+# review_start        = ["s"]  # start the review
+# review_open         = ["o"]  # open on GitHub
+# review_dismiss      = ["x"]  # dismiss
+# refresh             = ["P", "shift+p"]  # fetch the pull request again

@@ -65,6 +65,7 @@ func TestForkSelectedSessionCreatesNamedSibling(t *testing.T) {
 		t.Fatalf("fork mode = %v, source = %q", m.mode, m.fork.source.ID)
 	}
 	m.fork.name.SetValue("child fork")
+	m.fork.childrenSkip = true
 	updated, cmd := m.handleForkKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(*Model)
 	m.applyCmd(t, cmd)
@@ -95,6 +96,9 @@ func TestForkSelectedSessionCreatesNamedSibling(t *testing.T) {
 	stored, err := m.store.Get(forkedID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if stored.SkipPermissions || !stored.ChildrenSkipPermissions {
+		t.Fatalf("fork stored skip=%v children=%v, want the card's off and on", stored.SkipPermissions, stored.ChildrenSkipPermissions)
 	}
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -372,5 +376,35 @@ func TestForkRefusesAShellInItsOwnTerms(t *testing.T) {
 	}
 	if strings.Contains(m.errBar.text, "fork_command") {
 		t.Fatalf("err = %q should not name a config field", m.errBar.text)
+	}
+}
+
+// A fork asked to skip permissions on a CLI with no flag for it is refused
+// before anything launches; one left as it opened launches as the source.
+func TestForkRefusesSkipPermissionsOnACLIWithoutTheFlag(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	m.applyCmd(t, m.refreshCmd())
+	createSession(t, m, "source", dir, "")
+	m.selectSessionRow(t, "source")
+	source := m.rows[m.cursor].sess
+	if err := m.store.SetAgentSessionID(source.ID, "source-conversation"); err != nil {
+		t.Fatal(err)
+	}
+	tool := m.cfg.Tools[source.Tool]
+	tool.ForkCommand = "cat {id}"
+	tool.SkipPermissionsFlag = ""
+	m.cfg.Tools[source.Tool] = tool
+	m.fork = forkState{source: source, name: textField("fork name", 60), skip: true}
+	m.fork.name.SetValue("skipped fork")
+	updated, _ := m.handleForkKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = updated.(*Model)
+	if !strings.Contains(m.errBar.text, "no skip-permissions flag") {
+		t.Fatalf("err = %q, want the missing flag named", m.errBar.text)
+	}
+	for _, sess := range m.sessionRows() {
+		if sess.Name == "skipped fork" {
+			t.Fatal("a refused fork launched")
+		}
 	}
 }

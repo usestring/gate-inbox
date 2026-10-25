@@ -22,7 +22,7 @@ func TestApplyProfileStartsTheCoreServer(t *testing.T) {
 		{ProfileCore, []string{"mcp", "--profile", "core"}},
 	} {
 		dir := t.TempDir()
-		command, err := ApplyProfile("claude", "/opt/bin/gate-inbox", dir, "claude", map[string]string{hooks.EnvSessionID: "abcd1234"}, "", c.profile)
+		command, err := ApplyProfile("claude", "/opt/bin/gate-inbox", dir, "claude", map[string]string{hooks.EnvSessionID: "abcd1234"}, "", c.profile, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -44,7 +44,7 @@ func TestApplyProfileStartsTheCoreServer(t *testing.T) {
 			t.Fatalf("profile %q config = %s, want one %s server with args %v", c.profile, content, ServerName, c.want)
 		}
 
-		codex, err := ApplyProfile("codex", "/opt/bin/gate-inbox", dir, "codex", map[string]string{hooks.EnvSessionID: "abcd1234"}, "", c.profile)
+		codex, err := ApplyProfile("codex", "/opt/bin/gate-inbox", dir, "codex", map[string]string{hooks.EnvSessionID: "abcd1234"}, "", c.profile, false)
 		if err != nil {
 			t.Fatal(err)
 		}

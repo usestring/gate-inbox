@@ -209,6 +209,34 @@ func TestAnAnswerMustMatchTheHeldCall(t *testing.T) {
 	}
 }
 
+func TestMultiSelectLabelsWithCommas(t *testing.T) {
+	options := []convo.AskOption{{Label: "Build"}, {Label: "Build, test"}, {Label: "Ship"}, {Label: "test, Ship"}}
+	qs := []convo.AskQuestion{{Question: "Which?", MultiSelect: true, Options: options}}
+	hold := Hold{Session: "first", ToolUseID: "toolu_1", Questions: qs, Revision: Revision(qs)}
+	for _, tc := range []struct {
+		value string
+		valid bool
+	}{
+		{"Build, test", true},
+		{"Build, test, Ship", true},
+		{"Ship, Build, test", true},
+		{"Build, Build, test", true},
+		{"Build, test, Build, test", false},
+		{"Build, test, Missing", false},
+		{"Build, test, Ship, Ship", true},
+		{"Build, test, Ship, Ship, Ship", false},
+		{"", false},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			answer := Answer{Session: hold.Session, ToolUseID: hold.ToolUseID, Revision: hold.Revision, Answers: map[string]string{"Which?": tc.value}}
+			err := validate(hold, answer)
+			if (err == nil) != tc.valid {
+				t.Fatalf("validate(%q) = %v, want valid=%v", tc.value, err, tc.valid)
+			}
+		})
+	}
+}
+
 func TestOneConsumerHoldsTheLeaseUntilItLapses(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()

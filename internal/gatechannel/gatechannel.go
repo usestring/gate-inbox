@@ -148,6 +148,11 @@ func Renew(configDir, consumer, token string, deliverable bool, hold, ttl time.D
 	if hold <= 0 || hold > MaxHold {
 		return Lease{}, fmt.Errorf("hold %s must be above 0 and at most %s", hold, MaxHold)
 	}
+	unlock, err := lockLease(configDir)
+	if err != nil {
+		return Lease{}, err
+	}
+	defer unlock()
 	current, held := ReadLease(configDir)
 	if held && now.Before(current.ExpiresAt) {
 		if current.Consumer != consumer {
@@ -181,6 +186,11 @@ func Renew(configDir, consumer, token string, deliverable bool, hold, ttl time.D
 
 // Release drops the lease the token names, which ends every hold at once.
 func Release(configDir, token string) error {
+	unlock, err := lockLease(configDir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	current, held := ReadLease(configDir)
 	if !held {
 		return nil
@@ -188,7 +198,7 @@ func Release(configDir, token string) error {
 	if token != current.Token {
 		return errors.New("the lease token does not match")
 	}
-	err := os.Remove(leasePath(configDir))
+	err = os.Remove(leasePath(configDir))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
@@ -304,19 +314,35 @@ func validate(hold Hold, answer Answer) error {
 		if !ok {
 			return fmt.Errorf("no answer to %q", question.Question)
 		}
-		labels := []string{value}
+		valid := slices.ContainsFunc(question.Options, func(o convo.AskOption) bool { return o.Label == value })
 		if question.MultiSelect {
-			labels = strings.Split(value, ", ")
+			valid = matchesSelection(value, question.Options, map[string]bool{})
 		}
-		seen := map[string]bool{}
-		for _, label := range labels {
-			if seen[label] || !slices.ContainsFunc(question.Options, func(o convo.AskOption) bool { return o.Label == label }) {
-				return fmt.Errorf("%q is not one of the options of %q", value, question.Question)
-			}
-			seen[label] = true
+		if !valid {
+			return fmt.Errorf("%q is not one of the options of %q", value, question.Question)
 		}
 	}
 	return nil
+}
+
+func matchesSelection(value string, options []convo.AskOption, seen map[string]bool) bool {
+	for _, option := range options {
+		if seen[option.Label] {
+			continue
+		}
+		if value == option.Label {
+			return true
+		}
+		if rest, ok := strings.CutPrefix(value, option.Label+", "); ok {
+			seen[option.Label] = true
+			valid := matchesSelection(rest, options, seen)
+			delete(seen, option.Label)
+			if valid {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Clock is what a hold reads the time with and sleeps between polls with, so

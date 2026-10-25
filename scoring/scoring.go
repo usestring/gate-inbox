@@ -71,7 +71,12 @@ func (s Score) String() string {
 	return strings.Join(parts, " + ") + " = " + formatPoints(s.Total())
 }
 
+// formatPoints rounds to whole points, but keeps three significant figures
+// below ten so a score on a small scale, like headroom's, does not print 0.
 func formatPoints(p float64) string {
+	if a := math.Abs(p); a > 0 && a < 10 {
+		return strconv.FormatFloat(p, 'g', 3, 64)
+	}
 	return strconv.FormatFloat(p, 'f', 0, 64)
 }
 

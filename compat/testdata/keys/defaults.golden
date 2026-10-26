@@ -67,6 +67,7 @@ search = ["/"]  # fuzzy session search
 clear_search = []  # clear the search
 resize_split = []  # resize the split
 settings = ["s"]  # settings
+refresh_clis = []  # refresh installed CLIs: look on PATH again for each agent CLI
 toggle_chrome = []  # hide / show the key hints along the foot
 toggle_rail = []  # hide / show the list beside the pane
 legend_peek = ["?"]  # peek at every available key

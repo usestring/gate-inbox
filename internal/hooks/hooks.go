@@ -232,7 +232,9 @@ func askAnsweredCommand() string { return hookCommandLine("ask-answered") }
 // its transcript only once it is answered, so without this nothing outside
 // the child can read the questions, options and previews while the dialog
 // stands. It writes its own file, so running beside the "*" status writer
-// races on nothing, and it always exits 0.
+// races on nothing, and it always exits 0. While a gate channel consumer
+// holds a live, deliverable lease it also holds the call for that consumer
+// to answer (sessioncmd.AskHoldHook); with none, it returns at once.
 func askPendingCommand() string { return hookCommandLine("ask-pending") }
 
 // sessionStartCommand tells a spawned child how to ask for its user's

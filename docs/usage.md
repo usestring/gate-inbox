@@ -154,6 +154,10 @@ Each ask is stored once. Fetching it again refreshes its title, size and checks 
 | `tab` | The next tab |
 | `j` / `k`, `ctrl+d` / `ctrl+u`, `g` / `G` | Scroll a line, a page, to the top or the bottom |
 | `n` / `p` | The next or previous file |
+| `]` / `[` | Select the next or previous draft |
+| `c` | Comment on the marked line |
+| `y` / `d` / `e` | Keep, drop or edit the selected draft |
+| `a` / `r` / `C` | Approve, request changes, or submit as a comment |
 | `s` | Start a review session on it |
 | `o` | Open this tab on GitHub |
 | `x` | Dismiss it and go back to the queue |
@@ -161,6 +165,10 @@ Each ask is stored once. Fetching it again refreshes its title, size and checks 
 | `esc` / `q` | Back to the queue |
 
 A failed fetch says why on the page and leaves the header drawn from the queued ask; `P` tries again.
+
+The review is written on the Files changed tab. The review session drafts each finding with the `review_comment` tool instead of posting it, and each draft is drawn under its line, marked as the agent's and as proposed. `]` and `[` walk the drafts; `y` keeps the selected one, `d` drops it, and `e` rewrites it, which keeps it too. `c` comments on the line marked `▸`, the first diff line in view, and your comment starts kept. A draft whose line is no longer on the diff is listed under its file and left out of the review.
+
+`a`, `r` and `C` open the review's summary above the diff, saying how many kept drafts go with it. `enter` submits one review to GitHub with the kept drafts as its inline comments, pinned to the head commit the page shows, so a push since then fails the review rather than placing comments on lines that moved. Once GitHub accepts it the ask leaves the queue. In a text box `alt+enter` starts a new line and `esc` cancels.
 
 A review session starts with the `prompt` below, where `{repo}`, `{number}`, `{head}` and `{url}` are filled in. It uses the configured CLI, model and directory, falling back to the default tool and the root group's directory.
 

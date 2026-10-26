@@ -388,9 +388,10 @@ func TestListsAllTools(t *testing.T) {
 		}
 	}
 	// The review screen is gone, so an agent must no longer be offered
-	// tools that declare what it would have shown.
+	// tools that declare what it would have shown. review_comment drafts
+	// onto a pull request's review, which is a different thing.
 	for name := range names {
-		if strings.Contains(name, "review") {
+		if strings.Contains(name, "review") && name != "review_comment" {
 			t.Fatalf("the server still offers %q", name)
 		}
 	}

@@ -213,6 +213,9 @@ func (m *Model) handleHeadPaneKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, m.leaveHeadPane(false)
 		}
 	}
+	if page := m.reviewPage(); page != nil && page.compose != nil && m.extView.screen == keymap.ContextReviewPage {
+		return m.handleComposeKey(msg)
+	}
 	action, bound := m.action(m.extView.screen, msg)
 	// The pull request's page binds close to going back to the queue, so it
 	// answers its own keys before close can leave the pane.

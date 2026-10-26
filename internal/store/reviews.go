@@ -129,3 +129,107 @@ func (s *Store) SetPullRequestReviewState(repo string, number int, state, sessio
 		state, sessionID, sessionID, now.UnixMilli(), repo, number, ReviewPending, ReviewStarted)
 	return err
 }
+
+// Draft states. A draft starts proposed when an agent writes it and kept when the operator does;
+// only kept drafts go out with the review.
+const (
+	DraftProposed = "proposed"
+	DraftKept     = "kept"
+	DraftDropped  = "dropped"
+)
+
+// Who wrote a draft.
+const (
+	DraftByAgent    = "agent"
+	DraftByOperator = "operator"
+)
+
+// ReviewDraft is one inline comment waiting on the operator's review of a pull request. Line and
+// Side are GitHub's: the new file's line on RIGHT, the old file's on LEFT.
+type ReviewDraft struct {
+	ID        int64
+	Repo      string
+	Number    int
+	HeadSHA   string
+	Path      string
+	Line      int
+	Side      string
+	Body      string
+	Kind      string
+	Context   string
+	Author    string
+	SessionID string
+	State     string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+// AddReviewDraft stores a new draft and returns it with its id.
+func (s *Store) AddReviewDraft(d ReviewDraft, now time.Time) (ReviewDraft, error) {
+	if d.Side == "" {
+		d.Side = "RIGHT"
+	}
+	if d.State == "" {
+		d.State = DraftProposed
+	}
+	res, err := s.db.Exec(`INSERT INTO review_drafts
+		(repo, number, head_sha, path, line, side, body, kind, context, author, session_id, state,
+		 created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		d.Repo, d.Number, d.HeadSHA, d.Path, d.Line, d.Side, d.Body, d.Kind, d.Context, d.Author,
+		d.SessionID, d.State, now.UnixMilli(), now.UnixMilli())
+	if err != nil {
+		return ReviewDraft{}, err
+	}
+	d.ID, err = res.LastInsertId()
+	d.CreatedAt, d.UpdatedAt = time.UnixMilli(now.UnixMilli()), time.UnixMilli(now.UnixMilli())
+	return d, err
+}
+
+// ReviewDrafts is every draft on a pull request that no review has submitted yet, dropped ones
+// included, in the order they were written.
+func (s *Store) ReviewDrafts(repo string, number int) ([]ReviewDraft, error) {
+	rows, err := s.db.Query(`SELECT id, repo, number, head_sha, path, line, side, body, kind,
+		context, author, session_id, state, created_at, updated_at
+		FROM review_drafts WHERE repo = ? AND number = ? AND submitted_at = 0
+		ORDER BY id`, repo, number)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ReviewDraft
+	for rows.Next() {
+		var d ReviewDraft
+		var created, updated int64
+		if err := rows.Scan(&d.ID, &d.Repo, &d.Number, &d.HeadSHA, &d.Path, &d.Line, &d.Side,
+			&d.Body, &d.Kind, &d.Context, &d.Author, &d.SessionID, &d.State, &created, &updated); err != nil {
+			return nil, err
+		}
+		d.CreatedAt, d.UpdatedAt = time.UnixMilli(created), time.UnixMilli(updated)
+		out = append(out, d)
+	}
+	return out, rows.Err()
+}
+
+// SetReviewDraft moves a draft to state, and replaces its body unless body is empty.
+func (s *Store) SetReviewDraft(id int64, state, body string, now time.Time) error {
+	res, err := s.db.Exec(`UPDATE review_drafts
+		SET state = ?, body = CASE WHEN ? = '' THEN body ELSE ? END, updated_at = ?
+		WHERE id = ? AND submitted_at = 0`, state, body, body, now.UnixMilli(), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// FinishReviewDrafts closes every draft on a pull request once a review is submitted, so a later
+// ask on the same pull request starts with none.
+func (s *Store) FinishReviewDrafts(repo string, number int, now time.Time) error {
+	_, err := s.db.Exec(`UPDATE review_drafts SET submitted_at = ?, updated_at = ?
+		WHERE repo = ? AND number = ? AND submitted_at = 0`,
+		now.UnixMilli(), now.UnixMilli(), repo, number)
+	return err
+}

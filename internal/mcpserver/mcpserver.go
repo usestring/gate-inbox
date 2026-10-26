@@ -49,6 +49,17 @@ type priorityArgs struct {
 	Tier string `json:"tier" jsonschema:"how much the work in this session matters: urgent (+3), high (+2), medium (+1), none (0), or low (-1)"`
 }
 
+type reviewCommentArgs struct {
+	Repo    string `json:"repo" jsonschema:"the pull request's repository as owner/name"`
+	Number  int    `json:"number" jsonschema:"the pull request's number"`
+	Path    string `json:"path" jsonschema:"the file the comment is on, as the diff names it"`
+	Line    int    `json:"line" jsonschema:"the line the comment is on: the new file's line on RIGHT, the old file's on LEFT; it must be part of the diff"`
+	Side    string `json:"side,omitempty" jsonschema:"RIGHT (default) for an added or unchanged line, LEFT for a removed one"`
+	Body    string `json:"body" jsonschema:"the comment as the author will read it"`
+	Kind    string `json:"kind,omitempty" jsonschema:"finding (default) for a problem, question for something the operator should ask the author"`
+	Context string `json:"context,omitempty" jsonschema:"for the operator only: why it matters, and what the pull request's description claims that this checks"`
+}
+
 type listTerminalsArgs struct{}
 
 type createTerminalArgs struct {
@@ -536,6 +547,19 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"It orders this session within the queue it is already in, so it never puts a session that needs nobody ahead of one waiting on an answer, and the user can always override it.",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args priorityArgs) (*mcp.CallToolResult, any, error) {
 		return textResult(sessioncmd.Priority(configDir, sessionID, args.Tier))
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "review_comment",
+		Description: "Draft one inline comment on a pull request you were asked to review, for the operator to keep, edit or drop before they submit the review. " +
+			"Call it once per finding or question instead of posting with gh; nothing reaches GitHub until the operator submits. " +
+			"The pull request must have an open review ask on the board, and the line must be part of its diff.",
+		Annotations: mcptool.Annotations(false, false, false),
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args reviewCommentArgs) (*mcp.CallToolResult, any, error) {
+		return textResult(sessioncmd.ReviewComment(configDir, sessionID, sessioncmd.ReviewCommentInput{
+			Repo: args.Repo, Number: args.Number, Path: args.Path, Line: args.Line, Side: args.Side,
+			Body: args.Body, Kind: args.Kind, Context: args.Context,
+		}, time.Now()))
 	})
 
 	mcp.AddTool(server, &mcp.Tool{

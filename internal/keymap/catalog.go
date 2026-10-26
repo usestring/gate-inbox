@@ -104,6 +104,16 @@ const (
 	ReviewNextTab      Action = "review_next_tab"
 	ReviewNextFile     Action = "review_next_file"
 	ReviewPrevFile     Action = "review_prev_file"
+	// The review being written: its drafts, and the three ways to submit it.
+	ReviewNextDraft      Action = "review_next_draft"
+	ReviewPrevDraft      Action = "review_prev_draft"
+	ReviewComment        Action = "review_comment"
+	ReviewEditDraft      Action = "review_edit_draft"
+	ReviewKeepDraft      Action = "review_keep_draft"
+	ReviewDropDraft      Action = "review_drop_draft"
+	ReviewApprove        Action = "review_approve"
+	ReviewRequestChanges Action = "review_request_changes"
+	ReviewCommentOnly    Action = "review_comment_only"
 )
 
 // Focus actions.
@@ -347,6 +357,15 @@ var Catalog = []Binding{
 	{ContextReviewPage, Bottom, []string{"G", "end"}, "the bottom", false},
 	{ContextReviewPage, ReviewNextFile, []string{"n"}, "next file", false},
 	{ContextReviewPage, ReviewPrevFile, []string{"p"}, "previous file", false},
+	{ContextReviewPage, ReviewNextDraft, []string{"]"}, "next draft", false},
+	{ContextReviewPage, ReviewPrevDraft, []string{"["}, "previous draft", false},
+	{ContextReviewPage, ReviewComment, []string{"c"}, "comment on the marked line", false},
+	{ContextReviewPage, ReviewEditDraft, []string{"e"}, "edit the draft", false},
+	{ContextReviewPage, ReviewKeepDraft, []string{"y"}, "keep the draft", false},
+	{ContextReviewPage, ReviewDropDraft, []string{"d"}, "drop the draft", false},
+	{ContextReviewPage, ReviewApprove, []string{"a"}, "approve", false},
+	{ContextReviewPage, ReviewRequestChanges, []string{"r"}, "request changes", false},
+	{ContextReviewPage, ReviewCommentOnly, []string{"C", "shift+c"}, "submit as a comment", false},
 	{ContextReviewPage, ReviewStart, []string{"s"}, "start the review", false},
 	{ContextReviewPage, ReviewOpen, []string{"o"}, "open on GitHub", false},
 	{ContextReviewPage, ReviewDismiss, []string{"x"}, "dismiss", false},

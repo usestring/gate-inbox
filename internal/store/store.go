@@ -586,6 +586,27 @@ CREATE TABLE IF NOT EXISTS settings (
 			updated_at   INTEGER NOT NULL,
 			PRIMARY KEY (repo, number, trigger, trigger_id)
 		)`,
+		// Inline comments drafted on a pull request before one review
+		// submits them. See ReviewDraft.
+		`CREATE TABLE IF NOT EXISTS review_drafts (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			repo         TEXT NOT NULL,
+			number       INTEGER NOT NULL,
+			head_sha     TEXT NOT NULL DEFAULT '',
+			path         TEXT NOT NULL,
+			line         INTEGER NOT NULL,
+			side         TEXT NOT NULL DEFAULT 'RIGHT',
+			body         TEXT NOT NULL,
+			kind         TEXT NOT NULL DEFAULT 'finding',
+			context      TEXT NOT NULL DEFAULT '',
+			author       TEXT NOT NULL,
+			session_id   TEXT NOT NULL DEFAULT '',
+			state        TEXT NOT NULL DEFAULT 'proposed',
+			submitted_at INTEGER NOT NULL DEFAULT 0,
+			created_at   INTEGER NOT NULL,
+			updated_at   INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS review_drafts_pr ON review_drafts (repo, number)`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {

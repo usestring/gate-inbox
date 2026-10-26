@@ -144,6 +144,10 @@ func (h uiHost) Decorate(sessionID string, badges ...extension.Badge) {
 	h.bridge.Decorate(h.id, sessionID, out)
 }
 
+func (h uiHost) Fact(sessionID string, fact extension.Fact) {
+	h.bridge.Fact(h.id, sessionID, fact)
+}
+
 func (h uiHost) ConfirmOpen(sessionID, warning string) {
 	h.bridge.ConfirmOpen(h.id, sessionID, warning)
 }

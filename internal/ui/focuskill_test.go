@@ -45,6 +45,7 @@ func TestRefreshReleasesFocusWhenThePaneDies(t *testing.T) {
 // queue rather than following the dead row down to the foot of the rail.
 func TestTriageAdvancesWhenTheFocusedPaneExits(t *testing.T) {
 	m := focusedKillFleet(t, true)
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	m.enterFocusOn(t, "ask")
 	sess, _ := m.selected()
 	if err := m.tmux.Kill(sess.ID); err != nil {

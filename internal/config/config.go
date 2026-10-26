@@ -86,6 +86,13 @@ type Tool struct {
 	// about the first write there. Left unset, such a launch carries only
 	// the change-directory note, which is all a tool without the flag gets.
 	AddDirFlag string `toml:"add_dir_flag"`
+	// SkipPermissionsFlag launches a session with no permission prompts at
+	// all (claude "--dangerously-skip-permissions", codex
+	// "--dangerously-bypass-approvals-and-sandbox"), for a session the operator
+	// chose to run that way. Left unset, the tool cannot be launched so, and
+	// a launch asking for it is refused rather than run with prompts the
+	// operator thought were off.
+	SkipPermissionsFlag string `toml:"skip_permissions_flag"`
 	// LaunchInPlace opens a spawn's pane in the directory it asked for even
 	// when that lies outside the caller's tree. Set it for a CLI whose
 	// first-run trust dialog defaults to continuing: diverting such a CLI
@@ -136,6 +143,11 @@ type Tool struct {
 	// tools carry it: it travels as autoCompactWindow in the session's own
 	// settings file. Empty, which is the default, changes nothing.
 	CompactWindow map[string]int `toml:"compact_window"`
+	// CompactDowngradeDelay is how long a session's tier has to stay lowered
+	// before its smaller window is written, so a tier dropped by mistake can
+	// be put back first. A larger window is written on the next pass. A tool
+	// that sets none waits DefaultCompactDowngradeDelay.
+	CompactDowngradeDelay Duration `toml:"compact_downgrade_delay"`
 	// ResumeByIDCommand resumes a specific conversation; "{id}" is replaced
 	// with the session's agent id. Preferred over ReviveCommand, which only
 	// resumes the working directory's most recent conversation.
@@ -310,7 +322,81 @@ type Work struct {
 type Integrations struct {
 	GitHub Integration `toml:"github"`
 	Linear Integration `toml:"linear"`
+	// Reviews is the review queue: pull requests someone asked the operator
+	// to review from GitHub, fetched on the ingest key.
+	Reviews Reviews `toml:"reviews"`
 }
+
+// Reviews configures what counts as a request for the operator's review, and
+// how a review session starts.
+type Reviews struct {
+	// Enabled is a pointer so that absent means on; it is still inert until
+	// the ingest key is pressed.
+	Enabled *bool `toml:"enabled"`
+	// Triggers is which asks count: requested (named as a reviewer), label,
+	// and comment. Empty is all three.
+	Triggers []string `toml:"triggers"`
+	// Label and Command are searched only within Orgs, so with no orgs only
+	// review requests are found.
+	Label   string   `toml:"label"`
+	Command string   `toml:"command"`
+	Orgs    []string `toml:"orgs"`
+	// Commenters, when set, is who may ask by comment.
+	Commenters []string `toml:"commenters"`
+	// Ack is the reaction left on each new ask: "eyes", or "none" for none.
+	Ack string `toml:"ack"`
+	// Prompt starts a review session; {repo}, {number}, {head} and {url}
+	// are filled in.
+	Prompt    string `toml:"prompt"`
+	Tool      string `toml:"tool"`
+	Model     string `toml:"model"`
+	Directory string `toml:"directory"`
+}
+
+// On reports whether the review queue is switched on.
+func (r Reviews) On() bool { return r.Enabled == nil || *r.Enabled }
+
+// Default review settings, for any field left unset.
+const (
+	DefaultReviewLabel   = "gate-review"
+	DefaultReviewCommand = "/gate review"
+	DefaultReviewPrompt  = "Review {repo}#{number} at {head} ({url}). Do not post to GitHub."
+)
+
+// TriggerList is the configured triggers, or all three when none are named.
+func (r Reviews) TriggerList() []string {
+	if len(r.Triggers) == 0 {
+		return []string{"requested", "label", "comment"}
+	}
+	return r.Triggers
+}
+
+// LabelOrDefault is the review label, or the default when unset.
+func (r Reviews) LabelOrDefault() string {
+	if r.Label == "" {
+		return DefaultReviewLabel
+	}
+	return r.Label
+}
+
+// CommandOrDefault is the review command, or the default when unset.
+func (r Reviews) CommandOrDefault() string {
+	if r.Command == "" {
+		return DefaultReviewCommand
+	}
+	return r.Command
+}
+
+// PromptOrDefault is the review session's prompt template, or the default.
+func (r Reviews) PromptOrDefault() string {
+	if r.Prompt == "" {
+		return DefaultReviewPrompt
+	}
+	return r.Prompt
+}
+
+// Acks reports whether new asks get a reaction.
+func (r Reviews) Acks() bool { return r.Ack != "none" }
 
 // Integration is one provider's switch. Linear also needs LINEAR_API_KEY in
 // the environment to read ticket state; without it ticket rows are still drawn,
@@ -636,6 +722,19 @@ func checkCompactWindow(name string, windows map[string]int) error {
 	return nil
 }
 
+// DefaultCompactDowngradeDelay is how long a smaller window waits when
+// compact_downgrade_delay is not set.
+const DefaultCompactDowngradeDelay = 10 * time.Minute
+
+// CompactDowngradeDelayOrDefault is how long a smaller window waits before
+// it is written.
+func (t Tool) CompactDowngradeDelayOrDefault() time.Duration {
+	if t.CompactDowngradeDelay.Duration > 0 {
+		return t.CompactDowngradeDelay.Duration
+	}
+	return DefaultCompactDowngradeDelay
+}
+
 // CompactWindowFor is the auto-compact window a session at tier gets, or 0
 // for the CLI's own.
 func (t Tool) CompactWindowFor(tier priority.Tier) int {
@@ -772,8 +871,12 @@ func mergeTool(name string, user, def Tool) Tool {
 	if user.EchoBudget.Duration <= 0 {
 		user.EchoBudget = def.EchoBudget
 	}
+	if user.CompactDowngradeDelay.Duration <= 0 {
+		user.CompactDowngradeDelay = def.CompactDowngradeDelay
+	}
 	fill(&user.SessionIDFlag, def.SessionIDFlag)
 	fill(&user.AddDirFlag, def.AddDirFlag)
+	fill(&user.SkipPermissionsFlag, def.SkipPermissionsFlag)
 	fill(&user.ResumeByIDCommand, def.ResumeByIDCommand)
 	fill(&user.ResumePickerCommand, def.ResumePickerCommand)
 	fill(&user.ForkCommand, def.ForkCommand)
@@ -1208,11 +1311,16 @@ model_flag = "--model"
 # own window. To let the sessions that matter most keep more context, give a
 # window in tokens (100000 to 1000000) per tier; the tier is the one the board
 # sorts by, and a tier left out keeps claude's own. It is written as
-# autoCompactWindow into the session's own settings file, which claude 2.1.304
+# autoCompactWindow into the session's own settings file, which claude 2.1.310
 # reads at launch only: a tier changed mid-session applies at the next revive
 # or restart. CLAUDE_CODE_AUTO_COMPACT_WINDOW in the environment overrides it.
+# A raise in tier applies on the next poll; a drop waits
+# compact_downgrade_delay and is dropped if the tier goes back up first, so a
+# tier lowered by mistake costs nothing. Board extensions that compact by tier
+# read the same held tier, live.
 #
 # compact_window = { urgent = 600000, high = 300000 }
+compact_downgrade_delay = "10m"
 # claude has no command that prints these; they are the documented aliases.
 # The 1M-context variants sit beside the bare ones because an explicit --model
 # overrides the operator's settings.json default: picking "opus" for someone
@@ -1225,6 +1333,8 @@ session_id_flag = "--session-id"
 # a spawn whose pane opens outside the directory it asked for is granted
 # that directory too, so its first write there is not denied
 add_dir_flag = "--add-dir"
+# a session launched with "skip permissions" on runs with no permission prompts
+skip_permissions_flag = "--dangerously-skip-permissions"
 resume_by_id_command = "claude --resume {id}"
 resume_picker_command = "claude --resume"
 fork_command = "claude --resume {id} --fork-session --session-id {new_id} --name {name}"
@@ -1358,6 +1468,10 @@ command = "opencode"
 # "provider/model" into the generated OPENCODE_CONFIG instead.
 # No add_dir_flag: opencode has no flag granting a second directory, so a
 # spawn diverted to another directory is only told to change into it.
+# No skip_permissions_flag: a session launched with skip permissions on gets
+# them off through the generated OPENCODE_CONFIG instead, which loads a plugin
+# allowing every permission request, its subagents' too. The TUI's own
+# --auto approves only the session on screen, so a subagent would still wait.
 # every provider/model pair this login can reach, one per line
 models_command = "opencode models"
 # opencode mints its own session id; capture it after launch and resume it
@@ -1465,6 +1579,8 @@ command = "codex"
 model_flag = "--model"
 # codex-cli 0.157.0: --add-dir <DIR>, writable alongside the primary workspace
 add_dir_flag = "--add-dir"
+# no approval prompts and no sandbox, for a session launched with "skip permissions"
+skip_permissions_flag = "--dangerously-bypass-approvals-and-sandbox"
 # Codex's trust dialog defaults to "Trust and continue", while a codex started
 # in an untrusted directory runs read-only and exits on --add-dir. A spawn
 # outside the caller's tree therefore opens where it asked to work.
@@ -1472,6 +1588,11 @@ launch_in_place = true
 # codex repaints a typed character in 27-45ms against Claude Code's 10-25ms,
 # so the default chase gives up mid-repaint and the key waits for a tick
 echo_budget = "90ms"
+# codex-cli 0.163: text pasted and submitted while a turn runs is taken as a
+# steer and read at the turn's next step. Without this a message to a codex
+# that stays busy -- a coordinator waiting on its children -- queues until a
+# rest that may not come for an hour.
+type_ahead = true
 # No rename_command on purpose. Codex ships a BUILT-IN /rename ("rename the
 # current thread") which shadows any prompt file of that name, so typing it
 # renamed codex's own thread and never reached the manager: a rename that

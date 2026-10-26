@@ -385,9 +385,14 @@ func (m *Model) launchOnHeldConversation(sess store.Session) error {
 // under its old id, keeping its name, group and history. Both revive and
 // restart end here; they differ only in the command they hand it and in
 // bindConversation, which records the conversation the new pane is on once
-// the launch has actually taken. A launch that fails leaves the row exactly
-// as it was, still pointing at the conversation it can be revived on.
+// the launch has actually taken. A launch that fails leaves the row as it
+// was, still pointing at the conversation it can be revived on, except that
+// an adopted row whose pane is gone has already been made a managed one.
 func (m *Model) relaunchSession(sess store.Session, tool config.Tool, baseCommand, newStatus string, bindConversation func() error) error {
+	sess, err := m.promoteDeadAdopted(sess)
+	if err != nil {
+		return err
+	}
 	sessionHooks, err := sessionhooks.Current()
 	if err != nil {
 		return err
@@ -396,7 +401,7 @@ func (m *Model) relaunchSession(sess store.Session, tool config.Tool, baseComman
 	if err != nil {
 		return err
 	}
-	command, env, err := m.buildLaunch(sess.Tool, tool, baseCommand, sess.ID, sess.Model, sess.Account, contributed)
+	command, env, err := m.buildLaunch(sess.Tool, tool, baseCommand, sess.ID, sess.Model, sess.Account, sess.SkipPermissions, contributed)
 	if err != nil {
 		return err
 	}
@@ -1667,7 +1672,7 @@ func withoutSessions(sessions, drop []store.Session) []store.Session {
 // detached from, if one happened. An attached pane takes their keys straight
 // from tmux, so the board never sees what they typed; the session's status
 // moving while they were in it is the sign that they gave it a turn. Going in
-// and coming out again is a look, which leaves the wait where it was, as
+// and coming out again is a look, which leaves its place where it was, as
 // looking at a finish from the board does. See triageFinishedSeen.
 func (m *Model) noteAttachedTurn(id string, since time.Time) {
 	if m.store == nil || since.IsZero() {

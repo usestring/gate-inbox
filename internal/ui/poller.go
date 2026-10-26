@@ -174,11 +174,24 @@ type poller struct {
 	screens    map[string]screenMark
 	stale      map[string]bool
 	staleAfter time.Duration
-	// compactTools is each claude-hooks tool with a compact_window, and
+	// paneModes is each session's permission mode as its footer last
+	// showed it, kept across passes because a dialog hides the footer. See
+	// turnhorizon.go.
+	paneModes map[string]string
+	// compactTools is each claude-hooks tool with a compact_window,
 	// compactFailed the window a session's settings file last failed to
-	// take. See compactwindow.go.
-	compactTools  map[string]config.Tool
-	compactFailed map[string]int
+	// take, and compactViews what the last pass found for the rail.
+	// sizingHolds is each session's sizing tier as held, sizing the same as
+	// the last pass handed it to extensions, and downgradeDelays each tool's
+	// compact_downgrade_delay. compactClock stands in for time.Now in tests.
+	// See compactwindow.go.
+	compactTools    map[string]config.Tool
+	compactFailed   map[string]int
+	compactViews    map[string]compactView
+	sizingHolds     map[string]store.SizingHold
+	sizing          map[string]store.Sizing
+	downgradeDelays map[string]time.Duration
+	compactClock    func() time.Time
 	// hookCursor is how far into each session's hook log the poller has
 	// read. The newest line says what the session is doing now; the lines
 	// between two passes say what it did meanwhile, and a whole turn can fit
@@ -214,7 +227,9 @@ type poller struct {
 // update loop, which it must not hold up either.
 type BoardObserver interface {
 	Transition(id, from, to string, at time.Time)
-	Pass(at time.Time, sessions []store.Session)
+	// groupTiers are each group's tier, for a session's effective one, and
+	// sizing each session's sizing tier as the pass held it.
+	Pass(at time.Time, sessions []store.Session, groupTiers map[string]priority.Tier, sizing map[string]store.Sizing)
 	Operator(input extension.OperatorInput)
 }
 
@@ -859,6 +874,9 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	answerableWait := make(map[string]bool)
 	askQuestions := make(map[string][]convo.AskQuestion)
 	askReads := make(map[string]*askRead)
+	// paneModes is each live session's permission mode, rebuilt every pass
+	// so a session that has gone takes its mode with it. See notePaneMode.
+	paneModes := make(map[string]string, len(p.paneModes))
 	// The row state this pass derives, written in one transaction instead of
 	// a statement per row. See store.ApplyDerivedStates for why that matters:
 	// the pass shares its write lock with every mcp process on the board, and
@@ -952,6 +970,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 				// agent is gone: the row keeps the status it already had
 				// rather than reading one bad tmux call as a dead session.
 				newStatus = sess.Status
+				p.notePaneMode(paneModes, sess, "")
 			}
 			if pane := capture.Text; capture.Err == nil {
 				// Opt-in, and scrubbed even then: these panes hold live API
@@ -980,6 +999,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 					askReads[sess.ID] = read
 				}
 				searchText[sess.ID] = strings.ToLower(clean)
+				p.notePaneMode(paneModes, sess, clean)
 				// A child's pane is kept off the same capture, for the same
 				// reason: relaying its question to its parent has to read the
 				// dialog, and a capture of its own would be paid on every pass
@@ -1007,7 +1027,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 						return errMsg{err}
 					}
 					if agentAlive {
-						derived = p.settleStalledBackground(sess, clean, derived, now)
+						derived = p.settleBackground(sess, clean, derived, now)
 					}
 					phases.status += lap(&step)
 					newStatus = derived
@@ -1249,6 +1269,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 		agents:           agents,
 		queuedMessages:   queued,
 		granted:          granted,
+		compactWindows:   p.compactViews,
 		archivedChildren: archivedKids,
 		searchText:       searchText,
 		answerableWait:   answerableWait,
@@ -1261,6 +1282,8 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	if p.deadlines != nil {
 		msg.queueDeadlines = p.deadlines.QueueDeadlines()
 	}
+	p.paneModes = paneModes
+	msg.expectedTurns = expectedTurnRows(paneModes)
 	if sampleStats {
 		msg.snap = sysstat.Sample("/")
 		msg.snapOK = true
@@ -1268,7 +1291,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	}
 	phases.sample = lap(&mark)
 	if p.observer != nil {
-		p.observer.Pass(now, sessions)
+		p.observer.Pass(now, sessions, priorityGroups, p.sizing)
 	}
 	p.paneSamples = samples
 	return msg
@@ -1635,7 +1658,7 @@ const (
 // is let through for a tool that queues typed input itself (config.TypeAhead).
 func inboxDeliverable(derived string, typeAhead bool) bool {
 	return derived == status.Idle || derived == status.Finished || derived == status.Waiting ||
-		typeAhead && derived == status.Working
+		derived == status.Background || typeAhead && derived == status.Working
 }
 
 // maybeDeliverInbox types one queued message into a session that is at
@@ -2477,6 +2500,16 @@ func (p *poller) forgetVanished(sessions []store.Session) {
 			delete(p.compactFailed, id)
 		}
 	}
+	prunedHolds := false
+	for id := range p.sizingHolds {
+		if !live[id] {
+			delete(p.sizingHolds, id)
+			prunedHolds = true
+		}
+	}
+	if prunedHolds {
+		p.saveSizingHolds()
+	}
 	// A codex tracker holds every question its rollout has shown, so one left
 	// behind by an ended session is a leak that grows with the conversation.
 	for id := range p.codexQuestions {
@@ -2710,10 +2743,11 @@ func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAli
 
 // turnInFlight reports whether a status means a turn is running or resting
 // unacknowledged. Only then can a quiet region mean the turn just ended;
-// finished and waiting stay in the set so the inferred status persists
-// across polls instead of collapsing to idle on the next pass.
+// finished, waiting and background stay in the set so the inferred status
+// persists across polls instead of collapsing to idle on the next pass.
 func turnInFlight(current string) bool {
-	return current == status.Working || current == status.Finished || current == status.Waiting
+	return current == status.Working || current == status.Finished || current == status.Waiting ||
+		current == status.Background
 }
 
 // missedTurn reports whether the session ran a turn the row never showed:

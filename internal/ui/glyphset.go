@@ -33,10 +33,12 @@ type glyphSet struct {
 	errored       string
 	idle          string
 	delegating    string
+	background    string
 	pending       string
 	muted         string
 	deaf          string
 	hookless      string
+	skipPerms     string
 	died          string
 	checksPassing string
 	checksFailing string
@@ -65,11 +67,15 @@ var shapeGlyphs = glyphSet{
 	idle:     "○",
 	// ◎ is ○ with something inside it: at rest, and still holding work.
 	delegating: "◎",
+	// ◒ is ○ with something settled under it: at rest, with a shell still
+	// running below the turn.
+	background: "◒",
 	// ◍ is ○ barred shut: at rest, with a send held at the door.
 	pending:       "◍",
 	muted:         "⊘",
 	deaf:          "⊗",
 	hookless:      "⊙",
+	skipPerms:     "!",
 	died:          "↻",
 	checksPassing: "✓",
 	checksFailing: "✕",
@@ -102,10 +108,12 @@ var emojiGlyphs = glyphSet{
 	errored:       "❌",
 	idle:          "💤",
 	delegating:    "📤",
+	background:    "🐚",
 	pending:       "📡",
 	muted:         "🔕",
 	deaf:          "🔇",
 	hookless:      "🔌",
+	skipPerms:     "!",
 	died:          "💥",
 	checksPassing: "✅",
 	checksFailing: "❌",
@@ -176,6 +184,8 @@ func statusGlyph(s string) string {
 		return currentGlyphs.finished
 	case status.Delegating:
 		return currentGlyphs.delegating
+	case status.Background:
+		return currentGlyphs.background
 	case status.Pending:
 		return currentGlyphs.pending
 	case status.Errored, status.Dead:
@@ -195,6 +205,10 @@ func mutedGlyph() string { return currentGlyphs.muted }
 // adjacent things -- one that the drain was told to walk past this session,
 // one that it cannot usefully stop at it.
 func deafGlyph() string { return currentGlyphs.deaf }
+
+// skipPermsGlyph marks a row whose agent was launched with its CLI's
+// permission prompts off, so nothing it runs stops to ask first.
+func skipPermsGlyph() string { return currentGlyphs.skipPerms }
 
 // hooklessGlyph marks a row whose status is being read off its pane because
 // nothing is writing its hook file -- the agent in the pane is not the one the

@@ -136,11 +136,16 @@ model_flag = "--model"
 # own window. To let the sessions that matter most keep more context, give a
 # window in tokens (100000 to 1000000) per tier; the tier is the one the board
 # sorts by, and a tier left out keeps claude's own. It is written as
-# autoCompactWindow into the session's own settings file, which claude 2.1.304
+# autoCompactWindow into the session's own settings file, which claude 2.1.310
 # reads at launch only: a tier changed mid-session applies at the next revive
 # or restart. CLAUDE_CODE_AUTO_COMPACT_WINDOW in the environment overrides it.
+# A raise in tier applies on the next poll; a drop waits
+# compact_downgrade_delay and is dropped if the tier goes back up first, so a
+# tier lowered by mistake costs nothing. Board extensions that compact by tier
+# read the same held tier, live.
 #
 # compact_window = { urgent = 600000, high = 300000 }
+compact_downgrade_delay = "10m"
 # claude has no command that prints these; they are the documented aliases.
 # The 1M-context variants sit beside the bare ones because an explicit --model
 # overrides the operator's settings.json default: picking "opus" for someone
@@ -153,6 +158,8 @@ session_id_flag = "--session-id"
 # a spawn whose pane opens outside the directory it asked for is granted
 # that directory too, so its first write there is not denied
 add_dir_flag = "--add-dir"
+# a session launched with "skip permissions" on runs with no permission prompts
+skip_permissions_flag = "--dangerously-skip-permissions"
 resume_by_id_command = "claude --resume {id}"
 resume_picker_command = "claude --resume"
 fork_command = "claude --resume {id} --fork-session --session-id {new_id} --name {name}"
@@ -286,6 +293,10 @@ command = "opencode"
 # "provider/model" into the generated OPENCODE_CONFIG instead.
 # No add_dir_flag: opencode has no flag granting a second directory, so a
 # spawn diverted to another directory is only told to change into it.
+# No skip_permissions_flag: a session launched with skip permissions on gets
+# them off through the generated OPENCODE_CONFIG instead, which loads a plugin
+# allowing every permission request, its subagents' too. The TUI's own
+# --auto approves only the session on screen, so a subagent would still wait.
 # every provider/model pair this login can reach, one per line
 models_command = "opencode models"
 # opencode mints its own session id; capture it after launch and resume it
@@ -393,6 +404,8 @@ command = "codex"
 model_flag = "--model"
 # codex-cli 0.157.0: --add-dir <DIR>, writable alongside the primary workspace
 add_dir_flag = "--add-dir"
+# no approval prompts and no sandbox, for a session launched with "skip permissions"
+skip_permissions_flag = "--dangerously-bypass-approvals-and-sandbox"
 # Codex's trust dialog defaults to "Trust and continue", while a codex started
 # in an untrusted directory runs read-only and exits on --add-dir. A spawn
 # outside the caller's tree therefore opens where it asked to work.
@@ -400,6 +413,11 @@ launch_in_place = true
 # codex repaints a typed character in 27-45ms against Claude Code's 10-25ms,
 # so the default chase gives up mid-repaint and the key waits for a tick
 echo_budget = "90ms"
+# codex-cli 0.163: text pasted and submitted while a turn runs is taken as a
+# steer and read at the turn's next step. Without this a message to a codex
+# that stays busy -- a coordinator waiting on its children -- queues until a
+# rest that may not come for an hour.
+type_ahead = true
 # No rename_command on purpose. Codex ships a BUILT-IN /rename ("rename the
 # current thread") which shadows any prompt file of that name, so typing it
 # renamed codex's own thread and never reached the manager: a rename that

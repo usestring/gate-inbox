@@ -166,6 +166,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if model, cmd, answered := m.artifactRowAction(action, bound); answered {
 		return model, cmd
 	}
+	if model, cmd, answered := m.reviewsRowAction(action, bound); answered {
+		return model, cmd
+	}
 	// A header row opens what its extension says it heads; every other key
 	// on it acts on the session below. See headrows.go.
 	if model, cmd, answered := m.headRowAction(action, bound); answered {
@@ -204,6 +207,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m, tea.Quit
 	case keymap.ShowAllWork:
 		return m, m.toggleShowAllWork()
+	case keymap.IngestReviews:
+		return m, m.ingestReviews()
 	case keymap.CursorUp:
 		return m, m.moveCursor(-1)
 	case keymap.CursorDown:
@@ -309,8 +314,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.toggleMuteSelected()
 	case keymap.UnmuteAll:
 		return m.unmuteAllListed()
-	case keymap.CopyQueued:
-		return m.copyNextQueued()
+	case keymap.CopyJev:
+		return m.copySelectedWithJev()
 	case keymap.ReviveAll:
 		return m.reviveAllDead()
 	case keymap.SwitchAccount:
@@ -352,8 +357,12 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		m.requestRefresh()
 	case keymap.NewTerminal:
 		return m.terminalKey()
+	case keymap.RefreshCLIs:
+		return m, m.detectCLIsCmd(true)
 	case keymap.EmptyGroups:
 		return m, m.toggleEmptyGroups()
+	case keymap.RecentSort:
+		return m, m.toggleRecentSort()
 	case keymap.Triage:
 		return m, m.toggleTriage()
 	case keymap.Search:
@@ -442,8 +451,8 @@ var artifactRowActions = map[keymap.Action]bool{
 	keymap.QuickActions: true,
 	keymap.NameSweep:    true, keymap.TakeOver: true, keymap.Settings: true, keymap.Resize: true,
 	keymap.ArchivedView: true, keymap.StatusFilter: true, keymap.ToolFilter: true,
-	keymap.EmptyGroups: true, keymap.Triage: true, keymap.ToggleChrome: true,
-	keymap.ToggleRail: true,
+	keymap.EmptyGroups: true, keymap.RecentSort: true, keymap.Triage: true, keymap.ToggleChrome: true,
+	keymap.ToggleRail: true, keymap.RefreshCLIs: true,
 	// LastPane reads the history it walks back through, not the row under
 	// the cursor, so an artifact row is no reason to swallow it.
 	keymap.LastPane: true,
@@ -452,6 +461,8 @@ var artifactRowActions = map[keymap.Action]bool{
 	keymap.UndoArchive: true,
 	keymap.RestoreAll:  true,
 	keymap.UnmuteAll:   true,
+	// IngestReviews fetches the review queue, which is no row's.
+	keymap.IngestReviews: true,
 }
 
 // stepCursor is one move of the selection: the next row that is not an

@@ -147,6 +147,27 @@ CREATE INDEX tasks_claimable ON tasks (state, created_at)
    3 created_at                   INTEGER  notnull=1 default=NULL pk=0
   index sqlite_autoindex_replace_holds_1 unique=1 origin=pk partial=0 (fresh_id)
 
+=== table review_requests
+   0 repo                         TEXT     notnull=1 default=NULL pk=1
+   1 number                       INTEGER  notnull=1 default=NULL pk=2
+   2 trigger                      TEXT     notnull=1 default=NULL pk=3
+   3 trigger_id                   TEXT     notnull=1 default=NULL pk=4
+   4 title                        TEXT     notnull=1 default='' pk=0
+   5 author                       TEXT     notnull=1 default='' pk=0
+   6 url                          TEXT     notnull=1 default='' pk=0
+   7 head_sha                     TEXT     notnull=1 default='' pk=0
+   8 draft                        INTEGER  notnull=1 default=0 pk=0
+   9 additions                    INTEGER  notnull=1 default=0 pk=0
+  10 deletions                    INTEGER  notnull=1 default=0 pk=0
+  11 changed                      INTEGER  notnull=1 default=0 pk=0
+  12 checks                       TEXT     notnull=1 default='' pk=0
+  13 triggered_at                 INTEGER  notnull=1 default=0 pk=0
+  14 state                        TEXT     notnull=1 default='pending' pk=0
+  15 session_id                   TEXT     notnull=1 default='' pk=0
+  16 created_at                   INTEGER  notnull=1 default=NULL pk=0
+  17 updated_at                   INTEGER  notnull=1 default=NULL pk=0
+  index sqlite_autoindex_review_requests_1 unique=1 origin=pk partial=0 (repo, number, trigger, trigger_id)
+
 === table seal_uses
    0 message_id                   INTEGER  notnull=0 default=NULL pk=1
    1 session_id                   TEXT     notnull=1 default=NULL pk=0
@@ -221,7 +242,9 @@ CREATE INDEX tasks_claimable ON tasks (state, created_at)
   32 keep_child                   INTEGER  notnull=1 default=0 pk=0
   33 spawner_read_at              INTEGER  notnull=1 default=0 pk=0
   34 muted                        INTEGER  notnull=1 default=0 pk=0
-  35 operator_at                  INTEGER  notnull=1 default=0 pk=0
+  35 skip_permissions             INTEGER  notnull=1 default=0 pk=0
+  36 children_skip_permissions    INTEGER  notnull=1 default=0 pk=0
+  37 operator_at                  INTEGER  notnull=1 default=0 pk=0
   index sqlite_autoindex_sessions_1 unique=1 origin=pk partial=0 (id)
 
 === table settings

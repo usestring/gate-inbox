@@ -68,6 +68,7 @@ func (m *Model) overlayLegendPeek(frame string, bodyHeight int) string {
 		at := start + i
 		if at >= 0 && at < len(rows) {
 			rows[at] = paint(row, m.width, blockHex())
+			m.railHit.cover(0, at-m.listChromeRows(), m.width)
 		}
 	}
 	return strings.Join(rows, "\n")

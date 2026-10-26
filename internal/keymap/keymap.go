@@ -42,12 +42,13 @@ const (
 	ContextNameSweep Context = "name_sweep"
 	ContextWelcome   Context = "welcome"
 	ContextConfirm   Context = "confirm"
+	ContextReviews   Context = "reviews"
 )
 
 // Contexts is every context in the order the key map lists them.
 var Contexts = []Context{
 	ContextList, ContextFocus,
-	ContextNameSweep, ContextWelcome, ContextConfirm,
+	ContextNameSweep, ContextWelcome, ContextConfirm, ContextReviews,
 }
 
 // Action names what a key does. It is the identifier the operator's file

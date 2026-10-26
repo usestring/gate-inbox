@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -638,6 +639,21 @@ const (
 	exitFileWrite = `[ -z "$` + envname.ExitFile + `" ] || printf '%s\n' "$` + exitStatusVar + `" > "$` + envname.ExitFile + `" 2>/dev/null` + "\n"
 )
 
+// filterMallocNoise runs command with its stderr through a filter dropping
+// the "MallocStackLogging: can't turn off malloc stack logging" lines macOS
+// libmalloc prints for every process Claude Code spawns. They land on the
+// pane over the TUI, and enough of them bury it. Only stderr is filtered, and
+// only while the agent runs: the shell the pane drops to gets the terminal
+// back untouched. The filter is started from a subshell so it never becomes
+// a job the fg loop would wait on, and absolute paths keep the operator's
+// aliases out of it. When the fifo cannot be made the agent runs unfiltered.
+func filterMallocNoise(command string) string {
+	return `gi_stderr=$(/usr/bin/mktemp -u "${TMPDIR:-/tmp}/gi-stderr.XXXXXX") && /usr/bin/mkfifo -m 600 "$gi_stderr" && ` +
+		`(/usr/bin/grep -av --line-buffered 'MallocStackLogging:' <"$gi_stderr" >&2 &) || gi_stderr=` + "\n" +
+		`{ [ -z "$gi_stderr" ] || /bin/rm -f "$gi_stderr"; ` + command + "\n" +
+		`} 2>"${gi_stderr:-/dev/stderr}"`
+}
+
 // writeLaunchScript writes the script a pane runs. The body stays POSIX: the
 // shell it runs under is the operator's, and runsLoginScript is what vouches
 // for that shell being able to read it.
@@ -689,6 +705,9 @@ func writeLaunchScript(path string, env map[string]string, command, colorFgBg st
 	// drops to, so the next start can tell an agent the operator quit (0)
 	// from one that crashed. A stopped agent reports its stop here rather
 	// than its exit, which reads as no verdict either way.
+	if runtime.GOOS == "darwin" && env[envname.StatusFile] != "" {
+		command = filterMallocNoise(command)
+	}
 	body.WriteString(exitFileClear + command + "\n" + exitStatusVar + "=$?\nwhile fg >/dev/null 2>&1; do :; done\n" + exitFileWrite + shell.execLine() + "\n")
 	if err := os.WriteFile(path, []byte(body.String()), 0o700); err != nil {
 		return "", fmt.Errorf("launch script: %w", err)
@@ -1019,7 +1038,11 @@ func (d *Driver) pasteHoldingSubmit(id, text string, hold func(pane string) bool
 			d.awaitPasteEcho(id, before, text)
 		}
 		if hold != nil {
-			if pane, err := d.capturePlain(id); err == nil && hold(pane) {
+			pane, err := d.capturePlain(id)
+			if err != nil {
+				return fmt.Errorf("capture pane before submitting: %w", err)
+			}
+			if hold(pane) {
 				return ErrSubmitHeld
 			}
 		}

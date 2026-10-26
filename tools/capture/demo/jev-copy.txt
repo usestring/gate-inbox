@@ -1,0 +1,13 @@
+╭─ Claude Code ──────────────────────────────────────╮
+│ deploy-demo-api                                   │
+╰───────────────────────────────────────────────────╯
+❯ ship demo-api to staging
+
+● The deploy stopped: your gcloud credentials expired.
+  Run `gcloud auth login` in your own terminal, then paste the
+  approval code `rel-7f3a-demo` into the release form. I checked
+  `deploy/service.yaml` and it is unchanged.
+
+✻ Worked for 48s · done 9:12 AM
+
+❯ 

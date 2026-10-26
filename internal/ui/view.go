@@ -379,7 +379,7 @@ func parentGroup(group string) string {
 func (m *Model) groupStatusBreakdown(group string) string {
 	counts := m.groupStatusCounts(group)
 	var parts []string
-	for _, st := range []string{status.Working, status.Delegating, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Dead} {
+	for _, st := range []string{status.Working, status.Delegating, status.Background, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Dead} {
 		if counts[st] > 0 {
 			// The count carries the state's color, the word stays quiet: a
 			// rollup line should read as one texture, not as six labels
@@ -407,7 +407,7 @@ func (m *Model) groupStatusCounts(group string) map[string]int {
 func (m *Model) groupStatusGlyphs(group string) string {
 	counts := m.groupStatusCounts(group)
 	var parts []string
-	for _, st := range []string{status.Working, status.Delegating, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Dead} {
+	for _, st := range []string{status.Working, status.Delegating, status.Background, status.Waiting, status.Finished, status.Errored, status.Pending, status.Idle, status.Dead} {
 		if counts[st] == 0 {
 			continue
 		}
@@ -690,7 +690,7 @@ func (m *Model) defaultRowLegend() legendSection {
 	if !ok {
 		return legendSection{}
 	}
-	if row.isArtifact() || row.isHead() {
+	if row.isArtifact() || row.isHead() || row.reviews {
 		return m.rowLegend()
 	}
 	openKey := m.tightCap(keymap.ContextList, keymap.Open)
@@ -797,6 +797,13 @@ func (m *Model) rowLegend() legendSection {
 	if !ok {
 		return legendSection{}
 	}
+	if row.reviews {
+		return legendSection{title: "Reviews", pairs: [][2]string{
+			{m.tightCap(keymap.ContextList, keymap.Open), "focus"},
+			{m.tightCap(keymap.ContextList, keymap.IngestReviews), "fetch new"},
+			{m.navCap(keymap.ContextList), "navigate"},
+		}}
+	}
 	if row.isHead() {
 		// The header opens what its extension says it heads; every other
 		// key on it is the session's, which the session's own row lists.
@@ -893,7 +900,7 @@ func (m *Model) viewLegend() legendSection {
 		{keymap.NewSession, "new"}, {keymap.NewSessionForm, "new…"},
 		{keymap.NewTerminal, "terminal"}, {keymap.NewGroup, "group"}, {keymap.Search, "search"},
 		{keymap.ArchivedView, "archived"}, {keymap.RestoreAll, "restore all"}, {keymap.UnmuteAll, "unmute all"},
-		{keymap.StatusFilter, "attention"}, {keymap.ToolFilter, "CLI"}, {keymap.Triage, "triage"}, {keymap.EmptyGroups, "hide empty"},
+		{keymap.StatusFilter, "attention"}, {keymap.ToolFilter, "CLI"}, {keymap.Triage, "triage"}, {keymap.EmptyGroups, "hide empty"}, {keymap.RecentSort, "recent first"},
 		{keymap.Help, "full key map"}, {keymap.Quit, "quit"},
 		{keymap.FoldAll, "fold all"}, {keymap.Resize, "resize"}, {keymap.Settings, "settings"},
 	} {
@@ -930,6 +937,10 @@ func (m *Model) viewLegend() legendSection {
 		case keymap.EmptyGroups:
 			if m.hideEmptyGroups {
 				text = "show empty"
+			}
+		case keymap.RecentSort:
+			if normalizeListSort(m.listSort) == listSortRecent {
+				text = "previous order"
 			}
 		case keymap.FoldAll:
 			if m.allFoldsCollapsed() {

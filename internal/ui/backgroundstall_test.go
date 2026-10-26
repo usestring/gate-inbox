@@ -41,17 +41,17 @@ func transcriptAged(t *testing.T, sess store.Session, age time.Duration, now tim
 // Live 2026-10-12: a child whose turn ended six days earlier with a shell
 // tail read working the whole time, held off the child sweep, and held its
 // parent delegating.
-func TestSettleStalledBackgroundRestsAQuietTail(t *testing.T) {
+func TestSettleBackgroundRestsAQuietTail(t *testing.T) {
 	now := time.Now()
 	sess := store.Session{ID: "child001", Tool: "claude", Cwd: "/work/repo", AgentSessionID: "conv-1"}
 	p := &poller{engine: liveEngine(t)}
 
 	transcriptAged(t, sess, 129*time.Hour, now)
-	if got := p.settleStalledBackground(sess, staleShellPane, status.Working, now); got != status.Finished {
+	if got := p.settleBackground(sess, staleShellPane, status.Working, now); got != status.Finished {
 		t.Fatalf("quiet for 129h: got %q, want finished", got)
 	}
 	sess.Acked = true
-	if got := p.settleStalledBackground(sess, staleShellPane, status.Working, now); got != status.Idle {
+	if got := p.settleBackground(sess, staleShellPane, status.Working, now); got != status.Idle {
 		t.Fatalf("acknowledged and quiet: got %q, want idle", got)
 	}
 }
@@ -60,7 +60,7 @@ func TestSettleStalledBackgroundRestsAQuietTail(t *testing.T) {
 // still running in a shell. Claude Code touched the transcript hourly
 // with no entry in it, the tail never read as quiet, and the row stayed
 // working: no rest relay to the parent and no sandbox restart.
-func TestSettleStalledBackgroundIgnoresATouchWithNoEntry(t *testing.T) {
+func TestSettleBackgroundIgnoresATouchWithNoEntry(t *testing.T) {
 	now := time.Now()
 	sess := store.Session{ID: "child001", Tool: "claude", Cwd: "/work/repo", AgentSessionID: "conv-1"}
 	p := &poller{engine: liveEngine(t)}
@@ -86,23 +86,25 @@ func TestSettleStalledBackgroundIgnoresATouchWithNoEntry(t *testing.T) {
 	if err := os.Chtimes(path, touched, touched); err != nil {
 		t.Fatal(err)
 	}
-	if got := p.settleStalledBackground(sess, staleShellPane, status.Working, now); got != status.Finished {
+	if got := p.settleBackground(sess, staleShellPane, status.Working, now); got != status.Finished {
 		t.Fatalf("last entry 5h old, file touched 1m ago: got %q, want finished", got)
 	}
 }
 
-func TestSettleStalledBackgroundKeepsLiveWorkWorking(t *testing.T) {
+// A turn that ended on a live shell tail is at rest with work still running
+// behind it, which is background rather than working.
+func TestSettleBackgroundReadsALiveTailAsBackground(t *testing.T) {
 	now := time.Now()
 	sess := store.Session{ID: "child001", Tool: "claude", Cwd: "/work/repo", AgentSessionID: "conv-1"}
 	p := &poller{engine: liveEngine(t)}
 
 	transcriptAged(t, sess, 10*time.Minute, now)
-	if got := p.settleStalledBackground(sess, staleShellPane, status.Working, now); got != status.Working {
-		t.Fatalf("written 10m ago: got %q, want working", got)
+	if got := p.settleBackground(sess, staleShellPane, status.Working, now); got != status.Background {
+		t.Fatalf("written 10m ago: got %q, want background", got)
 	}
 	noTranscript := sess
 	noTranscript.AgentSessionID = ""
-	if got := p.settleStalledBackground(noTranscript, staleShellPane, status.Working, now); got != status.Working {
-		t.Fatalf("no transcript to read: got %q, want working", got)
+	if got := p.settleBackground(noTranscript, staleShellPane, status.Working, now); got != status.Background {
+		t.Fatalf("no transcript to read: got %q, want background", got)
 	}
 }

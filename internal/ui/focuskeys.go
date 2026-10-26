@@ -657,8 +657,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.startNewSession()
 		case action == keymap.CopySessionID:
 			return m.copySessionID(sess)
-		case action == keymap.CopyQueued:
-			return m.copyNextQueued()
+		case action == keymap.CopyJev:
+			return m.copyWithJev(sess)
 		case action == keymap.LastPane:
 			return m.focusBack()
 		case action == keymap.JumpPane:

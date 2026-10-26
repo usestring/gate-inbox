@@ -231,6 +231,8 @@ func TestDefaultRulesRealPanes(t *testing.T) {
 			"⏺ The judges are still running; the final report\n  goes out once they finish.\n\n✻ Sautéed for 8m 35s · done 0:41 · 2 shells still \n  running\n\n────\n❯ \n────\n  repo | main\n  ⏵⏵ auto mode on · 2 shells", Working},
 		{"claude background wait, wrapped", "claude",
 			"⏺ ok\n✻ Waiting for 2 background\n  agents to finish\n────\n❯ \n────", Working},
+		{"claude shell tail wrapped under the turn end", "claude",
+			"⏺ ok\n✻ Sautéed for 8m 35s · done 0:41 · 2 shells still\n  running\n────\n❯ \n────", Working},
 		{"claude indented row under a plain turn end is not busy", "claude",
 			"⏺ ok\n✻ Worked for 3s\n  Ran 2 shell commands\n────\n❯ \n────", Idle},
 		{"claude wait on agents and a dynamic workflow", "claude",

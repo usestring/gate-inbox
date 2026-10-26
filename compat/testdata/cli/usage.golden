@@ -13,7 +13,7 @@ usage: gate-inbox sessions [--parent <id|me>] [--status <state>] [--include-arch
   -parent string
     	keep only the sessions one spawned; "me" is this session's own children
   -status value
-    	state to keep, repeatable or comma separated: starting, working, waiting, delegating, finished, idle, errored or dead
+    	state to keep, repeatable or comma separated: starting, working, waiting, delegating, background, finished, idle, errored or dead
 
 $ gate-inbox spawn -h
 exit 0
@@ -39,6 +39,8 @@ usage: gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--mode
     	file it under this session, where its questions and rests reach you; --nest=false detaches it: the user's, not yours, and nothing about it is relayed to you (default true)
   -prompt string
     	first task to hand it, written as a full instruction, since it cannot see your conversation
+  -skip-permissions
+    	launch it with its CLI's permission prompts off; omit to follow the setting for this session's children, and refused unless the user allowed it there
   -tool string
     	agent CLI to run; defaults to the CLI this session runs, and is required when this session is a terminal
 
@@ -142,10 +144,14 @@ $ gate-inbox migrate -h
 exit 0
 --- stdout
 usage: gate-inbox migrate <session-id> --tool <cli> [--name <name>] [--json]
+  -children-skip-permissions
+    	let the sessions it spawns skip their permission prompts by default; omit to keep the source's setting
   -json
     	print the raw result as JSON instead of a sentence
   -name string
     	name for the new session; defaults to the source's name with the tool appended
+  -skip-permissions
+    	run the moved session with its permission prompts off; omit to keep the source's setting
   -tool string
     	agent CLI the conversation moves to
 

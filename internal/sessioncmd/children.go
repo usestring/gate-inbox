@@ -33,7 +33,7 @@ type ChildState struct {
 	ID      string `json:"id" jsonschema:"agent session id"`
 	Name    string `json:"name" jsonschema:"session name shown in Gate Inbox"`
 	Tool    string `json:"tool" jsonschema:"agent CLI the session runs"`
-	Status  string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead"`
+	Status  string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, delegating, background, finished, idle, errored or dead"`
 	Waiting bool   `json:"waiting" jsonschema:"whether the child is stopped on a dialog only its parent can get answered"`
 	// WaitingSince is when the dialog went up: the question's own time, or
 	// the hook's last write for a dialog with no saved question.

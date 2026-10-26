@@ -305,8 +305,9 @@ func TestSettingsCompressedFocusIsDefaultOffAndPersists(t *testing.T) {
 	m.handleSettingsKey(key("up"))
 	m.handleSettingsKey(key("up"))
 	m.handleSettingsKey(key("up"))
+	m.handleSettingsKey(key("up"))
 	if m.settings.experimentalCursor != 2 {
-		t.Fatal("up should wrap through the JEV copy queue and finish check to compressed focus")
+		t.Fatal("up should wrap through the review queue, JEV copy and finish check to compressed focus")
 	}
 	if card := ansi.Strip(m.viewSettings()); !strings.Contains(card, "Compressed focus view") || !strings.Contains(card, "mirroring is experimental") {
 		t.Fatalf("experiment is missing its description: %s", card)

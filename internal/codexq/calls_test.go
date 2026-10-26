@@ -149,12 +149,14 @@ func TestSyntheticPromptsLeaveQuestionsPending(t *testing.T) {
 			if err != nil || len(calls) != 1 || calls[0].State != Outstanding || calls[0].Reply != "" {
 				t.Fatalf("synthetic input consumed question: %+v, %v", calls, err)
 			}
-			tracker := &Tracker{index: map[string]int{}}
-			if _, err := tracker.consume(strings.NewReader(data)); err != nil {
+			path := filepath.Join(t.TempDir(), "rollout.jsonl")
+			if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if got := Unresolved(tracker.questions); len(got) != 1 {
-				t.Fatalf("tracker lost pending ask: %+v", tracker.questions)
+			var tracker Tracker
+			questions, err := tracker.Update(path)
+			if err != nil || len(Unresolved(questions)) != 1 {
+				t.Fatalf("tracker lost pending ask: %+v, %v", questions, err)
 			}
 			calls, err = readCalls(strings.NewReader(data + userReplyLine(t, "Go")))
 			if err != nil || len(calls) != 1 || calls[0].State != Superseded || calls[0].Reply != "Go" {

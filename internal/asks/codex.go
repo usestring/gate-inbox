@@ -105,6 +105,16 @@ func (c codex) Unanswered(t Target) (Result, bool) {
 func (c codex) Answered(t Target, since time.Time) ([]convo.AnsweredAsk, error) {
 	var out []convo.AnsweredAsk
 	for _, call := range c.calls(t) {
+		if call.Async && len(call.AnswerTimes) > 0 {
+			for _, q := range codexCall(call).Questions {
+				answeredAt := call.AnswerTimes[q.ID]
+				if given, ok := call.Answers[q.ID]; ok && answeredAt.After(since) {
+					out = append(out, convo.AnsweredAsk{ToolUseID: call.CallID, Questions: []convo.AskQuestion{q},
+						AskedAt: call.AskedAt, AnsweredAt: answeredAt, Answers: map[string]string{q.Question: codexAnswerText(given)}})
+				}
+			}
+			continue
+		}
 		asyncReply := call.Async && call.State == codexq.Superseded && len(call.Questions) == 1 &&
 			call.Reply != "" && call.ReplyAt.After(call.AskedAt)
 		answeredAt := call.ResolvedAt

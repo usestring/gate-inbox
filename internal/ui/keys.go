@@ -139,6 +139,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	// The Reviews tab lists asks, not sessions, so it answers its own keys
+	// and refuses the ones that would act on a session it is not showing.
+	if model, cmd, answered := m.reviewsTabKey(msg); answered {
+		return model, cmd
+	}
+
 	// A status jump is read ahead of the artifact row's refusals for the
 	// same reason a group number is: it acts on the list rather than on the
 	// row it starts from, and a cursor parked on a pull request is no reason
@@ -164,9 +170,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// so a rebound key is still refused, or still allowed, for the reason it
 	// always was.
 	if model, cmd, answered := m.artifactRowAction(action, bound); answered {
-		return model, cmd
-	}
-	if model, cmd, answered := m.reviewsRowAction(action, bound); answered {
 		return model, cmd
 	}
 	// A header row opens what its extension says it heads; every other key
@@ -209,6 +212,8 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m, m.toggleShowAllWork()
 	case keymap.IngestReviews:
 		return m, m.ingestReviews()
+	case keymap.ReviewsTab:
+		return m, m.toggleReviewsTab()
 	case keymap.CursorUp:
 		return m, m.moveCursor(-1)
 	case keymap.CursorDown:
@@ -461,8 +466,10 @@ var artifactRowActions = map[keymap.Action]bool{
 	keymap.UndoArchive: true,
 	keymap.RestoreAll:  true,
 	keymap.UnmuteAll:   true,
-	// IngestReviews fetches the review queue, which is no row's.
+	// IngestReviews fetches the review queue and ReviewsTab shows it; the
+	// queue is no row's.
 	keymap.IngestReviews: true,
+	keymap.ReviewsTab:    true,
 }
 
 // stepCursor is one move of the selection: the next row that is not an

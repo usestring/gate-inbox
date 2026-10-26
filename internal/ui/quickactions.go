@@ -231,7 +231,7 @@ func (m *Model) dispatchQuickAction(action keymap.Action) (tea.Model, tea.Cmd) {
 	if model, cmd, answered := m.artifactRowAction(action, true); answered {
 		return model, cmd
 	}
-	if model, cmd, answered := m.reviewsRowAction(action, true); answered {
+	if model, cmd, answered := m.reviewsTabListAction(action); answered {
 		return model, cmd
 	}
 	if model, cmd, answered := m.headRowAction(action, true); answered {

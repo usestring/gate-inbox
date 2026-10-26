@@ -13,7 +13,7 @@ usage: gate-inbox sessions [--parent <id|me>] [--status <state>] [--include-arch
   -parent string
     	keep only the sessions one spawned; "me" is this session's own children
   -status value
-    	state to keep, repeatable or comma separated: starting, working, waiting, delegating, finished, idle, errored or dead
+    	state to keep, repeatable or comma separated: starting, working, waiting, delegating, background, finished, idle, errored or dead
 
 $ gate-inbox spawn -h
 exit 0

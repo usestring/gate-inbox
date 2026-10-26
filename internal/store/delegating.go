@@ -55,12 +55,14 @@ var delegatingFrom = map[string]bool{status.Finished: true, status.Idle: true}
 
 // activeChildStates is what a child can be in and still owe its parent a
 // result. A delegating child counts: its own result is still coming, and so
-// is the report it will send up once it has it.
+// is the report it will send up once it has it. A background child counts
+// too: the shell it left running wakes it into another turn.
 var activeChildStates = map[string]bool{
 	status.Starting:   true,
 	status.Working:    true,
 	status.Waiting:    true,
 	status.Delegating: true,
+	status.Background: true,
 }
 
 // ApplyDelegation sets Status to delegating on every row at rest with work

@@ -94,15 +94,15 @@ func TestMigrateStartsTheConversationOverOnAnotherToolWithRealTmux(t *testing.T)
 	// pointed at the transcript rather than handed an empty brief. The pane
 	// wraps the path at its own width, so the screen is read unwrapped.
 	waitForUnwrappedOutput(t, h.sessions, h.caller.ID, moved.ID, transcript)
-	// The new session carries on, so it takes the source's children and the
-	// source is ended and filed away.
+	// Only an account switch retires the source; a plain migration leaves it
+	// running, on the board, with its children.
 	kept, err := h.store.Get(source.ID)
-	if err != nil || !kept.Archived || kept.Status != status.Dead || h.driver.Exists(source.ID) {
+	if err != nil || kept.Archived || !h.driver.Exists(source.ID) {
 		t.Fatalf("source after migrate = %+v, err %v", kept, err)
 	}
-	adopted, err := h.store.Get(child.ID)
-	if err != nil || adopted.ParentID != moved.ID || store.TrackerOf(adopted) != moved.ID {
-		t.Fatalf("child after migrate = %+v, err %v", adopted, err)
+	stayed, err := h.store.Get(child.ID)
+	if err != nil || stayed.ParentID != source.ID {
+		t.Fatalf("child after migrate = %+v, err %v", stayed, err)
 	}
 }
 

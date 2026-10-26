@@ -153,10 +153,21 @@ type Sessions struct {
 	// newPacer replaces the relaunch queue; tests point it at their own
 	// clock.
 	newPacer func(*runtime) *launchpace.Pacer
+	// gateLaunches makes a top-level agent confirm each launch it makes on a
+	// voiced turn (see launchgate.go). Only NewSessions sets it, so a test
+	// that spawns from a top-level caller to check something else need not
+	// approve first.
+	gateLaunches bool
+	// voicedLaunch and userAskedLaunch replace the voice and JEV checks;
+	// tests answer them themselves.
+	voicedLaunch    func(*runtime, store.Session, time.Time) (store.InboxMessage, bool)
+	userAskedLaunch func(*runtime, store.Session) bool
 }
 
 func NewSessions(configDir string, words Vocabulary) *Sessions {
-	return newSessions(configDir, words, tmux.NewWithSocket, git.New)
+	s := newSessions(configDir, words, tmux.NewWithSocket, git.New)
+	s.gateLaunches = true
+	return s
 }
 
 func newSessions(configDir string, words Vocabulary, newDriver func(socket string) (*tmux.Driver, error), newGit func() (*git.Driver, error)) *Sessions {
@@ -670,6 +681,17 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if err != nil {
 		return Session{}, err
 	}
+	release, err := s.confirmLaunch(runtime, caller, opts, time.Now())
+	if err != nil {
+		return Session{}, err
+	}
+	// The user's go is for one session that starts, so a launch refused or
+	// failed from here on hands it back for the retry.
+	defer func() {
+		if err != nil {
+			release()
+		}
+	}()
 	toolName := strings.TrimSpace(opts.Tool)
 	if toolName == "" {
 		// A spawn with no tool named runs whatever the caller runs, which a

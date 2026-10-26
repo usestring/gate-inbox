@@ -41,7 +41,6 @@ import (
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tracing"
 	"github.com/usestring/gate-inbox/internal/worktracker"
-	"github.com/usestring/gate-inbox/scoring"
 )
 
 type mode int
@@ -610,12 +609,9 @@ type Model struct {
 	// of the whole fleet.
 	triageScope string
 	// smartTriage mirrors the persisted smart_triage setting: on, triage
-	// orders the walk by score; off, by the strict state-first order.
+	// orders the walk newest turn first; off, by the strict state-first order.
 	// See triageScore.
 	smartTriage bool
-	// triageWeights are smart triage's term weights, read from the store at
-	// startup. See storedTriageWeights.
-	triageWeights scoring.TriageWeights
 	// triageStartupEnter is set when triage was already on at startup, so the
 	// first poll enters the head of the queue the way turning triage on does.
 	// Restoring the mode without the entry leaves the operator on a list they
@@ -1338,7 +1334,6 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		triageScope:     storedTriageScope(st),
 		autoProceed:     storedAutoProceed(st),
 		smartTriage:     storedSmartTriage(st),
-		triageWeights:   storedTriageWeights(st),
 		mode:            modeList,
 		version:         version,
 		// Assume the operator is looking until something says otherwise. A

@@ -93,50 +93,11 @@ same keys bring them back. Answering is the only gesture: a dialog answered with
 hands that session over and promotes the next thing waiting on a person. `alt+.` skips the one in
 front of you, `.` skips the row under the cursor from the list, `ctrl+\` stops. The queue is one live queue: a session that reaches waiting or finished while the first pass is walked joins it in place rather than waiting for another `i`.
 
-Priority outranks everything else in triage except a mute: every session of a higher priority sorts before any of a lower one (urgent, then high, then medium, then none, then low), whatever its state, wait or deadline. Within one priority, smart triage, on by default, scores each session by what is lost if it is left, and how soon, and hands over the highest score first. The score is a sum of named terms, each with its own weight:
+Priority outranks everything else in triage except a mute: every session of a higher priority sorts before any of a lower one (urgent, then high, then medium, then none, then low), whatever its state, recency or deadline. Within one priority, smart triage, on by default, hands over the session you turned to most recently first. That is the one whose context you still hold, so going back to it costs less than reloading one you last touched hours ago. Two sessions with the same last turn go by state, in this order: waiting, reviews, blocked (an extension's rank), finished, finished and seen, idle, errored.
 
-    score = wait + recency + horizon + cache
+Recency counts from your last turn on the session: a snippet, a key that submitted a line or answered a dialog in a focused pane, `gate-inbox send --as-human`, or attaching to its pane and giving it a turn there. Nothing Gate Inbox sends on its own counts: messages from other sessions and from extensions (including a line a helper session relays in your voice), its own notices, name requests, nudges, limit-recovery continuations and launch prompts all start turns, but a session nobody has looked at in hours keeps its place however many of those it has finished since. Attaching and leaving without giving the agent a turn, like opening a finished session from the board, is a look and leaves its place alone. A session you have never given a turn counts from when it was created.
 
-Every term is in points, and a point is one second of a finished session's wait, so a bonus reads against the wait it is added to: 600 points is worth ten more minutes of waiting to a finished session.
-
-| Term | Points | Default weight |
-| --- | --- | --- |
-| wait | (wait + 1 minute, in seconds) × state weight | 1 |
-| recency | 1200 × ½^(minutes since your last turn ÷ 5), for a session you have ever given a turn | 1 |
-| horizon | 600 × (expected next turn ÷ 30 minutes), capped at 600 | 1 |
-| cache | 0: a slot for a prompt-cache-expiry bonus that reads nothing yet | 0 |
-
-The wait term's state weights:
-
-| State | Weight |
-| --- | --- |
-| waiting | 2 |
-| reviews | 1.5 |
-| blocked (an extension's rank) | 1.5 |
-| finished | 1 |
-| finished, seen | 0.8 |
-| errored | 0.7 |
-| idle | 0.5 |
-
-**Wait.** The wait counts from your last turn on the session: a snippet, a key that submitted a line or answered a dialog in a focused pane, `gate-inbox send --as-human`, or attaching to its pane and giving it a turn there. Nothing Gate Inbox sends on its own resets it: messages from other sessions and from extensions (including a line a helper session relays in your voice), its own notices, name requests, nudges, limit-recovery continuations and launch prompts all start turns, but a session nobody has looked at in hours keeps its hours however many of those it has finished since. Attaching and leaving without giving the agent a turn, like opening a finished session from the board, is a look and leaves the wait alone. A session you have never given a turn waits from when it was created. Because the state weights are ratios they mean the same thing whatever the waits: on the wait term alone, a finished session overtakes a question of the same priority once it has waited twice as long, whether that is 10 minutes against 5 or two days against one.
-
-**Recency.** A session you touched moments ago is one you can move on in seconds, because its thread is still in your head; that context is what leaving it loses, and it goes fast. The bonus halves every five minutes, about how long a thread lasts while you drain other sessions. Its scale is twenty minutes, so a session you touched 30 seconds ago (+1120) goes ahead of a question that has waited eight minutes (2 × 9 minutes = 1080 points). After a quarter of an hour it is +150, and after an hour it is under 1. The bonus is absolute, not a rank: on a board where everything was last touched two days ago, nothing earns it. A session you have never given a turn earns none.
-
-**Horizon.** A session whose next turn will run long is handed over earlier, so that turn is running while you work through the short ones. The term reads an expected turn duration and saturates at half an hour. For now the only estimate is plan mode: a Claude Code session whose footer shows `⏸ plan mode on` is expected to run a full half hour once its plan is approved, and earns the whole +600. Every other session has no estimate and earns 0. The mode is read from the pane, and kept while a dialog covers the footer.
-
-**Cache.** This term ships off. Its slot is where a bounded prompt-cache bonus will go, using a stake an extension supplies. Until then, a cache-warming extension that publishes each warm session's prompt-cache expiry as a queue deadline already acts as an unbounded cache bonus: a deadline still ahead puts its session ahead of every score in its priority, so every warm session outranks every cold one in its tier.
-
-For example, take three sessions of the same priority:
-
-- A question that came in 20 minutes ago, untouched since: (20 + 1) × 60 × 2 = 2520.
-- A finished session from 50 minutes ago: (50 + 1) × 60 × 1 = 3060.
-- A finished session you gave a turn 2 minutes ago, in plan mode: (2 + 1) × 60 + 1200 × ½^(2/5) + 600 = 180 + 909 + 600 = 1689.
-
-The 50-minute finish goes first and the question second. If the plan-mode session had been touched 30 seconds ago, it would score 90 + 1120 + 600 = 1810. An urgent session that finished a minute ago goes ahead of all of them, whatever its score.
-
-Every walkable session is scored, idle ones included, so a session misread as idle still comes round. "Finished, seen" is a finished session you have opened: opening it acknowledges it and the row turns idle, but triage keeps it in the queue on its original wait until you send it something. Working, starting, delegating and dead sessions are never handed over and sort under the scored ones of their priority, so an urgent working session leads the rail while the drain hands over the next row it can enter; muted sessions sort last. The order is re-read on every poll, so rows move as their waits grow and their recency fades. A deadline an extension sets puts that session ahead of the scores of its priority until it passes. Priority is only read here; smart triage never changes a session's tier.
-
-Each term's weight is a stored setting, read when the board starts: `triage_weight_wait`, `triage_weight_recency`, `triage_weight_horizon` and `triage_weight_cache`. A weight is a non-negative number multiplying the term at the scale above: 0 turns the term off, and 2 doubles it. A weight that is unset or unreadable keeps its default.
+For example, a question on a session you last turned to 20 minutes ago goes ahead of a finished session you last turned to 50 minutes ago, and a finished session you turned to 5 minutes ago goes ahead of both. An urgent session goes ahead of all three, however long ago you turned to it. Time passing reorders nothing; only your next turn moves a session to the head. Nothing lifts an old session up, so a session you keep skipping stays at the bottom of its priority. Every walkable session is in the queue, idle ones included, so a session misread as idle still comes round. "Finished, seen" is a finished session you have opened: opening it acknowledges it and the row turns idle, but triage keeps it in the queue on its last turn until you send it something. Working, starting, delegating and dead sessions are never handed over and sort under the queued ones of their priority, so an urgent working session leads the rail while the drain hands over the next row it can enter; muted sessions sort last. A deadline an extension sets puts that session ahead of the rest of its priority until it passes. Priority is only read here; smart triage never changes a session's tier.
 
 Turn `smart triage` off in Settings (or store `smart_triage = "off"`) for the strict order: within each priority, every question first, then the Reviews row, then every finished session, then idle, then errored, each oldest first.
 
@@ -158,7 +119,7 @@ An extension that runs sessions on several Claude subscriptions can rank them by
 
 The label and comment asks are searched only in the organisations named in `orgs`, so with none set only review requests are found. Each new ask gets a 👀 reaction, on the comment for a comment ask and on the pull request otherwise, and the label stays where it is. The status bar says how many asks were new and how many were already queued. A failed search says why, and is never reported as zero reviews.
 
-In triage the Reviews row queues among the sessions as one item while it holds a pending ask you have not been handed yet. Its wait is the oldest pending ask's age, from when it was asked on GitHub, at weight 1.5 and no priority; with smart triage off it comes after every question and before every finished session of the same priority. Reaching it opens the review page on the oldest new ask. Leaving the page moves the drain on and takes the row out of the queue until a new ask is fetched; it stays on the list either way. An ask with a review session running is worked through that session, which queues like any other.
+In triage the Reviews row queues among the sessions as one item while it holds a pending ask you have not been handed yet. It queues on the newest pending ask, from when it was asked on GitHub, ranks as reviews on a tie, and has no priority; with smart triage off it comes after every question and before every finished session of the same priority. Reaching it opens the review page on the oldest new ask. Leaving the page moves the drain on and takes the row out of the queue until a new ask is fetched; it stays on the list either way. An ask with a review session running is worked through that session, which queues like any other.
 
 Each ask is stored once. Fetching it again refreshes its title, size and checks but never brings back one you dismissed. A new ask on the same pull request, such as a fresh review request or another comment, queues it again.
 

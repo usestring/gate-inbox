@@ -114,7 +114,7 @@ func (m *Model) sortGroupSessions(sessions []store.Session) {
 			if aa, ab := m.recentNeedsAction(a), m.recentNeedsAction(b); aa != ab {
 				return aa
 			}
-			// The same clock smart triage counts a wait from: a session
+			// The same clock smart triage orders by: a session
 			// nobody has touched ranks by when it was created, so a new
 			// launch lands near the top rather than under every old one.
 			ta, tb := triageWaitingSince(a), triageWaitingSince(b)

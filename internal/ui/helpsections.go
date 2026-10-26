@@ -169,7 +169,7 @@ func helpSections() []helpSection {
 			listRow(keymap.ArchiveAll, "kill every session listed (asks for a tick)"),
 			listRow(keymap.Revive, "revive it, or restart a live one on the conversation it is on"),
 			listRow(keymap.ReviveAll, "revive every dead session"),
-			listRow(keymap.SwitchAccount, "switch account; migrates Claude context over 200k"),
+			listRow(keymap.SwitchAccount, "switch account; migrates context over its tier's cutoff"),
 			listRow(keymap.Restore, "restore it out of the archive (and revive it)"),
 			listRow(keymap.RestoreAll, "restore every dead session listed, archived ones included"),
 			listRow(keymap.UndoArchive, "undo archive: bring back what the last kill filed away"),

@@ -591,7 +591,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "switch_account",
 		Description: "Move a session onto another named subscription, for when the account it runs on has hit its usage limit. " +
-			"Claude contexts over 200,000 input tokens migrate to a fresh same-tool conversation on the chosen account, returning a new session ID; the new session takes over the source's children and the source is ended and archived. Otherwise a live session restarts on its conversation, and a dead one takes the account at its next revive. " +
+			"Claude contexts over 200,000 input tokens (or, for an urgent or high session, over its tier's auto-compact window when that is larger) migrate to a fresh same-tool conversation on the chosen account, returning a new session ID; the new session takes over the source's children and the source is ended and archived. Otherwise a live session restarts on its conversation, and a dead one takes the account at its next revive. " +
 			"This restarts a live agent on the user's machine, so use it on a session that is blocked by a limit, not one mid-way through work; it cannot be this session itself.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args switchAccountArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {

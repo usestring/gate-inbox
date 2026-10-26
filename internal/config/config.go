@@ -744,6 +744,24 @@ func (t Tool) CompactWindowFor(tier priority.Tier) int {
 	return t.CompactWindow[string(tier)]
 }
 
+// DefaultAccountSwitchCutoff is the context, in tokens, above which a
+// session moved to another account starts a new conversation rather than
+// resuming its own. The cutoff is pricing, not a limit: the new account
+// re-reads the whole context uncached, and input past 200k bills at the
+// long-context premium rate.
+const DefaultAccountSwitchCutoff = 200_000
+
+// AccountSwitchCutoff is the context a session at tier may carry onto
+// another account and still resume in place. Urgent and high sessions are
+// given big windows on purpose, so they take their compact_window and pay
+// the premium; every other tier keeps DefaultAccountSwitchCutoff.
+func (t Tool) AccountSwitchCutoff(tier priority.Tier) int {
+	if tier == priority.Urgent || tier == priority.High {
+		return max(DefaultAccountSwitchCutoff, t.CompactWindowFor(tier))
+	}
+	return DefaultAccountSwitchCutoff
+}
+
 // backfillToolDefaults fills fields the built-in tools gained after a
 // user's config.toml was written: existing tools keep their values, but
 // any field left at its zero value inherits the built-in default, and

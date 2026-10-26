@@ -36,7 +36,7 @@ func TestAccountSwitchUsesExactCurrentInputContext(t *testing.T) {
 			if err := os.WriteFile(path, []byte(raw+"\n"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			transcript, got := AccountSwitchTranscript(Roots{ClaudeHome: root}, config.Tool{}, store.Session{ID: "fixture", Tool: tc.tool, AgentSessionID: tc.id, Cwd: "/fixture"})
+			transcript, got := AccountSwitchTranscript(Roots{ClaudeHome: root}, config.Tool{}, store.Session{ID: "fixture", Tool: tc.tool, AgentSessionID: tc.id, Cwd: "/fixture"}, 200_000)
 			if got != tc.want {
 				t.Fatalf("migration=%v, want %v", got, tc.want)
 			}

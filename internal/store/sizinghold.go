@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/priority"
@@ -55,4 +56,37 @@ func (h SizingHold) Step(want priority.Tier, known bool, now time.Time, delay ti
 		return SizingHold{Tier: want}
 	}
 	return h
+}
+
+// SizingHoldsSetting is where the board keeps the sizing holds between runs.
+const SizingHoldsSetting = "sizing_holds"
+
+// SizingTier is the tier sess's resources are sized at: InheritedTier, kept
+// up at the board's hold while a drop is held back. A raise the board has not
+// stepped yet still counts, since a raise applies at once.
+func (s *Store) SizingTier(sess Session) (priority.Tier, error) {
+	groups, err := s.Groups()
+	if err != nil {
+		return priority.Unset, err
+	}
+	groupTiers := make(map[string]priority.Tier, len(groups))
+	for _, g := range groups {
+		if g.Priority != priority.Unset {
+			groupTiers[g.Name] = g.Priority
+		}
+	}
+	lookup := func(id string) (Session, bool) {
+		sess, err := s.Get(id)
+		return sess, err == nil
+	}
+	tier := InheritedTier(groupTiers, sess, lookup)
+	raw, err := s.Setting(SizingHoldsSetting)
+	if err != nil || raw == "" {
+		return tier, err
+	}
+	var holds map[string]SizingHold
+	if json.Unmarshal([]byte(raw), &holds) == nil {
+		tier = priority.Better(tier, holds[sess.ID].Tier)
+	}
+	return tier, nil
 }

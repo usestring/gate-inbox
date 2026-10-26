@@ -25,6 +25,8 @@ usage: gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--mode
     	existing directory it works in; defaults to yours, or to the group's inherited path
   -directory-reason string
     	why it must start in --directory although its group pins another; leave empty to start where the group pins
+  -fast-mode
+    	launch it in fast mode; omit to follow this session's own mode, and refused unless this session is in fast mode
   -group string
     	existing group path for a detached (--nest=false) session; a nested one is always in yours
   -json
@@ -146,6 +148,8 @@ exit 0
 usage: gate-inbox migrate <session-id> --tool <cli> [--name <name>] [--json]
   -children-skip-permissions
     	let the sessions it spawns skip their permission prompts by default; omit to keep the source's setting
+  -fast-mode
+    	run the moved session in fast mode; omit to keep the source's setting
   -json
     	print the raw result as JSON instead of a sentence
   -name string

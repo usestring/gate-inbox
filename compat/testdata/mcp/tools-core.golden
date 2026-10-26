@@ -344,6 +344,10 @@
         "description": "session's current working directory, or its launch directory when stopped",
         "type": "string"
       },
+      "fast_mode": {
+        "description": "the session runs in fast mode: it was launched with GATE_INBOX_FAST_MODE=1, and sessions it spawns start in fast mode unless the spawn says otherwise",
+        "type": "boolean"
+      },
       "group": {
         "description": "group path holding the session; empty is the root",
         "type": "string"
@@ -640,6 +644,13 @@
         "description": "why this session must start in directory itself although its group pins another; rarely needed, since a pinned group's directory is where the user wants work to start, so leave it empty unless the task only works when started there",
         "type": "string"
       },
+      "fast_mode": {
+        "description": "omit it: the child is in fast mode exactly when this session is (launched with GATE_INBOX_FAST_MODE=1 and the build's own fast-mode variable); true is refused unless this session is in fast mode; false starts it in normal mode",
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
       "group": {
         "description": "existing group path for a detached session (nest false) to sit in; pass an empty string for the root group; a nested session is always in this agent's group and refuses any other; call list_groups for the existing ones",
         "type": [
@@ -711,6 +722,10 @@
       "directory": {
         "description": "session's current working directory, or its launch directory when stopped",
         "type": "string"
+      },
+      "fast_mode": {
+        "description": "the session runs in fast mode: it was launched with GATE_INBOX_FAST_MODE=1, and sessions it spawns start in fast mode unless the spawn says otherwise",
+        "type": "boolean"
       },
       "group": {
         "description": "group path holding the session; empty is the root",
@@ -1160,6 +1175,10 @@
             "description": "session's current working directory, or its launch directory when stopped",
             "type": "string"
           },
+          "fast_mode": {
+            "description": "the session runs in fast mode: it was launched with GATE_INBOX_FAST_MODE=1, and sessions it spawns start in fast mode unless the spawn says otherwise",
+            "type": "boolean"
+          },
           "group": {
             "description": "group path holding the session; empty is the root",
             "type": "string"
@@ -1291,6 +1310,10 @@
       "directory": {
         "description": "session's current working directory, or its launch directory when stopped",
         "type": "string"
+      },
+      "fast_mode": {
+        "description": "the session runs in fast mode: it was launched with GATE_INBOX_FAST_MODE=1, and sessions it spawns start in fast mode unless the spawn says otherwise",
+        "type": "boolean"
       },
       "group": {
         "description": "group path holding the session; empty is the root",
@@ -1630,6 +1653,10 @@
               "description": "session's current working directory, or its launch directory when stopped",
               "type": "string"
             },
+            "fast_mode": {
+              "description": "the session runs in fast mode: it was launched with GATE_INBOX_FAST_MODE=1, and sessions it spawns start in fast mode unless the spawn says otherwise",
+              "type": "boolean"
+            },
             "group": {
               "description": "group path holding the session; empty is the root",
               "type": "string"
@@ -1884,6 +1911,13 @@
           "boolean"
         ]
       },
+      "fast_mode": {
+        "description": "omit it to keep the source's setting; false relaunches the moved session in normal mode, true in fast mode, refused unless the source already has it or is a child of yours and you are in fast mode",
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
       "name": {
         "description": "kebab-case name for the new session; defaults to the source's name with the tool appended",
         "type": "string"
@@ -1933,6 +1967,10 @@
       "directory": {
         "description": "session's current working directory, or its launch directory when stopped",
         "type": "string"
+      },
+      "fast_mode": {
+        "description": "the session runs in fast mode: it was launched with GATE_INBOX_FAST_MODE=1, and sessions it spawns start in fast mode unless the spawn says otherwise",
+        "type": "boolean"
       },
       "group": {
         "description": "group path holding the session; empty is the root",
@@ -2062,6 +2100,10 @@
         "description": "session's current working directory, or its launch directory when stopped",
         "type": "string"
       },
+      "fast_mode": {
+        "description": "the session runs in fast mode: it was launched with GATE_INBOX_FAST_MODE=1, and sessions it spawns start in fast mode unless the spawn says otherwise",
+        "type": "boolean"
+      },
       "group": {
         "description": "group path holding the session; empty is the root",
         "type": "string"
@@ -2190,6 +2232,10 @@
       "directory": {
         "description": "session's current working directory, or its launch directory when stopped",
         "type": "string"
+      },
+      "fast_mode": {
+        "description": "the session runs in fast mode: it was launched with GATE_INBOX_FAST_MODE=1, and sessions it spawns start in fast mode unless the spawn says otherwise",
+        "type": "boolean"
       },
       "group": {
         "description": "group path holding the session; empty is the root",
@@ -2506,6 +2552,10 @@
           "directory": {
             "description": "session's current working directory, or its launch directory when stopped",
             "type": "string"
+          },
+          "fast_mode": {
+            "description": "the session runs in fast mode: it was launched with GATE_INBOX_FAST_MODE=1, and sessions it spawns start in fast mode unless the spawn says otherwise",
+            "type": "boolean"
           },
           "group": {
             "description": "group path holding the session; empty is the root",
@@ -2933,6 +2983,10 @@
         "description": "session's current working directory, or its launch directory when stopped",
         "type": "string"
       },
+      "fast_mode": {
+        "description": "the session runs in fast mode: it was launched with GATE_INBOX_FAST_MODE=1, and sessions it spawns start in fast mode unless the spawn says otherwise",
+        "type": "boolean"
+      },
       "group": {
         "description": "group path holding the session; empty is the root",
         "type": "string"
@@ -3335,6 +3389,10 @@
         "description": "session's current working directory, or its launch directory when stopped",
         "type": "string"
       },
+      "fast_mode": {
+        "description": "the session runs in fast mode: it was launched with GATE_INBOX_FAST_MODE=1, and sessions it spawns start in fast mode unless the spawn says otherwise",
+        "type": "boolean"
+      },
       "group": {
         "description": "group path holding the session; empty is the root",
         "type": "string"
@@ -3733,6 +3791,10 @@
             "description": "session's current working directory, or its launch directory when stopped",
             "type": "string"
           },
+          "fast_mode": {
+            "description": "the session runs in fast mode: it was launched with GATE_INBOX_FAST_MODE=1, and sessions it spawns start in fast mode unless the spawn says otherwise",
+            "type": "boolean"
+          },
           "group": {
             "description": "group path holding the session; empty is the root",
             "type": "string"
@@ -3838,6 +3900,10 @@
                 "directory": {
                   "description": "session's current working directory, or its launch directory when stopped",
                   "type": "string"
+                },
+                "fast_mode": {
+                  "description": "the session runs in fast mode: it was launched with GATE_INBOX_FAST_MODE=1, and sessions it spawns start in fast mode unless the spawn says otherwise",
+                  "type": "boolean"
                 },
                 "group": {
                   "description": "group path holding the session; empty is the root",

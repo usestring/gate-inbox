@@ -1672,7 +1672,7 @@ func withoutSessions(sessions, drop []store.Session) []store.Session {
 // detached from, if one happened. An attached pane takes their keys straight
 // from tmux, so the board never sees what they typed; the session's status
 // moving while they were in it is the sign that they gave it a turn. Going in
-// and coming out again is a look, which leaves the wait where it was, as
+// and coming out again is a look, which leaves its place where it was, as
 // looking at a finish from the board does. See triageFinishedSeen.
 func (m *Model) noteAttachedTurn(id string, since time.Time) {
 	if m.store == nil || since.IsZero() {

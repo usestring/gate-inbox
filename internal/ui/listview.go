@@ -70,6 +70,11 @@ func (m *Model) viewListFrame() string {
 		m.pane.columnX = leftWidth + 2
 	}
 	railRows := m.railLines(railWidth, bodyHeight)
+	railX := rightWidth
+	if m.railOnLeft() {
+		railX = 1
+	}
+	m.railHit = newRailHitMap(railRows, railX, railWidth)
 	contentRows := m.contentLines(bleedWidth, bodyHeight)
 	seam := make([]string, bodyHeight)
 	edge := make([]string, bodyHeight)
@@ -129,10 +134,12 @@ func (m *Model) viewOnePaneFrame(bodyHeight int, footer string) string {
 	tone := panelHex()
 	// No content column, so a click can never land in a pane.
 	m.pane.columnX = m.width + 1
+	m.railHit = newRailHitMap(rows, 1, paneWidth)
 	if m.ringed() {
 		rows = m.contentLines(paneWidth, bodyHeight)
 		tone = backdropHex()
 		m.pane.columnX = 1
+		m.railHit = railHitMap{}
 	}
 
 	edge := make([]string, bodyHeight)
@@ -648,8 +655,12 @@ func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentL
 		for _, line := range headers[i] {
 			lines = append(lines, contentLine{text: line, tone: panelHex()})
 		}
+		link := ""
+		if entry.isArtifact() && entry.art.more == 0 {
+			link = entry.art.url
+		}
 		for _, line := range splitLines(render(entry, selected, offset+i, tone)) {
-			lines = append(lines, contentLine{text: line, tone: tone})
+			lines = append(lines, contentLine{text: line, tone: tone, link: link})
 		}
 	}
 	// The counters ride in whatever room the entries leave. Claiming a line

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -72,7 +73,7 @@ func TestJevKeyPastePersistsMaskedAndPrivate(t *testing.T) {
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("key file mode %v, want 0600", info.Mode().Perm())
 	}
-	dir, err := os.Stat(strings.TrimSuffix(path, "/"+jevKeyFile))
+	dir, err := os.Stat(filepath.Dir(path))
 	if err != nil || dir.Mode().Perm() != 0o700 {
 		t.Fatalf("key dir mode %v (%v), want 0700", dir.Mode().Perm(), err)
 	}

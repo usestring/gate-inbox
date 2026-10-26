@@ -31,7 +31,7 @@ import (
 
 // ReadDigest is the child's state as something to branch on.
 type ReadDigest struct {
-	Status string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead"`
+	Status string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, delegating, background, finished, idle, errored or dead"`
 	// Question is the prompt of the dialog the session is holding, with its
 	// options, or empty when nothing is being asked. A parent answers it with
 	// answer_session.
@@ -156,13 +156,13 @@ func (r *runtime) digest(target store.Session, pane string, running bool, delta 
 			// either way, so read it the way park does.
 			if state, ok := engine.Match(target.Tool, pane); ok {
 				block.Status = state
-				// Settled the way the poller settles it: a tail that has
-				// outlived its conversation's last write is not work.
+				// Settled the way the poller settles it: a turn working on a
+				// background tail alone is not work.
 				if state == status.Working {
-					if rest, stalled := status.StalledBackground(engine, target.Tool, pane, func() (time.Duration, bool) {
+					if settled, tail := status.SettleBackground(engine, target.Tool, pane, func() (time.Duration, bool) {
 						return agentsession.ClaudeTranscriptAge(target.Cwd, target.AgentSessionID, time.Now())
-					}); stalled {
-						block.Status = rest
+					}); tail {
+						block.Status = settled
 					}
 				}
 			}

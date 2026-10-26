@@ -373,8 +373,8 @@ type agentPick struct {
 
 func (m *Model) openAgentPick() {
 	names := m.pickerNames()
-	if len(names) == 0 {
-		m.errBar.text = "no CLIs enabled: open settings (s), then CLIs, to turn some on"
+	if len(m.installedOnly(names)) == 0 {
+		m.errBar.text = m.noCLIText()
 		return
 	}
 	input := textinput.New()
@@ -383,7 +383,11 @@ func (m *Model) openAgentPick() {
 	input.SetWidth(28)
 	input.Focus()
 	m.agentPick = agentPick{generation: m.agentPick.generation + 1, input: input, names: names, fresh: true}
-	m.setAgentPick(m.lastTool())
+	start := m.lastTool()
+	if start == "" {
+		start = firstOf(m.installedOnly(names))
+	}
+	m.setAgentPick(start)
 	m.errBar.text = ""
 	m.mode = modeAgentPick
 }
@@ -455,7 +459,15 @@ func (m *Model) agentPickName() string {
 // to the very name it opened on: the alternatives would be invisible in the
 // only state the box is ever opened in, which is the state they exist for, and
 // the arrows would cycle a list of one and appear dead.
+//
+// A CLI not found on PATH is never a match; agentPickShown still draws it.
 func (m *Model) agentPickMatches() []string {
+	return m.installedOnly(m.agentPickShown())
+}
+
+// agentPickShown is what the box draws: the matches plus, grayed, the CLIs
+// the same text would match were they installed.
+func (m *Model) agentPickShown() []string {
 	if m.agentPick.fresh {
 		return m.agentPick.names
 	}
@@ -479,7 +491,7 @@ func (m *Model) snapAgentPick() {
 func (m *Model) cycleAgentPick(delta int) {
 	matches := m.agentPickMatches()
 	if len(matches) == 0 {
-		matches = m.agentPick.names
+		matches = m.installedOnly(m.agentPick.names)
 	}
 	if len(matches) == 0 {
 		return
@@ -550,12 +562,12 @@ func (m *Model) handleAgentPickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *Model) submitAgentPick() (tea.Model, tea.Cmd) {
 	typed := strings.TrimSpace(m.agentPick.input.Value())
 	if typed != "" && len(m.agentPickMatches()) == 0 {
-		m.errBar.text = "no CLI matches " + typed
+		m.errBar.text = m.noMatchText(m.agentPick.names, typed)
 		return m, nil
 	}
 	name := m.agentPickName()
-	if name == "" {
-		m.errBar.text = "no CLIs enabled: open settings (s), then CLIs, to turn some on"
+	if name == "" || m.toolMissing(name) {
+		m.errBar.text = m.noCLIText()
 		m.mode = modeList
 		return m, nil
 	}

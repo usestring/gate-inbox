@@ -104,7 +104,7 @@ func runSessions(out io.Writer, sessions sessionCommands, args []string, session
 	set := cmdline.NewFlagSet(usageSessions)
 	var states stringList
 	parent := set.String("parent", "", `keep only the sessions one spawned; "`+sessioncmd.SelfParent+`" is this session's own children`)
-	set.Var(&states, "status", "state to keep, repeatable or comma separated: starting, working, waiting, delegating, finished, idle, errored or dead")
+	set.Var(&states, "status", "state to keep, repeatable or comma separated: starting, working, waiting, delegating, background, finished, idle, errored or dead")
 	includeArchived := set.Bool("include-archived", false, "also list rows archived out of the active list, which on an old board are most of them")
 	limit := set.Int("limit", sessioncmd.DefaultSessionLimit, fmt.Sprintf("how many rows to print, at most %d; the last line says what was left out", sessioncmd.MaxSessionLimit))
 	asJSON := cmdline.JSONFlag(set)

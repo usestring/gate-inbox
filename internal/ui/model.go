@@ -41,7 +41,6 @@ import (
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tracing"
 	"github.com/usestring/gate-inbox/internal/worktracker"
-	"github.com/usestring/gate-inbox/scoring"
 )
 
 type mode int
@@ -152,6 +151,9 @@ type Model struct {
 	jevFinish      jevFinishState
 	jevCopyOn      bool
 	jevCopy        jevCopyState
+	// reviewQueue is the Review queue experiment: off, the ingest key
+	// refuses and no Reviews row is drawn.
+	reviewQueue    bool
 	promptSuggest  bool
 	promptSnipsSeq int
 	autoSuggestSeq int
@@ -442,6 +444,8 @@ type Model struct {
 	// selection drag or forwarded click.
 	pending pendingClick
 	pane    paneMirror
+	// railHit is the rail's hit-test geometry, written during paint.
+	railHit railHitMap
 	// visible is whether the operator is looking at the manager: its tmux
 	// window is the one their client shows, or the terminal reports focus.
 	// It gates every window pin -- see visible.go. It starts true so a
@@ -586,7 +590,10 @@ type Model struct {
 	// open manager runs the sweep on its own clock rather than every poll.
 	archiveSweptAt  time.Time
 	hideEmptyGroups bool
-	statusFilter    statusFilter
+	// missingTools is the configured agent CLIs the last PATH lookup did not
+	// find; the pickers gray them out. See clidetect.go.
+	missingTools map[string]bool
+	statusFilter statusFilter
 	// toolFilter narrows the list and the triage queue to one harness --
 	// the CLI in sess.Tool -- and is "" for every harness. See toolfilter.go.
 	toolFilter string
@@ -610,12 +617,9 @@ type Model struct {
 	// of the whole fleet.
 	triageScope string
 	// smartTriage mirrors the persisted smart_triage setting: on, triage
-	// orders the walk by score; off, by the strict state-first order.
+	// orders the walk newest turn first; off, by the strict state-first order.
 	// See triageScore.
 	smartTriage bool
-	// triageWeights are smart triage's term weights, read from the store at
-	// startup. See storedTriageWeights.
-	triageWeights scoring.TriageWeights
 	// triageStartupEnter is set when triage was already on at startup, so the
 	// first poll enters the head of the queue the way turning triage on does.
 	// Restoring the mode without the entry leaves the operator on a list they
@@ -957,6 +961,7 @@ type settingsState struct {
 	jevCopyOn          bool
 	promptSuggest      bool
 	compressedFocus    bool
+	reviewQueue        bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -1321,6 +1326,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		jevAutoSuggest:  storedJevAutoSuggest(st),
 		jevFinishCheck:  storedJevFinishCheck(st),
 		jevCopyOn:       storedJevCopy(st),
+		reviewQueue:     storedReviewQueue(st),
 		promptSuggest:   storedPromptSuggestions(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),
@@ -1338,7 +1344,6 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		triageScope:     storedTriageScope(st),
 		autoProceed:     storedAutoProceed(st),
 		smartTriage:     storedSmartTriage(st),
-		triageWeights:   storedTriageWeights(st),
 		mode:            modeList,
 		version:         version,
 		// Assume the operator is looking until something says otherwise. A
@@ -1563,7 +1568,7 @@ func (m *Model) Init() tea.Cmd {
 	// read any session state, and a first run has none to wait for.
 	m.maybeOpenWelcome()
 	m.syncPollInput()
-	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.headroomStart(), m.arrivalStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips(), m.loadReviews())
+	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.headroomStart(), m.arrivalStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips(), m.loadReviews(), m.detectCLIsCmd(false))
 }
 
 // pasteSweepMsg carries the result of one pass over the pastes directory.
@@ -2545,6 +2550,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case workLoadedMsg:
 		// Work that has just resolved is work the tree can hang rows off.
 		m.rebuildRows()
+		return m, nil
+
+	case cliDetectMsg:
+		m.finishCLIDetect(msg)
 		return m, nil
 
 	case pasteSweepMsg:

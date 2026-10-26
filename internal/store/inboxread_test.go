@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -57,6 +58,36 @@ func TestInboxFiltersBySenderAndDelivery(t *testing.T) {
 	}
 	if got, _ := st.Inbox("p1", InboxFilter{Limit: 1}); len(got) != 1 {
 		t.Fatalf("Limit 1 returned %d", len(got))
+	}
+}
+
+// The latest voiced message is found however much other traffic followed it.
+func TestInboxOperatorVoicedLimitsAfterFiltering(t *testing.T) {
+	st := newTestStore(t)
+	if err := st.CreateSession(sample("p1", "")); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	send := func(sender, body string, at time.Time) {
+		t.Helper()
+		id, _, err := st.Enqueue(InboxMessage{SessionID: "p1", SenderID: sender, SenderName: sender,
+			Body: body, Fingerprint: textfmt.Fingerprint(body), SentAt: at}, DefaultInboxLimits)
+		if err != nil {
+			t.Fatalf("Enqueue %q: %v", body, err)
+		}
+		if err := st.MarkDelivered(id, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	start := now.Add(-time.Hour)
+	send(OperatorVoicedSenderID("voice"), "split the retry fix", start)
+	for i := 1; i <= 25; i++ {
+		send(fmt.Sprintf("c%d", i), fmt.Sprintf("report %d", i), start.Add(time.Duration(i)*time.Second))
+	}
+	delivered := false
+	got, err := st.Inbox("p1", InboxFilter{Pending: &delivered, OperatorVoiced: true, Limit: 1})
+	if err != nil || len(got) != 1 || got[0].Body != "split the retry fix" {
+		t.Fatalf("latest voiced = %+v, %v", got, err)
 	}
 }
 

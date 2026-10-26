@@ -501,8 +501,9 @@ func (s *Sessions) applyGrants(runtime *runtime, target store.Session, force boo
 		// the rest waits for a resume the caller asks for.
 		out.adopted = true
 		out.note = "the session was started outside Gate Inbox and keeps running; its hooks apply its grants"
-	case target.Status == status.Working && !force:
-		out.note = "the session is working, so it was left alone: the change applies when it is next " +
+	// A restart would also end the shell a background session is resting on.
+	case (target.Status == status.Working || target.Status == status.Background) && !force:
+		out.note = "the session is " + target.Status + ", so it was left alone: the change applies when it is next " +
 			"restarted; call again with restart true to restart it now"
 	default:
 		slot, err := s.pace(runtime, target.ID, true)
@@ -560,7 +561,7 @@ func (s *Sessions) ExpireGrants(now time.Time) (int, error) {
 		case err != nil:
 			errs = append(errs, err)
 			continue
-		case target.Status == status.Working && target.TmuxPaneID == "" && runtime.driver.Exists(target.ID):
+		case (target.Status == status.Working || target.Status == status.Background) && target.TmuxPaneID == "" && runtime.driver.Exists(target.ID):
 			// An adopted session's hooks stop honouring a grant the moment
 			// it lapses, so only a launched one keeps it until it rests.
 			continue

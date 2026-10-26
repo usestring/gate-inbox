@@ -107,6 +107,7 @@ func TestTriageStillWalksWithTheSettingOff(t *testing.T) {
 		"broke": status.Errored,
 	})
 	m.triage, m.leaveMode = true, leaveToList
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	m.rebuildRows()
 	if got, want := sessionNames(m), []string{"ask", "broke"}; !slices.Equal(got, want) {
 		t.Fatalf("queue = %v want %v", got, want)

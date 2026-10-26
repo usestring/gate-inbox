@@ -702,7 +702,7 @@ func TestTheCardNamesTheCLIAFilterResolvedTo(t *testing.T) {
 // own rather than dropping off the card.
 func TestAgentPickRowsWrapInsteadOfCutting(t *testing.T) {
 	names := []string{"aaaaaaaaaa", "bbbbbbbbbb", "cccccccccc"}
-	rows := agentPickRows(names, "cccccccccc", 12)
+	rows := agentPickRows(names, "cccccccccc", nil, 12)
 	if len(rows) != 3 {
 		t.Fatalf("rows = %q, want one name per line at this width", rows)
 	}

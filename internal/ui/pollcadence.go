@@ -66,7 +66,7 @@ func (p *poller) paneInterval(sess store.Session) time.Duration {
 		return p.interval
 	}
 	switch sess.Status {
-	case status.Working:
+	case status.Working, status.Background:
 		return max(p.interval, backgroundWorkingInterval)
 	case status.Idle, status.Waiting, status.Finished, status.Errored:
 		return max(p.interval, backgroundStableInterval)

@@ -20,6 +20,7 @@ func queuedKillFleet(t *testing.T) *Model {
 		"broke": status.Errored,
 		"zap":   status.Waiting,
 	})
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	m.rebuildRows()
 	return m
 }

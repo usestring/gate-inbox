@@ -73,7 +73,13 @@ func OperatorVoicedSenderID(id string) string {
 // FromOperator), or queued in the operator's voice by a compiled-in
 // extension.
 func SpeaksAsOperator(senderID string) bool {
-	return FromOperator(senderID) || strings.HasPrefix(senderID, operatorVoicedPrefix)
+	return FromOperator(senderID) || OperatorVoiced(senderID)
+}
+
+// OperatorVoiced reports whether a message from senderID was queued in the
+// operator's voice by an extension rather than typed or relayed by them.
+func OperatorVoiced(senderID string) bool {
+	return strings.HasPrefix(senderID, operatorVoicedPrefix)
 }
 
 // SystemSenderID marks a notice Gate Inbox itself queued for a session, such
@@ -678,7 +684,10 @@ type InboxFilter struct {
 	// Pending keeps only undelivered messages when true, only delivered ones
 	// when false, and both when nil.
 	Pending *bool
-	Limit   int
+	// OperatorVoiced keeps only messages queued in the operator's voice, so a
+	// limit counts those rather than the traffic around them.
+	OperatorVoiced bool
+	Limit          int
 }
 
 // Inbox is what a session has been sent, newest first. Dropped messages,
@@ -696,6 +705,10 @@ SELECT id, sender_id, sender_name, body, subject, sent_at, delivered_at
 	if filter.SenderID != "" {
 		query += ` AND sender_id = ?`
 		args = append(args, filter.SenderID)
+	}
+	if filter.OperatorVoiced {
+		query += ` AND substr(sender_id, 1, ?) = ?`
+		args = append(args, len(operatorVoicedPrefix), operatorVoicedPrefix)
 	}
 	if filter.Pending != nil {
 		if *filter.Pending {

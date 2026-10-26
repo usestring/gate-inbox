@@ -221,6 +221,9 @@ func (m *Model) runQuickAction(entry quickActionEntry) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) dispatchQuickAction(action keymap.Action) (tea.Model, tea.Cmd) {
+	if model, cmd, answered := m.reviewsTabListAction(action); answered {
+		return model, cmd
+	}
 	if action == keymap.JumpPane {
 		m.openPanePicker()
 		return m, nil
@@ -229,9 +232,6 @@ func (m *Model) dispatchQuickAction(action keymap.Action) (tea.Model, tea.Cmd) {
 		return m.jumpToStatus(jump)
 	}
 	if model, cmd, answered := m.artifactRowAction(action, true); answered {
-		return model, cmd
-	}
-	if model, cmd, answered := m.reviewsTabListAction(action); answered {
 		return model, cmd
 	}
 	if model, cmd, answered := m.headRowAction(action, true); answered {

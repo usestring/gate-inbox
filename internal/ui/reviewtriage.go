@@ -109,6 +109,7 @@ func (m *Model) handOverReviews() bool {
 		}
 	}
 	m.reviewsTab = true
+	m.triageResume = false
 	return true
 }
 

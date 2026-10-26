@@ -729,7 +729,7 @@ func (m *Model) enterTriageHead() tea.Cmd {
 	return m.advanceTriage("")
 }
 
-// advanceTriage focuses the next session that needs a person. A nil command
+// advanceTriage hands over the next session or the Reviews tab. A nil command
 // means there was none, and the caller's unfocus stands: the user lands back
 // on the list rather than in some arbitrary session they never asked for.
 func (m *Model) advanceTriage(leftID string) tea.Cmd {
@@ -742,7 +742,8 @@ func (m *Model) advanceTriage(leftID string) tea.Cmd {
 		if index == reviewsTurn {
 			tried[reviewsTriedKey] = true
 			if m.handOverReviews() {
-				return nil
+				// Callers use nil to mark the drain exhausted.
+				return func() tea.Msg { return nil }
 			}
 			continue
 		}

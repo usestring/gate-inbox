@@ -162,6 +162,8 @@ type Sessions struct {
 	// tests answer them themselves.
 	voicedLaunch    func(*runtime, store.Session, time.Time) (store.InboxMessage, bool)
 	userAskedLaunch func(*runtime, store.Session) bool
+	// boardStores are the handles the board's reads reuse; see openBoard.
+	boardStores boardStores
 }
 
 func NewSessions(configDir string, words Vocabulary) *Sessions {

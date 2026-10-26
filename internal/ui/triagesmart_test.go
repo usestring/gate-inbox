@@ -104,17 +104,18 @@ func TestSmartTriagePutsAQuestionAboveAFinishOfTheSameTurn(t *testing.T) {
 	assertRail(t, m, "ask", "done")
 }
 
-// The session the operator turned to most recently goes first, whatever its
-// state: its context is the one they still hold.
-func TestSmartTriageHandsOverTheNewestTurnFirst(t *testing.T) {
+// Inside one state the session the operator turned to most recently goes
+// first: its context is the one they still hold. Recency never lifts a row
+// over a better state: a fresh finish stays under an old question.
+func TestSmartTriageHandsOverTheNewestTurnFirstWithinAState(t *testing.T) {
 	m := smartFleet(t,
-		smartSess("ask", status.Waiting, 10*time.Minute),
-		smartSess("done", status.Finished, 5*time.Minute),
+		smartSess("done-old", status.Finished, 10*time.Minute),
+		smartSess("done-new", status.Finished, 5*time.Minute),
 	)
-	assertRail(t, m, "done", "ask")
+	assertRail(t, m, "done-new", "done-old")
 	m = smartFleet(t,
-		smartSess("ask", status.Waiting, 5*time.Minute),
-		smartSess("done", status.Finished, 10*time.Minute),
+		smartSess("ask", status.Waiting, 3*time.Hour),
+		smartSess("done", status.Finished, 30*time.Second),
 	)
 	assertRail(t, m, "ask", "done")
 }
@@ -152,8 +153,8 @@ func TestSmartTriageHandsOverIdle(t *testing.T) {
 		smartSess("calm-old", status.Idle, 3*time.Hour),
 		smartSess("gone", status.Dead, 4*time.Minute),
 	)
-	assertRail(t, m, "calm-fresh", "done", "calm-old", "grinder", "gone")
-	if got, want := drainOrder(m), []string{"calm-fresh", "done", "calm-old"}; !slices.Equal(got, want) {
+	assertRail(t, m, "done", "calm-fresh", "calm-old", "grinder", "gone")
+	if got, want := drainOrder(m), []string{"done", "calm-fresh", "calm-old"}; !slices.Equal(got, want) {
 		t.Fatalf("drain = %v, want %v and never the working or dead row", got, want)
 	}
 }
@@ -198,16 +199,16 @@ func TestSmartTriageDrainsInRailOrder(t *testing.T) {
 // the head.
 func TestSmartTriageOnlyAnOperatorTurnMovesARow(t *testing.T) {
 	m := smartFleet(t,
-		smartSess("done", status.Finished, 30*time.Minute),
-		smartSess("ask", status.Waiting, 10*time.Minute),
+		smartSess("done-old", status.Finished, 30*time.Minute),
+		smartSess("done-new", status.Finished, 10*time.Minute),
 	)
-	assertRail(t, m, "ask", "done")
+	assertRail(t, m, "done-new", "done-old")
 	m.clock = func() time.Time { return smartNow.Add(5 * time.Hour) }
 	m.rebuildRows()
-	assertRail(t, m, "ask", "done")
+	assertRail(t, m, "done-new", "done-old")
 	m.sessions[0].OperatorAt = smartNow.Add(time.Hour)
 	m.rebuildRows()
-	assertRail(t, m, "done", "ask")
+	assertRail(t, m, "done-old", "done-new")
 }
 
 // A working parent is lifted to its child's key and queues on the child's
@@ -216,17 +217,17 @@ func TestSmartTriageLiftsAParentByItsChildsScore(t *testing.T) {
 	kid := smartSess("kid", status.Finished, 25*time.Minute)
 	kid.ParentID, kid.SpawnedBy = "lead", "lead"
 	m := smartFleet(t,
-		smartSess("ask-old", status.Waiting, 30*time.Minute),
+		smartSess("done-old", status.Finished, 30*time.Minute),
 		smartSess("lead", status.Working, 3*time.Hour),
 		kid,
-		smartSess("ask-young", status.Waiting, 20*time.Minute),
+		smartSess("done-young", status.Finished, 20*time.Minute),
 	)
-	assertRail(t, m, "ask-young", "lead", "kid", "ask-old")
+	assertRail(t, m, "done-young", "lead", "kid", "done-old")
 }
 
 // A finish the operator has looked at is acked and idle, and looking is not
-// a turn: it keeps its place on its last turn, and on a tie ranks under an
-// unseen finish and above a plain idle session, until input moves it on.
+// a turn: it keeps its place on its last turn, and ranks under an unseen
+// finish and above a plain idle session, until input moves it on.
 func TestSmartTriageKeepsASeenFinishInTheQueue(t *testing.T) {
 	seen := smartSess("seen", status.Idle, time.Hour)
 	seen.Acked = true
@@ -237,9 +238,10 @@ func TestSmartTriageKeepsASeenFinishInTheQueue(t *testing.T) {
 	)
 	assertRail(t, m, "done", "seen", "calm")
 
-	// It goes ahead of an unseen finish the operator turned to before it.
+	// An unseen finish goes ahead of it however much longer ago the operator
+	// turned to that one.
 	m = smartFleet(t, seen, smartSess("done", status.Finished, 2*time.Hour))
-	assertRail(t, m, "seen", "done")
+	assertRail(t, m, "done", "seen")
 
 	// Input moves it on: working, it is off the walk.
 	seen.Status = status.Working

@@ -94,15 +94,16 @@ func (m *Model) triageStateOf(sess store.Session) string {
 // on, which is also what clears the ack.
 const triageFinishedSeen = "finished-seen"
 
-// Smart triage hands over, inside one priority tier, the walkable session the
-// operator turned to most recently first (see triageScore), and breaks a tie
-// on the state rank below: a question before a finish before an idle row.
+// Smart triage hands over, inside one priority tier, the walkable sessions by
+// the state rank below -- a question before a finish before an idle row -- and
+// inside one state, the session the operator turned to most recently first
+// (see triageScore).
 //
 // Newest first because that session is the one whose context the operator
 // still holds: going back to what they handed off a minute ago costs less
-// than reloading what they last touched hours ago. The tier is not part of
-// the recency: an untiered session never overtakes an urgent one, however
-// recent.
+// than reloading what they last touched hours ago. Recency only orders rows
+// of the same state: a fresh idle row never overtakes a finish, and a fresh
+// finish never overtakes a question.
 var triageScoredTiers = []string{
 	status.Waiting,
 	triageReview,
@@ -239,8 +240,8 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 // The priority tier comes before everything but a mute: a higher tier sorts
 // above any lower one whatever its band, state, deadline or wait. Within a
 // tier the bands follow, and smart triage orders the scored band (every
-// walkable session; the walkable band is then empty) most recent turn first
-// (see triageScore); every other band, and the strict order, sorts by the
+// walkable session; the walkable band is then empty) by state, then most
+// recent turn first (see triageScore); every other band, and the strict order, sorts by the
 // status rank, then oldest first. See priority.go.
 //
 // LastStatusAt is when the session entered the state it is in, which is
@@ -301,10 +302,10 @@ func (k triageKey) before(o triageKey) bool {
 	if k.band != o.band {
 		return k.band < o.band
 	}
-	if k.score != o.score {
-		return k.score > o.score
+	if k.tier != o.tier {
+		return k.tier < o.tier
 	}
-	return k.tier < o.tier
+	return k.score > o.score
 }
 
 // triageKeyOf reads one session's key. A persistently muted session sorts

@@ -146,21 +146,7 @@ left. `ctrl+s` opens your snippet menu over the session in front of you.
 
 ### Account headroom score
 
-An extension that runs sessions on several Claude subscriptions can rank them with the same principle, from the public `scoring` package (`scoring.Headroom`). What leaving an account loses is weekly quota that resets before it is spent, so each account scores its weekly headroom weighted by how soon that headroom expires:
-
-    score = headroom × 1 ÷ (hours to the weekly reset)²
-
-| Part | Value |
-| --- | --- |
-| headroom | the window's ceiling less its utilization, in percentage points |
-| ceiling | 95 less 10 × the share of the period still ahead: 85 just after a reset, rising to 95 just before the next, so 5 to 15 points stay in reserve |
-| urgency | 1 ÷ (hours to the reset)², with the hours floored at 15 minutes so a reset minutes away scores high rather than infinite |
-
-Squaring the hours lets the account whose quota is closest to being lost win over one with more headroom that resets much later: ten times nearer its reset, the same headroom scores a hundred times higher. An account an hour from its reset with 5 points left (5 ÷ 1² = 5) goes ahead of one two days out with 80 left (80 ÷ 48² ≈ 0.035).
-
-Every window must be clear of its ceiling for an account to take a launch, but only weekly windows score. The five-hour window is a rate cap that refills all day, so it can shut an account but never ranks one. With several weekly windows the lowest score counts. A reading older than two minutes, one missing the `five_hour` or `seven_day` window, or one with an unknown utilization scores nothing. An account at 100% or inside its reserve is not usable.
-
-A session already running on an account moves to another only when the other scores at least 1.5 times higher (`scoring.WorthSwitching`), since a move costs a restart and the prompt cache, and two accounts scoring alike would otherwise trade it back and forth.
+An extension that runs sessions on several Claude subscriptions can rank them by the weekly quota each would lose unspent at its next reset. That score lives in [headroom-routing](https://github.com/usestring/headroom-routing) as the Go package `github.com/usestring/headroom-routing/headroom`.
 
 ## The review queue
 

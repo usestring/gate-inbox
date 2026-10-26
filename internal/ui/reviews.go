@@ -59,6 +59,10 @@ func (m *Model) loadReviews() tea.Cmd {
 // here, on the loop; the command itself touches only what it was handed.
 func (m *Model) ingestReviews() tea.Cmd {
 	cfg := m.cfg.Integrations.Reviews
+	if !m.reviewQueue {
+		m.errBar.text = "the review queue is experimental: turn it on in Settings → Experimental features"
+		return nil
+	}
 	if !cfg.On() {
 		m.errBar.text = "the review queue is switched off: [integrations.reviews] enabled = false"
 		return nil
@@ -162,7 +166,7 @@ func countOf(n int, noun string) string {
 // rollup when there is one. A search is answered by the sessions it matched,
 // so the row stays off it.
 func (m *Model) withReviewsRow(rows []treeRow, query string) []treeRow {
-	if len(m.reviews) == 0 || query != "" {
+	if !m.reviewQueue || len(m.reviews) == 0 || query != "" {
 		return rows
 	}
 	at := 0

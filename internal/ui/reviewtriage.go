@@ -114,7 +114,7 @@ func (m *Model) handOverReviews() bool {
 // withReviewsTriage puts the Reviews row into a triage queue where its key
 // sorts it, rather than at the top where the tree keeps it.
 func (m *Model) withReviewsTriage(rows []treeRow, query string) []treeRow {
-	if len(m.reviews) == 0 || query != "" {
+	if !m.reviewQueue || len(m.reviews) == 0 || query != "" {
 		return rows
 	}
 	from := 0

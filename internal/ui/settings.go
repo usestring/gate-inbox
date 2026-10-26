@@ -196,6 +196,7 @@ func (m *Model) openSettings() {
 		jevCopyOn:        m.jevCopyOn,
 		promptSuggest:    m.promptSuggest,
 		compressedFocus:  m.compressedFocus,
+		reviewQueue:      m.reviewQueue,
 		backdropSync:     storedBackdrop(m.store) == backdropSync,
 	}
 	m.mode = modeSettings
@@ -383,6 +384,7 @@ func (m *Model) persistSettings() tea.Cmd {
 		m.jevCopy = jevCopyState{generation: m.jevCopy.generation + 1, busy: m.jevCopy.busy, copying: m.jevCopy.copying}
 	}
 	m.jevCopyOn = m.settings.jevCopyOn
+	m.reviewQueue = m.settings.reviewQueue
 	if m.promptSuggest != m.settings.promptSuggest {
 		m.promptSnipsSeq++
 	}

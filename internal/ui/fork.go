@@ -29,10 +29,12 @@ var forkOpencodeConversation = opencode.Fork
 type forkState struct {
 	source store.Session
 	name   textinput.Model
-	// skip and childrenSkip open on the source's settings, as the migrate
-	// card's do. focus is the card row ↑↓ is on: the name, then these two.
+	// skip, childrenSkip and fast open on the source's settings, as the
+	// migrate card's do. focus is the card row ↑↓ is on: the name, then
+	// these three.
 	skip         bool
 	childrenSkip bool
+	fast         bool
 	focus        int
 }
 
@@ -40,6 +42,7 @@ const (
 	forkFocusName = iota
 	forkFocusSkip
 	forkFocusChildrenSkip
+	forkFocusFast
 	forkFocusCount
 )
 
@@ -66,7 +69,7 @@ func (m *Model) openFork() {
 	name.CursorEnd()
 	name.Focus()
 	m.fork = forkState{source: entry.sess, name: name,
-		skip: entry.sess.SkipPermissions, childrenSkip: entry.sess.ChildrenSkipPermissions}
+		skip: entry.sess.SkipPermissions, childrenSkip: entry.sess.ChildrenSkipPermissions, fast: entry.sess.FastMode}
 	m.errBar.text = ""
 	m.mode = modeFork
 }
@@ -92,6 +95,9 @@ func (m *Model) handleForkKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case forkFocusChildrenSkip:
 			m.fork.childrenSkip = !m.fork.childrenSkip
+			return m, nil
+		case forkFocusFast:
+			m.fork.fast = !m.fork.fast
 			return m, nil
 		}
 	}
@@ -190,6 +196,7 @@ func (m *Model) launchFork(source store.Session, tool config.Tool, managerID, ac
 		// The card's toggles, which open on the source's settings.
 		SkipPermissions:         m.fork.skip,
 		ChildrenSkipPermissions: m.fork.childrenSkip,
+		FastMode:                m.fork.fast,
 	}
 	launch := func() error { return m.launchNewSession(forked, tool, baseCommand) }
 	if err := launch(); err != nil {
@@ -257,6 +264,7 @@ func (m *Model) viewFork() string {
 		"  group   " + groupBadge(displayGroup(m.fork.source.Group)) + "\n" +
 		formField("name", m.fork.name.View(), m.fork.focus == forkFocusName) +
 		formField("perms", m.viewSkipToggleFor(m.fork.skip, launch.SkipsPermissions(m.fork.source.Tool, m.cfg.Tools[m.fork.source.Tool]), m.fork.source.Tool), m.fork.focus == forkFocusSkip) +
-		formField("children", m.viewSkipToggle(m.fork.childrenSkip, true), m.fork.focus == forkFocusChildrenSkip)
+		formField("children", m.viewSkipToggle(m.fork.childrenSkip, true), m.fork.focus == forkFocusChildrenSkip) +
+		formField("fast", viewFastToggle(m.fork.fast), m.fork.focus == forkFocusFast)
 	return m.card("↳ Fork Session", body, [][2]string{{"↵", "create"}, {"↑↓", "move"}, {"←→", "change"}, {"esc", "cancel"}})
 }

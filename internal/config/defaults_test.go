@@ -154,6 +154,8 @@ func TestDefaultsCanSupplyEveryDistributionKey(t *testing.T) {
 		switch name, ok := strings.CutPrefix(w.section, "tools."); {
 		case ok:
 			got = toolField(t, cfg.Tools[name], w.key).Interface()
+		case w.section == "fast_mode":
+			got = cfg.FastMode.Env
 		case strings.HasPrefix(w.section, "extensions."):
 			got = cfg.Extensions[strings.TrimPrefix(w.section, "extensions.")][w.key]
 		default:

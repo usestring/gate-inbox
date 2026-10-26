@@ -30,6 +30,10 @@ type MigrateOptions struct {
 	// line create_session draws, so a move is no way around it.
 	SkipPermissions         *bool
 	ChildrenSkipPermissions *bool
+	// FastMode replaces the source's fast mode on the moved session; nil
+	// keeps it. An agent may turn it off, but on only where it already is or
+	// where the caller, itself in fast mode, spawned the source.
+	FastMode *bool
 	// accountOverride is the account a switch_account relaunch has already
 	// chosen. An ordinary migration has none and takes none from its
 	// caller: the build's account chooser picks (see accounts.Route).
@@ -71,6 +75,9 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 		return Session{}, err
 	}
 	if err := mayRaiseSkipPermissions(caller, source, opts); err != nil {
+		return Session{}, err
+	}
+	if err := mayRaiseFastMode(caller, source, opts.FastMode); err != nil {
 		return Session{}, err
 	}
 	// Whether the source is still running goes into the brief and the
@@ -145,6 +152,9 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	sess.SkipPermissions, sess.ChildrenSkipPermissions, err = migrate.SkipPermissions(source, toolName, tool, opts.SkipPermissions, opts.ChildrenSkipPermissions)
 	if err != nil {
 		return Session{}, err
+	}
+	if opts.FastMode != nil {
+		sess.FastMode = *opts.FastMode
 	}
 	base, err := launch.WithSkipPermissions(toolName, tool, plan.Command, sess.SkipPermissions)
 	if err != nil {
@@ -247,6 +257,19 @@ func filterTranscript(transcript migrate.Transcript, dst string, opts handover.O
 		return handover.Stats{}, false, nil
 	}
 	return stats, true, err
+}
+
+// mayRaiseFastMode refuses a move that would put a session in fast mode
+// where neither the operator nor its fast-mode spawner did.
+func mayRaiseFastMode(caller, source store.Session, asked *bool) error {
+	if asked == nil || !*asked || source.FastMode {
+		return nil
+	}
+	if caller.FastMode && store.SpawnerOf(source) == caller.ID {
+		return nil
+	}
+	return fmt.Errorf("fast_mode true is refused: %s is not in fast mode, and only the operator or its "+
+		"fast-mode spawner may turn it on; leave it unset or false", source.ID)
 }
 
 // mayRaiseSkipPermissions refuses a move that would turn a session's prompts

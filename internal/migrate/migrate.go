@@ -219,6 +219,7 @@ func NewSession(id, name, toolName string, source store.Session, plan launch.Pla
 		// settles them through SkipPermissions before the launch.
 		SkipPermissions:         source.SkipPermissions,
 		ChildrenSkipPermissions: source.ChildrenSkipPermissions,
+		FastMode:                source.FastMode,
 	}
 }
 

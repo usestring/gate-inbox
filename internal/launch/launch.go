@@ -552,6 +552,28 @@ func inheritParentEnv(env map[string]string) {
 	}
 }
 
+// FastModeEnv is set to 1 in the environment of a session launched in fast
+// mode (store.Session.FastMode), and to empty in every other one, so a
+// session never inherits it from the process that launched it: a fast
+// parent's MCP server delegates its spawns to a CLI that carries the
+// parent's own environment.
+const FastModeEnv = "GATE_INBOX_FAST_MODE"
+
+// FastModeVars is what a launch adds for fast mode: FastModeEnv and extra,
+// the build's own variable (config fast_mode.env), set to 1 when on and to
+// empty when off.
+func FastModeVars(on bool, extra string) map[string]string {
+	value := ""
+	if on {
+		value = "1"
+	}
+	vars := map[string]string{FastModeEnv: value}
+	if extra = strings.TrimSpace(extra); extra != "" && validEnvName(extra) {
+		vars[extra] = value
+	}
+	return vars
+}
+
 // KeepPromptsEnv is the Claude Code variable that turns off its two-minute
 // refusal of an unanswered dangerous-rm permission prompt.
 const KeepPromptsEnv = "CLAUDE_CODE_DISABLE_DANGEROUS_RM_TIMEOUT"

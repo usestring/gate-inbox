@@ -308,6 +308,14 @@ type Children struct {
 	KeepFinished bool `toml:"keep_finished"`
 }
 
+// FastMode is what a session launched in fast mode is told ([fast_mode]).
+// The core always sets GATE_INBOX_FAST_MODE=1 in its environment; Env names
+// one more variable set the same way, for a build whose agents read their
+// own. Empty sets no other.
+type FastMode struct {
+	Env string `toml:"env"`
+}
+
 // Work configures what the board does with the pull requests and tickets its
 // sessions are on once they are over.
 type Work struct {
@@ -596,6 +604,7 @@ type Config struct {
 	// ([merge_gate]). Empty owners or authors turns the gate off, and the
 	// mod is not loaded into launched sessions then.
 	MergeGate mergegate.Config `toml:"merge_gate"`
+	FastMode  FastMode         `toml:"fast_mode"`
 	Tools     map[string]Tool  `toml:"tools"`
 }
 

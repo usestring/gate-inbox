@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -24,7 +25,23 @@ var (
 	mu       sync.Mutex
 	resolve  = func() (*extension.SessionHooks, error) { return nil, nil }
 	sessions = extension.SessionReader(unread{})
+	fastEnv  = func() string { return "" }
 )
+
+// UseFastModeEnv sets how this process finds its build's fast-mode variable
+// (config fast_mode.env). It returns a func restoring the previous one, for
+// tests.
+func UseFastModeEnv(fn func() string) (restore func()) {
+	mu.Lock()
+	defer mu.Unlock()
+	previous := fastEnv
+	fastEnv = fn
+	return func() {
+		mu.Lock()
+		defer mu.Unlock()
+		fastEnv = previous
+	}
+}
 
 // errUnread is a process that was never told how to read its board.
 var errUnread = errors.New("this process has no board to read sessions from")
@@ -201,10 +218,27 @@ func FormSpawned(sess store.Session, form map[string]string) {
 // from is the source session of a migration, and form the values of the
 // extensions' new-session form fields when the operator spawned it from
 // that form, keyed as FormFields keys them.
+//
+// It also carries the session's fast mode (launch.FastModeVars), set last so
+// neither an extension nor the launching process's own environment decides
+// it: only the row does.
 func Env(hooks *extension.SessionHooks, sess store.Session, reason extension.LaunchReason, from string, form map[string]string) (map[string]string, error) {
 	ctx, cancel := bounded()
 	defer cancel()
-	return hooks.LaunchEnv(ctx, extension.Launch{Session: Info(sess, false), Reason: reason, From: from, Form: form})
+	env, err := hooks.LaunchEnv(ctx, extension.Launch{Session: Info(sess, false), Reason: reason, From: from, Form: form})
+	if err != nil {
+		return nil, err
+	}
+	mu.Lock()
+	extra := fastEnv
+	mu.Unlock()
+	if env == nil {
+		env = map[string]string{}
+	}
+	for key, value := range launch.FastModeVars(sess.FastMode, extra()) {
+		env[key] = value
+	}
+	return env, nil
 }
 
 // FormFields is the fields this process's extensions add to the new-session

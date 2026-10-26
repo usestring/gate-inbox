@@ -31,11 +31,12 @@ type migrateState struct {
 	// transcript is located when the card opens, so a session with nothing
 	// to move is refused before a name is typed.
 	transcript migrate.Transcript
-	// skip and childrenSkip open on the source's settings, so a move left
-	// alone keeps them. focus is the card row ↑↓ is on: the name, then
-	// these two.
+	// skip, childrenSkip and fast open on the source's settings, so a move
+	// left alone keeps them. focus is the card row ↑↓ is on: the name, then
+	// these three.
 	skip         bool
 	childrenSkip bool
+	fast         bool
 	focus        int
 }
 
@@ -43,6 +44,7 @@ const (
 	migrateFocusName = iota
 	migrateFocusSkip
 	migrateFocusChildrenSkip
+	migrateFocusFast
 	migrateFocusCount
 )
 
@@ -75,7 +77,7 @@ func (m *Model) openMigrate() {
 	name.CursorEnd()
 	name.Focus()
 	m.migrate = migrateState{source: entry.sess, name: name, toolNames: tools, transcript: transcript,
-		skip: entry.sess.SkipPermissions, childrenSkip: entry.sess.ChildrenSkipPermissions}
+		skip: entry.sess.SkipPermissions, childrenSkip: entry.sess.ChildrenSkipPermissions, fast: entry.sess.FastMode}
 	m.errBar.text = ""
 	m.mode = modeMigrate
 }
@@ -107,6 +109,9 @@ func (m *Model) handleMigrateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case migrateFocusChildrenSkip:
 			m.migrate.childrenSkip = !m.migrate.childrenSkip
+			return m, nil
+		case migrateFocusFast:
+			m.migrate.fast = !m.migrate.fast
 			return m, nil
 		}
 	}
@@ -228,6 +233,7 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 		m.reportLaunchError(err)
 		return m, nil
 	}
+	moved.FastMode = m.migrate.fast
 	if err := m.launchNewSession(moved, tool, plan.Command); err != nil {
 		m.reportLaunchError(err)
 		return m, nil
@@ -287,7 +293,8 @@ func (m *Model) viewMigrate() string {
 		"  to      " + valueStyle.Render(m.migrateTool()) + "  " + mutedStyle.Render("tab cycles") + "\n" +
 		formField("name", m.migrate.name.View(), m.migrate.focus == migrateFocusName) +
 		formField("perms", m.viewMigrateSkipToggle(m.migrate.skip), m.migrate.focus == migrateFocusSkip) +
-		formField("children", m.viewSkipToggle(m.migrate.childrenSkip, true), m.migrate.focus == migrateFocusChildrenSkip)
+		formField("children", m.viewSkipToggle(m.migrate.childrenSkip, true), m.migrate.focus == migrateFocusChildrenSkip) +
+		formField("fast", viewFastToggle(m.migrate.fast), m.migrate.focus == migrateFocusFast)
 	return m.card("⇄ Migrate Session", body, [][2]string{{"↵", "create"}, {"tab", "tool"}, {"↑↓", "move"}, {"←→", "change"}, {"esc", "cancel"}})
 }
 

@@ -145,6 +145,7 @@ func Run(ctx context.Context, args []string, opts Options) error {
 	accounts.UseChooser(chooserOf(registry))
 	sessionhooks.Use(sessionHooksOf(registry))
 	sessionhooks.UseSessions(&spawnReader{})
+	sessionhooks.UseFastModeEnv(fastModeEnv)
 	table := subcommands(ctx, version, opts.Extensions)
 	extra, err := extensionCommands(opts.Extensions, table)
 	if err != nil {
@@ -224,6 +225,17 @@ func sessionHooksOf(registry *extension.Registry) func() (*extension.SessionHook
 		return registry.SessionHooks(dir, cfg.Extensions)
 	})
 }
+
+// fastModeEnv is the build's own fast-mode variable, read once. A config
+// that cannot be read leaves only the core's: the launch fails on that config
+// soon enough anyway.
+var fastModeEnv = sync.OnceValue(func() string {
+	cfg, err := config.Load()
+	if err != nil {
+		return ""
+	}
+	return cfg.FastMode.Env
+})
 
 // defaultsOwnedBy refuses defaults with an [extensions.<id>] section no
 // extension in registry owns. An operator's file with one is refused when a

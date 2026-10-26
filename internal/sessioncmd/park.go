@@ -624,7 +624,7 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 	if err != nil {
 		return config.Tool{}, err
 	}
-	revive, err = launch.WithSkipPermissions(tool, revive, target.SkipPermissions)
+	revive, err = launch.WithSkipPermissions(target.Tool, tool, revive, target.SkipPermissions)
 	if err != nil {
 		return config.Tool{}, err
 	}
@@ -637,7 +637,7 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 	if err != nil {
 		return config.Tool{}, err
 	}
-	command, env, err := launch.EnvironmentWithProfile(hooks.NewManager(s.configDir), target.Tool, tool, base, target.ID, target.Model, target.Account, contributed, mcpProfile(target))
+	command, env, err := launch.EnvironmentWithProfile(hooks.NewManager(s.configDir), target.Tool, tool, base, target.ID, target.Model, target.Account, target.SkipPermissions, contributed, mcpProfile(target))
 	if err != nil {
 		return config.Tool{}, err
 	}

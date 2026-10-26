@@ -669,7 +669,7 @@ func (m *Model) flipSkip() bool {
 // formSkipSupported reports whether the selected CLI can be launched with
 // its permission prompts off; the card says so rather than hiding the field.
 func (m *Model) formSkipSupported() bool {
-	return m.cfg.Tools[m.selectedToolName()].SkipPermissionsFlag != ""
+	return launch.SkipsPermissions(m.selectedToolName(), m.cfg.Tools[m.selectedToolName()])
 }
 
 func (m *Model) formFocus(delta int) {
@@ -1039,11 +1039,11 @@ func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt strin
 }
 
 func (m *Model) buildLaunch(toolName string, tool config.Tool, baseCommand, id, model, account string, skip bool, contributed map[string]string) (string, map[string]string, error) {
-	baseCommand, err := launch.WithSkipPermissions(tool, baseCommand, skip)
+	baseCommand, err := launch.WithSkipPermissions(toolName, tool, baseCommand, skip)
 	if err != nil {
 		return "", nil, err
 	}
-	return launch.Environment(m.hooks, toolName, tool, baseCommand, id, model, account, contributed)
+	return launch.Environment(m.hooks, toolName, tool, baseCommand, id, model, account, skip, contributed)
 }
 
 func (m *Model) openGroupForm() {

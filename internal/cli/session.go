@@ -135,6 +135,7 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 	directoryReason := set.String("directory-reason", "", "why it must start in --directory although its group pins another; leave empty to start where the group pins")
 	nest := set.Bool("nest", true, "file it under this session, where its questions and rests reach you; --nest=false detaches it: the user's, not yours, and nothing about it is relayed to you")
 	skipPermissions := set.Bool("skip-permissions", false, "launch it with its CLI's permission prompts off; omit to follow the setting for this session's children, and refused unless the user allowed it there")
+	fastMode := set.Bool("fast-mode", false, "launch it in fast mode; omit to follow this session's own mode, and refused unless this session is in fast mode")
 	keep := set.Bool("keep", false, "keep it on the list after it finishes, where Gate Inbox would otherwise archive it once you have read its finish and the grace period has passed")
 	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
@@ -160,6 +161,8 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 			opts.Nest = nest
 		case "skip-permissions":
 			opts.SkipPermissions = skipPermissions
+		case "fast-mode":
+			opts.FastMode = fastMode
 		}
 	})
 	created, err := sessions.Create(sessionID, opts)
@@ -369,6 +372,7 @@ func runMigrate(out io.Writer, sessions sessionCommands, args []string, sessionI
 	name := set.String("name", "", "name for the new session; defaults to the source's name with the tool appended")
 	skipPermissions := set.Bool("skip-permissions", false, "run the moved session with its permission prompts off; omit to keep the source's setting")
 	childrenSkip := set.Bool("children-skip-permissions", false, "let the sessions it spawns skip their permission prompts by default; omit to keep the source's setting")
+	fastMode := set.Bool("fast-mode", false, "run the moved session in fast mode; omit to keep the source's setting")
 	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
@@ -382,6 +386,8 @@ func runMigrate(out io.Writer, sessions sessionCommands, args []string, sessionI
 			opts.SkipPermissions = skipPermissions
 		case "children-skip-permissions":
 			opts.ChildrenSkipPermissions = childrenSkip
+		case "fast-mode":
+			opts.FastMode = fastMode
 		}
 	})
 	migrated, err := sessions.Migrate(sessionID, operands[0], opts)

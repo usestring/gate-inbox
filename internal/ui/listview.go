@@ -1093,6 +1093,9 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	if sess.SkipPermissions {
 		head += " " + statusTint(status.Errored, skipPermsGlyph())
 	}
+	if sess.FastMode {
+		head += " " + accentStyle.Render(fastModeGlyph())
+	}
 	if m.isDiedWhileClosed(sess) {
 		head += " " + statusTint(status.Errored, diedGlyph())
 	}

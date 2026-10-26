@@ -308,6 +308,7 @@ func (s *Sessions) prepareReplace(runtime *runtime, targetID, rolePrefix string,
 		// The replacement takes the old seat as the operator set it up.
 		SkipPermissions:         old.SkipPermissions,
 		ChildrenSkipPermissions: old.ChildrenSkipPermissions,
+		FastMode:                old.FastMode,
 	}
 	if sess.Name == "" {
 		sess.Name = old.Name

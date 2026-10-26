@@ -40,6 +40,7 @@ type Session struct {
 	Account                 string `json:"account,omitempty" jsonschema:"named subscription the session runs on; empty is the CLI's own login"`
 	SkipPermissions         bool   `json:"skip_permissions,omitempty" jsonschema:"the session runs with its CLI's permission prompts off"`
 	ChildrenSkipPermissions bool   `json:"children_skip_permissions,omitempty" jsonschema:"sessions it spawns run with their permission prompts off unless the spawn says otherwise"`
+	FastMode                bool   `json:"fast_mode,omitempty" jsonschema:"the session runs in fast mode: it was launched with GATE_INBOX_FAST_MODE=1, and sessions it spawns start in fast mode unless the spawn says otherwise"`
 	Group                   string `json:"group" jsonschema:"group path holding the session; empty is the root"`
 	Directory               string `json:"directory" jsonschema:"session's current working directory, or its launch directory when stopped"`
 	Status                  string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, delegating, background, finished, idle, errored or dead"`
@@ -139,6 +140,11 @@ type CreateSessionOptions struct {
 	// unless that setting is on: the operator turns prompts off for a
 	// session's children, and an agent cannot turn them off for itself.
 	SkipPermissions *bool
+	// FastMode launches the child in fast mode (store.Session.FastMode).
+	// Nil follows the caller's own. True is refused unless the caller is
+	// in fast mode itself: the operator turns it on, and an agent cannot
+	// turn it on for a session it spawns from outside it.
+	FastMode *bool
 }
 
 type Sessions struct {
@@ -280,6 +286,7 @@ func (r *runtime) sessionInfoIn(sess store.Session, dir string, running, self bo
 		Directory:               dir,
 		SkipPermissions:         sess.SkipPermissions,
 		ChildrenSkipPermissions: sess.ChildrenSkipPermissions,
+		FastMode:                sess.FastMode,
 		Status:                  sess.Status,
 		Running:                 running,
 		Archived:                sess.Archived,
@@ -660,6 +667,21 @@ func childSkipPermissions(caller store.Session, asked *bool, supported bool) (bo
 	return *asked, nil
 }
 
+// childFastMode is whether a child of caller launches in fast mode: what
+// the call asked for, else the caller's own mode. Only a caller in fast mode
+// may ask for it, and asking where it is not is refused rather than
+// downgraded, as childSkipPermissions does.
+func childFastMode(caller store.Session, asked *bool) (bool, error) {
+	if asked == nil {
+		return caller.FastMode, nil
+	}
+	if *asked && !caller.FastMode {
+		return false, errors.New("fast_mode true is refused: this session is not in fast mode, and only the operator " +
+			"or a fast-mode parent may start a session in it; leave it unset or false")
+	}
+	return *asked, nil
+}
+
 func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created Session, err error) {
 	// The most expensive thing this package does, and the one a fan-out
 	// repeats: a pane, a CLI process behind it, and the row filed for both.
@@ -776,6 +798,9 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	}
 	sess.SkipPermissions, err = childSkipPermissions(caller, opts.SkipPermissions, launch.SkipsPermissions(toolName, tool))
 	if err != nil {
+		return Session{}, err
+	}
+	if sess.FastMode, err = childFastMode(caller, opts.FastMode); err != nil {
 		return Session{}, err
 	}
 	// Shaped and then put to the policies before an account is chosen or a

@@ -244,7 +244,8 @@ CREATE INDEX tasks_claimable ON tasks (state, created_at)
   34 muted                        INTEGER  notnull=1 default=0 pk=0
   35 skip_permissions             INTEGER  notnull=1 default=0 pk=0
   36 children_skip_permissions    INTEGER  notnull=1 default=0 pk=0
-  37 operator_at                  INTEGER  notnull=1 default=0 pk=0
+  37 fast_mode                    INTEGER  notnull=1 default=0 pk=0
+  38 operator_at                  INTEGER  notnull=1 default=0 pk=0
   index sqlite_autoindex_sessions_1 unique=1 origin=pk partial=0 (id)
 
 === table settings

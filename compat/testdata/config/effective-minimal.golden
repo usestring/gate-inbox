@@ -12,6 +12,7 @@ default  claude_code.setup = <unset>
 default  codex.setup = <unset>
 default  editor = ""
 default  extensions = {}
+default  fast_mode.env = ""
 default  hogs.cooldown = "30m0s"
 default  hogs.cpu.notice[0].available_below = 0
 default  hogs.cpu.notice[0].for = "10m0s"

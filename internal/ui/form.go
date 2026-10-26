@@ -36,6 +36,8 @@ const (
 	// whether the sessions it spawns do. They qualify the CLI too.
 	fieldSkip
 	fieldChildrenSkip
+	// Whether the session runs in fast mode (store.Session.FastMode).
+	fieldFast
 	fieldName
 	fieldPrompt
 	fieldGroup
@@ -78,10 +80,11 @@ type form struct {
 	// model is free text: what a CLI accepts is the CLI's business, and a
 	// picker here would need this program to track every vendor's names.
 	model textinput.Model
-	// skip and childrenSkip become store.Session.SkipPermissions and
-	// ChildrenSkipPermissions; both start off.
+	// skip, childrenSkip and fast become store.Session.SkipPermissions,
+	// ChildrenSkipPermissions and FastMode; all start off.
 	skip         bool
 	childrenSkip bool
+	fast         bool
 	toolNames    []string
 	toolIndex    int
 	groups       []groupOption
@@ -663,6 +666,8 @@ func (m *Model) flipSkip() bool {
 		m.form.skip = !m.form.skip
 	case fieldChildrenSkip:
 		m.form.childrenSkip = !m.form.childrenSkip
+	case fieldFast:
+		m.form.fast = !m.form.fast
 	default:
 		return false
 	}
@@ -852,7 +857,7 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 	}
 
 	values := m.form.formValues()
-	perms := skipPermissions{self: m.form.skip, children: m.form.childrenSkip}
+	perms := skipPermissions{self: m.form.skip, children: m.form.childrenSkip, fast: m.form.fast}
 	var id string
 	spawn := func() error {
 		var err error
@@ -901,6 +906,10 @@ func (m *Model) submitFormTerminal(toolName string) (tea.Model, tea.Cmd) {
 	}
 	if m.form.skip || m.form.childrenSkip {
 		m.errBar.text = "a terminal has no permissions to skip: turn them off or pick a CLI"
+		return m, nil
+	}
+	if m.form.fast {
+		m.errBar.text = "a terminal has no agent to run in fast mode: turn it off or pick a CLI"
 		return m, nil
 	}
 	name := strings.TrimSpace(m.form.name.Value())
@@ -989,9 +998,10 @@ func (m *Model) spawnSessionAs(toolName, model, name, dir, group, prompt string,
 	return m.spawnSessionWith(toolName, model, name, dir, group, prompt, autoNamed, nameSource, nil, skipPermissions{})
 }
 
-// skipPermissions is the new-session card's two permission toggles: for the
-// session itself, and the default for the sessions it spawns.
-type skipPermissions struct{ self, children bool }
+// skipPermissions is the new-session card's two permission toggles, for the
+// session itself and the default for the sessions it spawns, and its fast
+// mode toggle, which rides with them.
+type skipPermissions struct{ self, children, fast bool }
 
 // spawnSessionWith is spawnSessionAs carrying the values of the extensions'
 // form fields, which only the new-session form has.
@@ -1022,6 +1032,7 @@ func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt strin
 		Account:                 plan.Account,
 		SkipPermissions:         perms.self,
 		ChildrenSkipPermissions: perms.children,
+		FastMode:                perms.fast,
 		// Starting until the agent first draws to its pane, so the row shows
 		// a launch state immediately; the poller flips it to the real status.
 		Status:         status.Starting,

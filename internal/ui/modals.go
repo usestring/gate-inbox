@@ -185,6 +185,7 @@ func (m *Model) viewForm() string {
 	b.WriteString(formField("model", m.form.model.View(), m.form.focus == fieldModel))
 	b.WriteString(formField("perms", m.viewSkipToggle(m.form.skip, m.formSkipSupported()), m.form.focus == fieldSkip))
 	b.WriteString(formField("children", m.viewSkipToggle(m.form.childrenSkip, true), m.form.focus == fieldChildrenSkip))
+	b.WriteString(formField("fast", viewFastToggle(m.form.fast), m.form.focus == fieldFast))
 	b.WriteString(formField("name", m.form.name.View(), m.form.focus == fieldName))
 	// Chips are tokens inside the typed text, so they wrap and reflow with
 	// the words around them; painting happens on the rendered prompt.
@@ -768,6 +769,15 @@ func agentPickRows(names []string, selected string, missing map[string]bool, bud
 // has no flag to honour it.
 func (m *Model) viewSkipToggle(on, supported bool) string {
 	return m.viewSkipToggleFor(on, supported, m.selectedToolName())
+}
+
+// viewFastToggle is a card's fast-mode row (store.Session.FastMode).
+func viewFastToggle(on bool) string {
+	value := valueStyle.Render("off")
+	if on {
+		value = accentStyle.Render("fast mode")
+	}
+	return subtleStyle.Render("◂ ") + value + subtleStyle.Render(" ▸")
 }
 
 func (m *Model) viewSkipToggleFor(on, supported bool, toolName string) string {

@@ -160,6 +160,9 @@ func migrateArgs(targetID string, opts sessioncmd.MigrateOptions) []string {
 	if opts.ChildrenSkipPermissions != nil {
 		args = append(args, "--children-skip-permissions="+strconv.FormatBool(*opts.ChildrenSkipPermissions))
 	}
+	if opts.FastMode != nil {
+		args = append(args, "--fast-mode="+strconv.FormatBool(*opts.FastMode))
+	}
 	return append(args, "--", targetID)
 }
 
@@ -191,6 +194,9 @@ func spawnArgs(opts sessioncmd.CreateSessionOptions) []string {
 	}
 	if opts.SkipPermissions != nil {
 		args = append(args, "--skip-permissions="+strconv.FormatBool(*opts.SkipPermissions))
+	}
+	if opts.FastMode != nil {
+		args = append(args, "--fast-mode="+strconv.FormatBool(*opts.FastMode))
 	}
 	return args
 }

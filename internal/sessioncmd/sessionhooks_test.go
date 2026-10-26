@@ -420,3 +420,52 @@ func TestAnOperatorsSendReportsWhatTheExtensionsMadeOfIt(t *testing.T) {
 		t.Fatalf("told of %d sends, want the operator's two", len(watcher.sends))
 	}
 }
+
+// A detached spawn from the operator's own shell has no caller: it lands as a
+// top-level row nobody spawned, the policy hears it as the operator's, and the
+// extra CLI arguments only the operator may pass reach the command line.
+func TestCreateFromNoSessionIsTheOperatorsOwn(t *testing.T) {
+	h := newSessionHarness(t)
+	watcher := &launchWatcher{}
+	useWatcher(t, watcher)
+	detach := false
+	dir := t.TempDir()
+
+	created, err := h.sessions.Create("", CreateSessionOptions{
+		Tool: "echoer", Name: "fanout", Prompt: "/run-the-skill", Directory: dir, Nest: &detach, Args: []string{"--chrome"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := h.store.Get(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ParentID != "" || stored.SpawnedBy != "" || stored.Group != "" || stored.Cwd != dir {
+		t.Fatalf("stored = %+v, want a top-level root-group row in %s", stored, dir)
+	}
+	if len(watcher.asked) != 1 || watcher.asked[0].By != extension.SpawnByOperator {
+		t.Fatalf("asked = %+v, want one operator spawn", watcher.asked)
+	}
+	waitForSessionOutput(t, h.sessions, h.caller.ID, created.ID, "--chrome")
+}
+
+func TestCreateFromNoSessionNeedsWhatACallerWouldGive(t *testing.T) {
+	h := newSessionHarness(t)
+	detach := false
+	if _, err := h.sessions.Create("", CreateSessionOptions{Directory: t.TempDir(), Nest: &detach}); err == nil ||
+		!strings.Contains(err.Error(), "no CLI to inherit") {
+		t.Fatalf("toolless operator spawn error = %v", err)
+	}
+	if _, err := h.sessions.Create("", CreateSessionOptions{Tool: "echoer", Nest: &detach}); err == nil ||
+		!strings.Contains(err.Error(), "no directory to inherit") {
+		t.Fatalf("dirless operator spawn error = %v", err)
+	}
+	if _, err := h.sessions.Create("", CreateSessionOptions{Tool: "echoer", Directory: t.TempDir()}); err == nil {
+		t.Fatal("a nested spawn with no caller should still be refused")
+	}
+	if _, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Tool: "echoer", Nest: &detach, Args: []string{"--dangerously-skip-permissions"}}); err == nil ||
+		!strings.Contains(err.Error(), "operator's to pass") {
+		t.Fatalf("agent extra-args error = %v", err)
+	}
+}

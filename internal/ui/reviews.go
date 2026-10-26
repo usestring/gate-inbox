@@ -376,6 +376,7 @@ func (m *Model) toggleReviewsTab() tea.Cmd {
 	}
 	if !m.reviewsTab {
 		m.reviewsTab = true
+		m.triageResume = false
 		return nil
 	}
 	return m.leaveReviewsTab(true)

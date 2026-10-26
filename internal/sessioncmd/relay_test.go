@@ -11,6 +11,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/usestring/gate-inbox/internal/asks"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -434,9 +435,15 @@ func TestCodexAsyncApprovalRelay(t *testing.T) {
 		multiple    bool
 		beforeChild bool
 		agentKeyed  bool
+		structured  bool
 		wantErr     string
 	}{
 		{name: "approval choice", reply: "Yes, append it", answer: "Yes, append it"},
+		{name: "structured approval", reply: "Yes, append it", answer: "Yes, append it", structured: true},
+		{name: "structured reply with unrelated pending call", reply: "Yes, append it", answer: "Yes, append it", ambiguous: true, structured: true},
+		{name: "structured reply still checks user answer", reply: "No", answer: "Yes, append it", structured: true, wantErr: `your user answered "No"`},
+		{name: "structured reply still checks time", reply: "No", answer: "No", structured: true, beforeChild: true, wantErr: "before the child asked"},
+		{name: "structured reply still checks origin", reply: "No", answer: "No", structured: true, agentKeyed: true, wantErr: "not by your user"},
 		{name: "decline choice", reply: "No", answer: "No"},
 		{name: "literal free text", reply: "hold this until the checks pass", answer: "hold this until the checks pass"},
 		{name: "board message before the user", reply: "No", answer: "No", boardFirst: true},
@@ -482,7 +489,13 @@ func TestCodexAsyncApprovalRelay(t *testing.T) {
 			if tc.boardFirst {
 				message("[gate-inbox] From another agent: approved")
 			}
-			message(tc.reply)
+			reply := tc.reply
+			if tc.structured {
+				id, _ := json.Marshal([]any{"request_user_input_async", "call_parent", 0})
+				body, _ := json.Marshal([]any{map[string]string{"answer": reply, "question": gitleaks.Question[:30], "questionItemId": string(id)}})
+				reply = "<send_user_message_question_reply>\n" + string(body) + "\n</send_user_message_question_reply>"
+			}
+			message(reply)
 			dir := filepath.Join(home, "sessions")
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				t.Fatal(err)
@@ -494,6 +507,12 @@ func TestCodexAsyncApprovalRelay(t *testing.T) {
 				if _, err := f.store.RecordAnswer(store.DialogAnswer{TargetSession: f.parent.ID, TargetToolUseID: "call_parent",
 					QuestionHash: questionHash(gitleaks), Answer: tc.reply, BySession: "grandparent", Mode: store.AnswerByAgent}); err != nil {
 					t.Fatal(err)
+				}
+			}
+			if tc.structured && tc.ambiguous {
+				pending, ok := asks.Pending(f.sessions.askTarget(f.parent))
+				if !ok || pending.ID != "call_other" {
+					t.Fatalf("unrelated pending call was lost: %+v", pending)
 				}
 			}
 			g := f.guard(true)

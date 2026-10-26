@@ -161,6 +161,10 @@ func (m *Model) commentOnLine() {
 func (m *Model) composeReview(event string) {
 	view := m.reviewsPane().view.(*reviewsView)
 	page := view.page
+	if m.reviewsSubmitting[page.review.Repo+"#"+strconv.Itoa(page.review.Number)] {
+		m.errBar.text = "a review is already being submitted for this pull request"
+		return
+	}
 	detail := view.cache.details[page.key()]
 	if detail == nil {
 		m.errBar.text = "the pull request is still loading"
@@ -189,8 +193,8 @@ func markCommentLine(line []Span) []Span {
 }
 
 // reviewThreads is what a submitted review carries: each kept draft that is
-// still on a line of the diff. A kept draft whose line has gone is counted in
-// left rather than sent, since GitHub refuses a comment off the diff.
+// still on a line of the same head's diff. A stale or off-diff kept draft is
+// counted in left rather than sent.
 func reviewThreads(detail *forge.PRDetail, drafts []store.ReviewDraft) (threads []forge.DraftThread, left int) {
 	patches := map[string][]forge.DiffLine{}
 	for _, f := range detail.Files {
@@ -198,6 +202,10 @@ func reviewThreads(detail *forge.PRDetail, drafts []store.ReviewDraft) (threads 
 	}
 	for _, d := range drafts {
 		if d.State != store.DraftKept {
+			continue
+		}
+		if d.HeadSHA != detail.HeadSHA {
+			left++
 			continue
 		}
 		on := false
@@ -295,7 +303,7 @@ func (c *draftCompose) lines(width int) [][]Span {
 	case c.event != "":
 		title = reviewEventNames[c.event] + " with " + countOf(c.threads, "inline comment")
 		if c.left > 0 {
-			title += " (" + countOf(c.left, "kept draft") + " off the diff, left out)"
+			title += " (" + countOf(c.left, "kept draft") + " stale or off the diff, left out)"
 		}
 		title += ". Summary:"
 	case c.draft.ID != 0:
@@ -370,6 +378,11 @@ func (m *Model) finishCompose(page *prPage, c *draftCompose) tea.Cmd {
 
 // submitReview posts the review off the loop.
 func (m *Model) submitReview(page *prPage, event, body string) tea.Cmd {
+	name := page.review.Repo + "#" + strconv.Itoa(page.review.Number)
+	if m.reviewsSubmitting[name] {
+		m.errBar.text = "a review is already being submitted for this pull request"
+		return nil
+	}
 	detail := m.reviewsPane().view.(*reviewsView).cache.details[page.key()]
 	if detail == nil {
 		return nil
@@ -384,6 +397,10 @@ func (m *Model) submitReview(page *prPage, event, body string) tea.Cmd {
 		return nil
 	}
 	review, prID, head := page.review, detail.NodeID, detail.HeadSHA
+	if m.reviewsSubmitting == nil {
+		m.reviewsSubmitting = make(map[string]bool)
+	}
+	m.reviewsSubmitting[name] = true
 	m.reportDone("submitting the review to GitHub…")
 	return func() tea.Msg {
 		err := forge.NewGitHub().SubmitReview(prID, head, event, body, threads)
@@ -394,6 +411,7 @@ func (m *Model) submitReview(page *prPage, event, body string) tea.Cmd {
 func (m *Model) finishSubmit(msg reviewSubmittedMsg) (tea.Model, tea.Cmd) {
 	r := msg.review
 	name := r.Repo + "#" + strconv.Itoa(r.Number)
+	delete(m.reviewsSubmitting, name)
 	if msg.err != nil {
 		m.errBar.done = ""
 		m.errBar.text = "review not submitted on " + name + ": " + msg.err.Error()

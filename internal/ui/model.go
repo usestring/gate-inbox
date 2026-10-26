@@ -194,9 +194,10 @@ type Model struct {
 	// reviews are the open asks for the operator's review, drawn as the
 	// Reviews row; reviewsPage is the page behind it, and reviewsFetching
 	// marks an ingest in flight. See reviews.go.
-	reviews         []store.ReviewRequest
-	reviewsPage     *openView
-	reviewsFetching bool
+	reviews           []store.ReviewRequest
+	reviewsPage       *openView
+	reviewsFetching   bool
+	reviewsSubmitting map[string]bool
 	// reviewsSeen is the newest ask a triage drain has handed the operator
 	// the Reviews page for, and triageLineage each queued session's key as
 	// the last triage sort lifted it. See reviewtriage.go.
@@ -2845,6 +2846,18 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev())
 
 	case tea.PasteMsg:
+		if m.mode == modeHeadPane && m.extView.screen == keymap.ContextReviewPage {
+			if page := m.reviewPage(); page != nil && page.compose != nil {
+				text := strings.ReplaceAll(msg.Content, "\r\n", "\n")
+				text = strings.ReplaceAll(text, "\r", "\n")
+				lines := strings.Split(text, "\n")
+				for i, line := range lines {
+					lines[i] = cleanText(line)
+				}
+				page.compose.text = append(page.compose.text, []rune(strings.Join(lines, "\n"))...)
+				return m, nil
+			}
+		}
 		if m.mode == modeSettings && m.settings.jevPasting {
 			return m, m.pasteIntoJevKey(msg)
 		}

@@ -219,6 +219,9 @@ func TestSubmitReviewQuotesBodiesAndSurfacesRefusals(t *testing.T) {
 	var query string
 	g := &GitHub{Run: func(args ...string) ([]byte, error) {
 		query = args[len(args)-1]
+		if strings.Contains(query, "query { node(") {
+			return []byte(`{"data":{"node":{"headRefOid":"abc"}}}`), nil
+		}
 		return []byte(`{"errors":[{"message":"Pull request review thread line must be part of the diff"}]}`), errors.New("exit 1")
 	}}
 	err := g.SubmitReview("PR_1", "abc", ReviewRequestChanges, "", []DraftThread{
@@ -232,5 +235,25 @@ func TestSubmitReviewQuotesBodiesAndSurfacesRefusals(t *testing.T) {
 		if !strings.Contains(query, want) {
 			t.Errorf("mutation lacks %s:\n%s", want, query)
 		}
+	}
+}
+
+func TestSubmitReviewRefusesChangedOrUnverifiedHead(t *testing.T) {
+	for _, response := range []string{
+		`{"data":{"node":{"headRefOid":"new"}}}`,
+		`{"data":{"node":null}}`,
+		`{"data":{}}`,
+		`{"errors":[{"message":"not accessible"}]}`,
+		`not json`,
+	} {
+		t.Run(response, func(t *testing.T) {
+			g, queries := githubReturning(t, response)
+			if err := g.SubmitReview("PR_1", "old", ReviewApprove, "", nil); err == nil {
+				t.Fatal("review was accepted without verifying the displayed head")
+			}
+			if len(*queries) != 1 || strings.Contains((*queries)[0], "mutation") {
+				t.Fatalf("review was submitted: %v", *queries)
+			}
+		})
 	}
 }

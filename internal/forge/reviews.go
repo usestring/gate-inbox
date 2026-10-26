@@ -485,9 +485,36 @@ type DraftThread struct {
 	Body string
 }
 
-// SubmitReview posts one review on the pull request with node id prID, pinned to headSHA so a push
-// since the page loaded fails it rather than landing comments on lines that moved.
+// SubmitReview posts one review on the pull request with node id prID after checking the
+// displayed head is still current. commitOID pins the review, but is not a precondition.
 func (g *GitHub) SubmitReview(prID, headSHA, event, body string, threads []DraftThread) error {
+	query := fmt.Sprintf(`query { node(id: %s) { ... on PullRequest { headRefOid } } }`, gqlString(prID))
+	out, err := g.Run("api", "graphql", "-f", "query="+query)
+	var snapshot prResponse
+	if decodeErr := json.Unmarshal(out, &snapshot); decodeErr != nil {
+		if err != nil {
+			return fmt.Errorf("%s", ghReason(err))
+		}
+		return fmt.Errorf("read pull request head: %w", decodeErr)
+	}
+	if len(snapshot.Errors) > 0 {
+		return fmt.Errorf("%s", firstLine(snapshot.Errors[0].Message))
+	}
+	if err != nil {
+		return fmt.Errorf("%s", ghReason(err))
+	}
+	var node struct {
+		HeadSHA string `json:"headRefOid"`
+	}
+	if err := json.Unmarshal(snapshot.Data["node"], &node); err != nil {
+		return fmt.Errorf("read pull request head: %w", err)
+	}
+	if node.HeadSHA == "" || headSHA == "" {
+		return fmt.Errorf("could not verify the pull request head; refresh before submitting")
+	}
+	if node.HeadSHA != headSHA {
+		return fmt.Errorf("the pull request head changed; refresh before submitting")
+	}
 	var parts []string
 	for _, t := range threads {
 		parts = append(parts, fmt.Sprintf(`{path: %s, line: %d, side: %s, body: %s}`,
@@ -495,7 +522,7 @@ func (g *GitHub) SubmitReview(prID, headSHA, event, body string, threads []Draft
 	}
 	mutation := fmt.Sprintf(`mutation { addPullRequestReview(input: {pullRequestId: %s, commitOID: %s, event: %s, body: %s, threads: [%s]}) { pullRequestReview { id } } }`,
 		gqlString(prID), gqlString(headSHA), event, gqlString(body), strings.Join(parts, ", "))
-	out, err := g.Run("api", "graphql", "-f", "query="+mutation)
+	out, err = g.Run("api", "graphql", "-f", "query="+mutation)
 	var response prResponse
 	if json.Unmarshal(out, &response) == nil && len(response.Errors) > 0 {
 		return fmt.Errorf("%s", firstLine(response.Errors[0].Message))

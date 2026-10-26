@@ -675,7 +675,7 @@
         "type": "string"
       },
       "skip_permissions": {
-        "description": "omit it: the child follows the setting the user chose for this session's children; true launches it with its CLI's permission prompts off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox) and is refused unless the user allowed that for this session's children, or for a CLI with no such flag (opencode); false keeps its prompts on",
+        "description": "omit it: the child follows the setting the user chose for this session's children; true launches it with its CLI's permission prompts off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox, opencode through its generated config) and is refused unless the user allowed that for this session's children; false keeps its prompts on",
         "type": [
           "null",
           "boolean"
@@ -1893,7 +1893,7 @@
         "type": "string"
       },
       "skip_permissions": {
-        "description": "omit it to keep the source's setting; false relaunches the moved session with its permission prompts on, true with them off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox), refused unless the source already has it or is a child of yours whose skipping the user allowed, and for a CLI with no such flag (opencode)",
+        "description": "omit it to keep the source's setting; false relaunches the moved session with its permission prompts on, true with them off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox, opencode through its generated config), refused unless the source already has it or is a child of yours whose skipping the user allowed",
         "type": [
           "null",
           "boolean"

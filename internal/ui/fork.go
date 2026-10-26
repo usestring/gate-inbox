@@ -13,6 +13,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/agentsession"
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -135,7 +136,7 @@ func (m *Model) submitFork() (tea.Model, tea.Cmd) {
 		m.errBar.text = "working directory no longer exists: " + source.Cwd
 		return m, nil
 	}
-	if m.fork.skip && tool.SkipPermissionsFlag == "" {
+	if m.fork.skip && !launch.SkipsPermissions(source.Tool, tool) {
 		m.errBar.text = source.Tool + " has no skip-permissions flag: turn skip permissions off"
 		return m, nil
 	}
@@ -255,7 +256,7 @@ func (m *Model) viewFork() string {
 	body := "  source  " + valueStyle.Render(m.fork.source.Name) + "\n" +
 		"  group   " + groupBadge(displayGroup(m.fork.source.Group)) + "\n" +
 		formField("name", m.fork.name.View(), m.fork.focus == forkFocusName) +
-		formField("perms", m.viewSkipToggleFor(m.fork.skip, m.cfg.Tools[m.fork.source.Tool].SkipPermissionsFlag != "", m.fork.source.Tool), m.fork.focus == forkFocusSkip) +
+		formField("perms", m.viewSkipToggleFor(m.fork.skip, launch.SkipsPermissions(m.fork.source.Tool, m.cfg.Tools[m.fork.source.Tool]), m.fork.source.Tool), m.fork.focus == forkFocusSkip) +
 		formField("children", m.viewSkipToggle(m.fork.childrenSkip, true), m.fork.focus == forkFocusChildrenSkip)
 	return m.card("↳ Fork Session", body, [][2]string{{"↵", "create"}, {"↑↓", "move"}, {"←→", "change"}, {"esc", "cancel"}})
 }

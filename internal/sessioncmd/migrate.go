@@ -139,11 +139,11 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 		return Session{}, err
 	}
 	sess := migrate.NewSession(id, name, toolName, source, plan)
-	sess.SkipPermissions, sess.ChildrenSkipPermissions, err = migrate.SkipPermissions(source, tool, opts.SkipPermissions, opts.ChildrenSkipPermissions)
+	sess.SkipPermissions, sess.ChildrenSkipPermissions, err = migrate.SkipPermissions(source, toolName, tool, opts.SkipPermissions, opts.ChildrenSkipPermissions)
 	if err != nil {
 		return Session{}, err
 	}
-	base, err := launch.WithSkipPermissions(tool, plan.Command, sess.SkipPermissions)
+	base, err := launch.WithSkipPermissions(toolName, tool, plan.Command, sess.SkipPermissions)
 	if err != nil {
 		return Session{}, err
 	}
@@ -155,7 +155,7 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	if err != nil {
 		return Session{}, err
 	}
-	command, env, err := launch.EnvironmentWithProfile(hooks.NewManager(s.configDir), toolName, tool, base, id, plan.Model, plan.Account, contributed, mcpProfile(sess))
+	command, env, err := launch.EnvironmentWithProfile(hooks.NewManager(s.configDir), toolName, tool, base, id, plan.Model, plan.Account, sess.SkipPermissions, contributed, mcpProfile(sess))
 	if err != nil {
 		return Session{}, err
 	}

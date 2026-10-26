@@ -102,7 +102,7 @@ func TestGeneratedLaunchFiles(t *testing.T) {
 	manager := hooks.NewManager(s.home)
 	for _, name := range []string{"claude", "opencode"} {
 		tool := cfg.Tools[name]
-		if _, _, err := launch.Environment(manager, name, tool, tool.Command, launchID, "", "", nil); err != nil {
+		if _, _, err := launch.Environment(manager, name, tool, tool.Command, launchID, "", "", false, nil); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
@@ -144,7 +144,7 @@ func describePlan(t *testing.T, s *scratch, manager *hooks.Manager, name string,
 	}
 	fmt.Fprintf(&b, "plan.agent_session_id: %q\n", plan.AgentSessionID)
 	fmt.Fprintf(&b, "plan.model: %q\nplan.account: %q\n", plan.Model, plan.Account)
-	command, env, err := launch.Compose(manager, name, tool, plan.Command, launchID, plan.Model, plan.Account, nil)
+	command, env, err := launch.Compose(manager, name, tool, plan.Command, launchID, plan.Model, plan.Account, false, nil)
 	if err != nil {
 		fmt.Fprintf(&b, "compose refused: %v\n", err)
 		return b.String()

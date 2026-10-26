@@ -1,13 +1,17 @@
 package ui
 
 import (
+	"math"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/scoring"
 )
 
 // triageTiers ranks statuses by how badly a human is needed, best first.
@@ -93,17 +97,15 @@ func (m *Model) triageStateOf(sess store.Session) string {
 // finish's weight, until input moves it on, which is also what clears the ack.
 const triageFinishedSeen = "finished-seen"
 
-// Smart triage scores every walkable session by how long it has waited,
-// weighted by its state:
-//
-//	score = (wait + triageScoreFloor) x state weight
-//
-// and, inside one priority tier, hands over the highest score first. The tier
-// is not a weight: a weight let an untiered session that had waited long
+// Smart triage scores every walkable session as a sum of terms (see
+// scoring.Triage): its wait weighted by its state, a bonus for a session the
+// operator touched moments ago, and one for a session whose next turn will run
+// long. Inside one priority tier it hands over the highest score first. The
+// tier is not a term: a term let an untiered session that had waited long
 // enough overtake an urgent one, which is the operator's stated order
 // ignored. The state weights are ratios, so they mean the same thing whether
-// the waits are minutes or days: a finished session overtakes a question in
-// its tier once it has waited twice as long.
+// the waits are minutes or days: on the wait term alone, a finished session
+// overtakes a question in its tier once it has waited twice as long.
 var (
 	triageStateWeight = map[string]float64{
 		status.Waiting:     2,
@@ -115,10 +117,6 @@ var (
 		status.Idle:        0.5,
 	}
 )
-
-// triageScoreFloor is added to every wait so rows that have only just come
-// in do not all score zero and lose their weights.
-const triageScoreFloor = time.Minute
 
 // triageScoredState is the state smart triage weighs a walkable session as.
 // An acked idle session is a finish the operator has seen; an extension's
@@ -139,11 +137,21 @@ func (m *Model) triageScoredState(sess store.Session) string {
 
 // triageScore is a walkable session's score at now. It is read against now
 // on every rebuild, and the poll pass rebuilds the rows, so a session whose
-// weighted wait overtakes another's moves up the rail on the next pass with
+// score overtakes another's as waits grow and recency fades moves up the rail on the next pass with
 // no store event, the way a running-out deadline moves its row.
 func (m *Model) triageScore(sess store.Session, now time.Time) float64 {
-	wait := max(now.Sub(triageWaitingSince(sess)), 0) + triageScoreFloor
-	return wait.Seconds() * triageStateWeight[m.triageScoredState(sess)]
+	return m.triageBreakdown(sess, now).Total()
+}
+
+// triageBreakdown is the score with its terms.
+func (m *Model) triageBreakdown(sess store.Session, now time.Time) scoring.Score {
+	return scoring.Triage(scoring.TriageInput{
+		Wait:          now.Sub(triageWaitingSince(sess)),
+		StateWeight:   triageStateWeight[m.triageScoredState(sess)],
+		SinceOperator: now.Sub(sess.OperatorAt),
+		Touched:       !sess.OperatorAt.IsZero(),
+		ExpectedTurn:  m.expectedTurns[sess.ID],
+	}, m.triageWeights)
 }
 
 // triageWaitingSince is when a session last had a person's attention, which
@@ -444,6 +452,37 @@ const (
 	triageScopeSetting = "triage_scope"
 	smartTriageSetting = "smart_triage"
 )
+
+// The settings that weigh smart triage's terms, each a non-negative number
+// multiplying the term at its own scale. See scoring.Triage.
+const (
+	triageWaitWeightSetting    = "triage_weight_wait"
+	triageRecencyWeightSetting = "triage_weight_recency"
+	triageHorizonWeightSetting = "triage_weight_horizon"
+	triageCacheWeightSetting   = "triage_weight_cache"
+)
+
+// storedTriageWeights reads the term weights. A weight unset, unreadable,
+// negative or not a number keeps its default rather than failing the board:
+// a typo in one weight should cost that one term's tuning, not the queue.
+func storedTriageWeights(st *store.Store) scoring.TriageWeights {
+	w := scoring.DefaultTriageWeights()
+	for key, weight := range map[string]*float64{
+		triageWaitWeightSetting:    &w.Wait,
+		triageRecencyWeightSetting: &w.Recency,
+		triageHorizonWeightSetting: &w.Horizon,
+		triageCacheWeightSetting:   &w.Cache,
+	} {
+		raw, err := st.Setting(key)
+		if err != nil || raw == "" {
+			continue
+		}
+		if value, err := strconv.ParseFloat(strings.TrimSpace(raw), 64); err == nil && value >= 0 && !math.IsInf(value, 0) {
+			*weight = value
+		}
+	}
+	return w
+}
 
 // storedSmartTriage reads whether triage orders by the weighted wait. On is
 // the default; "off" is the strict order triage had before it: every

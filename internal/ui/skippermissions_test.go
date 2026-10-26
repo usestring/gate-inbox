@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -79,5 +80,49 @@ func TestMigrateCardSkipPermissionToggles(t *testing.T) {
 	}
 	if m.migrate.name.Value() != "" {
 		t.Fatalf("toggle keys typed into the name: %q", m.migrate.name.Value())
+	}
+}
+
+// The fork card opens on the source's settings, flips them on their own rows
+// without typing into the name, and says when the source's CLI has no flag.
+func TestForkCardSkipPermissionToggles(t *testing.T) {
+	m := buildModel(t)
+	tool := m.cfg.Tools["claude"]
+	tool.SkipPermissionsFlag = ""
+	m.cfg.Tools["claude"] = tool
+	m.fork = forkState{
+		source:       store.Session{Tool: "claude", ChildrenSkipPermissions: true},
+		name:         textField("fork name", 60),
+		childrenSkip: true,
+	}
+	m.handleForkKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	m.handleForkKey(tea.KeyPressMsg{Code: tea.KeySpace})
+	m.handleForkKey(tea.KeyPressMsg{Code: tea.KeyDown})
+	m.handleForkKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	if !m.fork.skip || m.fork.childrenSkip {
+		t.Fatalf("card holds skip=%v children=%v, want skip on and children off", m.fork.skip, m.fork.childrenSkip)
+	}
+	if m.fork.name.Value() != "" {
+		t.Fatalf("toggle keys typed into the name: %q", m.fork.name.Value())
+	}
+	view := ansi.Strip(m.viewFork())
+	if !strings.Contains(view, "skip all prompts") || !strings.Contains(view, "no flag on claude") {
+		t.Fatalf("card should show perms on and that claude has no flag here:\n%s", view)
+	}
+}
+
+// opencode's skip rides its generated config, so its card carries the
+// toggle with no note that it cannot be honoured.
+func TestForkCardOffersSkipPermissionsOnOpencode(t *testing.T) {
+	m := buildModel(t)
+	m.cfg.Tools["opencode"] = config.Tool{Command: "cat", MCP: "opencode"}
+	m.fork = forkState{
+		source: store.Session{Tool: "opencode", SkipPermissions: true},
+		name:   textField("fork name", 60),
+		skip:   true,
+	}
+	view := ansi.Strip(m.viewFork())
+	if !strings.Contains(view, "skip all prompts") || strings.Contains(view, "no flag on") {
+		t.Fatalf("card should show perms on with no refusal note for opencode:\n%s", view)
 	}
 }

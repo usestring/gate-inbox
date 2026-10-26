@@ -752,7 +752,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		// whole subtree it spawns.
 		ChildrenSkipPermissions: caller.ChildrenSkipPermissions,
 	}
-	sess.SkipPermissions, err = childSkipPermissions(caller, opts.SkipPermissions, tool.SkipPermissionsFlag != "")
+	sess.SkipPermissions, err = childSkipPermissions(caller, opts.SkipPermissions, launch.SkipsPermissions(toolName, tool))
 	if err != nil {
 		return Session{}, err
 	}
@@ -823,11 +823,11 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if err := writeSpawnCompactWindow(runtime.store, manager, tool, sess); err != nil {
 		logging.Warn("compact window not written at spawn", "session", id, logging.Err(err))
 	}
-	base, err := launch.WithSkipPermissions(tool, plan.Command, sess.SkipPermissions)
+	base, err := launch.WithSkipPermissions(toolName, tool, plan.Command, sess.SkipPermissions)
 	if err != nil {
 		return Session{}, err
 	}
-	command, env, err := launch.EnvironmentWithProfile(manager, toolName, tool, base, id, plan.Model, plan.Account, contributed, mcpProfile(sess))
+	command, env, err := launch.EnvironmentWithProfile(manager, toolName, tool, base, id, plan.Model, plan.Account, sess.SkipPermissions, contributed, mcpProfile(sess))
 	if err != nil {
 		return Session{}, err
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/scoring"
 )
 
 // smartNow is the pinned clock every smart triage test reads.
@@ -20,6 +21,14 @@ var smartNow = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
 func smartSess(name, st string, age time.Duration) store.Session {
 	at := smartNow.Add(-age)
 	return store.Session{ID: name, Name: name, Status: st, LastStatusAt: at, OperatorAt: at}
+}
+
+// waitOnly weighs m's rail on the wait term alone, for a test of the wait's
+// ratios that the recency bonus of a minutes-old turn would otherwise drown.
+func waitOnly(m *Model) *Model {
+	m.triageWeights = scoring.TriageWeights{Wait: 1}
+	m.rebuildRows()
+	return m
 }
 
 // smartFleet puts sessions on a triage rail ordered by smart triage, on the
@@ -116,15 +125,15 @@ func TestSmartTriageFinishOvertakesAQuestionAtTwiceTheWait(t *testing.T) {
 		{"days", 24 * time.Hour, 48 * time.Hour, 48*time.Hour + 2*time.Minute},
 	} {
 		t.Run(scale.name, func(t *testing.T) {
-			m := smartFleet(t,
+			m := waitOnly(smartFleet(t,
 				smartSess("done", status.Finished, scale.under),
 				smartSess("ask", status.Waiting, scale.ask),
-			)
+			))
 			assertRail(t, m, "ask", "done")
-			m = smartFleet(t,
+			m = waitOnly(smartFleet(t,
 				smartSess("done", status.Finished, scale.beyond),
 				smartSess("ask", status.Waiting, scale.ask),
-			)
+			))
 			assertRail(t, m, "done", "ask")
 		})
 	}
@@ -370,7 +379,8 @@ func TestSmartTriageAGateInboxTurnDoesNotResetTheWait(t *testing.T) {
 		stale,
 	)
 	assertRail(t, m, "stale", "fresh")
-	if got, want := m.triageScore(stale, smartNow), (3*time.Hour + triageScoreFloor).Seconds(); got != want {
+	wait, _ := m.triageBreakdown(stale, smartNow).Term(scoring.TermWait)
+	if got, want := wait.Points(), (3*time.Hour + scoring.WaitFloor).Seconds(); got != want {
 		t.Fatalf("score = %v, want %v from the operator's turn", got, want)
 	}
 }

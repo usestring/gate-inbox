@@ -174,6 +174,10 @@ type poller struct {
 	screens    map[string]screenMark
 	stale      map[string]bool
 	staleAfter time.Duration
+	// paneModes is each session's permission mode as its footer last
+	// showed it, kept across passes because a dialog hides the footer. See
+	// turnhorizon.go.
+	paneModes map[string]string
 	// compactTools is each claude-hooks tool with a compact_window,
 	// compactFailed the window a session's settings file last failed to
 	// take, and compactViews what the last pass found for the rail.
@@ -870,6 +874,9 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	answerableWait := make(map[string]bool)
 	askQuestions := make(map[string][]convo.AskQuestion)
 	askReads := make(map[string]*askRead)
+	// paneModes is each live session's permission mode, rebuilt every pass
+	// so a session that has gone takes its mode with it. See notePaneMode.
+	paneModes := make(map[string]string, len(p.paneModes))
 	// The row state this pass derives, written in one transaction instead of
 	// a statement per row. See store.ApplyDerivedStates for why that matters:
 	// the pass shares its write lock with every mcp process on the board, and
@@ -963,6 +970,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 				// agent is gone: the row keeps the status it already had
 				// rather than reading one bad tmux call as a dead session.
 				newStatus = sess.Status
+				p.notePaneMode(paneModes, sess, "")
 			}
 			if pane := capture.Text; capture.Err == nil {
 				// Opt-in, and scrubbed even then: these panes hold live API
@@ -991,6 +999,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 					askReads[sess.ID] = read
 				}
 				searchText[sess.ID] = strings.ToLower(clean)
+				p.notePaneMode(paneModes, sess, clean)
 				// A child's pane is kept off the same capture, for the same
 				// reason: relaying its question to its parent has to read the
 				// dialog, and a capture of its own would be paid on every pass
@@ -1273,6 +1282,8 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	if p.deadlines != nil {
 		msg.queueDeadlines = p.deadlines.QueueDeadlines()
 	}
+	p.paneModes = paneModes
+	msg.expectedTurns = expectedTurnRows(paneModes)
 	if sampleStats {
 		msg.snap = sysstat.Sample("/")
 		msg.snapOK = true

@@ -16,7 +16,7 @@ func TestComposeLetsContributedEnvOverrideAndWithholdInheritedVars(t *testing.T)
 	tool := config.Tool{Command: "cat"}
 	t.Setenv("GATE_INBOX_TEST_MARK", "the-parents-mark")
 	t.Setenv("GATE_INBOX_TEST_LEAK", "the-parents-secret")
-	_, env, err := Compose(manager, "plain", tool, tool.Command, "abcd1234", "", "", map[string]string{
+	_, env, err := Compose(manager, "plain", tool, tool.Command, "abcd1234", "", "", false, map[string]string{
 		"GATE_INBOX_TEST_MARK": "this-sessions-mark",
 		"GATE_INBOX_TEST_LEAK": "",
 	})
@@ -38,12 +38,12 @@ func TestComposeRefusesContributedVarsTheLaunchSetsItself(t *testing.T) {
 	manager := hooks.NewManager(t.TempDir())
 	tool := config.Tool{Command: "cat", AccountEnv: "TOOL_TOKEN", StatusSource: hooks.StatusSourceClaude}
 	for _, key := range []string{hooks.EnvSessionID, hooks.EnvExecutable, config.HomeEnv, hooks.EnvStatusFile, "TOOL_TOKEN", "TMUX"} {
-		_, _, err := Compose(manager, "plain", tool, tool.Command, "abcd1234", "", "", map[string]string{key: "x"})
+		_, _, err := Compose(manager, "plain", tool, tool.Command, "abcd1234", "", "", false, map[string]string{key: "x"})
 		if err == nil || !strings.Contains(err.Error(), "the launch sets itself") {
 			t.Errorf("contributing %s = %v, want it refused", key, err)
 		}
 	}
-	if _, _, err := Compose(manager, "plain", tool, tool.Command, "abcd1234", "", "", map[string]string{"1BAD": "x"}); err == nil {
+	if _, _, err := Compose(manager, "plain", tool, tool.Command, "abcd1234", "", "", false, map[string]string{"1BAD": "x"}); err == nil {
 		t.Error("a name no shell can export was accepted")
 	}
 }

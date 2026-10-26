@@ -4,6 +4,7 @@
 #
 #   tools/capture/capture.sh --scenario tools/capture/scenarios/board-tour.tape
 #   tools/capture/capture.sh --scenario <tape> --config <toml appended to the scratch config>
+#   tools/capture/capture.sh --scenario <tape> --keys <keys.toml for the scratch board>
 #
 # The board runs against a scratch GATE_INBOX_HOME, a scratch HOME and a private
 # tmux server, in a fixture project, so a capture never sees, moves or kills a
@@ -74,6 +75,7 @@ while [[ $# -gt 0 ]]; do
     --theme) theme="${2:?}"; shift 2 ;;
     --terminal-bg) terminal_bg="${2:?}"; shift 2 ;;
     --config) extra_config="${2:?}"; shift 2 ;;
+    --keys) extra_keys="${2:?}"; shift 2 ;;
     --transcripts) IFS=, read -r -a transcripts <<<"${2:?}"; shift 2 ;;
     --foreign) foreign+=("${2:?}"); shift 2 ;;
     --no-seed) no_seed=1; shift ;;
@@ -85,6 +87,7 @@ done
 
 [[ -r "$scenario" ]] || die "no scenario at $scenario"
 [[ -z "${extra_config:-}" || -r "$extra_config" ]] || die "no config at $extra_config"
+[[ -z "${extra_keys:-}" || -r "$extra_keys" ]] || die "no keys at $extra_keys"
 
 command -v vhs >/dev/null || missing "vhs is not on PATH — go install github.com/charmbracelet/vhs@latest"
 command -v ttyd >/dev/null || missing "ttyd is not on PATH — apt-get install ttyd (vhs drives it)"
@@ -215,6 +218,9 @@ done
   # board measures in days to one a recording can wait out.
   if [[ -n "${extra_config:-}" ]]; then printf '\n'; cat "$extra_config"; fi
 } >"$home/config.toml"
+# Bound before launch rather than typed in by the tape: a relaunch line
+# carries the scratch home, which the uploader refuses to publish.
+if [[ -n "${extra_keys:-}" ]]; then cp "$extra_keys" "$home/keys.toml"; fi
 
 binary="$work/bin/gate-inbox"
 # Stamp the commit the recording was made from. This is the one build of the

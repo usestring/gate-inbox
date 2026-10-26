@@ -93,9 +93,20 @@ same keys bring them back. Answering is the only gesture: a dialog answered with
 hands that session over and promotes the next thing waiting on a person. `alt+.` skips the one in
 front of you, `.` skips the row under the cursor from the list, `ctrl+\` stops. The queue is one live queue: a session that reaches waiting or finished while the first pass is walked joins it in place rather than waiting for another `i`.
 
-Priority outranks everything else in triage except a mute: every session of a higher priority sorts before any of a lower one (urgent, then high, then medium, then none, then low), whatever its state, wait or deadline. Within one priority, smart triage, on by default, orders the queue by how long each session has waited, weighted by its state, and hands over the highest score first:
+Priority outranks everything else in triage except a mute: every session of a higher priority sorts before any of a lower one (urgent, then high, then medium, then none, then low), whatever its state, wait or deadline. Within one priority, smart triage, on by default, scores each session by what is lost if it is left, and how soon, and hands over the highest score first. The score is a sum of named terms, each with its own weight:
 
-    score = (wait + 1 minute) × state weight
+    score = wait + recency + horizon + cache
+
+Every term is in points, and a point is one second of a finished session's wait, so a bonus reads against the wait it is added to: 600 points is worth ten more minutes of waiting to a finished session.
+
+| Term | Points | Default weight |
+| --- | --- | --- |
+| wait | (wait + 1 minute, in seconds) × state weight | 1 |
+| recency | 1200 × ½^(minutes since your last turn ÷ 5), for a session you have ever given a turn | 1 |
+| horizon | 600 × (expected next turn ÷ 30 minutes), capped at 600 | 1 |
+| cache | 0: a slot for a prompt-cache-expiry bonus that reads nothing yet | 0 |
+
+The wait term's state weights:
 
 | State | Weight |
 | --- | --- |
@@ -107,15 +118,35 @@ Priority outranks everything else in triage except a mute: every session of a hi
 | errored | 0.7 |
 | idle | 0.5 |
 
-The wait counts from your last turn on the session: a snippet, a key that submitted a line or answered a dialog in a focused pane, `gate-inbox send --as-human`, or attaching to its pane and giving it a turn there. Nothing Gate Inbox sends on its own resets it: messages from other sessions and from extensions (including a line a helper session relays in your voice), its own notices, name requests, nudges, limit-recovery continuations and launch prompts all start turns, but a session nobody has looked at in hours keeps its hours however many of those it has finished since. Attaching and leaving without giving the agent a turn, like opening a finished session from the board, is a look and leaves the wait alone. A session you have never given a turn waits from when it was created.
+**Wait.** The wait counts from your last turn on the session: a snippet, a key that submitted a line or answered a dialog in a focused pane, `gate-inbox send --as-human`, or attaching to its pane and giving it a turn there. Nothing Gate Inbox sends on its own resets it: messages from other sessions and from extensions (including a line a helper session relays in your voice), its own notices, name requests, nudges, limit-recovery continuations and launch prompts all start turns, but a session nobody has looked at in hours keeps its hours however many of those it has finished since. Attaching and leaving without giving the agent a turn, like opening a finished session from the board, is a look and leaves the wait alone. A session you have never given a turn waits from when it was created. Because the state weights are ratios they mean the same thing whatever the waits: on the wait term alone, a finished session overtakes a question of the same priority once it has waited twice as long, whether that is 10 minutes against 5 or two days against one.
 
-Because the weights are ratios they mean the same thing whatever the waits: a finished session overtakes a question of the same priority once it has waited twice as long, whether that is 10 minutes against 5 or two days against one. For example, a question that came in 20 minutes ago scores (20 + 1) × 2 = 42; a finished session from 50 minutes ago scores (50 + 1) × 1 = 51 and goes first; an urgent session that finished a minute ago goes ahead of both, whatever its score. Every walkable session is scored, idle ones included, so a session misread as idle still comes round. "Finished, seen" is a finished session you have opened: opening it acknowledges it and the row turns idle, but triage keeps it in the queue on its original wait until you send it something. Working, starting, delegating and dead sessions are never handed over and sort under the scored ones of their priority, so an urgent working session leads the rail while the drain hands over the next row it can enter; muted sessions sort last. The order is re-read on every poll, so rows move as their waits grow. A deadline an extension sets puts that session ahead of the scores of its priority until it passes. Priority is only read here; smart triage never changes a session's tier.
+**Recency.** A session you touched moments ago is one you can move on in seconds, because its thread is still in your head; that context is what leaving it loses, and it goes fast. The bonus halves every five minutes, about how long a thread lasts while you drain other sessions. Its scale is twenty minutes, so a session you touched 30 seconds ago (+1120) goes ahead of a question that has waited eight minutes (2 × 9 minutes = 1080 points). After a quarter of an hour it is +150, and after an hour it is under 1. The bonus is absolute, not a rank: on a board where everything was last touched two days ago, nothing earns it. A session you have never given a turn earns none.
+
+**Horizon.** A session whose next turn will run long is handed over earlier, so that turn is running while you work through the short ones. The term reads an expected turn duration and saturates at half an hour. For now the only estimate is plan mode: a Claude Code session whose footer shows `⏸ plan mode on` is expected to run a full half hour once its plan is approved, and earns the whole +600. Every other session has no estimate and earns 0. The mode is read from the pane, and kept while a dialog covers the footer.
+
+**Cache.** This term ships off. Its slot is where a bounded prompt-cache bonus will go, using a stake an extension supplies. Until then, a cache-warming extension that publishes each warm session's prompt-cache expiry as a queue deadline already acts as an unbounded cache bonus: a deadline still ahead puts its session ahead of every score in its priority, so every warm session outranks every cold one in its tier.
+
+For example, take three sessions of the same priority:
+
+- A question that came in 20 minutes ago, untouched since: (20 + 1) × 60 × 2 = 2520.
+- A finished session from 50 minutes ago: (50 + 1) × 60 × 1 = 3060.
+- A finished session you gave a turn 2 minutes ago, in plan mode: (2 + 1) × 60 + 1200 × ½^(2/5) + 600 = 180 + 909 + 600 = 1689.
+
+The 50-minute finish goes first and the question second. If the plan-mode session had been touched 30 seconds ago, it would score 90 + 1120 + 600 = 1810. An urgent session that finished a minute ago goes ahead of all of them, whatever its score.
+
+Every walkable session is scored, idle ones included, so a session misread as idle still comes round. "Finished, seen" is a finished session you have opened: opening it acknowledges it and the row turns idle, but triage keeps it in the queue on its original wait until you send it something. Working, starting, delegating and dead sessions are never handed over and sort under the scored ones of their priority, so an urgent working session leads the rail while the drain hands over the next row it can enter; muted sessions sort last. The order is re-read on every poll, so rows move as their waits grow and their recency fades. A deadline an extension sets puts that session ahead of the scores of its priority until it passes. Priority is only read here; smart triage never changes a session's tier.
+
+Each term's weight is a stored setting, read when the board starts: `triage_weight_wait`, `triage_weight_recency`, `triage_weight_horizon` and `triage_weight_cache`. A weight is a non-negative number multiplying the term at the scale above: 0 turns the term off, and 2 doubles it. A weight that is unset or unreadable keeps its default.
 
 Turn `smart triage` off in Settings (or store `smart_triage = "off"`) for the strict order: within each priority, every question first, then the Reviews row, then every finished session, then idle, then errored, each oldest first.
 
 The rest of the session's controls work from inside it: `ctrl+a` attaches, `ctrl+x` ends the session, `ctrl+n` starts a
 new one in its group, `alt+/` copies the agent's session id, `alt+;` steps back to the one you just
 left. `ctrl+s` opens your snippet menu over the session in front of you.
+
+### Account headroom score
+
+An extension that runs sessions on several Claude subscriptions can rank them by the weekly quota each would lose unspent at its next reset. That score lives in [headroom-routing](https://github.com/usestring/headroom-routing) as the Go package `github.com/usestring/headroom-routing/headroom`.
 
 ## The review queue
 
@@ -182,6 +213,8 @@ With **Prompt suggestions** and **JEV Auto Suggest** both on and `TYPESAFE_API_K
 `space`, `ctrl+s` or `esc` closes the menu. Snippets that do not fit on its lines are counted on the last one, and the key map (`?`) lists them all.
 
 The new-session form's optional `prompt` field launches an agent with a first task, and its `↑↓` move the caret between rows, `↑` leaving the field only from its top row and `↓` only from its bottom row. It takes `ctrl+v` and its chips too, since a first task is often the screenshot that explains it: paste the design to match or the crash to read, and the agent opens the file on its first turn. Leaving the form without creating the session releases the images it was holding. Tools whose CLI takes the prompt behind a flag declare it with `prompt_flag`, while a persistent CLI with no startup-prompt argument uses `prompt_mode = "send"` (see [Configuration](configuration.md)).
+
+Under `model`, the new-session form has two toggles, both off: `perms` launches the session with its CLI's permission prompts off, and `children` lets the sessions it spawns launch that way. Move to one with `tab` or `↑↓` and flip it with `space` or `←→`. A CLI that cannot skip its prompts (no skip-permissions flag, and no generated config that turns them off the way OpenCode's does) shows `(no flag on <cli>)` beside `perms`, and the form refuses to create the session with it on. Both settings are kept on the row, so a revive or restart comes back the same way (see "Skipping permissions" in [Configuration](configuration.md)).
 
 ## Which CLIs you get offered
 
@@ -304,9 +337,10 @@ Whatever a default does on the way in is said in one line on the status bar.
 
 1. Select a session and run fork from quick actions (`:`).
 2. Enter a name.
-3. Press `enter`.
+3. Optionally, `↓` to the `perms` and `children` toggles and flip them with `space` or `←→`.
+4. Press `enter`.
 
-The fork uses the source session's tool, group, working directory, and conversation history.
+The fork uses the source session's tool, group, working directory, and conversation history. Its `perms` and `children` toggles open on the source's settings, so a fork left alone keeps them. As on the new-session form, `perms` shows `(no flag on <cli>)` for a CLI that cannot skip its prompts, and the card refuses to fork with it on.
 
 Claude Code offers to resume a large conversation from a summary instead, with the summary preselected. A fork answered that way keeps a summary rather than the responses it was made for, so Gate Inbox picks "Resume full session as-is" for you when that dialog appears in a fork's pane. Other tools, and a `claude` block that clears `fork_dialog_option`, leave the dialog for you.
 
@@ -334,7 +368,7 @@ Newly adopted panes take a name from their own conversation when one is availabl
 
 Sessions spawned without a custom name (every quick spawn, and the form with the name left blank) get a placeholder like `claude-a1b2`, and their first prompt opens by asking the agent to run `gate-inbox rename "<name>"` once with a short name for the broad feature of the session (not a single subtask). The directive also tells the agent not to rename again unless you ask. When the first prompt cannot carry the directive (a `/slash` command, or no prompt at all), the manager sends it as its own message once the tool's input box appears in the pane and the turn it launched on has ended. The subcommand drops the name into a per-session file; the manager picks it up on the next poll and updates the sidebar row and the tmux status bar. This works with any tool, since it only needs the agent to read its prompt and run one shell command.
 
-OpenCode sessions skip that directive entirely (`skip_rename_directive`): asking an agent to name itself as its first act, when it has the least context, is what produced the vague names, and the directive prepended to `--prompt` is also the first message its own title model reads. An opencode launch goes out with the prompt exactly as typed, and typed is the word: opencode's `--prompt` fills the composer without submitting it, so the opening prompt is not passed on the command line at all (`prompt_mode = "send"`) but typed in once the composer is up, through the same claim-once pending-input path a message from another session takes, and submitted by the Enter that follows the manager's own paste. Nothing the operator types is ever submitted for them: the only Enters the manager presses are the ones right after its own paste. Naming still happens three ways: the manager reads the title opencode writes for the conversation itself (`session.title`) and puts it on the row, ignoring its `New session - …` placeholder until the real title lands; the generated `OPENCODE_CONFIG` every managed session launches with registers the `/rename` command itself, and starts the `gate-inbox` MCP server with `--steering opencode`, which appends silent naming instructions (name once, after the task is understood, through the `rename` MCP tool) and the delegation steering to the server's own instructions, the one place OpenCode v2 reads a standing instruction from a launch (it loads nothing from a config `instructions` list); and `r` types that command into the pane on demand. Every managed opencode session launches with `--standalone`: opencode otherwise runs every session against one background service per user, which reads its own environment rather than the launching client's, so the generated config would never reach the agent and the `rename` tool would carry the id of whichever session first started the service. A session launched on a chosen model gets a config of its own (`mcp-opencode-<id>.json`) carrying that model, since the opencode TUI has no model flag.
+OpenCode sessions skip that directive entirely (`skip_rename_directive`): asking an agent to name itself as its first act, when it has the least context, is what produced the vague names, and the directive prepended to `--prompt` is also the first message its own title model reads. An opencode launch goes out with the prompt exactly as typed, and typed is the word: opencode's `--prompt` fills the composer without submitting it, so the opening prompt is not passed on the command line at all (`prompt_mode = "send"`) but typed in once the composer is up, through the same claim-once pending-input path a message from another session takes, and submitted by the Enter that follows the manager's own paste. Nothing the operator types is ever submitted for them: the only Enters the manager presses are the ones right after its own paste. Naming still happens three ways: the manager reads the title opencode writes for the conversation itself (`session.title`) and puts it on the row, ignoring its `New session - …` placeholder until the real title lands; the generated `OPENCODE_CONFIG` every managed session launches with registers the `/rename` command itself, and starts the `gate-inbox` MCP server with `--steering opencode`, which appends silent naming instructions (name once, after the task is understood, through the `rename` MCP tool) and the delegation steering to the server's own instructions, the one place OpenCode v2 reads a standing instruction from a launch (it loads nothing from a config `instructions` list); and `r` types that command into the pane on demand. Every managed opencode session launches with `--standalone`: opencode otherwise runs every session against one background service per user, which reads its own environment rather than the launching client's, so the generated config would never reach the agent and the `rename` tool would carry the id of whichever session first started the service. A session launched on a chosen model, or with skip permissions on, gets a config of its own (`mcp-opencode-<id>.json`) carrying that model, since the opencode TUI has no model flag, or loading the skip-permissions plugin.
 
 The directive spells the command as `"$GATE_INBOX_BIN" rename "<name>"`, not as the bare name. The manager runs from its own checkout — `go run .`, or a build sitting beside it — so it is on nobody's `PATH`, and every session is launched with `GATE_INBOX_BIN` holding the path to the manager that started it. Use the same variable for any of the subcommands below when you type one yourself; the bare name works only if you have also installed the binary.
 

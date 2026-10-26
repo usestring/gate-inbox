@@ -223,7 +223,7 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 	moved := migrate.NewSession(id, name, toolName, source, plan)
 	moved.MigrationOpening = m.openingPrompts(source)
 	self, children := m.migratePermissions()
-	moved.SkipPermissions, moved.ChildrenSkipPermissions, err = migrate.SkipPermissions(source, tool, self, children)
+	moved.SkipPermissions, moved.ChildrenSkipPermissions, err = migrate.SkipPermissions(source, toolName, tool, self, children)
 	if err != nil {
 		m.reportLaunchError(err)
 		return m, nil
@@ -290,5 +290,5 @@ func (m *Model) viewMigrate() string {
 // viewMigrateSkipToggle is the session's own toggle on the migrate card,
 // which says when the destination CLI cannot honour it.
 func (m *Model) viewMigrateSkipToggle(on bool) string {
-	return m.viewSkipToggleFor(on, m.cfg.Tools[m.migrateTool()].SkipPermissionsFlag != "", m.migrateTool())
+	return m.viewSkipToggleFor(on, launch.SkipsPermissions(m.migrateTool(), m.cfg.Tools[m.migrateTool()]), m.migrateTool())
 }

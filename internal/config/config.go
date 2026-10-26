@@ -1468,8 +1468,10 @@ command = "opencode"
 # "provider/model" into the generated OPENCODE_CONFIG instead.
 # No add_dir_flag: opencode has no flag granting a second directory, so a
 # spawn diverted to another directory is only told to change into it.
-# No skip_permissions_flag: opencode's TUI has no flag that turns its
-# permission prompts off, so a session on it cannot be launched that way.
+# No skip_permissions_flag: a session launched with skip permissions on gets
+# them off through the generated OPENCODE_CONFIG instead, which loads a plugin
+# allowing every permission request, its subagents' too. The TUI's own
+# --auto approves only the session on screen, so a subagent would still wait.
 # every provider/model pair this login can reach, one per line
 models_command = "opencode models"
 # opencode mints its own session id; capture it after launch and resume it

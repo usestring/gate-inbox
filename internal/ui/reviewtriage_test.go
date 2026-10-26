@@ -39,10 +39,10 @@ func reviewDrain(m *Model) []string {
 }
 
 func TestReviewQueuesByItsOldestAskAmongSessions(t *testing.T) {
-	m := smartFleet(t,
+	m := waitOnly(smartFleet(t,
 		smartSess("asking", status.Waiting, 30*time.Minute),
 		smartSess("done", status.Finished, time.Minute),
-	)
+	))
 	m.reviews = []store.ReviewRequest{reviewAsk(2, 20*time.Minute), reviewAsk(1, 3*time.Hour)}
 	m.rebuildRows()
 	if got, want := reviewDrain(m), []string{"reviews", "asking", "done"}; !slices.Equal(got, want) {

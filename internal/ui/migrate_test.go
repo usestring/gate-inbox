@@ -148,13 +148,13 @@ func testMigrateLaunch(t *testing.T, target string) {
 	if moved.NameSource != store.SourceUser {
 		t.Fatalf("name source = %q", moved.NameSource)
 	}
-	// The new session carries on, so the source is filed away and its
-	// children are the new session's.
+	// Only an account switch retires the source; the migrate card leaves it
+	// on the board with its children.
 	kept, err := m.store.Get(source.ID)
-	if err != nil || kept.Tool != "claude" || !kept.Archived {
+	if err != nil || kept.Tool != "claude" || kept.Archived {
 		t.Fatalf("source after migrate = %+v, err %v", kept, err)
 	}
-	if child, err := m.store.Get("migrate-child"); err != nil || child.ParentID != moved.ID {
+	if child, err := m.store.Get("migrate-child"); err != nil || child.ParentID != source.ID {
 		t.Fatalf("child after migrate = %+v, err %v", child, err)
 	}
 	if !store.Linked(kept, moved) {

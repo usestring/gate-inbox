@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/gatechannel"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -151,4 +152,25 @@ func AskPendingHook(configDir, sessionID string, payload []byte) {
 	if os.WriteFile(tmp, raw, 0o600) == nil {
 		_ = os.Rename(tmp, path)
 	}
+}
+
+// AskHoldHook holds the AskUserQuestion call in the child's PreToolUse
+// payload while a gate channel consumer can deliver it, and returns the hook
+// output that answers it, or "" for the dialog to be drawn as usual. With no
+// live, deliverable lease it returns at once (gatechannel.HoldCall).
+func AskHoldHook(configDir, sessionID string, payload []byte) string {
+	if sessionID == "" {
+		return ""
+	}
+	var event struct {
+		ToolName  string `json:"tool_name"`
+		ToolUseID string `json:"tool_use_id"`
+		ToolInput struct {
+			Questions []convo.AskQuestion `json:"questions"`
+		} `json:"tool_input"`
+	}
+	if json.Unmarshal(payload, &event) != nil || event.ToolName != "AskUserQuestion" || event.ToolUseID == "" {
+		return ""
+	}
+	return gatechannel.HoldCall(configDir, sessionID, event.ToolUseID, event.ToolInput.Questions, gatechannel.RealClock)
 }

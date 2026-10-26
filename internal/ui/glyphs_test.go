@@ -111,7 +111,7 @@ var emojiGlyphRunes = func() map[rune]bool {
 func emojiMarks(set glyphSet) []string {
 	return []string{
 		set.working, set.starting, set.waiting, set.finished, set.errored,
-		set.idle, set.delegating, set.muted, set.deaf, set.hookless, set.died,
+		set.idle, set.delegating, set.background, set.pending, set.muted, set.deaf, set.hookless, set.died,
 		set.checksPassing, set.checksFailing, set.checksPending,
 	}
 }

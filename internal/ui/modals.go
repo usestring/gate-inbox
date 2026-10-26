@@ -183,6 +183,8 @@ func (m *Model) viewForm() string {
 	var b strings.Builder
 	b.WriteString(formField("tool", m.viewToolField(), m.form.focus == fieldTool))
 	b.WriteString(formField("model", m.form.model.View(), m.form.focus == fieldModel))
+	b.WriteString(formField("perms", m.viewSkipToggle(m.form.skip, m.formSkipSupported()), m.form.focus == fieldSkip))
+	b.WriteString(formField("children", m.viewSkipToggle(m.form.childrenSkip, true), m.form.focus == fieldChildrenSkip))
 	b.WriteString(formField("name", m.form.name.View(), m.form.focus == fieldName))
 	// Chips are tokens inside the typed text, so they wrap and reflow with
 	// the words around them; painting happens on the rendered prompt.
@@ -249,7 +251,7 @@ func (m *Model) viewToolField() string {
 		allowed[name] = true
 	}
 	width := m.formValueWidth()
-	rows := toolPickerRows(m.form.toolNames, m.selectedToolName(), allowed, width)
+	rows := toolPickerRows(m.form.toolNames, m.selectedToolName(), allowed, m.missingTools, width)
 	if m.form.focus != fieldTool {
 		return strings.Join(rows, "\n")
 	}
@@ -269,8 +271,9 @@ func (m *Model) viewToolField() string {
 // toolPickerRows lays every CLI out as a fixed-width cell, "[name]" for the
 // selected one and " name " for the rest, wrapping wherever the next cell
 // would pass budget columns. Every cell is as wide selected as not, so where
-// the rows break depends on the names alone and never on the selection.
-func toolPickerRows(names []string, selected string, allowed map[string]bool, budget int) []string {
+// the rows break depends on the names alone and never on the selection. A CLI
+// in missing is struck through: configured, but not on PATH, so never picked.
+func toolPickerRows(names []string, selected string, allowed, missing map[string]bool, budget int) []string {
 	var lines []string
 	var line strings.Builder
 	width := 0
@@ -286,6 +289,8 @@ func toolPickerRows(names []string, selected string, allowed map[string]bool, bu
 			width++
 		}
 		switch {
+		case missing[name]:
+			line.WriteString(" " + missingToolStyle.Render(name) + " ")
 		case name == selected:
 			line.WriteString(focusEdgeStyle.Render("[") + selectedNameStyle.Render(name) + focusEdgeStyle.Render("]"))
 		case allowed[name]:
@@ -652,11 +657,11 @@ func (m *Model) viewAgentPick() string {
 	room -= len(quotaRows)
 	var b strings.Builder
 	b.WriteString(formField("agent", m.agentPick.input.View(), true))
-	matches := m.agentPickMatches()
-	if len(matches) == 0 {
+	shown := m.agentPickShown()
+	if len(shown) == 0 {
 		b.WriteString(spaces(formLabelColumn) + mutedStyle.Render("(no CLI matches)") + "\n")
 	} else {
-		for _, row := range agentPickWindow(matches, m.agentPickName(), inner, room) {
+		for _, row := range agentPickWindow(shown, m.agentPickName(), m.missingTools, inner, room) {
 			b.WriteString(spaces(formLabelColumn) + row + "\n")
 		}
 	}
@@ -701,8 +706,8 @@ func agentPickQuotaRows(names []string, quotas map[string]string, recommended, r
 	return rows
 }
 
-func agentPickWindow(names []string, selected string, width, room int) []string {
-	rows := agentPickRows(names, selected, width)
+func agentPickWindow(names []string, selected string, missing map[string]bool, width, room int) []string {
+	rows := agentPickRows(names, selected, missing, width)
 	room = max(1, room)
 	if len(rows) <= room {
 		return rows
@@ -710,7 +715,7 @@ func agentPickWindow(names []string, selected string, width, room int) []string 
 	selectedRow := 0
 	for i, name := range names {
 		if name == selected {
-			selectedRow = len(agentPickRows(names[:i+1], selected, width)) - 1
+			selectedRow = len(agentPickRows(names[:i+1], selected, missing, width)) - 1
 			break
 		}
 	}
@@ -725,8 +730,8 @@ func agentPickWindow(names []string, selected string, width, room int) []string 
 
 // agentPickRows lays the matching CLIs out in reading order, the selected one
 // in the value tone and the rest muted, starting a new line wherever the next
-// name would run past budget columns.
-func agentPickRows(names []string, selected string, budget int) []string {
+// name would run past budget columns. A CLI in missing is struck through.
+func agentPickRows(names []string, selected string, missing map[string]bool, budget int) []string {
 	sep := mutedStyle.Render(" \u00b7 ")
 	var lines []string
 	var line strings.Builder
@@ -742,9 +747,12 @@ func agentPickRows(names []string, selected string, budget int) []string {
 			line.WriteString(sep)
 			width += 3
 		}
-		if name == selected {
+		switch {
+		case missing[name]:
+			line.WriteString(missingToolStyle.Render(name))
+		case name == selected:
 			line.WriteString(valueStyle.Render(name))
-		} else {
+		default:
 			line.WriteString(mutedStyle.Render(name))
 		}
 		width += w
@@ -753,4 +761,23 @@ func agentPickRows(names []string, selected string, budget int) []string {
 		lines = append(lines, line.String())
 	}
 	return lines
+}
+
+// viewSkipToggle draws a skip-permissions toggle between the arrows that
+// flip it, in the warning colour while on, and says so where the selected CLI
+// has no flag to honour it.
+func (m *Model) viewSkipToggle(on, supported bool) string {
+	return m.viewSkipToggleFor(on, supported, m.selectedToolName())
+}
+
+func (m *Model) viewSkipToggleFor(on, supported bool, toolName string) string {
+	value := valueStyle.Render("ask")
+	if on {
+		value = errStyle.Render("skip all prompts")
+	}
+	out := subtleStyle.Render("◂ ") + value + subtleStyle.Render(" ▸")
+	if !supported {
+		out += subtleStyle.Render("  (no flag on " + toolName + ")")
+	}
+	return out
 }

@@ -574,6 +574,28 @@ func (s *Sessions) restartAdopted(runtime *runtime, target store.Session, slot l
 	return s.relaunch(runtime, target, "", slot)
 }
 
+// promoteDeadAdopted makes an adopted row whose pane is gone a managed one
+// before relaunch puts it on gi_<id>. Left adopted, the create is refused;
+// relaunched without the registry knowing, as the board once did, the row
+// keeps pointing at the dead pane and stop reads it as having no process.
+func promoteDeadAdopted(runtime *runtime, target store.Session) (store.Session, error) {
+	if target.TmuxPaneID == "" {
+		return target, nil
+	}
+	if err := runtime.reach(target); err != nil {
+		return target, err
+	}
+	if runtime.driver.Exists(target.ID) {
+		return target, fmt.Errorf("session %s is still running in its adopted pane %s", target.ID, target.TmuxPaneID)
+	}
+	runtime.driver.Release(target.ID)
+	if err := runtime.store.PromoteAdopted(target.ID, target.Cwd, target.AgentSessionID); err != nil {
+		return target, err
+	}
+	target.TmuxSocket, target.TmuxPaneID = "", ""
+	return target, nil
+}
+
 // relaunch is the relaunch Revive and Unpark share: the dead row's tool,
 // directory and conversation id decide the command, and the row comes back
 // in the tool's default status with its finished alert re-armed. A prompt
@@ -595,7 +617,14 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 	if _, err := resolveTerminalDirectory(target.Cwd); err != nil {
 		return config.Tool{}, fmt.Errorf("working directory no longer exists: %s", target.Cwd)
 	}
+	if target, err = promoteDeadAdopted(runtime, target); err != nil {
+		return config.Tool{}, err
+	}
 	revive, err := launch.ReviveCommand(target.Tool, tool, target.AgentSessionID, target.Model)
+	if err != nil {
+		return config.Tool{}, err
+	}
+	revive, err = launch.WithSkipPermissions(target.Tool, tool, revive, target.SkipPermissions)
 	if err != nil {
 		return config.Tool{}, err
 	}
@@ -608,7 +637,7 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 	if err != nil {
 		return config.Tool{}, err
 	}
-	command, env, err := launch.EnvironmentWithProfile(hooks.NewManager(s.configDir), target.Tool, tool, base, target.ID, target.Model, target.Account, contributed, mcpProfile(target))
+	command, env, err := launch.EnvironmentWithProfile(hooks.NewManager(s.configDir), target.Tool, tool, base, target.ID, target.Model, target.Account, target.SkipPermissions, contributed, mcpProfile(target))
 	if err != nil {
 		return config.Tool{}, err
 	}

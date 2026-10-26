@@ -70,6 +70,11 @@ func (m *Model) viewListFrame() string {
 		m.pane.columnX = leftWidth + 2
 	}
 	railRows := m.railLines(railWidth, bodyHeight)
+	railX := rightWidth
+	if m.railOnLeft() {
+		railX = 1
+	}
+	m.railHit = newRailHitMap(railRows, railX, railWidth)
 	contentRows := m.contentLines(bleedWidth, bodyHeight)
 	seam := make([]string, bodyHeight)
 	edge := make([]string, bodyHeight)
@@ -129,10 +134,12 @@ func (m *Model) viewOnePaneFrame(bodyHeight int, footer string) string {
 	tone := panelHex()
 	// No content column, so a click can never land in a pane.
 	m.pane.columnX = m.width + 1
+	m.railHit = newRailHitMap(rows, 1, paneWidth)
 	if m.ringed() {
 		rows = m.contentLines(paneWidth, bodyHeight)
 		tone = backdropHex()
 		m.pane.columnX = 1
+		m.railHit = railHitMap{}
 	}
 
 	edge := make([]string, bodyHeight)
@@ -455,7 +462,6 @@ func (m *Model) sessionDetailLines(width int) []string {
 			factRoom, "…")
 	}
 	lines := []string{
-		pad + subtleStyle.Render("session"),
 		railFact(pad, "cli", chipStyle.Render(textfmt.TruncateWidth(tool, max(factRoom-2, 1), "…"))),
 		railFact(pad, "group", lipgloss.NewStyle().Foreground(colorAccent2).Render(textfmt.TruncateWidth(displayGroup(sess.Group), factRoom, "…"))),
 		railFact(pad, "dir", mutedStyle.Render(truncateTail(sess.Cwd, factRoom))),
@@ -463,6 +469,22 @@ func (m *Model) sessionDetailLines(width int) []string {
 	}
 	if usage != "" {
 		lines = append(lines, railFact(pad, "usage", usage))
+	}
+	now := time.Now()
+	boardCompacts := false
+	for _, fact := range m.extFacts[sess.ID] {
+		boardCompacts = boardCompacts || fact.Label == compactLabel
+		lines = append(lines, wideFact(pad, fact.Label, extensionFactText(fact, now), room)...)
+	}
+	// Where an extension compacts the session itself, its line is the
+	// auto-compact one and the settings file's window is only the CLI's own
+	// fallback, so that one is named for what it is.
+	if view, ok := m.compactWindows[sess.ID]; ok {
+		label := compactLabel
+		if boardCompacts {
+			label = "claude window"
+		}
+		lines = append(lines, wideFact(pad, label, compactFact(view, now), room)...)
 	}
 	// What its spawner granted it on its user's approval, one line each:
 	// a widened permission is the one fact about a session nobody should
@@ -633,8 +655,12 @@ func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentL
 		for _, line := range headers[i] {
 			lines = append(lines, contentLine{text: line, tone: panelHex()})
 		}
+		link := ""
+		if entry.isArtifact() && entry.art.more == 0 {
+			link = entry.art.url
+		}
 		for _, line := range splitLines(render(entry, selected, offset+i, tone)) {
-			lines = append(lines, contentLine{text: line, tone: tone})
+			lines = append(lines, contentLine{text: line, tone: tone, link: link})
 		}
 	}
 	// The counters ride in whatever room the entries leave. Claiming a line
@@ -925,6 +951,9 @@ func (m *Model) renderTreeRowContent(entry treeRow, selected bool, width, index 
 		return row
 	}
 
+	if entry.reviews {
+		return m.renderReviewsEntry(selected, width, pad, bg)
+	}
 	if entry.isArtifact() {
 		return m.renderArtifactEntry(entry, selected, width, pad, guides, bg)
 	}
@@ -1058,6 +1087,11 @@ func (m *Model) renderSessionEntry(entry treeRow, selected bool, width int, pad,
 	// board has to derive it from.
 	if m.isHookless(sess) {
 		head += " " + subtleText(hooklessGlyph())
+	}
+	// Errored tint, like ⊗: not a fault, but the one thing about the row
+	// the operator must never forget is true of it.
+	if sess.SkipPermissions {
+		head += " " + statusTint(status.Errored, skipPermsGlyph())
 	}
 	if m.isDiedWhileClosed(sess) {
 		head += " " + statusTint(status.Errored, diedGlyph())
@@ -1390,13 +1424,14 @@ type meterKey struct {
 	net        netStats
 	hasContext bool
 	usage      search.TokenUsage
+	headroom   string
 }
 
 // computerLines is the machine block docked at the rail's foot: a label
 // and one thin meter per resource.
 func (m *Model) computerLines(width int) []string {
 	usage, hasContext := m.selectedTokenUsage()
-	key := meterKey{gen: renderGen, width: width, snap: m.snap, net: m.net, hasContext: hasContext, usage: usage}
+	key := meterKey{gen: renderGen, width: width, snap: m.snap, net: m.net, hasContext: hasContext, usage: usage, headroom: m.headroomKey()}
 	if m.meterMemoOK && m.meterMemoKey == key {
 		return m.meterMemo
 	}
@@ -1477,6 +1512,10 @@ func (m *Model) buildComputerLines(width int) []string {
 		lines = append(lines, pad+labelStyle.Width(5).Render("net")+
 			valueStyle.Render("↓ "+humanBytes(m.net.down)+"/s")+
 			subtleStyle.Render("  ↑ "+humanBytes(m.net.up)+"/s"))
+	}
+
+	if sub := m.headroomLines(width); len(sub) > 0 {
+		lines = append(append(lines, ""), sub...)
 	}
 
 	return append(lines, "")

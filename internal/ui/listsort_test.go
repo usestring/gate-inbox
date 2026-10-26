@@ -64,6 +64,61 @@ func TestNameSortIsAlphabetical(t *testing.T) {
 	}
 }
 
+// Recent ranks by the operator's last hand on a session, not by its last
+// turn: zulu is the most recently active, but alpha is the one touched.
+func TestRecentSortFollowsTheOperatorNotActivity(t *testing.T) {
+	m := sortFixture(t)
+	if err := m.store.SetOperatorAt("s-alpha", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	loadStoredRows(t, m)
+	m.listSort = listSortRecent
+	m.rebuildRows()
+	// Untouched sessions fall back to creation: mike is newer than zulu.
+	if got, want := sessionNames(m), []string{"alpha", "mike", "zulu"}; !slices.Equal(got, want) {
+		t.Errorf("order = %v, want %v", got, want)
+	}
+}
+
+// A waiting or finished session outranks one the operator touched more
+// recently but that needs nothing: alpha was just handed a turn and is
+// working, zulu errored, and mike's finish comes first. Within each band the
+// order is still recency.
+func TestRecentSortPutsActionAheadOfRecency(t *testing.T) {
+	m := sortFixture(t)
+	now := time.Now()
+	for id, at := range map[string]time.Time{"s-alpha": now, "s-zulu": now.Add(-time.Minute), "s-mike": now.Add(-time.Hour)} {
+		if err := m.store.SetOperatorAt(id, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for id, st := range map[string]string{"s-alpha": status.Working, "s-zulu": status.Errored, "s-mike": status.Finished} {
+		if err := m.store.UpdateStatus(id, st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	loadStoredRows(t, m)
+	m.listSort = listSortRecent
+	m.rebuildRows()
+	if got, want := sessionNames(m), []string{"mike", "alpha", "zulu"}; !slices.Equal(got, want) {
+		t.Errorf("order = %v, want %v", got, want)
+	}
+}
+
+// The toggle returns to the order it left, and persists each step.
+func TestRecentToggleReturnsToThePreviousOrder(t *testing.T) {
+	m := sortFixture(t)
+	m.listSort = listSortName
+	m.applyCmd(t, m.toggleRecentSort())
+	if m.listSort != listSortRecent || storedListSort(m.store) != listSortRecent {
+		t.Fatalf("after toggling on: model %q, stored %q", m.listSort, storedListSort(m.store))
+	}
+	m.applyCmd(t, m.toggleRecentSort())
+	if m.listSort != listSortName || storedListSort(m.store) != listSortName {
+		t.Fatalf("after toggling off: model %q, stored %q, want %q", m.listSort, storedListSort(m.store), listSortName)
+	}
+}
+
 // The rail is rebuilt on every poll, so an order that is not total would
 // reshuffle equal rows under a reaching hand.
 func TestTheSortIsStableAcrossRebuilds(t *testing.T) {
@@ -174,7 +229,7 @@ func TestListSortRoundTripsAndFailsSafe(t *testing.T) {
 		m.applyCmd(t, m.cycleSetting(1))
 		seen[m.settings.listSort] = true
 	}
-	if !seen[listSortActivity] || !seen[listSortName] || !seen[listSortManual] {
+	if !seen[listSortActivity] || !seen[listSortRecent] || !seen[listSortName] || !seen[listSortManual] {
 		t.Fatalf("cycling did not reach every mode, only %v", seen)
 	}
 	for m.settings.listSort != listSortActivity {

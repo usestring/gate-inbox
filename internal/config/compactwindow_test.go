@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/usestring/gate-inbox/internal/priority"
 )
@@ -69,5 +70,16 @@ func TestCompactWindowRejectsWhatClaudeWouldNot(t *testing.T) {
 				t.Fatalf("LoadDir err = %v, want one containing %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// Left unset, a downgrade waits the default; set, it waits what was asked.
+func TestCompactDowngradeDelay(t *testing.T) {
+	if got := loadFile(t, "").Tools["claude"].CompactDowngradeDelayOrDefault(); got != DefaultCompactDowngradeDelay {
+		t.Fatalf("default downgrade delay = %v, want %v", got, DefaultCompactDowngradeDelay)
+	}
+	cfg := loadFile(t, "[tools.claude]\ncompact_downgrade_delay = \"2m\"\n")
+	if got := cfg.Tools["claude"].CompactDowngradeDelayOrDefault(); got != 2*time.Minute {
+		t.Fatalf("downgrade delay = %v, want 2m", got)
 	}
 }

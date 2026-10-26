@@ -1045,21 +1045,23 @@ rules = [
 	}
 }
 
-// Claude Code queues what is typed into it mid-turn, and a user's own claude
-// block written before the field existed still gets it.
-func TestClaudeTypesAheadEvenInAnOlderUserBlock(t *testing.T) {
+// Claude Code and Codex queue what is typed into them mid-turn, and a user's
+// own block written before the field existed still gets it.
+func TestTypeAheadToolsTypeAheadEvenInAnOlderUserBlock(t *testing.T) {
 	def, err := Default()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !def.Tools["claude"].TypeAhead {
-		t.Fatal("the built-in claude block does not set type_ahead")
+	for _, name := range []string{"claude", "codex"} {
+		if !def.Tools[name].TypeAhead {
+			t.Fatalf("the built-in %s block does not set type_ahead", name)
+		}
+		merged := mergeTool(name, Tool{Command: name}, def.Tools[name])
+		if !merged.TypeAhead {
+			t.Fatalf("a user's %s block lost type_ahead in the merge", name)
+		}
 	}
-	merged := mergeTool("claude", Tool{Command: "claude"}, def.Tools["claude"])
-	if !merged.TypeAhead {
-		t.Fatal("a user's claude block lost type_ahead in the merge")
-	}
-	if def.Tools["codex"].TypeAhead {
+	if def.Tools["opencode"].TypeAhead {
 		t.Fatal("type_ahead reached a tool that was never shown to queue typed input")
 	}
 }
@@ -1174,5 +1176,39 @@ func TestLoadDirUpgradesClaudeChromeLineForTheClearHint(t *testing.T) {
 		if !re.MatchString(line) {
 			t.Errorf("upgraded claude chrome_line %q does not see %q", re, line)
 		}
+	}
+}
+
+func TestOutboxProbeTargetsConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name, setting string
+		want          []string
+		invalid       bool
+	}{
+		{name: "defaults", want: []string{"https://api.anthropic.com", "https://api.openai.com"}},
+		{name: "local provider", setting: `outbox_probe_targets = ["http://127.0.0.1:11434"]`, want: []string{"http://127.0.0.1:11434"}},
+		{name: "local only", setting: `outbox_probe_targets = []`, want: []string{}},
+		{name: "bad scheme", setting: `outbox_probe_targets = ["file:///model"]`, invalid: true},
+		{name: "missing host", setting: `outbox_probe_targets = ["https://"]`, invalid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(tc.setting), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := LoadDir(dir)
+			if tc.invalid {
+				if err == nil || !strings.Contains(err.Error(), "outbox_probe_targets") {
+					t.Fatalf("invalid target error: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(cfg.OutboxProbeTargets, tc.want) {
+				t.Fatalf("targets = %v, want %v", cfg.OutboxProbeTargets, tc.want)
+			}
+		})
 	}
 }

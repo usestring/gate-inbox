@@ -104,7 +104,7 @@ func runSessions(out io.Writer, sessions sessionCommands, args []string, session
 	set := cmdline.NewFlagSet(usageSessions)
 	var states stringList
 	parent := set.String("parent", "", `keep only the sessions one spawned; "`+sessioncmd.SelfParent+`" is this session's own children`)
-	set.Var(&states, "status", "state to keep, repeatable or comma separated: starting, working, waiting, delegating, finished, idle, errored or dead")
+	set.Var(&states, "status", "state to keep, repeatable or comma separated: starting, working, waiting, delegating, background, finished, idle, errored or dead")
 	includeArchived := set.Bool("include-archived", false, "also list rows archived out of the active list, which on an old board are most of them")
 	limit := set.Int("limit", sessioncmd.DefaultSessionLimit, fmt.Sprintf("how many rows to print, at most %d; the last line says what was left out", sessioncmd.MaxSessionLimit))
 	asJSON := cmdline.JSONFlag(set)
@@ -134,6 +134,7 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 	directory := set.String("directory", "", "existing directory it works in; defaults to yours, or to the group's inherited path")
 	directoryReason := set.String("directory-reason", "", "why it must start in --directory although its group pins another; leave empty to start where the group pins")
 	nest := set.Bool("nest", true, "file it under this session, where its questions and rests reach you; --nest=false detaches it: the user's, not yours, and nothing about it is relayed to you")
+	skipPermissions := set.Bool("skip-permissions", false, "launch it with its CLI's permission prompts off; omit to follow the setting for this session's children, and refused unless the user allowed it there")
 	keep := set.Bool("keep", false, "keep it on the list after it finishes, where Gate Inbox would otherwise archive it once you have read its finish and the grace period has passed")
 	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
@@ -157,6 +158,8 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 			opts.Group = group
 		case "nest":
 			opts.Nest = nest
+		case "skip-permissions":
+			opts.SkipPermissions = skipPermissions
 		}
 	})
 	created, err := sessions.Create(sessionID, opts)
@@ -364,12 +367,24 @@ func runMigrate(out io.Writer, sessions sessionCommands, args []string, sessionI
 	set := cmdline.NewFlagSet(usageMigrate)
 	tool := set.String("tool", "", "agent CLI the conversation moves to")
 	name := set.String("name", "", "name for the new session; defaults to the source's name with the tool appended")
+	skipPermissions := set.Bool("skip-permissions", false, "run the moved session with its permission prompts off; omit to keep the source's setting")
+	childrenSkip := set.Bool("children-skip-permissions", false, "let the sessions it spawns skip their permission prompts by default; omit to keep the source's setting")
 	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
 	}
-	migrated, err := sessions.Migrate(sessionID, operands[0], sessioncmd.MigrateOptions{Tool: *tool, Name: *name})
+	opts := sessioncmd.MigrateOptions{Tool: *tool, Name: *name}
+	// Only a flag the caller typed replaces the source's setting.
+	set.Visit(func(given *flag.Flag) {
+		switch given.Name {
+		case "skip-permissions":
+			opts.SkipPermissions = skipPermissions
+		case "children-skip-permissions":
+			opts.ChildrenSkipPermissions = childrenSkip
+		}
+	})
+	migrated, err := sessions.Migrate(sessionID, operands[0], opts)
 	if err != nil {
 		return err
 	}

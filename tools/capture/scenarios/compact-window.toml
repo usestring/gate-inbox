@@ -1,0 +1,3 @@
+[tools.claude.compact_window]
+urgent = 600000
+high = 300000

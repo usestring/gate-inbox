@@ -126,7 +126,9 @@ type ExtensionBridge struct {
 	// attention is each owner's claims on the queue: see extattention.go.
 	attention map[string]map[string]Attention
 	// warn is each owner's warning before a session opens.
-	warn    map[string]map[string]string
+	warn map[string]map[string]string
+	// facts is each owner's line in a session's detail block.
+	facts   map[string]map[string]extension.Fact
 	send    func(tea.Msg)
 	pending bool
 	dirty   bool
@@ -144,6 +146,7 @@ func NewExtensionBridge(owners []string) *ExtensionBridge {
 		owned:     map[string]map[string]bool{},
 		attention: map[string]map[string]Attention{},
 		warn:      map[string]map[string]string{},
+		facts:     map[string]map[string]extension.Fact{},
 	}
 }
 
@@ -186,6 +189,23 @@ func (b *ExtensionBridge) Decorate(owner, sessionID string, badges []Badge) {
 			b.badges[owner] = map[string][]Badge{}
 		}
 		b.badges[owner][sessionID] = clean
+	}
+	b.changedLocked()
+}
+
+// Fact replaces owner's line in one session's detail block. The zero Fact
+// clears it.
+func (b *ExtensionBridge) Fact(owner, sessionID string, fact extension.Fact) {
+	fact = extension.Fact{Label: badgeText(fact.Label), Text: badgeText(fact.Text), Then: badgeText(fact.Then), At: fact.At}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if fact.Label == "" && fact.Text == "" {
+		delete(b.facts[owner], sessionID)
+	} else {
+		if b.facts[owner] == nil {
+			b.facts[owner] = map[string]extension.Fact{}
+		}
+		b.facts[owner][sessionID] = fact
 	}
 	b.changedLocked()
 }
@@ -235,6 +255,8 @@ type rowMarks struct {
 	owned   map[string]bool
 	// attention is every owner's claims merged: see Attention.merge.
 	attention map[string]Attention
+	// facts is every owner's detail line for a session.
+	facts map[string][]extension.Fact
 }
 
 // snapshot is every session's marks, owners in build order.
@@ -248,8 +270,12 @@ func (b *ExtensionBridge) snapshot() rowMarks {
 		hidden:    map[string]bool{},
 		owned:     map[string]bool{},
 		attention: map[string]Attention{},
+		facts:     map[string][]extension.Fact{},
 	}
 	for _, owner := range b.owners {
+		for sessionID, fact := range b.facts[owner] {
+			out.facts[sessionID] = append(out.facts[sessionID], fact)
+		}
 		for sessionID, badges := range b.badges[owner] {
 			out.badges[sessionID] = append(out.badges[sessionID], badges...)
 		}

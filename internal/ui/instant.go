@@ -31,7 +31,7 @@ func (m *Model) spawnInstant(toolName string) (tea.Model, tea.Cmd) {
 
 func (m *Model) spawnInstantIn(toolName, group string) (tea.Model, tea.Cmd) {
 	if toolName == "" {
-		m.errBar.text = "no CLIs enabled: open settings (s), then CLIs, to turn some on"
+		m.errBar.text = m.noCLIText()
 		return m, nil
 	}
 	dir, ok := resolveExistingDir("", m.groupDefaultDir(group))

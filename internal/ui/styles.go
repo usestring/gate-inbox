@@ -53,6 +53,8 @@ var (
 	errStyle    fastStyle
 	doneStyle   fastStyle
 	keyStyle    fastStyle
+	// A configured CLI the PATH lookup did not find: drawn, never picked.
+	missingToolStyle fastStyle
 
 	// The key map's own selection: the row the rebind cursor is on. It is a
 	// band rather than a tint because the card has no gutter to put a marker
@@ -99,6 +101,7 @@ func rebuildStyles() {
 	errStyle = newFastStyle(lipgloss.NewStyle().Foreground(colorErrored).Bold(true))
 	doneStyle = newFastStyle(lipgloss.NewStyle().Foreground(colorFinished))
 	keyStyle = newFastStyle(lipgloss.NewStyle().Foreground(colorAccent).Bold(true))
+	missingToolStyle = newFastStyle(lipgloss.NewStyle().Foreground(colorDim).Faint(true).Strikethrough(true))
 	selectedKeyStyle = newFastStyle(lipgloss.NewStyle().Background(colorSelBg).Foreground(colorBright).Bold(true))
 	selectedTextStyle = newFastStyle(lipgloss.NewStyle().Background(colorSelBg).Foreground(colorBright))
 
@@ -156,6 +159,8 @@ func statusColor(s string) color.Color {
 		return colorFinished
 	case status.Errored, status.Dead:
 		return colorErrored
+	// Pending and background stay the idle tint: nothing is on screen and
+	// nothing needs a person; the glyph says what each is waiting for.
 	default:
 		return colorIdle
 	}
@@ -164,8 +169,11 @@ func statusColor(s string) color.Color {
 // statusLabel is the human text for a status; most match the raw value, but
 // the transient launch state reads better spelled out.
 func statusLabel(s string) string {
-	if s == status.Starting {
+	switch s {
+	case status.Starting:
 		return "starting up"
+	case status.Pending:
+		return "pending (offline)"
 	}
 	return s
 }

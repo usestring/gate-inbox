@@ -426,7 +426,7 @@ func TestAnOperatorsSendReportsWhatTheExtensionsMadeOfIt(t *testing.T) {
 // extra CLI arguments only the operator may pass reach the command line.
 func TestCreateFromNoSessionIsTheOperatorsOwn(t *testing.T) {
 	h := newSessionHarness(t)
-	watcher := &launchWatcher{}
+	watcher := &launchWatcher{shape: extension.SpawnShape{PromptPrefix: "PREFIX", PromptSuffix: "SUFFIX", KeepUnderSpawner: true}}
 	useWatcher(t, watcher)
 	detach := false
 	dir := t.TempDir()
@@ -446,6 +446,12 @@ func TestCreateFromNoSessionIsTheOperatorsOwn(t *testing.T) {
 	}
 	if len(watcher.asked) != 1 || watcher.asked[0].By != extension.SpawnByOperator {
 		t.Fatalf("asked = %+v, want one operator spawn", watcher.asked)
+	}
+	if len(watcher.shaped) != 0 {
+		t.Fatalf("shaped %d launches, want none for the operator", len(watcher.shaped))
+	}
+	if stored.LaunchPrompt != "/run-the-skill" {
+		t.Fatalf("launch prompt = %q, want the operator's unchanged prompt", stored.LaunchPrompt)
 	}
 	waitForSessionOutput(t, h.sessions, h.caller.ID, created.ID, "--chrome")
 }

@@ -800,11 +800,14 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	// Shaped and then put to the policies before an account is chosen or a
 	// file written, so a refusal costs nothing to undo, and a policy is
 	// asked about the session that will actually launch.
-	shape, err := sessionhooks.Shape(sess, extension.LaunchSpawn, "")
-	if err != nil {
-		return Session{}, err
+	var shape extension.SpawnShape
+	if !operator {
+		shape, err = sessionhooks.Shape(sess, extension.LaunchSpawn, "")
+		if err != nil {
+			return Session{}, err
+		}
 	}
-	if shape.KeepUnderSpawner && !nest && !operator {
+	if shape.KeepUnderSpawner && !nest {
 		// Filed exactly where a nested spawn would have been.
 		sess.Group = caller.Group
 		sess.ParentID = caller.ID

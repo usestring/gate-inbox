@@ -45,8 +45,9 @@ func TestFocusTypingVisibleEndToEnd(t *testing.T) {
 						update(key("down"))
 					}
 					update(key("enter"))
-					// Up wraps past the JEV copy and finish check to
-					// compressed focus.
+					// Up wraps past the review queue, JEV copy and finish
+					// check to compressed focus.
+					update(key("up"))
 					update(key("up"))
 					update(key("up"))
 					update(key("up"))

@@ -151,6 +151,9 @@ type Model struct {
 	jevFinish      jevFinishState
 	jevCopyOn      bool
 	jevCopy        jevCopyState
+	// reviewQueue is the Review queue experiment: off, the ingest key
+	// refuses and no Reviews row is drawn.
+	reviewQueue    bool
 	promptSuggest  bool
 	promptSnipsSeq int
 	autoSuggestSeq int
@@ -958,6 +961,7 @@ type settingsState struct {
 	jevCopyOn          bool
 	promptSuggest      bool
 	compressedFocus    bool
+	reviewQueue        bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -1322,6 +1326,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		jevAutoSuggest:  storedJevAutoSuggest(st),
 		jevFinishCheck:  storedJevFinishCheck(st),
 		jevCopyOn:       storedJevCopy(st),
+		reviewQueue:     storedReviewQueue(st),
 		promptSuggest:   storedPromptSuggestions(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),

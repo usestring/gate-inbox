@@ -105,6 +105,10 @@ The rest of the session's controls work from inside it: `ctrl+a` attaches, `ctrl
 new one in its group, `alt+/` copies the agent's session id, `alt+;` steps back to the one you just
 left. `ctrl+s` opens your snippet menu over the session in front of you.
 
+### Account headroom score
+
+An extension that runs sessions on several Claude subscriptions can rank them by the weekly quota each would lose unspent at its next reset. That score lives in [headroom-routing](https://github.com/usestring/headroom-routing) as the Go package `github.com/usestring/headroom-routing/headroom`.
+
 ## The review queue
 
 `P` asks GitHub for the pull requests waiting on your review and queues the new ones in a **Reviews** row at the top of the board. Nothing polls: the queue changes only when you press the key. Three asks count:

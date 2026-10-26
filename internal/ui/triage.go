@@ -733,9 +733,6 @@ func (m *Model) enterTriageHead() tea.Cmd {
 // means there was none, and the caller's unfocus stands: the user lands back
 // on the list rather than in some arbitrary session they never asked for.
 func (m *Model) advanceTriage(leftID string) tea.Cmd {
-	if len(m.rows) == 0 {
-		return nil
-	}
 	tried := map[string]bool{}
 	for {
 		index, ok := m.nextTriageInput(leftID, tried)
@@ -749,6 +746,7 @@ func (m *Model) advanceTriage(leftID string) tea.Cmd {
 			}
 			continue
 		}
+		m.reviewsTab = false
 		m.cursor = index
 		m.clearPreviewState()
 		m.previewGen++

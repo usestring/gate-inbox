@@ -105,12 +105,31 @@ func (c codex) Unanswered(t Target) (Result, bool) {
 func (c codex) Answered(t Target, since time.Time) ([]convo.AnsweredAsk, error) {
 	var out []convo.AnsweredAsk
 	for _, call := range c.calls(t) {
-		if call.State != codexq.Answered || !call.ResolvedAt.After(since) {
+		if call.Async && len(call.AnswerTimes) > 0 {
+			for _, q := range codexCall(call).Questions {
+				answeredAt := call.AnswerTimes[q.ID]
+				if given, ok := call.Answers[q.ID]; ok && answeredAt.After(since) {
+					out = append(out, convo.AnsweredAsk{ToolUseID: call.CallID, Questions: []convo.AskQuestion{q},
+						AskedAt: call.AskedAt, AnsweredAt: answeredAt, Answers: map[string]string{q.Question: codexAnswerText(given)}})
+				}
+			}
+			continue
+		}
+		asyncReply := call.Async && call.State == codexq.Superseded && len(call.Questions) == 1 &&
+			call.Reply != "" && call.ReplyAt.After(call.AskedAt)
+		answeredAt := call.ResolvedAt
+		if asyncReply {
+			answeredAt = call.ReplyAt
+		}
+		if call.State != codexq.Answered && !asyncReply || !answeredAt.After(since) {
 			continue
 		}
 		asked := codexCall(call)
 		answered := convo.AnsweredAsk{ToolUseID: call.CallID, Questions: asked.Questions, AskedAt: call.AskedAt,
-			AnsweredAt: call.ResolvedAt, Answers: map[string]string{}}
+			AnsweredAt: answeredAt, Answers: map[string]string{}}
+		if asyncReply {
+			answered.Answers[asked.Questions[0].Question] = call.Reply
+		}
 		for _, q := range call.Questions {
 			given, ok := call.Answers[q.ID]
 			if !ok {

@@ -40,6 +40,10 @@ const (
 	// AbsorbedBySpawnerGone is a finish with nobody left to take it in: the
 	// spawner's row is deleted, archived or dead. On 2026-10-12 one such
 	// child had sat finished for 217 hours with its agent still running.
+	// A dead spawner counts from when it died, not from the finish: a
+	// restart in place (an account switch, a grant) reads dead between
+	// ending the pane and relaunching it, and counting from the finish
+	// archived every finished child of a parent that was only restarting.
 	AbsorbedBySpawnerGone = "its spawner is gone"
 )
 
@@ -64,8 +68,11 @@ func (s *Store) RetirableChildren(cutoff time.Time) ([]RetirableChild, error) {
 		        CASE WHEN s.spawner_read_at >= s.last_status_at THEN s.spawner_read_at ELSE 0 END AS seen,
 		        CASE WHEN NOT EXISTS (
 		          SELECT 1 FROM sessions p
-		          WHERE p.id = `+spawnerColumnOf("s")+` AND p.archived = 0 AND p.status != ?
-		        ) THEN s.last_status_at ELSE 0 END AS orphaned
+		          WHERE p.id = `+spawnerColumnOf("s")+` AND p.archived = 0
+		        ) THEN s.last_status_at ELSE COALESCE((
+		          SELECT MAX(s.last_status_at, p.last_status_at) FROM sessions p
+		          WHERE p.id = `+spawnerColumnOf("s")+` AND p.status = ?
+		        ), 0) END AS orphaned
 		 FROM sessions s
 		 WHERE s.parent_id != '' AND s.archived = 0
 		   AND s.status IN (?, ?)

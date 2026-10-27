@@ -5,7 +5,10 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
+	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -333,5 +336,93 @@ func TestMutedWorkingRowDropsTheSpinner(t *testing.T) {
 		if strings.HasPrefix(got, ansi.Strip(frame)) {
 			t.Fatalf("working row = %q still leads with the spinner", got)
 		}
+	}
+}
+
+// ctrl+m mutes from the list and from inside a focused session. Without an
+// enhanced keyboard protocol the terminal sends it as enter, which stays a
+// submit; the test presses the chord as the enhanced protocol reports it.
+func TestCtrlMMutesOnBothScreens(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "rest": status.Idle})
+	ctrlM := tea.KeyPressMsg{Code: 'm', Mod: tea.ModCtrl}
+
+	m.selectSessionRow(t, "rest")
+	pressKey(t, m, ctrlM)
+	if !sessionNamed(t, m, "rest").Muted {
+		t.Fatalf("ctrl+m on the list did not mute: %s", m.errBar.text)
+	}
+
+	m.enterFocusOn(t, "ask")
+	if _, _ = m.handleFocusKey(ctrlM); m.mode != modeFocus {
+		t.Fatalf("ctrl+m left focus for mode %v", m.mode)
+	}
+	if got, _ := m.store.Get(sessionID(t, m, "ask")); !got.Muted {
+		t.Fatal("ctrl+m in focus never reached the store")
+	}
+	if _, _ = m.handleFocusKey(ctrlM); sessionNamed(t, m, "ask").Muted {
+		t.Fatal("ctrl+m in focus did not unmute")
+	}
+}
+
+func TestUnmuteAllListedRespectsSearch(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		query            string
+		paneText         string
+		history          bool
+		wantVisibleMuted bool
+		wantHiddenMuted  bool
+	}{
+		{name: "no search"},
+		{name: "metadata", query: "  VISIBLE  ", wantHiddenMuted: true},
+		{name: "pane", query: "needle987", paneText: "needle987", wantHiddenMuted: true},
+		{name: "history", query: "needle987", history: true, wantHiddenMuted: true},
+		{name: "no matches", query: "needle987", wantVisibleMuted: true, wantHiddenMuted: true},
+		{name: "muted label", query: "muted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := buildModel(t)
+			liveTriageFleet(t, m, map[string]string{"visible": status.Waiting, "hidden": status.Waiting})
+			for i := range m.sessions {
+				if err := m.store.SetMuted(m.sessions[i].ID, true); err != nil {
+					t.Fatal(err)
+				}
+				m.sessions[i].Muted = true
+			}
+			visible := sessionNamed(t, m, "visible")
+			hidden := sessionNamed(t, m, "hidden")
+			m.search = tc.query
+			m.searchText = map[string]string{visible.ID: tc.paneText}
+			if tc.history {
+				m.historyQuery = tc.query
+				m.historyHits = map[string]search.Hit{visible.ID: {Key: visible.ID}}
+			}
+			m.rebuildRows()
+			wantApplies := !tc.wantVisibleMuted || !tc.wantHiddenMuted
+			if got := m.applies(keymap.ContextList, keymap.UnmuteAll, treeRow{}); got != wantApplies {
+				t.Errorf("unmute-all applies = %v, want %v", got, wantApplies)
+			}
+			m.unmuteAllListed()
+			if m.applies(keymap.ContextList, keymap.UnmuteAll, treeRow{}) {
+				t.Error("unmute-all still offered after unmuting every match")
+			}
+			for id, want := range map[string]bool{visible.ID: tc.wantVisibleMuted, hidden.ID: tc.wantHiddenMuted} {
+				sess, ok := m.sessionByID(id)
+				if !ok {
+					t.Fatalf("session %s missing from model", id)
+				}
+				if sess.Muted != want {
+					t.Errorf("%s local muted = %v, want %v", sess.Name, sess.Muted, want)
+				}
+				stored, err := m.store.Get(sess.ID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if stored.Muted != want {
+					t.Errorf("%s stored muted = %v, want %v", sess.Name, stored.Muted, want)
+				}
+			}
+		})
 	}
 }

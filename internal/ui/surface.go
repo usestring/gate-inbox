@@ -369,13 +369,16 @@ func spaces(n int) string {
 // spans the column edge to edge, or captured output that must keep the
 // terminal's own backdrop. Rail rows also carry the tone their fill uses,
 // so the edge column beside them can match the selected entry's band. bg
-// overrides the column's fill for a row that must stand off it.
+// overrides the column's fill for a row that must stand off it. link is the
+// URL a click on a rail row opens, set on the lines of a pull request or
+// ticket entry.
 type contentLine struct {
 	text string
 	raw  bool
 	rule bool
 	tone string
 	bg   string
+	link string
 }
 
 // paintContent paints a content column, leaving raw rows unfilled.

@@ -33,18 +33,20 @@ import (
 )
 
 type Session struct {
-	ID        string `json:"id" jsonschema:"agent session id"`
-	Name      string `json:"name" jsonschema:"session name shown in Gate Inbox"`
-	Tool      string `json:"tool" jsonschema:"agent CLI the session runs"`
-	Model     string `json:"model,omitempty" jsonschema:"model that CLI runs on; empty is the CLI's own default"`
-	Account   string `json:"account,omitempty" jsonschema:"named subscription the session runs on; empty is the CLI's own login"`
-	Group     string `json:"group" jsonschema:"group path holding the session; empty is the root"`
-	Directory string `json:"directory" jsonschema:"session's current working directory, or its launch directory when stopped"`
-	Status    string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, delegating, finished, idle, errored or dead"`
-	Running   bool   `json:"running" jsonschema:"whether the session currently has a live tmux pane"`
-	Archived  bool   `json:"archived" jsonschema:"whether the session is archived out of the active list"`
-	Muted     bool   `json:"muted" jsonschema:"whether the operator has muted this session out of their triage queue until it is unmuted"`
-	Self      bool   `json:"self" jsonschema:"whether this row is the calling session itself"`
+	ID                      string `json:"id" jsonschema:"agent session id"`
+	Name                    string `json:"name" jsonschema:"session name shown in Gate Inbox"`
+	Tool                    string `json:"tool" jsonschema:"agent CLI the session runs"`
+	Model                   string `json:"model,omitempty" jsonschema:"model that CLI runs on; empty is the CLI's own default"`
+	Account                 string `json:"account,omitempty" jsonschema:"named subscription the session runs on; empty is the CLI's own login"`
+	SkipPermissions         bool   `json:"skip_permissions,omitempty" jsonschema:"the session runs with its CLI's permission prompts off"`
+	ChildrenSkipPermissions bool   `json:"children_skip_permissions,omitempty" jsonschema:"sessions it spawns run with their permission prompts off unless the spawn says otherwise"`
+	Group                   string `json:"group" jsonschema:"group path holding the session; empty is the root"`
+	Directory               string `json:"directory" jsonschema:"session's current working directory, or its launch directory when stopped"`
+	Status                  string `json:"status" jsonschema:"Gate Inbox status: starting, working, waiting, delegating, background, finished, idle, errored or dead"`
+	Running                 bool   `json:"running" jsonschema:"whether the session currently has a live tmux pane"`
+	Archived                bool   `json:"archived" jsonschema:"whether the session is archived out of the active list"`
+	Muted                   bool   `json:"muted" jsonschema:"whether the operator has muted this session out of their triage queue until it is unmuted"`
+	Self                    bool   `json:"self" jsonschema:"whether this row is the calling session itself"`
 	// ParentID is where the board draws this row, and SpawnedBy is who owns
 	// it. Nothing the tools hand back used to carry either, so a fan-out that
 	// landed flat -- every spawn a sibling of the session that asked for it --
@@ -132,6 +134,16 @@ type CreateSessionOptions struct {
 	// it away on its own, and cleanup_children takes it only when asked for
 	// all. See cleanupchildren.go.
 	Keep bool
+	// SkipPermissions launches the child with its CLI's skip-permissions
+	// flag. Nil follows the caller's ChildrenSkipPermissions. True is refused
+	// unless that setting is on: the operator turns prompts off for a
+	// session's children, and an agent cannot turn them off for itself.
+	SkipPermissions *bool
+	// Args go on the CLI's command line after its configured command, such
+	// as claude's --chrome. Only a person may pass them, from outside any
+	// session or from a terminal row: an agent could otherwise hand its child
+	// any flag, skip-permissions among them, past every setting that gates one.
+	Args []string
 }
 
 type Sessions struct {
@@ -146,10 +158,23 @@ type Sessions struct {
 	// newPacer replaces the relaunch queue; tests point it at their own
 	// clock.
 	newPacer func(*runtime) *launchpace.Pacer
+	// gateLaunches makes a top-level agent confirm each launch it makes on a
+	// voiced turn (see launchgate.go). Only NewSessions sets it, so a test
+	// that spawns from a top-level caller to check something else need not
+	// approve first.
+	gateLaunches bool
+	// voicedLaunch and userAskedLaunch replace the voice and JEV checks;
+	// tests answer them themselves.
+	voicedLaunch    func(*runtime, store.Session, time.Time) (store.InboxMessage, bool)
+	userAskedLaunch func(*runtime, store.Session) bool
+	// boardStores are the handles the board's reads reuse; see openBoard.
+	boardStores boardStores
 }
 
 func NewSessions(configDir string, words Vocabulary) *Sessions {
-	return newSessions(configDir, words, tmux.NewWithSocket, git.New)
+	s := newSessions(configDir, words, tmux.NewWithSocket, git.New)
+	s.gateLaunches = true
+	return s
 }
 
 func newSessions(configDir string, words Vocabulary, newDriver func(socket string) (*tmux.Driver, error), newGit func() (*git.Driver, error)) *Sessions {
@@ -253,22 +278,24 @@ func (r *runtime) sessionInfo(sess store.Session, running, self bool) Session {
 // sessionInfoIn is sessionInfo with the directory already read.
 func (r *runtime) sessionInfoIn(sess store.Session, dir string, running, self bool) Session {
 	return Session{
-		ID:        sess.ID,
-		Name:      sess.Name,
-		Tool:      sess.Tool,
-		Model:     sess.Model,
-		Account:   sess.Account,
-		Group:     sess.Group,
-		Directory: dir,
-		Status:    sess.Status,
-		Running:   running,
-		Archived:  sess.Archived,
-		Muted:     sess.Muted,
-		Self:      self,
-		ParentID:  sess.ParentID,
-		SpawnedBy: store.SpawnerOf(sess),
-		Detached:  store.Detached(sess),
-		Role:      sess.Role,
+		ID:                      sess.ID,
+		Name:                    sess.Name,
+		Tool:                    sess.Tool,
+		Model:                   sess.Model,
+		Account:                 sess.Account,
+		Group:                   sess.Group,
+		Directory:               dir,
+		SkipPermissions:         sess.SkipPermissions,
+		ChildrenSkipPermissions: sess.ChildrenSkipPermissions,
+		Status:                  sess.Status,
+		Running:                 running,
+		Archived:                sess.Archived,
+		Muted:                   sess.Muted,
+		Self:                    self,
+		ParentID:                sess.ParentID,
+		SpawnedBy:               store.SpawnerOf(sess),
+		Detached:                store.Detached(sess),
+		Role:                    sess.Role,
 
 		AgentSessionID: sess.AgentSessionID,
 		Terminal:       r.cfg.Tools[sess.Tool].Shell,
@@ -427,6 +454,14 @@ func (r *runtime) list(callerID string, opts ListOptions) (SessionList, error) {
 	stored, err := r.store.ListSessions(opts.IncludeArchived)
 	if err != nil {
 		return SessionList{}, err
+	}
+	// One scan answers for every row, adopted panes on other servers
+	// included, but only for the ones the driver has been told about; an
+	// adopted row left out would list as not running.
+	for _, sess := range stored {
+		if err := r.reach(sess); err != nil {
+			return SessionList{}, err
+		}
 	}
 	if stored, err = r.delegated(stored); err != nil {
 		return SessionList{}, err
@@ -614,6 +649,24 @@ func (s *Sessions) DeleteGroup(sessionID, path string) (GroupRemoval, error) {
 	return GroupRemoval{Removed: removed, Moved: moved}, nil
 }
 
+// childSkipPermissions is whether a child of caller launches with permissions
+// skipped: what the call asked for, else the caller's setting for its
+// children. Asking for it where the operator has not allowed it is refused
+// rather than downgraded, so the caller is not left believing it got it. The
+// inherited setting is dropped for a CLI with no flag to honour it (supported
+// false): a child that keeps its prompts is the safe way to be wrong, and
+// refusing would make the parent's setting block every spawn onto that CLI.
+func childSkipPermissions(caller store.Session, asked *bool, supported bool) (bool, error) {
+	if asked == nil {
+		return caller.ChildrenSkipPermissions && supported, nil
+	}
+	if *asked && !caller.ChildrenSkipPermissions {
+		return false, errors.New("skip_permissions true is refused: the operator has not allowed this session's " +
+			"children to skip permissions; leave it unset or false")
+	}
+	return *asked, nil
+}
+
 func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created Session, err error) {
 	// The most expensive thing this package does, and the one a fan-out
 	// repeats: a pane, a CLI process behind it, and the row filed for both.
@@ -631,11 +684,28 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		return Session{}, err
 	}
 	defer runtime.store.Close()
-	caller, err := runtime.caller(sessionID)
+	caller, operator, err := runtime.spawner(sessionID, opts)
 	if err != nil {
 		return Session{}, err
 	}
+	release := func() {}
+	if !operator {
+		release, err = s.confirmLaunch(runtime, caller, opts, time.Now())
+		if err != nil {
+			return Session{}, err
+		}
+	}
+	// The user's go is for one session that starts, so a launch refused or
+	// failed from here on hands it back for the retry.
+	defer func() {
+		if err != nil {
+			release()
+		}
+	}()
 	toolName := strings.TrimSpace(opts.Tool)
+	if toolName == "" && operator {
+		return Session{}, fmt.Errorf("a spawn from outside any session has no CLI to inherit; name one with %s (configured tools are %s)", runtime.words.SpawnTool, strings.Join(agentToolNames(runtime), ", "))
+	}
 	if toolName == "" {
 		// A spawn with no tool named runs whatever the caller runs, which a
 		// terminal cannot supply: its tool is the user's shell. Guessing an
@@ -651,6 +721,12 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	}
 	if tool.Shell {
 		return Session{}, fmt.Errorf("tool %q opens a shell, not an agent; use %s for that", toolName, runtime.words.CreateTerminal)
+	}
+	if len(opts.Args) > 0 && !operator && !runtime.cfg.Tools[caller.Tool].Shell {
+		return Session{}, errors.New("extra CLI arguments are the operator's to pass, from their own shell or a terminal, not an agent's")
+	}
+	for _, arg := range opts.Args {
+		tool.Command += " " + tmux.ShellQuote(arg)
 	}
 	nest := opts.Nest == nil || *opts.Nest
 	// createTarget first, so a group that does not exist is reported as
@@ -713,13 +789,25 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		ParentID:  parentID,
 		SpawnedBy: caller.ID,
 		Model:     strings.TrimSpace(opts.Model),
+		// The operator's choice for the caller's children holds for the
+		// whole subtree it spawns.
+		ChildrenSkipPermissions: caller.ChildrenSkipPermissions,
+	}
+	if operator {
+		// The operator decides for their own session, as on the board.
+		sess.SkipPermissions = opts.SkipPermissions != nil && *opts.SkipPermissions
+	} else if sess.SkipPermissions, err = childSkipPermissions(caller, opts.SkipPermissions, launch.SkipsPermissions(toolName, tool)); err != nil {
+		return Session{}, err
 	}
 	// Shaped and then put to the policies before an account is chosen or a
 	// file written, so a refusal costs nothing to undo, and a policy is
 	// asked about the session that will actually launch.
-	shape, err := sessionhooks.Shape(sess, extension.LaunchSpawn, "")
-	if err != nil {
-		return Session{}, err
+	var shape extension.SpawnShape
+	if !operator {
+		shape, err = sessionhooks.Shape(sess, extension.LaunchSpawn, "")
+		if err != nil {
+			return Session{}, err
+		}
 	}
 	if shape.KeepUnderSpawner && !nest {
 		// Filed exactly where a nested spawn would have been.
@@ -737,7 +825,11 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if strings.HasPrefix(prompt, "-") && tool.PromptFlag == "" {
 		return Session{}, fmt.Errorf(`prompt cannot start with "-" for %s, which takes its prompt as a bare argument and would read it as a flag`, toolName)
 	}
-	sessionHooks, err := sessionhooks.CheckSpawn(sess, extension.SpawnBySession)
+	by := extension.SpawnBySession
+	if operator {
+		by = extension.SpawnByOperator
+	}
+	sessionHooks, err := sessionhooks.CheckSpawn(sess, by)
 	if err != nil {
 		return Session{}, err
 	}
@@ -778,7 +870,14 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		return Session{}, err
 	}
 	manager := hooks.NewManager(s.configDir)
-	command, env, err := launch.EnvironmentWithProfile(manager, toolName, tool, plan.Command, id, plan.Model, plan.Account, contributed, mcpProfile(sess))
+	if err := writeSpawnCompactWindow(runtime.store, manager, tool, sess); err != nil {
+		logging.Warn("compact window not written at spawn", "session", id, logging.Err(err))
+	}
+	base, err := launch.WithSkipPermissions(toolName, tool, plan.Command, sess.SkipPermissions)
+	if err != nil {
+		return Session{}, err
+	}
+	command, env, err := launch.EnvironmentWithProfile(manager, toolName, tool, base, id, plan.Model, plan.Account, sess.SkipPermissions, contributed, mcpProfile(sess))
 	if err != nil {
 		return Session{}, err
 	}
@@ -799,8 +898,8 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 			return Session{}, err
 		}
 	}
-	sessionhooks.Spawned(sessionHooks, sess, extension.SpawnBySession)
-	logging.Info("session created by an agent",
+	sessionhooks.Spawned(sessionHooks, sess, by)
+	logging.Info("session created by "+string(by),
 		"caller", caller.ID, "callerTool", caller.Tool,
 		"session", sess.ID, "parent", sess.ParentID,
 		"tool", sess.Tool, "group", sess.Group, "nest", nest,
@@ -850,6 +949,23 @@ func (s *Sessions) Withdraw(sessionID, targetID string) (err error) {
 	sessionhooks.Killed(target, extension.KillByMCP, sessionID)
 	logging.Info("spawn withdrawn after its call was cancelled", "caller", sessionID, "session", target.ID)
 	return nil
+}
+
+// spawner is the session a spawn is made for. A detached spawn with no
+// calling session is the operator's own, made from their shell the way the
+// board's new-session form makes one: a top-level row with nobody above it,
+// so it needs no caller to file under, inherit from or answer to. It is told
+// apart by the zero row and operator true, and has to name its tool and
+// directory, since there is no caller to take either from.
+func (r *runtime) spawner(sessionID string, opts CreateSessionOptions) (store.Session, bool, error) {
+	if strings.TrimSpace(sessionID) == "" && opts.Nest != nil && !*opts.Nest {
+		if strings.TrimSpace(opts.Directory) == "" {
+			return store.Session{}, false, errors.New("a spawn from outside any session has no directory to inherit; name one")
+		}
+		return store.Session{}, true, nil
+	}
+	caller, err := r.caller(sessionID)
+	return caller, false, err
 }
 
 // pinnedDirectory is where a session spawned into group has to start because
@@ -1236,6 +1352,9 @@ func (r *runtime) heldReason(sessionID string) (string, error) {
 	if target.Archived {
 		return fmt.Sprintf("session %s is archived, so Gate Inbox no longer polls it and nothing will type this in; restore it with %s", sessionID, r.words.Restore), nil
 	}
+	if err := r.reach(target); err != nil {
+		return "", err
+	}
 	if !r.driver.Exists(target.ID) {
 		return fmt.Sprintf("session %s is not running, so nothing will type this in; revive it with %s", sessionID, r.words.Revive), nil
 	}
@@ -1390,6 +1509,9 @@ func (s *Sessions) Get(sessionID, targetID string) (got Session, err error) {
 	if err != nil {
 		return Session{}, err
 	}
+	if err := runtime.reach(target); err != nil {
+		return Session{}, err
+	}
 	got = runtime.currentInfo(target, target.ID == sessionID)
 	got.Status = runtime.restingStatus(target.ID, got.Status)
 	return got, nil
@@ -1479,6 +1601,11 @@ func (s *Sessions) Revive(sessionID, targetID string) (revived Session, err erro
 	if err != nil {
 		return Session{}, err
 	}
+	// A live adopted pane is not gi_<id>, so without reaching it this would
+	// launch a second agent on the conversation the first is still holding.
+	if err := runtime.reach(target); err != nil {
+		return Session{}, err
+	}
 	if runtime.driver.Exists(target.ID) {
 		return Session{}, fmt.Errorf("session %s is still running; revive only applies to dead sessions", target.ID)
 	}
@@ -1529,6 +1656,13 @@ func (s *Sessions) Archive(sessionID, targetID string, archived bool) (filed Ses
 	}
 	if target.ID == sessionID && archived {
 		return Session{}, errors.New("a session cannot archive itself")
+	}
+	// Archiving by id is how a pane the manager adopted is ended, so the one
+	// named is reached and its pane ends with it, as Kill ends it. Only the
+	// row named: a descendant filed with it is never reached here, so an
+	// adopted pane is not ended on the strength of somebody else's id.
+	if err := runtime.reach(target); err != nil {
+		return Session{}, err
 	}
 	if archived {
 		if err := s.fileDescendants(runtime, target, sessionID); err != nil {

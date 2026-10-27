@@ -104,6 +104,18 @@ func withoutHooks(t *testing.T, raw string) string {
 	return string(out)
 }
 
+// outsideGlobal is raw with the hooks member and configDir's key-dir denials
+// taken out, along with any list or object the denials could have needed.
+func outsideGlobal(t *testing.T, raw, configDir string) string {
+	t.Helper()
+	out, err := removeDenials([]byte(withoutHooks(t, raw)), configDir,
+		[]string{"permissions", "permissions.deny", "sandbox", "sandbox.filesystem", "sandbox.filesystem.denyRead"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
 func TestRegisterGlobalWritesOneEntryPerEventOnce(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.json")
@@ -144,7 +156,7 @@ func TestRegisterGlobalWritesOneEntryPerEventOnce(t *testing.T) {
 	if s.Hooks["Stop"][0].Hooks[0].Command != "notify-send done" {
 		t.Fatalf("the operator's Stop hook is no longer first: %+v", s.Hooks["Stop"])
 	}
-	if withoutHooks(t, first) != withoutHooks(t, operatorSettings) {
+	if outsideGlobal(t, first, configDir) != outsideGlobal(t, operatorSettings, configDir) {
 		t.Fatalf("bytes outside the hooks member changed:\n%s", first)
 	}
 	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0o640 {
@@ -170,7 +182,7 @@ func TestGlobalHooksRoundTripTheOperatorsBytes(t *testing.T) {
 			}
 			registered := readFile(t, path)
 			parse(t, registered)
-			if withoutHooks(t, registered) != withoutHooks(t, original) {
+			if outsideGlobal(t, registered, configDir) != outsideGlobal(t, original, configDir) {
 				t.Fatalf("bytes outside the hooks member changed:\n%q\nfrom\n%q", registered, original)
 			}
 			if _, err := UnregisterGlobal(path, configDir); err != nil {
@@ -379,12 +391,15 @@ func newAdoptedBoard(t *testing.T) adoptedBoard {
 	b := adoptedBoard{configDir: t.TempDir()}
 	dir := t.TempDir()
 	b.bin, b.calls = filepath.Join(dir, "gate-inbox"), filepath.Join(dir, "calls")
-	writeFile(t, b.bin, "#!/bin/sh\ncat >/dev/null\necho \"$* $GATE_INBOX_SESSION_ID $GATE_INBOX_HOME\" >> '"+b.calls+"'\n")
+	writeFile(t, b.bin, "#!/bin/sh\ncat >/dev/null\necho \"$* $GATE_INBOX_SESSION_ID $GATE_INBOX_HOME $GATE_INBOX_AGENT_PID\" >> '"+b.calls+"'\n")
 	if err := os.Chmod(b.bin, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	writeFile(t, filepath.Join(b.configDir, singleton.FileName), strconv.Itoa(os.Getpid()))
 	if err := NewManager(b.configDir).SyncAdopted([]AdoptedPane{{ID: "adopted1", ServerPID: 4242, PaneID: "%7", AgentPID: os.Getpid()}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewManager(b.configDir).PrepareArrivals(); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(t.TempDir(), "settings.json")
@@ -448,8 +463,14 @@ func deadPID(t *testing.T) int {
 
 // Every way a session can be outside an adopted pane -- or Gate Inbox can be
 // half gone -- leaves every global hook silent: exit 0, nothing on stdout or
-// stderr, the binary never run, nothing written.
+// stderr, the binary never run, nothing written. The one write allowed is
+// SessionStart's announcement of a pane the running board has no marker
+// for, which the cases in announces expect.
 func TestGlobalHooksStaySilentUnlessAdoptedAndAlive(t *testing.T) {
+	announces := map[string]string{
+		"a pane nobody adopted": "/hooks/arrivals/4242%8",
+		"another server's pane": "/hooks/arrivals/999%7",
+	}
 	cases := map[string]func(t *testing.T, b *adoptedBoard) ([]string, func(string) string){
 		"no tmux": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
 			return []string{"PATH=/usr/bin:/bin"}, direct
@@ -468,6 +489,14 @@ func TestGlobalHooksStaySilentUnlessAdoptedAndAlive(t *testing.T) {
 		"a claude nested in the adopted one": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
 			return adoptedEnv, func(c string) string { return "/bin/sh -c " + shellQuote(c) + "; :" }
 		},
+		// A codex adopted in the pane, whose pid is even the hook's parent:
+		// its marker's third field keeps a claude's hooks out of its row.
+		"another agent's marker": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
+			if err := NewManager(b.configDir).SyncAdopted([]AdoptedPane{{ID: "adopted1", ServerPID: 4242, PaneID: "%7", AgentPID: os.Getpid(), Tool: "codex"}}); err != nil {
+				t.Fatal(err)
+			}
+			return adoptedEnv, direct
+		},
 		"a marker left by a pane that is gone": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
 			if err := NewManager(b.configDir).SyncAdopted([]AdoptedPane{{ID: "adopted1", ServerPID: 4242, PaneID: "%7", AgentPID: deadPID(t)}}); err != nil {
 				t.Fatal(err)
@@ -477,6 +506,19 @@ func TestGlobalHooksStaySilentUnlessAdoptedAndAlive(t *testing.T) {
 		"the board is not running": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
 			writeFile(t, filepath.Join(b.configDir, singleton.FileName), strconv.Itoa(deadPID(t)))
 			return adoptedEnv, direct
+		},
+		"an unmarked pane with the board down": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
+			writeFile(t, filepath.Join(b.configDir, singleton.FileName), strconv.Itoa(deadPID(t)))
+			return []string{"PATH=/usr/bin:/bin", "TMUX=/tmp/s,4242,0", "TMUX_PANE=%8"}, direct
+		},
+		"an unmarked pane the board launched": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
+			return []string{"PATH=/usr/bin:/bin", "TMUX=/tmp/s,4242,0", "TMUX_PANE=%8", EnvStatusFile + "=" + filepath.Join(t.TempDir(), "launched.status")}, direct
+		},
+		"an unmarked pane before the board made its arrivals": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
+			if err := os.Remove(NewManager(b.configDir).ArrivalsDir()); err != nil {
+				t.Fatal(err)
+			}
+			return []string{"PATH=/usr/bin:/bin", "TMUX=/tmp/s,4242,0", "TMUX_PANE=%8"}, direct
 		},
 		"the board never ran": func(t *testing.T, b *adoptedBoard) ([]string, func(string) string) {
 			os.Remove(filepath.Join(b.configDir, singleton.FileName))
@@ -505,7 +547,20 @@ func TestGlobalHooksStaySilentUnlessAdoptedAndAlive(t *testing.T) {
 			if _, err := os.Stat(b.calls); err == nil {
 				t.Fatalf("the hooks ran the binary: %s", readFile(t, b.calls))
 			}
-			if after := dirEntries(t, b.configDir); strings.Join(after, ",") != strings.Join(before, ",") {
+			after := dirEntries(t, b.configDir)
+			if want, ok := announces[name]; ok {
+				kept := after[:0:0]
+				for _, entry := range after {
+					if entry != want {
+						kept = append(kept, entry)
+					}
+				}
+				if len(kept) != len(after)-1 {
+					t.Fatalf("the pane was not announced as %s: %v", want, after)
+				}
+				after = kept
+			}
+			if strings.Join(after, ",") != strings.Join(before, ",") {
 				t.Fatalf("the hooks wrote under the config dir: %v -> %v", before, after)
 			}
 			t.Logf("%v per hook (sh start included)", each)
@@ -514,7 +569,8 @@ func TestGlobalHooksStaySilentUnlessAdoptedAndAlive(t *testing.T) {
 }
 
 // In an adopted pane, with the board up, each hook hands its event to the
-// binary under the row's id and the board's home, and prints nothing itself.
+// binary under the row's id, the board's home and the claude's pid, and
+// prints nothing itself.
 func TestGlobalHooksHandAnAdoptedPaneToTheBinary(t *testing.T) {
 	b := newAdoptedBoard(t)
 	noise, _ := b.fireAll(t, adoptedEnv, direct)
@@ -523,8 +579,8 @@ func TestGlobalHooksHandAnAdoptedPaneToTheBinary(t *testing.T) {
 	}
 	log := readFile(t, b.calls)
 	for _, event := range globalEvents {
-		if !strings.Contains(log, "hook global "+event+" adopted1 "+b.configDir+"\n") {
-			t.Fatalf("%s was not handed over as adopted1 on %s:\n%s", event, b.configDir, log)
+		if !strings.Contains(log, "hook global "+event+" adopted1 "+b.configDir+" "+strconv.Itoa(os.Getpid())+"\n") {
+			t.Fatalf("%s was not handed over as adopted1's claude on %s:\n%s", event, b.configDir, log)
 		}
 	}
 	if n := strings.Count(log, "\n"); n != len(globalEvents) {
@@ -592,6 +648,82 @@ func TestAdoptedCallerNamesTheMarkedRowForTheAgentsDescendants(t *testing.T) {
 	}
 }
 
+// Every adopted agent's marker names its row and pid in the two fields a
+// claude's always has, and an agent other than a hooks-driven claude adds its
+// tool, one word whatever the tool is called, then the conversation its row
+// is bound to when it has one that is a single word.
+func TestSyncAdoptedMarksEveryAgentAndNamesTheOthersTool(t *testing.T) {
+	m := NewManager(t.TempDir())
+	if err := m.SyncAdopted([]AdoptedPane{
+		{ID: "c1", ServerPID: 10, PaneID: "%1", AgentPID: 101},
+		{ID: "x1", ServerPID: 10, PaneID: "%2", AgentPID: 102, Tool: "codex"},
+		{ID: "o1", ServerPID: 10, PaneID: "%3", AgentPID: 103, Tool: "opencode"},
+		{ID: "w1", ServerPID: 10, PaneID: "%4", AgentPID: 104, Tool: "my tool"},
+		{ID: "o2", ServerPID: 10, PaneID: "%5", AgentPID: 105, Tool: "opencode", Conversation: "ses_abc"},
+		{ID: "c2", ServerPID: 10, PaneID: "%6", AgentPID: 106, Conversation: "4c1a0f6e-0000-4000-8000-000000000000"},
+		{ID: "o3", ServerPID: 10, PaneID: "%8", AgentPID: 108, Tool: "opencode", Conversation: "two words"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]string{
+		"10%1": "c1 101\n",
+		"10%2": "x1 102 codex\n",
+		"10%3": "o1 103 opencode\n",
+		"10%4": "w1 104 agent\n",
+		"10%5": "o2 105 opencode ses_abc\n",
+		"10%6": "c2 106\n",
+		"10%8": "o3 108 opencode\n",
+	} {
+		if got := readFile(t, filepath.Join(m.AdoptedDir(), name)); got != want {
+			t.Errorf("marker %s = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// Any agent's marker names the row for a command it runs, so a codex or
+// opencode can use the board's CLI as itself; only a claude's names it for
+// the MCP relay, which belongs to the claude in the pane and not to whatever
+// agent it was started under.
+func TestAdoptedClaudeCallerTakesOnlyAClaudesMarker(t *testing.T) {
+	m := NewManager(t.TempDir())
+	const tmuxEnv = "/run/tmux-test/default,4242,0"
+	under := func() []int { return []int{901, 900, 1} }
+	for _, c := range []struct {
+		tool             string
+		anyAgent, claude bool
+	}{
+		{"", true, true},
+		{"codex", true, false},
+		{"opencode", true, false},
+	} {
+		if err := m.SyncAdopted([]AdoptedPane{{ID: "a1b2c3d4", ServerPID: 4242, PaneID: "%7", AgentPID: 900, Tool: c.tool}}); err != nil {
+			t.Fatal(err)
+		}
+		if id, ok := m.AdoptedCaller(tmuxEnv, "%7", under); ok != c.anyAgent || (ok && id != "a1b2c3d4") {
+			t.Errorf("tool %q: AdoptedCaller = %q, %v; want %v", c.tool, id, ok, c.anyAgent)
+		}
+		if id, ok := m.AdoptedClaudeCaller(tmuxEnv, "%7", under); ok != c.claude || (ok && id != "a1b2c3d4") {
+			t.Errorf("tool %q: AdoptedClaudeCaller = %q, %v; want %v", c.tool, id, ok, c.claude)
+		}
+		if _, ok := m.AdoptedClaudeCaller(tmuxEnv, "%7", func() []int { return []int{77, 1} }); ok {
+			t.Errorf("tool %q: AdoptedClaudeCaller named the row for a process not under its agent", c.tool)
+		}
+	}
+	// A fourth field is the agent's conversation, which changes nothing
+	// here; a marker with more fields than that is nobody's.
+	writeFile(t, filepath.Join(m.AdoptedDir(), "4242%7"), "a1b2c3d4 900 opencode ses_abc\n")
+	if id, ok := m.AdoptedCaller(tmuxEnv, "%7", under); !ok || id != "a1b2c3d4" {
+		t.Errorf("AdoptedCaller with a conversation field = %q, %v", id, ok)
+	}
+	if _, ok := m.AdoptedClaudeCaller(tmuxEnv, "%7", under); ok {
+		t.Error("AdoptedClaudeCaller took an opencode marker with a conversation")
+	}
+	writeFile(t, filepath.Join(m.AdoptedDir(), "4242%7"), "a1b2c3d4 900 codex ses_abc extra\n")
+	if _, ok := m.AdoptedCaller(tmuxEnv, "%7", under); ok {
+		t.Error("AdoptedCaller read a five-field marker")
+	}
+}
+
 // Reading the process chain is the expensive half, so a pane with no marker
 // never asks for it.
 func TestAdoptedCallerWalksNoProcessesWithoutAMarker(t *testing.T) {
@@ -602,5 +734,102 @@ func TestAdoptedCallerWalksNoProcessesWithoutAMarker(t *testing.T) {
 	})
 	if ok {
 		t.Fatal("named a caller with no marker")
+	}
+}
+
+type steeringNote struct {
+	H struct {
+		HookEventName     string `json:"hookEventName"`
+		AdditionalContext string `json:"additionalContext"`
+	} `json:"hookSpecificOutput"`
+}
+
+func parseSteering(t *testing.T, out string) steeringNote {
+	t.Helper()
+	var note steeringNote
+	if err := json.Unmarshal([]byte(out), &note); err != nil {
+		t.Fatalf("not hook JSON: %q (%v)", out, err)
+	}
+	return note
+}
+
+// The standing instructions reach an adopted claude once: on its first
+// prompt, not its second, again for a new claude adopted into the row, and
+// again on a SessionStart, which in a running session means its context
+// was cleared, compacted or swapped.
+func TestAdoptedSteeringIsSaidOncePerAdoption(t *testing.T) {
+	m := NewManager(t.TempDir())
+	text := func() string { return "steer" }
+	say := func(event string, pid int) string { return m.AdoptedSteering(event, "adopted1", pid, text) }
+
+	note := parseSteering(t, say("UserPromptSubmit", 900))
+	if note.H.HookEventName != "UserPromptSubmit" || note.H.AdditionalContext != "steer" {
+		t.Fatalf("first prompt = %+v", note.H)
+	}
+	if out := say("UserPromptSubmit", 900); out != "" {
+		t.Fatalf("the second prompt was steered again: %q", out)
+	}
+	if out := say("UserPromptSubmit", 901); parseSteering(t, out).H.AdditionalContext != "steer" {
+		t.Fatalf("a new claude in the row was not steered: %q", out)
+	}
+	if out := say("UserPromptSubmit", 901); out != "" {
+		t.Fatalf("the new claude's second prompt was steered again: %q", out)
+	}
+	note = parseSteering(t, say("SessionStart", 901))
+	if note.H.HookEventName != "SessionStart" || note.H.AdditionalContext != "steer" {
+		t.Fatalf("SessionStart after a clear = %+v", note.H)
+	}
+	if out := say("UserPromptSubmit", 901); out != "" {
+		t.Fatalf("the prompt after SessionStart was steered again: %q", out)
+	}
+	if out := m.AdoptedSteering("UserPromptSubmit", "other1", 900, text); out == "" {
+		t.Fatal("another row shared adopted1's stamp")
+	}
+	for _, event := range []string{"PreToolUse", "Stop", "Notification"} {
+		if out := m.AdoptedSteering(event, "fresh1", 900, text); out != "" {
+			t.Fatalf("%s carried the steering: %q", event, out)
+		}
+	}
+	if m.AdoptedSteering("UserPromptSubmit", "../x", 900, text) != "" || m.AdoptedSteering("UserPromptSubmit", "fresh2", 0, text) != "" {
+		t.Fatal("steered a row that cannot be named or a claude with no pid")
+	}
+	if m.AdoptedSteering("UserPromptSubmit", "fresh3", 900, func() string { return " " }) != "" {
+		t.Fatal("an empty text was said")
+	}
+	if out := m.AdoptedSteering("UserPromptSubmit", "fresh3", 900, text); out == "" {
+		t.Fatal("an empty text used up the adoption's one telling")
+	}
+}
+
+// The steering joins whatever the launch's own prompt hook said, both notes
+// in one additionalContext, rather than one replacing the other.
+func TestAdoptedSteeringMergesWithTheLaunchNote(t *testing.T) {
+	m := NewManager(t.TempDir())
+	launch := `{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"sealed by parent"}}`
+	merged := MergeHookOutputs(launch, m.AdoptedSteering("UserPromptSubmit", "adopted1", 900, func() string { return "steer" }))
+	note := parseSteering(t, merged)
+	if note.H.HookEventName != "UserPromptSubmit" || note.H.AdditionalContext != "sealed by parent\n\nsteer" {
+		t.Fatalf("merged = %+v", note.H)
+	}
+	if MergeHookOutputs(launch, "") != launch || MergeHookOutputs("", "  ") != "" {
+		t.Fatal("an empty output was not dropped from the merge")
+	}
+}
+
+// A stamp goes when its claude does, and stays while it runs, whatever the
+// board holds.
+func TestSyncAdoptedPrunesTheStampsOfExitedClaudes(t *testing.T) {
+	m := NewManager(t.TempDir())
+	text := func() string { return "steer" }
+	m.AdoptedSteering("UserPromptSubmit", "live1", os.Getpid(), text)
+	m.AdoptedSteering("UserPromptSubmit", "gone1", deadPID(t), text)
+	if err := m.SyncAdopted(nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(dirEntries(t, filepath.Join(m.Dir(), adoptedSteeringDirName)), ","); got != "/live1" {
+		t.Fatalf("stamps = %s", got)
+	}
+	if out := m.AdoptedSteering("UserPromptSubmit", "live1", os.Getpid(), text); out != "" {
+		t.Fatalf("a running claude was steered again after the board let its row go: %q", out)
 	}
 }

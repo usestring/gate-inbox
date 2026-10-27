@@ -180,7 +180,11 @@ func (s *Sessions) prepareBoardLaunch(runtime *runtime, sess store.Session, tool
 	if rehearse {
 		environment = launch.Compose
 	}
-	command, env, err := environment(hooks.NewManager(s.configDir), sess.Tool, tool, plan.Command, sess.ID, plan.Model, plan.Account, contributed)
+	base, err := launch.WithSkipPermissions(sess.Tool, tool, plan.Command, sess.SkipPermissions)
+	if err != nil {
+		return boardLaunch{}, err
+	}
+	command, env, err := environment(hooks.NewManager(s.configDir), sess.Tool, tool, base, sess.ID, plan.Model, plan.Account, sess.SkipPermissions, contributed)
 	if err != nil {
 		return boardLaunch{}, err
 	}

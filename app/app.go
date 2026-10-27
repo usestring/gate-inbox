@@ -38,8 +38,10 @@ import (
 	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/extensionhost"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
+	"github.com/usestring/gate-inbox/internal/mcprelay"
 	"github.com/usestring/gate-inbox/internal/mcpserver"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
@@ -270,7 +272,9 @@ func unknownCommand(arg string) error {
 }
 
 func printHelp(w io.Writer, extra []extensionCommand) error {
-	sections := []cli.HelpSection{claudeHooksHelp}
+	// claude-hooks and codex-hooks are left out: the board keeps that setup itself, and the
+	// command stays only as a maintenance tool for someone who knows it.
+	var sections []cli.HelpSection
 	for _, entry := range extra {
 		title := entry.command.Group
 		if title == "" {
@@ -393,8 +397,27 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 	table["hook"] = withConfigDir(func(args []string, sessionID, configDir string) error {
 		return cli.RunHook(os.Stdin, os.Stdout, args, sessionID, configDir)
 	})
+	// channel is how a gate channel consumer outside the board answers held
+	// questions. It is machine-facing, like hook.
+	table["channel"] = withConfigDir(func(args []string, sessionID, configDir string) error {
+		return cli.RunChannel(os.Stdin, os.Stdout, args, sessionID, configDir)
+	})
+	table["mcp-relay"] = func(args []string) error {
+		dir, err := config.Dir()
+		if err != nil {
+			return err
+		}
+		bin := os.Args[0]
+		if !filepath.IsAbs(bin) {
+			bin = launch.Executable()
+		}
+		return mcprelay.Serve(os.Stdin, os.Stdout, dir, bin, version)
+	}
 	table["claude-hooks"] = withConfigDir(func(args []string, _, configDir string) error {
 		return runClaudeHooks(os.Stdout, args, configDir)
+	})
+	table["codex-hooks"] = withConfigDir(func(args []string, _, configDir string) error {
+		return runCodexHooks(os.Stdout, args, configDir)
 	})
 	// merge-gate-check is the merge-gate mod's way back into the Go gate. It
 	// stays out of the cli sections like hook does: it is machine-facing, not
@@ -430,12 +453,21 @@ func withConfigDir(command func(args []string, sessionID, configDir string) erro
 }
 
 // callerID is the board row a subcommand speaks as: the one a launch put in
-// the environment, or the one an adopted pane names. A claude carries an
-// adoption marker from the hooks; every other adopted CLI is named by the
-// board row that owns its pane, since nothing else recorded the pairing.
-// Without it an adopted agent could not send, read or answer as itself from
-// its shell.
+// the environment, or, for an agent the board adopted rather than launched,
+// the one its pane's adoption marker names, or failing that the board row
+// that owns the pane. Without it an adopted agent could not send, read or
+// answer as itself from its shell.
+//
+// A command codex's shell tool runs comes first, by its thread. Codex runs
+// those commands from its shared daemon, whose environment -- a launch's
+// session id included -- is that of whichever pane started the daemon, so
+// for a codex thread the board holds the thread is the only honest answer.
 func callerID(configDir string) string {
+	if thread := os.Getenv(codexThreadEnv); thread != "" {
+		if id, _, ok := hooks.NewManager(configDir).CodexThreadRow(thread); ok {
+			return id
+		}
+	}
 	if id := envname.Get(hooks.EnvSessionID); id != "" {
 		return id
 	}
@@ -472,6 +504,10 @@ func callerID(configDir string) string {
 	}
 	return id
 }
+
+// codexThreadEnv is the variable codex sets, to the calling thread's id, on
+// every command its shell tool runs.
+const codexThreadEnv = "CODEX_THREAD_ID"
 
 // tmuxSocketName is the short server name tmux spells in $TMUX, the same
 // spelling an adopted row stores. $TMUX is read from the right, since the

@@ -139,6 +139,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	// The Reviews tab lists asks, not sessions, so it answers its own keys
+	// and refuses the ones that would act on a session it is not showing.
+	if model, cmd, answered := m.reviewsTabKey(msg); answered {
+		return model, cmd
+	}
+
 	// A status jump is read ahead of the artifact row's refusals for the
 	// same reason a group number is: it acts on the list rather than on the
 	// row it starts from, and a cursor parked on a pull request is no reason
@@ -204,6 +210,10 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m, tea.Quit
 	case keymap.ShowAllWork:
 		return m, m.toggleShowAllWork()
+	case keymap.IngestReviews:
+		return m, m.ingestReviews()
+	case keymap.ReviewsTab:
+		return m, m.toggleReviewsTab()
 	case keymap.CursorUp:
 		return m, m.moveCursor(-1)
 	case keymap.CursorDown:
@@ -272,6 +282,11 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 			m.toggleRailWork()
 			return m, nil
 		}
+		// Then back behind the header it was unfolded from, as a session's
+		// children fold back into it.
+		if entry, ok := m.cursorRow(); ok && m.foldUnderHead(entry) {
+			return m, nil
+		}
 		if entry, ok := m.selectedRow(); ok && entry.isGroup && !m.collapsed[entry.group] {
 			m.toggleCollapse()
 		}
@@ -302,8 +317,10 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m.cyclePrioritySelected()
 	case keymap.Mute:
 		return m.toggleMuteSelected()
-	case keymap.CopyQueued:
-		return m.copyNextQueued()
+	case keymap.UnmuteAll:
+		return m.unmuteAllListed()
+	case keymap.CopyJev:
+		return m.copySelectedWithJev()
 	case keymap.ReviveAll:
 		return m.reviveAllDead()
 	case keymap.SwitchAccount:
@@ -345,8 +362,12 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		m.requestRefresh()
 	case keymap.NewTerminal:
 		return m.terminalKey()
+	case keymap.RefreshCLIs:
+		return m, m.detectCLIsCmd(true)
 	case keymap.EmptyGroups:
 		return m, m.toggleEmptyGroups()
+	case keymap.RecentSort:
+		return m, m.toggleRecentSort()
 	case keymap.Triage:
 		return m, m.toggleTriage()
 	case keymap.Search:
@@ -362,6 +383,10 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m, m.openNameSweep()
 	case keymap.TakeOver:
 		return m.takeOverAdopted()
+	case keymap.BringIn:
+		return m.bringIn()
+	case keymap.LeaveOut:
+		return m.leaveOut()
 	case keymap.Move:
 		m.openMove()
 	case keymap.ToggleChrome:
@@ -431,8 +456,8 @@ var artifactRowActions = map[keymap.Action]bool{
 	keymap.QuickActions: true,
 	keymap.NameSweep:    true, keymap.TakeOver: true, keymap.Settings: true, keymap.Resize: true,
 	keymap.ArchivedView: true, keymap.StatusFilter: true, keymap.ToolFilter: true,
-	keymap.EmptyGroups: true, keymap.Triage: true, keymap.ToggleChrome: true,
-	keymap.ToggleRail: true,
+	keymap.EmptyGroups: true, keymap.RecentSort: true, keymap.Triage: true, keymap.ToggleChrome: true,
+	keymap.ToggleRail: true, keymap.RefreshCLIs: true,
 	// LastPane reads the history it walks back through, not the row under
 	// the cursor, so an artifact row is no reason to swallow it.
 	keymap.LastPane: true,
@@ -440,6 +465,11 @@ var artifactRowActions = map[keymap.Action]bool{
 	// UndoArchive brings back the last kill, wherever the cursor is.
 	keymap.UndoArchive: true,
 	keymap.RestoreAll:  true,
+	keymap.UnmuteAll:   true,
+	// IngestReviews fetches the review queue and ReviewsTab shows it; the
+	// queue is no row's.
+	keymap.IngestReviews: true,
+	keymap.ReviewsTab:    true,
 }
 
 // stepCursor is one move of the selection: the next row that is not an
@@ -738,6 +768,17 @@ func (m *Model) toggleCollapseAll() {
 			continue
 		}
 		m.setChildrenFolded(sess.ID, false)
+	}
+	// Headers that fold their session fold by default as well.
+	for _, sess := range m.sessions {
+		if !m.headFoldable(sess.ID) {
+			continue
+		}
+		if collapse {
+			delete(m.collapsed, headOpenPrefix+sess.ID)
+			continue
+		}
+		m.collapsed[headOpenPrefix+sess.ID] = true
 	}
 	m.persistCollapsed()
 	m.rebuildRows()

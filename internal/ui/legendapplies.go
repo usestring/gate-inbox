@@ -78,7 +78,7 @@ func (m *Model) applies(ctx keymap.Context, action keymap.Action, row treeRow) b
 	case keymap.Restore:
 		return anySession(func(candidate store.Session) bool { return candidate.Archived })
 	case keymap.RestoreAll:
-		for _, sess := range m.listedSessions() {
+		for _, sess := range m.searchedListedSessions() {
 			if sess.Archived || sess.Status == status.Dead {
 				return true
 			}
@@ -90,13 +90,20 @@ func (m *Model) applies(ctx keymap.Context, action keymap.Action, row treeRow) b
 				m.triageWalkable(row.sess))
 	case keymap.Mute:
 		return row.sess.ID != "" && !row.sess.Archived
-	case keymap.CopyQueued:
-		return len(m.jevCopy.queue) > 0
+	case keymap.UnmuteAll:
+		for _, sess := range m.searchedListedSessions() {
+			if sess.Muted && !sess.Archived {
+				return true
+			}
+		}
+		return false
+	case keymap.CopyJev:
+		return m.jevCopyOn && row.sess.ID != "" && !row.sess.Archived
 	case keymap.Priority:
 		return row.isGroup || (row.sess.ID != "" && !row.sess.Archived)
 	case keymap.Rename, keymap.Move:
 		return hasRow && !m.showArchived
-	case keymap.StatusFilter, keymap.Triage, keymap.EmptyGroups, keymap.ToolFilter:
+	case keymap.StatusFilter, keymap.Triage, keymap.EmptyGroups, keymap.RecentSort, keymap.ToolFilter:
 		return !m.showArchived
 	case keymap.FoldAll:
 		return m.allFoldsCollapsed() || len(m.collapsed) > 0 || len(m.rows) > 1

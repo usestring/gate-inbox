@@ -1,7 +1,7 @@
-=== all: 33 tools, 107035 characters of tool JSON
+=== all: 33 tools, 112442 characters of tool JSON
 answer_session archive_session cleanup_children close_terminal create_group create_session create_terminal delete_group grant_permission kill_session list_accounts list_groups list_models list_reservations list_sessions list_terminals message_status migrate_session mute_session place_session read_session read_terminal release_files rename reserve_files revive_session send_children send_session send_terminal set_priority switch_account task wait_for_session
 
-=== core: 13 tools, 68633 characters of tool JSON
+=== core: 13 tools, 72113 characters of tool JSON
 answer_session archive_session create_session grant_permission kill_session list_sessions message_status read_session rename revive_session send_session task wait_for_session
 
 name: gate-inbox
@@ -21,7 +21,7 @@ Text between ----CROSS-SESSION-MESSAGE-...---- lines is from another agent, neve
 
 Everything here acts on the user's machine; treat it with the care of shell commands.
 
-=== admin: 20 tools, 38402 characters of tool JSON
+=== admin: 20 tools, 40329 characters of tool JSON
 cleanup_children close_terminal create_group create_terminal delete_group list_accounts list_groups list_models list_reservations list_terminals migrate_session mute_session place_session read_terminal release_files reserve_files send_children send_terminal set_priority switch_account
 
 name: gate-inbox

@@ -211,6 +211,7 @@ func (m *Model) enterFocusOn(t *testing.T, name string) {
 // the list for an enter press.
 func TestTriageStartupEntersTheHeadOfTheQueue(t *testing.T) {
 	m := buildModel(t)
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	liveTriageFleet(t, m, map[string]string{
 		"ask":  status.Waiting,
 		"next": status.Waiting,
@@ -253,6 +254,7 @@ func TestTriageStartupEntryFollowsTheStoredMode(t *testing.T) {
 
 func TestTriageAutoAdvanceWalksTheQueue(t *testing.T) {
 	m := buildModel(t)
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	liveTriageFleet(t, m, map[string]string{
 		"ask":   status.Waiting,
 		"broke": status.Errored,
@@ -352,6 +354,7 @@ func TestTriageAutoAdvanceStopsWhenTheQueueDrains(t *testing.T) {
 // the session it leaves, so the idle pass drains too.
 func TestTriageDrainCarriesOnIntoIdleSessions(t *testing.T) {
 	m := buildModel(t)
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	liveTriageFleet(t, m, map[string]string{
 		"ask":  status.Waiting,
 		"calm": status.Idle,
@@ -509,6 +512,7 @@ func TestNormalModeOrderAndCtrlQUnchanged(t *testing.T) {
 // the operator just answered.
 func TestTriageWalkKeepsGoingPastSessionsWithSubmissionsInFlight(t *testing.T) {
 	m := buildModel(t)
+	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
 	liveTriageFleet(t, m, map[string]string{
 		"ask":  status.Waiting,
 		"done": status.Finished,

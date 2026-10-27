@@ -143,6 +143,19 @@ func (m *Model) reviveSelected() (tea.Model, tea.Cmd) {
 	// "restart this session". Worse, the old path skipped the live parent
 	// while it brought the 47 back, so the one session named in the dialog
 	// was the only one it did not touch.
+	if entry.sess.TmuxPaneID != "" && m.tmux.Exists(entry.sess.ID) {
+		// Restarting a pane somebody started by hand on its own
+		// conversation is bringing it in: the takeover, which waits for
+		// it to be idle and nobody to be in it.
+		m.confirm = confirmTarget{
+			action:   actionResume,
+			sessions: []store.Session{entry.sess},
+			label: fmt.Sprintf("bring %s into the board? once it is idle, the agent in your pane ends and its conversation resumes as a board session.",
+				entry.sess.Name),
+		}
+		m.mode = modeConfirmDelete
+		return m, nil
+	}
 	if m.tmux.Exists(entry.sess.ID) {
 		followers := deadSessions(m, set, entry.sess.ID)
 		m.confirm = confirmTarget{
@@ -194,7 +207,7 @@ func (m *Model) restoreAllDead() (tea.Model, tea.Cmd) {
 			firstErr = err.Error()
 		}
 	}
-	for _, sess := range m.listedSessions() {
+	for _, sess := range m.searchedListedSessions() {
 		if !sess.Archived && sess.Status != status.Dead {
 			continue
 		}
@@ -325,6 +338,12 @@ func (m *Model) reviveSession(sess store.Session) error {
 // are stale".
 func (m *Model) resumeSession(sess store.Session) error {
 	if m.tmux.Exists(sess.ID) {
+		// Stamped before the kill, as sessioncmd's restart is: between the
+		// two the row reads dead, and the child sweep archives a dead child
+		// whose report since its last launch reached its spawner.
+		if err := m.store.SetAgentLaunchedAt(sess.ID, time.Now()); err != nil {
+			return err
+		}
 		if err := m.killSession(sess); err != nil {
 			return err
 		}
@@ -366,9 +385,14 @@ func (m *Model) launchOnHeldConversation(sess store.Session) error {
 // under its old id, keeping its name, group and history. Both revive and
 // restart end here; they differ only in the command they hand it and in
 // bindConversation, which records the conversation the new pane is on once
-// the launch has actually taken. A launch that fails leaves the row exactly
-// as it was, still pointing at the conversation it can be revived on.
+// the launch has actually taken. A launch that fails leaves the row as it
+// was, still pointing at the conversation it can be revived on, except that
+// an adopted row whose pane is gone has already been made a managed one.
 func (m *Model) relaunchSession(sess store.Session, tool config.Tool, baseCommand, newStatus string, bindConversation func() error) error {
+	sess, err := m.promoteDeadAdopted(sess)
+	if err != nil {
+		return err
+	}
 	sessionHooks, err := sessionhooks.Current()
 	if err != nil {
 		return err
@@ -377,7 +401,7 @@ func (m *Model) relaunchSession(sess store.Session, tool config.Tool, baseComman
 	if err != nil {
 		return err
 	}
-	command, env, err := m.buildLaunch(sess.Tool, tool, baseCommand, sess.ID, sess.Model, sess.Account, contributed)
+	command, env, err := m.buildLaunch(sess.Tool, tool, baseCommand, sess.ID, sess.Model, sess.Account, sess.SkipPermissions, contributed)
 	if err != nil {
 		return err
 	}
@@ -425,6 +449,10 @@ func (m *Model) restartSelected() (tea.Model, tea.Cmd) {
 	}
 	if entry.isGroup {
 		m.errBar.text = "restart applies to a session; pick one under " + displayGroup(entry.group)
+		return m, nil
+	}
+	if entry.sess.TmuxPaneID != "" && m.tmux.Exists(entry.sess.ID) {
+		m.errBar.text = m.bringInRefusal(entry.sess, "restart").Error()
 		return m, nil
 	}
 	label := fmt.Sprintf("restart %s with an empty context? its current conversation is left behind.", entry.sess.Name)
@@ -715,7 +743,7 @@ func (m *Model) killSession(sess store.Session) error {
 	// the sweep that later clears what the archive left, each of which
 	// spells out that the pane and its agent die.
 	if sess.TmuxPaneID != "" {
-		return fmt.Errorf("%s is a pane the manager did not start: kill it from its own row, which warns first", sess.Name)
+		return m.bringInRefusal(sess, "end and relaunch")
 	}
 	return m.endSession(sess, m.tmux.Kill)
 }
@@ -1465,7 +1493,14 @@ func (m *Model) handleConfirmAnswer(msg tea.KeyMsg, confirmed bool) (tea.Model, 
 			if m.confirm.keepChildren {
 				sessions = withoutSessions(sessions, m.confirm.keptChildren)
 			}
+			m.errBar.text = ""
 			for _, sess := range sessions {
+				if sess.TmuxPaneID != "" && m.tmux.Exists(sess.ID) {
+					delete(m.takeover.tried, sess.ID)
+					m.oweTakeover(sess.ID)
+					m.reportTakeover(m.takeoverPass())
+					continue
+				}
 				// The selected session is running and is restarted; a
 				// follower taken along is dead and is simply brought back.
 				launch := m.resumeSession
@@ -1477,7 +1512,6 @@ func (m *Model) handleConfirmAnswer(msg tea.KeyMsg, confirmed bool) (tea.Model, 
 					return m, nil
 				}
 			}
-			m.errBar.text = ""
 		case actionDelete:
 			removed, err := m.store.DeleteEmptyGroup(m.confirm.path)
 			if err != nil {
@@ -1638,7 +1672,7 @@ func withoutSessions(sessions, drop []store.Session) []store.Session {
 // detached from, if one happened. An attached pane takes their keys straight
 // from tmux, so the board never sees what they typed; the session's status
 // moving while they were in it is the sign that they gave it a turn. Going in
-// and coming out again is a look, which leaves the wait where it was, as
+// and coming out again is a look, which leaves its place where it was, as
 // looking at a finish from the board does. See triageFinishedSeen.
 func (m *Model) noteAttachedTurn(id string, since time.Time) {
 	if m.store == nil || since.IsZero() {

@@ -82,13 +82,16 @@ type BoardPane struct {
 // BoardGet is one agent session, as Get reports it, without a caller.
 func (s *Sessions) BoardGet(targetID string) (got Session, err error) {
 	defer start("sessioncmd.board.get", sessionAttr(targetID)).done(&err)
-	runtime, err := s.open()
+	runtime, done, err := s.openBoard()
 	if err != nil {
 		return Session{}, err
 	}
-	defer runtime.store.Close()
+	defer done()
 	target, err := runtime.agent(targetID)
 	if err != nil {
+		return Session{}, err
+	}
+	if err := runtime.reach(target); err != nil {
 		return Session{}, err
 	}
 	got = runtime.currentInfo(target, false)
@@ -103,11 +106,11 @@ func (s *Sessions) BoardList(opts ListOptions) (list SessionList, err error) {
 	if strings.EqualFold(strings.TrimSpace(opts.Parent), SelfParent) {
 		return SessionList{}, errBoardHasNoSelf
 	}
-	runtime, err := s.open()
+	runtime, done, err := s.openBoard()
 	if err != nil {
 		return SessionList{}, err
 	}
-	defer runtime.store.Close()
+	defer done()
 	return runtime.list("", opts)
 }
 
@@ -115,13 +118,18 @@ func (s *Sessions) BoardList(opts ListOptions) (list SessionList, err error) {
 // holding.
 func (s *Sessions) BoardRead(targetID string) (read BoardPane, err error) {
 	defer start("sessioncmd.board.read", sessionAttr(targetID)).done(&err)
-	runtime, err := s.open()
+	runtime, done, err := s.openBoard()
 	if err != nil {
 		return BoardPane{}, err
 	}
-	defer runtime.store.Close()
+	defer done()
 	target, err := runtime.agent(targetID)
 	if err != nil {
+		return BoardPane{}, err
+	}
+	// The read the board's answer is chosen from, so it must see the
+	// adopted pane the answer will key rather than its last stored screen.
+	if err := runtime.reach(target); err != nil {
 		return BoardPane{}, err
 	}
 	info := runtime.currentInfo(target, false)
@@ -169,6 +177,11 @@ func (s *Sessions) BoardAnswer(targetID, reply string) (answered AnsweredQuestio
 	defer runtime.store.Close()
 	target, err := runtime.agent(targetID)
 	if err != nil {
+		return AnsweredQuestion{}, err
+	}
+	// The board answers an adopted pane's dialog as it does a started one's,
+	// so this process is told where the pane is first; see reach.
+	if err := runtime.reach(target); err != nil {
 		return AnsweredQuestion{}, err
 	}
 	return runtime.answer(target, reply, "board", "", nil)

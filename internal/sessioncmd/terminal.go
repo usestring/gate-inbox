@@ -106,6 +106,18 @@ func (r *runtime) createPane(id, cwd, command string, env map[string]string) err
 // the store was slow reads differently from one that was slow doing what it
 // was asked.
 func (c *commands) open() (opened *runtime, err error) {
+	return c.openOn(func() (*store.Store, error) {
+		return store.Open(c.statePath())
+	})
+}
+
+func (c *commands) statePath() string {
+	return filepath.Join(c.configDir, "state.db")
+}
+
+// openOn is open with the store handle coming from openStore, so a caller
+// that keeps handles can hand back one it already has.
+func (c *commands) openOn(openStore func() (*store.Store, error)) (opened *runtime, err error) {
 	defer start("sessioncmd.open").done(&err)
 	cfg, err := c.loadConfig(c.configDir)
 	if err != nil {
@@ -115,7 +127,7 @@ func (c *commands) open() (opened *runtime, err error) {
 	if err != nil {
 		return nil, err
 	}
-	st, err := store.Open(filepath.Join(c.configDir, "state.db"))
+	st, err := openStore()
 	if err != nil {
 		return nil, err
 	}

@@ -13,6 +13,7 @@ import (
 const jevAutoSuggestSetting = "experimental_jev_auto_suggest"
 const promptSuggestionsSetting = "experimental_prompt_suggestions"
 const compressedFocusSetting = "experimental_compressed_focus"
+const reviewQueueSetting = "experimental_review_queue"
 
 // experiment is one opt-in feature on the Experimental card: the setting it
 // persists under and the settingsState flag the card toggles.
@@ -32,8 +33,10 @@ var experiments = []experiment{
 		func(s *settingsState) *bool { return &s.compressedFocus }},
 	{jevFinishCheckSetting, "JEV finish check", "On finish, relaunch a Claude session that stopped without Chrome, with --chrome.\nNeeds a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends its last turns to TypeSafe.",
 		func(s *settingsState) *bool { return &s.jevFinishCheck }},
-	{jevCopyQueueSetting, "JEV copy queue", "On a turn end, queue the commands, links and values the agent left for you to copy.\nNeeds a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends its last message to TypeSafe.",
-		func(s *settingsState) *bool { return &s.jevCopyQueue }},
+	{jevCopySetting, "JEV copy", "On a key, copy the command, link or value the agent left for you in its last message.\nNeeds a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends that message to TypeSafe.",
+		func(s *settingsState) *bool { return &s.jevCopyOn }},
+	{reviewQueueSetting, "Review queue", "Fetch the pull requests you were asked to review on GitHub onto a Reviews tab (]).\nRuns on the ingest key only; [integrations.reviews] sets what counts as an ask.",
+		func(s *settingsState) *bool { return &s.reviewQueue }},
 }
 
 func storedExperiment(st *store.Store, setting string) bool {
@@ -48,6 +51,8 @@ func storedPromptSuggestions(st *store.Store) bool {
 }
 
 func storedCompressedFocus(st *store.Store) bool { return storedExperiment(st, compressedFocusSetting) }
+
+func storedReviewQueue(st *store.Store) bool { return storedExperiment(st, reviewQueueSetting) }
 
 func (m *Model) persistExperiments() {
 	for _, feature := range experiments {

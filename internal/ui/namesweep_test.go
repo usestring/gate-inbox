@@ -266,3 +266,21 @@ func TestNPressOpensTheSweepFromTheList(t *testing.T) {
 		t.Fatalf("N must open the sweep, got mode %v", m.mode)
 	}
 }
+
+func TestNameSweepRefusesOfflineTargetsAtSendTime(t *testing.T) {
+	m := buildModel(t)
+	sess := spawnedSession(t, m, "claude-hooked")
+	goOffline(t, m)
+	m.nameSweep.plan.Targets = []namesweep.Verdict{{
+		Candidate: namesweep.Candidate{ID: sess.ID, Tool: sess.Tool, Cwd: sess.Cwd},
+		Directive: "rename during outage",
+	}}
+	result := m.sendNameSweep()().(nameSweepDoneMsg).result
+	if len(result.Sent) != 0 || len(result.Held) != 1 || !strings.Contains(result.Held[0].Reason, "offline") {
+		t.Fatalf("offline sweep result: %+v", result)
+	}
+	pane, err := m.tmux.CapturePane(sess.ID)
+	if err != nil || strings.Contains(pane, "rename during outage") {
+		t.Fatalf("offline sweep reached pane: %q, %v", pane, err)
+	}
+}

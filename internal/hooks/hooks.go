@@ -48,6 +48,10 @@ const EnvSessionID = envname.SessionID
 // name its own agent chose.
 const EnvExecutable = envname.Executable
 
+// EnvAgentPID is the adopted claude a global hook runs for; see
+// globalCommand.
+const EnvAgentPID = envname.AgentPID
+
 // StatusSourceClaude is the status_source config value that enables this
 // package for a tool.
 const StatusSourceClaude = "claude-hooks"
@@ -228,7 +232,9 @@ func askAnsweredCommand() string { return hookCommandLine("ask-answered") }
 // its transcript only once it is answered, so without this nothing outside
 // the child can read the questions, options and previews while the dialog
 // stands. It writes its own file, so running beside the "*" status writer
-// races on nothing, and it always exits 0.
+// races on nothing, and it always exits 0. While a gate channel consumer
+// holds a live, deliverable lease it also holds the call for that consumer
+// to answer (sessioncmd.AskHoldHook); with none, it returns at once.
 func askPendingCommand() string { return hookCommandLine("ask-pending") }
 
 // sessionStartCommand tells a spawned child how to ask for its user's
@@ -963,6 +969,29 @@ func (m *Manager) ReadPriority(id string) (tier string, found bool) {
 
 func (m *Manager) RemovePriority(id string) error {
 	return removeIfExists(m.PriorityFile(id))
+}
+
+// ConversationFile is the mailbox an adopted session's global hooks leave
+// its Claude Code conversation id in (RecordConversation); the poller binds
+// the row to it and deletes it, for the reason a rename is a mailbox. A
+// launched session never writes it: the board chose its id at launch.
+func (m *Manager) ConversationFile(id string) string {
+	return filepath.Join(m.dir, id+".conversation")
+}
+
+// ReadConversation returns the conversation id a session's hooks last
+// reported. found reports that the file exists, so the caller consumes it
+// even when it holds nothing usable.
+func (m *Manager) ReadConversation(id string) (conversation string, found bool) {
+	raw, ok := readMailbox("conversation", id, m.ConversationFile(id))
+	if !ok {
+		return "", false
+	}
+	return strings.TrimSpace(string(raw)), true
+}
+
+func (m *Manager) RemoveConversation(id string) error {
+	return removeIfExists(m.ConversationFile(id))
 }
 
 // WriteWhole leaves the file complete or absent, never half written, so

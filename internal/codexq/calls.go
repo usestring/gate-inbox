@@ -8,10 +8,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/usestring/gate-inbox/internal/band"
 )
 
 const NoneOfTheAbove = "None of the above"
@@ -36,15 +38,16 @@ type Answer struct {
 }
 
 type Call struct {
-	CallID     string
-	Async      bool
-	AskedAt    time.Time
-	Questions  []AskedQuestion
-	State      State
-	Answers    map[string]Answer
-	ResolvedAt time.Time
-	Reply      string
-	ReplyAt    time.Time
+	CallID      string
+	Async       bool
+	AskedAt     time.Time
+	Questions   []AskedQuestion
+	State       State
+	Answers     map[string]Answer
+	AnswerTimes map[string]time.Time
+	ResolvedAt  time.Time
+	Reply       string
+	ReplyAt     time.Time
 }
 
 type callRecord struct {
@@ -56,11 +59,8 @@ type callRecord struct {
 		CallID    string          `json:"call_id"`
 		Arguments string          `json:"arguments"`
 		Output    json.RawMessage `json:"output"`
-		Content   []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-		Meta *struct {
+		Content   []messagePart   `json:"content"`
+		Meta      *struct {
 			CreateTime float64 `json:"create_time"`
 		} `json:"internal_chat_message_metadata_passthrough"`
 	} `json:"payload"`
@@ -124,19 +124,31 @@ func recordCall(line []byte, calls *[]Call, index map[string]int) {
 		if p.Role != "user" {
 			return
 		}
-		var text []string
-		for _, part := range p.Content {
-			if part.Type == "input_text" && part.Text != "" {
-				text = append(text, part.Text)
+		reply, operator := operatorMessage(p.Content)
+		if !operator {
+			return
+		}
+		if strings.Contains(reply, questionReplyOpen) || strings.Contains(reply, questionReplyClose) {
+			applyQuestionReply(reply, at, *calls, index)
+			return
+		}
+		pendingAsync := 0
+		for _, call := range *calls {
+			if call.Async && call.State == Outstanding {
+				pendingAsync++
 			}
 		}
 		for i := range *calls {
 			call := &(*calls)[i]
 			if call.State == Outstanding || call.State == Expired {
-				call.State = Superseded
-				if call.Async && call.Reply == "" {
-					call.Reply, call.ReplyAt = strings.Join(text, "\n"), at
+				if call.Async && (pendingAsync != 1 || approvalNeedsChoice(*call, reply)) {
+					continue
 				}
+				if call.Async && call.State == Outstanding && pendingAsync == 1 && len(call.Questions) == 1 &&
+					call.Reply == "" && reply != "" && at.After(call.AskedAt) {
+					call.Reply, call.ReplyAt = reply, at
+				}
+				call.State = Superseded
 			}
 		}
 	case "function_call":
@@ -145,6 +157,11 @@ func recordCall(line []byte, calls *[]Call, index map[string]int) {
 		}
 		call := Call{CallID: p.CallID, Async: p.Name == askToolAsync, AskedAt: at, State: Outstanding,
 			Questions: parseQuestions(p.Arguments)}
+		if call.Async {
+			for i := range call.Questions {
+				call.Questions[i].ID = call.CallID + ":" + strconv.Itoa(i)
+			}
+		}
 		if at, seen := index[call.CallID]; seen {
 			(*calls)[at] = call
 			return
@@ -243,44 +260,78 @@ func Root() string {
 	return filepath.Join(home, ".codex", "sessions")
 }
 
-var (
-	pathsMu sync.Mutex
-	paths   = map[string]string{}
-)
-
 func RolloutPath(root, id string) string {
 	if root == "" || id == "" {
 		return ""
 	}
-	key := root + "\x00" + id
-	pathsMu.Lock()
-	cached := paths[key]
-	pathsMu.Unlock()
-	if cached != "" {
-		if _, err := os.Stat(cached); err == nil {
-			return cached
-		}
-	}
-	var found []string
-	suffix := id + ".jsonl"
+	var found string
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
+		if err != nil || d.IsDir() {
 			return nil
 		}
-		if !d.IsDir() && strings.HasSuffix(d.Name(), suffix) {
-			found = append(found, path)
+		name := d.Name()
+		if !strings.HasPrefix(name, "rollout-") || !strings.HasSuffix(name, ".jsonl") {
+			return nil
+		}
+		if !strings.HasSuffix(name, "-"+id+".jsonl") {
+			_, suffix, resumed := strings.Cut(name, "-"+id+"_")
+			if !resumed || suffix == ".jsonl" || !rolloutSessionMatches(path, id) {
+				return nil
+			}
+		}
+		if path > found {
+			found = path
 		}
 		return nil
 	})
-	if len(found) == 0 {
-		return ""
+	return found
+}
+
+func rolloutSessionMatches(path, id string) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
 	}
-	sort.Strings(found)
-	path := found[len(found)-1]
-	pathsMu.Lock()
-	paths[key] = path
-	pathsMu.Unlock()
-	return path
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 4096), maxLine)
+	if !scanner.Scan() {
+		return false
+	}
+	var meta struct {
+		Type    string `json:"type"`
+		Payload struct {
+			ID        string `json:"id"`
+			SessionID string `json:"session_id"`
+		} `json:"payload"`
+	}
+	if json.Unmarshal(scanner.Bytes(), &meta) != nil || meta.Type != "session_meta" {
+		return false
+	}
+	return (meta.Payload.ID == id || meta.Payload.SessionID == id) &&
+		(meta.Payload.ID == "" || meta.Payload.ID == id) &&
+		(meta.Payload.SessionID == "" || meta.Payload.SessionID == id)
+}
+
+type messagePart struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+func operatorMessage(content []messagePart) (string, bool) {
+	var parts []string
+	for _, part := range content {
+		if part.Type != "input_text" {
+			continue
+		}
+		text := strings.TrimSpace(part.Text)
+		// Hook prompts and board relays also have role=user, but are not operator answers.
+		if band.Has(text) || strings.HasPrefix(text, "<hook_prompt ") || strings.HasPrefix(text, "<hook_prompt>") {
+			return "", false
+		}
+		parts = append(parts, part.Text)
+	}
+	return strings.Join(parts, "\n"), true
 }
 
 type parsed struct {

@@ -22,11 +22,21 @@ const (
 	// agent first draws to the pane, so a new row appears immediately instead
 	// of after the next poll.
 	Starting = "starting"
+	// Background is a session whose turn has ended with only a shell,
+	// monitor or task left running behind it: nothing is on screen and
+	// nothing spends tokens, but Claude wakes itself when that work ends.
+	// The pane reads it as working; the poller settles it here through
+	// SettleBackground.
+	Background = "background"
 	// Delegating is a session at rest with work still owed to it: a child
 	// it spawned is still going, or a child's report has not been typed in
 	// yet. Nothing derives it from a pane and nothing stores it; it is laid
 	// over a finished or idle row by store.ApplyDelegation.
 	Delegating = "delegating"
+	// Pending is a session at rest with a send held for it in the outbox
+	// because the machine is offline. Like Delegating it is never derived
+	// from a pane or stored; store.ApplyOutbox lays it over the row.
+	Pending = "pending"
 )
 
 type rule struct {
@@ -330,17 +340,19 @@ func (e *Engine) BackgroundRest(tool, pane string) (string, bool) {
 // wait loops nothing would end, or shells that had already died.
 const BackgroundTailTrust = 2 * time.Hour
 
-// StalledBackground is BackgroundRest once the tail has outlived
-// BackgroundTailTrust by quiet, which reports how long since the
-// conversation was last written. quiet is only asked when the pane is
-// working on a tail alone.
-func StalledBackground(e *Engine, tool, pane string, quiet func() (time.Duration, bool)) (string, bool) {
+// SettleBackground is what a pane working on a "still running" tail alone
+// reads as: Background while the tail is believed, and BackgroundRest once it
+// has outlived BackgroundTailTrust by quiet, which reports how long since the
+// conversation was last written. A quiet that cannot be read keeps the tail
+// believed. ok is false when the pane is working on anything else. quiet is
+// only asked when the pane is working on a tail alone.
+func SettleBackground(e *Engine, tool, pane string, quiet func() (time.Duration, bool)) (string, bool) {
 	rest, ok := e.BackgroundRest(tool, pane)
 	if !ok {
 		return "", false
 	}
 	if age, known := quiet(); !known || age < BackgroundTailTrust {
-		return "", false
+		return Background, true
 	}
 	return rest, true
 }
@@ -363,6 +375,23 @@ func unwrapLine(lines []string, i int) string {
 		line += " " + rest
 	}
 	return line
+}
+
+// tailWrapRows is how many rows a narrow pane wrapped a "still running"
+// tail of line i onto, or 0 when the line carries no such tail. Other
+// indented rows under a summary are output of their own, not its wrap.
+func tailWrapRows(lines []string, i int) int {
+	if stillRunningTail.MatchString(lines[i]) || !stillRunningTail.MatchString(unwrapLine(lines, i)) {
+		return 0
+	}
+	n := 0
+	for _, next := range lines[i+1 : min(len(lines), i+1+maxWrapRows)] {
+		if strings.TrimSpace(next) == "" || !strings.HasPrefix(next, "  ") {
+			break
+		}
+		n++
+	}
+	return n
 }
 
 // maxWrapRows is how many rows unwrapLine joins back onto a line.
@@ -611,7 +640,7 @@ func (tr toolRules) turnState(pane string) (string, bool) {
 	}
 
 	lastEnd := tr.lastTurnEndIndex(lines)
-	if lastEnd < 0 || !tr.turnIsNewest(lines[lastEnd+1:]) {
+	if lastEnd < 0 || !tr.turnIsNewest(lines[lastEnd+1+tailWrapRows(lines, lastEnd):]) {
 		return "", false
 	}
 	return Finished, true

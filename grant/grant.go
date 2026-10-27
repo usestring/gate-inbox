@@ -79,6 +79,8 @@ var reach = []string{
 	"doppler",
 	"id_rsa",
 	".netrc",
+	// Gate Inbox's own sealing keys (parentseal.KeyDirName).
+	"channel-keys",
 	".env",
 }
 

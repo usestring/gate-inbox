@@ -3,6 +3,7 @@ package ui
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -62,13 +63,32 @@ func (m *Model) adoptStart() tea.Cmd {
 // happens in the returned closure. Reading the model from inside a command is a
 // data race: commands run on their own goroutine while Update writes.
 func (m *Model) adoptScan() tea.Cmd {
-	if m.store == nil || m.tmux == nil {
+	run := m.newAdoptRun()
+	if run == nil {
 		m.adoptFirstDone = true
+		return nil
+	}
+	sockets := m.adoptSockets()
+	m.adoptBusy = true
+
+	return func() tea.Msg {
+		started := time.Now()
+		var candidates []adopt.Candidate
+		for _, socket := range sockets {
+			candidates = append(candidates, adopt.Panes(socket)...)
+		}
+		return run.scan(candidates, started, true)
+	}
+}
+
+// newAdoptRun reads, on the event loop, everything a scan decides with. Nil
+// when there is nothing to scan with.
+func (m *Model) newAdoptRun() *adoptRun {
+	if m.store == nil || m.tmux == nil {
 		return nil
 	}
 	tools := m.adoptTools()
 	if len(tools) == 0 {
-		m.adoptFirstDone = true
 		return nil
 	}
 	run := &adoptRun{
@@ -97,38 +117,50 @@ func (m *Model) adoptScan() tea.Cmd {
 		}
 		run.names[sess.Name] = true
 	}
-	sockets := m.adoptSockets()
+	return run
+}
 
-	return func() tea.Msg {
-		started := time.Now()
-		var candidates []adopt.Candidate
-		for _, socket := range sockets {
-			candidates = append(candidates, adopt.Panes(socket)...)
-		}
-		// The rows are read after the panes, and from the store rather than
-		// the model, so archived sessions still count as accounted for.
-		// take also checks managed ids against the live store, since a launch
-		// can commit after this snapshot.
-		rows, err := run.stor.ListSessions(true)
-		if err != nil {
-			logging.Warn("adopt scan failed", "at", "list sessions", logging.Err(err))
-			return adoptedMsg{err: err}
-		}
-		run.launched = launchedSessions(rows, run.agentTools)
-		procs := adopt.NewProcTable()
-		if err := run.reconcileTools(rows, candidates, procs, started); err != nil {
-			return adoptedMsg{err: err}
-		}
-		run.onBoard = onBoardSessions(rows)
-		run.pruneIgnored(candidates)
-		run.claude = convo.LiveClaudeSessions(convo.ClaudeHome())
-
-		taken, err := run.take(candidates, procs)
-		logging.Info("adopt scan",
-			"sockets", sockets, "candidates", len(candidates), "taken", taken,
-			"rejected", rejectionSummary(run.rejected), "took", time.Since(started).Round(time.Millisecond).String())
-		return adoptedMsg{taken: taken, ids: run.takenIDs, err: err}
+// scan decides candidates, off the event loop. complete says they are every
+// pane on the servers scanned, which is what lets the ledger of panes left
+// out be pruned against them.
+func (r *adoptRun) scan(candidates []adopt.Candidate, started time.Time, complete bool) adoptedMsg {
+	// The rows are read after the panes, and from the store rather than
+	// the model, so archived sessions still count as accounted for.
+	// take also checks managed ids against the live store, since a launch
+	// can commit after this snapshot.
+	rows, err := r.stor.ListSessions(true)
+	if err != nil {
+		logging.Warn("adopt scan failed", "at", "list sessions", logging.Err(err))
+		return adoptedMsg{err: err}
 	}
+	r.launched = launchedSessions(rows, r.agentTools)
+	procs := adopt.NewProcTable()
+	// Reconciling a row's tool needs every pane on its server: matching a
+	// row with no pane id by session name is only safe against all of them.
+	if complete {
+		if err := r.reconcileTools(rows, candidates, procs, started); err != nil {
+			return adoptedMsg{err: err}
+		}
+	}
+	r.onBoard = onBoardSessions(rows)
+	// A row an earlier scan took a moment ago is in the store before the
+	// board has read it back, and the arrival poll can run again in that
+	// window.
+	for _, sess := range rows {
+		if key := adoptKey(sess.TmuxSocket, sess.TmuxPaneID); key != "" && !sess.Archived {
+			r.known[key] = true
+		}
+	}
+	if complete {
+		r.pruneIgnored(candidates)
+	}
+	r.claude = convo.LiveClaudeSessions(convo.ClaudeHome())
+
+	taken, err := r.take(candidates, procs)
+	logging.Info("adopt scan",
+		"candidates", len(candidates), "arrivals", len(r.arrivals), "taken", taken,
+		"rejected", rejectionSummary(r.rejected), "took", time.Since(started).Round(time.Millisecond).String())
+	return adoptedMsg{taken: taken, ids: r.takenIDs, err: err}
 }
 
 func (r *adoptRun) reconcileTools(rows []store.Session, candidates []adopt.Candidate, procs *adopt.ProcTable, observedAfter time.Time) error {
@@ -272,6 +304,10 @@ type adoptRun struct {
 	skipForeign bool
 	// takenIDs are the rows take created.
 	takenIDs []string
+	// arrivals is the agents that announced their pane, by adoptKey: the
+	// pid that announced and the tool its announcement speaks for. See
+	// arrivals.go.
+	arrivals map[string]arrivalClaim
 	// claude is Claude Code's live-session sidecars, read once per scan.
 	// A sidecar names the conversation a process is running, which is an
 	// identity rather than a resemblance, so a row created from it carries
@@ -323,6 +359,7 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 			continue
 		}
 		match, ok := adopt.Identify(candidate, r.tools, pane, procs)
+		match, ok = r.arrived(candidate, match, ok, procs)
 		if !ok {
 			r.reject(candidate, "no tool matched")
 			continue
@@ -405,6 +442,9 @@ func (r *adoptRun) take(candidates []adopt.Candidate, procs *adopt.ProcTable) (i
 				"session", sess.ID, "socket", candidate.Socket, "pane", candidate.PaneID,
 				"taken", taken, logging.Err(err))
 			return taken, err
+		}
+		if err := r.driver.MarkAdopted(sess.ID); err != nil {
+			logging.Info("adopted pane not given the back key", "session", sess.ID, logging.Err(err))
 		}
 		r.names[sess.Name] = true
 		r.takenIDs = append(r.takenIDs, sess.ID)
@@ -579,11 +619,73 @@ func (m *Model) restoreAdopted() {
 		if sess.TmuxPaneID == "" {
 			continue
 		}
+		// An unregistered id makes Exists ask for gi_<id>: a row relaunched
+		// under the manager with its dead pane id still on it would otherwise
+		// be registered onto that pane and pruned as gone.
+		if _, registered := m.tmux.AdoptedTarget(sess.ID); !registered && m.tmux.Exists(sess.ID) {
+			m.promoteRelaunchedAdopted(sess)
+			continue
+		}
 		target := tmux.Target{Socket: sess.TmuxSocket, Name: sess.TmuxPaneID}
 		if err := m.tmux.Adopt(sess.ID, target); err != nil {
 			m.errBar.text = err.Error()
+			continue
+		}
+		if sess.Archived {
+			continue
+		}
+		if err := m.tmux.MarkAdopted(sess.ID); err != nil {
+			logging.Info("adopted pane not given the back key", "session", sess.ID, logging.Err(err))
 		}
 	}
+}
+
+// promoteDeadAdopted makes an adopted row whose pane is gone a managed one,
+// so a relaunch under gi_<id> does not leave the row pointing at the dead
+// pane. Whether Create would refuse the relaunch depends on the registry,
+// and the registry is not the row: restoreAdopted only reads the active
+// list, so an archived adopted row restored after a board restart was
+// relaunched with its old pane id still on it, and every command outside
+// the board then addressed that pane instead of gi_<id>. It registers the
+// pane first so a live one is refused here rather than launched beside.
+func (m *Model) promoteDeadAdopted(sess store.Session) (store.Session, error) {
+	if sess.TmuxPaneID == "" {
+		return sess, nil
+	}
+	if err := m.tmux.Adopt(sess.ID, tmux.Target{Socket: sess.TmuxSocket, Name: sess.TmuxPaneID}); err != nil {
+		return sess, err
+	}
+	if m.tmux.Exists(sess.ID) {
+		return sess, fmt.Errorf("%s is still running in its adopted pane %s", sess.Name, sess.TmuxPaneID)
+	}
+	if err := m.promoteAdoptedRow(sess); err != nil {
+		return sess, err
+	}
+	sess.TmuxSocket, sess.TmuxPaneID = "", ""
+	return sess, nil
+}
+
+// promoteRelaunchedAdopted clears the adopted pane off a row that already
+// runs as gi_<id>, the state builds before promoteDeadAdopted left behind.
+func (m *Model) promoteRelaunchedAdopted(sess store.Session) {
+	if err := m.promoteAdoptedRow(sess); err != nil {
+		logging.Warn("relaunched adopted row not promoted", "session", sess.ID, logging.Err(err))
+		return
+	}
+	logging.Info("promoted a relaunched adopted row", "session", sess.ID, "name", sess.Name, "pane", sess.TmuxPaneID)
+}
+
+func (m *Model) promoteAdoptedRow(sess store.Session) error {
+	m.tmux.Release(sess.ID)
+	if err := m.store.PromoteAdopted(sess.ID, sess.Cwd, sess.AgentSessionID); err != nil {
+		return err
+	}
+	for i := range m.sessions {
+		if m.sessions[i].ID == sess.ID {
+			m.sessions[i].TmuxSocket, m.sessions[i].TmuxPaneID = "", ""
+		}
+	}
+	return nil
 }
 
 // dropSelfRow deletes a row pointing at the manager's own pane.

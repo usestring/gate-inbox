@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/launch"
+	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -134,5 +136,16 @@ func TestPromptOffersALiveSourceThroughTheManagersOwnActions(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt lacks %q:\n%s", want, prompt)
 		}
+	}
+}
+
+// The new row is the same agent carrying on, so it keeps the priority the
+// source was given and the session that spawned it: drawn under a root,
+// a hoisted grandchild's owner is not the root it is filed under.
+func TestNewSessionKeepsTheSourcesPriorityAndSpawner(t *testing.T) {
+	source := store.Session{ID: "src", Name: "app", Cwd: "/x", ParentID: "root", SpawnedBy: "spawner", Priority: priority.Urgent}
+	got := NewSession("new", "app-claude", "claude", source, launch.Plan{})
+	if got.Priority != priority.Urgent || got.SpawnedBy != "spawner" || got.MigrationID != "src" {
+		t.Fatalf("new session = %+v", got)
 	}
 }

@@ -1,11 +1,53 @@
 package asks
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestStructuredAnswersKeepEachQuestionTime(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CODEX_HOME", home)
+	dir := filepath.Join(home, "sessions")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "rollout-indexed.jsonl")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	e := json.NewEncoder(f)
+	start := time.Date(2026, 10, 25, 12, 0, 0, 0, time.UTC)
+	write := func(at time.Time, payload any) {
+		t.Helper()
+		if err := e.Encode(map[string]any{"timestamp": at.Format(time.RFC3339Nano), "payload": payload}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(start, map[string]any{"type": "function_call", "name": "request_user_input_async", "call_id": "indexed",
+		"arguments": `{"questions":[{"title":"First approval","options":["Yes","No"]},{"title":"Second approval","options":["Yes","No"]}]}`})
+	target := Target{Tool: "codex", AgentSessionID: "indexed"}
+	for i := range 2 {
+		tuple, _ := json.Marshal([]any{"request_user_input_async", "indexed", i})
+		question := []string{"First approval", "Second approval"}[i]
+		body, _ := json.Marshal([]any{map[string]string{"questionItemId": string(tuple), "question": question, "answer": "Yes"}})
+		write(start.Add(time.Duration(i+1)*time.Minute), map[string]any{"type": "message", "role": "user", "content": []any{
+			map[string]string{"type": "input_text", "text": "<send_user_message_question_reply>" + string(body) + "</send_user_message_question_reply>"}}})
+		if _, pending := Pending(target); pending != (i == 0) {
+			t.Fatal("partial answer retired the remaining question")
+		}
+	}
+	answered, err := AnsweredSince(target, start.Add(90*time.Second))
+	if err != nil || len(answered) != 1 || answered[0].Questions[0].Question != "Second approval" {
+		t.Fatalf("later answer changed earlier approval time: %+v, %v", answered, err)
+	}
+}
 
 func codexHome(t *testing.T, rollout string) Target {
 	t.Helper()
@@ -46,8 +88,13 @@ func TestCodexRolloutAnswersForItsSession(t *testing.T) {
 		t.Fatalf("ResultOf the async call = %+v, %v; want it answered by the next message", async, ok)
 	}
 	answered, err := AnsweredSince(target, async.Call.AskedAt)
-	if err != nil || len(answered) != 1 || answered[0].Answers["Which CI?"] != "Buildkite, self-hosted" {
+	if err != nil || len(answered) != 2 || answered[0].Answers[async.Call.Questions[0].Question] != async.Reply ||
+		answered[1].Answers["Which CI?"] != "Buildkite, self-hosted" {
 		t.Fatalf("AnsweredSince = %+v, %v; want the note as the answer", answered, err)
+	}
+	answered, err = AnsweredSince(target, async.At)
+	if err != nil || len(answered) != 1 || answered[0].Answers["Which CI?"] != "Buildkite, self-hosted" {
+		t.Fatalf("AnsweredSince the async reply = %+v, %v; want only the later answer", answered, err)
 	}
 	if TraitsOf("codex").Expires != CodexExpiry || TraitsOf("codex").MultiSelectAnswerable {
 		t.Fatal("codex traits are wrong")

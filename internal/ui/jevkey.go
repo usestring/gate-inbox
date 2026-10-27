@@ -4,21 +4,16 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/usestring/gate-inbox/internal/jev"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 )
 
-const jevKeyEnv = "TYPESAFE_API_KEY"
-
-// jevKeyFile is the pasted TypeSafe key. It sits beside the sealing keys so
-// managed sessions are denied it the same way (see parentseal/keys.go); the
-// dot keeps the name apart from the session ids that directory is keyed by.
-const jevKeyFile = "typesafe.key"
+const jevKeyEnv = jev.KeyEnv
 
 type jevKeySource int
 
@@ -28,20 +23,9 @@ const (
 	jevKeySaved
 )
 
-func jevKeyPath(configDir string) string {
-	return filepath.Join(parentseal.KeyDir(configDir), jevKeyFile)
-}
+func jevKeyPath(configDir string) string { return jev.KeyPath(configDir) }
 
-func readJevKey(configDir string) (string, error) {
-	if configDir == "" {
-		return "", nil
-	}
-	data, err := os.ReadFile(jevKeyPath(configDir))
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", nil
-	}
-	return strings.TrimSpace(string(data)), err
-}
+func readJevKey(configDir string) (string, error) { return jev.ReadSavedKey(configDir) }
 
 func writeJevKey(configDir, key string) error {
 	if configDir == "" {

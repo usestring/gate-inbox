@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/adopt"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/migrate"
@@ -21,6 +22,7 @@ type accountState struct {
 	names   []string
 	index   int
 	migrate bool
+	cutoff  int
 }
 
 // openAccountSwitch opens the card for the session under the cursor. A
@@ -45,9 +47,22 @@ func (m *Model) openAccountSwitch() {
 	}
 	m.errBar.text = ""
 	names, index := m.accountChoices(entry.sess.Account)
-	m.account = accountState{sess: entry.sess, names: names, index: index}
-	_, m.account.migrate = migrate.AccountSwitchTranscript(migrateRoots(), tool, entry.sess)
+	m.account = accountState{sess: entry.sess, names: names, index: index, cutoff: m.accountSwitchCutoff(tool, entry.sess)}
+	_, m.account.migrate = migrate.AccountSwitchTranscript(migrateRoots(), tool, entry.sess, m.account.cutoff)
 	m.mode = modeAccount
+}
+
+// accountSwitchCutoff is sess's account-switch cutoff at its sizing tier,
+// the default when the tier cannot be read.
+func (m *Model) accountSwitchCutoff(tool config.Tool, sess store.Session) int {
+	if m.store == nil {
+		return config.DefaultAccountSwitchCutoff
+	}
+	tier, err := m.store.SizingTier(sess)
+	if err != nil {
+		return config.DefaultAccountSwitchCutoff
+	}
+	return tool.AccountSwitchCutoff(tier)
 }
 
 // accountChoices keeps the current account selectable even when listing fails.
@@ -133,7 +148,7 @@ func (m *Model) submitAccountSwitch() (tea.Model, tea.Cmd) {
 		m.errBar.text = err.Error()
 		return m, nil
 	}
-	transcript, large := migrate.AccountSwitchTranscript(migrateRoots(), m.cfg.Tools[sess.Tool], sess)
+	transcript, large := migrate.AccountSwitchTranscript(migrateRoots(), m.cfg.Tools[sess.Tool], sess, m.account.cutoff)
 	if m.account.migrate && transcript.Path == "" {
 		m.errBar.text = "cannot read current context; account unchanged"
 		return m, nil
@@ -141,7 +156,8 @@ func (m *Model) submitAccountSwitch() (tea.Model, tea.Cmd) {
 	if large {
 		name := textField("session name", 60)
 		name.SetValue(sess.Name + "-" + sess.Tool)
-		m.migrate = migrateState{source: sess, name: name, toolNames: []string{sess.Tool}, transcript: transcript, account: &account}
+		m.migrate = migrateState{source: sess, name: name, toolNames: []string{sess.Tool}, transcript: transcript, account: &account,
+			skip: sess.SkipPermissions, childrenSkip: sess.ChildrenSkipPermissions}
 		return m.submitMigrate()
 	}
 	if err := m.store.SetAccount(sess.ID, account); err != nil {
@@ -245,7 +261,7 @@ func (m *Model) viewAccountSwitch() string {
 		then = "restarts it on the conversation it is on"
 	}
 	if m.account.migrate {
-		then = "over 200k context: migrate to new session"
+		then = fmt.Sprintf("over %dk context: migrate to new session", m.account.cutoff/1000)
 	}
 	var body strings.Builder
 	body.WriteString("  session  " + valueStyle.Render(sess.Name) + "  " + mutedStyle.Render("on "+sess.Tool+" as "+now) + "\n")

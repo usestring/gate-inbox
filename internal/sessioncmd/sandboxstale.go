@@ -424,7 +424,7 @@ func (s *Sessions) RestartStaleSandboxes(now time.Time) (int, error) {
 			_ = removeFlag(flag)
 			continue
 		}
-		if target.Status == status.Working {
+		if target.Status == status.Working || target.Status == status.Background {
 			continue
 		}
 		// A busy relaunch queue leaves the flag for the next pass: the

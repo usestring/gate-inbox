@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -59,6 +60,9 @@ type Driver struct {
 	// command resolves its target through this map under a lock.
 	adoptedMu sync.RWMutex
 	adopted   map[string]Target
+	// backKeysOn is the foreign servers the back-to-board keys have been
+	// offered to, so marking every adopted pane on one costs one list-keys.
+	backKeysOn map[string]bool
 
 	// controls is the per-socket budget that caps how many control-mode
 	// clients this driver may hold on any one tmux server.
@@ -370,6 +374,7 @@ func (d *Driver) Adopt(id string, target Target) error {
 // and the operator whose window it is has no way to tell that it is.
 func (d *Driver) Release(id string) {
 	d.unpinSession(id)
+	d.unmarkAdopted(id)
 	d.adoptedMu.Lock()
 	defer d.adoptedMu.Unlock()
 	delete(d.adopted, id)
@@ -634,6 +639,21 @@ const (
 	exitFileWrite = `[ -z "$` + envname.ExitFile + `" ] || printf '%s\n' "$` + exitStatusVar + `" > "$` + envname.ExitFile + `" 2>/dev/null` + "\n"
 )
 
+// filterMallocNoise runs command with its stderr through a filter dropping
+// the "MallocStackLogging: can't turn off malloc stack logging" lines macOS
+// libmalloc prints for every process Claude Code spawns. They land on the
+// pane over the TUI, and enough of them bury it. Only stderr is filtered, and
+// only while the agent runs: the shell the pane drops to gets the terminal
+// back untouched. The filter is started from a subshell so it never becomes
+// a job the fg loop would wait on, and absolute paths keep the operator's
+// aliases out of it. When the fifo cannot be made the agent runs unfiltered.
+func filterMallocNoise(command string) string {
+	return `gi_stderr=$(/usr/bin/mktemp -u "${TMPDIR:-/tmp}/gi-stderr.XXXXXX") && /usr/bin/mkfifo -m 600 "$gi_stderr" && ` +
+		`(/usr/bin/grep -av --line-buffered 'MallocStackLogging:' <"$gi_stderr" >&2 &) || gi_stderr=` + "\n" +
+		`{ [ -z "$gi_stderr" ] || /bin/rm -f "$gi_stderr"; ` + command + "\n" +
+		`} 2>"${gi_stderr:-/dev/stderr}"`
+}
+
 // writeLaunchScript writes the script a pane runs. The body stays POSIX: the
 // shell it runs under is the operator's, and runsLoginScript is what vouches
 // for that shell being able to read it.
@@ -685,6 +705,9 @@ func writeLaunchScript(path string, env map[string]string, command, colorFgBg st
 	// drops to, so the next start can tell an agent the operator quit (0)
 	// from one that crashed. A stopped agent reports its stop here rather
 	// than its exit, which reads as no verdict either way.
+	if runtime.GOOS == "darwin" && env[envname.StatusFile] != "" {
+		command = filterMallocNoise(command)
+	}
 	body.WriteString(exitFileClear + command + "\n" + exitStatusVar + "=$?\nwhile fg >/dev/null 2>&1; do :; done\n" + exitFileWrite + shell.execLine() + "\n")
 	if err := os.WriteFile(path, []byte(body.String()), 0o700); err != nil {
 		return "", fmt.Errorf("launch script: %w", err)
@@ -789,14 +812,12 @@ func attachStatusRight(primary, secondary string) string {
 const leaveCondition = "#{&&:#{m:" + prefix + "*,#{session_name}},#{||:#{==:#{window_id},#{" + homeOption + "}},#{==:#{" + homeOption + "},}}}"
 
 // legacyLeaveCondition is the condition earlier runs bound, which detached
-// from every window of a gi_ session. sharedBindings replaces it.
+// from every window of a gi_ session. sharedBindings replaces it, as it does
+// every back-key binding an earlier run installed (ownBackBinding).
 const legacyLeaveCondition = "#{m:" + prefix + "*,#{session_name}}"
 
 func (d *Driver) EnsureBindings() error {
-	inSession := leaveCondition
-	binds := [][]string{
-		{"bind-key", "-n", "C-q", "if-shell", "-F", inSession, "detach-client", "send-keys C-q"},
-		{"bind-key", "-n", `C-\`, "if-shell", "-F", inSession, "detach-client", `send-keys C-\\`},
+	binds := append(backBindings(), [][]string{
 		// The editor key sat on C-o, then F3, then M-o until the action was
 		// removed; C-r opened the review the manager no longer has. A server
 		// that outlives the update still carries those bindings until they
@@ -807,10 +828,10 @@ func (d *Driver) EnsureBindings() error {
 		{"unbind-key", "-n", "F3"},
 		// Restore the standard fallback when the prefix shadows a direct binding.
 		{"bind-key", "-T", "prefix", "d", "detach-client"},
-	}
+	}...)
 	if !d.owned {
 		var err error
-		binds, err = d.sharedBindings(binds)
+		binds, err = d.sharedBindings(d.socket, binds)
 		if err != nil || len(binds) == 0 {
 			return err
 		}
@@ -832,10 +853,12 @@ func (d *Driver) EnsureBindings() error {
 // operator -- an unbind-key drops a binding they may be using, and a binding
 // in the prefix table overwrites what their own config put there -- and a key
 // already bound is theirs too, however much the manager would like it. The
-// one exception is a leave key still carrying legacyLeaveCondition: that
-// binding is ours, and it detached the manager's own client.
-func (d *Driver) sharedBindings(binds [][]string) ([][]string, error) {
-	bound, running, err := d.rootKeys()
+// one bound key that is not theirs is the back-to-board binding an earlier
+// run installed, which is recognised (ownBackBinding) and replaced, so a
+// changed condition reaches a shared server without waiting for the key to
+// come free.
+func (d *Driver) sharedBindings(socket string, binds [][]string) ([][]string, error) {
+	bound, running, err := d.rootKeys(socket)
 	if err != nil {
 		return nil, err
 	}
@@ -849,7 +872,7 @@ func (d *Driver) sharedBindings(binds [][]string) ([][]string, error) {
 		if len(bind) < 3 || bind[0] != "bind-key" || bind[1] != "-n" {
 			continue
 		}
-		if line, ok := bound[bind[2]]; ok && !strings.Contains(line, `"`+legacyLeaveCondition+`"`) {
+		if line, taken := bound[bind[2]]; taken && !ownBackBinding(line) {
 			continue
 		}
 		kept = append(kept, bind)
@@ -857,10 +880,10 @@ func (d *Driver) sharedBindings(binds [][]string) ([][]string, error) {
 	return kept, nil
 }
 
-// rootKeys is every key bound in the root table, with the list-keys line
-// that binds it, and whether a server answered at all.
-func (d *Driver) rootKeys() (map[string]string, bool, error) {
-	out, err := d.combined(d.args("list-keys", "-T", "root"))
+// rootKeys is every key bound in the root table, and whether a server
+// answered at all.
+func (d *Driver) rootKeys(socket string) (map[string]string, bool, error) {
+	out, err := d.combined([]string{"-L", socket, "list-keys", "-T", "root"})
 	if err != nil {
 		if noServer(string(out)) {
 			return nil, false, nil
@@ -1015,7 +1038,11 @@ func (d *Driver) pasteHoldingSubmit(id, text string, hold func(pane string) bool
 			d.awaitPasteEcho(id, before, text)
 		}
 		if hold != nil {
-			if pane, err := d.capturePlain(id); err == nil && hold(pane) {
+			pane, err := d.capturePlain(id)
+			if err != nil {
+				return fmt.Errorf("capture pane before submitting: %w", err)
+			}
+			if hold(pane) {
 				return ErrSubmitHeld
 			}
 		}
@@ -1269,6 +1296,18 @@ func (d *Driver) AttachCommand(id string) *exec.Cmd {
 		}
 		args = append(args, ";", "if-shell", "-F", "-t", "="+session,
 			"#{==:#{session_attached},1}", selects)
+	}
+	if pane != "" {
+		// The client this attach makes is the board's: the back key detaches
+		// it, and only it, from an adopted pane (backkey.go). Said once on
+		// arrival, since the pane's own status bar is not the board's to
+		// change.
+		args = append(args, ";", "set-option", "-t", "="+session+":", "-F", clientOption, "#{client_name}")
+		if key := d.backKeyOn(target.Socket); key != "" {
+			hint := "Gate Inbox: " + key + " = back to the board"
+			args = append(args, ";", "if-shell", "-F", "#{version}",
+				"display-message -d 4000 '"+hint+"'", "display-message '"+hint+"'")
+		}
 	}
 	tmuxguard.Enforce([]string{"-L", target.Socket})
 	home, onServer := d.managerSession(target)

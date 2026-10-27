@@ -255,6 +255,22 @@ func TakesModel(toolName string, tool config.Tool) bool {
 	return tool.ModelFlag != "" || ModelRidesConfig(toolName, tool)
 }
 
+// SkipPermissionsRidesConfig reports whether a tool turns its permission
+// prompts off through the config the manager generates for it rather than a
+// skip_permissions_flag. That is opencode, whose generated config loads a
+// plugin allowing every request its server would ask about; mcpreg's
+// skipPermissionsJS says why that and not the TUI's --auto.
+func SkipPermissionsRidesConfig(toolName string, tool config.Tool) bool {
+	return tool.SkipPermissionsFlag == "" && mcpreg.Style(toolName, tool.MCP) == "opencode"
+}
+
+// SkipsPermissions reports whether a session on the tool can be launched
+// with its permission prompts off: through its flag, or through its
+// generated config.
+func SkipsPermissions(toolName string, tool config.Tool) bool {
+	return tool.SkipPermissionsFlag != "" || SkipPermissionsRidesConfig(toolName, tool)
+}
+
 // Assemble resolves a session's first prompt into a launch plan. A prompt
 // rides the command line when the tool takes one, and is typed into the
 // pane when the tool's prompt mode is "send". Tools that accept a chosen
@@ -316,7 +332,7 @@ func WithAccount(tool config.Tool, account string) (string, error) {
 func AccountForSwitch(tool config.Tool, adopted bool, account string) (string, error) {
 	if adopted {
 		return "", errors.New("that session is a pane the manager did not start, so it cannot be " +
-			"ended and relaunched on another account; take it over first")
+			"ended and relaunched on another account; bring it into the board first (a on its row)")
 	}
 	return WithAccount(tool, account)
 }
@@ -391,6 +407,25 @@ func WithAddDir(tool config.Tool, command, workdir string) string {
 	return command + " " + tool.AddDirFlag + " " + tmux.ShellQuote(workdir)
 }
 
+// WithSkipPermissions puts the tool's skip-permissions flag on a command
+// line for a session launched with skip permissions on, and refuses when the
+// tool has no such flag and no generated config to carry it. A tool whose
+// skip rides its config keeps a bare command line; Environment writes it into
+// that config. Refused for the reason WithModel refuses: a session launched
+// without it would stop on every prompt the operator turned off, and look
+// like it obeyed until the first one.
+func WithSkipPermissions(toolName string, tool config.Tool, command string, skip bool) (string, error) {
+	if !skip || SkipPermissionsRidesConfig(toolName, tool) {
+		return command, nil
+	}
+	if tool.SkipPermissionsFlag == "" {
+		return "", fmt.Errorf("%s cannot be launched with permissions skipped: its config names no "+
+			"skip_permissions_flag, so it would stop on its prompts anyway; launch it with skip permissions off",
+			tool.Command)
+	}
+	return command + " " + tool.SkipPermissionsFlag, nil
+}
+
 // ReviveCommand is the base command a dead session comes back on. When
 // its own conversation id was captured, it resumes that exact
 // conversation instead of the working directory's most recent one, which
@@ -429,17 +464,22 @@ func ReviveCommand(toolName string, tool config.Tool, agentSessionID, model stri
 // CLI's own login. Its token is read here, at launch, and exported into the
 // session through the tool's AccountEnv.
 //
+// skip is whether the session runs with its permission prompts off, for a
+// tool whose skip rides its generated config (SkipPermissionsRidesConfig); a
+// tool with a skip_permissions_flag already carries it in baseCommand
+// (WithSkipPermissions) and ignores this.
+//
 // contributed is what the build's extensions add for this launch. It
 // overrides what the session would inherit, and an empty value withholds an
 // inherited one; a name this function sets itself is refused rather than
 // overridden.
-func Environment(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string) (string, map[string]string, error) {
-	return EnvironmentWithProfile(manager, toolName, tool, baseCommand, id, model, account, contributed, "")
+func Environment(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, skip bool, contributed map[string]string) (string, map[string]string, error) {
+	return EnvironmentWithProfile(manager, toolName, tool, baseCommand, id, model, account, skip, contributed, "")
 }
 
 // EnvironmentWithProfile is Environment registering an MCP server that
 // serves only profile's tools (mcpreg.ProfileCore); "" serves every tool.
-func EnvironmentWithProfile(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string, profile string) (string, map[string]string, error) {
+func EnvironmentWithProfile(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, skip bool, contributed map[string]string, profile string) (string, map[string]string, error) {
 	if err := config.CheckInstalled(baseCommand); err != nil {
 		return "", nil, err
 	}
@@ -465,7 +505,7 @@ func EnvironmentWithProfile(manager *hooks.Manager, toolName string, tool config
 			return "", nil, err
 		}
 	}
-	return compose(manager, toolName, tool, baseCommand, id, model, account, contributed, profile, true)
+	return compose(manager, toolName, tool, baseCommand, id, model, account, skip, contributed, profile, true)
 }
 
 // parentEnvBlocklist are per-process values a launched session must never
@@ -576,15 +616,15 @@ func validEnvName(key string) bool {
 // thing it exists to avoid. It also has to work where those paths do not:
 // a stale claude-settings.json behind a sandbox deny rule is precisely when
 // somebody wants to read the plan rather than run it.
-func Compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string) (string, map[string]string, error) {
-	return compose(manager, toolName, tool, baseCommand, id, model, account, contributed, "", false)
+func Compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, skip bool, contributed map[string]string) (string, map[string]string, error) {
+	return compose(manager, toolName, tool, baseCommand, id, model, account, skip, contributed, "", false)
 }
 
 // resolveAccount reads an account's token, replaced in tests so a launch
 // plan never reaches a real secret store.
 var resolveAccount = accounts.Resolve
 
-func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, contributed map[string]string, profile string, write bool) (string, map[string]string, error) {
+func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseCommand, id, model, account string, skip bool, contributed map[string]string, profile string, write bool) (string, map[string]string, error) {
 	if err := config.CheckInstalled(baseCommand); err != nil {
 		return "", nil, err
 	}
@@ -640,7 +680,7 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 			return "", nil, err
 		}
 	}
-	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model), profile)
+	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model), profile, skip && SkipPermissionsRidesConfig(toolName, tool))
 	if err != nil {
 		return "", nil, err
 	}
@@ -658,6 +698,11 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		return "", nil, err
 	}
 	command += " " + claudeplugin.Argv(tmux.ShellQuote(pluginDir))
+	if write && id != "" && len(tool.CompactWindow) > 0 {
+		// Only the sidebar reads it, to say a tier change waits for a
+		// restart; a launch is not held up over that.
+		_ = manager.RecordLaunchedCompactWindow(id)
+	}
 	// Composed through hooks.SettingsArgv, which is also what the poller
 	// looks for in a running process's argv to tell a wired session from one
 	// somebody restarted by hand inside its pane. One spelling, so the check

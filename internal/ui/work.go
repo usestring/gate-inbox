@@ -85,7 +85,7 @@ func (m *Model) refreshWork() tea.Cmd {
 		rows = append(rows, row{
 			id:      sess.ID,
 			dir:     sess.Cwd,
-			launch:  sess.LaunchPrompt,
+			launch:  workLaunch(sess),
 			live:    sess.Status != status.Dead,
 			visible: onScreen[sess.ID],
 		})
@@ -109,6 +109,17 @@ func (m *Model) refreshWork() tea.Cmd {
 		tracker.Refresh(sessions)
 		return workLoadedMsg{}
 	}
+}
+
+// workLaunch is the task text a row was given. A migrated row's own launch
+// prompt is the hand-over brief, so the task the conversation started on,
+// and the tickets and pull requests it named, comes from the opening the
+// migration carried over.
+func workLaunch(sess store.Session) string {
+	if len(sess.MigrationOpening) == 0 {
+		return sess.LaunchPrompt
+	}
+	return strings.Join(append(slices.Clone(sess.MigrationOpening), sess.LaunchPrompt), "\n")
 }
 
 // attentionSet is the sessions the operator can currently see work for: the

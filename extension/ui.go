@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 )
@@ -47,6 +48,14 @@ type UI struct {
 	// shows it, the keys that focus a session focus it, and the keys that
 	// leave a focused session leave it. It takes the place of OpenHeader.
 	HeaderPane *HeaderPane
+	// FoldHeaders makes this extension's header rows fold the session they
+	// head, with everything drawn under it, the way a group folds its
+	// sessions: folded until the operator unfolds it. While folded the
+	// header stands in for the session -- it carries the session's status,
+	// the triage queue hands it over, and in triage the open key on it opens
+	// the session rather than the header. It needs headers that are rows:
+	// OpenHeader or HeaderPane.
+	FoldHeaders bool
 }
 
 // HeaderPane is the page behind an extension's header rows.
@@ -209,6 +218,13 @@ type UIHost interface {
 	// wins. Like Decorate, it may be called from any goroutine and never
 	// blocks on the board.
 	Attention(sessionID string, attention Attention)
+	// Fact replaces this extension's line in the selected session's detail
+	// block: Label in the label column, Text after it. With Then and At set,
+	// the board adds " · <Then> in <time left>" while At is ahead, counting
+	// down at every paint, so the time stays current without another push.
+	// The zero Fact clears it. Like Decorate, it may be called from any
+	// goroutine and never blocks on the board.
+	Fact(sessionID string, fact Fact)
 	// ConfirmOpen sets the warning the board shows before it opens this
 	// session from the list. With a warning set, the first open key on the
 	// row puts it on the status bar and opens nothing; the same key again,
@@ -230,6 +246,14 @@ type UIHost interface {
 	// view, when the request reaches it: a press whose load took a while
 	// must not take the screen from an operator who has moved on.
 	Open(screen string, view View) ViewHandle
+}
+
+// Fact is one line an extension adds to a session's detail block.
+type Fact struct {
+	Label string
+	Text  string
+	Then  string
+	At    time.Time
 }
 
 // View is a screen of an extension's own, drawn as a card over the list. The

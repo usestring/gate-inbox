@@ -54,6 +54,9 @@ func FormatSession(session Session) string {
 	if session.Account != "" {
 		tool += " as " + session.Account
 	}
+	if session.SkipPermissions {
+		tool += " with permissions skipped"
+	}
 	line := fmt.Sprintf("%s (id %s) running %s in %s at %s", session.Name, session.ID, tool, groupLabel(session.Group), session.Directory)
 	// Named on the row rather than drawn as a tree: these lines are read one
 	// at a time, and a caller checking where its own spawn landed should not

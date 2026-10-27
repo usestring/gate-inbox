@@ -21,6 +21,7 @@ import (
 type launchWatcher struct {
 	refuse      string
 	failMigrate bool
+	onKilled    func(extension.KillContext)
 	env         map[string]string
 	shape       extension.SpawnShape
 
@@ -79,8 +80,11 @@ func (w *launchWatcher) Migrated(_ context.Context, migration extension.Migratio
 
 func (w *launchWatcher) Killed(_ context.Context, kill extension.KillContext) {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	w.killed = append(w.killed, kill)
+	w.mu.Unlock()
+	if w.onKilled != nil {
+		w.onKilled(kill)
+	}
 }
 
 func (w *launchWatcher) kills() []extension.KillContext {
@@ -414,5 +418,60 @@ func TestAnOperatorsSendReportsWhatTheExtensionsMadeOfIt(t *testing.T) {
 	}
 	if len(watcher.sends) != 2 {
 		t.Fatalf("told of %d sends, want the operator's two", len(watcher.sends))
+	}
+}
+
+// A detached spawn from the operator's own shell has no caller: it lands as a
+// top-level row nobody spawned, the policy hears it as the operator's, and the
+// extra CLI arguments only the operator may pass reach the command line.
+func TestCreateFromNoSessionIsTheOperatorsOwn(t *testing.T) {
+	h := newSessionHarness(t)
+	watcher := &launchWatcher{shape: extension.SpawnShape{PromptPrefix: "PREFIX", PromptSuffix: "SUFFIX", KeepUnderSpawner: true}}
+	useWatcher(t, watcher)
+	detach := false
+	dir := t.TempDir()
+
+	created, err := h.sessions.Create("", CreateSessionOptions{
+		Tool: "echoer", Name: "fanout", Prompt: "/run-the-skill", Directory: dir, Nest: &detach, Args: []string{"--chrome"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stored, err := h.store.Get(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ParentID != "" || stored.SpawnedBy != "" || stored.Group != "" || stored.Cwd != dir {
+		t.Fatalf("stored = %+v, want a top-level root-group row in %s", stored, dir)
+	}
+	if len(watcher.asked) != 1 || watcher.asked[0].By != extension.SpawnByOperator {
+		t.Fatalf("asked = %+v, want one operator spawn", watcher.asked)
+	}
+	if len(watcher.shaped) != 0 {
+		t.Fatalf("shaped %d launches, want none for the operator", len(watcher.shaped))
+	}
+	if stored.LaunchPrompt != "/run-the-skill" {
+		t.Fatalf("launch prompt = %q, want the operator's unchanged prompt", stored.LaunchPrompt)
+	}
+	waitForSessionOutput(t, h.sessions, h.caller.ID, created.ID, "--chrome")
+}
+
+func TestCreateFromNoSessionNeedsWhatACallerWouldGive(t *testing.T) {
+	h := newSessionHarness(t)
+	detach := false
+	if _, err := h.sessions.Create("", CreateSessionOptions{Directory: t.TempDir(), Nest: &detach}); err == nil ||
+		!strings.Contains(err.Error(), "no CLI to inherit") {
+		t.Fatalf("toolless operator spawn error = %v", err)
+	}
+	if _, err := h.sessions.Create("", CreateSessionOptions{Tool: "echoer", Nest: &detach}); err == nil ||
+		!strings.Contains(err.Error(), "no directory to inherit") {
+		t.Fatalf("dirless operator spawn error = %v", err)
+	}
+	if _, err := h.sessions.Create("", CreateSessionOptions{Tool: "echoer", Directory: t.TempDir()}); err == nil {
+		t.Fatal("a nested spawn with no caller should still be refused")
+	}
+	if _, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Tool: "echoer", Nest: &detach, Args: []string{"--dangerously-skip-permissions"}}); err == nil ||
+		!strings.Contains(err.Error(), "operator's to pass") {
+		t.Fatalf("agent extra-args error = %v", err)
 	}
 }

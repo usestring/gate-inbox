@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -142,9 +144,9 @@ func (f *fakeSessions) Kill(sessionID, targetID string, _ extension.KillSource) 
 	return f.session, f.failWith
 }
 
-func (f *fakeSessions) Stop(sessionID string, dryRun bool) (sessioncmd.StopResult, error) {
+func (f *fakeSessions) Stop(sessionID string, dryRun, archive bool) (sessioncmd.StopResult, error) {
 	f.callerID, f.dryRun = sessionID, dryRun
-	return sessioncmd.StopResult{Target: f.session, DryRun: dryRun}, f.failWith
+	return sessioncmd.StopResult{Target: f.session, DryRun: dryRun, Archive: archive}, f.failWith
 }
 
 func (f *fakeSessions) Park(sessionID string, dryRun bool) (sessioncmd.ParkResult, error) {
@@ -655,5 +657,27 @@ func TestSessionsSubcommandCarriesTheSameFiltersAsTheTool(t *testing.T) {
 	if bare := sessions.listOpts; bare.Limit != sessioncmd.DefaultSessionLimit || bare.Parent != "" ||
 		len(bare.Status) != 0 || bare.IncludeArchived {
 		t.Fatalf("a bare call asked for %+v", bare)
+	}
+}
+
+// From a plain shell spawn is the operator's own: it must be detached, it
+// takes the shell's directory when none is named, an agent cannot claim it,
+// and each --arg reaches the CLI whole, commas and all.
+func TestSpawnFromOutsideAnySession(t *testing.T) {
+	t.Setenv(agentEnv, "")
+	sessions := &fakeSessions{session: sampleSession()}
+	if err := runSpawn(io.Discard, sessions, []string{"--tool", "claude"}, ""); err == nil || !strings.Contains(err.Error(), "--nest=false") {
+		t.Fatalf("nested spawn from a plain shell error = %v", err)
+	}
+	if err := runSpawn(io.Discard, sessions, []string{"--nest=false", "--tool", "claude", "--arg", "--chrome", "--arg", "a,b"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if sessions.callerID != "" || sessions.opts.Directory != cwd || !slices.Equal(sessions.opts.Args, []string{"--chrome", "a,b"}) {
+		t.Fatalf("caller %q, opts %+v", sessions.callerID, sessions.opts)
+	}
+	t.Setenv(agentEnv, "1")
+	if err := runSpawn(io.Discard, sessions, []string{"--nest=false", "--tool", "claude"}, ""); err == nil || !strings.Contains(err.Error(), agentEnv) {
+		t.Fatalf("agent operator spawn error = %v", err)
 	}
 }

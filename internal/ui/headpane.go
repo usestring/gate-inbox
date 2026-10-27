@@ -39,7 +39,9 @@ func (m *Model) headPaneOf(owner string) *HeaderPane {
 // asked for. ok is false for a row that is not a header with a page, and for
 // an extension that offered none for this header.
 func (m *Model) headPaneAt(entry treeRow) (*openView, bool) {
-	if !entry.isHead() {
+	// Triage hands over sessions, so a header standing in for a folded one
+	// shows that session there, not the header's page.
+	if !entry.isHead() || (entry.stands && m.triage) {
 		return nil, false
 	}
 	spec := m.headPaneOf(entry.head)

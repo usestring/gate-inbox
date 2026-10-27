@@ -1,0 +1,3 @@
+{"type":"ai-title","sessionId":"jev-copy","aiTitle":"Deploy demo-api"}
+{"type":"user","sessionId":"jev-copy","message":{"role":"user","content":"ship demo-api to staging"}}
+{"type":"assistant","sessionId":"jev-copy","message":{"role":"assistant","content":[{"type":"text","text":"The deploy stopped: your gcloud credentials expired.\nRun `gcloud auth login` in your own terminal, then paste the approval code `rel-7f3a-demo` into the release form. I checked `deploy/service.yaml` and it is unchanged."}]}}

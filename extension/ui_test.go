@@ -35,6 +35,7 @@ type fakeUIHost struct{ id string }
 
 func (fakeUIHost) Decorate(string, ...extension.Badge)              {}
 func (fakeUIHost) ConfirmOpen(string, string)                       {}
+func (fakeUIHost) Fact(string, extension.Fact)                      {}
 func (fakeUIHost) Notify(string)                                    {}
 func (fakeUIHost) Alert(extension.Alert)                            {}
 func (fakeUIHost) Group(string, extension.Line)                     {}

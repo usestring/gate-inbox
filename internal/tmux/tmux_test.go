@@ -1465,7 +1465,7 @@ func TestSharedBindingsReplaceTheLegacyLeaveKeys(t *testing.T) {
 	if err := driver.EnsureBindings(); err != nil {
 		t.Fatalf("EnsureBindings: %v", err)
 	}
-	bound, _, err := driver.rootKeys()
+	bound, _, err := driver.rootKeys(driver.socket)
 	if err != nil {
 		t.Fatalf("rootKeys: %v", err)
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/launch"
 	"github.com/usestring/gate-inbox/internal/migrate"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
+	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tracing"
 )
 
@@ -22,6 +23,13 @@ type MigrateOptions struct {
 	Tool string
 	// Name names the new session; empty takes "<source name>-<tool>".
 	Name string
+	// SkipPermissions and ChildrenSkipPermissions replace the source's
+	// settings on the moved session; nil keeps them. An agent may turn either
+	// off, but on only where it already is or where the caller spawned the
+	// source and the operator lets its children skip permissions: the same
+	// line create_session draws, so a move is no way around it.
+	SkipPermissions         *bool
+	ChildrenSkipPermissions *bool
 	// accountOverride is the account a switch_account relaunch has already
 	// chosen. An ordinary migration has none and takes none from its
 	// caller: the build's account chooser picks (see accounts.Route).
@@ -32,7 +40,13 @@ type MigrateOptions struct {
 // CLI: a new session on that tool, in the source's group and directory,
 // whose first prompt points at the source's transcript and says to read it
 // and carry on. The source is left as it is -- still running if it was --
-// so the operator decides when it goes.
+// so the operator decides when it goes. An account switch is the exception:
+// the conversation is moving off the old account, so once the new session
+// is up it takes over the source's children and their queued reports, and
+// the source is ended and archived; a switch that fails first leaves the
+// source as it was. An adopted source, a pane the manager did not start,
+// and a source migrating itself are left running with their children even
+// then, for whoever is at them to end.
 func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (moved Session, err error) {
 	// A migration reads the source CLI's whole transcript off disk, rewrites
 	// it for the destination, and launches that CLI on it, which makes this
@@ -48,11 +62,20 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 		return Session{}, err
 	}
 	defer runtime.store.Close()
-	if _, err := runtime.caller(sessionID); err != nil {
+	caller, err := runtime.caller(sessionID)
+	if err != nil {
 		return Session{}, err
 	}
 	source, err := runtime.agent(targetID)
 	if err != nil {
+		return Session{}, err
+	}
+	if err := mayRaiseSkipPermissions(caller, source, opts); err != nil {
+		return Session{}, err
+	}
+	// Whether the source is still running goes into the brief and the
+	// migration hook, and an adopted source only answers once reached.
+	if err := runtime.reach(source); err != nil {
 		return Session{}, err
 	}
 	toolName := strings.TrimSpace(opts.Tool)
@@ -86,11 +109,12 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 		name = source.Name + "-" + toolName
 	}
 	words := VocabularyFor(toolName, tool)
+	retire := opts.accountOverride != nil && source.TmuxPaneID == "" && source.ID != sessionID
 	prompt := migrate.Prompt(migrate.Brief{
 		Source:        source,
 		SourceTool:    source.Tool,
 		Transcript:    transcript,
-		SourceRunning: runtime.driver.Exists(source.ID) && !source.Archived,
+		SourceRunning: !retire && runtime.driver.Exists(source.ID) && !source.Archived,
 		ReadAction:    words.Read,
 		SendAction:    words.Send,
 		FilterNote:    filterNote,
@@ -118,6 +142,14 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 		return Session{}, err
 	}
 	sess := migrate.NewSession(id, name, toolName, source, plan)
+	sess.SkipPermissions, sess.ChildrenSkipPermissions, err = migrate.SkipPermissions(source, toolName, tool, opts.SkipPermissions, opts.ChildrenSkipPermissions)
+	if err != nil {
+		return Session{}, err
+	}
+	base, err := launch.WithSkipPermissions(toolName, tool, plan.Command, sess.SkipPermissions)
+	if err != nil {
+		return Session{}, err
+	}
 	sessionHooks, err := sessionhooks.Current()
 	if err != nil {
 		return Session{}, err
@@ -126,7 +158,7 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	if err != nil {
 		return Session{}, err
 	}
-	command, env, err := launch.EnvironmentWithProfile(hooks.NewManager(s.configDir), toolName, tool, plan.Command, id, plan.Model, plan.Account, contributed, mcpProfile(sess))
+	command, env, err := launch.EnvironmentWithProfile(hooks.NewManager(s.configDir), toolName, tool, base, id, plan.Model, plan.Account, sess.SkipPermissions, contributed, mcpProfile(sess))
 	if err != nil {
 		return Session{}, err
 	}
@@ -152,7 +184,26 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	}
 	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account)
 	_ = runtime.driver.SetLabel(sess.ID, sessionLabel(sess.Group, sess.Name))
+	if err := retireMigrated(s, runtime, source, sess, retire); err != nil {
+		return Session{}, err
+	}
 	return runtime.sessionInfo(sess, true, false), nil
+}
+
+// retireMigrated hands the source's children to moved and files the source
+// away, then ends its pane. Only once moved's pane is up: a new session that
+// died on launch has taken nothing over, and the source stays as it was.
+func retireMigrated(s *Sessions, runtime *runtime, source, moved store.Session, retire bool) error {
+	if !retire || !runtime.driver.Exists(moved.ID) {
+		return nil
+	}
+	if err := runtime.store.CompleteMigration(source.ID, moved.ID); err != nil {
+		return fmt.Errorf("%s started, but %s's children could not be handed to it: %w", moved.Name, source.Name, err)
+	}
+	if err := s.endSession(runtime, source, store.EndKilled); err != nil {
+		return fmt.Errorf("%s took over, but ending %s failed: %w", moved.Name, source.Name, err)
+	}
+	return nil
 }
 
 // filterForHandover runs the handover filter over a located transcript,
@@ -196,4 +247,26 @@ func filterTranscript(transcript migrate.Transcript, dst string, opts handover.O
 		return handover.Stats{}, false, nil
 	}
 	return stats, true, err
+}
+
+// mayRaiseSkipPermissions refuses a move that would turn a session's prompts
+// off where the operator has not: an agent may keep or narrow either setting,
+// and raise one only on a session it spawned while its own children are
+// allowed to skip permissions.
+func mayRaiseSkipPermissions(caller, source store.Session, opts MigrateOptions) error {
+	allowed := caller.ChildrenSkipPermissions && store.SpawnerOf(source) == caller.ID
+	for _, c := range []struct {
+		flag    string
+		asked   *bool
+		current bool
+	}{
+		{"skip_permissions", opts.SkipPermissions, source.SkipPermissions},
+		{"children_skip_permissions", opts.ChildrenSkipPermissions, source.ChildrenSkipPermissions},
+	} {
+		if c.asked != nil && *c.asked && !c.current && !allowed {
+			return fmt.Errorf("%s true is refused: %s does not have it on, and the operator has not allowed "+
+				"this session's children to skip permissions; leave it unset or false", c.flag, source.ID)
+		}
+	}
+	return nil
 }

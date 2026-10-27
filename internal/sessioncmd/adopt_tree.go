@@ -68,6 +68,13 @@ func (s *Sessions) place(sessionID, targetID string, adopt bool) (Session, error
 	if err != nil {
 		return Session{}, err
 	}
+	// A row adopted from outside the board is placed like any other: taking
+	// it as a child is how a session comes to answer its dialogs, by the same
+	// parent rule as a spawn. Its pane is reached first so the placement it
+	// reports says whether that pane is running.
+	if err := runtime.reach(target); err != nil {
+		return Session{}, err
+	}
 	parentID := ""
 	if adopt {
 		// Somebody else's child stays theirs. The refusal names the owner
@@ -129,6 +136,11 @@ func (r *runtime) parentGone(parentID string) (bool, error) {
 		return true, nil
 	}
 	if err != nil {
+		return false, err
+	}
+	// An adopted parent's pane is not gi_<id>, so unreached it reads as gone
+	// and any session could take its children out from under it.
+	if err := r.reach(parent); err != nil {
 		return false, err
 	}
 	return parent.Archived || !r.driver.Exists(parent.ID), nil

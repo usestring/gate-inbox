@@ -81,7 +81,7 @@ type readTerminalArgs struct {
 
 type listSessionsArgs struct {
 	Parent          string   `json:"parent,omitempty" jsonschema:"keep only the sessions this one spawned; pass \"me\" for this session's own children, which is the fan-out it is steering; omit for every session whoever spawned it"`
-	Status          []string `json:"status,omitempty" jsonschema:"keep only sessions in these states: starting, working, waiting, delegating, finished, idle, errored or dead; omit for every state"`
+	Status          []string `json:"status,omitempty" jsonschema:"keep only sessions in these states: starting, working, waiting, delegating, background, finished, idle, errored or dead; omit for every state"`
 	IncludeArchived bool     `json:"include_archived,omitempty" jsonschema:"also list sessions archived out of the active list, which on a long-lived board are most of the table; pass it only when looking for a row to restore with archive_session"`
 	Limit           int      `json:"limit,omitempty" jsonschema:"how many rows to return (default 50, maximum 500); the reply says how many matched, so a truncated one is never silent"`
 	IncludeText     *bool    `json:"include_text,omitempty" jsonschema:"when false, the readable rendering is replaced by a one-line count and the rows come back only in the structured result, which halves the reply; omit or true for both renderings"`
@@ -115,7 +115,7 @@ type createSessionArgs struct {
 	// DirectoryReason opts one launch out of its group's pinned directory.
 	DirectoryReason string `json:"directory_reason,omitempty" jsonschema:"why this session must start in directory itself although its group pins another; rarely needed, since a pinned group's directory is where the user wants work to start, so leave it empty unless the task only works when started there"`
 	Nest            *bool  `json:"nest,omitempty" jsonschema:"omit it: the new session is this session's child, drawn under it, and its questions, rests and finishes are relayed to this session, which is how a fan-out gets steered; false detaches it into a top-level session that belongs to the user, not to this session: it still records this session in spawned_by, but this session is not told of its questions, rests or finishes and cannot answer its dialogs, and the two talk only through send_session and read_session; only for work that is not this session's, such as a standalone session the user asked for"`
-	SkipPermissions *bool  `json:"skip_permissions,omitempty" jsonschema:"omit it: the child follows the setting the user chose for this session's children; true launches it with its CLI's permission prompts off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox) and is refused unless the user allowed that for this session's children, or for a CLI with no such flag (opencode); false keeps its prompts on"`
+	SkipPermissions *bool  `json:"skip_permissions,omitempty" jsonschema:"omit it: the child follows the setting the user chose for this session's children; true launches it with its CLI's permission prompts off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox, opencode through its generated config) and is refused unless the user allowed that for this session's children; false keeps its prompts on"`
 	Keep            bool   `json:"keep,omitempty" jsonschema:"keep this child on the list after it finishes: Gate Inbox otherwise archives a finished child on its own once you have read or been told of its finish and left it alone for the grace period (10 minutes by default); a child with background work still running is not finished"`
 	// CallerSessionID carries the caller's own session id when the MCP
 	// server's startup value cannot be trusted: opencode multiplexes
@@ -153,7 +153,7 @@ type migrateSessionArgs struct {
 	Tool      string `json:"tool" jsonschema:"agent CLI the conversation moves to, such as claude, codex or opencode; call list_sessions to see which are in use"`
 	Name      string `json:"name,omitempty" jsonschema:"kebab-case name for the new session; defaults to the source's name with the tool appended"`
 	// Nil keeps the source's setting; see sessioncmd.MigrateOptions.
-	SkipPermissions         *bool `json:"skip_permissions,omitempty" jsonschema:"omit it to keep the source's setting; false relaunches the moved session with its permission prompts on, true with them off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox), refused unless the source already has it or is a child of yours whose skipping the user allowed, and for a CLI with no such flag (opencode)"`
+	SkipPermissions         *bool `json:"skip_permissions,omitempty" jsonschema:"omit it to keep the source's setting; false relaunches the moved session with its permission prompts on, true with them off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox, opencode through its generated config), refused unless the source already has it or is a child of yours whose skipping the user allowed"`
 	ChildrenSkipPermissions *bool `json:"children_skip_permissions,omitempty" jsonschema:"omit it to keep the source's setting; whether sessions the moved session spawns skip their permission prompts by default; true is refused on the same terms as skip_permissions"`
 }
 
@@ -168,7 +168,7 @@ type muteSessionArgs struct {
 }
 
 type cleanupChildrenArgs struct {
-	Statuses []string `json:"statuses,omitempty" jsonschema:"states of the children to archive: starting, working, waiting, delegating, finished, idle, errored or dead; defaults to finished, idle and dead"`
+	Statuses []string `json:"statuses,omitempty" jsonschema:"states of the children to archive: starting, working, waiting, delegating, background, finished, idle, errored or dead; defaults to finished, idle and dead"`
 	All      bool     `json:"all,omitempty" jsonschema:"archive every child whatever its state, including ones spawned with keep and ones whose own children are still working"`
 	DryRun   bool     `json:"dry_run,omitempty" jsonschema:"report what would be archived without archiving anything"`
 }
@@ -247,7 +247,7 @@ type waitSessionArgs struct {
 	SessionID  string   `json:"session_id,omitempty" jsonschema:"one session id returned by list_sessions or create_session; for a fan-out use children, or session_ids"`
 	SessionIDs []string `json:"session_ids,omitempty" jsonschema:"several session ids to park on at once; the call ends as soon as any one of them arrives and reports where all of them stand"`
 	Children   bool     `json:"children,omitempty" jsonschema:"park on every session you spawned, which is what a fan-out wants; give this instead of session_id or session_ids, never alongside them"`
-	Until      []string `json:"until,omitempty" jsonschema:"states that end the wait; defaults to every state that means a session stopped working (finished, waiting, idle, errored, dead); delegating, a session at rest whose own children are still going, is not one of them. Valid values: starting, working, waiting, delegating, finished, idle, errored, dead"`
+	Until      []string `json:"until,omitempty" jsonschema:"states that end the wait; defaults to every state that means a session stopped working (finished, waiting, idle, errored, dead); delegating, a session at rest whose own children are still going, and background, one whose turn ended with a shell or task still running, are not among them. Valid values: starting, working, waiting, delegating, background, finished, idle, errored, dead"`
 	TimeoutS   int      `json:"timeout_s,omitempty" jsonschema:"seconds to wait before giving up, default 50, maximum 120; your own client may cut the call short before this"`
 }
 
@@ -565,7 +565,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "list_sessions",
 		Description: "Call first whenever the work involves another agent: before delegating, before reporting what the fleet is doing, and to find a session's id. " +
-			"Lists every agent session Gate Inbox knows (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, delegating, finished, idle, errored, dead; delegating is a session whose turn ended while children it spawned are still going, so their results are still coming back to it) and which row is this session. " +
+			"Lists every agent session Gate Inbox knows (separate CLI processes, not your subagents) with ids, names, CLIs, groups, directories, statuses (starting, working, waiting, delegating, background, finished, idle, errored, dead; delegating is a session whose turn ended while children it spawned are still going, so their results are still coming back to it; background is a session whose turn ended with a shell, monitor or task still running, which wakes it into another turn) and which row is this session. " +
 			"Reuse a relevant idle session instead of creating another; otherwise call create_session. " +
 			"Filter rather than reading the whole board, which can run to hundreds of kilobytes: parent \"me\" is your own children, status narrows by state, and archived rows are left out unless you ask for them.",
 		Annotations: mcptool.Annotations(true, false, false),
@@ -615,7 +615,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "switch_account",
 		Description: "Move a session onto another named subscription, for when the account it runs on has hit its usage limit. " +
-			"Claude contexts over 200,000 input tokens migrate to a fresh same-tool conversation on the chosen account, returning a new session ID and leaving the source intact. Otherwise a live session restarts on its conversation, and a dead one takes the account at its next revive. " +
+			"Claude contexts over 200,000 input tokens (or, for an urgent or high session, over its tier's auto-compact window when that is larger) migrate to a fresh same-tool conversation on the chosen account, returning a new session ID; the new session takes over the source's children and the source is ended and archived. Otherwise a live session restarts on its conversation, and a dead one takes the account at its next revive. " +
 			"This restarts a live agent on the user's machine, so use it on a session that is blocked by a limit, not one mid-way through work; it cannot be this session itself.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args switchAccountArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
@@ -841,7 +841,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Description: "Park until a session you are waiting on stops working, instead of calling read_session in a loop. " +
 			"Call it after handing an agent a task when your next step depends on its result. " +
 			"For a fan-out pass children true, or several session_ids: one call parks on the whole set and returns the moment any one of them arrives, so never wait on children one at a time. " +
-			"By default it returns once a session reaches any state that means it stopped (finished, waiting, idle, errored or dead; a session at rest while its own children are still going reads delegating and does not end the wait); pass until to wait for particular states. " +
+			"By default it returns once a session reaches any state that means it stopped (finished, waiting, idle, errored or dead; a session at rest while its own children are still going reads delegating, one resting on a shell still running reads background, and neither ends the wait); pass until to wait for particular states. " +
 			"It counts from your own handoff. While a message you sent that session is still queued, its state describes the turn before, so the wait carries on until that message goes in and its turn ends. " +
 			"Pass timeout_s for how long to park. A timeout is a normal answer, not a failure: the result carries reached false and the actual state, and outcome says whether it reached, timed_out or died. " +
 			"standing carries every waited-on session with its own outcome, so use that rather than a follow-up list_sessions, then read_session on whichever one moved.",
@@ -950,7 +950,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "cleanup_children",
 		Description: "Archive the sessions this one spawned that are done, in one call, instead of archive_session on each. " +
-			"By default it takes children that are finished, idle or dead, each with every session it spawned in turn, and leaves one that is working, waiting on a question, errored, delegating, spawned with keep, or still has working children of its own, saying why. " +
+			"By default it takes children that are finished, idle or dead, each with every session it spawned in turn, and leaves one that is working, waiting on a question, errored, delegating, background, spawned with keep, or still has working children of its own, saying why. " +
 			"Pass statuses to choose the states, all true to archive every child whatever it is doing, and dry_run true to see the plan first. " +
 			"A terminal you opened is taken only once its shell has exited; a running one is left for close_terminal. " +
 			"It reaches only your own fan-out. Archiving ends a running agent: its last screen is kept, the row stays in the archived view for 7 days, and revive_session brings it back. " +

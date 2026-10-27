@@ -65,3 +65,24 @@ func TestSubmittedDraftsLeaveThePullRequest(t *testing.T) {
 		t.Fatal("a submitted draft changed state")
 	}
 }
+
+// A session prepared ahead of the operator is recorded on the ask without starting it, so the ask
+// still queues as waiting until the operator opens it.
+func TestAttachReviewSessionKeepsTheAskPending(t *testing.T) {
+	s := newTestStore(t)
+	now := time.Unix(1700000000, 0)
+	ask := ReviewRequest{Repo: "o/r", Number: 7, Trigger: "requested", TriggerID: "R_1"}
+	if _, err := s.UpsertReviewRequests([]ReviewRequest{ask}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AttachReviewSession("o/r", 7, "sess-1", now); err != nil {
+		t.Fatal(err)
+	}
+	open, err := s.OpenReviewRequests()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(open) != 1 || open[0].State != ReviewPending || open[0].SessionID != "sess-1" {
+		t.Fatalf("open = %+v, want one pending ask on sess-1", open)
+	}
+}

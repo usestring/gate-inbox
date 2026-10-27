@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/usestring/gate-inbox/internal/forge"
-	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -91,7 +90,7 @@ func TestSubmittedReviewCarriesKeptDraftsOnTheDiff(t *testing.T) {
 
 func TestReviewSubmissionStaysPendingAcrossPageNavigation(t *testing.T) {
 	m := &Model{}
-	view := m.reviewsPane().view.(*reviewsView)
+	view := m.reviewsPR()
 	r := store.ReviewRequest{Repo: "o/r", Number: 7}
 	view.page = &prPage{review: r}
 	view.cache.details = map[string]*forge.PRDetail{view.page.key(): {NodeID: "PR_1", HeadSHA: "abc"}}
@@ -113,8 +112,8 @@ func TestReviewSubmissionStaysPendingAcrossPageNavigation(t *testing.T) {
 }
 
 func TestReviewComposePastePreservesMultilineBody(t *testing.T) {
-	m := &Model{mode: modeHeadPane, extView: openView{screen: keymap.ContextReviewPage}}
-	view := m.reviewsPane().view.(*reviewsView)
+	m := &Model{reviewQueue: true, reviewsTab: true}
+	view := m.reviewsPR()
 	view.page = &prPage{compose: &draftCompose{text: []rune("prefix ")}}
 	m.update(tea.PasteMsg{Content: "first\r\nsecond\rthird\x00 café"})
 	if got := string(view.page.compose.text); got != "prefix first\nsecond\nthird café" {

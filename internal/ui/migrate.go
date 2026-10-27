@@ -189,7 +189,7 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 		Source:        source,
 		SourceTool:    source.Tool,
 		Transcript:    m.migrate.transcript,
-		SourceRunning: source.TmuxPaneID != "" && m.tmux.Exists(source.ID) && !source.Archived,
+		SourceRunning: (m.migrate.account == nil || source.TmuxPaneID != "") && m.tmux.Exists(source.ID) && !source.Archived,
 		ReadAction:    words.Read,
 		SendAction:    words.Send,
 	})
@@ -223,7 +223,7 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 	moved := migrate.NewSession(id, name, toolName, source, plan)
 	moved.MigrationOpening = m.openingPrompts(source)
 	self, children := m.migratePermissions()
-	moved.SkipPermissions, moved.ChildrenSkipPermissions, err = migrate.SkipPermissions(source, tool, self, children)
+	moved.SkipPermissions, moved.ChildrenSkipPermissions, err = migrate.SkipPermissions(source, toolName, tool, self, children)
 	if err != nil {
 		m.reportLaunchError(err)
 		return m, nil
@@ -232,7 +232,10 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 		m.reportLaunchError(err)
 		return m, nil
 	}
-	retireErr := m.retireMigrated(moved)
+	var retireErr error
+	if m.migrate.account != nil {
+		retireErr = m.retireMigrated(moved)
+	}
 	m.sessions, err = m.poller.listSessions(true)
 	if err != nil {
 		m.errBar.text = err.Error()
@@ -248,8 +251,9 @@ func (m *Model) submitMigrate() (tea.Model, tea.Cmd) {
 }
 
 // retireMigrated hands the source's children and their queued reports to
-// sess, the session a migration just started, and files the source away
-// with its pane ended. Only once sess's pane is up, so a launch that died
+// sess, the session an account switch just migrated to, and files the source
+// away with its pane ended. A migration from the migrate card leaves the
+// source for the operator to end. Only once sess's pane is up, so a launch that died
 // leaves the source as it was; and never for an adopted source, whose pane
 // belongs to whoever started it and which keeps its children. An error is only reported: the migration
 // itself already happened.
@@ -290,5 +294,5 @@ func (m *Model) viewMigrate() string {
 // viewMigrateSkipToggle is the session's own toggle on the migrate card,
 // which says when the destination CLI cannot honour it.
 func (m *Model) viewMigrateSkipToggle(on bool) string {
-	return m.viewSkipToggleFor(on, m.cfg.Tools[m.migrateTool()].SkipPermissionsFlag != "", m.migrateTool())
+	return m.viewSkipToggleFor(on, launch.SkipsPermissions(m.migrateTool(), m.cfg.Tools[m.migrateTool()]), m.migrateTool())
 }

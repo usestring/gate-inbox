@@ -1,8 +1,10 @@
 package codexq
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -86,5 +88,101 @@ func TestRolloutPathFindsTheConversation(t *testing.T) {
 	}
 	if got := RolloutPath(root, "missing"); got != "" {
 		t.Fatalf("RolloutPath of a missing conversation = %q", got)
+	}
+}
+
+func TestRolloutPathFollowsResumes(t *testing.T) {
+	root := t.TempDir()
+	const id = "11111111-1111-4111-8111-111111111111"
+	const resume = "22222222-2222-4222-8222-222222222222"
+	write := func(name, sessionID string) string {
+		t.Helper()
+		path := filepath.Join(root, name)
+		data, err := json.Marshal(map[string]any{"type": "session_meta", "payload": map[string]string{"session_id": sessionID, "id": sessionID}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	old := write("rollout-2026-10-01T01-00-00-"+id+".jsonl", id)
+	if got := RolloutPath(root, id); got != old {
+		t.Fatalf("initial path = %q, want %q", got, old)
+	}
+	resumed := write("rollout-2026-10-01T02-00-00-"+id+"_"+resume+".jsonl", id)
+	if got := RolloutPath(root, id); got != resumed {
+		t.Fatalf("resumed path = %q, want %q", got, resumed)
+	}
+	write("rollout-2026-10-01T03-00-00-"+id+"_"+resume+".jsonl", resume)
+	write("rollout-2026-10-01T04-00-00-prefix"+id+".jsonl", id)
+	write("rollout-2026-10-01T05-00-00-"+resume+"_"+id+".jsonl", resume)
+	if got := RolloutPath(root, id); got != resumed {
+		t.Fatalf("unrelated rollout selected: %q, want %q", got, resumed)
+	}
+}
+
+const asyncApprovalCall = `{"timestamp":"2026-10-01T01:00:00Z","type":"response_item","payload":{"type":"function_call","name":"request_user_input_async","call_id":"approval","arguments":"{\"questions\":[{\"title\":\"Run the proposed action?\",\"options\":[\"Go\",\"Defer\"]}]}"}}` + "\n"
+
+func userReplyLine(t *testing.T, text string) string {
+	t.Helper()
+	data, err := json.Marshal(map[string]any{
+		"timestamp": "2026-10-01T01:01:00Z", "type": "response_item",
+		"payload": map[string]any{"type": "message", "role": "user", "content": []map[string]string{{"type": "input_text", "text": text}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data) + "\n"
+}
+
+func TestSyntheticPromptsLeaveQuestionsPending(t *testing.T) {
+	for _, prompt := range []string{
+		"<hook_prompt hook_run_id=\"stop:1\">Go</hook_prompt>",
+		" \n<hook_prompt>Go</hook_prompt>",
+		"[gate-inbox] From agent: Go",
+	} {
+		t.Run(prompt, func(t *testing.T) {
+			data := asyncApprovalCall + userReplyLine(t, prompt)
+			calls, err := readCalls(strings.NewReader(data))
+			if err != nil || len(calls) != 1 || calls[0].State != Outstanding || calls[0].Reply != "" {
+				t.Fatalf("synthetic input consumed question: %+v, %v", calls, err)
+			}
+			path := filepath.Join(t.TempDir(), "rollout.jsonl")
+			if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var tracker Tracker
+			questions, err := tracker.Update(path)
+			if err != nil || len(Unresolved(questions)) != 1 {
+				t.Fatalf("tracker lost pending ask: %+v, %v", questions, err)
+			}
+			calls, err = readCalls(strings.NewReader(data + userReplyLine(t, "Go")))
+			if err != nil || len(calls) != 1 || calls[0].State != Superseded || calls[0].Reply != "Go" {
+				t.Fatalf("real reply after synthetic input = %+v, %v", calls, err)
+			}
+		})
+	}
+}
+
+func TestAsyncReplyIsNotAssignedToAmbiguousQuestions(t *testing.T) {
+	bundled := strings.Replace(asyncApprovalCall, `\"options\":[\"Go\",\"Defer\"]}`, `\"options\":[\"Go\",\"Defer\"]},{\"title\":\"Run another action?\",\"options\":[\"Go\",\"Defer\"]}`, 1)
+	cases := map[string]string{
+		"bundled":     bundled,
+		"overlapping": asyncApprovalCall + strings.Replace(asyncApprovalCall, `"call_id":"approval"`, `"call_id":"other"`, 1),
+	}
+	for name, data := range cases {
+		t.Run(name, func(t *testing.T) {
+			calls, err := readCalls(strings.NewReader(data + userReplyLine(t, "Go")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, call := range calls {
+				if call.Reply != "" {
+					t.Fatalf("ambiguous reply assigned: %+v", call)
+				}
+			}
+		})
 	}
 }

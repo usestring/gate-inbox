@@ -78,31 +78,19 @@ type prCache struct {
 // openPullRequest opens the page for an ask and fetches the pull request
 // unless it is already cached.
 func (m *Model) openPullRequest(r store.ReviewRequest) tea.Cmd {
-	view := m.reviewsPane().view.(*reviewsView)
-	view.page = &prPage{review: r}
-	m.setReviewsScreen(keymap.ContextReviewPage)
+	m.reviewsPR().page = &prPage{review: r}
 	return tea.Batch(m.loadDrafts(), m.fetchPullRequest(r, false))
 }
 
-// closePullRequest goes back from the page to the queue.
+// closePullRequest goes back from the page to the selected ask.
 func (m *Model) closePullRequest() {
-	m.reviewsPane().view.(*reviewsView).page = nil
-	m.setReviewsScreen(keymap.ContextReviews)
-}
-
-// setReviewsScreen moves the review page's keys to a screen, on the stored
-// page and on the focused copy of it alike.
-func (m *Model) setReviewsScreen(screen keymap.Context) {
-	m.reviewsPane().screen = screen
-	if m.extView.id == reviewsPaneID {
-		m.extView.screen = screen
-	}
+	m.reviewsPR().page = nil
 }
 
 // fetchPullRequest asks GitHub for the pull request off the loop. again
 // fetches it even when one is cached, for the refresh key.
 func (m *Model) fetchPullRequest(r store.ReviewRequest, again bool) tea.Cmd {
-	cache := &m.reviewsPane().view.(*reviewsView).cache
+	cache := &m.reviewsPR().cache
 	key := prDetailKey(r)
 	if cache.fetching[key] || (!again && cache.details[key] != nil) {
 		return nil
@@ -121,7 +109,7 @@ func (m *Model) fetchPullRequest(r store.ReviewRequest, again bool) tea.Cmd {
 // finishPullRequest takes in a fetched pull request. A failed refresh keeps
 // the page it had and says why on the error bar.
 func (m *Model) finishPullRequest(msg prDetailMsg) (tea.Model, tea.Cmd) {
-	cache := &m.reviewsPane().view.(*reviewsView).cache
+	cache := &m.reviewsPR().cache
 	delete(cache.fetching, msg.key)
 	if !msg.health.OK {
 		reason := msg.health.Reason
@@ -147,7 +135,7 @@ func (m *Model) finishPullRequest(msg prDetailMsg) (tea.Model, tea.Cmd) {
 
 // handleReviewPageKey answers a key on an open pull request's page.
 func (m *Model) handleReviewPageKey(action keymap.Action, bound bool) (tea.Model, tea.Cmd) {
-	view := m.reviewsPane().view.(*reviewsView)
+	view := m.reviewsPR()
 	page := view.page
 	if !bound || page == nil {
 		return m, nil

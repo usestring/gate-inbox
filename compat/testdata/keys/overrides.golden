@@ -40,6 +40,7 @@ migrate = []  # migrate it to another CLI
 revive = ["v"]  # revive it, or restart a live one on its own conversation
 revive_all = ["V", "shift+v"]  # revive every dead session
 ingest_reviews = ["P", "shift+p"]  # fetch reviews asked of you on GitHub
+reviews_tab = ["]"]  # switch between the Sessions and Reviews tabs
 switch_account = []  # switch its account: restarts it on its own conversation
 restart = []  # restart it on an empty context
 restart_with = []  # restart it with extra flags…
@@ -74,6 +75,7 @@ search = ["/"]  # fuzzy session search
 clear_search = []  # clear the search
 resize_split = []  # resize the split
 settings = ["s"]  # settings
+refresh_clis = []  # refresh installed CLIs: look on PATH again for each agent CLI
 toggle_chrome = []  # hide / show the key hints along the foot
 toggle_rail = []  # hide / show the list beside the pane
 legend_peek = ["?"]  # peek at every available key
@@ -135,7 +137,7 @@ confirm = ["y", "enter"]  # go ahead (required)
 confirm_always = ["A", "shift+a"]  # go ahead and stop asking
 
 [reviews]
-close = ["esc", "q"]  # back to the list (required)
+close = ["esc"]  # back to the sessions (required)
 cursor_up = ["up", "k"]  # move up (required)
 cursor_down = ["down", "j"]  # move down (required)
 review_view = ["enter"]  # open the pull request (required)

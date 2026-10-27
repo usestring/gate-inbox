@@ -255,7 +255,7 @@ func (m *Model) syncFormFieldWidths() {
 	// The filter trails the CLI list on its last row, sized to what that row
 	// leaves, so focusing the field does not add a row to the card. Only a
 	// row too full for even a short filter pushes it onto a row of its own.
-	rows := toolPickerRows(m.form.toolNames, "", nil, inner)
+	rows := toolPickerRows(m.form.toolNames, "", nil, nil, inner)
 	room := inner - lipgloss.Width(rows[len(rows)-1]) - 3
 	if room < 4 {
 		room = inner - 1
@@ -343,12 +343,12 @@ func sortedToolNames(cfg config.Config) []string {
 }
 
 // enabledToolNames is the create-session picker: configured tools minus any
-// the user hid in settings, in the order settings gave them. Existing
-// sessions keep their tool even when hidden.
+// the user hid in settings and any not found on PATH, in the order settings
+// gave them. Existing sessions keep their tool even when hidden.
 func (m *Model) enabledToolNames() []string {
 	var out []string
 	for _, name := range m.pickerNames() {
-		if !m.isShell(name) {
+		if !m.isShell(name) && !m.toolMissing(name) {
 			out = append(out, name)
 		}
 	}
@@ -413,6 +413,9 @@ func orderTools(names []string, raw string) []string {
 func (m *Model) formToolSelection() ([]string, int) {
 	names := m.pickerNames()
 	current := m.defaultTool()
+	if current == "" {
+		current = firstOf(m.installedOnly(names))
+	}
 	index := 0
 	for i, name := range names {
 		if name == current {
@@ -424,8 +427,8 @@ func (m *Model) formToolSelection() ([]string, int) {
 
 func (m *Model) openForm() {
 	tools, toolIndex := m.formToolSelection()
-	if len(tools) == 0 {
-		m.errBar.text = "no CLIs enabled: open settings (s), then CLIs, to turn some on"
+	if len(m.installedOnly(tools)) == 0 {
+		m.errBar.text = m.noCLIText()
 		return
 	}
 
@@ -669,7 +672,7 @@ func (m *Model) flipSkip() bool {
 // formSkipSupported reports whether the selected CLI can be launched with
 // its permission prompts off; the card says so rather than hiding the field.
 func (m *Model) formSkipSupported() bool {
-	return m.cfg.Tools[m.selectedToolName()].SkipPermissionsFlag != ""
+	return launch.SkipsPermissions(m.selectedToolName(), m.cfg.Tools[m.selectedToolName()])
 }
 
 func (m *Model) formFocus(delta int) {
@@ -736,7 +739,7 @@ func matchTools(names []string, filter string) []string {
 }
 
 func (m *Model) formToolMatches() []string {
-	return matchTools(m.form.toolNames, m.form.toolFilter.Value())
+	return matchTools(m.installedOnly(m.form.toolNames), m.form.toolFilter.Value())
 }
 
 // selectedToolName is the CLI the form would launch, empty only when nothing
@@ -807,10 +810,14 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if len(m.formToolMatches()) == 0 {
-		m.errBar.text = "no CLI matches " + strings.TrimSpace(m.form.toolFilter.Value())
+		m.errBar.text = m.noMatchText(m.form.toolNames, m.form.toolFilter.Value())
 		return m, nil
 	}
 	toolName := m.selectedToolName()
+	if m.toolMissing(toolName) {
+		m.errBar.text = m.noMatchText(m.form.toolNames, toolName)
+		return m, nil
+	}
 	if m.isShell(toolName) {
 		return m.submitFormTerminal(toolName)
 	}
@@ -1039,11 +1046,11 @@ func (m *Model) spawnSessionWith(toolName, model, name, dir, group, prompt strin
 }
 
 func (m *Model) buildLaunch(toolName string, tool config.Tool, baseCommand, id, model, account string, skip bool, contributed map[string]string) (string, map[string]string, error) {
-	baseCommand, err := launch.WithSkipPermissions(tool, baseCommand, skip)
+	baseCommand, err := launch.WithSkipPermissions(toolName, tool, baseCommand, skip)
 	if err != nil {
 		return "", nil, err
 	}
-	return launch.Environment(m.hooks, toolName, tool, baseCommand, id, model, account, contributed)
+	return launch.Environment(m.hooks, toolName, tool, baseCommand, id, model, account, skip, contributed)
 }
 
 func (m *Model) openGroupForm() {

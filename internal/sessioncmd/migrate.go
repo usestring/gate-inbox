@@ -39,11 +39,14 @@ type MigrateOptions struct {
 // Migrate starts the source session's conversation over on another agent
 // CLI: a new session on that tool, in the source's group and directory,
 // whose first prompt points at the source's transcript and says to read it
-// and carry on. Once the new session is up it takes over the source's
-// children and their queued reports, and the source is ended and archived;
-// a migration that fails first leaves the source as it was. An adopted
-// source, a pane the manager did not start, and a source migrating itself
-// are left running with their children, for whoever is at them to end.
+// and carry on. The source is left as it is -- still running if it was --
+// so the operator decides when it goes. An account switch is the exception:
+// the conversation is moving off the old account, so once the new session
+// is up it takes over the source's children and their queued reports, and
+// the source is ended and archived; a switch that fails first leaves the
+// source as it was. An adopted source, a pane the manager did not start,
+// and a source migrating itself are left running with their children even
+// then, for whoever is at them to end.
 func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (moved Session, err error) {
 	// A migration reads the source CLI's whole transcript off disk, rewrites
 	// it for the destination, and launches that CLI on it, which makes this
@@ -106,7 +109,7 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 		name = source.Name + "-" + toolName
 	}
 	words := VocabularyFor(toolName, tool)
-	retire := source.TmuxPaneID == "" && source.ID != sessionID
+	retire := opts.accountOverride != nil && source.TmuxPaneID == "" && source.ID != sessionID
 	prompt := migrate.Prompt(migrate.Brief{
 		Source:        source,
 		SourceTool:    source.Tool,
@@ -139,11 +142,11 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 		return Session{}, err
 	}
 	sess := migrate.NewSession(id, name, toolName, source, plan)
-	sess.SkipPermissions, sess.ChildrenSkipPermissions, err = migrate.SkipPermissions(source, tool, opts.SkipPermissions, opts.ChildrenSkipPermissions)
+	sess.SkipPermissions, sess.ChildrenSkipPermissions, err = migrate.SkipPermissions(source, toolName, tool, opts.SkipPermissions, opts.ChildrenSkipPermissions)
 	if err != nil {
 		return Session{}, err
 	}
-	base, err := launch.WithSkipPermissions(tool, plan.Command, sess.SkipPermissions)
+	base, err := launch.WithSkipPermissions(toolName, tool, plan.Command, sess.SkipPermissions)
 	if err != nil {
 		return Session{}, err
 	}
@@ -155,7 +158,7 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	if err != nil {
 		return Session{}, err
 	}
-	command, env, err := launch.EnvironmentWithProfile(hooks.NewManager(s.configDir), toolName, tool, base, id, plan.Model, plan.Account, contributed, mcpProfile(sess))
+	command, env, err := launch.EnvironmentWithProfile(hooks.NewManager(s.configDir), toolName, tool, base, id, plan.Model, plan.Account, sess.SkipPermissions, contributed, mcpProfile(sess))
 	if err != nil {
 		return Session{}, err
 	}

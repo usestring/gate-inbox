@@ -106,8 +106,6 @@ type treeRow struct {
 	// stands marks a header row over a session folded behind it, which is
 	// that session's entry in the tree: see headfold.go.
 	stands bool
-	// reviews marks the review queue's row: see reviews.go.
-	reviews bool
 }
 
 // isArtifact marks a row that draws a pull request or a ticket.
@@ -119,7 +117,7 @@ func (e treeRow) isHead() bool { return e.head != "" }
 // isSession marks a row that is a session itself, as against the group above
 // it, the header over it or the work hanging off it.
 func (e treeRow) isSession() bool {
-	return !e.isGroup && e.art == nil && e.head == "" && !e.reviews
+	return !e.isGroup && e.art == nil && e.head == ""
 }
 
 // entersAs marks the row that is a session's entry in the tree: its own row,
@@ -151,6 +149,9 @@ type Model struct {
 	jevFinish      jevFinishState
 	jevCopyOn      bool
 	jevCopy        jevCopyState
+	// reviewQueue is the Review queue experiment: off, the ingest key
+	// refuses and the rail draws no Reviews tab.
+	reviewQueue    bool
 	promptSuggest  bool
 	promptSnipsSeq int
 	autoSuggestSeq int
@@ -191,15 +192,20 @@ type Model struct {
 	headPanes  map[string]*openView
 	headReturn bool
 
-	// reviews are the open asks for the operator's review, drawn as the
-	// Reviews row; reviewsPage is the page behind it, and reviewsFetching
-	// marks an ingest in flight. See reviews.go.
+	// reviews are the open asks for the operator's review, listed on the
+	// rail's Reviews tab; reviewsTab is whether that tab is up,
+	// reviewsCursor the ask under its cursor, reviewsPage the pull request's
+	// page opened from it, and reviewsFetching marks an ingest in flight.
+	// reviewsSubmitting holds the pull requests with a review on its way to
+	// GitHub. See reviews.go and reviewpage.go.
 	reviews           []store.ReviewRequest
-	reviewsPage       *openView
+	reviewsTab        bool
+	reviewsCursor     int
+	reviewsPage       *reviewsView
 	reviewsFetching   bool
 	reviewsSubmitting map[string]bool
 	// reviewsSeen is the newest ask a triage drain has handed the operator
-	// the Reviews page for, and triageLineage each queued session's key as
+	// the Reviews tab for, and triageLineage each queued session's key as
 	// the last triage sort lifted it. See reviewtriage.go.
 	reviewsSeen   time.Time
 	triageLineage map[string]triageKey
@@ -362,6 +368,8 @@ type Model struct {
 	hogBadges map[string]hogs.Badge
 	// queueDeadlines mirrors refreshMsg.queueDeadlines.
 	queueDeadlines map[string]time.Time
+	// expectedTurns mirrors refreshMsg.expectedTurns.
+	expectedTurns map[string]time.Duration
 	// history is the full-text index over the board's transcripts, nil when
 	// disabled or unavailable. historyHits is the last answer, valid for
 	// historyQuery alone; historySeq tags the debounce timer so only the
@@ -440,6 +448,8 @@ type Model struct {
 	// selection drag or forwarded click.
 	pending pendingClick
 	pane    paneMirror
+	// railHit is the rail's hit-test geometry, written during paint.
+	railHit railHitMap
 	// visible is whether the operator is looking at the manager: its tmux
 	// window is the one their client shows, or the terminal reports focus.
 	// It gates every window pin -- see visible.go. It starts true so a
@@ -584,7 +594,10 @@ type Model struct {
 	// open manager runs the sweep on its own clock rather than every poll.
 	archiveSweptAt  time.Time
 	hideEmptyGroups bool
-	statusFilter    statusFilter
+	// missingTools is the configured agent CLIs the last PATH lookup did not
+	// find; the pickers gray them out. See clidetect.go.
+	missingTools map[string]bool
+	statusFilter statusFilter
 	// toolFilter narrows the list and the triage queue to one harness --
 	// the CLI in sess.Tool -- and is "" for every harness. See toolfilter.go.
 	toolFilter string
@@ -608,7 +621,7 @@ type Model struct {
 	// of the whole fleet.
 	triageScope string
 	// smartTriage mirrors the persisted smart_triage setting: on, triage
-	// orders the walk by weighted wait; off, by the strict state-first order.
+	// orders the walk newest turn first; off, by the strict state-first order.
 	// See triageScore.
 	smartTriage bool
 	// triageStartupEnter is set when triage was already on at startup, so the
@@ -952,6 +965,7 @@ type settingsState struct {
 	jevCopyOn          bool
 	promptSuggest      bool
 	compressedFocus    bool
+	reviewQueue        bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -1051,6 +1065,10 @@ type refreshMsg struct {
 	// queueDeadlines is the extensions' deadlines by session; triage breaks
 	// ties on them.
 	queueDeadlines map[string]time.Time
+	// expectedTurns is how long each session's next turn is expected to run,
+	// for smart triage's horizon term. A session missing from it has no
+	// estimate. See turnhorizon.go.
+	expectedTurns map[string]time.Duration
 }
 
 // previewMsg is every pane frame the model receives. There used to be three
@@ -1312,6 +1330,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		jevAutoSuggest:  storedJevAutoSuggest(st),
 		jevFinishCheck:  storedJevFinishCheck(st),
 		jevCopyOn:       storedJevCopy(st),
+		reviewQueue:     storedReviewQueue(st),
 		promptSuggest:   storedPromptSuggestions(st),
 		comfortableRows: storedComfortableRows(st),
 		layout:          storedLayout(st),
@@ -1553,7 +1572,7 @@ func (m *Model) Init() tea.Cmd {
 	// read any session state, and a first run has none to wait for.
 	m.maybeOpenWelcome()
 	m.syncPollInput()
-	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.headroomStart(), m.arrivalStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips(), m.loadReviews())
+	return tea.Batch(conversationTick(), m.syncPaneTheme(), m.refreshExistingSessionUX, m.previewTick(), m.startStartupTick(), m.sweepPastes, m.pasteSweepTick(), m.refreshWork(), m.workTick(), m.adoptStart(), m.headroomStart(), m.arrivalStart(), m.autoNameTick(), m.checkTmuxConfig, m.refreshPromptSnips(), m.loadReviews(), m.detectCLIsCmd(false))
 }
 
 // pasteSweepMsg carries the result of one pass over the pastes directory.
@@ -1760,10 +1779,6 @@ func (m *Model) selectedIndex() (int, bool) {
 		return 0, false
 	}
 	index := m.cursor
-	// The review queue's row is no session's, so nothing is selected on it.
-	if m.rows[index].reviews {
-		return 0, false
-	}
 	// A header row heads the session drawn just below it, past any other
 	// extension's header over the same session -- unless the session is
 	// folded behind it, when the header is all of the session there is.
@@ -2399,6 +2414,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.stale = msg.stale
 		m.hogBadges = msg.hogBadges
 		m.queueDeadlines = msg.queueDeadlines
+		m.expectedTurns = msg.expectedTurns
 		if msg.snapOK {
 			m.snap = msg.snap
 			m.updateNetRates(msg.snap)
@@ -2540,6 +2556,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case workLoadedMsg:
 		// Work that has just resolved is work the tree can hang rows off.
 		m.rebuildRows()
+		return m, nil
+
+	case cliDetectMsg:
+		m.finishCLIDetect(msg)
 		return m, nil
 
 	case pasteSweepMsg:
@@ -2846,8 +2866,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev())
 
 	case tea.PasteMsg:
-		if m.mode == modeHeadPane && m.extView.screen == keymap.ContextReviewPage {
-			if page := m.reviewPage(); page != nil && page.compose != nil {
+		if m.reviewPageOpen() {
+			if page := m.reviewPage(); page.compose != nil {
 				text := strings.ReplaceAll(msg.Content, "\r\n", "\n")
 				text = strings.ReplaceAll(text, "\r", "\n")
 				lines := strings.Split(text, "\n")
@@ -3091,8 +3111,6 @@ func rowsBelowRoot(rows []treeRow) []treeRow {
 
 func rowKey(entry treeRow) string {
 	switch {
-	case entry.reviews:
-		return "r:reviews"
 	case entry.isGroup:
 		return "g:" + entry.group
 	case entry.isArtifact():
@@ -3451,7 +3469,7 @@ func (m *Model) buildTree() {
 			})
 		}
 		connectMigrationRows(rows)
-		m.rows = m.withReviewsTriage(rows, query)
+		m.rows = rows
 		m.clearGroupNumbers()
 		// The fold column is a fact about the rows on screen, so every
 		// build has to count them. Reading the count a previous tree build
@@ -3492,7 +3510,7 @@ func (m *Model) buildTree() {
 	}
 
 	connectMigrationRows(rows)
-	m.rows = m.withReviewsRow(rows, query)
+	m.rows = rows
 	m.railWorkColumn = m.anyRailWork(rows)
 	m.restoreCursor(previousKey)
 }
@@ -3507,9 +3525,8 @@ func (m *Model) restoreCursor(previousKey string) {
 			}
 		}
 	} else if m.cursor == 0 {
-		// A launch opens on a session, not on root's rollup or the review
-		// queue.
-		for m.cursor < len(m.rows)-1 && (m.rows[m.cursor].isRoot() || m.rows[m.cursor].reviews) {
+		// A launch opens on a session, not on root's rollup.
+		for m.cursor < len(m.rows)-1 && m.rows[m.cursor].isRoot() {
 			m.cursor++
 		}
 	}

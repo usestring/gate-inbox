@@ -74,13 +74,16 @@ func Resolve(toolName, explicit string) (string, error) {
 // asked to run on, for the tool whose generated config is the only place it
 // can be named; every other style leaves it to the command line.
 func Apply(style, exe, hooksDir, command string, env map[string]string, model string) (string, error) {
-	return apply(style, exe, hooksDir, command, env, model, "", true)
+	return apply(style, exe, hooksDir, command, env, model, "", false, true)
 }
 
 // ApplyProfile is Apply registering a server that serves only profile's
-// tools; "" is every tool, as Apply.
-func ApplyProfile(style, exe, hooksDir, command string, env map[string]string, model, profile string) (string, error) {
-	return apply(style, exe, hooksDir, command, env, model, profile, true)
+// tools; "" is every tool, as Apply. skip turns the session's permission
+// prompts off through the config the style generates, which only the opencode
+// style has; any other style refuses it rather than launch with the prompts
+// the operator turned off.
+func ApplyProfile(style, exe, hooksDir, command string, env map[string]string, model, profile string, skip bool) (string, error) {
+	return apply(style, exe, hooksDir, command, env, model, profile, skip, true)
 }
 
 // Preview is Apply without the side effects: the same command and the same
@@ -92,20 +95,23 @@ func ApplyProfile(style, exe, hooksDir, command string, env map[string]string, m
 // avoid doing -- and it fails on a machine where those paths are not writable,
 // which is exactly when somebody is reading a dry run.
 func Preview(style, exe, hooksDir, command string, env map[string]string, model string) (string, error) {
-	return apply(style, exe, hooksDir, command, env, model, "", false)
+	return apply(style, exe, hooksDir, command, env, model, "", false, false)
 }
 
 // PreviewProfile is Preview for ApplyProfile.
-func PreviewProfile(style, exe, hooksDir, command string, env map[string]string, model, profile string) (string, error) {
-	return apply(style, exe, hooksDir, command, env, model, profile, false)
+func PreviewProfile(style, exe, hooksDir, command string, env map[string]string, model, profile string, skip bool) (string, error) {
+	return apply(style, exe, hooksDir, command, env, model, profile, skip, false)
 }
 
-func apply(style, exe, hooksDir, command string, env map[string]string, model, profile string, write bool) (string, error) {
+func apply(style, exe, hooksDir, command string, env map[string]string, model, profile string, skip, write bool) (string, error) {
 	config := func(name string, content []byte) (string, error) {
 		if !write {
 			return filepath.Join(hooksDir, hooks.GeneratedName(name, content)), nil
 		}
 		return writeConfig(hooksDir, name, content)
+	}
+	if skip && style != "opencode" {
+		return "", fmt.Errorf("mcp style %q generates no config that can turn permission prompts off", style)
 	}
 	switch style {
 	case "claude":
@@ -137,11 +143,20 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model, p
 		}
 		return command, nil
 	case "opencode":
-		name, content := generatedPrefix+"mcp-opencode.json", opencodeConfig(exe, "", profile)
-		if model != "" {
+		plugin := ""
+		if skip {
+			var err error
+			if plugin, err = skipPermissionsPlugin(hooksDir, write); err != nil {
+				return "", err
+			}
+		}
+		name, content := generatedPrefix+"mcp-opencode.json", opencodeConfig(exe, "", profile, "")
+		if model != "" || skip {
 			// v2's TUI has no model flag; the config's model key is where a
-			// chosen model goes, so a session on one gets a config of its own.
-			name, content = generatedPrefix+"mcp-opencode-"+env[hooks.EnvSessionID]+".json", opencodeConfig(exe, model, profile)
+			// chosen model goes, and its plugins list is where the session's
+			// skip permissions go, so a session on either gets a config of
+			// its own.
+			name, content = generatedPrefix+"mcp-opencode-"+env[hooks.EnvSessionID]+".json", opencodeConfig(exe, model, profile, plugin)
 		}
 		path, err := config(name, content)
 		if err != nil {
@@ -231,7 +246,8 @@ func claudeConfig(exe, profile string) []byte {
 // commands. v2 still takes a v1 mcp.<name> entry, but serves its tools only
 // through code mode, and drops a v1 command block, so /rename went missing.
 // model, when set, is the model the session was asked for; v2 reads it from
-// here because its TUI has no flag for one.
+// here because its TUI has no flag for one. plugin, when set, is the
+// skip-permissions plugin directory the session loads (skipPermissionsPlugin).
 //
 // v2 accepts a config instructions list but loads nothing from it: its only
 // standing instructions are AGENTS.md files and each MCP server's own
@@ -239,7 +255,7 @@ func claudeConfig(exe, profile string) []byte {
 // server, which appends them to its block when started with SteeringFlag.
 // Nothing lands in the user message the session's own title is eventually
 // written from, and the steering arrives only where the tools it names do.
-func opencodeConfig(exe, model, profile string) []byte {
+func opencodeConfig(exe, model, profile, plugin string) []byte {
 	config := map[string]any{
 		"$schema": "https://opencode.ai/config.json",
 		"mcp": map[string]any{
@@ -267,6 +283,11 @@ func opencodeConfig(exe, model, profile string) []byte {
 	}
 	if model != "" {
 		config["model"] = model
+	}
+	if plugin != "" {
+		// Plugin arrays merge across config sources, so the operator's own
+		// plugins still load beside this one.
+		config["plugins"] = []string{plugin}
 	}
 	data, _ := json.MarshalIndent(config, "", "  ")
 	return data

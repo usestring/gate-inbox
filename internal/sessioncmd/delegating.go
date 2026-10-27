@@ -28,7 +28,7 @@ func (r *runtime) restingStatus(id, state string) string {
 	if state != status.Finished && state != status.Idle {
 		return state
 	}
-	sessions, err := r.store.ListSessions(true)
+	sessions, err := r.store.DelegationSessions()
 	if err != nil {
 		logging.Info("could not read the board for delegation", "session", id, "error", err)
 		return state
@@ -52,7 +52,7 @@ func (r *runtime) restingStatus(id, state string) string {
 
 // delegatingIDs is every session the overlay reads as delegating now.
 func (r *runtime) delegatingIDs() (map[string]bool, error) {
-	sessions, err := r.store.ListSessions(true)
+	sessions, err := r.store.DelegationSessions()
 	if err != nil {
 		return nil, err
 	}

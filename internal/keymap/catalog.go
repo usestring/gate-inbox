@@ -82,6 +82,7 @@ const (
 	ClearSearch  Action = "clear_search"
 	Resize       Action = "resize_split"
 	Settings     Action = "settings"
+	RefreshCLIs  Action = "refresh_clis"
 	LegendPeek   Action = "legend_peek"
 	QuickActions Action = "quick_actions"
 	Help         Action = "help"
@@ -89,6 +90,8 @@ const (
 	// IngestReviews asks GitHub for the reviews the operator was asked for
 	// and queues the new ones: see reviews.go in the ui package.
 	IngestReviews Action = "ingest_reviews"
+	// ReviewsTab switches the rail between the sessions and the review queue.
+	ReviewsTab Action = "reviews_tab"
 )
 
 // Review queue actions.
@@ -196,6 +199,7 @@ var Catalog = []Binding{
 	{ContextList, Revive, []string{"v"}, "revive it, or restart a live one on its own conversation", false},
 	{ContextList, ReviveAll, []string{"V", "shift+v"}, "revive every dead session", false},
 	{ContextList, IngestReviews, []string{"P", "shift+p"}, "fetch reviews asked of you on GitHub", false},
+	{ContextList, ReviewsTab, []string{"]"}, "switch between the Sessions and Reviews tabs", false},
 	{ContextList, SwitchAccount, []string{}, "switch its account: restarts it on its own conversation", false},
 	{ContextList, Restart, []string{}, "restart it on an empty context", false},
 	{ContextList, RestartWith, []string{}, "restart it with extra flags…", false},
@@ -240,6 +244,8 @@ var Catalog = []Binding{
 	{ContextList, ClearSearch, []string{}, "clear the search", false},
 	{ContextList, Resize, []string{}, "resize the split", false},
 	{ContextList, Settings, []string{"s"}, "settings", false},
+	// No key: what is installed changes rarely, and quick actions finds it.
+	{ContextList, RefreshCLIs, []string{}, "refresh installed CLIs: look on PATH again for each agent CLI", false},
 	{ContextList, ToggleChrome, []string{}, "hide / show the key hints along the foot", false},
 	{ContextList, ToggleRail, []string{}, "hide / show the list beside the pane", false},
 	{ContextList, LegendPeek, []string{"?"}, "peek at every available key", false},
@@ -334,7 +340,7 @@ var Catalog = []Binding{
 	{ContextConfirm, ConfirmAlways, []string{"A", "shift+a"}, "go ahead and stop asking", false},
 
 	// ---- the review queue ----
-	{ContextReviews, Close, []string{"esc", "q"}, "back to the list", true},
+	{ContextReviews, Close, []string{"esc"}, "back to the sessions", true},
 	{ContextReviews, CursorUp, []string{"up", "k"}, "move up", true},
 	{ContextReviews, CursorDown, []string{"down", "j"}, "move down", true},
 	{ContextReviews, ReviewView, []string{"enter"}, "open the pull request", true},

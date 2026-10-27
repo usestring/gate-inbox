@@ -55,9 +55,9 @@ const (
 // restingStates is what "the session stopped working" means. Finished is
 // rewritten to idle once the manager acknowledges it, and a manager tick
 // can pass through both between two polls, so waiting on the whole set is
-// the only way not to miss the moment. Delegating is not among them: that
-// session ended its turn, but its own children's results are still coming
-// back into it.
+// the only way not to miss the moment. Delegating and background are not
+// among them: those sessions ended their turns, but a child's result or a
+// shell left running is still coming back into them.
 var restingStates = []string{status.Finished, status.Waiting, status.Idle, status.Errored, status.Dead}
 
 // WaitOptions says what one wait is parked on. Children is the set a parent
@@ -85,7 +85,7 @@ type WaitStanding struct {
 // is never accepted by one caller and refused by the other.
 var knownStates = map[string]bool{
 	status.Starting: true, status.Working: true, status.Waiting: true, status.Delegating: true,
-	status.Finished: true, status.Idle: true, status.Errored: true, status.Dead: true,
+	status.Background: true, status.Finished: true, status.Idle: true, status.Errored: true, status.Dead: true,
 }
 
 func normalizeState(raw string) (string, error) {

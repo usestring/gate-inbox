@@ -347,7 +347,11 @@ type Reviews struct {
 	Ack string `toml:"ack"`
 	// Prompt starts a review session; {repo}, {number}, {head} and {url}
 	// are filled in.
-	Prompt    string `toml:"prompt"`
+	Prompt string `toml:"prompt"`
+	// Prepare is a pointer so that absent means on: each fetch starts a review
+	// session in the background for every new ask, so its briefing is ready
+	// before the operator opens it.
+	Prepare   *bool  `toml:"prepare"`
 	Tool      string `toml:"tool"`
 	Model     string `toml:"model"`
 	Directory string `toml:"directory"`
@@ -356,11 +360,18 @@ type Reviews struct {
 // On reports whether the review queue is switched on.
 func (r Reviews) On() bool { return r.Enabled == nil || *r.Enabled }
 
+// Prepares reports whether a fetch starts review sessions ahead of the operator.
+func (r Reviews) Prepares() bool { return r.Prepare == nil || *r.Prepare }
+
 // Default review settings, for any field left unset.
 const (
 	DefaultReviewLabel   = "gate-review"
 	DefaultReviewCommand = "/gate review"
-	DefaultReviewPrompt  = "Review {repo}#{number} at {head} ({url}). Do not post to GitHub."
+	DefaultReviewPrompt  = "Brief me on {repo}#{number} at {head} ({url}) so I can ask about it. " +
+		"Cover what it changes and why; every unresolved review thread, and from the commits and replies why each is still unaddressed; " +
+		"whether it merges cleanly, and what conflicts if not; which checks are pending or failing, and the likely cause of each failure; " +
+		"and your overall recommendation, or what has to happen before it can merge. " +
+		"Read with gh and git only: do not post, comment, review, push or merge. End with the briefing and wait for my questions."
 )
 
 // TriggerList is the configured triggers, or all three when none are named.
@@ -742,6 +753,24 @@ func (t Tool) CompactWindowFor(tier priority.Tier) int {
 		return 0
 	}
 	return t.CompactWindow[string(tier)]
+}
+
+// DefaultAccountSwitchCutoff is the context, in tokens, above which a
+// session moved to another account starts a new conversation rather than
+// resuming its own. The cutoff is pricing, not a limit: the new account
+// re-reads the whole context uncached, and input past 200k bills at the
+// long-context premium rate.
+const DefaultAccountSwitchCutoff = 200_000
+
+// AccountSwitchCutoff is the context a session at tier may carry onto
+// another account and still resume in place. Urgent and high sessions are
+// given big windows on purpose, so they take their compact_window and pay
+// the premium; every other tier keeps DefaultAccountSwitchCutoff.
+func (t Tool) AccountSwitchCutoff(tier priority.Tier) int {
+	if tier == priority.Urgent || tier == priority.High {
+		return max(DefaultAccountSwitchCutoff, t.CompactWindowFor(tier))
+	}
+	return DefaultAccountSwitchCutoff
 }
 
 // backfillToolDefaults fills fields the built-in tools gained after a
@@ -1468,8 +1497,10 @@ command = "opencode"
 # "provider/model" into the generated OPENCODE_CONFIG instead.
 # No add_dir_flag: opencode has no flag granting a second directory, so a
 # spawn diverted to another directory is only told to change into it.
-# No skip_permissions_flag: opencode's TUI has no flag that turns its
-# permission prompts off, so a session on it cannot be launched that way.
+# No skip_permissions_flag: a session launched with skip permissions on gets
+# them off through the generated OPENCODE_CONFIG instead, which loads a plugin
+# allowing every permission request, its subagents' too. The TUI's own
+# --auto approves only the session on screen, so a subagent would still wait.
 # every provider/model pair this login can reach, one per line
 models_command = "opencode models"
 # opencode mints its own session id; capture it after launch and resume it

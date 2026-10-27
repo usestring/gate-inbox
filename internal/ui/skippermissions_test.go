@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -107,5 +108,21 @@ func TestForkCardSkipPermissionToggles(t *testing.T) {
 	view := ansi.Strip(m.viewFork())
 	if !strings.Contains(view, "skip all prompts") || !strings.Contains(view, "no flag on claude") {
 		t.Fatalf("card should show perms on and that claude has no flag here:\n%s", view)
+	}
+}
+
+// opencode's skip rides its generated config, so its card carries the
+// toggle with no note that it cannot be honoured.
+func TestForkCardOffersSkipPermissionsOnOpencode(t *testing.T) {
+	m := buildModel(t)
+	m.cfg.Tools["opencode"] = config.Tool{Command: "cat", MCP: "opencode"}
+	m.fork = forkState{
+		source: store.Session{Tool: "opencode", SkipPermissions: true},
+		name:   textField("fork name", 60),
+		skip:   true,
+	}
+	view := ansi.Strip(m.viewFork())
+	if !strings.Contains(view, "skip all prompts") || strings.Contains(view, "no flag on") {
+		t.Fatalf("card should show perms on with no refusal note for opencode:\n%s", view)
 	}
 }

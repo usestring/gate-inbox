@@ -68,11 +68,7 @@ func (m *Model) reviewPage() *prPage {
 	if m.reviewsPage == nil {
 		return nil
 	}
-	view, _ := m.reviewsPage.view.(*reviewsView)
-	if view == nil {
-		return nil
-	}
-	return view.page
+	return m.reviewsPage.page
 }
 
 // selectedDraft is the draft the draft keys act on.
@@ -139,7 +135,7 @@ func (m *Model) editDraft() {
 // commentOnLine opens a new comment on the line the files tab marks: the
 // first diff line in view.
 func (m *Model) commentOnLine() {
-	view := m.reviewsPane().view.(*reviewsView)
+	view := m.reviewsPR()
 	page := view.page
 	detail := view.cache.details[page.key()]
 	if detail == nil || page.tab != tabFiles {
@@ -159,7 +155,7 @@ func (m *Model) commentOnLine() {
 
 // composeReview opens the review's own summary, ahead of submitting it.
 func (m *Model) composeReview(event string) {
-	view := m.reviewsPane().view.(*reviewsView)
+	view := m.reviewsPR()
 	page := view.page
 	if m.reviewsSubmitting[page.review.Repo+"#"+strconv.Itoa(page.review.Number)] {
 		m.errBar.text = "a review is already being submitted for this pull request"
@@ -383,7 +379,7 @@ func (m *Model) submitReview(page *prPage, event, body string) tea.Cmd {
 		m.errBar.text = "a review is already being submitted for this pull request"
 		return nil
 	}
-	detail := m.reviewsPane().view.(*reviewsView).cache.details[page.key()]
+	detail := m.reviewsPR().cache.details[page.key()]
 	if detail == nil {
 		return nil
 	}

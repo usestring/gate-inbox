@@ -93,6 +93,7 @@ default  integrations.reviews.enabled = <unset>
 default  integrations.reviews.label = ""
 default  integrations.reviews.model = ""
 default  integrations.reviews.orgs = []
+default  integrations.reviews.prepare = <unset>
 default  integrations.reviews.prompt = ""
 default  integrations.reviews.tool = ""
 default  integrations.reviews.triggers = []

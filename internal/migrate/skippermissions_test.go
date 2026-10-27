@@ -33,7 +33,7 @@ func TestMigrateTurnsSkipPermissionsOnAndOff(t *testing.T) {
 			{"turned on", store.Session{}, &on, &on, true, true},
 			{"turned off", store.Session{SkipPermissions: true, ChildrenSkipPermissions: true}, &off, &off, false, false},
 		} {
-			skip, children, err := SkipPermissions(c.source, tool, c.self, c.children)
+			skip, children, err := SkipPermissions(c.source, name, tool, c.self, c.children)
 			if err != nil {
 				t.Fatalf("%s %s: %v", name, c.what, err)
 			}
@@ -44,7 +44,7 @@ func TestMigrateTurnsSkipPermissionsOnAndOff(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s Assemble: %v", name, err)
 			}
-			command, err := launch.WithSkipPermissions(tool, plan.Command, skip)
+			command, err := launch.WithSkipPermissions(name, tool, plan.Command, skip)
 			if err != nil {
 				t.Fatalf("%s %s: %v", name, c.what, err)
 			}
@@ -55,20 +55,34 @@ func TestMigrateTurnsSkipPermissionsOnAndOff(t *testing.T) {
 	}
 }
 
-// A CLI with no flag drops a setting carried from the source, and refuses
-// one the move asks for.
-func TestMigrateOntoACLIWithoutTheFlag(t *testing.T) {
+// opencode keeps a setting carried from the source and takes one the move
+// asks for: its skip rides the generated config instead of a flag.
+func TestMigrateOntoOpencodeKeepsSkipPermissions(t *testing.T) {
 	cfg, err := config.LoadDir(t.TempDir())
 	if err != nil {
 		t.Fatalf("LoadDir: %v", err)
 	}
 	tool := cfg.Tools["opencode"]
-	skip, children, err := SkipPermissions(store.Session{SkipPermissions: true, ChildrenSkipPermissions: true}, tool, nil, nil)
+	skip, children, err := SkipPermissions(store.Session{SkipPermissions: true, ChildrenSkipPermissions: true}, "opencode", tool, nil, nil)
+	if err != nil || !skip || !children {
+		t.Fatalf("carried = %v %v %v, want both kept", skip, children, err)
+	}
+	on := true
+	if skip, _, err := SkipPermissions(store.Session{}, "opencode", tool, &on, nil); err != nil || !skip {
+		t.Fatalf("asked = %v %v, want skip on", skip, err)
+	}
+}
+
+// A CLI with no way to skip drops a setting carried from the source, and
+// refuses one the move asks for.
+func TestMigrateOntoACLIWithNoWayToSkip(t *testing.T) {
+	tool := config.Tool{Command: "plain"}
+	skip, children, err := SkipPermissions(store.Session{SkipPermissions: true, ChildrenSkipPermissions: true}, "plain", tool, nil, nil)
 	if err != nil || skip || !children {
 		t.Fatalf("carried = %v %v %v, want the session's own dropped and its children's kept", skip, children, err)
 	}
 	on := true
-	if _, _, err := SkipPermissions(store.Session{}, tool, &on, nil); err == nil {
-		t.Fatal("a move onto opencode asking for skip permissions was accepted")
+	if _, _, err := SkipPermissions(store.Session{}, "plain", tool, &on, nil); err == nil {
+		t.Fatal("a move onto a CLI with no way to skip asking for skip permissions was accepted")
 	}
 }

@@ -70,7 +70,9 @@ func (r *runtime) accountOr(named, toolName string, tool config.Tool, sessionID 
 	return accounts.Select(r.store, tool, named, accounts.Request{SessionID: sessionID, ToolName: toolName, Reason: reason})
 }
 
-// SwitchAccount migrates Claude contexts over 200k to avoid replaying them on a new account.
+// SwitchAccount migrates a Claude context over its tier's account-switch
+// cutoff (config.Tool.AccountSwitchCutoff) to a new conversation, to avoid
+// replaying it uncached on a new account.
 // Otherwise it moves the session onto another named subscription. The row is
 // re-pointed first; a running session is then ended and brought back on the
 // conversation it holds, since the token is read at launch and nothing else
@@ -119,7 +121,11 @@ func (s *Sessions) switchAccount(runtime *runtime, target store.Session, account
 	if account == target.Account {
 		return runtime.currentInfo(target, false), nil
 	}
-	if _, over := migrate.AccountSwitchTranscript(s.roots, tool, target); over {
+	tier, err := runtime.store.SizingTier(target)
+	if err != nil {
+		return Session{}, err
+	}
+	if _, over := migrate.AccountSwitchTranscript(s.roots, tool, target, tool.AccountSwitchCutoff(tier)); over {
 		return large(account)
 	}
 	running := runtime.driver.Exists(target.ID)

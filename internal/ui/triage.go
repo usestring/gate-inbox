@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"sort"
 	"time"
 
@@ -22,8 +23,10 @@ import (
 // results are still coming back to it, so handing it over now shows the
 // operator a session with nothing to say yet. It is never walkable on its
 // own; a child that needs a person lifts it through the child's own rank.
+// background sits under it for the same reason: the turn ended, but the
+// shell it left running wakes it into another one.
 //
-// triageReview is the Reviews row's tier, and no session's: a pull request
+// triageReview is the Reviews tab's tier, and no session's: a pull request
 // somebody asked the operator to review is a person waiting on them, but not
 // a turn stalled this second, so it comes after the questions and before
 // everything else. See reviewtriage.go.
@@ -34,8 +37,8 @@ import (
 // of somebody, so the sessions asking a live question are handed over first.
 //
 // This is the strict order, which smart triage off restores. Smart triage,
-// the default, orders every walkable session by one weighted wait instead
-// (see triageScore) and keeps these tiers for the rows it never hands over.
+// the default, orders every walkable session newest first instead (see
+// triageScore) and keeps these tiers for the rows it never hands over.
 var triageTiers = []string{
 	status.Waiting,
 	triageReview,
@@ -43,6 +46,7 @@ var triageTiers = []string{
 	status.Finished,
 	status.Idle,
 	status.Delegating,
+	status.Background,
 	status.Pending,
 	status.Errored,
 	status.Working,
@@ -85,73 +89,71 @@ func (m *Model) triageStateOf(sess store.Session) string {
 // triageFinishedSeen is the state smart triage gives a finished session the
 // operator has looked at. Looking acknowledges the finish -- the row turns idle
 // and acked, and keeps the finish's LastStatusAt -- and a glance, often an
-// accidental one, must not drop the work to the weight of a session that never
-// finished anything. It keeps its finish's wait, a little under an unseen
-// finish's weight, until input moves it on, which is also what clears the ack.
+// accidental one, must not drop the work to the rank of a session that never
+// finished anything. It ranks just under an unseen finish until input moves it
+// on, which is also what clears the ack.
 const triageFinishedSeen = "finished-seen"
 
-// Smart triage scores every walkable session by how long it has waited,
-// weighted by its state:
+// Smart triage hands over, inside one priority tier, the walkable session the
+// operator turned to most recently first (see triageScore), and breaks a tie
+// on the state rank below: a question before a finish before an idle row.
 //
-//	score = (wait + triageScoreFloor) x state weight
-//
-// and, inside one priority tier, hands over the highest score first. The tier
-// is not a weight: a weight let an untiered session that had waited long
-// enough overtake an urgent one, which is the operator's stated order
-// ignored. The state weights are ratios, so they mean the same thing whether
-// the waits are minutes or days: a finished session overtakes a question in
-// its tier once it has waited twice as long.
-var (
-	triageStateWeight = map[string]float64{
-		status.Waiting:     2,
-		triageReview:       1.5,
-		triageBlocked:      1.5,
-		status.Finished:    1,
-		triageFinishedSeen: 0.8,
-		status.Errored:     0.7,
-		status.Idle:        0.5,
-	}
-)
+// Newest first because that session is the one whose context the operator
+// still holds: going back to what they handed off a minute ago costs less
+// than reloading what they last touched hours ago. The tier is not part of
+// the recency: an untiered session never overtakes an urgent one, however
+// recent.
+var triageScoredTiers = []string{
+	status.Waiting,
+	triageReview,
+	triageBlocked,
+	status.Finished,
+	triageFinishedSeen,
+	status.Idle,
+	status.Errored,
+}
 
-// triageScoreFloor is added to every wait so rows that have only just come
-// in do not all score zero and lose their weights.
-const triageScoreFloor = time.Minute
-
-// triageScoredState is the state smart triage weighs a walkable session as.
+// triageScoredState is the state smart triage ranks a walkable session as.
 // An acked idle session is a finish the operator has seen; an extension's
 // rank and a stale label read through triageStateOf. A session needing a
-// person in a state with no weight of its own -- a working pane an extension
-// escalated without a rank -- weighs as a finish: somebody is needed, and
+// person in a state with no rank of its own -- a working pane an extension
+// escalated without a rank -- ranks as a finish: somebody is needed, and
 // nothing says how badly.
 func (m *Model) triageScoredState(sess store.Session) string {
 	st := m.triageStateOf(sess)
 	if sess.Status == status.Idle && sess.Acked && m.extAttention[sess.ID].Rank.tier() == "" {
 		return triageFinishedSeen
 	}
-	if _, ok := triageStateWeight[st]; !ok {
+	if !slices.Contains(triageScoredTiers, st) {
 		return status.Finished
 	}
 	return st
 }
 
-// triageScore is a walkable session's score at now. It is read against now
-// on every rebuild, and the poll pass rebuilds the rows, so a session whose
-// weighted wait overtakes another's moves up the rail on the next pass with
-// no store event, the way a running-out deadline moves its row.
-func (m *Model) triageScore(sess store.Session, now time.Time) float64 {
-	wait := max(now.Sub(triageWaitingSince(sess)), 0) + triageScoreFloor
-	return wait.Seconds() * triageStateWeight[m.triageScoredState(sess)]
+func (m *Model) triageScoredRank(sess store.Session) int {
+	return slices.Index(triageScoredTiers, m.triageScoredState(sess))
+}
+
+// triageScore is a walkable session's recency: when the operator last turned
+// to it, so a higher score is a more recent turn and goes first.
+func triageScore(sess store.Session) float64 {
+	return triageRecency(triageWaitingSince(sess))
+}
+
+// triageRecency is a time as a score. Microseconds keep it exact in a float64.
+func triageRecency(at time.Time) float64 {
+	return float64(at.UnixMicro())
 }
 
 // triageWaitingSince is when a session last had a person's attention, which
-// is what smart triage counts its wait from: the operator's last turn on it
-// (see store.Session.OperatorAt), or its creation when there has been none.
+// is what smart triage orders by: the operator's last turn on it (see
+// store.Session.OperatorAt), or its creation when there has been none.
 //
 // Not LastStatusAt. Every turn moves that, and most turns on a board are not
 // the operator's: a message another session or an extension queued, a name
-// sweep, a nudge, each starts a turn that ends in a fresh finish. Counting
-// from there made a session nobody had looked at in hours read as minutes
-// old after every one of them, so the sessions waiting longest never rose.
+// sweep, a nudge, each starts a turn that ends in a fresh finish. Ordering by
+// that would put a session nobody has looked at in hours at the head after
+// every one of them, though its context left the operator's head long ago.
 func triageWaitingSince(sess store.Session) time.Time {
 	if !sess.OperatorAt.IsZero() {
 		return sess.OperatorAt
@@ -237,7 +239,7 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 // The priority tier comes before everything but a mute: a higher tier sorts
 // above any lower one whatever its band, state, deadline or wait. Within a
 // tier the bands follow, and smart triage orders the scored band (every
-// walkable session; the walkable band is then empty) highest score first
+// walkable session; the walkable band is then empty) most recent turn first
 // (see triageScore); every other band, and the strict order, sorts by the
 // status rank, then oldest first. See priority.go.
 //
@@ -317,7 +319,8 @@ func (m *Model) triageKeyOf(sess store.Session, now time.Time) triageKey {
 	if m.triageWalkable(sess) {
 		key.band = triageBandWalkable
 		if m.smartTriage {
-			key.band, key.score = triageBandScored, m.triageScore(sess, now)
+			key.band, key.score = triageBandScored, triageScore(sess)
+			key.tier = m.triageScoredRank(sess)
 		}
 	}
 	return key
@@ -332,7 +335,7 @@ func (m *Model) sortTriage(sessions []store.Session) {
 // so a parent still working while its child sits on a question would sink to
 // the working tier and take the question down with it -- the one thing the
 // queue must never do. The parent is lifted to its child's key instead -- in
-// smart triage, to the child's score -- and the child is drawn directly under
+// smart triage, to the child's recency -- and the child is drawn directly under
 // it, which is where the contract wants a child that needs a person: right
 // after its parent.
 func (m *Model) sortTriageWithChildren(sessions []store.Session, kids map[string][]store.Session) {
@@ -442,7 +445,7 @@ const (
 	smartTriageSetting = "smart_triage"
 )
 
-// storedSmartTriage reads whether triage orders by the weighted wait. On is
+// storedSmartTriage reads whether triage orders newest turn first. On is
 // the default; "off" is the strict order triage had before it: every
 // question first, then every finished session, by state then tier then age.
 func storedSmartTriage(st *store.Store) bool {
@@ -604,14 +607,27 @@ func (m *Model) toggleTriage() tea.Cmd {
 // from walking back over work already done, so the ring bought nothing the
 // head of the queue does not, and the head is where an urgent arrival
 // already sorts.
+//
+// The Reviews tab is no row, so where it would sort it comes back as
+// reviewsTurn rather than an index.
 func (m *Model) nextTriageInput(leftID string, tried map[string]bool) (int, bool) {
+	at, reviews := m.reviewsSlot(tried)
 	for i, row := range m.rows {
-		if m.reviewsHandable(row, tried) || m.triageHandable(row, leftID, tried) && m.triageWalkable(row.sess) {
+		if reviews && i >= at {
+			return reviewsTurn, true
+		}
+		if m.triageHandable(row, leftID, tried) && m.triageWalkable(row.sess) {
 			return i, true
 		}
 	}
+	if reviews {
+		return reviewsTurn, true
+	}
 	return 0, false
 }
+
+// reviewsTurn is nextTriageInput naming the Reviews tab.
+const reviewsTurn = -1
 
 // triageHandable is whether a drain could hand a row over at all, whatever
 // pass is asking.
@@ -713,29 +729,31 @@ func (m *Model) enterTriageHead() tea.Cmd {
 	return m.advanceTriage("")
 }
 
-// advanceTriage focuses the next session that needs a person. A nil command
+// advanceTriage hands over the next session or the Reviews tab. A nil command
 // means there was none, and the caller's unfocus stands: the user lands back
 // on the list rather than in some arbitrary session they never asked for.
 func (m *Model) advanceTriage(leftID string) tea.Cmd {
-	if len(m.rows) == 0 {
-		return nil
-	}
 	tried := map[string]bool{}
 	for {
 		index, ok := m.nextTriageInput(leftID, tried)
 		if !ok {
 			return nil
 		}
-		m.cursor = index
-		m.clearPreviewState()
-		m.previewGen++
-		if m.rows[index].reviews {
+		if index == reviewsTurn {
 			tried[reviewsTriedKey] = true
 			if handed, open := m.handOverReviews(); handed {
-				return tea.Batch(m.schedulePreview(), open)
+				if open != nil {
+					return open
+				}
+				// Callers use nil to mark the drain exhausted.
+				return func() tea.Msg { return nil }
 			}
 			continue
 		}
+		m.reviewsTab = false
+		m.cursor = index
+		m.clearPreviewState()
+		m.previewGen++
 		next := m.rows[index].sess
 		tried[next.ID] = true
 		// A session with a page over it is answered from the page.

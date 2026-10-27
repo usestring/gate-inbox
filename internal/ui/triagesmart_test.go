@@ -441,18 +441,15 @@ func TestSmartTriageAnAttachCountsOnlyWhenItGaveATurn(t *testing.T) {
 	}
 }
 
-func TestTriageWaitsForStatusDetectionAfterOperatorInput(t *testing.T) {
+func TestTriageOffersRecentInputWithoutDelay(t *testing.T) {
 	for _, state := range []string{status.Finished, status.Idle, status.Waiting} {
 		t.Run(state, func(t *testing.T) {
-			m := smartFleet(t, smartSess("recent", state, 0), smartSess("next", status.Waiting, time.Minute))
+			m := smartFleet(t, smartSess("recent", state, 0), smartSess("next", state, time.Minute))
 			assertRail(t, m, "recent", "next")
 			for _, elapsed := range []time.Duration{0, 3*time.Second - time.Nanosecond, 3 * time.Second} {
 				m.clock = func() time.Time { return smartNow.Add(elapsed) }
 				i, ok := m.nextTriageInput("", nil)
-				want := "next"
-				if elapsed >= 3*time.Second {
-					want = "recent"
-				}
+				want := "recent"
 				if !ok || m.rows[i].sess.ID != want {
 					t.Fatalf("after %v: candidate %d, found %v; want %s", elapsed, i, ok, want)
 				}
@@ -476,11 +473,11 @@ func TestTriageOffersFreshStatusAfterOperatorInput(t *testing.T) {
 		t.Run(state, func(t *testing.T) {
 			recent := smartSess("recent", state, 0)
 			recent.LastStatusAt = smartNow.Add(100 * time.Millisecond)
-			m := smartFleet(t, recent, smartSess("next", status.Waiting, time.Minute))
+			m := smartFleet(t, recent, smartSess("next", state, time.Minute))
 			m.clock = func() time.Time { return recent.LastStatusAt }
 			i, ok := m.nextTriageInput("", nil)
 			if !ok || m.rows[i].sess.ID != "recent" {
-				t.Fatal("a new result, ready state or question waited behind the submission grace")
+				t.Fatal("a fresh status was not offered in state and recency order")
 			}
 		})
 	}

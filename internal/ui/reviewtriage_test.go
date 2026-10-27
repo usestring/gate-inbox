@@ -46,13 +46,13 @@ func TestReviewQueuesByItsNewestAskAmongSessions(t *testing.T) {
 	m.reviewQueue = true
 	m.reviews = []store.ReviewRequest{reviewAsk(2, 20*time.Minute), reviewAsk(1, 3*time.Hour)}
 	m.rebuildRows()
-	if got, want := reviewDrain(m), []string{"done", "reviews", "asking"}; !slices.Equal(got, want) {
+	if got, want := reviewDrain(m), []string{"asking", "reviews", "done"}; !slices.Equal(got, want) {
 		t.Fatalf("a twenty-minute-old ask beside a three-hour-old one: drain = %v, want %v", got, want)
 	}
 
 	m.reviews = []store.ReviewRequest{reviewAsk(1, 30*time.Second)}
 	m.rebuildRows()
-	if got, want := reviewDrain(m), []string{"reviews", "done", "asking"}; !slices.Equal(got, want) {
+	if got, want := reviewDrain(m), []string{"asking", "reviews", "done"}; !slices.Equal(got, want) {
 		t.Fatalf("a thirty-second-old ask: drain = %v, want %v", got, want)
 	}
 }
@@ -72,7 +72,7 @@ func TestReviewsTabLeavesTheDrainOnceSeenAndReturnsForANewAsk(t *testing.T) {
 	later.CreatedAt = smartNow.Add(time.Minute)
 	m.reviews = append(m.reviews, later)
 	m.rebuildRows()
-	if got, want := reviewDrain(m), []string{"reviews", "asking"}; !slices.Equal(got, want) {
+	if got, want := reviewDrain(m), []string{"asking", "reviews"}; !slices.Equal(got, want) {
 		t.Fatalf("after a new ask: drain = %v, want %v", got, want)
 	}
 }

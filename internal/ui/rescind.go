@@ -25,9 +25,11 @@ type submissionRescind struct {
 // board and it reached the pane: on the row, which is the clock smart triage
 // measures a wait from, and to the board's observer. An extension that put a
 // question to the operator learns from it that a person has answered.
-func (m *Model) noteOperator(sess store.Session, via extension.OperatorVia, text string, dialog bool) {
-	at := time.Now()
+func (m *Model) noteOperator(sess store.Session, via extension.OperatorVia, text string, dialog bool, at time.Time) {
 	m.stampOperator(sess.ID, at)
+	if m.poller != nil {
+		m.poller.requestRefresh()
+	}
 	if m.poller == nil || m.poller.observer == nil {
 		return
 	}

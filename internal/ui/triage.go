@@ -635,6 +635,12 @@ func (m *Model) triageHandable(row treeRow, leftID string, tried map[string]bool
 	if !row.entersAs() || row.sess.ID == leftID || tried[row.sess.ID] || row.sess.Archived {
 		return false
 	}
+	// Only a stale resting state needs grace; a new result or question is
+	// already the operator's next turn.
+	if !row.sess.OperatorAt.IsZero() && !row.sess.LastStatusAt.After(row.sess.OperatorAt) &&
+		m.now().Sub(row.sess.OperatorAt) < submissionStatusGrace {
+		return false
+	}
 	// A persistently muted session is off the operator's queue until they say
 	// otherwise; a drain never hands it over.
 	if row.sess.Muted {
@@ -732,7 +738,38 @@ func (m *Model) enterTriageHead() tea.Cmd {
 // advanceTriage hands over the next session or the Reviews tab. A nil command
 // means there was none, and the caller's unfocus stands: the user lands back
 // on the list rather than in some arbitrary session they never asked for.
+//
+// A scoped queue that has run dry widens rather than stopping: the scope is
+// where the drain starts, not a promise that nothing else needs the operator,
+// and stranding them on the list while sessions elsewhere wait is the drain
+// giving up early. It widens one level at a time so the next handover is the
+// nearest related work, up to the whole board, and only a board with nothing
+// to hand over ends the drain.
 func (m *Model) advanceTriage(leftID string) tea.Cmd {
+	if cmd := m.advanceTriageInScope(leftID); cmd != nil || !m.triage || m.triageScope == "" {
+		return cmd
+	}
+	drained := m.triageScope
+	for m.triageScope != "" {
+		m.triageScope = parentGroup(m.triageScope)
+		m.rebuildRows()
+		if cmd := m.advanceTriageInScope(leftID); cmd != nil {
+			widened := "the whole board"
+			if m.triageScope != "" {
+				widened = m.triageScope
+			}
+			m.reportDone(drained + " drained — triaging " + widened)
+			return tea.Batch(m.persistTriage(), cmd)
+		}
+	}
+	// Nothing anywhere: the drain ends on the queue the operator asked for.
+	m.triageScope = drained
+	m.rebuildRows()
+	return nil
+}
+
+// advanceTriageInScope is advanceTriage confined to the current scope.
+func (m *Model) advanceTriageInScope(leftID string) tea.Cmd {
 	tried := map[string]bool{}
 	for {
 		index, ok := m.nextTriageInput(leftID, tried)

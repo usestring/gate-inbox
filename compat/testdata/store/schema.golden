@@ -188,6 +188,7 @@ CREATE INDEX tasks_claimable ON tasks (state, created_at)
   15 session_id                   TEXT     notnull=1 default='' pk=0
   16 created_at                   INTEGER  notnull=1 default=NULL pk=0
   17 updated_at                   INTEGER  notnull=1 default=NULL pk=0
+  18 session_head                 TEXT     notnull=1 default='' pk=0
   index sqlite_autoindex_review_requests_1 unique=1 origin=pk partial=0 (repo, number, trigger, trigger_id)
 
 === table seal_uses

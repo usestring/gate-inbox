@@ -253,4 +253,17 @@ func (s *sessions) SpendApproval(ctx context.Context, question string) error {
 	return s.cmds.SpendApproval(s.caller, question, time.Now())
 }
 
-var _ extension.Approvals = (*sessions)(nil)
+func (s *sessions) SpendAnswer(ctx context.Context, question, answer string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s.operator || s.caller == "" {
+		return errors.New("only a session's own command can spend its user's answer")
+	}
+	return s.cmds.SpendAnswer(s.caller, question, answer, time.Now())
+}
+
+var (
+	_ extension.Approvals      = (*sessions)(nil)
+	_ extension.RelayedAnswers = (*sessions)(nil)
+)

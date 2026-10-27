@@ -220,5 +220,17 @@ type Approvals interface {
 	SpendApproval(ctx context.Context, question string) error
 }
 
+// RelayedAnswers is implemented by the SessionService a session's own command
+// line gets: it spends that session's user's answer to an Approval question
+// the session asked them word for word, so the session can pass the choice
+// on into another session's Approval dialog as the user's own.
+//
+// SpendAnswer returns nil once, for an answer of exactly answer given by the
+// user within the last 30 minutes -- not one Gate Inbox keyed for an agent --
+// and an error otherwise, saying why.
+type RelayedAnswers interface {
+	SpendAnswer(ctx context.Context, question, answer string) error
+}
+
 // ApproveOption is the option label that approves an action.
 const ApproveOption = "Approve"

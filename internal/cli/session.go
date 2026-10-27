@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/cmdline"
@@ -18,7 +19,7 @@ import (
 
 const (
 	usageSessions      = "sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json]"
-	usageSpawn         = "spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--directory-reason <why>] [--nest] [--keep] [--json]"
+	usageSpawn         = "spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--directory-reason <why>] [--nest] [--keep] [--arg <cli-arg>]... [--json]"
 	usageSend          = `send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--relay_question <question>] [--json]`
 	usageRead          = "read <session-id> [--since <cursor>] [--json]"
 	usageSendChildren  = "send-children \"<message>\" [--json]"
@@ -30,6 +31,8 @@ const (
 	usageStop          = "stop [--archive] [--dry-run] [--json]"
 	usageRevive        = "revive <session-id> [--json]"
 	usageMigrate       = "migrate <session-id> --tool <cli> [--name <name>] [--json]"
+	usageAccounts      = "accounts [--tool <cli>] [--json]"
+	usageSwitchAccount = "switch-account <session-id> [--account <name>] [--json]"
 	usageArchive       = "archive <session-id> [--restore] [--json]"
 	usageMute          = "mute <session-id> [--off] [--json]"
 	usageCleanup       = "cleanup-children [--status <state>] [--all] [--dry-run] [--json]"
@@ -58,6 +61,8 @@ type sessionCommands interface {
 	Stop(sessionID string, dryRun, archive bool) (sessioncmd.StopResult, error)
 	Revive(sessionID, targetID string) (sessioncmd.Session, error)
 	Migrate(sessionID, targetID string, opts sessioncmd.MigrateOptions) (sessioncmd.Session, error)
+	Accounts(tool string) (sessioncmd.AccountList, error)
+	SwitchAccount(sessionID, targetID, account string) (sessioncmd.Session, error)
 	Archive(sessionID, targetID string, archived bool) (sessioncmd.Session, error)
 	Mute(sessionID, targetID string, muted bool) (sessioncmd.Session, error)
 	Park(sessionID string, dryRun bool) (sessioncmd.ParkResult, error)
@@ -88,6 +93,8 @@ func sessionSection() section {
 			{name: "stop", usage: usageStop, about: "end this managed session intentionally, preserving its history and excluding it from crash restoration", run: bind(newSessions, runStop)},
 			{name: "revive", usage: usageRevive, about: "bring a dead session back on its old row, resuming the conversation it held", run: bind(newSessions, runRevive)},
 			{name: "migrate", usage: usageMigrate, about: "move a session's conversation to another agent CLI: a new session there reads the source's transcript and carries on; the source stays until you archive it", run: bind(newSessions, runMigrate)},
+			{name: "accounts", usage: usageAccounts, about: "list the named accounts each CLI can run on, for spawn --account and switch-account, instead of guessing a name", run: bind(newSessions, runAccounts)},
+			{name: "switch-account", usage: usageSwitchAccount, about: "move another session onto a named account, or back to its CLI's own login with no --account, when its account is spent or nearly so; restarts it, so use it on a session at rest, never your own", run: bind(newSessions, runSwitchAccount)},
 			{name: "archive", usage: usageArchive, about: "file a finished session out of the active list, ending it if it is still running, or restore it with --restore; a row left archived is deleted for good after 7 days", run: bind(newSessions, runArchive)},
 			{name: "mute", usage: usageMute, about: "keep a session out of triage until it is unmuted: the row stays on the list and reads muted, and --off puts it back", run: bind(newSessions, runMute)},
 			{name: "cleanup-children", usage: usageCleanup, about: "archive the sessions you spawned that are done, each with whatever it spawned: finished, idle and dead by default, --status to choose, --all for every one; a finished child you have read is archived on its own after a grace period anyway", run: bind(newSessions, runCleanupChildren)},
@@ -133,14 +140,18 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 	group := set.String("group", "", "existing group path for a detached (--nest=false) session; a nested one is always in yours")
 	directory := set.String("directory", "", "existing directory it works in; defaults to yours, or to the group's inherited path")
 	directoryReason := set.String("directory-reason", "", "why it must start in --directory although its group pins another; leave empty to start where the group pins")
-	nest := set.Bool("nest", true, "file it under this session, where its questions and rests reach you; --nest=false detaches it: the user's, not yours, and nothing about it is relayed to you")
+	nest := set.Bool("nest", true, "file it under this session, where its questions and rests reach you; --nest=false detaches it: the user's, not yours, and nothing about it is relayed to you. "+
+		"From your own shell, outside any session, --nest=false is required and launches it as your own top-level session")
 	skipPermissions := set.Bool("skip-permissions", false, "launch it with its CLI's permission prompts off; omit to follow the setting for this session's children, and refused unless the user allowed it there")
 	keep := set.Bool("keep", false, "keep it on the list after it finishes, where Gate Inbox would otherwise archive it once you have read its finish and the grace period has passed")
+	var cliArgs argList
+	set.Var(&cliArgs, "arg", "one more argument for the CLI's command line, such as --chrome; repeat for several; only from your own shell or a terminal")
 	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
 		return err
 	}
 	opts := sessioncmd.CreateSessionOptions{
+		Args:            cliArgs,
 		Tool:            *tool,
 		Name:            *name,
 		Directory:       *directory,
@@ -162,11 +173,40 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 			opts.SkipPermissions = skipPermissions
 		}
 	})
+	if sessionID == "" {
+		// From outside any session the spawn is the operator's own, which
+		// only a detached one can be: there is no session to nest it under.
+		if opts.Nest == nil || *opts.Nest {
+			return errors.New("not inside a Gate Inbox session, so there is nothing to nest under; pass --nest=false to launch it as your own session")
+		}
+		if os.Getenv(agentEnv) != "" {
+			return fmt.Errorf("a spawn from outside any session is the operator's own, which is not an agent's to claim: "+
+				"run it from your own shell (%s is set here)", agentEnv)
+		}
+		if opts.Directory == "" {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			opts.Directory = cwd
+		}
+	}
 	created, err := sessions.Create(sessionID, opts)
 	if err != nil {
 		return err
 	}
 	return cmdline.Emit(out, *asJSON, created, "created "+sessioncmd.FormatSession(created))
+}
+
+// argList collects a repeated flag whole, where stringList splits on commas:
+// a CLI argument may hold one.
+type argList []string
+
+func (list *argList) String() string { return strings.Join(*list, " ") }
+
+func (list *argList) Set(value string) error {
+	*list = append(*list, value)
+	return nil
 }
 
 // agentEnv is set by Claude Code inside the shell it runs tool calls in, and
@@ -389,6 +429,35 @@ func runMigrate(out io.Writer, sessions sessionCommands, args []string, sessionI
 		return err
 	}
 	return cmdline.Emit(out, *asJSON, migrated, "migrated "+operands[0]+" to "+sessioncmd.FormatSession(migrated))
+}
+
+func runAccounts(out io.Writer, sessions sessionCommands, args []string, _ string) error {
+	set := cmdline.NewFlagSet(usageAccounts)
+	tool := set.String("tool", "", "list one CLI's accounts, saying why when it cannot run on one; omit for every CLI that can")
+	asJSON := cmdline.JSONFlag(set)
+	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
+		return err
+	}
+	list, err := sessions.Accounts(*tool)
+	if err != nil {
+		return err
+	}
+	return cmdline.Emit(out, *asJSON, list, strings.TrimRight(sessioncmd.FormatAccounts(list), "\n"))
+}
+
+func runSwitchAccount(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
+	set := cmdline.NewFlagSet(usageSwitchAccount)
+	account := set.String("account", "", "named account to move it onto, from gate-inbox accounts; omit to move it back to its CLI's own login")
+	asJSON := cmdline.JSONFlag(set)
+	operands, err := parseCommand(out, set, args, 1, 1)
+	if err != nil {
+		return err
+	}
+	switched, err := sessions.SwitchAccount(sessionID, operands[0], *account)
+	if err != nil {
+		return err
+	}
+	return cmdline.Emit(out, *asJSON, switched, "switched "+sessioncmd.FormatSession(switched))
 }
 
 func runArchive(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {

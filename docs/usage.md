@@ -93,6 +93,8 @@ same keys bring them back. Answering is the only gesture: a dialog answered with
 hands that session over and promotes the next thing waiting on a person. `alt+.` skips the one in
 front of you, `.` skips the row under the cursor from the list, `ctrl+\` stops. The queue is one live queue: a session that reaches waiting or finished while the first pass is walked joins it in place rather than waiting for another `i`.
 
+`i` scopes the queue to the group the cursor is in, subgroups included; from root or a loose session it takes the whole board. The scope is where the drain starts, not where it ends: once nothing in it is left to hand over, the drain widens to the parent group, then its parent, up to the whole board, and hands over the next session there. The rail follows the widened scope and the status bar names it (`backend/urgent drained — triaging backend`). The drain stops on the list only when nothing on the whole board is left to hand over; muted sessions, subagents, sessions still working and ones already handed over this pass are skipped as everywhere else.
+
 Priority outranks everything else in triage except a mute: every session of a higher priority sorts before any of a lower one (urgent, then high, then medium, then none, then low), whatever its state, recency or deadline. Within one priority, smart triage, on by default, goes by state, in this order: waiting, reviews, blocked (an extension's rank), finished, finished and seen, idle, errored. Within one state it hands over the session you turned to most recently first. That is the one whose context you still hold, so going back to it costs less than reloading one you last touched hours ago. Recency only orders sessions of the same state: a session you just turned to never goes ahead of one in a better state.
 
 Recency counts from your last turn on the session: a snippet, a key that submitted a line or answered a dialog in a focused pane, `gate-inbox send --as-human`, or attaching to its pane and giving it a turn there. Nothing Gate Inbox sends on its own counts: messages from other sessions and from extensions (including a line a helper session relays in your voice), its own notices, name requests, nudges, limit-recovery continuations and launch prompts all start turns, but a session nobody has looked at in hours keeps its place however many of those it has finished since. Attaching and leaving without giving the agent a turn, like opening a finished session from the board, is a look and leaves its place alone. A session you have never given a turn counts from when it was created.
@@ -135,6 +137,8 @@ Each ask is stored once. Fetching it again refreshes its title, size and checks 
 
 A review session starts with the `prompt` below, where `{repo}`, `{number}`, `{head}` and `{url}` are filled in. It uses the configured CLI, model and directory, falling back to the default tool and the root group's directory.
 
+With `prepare` on, which is the default, each fetch also starts a review session in the background for every pull request waiting without one, so the briefing is written before you open it. It starts at most five per fetch, oldest ask first, and the status bar says how many it started and how many are left for the next fetch. A prepared ask stays new until you open it. Its entry reads `preparing briefing` while the agent works and `briefing ready` once it rests. `s` lands in that session rather than starting another. A prepared session that died is replaced on the next fetch. The default prompt asks for a briefing that covers what the change does, every unresolved review thread and why it is still unaddressed, whether it merges cleanly, which checks are pending or failing and why, and a recommendation. It reads with `gh` and `git` only, then waits for your questions.
+
 ```toml
 [integrations.reviews]
 enabled = true                       # false switches the key off
@@ -144,6 +148,7 @@ command = "/gate review"
 orgs = ["my-org"]                    # where label and comment asks are searched
 commenters = []                      # when set, only these logins may ask by comment
 ack = "eyes"                         # "none" leaves no reaction
+prepare = true                       # brief each new ask in the background
 prompt = "Review {repo}#{number} at {head} ({url}). Do not post to GitHub."
 tool = "claude"
 model = ""
@@ -322,6 +327,8 @@ The source and new session are linked, marked with `⇄`, and kept adjacent in t
 The source keeps its current status. Archive it with `x` once the new session has taken over, or keep both. The source needs a captured conversation id and a transcript on disk, so a session that has not taken a turn cannot be moved yet, and only claude, codex and opencode conversations can be located.
 
 Agents can do the same: `gate-inbox migrate <session-id> --tool <cli> [--name <name>]` from a shell, or the `migrate_session` MCP tool, including on their own session id to move themselves -- after a usage limit on the CLI they run, say.
+
+Moving a session to another account on the same CLI works the same way: `gate-inbox accounts [--tool <cli>]` lists the named accounts (the `list_accounts` MCP tool), and `gate-inbox switch-account <session-id> [--account <name>]` moves the session onto one, or back to the CLI's own login when `--account` is left out (the `switch_account` MCP tool). Both run through the same code. The switch restarts the session, so it refuses the session it is run from; move another session that has hit its limit or is resting on a nearly spent account.
 
 ## Self-naming sessions
 

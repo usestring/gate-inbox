@@ -647,6 +647,9 @@ func (m *Model) newSessionFromAnywhere(msg tea.KeyPressMsg) (tea.Model, tea.Cmd,
 // and the kill then lands on the focused session or the row under the cursor,
 // asking first as it always does. A confirm dialog already up keeps the key.
 func (m *Model) killFromAnywhere(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	if m.onReviewsTab() {
+		return nil, nil, false
+	}
 	ctx := keymap.ContextList
 	if m.mode == modeFocus || m.mode == modeHeadPane ||
 		(m.mode == modeHelp && (m.help.returnMode == modeFocus || m.help.returnMode == modeHeadPane)) ||

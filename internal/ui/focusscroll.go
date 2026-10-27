@@ -447,6 +447,9 @@ func abs(n int) int {
 // there arrives at the cell it was made over, there being no pointer to
 // hover with first. A notch anywhere else in the list is swallowed.
 func (m *Model) wheelPreview(up bool, x, y int) tea.Cmd {
+	if m.onReviewsTab() {
+		return nil
+	}
 	if _, _, inside := m.paneCell(x, y); !inside {
 		return nil
 	}

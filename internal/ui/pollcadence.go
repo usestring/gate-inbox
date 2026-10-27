@@ -16,6 +16,7 @@ import (
 const (
 	backgroundWorkingInterval = 4 * time.Second
 	backgroundStableInterval  = 15 * time.Second
+	submissionStatusGrace     = 3 * time.Second
 )
 
 type paneBinding struct {
@@ -84,6 +85,11 @@ func (p *poller) paneDue(sess store.Session, sample paneSample, selectedID strin
 	input, settled := p.operatorInputAt[sess.ID], p.settledAt[sess.ID]
 	p.mu.Unlock()
 	if input.After(sample.capture.At) || !settled.Before(sample.capture.At) && !settled.IsZero() {
+		return true
+	}
+	// The first post-submit capture may precede the agent's redraw. Keep
+	// sampling through the grace so that capture cannot hide the new turn.
+	if !sess.OperatorAt.IsZero() && sample.capture.At.Before(sess.OperatorAt.Add(submissionStatusGrace)) {
 		return true
 	}
 	return now.Sub(sample.capture.At) >= p.paneInterval(sess)

@@ -347,7 +347,11 @@ type Reviews struct {
 	Ack string `toml:"ack"`
 	// Prompt starts a review session; {repo}, {number}, {head} and {url}
 	// are filled in.
-	Prompt    string `toml:"prompt"`
+	Prompt string `toml:"prompt"`
+	// Prepare is a pointer so that absent means on: each fetch starts a review
+	// session in the background for every new ask, so its briefing is ready
+	// before the operator opens it.
+	Prepare   *bool  `toml:"prepare"`
 	Tool      string `toml:"tool"`
 	Model     string `toml:"model"`
 	Directory string `toml:"directory"`
@@ -356,11 +360,18 @@ type Reviews struct {
 // On reports whether the review queue is switched on.
 func (r Reviews) On() bool { return r.Enabled == nil || *r.Enabled }
 
+// Prepares reports whether a fetch starts review sessions ahead of the operator.
+func (r Reviews) Prepares() bool { return r.Prepare == nil || *r.Prepare }
+
 // Default review settings, for any field left unset.
 const (
 	DefaultReviewLabel   = "gate-review"
 	DefaultReviewCommand = "/gate review"
-	DefaultReviewPrompt  = "Review {repo}#{number} at {head} ({url}). Do not post to GitHub."
+	DefaultReviewPrompt  = "Brief me on {repo}#{number} at {head} ({url}) so I can ask about it. " +
+		"Cover what it changes and why; every unresolved review thread, and from the commits and replies why each is still unaddressed; " +
+		"whether it merges cleanly, and what conflicts if not; which checks are pending or failing, and the likely cause of each failure; " +
+		"and your overall recommendation, or what has to happen before it can merge. " +
+		"Read with gh and git only: do not post, comment, review, push or merge. End with the briefing and wait for my questions."
 )
 
 // TriggerList is the configured triggers, or all three when none are named.
@@ -744,6 +755,24 @@ func (t Tool) CompactWindowFor(tier priority.Tier) int {
 	return t.CompactWindow[string(tier)]
 }
 
+// DefaultAccountSwitchCutoff is the context, in tokens, above which a
+// session moved to another account starts a new conversation rather than
+// resuming its own. The cutoff is pricing, not a limit: the new account
+// re-reads the whole context uncached, and input past 200k bills at the
+// long-context premium rate.
+const DefaultAccountSwitchCutoff = 200_000
+
+// AccountSwitchCutoff is the context a session at tier may carry onto
+// another account and still resume in place. Urgent and high sessions are
+// given big windows on purpose, so they take their compact_window and pay
+// the premium; every other tier keeps DefaultAccountSwitchCutoff.
+func (t Tool) AccountSwitchCutoff(tier priority.Tier) int {
+	if tier == priority.Urgent || tier == priority.High {
+		return max(DefaultAccountSwitchCutoff, t.CompactWindowFor(tier))
+	}
+	return DefaultAccountSwitchCutoff
+}
+
 // backfillToolDefaults fills fields the built-in tools gained after a
 // user's config.toml was written: existing tools keep their values, but
 // any field left at its zero value inherits the built-in default, and
@@ -1023,11 +1052,11 @@ func upgradeOneLineAskRules(user, def []Rule) {
 	}
 }
 
-// codexDialogSamples is the legend of codex's first-run folder-trust dialog,
-// recognized after the tool block shipped.
+// codexDialogSamples are trust-dialog legends recognized after the tool block shipped.
 var codexDialogSamples = []string{
 	"enter continue \u00b7 esc quit",
 	"enter continue \u00b7 esc back",
+	"t trust \u00b7 esc back",
 }
 
 // opencodeDialogSamples are the rows of opencode's two blocking overlays: the
@@ -1654,6 +1683,7 @@ rules = [
   # the 0.157 first-run folder-trust dialog, whose "› 1. Trust and continue"
   # row reads as the composer line
   { state = "waiting", pattern = "(?m)^\\s*enter continue · esc (?:quit|back)\\b" },
+  { state = "waiting", pattern = "(?m)^[ \\t]*t trust · esc back[ \\t]*$" },
   # active status row is the final row above the input box; anchoring its full
   # shape keeps an answer that quotes "esc to interrupt" from looking active
   { state = "working", pattern = "(?m)^[ \\t]*(?:• )?[^\\n]*\\([\\dhms. ]+ [•·] esc to interrupt\\)(?: · [^\\n]*)?[ \\t]*\\n(?:[ \\t]+└[^\\n]*\\n(?:[ \\t]{4}[^\\n]*\\n)*)?(?:[ \\t]*\\n|[ \\t]+(?:⚠|↓|Tip: |Copied )[^\\n]*\\n)*[ \\t\\n]*\\z" },

@@ -295,6 +295,7 @@ type terminalCommands interface {
 type sessionCommands interface {
 	List(sessionID string, opts sessioncmd.ListOptions) (sessioncmd.SessionList, error)
 	Create(sessionID string, opts sessioncmd.CreateSessionOptions) (sessioncmd.Session, error)
+	Withdraw(sessionID, targetID string) error
 	Send(sessionID, targetID, message, subject string, interrupt bool) (sessioncmd.SendResult, error)
 	SendAttested(sessionID, targetID, message, subject string, interrupt bool, question string) (sessioncmd.SendResult, error)
 	SendChildrenAbout(sessionID, message, subject string) (sessioncmd.ChildSend, error)
@@ -590,9 +591,9 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "switch_account",
-		Description: "Move a session onto another named subscription, for when the account it runs on has hit its usage limit. " +
-			"Claude contexts over 200,000 input tokens migrate to a fresh same-tool conversation on the chosen account, returning a new session ID; the new session takes over the source's children and the source is ended and archived. Otherwise a live session restarts on its conversation, and a dead one takes the account at its next revive. " +
-			"This restarts a live agent on the user's machine, so use it on a session that is blocked by a limit, not one mid-way through work; it cannot be this session itself.",
+		Description: "Move a session onto another named subscription, for when the account it runs on has hit its usage limit or is nearly spent. " +
+			"Claude contexts over 200,000 input tokens (or, for an urgent or high session, over its tier's auto-compact window when that is larger) migrate to a fresh same-tool conversation on the chosen account, returning a new session ID; the new session takes over the source's children and the source is ended and archived. Otherwise a live session restarts on its conversation, and a dead one takes the account at its next revive. " +
+			"This restarts a live agent on the user's machine, so use it on a session that is blocked by a limit or at rest between turns, not one mid-way through work; it cannot be this session itself.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args switchAccountArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
 		switched, err := sessions.SwitchAccount(sessionID, args.SessionID, args.Account)
@@ -635,6 +636,17 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		}, sessions.Create)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
+		}
+		// A launch takes seconds, and a user who presses Esc in that time
+		// cancels the call: Claude Code reports it to the model as rejected
+		// and never reads the result. The spawn does not watch ctx, so it
+		// finishes anyway, and the session it leaves is one nobody accepted.
+		if ctx.Err() != nil {
+			if werr := sessions.Withdraw(callerID, created.ID); werr != nil {
+				logging.Warn("cancelled spawn could not be withdrawn", "caller", callerID, "session", created.ID, logging.Err(werr))
+				return nil, sessioncmd.Session{}, fmt.Errorf("call cancelled, and session %s it had started could not be removed: %w", created.ID, werr)
+			}
+			return nil, sessioncmd.Session{}, fmt.Errorf("call cancelled; session %s it had started was removed", created.ID)
 		}
 		return mcptool.Text("created " + sessioncmd.FormatSession(created)), created, nil
 	})

@@ -8,7 +8,7 @@ Every command acts as the session it runs in, so run them from your own shell.
 Agent sessions
   gate-inbox sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json]
       list every agent session with its id, CLI, group, directory and status; call it before delegating anything
-  gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--directory-reason <why>] [--nest] [--keep] [--json]
+  gate-inbox spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--directory-reason <why>] [--nest] [--keep] [--arg <cli-arg>]... [--json]
       start another agent CLI on a task of its own, so independent work runs beside you instead of queued behind you
   gate-inbox send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--relay_question <question>] [--json]
       queue a message for another agent; it is typed in once that agent is at rest, so it never lands on an approval prompt
@@ -32,6 +32,10 @@ Agent sessions
       bring a dead session back on its old row, resuming the conversation it held
   gate-inbox migrate <session-id> --tool <cli> [--name <name>] [--json]
       move a session's conversation to another agent CLI: a new session there reads the source's transcript and carries on; the source stays until you archive it
+  gate-inbox accounts [--tool <cli>] [--json]
+      list the named accounts each CLI can run on, for spawn --account and switch-account, instead of guessing a name
+  gate-inbox switch-account <session-id> [--account <name>] [--json]
+      move another session onto a named account, or back to its CLI's own login with no --account, when its account is spent or nearly so; restarts it, so use it on a session at rest, never your own
   gate-inbox archive <session-id> [--restore] [--json]
       file a finished session out of the active list, ending it if it is still running, or restore it with --restore; a row left archived is deleted for good after 7 days
   gate-inbox mute <session-id> [--off] [--json]

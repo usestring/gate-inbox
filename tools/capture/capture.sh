@@ -58,6 +58,9 @@ default_transcript() {
 foreign=()
 no_seed=0
 codex_question=""
+# --reviews turns the review queue on and seeds fixture asks, since a capture
+# cannot run the GitHub ingest that would fill it.
+reviews=0
 
 die() { printf 'capture: %s\n' "$1" >&2; exit 1; }
 missing() { printf 'capture: %s\n' "$1" >&2; exit 2; }
@@ -80,6 +83,7 @@ while [[ $# -gt 0 ]]; do
     --foreign) foreign+=("${2:?}"); shift 2 ;;
     --no-seed) no_seed=1; shift ;;
     --codex-question) codex_question="${2:?}"; shift 2 ;;
+    --reviews) reviews=1; shift ;;
     -h|--help) sed -n '2,10p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) die "unknown flag $1" ;;
   esac
@@ -306,6 +310,10 @@ else
   "$themeseed" --to "$home" --set "$theme" >/dev/null
 fi
 printf 'capture: theme %s\n' "${seeded:-default}"
+if [[ $reviews -eq 1 ]]; then
+  "$themeseed" --to "$home" --reviews >/dev/null || die "review seeding failed"
+  printf 'capture: seeded the review queue\n'
+fi
 
 # The margin around the board and the board's own background are painted by
 # different things, so a mismatch reads as a rendering bug. OLED gets a black

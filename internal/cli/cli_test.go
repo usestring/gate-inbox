@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -50,6 +52,8 @@ type fakeSessions struct {
 	ttl          time.Duration
 	deleted      bool
 	cleanup      sessioncmd.CleanupOptions
+	account      string
+	accountTool  string
 
 	session   sessioncmd.Session
 	wait      sessioncmd.WaitResult
@@ -164,6 +168,16 @@ func (f *fakeSessions) Revive(sessionID, targetID string) (sessioncmd.Session, e
 
 func (f *fakeSessions) Migrate(sessionID, targetID string, opts sessioncmd.MigrateOptions) (sessioncmd.Session, error) {
 	f.callerID, f.targetID, f.migrate = sessionID, targetID, opts
+	return f.session, f.failWith
+}
+
+func (f *fakeSessions) Accounts(tool string) (sessioncmd.AccountList, error) {
+	f.accountTool = tool
+	return sessioncmd.AccountList{Tool: tool, Tools: []sessioncmd.ToolAccounts{{Tool: "claude", AccountsCommand: "list-secrets", Accounts: []string{"ALICE1", "BOB2"}}}}, f.failWith
+}
+
+func (f *fakeSessions) SwitchAccount(sessionID, targetID, account string) (sessioncmd.Session, error) {
+	f.callerID, f.targetID, f.account = sessionID, targetID, account
 	return f.session, f.failWith
 }
 
@@ -609,7 +623,7 @@ func TestSpawnKeepReachesCreate(t *testing.T) {
 func TestCommandsAndHelpCoverEverySection(t *testing.T) {
 	table := Commands()
 	registered := []string{
-		"sessions", "spawn", "send", "read", "send-children", "place", "answer", "wait", "message-status", "kill", "revive", "migrate", "archive", "mute", "cleanup-children", "park", "unpark",
+		"sessions", "spawn", "send", "read", "send-children", "place", "answer", "wait", "message-status", "kill", "revive", "migrate", "accounts", "switch-account", "archive", "mute", "cleanup-children", "park", "unpark",
 		"groups", "create-group", "delete-group", "task", "reserve", "release-files", "reservations", "terminal",
 		"rename", "priority", "sweep", "stop", "_finish-stop", "children",
 	}
@@ -655,5 +669,27 @@ func TestSessionsSubcommandCarriesTheSameFiltersAsTheTool(t *testing.T) {
 	if bare := sessions.listOpts; bare.Limit != sessioncmd.DefaultSessionLimit || bare.Parent != "" ||
 		len(bare.Status) != 0 || bare.IncludeArchived {
 		t.Fatalf("a bare call asked for %+v", bare)
+	}
+}
+
+// From a plain shell spawn is the operator's own: it must be detached, it
+// takes the shell's directory when none is named, an agent cannot claim it,
+// and each --arg reaches the CLI whole, commas and all.
+func TestSpawnFromOutsideAnySession(t *testing.T) {
+	t.Setenv(agentEnv, "")
+	sessions := &fakeSessions{session: sampleSession()}
+	if err := runSpawn(io.Discard, sessions, []string{"--tool", "claude"}, ""); err == nil || !strings.Contains(err.Error(), "--nest=false") {
+		t.Fatalf("nested spawn from a plain shell error = %v", err)
+	}
+	if err := runSpawn(io.Discard, sessions, []string{"--nest=false", "--tool", "claude", "--arg", "--chrome", "--arg", "a,b"}, ""); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	if sessions.callerID != "" || sessions.opts.Directory != cwd || !slices.Equal(sessions.opts.Args, []string{"--chrome", "a,b"}) {
+		t.Fatalf("caller %q, opts %+v", sessions.callerID, sessions.opts)
+	}
+	t.Setenv(agentEnv, "1")
+	if err := runSpawn(io.Discard, sessions, []string{"--nest=false", "--tool", "claude"}, ""); err == nil || !strings.Contains(err.Error(), agentEnv) {
+		t.Fatalf("agent operator spawn error = %v", err)
 	}
 }

@@ -232,9 +232,6 @@ func countdown(d time.Duration) string {
 	return fmt.Sprintf("%dh%02dm", minutes/60, minutes%60)
 }
 
-// sizingHoldsSetting is where the sizing holds are kept between board runs.
-const sizingHoldsSetting = "sizing_holds"
-
 func (p *poller) compactNow() time.Time {
 	if p.compactClock != nil {
 		return p.compactClock()
@@ -250,7 +247,7 @@ func (p *poller) loadSizingHolds() {
 	if p.store == nil {
 		return
 	}
-	raw, err := p.store.Setting(sizingHoldsSetting)
+	raw, err := p.store.Setting(store.SizingHoldsSetting)
 	if err != nil || raw == "" {
 		return
 	}
@@ -266,7 +263,7 @@ func (p *poller) saveSizingHolds() {
 	}
 	raw, err := json.Marshal(p.sizingHolds)
 	if err == nil {
-		err = p.store.SetSetting(sizingHoldsSetting, string(raw))
+		err = p.store.SetSetting(store.SizingHoldsSetting, string(raw))
 	}
 	if err != nil {
 		logging.Warn("sizing holds not saved", logging.Err(err))

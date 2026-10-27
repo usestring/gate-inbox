@@ -24,53 +24,111 @@ import (
 // secret does not exist, so the session never starts. Naming one tool answers
 // for that tool; naming none lists every tool that can run on an account.
 func Accounts(configDir, tool string) (string, error) {
-	cfg, err := config.LoadDir(configDir)
+	list, err := ListAccounts(configDir, tool)
 	if err != nil {
 		return "", err
+	}
+	return FormatAccounts(list), nil
+}
+
+// AccountList is Accounts before it is written out, for a caller that
+// wants the names rather than the sentence.
+type AccountList struct {
+	// Tool is set when one tool was asked for, which then answers even when
+	// it cannot be launched on an account.
+	Tool  string         `json:"tool,omitempty"`
+	Tools []ToolAccounts `json:"tools"`
+}
+
+// ToolAccounts is one tool's answer. Problem says why it has no names when
+// it could not list them, and is empty when it simply found none.
+type ToolAccounts struct {
+	Tool            string   `json:"tool"`
+	AccountsCommand string   `json:"accounts_command,omitempty"`
+	Accounts        []string `json:"accounts"`
+	Problem         string   `json:"problem,omitempty"`
+}
+
+// ListAccounts is Accounts as data.
+func ListAccounts(configDir, tool string) (AccountList, error) {
+	cfg, err := config.LoadDir(configDir)
+	if err != nil {
+		return AccountList{}, err
 	}
 	if tool != "" {
 		spec, ok := cfg.Tools[tool]
 		if !ok {
-			return "", fmt.Errorf("unknown tool %q (configured: %s)", tool, strings.Join(toolNames(cfg), ", "))
+			return AccountList{}, fmt.Errorf("unknown tool %q (configured: %s)", tool, strings.Join(toolNames(cfg), ", "))
 		}
-		return accountsFor(tool, spec), nil
+		return AccountList{Tool: tool, Tools: []ToolAccounts{accountsFor(tool, spec)}}, nil
 	}
-	var b strings.Builder
+	list := AccountList{Tools: []ToolAccounts{}}
 	for _, name := range toolNames(cfg) {
 		spec := cfg.Tools[name]
 		if spec.AccountEnv == "" {
 			continue
 		}
-		b.WriteString(accountsFor(name, spec))
-		b.WriteString("\n")
+		list.Tools = append(list.Tools, accountsFor(name, spec))
 	}
-	if b.Len() == 0 {
-		return "no configured tool can be launched on a named account", nil
-	}
-	return strings.TrimRight(b.String(), "\n"), nil
+	return list, nil
 }
 
 // accountsFor is one tool's section. A tool that cannot answer says so in
 // place rather than being dropped, for the reason modelsFor gives.
-func accountsFor(name string, spec config.Tool) string {
+func accountsFor(name string, spec config.Tool) ToolAccounts {
+	answer := ToolAccounts{Tool: name, AccountsCommand: spec.AccountsCommand, Accounts: []string{}}
 	if spec.AccountEnv == "" {
-		return name + ": cannot be launched on a chosen account (no account_env)\n"
+		answer.Problem = "cannot be launched on a chosen account (no account_env)"
+		return answer
 	}
 	names, err := accounts.List(spec)
 	if err != nil {
-		return fmt.Sprintf("%s: listing accounts failed: %v\n", name, err)
+		answer.Problem = fmt.Sprintf("listing accounts failed: %v", err)
+		return answer
 	}
-	if len(names) == 0 {
-		return fmt.Sprintf("%s: no accounts found by %q\n", name, spec.AccountsCommand)
+	if names != nil {
+		answer.Accounts = names
 	}
-	return fmt.Sprintf("%s (%d, from %q):\n%s\n", name, len(names), spec.AccountsCommand, strings.Join(names, "\n"))
+	return answer
+}
+
+// FormatAccounts writes list the way list_accounts answers.
+func FormatAccounts(list AccountList) string {
+	var b strings.Builder
+	for _, tool := range list.Tools {
+		switch {
+		case tool.Problem != "":
+			fmt.Fprintf(&b, "%s: %s\n", tool.Tool, tool.Problem)
+		case len(tool.Accounts) == 0:
+			fmt.Fprintf(&b, "%s: no accounts found by %q\n", tool.Tool, tool.AccountsCommand)
+		default:
+			fmt.Fprintf(&b, "%s (%d, from %q):\n%s\n", tool.Tool, len(tool.Accounts), tool.AccountsCommand, strings.Join(tool.Accounts, "\n"))
+		}
+		if list.Tool == "" {
+			b.WriteString("\n")
+		}
+	}
+	if list.Tool != "" {
+		return b.String()
+	}
+	if b.Len() == 0 {
+		return "no configured tool can be launched on a named account"
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// Accounts is ListAccounts against this layer's config, for the CLI.
+func (s *Sessions) Accounts(tool string) (AccountList, error) {
+	return ListAccounts(s.configDir, tool)
 }
 
 func (r *runtime) accountOr(named, toolName string, tool config.Tool, sessionID string, reason extension.LaunchReason) (string, error) {
 	return accounts.Select(r.store, tool, named, accounts.Request{SessionID: sessionID, ToolName: toolName, Reason: reason})
 }
 
-// SwitchAccount migrates Claude contexts over 200k to avoid replaying them on a new account.
+// SwitchAccount migrates a Claude context over its tier's account-switch
+// cutoff (config.Tool.AccountSwitchCutoff) to a new conversation, to avoid
+// replaying it uncached on a new account.
 // Otherwise it moves the session onto another named subscription. The row is
 // re-pointed first; a running session is then ended and brought back on the
 // conversation it holds, since the token is read at launch and nothing else
@@ -119,7 +177,11 @@ func (s *Sessions) switchAccount(runtime *runtime, target store.Session, account
 	if account == target.Account {
 		return runtime.currentInfo(target, false), nil
 	}
-	if _, over := migrate.AccountSwitchTranscript(s.roots, tool, target); over {
+	tier, err := runtime.store.SizingTier(target)
+	if err != nil {
+		return Session{}, err
+	}
+	if _, over := migrate.AccountSwitchTranscript(s.roots, tool, target, tool.AccountSwitchCutoff(tier)); over {
 		return large(account)
 	}
 	running := runtime.driver.Exists(target.ID)

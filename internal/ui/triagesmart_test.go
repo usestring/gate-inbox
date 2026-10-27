@@ -407,7 +407,10 @@ func TestSmartTriageABoardSendMovesTheWaitClock(t *testing.T) {
 	m := buildModel(t)
 	sess := spawnedSession(t, m, "claude-hooked")
 	before := time.Now()
-	m.noteOperator(sess, extension.OperatorPrompt, "go on", false)
+	m.answerLanded(pendingLanding{
+		sess: sess, via: extension.OperatorPrompt, text: "go on",
+		armed: time.Now(), probe: &landingProbe{},
+	})
 	got, err := m.store.Get(sess.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -435,5 +438,85 @@ func TestSmartTriageAnAttachCountsOnlyWhenItGaveATurn(t *testing.T) {
 	m.noteAttachedTurn(sess.ID, since)
 	if got, err := m.store.Get(sess.ID); err != nil || got.OperatorAt.Before(since) {
 		t.Fatalf("a turn given while attached left the operator's turn at %v, %v", got.OperatorAt, err)
+	}
+}
+
+func TestTriageWaitsForStatusDetectionAfterOperatorInput(t *testing.T) {
+	for _, state := range []string{status.Finished, status.Idle, status.Waiting} {
+		t.Run(state, func(t *testing.T) {
+			m := smartFleet(t, smartSess("recent", state, 0), smartSess("next", status.Waiting, time.Minute))
+			assertRail(t, m, "recent", "next")
+			for _, elapsed := range []time.Duration{0, 3*time.Second - time.Nanosecond, 3 * time.Second} {
+				m.clock = func() time.Time { return smartNow.Add(elapsed) }
+				i, ok := m.nextTriageInput("", nil)
+				want := "next"
+				if elapsed >= 3*time.Second {
+					want = "recent"
+				}
+				if !ok || m.rows[i].sess.ID != want {
+					t.Fatalf("after %v: candidate %d, found %v; want %s", elapsed, i, ok, want)
+				}
+			}
+			for i := range m.sessions {
+				if m.sessions[i].ID == "recent" {
+					m.sessions[i].Status = status.Working
+				}
+			}
+			m.rebuildRows()
+			i, ok := m.nextTriageInput("", nil)
+			if !ok || m.rows[i].sess.ID != "next" {
+				t.Fatal("the session reentered triage after detection marked it working")
+			}
+		})
+	}
+}
+
+func TestTriageOffersFreshStatusAfterOperatorInput(t *testing.T) {
+	for _, state := range []string{status.Finished, status.Idle, status.Waiting} {
+		t.Run(state, func(t *testing.T) {
+			recent := smartSess("recent", state, 0)
+			recent.LastStatusAt = smartNow.Add(100 * time.Millisecond)
+			m := smartFleet(t, recent, smartSess("next", status.Waiting, time.Minute))
+			m.clock = func() time.Time { return recent.LastStatusAt }
+			i, ok := m.nextTriageInput("", nil)
+			if !ok || m.rows[i].sess.ID != "recent" {
+				t.Fatal("a new result, ready state or question waited behind the submission grace")
+			}
+		})
+	}
+}
+
+func TestOperatorSubmissionReleasesEchoForStreaming(t *testing.T) {
+	m := drainOnDialog(t, true)
+	m.poller.interval = time.Hour
+	m = pressEnter(m)
+	pending := onlyLanding(t, m)
+	at, id := pending.armed, pending.sess.ID
+	select {
+	case <-m.poller.poke:
+	default:
+	}
+	landAnswer(t, m, id)
+	sess, err := m.store.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sess.OperatorAt.Equal(at) {
+		t.Errorf("submission was stamped at detection instead of the key: %v", sess.OperatorAt)
+	}
+	select {
+	case <-m.poller.poke:
+	default:
+		t.Error("an accepted submission did not request a fresh status pass")
+	}
+	sess.Tool, sess.Status = pending.sess.Tool, status.Finished
+	seedRegionHash(t, m, sess, "earlier answer\n❯ \n")
+	if got := deriveStatus(t, m, sess, "earlier answer\nnew output\n❯ \n", true); got != status.Working {
+		t.Fatalf("accepted turn's output was hidden as operator echo: %s", got)
+	}
+	seedRegionHash(t, m, sess, "earlier answer\n❯ \n")
+	m.poller.operatorInputAt[sess.ID] = sess.OperatorAt.Add(time.Hour)
+	if got := deriveStatus(t, m, sess, "repaint from later typing\n❯ \n", true); got != status.Finished {
+		t.Fatalf("input after submission lost its echo protection: %s", got)
 	}
 }

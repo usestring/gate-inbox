@@ -33,6 +33,7 @@ migrate = []  # migrate it to another CLI
 revive = ["v"]  # revive it, or restart a live one on its own conversation
 revive_all = ["V", "shift+v"]  # revive every dead session
 ingest_reviews = ["P", "shift+p"]  # fetch reviews asked of you on GitHub
+reviews_tab = ["]"]  # switch between the Sessions and Reviews tabs
 switch_account = []  # switch its account: restarts it on its own conversation
 restart = []  # restart it on an empty context
 restart_with = []  # restart it with extra flags…
@@ -129,7 +130,7 @@ confirm = ["y", "enter"]  # go ahead (required)
 confirm_always = ["A", "shift+a"]  # go ahead and stop asking
 
 [reviews]
-close = ["esc", "q"]  # back to the list (required)
+close = ["esc"]  # back to the sessions (required)
 cursor_up = ["up", "k"]  # move up (required)
 cursor_down = ["down", "j"]  # move down (required)
 review_start = ["s", "enter"]  # start the review

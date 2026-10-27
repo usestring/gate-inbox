@@ -326,6 +326,8 @@ The source keeps its current status. Archive it with `x` once the new session ha
 
 Agents can do the same: `gate-inbox migrate <session-id> --tool <cli> [--name <name>]` from a shell, or the `migrate_session` MCP tool, including on their own session id to move themselves -- after a usage limit on the CLI they run, say.
 
+Moving a session to another account on the same CLI works the same way: `gate-inbox accounts [--tool <cli>]` lists the named accounts (the `list_accounts` MCP tool), and `gate-inbox switch-account <session-id> [--account <name>]` moves the session onto one, or back to the CLI's own login when `--account` is left out (the `switch_account` MCP tool). Both run through the same code. The switch restarts the session, so it refuses the session it is run from; move another session that has hit its limit or is resting on a nearly spent account.
+
 ## Self-naming sessions
 
 Newly adopted panes take a name from their own conversation when one is available. Otherwise, the directory name and numeric suffix are temporary: Gate Inbox queues one request for the agent to name the session after its work. It waits until the agent is at rest, with no dialog or draft in the input box. The request survives a manager restart, and is discarded if the session receives a name before it is sent.

@@ -82,6 +82,45 @@ func TestSessionCommandsParseArgumentsAndPrintSentences(t *testing.T) {
 			},
 		},
 		{
+			name: "accounts names one CLI's accounts",
+			run: func(out *bytes.Buffer, f *fakeSessions, args []string) error {
+				return runAccounts(out, f, args, "cafe0001")
+			},
+			args: []string{"--tool", "claude"},
+			want: "claude (2, from \"list-secrets\"):\nALICE1\nBOB2",
+			inspect: func(t *testing.T, f *fakeSessions) {
+				if f.accountTool != "claude" {
+					t.Fatalf("accounts got tool %q", f.accountTool)
+				}
+			},
+		},
+		{
+			name: "switch-account forwards the caller, target and account",
+			run: func(out *bytes.Buffer, f *fakeSessions, args []string) error {
+				return runSwitchAccount(out, f, args, "cafe0001")
+			},
+			args: []string{"beef1234", "--account", "ALICE1"},
+			want: "switched api-worker (id beef1234)",
+			inspect: func(t *testing.T, f *fakeSessions) {
+				if f.callerID != "cafe0001" || f.targetID != "beef1234" || f.account != "ALICE1" {
+					t.Fatalf("switch-account got caller %q target %q account %q", f.callerID, f.targetID, f.account)
+				}
+			},
+		},
+		{
+			name: "switch-account with no --account moves it back to the CLI's own login",
+			run: func(out *bytes.Buffer, f *fakeSessions, args []string) error {
+				return runSwitchAccount(out, f, args, "cafe0001")
+			},
+			args: []string{"beef1234"},
+			want: "switched api-worker (id beef1234)",
+			inspect: func(t *testing.T, f *fakeSessions) {
+				if f.account != "" {
+					t.Fatalf("switch-account got account %q, want the CLI's own login", f.account)
+				}
+			},
+		},
+		{
 			name: "park runs from any shell and says what it left",
 			run: func(out *bytes.Buffer, f *fakeSessions, args []string) error {
 				return runPark(out, f, args, "")

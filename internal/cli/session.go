@@ -31,6 +31,8 @@ const (
 	usageStop          = "stop [--archive] [--dry-run] [--json]"
 	usageRevive        = "revive <session-id> [--json]"
 	usageMigrate       = "migrate <session-id> --tool <cli> [--name <name>] [--json]"
+	usageAccounts      = "accounts [--tool <cli>] [--json]"
+	usageSwitchAccount = "switch-account <session-id> [--account <name>] [--json]"
 	usageArchive       = "archive <session-id> [--restore] [--json]"
 	usageMute          = "mute <session-id> [--off] [--json]"
 	usageCleanup       = "cleanup-children [--status <state>] [--all] [--dry-run] [--json]"
@@ -59,6 +61,8 @@ type sessionCommands interface {
 	Stop(sessionID string, dryRun, archive bool) (sessioncmd.StopResult, error)
 	Revive(sessionID, targetID string) (sessioncmd.Session, error)
 	Migrate(sessionID, targetID string, opts sessioncmd.MigrateOptions) (sessioncmd.Session, error)
+	Accounts(tool string) (sessioncmd.AccountList, error)
+	SwitchAccount(sessionID, targetID, account string) (sessioncmd.Session, error)
 	Archive(sessionID, targetID string, archived bool) (sessioncmd.Session, error)
 	Mute(sessionID, targetID string, muted bool) (sessioncmd.Session, error)
 	Park(sessionID string, dryRun bool) (sessioncmd.ParkResult, error)
@@ -89,6 +93,8 @@ func sessionSection() section {
 			{name: "stop", usage: usageStop, about: "end this managed session intentionally, preserving its history and excluding it from crash restoration", run: bind(newSessions, runStop)},
 			{name: "revive", usage: usageRevive, about: "bring a dead session back on its old row, resuming the conversation it held", run: bind(newSessions, runRevive)},
 			{name: "migrate", usage: usageMigrate, about: "move a session's conversation to another agent CLI: a new session there reads the source's transcript and carries on; the source stays until you archive it", run: bind(newSessions, runMigrate)},
+			{name: "accounts", usage: usageAccounts, about: "list the named accounts each CLI can run on, for spawn --account and switch-account, instead of guessing a name", run: bind(newSessions, runAccounts)},
+			{name: "switch-account", usage: usageSwitchAccount, about: "move another session onto a named account, or back to its CLI's own login with no --account, when its account is spent or nearly so; restarts it, so use it on a session at rest, never your own", run: bind(newSessions, runSwitchAccount)},
 			{name: "archive", usage: usageArchive, about: "file a finished session out of the active list, ending it if it is still running, or restore it with --restore; a row left archived is deleted for good after 7 days", run: bind(newSessions, runArchive)},
 			{name: "mute", usage: usageMute, about: "keep a session out of triage until it is unmuted: the row stays on the list and reads muted, and --off puts it back", run: bind(newSessions, runMute)},
 			{name: "cleanup-children", usage: usageCleanup, about: "archive the sessions you spawned that are done, each with whatever it spawned: finished, idle and dead by default, --status to choose, --all for every one; a finished child you have read is archived on its own after a grace period anyway", run: bind(newSessions, runCleanupChildren)},
@@ -423,6 +429,35 @@ func runMigrate(out io.Writer, sessions sessionCommands, args []string, sessionI
 		return err
 	}
 	return cmdline.Emit(out, *asJSON, migrated, "migrated "+operands[0]+" to "+sessioncmd.FormatSession(migrated))
+}
+
+func runAccounts(out io.Writer, sessions sessionCommands, args []string, _ string) error {
+	set := cmdline.NewFlagSet(usageAccounts)
+	tool := set.String("tool", "", "list one CLI's accounts, saying why when it cannot run on one; omit for every CLI that can")
+	asJSON := cmdline.JSONFlag(set)
+	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
+		return err
+	}
+	list, err := sessions.Accounts(*tool)
+	if err != nil {
+		return err
+	}
+	return cmdline.Emit(out, *asJSON, list, strings.TrimRight(sessioncmd.FormatAccounts(list), "\n"))
+}
+
+func runSwitchAccount(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
+	set := cmdline.NewFlagSet(usageSwitchAccount)
+	account := set.String("account", "", "named account to move it onto, from gate-inbox accounts; omit to move it back to its CLI's own login")
+	asJSON := cmdline.JSONFlag(set)
+	operands, err := parseCommand(out, set, args, 1, 1)
+	if err != nil {
+		return err
+	}
+	switched, err := sessions.SwitchAccount(sessionID, operands[0], *account)
+	if err != nil {
+		return err
+	}
+	return cmdline.Emit(out, *asJSON, switched, "switched "+sessioncmd.FormatSession(switched))
 }
 
 func runArchive(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {

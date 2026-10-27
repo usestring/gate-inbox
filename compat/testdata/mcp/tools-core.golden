@@ -3293,7 +3293,7 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Move a session onto another named subscription, for when the account it runs on has hit its usage limit. Claude contexts over 200,000 input tokens (or, for an urgent or high session, over its tier's auto-compact window when that is larger) migrate to a fresh same-tool conversation on the chosen account, returning a new session ID; the new session takes over the source's children and the source is ended and archived. Otherwise a live session restarts on its conversation, and a dead one takes the account at its next revive. This restarts a live agent on the user's machine, so use it on a session that is blocked by a limit, not one mid-way through work; it cannot be this session itself.",
+  "description": "Move a session onto another named subscription, for when the account it runs on has hit its usage limit or is nearly spent. Claude contexts over 200,000 input tokens (or, for an urgent or high session, over its tier's auto-compact window when that is larger) migrate to a fresh same-tool conversation on the chosen account, returning a new session ID; the new session takes over the source's children and the source is ended and archived. Otherwise a live session restarts on its conversation, and a dead one takes the account at its next revive. This restarts a live agent on the user's machine, so use it on a session that is blocked by a limit or at rest between turns, not one mid-way through work; it cannot be this session itself.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {

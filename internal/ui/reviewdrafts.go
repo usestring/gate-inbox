@@ -27,10 +27,13 @@ type reviewDraftsMsg struct {
 	err    error
 }
 
-// reviewSubmittedMsg is GitHub's answer to a submitted review.
+// reviewSubmittedMsg is GitHub's answer to a submitted review, with the
+// drafts it was written from and its summary.
 type reviewSubmittedMsg struct {
 	review store.ReviewRequest
 	event  string
+	body   string
+	drafts []store.ReviewDraft
 	sent   int
 	err    error
 }
@@ -92,6 +95,9 @@ func (v *reviewsView) jumpDraft(forward bool) {
 	page.tab = tabFiles
 	at := filesLines(detail, page.drafts, page.selected, page.width).drafts
 	order := slices.Collect(maps.Keys(at))
+	if len(order) == 0 {
+		return
+	}
 	slices.SortFunc(order, func(a, b int64) int { return at[a] - at[b] })
 	i := slices.Index(order, page.selected)
 	switch {
@@ -166,8 +172,20 @@ func (m *Model) composeReview(event string) {
 		m.errBar.text = "the pull request is still loading"
 		return
 	}
-	threads, left := reviewThreads(detail, page.drafts)
-	page.compose = &draftCompose{event: event, threads: len(threads), left: left}
+	page.compose = reviewCompose(detail, page.drafts, event)
+}
+
+// reviewCompose is the summary box for a review about to be submitted, with
+// what it will carry and what it will close.
+func reviewCompose(detail *forge.PRDetail, drafts []store.ReviewDraft, event string) *draftCompose {
+	threads, left := reviewThreads(detail, drafts)
+	c := &draftCompose{event: event, threads: len(threads), left: left}
+	for _, d := range drafts {
+		if d.State == store.DraftProposed {
+			c.proposed++
+		}
+	}
+	return c
 }
 
 // commentLine is the first diff line a comment can go on in the rows in view.
@@ -182,8 +200,8 @@ func commentLine(targets map[int]store.ReviewDraft, from, rows int) (int, bool) 
 
 func markCommentLine(line []Span) []Span {
 	out := append([]Span(nil), line...)
-	if len(out) > 0 && len(out[0].Text) == diffGutter {
-		out[0] = Span{Text: out[0].Text[:diffGutter-2] + "▸ ", Tone: ToneAccent, Bold: true}
+	if len(out) > 0 && len(out[0].Text) >= diffGutter {
+		out[0] = Span{Text: out[0].Text[:len(out[0].Text)-2] + "▸ ", Tone: ToneAccent, Bold: true}
 	}
 	return out
 }
@@ -280,11 +298,12 @@ func mute(line []Span) []Span {
 // draft's new body, or, with event set, the summary of the review about to
 // be submitted.
 type draftCompose struct {
-	draft   store.ReviewDraft
-	event   string
-	threads int
-	left    int
-	text    []rune
+	draft    store.ReviewDraft
+	event    string
+	threads  int
+	left     int
+	proposed int
+	text     []rune
 }
 
 var reviewEventNames = map[string]string{
@@ -300,6 +319,9 @@ func (c *draftCompose) lines(width int) [][]Span {
 		title = reviewEventNames[c.event] + " with " + countOf(c.threads, "inline comment")
 		if c.left > 0 {
 			title += " (" + countOf(c.left, "kept draft") + " stale or off the diff, left out)"
+		}
+		if c.proposed > 0 {
+			title += "; " + countOf(c.proposed, "draft") + " not yet kept will be closed"
 		}
 		title += ". Summary:"
 	case c.draft.ID != 0:
@@ -392,7 +414,7 @@ func (m *Model) submitReview(page *prPage, event, body string) tea.Cmd {
 		m.errBar.text = "say what to change: a summary or a kept draft"
 		return nil
 	}
-	review, prID, head := page.review, detail.NodeID, detail.HeadSHA
+	review, prID, head, drafts := page.review, detail.NodeID, detail.HeadSHA, slices.Clone(page.drafts)
 	if m.reviewsSubmitting == nil {
 		m.reviewsSubmitting = make(map[string]bool)
 	}
@@ -400,7 +422,7 @@ func (m *Model) submitReview(page *prPage, event, body string) tea.Cmd {
 	m.reportDone("submitting the review to GitHub…")
 	return func() tea.Msg {
 		err := forge.NewGitHub().SubmitReview(prID, head, event, body, threads)
-		return reviewSubmittedMsg{review: review, event: event, sent: len(threads), err: err}
+		return reviewSubmittedMsg{review: review, event: event, body: body, drafts: drafts, sent: len(threads), err: err}
 	}
 }
 
@@ -411,9 +433,17 @@ func (m *Model) finishSubmit(msg reviewSubmittedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.errBar.done = ""
 		m.errBar.text = "review not submitted on " + name + ": " + msg.err.Error()
+		page := m.reviewPage()
+		if page == nil || page.review.Repo != r.Repo || page.review.Number != r.Number || page.compose != nil || msg.event == "" {
+			return m, nil
+		}
+		if detail := m.reviewsPR().cache.details[page.key()]; detail != nil {
+			page.compose = reviewCompose(detail, page.drafts, msg.event)
+			page.compose.text = []rune(msg.body)
+		}
 		return m, nil
 	}
-	if err := m.store.FinishReviewDrafts(r.Repo, r.Number, time.Now()); err != nil {
+	if err := m.store.FinishReviewDrafts(msg.drafts, time.Now()); err != nil {
 		m.errBar.text = "review drafts: " + err.Error()
 	}
 	if page := m.reviewPage(); page != nil && page.review.Repo == r.Repo && page.review.Number == r.Number {

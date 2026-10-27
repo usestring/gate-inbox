@@ -57,9 +57,15 @@ func ReviewComment(configDir, sessionID string, in ReviewCommentInput, now time.
 	}
 	head, asked := "", false
 	for _, ask := range asks {
-		if ask.Repo == in.Repo && ask.Number == in.Number {
-			head, asked = ask.HeadSHA, true
+		if ask.Repo != in.Repo || ask.Number != in.Number {
+			continue
+		}
+		if ask.SessionID == sessionID && ask.SessionHead != "" {
+			head, asked = ask.SessionHead, true
 			break
+		}
+		if !asked {
+			head, asked = ask.HeadSHA, true
 		}
 	}
 	if !asked {

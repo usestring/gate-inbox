@@ -13,6 +13,8 @@ package ui
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -170,7 +172,11 @@ func (m *Model) handleReviewPageKey(action keymap.Action, bound bool) (tea.Model
 	case keymap.ReviewOpen:
 		return m, openLink(page.review.URL + [...]string{"", "/files", "/checks"}[page.tab])
 	case keymap.ReviewStart:
-		return m.startReview(page.review)
+		r := page.review
+		if detail := view.cache.details[page.key()]; detail != nil && detail.HeadSHA != "" {
+			r.HeadSHA = detail.HeadSHA
+		}
+		return m.startReview(r)
 	case keymap.ReviewDismiss:
 		r := page.review
 		m.closePullRequest()
@@ -265,7 +271,11 @@ func (v *reviewsView) renderPage(width, height int) [][]Span {
 		body = [][]Span{{{Text: "Fetching the pull request from GitHub…", Tone: ToneMuted}}}
 	}
 	scroll := &page.scroll[page.tab]
-	*scroll = min(max(*scroll, 0), max(len(body)-room, 0))
+	last := max(len(body)-room, 0)
+	if len(targets) > 0 {
+		last = max(len(body)-1, 0)
+	}
+	*scroll = min(max(*scroll, 0), last)
 	shown := append([][]Span(nil), body[*scroll:min(len(body), *scroll+room)]...)
 	if at, ok := commentLine(targets, *scroll, len(shown)); ok {
 		shown[at-*scroll] = markCommentLine(shown[at-*scroll])
@@ -400,7 +410,8 @@ type filesBody struct {
 // filesLines is the Files changed tab: each file's header and its diff with
 // both line numbers in the gutter, and each review thread and draft drawn
 // under the line it is on. A thread or draft whose line is no longer in the
-// diff is listed at the end of its file, as GitHub folds an outdated one.
+// diff is listed at the end of its file, as GitHub folds an outdated one, and
+// one whose file has left the diff is listed after every file.
 func filesLines(detail *forge.PRDetail, drafts []store.ReviewDraft, selected int64, width int) filesBody {
 	body := filesBody{drafts: map[int64]int{}, targets: map[int]store.ReviewDraft{}}
 	byPath := map[string][]forge.ReviewThread{}
@@ -413,7 +424,6 @@ func filesLines(detail *forge.PRDetail, drafts []store.ReviewDraft, selected int
 	}
 	if len(detail.Files) == 0 {
 		body.lines = [][]Span{{{Text: "No files changed.", Tone: ToneMuted}}}
-		return body
 	}
 	putDraft := func(d store.ReviewDraft) {
 		body.drafts[d.ID] = len(body.lines)
@@ -435,6 +445,7 @@ func filesLines(detail *forge.PRDetail, drafts []store.ReviewDraft, selected int
 			{Text: "  " + f.Status, Tone: ToneMuted},
 		})
 		threads, fileDrafts := byPath[f.Path], draftsByPath[f.Path]
+		delete(byPath, f.Path)
 		delete(draftsByPath, f.Path)
 		placed := make([]bool, len(threads))
 		placedDraft := make([]bool, len(fileDrafts))
@@ -477,18 +488,23 @@ func filesLines(detail *forge.PRDetail, drafts []store.ReviewDraft, selected int
 			}
 		}
 	}
-	for _, f := range detail.Files {
-		for _, d := range draftsByPath[f.Path] {
-			putDraft(d)
+	paths := slices.Collect(maps.Keys(byPath))
+	for path := range draftsByPath {
+		if _, ok := byPath[path]; !ok {
+			paths = append(paths, path)
 		}
 	}
-	for path, rest := range draftsByPath {
-		if len(rest) == 0 {
-			continue
+	slices.Sort(paths)
+	for _, path := range paths {
+		body.lines = append(body.lines, nil, []Span{{Text: path + ": no longer in this pull request's diff", Tone: ToneAccent, Bold: true}})
+		for _, t := range byPath[path] {
+			body.lines = append(body.lines, threadLines(t, width)...)
 		}
-		body.lines = append(body.lines, nil, []Span{{Text: path + ": not in this pull request, left out of the review", Tone: ToneMuted}})
-		for _, d := range rest {
-			putDraft(d)
+		if rest := draftsByPath[path]; len(rest) > 0 {
+			body.lines = append(body.lines, []Span{{Text: "  " + countOf(len(rest), "draft") + " left out of the review", Tone: ToneMuted}})
+			for _, d := range rest {
+				putDraft(d)
+			}
 		}
 	}
 	return body

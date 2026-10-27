@@ -607,6 +607,8 @@ CREATE TABLE IF NOT EXISTS settings (
 			updated_at   INTEGER NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS review_drafts_pr ON review_drafts (repo, number)`,
+		// The head a review session was started on. See ReviewRequest.SessionHead.
+		`ALTER TABLE review_requests ADD COLUMN session_head TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {

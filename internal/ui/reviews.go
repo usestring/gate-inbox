@@ -197,7 +197,7 @@ func (m *Model) prepareReviews() (prepared, left int, err error) {
 		}
 		id, launchErr := m.launchReview(r)
 		if launchErr == nil {
-			launchErr = m.store.AttachReviewSession(r.Repo, r.Number, id, time.Now())
+			launchErr = m.store.AttachReviewSession(r.Repo, r.Number, id, r.HeadSHA, time.Now())
 		}
 		if launchErr != nil {
 			err = fmt.Errorf("review briefing for %s not started: %w", pr, launchErr)
@@ -629,7 +629,7 @@ func (m *Model) reviewsTabAction(action keymap.Action) (tea.Model, tea.Cmd) {
 // setReviewState moves every open ask on the pull request, and reloads the
 // queue so the row and the page follow.
 func (m *Model) setReviewState(r store.ReviewRequest, state, sessionID string) {
-	if err := m.store.SetPullRequestReviewState(r.Repo, r.Number, state, sessionID, time.Now()); err != nil {
+	if err := m.store.SetPullRequestReviewState(r.Repo, r.Number, state, sessionID, r.HeadSHA, time.Now()); err != nil {
 		m.errBar.text = "review queue: " + err.Error()
 		return
 	}

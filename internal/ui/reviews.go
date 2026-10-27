@@ -11,6 +11,7 @@ package ui
 // request is.
 
 import (
+	"errors"
 	"fmt"
 	"path"
 	"strconv"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/forge"
 	"github.com/usestring/gate-inbox/internal/keymap"
+	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
@@ -135,6 +137,17 @@ func (m *Model) finishReviews(msg reviewsMsg) (tea.Model, tea.Cmd) {
 	if msg.err == nil {
 		m.reviews = msg.open
 	}
+	preparing := ""
+	var prepErr error
+	if msg.ingested && msg.health.OK && msg.err == nil {
+		var prepared, left int
+		if prepared, left, prepErr = m.prepareReviews(); prepared > 0 {
+			preparing = " · preparing " + countOf(prepared, "briefing")
+			if left > 0 {
+				preparing += fmt.Sprintf(" (%d more on the next fetch)", left)
+			}
+		}
+	}
 	switch {
 	case msg.ingested && !msg.health.OK:
 		reason := msg.health.Reason
@@ -145,12 +158,93 @@ func (m *Model) finishReviews(msg reviewsMsg) (tea.Model, tea.Cmd) {
 	case msg.err != nil:
 		m.errBar.text = "review queue: " + msg.err.Error()
 	case msg.ingested && msg.ackErr != nil:
-		m.errBar.text = fmt.Sprintf("%s queued, but the eyes reaction did not land: %v", countOf(msg.added, "new review"), msg.ackErr)
+		m.errBar.text = fmt.Sprintf("%s queued%s, but the eyes reaction did not land: %v", countOf(msg.added, "new review"), preparing, msg.ackErr)
 	case msg.ingested:
-		m.reportDone(fmt.Sprintf("%s · %d already queued", countOf(msg.added, "new review"), msg.found-msg.added))
+		m.reportDone(fmt.Sprintf("%s · %d already queued%s", countOf(msg.added, "new review"), msg.found-msg.added, preparing))
+	}
+	if prepErr != nil {
+		m.errBar.text = prepErr.Error()
 	}
 	m.rebuildRows()
 	return m, nil
+}
+
+// prepareLimit caps how many review sessions one fetch starts, so a long
+// queue fills over a few fetches instead of launching every agent at once.
+const prepareLimit = 5
+
+// prepareReviews starts a review session in the background for each pull
+// request waiting without one, oldest ask first, so its briefing is written
+// before the operator opens it. It reports how many it started and how many
+// it left for a later fetch, and stops at the first that fails to start.
+func (m *Model) prepareReviews() (prepared, left int, err error) {
+	if !m.cfg.Integrations.Reviews.Prepares() {
+		return 0, 0, nil
+	}
+	seen := map[string]bool{}
+	for _, r := range m.reviews {
+		pr := r.Repo + "#" + strconv.Itoa(r.Number)
+		if seen[pr] {
+			continue
+		}
+		seen[pr] = true
+		if r.State != store.ReviewPending || m.reviewSession(r) != nil {
+			continue
+		}
+		if prepared == prepareLimit {
+			left++
+			continue
+		}
+		id, launchErr := m.launchReview(r)
+		if launchErr == nil {
+			launchErr = m.store.AttachReviewSession(r.Repo, r.Number, id, time.Now())
+		}
+		if launchErr != nil {
+			err = fmt.Errorf("review briefing for %s not started: %w", pr, launchErr)
+			break
+		}
+		prepared++
+	}
+	if prepared > 0 {
+		if open, err := m.store.OpenReviewRequests(); err == nil {
+			m.reviews = open
+		}
+	}
+	return prepared, left, err
+}
+
+// reviewSession is the live session recorded for any open ask on the pull
+// request, or nil when it has none or the one it had is gone or dead.
+func (m *Model) reviewSession(r store.ReviewRequest) *store.Session {
+	for _, ask := range m.reviews {
+		if ask.Repo != r.Repo || ask.Number != r.Number || ask.SessionID == "" {
+			continue
+		}
+		for i := range m.sessions {
+			if m.sessions[i].ID == ask.SessionID && m.sessions[i].Status != status.Dead {
+				return &m.sessions[i]
+			}
+		}
+	}
+	return nil
+}
+
+// reviewSessionLabel says where an ask's review session stands: opened by
+// the operator, or prepared ahead of them and still writing its briefing or
+// done with it.
+func (m *Model) reviewSessionLabel(r store.ReviewRequest) (string, Tone) {
+	if r.State == store.ReviewStarted {
+		return "review started", ToneWarn
+	}
+	sess := m.reviewSession(r)
+	if sess == nil {
+		return "", ToneMuted
+	}
+	switch sess.Status {
+	case status.Starting, status.Working, status.Background, status.Delegating:
+		return "preparing briefing", ToneMuted
+	}
+	return "briefing ready", ToneGood
 }
 
 func countOf(n int, noun string) string {
@@ -238,6 +332,9 @@ func (m *Model) reviewTabLines(width, height int) []contentLine {
 			bg = selectedHex()
 		}
 		head, meta := reviewSpans(m.reviews[i], i == m.reviewsCursor)
+		if label, tone := m.reviewSessionLabel(m.reviews[i]); label != "" && m.reviews[i].State != store.ReviewStarted {
+			meta = append(meta, Span{Text: " · ", Tone: ToneMuted}, Span{Text: label, Tone: tone})
+		}
 		lines = append(lines,
 			contentLine{text: paint(spaces(railInset)+render(head), width, bg)},
 			contentLine{text: paint(spaces(railInset)+render(meta), width, bg)})
@@ -322,8 +419,8 @@ func (m *Model) reviewDetailLines(width int) []string {
 		change += " · draft"
 	}
 	out = append(out, line(change, ToneMuted, false))
-	if r.State == store.ReviewStarted {
-		out = append(out, line("review started", ToneWarn, false))
+	if label, tone := m.reviewSessionLabel(r); label != "" {
+		out = append(out, line(label, tone, false))
 	}
 	if r.URL != "" {
 		out = append(out, "", line(r.URL, ToneMuted, false))
@@ -484,33 +581,39 @@ func (m *Model) setReviewState(r store.ReviewRequest, state, sessionID string) {
 // startReview launches the review session for an ask, or lands on the one
 // already running for it.
 func (m *Model) startReview(r store.ReviewRequest) (tea.Model, tea.Cmd) {
-	for _, ask := range m.reviews {
-		if ask.Repo != r.Repo || ask.Number != r.Number || ask.SessionID == "" {
-			continue
+	id := ""
+	if sess := m.reviewSession(r); sess != nil {
+		id = sess.ID
+	} else {
+		launched, err := m.launchReview(r)
+		if err != nil {
+			m.reportLaunchError(err)
+			return m, nil
 		}
-		for _, sess := range m.sessions {
-			if sess.ID == ask.SessionID {
-				m.setReviewState(r, store.ReviewStarted, sess.ID)
-				m.reviewsTab = false
-				m.statusFilter = statusFilterAll
-				m.toolFilter = ""
-				return m.landInNewSession(sess.ID)
-			}
-		}
+		id = launched
+		m.errBar.text = ""
 	}
+	m.setReviewState(r, store.ReviewStarted, id)
+	m.reviewsTab = false
+	m.statusFilter = statusFilterAll
+	m.toolFilter = ""
+	return m.landInNewSession(id)
+}
+
+// launchReview starts the review session for an ask's pull request without
+// landing in it.
+func (m *Model) launchReview(r store.ReviewRequest) (string, error) {
 	cfg := m.cfg.Integrations.Reviews
 	tool := cfg.Tool
 	if tool == "" {
 		tool = m.defaultTool()
 	}
 	if tool == "" {
-		m.errBar.text = "no CLIs enabled to review with"
-		return m, nil
+		return "", errors.New("no CLIs enabled to review with")
 	}
 	dir, ok := resolveExistingDir(cfg.Directory, m.groupDefaultDir(rootGroup))
 	if !ok {
-		m.errBar.text = "working directory does not exist: " + dir
-		return m, nil
+		return "", errors.New("working directory does not exist: " + dir)
 	}
 	prompt := strings.NewReplacer(
 		"{repo}", r.Repo,
@@ -519,15 +622,5 @@ func (m *Model) startReview(r store.ReviewRequest) (tea.Model, tea.Cmd) {
 		"{url}", r.URL,
 	).Replace(cfg.PromptOrDefault())
 	name := "review-" + path.Base(r.Repo) + "-" + strconv.Itoa(r.Number)
-	id, err := m.spawnSessionAs(tool, cfg.Model, name, dir, rootGroup, prompt, false, store.SourceUser)
-	if err != nil {
-		m.reportLaunchError(err)
-		return m, nil
-	}
-	m.setReviewState(r, store.ReviewStarted, id)
-	m.reviewsTab = false
-	m.statusFilter = statusFilterAll
-	m.toolFilter = ""
-	m.errBar.text = ""
-	return m.landInNewSession(id)
+	return m.spawnSessionAs(tool, cfg.Model, name, dir, rootGroup, prompt, false, store.SourceUser)
 }

@@ -347,7 +347,11 @@ type Reviews struct {
 	Ack string `toml:"ack"`
 	// Prompt starts a review session; {repo}, {number}, {head} and {url}
 	// are filled in.
-	Prompt    string `toml:"prompt"`
+	Prompt string `toml:"prompt"`
+	// Prepare is a pointer so that absent means on: each fetch starts a review
+	// session in the background for every new ask, so its briefing is ready
+	// before the operator opens it.
+	Prepare   *bool  `toml:"prepare"`
 	Tool      string `toml:"tool"`
 	Model     string `toml:"model"`
 	Directory string `toml:"directory"`
@@ -356,11 +360,18 @@ type Reviews struct {
 // On reports whether the review queue is switched on.
 func (r Reviews) On() bool { return r.Enabled == nil || *r.Enabled }
 
+// Prepares reports whether a fetch starts review sessions ahead of the operator.
+func (r Reviews) Prepares() bool { return r.Prepare == nil || *r.Prepare }
+
 // Default review settings, for any field left unset.
 const (
 	DefaultReviewLabel   = "gate-review"
 	DefaultReviewCommand = "/gate review"
-	DefaultReviewPrompt  = "Review {repo}#{number} at {head} ({url}). Do not post to GitHub."
+	DefaultReviewPrompt  = "Brief me on {repo}#{number} at {head} ({url}) so I can ask about it. " +
+		"Cover what it changes and why; every unresolved review thread, and from the commits and replies why each is still unaddressed; " +
+		"whether it merges cleanly, and what conflicts if not; which checks are pending or failing, and the likely cause of each failure; " +
+		"and your overall recommendation, or what has to happen before it can merge. " +
+		"Read with gh and git only: do not post, comment, review, push or merge. End with the briefing and wait for my questions."
 )
 
 // TriggerList is the configured triggers, or all three when none are named.

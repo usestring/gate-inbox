@@ -119,8 +119,8 @@ func TestLeavingTriageClearsTheScope(t *testing.T) {
 	}
 }
 
-// The advance is what ctrl+q walks, and it has to stop at the edge of the
-// scope rather than hand over a session from work the operator is not doing.
+// The queue the rail paints stops at the edge of the scope: work the operator
+// is not doing waits until the scope has nothing left.
 func TestTriageAdvanceStopsAtTheScopeEdge(t *testing.T) {
 	m := buildModel(t)
 	seedTriageFleet(t, m)
@@ -243,5 +243,57 @@ func TestTriageDropsTheRootRow(t *testing.T) {
 	}
 	if len(m.rows) == 0 || !m.rows[0].isRoot() {
 		t.Fatal("leaving triage did not bring root's rollup back")
+	}
+}
+
+// A scoped queue that runs dry hands over the nearest waiting work outside it
+// rather than stranding the operator on the list, one level up at a time, and
+// the rail follows the scope it widened to.
+func TestTriageAdvanceWidensADrainedScope(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	if err := m.store.CreateGroup("backend/urgent", ""); err != nil {
+		t.Fatalf("create group: %v", err)
+	}
+	m.applyCmd(t, m.refreshCmd())
+	for _, seed := range []struct{ name, group string }{
+		{"ask", "backend/urgent"},
+		{"sibling", "backend"},
+		{"far", ""},
+	} {
+		createSession(t, m, seed.name, dir, seed.group)
+	}
+	for _, sess := range m.sessions {
+		if err := m.store.UpdateStatus(sess.ID, status.Waiting); err != nil {
+			t.Fatalf("UpdateStatus %q: %v", sess.Name, err)
+		}
+	}
+	loadStoredRows(t, m)
+	m.triage = true
+	m.triageScope = "backend/urgent"
+	m.rebuildRows()
+
+	m.enterFocusOn(t, "ask")
+	for _, want := range []struct{ name, scope string }{
+		{"sibling", "backend"},
+		{"far", ""},
+	} {
+		updated, _ := m.handleFocusKey(ctrlQ())
+		m = updated.(*Model)
+		if m.mode != modeFocus || focusedName(t, m) != want.name {
+			t.Fatalf("hand-over ended in mode %v on %q, want %s", m.mode, focusedName(t, m), want.name)
+		}
+		if m.triageScope != want.scope {
+			t.Fatalf("triage scope = %q want %q", m.triageScope, want.scope)
+		}
+		if !strings.Contains(m.errBar.text, "drained") {
+			t.Fatalf("the bar does not say the scope widened: %q", m.errBar.text)
+		}
+	}
+
+	updated, _ := m.handleFocusKey(ctrlQ())
+	m = updated.(*Model)
+	if m.mode != modeList {
+		t.Fatalf("a board with nothing waiting handed over %q", focusedName(t, m))
 	}
 }

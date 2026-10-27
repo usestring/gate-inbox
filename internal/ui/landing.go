@@ -582,7 +582,7 @@ func (m *Model) settleLandings(listedAt time.Time, unseen map[string]bool) {
 // has seen the new one start. The new turn raises its own alert when it ends.
 func (m *Model) answerLanded(pending pendingLanding) tea.Cmd {
 	m.noteSubmission(pending.sess)
-	m.noteOperator(pending.sess, pending.via, pending.text, pending.probe.dialog)
+	m.noteOperator(pending.sess, pending.via, pending.text, pending.probe.dialog, pending.armed)
 	if m.heldAckID == pending.sess.ID {
 		m.heldAckID = ""
 	}

@@ -300,3 +300,21 @@ func TestSelectingAPaneWakesTheBackgroundPoller(t *testing.T) {
 	default:
 	}
 }
+
+func TestBackgroundPaneKeepsPollingAfterOperatorSubmission(t *testing.T) {
+	at := time.Now()
+	p := &poller{interval: 2 * time.Second}
+	sess := store.Session{ID: "background", Tool: "codex", Status: status.Finished, OperatorAt: at}
+	sample := paneSample{binding: p.paneBinding(sess), capture: tmux.Capture{At: at.Add(100 * time.Millisecond)}}
+	if !p.paneDue(sess, sample, "focused", at.Add(2*time.Second), hookStamp{}, false, false) {
+		t.Fatal("the first post-submit capture hid a delayed redraw behind the stable cadence")
+	}
+	sample.capture.At = at.Add(2 * time.Second)
+	if !p.paneDue(sess, sample, "focused", at.Add(4*time.Second), hookStamp{}, false, false) {
+		t.Fatal("no final capture after the submission grace")
+	}
+	sample.capture.At = at.Add(4 * time.Second)
+	if p.paneDue(sess, sample, "focused", at.Add(6*time.Second), hookStamp{}, false, false) {
+		t.Fatal("post-submit polling did not return to the stable cadence")
+	}
+}

@@ -635,6 +635,12 @@ func (m *Model) triageHandable(row treeRow, leftID string, tried map[string]bool
 	if !row.entersAs() || row.sess.ID == leftID || tried[row.sess.ID] || row.sess.Archived {
 		return false
 	}
+	// Only a stale resting state needs grace; a new result or question is
+	// already the operator's next turn.
+	if !row.sess.OperatorAt.IsZero() && !row.sess.LastStatusAt.After(row.sess.OperatorAt) &&
+		m.now().Sub(row.sess.OperatorAt) < submissionStatusGrace {
+		return false
+	}
 	// A persistently muted session is off the operator's queue until they say
 	// otherwise; a drain never hands it over.
 	if row.sess.Muted {

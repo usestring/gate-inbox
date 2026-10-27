@@ -2552,9 +2552,13 @@ var operatorEchoGrace = 2 * time.Second
 // input box, it opens a completion menu, and none of that is the agent
 // producing anything.
 func (p *poller) noteOperatorInput(id string) {
+	p.noteOperatorInputAt(id, time.Now())
+}
+
+func (p *poller) noteOperatorInputAt(id string, at time.Time) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.operatorInputAt[id] = time.Now()
+	p.operatorInputAt[id] = at
 }
 
 // operatorEcho reports whether a change in this session's activity region
@@ -2562,13 +2566,17 @@ func (p *poller) noteOperatorInput(id string) {
 // operator's behalf. An expired stamp is dropped here so the map follows
 // the sessions the operator actually touched.
 func (p *poller) operatorEcho(id string) bool {
+	return p.operatorEchoAfter(id, time.Time{})
+}
+
+func (p *poller) operatorEchoAfter(id string, submitted time.Time) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	at, ok := p.operatorInputAt[id]
 	if !ok {
 		return false
 	}
-	if time.Since(at) < p.interval+operatorEchoGrace {
+	if at.After(submitted) && time.Since(at) < p.interval+operatorEchoGrace {
 		return true
 	}
 	delete(p.operatorInputAt, id)
@@ -2695,7 +2703,7 @@ func (p *poller) deriveCleanPaneStatus(sess store.Session, text string, agentAli
 		// Scrolling, clicking and typing are forwarded into the pane and the
 		// agent redraws around them: that is the operator working, not the
 		// agent.
-		if seen && previous != regionHash && p.operatorEcho(sess.ID) {
+		if seen && previous != regionHash && p.operatorEchoAfter(sess.ID, sess.OperatorAt) {
 			seen = false
 		}
 		if seen {

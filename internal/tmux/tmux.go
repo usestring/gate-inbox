@@ -1664,7 +1664,7 @@ func (d *Driver) Resize(id string, width, height int) error {
 		return nil
 	}
 	target := d.TargetFor(id)
-	if d.runningInOwnPane(target) {
+	if d.inOwnWindow(target) {
 		return nil
 	}
 	// Ahead of the resize, because resize-window writes "manual" over
@@ -1675,17 +1675,6 @@ func (d *Driver) Resize(id string, width, height int) error {
 	return err
 }
 
-// runningInOwnPane reports that a target names the very pane the manager is
-// drawing in. The scan adopts panes by what is running in them, and the
-// manager is often started from a pane an agent already holds, so its own
-// window can end up on its own board. Sizing that one to the preview panel
-// shrinks the terminal the manager is painting, which arrives back as a
-// window-size message and sizes the panel smaller again: a terminal that
-// collapses a step per frame.
-//
-// The answer is read from the environment tmux sets for a process inside a
-// pane rather than from the server, because Resize runs once per session on
-// every window resize and asking tmux per session would double that.
 // OwnPane names the tmux pane the manager itself is drawing in, and the
 // server holding it, from the environment tmux sets inside a pane. Both are
 // empty when the manager is not running under tmux, which callers read as
@@ -1770,18 +1759,54 @@ func (d *Driver) RunOutsidePane(id, command string) error {
 	return err
 }
 
-func (d *Driver) runningInOwnPane(target Target) bool {
-	pane := os.Getenv("TMUX_PANE")
-	if pane == "" || target.Name != pane {
+// inOwnWindow reports that a target sits in the window the manager is drawing
+// in. The scan adopts panes by what is running in them, and the manager is
+// often started from a pane an agent already holds, or split beside one, so
+// its own window can end up on its own board. resize-window sizes the whole
+// window, so sizing any pane in it to the preview panel resizes the terminal
+// the manager is painting and pins it at "manual": the board stops following
+// its client, and an operator who attaches from a smaller terminal sees the
+// top-left corner of a frame drawn for a bigger one.
+//
+// The exact pane is answered from the environment tmux sets inside a pane. A
+// sibling pane needs the server, but Resize only runs for the one previewed
+// session once a size has settled, so that is one read per resize.
+func (d *Driver) inOwnWindow(target Target) bool {
+	pane, socket := OwnPane()
+	if pane == "" || socket != resolveSocket(target.Socket) {
 		return false
 	}
-	// $TMUX is "<socket path>,<pid>,<session>"; the server is named by the
-	// socket file, which is what -L takes.
-	socket, _, ok := strings.Cut(os.Getenv("TMUX"), ",")
-	if !ok {
+	if target.Name == pane {
+		return true
+	}
+	out, err := d.combined([]string{"-L", socket,
+		"display-message", "-p", "-t", target.Name, "#{window_id}", ";",
+		"display-message", "-p", "-t", pane, "#{window_id}"})
+	if err != nil {
 		return false
 	}
-	return filepath.Base(socket) == resolveSocket(target.Socket)
+	ids := strings.Fields(string(out))
+	return len(ids) == 2 && ids[0] == ids[1]
+}
+
+// UnpinOwnWindow hands the manager's own window back to the server's sizing
+// when it was left at "manual". A pinned window keeps the size of whichever
+// terminal it last had and ignores every client after it, so the board draws
+// a frame larger or smaller than the terminal the operator logs back in from,
+// with its cursor off-screen, and nothing the board does can fix it from
+// inside. Only "manual" is undone: any other setting the operator chose is
+// theirs.
+func (d *Driver) UnpinOwnWindow() {
+	pane, socket := OwnPane()
+	if pane == "" {
+		return
+	}
+	out, err := d.combined([]string{"-L", socket, "show-window-options", "-v", "-t", pane, "window-size"})
+	if err != nil || strings.TrimSpace(string(out)) != "manual" {
+		return
+	}
+	logging.Info("unpinning the manager's own window", "socket", socket, "pane", pane)
+	d.combined([]string{"-L", socket, "set-window-option", "-u", "-t", pane, "window-size"})
 }
 
 // PrepareAttach restores automatic window sizing so the session fills the

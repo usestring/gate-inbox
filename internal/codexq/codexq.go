@@ -17,8 +17,8 @@
 //
 // Either way the board's pane rules stop matching and the row reverts with no
 // record that anything was asked. The rollout keeps the whole exchange, so it
-// is the honest source: a question is outstanding until an output carries a
-// non-empty answers map, and nothing else counts as an answer.
+// is the honest source: outputs and call-bound structured replies preserve
+// which question the operator answered.
 package codexq
 
 import (
@@ -132,6 +132,7 @@ type askArgs struct {
 type Tracker struct {
 	offset    int64
 	questions []Question
+	calls     []Call
 	index     map[string]int
 }
 
@@ -163,6 +164,14 @@ func (t *Tracker) Update(path string) ([]Question, error) {
 	}
 	read, err := t.consume(file)
 	t.offset += read
+	t.questions = t.questions[:0]
+	for _, call := range t.calls {
+		q := Question{CallID: call.CallID, Async: call.Async, AskedAt: call.AskedAt, State: call.State}
+		if len(call.Questions) > 0 {
+			q.Header, q.Prompt = call.Questions[0].Header, call.Questions[0].Question
+		}
+		t.questions = append(t.questions, q)
+	}
 	if err != nil {
 		return t.questions, err
 	}
@@ -172,6 +181,7 @@ func (t *Tracker) Update(path string) ([]Question, error) {
 func (t *Tracker) reset() {
 	t.offset = 0
 	t.questions = nil
+	t.calls = nil
 	t.index = map[string]int{}
 }
 
@@ -192,69 +202,7 @@ func (t *Tracker) consume(r io.Reader) (int64, error) {
 		if len(line) > maxLine {
 			continue
 		}
-		t.record(line)
-	}
-}
-
-func (t *Tracker) record(line []byte) {
-	isAsk := bytes.Contains(line, askToolMark)
-	// An output record names only its call_id -- the tool name appears on the
-	// call alone -- so filtering outputs on askToolMark would drop every
-	// resolution and leave answered and expired questions reading as
-	// outstanding. A user message is read for the same reason a settled turn
-	// is: it says the operator has been here since the question.
-	if !isAsk && !bytes.Contains(line, outputMark) && !bytes.Contains(line, userMark) {
-		return
-	}
-	var rec record
-	if json.Unmarshal(line, &rec) != nil || rec.Payload == nil {
-		return
-	}
-	p := rec.Payload
-	switch p.Type {
-	case "message":
-		if p.Role != "user" {
-			return
-		}
-		t.supersede()
-	case "function_call":
-		if p.Name != askTool && p.Name != askToolAsync {
-			return
-		}
-		q := Question{CallID: p.CallID, Async: p.Name == askToolAsync, State: Outstanding}
-		var args askArgs
-		if json.Unmarshal([]byte(p.Arguments), &args) == nil && len(args.Questions) > 0 {
-			q.Header = args.Questions[0].Header
-			q.Prompt = args.Questions[0].Question
-		}
-		if p.Meta != nil && p.Meta.CreateTime > 0 {
-			sec := int64(p.Meta.CreateTime)
-			frac := p.Meta.CreateTime - float64(sec)
-			q.AskedAt = time.Unix(sec, int64(frac*float64(time.Second))).UTC()
-		}
-		// A repeated call_id is the same question, not a second one.
-		if at, seen := t.index[q.CallID]; seen {
-			t.questions[at] = q
-			return
-		}
-		t.index[q.CallID] = len(t.questions)
-		t.questions = append(t.questions, q)
-	case "function_call_output":
-		at, seen := t.index[p.CallID]
-		if !seen {
-			return
-		}
-		t.questions[at].State = outputState(p.Output)
-	}
-}
-
-// supersede retires the questions standing when the operator spoke. Only
-// those: a question asked after this message is still theirs to answer.
-func (t *Tracker) supersede() {
-	for i, q := range t.questions {
-		if q.State == Outstanding || q.State == Expired {
-			t.questions[i].State = Superseded
-		}
+		recordCall(line, &t.calls, t.index)
 	}
 }
 

@@ -13,6 +13,32 @@ import (
 
 func ctrlX() tea.KeyPressMsg { return tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl} }
 
+func TestReviewsTabRefusesTheGlobalKillChord(t *testing.T) {
+	for _, confirmation := range []string{archiveConfirmAlways, archiveConfirmNever} {
+		t.Run(confirmation, func(t *testing.T) {
+			m := buildModel(t)
+			seedTriageFleet(t, m)
+			m.selectSessionRow(t, "old-block")
+			m.reviewQueue = true
+			m.reviewsTab = true
+			m.archiveConfirm = confirmation
+			before := m.cursor
+			sess, _ := m.selected()
+			_, cmd := m.handleKey(ctrlX())
+			stored, err := m.store.Get(sess.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stored.Archived {
+				t.Fatal("the Reviews tab archived the hidden session")
+			}
+			if cmd != nil || m.mode != modeList || !m.onReviewsTab() || m.cursor != before || len(m.confirm.sessions) != 0 {
+				t.Fatal("the Reviews tab let the kill chord act on the hidden session")
+			}
+		})
+	}
+}
+
 func TestRefreshReleasesFocusWhenThePaneDies(t *testing.T) {
 	m := drainFleet(t)
 	m.enterFocusOn(t, "ask")

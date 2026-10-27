@@ -10,7 +10,12 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
+
+func TestMain(m *testing.M) {
+	tmuxtest.Main(m)
+}
 
 var questions = []convo.AskQuestion{{
 	Header:   "Deploy",

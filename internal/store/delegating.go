@@ -48,6 +48,32 @@ SELECT DISTINCT i.session_id
 	return pending, rows.Err()
 }
 
+// DelegationSessions is the live rows with only the columns ApplyDelegation
+// reads (id, tool, status, parent and spawner), plus the group and migration
+// link that keep ListSessions(false)'s order, which decides how a tracking
+// loop resolves. Archived rows are left out because ApplyDelegation neither
+// holds them nor lets them hold. Every lookup of one resting session pays for
+// this read, and decoding each row's launch prompt and JSON columns was most
+// of that cost.
+func (s *Store) DelegationSessions() ([]Session, error) {
+	rows, err := s.db.Query(`SELECT id, tool, group_name, status, parent_id, ` + spawnerColumnOf("sessions") + `, ` + migrationColumn + `
+	          FROM sessions WHERE archived = 0
+	         ORDER BY group_name, sort_order, created_at, rowid`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var sessions []Session
+	for rows.Next() {
+		var sess Session
+		if err := rows.Scan(&sess.ID, &sess.Tool, &sess.Group, &sess.Status, &sess.ParentID, &sess.SpawnedBy, &sess.MigrationID); err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, sess)
+	}
+	return OrderLinkedSessions(sessions), rows.Err()
+}
+
 // delegatingFrom is the statuses a parent can be resting in and still read
 // delegating. Waiting and errored are left alone: a parent asking something,
 // or stopped on a limit, needs a person whatever its children are doing.

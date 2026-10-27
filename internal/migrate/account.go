@@ -8,7 +8,10 @@ import (
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-func AccountSwitchTranscript(roots Roots, tool config.Tool, source store.Session) (Transcript, bool) {
+// AccountSwitchTranscript is source's transcript and whether its context is
+// over cutoff (config.Tool.AccountSwitchCutoff), so that moving it to another
+// account should start a new conversation instead of resuming it.
+func AccountSwitchTranscript(roots Roots, tool config.Tool, source store.Session, cutoff int) (Transcript, bool) {
 	if Format(source.Tool, tool) != "claude" {
 		return Transcript{}, false
 	}
@@ -21,5 +24,5 @@ func AccountSwitchTranscript(roots Roots, tool config.Tool, source store.Session
 	if u == nil || state.LastTurnAt.After(time.Now()) {
 		return Transcript{}, false
 	}
-	return transcript, u.InputTokens+u.CacheReadInputTokens+u.CacheCreationInputTokens > 200_000
+	return transcript, u.InputTokens+u.CacheReadInputTokens+u.CacheCreationInputTokens > cutoff
 }

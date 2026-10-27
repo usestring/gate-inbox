@@ -1,10 +1,11 @@
 package ui
 
-// The review queue in triage: the Reviews row queues beside the sessions, and
-// a drain that reaches it hands over the review page rather than a pane.
+// The review queue in triage: the Reviews tab queues beside the sessions as
+// one slot of its own, and a drain that reaches it switches the rail to the
+// tab rather than focusing a pane.
 //
-// The row stands for every pending ask at once, not one per pull request: the
-// page is where the asks are worked, and a drain that handed the same page
+// The slot stands for every pending ask at once, not one per pull request:
+// the tab is where the asks are worked, and a drain that handed the same tab
 // over once per ask would walk the operator back into it after each one. An
 // ask that has a review session is off the count, because that session queues
 // on its own.
@@ -19,12 +20,12 @@ import (
 
 const triageReview = "review"
 
-// reviewsTriedKey is the Reviews row's place in a walk's tried set, which is
+// reviewsTriedKey is the Reviews tab's place in a walk's tried set, which is
 // keyed by session id.
 const reviewsTriedKey = "\x00reviews"
 
 // reviewsWaiting is whether a pending ask came in after the operator last
-// left the page a drain handed them. Leaving it is how a drain moves past it,
+// left the tab a drain handed them. Leaving it is how a drain moves past it,
 // the way leaving a session mutes that session, and a new ask is what brings
 // it back.
 func (m *Model) reviewsWaiting() bool {
@@ -36,7 +37,7 @@ func (m *Model) reviewsWaiting() bool {
 	return false
 }
 
-// markReviewsSeen is the operator leaving the page a drain handed over.
+// markReviewsSeen is the operator leaving the tab a drain handed over.
 func (m *Model) markReviewsSeen() {
 	for _, r := range m.reviews {
 		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) {
@@ -45,8 +46,8 @@ func (m *Model) markReviewsSeen() {
 	}
 }
 
-// reviewsTriageKey is the Reviews row's key in the triage order. In smart
-// triage it queues as one row of its own on the newest pending ask's recency,
+// reviewsTriageKey is the Reviews tab's key in the triage order. In smart
+// triage it queues as one slot of its own on the newest pending ask's recency,
 // at the review rank and with no priority tier, since an ask carries none.
 func (m *Model) reviewsTriageKey() triageKey {
 	key := triageKey{band: triageBandRest, priority: priority.Unset.Rank(), tier: triageRank(triageReview)}
@@ -72,10 +73,10 @@ func (m *Model) reviewsTriageKey() triageKey {
 	return key
 }
 
-// reviewsTriageAt is where the Reviews row goes in a triage queue: before the
-// first session whose key it sorts ahead of. It is only ever placed at the head
-// of a session's lineage -- above the header rows drawn over it -- so it never
-// splits a session from its children or its work.
+// reviewsTriageAt is where the Reviews tab's slot falls in a triage queue:
+// before the first session whose key it sorts ahead of. It is only ever placed
+// at the head of a session's lineage -- above the header rows drawn over it --
+// so it never splits a session from its children or its work.
 func (m *Model) reviewsTriageAt(rows []treeRow, from int) int {
 	now := m.now()
 	key := m.reviewsTriageKey()
@@ -98,34 +99,31 @@ func (m *Model) reviewsTriageAt(rows []treeRow, from int) int {
 	return len(rows)
 }
 
-// handOverReviews focuses the review page with its cursor on the oldest ask
-// the drain has not handed over yet.
+// handOverReviews switches the rail to the Reviews tab with its cursor on the
+// oldest ask the drain has not handed over yet.
 func (m *Model) handOverReviews() bool {
-	view := m.reviewsPane().view.(*reviewsView)
 	for i, r := range m.reviews {
 		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) {
-			view.cursor = i
+			m.reviewsCursor = i
 			break
 		}
 	}
-	return m.focusHeadPane()
+	m.reviewsTab = true
+	m.triageResume = false
+	return true
 }
 
-// withReviewsTriage puts the Reviews row into a triage queue where its key
-// sorts it, rather than at the top where the tree keeps it.
-func (m *Model) withReviewsTriage(rows []treeRow, query string) []treeRow {
-	if !m.reviewQueue || len(m.reviews) == 0 || query != "" {
-		return rows
+// reviewsSlot is where a drain reaches the Reviews tab among m.rows, and
+// whether it can at all: the experiment on, an ask come in since the tab was
+// last handed over, no search narrowing the list, and not already tried in
+// this advance.
+func (m *Model) reviewsSlot(tried map[string]bool) (int, bool) {
+	if !m.reviewQueue || m.search != "" || tried[reviewsTriedKey] || !m.reviewsWaiting() {
+		return 0, false
 	}
 	from := 0
-	if len(rows) > 0 && rows[0].isRoot() {
+	if len(m.rows) > 0 && m.rows[0].isRoot() {
 		from = 1
 	}
-	at := m.reviewsTriageAt(rows, from)
-	return append(rows[:at:at], append([]treeRow{{reviews: true}}, rows[at:]...)...)
-}
-
-// reviewsHandable is whether a drain can hand the Reviews row over.
-func (m *Model) reviewsHandable(row treeRow, tried map[string]bool) bool {
-	return row.reviews && !tried[reviewsTriedKey] && m.reviewsWaiting()
+	return m.reviewsTriageAt(m.rows, from), true
 }

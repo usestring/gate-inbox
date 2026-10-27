@@ -690,7 +690,7 @@ func (m *Model) defaultRowLegend() legendSection {
 	if !ok {
 		return legendSection{}
 	}
-	if row.isArtifact() || row.isHead() || row.reviews {
+	if m.onReviewsTab() || row.isArtifact() || row.isHead() {
 		return m.rowLegend()
 	}
 	openKey := m.tightCap(keymap.ContextList, keymap.Open)
@@ -793,16 +793,18 @@ func (m *Model) peekLegendSections() []legendSection {
 }
 
 func (m *Model) rowLegend() legendSection {
+	if m.onReviewsTab() {
+		return legendSection{title: "Reviews", pairs: [][2]string{
+			{m.tightCap(keymap.ContextReviews, keymap.ReviewStart), "start"},
+			{m.tightCap(keymap.ContextReviews, keymap.ReviewOpen), "open"},
+			{m.tightCap(keymap.ContextReviews, keymap.ReviewDismiss), "dismiss"},
+			{m.tightCap(keymap.ContextReviews, keymap.Refresh), "fetch"},
+			{m.tightCap(keymap.ContextList, keymap.ReviewsTab), "sessions"},
+		}}
+	}
 	row, ok := m.cursorRow()
 	if !ok {
 		return legendSection{}
-	}
-	if row.reviews {
-		return legendSection{title: "Reviews", pairs: [][2]string{
-			{m.tightCap(keymap.ContextList, keymap.Open), "focus"},
-			{m.tightCap(keymap.ContextList, keymap.IngestReviews), "fetch new"},
-			{m.navCap(keymap.ContextList), "navigate"},
-		}}
 	}
 	if row.isHead() {
 		// The header opens what its extension says it heads; every other

@@ -225,6 +225,11 @@ func paneHitBadge() string {
 	return keyStyle.Render("≡") + subtleStyle.Render("pane")
 }
 
+// A banner over the rail's entries costs the list the rows it paints plus its
+// padding, so each one is only laid while entries still have railListMin rows
+// under it: a rail that is all banner says nothing about the fleet.
+const railBannerRows, railListMin = 3, 3
+
 // railLines is the sessions rail: the entry list on top and the machine
 // meters docked under it.
 func (m *Model) railLines(width, height int) []contentLine {
@@ -246,7 +251,8 @@ func (m *Model) railLines(width, height int) []contentLine {
 	// answer "what is this" before the dock answers "how loaded is the
 	// machine".
 	var opening []string
-	if tier == dockFull {
+	// The Reviews tab has no selected session for it to describe.
+	if tier == dockFull && !m.onReviewsTab() {
 		block := append(m.sessionDetailLines(width), m.promptLines(width)...)
 		if len(block) > 0 && listHeight-len(block)-1 >= dockFullMinList {
 			opening = block
@@ -254,13 +260,50 @@ func (m *Model) railLines(width, height int) []contentLine {
 		}
 	}
 	var rows []contentLine
+	// The tab bar heads the rail whenever the Review queue experiment is on,
+	// so the Reviews tab is one key away and its count shows from Sessions.
+	if m.reviewQueue {
+		rows = append(rows, contentLine{text: m.reviewsTabBar(width)})
+	}
+	if m.onReviewsTab() {
+		rows = append(rows, m.reviewTabLines(width, max(listHeight-len(rows), 0))...)
+	} else {
+		rows = m.sessionRailLines(rows, width, listHeight)
+	}
+	if len(rows) > listHeight {
+		rows = rows[:listHeight]
+	}
+	// The dock is pinned at the rail's foot, with the opening block right
+	// above it, so both sit at the same place on every terminal however
+	// short the list is: the reader's eye goes to the bottom-left corner for
+	// the machine, and just above it for what the selected agent was asked.
+	for len(rows) < listHeight {
+		rows = append(rows, contentLine{})
+	}
+	if opening != nil {
+		rows = append(rows, contentLine{rule: true})
+		for _, line := range opening {
+			rows = append(rows, contentLine{text: line})
+		}
+	}
+	if meters != nil {
+		rows = append(rows, contentLine{rule: true})
+		for _, line := range meters {
+			rows = append(rows, contentLine{text: line})
+		}
+	}
+	for len(rows) < height {
+		rows = append(rows, contentLine{})
+	}
+	return rows[:height]
+}
+
+// sessionRailLines is the Sessions tab's part of the rail, under whatever
+// rows already head it: the search field, the filter badges and the entries.
+func (m *Model) sessionRailLines(rows []contentLine, width, listHeight int) []contentLine {
 	// A tight terminal skips the padding rows outright: the blank line either
 	// side of a field is a row the list needs more than the field does.
 	tight := m.tight()
-	// A banner costs the list the rows it paints plus its padding, so each one
-	// is only laid while entries still have room under it: a rail that is all
-	// banner says nothing about the fleet.
-	const railBannerRows, railListMin = 3, 3
 	room := func(cost int) bool { return listHeight-len(rows)-cost >= railListMin }
 	// Search heads the list it filters, so the query sits over the entries it
 	// is narrowing. It is also the field being typed into, so a rail too tight
@@ -293,33 +336,7 @@ func (m *Model) railLines(width, height int) []contentLine {
 			rows = append(rows, lines...)
 		}
 	}
-	rows = append(rows, m.entryLines(m.rows, 0, width, max(listHeight-len(rows), 0))...)
-	if len(rows) > listHeight {
-		rows = rows[:listHeight]
-	}
-	// The dock is pinned at the rail's foot, with the opening block right
-	// above it, so both sit at the same place on every terminal however
-	// short the list is: the reader's eye goes to the bottom-left corner for
-	// the machine, and just above it for what the selected agent was asked.
-	for len(rows) < listHeight {
-		rows = append(rows, contentLine{})
-	}
-	if opening != nil {
-		rows = append(rows, contentLine{rule: true})
-		for _, line := range opening {
-			rows = append(rows, contentLine{text: line})
-		}
-	}
-	if meters != nil {
-		rows = append(rows, contentLine{rule: true})
-		for _, line := range meters {
-			rows = append(rows, contentLine{text: line})
-		}
-	}
-	for len(rows) < height {
-		rows = append(rows, contentLine{})
-	}
-	return rows[:height]
+	return append(rows, m.entryLines(m.rows, 0, width, max(listHeight-len(rows), 0))...)
 }
 
 // firstPromptRows is how many opening prompts the rail shows for the
@@ -951,9 +968,6 @@ func (m *Model) renderTreeRowContent(entry treeRow, selected bool, width, index 
 		return row
 	}
 
-	if entry.reviews {
-		return m.renderReviewsEntry(selected, width, pad, bg)
-	}
 	if entry.isArtifact() {
 		return m.renderArtifactEntry(entry, selected, width, pad, guides, bg)
 	}
@@ -1618,7 +1632,9 @@ func (m *Model) contentLines(width, height int) []contentLine {
 	// the first drew as a thickened line and cost the mirrored pane a row.
 	rest := height - len(bar)
 	if rest >= 3 {
-		if group, ok := m.selectedGroup(); ok {
+		if m.onReviewsTab() {
+			body = append(body, ours(m.reviewDetailLines(inner))...)
+		} else if group, ok := m.selectedGroup(); ok {
 			body = append(body, ours(splitLines(m.viewGroupAgents(group, inner, rest)))...)
 		} else {
 			if page, ok := m.headPaneLines(width, rest, gutter); ok {

@@ -295,6 +295,7 @@ type terminalCommands interface {
 type sessionCommands interface {
 	List(sessionID string, opts sessioncmd.ListOptions) (sessioncmd.SessionList, error)
 	Create(sessionID string, opts sessioncmd.CreateSessionOptions) (sessioncmd.Session, error)
+	Withdraw(sessionID, targetID string) error
 	Send(sessionID, targetID, message, subject string, interrupt bool) (sessioncmd.SendResult, error)
 	SendAttested(sessionID, targetID, message, subject string, interrupt bool, question string) (sessioncmd.SendResult, error)
 	SendChildrenAbout(sessionID, message, subject string) (sessioncmd.ChildSend, error)
@@ -635,6 +636,17 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		}, sessions.Create)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
+		}
+		// A launch takes seconds, and a user who presses Esc in that time
+		// cancels the call: Claude Code reports it to the model as rejected
+		// and never reads the result. The spawn does not watch ctx, so it
+		// finishes anyway, and the session it leaves is one nobody accepted.
+		if ctx.Err() != nil {
+			if werr := sessions.Withdraw(callerID, created.ID); werr != nil {
+				logging.Warn("cancelled spawn could not be withdrawn", "caller", callerID, "session", created.ID, logging.Err(werr))
+				return nil, sessioncmd.Session{}, fmt.Errorf("call cancelled, and session %s it had started could not be removed: %w", created.ID, werr)
+			}
+			return nil, sessioncmd.Session{}, fmt.Errorf("call cancelled; session %s it had started was removed", created.ID)
 		}
 		return mcptool.Text("created " + sessioncmd.FormatSession(created)), created, nil
 	})

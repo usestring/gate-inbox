@@ -53,7 +53,7 @@ var (
 	codexHead       = regexp.MustCompile(`^\s*Question (\d+)/(\d+)(?: \((\d+) unanswered\))?(?:\s*\x{B7}\s*(.*?))?\s*$`)
 	codexOptionRow  = regexp.MustCompile(`^(\s*)(\x{203A}\s+)?(\d+)\.\s+(.*?)\s*$`)
 	codexNotesRow   = regexp.MustCompile(`^\s*\x{203A}\s+(.*?)\s*$`)
-	codexLegendHead = regexp.MustCompile(`(?i)^\s*(?:press enter\b|enter\b|esc\b|tab\b|ctrl\+|\x{2190}/\x{2192}|tab or esc\b)`)
+	codexLegendHead = regexp.MustCompile(`(?i)^\s*(?:press enter\b|enter\b|esc\b|tab\b|ctrl\+|\x{2190}/\x{2192}|tab or esc\b|t trust\b)`)
 	codexSplit      = regexp.MustCompile(`\S(\s{2,})\S`)
 )
 
@@ -175,7 +175,7 @@ func codexOptions(lines []string, from int) ([]CodexOption, int) {
 
 var (
 	codexTitle = regexp.MustCompile(`^\s*(?:Would you like to |Field \d+/\d+|Submit with unanswered questions\?|` +
-		`Trust this folder\?|Do you trust the contents|Update available|Folder access)`)
+		`Trust this folder\?|Do you trust the contents|Update available|Folder access|[A-Za-z]+ hooks)`)
 	codexMCPApproval = regexp.MustCompile(`(?i)^\s*Allow the .* MCP server to run tool`)
 )
 
@@ -273,7 +273,7 @@ func trimAll(lines []string) []string {
 func codexScreenKind(screen Screen) ScreenKind {
 	title := strings.TrimSpace(screen.Lines[0])
 	switch {
-	case strings.HasPrefix(title, "Would you like to "):
+	case strings.HasPrefix(title, "Would you like to "), strings.HasSuffix(title, " hooks"):
 		return ScreenPermission
 	case strings.HasPrefix(title, "Field "):
 		if codexMCPApproval.MatchString(strings.Join(trimAll(screen.Lines[1:]), " ")) {

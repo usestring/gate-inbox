@@ -26,7 +26,7 @@ import (
 // background sits under it for the same reason: the turn ended, but the
 // shell it left running wakes it into another one.
 //
-// triageReview is the Reviews row's tier, and no session's: a pull request
+// triageReview is the Reviews tab's tier, and no session's: a pull request
 // somebody asked the operator to review is a person waiting on them, but not
 // a turn stalled this second, so it comes after the questions and before
 // everything else. See reviewtriage.go.
@@ -607,14 +607,27 @@ func (m *Model) toggleTriage() tea.Cmd {
 // from walking back over work already done, so the ring bought nothing the
 // head of the queue does not, and the head is where an urgent arrival
 // already sorts.
+//
+// The Reviews tab is no row, so where it would sort it comes back as
+// reviewsTurn rather than an index.
 func (m *Model) nextTriageInput(leftID string, tried map[string]bool) (int, bool) {
+	at, reviews := m.reviewsSlot(tried)
 	for i, row := range m.rows {
-		if m.reviewsHandable(row, tried) || m.triageHandable(row, leftID, tried) && m.triageWalkable(row.sess) {
+		if reviews && i >= at {
+			return reviewsTurn, true
+		}
+		if m.triageHandable(row, leftID, tried) && m.triageWalkable(row.sess) {
 			return i, true
 		}
 	}
+	if reviews {
+		return reviewsTurn, true
+	}
 	return 0, false
 }
+
+// reviewsTurn is nextTriageInput naming the Reviews tab.
+const reviewsTurn = -1
 
 // triageHandable is whether a drain could hand a row over at all, whatever
 // pass is asking.
@@ -716,29 +729,28 @@ func (m *Model) enterTriageHead() tea.Cmd {
 	return m.advanceTriage("")
 }
 
-// advanceTriage focuses the next session that needs a person. A nil command
+// advanceTriage hands over the next session or the Reviews tab. A nil command
 // means there was none, and the caller's unfocus stands: the user lands back
 // on the list rather than in some arbitrary session they never asked for.
 func (m *Model) advanceTriage(leftID string) tea.Cmd {
-	if len(m.rows) == 0 {
-		return nil
-	}
 	tried := map[string]bool{}
 	for {
 		index, ok := m.nextTriageInput(leftID, tried)
 		if !ok {
 			return nil
 		}
-		m.cursor = index
-		m.clearPreviewState()
-		m.previewGen++
-		if m.rows[index].reviews {
+		if index == reviewsTurn {
 			tried[reviewsTriedKey] = true
 			if m.handOverReviews() {
-				return m.schedulePreview()
+				// Callers use nil to mark the drain exhausted.
+				return func() tea.Msg { return nil }
 			}
 			continue
 		}
+		m.reviewsTab = false
+		m.cursor = index
+		m.clearPreviewState()
+		m.previewGen++
 		next := m.rows[index].sess
 		tried[next.ID] = true
 		// A session with a page over it is answered from the page.

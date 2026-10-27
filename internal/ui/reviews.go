@@ -1,14 +1,14 @@
 package ui
 
 // The review queue: pull requests someone asked the operator to review on
-// GitHub, fetched on the ingest key and drawn as one Reviews row at the top of
-// the list.
+// GitHub, fetched on the ingest key and listed on a Reviews tab of the rail,
+// beside the Sessions tab.
 //
-// The row is not a session, a group or an extension's header, so every key
-// that acts on a session refuses it the way an artifact row does. Opening it
-// shows its page where a session's pane is drawn, through the same head-pane
-// path an extension's header page takes, and the page's keys are the board's
-// own rather than an extension's.
+// An ask is not a session: it has no pane, no status and no group, and the
+// only things to do with one are start a review, open it, or dismiss it. So it
+// gets a list of its own rather than a row among the sessions, and a key that
+// acts on a session is refused on the tab rather than taught what a pull
+// request is.
 
 import (
 	"fmt"
@@ -18,16 +18,14 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+
+	"github.com/usestring/gate-inbox/extension/textfmt"
 
 	"github.com/usestring/gate-inbox/internal/forge"
 	"github.com/usestring/gate-inbox/internal/keymap"
-	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
-
-// reviewsPaneID is the review page's view id. Extension handles count up
-// from one, so a negative id can never be mistaken for one of theirs.
-const reviewsPaneID = -1
 
 // reviewsMsg carries the open asks back to the loop, after a load or an
 // ingest. ingested marks the ingest key's answer, which reports what it
@@ -162,20 +160,6 @@ func countOf(n int, noun string) string {
 	return strconv.Itoa(n) + " " + noun + "s"
 }
 
-// withReviewsRow puts the Reviews row at the top of a tree, under root's
-// rollup when there is one. A search is answered by the sessions it matched,
-// so the row stays off it.
-func (m *Model) withReviewsRow(rows []treeRow, query string) []treeRow {
-	if !m.reviewQueue || len(m.reviews) == 0 || query != "" {
-		return rows
-	}
-	at := 0
-	if len(rows) > 0 && rows[0].isRoot() {
-		at = 1
-	}
-	return append(rows[:at:at], append([]treeRow{{reviews: true}}, rows[at:]...)...)
-}
-
 // reviewCounts is how many open asks are still waiting, and how many have a
 // review session.
 func (m *Model) reviewCounts() (pending, started int) {
@@ -189,105 +173,163 @@ func (m *Model) reviewCounts() (pending, started int) {
 	return pending, started
 }
 
-// renderReviewsEntry draws the Reviews row in the shape a header row has: a
-// mark, a name, and the count against the far edge.
-func (m *Model) renderReviewsEntry(selected bool, width int, pad, bg string) string {
-	nameStyle := mutedStyle
-	metaText := subtleText
-	if selected {
-		nameStyle = selectedLabelStyle
-		metaText = mutedText
-	}
-	pending, started := m.reviewCounts()
-	detail := strconv.Itoa(pending) + " pending"
-	if started > 0 {
-		detail += " · " + strconv.Itoa(started) + " started"
-	}
-	head := pad + tinted(statusColor(status.Waiting)).Render("◆") + " " + nameStyle.Render("Reviews")
-	return paint(rowColumns(head, metaText(detail), width-railGutter), width, bg)
-}
+// onReviewsTab is whether the rail lists the review queue rather than the
+// sessions.
+func (m *Model) onReviewsTab() bool { return m.reviewQueue && m.reviewsTab }
 
-// reviewsPane is the page behind the Reviews row, made the first time it is
-// asked for and kept while the board runs, so its cursor survives a leave.
-func (m *Model) reviewsPane() *openView {
-	if m.reviewsPage == nil {
-		m.reviewsPage = &openView{id: reviewsPaneID, owner: "reviews", screen: keymap.ContextReviews, view: &reviewsView{m: m}}
-	}
-	return m.reviewsPage
-}
-
-// reviewsView is the review page: every open ask, in the shape GitHub lists
-// review requests in.
-type reviewsView struct {
-	m      *Model
-	cursor int
-}
-
-func (v *reviewsView) Title() string {
-	pending, _ := v.m.reviewCounts()
-	return "Reviews · " + countOf(pending, "pending request")
-}
-
-// selected is the ask under the page's cursor.
-func (v *reviewsView) selected() (store.ReviewRequest, bool) {
-	if len(v.m.reviews) == 0 {
+// selectedReview is the ask under the tab's cursor.
+func (m *Model) selectedReview() (store.ReviewRequest, bool) {
+	if len(m.reviews) == 0 {
 		return store.ReviewRequest{}, false
 	}
-	v.cursor = min(max(v.cursor, 0), len(v.m.reviews)-1)
-	return v.m.reviews[v.cursor], true
+	m.reviewsCursor = min(max(m.reviewsCursor, 0), len(m.reviews)-1)
+	return m.reviews[m.reviewsCursor], true
 }
 
-// reviewLines is how many lines one ask takes on the page.
-const reviewLines = 3
-
-func (v *reviewsView) Render(width, height int) [][]Span {
-	if len(v.m.reviews) == 0 {
-		return [][]Span{{{Text: "Nothing is waiting for your review.", Tone: ToneMuted}}}
+// reviewsTabBar heads the rail while the experiment is on, naming the list
+// under it and the count waiting on the other one.
+func (m *Model) reviewsTabBar(width int) string {
+	tab := func(label string, on bool) string {
+		if on {
+			return selectedLabelStyle.Render(label)
+		}
+		return mutedStyle.Render(label)
 	}
-	v.selected()
-	first := (max(0, (v.cursor+1)*reviewLines-height) + reviewLines - 1) / reviewLines
-	var out [][]Span
-	for i := first; i < len(v.m.reviews) && len(out) < height; i++ {
-		r := v.m.reviews[i]
-		marker := "  "
-		if i == v.cursor {
-			marker = "❯ "
-		}
-		out = append(out, []Span{
-			{Text: marker, Tone: ToneAccent, Bold: true},
-			{Text: r.Repo + "#" + strconv.Itoa(r.Number) + " ", Tone: ToneAccent},
-			{Text: r.Title, Bold: i == v.cursor},
-		})
-		meta := []Span{{Text: "  "}}
-		add := func(text string, tone Tone) {
-			if len(meta) > 1 {
-				meta = append(meta, Span{Text: " · ", Tone: ToneMuted})
-			}
-			meta = append(meta, Span{Text: text, Tone: tone})
-		}
-		if r.Author != "" {
-			add("by "+r.Author, ToneMuted)
-		}
-		add(triggerLabel(r.Trigger)+" "+reviewAge(time.Since(r.TriggeredAt)), ToneMuted)
-		meta = append(meta, Span{Text: " · ", Tone: ToneMuted},
-			Span{Text: "+" + strconv.Itoa(r.Additions), Tone: ToneGood},
-			Span{Text: " -" + strconv.Itoa(r.Deletions), Tone: ToneBad})
-		add(countOf(r.ChangedFiles, "file"), ToneMuted)
-		if glyph := checksGlyph(forge.ChecksState(r.Checks)); glyph != "" {
-			add(glyph+" checks", checksTone(forge.ChecksState(r.Checks)))
-		}
-		if r.Draft {
-			add("draft", ToneMuted)
-		}
-		if r.State == store.ReviewStarted {
-			add("review started", ToneWarn)
-		}
-		out = append(out, meta, nil)
+	reviews := "Reviews"
+	if pending, _ := m.reviewCounts(); pending > 0 {
+		reviews += " (" + strconv.Itoa(pending) + ")"
 	}
-	return out[:min(len(out), height)]
+	bar := spaces(railInset) + tab("Sessions", !m.reviewsTab) + subtleText(" │ ") + tab(reviews, m.reviewsTab)
+	hint := ""
+	if key := m.tightCap(keymap.ContextList, keymap.ReviewsTab); key != "" {
+		hint = subtleText(key + " switch")
+	}
+	return paint(rowColumns(bar, hint, width-railGutter), width, panelHex())
 }
 
-func (v *reviewsView) Key(ViewKey) bool { return false }
+// reviewLines is how many rail lines one ask takes.
+const reviewLines = 2
+
+// reviewTabLines is the Reviews tab's list: each ask as its pull request and
+// title, then who asked and what it changes.
+func (m *Model) reviewTabLines(width, height int) []contentLine {
+	if len(m.reviews) == 0 {
+		var lines []contentLine
+		for _, line := range m.emptyReviewsLines(width, height) {
+			lines = append(lines, contentLine{text: line})
+		}
+		return lines
+	}
+	m.selectedReview()
+	styles := viewStyles()
+	inner := max(width-railGutter, 1)
+	render := func(spans []Span) string {
+		var b strings.Builder
+		for _, span := range spans {
+			b.WriteString(styles[viewStyleKey{span.Tone, span.Bold}].Render(cleanText(span.Text)))
+		}
+		return textfmt.TruncateWidth(b.String(), inner, "…")
+	}
+	first := max(0, (m.reviewsCursor+1)*reviewLines-height+reviewLines-1) / reviewLines
+	var lines []contentLine
+	for i := first; i < len(m.reviews) && len(lines) < height; i++ {
+		bg := panelHex()
+		if i == m.reviewsCursor {
+			bg = selectedHex()
+		}
+		head, meta := reviewSpans(m.reviews[i], i == m.reviewsCursor)
+		lines = append(lines,
+			contentLine{text: paint(spaces(railInset)+render(head), width, bg)},
+			contentLine{text: paint(spaces(railInset)+render(meta), width, bg)})
+	}
+	return lines[:min(len(lines), height)]
+}
+
+func (m *Model) emptyReviewsLines(width, height int) []string {
+	title := centerLine(lipgloss.NewStyle().Bold(true).Foreground(colorBright).Render("nothing to review"), width)
+	block := []string{title, "", centerLine(m.keyHint(keymap.ContextReviews, keymap.Refresh, "fetches from GitHub"), width)}
+	if height < len(block) {
+		return block[:max(height, 0)]
+	}
+	out := make([]string, height)
+	copy(out[(height-len(block))/2:], block)
+	return out
+}
+
+// reviewSpans is one ask's two lines: the pull request and its title, then
+// who asked, when, and what the change weighs.
+func reviewSpans(r store.ReviewRequest, selected bool) (head, meta []Span) {
+	marker := "  "
+	if selected {
+		marker = "❯ "
+	}
+	head = []Span{
+		{Text: marker, Tone: ToneAccent, Bold: true},
+		{Text: r.Repo + "#" + strconv.Itoa(r.Number) + " ", Tone: ToneAccent},
+		{Text: r.Title, Bold: selected},
+	}
+	meta = []Span{{Text: "  "}}
+	add := func(text string, tone Tone) {
+		if len(meta) > 1 {
+			meta = append(meta, Span{Text: " · ", Tone: ToneMuted})
+		}
+		meta = append(meta, Span{Text: text, Tone: tone})
+	}
+	if r.Author != "" {
+		add("by "+r.Author, ToneMuted)
+	}
+	add(reviewAge(time.Since(r.TriggeredAt)), ToneMuted)
+	meta = append(meta, Span{Text: " · ", Tone: ToneMuted},
+		Span{Text: "+" + strconv.Itoa(r.Additions), Tone: ToneGood},
+		Span{Text: " -" + strconv.Itoa(r.Deletions), Tone: ToneBad})
+	if glyph := checksGlyph(forge.ChecksState(r.Checks)); glyph != "" {
+		add(glyph, checksTone(forge.ChecksState(r.Checks)))
+	}
+	if r.Draft {
+		add("draft", ToneMuted)
+	}
+	if r.State == store.ReviewStarted {
+		add("started", ToneWarn)
+	}
+	return head, meta
+}
+
+// reviewDetailLines is the content column on the Reviews tab: the selected
+// ask in full, with the keys that act on it.
+func (m *Model) reviewDetailLines(width int) []string {
+	r, ok := m.selectedReview()
+	if !ok {
+		return []string{"", mutedStyle.Render("Nothing is waiting for your review.")}
+	}
+	styles := viewStyles()
+	line := func(text string, tone Tone, bold bool) string {
+		return textfmt.TruncateWidth(styles[viewStyleKey{tone, bold}].Render(cleanText(text)), width, "…")
+	}
+	out := []string{"",
+		line(r.Repo+"#"+strconv.Itoa(r.Number), ToneAccent, true),
+		textfmt.TruncateWidth(lipgloss.NewStyle().Bold(true).Foreground(colorBright).Render(cleanText(r.Title)), width, "…"),
+		"",
+	}
+	if r.Author != "" {
+		out = append(out, line("by "+r.Author, ToneMuted, false))
+	}
+	out = append(out, line(triggerLabel(r.Trigger)+" "+reviewAge(time.Since(r.TriggeredAt)), ToneMuted, false))
+	change := fmt.Sprintf("+%d -%d · %s", r.Additions, r.Deletions, countOf(r.ChangedFiles, "file"))
+	if glyph := checksGlyph(forge.ChecksState(r.Checks)); glyph != "" {
+		change += " · " + glyph + " checks"
+	}
+	if r.Draft {
+		change += " · draft"
+	}
+	out = append(out, line(change, ToneMuted, false))
+	if r.State == store.ReviewStarted {
+		out = append(out, line("review started", ToneWarn, false))
+	}
+	if r.URL != "" {
+		out = append(out, "", line(r.URL, ToneMuted, false))
+	}
+	return out
+}
 
 func checksTone(state forge.ChecksState) Tone {
 	switch state {
@@ -324,43 +366,94 @@ func reviewAge(d time.Duration) string {
 	return strconv.Itoa(int(d/(24*time.Hour))) + "d ago"
 }
 
-// reviewsRowAction answers an action pressed while the cursor is on the
-// Reviews row: opening it focuses its page, and a key that acts on a session
-// is refused rather than aimed at whatever happens to sit below.
-func (m *Model) reviewsRowAction(action keymap.Action, bound bool) (tea.Model, tea.Cmd, bool) {
-	entry, ok := m.cursorRow()
-	if !ok || !entry.reviews {
-		return m, nil, false
+// toggleReviewsTab switches the rail between the sessions and the review
+// queue. Leaving the queue in a triage walk is how the walk moves past it,
+// the way leaving a session does.
+func (m *Model) toggleReviewsTab() tea.Cmd {
+	if !m.reviewQueue {
+		m.errBar.text = "the review queue is experimental: turn it on in Settings → Experimental features"
+		return nil
 	}
-	switch action {
-	case keymap.Open, keymap.StepIn:
-		m.focusHeadPane()
-		return m, nil, true
+	if !m.reviewsTab {
+		m.reviewsTab = true
+		m.triageResume = false
+		return nil
 	}
-	if !bound || !artifactRowActions[action] {
-		m.errBar.text = "Reviews is the review queue, not a session — open it to act on a review"
-		return m, nil, true
-	}
-	return m, nil, false
+	return m.leaveReviewsTab(true)
 }
 
-// handleReviewsKey answers a key on the focused review page.
-func (m *Model) handleReviewsKey(action keymap.Action, bound bool) (tea.Model, tea.Cmd) {
-	if !bound {
-		return m, nil
+// leaveReviewsTab puts the sessions back on the rail, and in a triage walk
+// moves on to the next session that needs a person.
+func (m *Model) leaveReviewsTab(advance bool) tea.Cmd {
+	m.reviewsTab = false
+	if !advance || !m.advancesOnLeave() {
+		return nil
 	}
-	view := m.reviewsPane().view.(*reviewsView)
+	m.markReviewsSeen()
+	return m.advanceTriage("")
+}
+
+// reviewsTabAllows are the list actions the Reviews tab passes through: none
+// of them acts on the row under the cursor.
+var reviewsTabAllows = map[keymap.Action]bool{
+	keymap.Quit: true, keymap.Settings: true, keymap.Help: true,
+	keymap.QuickActions: true, keymap.Triage: true, keymap.ReviewsTab: true,
+	keymap.IngestReviews: true, keymap.LegendPeek: true,
+}
+
+// reviewsTabKey answers a key while the Reviews tab is up. Its own keys come
+// first; a list key that acts on a session is refused rather than aimed at
+// whatever row the hidden sessions list left the cursor on.
+func (m *Model) reviewsTabKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd, bool) {
+	if !m.onReviewsTab() {
+		return m, nil, false
+	}
+	if action, bound := m.action(keymap.ContextReviews, msg); bound {
+		model, cmd := m.reviewsTabAction(action)
+		return model, cmd, true
+	}
+	action, bound := m.action(keymap.ContextList, msg)
+	if !bound {
+		return m, nil, true
+	}
+	return m.reviewsTabListAction(action)
+}
+
+// reviewsTabListAction is what a list action does on the Reviews tab: it
+// runs if it does not act on a session, and is refused if it does.
+func (m *Model) reviewsTabListAction(action keymap.Action) (tea.Model, tea.Cmd, bool) {
+	if !m.onReviewsTab() {
+		return m, nil, false
+	}
+	if reviewsTabAllows[action] {
+		return m, nil, false
+	}
+	if model, cmd := m.reviewsTabAction(action); model != nil {
+		return model, cmd, true
+	}
+	m.errBar.text = "that key acts on a session — " + m.tightCap(keymap.ContextList, keymap.ReviewsTab) + " goes back to Sessions"
+	return m, nil, true
+}
+
+// reviewsTabAction answers one of the Reviews tab's own actions. A nil model
+// is an action the tab does not have.
+func (m *Model) reviewsTabAction(action keymap.Action) (tea.Model, tea.Cmd) {
 	switch action {
+	case ActionClose:
+		return m, m.leaveReviewsTab(true)
 	case keymap.CursorUp:
-		view.cursor = max(view.cursor-1, 0)
+		m.reviewsCursor = max(m.reviewsCursor-1, 0)
 		return m, nil
 	case keymap.CursorDown:
-		view.cursor = min(view.cursor+1, max(len(m.reviews)-1, 0))
+		m.reviewsCursor = min(m.reviewsCursor+1, max(len(m.reviews)-1, 0))
 		return m, nil
 	case keymap.Refresh:
 		return m, m.ingestReviews()
+	case keymap.ReviewOpen, keymap.ReviewDismiss, keymap.ReviewStart:
+	default:
+		return nil, nil
 	}
-	r, ok := view.selected()
+	r, ok := m.selectedReview()
 	if !ok {
 		return m, nil
 	}
@@ -371,10 +464,8 @@ func (m *Model) handleReviewsKey(action keymap.Action, bound bool) (tea.Model, t
 		m.setReviewState(r, store.ReviewDismissed, "")
 		m.reportDone("dismissed " + r.Repo + "#" + strconv.Itoa(r.Number))
 		return m, nil
-	case keymap.ReviewStart:
-		return m.startReview(r)
 	}
-	return m, nil
+	return m.startReview(r)
 }
 
 // setReviewState moves every open ask on the pull request, and reloads the
@@ -400,7 +491,7 @@ func (m *Model) startReview(r store.ReviewRequest) (tea.Model, tea.Cmd) {
 		for _, sess := range m.sessions {
 			if sess.ID == ask.SessionID {
 				m.setReviewState(r, store.ReviewStarted, sess.ID)
-				m.leaveHeadPane(false)
+				m.reviewsTab = false
 				m.statusFilter = statusFilterAll
 				m.toolFilter = ""
 				return m.landInNewSession(sess.ID)
@@ -434,7 +525,7 @@ func (m *Model) startReview(r store.ReviewRequest) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.setReviewState(r, store.ReviewStarted, id)
-	m.leaveHeadPane(false)
+	m.reviewsTab = false
 	m.statusFilter = statusFilterAll
 	m.toolFilter = ""
 	m.errBar.text = ""

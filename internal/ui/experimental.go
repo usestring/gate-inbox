@@ -35,7 +35,7 @@ var experiments = []experiment{
 		func(s *settingsState) *bool { return &s.jevFinishCheck }},
 	{jevCopySetting, "JEV copy", "On a key, copy the command, link or value the agent left for you in its last message.\nNeeds a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends that message to TypeSafe.",
 		func(s *settingsState) *bool { return &s.jevCopyOn }},
-	{reviewQueueSetting, "Review queue", "Fetch the pull requests you were asked to review on GitHub into a Reviews row.\nRuns on the ingest key only; [integrations.reviews] sets what counts as an ask.",
+	{reviewQueueSetting, "Review queue", "Fetch the pull requests you were asked to review on GitHub onto a Reviews tab (]).\nRuns on the ingest key only; [integrations.reviews] sets what counts as an ask.",
 		func(s *settingsState) *bool { return &s.reviewQueue }},
 }
 

@@ -635,6 +635,11 @@ func (m *Model) triageHandable(row treeRow, leftID string, tried map[string]bool
 	if !row.entersAs() || row.sess.ID == leftID || tried[row.sess.ID] || row.sess.Archived {
 		return false
 	}
+	// A submitted turn can still carry its resting status until the next
+	// background capture; recency must not hand it straight back meanwhile.
+	if !row.sess.OperatorAt.IsZero() && m.now().Sub(row.sess.OperatorAt) < backgroundStableInterval {
+		return false
+	}
 	// A persistently muted session is off the operator's queue until they say
 	// otherwise; a drain never hands it over.
 	if row.sess.Muted {

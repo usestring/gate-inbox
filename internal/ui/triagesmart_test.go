@@ -435,3 +435,33 @@ func TestSmartTriageAnAttachCountsOnlyWhenItGaveATurn(t *testing.T) {
 		t.Fatalf("a turn given while attached left the operator's turn at %v, %v", got.OperatorAt, err)
 	}
 }
+
+func TestTriageWaitsForStatusDetectionAfterOperatorInput(t *testing.T) {
+	for _, state := range []string{status.Finished, status.Idle, status.Waiting} {
+		t.Run(state, func(t *testing.T) {
+			m := smartFleet(t, smartSess("recent", state, 0), smartSess("next", status.Waiting, time.Minute))
+			assertRail(t, m, "recent", "next")
+			for _, elapsed := range []time.Duration{0, 15*time.Second - time.Nanosecond, 15 * time.Second} {
+				m.clock = func() time.Time { return smartNow.Add(elapsed) }
+				i, ok := m.nextTriageInput("", nil)
+				want := "next"
+				if elapsed >= 15*time.Second {
+					want = "recent"
+				}
+				if !ok || m.rows[i].sess.ID != want {
+					t.Fatalf("after %v: candidate %d, found %v; want %s", elapsed, i, ok, want)
+				}
+			}
+			for i := range m.sessions {
+				if m.sessions[i].ID == "recent" {
+					m.sessions[i].Status = status.Working
+				}
+			}
+			m.rebuildRows()
+			i, ok := m.nextTriageInput("", nil)
+			if !ok || m.rows[i].sess.ID != "next" {
+				t.Fatal("the session reentered triage after detection marked it working")
+			}
+		})
+	}
+}

@@ -32,6 +32,10 @@ Agent sessions
       bring a dead session back on its old row, resuming the conversation it held
   gate-inbox migrate <session-id> --tool <cli> [--name <name>] [--json]
       move a session's conversation to another agent CLI: a new session there reads the source's transcript and carries on; the source stays until you archive it
+  gate-inbox accounts [--tool <cli>] [--json]
+      list the named accounts each CLI can run on, for spawn --account and switch-account, instead of guessing a name
+  gate-inbox switch-account <session-id> [--account <name>] [--json]
+      move another session onto a named account, or back to its CLI's own login with no --account, when its account is spent or nearly so; restarts it, so use it on a session at rest, never your own
   gate-inbox archive <session-id> [--restore] [--json]
       file a finished session out of the active list, ending it if it is still running, or restore it with --restore; a row left archived is deleted for good after 7 days
   gate-inbox mute <session-id> [--off] [--json]

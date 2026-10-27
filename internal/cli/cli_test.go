@@ -52,6 +52,8 @@ type fakeSessions struct {
 	ttl          time.Duration
 	deleted      bool
 	cleanup      sessioncmd.CleanupOptions
+	account      string
+	accountTool  string
 
 	session   sessioncmd.Session
 	wait      sessioncmd.WaitResult
@@ -166,6 +168,16 @@ func (f *fakeSessions) Revive(sessionID, targetID string) (sessioncmd.Session, e
 
 func (f *fakeSessions) Migrate(sessionID, targetID string, opts sessioncmd.MigrateOptions) (sessioncmd.Session, error) {
 	f.callerID, f.targetID, f.migrate = sessionID, targetID, opts
+	return f.session, f.failWith
+}
+
+func (f *fakeSessions) Accounts(tool string) (sessioncmd.AccountList, error) {
+	f.accountTool = tool
+	return sessioncmd.AccountList{Tool: tool, Tools: []sessioncmd.ToolAccounts{{Tool: "claude", AccountsCommand: "list-secrets", Accounts: []string{"ALICE1", "BOB2"}}}}, f.failWith
+}
+
+func (f *fakeSessions) SwitchAccount(sessionID, targetID, account string) (sessioncmd.Session, error) {
+	f.callerID, f.targetID, f.account = sessionID, targetID, account
 	return f.session, f.failWith
 }
 
@@ -611,7 +623,7 @@ func TestSpawnKeepReachesCreate(t *testing.T) {
 func TestCommandsAndHelpCoverEverySection(t *testing.T) {
 	table := Commands()
 	registered := []string{
-		"sessions", "spawn", "send", "read", "send-children", "place", "answer", "wait", "message-status", "kill", "revive", "migrate", "archive", "mute", "cleanup-children", "park", "unpark",
+		"sessions", "spawn", "send", "read", "send-children", "place", "answer", "wait", "message-status", "kill", "revive", "migrate", "accounts", "switch-account", "archive", "mute", "cleanup-children", "park", "unpark",
 		"groups", "create-group", "delete-group", "task", "reserve", "release-files", "reservations", "terminal",
 		"rename", "priority", "sweep", "stop", "_finish-stop", "children",
 	}

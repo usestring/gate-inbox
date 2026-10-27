@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/migrate"
@@ -68,8 +69,8 @@ func TestMigrateKeyIncludesSameToolAndFollowsItInTheName(t *testing.T) {
 	if m.migrate.transcript.Path != transcript {
 		t.Fatalf("transcript = %+v", m.migrate.transcript)
 	}
-	if got := m.migrateTool(); got != "claude" || m.migrate.name.Value() != "source-claude" {
-		t.Fatalf("opened on %q named %q", got, m.migrate.name.Value())
+	if got := m.migrateTool(); got != "claude" || m.migrate.name.Value() != "source-claude" || m.migrateOnAuto() {
+		t.Fatalf("without a chooser opened on %q named %q", got, m.migrate.name.Value())
 	}
 	m.handleMigrateKey(tea.KeyPressMsg{Code: tea.KeyTab})
 	if got := m.migrateTool(); got != "codex" || m.migrate.name.Value() != "source-codex" {
@@ -90,6 +91,59 @@ func TestMigrateKeyIncludesSameToolAndFollowsItInTheName(t *testing.T) {
 	updated, _ = m.handleMigrateKey(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if m = updated.(*Model); m.mode != modeList {
 		t.Fatalf("esc left mode %v", m.mode)
+	}
+}
+
+// With a tool chooser the card opens on auto, which names the CLI and the
+// reason the chooser gives and follows the pick in the name; tab still
+// reaches every CLI.
+func TestMigrateCardOpensOnAutoWithAChooser(t *testing.T) {
+	m := buildModel(t)
+	seedMigrateSource(t, m)
+	m.cfg.Tools["codex"] = config.Tool{Command: "cat", DefaultStatus: status.Idle}
+	pick, pickErr := "codex", error(nil)
+	useExplainingChooser(t, "codex has the most quota left", func(extension.ToolRequest) (string, error) { return pick, pickErr })
+
+	cmd := m.openMigrate()
+	if m.mode != modeMigrate || m.migrate.toolNames[0] != migrateAuto || !m.migrateOnAuto() {
+		t.Fatalf("mode = %v, targets = %v, index = %d", m.mode, m.migrate.toolNames, m.migrate.toolIndex)
+	}
+	if m.migrate.name.Value() != "source-auto" {
+		t.Fatalf("name before the chooser answered = %q", m.migrate.name.Value())
+	}
+	if cmd == nil {
+		t.Fatal("the card did not ask the chooser")
+	}
+	m.update(cmd())
+	if got := m.migrateTool(); got != "codex" || m.migrate.name.Value() != "source-codex" {
+		t.Fatalf("auto resolved to %q named %q", got, m.migrate.name.Value())
+	}
+	view := m.viewMigrate()
+	for _, want := range []string{"auto", "→ codex", "codex has the most quota left"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("card lacks %q:\n%s", want, view)
+		}
+	}
+	m.handleMigrateKey(tea.KeyPressMsg{Code: tea.KeyTab})
+	if got := m.migrateTool(); got != "claude" || m.migrate.name.Value() != "source-claude" {
+		t.Fatalf("after tab: %q named %q", got, m.migrate.name.Value())
+	}
+
+	// Enter on auto asks again, and a chooser that picks nothing leaves the
+	// card open for the operator to choose.
+	m.handleMigrateKey(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	pick, pickErr = "", errNoChoice
+	m.migrate.autoActive = map[string]int{"codex": 9}
+	_, cmd = m.handleMigrateKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter on auto did not ask the chooser")
+	}
+	m.update(cmd())
+	if m.mode != modeMigrate || !strings.Contains(m.errBar.text, "no CLI chosen") {
+		t.Fatalf("mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+	if view := m.viewMigrate(); !strings.Contains(view, "no pick") {
+		t.Fatalf("card still waits on the chooser:\n%s", view)
 	}
 }
 

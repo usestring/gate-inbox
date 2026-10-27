@@ -1,9 +1,13 @@
 package ui
 
 import (
+	"context"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -17,6 +21,10 @@ import (
 )
 
 const migrateKey = "M"
+
+// migrateAuto heads the card's targets when the build has a tool chooser,
+// and leaves the CLI to it the way the new-session box's auto does.
+const migrateAuto = "auto"
 
 // migrateRoots resolves where the agent CLIs keep their transcripts. A
 // variable so tests point it at fixtures without touching the real state.
@@ -37,6 +45,25 @@ type migrateState struct {
 	skip         bool
 	childrenSkip bool
 	focus        int
+	// generation tells an auto answer for this card from one for a card
+	// since closed. autoPick and autoReason are the chooser's last answer,
+	// for the CLIs as busy as autoActive counted them; autoSubmit is set
+	// while enter waits on one.
+	generation uint64
+	autoPick   string
+	autoReason string
+	autoActive map[string]int
+	autoSubmit bool
+}
+
+// migrateAutoMsg is the build's chooser's answer for the migrate card.
+type migrateAutoMsg struct {
+	generation uint64
+	active     map[string]int
+	name       string
+	reason     string
+	err        error
+	submit     bool
 }
 
 const (
@@ -46,38 +73,111 @@ const (
 	migrateFocusCount
 )
 
-func (m *Model) openMigrate() {
+func (m *Model) openMigrate() tea.Cmd {
 	entry, ok := m.selectedRow()
 	if !ok {
-		return
+		return nil
 	}
 	if entry.isGroup {
 		m.errBar.text = "select a session to migrate"
-		return
+		return nil
 	}
 	tool, ok := m.cfg.Tools[entry.sess.Tool]
 	if !ok {
 		m.errBar.text = fmt.Sprintf("tool %s is no longer configured", entry.sess.Tool)
-		return
+		return nil
 	}
 	transcript, err := migrate.Locate(migrateRoots(), entry.sess.Tool, tool, entry.sess)
 	if err != nil {
 		m.errBar.text = err.Error()
-		return
+		return nil
 	}
 	tools := m.enabledToolNames()
 	if len(tools) == 0 {
 		m.errBar.text = "no agent CLI is configured to migrate to"
-		return
+		return nil
 	}
+	if _, ok := toolChooser(); ok && !slices.Contains(tools, migrateAuto) {
+		tools = append([]string{migrateAuto}, tools...)
+	}
+	m.migrate = migrateState{generation: m.migrate.generation + 1, source: entry.sess, toolNames: tools, transcript: transcript,
+		skip: entry.sess.SkipPermissions, childrenSkip: entry.sess.ChildrenSkipPermissions}
 	name := textField("session name", 60)
-	name.SetValue(entry.sess.Name + "-" + tools[0])
+	name.SetValue(m.migrateProposedName())
 	name.CursorEnd()
 	name.Focus()
-	m.migrate = migrateState{source: entry.sess, name: name, toolNames: tools, transcript: transcript,
-		skip: entry.sess.SkipPermissions, childrenSkip: entry.sess.ChildrenSkipPermissions}
+	m.migrate.name = name
 	m.errBar.text = ""
 	m.mode = modeMigrate
+	return m.migrateAutoCmd(false)
+}
+
+func (m *Model) migrateOnAuto() bool {
+	return len(m.migrate.toolNames) > 0 && m.migrate.toolNames[m.migrate.toolIndex] == migrateAuto
+}
+
+// migrateProposedName is the name the card offers for the target, which
+// reads "auto" until the chooser has answered.
+func (m *Model) migrateProposedName() string {
+	target := m.migrateTool()
+	if target == "" {
+		target = migrateAuto
+	}
+	return m.migrate.source.Name + "-" + target
+}
+
+// migrateAutoCmd asks the build's chooser, off the event loop, which CLI the
+// card's auto entry moves to, as the new-session box's auto does. submit
+// migrates once it answers. A card without auto asks nothing.
+func (m *Model) migrateAutoCmd(submit bool) tea.Cmd {
+	if !slices.Contains(m.migrate.toolNames, migrateAuto) {
+		return nil
+	}
+	chooser, ok := toolChooser()
+	if !ok {
+		return nil
+	}
+	mode, err := accounts.Mode(m.store)
+	if err != nil {
+		return nil
+	}
+	req := m.toolRequest(mode)
+	generation := m.migrate.generation
+	m.migrate.autoSubmit = submit
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		msg := migrateAutoMsg{generation: generation, active: req.Active, submit: submit}
+		msg.name, msg.reason, msg.err = chooseTool(ctx, chooser, req)
+		return msg
+	}
+}
+
+func (m *Model) finishMigrateAuto(msg migrateAutoMsg) (tea.Model, tea.Cmd) {
+	if m.mode != modeMigrate || msg.generation != m.migrate.generation || msg.submit != m.migrate.autoSubmit {
+		return m, nil
+	}
+	m.migrate.autoSubmit = false
+	proposed := m.migrateProposedName()
+	m.migrate.autoPick, m.migrate.autoReason, m.migrate.autoActive = "", msg.reason, msg.active
+	if msg.err == nil && slices.Contains(m.enabledToolNames(), msg.name) {
+		m.migrate.autoPick = msg.name
+	}
+	if m.migrate.name.Value() == proposed {
+		m.migrate.name.SetValue(m.migrateProposedName())
+		m.migrate.name.CursorEnd()
+	}
+	if !msg.submit || !m.migrateOnAuto() {
+		return m, nil
+	}
+	if m.migrate.autoPick == "" {
+		m.errBar.text = "no CLI chosen: tab to choose one"
+		if msg.reason != "" {
+			m.errBar.text = "no CLI chosen (" + msg.reason + "): tab to choose one"
+		}
+		return m, nil
+	}
+	return m.submitMigrate()
 }
 
 func (m *Model) handleMigrateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -93,6 +193,18 @@ func (m *Model) handleMigrateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cycleMigrateTool(-1)
 		return m, nil
 	case "enter":
+		// Auto moves to what the chooser picks for the CLIs as busy as they
+		// are now, so a pick made against other counts is asked again.
+		if m.migrateOnAuto() && (m.migrate.autoPick == "" || !maps.Equal(m.migrate.autoActive, m.activeByTool())) {
+			if m.migrate.autoSubmit {
+				return m, nil
+			}
+			cmd := m.migrateAutoCmd(true)
+			if cmd == nil {
+				m.errBar.text = "launch accounts unavailable: tab to choose a CLI"
+			}
+			return m, cmd
+		}
 		return m.submitMigrate()
 	case "up":
 		m.moveMigrateFocus(-1)
@@ -148,17 +260,23 @@ func (m *Model) cycleMigrateTool(delta int) {
 	if n == 0 {
 		return
 	}
-	proposed := m.migrate.source.Name + "-" + m.migrateTool()
+	proposed := m.migrateProposedName()
 	m.migrate.toolIndex = (m.migrate.toolIndex + delta + n) % n
+	m.migrate.autoSubmit = false
 	if m.migrate.name.Value() == proposed {
-		m.migrate.name.SetValue(m.migrate.source.Name + "-" + m.migrateTool())
+		m.migrate.name.SetValue(m.migrateProposedName())
 		m.migrate.name.CursorEnd()
 	}
 }
 
+// migrateTool is the CLI the card moves to: on auto, the chooser's pick, or
+// nothing until it has answered.
 func (m *Model) migrateTool() string {
 	if len(m.migrate.toolNames) == 0 {
 		return ""
+	}
+	if m.migrateOnAuto() {
+		return m.migrate.autoPick
 	}
 	return m.migrate.toolNames[m.migrate.toolIndex]
 }
@@ -284,15 +402,46 @@ func (m *Model) viewMigrate() string {
 	}
 	body := "  source  " + valueStyle.Render(m.migrate.source.Name) + "  " + mutedStyle.Render("on "+m.migrate.source.Tool) + "\n" +
 		"  reads   " + mutedStyle.Render(from) + "\n" +
-		"  to      " + valueStyle.Render(m.migrateTool()) + "  " + mutedStyle.Render("tab cycles") + "\n" +
+		"  to      " + m.viewMigrateTarget() + "  " + mutedStyle.Render("tab cycles") + "\n" +
+		m.viewMigrateAutoRows() +
 		formField("name", m.migrate.name.View(), m.migrate.focus == migrateFocusName) +
 		formField("perms", m.viewMigrateSkipToggle(m.migrate.skip), m.migrate.focus == migrateFocusSkip) +
 		formField("children", m.viewSkipToggle(m.migrate.childrenSkip, true), m.migrate.focus == migrateFocusChildrenSkip)
 	return m.card("⇄ Migrate Session", body, [][2]string{{"↵", "create"}, {"tab", "tool"}, {"↑↓", "move"}, {"←→", "change"}, {"esc", "cancel"}})
 }
 
+func (m *Model) viewMigrateTarget() string {
+	if !m.migrateOnAuto() {
+		return valueStyle.Render(m.migrateTool())
+	}
+	// An answer always carries the counts it was asked against, so a card
+	// without them is still waiting on the chooser.
+	switch {
+	case m.migrate.autoActive == nil:
+		return valueStyle.Render(migrateAuto) + " " + mutedStyle.Render("choosing…")
+	case m.migrate.autoPick == "":
+		return valueStyle.Render(migrateAuto) + " " + mutedStyle.Render("no pick")
+	}
+	return valueStyle.Render(migrateAuto) + " " + mutedStyle.Render("→ "+m.migrate.autoPick)
+}
+
+// viewMigrateAutoRows says why auto picks what it picks, in the
+// new-session box's words, under the target while auto is on it.
+func (m *Model) viewMigrateAutoRows() string {
+	if !m.migrateOnAuto() || m.migrate.autoReason == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, row := range agentPickQuotaRows(nil, nil, "", m.migrate.autoReason, cardInnerWidth(m.cardWidth())-formLabelColumn)[1:] {
+		b.WriteString(spaces(formLabelColumn) + row + "\n")
+	}
+	return b.String()
+}
+
 // viewMigrateSkipToggle is the session's own toggle on the migrate card,
 // which says when the destination CLI cannot honour it.
 func (m *Model) viewMigrateSkipToggle(on bool) string {
-	return m.viewSkipToggleFor(on, launch.SkipsPermissions(m.migrateTool(), m.cfg.Tools[m.migrateTool()]), m.migrateTool())
+	tool := m.migrateTool()
+	// Auto has not picked yet, so there is no CLI to say it of.
+	return m.viewSkipToggleFor(on, tool == "" || launch.SkipsPermissions(tool, m.cfg.Tools[tool]), tool)
 }

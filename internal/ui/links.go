@@ -13,12 +13,15 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/usestring/gate-inbox/internal/clipboard"
+	"github.com/usestring/gate-inbox/internal/termseq"
 )
 
 var (
-	// Seams keep link tests from mutating the desktop and clipboard.
+	// Seams keep link tests from mutating the desktop and clipboard, and pin
+	// the session to one side of SSH.
 	openBrowser    = defaultOpenBrowser
 	copyBrowserURL = clipboard.WriteText
+	remoteTerminal = termseq.Remote
 )
 
 func defaultOpenBrowser(target string) error {
@@ -81,8 +84,11 @@ func hyperlink(url, text string) string {
 	return "\x1b]8;;" + url + "\x1b\\" + text + "\x1b]8;;\x1b\\"
 }
 
+// browserOpenMsg reports a link opened, or, when remote is set, only copied
+// because a browser started on this host would open out of the user's sight.
 type browserOpenMsg struct {
 	target  string
+	remote  bool
 	err     error
 	copyErr error
 }
@@ -90,7 +96,7 @@ type browserOpenMsg struct {
 func openLink(target string) tea.Cmd {
 	return func() tea.Msg {
 		if remoteTerminal() {
-			return linkPageMsg{url: target}
+			return browserOpenMsg{target: target, remote: true, copyErr: copyBrowserURL(target)}
 		}
 		err := openBrowser(target)
 		if err == nil {
@@ -101,6 +107,14 @@ func openLink(target string) tea.Cmd {
 }
 
 func (m *Model) handleBrowserOpen(msg browserOpenMsg) {
+	if msg.remote {
+		if msg.copyErr != nil {
+			m.errBar.text = fmt.Sprintf("could not copy link (%v): %s", msg.copyErr, msg.target)
+			return
+		}
+		m.reportDone("link copied to clipboard: " + msg.target)
+		return
+	}
 	if msg.err == nil {
 		return
 	}

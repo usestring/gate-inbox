@@ -2188,13 +2188,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleBrowserOpen(msg)
 		return m, nil
 
-	case linkOpenErrMsg:
-		m.errBar.text = msg.err.Error()
-		return m, nil
-
-	case linkPageMsg:
-		return m, showLinkPage(msg.url)
-
 	case startupTickMsg:
 		if !m.needsLoaderTick() {
 			m.startupAnimating = false

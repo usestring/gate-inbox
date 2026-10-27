@@ -142,3 +142,56 @@ func TestOpenBrowserAndCopyFailureNamesURL(t *testing.T) {
 		t.Fatalf("failure = %q, want URL and copy cause", m.errBar.text)
 	}
 }
+
+func localTerminal() bool { return false }
+
+// overSSH puts the test on a terminal at the far end of an SSH session.
+func overSSH(t *testing.T) {
+	t.Helper()
+	remoteTerminal = func() bool { return true }
+	t.Cleanup(func() { remoteTerminal = localTerminal })
+}
+
+func stubLinkCopy(t *testing.T, copyErr error) *string {
+	t.Helper()
+	copied := new(string)
+	copyBrowserURL = func(target string) error {
+		*copied = target
+		return copyErr
+	}
+	t.Cleanup(func() { copyBrowserURL = clipboard.WriteText })
+	return copied
+}
+
+// Over SSH the link is copied and shown on the bar; the screen is never
+// handed over and no browser starts on this host.
+func TestRemoteLinkIsCopiedToTheBar(t *testing.T) {
+	m := footModel(t)
+	m.width, m.height = 140, 34
+	overSSH(t)
+	copied := stubLinkCopy(t, nil)
+	openBrowser = func(string) error { t.Fatal("opened a browser on the remote host"); return nil }
+	t.Cleanup(func() { openBrowser = defaultOpenBrowser })
+
+	target := "https://example.com/docs?section=links&page=2"
+	m.applyCmd(t, openLink(target))
+	if *copied != target {
+		t.Fatalf("copied %q, want %q", *copied, target)
+	}
+	if !m.errBar.worked() || !strings.Contains(m.errBar.text, target) {
+		t.Fatalf("bar = %q (worked %v), want a done notice with the URL", m.errBar.text, m.errBar.worked())
+	}
+}
+
+func TestRemoteLinkCopyFailureNamesURL(t *testing.T) {
+	m := footModel(t)
+	m.width, m.height = 140, 34
+	overSSH(t)
+	stubLinkCopy(t, errors.New("terminal clipboard unavailable"))
+
+	target := "https://example.com/manual"
+	m.applyCmd(t, openLink(target))
+	if m.errBar.worked() || !strings.Contains(m.errBar.text, target) || !strings.Contains(m.errBar.text, "terminal clipboard unavailable") {
+		t.Fatalf("bar = %q, want a failure with the URL and cause", m.errBar.text)
+	}
+}

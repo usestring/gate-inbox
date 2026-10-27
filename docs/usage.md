@@ -137,6 +137,8 @@ Each ask is stored once. Fetching it again refreshes its title, size and checks 
 
 A review session starts with the `prompt` below, where `{repo}`, `{number}`, `{head}` and `{url}` are filled in. It uses the configured CLI, model and directory, falling back to the default tool and the root group's directory.
 
+With `prepare` on, which is the default, each fetch also starts a review session in the background for every pull request waiting without one, so the briefing is written before you open it. It starts at most five per fetch, oldest ask first, and the status bar says how many it started and how many are left for the next fetch. A prepared ask stays new until you open it. Its entry reads `preparing briefing` while the agent works and `briefing ready` once it rests. `s` lands in that session rather than starting another. A prepared session that died is replaced on the next fetch. The default prompt asks for a briefing that covers what the change does, every unresolved review thread and why it is still unaddressed, whether it merges cleanly, which checks are pending or failing and why, and a recommendation. It reads with `gh` and `git` only, then waits for your questions.
+
 ```toml
 [integrations.reviews]
 enabled = true                       # false switches the key off
@@ -146,6 +148,7 @@ command = "/gate review"
 orgs = ["my-org"]                    # where label and comment asks are searched
 commenters = []                      # when set, only these logins may ask by comment
 ack = "eyes"                         # "none" leaves no reaction
+prepare = true                       # brief each new ask in the background
 prompt = "Review {repo}#{number} at {head} ({url}). Do not post to GitHub."
 tool = "claude"
 model = ""

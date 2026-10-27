@@ -106,8 +106,6 @@ type treeRow struct {
 	// stands marks a header row over a session folded behind it, which is
 	// that session's entry in the tree: see headfold.go.
 	stands bool
-	// reviews marks the review queue's row: see reviews.go.
-	reviews bool
 }
 
 // isArtifact marks a row that draws a pull request or a ticket.
@@ -119,7 +117,7 @@ func (e treeRow) isHead() bool { return e.head != "" }
 // isSession marks a row that is a session itself, as against the group above
 // it, the header over it or the work hanging off it.
 func (e treeRow) isSession() bool {
-	return !e.isGroup && e.art == nil && e.head == "" && !e.reviews
+	return !e.isGroup && e.art == nil && e.head == ""
 }
 
 // entersAs marks the row that is a session's entry in the tree: its own row,
@@ -152,7 +150,7 @@ type Model struct {
 	jevCopyOn      bool
 	jevCopy        jevCopyState
 	// reviewQueue is the Review queue experiment: off, the ingest key
-	// refuses and no Reviews row is drawn.
+	// refuses and the rail draws no Reviews tab.
 	reviewQueue    bool
 	promptSuggest  bool
 	promptSnipsSeq int
@@ -194,14 +192,16 @@ type Model struct {
 	headPanes  map[string]*openView
 	headReturn bool
 
-	// reviews are the open asks for the operator's review, drawn as the
-	// Reviews row; reviewsPage is the page behind it, and reviewsFetching
-	// marks an ingest in flight. See reviews.go.
+	// reviews are the open asks for the operator's review, listed on the
+	// rail's Reviews tab; reviewsTab is whether that tab is up,
+	// reviewsCursor the ask under its cursor, and reviewsFetching marks an
+	// ingest in flight. See reviews.go.
 	reviews         []store.ReviewRequest
-	reviewsPage     *openView
+	reviewsTab      bool
+	reviewsCursor   int
 	reviewsFetching bool
 	// reviewsSeen is the newest ask a triage drain has handed the operator
-	// the Reviews page for, and triageLineage each queued session's key as
+	// the Reviews tab for, and triageLineage each queued session's key as
 	// the last triage sort lifted it. See reviewtriage.go.
 	reviewsSeen   time.Time
 	triageLineage map[string]triageKey
@@ -1775,10 +1775,6 @@ func (m *Model) selectedIndex() (int, bool) {
 		return 0, false
 	}
 	index := m.cursor
-	// The review queue's row is no session's, so nothing is selected on it.
-	if m.rows[index].reviews {
-		return 0, false
-	}
 	// A header row heads the session drawn just below it, past any other
 	// extension's header over the same session -- unless the session is
 	// folded behind it, when the header is all of the session there is.
@@ -3093,8 +3089,6 @@ func rowsBelowRoot(rows []treeRow) []treeRow {
 
 func rowKey(entry treeRow) string {
 	switch {
-	case entry.reviews:
-		return "r:reviews"
 	case entry.isGroup:
 		return "g:" + entry.group
 	case entry.isArtifact():
@@ -3453,7 +3447,7 @@ func (m *Model) buildTree() {
 			})
 		}
 		connectMigrationRows(rows)
-		m.rows = m.withReviewsTriage(rows, query)
+		m.rows = rows
 		m.clearGroupNumbers()
 		// The fold column is a fact about the rows on screen, so every
 		// build has to count them. Reading the count a previous tree build
@@ -3494,7 +3488,7 @@ func (m *Model) buildTree() {
 	}
 
 	connectMigrationRows(rows)
-	m.rows = m.withReviewsRow(rows, query)
+	m.rows = rows
 	m.railWorkColumn = m.anyRailWork(rows)
 	m.restoreCursor(previousKey)
 }
@@ -3509,9 +3503,8 @@ func (m *Model) restoreCursor(previousKey string) {
 			}
 		}
 	} else if m.cursor == 0 {
-		// A launch opens on a session, not on root's rollup or the review
-		// queue.
-		for m.cursor < len(m.rows)-1 && (m.rows[m.cursor].isRoot() || m.rows[m.cursor].reviews) {
+		// A launch opens on a session, not on root's rollup.
+		for m.cursor < len(m.rows)-1 && m.rows[m.cursor].isRoot() {
 			m.cursor++
 		}
 	}

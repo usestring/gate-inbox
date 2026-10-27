@@ -82,11 +82,11 @@ type BoardPane struct {
 // BoardGet is one agent session, as Get reports it, without a caller.
 func (s *Sessions) BoardGet(targetID string) (got Session, err error) {
 	defer start("sessioncmd.board.get", sessionAttr(targetID)).done(&err)
-	runtime, err := s.open()
+	runtime, done, err := s.openBoard()
 	if err != nil {
 		return Session{}, err
 	}
-	defer runtime.store.Close()
+	defer done()
 	target, err := runtime.agent(targetID)
 	if err != nil {
 		return Session{}, err
@@ -106,11 +106,11 @@ func (s *Sessions) BoardList(opts ListOptions) (list SessionList, err error) {
 	if strings.EqualFold(strings.TrimSpace(opts.Parent), SelfParent) {
 		return SessionList{}, errBoardHasNoSelf
 	}
-	runtime, err := s.open()
+	runtime, done, err := s.openBoard()
 	if err != nil {
 		return SessionList{}, err
 	}
-	defer runtime.store.Close()
+	defer done()
 	return runtime.list("", opts)
 }
 
@@ -118,11 +118,11 @@ func (s *Sessions) BoardList(opts ListOptions) (list SessionList, err error) {
 // holding.
 func (s *Sessions) BoardRead(targetID string) (read BoardPane, err error) {
 	defer start("sessioncmd.board.read", sessionAttr(targetID)).done(&err)
-	runtime, err := s.open()
+	runtime, done, err := s.openBoard()
 	if err != nil {
 		return BoardPane{}, err
 	}
-	defer runtime.store.Close()
+	defer done()
 	target, err := runtime.agent(targetID)
 	if err != nil {
 		return BoardPane{}, err

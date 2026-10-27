@@ -8,7 +8,25 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/usestring/gate-inbox/internal/keymap"
+	"github.com/usestring/gate-inbox/internal/status"
 )
+
+func TestReviewsTabRefusesPaletteSessionNavigation(t *testing.T) {
+	for _, action := range []keymap.Action{keymap.JumpWaiting, keymap.JumpPane} {
+		t.Run(string(action), func(t *testing.T) {
+			m := buildModel(t)
+			liveTriageFleet(t, m, map[string]string{"ask": status.Waiting, "other": status.Waiting})
+			m.selectSessionRow(t, "ask")
+			m.reviewQueue = true
+			m.reviewsTab = true
+			m.openQuickActions()
+			_, cmd := m.runQuickAction(quickActionEntry{action: action})
+			if cmd != nil || m.mode != modeList || !m.onReviewsTab() {
+				t.Fatal("palette navigation entered a session while reviews were displayed")
+			}
+		})
+	}
+}
 
 func TestQuickActionsOpensOnColonAndCtrlK(t *testing.T) {
 	for _, press := range []tea.KeyPressMsg{

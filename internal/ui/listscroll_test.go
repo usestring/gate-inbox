@@ -49,6 +49,33 @@ func wheel(up bool, x, y int) tea.MouseWheelMsg {
 	return tea.MouseWheelMsg{X: x, Y: y, Button: button}
 }
 
+func TestReviewsTabSwallowsWheelOverHiddenPane(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "hidden-pane", t.TempDir(), "")
+	m.selectSessionRow(t, "hidden-pane")
+	m.conversation = nil
+	sess, _ := m.selected()
+	m.setPreview("application output\n")
+	m.frame()
+	if !m.pane.box.ok {
+		t.Fatal("the session preview painted no pane box")
+	}
+	x, y := previewCell(m)
+	m.pane.mouse = true
+	m.pane.sgr = true
+	m.reviewQueue = true
+	m.toggleReviewsTab()
+	for _, up := range []bool{true, false} {
+		if !up {
+			m.frame()
+		}
+		_, cmd := m.handleMouse(wheel(up, x, y))
+		if cmd != nil || m.focusScroll != 0 || m.poller.operatorEcho(sess.ID) {
+			t.Fatal("scrolling reviews routed input to the hidden session")
+		}
+	}
+}
+
 // A notch over the preview walks the previewed pane back through its
 // history without focusing it, and what lands on screen is what tmux holds
 // at that offset -- the same guarantee the focused wheel carries.

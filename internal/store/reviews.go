@@ -129,3 +129,12 @@ func (s *Store) SetPullRequestReviewState(repo string, number int, state, sessio
 		state, sessionID, sessionID, now.UnixMilli(), repo, number, ReviewPending, ReviewStarted)
 	return err
 }
+
+// AttachReviewSession records a session prepared for one pull request's open asks without
+// moving their state, so a prepared ask still counts as waiting until the operator opens it.
+func (s *Store) AttachReviewSession(repo string, number int, sessionID string, now time.Time) error {
+	_, err := s.db.Exec(`UPDATE review_requests SET session_id = ?, updated_at = ?
+		WHERE repo = ? AND number = ? AND state IN (?, ?)`,
+		sessionID, now.UnixMilli(), repo, number, ReviewPending, ReviewStarted)
+	return err
+}

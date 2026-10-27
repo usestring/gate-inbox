@@ -139,6 +139,11 @@ type CreateSessionOptions struct {
 	// unless that setting is on: the operator turns prompts off for a
 	// session's children, and an agent cannot turn them off for itself.
 	SkipPermissions *bool
+	// Args go on the CLI's command line after its configured command, such
+	// as claude's --chrome. Only a person may pass them, from outside any
+	// session or from a terminal row: an agent could otherwise hand its child
+	// any flag, skip-permissions among them, past every setting that gates one.
+	Args []string
 }
 
 type Sessions struct {
@@ -162,6 +167,8 @@ type Sessions struct {
 	// tests answer them themselves.
 	voicedLaunch    func(*runtime, store.Session, time.Time) (store.InboxMessage, bool)
 	userAskedLaunch func(*runtime, store.Session) bool
+	// boardStores are the handles the board's reads reuse; see openBoard.
+	boardStores boardStores
 }
 
 func NewSessions(configDir string, words Vocabulary) *Sessions {
@@ -677,13 +684,16 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		return Session{}, err
 	}
 	defer runtime.store.Close()
-	caller, err := runtime.caller(sessionID)
+	caller, operator, err := runtime.spawner(sessionID, opts)
 	if err != nil {
 		return Session{}, err
 	}
-	release, err := s.confirmLaunch(runtime, caller, opts, time.Now())
-	if err != nil {
-		return Session{}, err
+	release := func() {}
+	if !operator {
+		release, err = s.confirmLaunch(runtime, caller, opts, time.Now())
+		if err != nil {
+			return Session{}, err
+		}
 	}
 	// The user's go is for one session that starts, so a launch refused or
 	// failed from here on hands it back for the retry.
@@ -693,6 +703,9 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		}
 	}()
 	toolName := strings.TrimSpace(opts.Tool)
+	if toolName == "" && operator {
+		return Session{}, fmt.Errorf("a spawn from outside any session has no CLI to inherit; name one with %s (configured tools are %s)", runtime.words.SpawnTool, strings.Join(agentToolNames(runtime), ", "))
+	}
 	if toolName == "" {
 		// A spawn with no tool named runs whatever the caller runs, which a
 		// terminal cannot supply: its tool is the user's shell. Guessing an
@@ -708,6 +721,12 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	}
 	if tool.Shell {
 		return Session{}, fmt.Errorf("tool %q opens a shell, not an agent; use %s for that", toolName, runtime.words.CreateTerminal)
+	}
+	if len(opts.Args) > 0 && !operator && !runtime.cfg.Tools[caller.Tool].Shell {
+		return Session{}, errors.New("extra CLI arguments are the operator's to pass, from their own shell or a terminal, not an agent's")
+	}
+	for _, arg := range opts.Args {
+		tool.Command += " " + tmux.ShellQuote(arg)
 	}
 	nest := opts.Nest == nil || *opts.Nest
 	// createTarget first, so a group that does not exist is reported as
@@ -774,16 +793,21 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		// whole subtree it spawns.
 		ChildrenSkipPermissions: caller.ChildrenSkipPermissions,
 	}
-	sess.SkipPermissions, err = childSkipPermissions(caller, opts.SkipPermissions, launch.SkipsPermissions(toolName, tool))
-	if err != nil {
+	if operator {
+		// The operator decides for their own session, as on the board.
+		sess.SkipPermissions = opts.SkipPermissions != nil && *opts.SkipPermissions
+	} else if sess.SkipPermissions, err = childSkipPermissions(caller, opts.SkipPermissions, launch.SkipsPermissions(toolName, tool)); err != nil {
 		return Session{}, err
 	}
 	// Shaped and then put to the policies before an account is chosen or a
 	// file written, so a refusal costs nothing to undo, and a policy is
 	// asked about the session that will actually launch.
-	shape, err := sessionhooks.Shape(sess, extension.LaunchSpawn, "")
-	if err != nil {
-		return Session{}, err
+	var shape extension.SpawnShape
+	if !operator {
+		shape, err = sessionhooks.Shape(sess, extension.LaunchSpawn, "")
+		if err != nil {
+			return Session{}, err
+		}
 	}
 	if shape.KeepUnderSpawner && !nest {
 		// Filed exactly where a nested spawn would have been.
@@ -801,7 +825,11 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if strings.HasPrefix(prompt, "-") && tool.PromptFlag == "" {
 		return Session{}, fmt.Errorf(`prompt cannot start with "-" for %s, which takes its prompt as a bare argument and would read it as a flag`, toolName)
 	}
-	sessionHooks, err := sessionhooks.CheckSpawn(sess, extension.SpawnBySession)
+	by := extension.SpawnBySession
+	if operator {
+		by = extension.SpawnByOperator
+	}
+	sessionHooks, err := sessionhooks.CheckSpawn(sess, by)
 	if err != nil {
 		return Session{}, err
 	}
@@ -870,8 +898,8 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 			return Session{}, err
 		}
 	}
-	sessionhooks.Spawned(sessionHooks, sess, extension.SpawnBySession)
-	logging.Info("session created by an agent",
+	sessionhooks.Spawned(sessionHooks, sess, by)
+	logging.Info("session created by "+string(by),
 		"caller", caller.ID, "callerTool", caller.Tool,
 		"session", sess.ID, "parent", sess.ParentID,
 		"tool", sess.Tool, "group", sess.Group, "nest", nest,
@@ -884,6 +912,23 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	// asked for rather than the one the pane opened in.
 	info.Directory = sess.Cwd
 	return info, nil
+}
+
+// spawner is the session a spawn is made for. A detached spawn with no
+// calling session is the operator's own, made from their shell the way the
+// board's new-session form makes one: a top-level row with nobody above it,
+// so it needs no caller to file under, inherit from or answer to. It is told
+// apart by the zero row and operator true, and has to name its tool and
+// directory, since there is no caller to take either from.
+func (r *runtime) spawner(sessionID string, opts CreateSessionOptions) (store.Session, bool, error) {
+	if strings.TrimSpace(sessionID) == "" && opts.Nest != nil && !*opts.Nest {
+		if strings.TrimSpace(opts.Directory) == "" {
+			return store.Session{}, false, errors.New("a spawn from outside any session has no directory to inherit; name one")
+		}
+		return store.Session{}, true, nil
+	}
+	caller, err := r.caller(sessionID)
+	return caller, false, err
 }
 
 // pinnedDirectory is where a session spawned into group has to start because

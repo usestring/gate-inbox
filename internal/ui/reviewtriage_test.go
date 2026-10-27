@@ -17,7 +17,7 @@ func reviewAsk(number int, age time.Duration) store.ReviewRequest {
 }
 
 // reviewDrain walks the queue the way successive handovers do, naming the
-// Reviews row "reviews".
+// Reviews tab "reviews".
 func reviewDrain(m *Model) []string {
 	var handed []string
 	left := ""
@@ -27,7 +27,7 @@ func reviewDrain(m *Model) []string {
 		if !ok {
 			return handed
 		}
-		if m.rows[i].reviews {
+		if i == reviewsTurn {
 			tried[reviewsTriedKey] = true
 			handed = append(handed, "reviews")
 			continue
@@ -57,7 +57,7 @@ func TestReviewQueuesByItsNewestAskAmongSessions(t *testing.T) {
 	}
 }
 
-func TestReviewRowLeavesTheDrainOnceSeenAndReturnsForANewAsk(t *testing.T) {
+func TestReviewsTabLeavesTheDrainOnceSeenAndReturnsForANewAsk(t *testing.T) {
 	m := smartFleet(t, smartSess("asking", status.Waiting, 30*time.Minute))
 	m.reviewQueue = true
 	m.reviews = []store.ReviewRequest{reviewAsk(1, 3*time.Hour)}
@@ -65,10 +65,7 @@ func TestReviewRowLeavesTheDrainOnceSeenAndReturnsForANewAsk(t *testing.T) {
 	m.markReviewsSeen()
 	m.rebuildRows()
 	if got, want := reviewDrain(m), []string{"asking"}; !slices.Equal(got, want) {
-		t.Fatalf("after the page was seen: drain = %v, want %v", got, want)
-	}
-	if !slices.ContainsFunc(m.rows, func(r treeRow) bool { return r.reviews }) {
-		t.Fatal("a seen Reviews row left the rail; it should stay, out of the drain")
+		t.Fatalf("after the tab was seen: drain = %v, want %v", got, want)
 	}
 
 	later := reviewAsk(2, time.Minute)
@@ -80,7 +77,7 @@ func TestReviewRowLeavesTheDrainOnceSeenAndReturnsForANewAsk(t *testing.T) {
 	}
 }
 
-func TestStartedAsksDoNotQueueTheReviewsRow(t *testing.T) {
+func TestStartedAsksDoNotQueueTheReviewsTab(t *testing.T) {
 	m := smartFleet(t, smartSess("asking", status.Waiting, 30*time.Minute))
 	started := reviewAsk(1, 3*time.Hour)
 	started.State = store.ReviewStarted
@@ -92,7 +89,7 @@ func TestStartedAsksDoNotQueueTheReviewsRow(t *testing.T) {
 	}
 }
 
-func TestTriageHandsOverTheReviewPageAndLeavingItMovesOn(t *testing.T) {
+func TestTriageHandsOverTheReviewsTabAndLeavingItMovesOn(t *testing.T) {
 	m := smartFleet(t, smartSess("busy", status.Working, 30*time.Minute))
 	m.reviewQueue = true
 	m.reviews = []store.ReviewRequest{reviewAsk(1, 3*time.Hour), reviewAsk(2, time.Hour)}
@@ -103,19 +100,19 @@ func TestTriageHandsOverTheReviewPageAndLeavingItMovesOn(t *testing.T) {
 	m.rebuildRows()
 
 	m.advanceTriage("")
-	if m.mode != modeHeadPane || m.extView.id != reviewsPaneID {
-		t.Fatalf("the drain did not hand over the review page: mode %v, pane %d", m.mode, m.extView.id)
+	if !m.onReviewsTab() {
+		t.Fatal("the drain did not hand over the Reviews tab")
 	}
-	if got := m.extView.view.(*reviewsView).cursor; got != 2 {
-		t.Fatalf("page cursor = %d, want 2: the ask the drain had not handed over yet", got)
+	if m.reviewsCursor != 2 {
+		t.Fatalf("tab cursor = %d, want 2: the ask the drain had not handed over yet", m.reviewsCursor)
 	}
 
-	m.leaveHeadPane(true)
-	if m.mode == modeHeadPane {
-		t.Fatal("leaving the page with nothing else waiting stayed on it")
+	m.leaveReviewsTab(true)
+	if m.onReviewsTab() {
+		t.Fatal("leaving the tab with nothing else waiting stayed on it")
 	}
 	if m.reviewsWaiting() {
-		t.Fatal("leaving the page did not mark its asks seen")
+		t.Fatal("leaving the tab did not mark its asks seen")
 	}
 }
 
@@ -123,8 +120,12 @@ func TestTheReviewQueueStaysOffUntilItsExperimentIsOn(t *testing.T) {
 	m := smartFleet(t, smartSess("asking", status.Waiting, 30*time.Minute))
 	m.reviews = []store.ReviewRequest{reviewAsk(1, 3*time.Hour)}
 	m.rebuildRows()
-	if slices.ContainsFunc(m.rows, func(r treeRow) bool { return r.reviews }) {
-		t.Fatal("the Reviews row was drawn with the experiment off")
+	m.toggleReviewsTab()
+	if m.onReviewsTab() {
+		t.Fatal("the Reviews tab opened with the experiment off")
+	}
+	if got := reviewDrain(m); slices.Contains(got, "reviews") {
+		t.Fatalf("drain = %v: the Reviews tab queued with the experiment off", got)
 	}
 	if cmd := m.ingestReviews(); cmd != nil || m.reviewsFetching {
 		t.Fatal("the ingest key fetched reviews with the experiment off")

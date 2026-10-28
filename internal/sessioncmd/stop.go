@@ -20,11 +20,12 @@ import (
 var ErrUnmanagedCaller = errors.New("caller is not a Gate Inbox session")
 
 type StopResult struct {
-	Managed     bool    `json:"managed"`
-	Target      Session `json:"session"`
-	DryRun      bool    `json:"dry_run"`
-	Archive     bool    `json:"archive"`
-	CallerProof string  `json:"caller_proof,omitempty"`
+	CallerProofLine string  `json:"caller_proof_line,omitempty"`
+	Managed         bool    `json:"managed"`
+	Target          Session `json:"session"`
+	DryRun          bool    `json:"dry_run"`
+	Archive         bool    `json:"archive"`
+	CallerProof     string  `json:"caller_proof,omitempty"`
 }
 
 // Stop leaves the lifecycle worker outside the pane it will end, so killing
@@ -63,6 +64,7 @@ func (s *Sessions) Stop(sessionID string, dryRun, archive bool) (StopResult, err
 			return StopResult{}, err
 		}
 		result.CallerProof = uuid.NewString()
+		result.CallerProofLine = stopProofPrefix + result.CallerProof
 	}
 	if dryRun && owned {
 		return result, nil

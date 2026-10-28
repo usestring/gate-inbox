@@ -25,8 +25,11 @@ func TestStopProofRequiresTheFreshConversationOutput(t *testing.T) {
 		}
 	}
 	wrapped := stopProofPrefix + proof[:12] + "\n" + proof[12:]
-	if err := awaitStopProof(context.Background(), proof, func() (string, error) { return wrapped, nil }); err != nil {
-		t.Fatal(err)
+	styled := stopProofPrefix + "\x1b[36m" + proof[:12] + "\x1b[0m\n\x1b[36m" + proof[12:] + "\x1b[0m"
+	for _, raw := range []string{wrapped, styled} {
+		if err := awaitStopProof(context.Background(), proof, func() (string, error) { return raw, nil }); err != nil {
+			t.Fatalf("visible proof rejected: %q, %v", raw, err)
+		}
 	}
 }
 

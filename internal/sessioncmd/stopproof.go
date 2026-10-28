@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -122,5 +123,5 @@ func compactProof(s string) string {
 			return -1
 		}
 		return r
-	}, s)
+	}, ansi.Strip(s))
 }

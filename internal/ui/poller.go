@@ -1724,6 +1724,9 @@ func (p *poller) deliverInboxHead(sess store.Session, heads map[string]store.Inb
 		return false, nil
 	}
 	clean := ansi.Strip(capture.Text)
+	if p.engine.CapacityBanner(sess.Tool, clean) != "" {
+		return false, nil
+	}
 	if p.engine.DeliveryHold(sess.Tool, clean) != "" {
 		return false, nil
 	}

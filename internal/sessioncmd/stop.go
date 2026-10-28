@@ -211,7 +211,7 @@ func (r *runtime) stopCaller(id string) (store.Session, error) {
 			return store.Session{}, err
 		}
 		if !row.Archived && row.Status != "dead" {
-			if shared && row.Tool == "codex" && row.AgentSessionID != "" && row.AgentSessionID == os.Getenv("CODEX_THREAD_ID") {
+			if shared && row.Tool == "codex" && validCodexStopThread(row.AgentSessionID) && row.AgentSessionID == os.Getenv("CODEX_THREAD_ID") {
 				codexCandidates = append(codexCandidates, row)
 			}
 			owned, err := r.paneAncestor(row)

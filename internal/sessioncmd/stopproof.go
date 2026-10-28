@@ -20,7 +20,7 @@ func (r *runtime) codexStopCandidate(target store.Session) error {
 	if err != nil {
 		return err
 	}
-	if !shared || target.Tool != "codex" || target.Status == "dead" || target.AgentSessionID == "" || target.AgentSessionID != os.Getenv("CODEX_THREAD_ID") {
+	if !shared || target.Tool != "codex" || target.Status == "dead" || !validCodexStopThread(target.AgentSessionID) || target.AgentSessionID != os.Getenv("CODEX_THREAD_ID") {
 		return errors.New("stop must run inside its own managed session pane")
 	}
 	rows, err := r.store.ListSessions(true)
@@ -33,6 +33,11 @@ func (r *runtime) codexStopCandidate(target store.Session) error {
 		}
 	}
 	return nil
+}
+
+func validCodexStopThread(thread string) bool {
+	id, err := uuid.Parse(thread)
+	return err == nil && id.String() == thread
 }
 
 // A shared host's stdout is routed to the calling conversation, unlike its

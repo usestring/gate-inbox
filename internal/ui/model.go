@@ -2096,6 +2096,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case migrateAutoMsg:
 		return m.finishMigrateAuto(msg)
+	case accountAutoMsg:
+		return m.finishAccountAuto(msg)
 	case tea.WindowSizeMsg:
 		// Resuming from a tmux attach re-sends the current size unchanged; only
 		// a real resize needs the per-session tmux resize calls, so an

@@ -11,6 +11,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/accounts/accountstest"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -105,6 +107,70 @@ func TestTheAccountCardRepointsADeadRow(t *testing.T) {
 	m.submitAccountSwitch()
 	if !strings.Contains(m.errBar.text, "already on BOB2") {
 		t.Errorf("errBar = %q", m.errBar.text)
+	}
+}
+
+// With an account chooser the card opens on auto, previews its pick without
+// spending the chooser's turn, and enter switches to what it commits to.
+func TestTheAccountCardOpensOnAutoWithAChooser(t *testing.T) {
+	m := buildModel(t)
+	withAccountTools(m)
+	chooser := &accountstest.Chooser{Account: "BOB2"}
+	t.Cleanup(accounts.UseChooser(chooser.Resolve))
+	seedAccountRow(t, m, "worker01", "worker", "claude", "")
+	m.applyCmd(t, nil)
+	m.selectSessionRow(t, "worker")
+
+	cmd := m.openAccountSwitch()
+	if m.mode != modeAccount || m.account.names[0] != accountAuto || m.account.index != 0 {
+		t.Fatalf("mode %v, choices %v on %d, errBar %q", m.mode, m.account.names, m.account.index, m.errBar.text)
+	}
+	if cmd == nil {
+		t.Fatal("the card did not ask the chooser")
+	}
+	m.update(cmd())
+	if card := ansi.Strip(m.viewAccountSwitch()); !strings.Contains(card, "❯ auto → BOB2") {
+		t.Fatalf("the card does not show auto's pick:\n%s", card)
+	}
+
+	_, cmd = m.handleAccountKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter on auto did not ask the chooser")
+	}
+	m.update(cmd())
+	if row, err := m.store.Get("worker01"); err != nil || row.Account != "BOB2" {
+		t.Fatalf("stored account = %q, %v; errBar %q", row.Account, err, m.errBar.text)
+	}
+	requests := chooser.Requests()
+	if len(requests) != 2 || !requests[0].Preview || requests[1].Preview {
+		t.Fatalf("chooser requests = %+v", requests)
+	}
+}
+
+// Auto never restarts a session onto the account it is already on: the card
+// stays open and says why.
+func TestTheAccountCardAutoKeepsARowOnItsOwnPick(t *testing.T) {
+	m := buildModel(t)
+	withAccountTools(m)
+	t.Cleanup(accounts.UseChooser((&accountstest.Chooser{Account: "BOB2"}).Resolve))
+	seedAccountRow(t, m, "worker01", "worker", "claude", "")
+	if err := m.store.SetAccount("worker01", "BOB2"); err != nil {
+		t.Fatal(err)
+	}
+	m.applyCmd(t, nil)
+	m.selectSessionRow(t, "worker")
+
+	m.openAccountSwitch()
+	_, cmd := m.handleAccountKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter on auto did not ask the chooser")
+	}
+	m.update(cmd())
+	if m.mode != modeAccount || !strings.Contains(m.errBar.text, "already on") {
+		t.Fatalf("mode %v, errBar %q", m.mode, m.errBar.text)
+	}
+	if card := ansi.Strip(m.viewAccountSwitch()); !strings.Contains(card, "auto no switch") {
+		t.Fatalf("the card does not say auto will not switch:\n%s", card)
 	}
 }
 

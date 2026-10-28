@@ -16,8 +16,8 @@ import (
 func assertSteers(t *testing.T, cli, steering, builtin string) {
 	t.Helper()
 	for _, want := range []string{
-		"create_session instead of using " + builtin,
-		"any unit of real work",
+		"create_session instead of " + builtin,
+		"Open a new session only when your user explicitly asks for one",
 		"quick read-only lookup",
 		"user's board",
 		"its questions are relayed to you",

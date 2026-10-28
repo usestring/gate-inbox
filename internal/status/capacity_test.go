@@ -11,6 +11,7 @@ func TestCodexCapacityFailureIsCurrentAndOutsideTheComposer(t *testing.T) {
 	}{
 		{"current failure", failure + "\n\n› ", true},
 		{"wrapped failure", failure + "\n  Or switch to another model.\n\n› ", true},
+		{"failure wrapped mid-phrase", "■ The selected model is at\n  capacity. Please try again later.\n\n› ", true},
 		{"closed failed turn", failure + "\n\n  02:41\n\n› ", true},
 		{"new turn working", failure + "\n\n› continue\n• Working (2s • esc to interrupt)\n\n› ", false},
 		{"new turn completed", failure + "\n\n› continue\n• Done.\n\n  02:42\n\n› ", false},

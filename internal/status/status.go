@@ -217,9 +217,6 @@ func (tr toolRules) limitLines(pane string) []string {
 	}
 	lines := strings.Split(region, "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
-		if !tr.limitLine.MatchString(strings.TrimRight(lines[i], " \t")) {
-			continue
-		}
 		end := i + 1
 		for end < len(lines) {
 			line := lines[end]
@@ -227,6 +224,12 @@ func (tr toolRules) limitLines(pane string) []string {
 				break
 			}
 			end++
+		}
+		// A narrow pane can wrap the banner inside the phrase the matcher
+		// looks for, so the unwrapped banner gets a second try.
+		if !tr.limitLine.MatchString(strings.TrimRight(lines[i], " \t")) &&
+			!tr.limitLine.MatchString(strings.Join(strings.Fields(strings.Join(lines[i:end], " ")), " ")) {
+			continue
 		}
 		if tr.limitIsNewest(lines[end:]) {
 			return lines[i:end]

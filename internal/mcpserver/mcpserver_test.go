@@ -823,7 +823,7 @@ func TestSessionDescriptionsTeachWhenAndHowToChainTools(t *testing.T) {
 	}
 	for tool, wants := range map[string][]string{
 		"list_sessions":    {"Call first", "create_session"},
-		"create_session":   {"instead of your CLI's built-in subagent tool", "quick read-only lookup", "without waiting for the user", "own checkout", "cannot see this conversation", "read_session", "never create a group for one", "nest false is a detach"},
+		"create_session":   {"instead of your CLI's built-in subagent tool", "quick read-only lookup", "only when your user explicitly asked for a new session", "own checkout", "cannot see this conversation", "read_session", "never create a group for one", "nest false is a detach"},
 		"read_session":     {"after create_session", "current screen"},
 		"send_session":     {"self-contained instruction", "read_session", "at rest", "another agent rather than from the user"},
 		"message_status":   {"delivered", "queued"},

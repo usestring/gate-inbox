@@ -112,7 +112,7 @@ func TestWriteCapableCallIsSteeredWithACreateSessionCall(t *testing.T) {
 				t.Errorf("%q create_session %s = %q, want %q", subagent, key, args[key], value)
 			}
 		}
-		for _, want := range []string{"list_sessions", "wait_for_session", "send the same Agent call again"} {
+		for _, want := range []string{"explicitly asked for one", "send_session", "wait_for_session", "send the same Agent call again"} {
 			if !strings.Contains(reason, want) {
 				t.Errorf("%q reason lacks %q: %s", subagent, want, reason)
 			}

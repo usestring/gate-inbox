@@ -432,10 +432,23 @@ func (m *Model) viewMigrateAutoRows() string {
 		return ""
 	}
 	var b strings.Builder
-	for _, row := range agentPickQuotaRows(nil, nil, "", m.migrate.autoReason, cardInnerWidth(m.cardWidth())-formLabelColumn)[1:] {
-		b.WriteString(spaces(formLabelColumn) + row + "\n")
+	for _, row := range m.autoReasonRows(m.migrate.autoReason, formLabelColumn) {
+		b.WriteString(row + "\n")
 	}
 	return b.String()
+}
+
+// autoReasonRows is a card's auto reason in the new-session box's words,
+// wrapped to the card and indented to the column its values start in.
+func (m *Model) autoReasonRows(reason string, indent int) []string {
+	if reason == "" {
+		return nil
+	}
+	rows := agentPickQuotaRows(nil, nil, "", reason, cardInnerWidth(m.cardWidth())-indent)[1:]
+	for i, row := range rows {
+		rows[i] = spaces(indent) + row
+	}
+	return rows
 }
 
 // viewMigrateSkipToggle is the session's own toggle on the migrate card,

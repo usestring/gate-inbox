@@ -35,19 +35,32 @@ func runStop(out io.Writer, sessions sessionCommands, args []string, sessionID s
 	if *dryRun {
 		message = "would " + verb + " " + sessioncmd.FormatSession(result.Target)
 	}
+	if result.CallerProof != "" {
+		message = "Gate Inbox stop proof: " + result.CallerProof + "\nRelay this exact proof line in this conversation; the pinned worker will verify it before acting."
+	}
 	return cmdline.Emit(out, *asJSON, result, message)
 }
 
 func finishStop(args []string, sessionID, configDir string) error {
 	set := cmdline.NewFlagSet("_finish-stop [--archive] <launch-time> <pane-id> <process-pin>")
 	archive := set.Bool("archive", false, "file the ended session out of the active list")
+	proof := set.String("caller-proof", "", "verify this proof in the calling conversation's pane")
+	thread := set.String("caller-thread", "", "pin the conversation requesting caller verification")
+	dryRun := set.Bool("dry-run", false, "verify without stopping the session")
 	operands, err := parseCommand(os.Stdout, set, args, 3, 3)
 	if err != nil {
 		return err
 	}
+	if *proof == "" && (*dryRun || *thread != "") {
+		return errors.New("stop verification flags require a caller proof")
+	}
 	// This runs as a run-shell -b job, which tmux SIGTERMs when ending the
 	// last session empties the server and leaves its output pipe closed.
 	signal.Ignore(syscall.SIGTERM, syscall.SIGHUP, syscall.SIGPIPE)
+	if *proof != "" {
+		_, err := sessioncmd.NewSessions(configDir, sessioncmd.CLIVocabulary()).FinishStopWithProof(sessionID, operands[0], operands[1], operands[2], *thread, *proof, *dryRun, *archive)
+		return err
+	}
 	_, err = sessioncmd.NewSessions(configDir, sessioncmd.CLIVocabulary()).FinishStop(sessionID, operands[0], operands[1], operands[2], *archive)
 	return err
 }

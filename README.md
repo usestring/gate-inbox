@@ -288,7 +288,7 @@ from `gate-inbox sessions`. From inside a managed agent session, `gate-inbox sto
 session and preserves its row and conversation for an explicit revive. It records an intentional
 stop, so startup recovery does not offer it as a lost session. `gate-inbox stop --archive` also
 files the ended row out of the active list, where `archive --restore` can bring it back for 7 days.
-`gate-inbox stop --dry-run` verifies the current pane without ending it. Adopted callers with verified pane process ancestry can also stop themselves.
+`gate-inbox stop --dry-run` verifies the current pane without ending it. Adopted callers with verified pane process ancestry can also stop themselves. A shared Codex host instead receives a fresh `caller_proof_line` first in JSON output, so the caller's ordinary visible tool output supplies the proof automatically. If the client collapses that line, relay `Gate Inbox stop proof: <caller_proof>` in the calling conversation. An outside worker verifies the fresh proof in the pinned pane before completing the requested action. A proof response means verification is pending; a missing proof times out without stopping or archiving anything. Never type or send the proof into a target pane through another channel.
 Shared-daemon callers whose pane cannot be verified refuse shutdown. Other adopted panes can be stopped by id from
 another session or the board.
 

@@ -92,7 +92,7 @@ func (p *poller) maybeRecoverLimit(sess store.Session, states map[string]store.L
 	prompt := limitResumePrompt
 	if capacity {
 		claimedState.CapacityRetries++
-		prompt = band.Tag + " " + capacityRetryMarker(claimedState.CapacityRetries) + " Continue the interrupted task from where you stopped. Preserve existing approval requirements."
+		prompt = band.Tag + " " + capacityRetryMarker(claimedState) + " Continue the interrupted task from where you stopped. Preserve existing approval requirements."
 	}
 	claimed, err := p.store.CompareLimitRecovery(sess, old, &claimedState)
 	if err != nil || !claimed {
@@ -112,8 +112,8 @@ func (p *poller) maybeRecoverLimit(sess store.Session, states map[string]store.L
 	return true, nil
 }
 
-func capacityRetryMarker(attempt int) string {
-	return fmt.Sprintf("Capacity retry %d.", attempt)
+func capacityRetryMarker(state store.LimitRecovery) string {
+	return fmt.Sprintf("Capacity retry %d [%x].", state.CapacityRetries, state.ResetAt.UnixNano())
 }
 
 func recoveryDeadline(state store.LimitRecovery) time.Time {
@@ -129,8 +129,9 @@ func nextCapacityRecovery(sess store.Session, previous store.LimitRecovery, exis
 	}
 	// An unchanged error is not another failed attempt. The submitted retry
 	// must precede the newest banner, even if its working frame was missed.
+	// Its deadline distinguishes it from retries in earlier capacity episodes.
 	if previous.AttemptedAt.IsZero() || previous.CapacityDelay >= capacityRetryMaxDelay ||
-		!strings.Contains(strings.Join(strings.Fields(region), " "), capacityRetryMarker(previous.CapacityRetries)) {
+		!strings.Contains(strings.Join(strings.Fields(region), " "), capacityRetryMarker(previous)) {
 		return nil
 	}
 	next := previous

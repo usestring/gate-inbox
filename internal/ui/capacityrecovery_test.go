@@ -30,14 +30,20 @@ func TestCapacityRecoveryBacksOffOnlyForNewFailuresAndExhausts(t *testing.T) {
 		if nextCapacityRecovery(sess, previous, true, banner, region, now.Add(time.Hour)) != nil {
 			t.Fatal("an unchanged failure counted as a new attempt")
 		}
-		region += "\n› " + capacityRetryMarker(previous.CapacityRetries) + "\n" + banner
+		region += "\n› " + capacityRetryMarker(previous) + "\n" + banner
 	}
 	if nextCapacityRecovery(sess, previous, true, banner, region, now.Add(24*time.Hour)) != nil {
 		t.Fatal("capacity retries continued after the final eight-minute attempt")
 	}
 	sess.AgentLaunchedAt = now.Add(time.Second)
-	if next := nextCapacityRecovery(sess, previous, true, banner, region, now); next == nil || next.CapacityRetries != 0 {
+	next := nextCapacityRecovery(sess, previous, true, banner, region, now)
+	if next == nil || next.CapacityRetries != 0 {
 		t.Fatal("a manually relaunched session inherited an exhausted retry budget")
+	}
+	next.CapacityRetries = 1
+	next.AttemptedAt = now
+	if nextCapacityRecovery(sess, *next, true, banner, region, now) != nil {
+		t.Fatal("a retry marker from an earlier capacity episode rearmed an unchanged failure")
 	}
 }
 
@@ -77,7 +83,7 @@ func TestCapacityRecoveryKeepsItsBudgetAcrossWorkingFramesAndManagerRestart(t *t
 	if recoverLimit(t, p, sess, pane, status.Errored, true, true, due.Add(time.Hour)) {
 		t.Fatal("a manager restart repeated an already claimed retry")
 	}
-	pane = "› " + capacityRetryMarker(1) + " Continue.\n\n" + failure + "\n\n› "
+	pane = "› " + capacityRetryMarker(states[sess.ID]) + " Continue.\n\n" + failure + "\n\n› "
 	if recoverLimit(t, p, sess, pane, status.Errored, true, true, due) {
 		t.Fatal("new capacity failure retried without its increased delay")
 	}

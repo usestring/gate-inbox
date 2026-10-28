@@ -129,7 +129,7 @@ func (e *Engine) Match(tool, pane string) (string, bool) {
 	if !ok {
 		return Idle, false
 	}
-	if tr.isLimit(pane) {
+	if tr.isLimit(pane) || e.CapacityBanner(tool, pane) != "" {
 		return Errored, true
 	}
 	if state, ok := tr.matchRules(tr.matchScope(pane)); ok {
@@ -187,6 +187,20 @@ func (e *Engine) LimitBanner(tool, pane string) string {
 	if !ok || e.ViewportDisplaced(tool, pane) {
 		return ""
 	}
+	if banner := e.CapacityBanner(tool, pane); banner != "" {
+		return banner
+	}
+	return strings.Join(strings.Fields(strings.Join(tr.limitLines(pane), " ")), " ")
+}
+
+var codexCapacityLine = &matcher{re: regexp.MustCompile(`(?m)^[ \t]*■[ \t]+The selected model is at capacity\b`)}
+
+func (e *Engine) CapacityBanner(tool, pane string) string {
+	tr, ok := e.tools[tool]
+	if !ok || tool != "codex" || e.ViewportDisplaced(tool, pane) {
+		return ""
+	}
+	tr.limitLine = codexCapacityLine
 	return strings.Join(strings.Fields(strings.Join(tr.limitLines(pane), " ")), " ")
 }
 

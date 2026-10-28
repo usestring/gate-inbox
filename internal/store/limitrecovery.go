@@ -11,10 +11,12 @@ import (
 const limitRecoveryPrefix = "limit-recovery:"
 
 type LimitRecovery struct {
-	Banner      string
-	ResetAt     time.Time
-	LaunchAt    time.Time
-	AttemptedAt time.Time
+	Banner          string
+	ResetAt         time.Time
+	LaunchAt        time.Time
+	AttemptedAt     time.Time
+	CapacityDelay   time.Duration `json:",omitempty"`
+	CapacityRetries int           `json:",omitempty"`
 }
 
 func (s *Store) LimitRecoveries() (map[string]LimitRecovery, error) {

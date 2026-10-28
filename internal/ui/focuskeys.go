@@ -727,7 +727,8 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// scrolled-back pane the next lines pull back to its live bottom was
 	// showing history rather than where the key lands.
 	keyAt := time.Now()
-	dialog := m.selectionDialogUp(sess.ID, sess.Tool)
+	selectionDialog := m.selectionDialogUp(sess.ID, sess.Tool)
+	dialog := selectionDialog || sess.Status == status.Waiting || paneHasDialog(sess.Tool, m.preview)
 	// A key that might answer the session arms a landing; whether it did is
 	// for the session to show. Enter submits a composer line or picks a
 	// dialog's row, and on a dialog a printable key can pick one too. A
@@ -735,13 +736,11 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// agent CLI on the board takes a newline. Any other key means the
 	// operator is still at work in the session, so an answer already
 	// pending stops carrying them off it. See landing.go.
-	arms := key.Mod == 0 && (key.Code == tea.KeyEnter || (dialog && key.Text != ""))
+	arms := key.Mod == 0 && (key.Code == tea.KeyEnter || (selectionDialog && key.Text != ""))
 	if !arms {
 		m.keepLandingHere()
 	}
-	// A key inside a dialog that has further to go answers a step of it, not
-	// the session, so it arms the check without a handover; see keyEndsDialog.
-	handsOver := arms && m.autoProceeds() && m.keyEndsDialog()
+	handsOver := arms && m.autoProceeds()
 	// Typing puts the cursor back on: a caret that blinks out mid-keystroke
 	// reads as a dropped character.
 	quiet := m.cursorOn
@@ -775,6 +774,7 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	chase := resume == nil && !m.focusChasing
 	if chase || arms {
 		baseline = m.echoBaseline(sess.ID)
+		dialog = dialog || paneHasDialog(sess.Tool, baseline)
 	}
 	if !chase && resume == nil {
 		m.echoPending = true
@@ -813,14 +813,14 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if quiet {
 		m.frameUnchanged()
 	}
-	// Enter is the operator done with this session, so the drain moves on
-	// now rather than after the answer is seen landing. The check armed above
+	// A dialog key can open a text field or advance a question, so only a
+	// composer Enter may hand over before the answer is seen landing. Its check
 	// still runs and returns the session to the queue if the answer never
 	// lands; see handOverOnEnter. A key that pulls a scrolled-back pane to its
 	// live bottom was typed at history, not at the prompt, and stays. The
 	// echo chase is dropped: its frames are for the pane being left, and its
 	// captures would contend with the next pane's first one.
-	if landing != nil && resume == nil && key.Code == tea.KeyEnter && handsOver {
+	if landing != nil && resume == nil && key.Code == tea.KeyEnter && handsOver && !dialog && baseline != "" {
 		if next := m.handOverOnEnter(sess, keyAt); next != nil {
 			return m, tea.Batch(landing, next)
 		}

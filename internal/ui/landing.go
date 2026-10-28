@@ -40,14 +40,9 @@ import (
 // answer was turned down, or that a fresh dialog came up, keeps them there
 // too.
 //
-// Plain Enter is the exception. Waiting for the evidence put the agent's own
-// latency between every answer and the next session, and the drain is walked
-// one Enter after another, so Enter moves the drain on with the key. The
-// check still runs: a seen answer is recorded, and one refused or never seen
-// unmutes its session so the queue offers it again. The cost is the mistake
-// above, an Enter that opens a picker or steps a question along, and the
-// queue bringing that session back is how it gets caught. See
-// handOverOnEnter.
+// Enter in a composer is the exception: it moves the drain on immediately,
+// and a refused or unseen submission returns to the queue. Dialog answers
+// always wait for evidence, because Enter can open another input step.
 
 // landingWindow is how long an answer has to show up. The hooks land within
 // a few hundred milliseconds of the key; the rest is room for a transcript
@@ -402,7 +397,7 @@ func (m *Model) landingProbeFor(sess store.Session, dialog bool, pane string) *l
 
 func paneWorks(engine *status.Engine, tool, pane string) bool {
 	text := ansi.Strip(pane)
-	if _, up := dialog.Inspect(text); up {
+	if paneHasDialog(tool, text) {
 		return false
 	}
 	if engine.ViewportDisplaced(tool, text) {
@@ -410,6 +405,16 @@ func paneWorks(engine *status.Engine, tool, pane string) bool {
 	}
 	state, matched := engine.Match(tool, text)
 	return matched && state == status.Working
+}
+
+func paneHasDialog(tool, pane string) bool {
+	if _, up := dialog.ReadQuestions(tool, pane, nil); up {
+		return true
+	}
+	if _, up := dialog.ReadScreenFor(tool, pane); up {
+		return true
+	}
+	return dialog.Standing(ansi.Strip(pane))
 }
 
 func landingToolName(pane string) (string, bool) {

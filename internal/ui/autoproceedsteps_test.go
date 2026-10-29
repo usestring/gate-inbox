@@ -3,9 +3,12 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/status"
 )
 
 // drainOnCapture is drainOnDialog with the focused pane showing a captured
@@ -21,104 +24,106 @@ func drainOnCapture(t *testing.T, capture string) *Model {
 	return m
 }
 
-// dialogCaptures are held dialogs, each with whether a key answering it ends
-// what the session asked. The ones that do not are a step of a dialog with
-// further to go: Enter ticks a box or answers one question of several.
-var dialogCaptures = []struct {
-	capture string
-	ends    bool
-}{
-	{"claude-2.1.284-w50-stepper4-first.ansi", false},
-	{"claude-2.1.283-tabs-w80-second.ansi", false},
-	{"claude-2.1.284-w50-stepper4-multiselect-ticked.ansi", false},
-	{"claude-2.1.283-tabs-w44-multiselect.ansi", false},
-	{"claude-2.1.286-w50-multiselect.ansi", false},
-	{"claude-2.1.286-w40-multiselect.ansi", false},
-	{"claude-2.1.283-tabs-w80-revisit-answered.ansi", false},
-	// A stripped tab row cannot say which tab is up.
-	{"claude-2.1.283-tabs-reported-narrow.txt", false},
-	{"claude-2.1.283-tabs-w80-review-complete.ansi", true},
-	{"claude-2.1.283-tabs-w80-submit-unanswered.ansi", true},
-	{"claude-2.1.284-w50-tabs-review-complete.ansi", true},
-	{"claude-2.1.284-w50-approval-asked.txt", true},
-	{"claude-2.1.284-w50-permission-touch.txt", true},
-	{"opencode/opencode-2.0.3-multi1-w100.txt", false},
-	{"opencode/opencode-2.0.3-multi1-ticked-w40.txt", false},
-	{"opencode/opencode-2.0.3-q3-t1-w100.txt", false},
-	{"opencode/opencode-2.0.3-q3-t2-w100.txt", false},
-	{"opencode/opencode-2.0.3-q3-t2-custom-typed-w100.txt", false},
-	{"opencode/opencode-2.0.3-q2-t2-after-first-w100.txt", false},
-	{"opencode/opencode-2.0.3-q1-w100.txt", true},
-	{"opencode/opencode-2.0.3-multi1-review-w100.txt", true},
-	{"opencode/opencode-2.0.3-q3-review-w100.txt", true},
-	{"codex/codex-0.157.0-ask2-q1-w100.txt", false},
-	{"codex/codex-0.157.0-ask2-q2-w100.txt", true},
-	{"codex/codex-0.157.0-ask1-w100.txt", true},
-	{"codex/codex-0.157.0-exec-approval-w100.txt", true},
+var dialogCaptures = []string{
+	"claude-2.1.284-w50-stepper4-first.ansi",
+	"claude-2.1.283-tabs-w80-second.ansi",
+	"claude-2.1.284-w50-stepper4-multiselect-ticked.ansi",
+	"claude-2.1.283-tabs-w44-multiselect.ansi",
+	"claude-2.1.286-w50-multiselect.ansi",
+	"claude-2.1.286-w40-multiselect.ansi",
+	"claude-2.1.283-tabs-w80-revisit-answered.ansi",
+	"claude-2.1.283-tabs-reported-narrow.txt",
+	"claude-2.1.283-tabs-w80-review-complete.ansi",
+	"claude-2.1.283-tabs-w80-submit-unanswered.ansi",
+	"claude-2.1.284-w50-tabs-review-complete.ansi",
+	"claude-2.1.284-w50-approval-asked.txt",
+	"claude-2.1.284-w50-permission-touch.txt",
+	"opencode/opencode-2.0.3-multi1-w100.txt",
+	"opencode/opencode-2.0.3-multi1-ticked-w40.txt",
+	"opencode/opencode-2.0.3-q3-t1-w100.txt",
+	"opencode/opencode-2.0.3-q3-t2-w100.txt",
+	"opencode/opencode-2.0.3-q3-t2-custom-typed-w100.txt",
+	"opencode/opencode-2.0.3-q2-t2-after-first-w100.txt",
+	"opencode/opencode-2.0.3-q1-w100.txt",
+	"opencode/opencode-2.0.3-multi1-review-w100.txt",
+	"opencode/opencode-2.0.3-q3-review-w100.txt",
+	"codex/codex-0.157.0-ask2-q1-w100.txt",
+	"codex/codex-0.157.0-ask2-q2-w100.txt",
+	"codex/codex-0.157.0-ask1-w100.txt",
+	"codex/codex-0.157.0-exec-approval-w100.txt",
 }
 
-func TestKeyEndsDialog(t *testing.T) {
-	for _, tc := range dialogCaptures {
-		t.Run(tc.capture, func(t *testing.T) {
-			m := drainOnCapture(t, tc.capture)
-			if got := m.keyEndsDialog(); got != tc.ends {
-				t.Fatalf("keyEndsDialog = %v, want %v", got, tc.ends)
-			}
-		})
-	}
-}
-
-// Enter on a step of a dialog with further to go keeps the operator on it,
-// and its landing does not move the drain either: the session still has the
-// rest of the dialog to ask. Enter that ends the dialog hands over at once.
-func TestEnterHandsOverOnlyWhenItEndsTheDialog(t *testing.T) {
-	for _, tc := range dialogCaptures {
-		t.Run(tc.capture, func(t *testing.T) {
-			m := drainOnCapture(t, tc.capture)
+func TestDialogEnterWaitsForObservedCompletion(t *testing.T) {
+	for _, capture := range dialogCaptures {
+		t.Run(capture, func(t *testing.T) {
+			m := drainOnCapture(t, capture)
 			askID := focusedID(t, m)
 			m = pressEnter(m)
-			want := "ask"
-			if tc.ends {
-				want = "next"
+			if got := focusedName(t, m); got != "ask" {
+				t.Fatalf("Enter focused %q before the dialog completed", got)
 			}
-			if got := focusedName(t, m); got != want {
-				t.Fatalf("Enter focused %q, want %q", got, want)
+			pending := onlyLanding(t, m)
+			if !pending.probe.dialog || !pending.handOver || pending.early {
+				t.Fatal("the dialog answer is not waiting for completion")
 			}
-			if tc.ends {
-				return
-			}
-			if m.handoverTrace.to != "" {
-				t.Fatal("an Enter that stayed armed a handover trace")
+			m.applyLandingCheck(landingCheckMsg{id: askID, gen: pending.gen, verdict: landingPending})
+			if got := focusedName(t, m); got != "ask" {
+				t.Fatalf("an open dialog moved focus to %q", got)
 			}
 			landAnswer(t, m, askID)
-			if got := focusedName(t, m); got != "ask" {
-				t.Fatalf("a step of the dialog landing moved the drain to %q", got)
+			if got := focusedName(t, m); got != "next" {
+				t.Fatalf("a completed dialog left focus on %q", got)
 			}
 		})
 	}
 }
 
-// A digit ticks a multi-select box just as Enter does, so its landing keeps
-// the operator on the dialog.
-func TestADigitOnAMultiSelectDoesNotHandOver(t *testing.T) {
+func TestADigitOnAnOpenMultiSelectDoesNotHandOver(t *testing.T) {
 	for _, capture := range []string{
 		"claude-2.1.286-w50-multiselect.ansi",
 		"opencode/opencode-2.0.3-multi1-w100.txt",
 	} {
 		t.Run(capture, func(t *testing.T) {
 			m := drainOnCapture(t, capture)
-			askID := focusedID(t, m)
 			updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: '1', Text: "1"})
 			m = updated.(*Model)
-			if pending, ok := m.landings[askID]; ok {
-				if pending.handOver {
-					t.Fatal("a tick on a multi-select armed a handover")
-				}
-				landAnswer(t, m, askID)
+			if len(m.landings) > 0 {
+				lookForLanding(t, m)
 			}
 			if got := focusedName(t, m); got != "ask" {
 				t.Fatalf("a tick on a multi-select moved the drain to %q", got)
 			}
 		})
+	}
+}
+
+func TestOpencodeCustomAnswerKeepsFocusUntilWorkResumes(t *testing.T) {
+	m := drainOnCapture(t, "opencode/opencode-2.0.3-q1-w100.txt")
+	for i := range m.sessions {
+		m.sessions[i].Tool = "opencode"
+		m.sessions[i].Status = status.Idle
+	}
+	m.rebuildRows()
+	engine, err := status.NewEngine(config.Config{Tools: map[string]config.Tool{
+		"opencode": {Rules: []config.Rule{{State: status.Working, Pattern: "."}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := strings.ReplaceAll(m.preview, "esc dismiss", "esc close")
+	m = pressEnter(m)
+	if got := focusedName(t, m); got != "ask" {
+		t.Fatalf("opening custom input moved focus to %q", got)
+	}
+	pending := onlyLanding(t, m)
+	pending.probe.paneWorking = func() bool { return paneWorks(engine, "opencode", current) }
+	lookForLanding(t, m)
+	if got := focusedName(t, m); got != "ask" || m.latestSubmission.sessionID != "" {
+		t.Fatal("custom input was treated as an answered question")
+	}
+	current = "Working on the supplied answer"
+	lookForLanding(t, m)
+	if got := focusedName(t, m); got != "next" {
+		t.Fatalf("resuming work left focus on %q", got)
 	}
 }

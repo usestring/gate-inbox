@@ -173,19 +173,29 @@ func pressEnter(m *Model) *Model {
 	return updated.(*Model)
 }
 
-// pressDialogKey answers the staged dialog with its option key, an answer
-// the drain still waits to see land before moving on. Enter moves on with the
-// key itself; see TestEnterHandsOverAtOnce.
+func drainOnComposer(t *testing.T) *Model {
+	t.Helper()
+	m := drainOnDialog(t, true)
+	stageComposer(m)
+	return m
+}
+
+func stageComposer(m *Model) {
+	for i := range m.sessions {
+		m.sessions[i].Status = status.Idle
+	}
+	m.rebuildRows()
+	m.preview = "❯ go on\n"
+	m.pane.cursor = paneCursor{x: 7, y: 0, ok: true}
+}
+
 func pressDialogKey(m *Model) *Model {
 	updated, _ := m.handleFocusKey(tea.KeyPressMsg{Code: '1', Text: "1"})
 	return updated.(*Model)
 }
 
-// Enter is the operator done with the session, so the drain moves on with the
-// key rather than once the answer is seen landing. The check still runs, and
-// records the answer when it lands without moving the drain a second time.
 func TestEnterHandsOverAtOnce(t *testing.T) {
-	m := drainOnDialog(t, true)
+	m := drainOnComposer(t)
 	askID := focusedID(t, m)
 	m = pressEnter(m)
 	if got := focusedName(t, m); got != "next" {
@@ -199,7 +209,7 @@ func TestEnterHandsOverAtOnce(t *testing.T) {
 	if m.handoverTrace.to != "" {
 		t.Fatal("the handover frame was logged but its trace stayed armed")
 	}
-	recordDialogResult(t, m, askID, "answered")
+	logHookEvent(t, m, askID, "working UserPromptSubmit")
 	lookForLanding(t, m)
 	if got := focusedName(t, m); got != "next" {
 		t.Fatalf("the answer landing moved the drain again, to %q", got)
@@ -216,7 +226,7 @@ func TestEnterHandsOverAtOnce(t *testing.T) {
 // settle a cursor walking the rail waits out, and the pane left behind is not
 // chased: the next pane's first frame is the one the operator reads.
 func TestEnterCapturesTheNextPaneAtOnce(t *testing.T) {
-	m := drainOnDialog(t, true)
+	m := drainOnComposer(t)
 	updated, cmd := m.handleFocusKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	m = updated.(*Model)
 	nextID := focusedID(t, m)
@@ -254,18 +264,21 @@ func TestEnterCapturesTheNextPaneAtOnce(t *testing.T) {
 func TestAnEnterThatLandsNothingReturnsToTheQueue(t *testing.T) {
 	for _, refused := range []bool{true, false} {
 		t.Run(map[bool]string{true: "refused", false: "timed out"}[refused], func(t *testing.T) {
-			m := drainOnDialog(t, true)
+			m := drainOnComposer(t)
 			ask, _ := m.selected()
 			m = pressEnter(m)
 			if !m.isMuted(ask) {
 				t.Fatal("the session handed over on Enter was not muted")
 			}
 			if refused {
-				logHookEvent(t, m, ask.ID, "waiting Notification")
+				pending := onlyLanding(t, m)
+				m.applyLandingCheck(landingCheckMsg{id: ask.ID, gen: pending.gen, verdict: landingRefused})
 			} else {
 				onlyLanding(t, m).deadline = time.Now().Add(-time.Millisecond)
 			}
-			lookForLanding(t, m)
+			if !refused {
+				lookForLanding(t, m)
+			}
 			if len(m.landings) != 0 {
 				t.Fatal("the landing outlived its verdict")
 			}
@@ -480,8 +493,12 @@ func TestSubmissionHonorsNextSessionOutsideTriage(t *testing.T) {
 				}
 
 				m = pressEnter(m)
-				if got := focusedName(t, m); got != tc.want {
-					t.Fatalf("Enter focused %q, want %q", got, tc.want)
+				wantBefore := tc.want
+				if state == status.Waiting {
+					wantBefore = "answered"
+				}
+				if got := focusedName(t, m); got != wantBefore {
+					t.Fatalf("Enter focused %q, want %q", got, wantBefore)
 				}
 				if state == status.Waiting {
 					recordDialogResult(t, m, id, "answered")
@@ -529,7 +546,7 @@ func TestEarlyHandoverPreservesTheNextFinishedAlert(t *testing.T) {
 	}
 }
 
-func TestFailedEarlyHandoverResumesTheDrainedQueue(t *testing.T) {
+func TestFailedEarlyComposerHandoverResumesTheWaitingQueue(t *testing.T) {
 	for _, refused := range []bool{true, false} {
 		t.Run(map[bool]string{true: "refused", false: "timed out"}[refused], func(t *testing.T) {
 			m := buildModel(t)
@@ -538,11 +555,15 @@ func TestFailedEarlyHandoverResumesTheDrainedQueue(t *testing.T) {
 			m.rebuildRows()
 			m.enterFocusOn(t, "ask")
 			id := focusedID(t, m)
-			stageDialog(m, id)
+			stageComposer(m)
 			m = pressEnter(m)
 			if m.mode != modeList || !m.triageResume {
 				t.Fatal("the lone session did not leave the drain open on the list")
 			}
+			for i := range m.sessions {
+				m.sessions[i].Status = status.Waiting
+			}
+			m.rebuildRows()
 			pending := onlyLanding(t, m)
 			verdict := landingPending
 			if refused {

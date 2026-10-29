@@ -1801,7 +1801,12 @@ func (m *Model) cursorRow() (treeRow, bool) {
 // one and leave the user on it, and reports whether it found the row. A
 // session filtered out of the current view has none, and the cursor stays
 // where it was.
+//
+// A search is dropped on the way. Folds are ignored while a query filters
+// the tree, so a match inside a folded group or under folded children loses
+// its row with the query, and the folds over it are opened to bring it back.
 func (m *Model) focusSession(id string) bool {
+	searched := m.search != ""
 	m.searching = false
 	m.clearSearch()
 	for i, row := range m.rows {
@@ -1812,6 +1817,21 @@ func (m *Model) focusSession(id string) bool {
 			m.rebuildRows()
 			return true
 		}
+	}
+	if !searched {
+		return false
+	}
+	for _, sess := range m.sessions {
+		if sess.ID != id {
+			continue
+		}
+		index, shown := m.revealSession(sess)
+		if !shown {
+			return false
+		}
+		m.cursor = index
+		m.rebuildRows()
+		return true
 	}
 	return false
 }

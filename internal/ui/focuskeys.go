@@ -163,7 +163,12 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 		m.errBar.text = err.Error()
 		return m, nil
 	}
-	m.focusSession(sess.ID)
+	// Keys follow the selected row, not the session asked for, so focus is
+	// refused rather than entered with the cursor somewhere else.
+	if !m.focusSession(sess.ID) {
+		m.errBar.text = "session is no longer in this view"
+		return m, nil
+	}
 	m.mode = modeFocus
 	// Recorded here rather than at the top: every guard above returns
 	// without a pane on screen, and a refusal must not count as a session

@@ -112,3 +112,18 @@ func TestFocusSessionClearsSearchForHiddenTarget(t *testing.T) {
 		t.Fatalf("selected=%v query=%q, want session 2 with no search", selected.ID, m.search)
 	}
 }
+
+func TestFocusSessionOpensTheFoldOverASearchMatch(t *testing.T) {
+	m := searchModel()
+	m.sessions[1].Group = "web"
+	m.collapsed["web"] = true
+	m.search = "web-ui"
+	m.rebuildRows()
+	if !m.focusSession("2") {
+		t.Fatal("clearing the search left the match folded away")
+	}
+	selected, ok := m.selected()
+	if !ok || selected.ID != "2" || m.collapsed["web"] {
+		t.Fatalf("selected=%v folded=%v, want session 2 with its group open", selected.ID, m.collapsed["web"])
+	}
+}

@@ -233,6 +233,12 @@ func helpSections() []helpSection {
 			lit("k", "keep the children rather than ending them with the parent"),
 			lit("esc", "any other key cancels"),
 		}},
+		{title: "advanced: a subscription limit", rows: []helpRow{
+			lit("enter", "open the move to the selected agent, without launching it"),
+			lit("tab", "pick another agent"),
+			bound(keymap.ContextLimitSwitch, keymap.SwitchAccount, "open the switch to another subscription"),
+			lit("esc", "dismiss it until the next limit"),
+		}},
 		{title: "advanced: the review queue", rows: []helpRow{
 			bound(keymap.ContextReviews, keymap.ReviewStart, "start a review session on the pull request"),
 			bound(keymap.ContextReviews, keymap.ReviewOpen, "open the pull request on GitHub"),

@@ -501,6 +501,10 @@ type Model struct {
 	// its capture cadence -- see focusecho.go.
 	focusActiveAt  time.Time
 	focusRepaintAt time.Time
+	// focusTypedAt is when the focused pane was last typed into. Unlike
+	// focusActiveAt, an echo never clears it, so it still says someone is
+	// typing after the cadence has dropped -- see focusTyping.
+	focusTypedAt time.Time
 	// focusWheelAt is when the wheel last turned in the pane, which is a
 	// third kind of activity: it earns the streaming rate, never the
 	// keystroke rate -- see noteFocusWheel.

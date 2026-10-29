@@ -128,14 +128,29 @@ func TestLimitSwitchDefersWhileTypingInFocus(t *testing.T) {
 	m := limitedModel(t)
 	sess, _ := m.selected()
 	m.mode = modeFocus
-	m.focusActiveAt = time.Now().Add(time.Hour)
-	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	m.noteFocusActivity()
+	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane, chase: true, echoed: true})
 	if m.mode != modeFocus {
-		t.Fatal("limit offer interrupted typing")
+		t.Fatal("limit offer interrupted typing once the key echoed")
 	}
-	m.focusActiveAt = time.Time{}
+	m.focusTypedAt = time.Time{}
 	m.Update(previewMsg{sessID: sess.ID, skipped: true})
 	if m.mode != modeLimitSwitch {
 		t.Fatal("limit offer did not open after typing stopped")
+	}
+}
+
+func TestLimitSwitchDefersBehindReviewsTab(t *testing.T) {
+	m := limitedModel(t)
+	sess, _ := m.selected()
+	m.reviewQueue, m.reviewsTab = true, true
+	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	if m.mode != modeList || !m.onReviewsTab() {
+		t.Fatal("limit offer replaced the Reviews tab")
+	}
+	m.reviewsTab = false
+	m.Update(previewMsg{sessID: sess.ID, skipped: true})
+	if m.mode != modeLimitSwitch {
+		t.Fatal("deferred offer was lost")
 	}
 }

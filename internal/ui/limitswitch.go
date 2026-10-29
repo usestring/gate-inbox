@@ -21,7 +21,8 @@ type limitSwitchState struct {
 
 func (m *Model) offerLimitSwitch(sess store.Session) tea.Cmd {
 	if (m.mode != modeList && m.mode != modeFocus) || m.searching || m.quick.active ||
-		m.legendPeek.visible || m.focusScroll != 0 || (m.mode == modeFocus && m.focusActive()) ||
+		m.legendPeek.visible || m.focusScroll != 0 || (m.mode == modeFocus && m.focusTyping()) ||
+		(m.mode == modeList && m.onReviewsTab()) ||
 		sess.Archived || sess.Muted || m.engine == nil {
 		return nil
 	}

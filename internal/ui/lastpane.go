@@ -68,6 +68,17 @@ func (m *Model) focusLastPane() (tea.Model, tea.Cmd) {
 		m.errBar.text = "no session focused before this one yet"
 		return m, nil
 	}
+	// Folds are ignored while a query filters the tree, so a pane the search
+	// put on the board can lose its row with the query. Those are noted
+	// first and their folds opened rather than skipped.
+	searchShown := map[string]bool{}
+	if m.search != "" {
+		for _, row := range m.rows {
+			if row.entersAs() {
+				searchShown[row.sess.ID] = true
+			}
+		}
+	}
 	m.clearSearch()
 	destIndex, index := -1, -1
 	for i := len(m.focusHistory) - 1; i >= 0; i-- {
@@ -78,6 +89,17 @@ func (m *Model) focusLastPane() (tea.Model, tea.Cmd) {
 		for r, row := range m.rows {
 			if row.entersAs() && row.sess.ID == id {
 				destIndex, index = i, r
+				break
+			}
+		}
+		if destIndex < 0 && searchShown[id] {
+			for _, sess := range m.sessions {
+				if sess.ID != id {
+					continue
+				}
+				if r, shown := m.revealSession(sess); shown {
+					destIndex, index = i, r
+				}
 				break
 			}
 		}

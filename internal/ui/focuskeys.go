@@ -163,6 +163,7 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 		m.errBar.text = err.Error()
 		return m, nil
 	}
+	m.focusSession(sess.ID)
 	m.mode = modeFocus
 	// Recorded here rather than at the top: every guard above returns
 	// without a pane on screen, and a refusal must not count as a session

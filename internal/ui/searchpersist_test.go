@@ -99,3 +99,16 @@ func TestEscInTheFieldKeepsTheQuery(t *testing.T) {
 		t.Fatal("a kept query should leave its field behind")
 	}
 }
+
+func TestFocusSessionClearsSearchForHiddenTarget(t *testing.T) {
+	m := searchModel()
+	m.search = "api"
+	m.rebuildRows()
+	if !m.focusSession("2") {
+		t.Fatal("search hid the target session")
+	}
+	selected, ok := m.selected()
+	if !ok || selected.ID != "2" || m.search != "" {
+		t.Fatalf("selected=%v query=%q, want session 2 with no search", selected.ID, m.search)
+	}
+}

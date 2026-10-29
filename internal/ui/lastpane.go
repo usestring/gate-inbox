@@ -68,6 +68,7 @@ func (m *Model) focusLastPane() (tea.Model, tea.Cmd) {
 		m.errBar.text = "no session focused before this one yet"
 		return m, nil
 	}
+	m.clearSearch()
 	destIndex, index := -1, -1
 	for i := len(m.focusHistory) - 1; i >= 0; i-- {
 		id := m.focusHistory[i]

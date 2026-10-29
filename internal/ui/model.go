@@ -1802,6 +1802,8 @@ func (m *Model) cursorRow() (treeRow, bool) {
 // session filtered out of the current view has none, and the cursor stays
 // where it was.
 func (m *Model) focusSession(id string) bool {
+	m.searching = false
+	m.clearSearch()
 	for i, row := range m.rows {
 		if row.entersAs() && row.sess.ID == id {
 			m.cursor = i

@@ -115,6 +115,7 @@ func TestFocusSessionClearsSearchForHiddenTarget(t *testing.T) {
 
 func TestFocusSessionOpensTheFoldOverASearchMatch(t *testing.T) {
 	m := searchModel()
+	m.poller = &poller{}
 	m.sessions[1].Group = "web"
 	m.collapsed["web"] = true
 	m.search = "web-ui"

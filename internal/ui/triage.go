@@ -541,6 +541,7 @@ func (m *Model) toggleTriage() tea.Cmd {
 	if entry, ok := m.selectedRow(); ok {
 		previousKey, fromGroup = rowKey(entry), entry.isGroup
 	}
+	scope := m.cursorTriageScope()
 	m.clearSearch()
 	m.triage = !m.triage
 	// Toggling starts a fresh pass either way: turning the queue on asks
@@ -553,7 +554,7 @@ func (m *Model) toggleTriage() tea.Cmd {
 		// them. A drain is walked from inside one group far more often than
 		// across the whole board, and a queue that hands over sessions from
 		// work the operator is not doing is one they have to skip past.
-		m.triageScope = m.cursorTriageScope()
+		m.triageScope = scope
 		// Turning triage on is asking for that whole queue, from the top.
 		// Marks left by an earlier drain would hide rows from a user who
 		// has just said they want to see everything that needs them.

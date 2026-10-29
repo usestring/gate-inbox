@@ -83,7 +83,11 @@ func jumpStatus(states ...string) func(*Model, store.Session) bool {
 // keeps a refusal from being offered twice, the way an advance through the
 // triage queue keeps one.
 func (m *Model) jumpToStatus(jump statusJump) (tea.Model, tea.Cmd) {
-	m.clearSearch()
+	if sess, ok := m.selected(); ok {
+		m.focusSession(sess.ID)
+	} else {
+		m.clearSearch()
+	}
 	m.errBar.text = ""
 	tried := map[string]bool{}
 	for {

@@ -367,7 +367,7 @@ func TestToggleCollapseAllFlipsEveryGroup(t *testing.T) {
 }
 
 // The step-in arrow steps into the row under the cursor: a session is
-// focused, and a collapsed group opens without the toggle closing an open
+// left unfocused, and a collapsed group opens without the toggle closing an open
 // one. It is the arrow pointing at the pane: ← with the rail on the right,
 // where the pane is to its left, and → with the rail on the left; the other
 // arrow folds.
@@ -413,8 +413,8 @@ func TestStepInArrowStepsIntoTheRow(t *testing.T) {
 			}
 			updated, _ = m.handleKey(tea.KeyPressMsg{Code: tc.stepIn})
 			*m = *updated.(*Model)
-			if m.mode != modeFocus {
-				t.Fatalf("the step-in arrow did not focus the session, mode = %v, err = %q", m.mode, m.errBar.text)
+			if m.mode == modeFocus {
+				t.Fatal("the step-in arrow focused the session")
 			}
 		})
 	}

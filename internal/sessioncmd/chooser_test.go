@@ -106,3 +106,16 @@ func TestBoardSwitchAccount(t *testing.T) {
 		t.Fatalf("a large context was not refused: %v", err)
 	}
 }
+
+// SwitchAccount, behind switch_account and gate-inbox switch-account,
+// refuses the caller's own session, since the relaunch would end the call,
+// and a call from no session at all.
+func TestSwitchAccountRefusesItsOwnSessionAndNoCaller(t *testing.T) {
+	h := newSessionHarness(t)
+	if _, err := h.sessions.SwitchAccount(h.caller.ID, h.caller.ID, "alice1"); err == nil || !strings.Contains(err.Error(), "cannot switch its own account") {
+		t.Fatalf("a session switched its own account: %v", err)
+	}
+	if _, err := h.sessions.SwitchAccount("", h.caller.ID, "alice1"); err == nil {
+		t.Fatal("a switch from no session was not refused")
+	}
+}

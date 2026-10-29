@@ -123,3 +123,49 @@ func TestResizeLeavesTheManagersOwnPaneAlone(t *testing.T) {
 		t.Fatal("the manager's own window was pinned to the preview panel's size")
 	}
 }
+
+// An agent split beside the manager shares its window, and resize-window
+// sizes the window rather than the pane. Pinning it left the board frozen at
+// one terminal's size, so an operator logging back in from a smaller one saw
+// a frame they could not fit on screen.
+func TestResizeLeavesAPaneBesideTheManagerAlone(t *testing.T) {
+	driver := requireTmux(t)
+	socket, panes := foreignServer(t)
+	id := uniqueID("sibling")
+	adopt(t, driver, id, socket, panes[1])
+	t.Setenv("TMUX_PANE", panes[0])
+	t.Setenv("TMUX", tmuxtest.SocketPath(socket)+",1234,0")
+
+	if err := driver.Resize(id, 132, 60); err != nil {
+		t.Fatalf("Resize: %v", err)
+	}
+	if got := foreignWindowSize(t, socket, panes[0]); got == "manual" {
+		t.Fatal("the window the manager draws in was pinned through a pane beside it")
+	}
+}
+
+// A board started in a window an earlier run left pinned would never follow
+// its terminal again, so startup hands "manual" back and leaves any other
+// setting the operator chose.
+func TestUnpinOwnWindowReleasesOnlyManual(t *testing.T) {
+	driver := requireTmux(t)
+	socket, panes := foreignServer(t)
+	t.Setenv("TMUX_PANE", panes[0])
+	t.Setenv("TMUX", tmuxtest.SocketPath(socket)+",1234,0")
+
+	if out, err := tmuxOn(socket, "resize-window", "-t", panes[0], "-x", "100", "-y", "30").CombinedOutput(); err != nil {
+		t.Fatalf("resize-window: %v: %s", err, out)
+	}
+	driver.UnpinOwnWindow()
+	if got := foreignWindowSize(t, socket, panes[0]); got != "" {
+		t.Fatalf("after UnpinOwnWindow, window-size = %q, want it inheriting the server's", got)
+	}
+
+	if out, err := tmuxOn(socket, "set-window-option", "-t", panes[0], "window-size", "smallest").CombinedOutput(); err != nil {
+		t.Fatalf("set-window-option: %v: %s", err, out)
+	}
+	driver.UnpinOwnWindow()
+	if got := foreignWindowSize(t, socket, panes[0]); got != "smallest" {
+		t.Fatalf("after UnpinOwnWindow, window-size = %q, want the operator's smallest kept", got)
+	}
+}

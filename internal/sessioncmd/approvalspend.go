@@ -39,6 +39,23 @@ var ErrNotApproved = errors.New("no unspent approval from the user")
 func (s *Sessions) SpendApproval(callerID, question string, now time.Time) (err error) {
 	op := start("sessioncmd.spend_approval", sessionAttr(callerID))
 	defer func() { op.done(&err) }()
+	return s.spendOwnAnswer(callerID, question, ApproveOption, now)
+}
+
+// SpendAnswer spends the caller's user's answer to an Approval question, as
+// SpendApproval does, for an answer that is one of the question's own options
+// rather than ApproveOption: the caller is passing on its user's choice in
+// another session's Approval dialog, which it asked its user word for word.
+func (s *Sessions) SpendAnswer(callerID, question, answer string, now time.Time) (err error) {
+	op := start("sessioncmd.spend_answer", sessionAttr(callerID))
+	defer func() { op.done(&err) }()
+	if normalise(answer) == "" {
+		return fmt.Errorf("%w: no answer", ErrNotApproved)
+	}
+	return s.spendOwnAnswer(callerID, question, answer, now)
+}
+
+func (s *Sessions) spendOwnAnswer(callerID, question, want string, now time.Time) error {
 	if callerID == "" || normalise(question) == "" {
 		return fmt.Errorf("%w: no session or question", ErrNotApproved)
 	}
@@ -51,7 +68,7 @@ func (s *Sessions) SpendApproval(callerID, question string, now time.Time) (err 
 	if err != nil {
 		return err
 	}
-	_, err = s.spendAnswer(runtime, caller, question, ApproveOption, now)
+	_, err = s.spendAnswer(runtime, caller, question, want, now)
 	return err
 }
 
@@ -71,7 +88,7 @@ func (s *Sessions) spendAnswer(runtime *runtime, caller store.Session, question,
 				continue
 			}
 			given, ok := answerFor(ask.Answers, q.Question)
-			if !ok || normalise(given) != option {
+			if !ok || normalise(given) != normalise(option) {
 				reason = fmt.Sprintf("the user answered %q, not %q", given, option)
 				continue
 			}

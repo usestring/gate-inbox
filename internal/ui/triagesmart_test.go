@@ -104,17 +104,18 @@ func TestSmartTriagePutsAQuestionAboveAFinishOfTheSameTurn(t *testing.T) {
 	assertRail(t, m, "ask", "done")
 }
 
-// The session the operator turned to most recently goes first, whatever its
-// state: its context is the one they still hold.
-func TestSmartTriageHandsOverTheNewestTurnFirst(t *testing.T) {
+// Inside one state the session the operator turned to most recently goes
+// first: its context is the one they still hold. Recency never lifts a row
+// over a better state: a fresh finish stays under an old question.
+func TestSmartTriageHandsOverTheNewestTurnFirstWithinAState(t *testing.T) {
 	m := smartFleet(t,
-		smartSess("ask", status.Waiting, 10*time.Minute),
-		smartSess("done", status.Finished, 5*time.Minute),
+		smartSess("done-old", status.Finished, 10*time.Minute),
+		smartSess("done-new", status.Finished, 5*time.Minute),
 	)
-	assertRail(t, m, "done", "ask")
+	assertRail(t, m, "done-new", "done-old")
 	m = smartFleet(t,
-		smartSess("ask", status.Waiting, 5*time.Minute),
-		smartSess("done", status.Finished, 10*time.Minute),
+		smartSess("ask", status.Waiting, 3*time.Hour),
+		smartSess("done", status.Finished, 30*time.Second),
 	)
 	assertRail(t, m, "ask", "done")
 }
@@ -152,8 +153,8 @@ func TestSmartTriageHandsOverIdle(t *testing.T) {
 		smartSess("calm-old", status.Idle, 3*time.Hour),
 		smartSess("gone", status.Dead, 4*time.Minute),
 	)
-	assertRail(t, m, "calm-fresh", "done", "calm-old", "grinder", "gone")
-	if got, want := drainOrder(m), []string{"calm-fresh", "done", "calm-old"}; !slices.Equal(got, want) {
+	assertRail(t, m, "done", "calm-fresh", "calm-old", "grinder", "gone")
+	if got, want := drainOrder(m), []string{"done", "calm-fresh", "calm-old"}; !slices.Equal(got, want) {
 		t.Fatalf("drain = %v, want %v and never the working or dead row", got, want)
 	}
 }
@@ -198,16 +199,16 @@ func TestSmartTriageDrainsInRailOrder(t *testing.T) {
 // the head.
 func TestSmartTriageOnlyAnOperatorTurnMovesARow(t *testing.T) {
 	m := smartFleet(t,
-		smartSess("done", status.Finished, 30*time.Minute),
-		smartSess("ask", status.Waiting, 10*time.Minute),
+		smartSess("done-old", status.Finished, 30*time.Minute),
+		smartSess("done-new", status.Finished, 10*time.Minute),
 	)
-	assertRail(t, m, "ask", "done")
+	assertRail(t, m, "done-new", "done-old")
 	m.clock = func() time.Time { return smartNow.Add(5 * time.Hour) }
 	m.rebuildRows()
-	assertRail(t, m, "ask", "done")
+	assertRail(t, m, "done-new", "done-old")
 	m.sessions[0].OperatorAt = smartNow.Add(time.Hour)
 	m.rebuildRows()
-	assertRail(t, m, "done", "ask")
+	assertRail(t, m, "done-old", "done-new")
 }
 
 // A working parent is lifted to its child's key and queues on the child's
@@ -216,17 +217,17 @@ func TestSmartTriageLiftsAParentByItsChildsScore(t *testing.T) {
 	kid := smartSess("kid", status.Finished, 25*time.Minute)
 	kid.ParentID, kid.SpawnedBy = "lead", "lead"
 	m := smartFleet(t,
-		smartSess("ask-old", status.Waiting, 30*time.Minute),
+		smartSess("done-old", status.Finished, 30*time.Minute),
 		smartSess("lead", status.Working, 3*time.Hour),
 		kid,
-		smartSess("ask-young", status.Waiting, 20*time.Minute),
+		smartSess("done-young", status.Finished, 20*time.Minute),
 	)
-	assertRail(t, m, "ask-young", "lead", "kid", "ask-old")
+	assertRail(t, m, "done-young", "lead", "kid", "done-old")
 }
 
 // A finish the operator has looked at is acked and idle, and looking is not
-// a turn: it keeps its place on its last turn, and on a tie ranks under an
-// unseen finish and above a plain idle session, until input moves it on.
+// a turn: it keeps its place on its last turn, and ranks under an unseen
+// finish and above a plain idle session, until input moves it on.
 func TestSmartTriageKeepsASeenFinishInTheQueue(t *testing.T) {
 	seen := smartSess("seen", status.Idle, time.Hour)
 	seen.Acked = true
@@ -237,9 +238,10 @@ func TestSmartTriageKeepsASeenFinishInTheQueue(t *testing.T) {
 	)
 	assertRail(t, m, "done", "seen", "calm")
 
-	// It goes ahead of an unseen finish the operator turned to before it.
+	// An unseen finish goes ahead of it however much longer ago the operator
+	// turned to that one.
 	m = smartFleet(t, seen, smartSess("done", status.Finished, 2*time.Hour))
-	assertRail(t, m, "seen", "done")
+	assertRail(t, m, "done", "seen")
 
 	// Input moves it on: working, it is off the walk.
 	seen.Status = status.Working
@@ -405,7 +407,10 @@ func TestSmartTriageABoardSendMovesTheWaitClock(t *testing.T) {
 	m := buildModel(t)
 	sess := spawnedSession(t, m, "claude-hooked")
 	before := time.Now()
-	m.noteOperator(sess, extension.OperatorPrompt, "go on", false)
+	m.answerLanded(pendingLanding{
+		sess: sess, via: extension.OperatorPrompt, text: "go on",
+		armed: time.Now(), probe: &landingProbe{},
+	})
 	got, err := m.store.Get(sess.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -433,5 +438,82 @@ func TestSmartTriageAnAttachCountsOnlyWhenItGaveATurn(t *testing.T) {
 	m.noteAttachedTurn(sess.ID, since)
 	if got, err := m.store.Get(sess.ID); err != nil || got.OperatorAt.Before(since) {
 		t.Fatalf("a turn given while attached left the operator's turn at %v, %v", got.OperatorAt, err)
+	}
+}
+
+func TestTriageOffersRecentInputWithoutDelay(t *testing.T) {
+	for _, state := range []string{status.Finished, status.Idle, status.Waiting} {
+		t.Run(state, func(t *testing.T) {
+			m := smartFleet(t, smartSess("recent", state, 0), smartSess("next", state, time.Minute))
+			assertRail(t, m, "recent", "next")
+			for _, elapsed := range []time.Duration{0, 3*time.Second - time.Nanosecond, 3 * time.Second} {
+				m.clock = func() time.Time { return smartNow.Add(elapsed) }
+				i, ok := m.nextTriageInput("", nil)
+				want := "recent"
+				if !ok || m.rows[i].sess.ID != want {
+					t.Fatalf("after %v: candidate %d, found %v; want %s", elapsed, i, ok, want)
+				}
+			}
+			for i := range m.sessions {
+				if m.sessions[i].ID == "recent" {
+					m.sessions[i].Status = status.Working
+				}
+			}
+			m.rebuildRows()
+			i, ok := m.nextTriageInput("", nil)
+			if !ok || m.rows[i].sess.ID != "next" {
+				t.Fatal("the session reentered triage after detection marked it working")
+			}
+		})
+	}
+}
+
+func TestTriageOffersFreshStatusAfterOperatorInput(t *testing.T) {
+	for _, state := range []string{status.Finished, status.Idle, status.Waiting} {
+		t.Run(state, func(t *testing.T) {
+			recent := smartSess("recent", state, 0)
+			recent.LastStatusAt = smartNow.Add(100 * time.Millisecond)
+			m := smartFleet(t, recent, smartSess("next", state, time.Minute))
+			m.clock = func() time.Time { return recent.LastStatusAt }
+			i, ok := m.nextTriageInput("", nil)
+			if !ok || m.rows[i].sess.ID != "recent" {
+				t.Fatal("a fresh status was not offered in state and recency order")
+			}
+		})
+	}
+}
+
+func TestOperatorSubmissionReleasesEchoForStreaming(t *testing.T) {
+	m := drainOnDialog(t, true)
+	m.poller.interval = time.Hour
+	m = pressEnter(m)
+	pending := onlyLanding(t, m)
+	at, id := pending.armed, pending.sess.ID
+	select {
+	case <-m.poller.poke:
+	default:
+	}
+	landAnswer(t, m, id)
+	sess, err := m.store.Get(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sess.OperatorAt.Equal(at) {
+		t.Errorf("submission was stamped at detection instead of the key: %v", sess.OperatorAt)
+	}
+	select {
+	case <-m.poller.poke:
+	default:
+		t.Error("an accepted submission did not request a fresh status pass")
+	}
+	sess.Tool, sess.Status = pending.sess.Tool, status.Finished
+	seedRegionHash(t, m, sess, "earlier answer\n❯ \n")
+	if got := deriveStatus(t, m, sess, "earlier answer\nnew output\n❯ \n", true); got != status.Working {
+		t.Fatalf("accepted turn's output was hidden as operator echo: %s", got)
+	}
+	seedRegionHash(t, m, sess, "earlier answer\n❯ \n")
+	m.poller.operatorInputAt[sess.ID] = sess.OperatorAt.Add(time.Hour)
+	if got := deriveStatus(t, m, sess, "repaint from later typing\n❯ \n", true); got != status.Finished {
+		t.Fatalf("input after submission lost its echo protection: %s", got)
 	}
 }

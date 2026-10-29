@@ -914,6 +914,43 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	return info, nil
 }
 
+// Withdraw undoes a spawn its caller no longer wants: the pane, the row and
+// the status file go, as if the session had never been made. It is for a
+// create_session the caller's CLI abandoned mid-launch -- the user pressed
+// Esc while it ran -- which must not leave a live agent working on a task
+// the user turned down. Only the spawner can withdraw a session, so this is
+// never a way to delete someone else's.
+func (s *Sessions) Withdraw(sessionID, targetID string) (err error) {
+	defer start("sessioncmd.withdraw", sessionAttr(targetID)).done(&err)
+	runtime, err := s.open()
+	if err != nil {
+		return err
+	}
+	defer runtime.store.Close()
+	target, err := runtime.store.Get(targetID)
+	if err != nil {
+		return err
+	}
+	if target.SpawnedBy != sessionID {
+		return fmt.Errorf("session %s was not spawned by %s", targetID, sessionID)
+	}
+	if runtime.driver.Exists(target.ID) {
+		if err := runtime.driver.Kill(target.ID); err != nil {
+			return err
+		}
+	}
+	if err := runtime.store.Delete(target.ID); err != nil {
+		return err
+	}
+	if err := hooks.NewManager(s.configDir).Remove(target.ID); err != nil {
+		logging.Warn("could not clear a withdrawn spawn's status file", "session", target.ID, logging.Err(err))
+	}
+	// Create already told the extensions of the spawn; they hear it ended.
+	sessionhooks.Killed(target, extension.KillByMCP, sessionID)
+	logging.Info("spawn withdrawn after its call was cancelled", "caller", sessionID, "session", target.ID)
+	return nil
+}
+
 // spawner is the session a spawn is made for. A detached spawn with no
 // calling session is the operator's own, made from their shell the way the
 // board's new-session form makes one: a top-level row with nobody above it,

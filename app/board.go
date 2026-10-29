@@ -183,6 +183,10 @@ func runBoard(version string, registry *extension.Registry) error {
 	journal := filepath.Join(dir, "pins.json")
 	driver.RestoreJournaledPins(journal)
 	driver.SetPinJournal(journal)
+	// An earlier run, or a pane split beside this one, can have left the
+	// board's own window pinned, which keeps it at some old terminal's size
+	// whatever the operator attaches from.
+	driver.UnpinOwnWindow()
 
 	st, err := store.Open(filepath.Join(dir, "state.db"))
 	if err != nil {

@@ -137,6 +137,16 @@ func selectAccount(st *store.Store, tool config.Tool, named string, req Request,
 // the chooser picks whatever the launch-account mode, and a build with no
 // chooser moves the conversation onto the CLI's own login.
 func Route(tool config.Tool, req Request) (string, error) {
+	return route(tool, req, false)
+}
+
+// RoutePreview is the account Route would give now, without the chooser
+// committing to anything.
+func RoutePreview(tool config.Tool, req Request) (string, error) {
+	return route(tool, req, true)
+}
+
+func route(tool config.Tool, req Request, preview bool) (string, error) {
 	if tool.AccountEnv == "" {
 		return "", nil
 	}
@@ -144,7 +154,7 @@ func Route(tool config.Tool, req Request) (string, error) {
 	if err != nil || chooser == nil {
 		return "", err
 	}
-	return ask(chooser, tool, req, false)
+	return ask(chooser, tool, req, preview)
 }
 
 func ask(chooser extension.AccountChooser, tool config.Tool, req Request, preview bool) (chosen string, err error) {

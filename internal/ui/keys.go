@@ -308,7 +308,7 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 	case keymap.Fork:
 		m.openFork()
 	case keymap.Migrate:
-		m.openMigrate()
+		return m, m.openMigrate()
 	case keymap.Revive:
 		return m.reviveSelected()
 	case keymap.Dismiss:
@@ -324,7 +324,7 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 	case keymap.ReviveAll:
 		return m.reviveAllDead()
 	case keymap.SwitchAccount:
-		m.openAccountSwitch()
+		return m, m.openAccountSwitch()
 	case keymap.Restart:
 		return m.restartSelected()
 	case keymap.RestartWith:

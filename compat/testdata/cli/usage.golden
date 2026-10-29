@@ -1,4 +1,4 @@
-41 commands and verbs
+43 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -156,6 +156,24 @@ usage: gate-inbox migrate <session-id> --tool <cli> [--name <name>] [--json]
     	run the moved session with its permission prompts off; omit to keep the source's setting
   -tool string
     	agent CLI the conversation moves to
+
+$ gate-inbox accounts -h
+exit 0
+--- stdout
+usage: gate-inbox accounts [--tool <cli>] [--json]
+  -json
+    	print the raw result as JSON instead of a sentence
+  -tool string
+    	list one CLI's accounts, saying why when it cannot run on one; omit for every CLI that can
+
+$ gate-inbox switch-account -h
+exit 0
+--- stdout
+usage: gate-inbox switch-account <session-id> [--account <name>] [--json]
+  -account string
+    	named account to move it onto, from gate-inbox accounts; omit to move it back to its CLI's own login
+  -json
+    	print the raw result as JSON instead of a sentence
 
 $ gate-inbox archive -h
 exit 0

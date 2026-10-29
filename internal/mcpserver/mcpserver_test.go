@@ -129,6 +129,12 @@ type fakeSessionCommands struct {
 	// longest name here does not re-space every field beside it.
 	switchedID      string
 	switchedAccount string
+
+	// A create that holds until released, so a test can cancel the call
+	// while the launch is still running, and what was withdrawn after it.
+	createStarted chan struct{}
+	createRelease chan struct{}
+	withdrawn     chan string
 }
 
 func (f *fakeSessionCommands) List(_ string, opts sessioncmd.ListOptions) (sessioncmd.SessionList, error) {
@@ -138,7 +144,18 @@ func (f *fakeSessionCommands) List(_ string, opts sessioncmd.ListOptions) (sessi
 
 func (f *fakeSessionCommands) Create(_ string, opts sessioncmd.CreateSessionOptions) (sessioncmd.Session, error) {
 	f.createdOpts = opts
+	if f.createStarted != nil {
+		close(f.createStarted)
+		<-f.createRelease
+	}
 	return f.created, f.err
+}
+
+func (f *fakeSessionCommands) Withdraw(_ string, id string) error {
+	if f.withdrawn != nil {
+		f.withdrawn <- id
+	}
+	return f.err
 }
 
 func (f *fakeSessionCommands) SendAttested(_ string, id, message, subject string, interrupt bool, question string) (sessioncmd.SendResult, error) {
@@ -807,7 +824,7 @@ func TestSessionDescriptionsTeachWhenAndHowToChainTools(t *testing.T) {
 	}
 	for tool, wants := range map[string][]string{
 		"list_sessions":    {"Call first", "create_session"},
-		"create_session":   {"instead of your CLI's built-in subagent tool", "quick read-only lookup", "without waiting for the user", "own checkout", "cannot see this conversation", "read_session", "never create a group for one", "nest false is a detach"},
+		"create_session":   {"instead of your CLI's built-in subagent tool", "quick read-only lookup", "only when your user explicitly asked for a new session", "own checkout", "cannot see this conversation", "read_session", "never create a group for one", "nest false is a detach"},
 		"read_session":     {"after create_session", "current screen"},
 		"send_session":     {"self-contained instruction", "read_session", "at rest", "another agent rather than from the user"},
 		"message_status":   {"delivered", "queued"},

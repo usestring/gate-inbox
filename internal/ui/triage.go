@@ -37,8 +37,8 @@ import (
 // of somebody, so the sessions asking a live question are handed over first.
 //
 // This is the strict order, which smart triage off restores. Smart triage,
-// the default, orders every walkable session newest first instead (see
-// triageScore) and keeps these tiers for the rows it never hands over.
+// the default, also ranks walkable sessions by state, then newest turn first
+// within each state (see triageScoredTiers and triageScore).
 var triageTiers = []string{
 	status.Waiting,
 	triageReview,
@@ -94,15 +94,16 @@ func (m *Model) triageStateOf(sess store.Session) string {
 // on, which is also what clears the ack.
 const triageFinishedSeen = "finished-seen"
 
-// Smart triage hands over, inside one priority tier, the walkable session the
-// operator turned to most recently first (see triageScore), and breaks a tie
-// on the state rank below: a question before a finish before an idle row.
+// Smart triage hands over, inside one priority tier, the walkable sessions by
+// the state rank below -- a question before a finish before an idle row -- and
+// inside one state, the session the operator turned to most recently first
+// (see triageScore).
 //
 // Newest first because that session is the one whose context the operator
 // still holds: going back to what they handed off a minute ago costs less
-// than reloading what they last touched hours ago. The tier is not part of
-// the recency: an untiered session never overtakes an urgent one, however
-// recent.
+// than reloading what they last touched hours ago. Recency only orders rows
+// of the same state: a fresh idle row never overtakes a finish, and a fresh
+// finish never overtakes a question.
 var triageScoredTiers = []string{
 	status.Waiting,
 	triageReview,
@@ -239,9 +240,9 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 // The priority tier comes before everything but a mute: a higher tier sorts
 // above any lower one whatever its band, state, deadline or wait. Within a
 // tier the bands follow, and smart triage orders the scored band (every
-// walkable session; the walkable band is then empty) most recent turn first
-// (see triageScore); every other band, and the strict order, sorts by the
-// status rank, then oldest first. See priority.go.
+// walkable session; the walkable band is then empty) by state, then most
+// recent turn first (see triageScore); every other band, and the strict
+// order, sorts by status rank, then oldest first. See priority.go.
 //
 // LastStatusAt is when the session entered the state it is in, which is
 // exactly how long it has been waiting; the two fields under it only keep
@@ -278,8 +279,8 @@ const (
 )
 
 // triageKey is everything the queue orders by before it falls back to who has
-// waited longest: how much the work matters, the band, a scored session's
-// score, and the status rank. It is a value rather than comparisons in a row
+// waited longest: how much the work matters, the band, the status rank,
+// and a scored session's recency. It is a value rather than comparisons in a row
 // because a parent adopts the best key in its lineage, and "best" has to mean
 // the same thing there as it does here.
 //
@@ -301,10 +302,10 @@ func (k triageKey) before(o triageKey) bool {
 	if k.band != o.band {
 		return k.band < o.band
 	}
-	if k.score != o.score {
-		return k.score > o.score
+	if k.tier != o.tier {
+		return k.tier < o.tier
 	}
-	return k.tier < o.tier
+	return k.score > o.score
 }
 
 // triageKeyOf reads one session's key. A persistently muted session sorts
@@ -732,7 +733,38 @@ func (m *Model) enterTriageHead() tea.Cmd {
 // advanceTriage hands over the next session or the Reviews tab. A nil command
 // means there was none, and the caller's unfocus stands: the user lands back
 // on the list rather than in some arbitrary session they never asked for.
+//
+// A scoped queue that has run dry widens rather than stopping: the scope is
+// where the drain starts, not a promise that nothing else needs the operator,
+// and stranding them on the list while sessions elsewhere wait is the drain
+// giving up early. It widens one level at a time so the next handover is the
+// nearest related work, up to the whole board, and only a board with nothing
+// to hand over ends the drain.
 func (m *Model) advanceTriage(leftID string) tea.Cmd {
+	if cmd := m.advanceTriageInScope(leftID); cmd != nil || !m.triage || m.triageScope == "" {
+		return cmd
+	}
+	drained := m.triageScope
+	for m.triageScope != "" {
+		m.triageScope = parentGroup(m.triageScope)
+		m.rebuildRows()
+		if cmd := m.advanceTriageInScope(leftID); cmd != nil {
+			widened := "the whole board"
+			if m.triageScope != "" {
+				widened = m.triageScope
+			}
+			m.reportDone(drained + " drained — triaging " + widened)
+			return tea.Batch(m.persistTriage(), cmd)
+		}
+	}
+	// Nothing anywhere: the drain ends on the queue the operator asked for.
+	m.triageScope = drained
+	m.rebuildRows()
+	return nil
+}
+
+// advanceTriageInScope is advanceTriage confined to the current scope.
+func (m *Model) advanceTriageInScope(leftID string) tea.Cmd {
 	tried := map[string]bool{}
 	for {
 		index, ok := m.nextTriageInput(leftID, tried)

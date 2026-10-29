@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/shirou/gopsutil/v4/process"
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -19,10 +20,12 @@ import (
 var ErrUnmanagedCaller = errors.New("caller is not a Gate Inbox session")
 
 type StopResult struct {
-	Managed bool    `json:"managed"`
-	Target  Session `json:"session"`
-	DryRun  bool    `json:"dry_run"`
-	Archive bool    `json:"archive"`
+	CallerProofLine string  `json:"caller_proof_line,omitempty"`
+	Managed         bool    `json:"managed"`
+	Target          Session `json:"session"`
+	DryRun          bool    `json:"dry_run"`
+	Archive         bool    `json:"archive"`
+	CallerProof     string  `json:"caller_proof,omitempty"`
 }
 
 // Stop leaves the lifecycle worker outside the pane it will end, so killing
@@ -55,11 +58,15 @@ func (s *Sessions) Stop(sessionID string, dryRun, archive bool) (StopResult, err
 	if err != nil {
 		return StopResult{}, err
 	}
-	if !owned {
-		return StopResult{}, errors.New("stop must run inside its own managed session pane")
-	}
 	result := StopResult{Managed: true, Target: runtime.sessionInfo(target, true, true), DryRun: dryRun, Archive: archive}
-	if dryRun {
+	if !owned {
+		if err := runtime.codexStopCandidate(target); err != nil {
+			return StopResult{}, err
+		}
+		result.CallerProof = uuid.NewString()
+		result.CallerProofLine = stopProofPrefix + result.CallerProof
+	}
+	if dryRun && owned {
 		return result, nil
 	}
 	executable, err := os.Executable()
@@ -67,7 +74,7 @@ func (s *Sessions) Stop(sessionID string, dryRun, archive bool) (StopResult, err
 		return StopResult{}, err
 	}
 	command := []string{"env", "GATE_INBOX_HOME=" + s.configDir,
-		"GATE_INBOX_SESSION_ID=" + target.ID, "GATE_INBOX_TMUX_SOCKET=" + runtime.driver.SocketName()}
+		"GATE_INBOX_SESSION_ID=" + target.ID, "CODEX_THREAD_ID=", "GATE_INBOX_TMUX_SOCKET=" + runtime.driver.SocketName()}
 	for _, name := range []string{"HOME", "PATH", "TMUX_TMPDIR", "GATE_INBOX_TEST_TMUX_TMPDIR"} {
 		if value, ok := os.LookupEnv(name); ok {
 			command = append(command, name+"="+value)
@@ -81,12 +88,21 @@ func (s *Sessions) Stop(sessionID string, dryRun, archive bool) (StopResult, err
 	if archive {
 		command = append(command, "--archive")
 	}
+	if result.CallerProof != "" {
+		command = append(command, "--caller-proof", result.CallerProof, "--caller-thread", target.AgentSessionID)
+		if dryRun {
+			command = append(command, "--dry-run")
+		}
+	}
 	command = append(command, target.LaunchTime().Format(time.RFC3339Nano), pane, pin)
 	for i, word := range command {
 		command[i] = tmux.ShellQuote(word)
 	}
 	if err := runtime.driver.RunOutsidePane(target.ID, strings.Join(command, " ")); err != nil {
 		return StopResult{}, err
+	}
+	if result.CallerProof != "" {
+		return result, nil
 	}
 	// A shell running stop as its last command must not exit its pane before
 	// the worker verifies it and takes ownership of the lifecycle writes.
@@ -103,6 +119,10 @@ func (s *Sessions) Stop(sessionID string, dryRun, archive bool) (StopResult, err
 // FinishStop pins the queued request to one launch and pane: an intervening
 // revive must not let the old worker end a new agent on the same board row.
 func (s *Sessions) FinishStop(sessionID, launched, pane, processPin string, archive bool) (Session, error) {
+	return s.finishStop(sessionID, launched, pane, processPin, "", archive)
+}
+
+func (s *Sessions) finishStop(sessionID, launched, pane, processPin, thread string, archive bool) (Session, error) {
 	runtime, err := s.open()
 	if err != nil {
 		return Session{}, err
@@ -114,6 +134,9 @@ func (s *Sessions) FinishStop(sessionID, launched, pane, processPin string, arch
 	}
 	if launched != target.LaunchTime().Format(time.RFC3339Nano) {
 		return Session{}, errors.New("stop request no longer matches this managed launch")
+	}
+	if thread != "" && thread != target.AgentSessionID {
+		return Session{}, errors.New("stop request no longer matches this conversation")
 	}
 	if err := runtime.reach(target); err != nil {
 		return Session{}, err
@@ -136,6 +159,9 @@ func (s *Sessions) FinishStop(sessionID, launched, pane, processPin string, arch
 		}
 		if launched != row.LaunchTime().Format(time.RFC3339Nano) {
 			return errors.New("stop request no longer matches this managed launch")
+		}
+		if thread != "" && thread != row.AgentSessionID {
+			return errors.New("stop request no longer matches this conversation")
 		}
 		if row.TmuxPaneID != target.TmuxPaneID || row.TmuxSocket != target.TmuxSocket {
 			return errors.New("stop request no longer matches this adopted target")
@@ -173,6 +199,7 @@ func (r *runtime) stopCaller(id string) (store.Session, error) {
 		return store.Session{}, err
 	}
 	var matches []store.Session
+	var codexCandidates []store.Session
 	unresolvedCodex := false
 	shared, err := sharedCodexAncestor()
 	if err != nil {
@@ -186,6 +213,9 @@ func (r *runtime) stopCaller(id string) (store.Session, error) {
 			return store.Session{}, err
 		}
 		if !row.Archived && row.Status != "dead" {
+			if shared && row.Tool == "codex" && validCodexStopThread(row.AgentSessionID) && row.AgentSessionID == os.Getenv("CODEX_THREAD_ID") {
+				codexCandidates = append(codexCandidates, row)
+			}
 			owned, err := r.paneAncestor(row)
 			if err != nil {
 				return store.Session{}, err
@@ -197,6 +227,12 @@ func (r *runtime) stopCaller(id string) (store.Session, error) {
 		if row.Tool == "codex" && (row.AgentSessionID == os.Getenv("CODEX_THREAD_ID") && row.AgentSessionID != "" || row.TmuxPaneID != "" && shared) {
 			unresolvedCodex = true
 		}
+	}
+	if len(codexCandidates) > 1 {
+		return store.Session{}, errors.New("calling Codex thread belongs to multiple Gate Inbox rows")
+	}
+	if len(codexCandidates) == 1 {
+		return codexCandidates[0], nil
 	}
 	if len(matches) > 1 {
 		return store.Session{}, errors.New("calling process belongs to multiple Gate Inbox rows")

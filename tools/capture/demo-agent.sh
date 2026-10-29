@@ -20,6 +20,47 @@ if [[ "$transcript" == "composer-submit" ]]; then
   exit 0
 fi
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "$transcript" == "opencode-custom-answer" ]]; then
+  stty -echo -icanon 2>/dev/null || true
+  printf '\033[2J\033[H'
+  cat <<'DIALOG'
+  ┃
+  ┃  Questions
+  ┃
+  ┃  Which release target should we use?
+  ┃
+  ┃  1. Staging
+  ┃  2. Production
+  ┃  3. Canary
+  ┃  4. Type your own answer
+  ┃
+  ┃  ↑↓ select  enter submit  esc dismiss
+  ┃
+DIALOG
+  IFS= read -r _key
+  printf '\033[2J\033[H'
+  cat <<'CUSTOM'
+  ┃
+  ┃  Questions
+  ┃
+  ┃  Which release target should we use?
+  ┃
+  ┃  1. Staging
+  ┃  2. Production
+  ┃  3. Canary
+  ┃  4.
+  ┃
+  ┃  enter submit  esc close
+  ┃
+CUSTOM
+  printf '\033[9;10H'
+  stty echo
+  IFS= read -r _answer
+  stty -echo
+  printf '\033[2J\033[HWorking on the supplied answer\n⬝⬝⬝⬝ esc interrupt\n'
+  cat >/dev/null
+  exit 0
+fi
 file="$here/demo/$transcript.txt"
 
 if [[ -r "$file" ]]; then

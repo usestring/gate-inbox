@@ -2104,6 +2104,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agentPickQuotaMsg:
 		m.finishAgentPickQuota(msg)
 		return m, nil
+	case migrateAutoMsg:
+		return m.finishMigrateAuto(msg)
+	case accountAutoMsg:
+		return m.finishAccountAuto(msg)
 	case tea.WindowSizeMsg:
 		// Resuming from a tmux attach re-sends the current size unchanged; only
 		// a real resize needs the per-session tmux resize calls, so an
@@ -2197,13 +2201,6 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case browserOpenMsg:
 		m.handleBrowserOpen(msg)
 		return m, nil
-
-	case linkOpenErrMsg:
-		m.errBar.text = msg.err.Error()
-		return m, nil
-
-	case linkPageMsg:
-		return m, showLinkPage(msg.url)
 
 	case startupTickMsg:
 		if !m.needsLoaderTick() {

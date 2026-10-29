@@ -266,7 +266,8 @@ func Reason(in Input, args map[string]string) string {
 	_ = encoder.Encode(args)
 	return "Gate Inbox: run this " + in.Subagent() + " subagent as a board session instead, so your user " +
 		"sees it on the board and its questions and permission prompts come to you. " +
-		"Call list_sessions first and reuse an idle session if one fits; otherwise call " +
+		"Open a new session only if your user explicitly asked for one: otherwise send_session the task to a session " +
+		"already on the board that owns it (interrupt true if its current turn is wrong), or do it yourself. If they asked, call " +
 		"mcp__gate-inbox__create_session with " + strings.TrimSpace(call.String()) + ", then wait_for_session for its report. " +
 		"Read-only subagents (Explore, Plan, claude-code-guide) still run in-process. " +
 		"If the gate-inbox tools are unavailable, or this task needs this conversation's context, " +

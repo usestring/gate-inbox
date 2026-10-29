@@ -4,9 +4,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 
-	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -22,8 +20,8 @@ import (
 // handover is the promise and stopping on each session is the part worth
 // asking for. It was off for as long as it was on the argument that reading
 // "done with this one" out of a keystroke is a guess. Other answering keys
-// wait for the answer to be seen landing; Enter hands over at once, and a
-// session whose answer never lands rejoins the queue. See landing.go. A
+// wait for the answer to be seen landing; composer Enter hands over at once,
+// and a session whose answer never lands rejoins the queue. See landing.go. A
 // queue that silently does not advance costs more than a missed handover: it
 // reads as the mode being broken rather than as a setting being off, which is
 // exactly how it was reported.
@@ -124,34 +122,6 @@ func (m *Model) handOverOnEnter(sess store.Session, keyAt time.Time) tea.Cmd {
 	return cmd
 }
 
-// keyEndsDialog reports whether a key answering the focused pane ends what
-// the session asked, read off the pane before the key reaches it. A dialog
-// part way through is not done with: Enter or a digit on a multi-select ticks
-// a box, and on one question of several it answers that one and steps to the
-// next. Handing over there left the rest of the dialog unanswered behind the
-// operator. Only the dialog's last step ends it: Claude Code's Submit tab,
-// which it also draws for a single multi-select question; opencode's review,
-// or its one single-select question; and Codex's "submit all" question. A tab
-// row whose highlight cannot be read counts as not on Submit, so the operator
-// stays rather than leaving a dialog half answered. A pane with none of these
-// dialogs is a composer or a single question, and the key ends it.
-func (m *Model) keyEndsDialog() bool {
-	if stepper, ok := dialog.ParseStepper(m.preview); ok {
-		return stepper.OnSubmit()
-	}
-	plain := ansi.Strip(m.preview)
-	if ask, ok := dialog.ParseOpencodeAsk(plain); ok {
-		return ask.OnSubmit || (ask.Total == 0 && !ask.Multi && !ask.Typing)
-	}
-	if ask, ok := dialog.ParseCodexAsk(plain); ok {
-		return ask.Total <= 1 || ask.Last
-	}
-	if held, ok := dialog.Inspect(plain); ok && held.MultiSelect {
-		return held.OnSubmit
-	}
-	return true
-}
-
 // handoverTrace times the next session's first fresh frame after an Enter
 // handover, the moment the operator can read it.
 type handoverTrace struct {
@@ -221,7 +191,7 @@ func (m *Model) handOverOnWork(before string) tea.Cmd {
 		pending.observed.decided = "poll"
 		recordLanding(pending, "seen")
 		m.noteSubmission(pending.sess)
-		m.noteOperator(pending.sess, pending.via, pending.text, pending.probe.dialog)
+		m.noteOperator(pending.sess, pending.via, pending.text, pending.probe.dialog, pending.armed)
 	}
 	m.dropLanding(sess.ID)
 	return m.handOverFocused(sess)

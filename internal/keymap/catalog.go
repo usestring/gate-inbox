@@ -320,6 +320,7 @@ var Catalog = []Binding{
 	{ContextConfirm, Toggle, []string{" ", "space"}, "answer the tick", false},
 	{ContextConfirm, Confirm, []string{"y", "enter"}, "go ahead", true},
 	{ContextConfirm, ConfirmAlways, []string{"A", "shift+a"}, "go ahead and stop asking", false},
+	{ContextLimitSwitch, SwitchAccount, []string{"a"}, "review another subscription", false},
 
 	// ---- the review queue ----
 	{ContextReviews, Close, []string{"esc"}, "back to the sessions", true},

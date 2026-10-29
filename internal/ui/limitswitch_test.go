@@ -100,7 +100,12 @@ func TestLimitSwitchSubscriptionAndMigrationShortcuts(t *testing.T) {
 	m := limitedModel(t)
 	sess, _ := m.selected()
 	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	m.keys, _ = m.km().Rebind(keymap.ContextLimitSwitch, keymap.SwitchAccount, []string{"s"})
 	m.handleLimitSwitchKey(tea.KeyPressMsg{Code: 'a', Text: "a"})
+	if m.mode != modeLimitSwitch {
+		t.Fatal("subscription choice kept its old key after rebinding")
+	}
+	m.handleLimitSwitchKey(tea.KeyPressMsg{Code: 's', Text: "s"})
 	if m.mode != modeAccount || m.account.sess.ID != sess.ID {
 		t.Fatal("subscription choice did not open its review")
 	}

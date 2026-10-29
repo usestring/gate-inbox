@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -65,6 +66,9 @@ func (m *Model) offerLimitSwitch(sess store.Session) tea.Cmd {
 }
 
 func (m *Model) handleLimitSwitchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if action, ok := m.action(keymap.ContextLimitSwitch, msg); ok && action == keymap.SwitchAccount {
+		return m.reviewLimitSwitch(true)
+	}
 	switch msg.String() {
 	case "esc", "q":
 		m.mode = modeList
@@ -79,34 +83,37 @@ func (m *Model) handleLimitSwitchKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.limitSwitch.index = (m.limitSwitch.index + delta + n) % n
 		}
-	case "enter", "a":
-		account := msg.String() == "a" || len(m.limitSwitch.targets) == 0
-		if account && !m.limitSwitch.account {
-			return m, nil
-		}
-		m.mode = modeList
-		if !m.focusSession(m.limitSwitch.source.ID) {
-			m.errBar.text = "the limited session is no longer listed"
-			return m, nil
-		}
-		if account {
-			return m, m.openAccountSwitch()
-		}
-		cmd := m.openMigrate()
-		if m.mode == modeMigrate {
-			target := m.limitSwitch.targets[m.limitSwitch.index]
-			index := slices.Index(m.migrate.toolNames, target)
-			if index < 0 {
-				m.errBar.text = target + " is no longer available: tab to choose a CLI"
-				return m, cmd
-			}
-			m.migrate.toolIndex = index
-			m.migrate.name.SetValue(m.migrateProposedName())
-			m.migrate.name.CursorEnd()
-		}
-		return m, cmd
+	case "enter":
+		return m.reviewLimitSwitch(len(m.limitSwitch.targets) == 0)
 	}
 	return m, nil
+}
+
+func (m *Model) reviewLimitSwitch(account bool) (tea.Model, tea.Cmd) {
+	if account && !m.limitSwitch.account {
+		return m, nil
+	}
+	m.mode = modeList
+	if !m.focusSession(m.limitSwitch.source.ID) {
+		m.errBar.text = "the limited session is no longer listed"
+		return m, nil
+	}
+	if account {
+		return m, m.openAccountSwitch()
+	}
+	cmd := m.openMigrate()
+	if m.mode == modeMigrate {
+		target := m.limitSwitch.targets[m.limitSwitch.index]
+		index := slices.Index(m.migrate.toolNames, target)
+		if index < 0 {
+			m.errBar.text = target + " is no longer available: tab to choose a CLI"
+			return m, cmd
+		}
+		m.migrate.toolIndex = index
+		m.migrate.name.SetValue(m.migrateProposedName())
+		m.migrate.name.CursorEnd()
+	}
+	return m, cmd
 }
 
 func (m *Model) viewLimitSwitch() string {
@@ -121,7 +128,7 @@ func (m *Model) viewLimitSwitch() string {
 	}
 	if s.account {
 		body += "\n\nOr switch to another " + s.source.Tool + " subscription."
-		keys = append(keys, [2]string{"a", "subscription"})
+		keys = append(keys, [2]string{m.cap(keymap.ContextLimitSwitch, keymap.SwitchAccount), "subscription"})
 	}
 	return m.card("Usage limit reached", ansi.Wrap(body, cardInnerWidth(m.cardWidth()), ""), keys)
 }

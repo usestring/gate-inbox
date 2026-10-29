@@ -62,6 +62,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleAccountKey(msg)
 	case modeMigrate:
 		return m.handleMigrateKey(msg)
+	case modeLimitSwitch:
+		return m.handleLimitSwitchKey(msg)
 	case modeSettings:
 		return m.handleSettingsKey(msg)
 	case modeMove:

@@ -100,6 +100,8 @@ func (m *Model) paint() (string, bool) {
 		frame = m.viewFork()
 	case modeMigrate:
 		frame = m.viewMigrate()
+	case modeLimitSwitch:
+		frame = m.viewLimitSwitch()
 	case modeAccount:
 		frame = m.viewAccountSwitch()
 	case modeMove:

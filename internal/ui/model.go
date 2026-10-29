@@ -53,6 +53,7 @@ const (
 	modeRename
 	modeFork
 	modeMigrate
+	modeLimitSwitch
 	modeAccount
 	modeMove
 	modeGroupForm
@@ -678,6 +679,8 @@ type Model struct {
 	rename           renameTarget
 	fork             forkState
 	migrate          migrateState
+	limitSwitch      limitSwitchState
+	limitSwitchSeen  map[string]string
 	account          accountState
 	restartWith      restartWithState
 	quick            quickState
@@ -2678,7 +2681,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if onScreen && !msg.procOK {
 				m.frameUnchanged()
 			}
-			return m, m.trailingEcho(sess)
+			return m, tea.Batch(m.trailingEcho(sess), m.offerLimitSwitch(sess))
 		}
 		// The second this frame was captured in is what the next tick's
 		// stamp is measured against. A chase's frame is deliberately not
@@ -2735,7 +2738,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.setPreview(msg.preview)
 		m.noteEcho(sess, msg.chase, painted)
-		return m, m.trailingEcho(sess)
+		return m, tea.Batch(m.trailingEcho(sess), m.offerLimitSwitch(sess))
 
 	case errMsg:
 		m.errBar.text = msg.err.Error()

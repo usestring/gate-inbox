@@ -216,6 +216,7 @@ done
     fi
     printf '\n[tools.%s]\ncommand = "%s/demo-agent.sh %s"\nresume_by_id_command = "%s/demo-agent.sh {id}"\nrevive_command = "%s/demo-agent.sh %s"\n' \
       "${tools[$i]}" "$here" "$transcript" "$here" "$here" "$transcript"
+    printf 'account_env = "GATE_INBOX_DEMO_ACCOUNT"\n'
     printf 'account_command = "echo demo-token"\naccounts_command = "printf '"'"'%%s\\\\n'"'"' CLAUDE_OAUTH_TOKEN_ALICE1 CLAUDE_OAUTH_TOKEN_BOB2"\n'
   done
   # A scenario's own settings go last, so a run can shorten a window the

@@ -102,6 +102,37 @@ func TestLastPaneSkipsSessionsThatLeftTheBoard(t *testing.T) {
 	}
 }
 
+// A previous pane the search put on screen from inside a folded group is
+// opened back up when the search is dropped, not skipped as gone.
+func TestLastPaneOpensTheFoldOverASearchMatch(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	if err := m.store.CreateGroup("backend", dir); err != nil {
+		t.Fatalf("group: %v", err)
+	}
+	m.applyCmd(t, m.refreshCmd())
+	createSession(t, m, "alpha", dir, "backend")
+	createSession(t, m, "beta", dir, "")
+
+	focusRow(t, m, "alpha")
+	m.leaveFocusForFixture(t)
+	focusRow(t, m, "beta")
+	m.leaveFocusForFixture(t)
+
+	m.collapsed["backend"] = true
+	m.search = "alpha"
+	m.rebuildRows()
+
+	back, cmd := m.focusLastPane()
+	m.applyCmd(t, cmd)
+	if got := lastPaneName(t, back.(*Model)); got != "alpha" {
+		t.Fatalf("l focused %q, want alpha from the folded group (err %q)", got, m.errBar.text)
+	}
+	if m.collapsed["backend"] {
+		t.Fatal("the group is still folded over the pane l landed on")
+	}
+}
+
 // Re-entering the session already focused does not add a step to the
 // walk. Without this, leaving A and going straight back into it would
 // record A behind itself, and the key would stop going anywhere.

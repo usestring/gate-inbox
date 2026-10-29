@@ -152,16 +152,13 @@ most of all, since a row leaves it the moment its status changes.
 
 ### Land the caret where the change is
 
-Some of what the board decides is read off the pane's **caret**, not its text:
-what Left and Right mean at a prompt is the pair that matters most (`leave_at_prompt`
-in the key map — the spare arrow steps back to the list, the other one reaches
-the agent). A still of the right pane proves nothing about those keys; the caret
-has to be where a resting CLI parks it.
+Some interactions depend on where the pane's **caret** rests, not just its text.
+A still of the pane alone cannot establish the caret position.
 
 The demo agent leaves it there when the transcript it plays **ends without a
 trailing newline**: the final line is printed and the pane's caret stays at its
 end. With a trailing newline the caret falls to the blank row below, where no
-prompt marker is, and every caret-read key reaches the agent instead.
+prompt marker is, and the caret is no longer on the prompt.
 
 So to record one of those keys, add a transcript under `demo/` whose last line
 is the tool's bare prompt marker and whose last byte is not a newline, and give

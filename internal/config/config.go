@@ -1555,10 +1555,8 @@ busy_line = "↓ \\d+ (?:shells?|subagents?)"
 limit_line = "(?i)requires more credits|(?:Usage|Free|Go) limit reached"
 # The permission overlay steps its options with the horizontal arrows
 # ("ctrl+f fullscreen  ⇆ select  enter confirm"), so the arrows belong to the
-# pane there. A question dialog instead names "↑↓ select" -- "⇆ tab" only where
-# there is something to tab between -- so Right is spare and leaves focus.
-# Keyed on "⇆ select" rather than a bare ⇆ for that reason: the tab segment
-# must not pin the operator in a dialog that is asking them something.
+# pane there. A question dialog instead names "↑↓ select" and may include
+# "⇆ tab" for moving between questions.
 arrow_dialog_line = "\\x{21C6} select"
 rules = [
   # a permission ask is an overlay: it replaces the input box, so nothing

@@ -541,6 +541,7 @@ func (m *Model) toggleTriage() tea.Cmd {
 	if entry, ok := m.selectedRow(); ok {
 		previousKey, fromGroup = rowKey(entry), entry.isGroup
 	}
+	m.clearSearch()
 	m.triage = !m.triage
 	// Toggling starts a fresh pass either way: turning the queue on asks
 	// for all of it from the top, and turning it off ends the drain the

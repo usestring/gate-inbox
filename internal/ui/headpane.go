@@ -129,6 +129,7 @@ func (m *Model) focusHeadPane() bool {
 	if !ok {
 		return false
 	}
+	m.clearSearch()
 	m.extView = *pane
 	m.mode = modeHeadPane
 	func() {

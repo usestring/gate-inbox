@@ -23,6 +23,7 @@ type panePickEntry struct {
 }
 
 func (m *Model) openPanePicker() {
+	m.clearSearch()
 	input := textinput.New()
 	input.Prompt = ""
 	input.Placeholder = "name, group, tool, or status"

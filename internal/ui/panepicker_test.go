@@ -8,18 +8,18 @@ import (
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-func TestPanePickerMatchesVisibleSessionsAndLeavesFiltersAlone(t *testing.T) {
+func TestPanePickerClearsSearchBeforeMatching(t *testing.T) {
 	m := searchModel()
 	m.sessions = append(m.sessions, store.Session{ID: "4", Name: "old-pane", Status: status.Dead})
 	m.search = "web"
 	m.rebuildRows()
 	m.openPanePicker()
-	if matches := m.panePickMatches(); len(matches) != 1 || matches[0].sess.Name != "web-ui" {
-		t.Fatalf("matches = %+v, want the one listed live pane", matches)
+	if matches := m.panePickMatches(); len(matches) != 3 {
+		t.Fatalf("matches = %+v, want all live panes", matches)
 	}
 	m.handlePanePickerKey(tea.KeyPressMsg{Code: tea.KeyEsc})
-	if m.mode != modeList || m.search != "web" {
-		t.Fatalf("cancel changed the list: mode=%v search=%q", m.mode, m.search)
+	if m.mode != modeList || m.search != "" {
+		t.Fatalf("cancel did not return to the unfiltered list: mode=%v search=%q", m.mode, m.search)
 	}
 }
 

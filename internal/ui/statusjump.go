@@ -83,6 +83,7 @@ func jumpStatus(states ...string) func(*Model, store.Session) bool {
 // keeps a refusal from being offered twice, the way an advance through the
 // triage queue keeps one.
 func (m *Model) jumpToStatus(jump statusJump) (tea.Model, tea.Cmd) {
+	m.clearSearch()
 	m.errBar.text = ""
 	tried := map[string]bool{}
 	for {
@@ -179,15 +180,7 @@ func (m *Model) jumpWants(jump statusJump, sess store.Session) bool {
 // foldedJumpTarget is the first session this jump wants that has no row at
 // all -- folded away inside a group, or under a parent whose children are
 // folded.
-//
-// Not while a search is up: the query is a narrowing the operator typed, and
-// a jump is not a request to leave it. Every other view that hides sessions
-// -- the archive, the status filter, triage -- draws its rows unfolded, so
-// there is nothing there for this pass to find and no case to special-case.
 func (m *Model) foldedJumpTarget(jump statusJump, tried map[string]bool) (store.Session, bool) {
-	if m.search != "" {
-		return store.Session{}, false
-	}
 	shown := make(map[string]bool, len(m.rows))
 	for _, row := range m.rows {
 		if row.entersAs() {

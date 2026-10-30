@@ -230,7 +230,7 @@ func TestStartupCheckWaitsForAdoptionAndFreshPoll(t *testing.T) {
 				AgentSessionID: "conversation", Status: status.Working})
 			assertPending()
 			m.sessions = append(m.sessions, store.Session{ID: "other", Tool: "claude", Status: status.Working})
-			m.markDiedSessions(time.Now())
+			m.markDiedSessions(m.adoptFinishedAt.Add(time.Nanosecond))
 			if !m.restoreChecked || len(m.diedWhileClosed) != 0 || len(m.launched) != 0 {
 				t.Fatal("startup did not exclude the conversation already running in an adopted pane")
 			}
@@ -246,7 +246,7 @@ func TestStartupCheckContinuesAfterAdoptionFindsNoRows(t *testing.T) {
 		t.Fatal("startup check ran before adoption finished")
 	}
 	m.noteAdopted(adoptedMsg{})
-	m.markDiedSessions(time.Now())
+	m.markDiedSessions(m.adoptFinishedAt.Add(time.Nanosecond))
 	if !m.restoreChecked || !m.isDiedWhileClosed(m.sessions[0]) {
 		t.Fatal("startup did not mark a lost row after the empty adoption scan")
 	}

@@ -80,7 +80,7 @@ func Snapshot(sessionStore, cwd string) (map[string]int64, bool) {
 		}
 		snapshot := make(map[string]int64, len(cands))
 		for _, cand := range cands {
-			snapshot[cand.ID] = cand.Created.UnixNano()
+			snapshot[cand.ID] = cand.Updated.UnixNano()
 		}
 		return snapshot, true
 	case "opencode":
@@ -119,7 +119,7 @@ func Recapture(sessionStore, cwd string, snapshot map[string]int64, claimed map[
 			return "", false
 		}
 		for _, cand := range cands {
-			if afterSnapshot(snapshot, cand.ID, cand.Created.UnixNano()) {
+			if afterSnapshot(snapshot, cand.ID, cand.Updated.UnixNano()) {
 				matched = append(matched, cand.ID)
 			}
 		}
@@ -363,21 +363,31 @@ func pickEarliest(cands []extension.SessionCandidate) (string, bool) {
 
 // captureCodex scans rollout-*.jsonl files, each whose first line is a
 // session_meta record carrying the session id and the directory it ran
-// in. A file older than the launch cannot be this session's. A rollout that
-// cannot be read fails the scan rather than capture from a partial list.
+// in. Activity in an old conversation must not bind it to a new launch.
+// A rollout that cannot be read fails the scan rather than capture from a partial list.
 func captureCodex(root, cwd string, launchedAt time.Time, claimed map[string]bool) (string, bool) {
 	cands, err := codexCandidates(root, cwd, launchedAt.Add(-clockSlack), claimed)
 	if err != nil {
 		return "", false
 	}
-	return pickEarliest(cands)
+	fresh := make([]extension.SessionCandidate, 0, len(cands))
+	for _, cand := range cands {
+		fresh = append(fresh, extension.SessionCandidate{ID: cand.ID, Created: cand.Created})
+	}
+	return pickEarliest(fresh)
 }
 
-func codexCandidates(root, cwd string, cutoff time.Time, claimed map[string]bool) ([]extension.SessionCandidate, error) {
+type codexCandidate struct {
+	ID      string
+	Created time.Time
+	Updated time.Time
+}
+
+func codexCandidates(root, cwd string, cutoff time.Time, claimed map[string]bool) ([]codexCandidate, error) {
 	if root == "" {
 		return nil, os.ErrNotExist
 	}
-	var cands []extension.SessionCandidate
+	var cands []codexCandidate
 	err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -396,14 +406,14 @@ func codexCandidates(root, cwd string, cutoff time.Time, claimed map[string]bool
 		if info.ModTime().Before(cutoff) {
 			return nil
 		}
-		id, metaCwd, err := codexMeta(path)
+		id, metaCwd, created, err := codexMeta(path)
 		if err != nil {
 			return err
 		}
-		if id == "" || !extension.SamePath(metaCwd, cwd) || claimed[id] {
+		if id == "" || !extension.SamePath(metaCwd, cwd) || claimed[id] || !cutoff.IsZero() && (created.IsZero() || created.Before(cutoff)) {
 			return nil
 		}
-		cands = append(cands, extension.SessionCandidate{ID: id, Created: info.ModTime()})
+		cands = append(cands, codexCandidate{ID: id, Created: created, Updated: info.ModTime()})
 		return nil
 	})
 	return cands, err
@@ -411,31 +421,45 @@ func codexCandidates(root, cwd string, cutoff time.Time, claimed map[string]bool
 
 // codexMeta reads the session id and cwd from a rollout's first line. A
 // malformed or overlong first line yields no id and no error.
-func codexMeta(path string) (id, cwd string, err error) {
+func codexMeta(path string) (id, cwd string, created time.Time, err error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return "", "", err
+		return "", "", time.Time{}, err
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	if !scanner.Scan() {
 		if err := scanner.Err(); err != nil && !errors.Is(err, bufio.ErrTooLong) {
-			return "", "", err
+			return "", "", time.Time{}, err
 		}
-		return "", "", nil
+		return "", "", time.Time{}, nil
 	}
 	var line struct {
-		Type    string `json:"type"`
-		Payload struct {
-			SessionID string `json:"session_id"`
-			Cwd       string `json:"cwd"`
+		Type      string    `json:"type"`
+		Timestamp time.Time `json:"timestamp"`
+		Payload   struct {
+			SessionID string    `json:"session_id"`
+			ID        string    `json:"id"`
+			Timestamp time.Time `json:"timestamp"`
+			Cwd       string    `json:"cwd"`
 		} `json:"payload"`
 	}
-	if json.Unmarshal(scanner.Bytes(), &line) != nil || line.Type != "session_meta" || !extension.ValidSessionID(line.Payload.SessionID) {
-		return "", "", nil
+	if json.Unmarshal(scanner.Bytes(), &line) != nil || line.Type != "session_meta" {
+		return "", "", time.Time{}, nil
 	}
-	return line.Payload.SessionID, line.Payload.Cwd, nil
+	id = line.Payload.ID
+	if id == "" {
+		id = line.Payload.SessionID
+	}
+	if !extension.ValidSessionID(id) {
+		return "", "", time.Time{}, nil
+	}
+	created = line.Payload.Timestamp
+	if created.IsZero() {
+		created = line.Timestamp
+	}
+	return id, line.Payload.Cwd, created, nil
 }
 
 // captureOpencode finds the conversation opencode minted for a session

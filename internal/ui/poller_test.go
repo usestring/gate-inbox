@@ -812,7 +812,7 @@ func writeCodexRollout(t *testing.T, path, sessionID, cwd string, modTime time.T
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	line := `{"type":"session_meta","payload":{"session_id":"` + sessionID + `","cwd":"` + cwd + `"}}` + "\n"
+	line := `{"timestamp":"` + modTime.Format(time.RFC3339Nano) + `","type":"session_meta","payload":{"session_id":"` + sessionID + `","cwd":"` + cwd + `"}}` + "\n"
 	if err := os.WriteFile(path, []byte(line), 0o644); err != nil {
 		t.Fatal(err)
 	}

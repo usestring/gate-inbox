@@ -199,3 +199,120 @@ func TestStopRefusesSharedDaemonEvenWithoutThreadOrManagedEnvironment(t *testing
 		t.Fatalf("refusal wrote lifecycle: %v, %v", ends, err)
 	}
 }
+
+func TestSharedCodexStopResolvesStaleManagedEnvironment(t *testing.T) {
+	bin := buildFixture(t)
+	socket := tmuxtest.Socket(t, "stalestop")
+	env := fixtureHome(t, "tmux_socket = \""+socket+"\"\n"+promptTool)
+	home := envValue(env, "GATE_INBOX_HOME")
+	seedSessions(t, filepath.Join(home, "state.db"))
+	t.Cleanup(func() { killTestServer(t, envValue(env, "TMUX_TMPDIR"), socket) })
+	tmuxCmd := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("tmux", append([]string{"-L", socket}, args...)...)
+		cmd.Env = env
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("tmux: %v: %s", err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	for _, name := range []string{"own", "foreign"} {
+		tmuxCmd("new-session", "-d", "-s", name, "cat")
+	}
+	ownPane := tmuxCmd("display-message", "-p", "-t", "own", "#{pane_id}")
+	foreignPane := tmuxCmd("display-message", "-p", "-t", "foreign", "#{pane_id}")
+	state, err := store.Open(filepath.Join(home, "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer state.Close()
+	thread := "11111111-1111-4111-8111-111111111111"
+	foreignThread := "22222222-2222-4222-8222-222222222222"
+	for _, row := range []store.Session{
+		{ID: "own00001", Tool: "codex", Name: "own", Status: "working", CreatedAt: time.Now(), TmuxSocket: socket, TmuxPaneID: ownPane, AgentSessionID: thread},
+		{ID: "foreign1", Tool: "codex", Name: "foreign", Status: "working", CreatedAt: time.Now(), TmuxSocket: socket, TmuxPaneID: foreignPane, AgentSessionID: foreignThread},
+	} {
+		if err := state.CreateSession(row); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fake := filepath.Join(t.TempDir(), "codex")
+	build := exec.Command("go", "build", "-o", fake, "./testdata/stopcaller")
+	build.Env = tmuxtest.Environ()
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v: %s", err, out)
+	}
+	run := func(thread string, real bool) struct {
+		Output string
+		Failed bool
+	} {
+		t.Helper()
+		output := filepath.Join(t.TempDir(), "result.json")
+		cmd := exec.Command(fake, "app-server", bin, output)
+		cmd.Env = append(withoutKey(withoutKey(env, "GATE_INBOX_SESSION_ID"), "CODEX_THREAD_ID"), "GATE_INBOX_SESSION_ID=foreign1", "CODEX_THREAD_ID="+thread)
+		if real {
+			cmd.Env = append(cmd.Env, "FIXTURE_STOP_REAL=1")
+		}
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+		var result struct {
+			Output string
+			Failed bool
+		}
+		if err := json.Unmarshal([]byte(readEventually(t, output)), &result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	if result := run("33333333-3333-4333-8333-333333333333", false); !result.Failed {
+		t.Fatalf("unbound thread accepted: %+v", result)
+	}
+	duplicate := store.Session{ID: "dupe0001", Tool: "codex", Name: "duplicate", Status: "working", CreatedAt: time.Now(), AgentSessionID: thread}
+	if err := state.CreateSession(duplicate); err != nil {
+		t.Fatal(err)
+	}
+	if result := run(thread, false); !result.Failed {
+		t.Fatalf("ambiguous thread accepted: %+v", result)
+	}
+	if err := state.SetAgentSessionID(duplicate.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	result := run(thread, true)
+	if result.Failed {
+		t.Fatalf("own stop: %s", result.Output)
+	}
+	var stop struct {
+		CallerProofLine string `json:"caller_proof_line"`
+		Session         struct {
+			ID string `json:"id"`
+		} `json:"session"`
+	}
+	if err := json.Unmarshal([]byte(result.Output), &stop); err != nil || stop.Session.ID != "own00001" || stop.CallerProofLine == "" {
+		t.Fatalf("stop result: %s, %v", result.Output, err)
+	}
+	if got := tmuxCmd("display-message", "-p", "-t", foreignPane, "#{pane_id}"); got != foreignPane {
+		t.Fatal("foreign pane ended before proof")
+	}
+	tmuxCmd("send-keys", "-t", ownPane, "-l", stop.CallerProofLine)
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		row, err := state.Get("own00001")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if row.Archived && row.Status == "dead" {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	row, err := state.Get("own00001")
+	if err != nil || !row.Archived || row.Status != "dead" {
+		t.Fatalf("own lifecycle: %+v, %v", row, err)
+	}
+	if got := tmuxCmd("display-message", "-p", "-t", foreignPane, "#{pane_id}"); got != foreignPane {
+		t.Fatal("foreign pane ended")
+	}
+}

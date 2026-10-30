@@ -36,6 +36,37 @@ func (r *runtime) codexStopCandidate(target store.Session) error {
 	return nil
 }
 
+func (r *runtime) sharedCodexThreadTarget() (store.Session, error) {
+	shared, err := sharedCodexAncestor()
+	if err != nil {
+		return store.Session{}, err
+	}
+	thread := os.Getenv("CODEX_THREAD_ID")
+	if !shared || !validCodexStopThread(thread) {
+		return store.Session{}, errors.New("stop must run inside its own managed session pane")
+	}
+	rows, err := r.store.ListSessions(true)
+	if err != nil {
+		return store.Session{}, err
+	}
+	var target store.Session
+	for _, row := range rows {
+		if !row.Archived && row.Status != "dead" && row.Tool == "codex" && row.AgentSessionID == thread {
+			if target.ID != "" {
+				return store.Session{}, errors.New("calling Codex thread belongs to multiple Gate Inbox rows")
+			}
+			target = row
+		}
+	}
+	if target.ID == "" {
+		return store.Session{}, errors.New("stop must run inside its own managed session pane")
+	}
+	if err := r.reach(target); err != nil {
+		return store.Session{}, err
+	}
+	return target, nil
+}
+
 func validCodexStopThread(thread string) bool {
 	id, err := uuid.Parse(thread)
 	return err == nil && id.String() == thread

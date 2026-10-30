@@ -4,6 +4,7 @@ package sessioncmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/extension/gitroot"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/git"
 	"github.com/usestring/gate-inbox/internal/launch"
@@ -462,23 +464,59 @@ func TestSessionsArchiveHidesAndRestores(t *testing.T) {
 func TestSessionGroupsListAndCreate(t *testing.T) {
 	t.Parallel()
 	h := newSessionHarness(t)
-	created, err := h.sessions.CreateGroup(h.caller.ID, "backend/payments", h.caller.Cwd)
+	created, err := h.sessions.CreateGroup(h.caller.ID, "backend/payments", h.caller.Cwd, false)
 	if err != nil {
 		t.Fatalf("CreateGroup: %v", err)
 	}
 	if created.Path != "backend/payments" || !sameTerminalPath(created.Directory, h.caller.Cwd) {
 		t.Fatalf("created group = %+v", created)
 	}
-	if _, err := h.sessions.CreateGroup(h.caller.ID, "backend/payments", ""); err == nil ||
+	if _, err := h.sessions.CreateGroup(h.caller.ID, "backend/payments", "", false); err == nil ||
 		!strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("duplicate group error = %v", err)
 	}
-	if _, err := h.sessions.CreateGroup(h.caller.ID, "unknown/child", ""); err == nil ||
+	if _, err := h.sessions.CreateGroup(h.caller.ID, "unknown/child", "", false); err == nil ||
 		!strings.Contains(err.Error(), "parent group") {
 		t.Fatalf("orphan group error = %v", err)
 	}
-	if _, err := h.sessions.CreateGroup(h.caller.ID, "  ", ""); err == nil {
+	if _, err := h.sessions.CreateGroup(h.caller.ID, "  ", "", false); err == nil {
 		t.Fatal("an empty group path should be refused")
+	}
+	if _, err := h.sessions.CreateGroup(h.caller.ID, "backend/pinless", "", true); err == nil ||
+		!strings.Contains(err.Error(), "needs a directory") {
+		t.Fatalf("a pin with no directory error = %v", err)
+	}
+	pinned, err := h.sessions.CreateGroup(h.caller.ID, "backend/pinned", h.caller.Cwd, true)
+	if err != nil || !pinned.Pinned {
+		t.Fatalf("pinned CreateGroup = %+v, %v", pinned, err)
+	}
+	if unpinned, err := h.sessions.PinGroup(h.caller.ID, "backend/pinned", false); err != nil || unpinned.Pinned {
+		t.Fatalf("PinGroup off = %+v, %v", unpinned, err)
+	}
+	if repinned, err := h.sessions.PinGroup(h.caller.ID, created.Path, true); err != nil || !repinned.Pinned {
+		t.Fatalf("PinGroup on = %+v, %v", repinned, err)
+	}
+	listed, err := h.sessions.Groups(h.caller.ID)
+	if err != nil {
+		t.Fatalf("Groups: %v", err)
+	}
+	for _, group := range listed {
+		if want := group.Path == created.Path; group.Pinned != want && strings.HasPrefix(group.Path, "backend/") {
+			t.Fatalf("group %s pinned=%v, want %v", group.Path, group.Pinned, want)
+		}
+	}
+	if _, err := h.sessions.CreateGroup(h.caller.ID, "backend/nodir", "", false); err != nil {
+		t.Fatalf("CreateGroup: %v", err)
+	}
+	if _, err := h.sessions.PinGroup(h.caller.ID, "backend/nodir", true); err == nil ||
+		!strings.Contains(err.Error(), "no directory") {
+		t.Fatalf("pinning a group with no directory error = %v", err)
+	}
+	if _, err := h.sessions.PinGroup(h.caller.ID, "nowhere", true); err == nil {
+		t.Fatal("pinning a missing group should be refused")
+	}
+	if _, err := h.sessions.PinGroup(h.caller.ID, created.Path, false); err != nil {
+		t.Fatalf("PinGroup off: %v", err)
 	}
 
 	unnested := false
@@ -941,7 +979,7 @@ func TestSendRefusesAMessageTooLargeToPasteIntoAPrompt(t *testing.T) {
 func TestDeleteGroupMovesItsSessionsToTheRoot(t *testing.T) {
 	t.Parallel()
 	h := newSessionHarness(t)
-	if _, err := h.sessions.CreateGroup(h.caller.ID, "fleet", ""); err != nil {
+	if _, err := h.sessions.CreateGroup(h.caller.ID, "fleet", "", false); err != nil {
 		t.Fatalf("CreateGroup: %v", err)
 	}
 	group := "fleet"
@@ -992,10 +1030,10 @@ func TestDeleteGroupMovesItsSessionsToTheRoot(t *testing.T) {
 
 func TestDeleteGroupTakesItsSubtreeAndKeepsNesting(t *testing.T) {
 	h := newSessionHarness(t)
-	if _, err := h.sessions.CreateGroup(h.caller.ID, "fleet", ""); err != nil {
+	if _, err := h.sessions.CreateGroup(h.caller.ID, "fleet", "", false); err != nil {
 		t.Fatalf("CreateGroup: %v", err)
 	}
-	if _, err := h.sessions.CreateGroup(h.caller.ID, "fleet/backend", ""); err != nil {
+	if _, err := h.sessions.CreateGroup(h.caller.ID, "fleet/backend", "", false); err != nil {
 		t.Fatalf("CreateGroup nested: %v", err)
 	}
 	group := "fleet/backend"
@@ -1441,6 +1479,76 @@ func TestLaunchDirectoryFallsBackToTheRequestedDirectory(t *testing.T) {
 	// no pane at all would be worse than the dialog this avoids.
 	if got := launchDirectory(tool, filepath.Join(caller, "gone"), outside); got != outside {
 		t.Fatalf("a caller directory that does not exist = %q, want %q", got, outside)
+	}
+}
+
+// A directory the child's CLI already trusts opens in place even outside the
+// caller's tree: a router in one repository spawning work into another must
+// load that repository's settings, not its own.
+func TestLaunchDirectoryOpensInADirectoryTheCLITrusts(t *testing.T) {
+	caller := t.TempDir()
+	trusted := t.TempDir()
+	untrusted := t.TempDir()
+	prev := trustedByCLI
+	t.Cleanup(func() { trustedByCLI = prev })
+	trustedByCLI = func(store, dir string) bool { return store == "claude" && dir == trusted }
+	tool := config.Tool{TrustStore: "claude"}
+	if got := launchDirectory(tool, caller, trusted); got != trusted {
+		t.Fatalf("a spawn into a trusted directory = %q, want the requested %q", got, trusted)
+	}
+	if got := launchDirectory(tool, caller, untrusted); got != caller {
+		t.Fatalf("a spawn into an untrusted directory = %q, want the caller's %q", got, caller)
+	}
+	if got := launchDirectory(config.Tool{}, caller, trusted); got != caller {
+		t.Fatalf("a tool with no trust_store = %q, want the caller's %q", got, caller)
+	}
+}
+
+func TestClaudeTrustsOnlyAnAcceptedEntryForTheDirectoryOrItsRepository(t *testing.T) {
+	repo := t.TempDir()
+	gitInit(t, repo)
+	sub := filepath.Join(repo, "packages", "api")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	plain := t.TempDir()
+	child := filepath.Join(plain, "child")
+	if err := os.MkdirAll(child, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	declined := t.TempDir()
+	root, err := gitroot.Toplevel(repo, nil)
+	if err != nil {
+		t.Fatalf("toplevel: %v", err)
+	}
+	state := filepath.Join(t.TempDir(), ".claude.json")
+	body, _ := json.Marshal(map[string]any{"projects": map[string]any{
+		root:     map[string]any{"hasTrustDialogAccepted": true},
+		plain:    map[string]any{"hasTrustDialogAccepted": true},
+		declined: map[string]any{"hasTrustDialogAccepted": false},
+	}})
+	if err := os.WriteFile(state, body, 0o600); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+	for _, tc := range []struct {
+		dir  string
+		want bool
+	}{
+		{repo, true},
+		{sub, true},
+		{plain, true},
+		// Not inherited outside a repository: the CLI's own rules for that
+		// are undocumented, and a wrong yes strands the child on the dialog.
+		{child, false},
+		{declined, false},
+		{t.TempDir(), false},
+	} {
+		if got := claudeTrusts(state, tc.dir); got != tc.want {
+			t.Errorf("claudeTrusts(%q) = %v, want %v", tc.dir, got, tc.want)
+		}
+	}
+	if claudeTrusts(filepath.Join(t.TempDir(), "missing.json"), repo) {
+		t.Errorf("a missing state file trusted %q", repo)
 	}
 }
 

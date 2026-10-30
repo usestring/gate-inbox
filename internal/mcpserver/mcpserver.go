@@ -196,6 +196,7 @@ type listGroupsArgs struct{}
 type createGroupArgs struct {
 	Path      string `json:"path" jsonschema:"full group path, slash separated for nesting (e.g. work/payments); every parent except the last segment must already exist"`
 	Directory string `json:"directory,omitempty" jsonschema:"default working directory sessions created in this group inherit"`
+	Pin       bool   `json:"pin,omitempty" jsonschema:"true to start every session spawned into this group in directory, whatever directory it asks for, so that repository's settings and MCP servers load; needs directory"`
 }
 
 type deleteGroupArgs struct {
@@ -325,7 +326,7 @@ type sessionCommands interface {
 	ReleaseFiles(sessionID string, patterns []string) (int, error)
 	Reservations(sessionID string) ([]sessioncmd.Reservation, error)
 	Groups(sessionID string) ([]sessioncmd.Group, error)
-	CreateGroup(sessionID, path, directory string) (sessioncmd.Group, error)
+	CreateGroup(sessionID, path, directory string, pin bool) (sessioncmd.Group, error)
 	DeleteGroup(sessionID, path string) (sessioncmd.GroupRemoval, error)
 }
 
@@ -1084,7 +1085,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Nest with a slash path such as work/payments, whose parent must already exist.",
 		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args createGroupArgs) (*mcp.CallToolResult, sessioncmd.Group, error) {
-		created, err := sessions.CreateGroup(sessionID, args.Path, args.Directory)
+		created, err := sessions.CreateGroup(sessionID, args.Path, args.Directory, args.Pin)
 		if err != nil {
 			return nil, sessioncmd.Group{}, err
 		}

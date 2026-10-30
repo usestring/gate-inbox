@@ -334,7 +334,7 @@ func (f *fakeSessionCommands) Groups(string) ([]sessioncmd.Group, error) {
 	return f.groups, f.err
 }
 
-func (f *fakeSessionCommands) CreateGroup(_ string, path, directory string) (sessioncmd.Group, error) {
+func (f *fakeSessionCommands) CreateGroup(_ string, path, directory string, _ bool) (sessioncmd.Group, error) {
 	f.groupPath = path
 	f.groupDir = directory
 	return sessioncmd.Group{Path: path, Directory: directory}, f.err

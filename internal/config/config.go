@@ -172,6 +172,13 @@ type Tool struct {
 	// SessionStore names the built-in capturer that reads back the id a tool
 	// minted itself when it has no SessionIDFlag ("codex" or "opencode").
 	SessionStore string `toml:"session_store"`
+	// TrustStore names the built-in reader of the directories the tool's own
+	// first-run trust dialog has already been accepted for ("claude"). A
+	// spawn into one of them opens there even outside the caller's tree,
+	// since there is no dialog to divert around, and so loads that
+	// directory's project settings. Left unset, only the caller's own tree
+	// counts as trusted.
+	TrustStore string `toml:"trust_store"`
 	// RenameCommand is the slash command r types into a live pane to ask the
 	// agent to name its own session. The agent reads its own conversation and
 	// runs `gate-inbox rename`, which is a better name than anything derived
@@ -918,6 +925,7 @@ func mergeTool(name string, user, def Tool) Tool {
 		user.ForkDialogKeys = def.ForkDialogKeys
 	}
 	fill(&user.SessionStore, def.SessionStore)
+	fill(&user.TrustStore, def.TrustStore)
 	fill(&user.RenameCommand, def.RenameCommand)
 	user.SkipRenameDirective = user.SkipRenameDirective || def.SkipRenameDirective
 	user.TypeAhead = user.TypeAhead || def.TypeAhead
@@ -1331,6 +1339,11 @@ interrupt_keys = ["Escape"]
 clear_input_keys = ["C-l"]
 # claude 2.1.263: --model <model>
 model_flag = "--model"
+# A spawn into a repository claude has already accepted the trust dialog for
+# (its projects entry in ~/.claude.json, or under CLAUDE_CONFIG_DIR) opens
+# there, rather than in the caller's directory with an instruction to change
+# into it, so it loads that repository's settings and MCP servers.
+trust_store = "claude"
 # Named subscriptions are off: a session runs on claude's own stored login.
 # To launch on a named account instead, say where its token comes from.
 # claude reads a token from account_env ahead of its own login; {account} is

@@ -48,8 +48,10 @@ Agent sessions
       bring back every session park stopped, resuming the conversation each held; runs from any shell
   gate-inbox groups [--json]
       list the groups sessions and terminals are filed under
-  gate-inbox create-group <path> [--directory <path>] [--json]
+  gate-inbox create-group <path> [--directory <path>] [--pin] [--json]
       create a group so a fleet you spawn stays together in the user's list
+  gate-inbox pin-group <path> [--off] [--json]
+      make a group's directory where every session spawned into it starts, so that repository's settings and MCP servers load; --off unpins it
   gate-inbox delete-group <path> [--json]
       remove a group whose work is done; sessions still in it move to the root rather than stopping
 

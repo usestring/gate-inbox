@@ -41,6 +41,7 @@ type fakeSessions struct {
 	dryRun       bool
 	groupPath    string
 	directory    string
+	pinned       bool
 	taskID       string
 	taskListOpts sessioncmd.TaskListOptions
 	title        string
@@ -202,9 +203,14 @@ func (f *fakeSessions) Groups(sessionID string) ([]sessioncmd.Group, error) {
 	return []sessioncmd.Group{{Path: "api", Sessions: 2}}, f.failWith
 }
 
-func (f *fakeSessions) CreateGroup(sessionID, path, directory string) (sessioncmd.Group, error) {
-	f.callerID, f.groupPath, f.directory = sessionID, path, directory
-	return sessioncmd.Group{Path: path, Directory: directory}, f.failWith
+func (f *fakeSessions) CreateGroup(sessionID, path, directory string, pin bool) (sessioncmd.Group, error) {
+	f.callerID, f.groupPath, f.directory, f.pinned = sessionID, path, directory, pin
+	return sessioncmd.Group{Path: path, Directory: directory, Pinned: pin}, f.failWith
+}
+
+func (f *fakeSessions) PinGroup(sessionID, path string, pinned bool) (sessioncmd.Group, error) {
+	f.callerID, f.groupPath, f.pinned = sessionID, path, pinned
+	return sessioncmd.Group{Path: path, Directory: "/repo", Pinned: pinned}, f.failWith
 }
 
 func (f *fakeSessions) DeleteGroup(sessionID, path string) (sessioncmd.GroupRemoval, error) {
@@ -330,6 +336,7 @@ func TestALayerFailureReachesTheCaller(t *testing.T) {
 		{"mute", []string{"beef1234"}, func(out io.Writer, args []string) error { return runMute(out, sessions, args, "cafe0001") }},
 		{"groups", nil, func(out io.Writer, args []string) error { return runGroups(out, sessions, args, "cafe0001") }},
 		{"create-group", []string{"api/web"}, func(out io.Writer, args []string) error { return runCreateGroup(out, sessions, args, "cafe0001") }},
+		{"pin-group", []string{"api/web"}, func(out io.Writer, args []string) error { return runPinGroup(out, sessions, args, "cafe0001") }},
 		{"delete-group", []string{"api/web"}, func(out io.Writer, args []string) error { return runDeleteGroup(out, sessions, args, "cafe0001") }},
 		{"task list", nil, func(out io.Writer, args []string) error { return runTaskList(out, sessions, args, "cafe0001") }},
 		{"task create", []string{"ship the api"}, func(out io.Writer, args []string) error { return runTaskCreate(out, sessions, args, "cafe0001") }},
@@ -624,7 +631,7 @@ func TestCommandsAndHelpCoverEverySection(t *testing.T) {
 	table := Commands()
 	registered := []string{
 		"sessions", "spawn", "send", "read", "send-children", "place", "answer", "wait", "message-status", "kill", "revive", "migrate", "accounts", "switch-account", "archive", "mute", "cleanup-children", "park", "unpark",
-		"groups", "create-group", "delete-group", "task", "reserve", "release-files", "reservations", "terminal",
+		"groups", "create-group", "pin-group", "delete-group", "task", "reserve", "release-files", "reservations", "terminal",
 		"rename", "priority", "sweep", "stop", "_finish-stop", "children", "inbox",
 	}
 	for _, name := range registered {

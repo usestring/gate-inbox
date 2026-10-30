@@ -460,7 +460,7 @@ func TestCaptureCodexUsesCreationRatherThanRecentActivity(t *testing.T) {
 func TestCaptureCodexRefusesUnknownCreationTime(t *testing.T) {
 	root := t.TempDir()
 	launch := time.Now()
-	writeFile(t, filepath.Join(root, "rollout-unknown.jsonl"), `{"type":"session_meta","payload":{"id":"unknown","cwd":"/repo"}}`+"\n", launch)
+	writeFile(t, filepath.Join(root, "rollout-unknown.jsonl"), `{"type":"session_meta","payload":{"session_id":"unknown","cwd":"/repo"}}`+"\n", launch)
 	if id, ok := captureCodex(root, "/repo", launch, nil); ok {
 		t.Fatalf("unknown creation bound %q", id)
 	}

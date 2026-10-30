@@ -359,3 +359,22 @@ func (m *Model) confirmAnswer(t testing.TB) tea.Cmd {
 	_, cmd := m.handleConfirmKey(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	return cmd
 }
+
+func TestLastPaneKeepsSearchForHiddenPreviousSession(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	createSession(t, m, "alpha", dir, rootGroup)
+	createSession(t, m, "beta", dir, rootGroup)
+	focusRow(t, m, "alpha")
+	alpha := m.focusedID
+	m.leaveFocusForFixture(t)
+	focusRow(t, m, "beta")
+	m.leaveFocusForFixture(t)
+	m.extHidden = map[string]bool{alpha: true}
+	m.search = "alpha"
+	m.rebuildRows()
+	back, _ := m.focusLastPane()
+	if got := lastPaneName(t, back.(*Model)); got != "alpha" || m.search == "" {
+		t.Fatalf("focused=%q search=%q, want hidden alpha with search", got, m.search)
+	}
+}

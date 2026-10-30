@@ -66,3 +66,20 @@ func TestPanePickerRevealsPaneInsideFoldedGroup(t *testing.T) {
 		t.Fatalf("jump did not reveal new-block in beta: cursor=%d, collapsed=%v", m.cursor, m.collapsed["beta"])
 	}
 }
+
+func TestPanePickerCancelKeepsHiddenFocusedSession(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), rootGroup)
+	createSession(t, m, "beta", t.TempDir(), rootGroup)
+	focusRow(t, m, "alpha")
+	alpha := m.focusedID
+	m.extHidden = map[string]bool{alpha: true}
+	m.search = "alpha"
+	m.rebuildRows()
+	m.openPanePicker()
+	m.handlePanePickerKey(tea.KeyPressMsg{Code: tea.KeyEsc})
+	selected, ok := m.selected()
+	if !ok || m.mode != modeFocus || selected.ID != alpha {
+		t.Fatalf("cancel left mode=%v selected=%+v, want original focused session", m.mode, selected)
+	}
+}

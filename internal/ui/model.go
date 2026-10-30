@@ -1848,6 +1848,9 @@ type keptSearch struct {
 func (m *Model) dropSearchOver(sess store.Session) keptSearch {
 	kept := keptSearch{query: m.search, historyQuery: m.historyQuery, historyHits: m.historyHits}
 	m.searching = false
+	if kept.query != "" && m.extensionHidesTree(sess.ID) {
+		return keptSearch{}
+	}
 	if kept.query != "" && sess.ID != "" {
 		m.openFoldsOver(sess)
 	}

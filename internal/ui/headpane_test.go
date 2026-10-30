@@ -212,3 +212,18 @@ func TestAHeaderWithAPageIsDrawnOnce(t *testing.T) {
 		t.Fatalf("the header is drawn %d times, want once:\n%s", got, strings.Join(lines, "\n"))
 	}
 }
+
+func TestFocusingHiddenSearchedHeaderKeepsItsPage(t *testing.T) {
+	m, bridge, pages, _ := paneModel(t)
+	m.poller = &poller{}
+	bridge.Hide("batch", "s9", true)
+	m.Update(extensionBadgesMsg{})
+	m.search = "unrelated"
+	m.rebuildRows()
+	m.cursor = headIndex(t, m, "other", "s9")
+	paneText(m)
+	m.focusHeadPane()
+	if m.mode != modeHeadPane || len(*pages) != 1 || len((*pages)[0].closed) != 0 || m.search == "" {
+		t.Fatalf("mode=%v pages=%v search=%q, want original page focused", m.mode, *pages, m.search)
+	}
+}

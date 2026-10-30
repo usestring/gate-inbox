@@ -79,6 +79,7 @@ func (m *Model) focusLastPane() (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	kept := keptSearch{query: m.search, historyQuery: m.historyQuery, historyHits: m.historyHits}
 	m.clearSearch()
 	destIndex, index := -1, -1
 	for i := len(m.focusHistory) - 1; i >= 0; i-- {
@@ -99,6 +100,11 @@ func (m *Model) focusLastPane() (tea.Model, tea.Cmd) {
 				}
 				if r, shown := m.revealSession(sess); shown {
 					destIndex, index = i, r
+				} else if m.extensionHidesTree(id) {
+					m.restoreSearch(kept)
+					if m.cursorToSession(id) {
+						destIndex, index = i, m.cursor
+					}
 				}
 				break
 			}

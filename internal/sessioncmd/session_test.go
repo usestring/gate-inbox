@@ -4,6 +4,7 @@ package sessioncmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/extension/gitroot"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/git"
 	"github.com/usestring/gate-inbox/internal/launch"
@@ -1441,6 +1443,76 @@ func TestLaunchDirectoryFallsBackToTheRequestedDirectory(t *testing.T) {
 	// no pane at all would be worse than the dialog this avoids.
 	if got := launchDirectory(tool, filepath.Join(caller, "gone"), outside); got != outside {
 		t.Fatalf("a caller directory that does not exist = %q, want %q", got, outside)
+	}
+}
+
+// A directory the child's CLI already trusts opens in place even outside the
+// caller's tree: a router in one repository spawning work into another must
+// load that repository's settings, not its own.
+func TestLaunchDirectoryOpensInADirectoryTheCLITrusts(t *testing.T) {
+	caller := t.TempDir()
+	trusted := t.TempDir()
+	untrusted := t.TempDir()
+	prev := trustedByCLI
+	t.Cleanup(func() { trustedByCLI = prev })
+	trustedByCLI = func(store, dir string) bool { return store == "claude" && dir == trusted }
+	tool := config.Tool{TrustStore: "claude"}
+	if got := launchDirectory(tool, caller, trusted); got != trusted {
+		t.Fatalf("a spawn into a trusted directory = %q, want the requested %q", got, trusted)
+	}
+	if got := launchDirectory(tool, caller, untrusted); got != caller {
+		t.Fatalf("a spawn into an untrusted directory = %q, want the caller's %q", got, caller)
+	}
+	if got := launchDirectory(config.Tool{}, caller, trusted); got != caller {
+		t.Fatalf("a tool with no trust_store = %q, want the caller's %q", got, caller)
+	}
+}
+
+func TestClaudeTrustsOnlyAnAcceptedEntryForTheDirectoryOrItsRepository(t *testing.T) {
+	repo := t.TempDir()
+	gitInit(t, repo)
+	sub := filepath.Join(repo, "packages", "api")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	plain := t.TempDir()
+	child := filepath.Join(plain, "child")
+	if err := os.MkdirAll(child, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	declined := t.TempDir()
+	root, err := gitroot.Toplevel(repo, nil)
+	if err != nil {
+		t.Fatalf("toplevel: %v", err)
+	}
+	state := filepath.Join(t.TempDir(), ".claude.json")
+	body, _ := json.Marshal(map[string]any{"projects": map[string]any{
+		root:     map[string]any{"hasTrustDialogAccepted": true},
+		plain:    map[string]any{"hasTrustDialogAccepted": true},
+		declined: map[string]any{"hasTrustDialogAccepted": false},
+	}})
+	if err := os.WriteFile(state, body, 0o600); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+	for _, tc := range []struct {
+		dir  string
+		want bool
+	}{
+		{repo, true},
+		{sub, true},
+		{plain, true},
+		// Not inherited outside a repository: the CLI's own rules for that
+		// are undocumented, and a wrong yes strands the child on the dialog.
+		{child, false},
+		{declined, false},
+		{t.TempDir(), false},
+	} {
+		if got := claudeTrusts(state, tc.dir); got != tc.want {
+			t.Errorf("claudeTrusts(%q) = %v, want %v", tc.dir, got, tc.want)
+		}
+	}
+	if claudeTrusts(filepath.Join(t.TempDir(), "missing.json"), repo) {
+		t.Errorf("a missing state file trusted %q", repo)
 	}
 }
 

@@ -204,8 +204,9 @@ func (m *Model) foldedJumpTarget(jump statusJump, tried map[string]bool) (store.
 }
 
 // revealSession opens whatever is folded over a session -- the groups between
-// it and root, the group it sits in, and its parent's children -- and returns
-// its row once the tree has been rebuilt around it.
+// it and root, the group it sits in, and the children of every ancestor --
+// and returns its row once the tree has been rebuilt around it. A terminal
+// under a child agent sits two child folds down, and either one hides it.
 //
 // The group's own fold is opened here where a jump to a group leaves it
 // alone: arriving at a group is arriving at its heading, and arriving at a
@@ -214,8 +215,13 @@ func (m *Model) revealSession(sess store.Session) (int, bool) {
 	for path := sess.Group; path != rootGroup; path = parentGroup(path) {
 		delete(m.collapsed, path)
 	}
-	if sess.ParentID != "" {
-		m.setChildrenFolded(sess.ParentID, false)
+	parents := make(map[string]string, len(m.sessions))
+	for _, s := range m.sessions {
+		parents[s.ID] = s.ParentID
+	}
+	for id, seen := sess.ParentID, map[string]bool{}; id != "" && !seen[id]; id = parents[id] {
+		seen[id] = true
+		m.setChildrenFolded(id, false)
 	}
 	m.openHeadsAbove(sess)
 	m.rebuildRows()

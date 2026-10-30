@@ -70,13 +70,14 @@ func (m *Model) autoNameTick() tea.Cmd {
 // manager launched: a managed session is reached by the conversation id it was
 // launched with instead, which needs no tmux at all.
 type autoNamePane struct {
-	sessID  string
-	name    string
-	tool    string
-	cwd     string
-	socket  string
-	paneID  string
-	agentID string
+	sessID     string
+	name       string
+	tool       string
+	cwd        string
+	socket     string
+	paneID     string
+	agentID    string
+	launchedAt time.Time
 	// nameable is a row wearing a name the manager made up, which the pass
 	// may replace. A row somebody named rides the sweep only for its
 	// opening prompts.
@@ -96,6 +97,18 @@ func (m *Model) autoNameScan() tea.Cmd {
 	}
 	var panes []autoNamePane
 	var codexTargets []search.Target
+	claimed := map[string]bool{}
+	for _, sess := range m.sessions {
+		if sess.AgentSessionID != "" {
+			claimed[sess.AgentSessionID] = true
+		}
+	}
+	formats := historyToolFormats(m.cfg)
+	for _, sess := range m.sessions {
+		if formats[sess.Tool] == "" {
+			formats[sess.Tool] = sess.Tool
+		}
+	}
 	resolved := map[string]search.Target{}
 	for _, target := range m.poller.currentHistoryTargets() {
 		resolved[target.Key] = target
@@ -120,7 +133,8 @@ func (m *Model) autoNameScan() tea.Cmd {
 		// short of the count: once they are in, there is no reason to spend
 		// a pane capture on it.
 		nameable := sess.NameSource == store.SourceDerived || sess.NameSource == store.SourceTitle
-		if !nameable && (len(m.firstPrompts[sess.ID]) >= firstPromptRows || !m.openingReadable(sess)) {
+		backfill := formats[sess.Tool] == search.ToolCodex && sess.TmuxPaneID != "" && sess.AgentSessionID == ""
+		if !backfill && !nameable && (len(m.firstPrompts[sess.ID]) >= firstPromptRows || !m.openingReadable(sess)) {
 			continue
 		}
 		// An adopted row is found through the pane it was discovered in. A row
@@ -133,7 +147,7 @@ func (m *Model) autoNameScan() tea.Cmd {
 		panes = append(panes, autoNamePane{
 			sessID: sess.ID, name: sess.Name, tool: sess.Tool, cwd: sess.Cwd,
 			socket: sess.TmuxSocket, paneID: sess.TmuxPaneID, agentID: sess.AgentSessionID,
-			nameable: nameable,
+			nameable: nameable, launchedAt: sess.AgentLaunchedAt,
 		})
 	}
 	if len(panes) == 0 && len(codexTargets) == 0 {
@@ -141,17 +155,29 @@ func (m *Model) autoNameScan() tea.Cmd {
 	}
 	m.autoNaming = true
 	index, drift, stor, driver := m.convos, m.drift, m.store, m.tmux
+	backfillIndex, codexRoot := &m.codexBackfill, ""
+	if m.poller.locator != nil {
+		codexRoot = m.poller.locator.CodexRoot
+	}
 
 	return func() tea.Msg {
 		started := time.Now()
 		linkPanes := make([]convo.Pane, 0, len(panes))
 		dirs := make([]string, 0, len(panes))
 		seenDir := map[string]bool{}
+		var backfillPanes []codexBackfillPane
 		panePID := panePIDs(panes)
 		// One snapshot for the whole sweep: a table per pane is thirty full
 		// /proc scans a tick on a board this size.
 		procs := adopt.NewProcTable()
-		captures := sweepCaptures(driver, panes)
+		captures := sweepCaptures(driver, panes, autoNameScrollback)
+		var unboundCodex []autoNamePane
+		for _, pane := range panes {
+			if pane.paneID != "" && pane.agentID == "" && formats[pane.tool] == search.ToolCodex {
+				unboundCodex = append(unboundCodex, pane)
+			}
+		}
+		visible := sweepCaptures(driver, unboundCodex, 0)
 		for _, pane := range panes {
 			entry := convo.Pane{
 				Key:     pane.sessID,
@@ -165,6 +191,9 @@ func (m *Model) autoNameScan() tea.Cmd {
 					continue
 				}
 				entry.Text = convo.Normalize(capture.Text)
+				if screen, ok := visible[adoptKey(pane.socket, pane.paneID)]; ok && screen.Err == nil {
+					backfillPanes = append(backfillPanes, codexBackfillPane{id: pane.sessID, cwd: pane.cwd, text: convo.Normalize(screen.Text), socket: pane.socket, pane: pane.paneID, launchedAt: pane.launchedAt})
+				}
 				entry.PIDs = procs.PIDs(panePID[adoptKey(pane.socket, pane.paneID)])
 			}
 			linkPanes = append(linkPanes, entry)
@@ -193,6 +222,19 @@ func (m *Model) autoNameScan() tea.Cmd {
 		prompts := map[string][]string{}
 		titles := map[string]string{}
 		targets := map[string]search.Target{}
+		if len(backfillPanes) > 0 && codexRoot != "" {
+			dirs := map[string]bool{}
+			for _, pane := range backfillPanes {
+				dirs[pane.cwd] = true
+			}
+			if candidates, err := backfillIndex.candidates(codexRoot, dirs); err == nil {
+				for _, target := range bindCodexBackfills(stor, backfillPanes, candidates, claimed) {
+					codexTargets = append(codexTargets, target)
+				}
+			} else {
+				logging.Debug("codex backfill", "error", err)
+			}
+		}
 		for _, target := range codexTargets {
 			opening, err := search.ReadFirstPrompts(target, firstPromptRows)
 			if err != nil {
@@ -436,7 +478,7 @@ func (m *Model) applyTitles(titles map[string]string) {
 //
 // Keyed by adoptKey rather than pane id: a board spans several servers and two
 // of them can both have a "%1".
-func sweepCaptures(driver *tmux.Driver, panes []autoNamePane) map[string]tmux.Capture {
+func sweepCaptures(driver *tmux.Driver, panes []autoNamePane, lines int) map[string]tmux.Capture {
 	bySocket := map[string][]string{}
 	for _, pane := range panes {
 		if pane.paneID == "" {
@@ -446,7 +488,13 @@ func sweepCaptures(driver *tmux.Driver, panes []autoNamePane) map[string]tmux.Ca
 	}
 	out := make(map[string]tmux.Capture, len(panes))
 	for socket, ids := range bySocket {
-		for paneID, capture := range driver.CaptureScrollback(socket, ids, autoNameScrollback) {
+		var captures map[string]tmux.Capture
+		if lines == 0 {
+			captures = driver.CaptureJoinedVisible(socket, ids)
+		} else {
+			captures = driver.CaptureScrollback(socket, ids, lines)
+		}
+		for paneID, capture := range captures {
 			out[adoptKey(socket, paneID)] = capture
 		}
 	}

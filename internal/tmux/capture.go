@@ -152,6 +152,14 @@ func (d *Driver) CapturePanes(ids []string) map[string]Capture {
 // reading (tmux/tmux#5565, the PR for #5553), and this client reads
 // continuously, so that bound never engages for it.
 func (d *Driver) CaptureScrollback(socket string, paneIDs []string, lines int) map[string]Capture {
+	return d.captureScrollback(socket, paneIDs, lines, false)
+}
+
+func (d *Driver) CaptureJoinedVisible(socket string, paneIDs []string) map[string]Capture {
+	return d.captureScrollback(socket, paneIDs, 0, true)
+}
+
+func (d *Driver) captureScrollback(socket string, paneIDs []string, lines int, join bool) map[string]Capture {
 	out := make(map[string]Capture, len(paneIDs))
 	if len(paneIDs) == 0 {
 		return out
@@ -159,8 +167,11 @@ func (d *Driver) CaptureScrollback(socket string, paneIDs []string, lines int) m
 	start := time.Now()
 	failed := 0
 	window := []string{}
+	if join {
+		window = append(window, "-J")
+	}
 	if lines > 0 {
-		window = []string{"-S", "-" + strconv.Itoa(lines)}
+		window = append(window, "-S", "-"+strconv.Itoa(lines))
 	}
 	for remaining := paneIDs; len(remaining) > 0; {
 		batch := remaining

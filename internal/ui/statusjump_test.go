@@ -195,17 +195,17 @@ func TestAStatusJumpOpensAFoldToReachASession(t *testing.T) {
 	}
 }
 
-// A search is a narrowing the operator typed, and a jump is not a request to
-// leave it: the fold pass is what could walk outside the query, so it is the
-// half that stands down.
-func TestAStatusJumpStaysInsideASearch(t *testing.T) {
+func TestStatusJumpClearsSearchBeforeFindingCandidates(t *testing.T) {
 	m := buildModel(t)
 	seedTriageFleet(t, m)
 	m.search = "block"
 	m.rebuildRows()
-
-	if _, ok := m.foldedJumpTarget(m.jumpFor(t, "alt+f"), nil); ok {
-		t.Fatal("the jump reached for a session the search had filtered away")
+	m.jumpToStatus(m.jumpFor(t, "alt+f"))
+	if m.search != "" {
+		t.Fatalf("jump left search %q active", m.search)
+	}
+	if selected, ok := m.selected(); !ok || selected.Name != "reviewme" {
+		t.Fatalf("jump did not reach the previously hidden finished session: %+v", selected)
 	}
 }
 

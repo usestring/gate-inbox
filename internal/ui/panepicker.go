@@ -23,6 +23,11 @@ type panePickEntry struct {
 }
 
 func (m *Model) openPanePicker() {
+	if sess, ok := m.selected(); ok && m.mode == modeFocus {
+		m.focusSession(sess.ID)
+	} else {
+		m.clearSearch()
+	}
 	input := textinput.New()
 	input.Prompt = ""
 	input.Placeholder = "name, group, tool, or status"

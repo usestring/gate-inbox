@@ -138,7 +138,9 @@ func (m *Model) landInNewSession(id string) (tea.Model, tea.Cmd) {
 	// launch, and until the tree is rebuilt against that filter the new row
 	// is not on it for the cursor to find.
 	m.rebuildRows()
-	m.focusSession(id)
+	if !m.focusSession(id) {
+		return m, m.refreshCmd()
+	}
 	_, focus := m.focusSelected()
 	return m, tea.Batch(focus, m.refreshCmd())
 }

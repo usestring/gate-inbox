@@ -129,6 +129,22 @@ func (m *Model) hiddenByExtension(sessionID string) bool {
 	return m.extHidden[sessionID]
 }
 
+func (m *Model) extensionHidesTree(id string) bool {
+	seen := map[string]bool{}
+	for id != "" && !seen[id] {
+		seen[id] = true
+		if m.hiddenByExtension(id) {
+			return true
+		}
+		sess, ok := m.sessionByID(id)
+		if !ok {
+			break
+		}
+		id = sess.ParentID
+	}
+	return false
+}
+
 // filterSetting is where a filter's state is kept between runs, the way the
 // triage mode and the archive view keep theirs.
 func filterSetting(f *listFilter) string {

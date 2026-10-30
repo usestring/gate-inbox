@@ -16,6 +16,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/inbox"
 	"github.com/usestring/gate-inbox/internal/mergegate"
 	"github.com/usestring/gate-inbox/internal/netwatch"
 	"github.com/usestring/gate-inbox/internal/priority"
@@ -607,7 +608,10 @@ type Config struct {
 	// ([merge_gate]). Empty owners or authors turns the gate off, and the
 	// mod is not loaded into launched sessions then.
 	MergeGate mergegate.Config `toml:"merge_gate"`
-	Tools     map[string]Tool  `toml:"tools"`
+	// Inbox configures `gate-inbox inbox serve` ([inbox]). Its tokens are
+	// never kept here: see inbox.LoadTokens.
+	Inbox inbox.Config    `toml:"inbox"`
+	Tools map[string]Tool `toml:"tools"`
 }
 
 type Duration = extension.Duration

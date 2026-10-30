@@ -197,6 +197,12 @@ enabled = false
 enabled = false
 ```
 
+**Remote inbox.** `gate-inbox inbox serve` takes a text message over HTTP, such as dictation from
+a phone's Shortcut, and starts a router session on the board for it. It binds loopback, and is meant
+to be reached only over a private network such as Tailscale serve, with one token per client.
+[`docs/remote-inbox.md`](docs/remote-inbox.md) covers setup, security and an iPhone Action button
+recipe.
+
 **Extensions.** Extensions are Go code compiled into the binary against the public `extension`
 package; the `app` package runs the board with whichever extensions a build carries. This build
 carries none, so an `[extensions.artifacts]` section left from an earlier version is ignored. A build

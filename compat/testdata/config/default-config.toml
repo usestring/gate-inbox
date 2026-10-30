@@ -123,6 +123,11 @@ interrupt_keys = ["Escape"]
 clear_input_keys = ["C-l"]
 # claude 2.1.263: --model <model>
 model_flag = "--model"
+# A spawn into a repository claude has already accepted the trust dialog for
+# (its projects entry in ~/.claude.json, or under CLAUDE_CONFIG_DIR) opens
+# there, rather than in the caller's directory with an instruction to change
+# into it, so it loads that repository's settings and MCP servers.
+trust_store = "claude"
 # Named subscriptions are off: a session runs on claude's own stored login.
 # To launch on a named account instead, say where its token comes from.
 # claude reads a token from account_env ahead of its own login; {account} is

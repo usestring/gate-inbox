@@ -483,16 +483,17 @@ func (r *runtime) createTarget(caller store.Session, requestedGroup *string, dir
 //
 // The caller's launch directory is the trust this can determine reliably: the
 // caller is a live agent that got as far as asking for a child, so whatever its
-// CLI thinks of where it started, it started there. The alternative -- the
-// nearest ancestor the CLI's own trusted-folders state already covers -- fits
-// the problem more closely and is not knowable here: that state is private to
-// each CLI, only some of the tools this manager launches keep one at all, and
-// its inheritance rules are undocumented, so reading it wrong picks a directory
-// that dies exactly as the requested one would have. Trust is per-CLI too, so a
+// CLI thinks of where it started, it started there. Trust is per-CLI, so a
 // caller on one tool vouching for a child on another is weaker evidence than it
 // looks -- still strictly better than a directory with no evidence at all. A
 // caller whose own directory has since gone is no evidence either, and falls
 // back to the requested one rather than opening no pane.
+//
+// The one exception is a requested directory the child's own CLI has already
+// been trusted with, read from its trust_store (see trustedByCLI). Diverting
+// that spawn bought nothing and cost the repository's project settings: a
+// router in one repository spawning work into another started it with the
+// router's MCP servers, hooks and instructions instead.
 //
 // This also takes createTarget's PaneCurrentPath fallback out of the trust
 // question: a manager that has cd-ed somewhere still hands its children that
@@ -506,6 +507,9 @@ func launchDirectory(tool config.Tool, callerCwd, requested string) string {
 		return requested
 	}
 	if gitroot.Within(requested, caller) && !nestedRepository(caller, requested) {
+		return requested
+	}
+	if trustedByCLI(tool.TrustStore, requested) {
 		return requested
 	}
 	if _, err := resolveTerminalDirectory(caller); err != nil {

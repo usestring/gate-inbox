@@ -177,13 +177,9 @@ func LoadTokens(cfg Config, configDir string) (map[string]identity, error) {
 	} else if home, err := os.UserHomeDir(); err == nil {
 		path = expandHome(path, home)
 	}
-	fromFile, err := readTokensFile(path)
+	byClient, err := readTokensFile(path)
 	if err != nil {
 		return nil, err
-	}
-	byClient := map[string]string{}
-	for name, token := range fromFile {
-		byClient[name] = token
 	}
 	for _, entry := range os.Environ() {
 		key, value, _ := strings.Cut(entry, "=")
@@ -221,7 +217,7 @@ func LoadTokens(cfg Config, configDir string) (map[string]identity, error) {
 func readTokensFile(path string) (map[string]string, error) {
 	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return map[string]string{}, nil
 	}
 	if err != nil {
 		return nil, err

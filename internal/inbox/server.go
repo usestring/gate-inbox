@@ -124,7 +124,7 @@ func (s *Server) Serve(ctx context.Context) error {
 		return err
 	}
 	host, _, _ := net.SplitHostPort(s.cfg.listen())
-	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
 		s.log.Warn("inbox listening beyond loopback; expose it only over a private network", "listen", s.cfg.listen())
 	}
 	names := make([]string, 0, len(s.tokens))

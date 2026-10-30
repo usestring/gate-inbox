@@ -378,3 +378,40 @@ func TestLastPaneKeepsSearchForHiddenPreviousSession(t *testing.T) {
 		t.Fatalf("focused=%q search=%q, want hidden alpha with search", got, m.search)
 	}
 }
+
+func TestFailedLastPaneKeepsHiddenFocusedSession(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), rootGroup)
+	createSession(t, m, "beta", t.TempDir(), rootGroup)
+	focusRow(t, m, "alpha")
+	alpha := m.focusedID
+	m.focusHistory = []string{"missing"}
+	m.extHidden = map[string]bool{alpha: true}
+	m.search = "alpha"
+	m.rebuildRows()
+	m.focusLastPane()
+	selected, ok := m.selected()
+	if !ok || m.mode != modeFocus || selected.ID != alpha || m.search == "" {
+		t.Fatalf("mode=%v selected=%+v search=%q, want original focused session", m.mode, selected, m.search)
+	}
+}
+
+func TestLastPaneRefusalKeepsCurrentFocus(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	createSession(t, m, "alpha", dir, rootGroup)
+	createSession(t, m, "beta", dir, rootGroup)
+	focusRow(t, m, "alpha")
+	alpha := m.focusedID
+	m.leaveFocusForFixture(t)
+	focusRow(t, m, "beta")
+	beta := m.focusedID
+	if err := m.tmux.Kill(alpha); err != nil {
+		t.Fatal(err)
+	}
+	m.focusLastPane()
+	selected, ok := m.selected()
+	if !ok || m.mode != modeFocus || selected.ID != beta {
+		t.Fatalf("mode=%v selected=%+v, want the original focused session", m.mode, selected)
+	}
+}

@@ -4,6 +4,7 @@ package agentsession
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,8 +25,8 @@ func writeFile(t *testing.T, path, content string, modTime time.Time) {
 	}
 }
 
-func codexRollout(sessionID, cwd string) string {
-	return `{"timestamp":"2026-07-18T14:36:08.127Z","type":"session_meta","payload":{"session_id":"` +
+func codexRollout(sessionID, cwd string, created time.Time) string {
+	return `{"timestamp":"` + created.Format(time.RFC3339Nano) + `","type":"session_meta","payload":{"session_id":"` +
 		sessionID + `","cwd":"` + cwd + `"}}` + "\n" +
 		`{"timestamp":"2026-07-18T14:36:09Z","type":"event_msg","payload":{}}` + "\n"
 }
@@ -35,13 +36,13 @@ func TestCaptureCodexPicksSessionAfterLaunchInCwd(t *testing.T) {
 	launch := time.Now()
 	// An older conversation in the same cwd predates the launch: not ours.
 	writeFile(t, filepath.Join(root, "2026/07/18/rollout-old.jsonl"),
-		codexRollout("old-uuid", "/repo"), launch.Add(-time.Hour))
+		codexRollout("old-uuid", "/repo", launch.Add(-time.Hour)), launch.Add(-time.Hour))
 	// A conversation in a different cwd started after launch: not ours.
 	writeFile(t, filepath.Join(root, "2026/07/18/rollout-other.jsonl"),
-		codexRollout("other-uuid", "/elsewhere"), launch.Add(time.Second))
+		codexRollout("other-uuid", "/elsewhere", launch.Add(time.Second)), launch.Add(time.Second))
 	// Ours: same cwd, written just after launch.
 	writeFile(t, filepath.Join(root, "2026/07/18/rollout-ours.jsonl"),
-		codexRollout("ours-uuid", "/repo"), launch.Add(2*time.Second))
+		codexRollout("ours-uuid", "/repo", launch.Add(2*time.Second)), launch.Add(2*time.Second))
 
 	id, ok := captureCodex(root, "/repo", launch, map[string]bool{})
 	if !ok || id != "ours-uuid" {
@@ -53,9 +54,9 @@ func TestCaptureCodexSkipsClaimed(t *testing.T) {
 	root := t.TempDir()
 	launch := time.Now()
 	writeFile(t, filepath.Join(root, "a/rollout-1.jsonl"),
-		codexRollout("first-uuid", "/repo"), launch.Add(time.Second))
+		codexRollout("first-uuid", "/repo", launch.Add(time.Second)), launch.Add(time.Second))
 	writeFile(t, filepath.Join(root, "a/rollout-2.jsonl"),
-		codexRollout("second-uuid", "/repo"), launch.Add(2*time.Second))
+		codexRollout("second-uuid", "/repo", launch.Add(2*time.Second)), launch.Add(2*time.Second))
 
 	// first-uuid already belongs to another session, so the earliest
 	// unclaimed match wins instead.
@@ -69,7 +70,7 @@ func TestCaptureCodexNoMatch(t *testing.T) {
 	root := t.TempDir()
 	launch := time.Now()
 	writeFile(t, filepath.Join(root, "a/rollout-1.jsonl"),
-		codexRollout("x", "/other"), launch.Add(time.Second))
+		codexRollout("x", "/other", launch.Add(time.Second)), launch.Add(time.Second))
 	if id, ok := captureCodex(root, "/repo", launch, map[string]bool{}); ok {
 		t.Fatalf("expected no match, got %q", id)
 	}
@@ -212,7 +213,7 @@ func TestRecaptureCodexBindsOnlyWhatOutranTheSnapshot(t *testing.T) {
 	// Written one second before the relaunch: what the snapshot sees, and
 	// the exact shape of the stale-binding bug — it must not bind untouched.
 	writeFile(t, filepath.Join(root, "sessions", "2026/07/18/rollout-pre.jsonl"),
-		codexRollout("pre-uuid", "/repo"), base)
+		codexRollout("pre-uuid", "/repo", base), base)
 	snapshot, ok := Snapshot("codex", "/repo")
 	if !ok {
 		t.Fatal("snapshot failed")
@@ -222,7 +223,7 @@ func TestRecaptureCodexBindsOnlyWhatOutranTheSnapshot(t *testing.T) {
 	}
 	// The picker's choice turns again: its rollout outruns the snapshot.
 	writeFile(t, filepath.Join(root, "sessions", "2026/07/18/rollout-pre.jsonl"),
-		codexRollout("pre-uuid", "/repo"), base.Add(10*time.Second))
+		codexRollout("pre-uuid", "/repo", base), base.Add(10*time.Second))
 	id, ok := Recapture("codex", "/repo", snapshot, map[string]bool{})
 	if !ok || id != "pre-uuid" {
 		t.Fatalf("got id=%q ok=%v, want pre-uuid true", id, ok)
@@ -234,7 +235,7 @@ func TestRecaptureCodexMintedAfterSnapshotBinds(t *testing.T) {
 	t.Setenv("CODEX_HOME", root)
 	base := time.Now().Add(-time.Hour)
 	writeFile(t, filepath.Join(root, "sessions", "a/rollout-old.jsonl"),
-		codexRollout("old-uuid", "/repo"), base)
+		codexRollout("old-uuid", "/repo", base), base)
 	snapshot, ok := Snapshot("codex", "/repo")
 	if !ok {
 		t.Fatal("snapshot failed")
@@ -242,7 +243,7 @@ func TestRecaptureCodexMintedAfterSnapshotBinds(t *testing.T) {
 	// A restart mints a fresh conversation: unseen by the snapshot, it
 	// qualifies without needing an advance.
 	writeFile(t, filepath.Join(root, "sessions", "a/rollout-new.jsonl"),
-		codexRollout("new-uuid", "/repo"), base.Add(time.Second))
+		codexRollout("new-uuid", "/repo", base.Add(time.Second)), base.Add(time.Second))
 	id, ok := Recapture("codex", "/repo", snapshot, map[string]bool{})
 	if !ok || id != "new-uuid" {
 		t.Fatalf("got id=%q ok=%v, want new-uuid true", id, ok)
@@ -254,17 +255,17 @@ func TestRecaptureCodexRefusesTwoThatOutranTheSnapshot(t *testing.T) {
 	t.Setenv("CODEX_HOME", root)
 	base := time.Now().Add(-time.Hour)
 	writeFile(t, filepath.Join(root, "sessions", "a/rollout-1.jsonl"),
-		codexRollout("first-uuid", "/repo"), base)
+		codexRollout("first-uuid", "/repo", base), base)
 	writeFile(t, filepath.Join(root, "sessions", "a/rollout-2.jsonl"),
-		codexRollout("second-uuid", "/repo"), base)
+		codexRollout("second-uuid", "/repo", base), base)
 	snapshot, ok := Snapshot("codex", "/repo")
 	if !ok {
 		t.Fatal("snapshot failed")
 	}
 	writeFile(t, filepath.Join(root, "sessions", "a/rollout-1.jsonl"),
-		codexRollout("first-uuid", "/repo"), base.Add(10*time.Second))
+		codexRollout("first-uuid", "/repo", base), base.Add(10*time.Second))
 	writeFile(t, filepath.Join(root, "sessions", "a/rollout-2.jsonl"),
-		codexRollout("second-uuid", "/repo"), base.Add(20*time.Second))
+		codexRollout("second-uuid", "/repo", base), base.Add(20*time.Second))
 
 	if id, ok := Recapture("codex", "/repo", snapshot, map[string]bool{}); ok {
 		t.Fatalf("expected no match for two candidates, got %q", id)
@@ -275,7 +276,7 @@ func TestRecaptureRefusesWithoutSnapshot(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("CODEX_HOME", root)
 	writeFile(t, filepath.Join(root, "sessions", "a/rollout-1.jsonl"),
-		codexRollout("some-uuid", "/repo"), time.Now())
+		codexRollout("some-uuid", "/repo", time.Now()), time.Now())
 	// A nil snapshot means the relaunch predates snapshot capture; recapture
 	// must refuse rather than guess from a bare cutoff.
 	if id, ok := Recapture("codex", "/repo", nil, map[string]bool{}); ok {
@@ -290,9 +291,9 @@ func TestSnapshotCodexRecordsEachCwdConversation(t *testing.T) {
 	// round the value the assertion compares against.
 	base := time.Now().Add(-time.Hour).Truncate(time.Second)
 	writeFile(t, filepath.Join(root, "sessions", "a/rollout-1.jsonl"),
-		codexRollout("first-uuid", "/repo"), base)
+		codexRollout("first-uuid", "/repo", base), base)
 	writeFile(t, filepath.Join(root, "sessions", "a/rollout-2.jsonl"),
-		codexRollout("second-uuid", "/other"), base.Add(time.Second))
+		codexRollout("second-uuid", "/other", base.Add(time.Second)), base.Add(time.Second))
 
 	snapshot, ok := Snapshot("codex", "/repo")
 	if !ok {
@@ -310,7 +311,7 @@ func TestRecaptureBindsAfterAnEmptySnapshot(t *testing.T) {
 	t.Setenv("CODEX_HOME", root)
 	snapshot := map[string]int64{}
 	writeFile(t, filepath.Join(root, "sessions", "a/rollout-1.jsonl"),
-		codexRollout("fresh-uuid", "/repo"), time.Now())
+		codexRollout("fresh-uuid", "/repo", time.Now()), time.Now())
 
 	id, ok := Recapture("codex", "/repo", snapshot, map[string]bool{})
 	if !ok || id != "fresh-uuid" {
@@ -402,8 +403,8 @@ func TestCodexRefusesAnUnreadableConversation(t *testing.T) {
 	t.Setenv("CODEX_HOME", root)
 	launch := time.Now()
 	unreadable := filepath.Join(root, "sessions", "a", "rollout-unreadable.jsonl")
-	writeFile(t, unreadable, codexRollout("unreadable", cwd), launch)
-	writeFile(t, filepath.Join(root, "sessions", "a", "rollout-readable.jsonl"), codexRollout("readable", cwd), launch.Add(time.Second))
+	writeFile(t, unreadable, codexRollout("unreadable", cwd, launch), launch)
+	writeFile(t, filepath.Join(root, "sessions", "a", "rollout-readable.jsonl"), codexRollout("readable", cwd, launch.Add(time.Second)), launch.Add(time.Second))
 	if snapshot, ok := Snapshot("codex", cwd); !ok || len(snapshot) != 2 {
 		t.Fatalf("readable snapshot = %v, %v; want both conversations", snapshot, ok)
 	}
@@ -427,5 +428,40 @@ func TestCodexSkipsAnOversizedRecord(t *testing.T) {
 	writeFile(t, path, strings.Repeat("x", 1024*1024+1)+"\n", time.Now())
 	if snapshot, ok := Snapshot("codex", cwd); !ok || len(snapshot) != 0 {
 		t.Fatalf("snapshot = %v, %v; want empty, true", snapshot, ok)
+	}
+}
+
+func TestCaptureCodexUsesCreationRatherThanRecentActivity(t *testing.T) {
+	launch := time.Now().UTC()
+	for _, legacy := range []bool{false, true} {
+		t.Run(fmt.Sprint(legacy), func(t *testing.T) {
+			root := t.TempDir()
+			old := launch.Add(-time.Hour)
+			first := launch.Add(time.Second)
+			second := launch.Add(2 * time.Second)
+			key := "id"
+			if legacy {
+				key = "session_id"
+			}
+			rollout := func(id string, created time.Time) string {
+				return fmt.Sprintf(`{"timestamp":%q,"type":"session_meta","payload":{%q:%q,"timestamp":%q,"cwd":"/repo"}}`+"\n", launch.Format(time.RFC3339Nano), key, id, created.Format(time.RFC3339Nano))
+			}
+			writeFile(t, filepath.Join(root, "rollout-old.jsonl"), rollout("old", old), launch)
+			writeFile(t, filepath.Join(root, "rollout-first.jsonl"), rollout("first", first), launch.Add(time.Minute))
+			writeFile(t, filepath.Join(root, "rollout-second.jsonl"), rollout("second", second), launch.Add(3*time.Second))
+			id, ok := captureCodex(root, "/repo", launch, nil)
+			if !ok || id != "first" {
+				t.Fatalf("new launch captured %q, %v; want first", id, ok)
+			}
+		})
+	}
+}
+
+func TestCaptureCodexRefusesUnknownCreationTime(t *testing.T) {
+	root := t.TempDir()
+	launch := time.Now()
+	writeFile(t, filepath.Join(root, "rollout-unknown.jsonl"), `{"type":"session_meta","payload":{"session_id":"unknown","cwd":"/repo"}}`+"\n", launch)
+	if id, ok := captureCodex(root, "/repo", launch, nil); ok {
+		t.Fatalf("unknown creation bound %q", id)
 	}
 }

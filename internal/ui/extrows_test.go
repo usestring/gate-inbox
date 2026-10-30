@@ -118,6 +118,7 @@ func TestAHiddenSessionLeavesOnlyTheBrowsingTree(t *testing.T) {
 // query rather than dropping it and the row with it.
 func TestFocusingAHiddenSearchMatchKeepsTheSearch(t *testing.T) {
 	m, bridge := rowMarksModel(t)
+	m.poller = &poller{}
 	bridge.Hide("batch", "s9", true)
 	m.Update(extensionBadgesMsg{})
 	m.search = "unrelated"

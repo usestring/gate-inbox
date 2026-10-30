@@ -145,6 +145,7 @@ func TestACardFromAPageReturnsToIt(t *testing.T) {
 // keeps the header, and the page with it.
 func TestOpeningASearchedPageKeepsItsHeader(t *testing.T) {
 	m, _, pages, _ := paneModel(t)
+	m.poller = &poller{}
 	for i := range m.sessions {
 		if m.sessions[i].ID == "s9" {
 			m.sessions[i].Group = "folded"

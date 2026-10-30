@@ -391,7 +391,8 @@ type Model struct {
 	// convos is what the agent CLIs recorded about their own conversations,
 	// which is where a row's name comes from once one can be attributed to it.
 	// Refresh does file and database I/O and only ever runs inside a command.
-	convos *convo.Index
+	convos        *convo.Index
+	codexBackfill codexBackfillIndex
 	// drift decides when a session's title has stopped describing it.
 	drift *sessname.Drift
 	// firstPrompts is what each session was started for: the opening user

@@ -1,4 +1,4 @@
-44 commands and verbs
+46 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -447,3 +447,16 @@ usage: gate-inbox sweep [--json] [--db <path>] [--idle 72h] [--waiting 24h] [--e
     	how old an undelivered message is before it is reported (default 1h0m0s)
   -waiting duration
     	how long a session waits on a dialog before it is stale (default 24h0m0s)
+
+$ gate-inbox inbox -h
+exit 0
+--- stdout
+  gate-inbox inbox serve [--listen <host:port>]
+      serve POST /inbox on loopback until stopped; configured under [inbox], tokens from the environment or a 0600 file
+
+$ gate-inbox inbox serve -h
+exit 0
+--- stdout
+usage: gate-inbox inbox serve [--listen <host:port>]
+  -listen string
+    	host:port to bind instead of [inbox] listen; keep it on loopback

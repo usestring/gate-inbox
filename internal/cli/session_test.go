@@ -224,8 +224,34 @@ func TestSessionCommandsParseArgumentsAndPrintSentences(t *testing.T) {
 			args: []string{"api/web", "--directory", "/repo"},
 			want: "created group api/web",
 			inspect: func(t *testing.T, f *fakeSessions) {
-				if f.groupPath != "api/web" || f.directory != "/repo" {
-					t.Fatalf("create-group got %q %q", f.groupPath, f.directory)
+				if f.groupPath != "api/web" || f.directory != "/repo" || f.pinned {
+					t.Fatalf("create-group got %q %q pinned=%v", f.groupPath, f.directory, f.pinned)
+				}
+			},
+		},
+		{
+			name: "create-group --pin pins the directory",
+			run: func(out *bytes.Buffer, f *fakeSessions, args []string) error {
+				return runCreateGroup(out, f, args, "cafe0001")
+			},
+			args: []string{"api/web", "--directory", "/repo", "--pin"},
+			want: "created group api/web, pinned to /repo",
+			inspect: func(t *testing.T, f *fakeSessions) {
+				if !f.pinned {
+					t.Fatal("create-group --pin did not pin")
+				}
+			},
+		},
+		{
+			name: "pin-group pins and --off unpins",
+			run: func(out *bytes.Buffer, f *fakeSessions, args []string) error {
+				return runPinGroup(out, f, args, "cafe0001")
+			},
+			args: []string{"api/web", "--off"},
+			want: "unpinned group api/web",
+			inspect: func(t *testing.T, f *fakeSessions) {
+				if f.groupPath != "api/web" || f.pinned {
+					t.Fatalf("pin-group --off got %q pinned=%v", f.groupPath, f.pinned)
 				}
 			},
 		},

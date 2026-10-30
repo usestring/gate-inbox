@@ -68,6 +68,29 @@ func (m *Model) focusLastPane() (tea.Model, tea.Cmd) {
 		m.errBar.text = "no session focused before this one yet"
 		return m, nil
 	}
+	// Folds are ignored while a query filters the tree, so a pane the search
+	// put on the board can lose its row with the query. Those are noted
+	// first and their folds opened rather than skipped.
+	searchShown := map[string]bool{}
+	if m.search != "" {
+		for _, row := range m.rows {
+			if row.entersAs() {
+				searchShown[row.sess.ID] = true
+			}
+		}
+	}
+	kept := keptSearch{query: m.search, historyQuery: m.historyQuery, historyHits: m.historyHits}
+	wasFocused, originalID := m.mode == modeFocus, m.focusedID
+	restoreFocus := func() tea.Cmd {
+		if wasFocused {
+			m.restoreSearch(kept)
+			if !m.cursorToSession(originalID) {
+				return m.leaveFocus()
+			}
+		}
+		return nil
+	}
+	m.clearSearch()
 	destIndex, index := -1, -1
 	for i := len(m.focusHistory) - 1; i >= 0; i-- {
 		id := m.focusHistory[i]
@@ -80,13 +103,30 @@ func (m *Model) focusLastPane() (tea.Model, tea.Cmd) {
 				break
 			}
 		}
+		if destIndex < 0 && searchShown[id] {
+			for _, sess := range m.sessions {
+				if sess.ID != id {
+					continue
+				}
+				if r, shown := m.revealSession(sess); shown {
+					destIndex, index = i, r
+				} else if m.extensionHidesTree(id) {
+					m.restoreSearch(kept)
+					if m.cursorToSession(id) {
+						destIndex, index = i, m.cursor
+					}
+				}
+				break
+			}
+		}
 		if destIndex >= 0 {
 			break
 		}
 	}
 	if destIndex < 0 {
+		leave := restoreFocus()
 		m.errBar.text = "the sessions you were on before are not on the board"
-		return m, nil
+		return m, leave
 	}
 	destID := m.focusHistory[destIndex]
 	remaining := append([]string(nil), m.focusHistory[:destIndex]...)
@@ -94,7 +134,7 @@ func (m *Model) focusLastPane() (tea.Model, tea.Cmd) {
 	m.rebuildRows()
 	result, cmd := m.focusSelected()
 	if m.mode != modeFocus || m.focusedID != destID {
-		return result, cmd
+		return result, tea.Batch(cmd, restoreFocus())
 	}
 	m.focusHistory = remaining
 	m.syncPrevFocus()

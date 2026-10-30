@@ -114,6 +114,23 @@ func TestAHiddenSessionLeavesOnlyTheBrowsingTree(t *testing.T) {
 	}
 }
 
+// A search is the one way to a hidden session, so entering one keeps the
+// query rather than dropping it and the row with it.
+func TestFocusingAHiddenSearchMatchKeepsTheSearch(t *testing.T) {
+	m, bridge := rowMarksModel(t)
+	m.poller = &poller{}
+	bridge.Hide("batch", "s9", true)
+	m.Update(extensionBadgesMsg{})
+	m.search = "unrelated"
+	m.rebuildRows()
+	if !m.focusSession("s9") {
+		t.Fatal("the hidden match could not be focused")
+	}
+	if selected, ok := m.selected(); !ok || selected.ID != "s9" || m.search != "unrelated" {
+		t.Fatalf("selected=%v query=%q, want s9 with the search kept", selected.ID, m.search)
+	}
+}
+
 // An extension's filter is a list key: on, it narrows the list to what Keep
 // keeps and says so in the header; off, the list is whole again. A Keep
 // that panics keeps everything.

@@ -1412,6 +1412,18 @@ func (s *Store) BindAgentSessionID(id, agentSessionID string, launchedAt time.Ti
 	return affected > 0, nil
 }
 
+func (s *Store) BindAdoptedCodex(id, socket, pane, agentSessionID string, launchedAt time.Time) (bool, error) {
+	res, err := s.db.Exec(`UPDATE sessions SET agent_session_id = ?
+ WHERE id = ? AND tmux_socket = ? AND tmux_pane_id = ? AND agent_session_id = '' AND agent_launched_at = ? AND retired_agent_session_id != ?
+ AND NOT EXISTS (SELECT 1 FROM sessions other WHERE other.id != ? AND other.archived = 0 AND other.agent_session_id = ?)`,
+		agentSessionID, id, socket, pane, encodeTime(launchedAt), agentSessionID, id, agentSessionID)
+	if err != nil {
+		return false, err
+	}
+	affected, err := res.RowsAffected()
+	return affected > 0, err
+}
+
 // RestartAgent rebinds a session to a fresh agent run: the conversation it
 // was resuming is retired, the new one (empty until capture for tools that
 // mint their own id) takes its place, and the launch clock moves to now.

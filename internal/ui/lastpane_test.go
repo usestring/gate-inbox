@@ -102,6 +102,37 @@ func TestLastPaneSkipsSessionsThatLeftTheBoard(t *testing.T) {
 	}
 }
 
+// A previous pane the search put on screen from inside a folded group is
+// opened back up when the search is dropped, not skipped as gone.
+func TestLastPaneOpensTheFoldOverASearchMatch(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	if err := m.store.CreateGroup("backend", dir); err != nil {
+		t.Fatalf("group: %v", err)
+	}
+	m.applyCmd(t, m.refreshCmd())
+	createSession(t, m, "alpha", dir, "backend")
+	createSession(t, m, "beta", dir, "")
+
+	focusRow(t, m, "alpha")
+	m.leaveFocusForFixture(t)
+	focusRow(t, m, "beta")
+	m.leaveFocusForFixture(t)
+
+	m.collapsed["backend"] = true
+	m.search = "alpha"
+	m.rebuildRows()
+
+	back, cmd := m.focusLastPane()
+	m.applyCmd(t, cmd)
+	if got := lastPaneName(t, back.(*Model)); got != "alpha" {
+		t.Fatalf("l focused %q, want alpha from the folded group (err %q)", got, m.errBar.text)
+	}
+	if m.collapsed["backend"] {
+		t.Fatal("the group is still folded over the pane l landed on")
+	}
+}
+
 // Re-entering the session already focused does not add a step to the
 // walk. Without this, leaving A and going straight back into it would
 // record A behind itself, and the key would stop going anywhere.
@@ -327,4 +358,60 @@ func (m *Model) confirmAnswer(t testing.TB) tea.Cmd {
 	}
 	_, cmd := m.handleConfirmKey(tea.KeyPressMsg{Code: 'y', Text: "y"})
 	return cmd
+}
+
+func TestLastPaneKeepsSearchForHiddenPreviousSession(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	createSession(t, m, "alpha", dir, rootGroup)
+	createSession(t, m, "beta", dir, rootGroup)
+	focusRow(t, m, "alpha")
+	alpha := m.focusedID
+	m.leaveFocusForFixture(t)
+	focusRow(t, m, "beta")
+	m.leaveFocusForFixture(t)
+	m.extHidden = map[string]bool{alpha: true}
+	m.search = "alpha"
+	m.rebuildRows()
+	back, _ := m.focusLastPane()
+	if got := lastPaneName(t, back.(*Model)); got != "alpha" || m.search == "" {
+		t.Fatalf("focused=%q search=%q, want hidden alpha with search", got, m.search)
+	}
+}
+
+func TestFailedLastPaneKeepsHiddenFocusedSession(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "alpha", t.TempDir(), rootGroup)
+	createSession(t, m, "beta", t.TempDir(), rootGroup)
+	focusRow(t, m, "alpha")
+	alpha := m.focusedID
+	m.focusHistory = []string{"missing"}
+	m.extHidden = map[string]bool{alpha: true}
+	m.search = "alpha"
+	m.rebuildRows()
+	m.focusLastPane()
+	selected, ok := m.selected()
+	if !ok || m.mode != modeFocus || selected.ID != alpha || m.search == "" {
+		t.Fatalf("mode=%v selected=%+v search=%q, want original focused session", m.mode, selected, m.search)
+	}
+}
+
+func TestLastPaneRefusalKeepsCurrentFocus(t *testing.T) {
+	m := buildModel(t)
+	dir := t.TempDir()
+	createSession(t, m, "alpha", dir, rootGroup)
+	createSession(t, m, "beta", dir, rootGroup)
+	focusRow(t, m, "alpha")
+	alpha := m.focusedID
+	m.leaveFocusForFixture(t)
+	focusRow(t, m, "beta")
+	beta := m.focusedID
+	if err := m.tmux.Kill(alpha); err != nil {
+		t.Fatal(err)
+	}
+	m.focusLastPane()
+	selected, ok := m.selected()
+	if !ok || m.mode != modeFocus || selected.ID != beta {
+		t.Fatalf("mode=%v selected=%+v, want the original focused session", m.mode, selected)
+	}
 }

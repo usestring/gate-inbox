@@ -706,9 +706,8 @@ func TestCaretAtInputEnd(t *testing.T) {
 	}
 }
 
-// Right leaves focus at the end of the prompt and reaches the agent
-// anywhere else, so a typed prompt keeps its caret movement.
-func TestFocusRightUnfocusesAtPromptEnd(t *testing.T) {
+// Right stays with the agent throughout the prompt.
+func TestFocusRightStaysAtPromptEnd(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "rightie", t.TempDir(), "")
 	m.selectSessionRow(t, "rightie")
@@ -736,14 +735,13 @@ func TestFocusRightUnfocusesAtPromptEnd(t *testing.T) {
 	m.pane.cursor = paneCursor{x: 4, y: 0, ok: true}
 	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
 	*m = *updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("right at the prompt end did not unfocus, mode = %v", m.mode)
+	if m.mode != modeFocus {
+		t.Fatalf("right at the prompt end left focus, mode = %v", m.mode)
 	}
 }
 
-// Left leaves focus at the head of the prompt and reaches the agent
-// anywhere else, so a typed prompt keeps its caret movement.
-func TestFocusLeftUnfocusesAtPromptHead(t *testing.T) {
+// Left stays with the agent throughout the prompt.
+func TestFocusLeftStaysAtPromptHead(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "leftie", t.TempDir(), "")
 	m.selectSessionRow(t, "leftie")
@@ -771,8 +769,8 @@ func TestFocusLeftUnfocusesAtPromptHead(t *testing.T) {
 	m.pane.cursor = paneCursor{x: 2, y: 0, ok: true}
 	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
 	*m = *updated.(*Model)
-	if m.mode != modeList {
-		t.Fatalf("left at the prompt head did not unfocus, mode = %v", m.mode)
+	if m.mode != modeFocus {
+		t.Fatalf("left at the prompt head left focus, mode = %v", m.mode)
 	}
 }
 

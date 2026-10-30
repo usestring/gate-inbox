@@ -163,6 +163,12 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 		m.errBar.text = err.Error()
 		return m, nil
 	}
+	// Keys follow the selected row, not the session asked for, so focus is
+	// refused rather than entered with the cursor somewhere else.
+	if !m.focusSession(sess.ID) {
+		m.errBar.text = "session is no longer in this view"
+		return m, nil
+	}
 	m.mode = modeFocus
 	// Recorded here rather than at the top: every guard above returns
 	// without a pane on screen, and a refusal must not count as a session
@@ -706,22 +712,6 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	key := msg.Key()
-	// Either arrow leaves at its own prompt edge, where the agent would do
-	// nothing with it: Left at the head, Right at the end, and either one on
-	// a dialog that spares the horizontal arrows. Triage still reads Right
-	// as the drain on a finished session — it hands over to the next one,
-	// while Left is back, to the list, with the queue still armed.
-	if bound && action == keymap.BackAtPrompt && key.Mod == 0 {
-		if key.Code == tea.KeyRight && m.rightLeavesFocus(sess.ID, sess.Tool) {
-			if m.triage && sess.Status == status.Finished {
-				return m, m.handOverFocused(sess)
-			}
-			return m, m.leaveFocus()
-		}
-		if key.Code == tea.KeyLeft && m.leftLeavesFocus(sess.ID, sess.Tool) {
-			return m, m.leaveFocus()
-		}
-	}
 	// Whether a dialog is up for this key to answer, read before anything
 	// below moves: once the key has landed the dialog is gone, and the
 	// scrolled-back pane the next lines pull back to its live bottom was

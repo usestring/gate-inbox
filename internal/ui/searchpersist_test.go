@@ -99,3 +99,52 @@ func TestEscInTheFieldKeepsTheQuery(t *testing.T) {
 		t.Fatal("a kept query should leave its field behind")
 	}
 }
+
+func TestFocusSessionClearsSearchForHiddenTarget(t *testing.T) {
+	m := searchModel()
+	m.search = "api"
+	m.rebuildRows()
+	if !m.focusSession("2") {
+		t.Fatal("search hid the target session")
+	}
+	selected, ok := m.selected()
+	if !ok || selected.ID != "2" || m.search != "" {
+		t.Fatalf("selected=%v query=%q, want session 2 with no search", selected.ID, m.search)
+	}
+}
+
+func TestFocusSessionOpensTheFoldOverASearchMatch(t *testing.T) {
+	m := searchModel()
+	m.poller = &poller{}
+	m.sessions[1].Group = "web"
+	m.collapsed["web"] = true
+	m.search = "web-ui"
+	m.rebuildRows()
+	if !m.focusSession("2") {
+		t.Fatal("clearing the search left the match folded away")
+	}
+	selected, ok := m.selected()
+	if !ok || selected.ID != "2" || m.collapsed["web"] {
+		t.Fatalf("selected=%v folded=%v, want session 2 with its group open", selected.ID, m.collapsed["web"])
+	}
+}
+
+// A terminal under a child agent sits two child folds down, and the fold on
+// the grandparent hides it as surely as the one on its own parent.
+func TestFocusSessionOpensEveryChildFoldOverASearchMatch(t *testing.T) {
+	m := searchModel()
+	m.poller = &poller{}
+	m.sessions[1].ParentID = "1"
+	m.sessions[2].ParentID = "2"
+	m.setChildrenFolded("1", true)
+	m.setChildrenFolded("2", true)
+	m.search = "docs"
+	m.rebuildRows()
+	if !m.focusSession("3") {
+		t.Fatal("clearing the search left the nested match folded away")
+	}
+	selected, ok := m.selected()
+	if !ok || selected.ID != "3" {
+		t.Fatalf("selected=%v, want the nested session 3", selected.ID)
+	}
+}

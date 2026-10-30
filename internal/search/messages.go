@@ -38,11 +38,19 @@ func ReadFirstPrompts(target Target, count int) ([]string, error) {
 	return prompts, scanner.Err()
 }
 
+func ReadCodexTail(path string) ([]Message, error) {
+	return readMessagesTail(Target{Tool: ToolCodex, Path: path}, 128<<10)
+}
+
 // ReadMessages reads a bounded tail without admitting tool or harness traffic.
 func ReadMessages(target Target, database string) ([]Message, error) {
 	if target.Tool == ToolOpenCode {
 		return readOpenCodeMessages(database, target.AgentID)
 	}
+	return readMessagesTail(target, 16<<20)
+}
+
+func readMessagesTail(target Target, limit int64) ([]Message, error) {
 	f, err := os.Open(target.Path)
 	if err != nil {
 		return nil, err
@@ -52,7 +60,7 @@ func ReadMessages(target Target, database string) ([]Message, error) {
 	if err != nil {
 		return nil, err
 	}
-	start := max(int64(0), info.Size()-(16<<20))
+	start := max(int64(0), info.Size()-limit)
 	data, err := io.ReadAll(io.NewSectionReader(f, start, info.Size()-start))
 	if err != nil {
 		return nil, err

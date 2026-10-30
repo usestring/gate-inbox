@@ -572,6 +572,10 @@
       "path": {
         "description": "full group path, slash separated for nesting (e.g. work/payments); every parent except the last segment must already exist",
         "type": "string"
+      },
+      "pin": {
+        "description": "true to start every session spawned into this group in directory, whatever directory it asks for, so that repository's settings and MCP servers load; needs directory",
+        "type": "boolean"
       }
     },
     "required": [

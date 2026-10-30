@@ -125,6 +125,17 @@ func (m *Model) settleHeadPanes() {
 // focusHeadPane hands the keyboard to the page behind the header row the
 // cursor is on. It reports false when that row has no page.
 func (m *Model) focusHeadPane() bool {
+	entry, ok := m.cursorRow()
+	if _, paged := m.cursorHeadPane(); !ok || !paged {
+		return false
+	}
+	key := rowKey(entry)
+	kept := m.dropSearchOver(entry.sess)
+	if !m.cursorToKey(key) {
+		m.restoreSearch(kept)
+		m.cursorToKey(key)
+	}
+	// Read again: a rebuild that lost the header let its page go.
 	pane, ok := m.cursorHeadPane()
 	if !ok {
 		return false
@@ -140,6 +151,19 @@ func (m *Model) focusHeadPane() bool {
 		m.syncViewFields()
 	}()
 	return true
+}
+
+// cursorToKey puts the cursor back on the row with key, reporting whether
+// the tree still has one.
+func (m *Model) cursorToKey(key string) bool {
+	for i, row := range m.rows {
+		if rowKey(row) == key {
+			m.cursor = i
+			m.rebuildRows()
+			return true
+		}
+	}
+	return false
 }
 
 // stashHeadPane writes the focused page's state back to the page it was

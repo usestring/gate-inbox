@@ -328,7 +328,7 @@ func TestAutoRouteFallbackTerminalLeavesASessionArchivedWhileTheChooserAnswers(t
 			shell = sess
 		}
 	}
-	if shell.ID == "" || shell.ParentID != "" || shell.Group != "backend" || shell.Cwd != resolved(t, groupDir) {
+	if shell.ID == "" || shell.ParentID != "" || shell.Group != "backend" || resolved(t, shell.Cwd) != resolved(t, groupDir) {
 		t.Fatalf("fallback terminal = %+v, want an unnested shell in the backend group at %q (error %q)", shell, groupDir, m.errBar.text)
 	}
 }

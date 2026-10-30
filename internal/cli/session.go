@@ -39,7 +39,8 @@ const (
 	usagePark          = "park [--dry-run] [--json]"
 	usageUnpark        = "unpark [--json]"
 	usageGroups        = "groups [--json]"
-	usageCreateGroup   = "create-group <path> [--directory <path>] [--json]"
+	usageCreateGroup   = "create-group <path> [--directory <path>] [--pin] [--json]"
+	usagePinGroup      = "pin-group <path> [--off] [--json]"
 	usageDeleteGroup   = "delete-group <path> [--json]"
 )
 
@@ -68,7 +69,8 @@ type sessionCommands interface {
 	Park(sessionID string, dryRun bool) (sessioncmd.ParkResult, error)
 	Unpark(sessionID string) (sessioncmd.UnparkResult, error)
 	Groups(sessionID string) ([]sessioncmd.Group, error)
-	CreateGroup(sessionID, path, directory string) (sessioncmd.Group, error)
+	CreateGroup(sessionID, path, directory string, pin bool) (sessioncmd.Group, error)
+	PinGroup(sessionID, path string, pinned bool) (sessioncmd.Group, error)
 	DeleteGroup(sessionID, path string) (sessioncmd.GroupRemoval, error)
 }
 
@@ -102,6 +104,7 @@ func sessionSection() section {
 			{name: "unpark", usage: usageUnpark, about: "bring back every session park stopped, resuming the conversation each held; runs from any shell", run: bind(newSessions, runUnpark)},
 			{name: "groups", usage: usageGroups, about: "list the groups sessions and terminals are filed under", run: bind(newSessions, runGroups)},
 			{name: "create-group", usage: usageCreateGroup, about: "create a group so a fleet you spawn stays together in the user's list", run: bind(newSessions, runCreateGroup)},
+			{name: "pin-group", usage: usagePinGroup, about: "make a group's directory where every session spawned into it starts, so that repository's settings and MCP servers load; --off unpins it", run: bind(newSessions, runPinGroup)},
 			{name: "delete-group", usage: usageDeleteGroup, about: "remove a group whose work is done; sessions still in it move to the root rather than stopping", run: bind(newSessions, runDeleteGroup)},
 		},
 	}
@@ -561,16 +564,40 @@ func runGroups(out io.Writer, sessions sessionCommands, args []string, sessionID
 func runCreateGroup(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
 	set := cmdline.NewFlagSet(usageCreateGroup)
 	directory := set.String("directory", "", "default working directory sessions created in this group inherit")
+	pin := set.Bool("pin", false, "start every session spawned into the group in --directory, whatever directory it asks for")
 	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
 	}
-	created, err := sessions.CreateGroup(sessionID, operands[0], *directory)
+	created, err := sessions.CreateGroup(sessionID, operands[0], *directory, *pin)
 	if err != nil {
 		return err
 	}
-	return cmdline.Emit(out, *asJSON, created, "created group "+created.Path)
+	text := "created group " + created.Path
+	if created.Pinned {
+		text += ", pinned to " + created.Directory
+	}
+	return cmdline.Emit(out, *asJSON, created, text)
+}
+
+func runPinGroup(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
+	set := cmdline.NewFlagSet(usagePinGroup)
+	off := set.Bool("off", false, "unpin the group, so a session spawned into it starts in the directory it asks for")
+	asJSON := cmdline.JSONFlag(set)
+	operands, err := parseCommand(out, set, args, 1, 1)
+	if err != nil {
+		return err
+	}
+	group, err := sessions.PinGroup(sessionID, operands[0], !*off)
+	if err != nil {
+		return err
+	}
+	text := "unpinned group " + group.Path
+	if group.Pinned {
+		text = "pinned group " + group.Path + " to " + group.Directory
+	}
+	return cmdline.Emit(out, *asJSON, group, text)
 }
 
 func runDeleteGroup(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {

@@ -1,4 +1,4 @@
-43 commands and verbs
+44 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -232,11 +232,22 @@ usage: gate-inbox groups [--json]
 $ gate-inbox create-group -h
 exit 0
 --- stdout
-usage: gate-inbox create-group <path> [--directory <path>] [--json]
+usage: gate-inbox create-group <path> [--directory <path>] [--pin] [--json]
   -directory string
     	default working directory sessions created in this group inherit
   -json
     	print the raw result as JSON instead of a sentence
+  -pin
+    	start every session spawned into the group in --directory, whatever directory it asks for
+
+$ gate-inbox pin-group -h
+exit 0
+--- stdout
+usage: gate-inbox pin-group <path> [--off] [--json]
+  -json
+    	print the raw result as JSON instead of a sentence
+  -off
+    	unpin the group, so a session spawned into it starts in the directory it asks for
 
 $ gate-inbox delete-group -h
 exit 0

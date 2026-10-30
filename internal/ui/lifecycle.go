@@ -85,6 +85,7 @@ func (m *Model) attachSelected() (tea.Model, tea.Cmd) {
 		m.errBar.text = err.Error()
 		return m, nil
 	}
+	m.focusSession(sess.ID)
 	return m, m.attachCmd(sess.ID)
 }
 

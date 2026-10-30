@@ -567,11 +567,15 @@ func (s *Sessions) Groups(sessionID string) ([]Group, error) {
 
 // CreateGroup adds a group under an existing parent, so sessions spawned
 // later can be filed into it. Directory becomes the group's inherited
-// default working directory.
-func (s *Sessions) CreateGroup(sessionID, path, directory string) (Group, error) {
+// default working directory, and pin makes it where every one of them
+// starts, as the board's group form does.
+func (s *Sessions) CreateGroup(sessionID, path, directory string, pin bool) (Group, error) {
 	path = strings.Trim(strings.TrimSpace(path), "/")
 	if path == "" {
 		return Group{}, errors.New("group path is empty")
+	}
+	if pin && strings.TrimSpace(directory) == "" {
+		return Group{}, errors.New("a pinned group needs a directory to pin")
 	}
 	runtime, err := s.open()
 	if err != nil {
@@ -612,7 +616,46 @@ func (s *Sessions) CreateGroup(sessionID, path, directory string) (Group, error)
 	if err := runtime.store.CreateGroup(path, resolved); err != nil {
 		return Group{}, err
 	}
-	return Group{Path: path, Directory: resolved}, nil
+	if pin {
+		if err := runtime.store.SetGroupPinPath(path, true); err != nil {
+			return Group{}, err
+		}
+	}
+	return Group{Path: path, Directory: resolved, Pinned: pin}, nil
+}
+
+// PinGroup turns an existing group's path pin on or off: pinned, every
+// session spawned into its subtree starts in its directory, whatever
+// directory it was asked to work in, so that directory's project settings
+// load. A group with no directory has nothing to pin.
+func (s *Sessions) PinGroup(sessionID, path string, pinned bool) (Group, error) {
+	path = strings.Trim(strings.TrimSpace(path), "/")
+	if path == "" {
+		return Group{}, errors.New("group path is empty")
+	}
+	groups, err := s.Groups(sessionID)
+	if err != nil {
+		return Group{}, err
+	}
+	for _, group := range groups {
+		if group.Path != path {
+			continue
+		}
+		if pinned && group.Directory == "" {
+			return Group{}, fmt.Errorf("group %q has no directory to pin; give it one first", path)
+		}
+		runtime, err := s.open()
+		if err != nil {
+			return Group{}, err
+		}
+		defer runtime.store.Close()
+		if err := runtime.store.SetGroupPinPath(path, pinned); err != nil {
+			return Group{}, err
+		}
+		group.Pinned = pinned
+		return group, nil
+	}
+	return Group{}, fmt.Errorf("group %q does not exist", path)
 }
 
 // GroupRemoval is what deleting a group did, since a fleet that filed work

@@ -1802,13 +1802,27 @@ func (m *Model) cursorRow() (treeRow, bool) {
 // session filtered out of the current view has none, and the cursor stays
 // where it was.
 //
-// A search is dropped on the way. Folds are ignored while a query filters
-// the tree, so a match inside a folded group or under folded children loses
-// its row with the query, and the folds over it are opened to bring it back.
+// A search is dropped on the way, unless the session has no row without it.
 func (m *Model) focusSession(id string) bool {
-	searched := m.search != ""
-	m.searching = false
-	m.clearSearch()
+	var target store.Session
+	for _, sess := range m.sessions {
+		if sess.ID == id {
+			target = sess
+			break
+		}
+	}
+	kept := m.dropSearchOver(target)
+	if m.cursorToSession(id) {
+		return true
+	}
+	if kept.query == "" {
+		return false
+	}
+	m.restoreSearch(kept)
+	return m.cursorToSession(id)
+}
+
+func (m *Model) cursorToSession(id string) bool {
 	for i, row := range m.rows {
 		if row.entersAs() && row.sess.ID == id {
 			m.cursor = i
@@ -1818,22 +1832,35 @@ func (m *Model) focusSession(id string) bool {
 			return true
 		}
 	}
-	if !searched {
-		return false
-	}
-	for _, sess := range m.sessions {
-		if sess.ID != id {
-			continue
-		}
-		index, shown := m.revealSession(sess)
-		if !shown {
-			return false
-		}
-		m.cursor = index
-		m.rebuildRows()
-		return true
-	}
 	return false
+}
+
+// keptSearch is a query dropSearchOver cleared, for restoreSearch.
+type keptSearch struct {
+	query, historyQuery string
+	historyHits         map[string]search.Hit
+}
+
+// dropSearchOver clears the search for a key that acts on sess. Folds are
+// ignored while a query filters the tree, so the ones over sess are opened
+// first or its row would go with the query. An extension can still hide the
+// session once the query is gone, and the caller puts the query back then.
+func (m *Model) dropSearchOver(sess store.Session) keptSearch {
+	kept := keptSearch{query: m.search, historyQuery: m.historyQuery, historyHits: m.historyHits}
+	m.searching = false
+	if kept.query != "" && sess.ID != "" {
+		m.openFoldsOver(sess)
+	}
+	m.clearSearch()
+	return kept
+}
+
+func (m *Model) restoreSearch(kept keptSearch) {
+	if kept.query == "" {
+		return
+	}
+	m.search, m.historyQuery, m.historyHits = kept.query, kept.historyQuery, kept.historyHits
+	m.rebuildRows()
 }
 
 // schedulePreview arms a single capture after previewSettle. Call after

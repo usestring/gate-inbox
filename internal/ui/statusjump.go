@@ -212,6 +212,21 @@ func (m *Model) foldedJumpTarget(jump statusJump, tried map[string]bool) (store.
 // alone: arriving at a group is arriving at its heading, and arriving at a
 // session means arriving at the row itself.
 func (m *Model) revealSession(sess store.Session) (int, bool) {
+	m.openFoldsOver(sess)
+	m.rebuildRows()
+	for index, row := range m.rows {
+		if row.entersAs() && row.sess.ID == sess.ID {
+			return index, true
+		}
+	}
+	// A retired member of a run draws as its run's fold line rather than as
+	// a row, and no fold opens it. The walk treats that as one more
+	// candidate it could not enter.
+	return 0, false
+}
+
+// openFoldsOver is revealSession without the rebuild.
+func (m *Model) openFoldsOver(sess store.Session) {
 	for path := sess.Group; path != rootGroup; path = parentGroup(path) {
 		delete(m.collapsed, path)
 	}
@@ -224,14 +239,4 @@ func (m *Model) revealSession(sess store.Session) (int, bool) {
 		m.setChildrenFolded(id, false)
 	}
 	m.openHeadsAbove(sess)
-	m.rebuildRows()
-	for index, row := range m.rows {
-		if row.entersAs() && row.sess.ID == sess.ID {
-			return index, true
-		}
-	}
-	// A retired member of a run draws as its run's fold line rather than as
-	// a row, and no fold opens it. The walk treats that as one more
-	// candidate it could not enter.
-	return 0, false
 }

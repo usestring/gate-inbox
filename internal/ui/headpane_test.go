@@ -141,6 +141,32 @@ func TestACardFromAPageReturnsToIt(t *testing.T) {
 	}
 }
 
+// Opening a page a search found inside a folded group drops the search but
+// keeps the header, and the page with it.
+func TestOpeningASearchedPageKeepsItsHeader(t *testing.T) {
+	m, _, pages, _ := paneModel(t)
+	for i := range m.sessions {
+		if m.sessions[i].ID == "s9" {
+			m.sessions[i].Group = "folded"
+		}
+	}
+	m.collapsed = map[string]bool{"folded": true}
+	m.search = "unrelated"
+	m.rebuildRows()
+	m.cursor = headIndex(t, m, "other", "s9")
+	paneText(m)
+	m.handleKey(key("enter"))
+	if m.mode != modeHeadPane || m.search != "" {
+		t.Fatalf("mode %s with query %q, want the page focused and no search", m.mode, m.search)
+	}
+	if entry, ok := m.cursorRow(); !ok || rowKey(entry) != "h:other:s9" {
+		t.Fatalf("cursor on %+v, want the header", entry)
+	}
+	if page := (*pages)[0]; len(page.closed) != 0 {
+		t.Fatalf("opening the page closed it: %v", page.closed)
+	}
+}
+
 // A header that goes takes its page with it, told so, and a focused page
 // gives the keyboard back.
 func TestAPageGoesWithItsHeader(t *testing.T) {

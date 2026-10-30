@@ -462,23 +462,59 @@ func TestSessionsArchiveHidesAndRestores(t *testing.T) {
 func TestSessionGroupsListAndCreate(t *testing.T) {
 	t.Parallel()
 	h := newSessionHarness(t)
-	created, err := h.sessions.CreateGroup(h.caller.ID, "backend/payments", h.caller.Cwd)
+	created, err := h.sessions.CreateGroup(h.caller.ID, "backend/payments", h.caller.Cwd, false)
 	if err != nil {
 		t.Fatalf("CreateGroup: %v", err)
 	}
 	if created.Path != "backend/payments" || !sameTerminalPath(created.Directory, h.caller.Cwd) {
 		t.Fatalf("created group = %+v", created)
 	}
-	if _, err := h.sessions.CreateGroup(h.caller.ID, "backend/payments", ""); err == nil ||
+	if _, err := h.sessions.CreateGroup(h.caller.ID, "backend/payments", "", false); err == nil ||
 		!strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("duplicate group error = %v", err)
 	}
-	if _, err := h.sessions.CreateGroup(h.caller.ID, "unknown/child", ""); err == nil ||
+	if _, err := h.sessions.CreateGroup(h.caller.ID, "unknown/child", "", false); err == nil ||
 		!strings.Contains(err.Error(), "parent group") {
 		t.Fatalf("orphan group error = %v", err)
 	}
-	if _, err := h.sessions.CreateGroup(h.caller.ID, "  ", ""); err == nil {
+	if _, err := h.sessions.CreateGroup(h.caller.ID, "  ", "", false); err == nil {
 		t.Fatal("an empty group path should be refused")
+	}
+	if _, err := h.sessions.CreateGroup(h.caller.ID, "backend/pinless", "", true); err == nil ||
+		!strings.Contains(err.Error(), "needs a directory") {
+		t.Fatalf("a pin with no directory error = %v", err)
+	}
+	pinned, err := h.sessions.CreateGroup(h.caller.ID, "backend/pinned", h.caller.Cwd, true)
+	if err != nil || !pinned.Pinned {
+		t.Fatalf("pinned CreateGroup = %+v, %v", pinned, err)
+	}
+	if unpinned, err := h.sessions.PinGroup(h.caller.ID, "backend/pinned", false); err != nil || unpinned.Pinned {
+		t.Fatalf("PinGroup off = %+v, %v", unpinned, err)
+	}
+	if repinned, err := h.sessions.PinGroup(h.caller.ID, created.Path, true); err != nil || !repinned.Pinned {
+		t.Fatalf("PinGroup on = %+v, %v", repinned, err)
+	}
+	listed, err := h.sessions.Groups(h.caller.ID)
+	if err != nil {
+		t.Fatalf("Groups: %v", err)
+	}
+	for _, group := range listed {
+		if want := group.Path == created.Path; group.Pinned != want && strings.HasPrefix(group.Path, "backend/") {
+			t.Fatalf("group %s pinned=%v, want %v", group.Path, group.Pinned, want)
+		}
+	}
+	if _, err := h.sessions.CreateGroup(h.caller.ID, "backend/nodir", "", false); err != nil {
+		t.Fatalf("CreateGroup: %v", err)
+	}
+	if _, err := h.sessions.PinGroup(h.caller.ID, "backend/nodir", true); err == nil ||
+		!strings.Contains(err.Error(), "no directory") {
+		t.Fatalf("pinning a group with no directory error = %v", err)
+	}
+	if _, err := h.sessions.PinGroup(h.caller.ID, "nowhere", true); err == nil {
+		t.Fatal("pinning a missing group should be refused")
+	}
+	if _, err := h.sessions.PinGroup(h.caller.ID, created.Path, false); err != nil {
+		t.Fatalf("PinGroup off: %v", err)
 	}
 
 	unnested := false
@@ -941,7 +977,7 @@ func TestSendRefusesAMessageTooLargeToPasteIntoAPrompt(t *testing.T) {
 func TestDeleteGroupMovesItsSessionsToTheRoot(t *testing.T) {
 	t.Parallel()
 	h := newSessionHarness(t)
-	if _, err := h.sessions.CreateGroup(h.caller.ID, "fleet", ""); err != nil {
+	if _, err := h.sessions.CreateGroup(h.caller.ID, "fleet", "", false); err != nil {
 		t.Fatalf("CreateGroup: %v", err)
 	}
 	group := "fleet"
@@ -992,10 +1028,10 @@ func TestDeleteGroupMovesItsSessionsToTheRoot(t *testing.T) {
 
 func TestDeleteGroupTakesItsSubtreeAndKeepsNesting(t *testing.T) {
 	h := newSessionHarness(t)
-	if _, err := h.sessions.CreateGroup(h.caller.ID, "fleet", ""); err != nil {
+	if _, err := h.sessions.CreateGroup(h.caller.ID, "fleet", "", false); err != nil {
 		t.Fatalf("CreateGroup: %v", err)
 	}
-	if _, err := h.sessions.CreateGroup(h.caller.ID, "fleet/backend", ""); err != nil {
+	if _, err := h.sessions.CreateGroup(h.caller.ID, "fleet/backend", "", false); err != nil {
 		t.Fatalf("CreateGroup nested: %v", err)
 	}
 	group := "fleet/backend"

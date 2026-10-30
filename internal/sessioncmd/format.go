@@ -325,6 +325,9 @@ func FormatGroupList(groups []Group) string {
 		if group.Directory != "" {
 			line += "; directory=" + group.Directory
 		}
+		if group.Pinned {
+			line += "; pinned"
+		}
 		if group.Archived {
 			line += "; archived"
 		}

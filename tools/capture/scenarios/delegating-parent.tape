@@ -4,7 +4,6 @@
 # child named worker as that agent. While worker is still going, the parent's row draws
 # ◎ waiting on sessions instead of finished, and the status counts carry it.
 
-Set Framerate 5
 Hide
 Sleep 3s
 Type "T"

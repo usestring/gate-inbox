@@ -72,6 +72,7 @@ var coreTools = []string{
 	"grant_permission",
 	"message_status",
 	"rename",
+	"report_status",
 }
 
 // inProfile reports whether profile serves the tool called name. An

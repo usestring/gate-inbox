@@ -94,6 +94,11 @@ type jevFinishResultMsg struct {
 	// probe is the agent's answer when the finish is its reply to
 	// jevFinishProbe; JEV is not asked about such a finish.
 	probe jevFinishProbeAnswer
+	// report is what the agent said of its own work with report_status
+	// since its work was last set. When there is one, neither the probe nor
+	// JEV is asked: the agent knows its plan, and the last few turns may not.
+	report   search.StatusReport
+	reported bool
 }
 
 type jevFinishProbeAnswer int
@@ -200,10 +205,17 @@ func (m *Model) checkFinishedWithJev() tea.Cmd {
 		if !found {
 			return msg
 		}
+		if msg.report, msg.reported, _ = search.ReadStatusReport(target); msg.reported {
+			msg.ok = true
+			return msg
+		}
 		messages, err := search.ReadMessages(target, database)
 		if err != nil {
 			return msg
 		}
+		// Keep-alives and wake-ups say nothing about the work; read past
+		// them, so a finish verdict holds across one.
+		messages = search.WorkMessages(messages)
 		if msg.probe = jevFinishProbeReply(messages); msg.probe != jevProbeNone {
 			msg.ok = true
 			return msg
@@ -284,6 +296,13 @@ func (m *Model) applyJevFinish(msg jevFinishResultMsg) {
 	// The row moved on while JEV read it: the verdict is about a finish that
 	// is no longer the one on screen.
 	if !ok || sess.Archived || sess.Status != status.Finished || jevFinishIdentity(sess) != msg.identity || m.jevFinishAttended(sess) {
+		return
+	}
+	if msg.reported {
+		logging.Info("jev finish self-report", "session", sess.ID, "state", msg.report.State)
+		if msg.report.State == "done" {
+			m.reportDone(fmt.Sprintf("%s reports it is done", sess.Name))
+		}
 		return
 	}
 	if msg.probe != jevProbeNone {

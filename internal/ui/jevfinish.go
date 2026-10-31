@@ -14,6 +14,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 // The JEV finish check reads a Claude session's transcript each time the row
@@ -47,6 +48,7 @@ const (
 	jevFinishMessageChars = 1500
 	jevFinishTimeout      = 6 * time.Second
 	chromeFlag            = "--chrome"
+	jevFinishProbePrefix  = "[Gate Inbox finish probe] "
 )
 
 const (
@@ -168,6 +170,12 @@ func (m *Model) noteJevFinishActivity() {
 		m.jevFinish.attended = map[string]string{}
 	}
 	m.jevFinish.attended[sess.ID] = jevFinishIdentity(sess)
+	m.poller.mu.Lock()
+	if m.poller.jevFinishAttended == nil {
+		m.poller.jevFinishAttended = map[string]string{}
+	}
+	m.poller.jevFinishAttended[sess.ID] = jevFinishIdentity(sess)
+	m.poller.mu.Unlock()
 }
 
 func (m *Model) jevFinishAttended(sess store.Session) bool {
@@ -300,7 +308,7 @@ func (m *Model) applyJevFinish(msg jevFinishResultMsg) {
 	case jevFinishProbeAgent:
 		// The poller types it once the prompt is at rest and nobody is
 		// typing there, so it cannot land on a draft or a dialog.
-		if err := m.store.QueuePendingInput(sess.ID, jevFinishProbe); err != nil {
+		if err := m.store.QueuePendingInput(sess.ID, queuedJevFinishProbe(sess)); err != nil {
 			m.errBar.text = "JEV finish probe: " + err.Error()
 		}
 	case jevFinishRelaunchChrome:
@@ -373,4 +381,27 @@ func withChromeFlag(command string) string {
 		}
 	}
 	return command + " " + chromeFlag
+}
+
+func queuedJevFinishProbe(sess store.Session) string {
+	return jevFinishProbePrefix + sess.LastStatusAt.UTC().Format(time.RFC3339Nano)
+}
+
+func isJevFinishProbe(input string) bool {
+	return input == jevFinishProbe || strings.HasPrefix(input, jevFinishProbePrefix)
+}
+
+func (p *poller) jevFinishProbeCurrent(sess store.Session, capture tmux.Capture, derived string) (bool, error) {
+	current, err := p.store.Get(sess.ID)
+	if err != nil {
+		return false, err
+	}
+	p.mu.Lock()
+	attended := p.jevFinishFocusedID == sess.ID || p.jevFinishAttended[sess.ID] == jevFinishIdentity(current)
+	inputAt := p.operatorInputAt[sess.ID]
+	p.mu.Unlock()
+	return !current.Archived && current.Status == status.Finished && derived == status.Finished &&
+		sess.PendingInputs[0] == queuedJevFinishProbe(current) && !attended &&
+		!current.OperatorAt.After(current.LastStatusAt) && !inputAt.After(current.LastStatusAt) &&
+		!capture.State.InputAt.After(current.LastStatusAt), nil
 }

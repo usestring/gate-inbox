@@ -1557,6 +1557,12 @@ func (m *Model) syncPollInput() {
 		selectedID = sess.ID
 	}
 	m.poller.setInput(m.showArchived, selectedID)
+	m.poller.mu.Lock()
+	m.poller.jevFinishFocusedID = ""
+	if m.mode == modeFocus {
+		m.poller.jevFinishFocusedID = m.focusedID
+	}
+	m.poller.mu.Unlock()
 }
 
 // requestRefresh publishes the current UI state to the poller and asks

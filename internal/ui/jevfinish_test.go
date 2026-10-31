@@ -17,6 +17,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 func TestJevFinishVerdictDecides(t *testing.T) {
@@ -321,7 +322,7 @@ func TestJevFinishProbesAnUnsureFinishOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(stored.PendingInputs) != 1 || stored.PendingInputs[0] != jevFinishProbe {
+	if len(stored.PendingInputs) != 1 || stored.PendingInputs[0] != queuedJevFinishProbe(sess) {
 		t.Fatalf("pending inputs = %q", stored.PendingInputs)
 	}
 	if m.errBar.done != "" {
@@ -338,5 +339,113 @@ func TestJevFinishProbesAnUnsureFinishOnce(t *testing.T) {
 	}
 	if stored, _ := m.store.Get(sess.ID); len(stored.PendingInputs) != 1 {
 		t.Fatalf("an answer queued another probe: %q", stored.PendingInputs)
+	}
+}
+
+func TestJevFinishProbeDiscardsObsoleteQueuedInput(t *testing.T) {
+	for _, name := range []string{"working with type ahead", "new finish", "store moved on", "archived", "focused", "attended", "operator input", "pane input", "new task", "legacy probe"} {
+		t.Run(name, func(t *testing.T) {
+			st, err := store.Open(filepath.Join(t.TempDir(), "test.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer st.Close()
+			sess := store.Session{ID: "probe", Name: "probe", Tool: "claude-typeahead", Status: status.Finished, LastStatusAt: time.Now().Add(-time.Minute)}
+			if err := st.CreateSession(sess); err != nil {
+				t.Fatal(err)
+			}
+			input := queuedJevFinishProbe(sess)
+			if name == "legacy probe" {
+				input = jevFinishProbe
+			}
+			if err := st.QueuePendingInput(sess.ID, input); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.QueuePendingInput(sess.ID, "the user's next task"); err != nil {
+				t.Fatal(err)
+			}
+			sess, err = st.Get(sess.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			engine, err := status.NewEngine(config.Config{Tools: map[string]config.Tool{"claude-typeahead": {TypeAhead: true}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := &poller{store: st, engine: engine, operatorInputAt: map[string]time.Time{}}
+			capture := tmux.Capture{State: tmux.CaptureState{Read: true}}
+			derived := status.Finished
+			switch name {
+			case "working with type ahead":
+				derived = status.Working
+			case "new finish", "store moved on":
+				if err := st.UpdateStatus(sess.ID, status.Working); err != nil {
+					t.Fatal(err)
+				}
+				if name == "new finish" {
+					if err := st.UpdateStatus(sess.ID, status.Finished); err != nil {
+						t.Fatal(err)
+					}
+				}
+			case "archived":
+				if err := st.SetArchived(sess.ID, true); err != nil {
+					t.Fatal(err)
+				}
+			case "focused":
+				m := &Model{poller: p, mode: modeFocus, focusedID: sess.ID}
+				m.syncPollInput()
+			case "attended":
+				m := &Model{poller: p, jevFinishCheck: true, focusedID: sess.ID, sessions: []store.Session{sess}}
+				m.noteJevFinishActivity()
+			case "operator input":
+				p.noteOperatorInputAt(sess.ID, sess.LastStatusAt.Add(time.Second))
+			case "pane input":
+				capture.State.InputAt = sess.LastStatusAt.Add(time.Second)
+			case "new task":
+				if err := st.SetOperatorAt(sess.ID, sess.LastStatusAt.Add(time.Second)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if sent, err := p.maybeSendPendingInputWhenReady(sess, capture, derived, true); err != nil || sent {
+				t.Fatalf("obsolete probe sent = %v, %v", sent, err)
+			}
+			stored, err := st.Get(sess.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(stored.PendingInputs) != 1 || stored.PendingInputs[0] != "the user's next task" || stored.PendingInputClaimed {
+				t.Fatalf("queue after discarding probe: %#v, claimed=%v", stored.PendingInputs, stored.PendingInputClaimed)
+			}
+			if stored.Status == status.Working && name != "store moved on" {
+				t.Fatal("discarding the probe started a turn")
+			}
+		})
+	}
+}
+
+func TestJevFinishProbeDeliversOnlyItsPrompt(t *testing.T) {
+	m := buildModel(t)
+	sess := store.Session{ID: "probe", Name: "probe", Tool: "claude-typeahead", Cwd: t.TempDir(), Status: status.Finished, LastStatusAt: time.Now().Add(-time.Minute)}
+	sess.PendingInputs = []string{queuedJevFinishProbe(sess)}
+	if err := m.store.CreateSession(sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.tmux.Create(sess.ID, sess.Cwd, "cat", nil, 120, 30); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.tmux.Kill(sess.ID) })
+	capture := tmux.Capture{Text: "❯ ", State: tmux.CaptureState{Read: true, CursorX: 2}}
+	if sent, err := m.poller.maybeSendPendingInputWhenReady(sess, capture, status.Finished, true); err != nil || !sent {
+		t.Fatalf("current probe sent = %v, %v", sent, err)
+	}
+	if !m.poller.awaitSends(10 * time.Second) {
+		t.Fatal("probe did not finish sending")
+	}
+	pane := settledPane(t, m, sess.ID, "Gate Inbox finish check")
+	if strings.Contains(pane, jevFinishProbePrefix) {
+		t.Fatal("finish identity leaked into the prompt")
+	}
+	if inputs := sessionPendingInputs(t, m, sess.ID); len(inputs) != 0 {
+		t.Fatalf("delivered probe remained queued: %q", inputs)
 	}
 }

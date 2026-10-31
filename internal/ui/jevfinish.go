@@ -32,16 +32,24 @@ const (
 	jevFinishBandLow  = 0.20
 	jevFinishBandHigh = 0.80
 	// jevFinishMessages is how many of the latest turns the state carries,
-	// each cut to jevFinishMessageChars.
-	jevFinishMessages     = 6
+	// each cut to jevFinishMessageChars. Both were picked with
+	// TestJevFinishEval: more turns or longer turns did not flag more
+	// finished sessions without also flagging more unfinished ones.
+	jevFinishMessages     = 4
 	jevFinishMessageChars = 1500
 	jevFinishTimeout      = 6 * time.Second
 	chromeFlag            = "--chrome"
 )
 
 const (
-	jevFinishedQuestion = "Has the agent delivered what the user asked for in this session, with no work left open, " +
-		"nothing pending on the user, and no blocker stopping it?"
+	// The question says outright that optional follow-ups and a PR awaiting
+	// review still count as finished: asked only for "no work left open",
+	// JEV read those as open and scored most sessions the user then closed
+	// as unfinished.
+	jevFinishedQuestion = "Is this session at its end state: the agent has finished the task it was given and reported the result, " +
+		"so the user could close the session now? Count it as finished even if the agent offers optional follow-ups or a PR awaits " +
+		"review; count it as not finished if the agent stopped mid-task, hit an error or blocker it did not resolve, or asked a " +
+		"question it needs answered to continue."
 	jevMissingChromeQuestion = "Did the agent stop, or fail to do what was asked, because it had no Chrome browser control: " +
 		"the Claude in Chrome tools (mcp__claude-in-chrome__*) were missing or unavailable, the browser extension was not " +
 		"connected, or it said the session must be started with --chrome?"

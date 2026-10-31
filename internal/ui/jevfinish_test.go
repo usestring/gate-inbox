@@ -83,7 +83,7 @@ func TestJevFinishTurnsKeepsTheLatestTurns(t *testing.T) {
 		messages = append(messages, search.Message{Role: "user", Text: strings.Repeat("u", i+1)}, search.Message{Role: "tool", Text: "noise"})
 	}
 	turns := jevFinishTurns(messages)
-	if len(turns) != jevFinishMessages || turns[len(turns)-1].Text != strings.Repeat("u", 10) || turns[0].Text != strings.Repeat("u", 5) {
+	if len(turns) != jevFinishMessages || turns[len(turns)-1].Text != strings.Repeat("u", 10) || turns[0].Text != strings.Repeat("u", 11-jevFinishMessages) {
 		t.Fatalf("turns = %+v", turns)
 	}
 }

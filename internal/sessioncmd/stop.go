@@ -50,11 +50,17 @@ func (s *Sessions) Stop(sessionID string, dryRun, archive bool) (StopResult, err
 	if err != nil {
 		return StopResult{}, err
 	}
-	pin, err := runtime.paneProcess(target)
+	owned, err := runtime.paneAncestor(target)
 	if err != nil {
 		return StopResult{}, err
 	}
-	owned, err := runtime.paneAncestor(target)
+	if !owned && sessionID != "" && target.Tool == "codex" && target.AgentSessionID != os.Getenv("CODEX_THREAD_ID") {
+		target, err = runtime.sharedCodexThreadTarget()
+		if err != nil {
+			return StopResult{}, err
+		}
+	}
+	pin, err := runtime.paneProcess(target)
 	if err != nil {
 		return StopResult{}, err
 	}

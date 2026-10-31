@@ -1,6 +1,6 @@
 # A parent at rest on its fan-out reads waiting on sessions. Run with
 # --transcripts working,codex-working,opencode-finished: the board opens on
-# the finished opencode row, demo-project-3, whose terminal spawns a claude
+# the finished opencode row, demo-project-3, whose terminal spawns a codex
 # child named worker as that agent. While worker is still going, the parent's row draws
 # ◎ waiting on sessions instead of finished, and the status counts carry it.
 
@@ -19,7 +19,7 @@ Sleep 1s
 Type `export GATE_INBOX_SESSION_ID=$("$GATE_INBOX_BIN" sessions --json | python3 -c 'import json,sys;w=lambda o:[x for v in (o.values() if isinstance(o,dict) else o if isinstance(o,list) else []) for x in w(v)]+([o["id"]] if isinstance(o,dict) and o.get("name")=="demo-project-3" else []);print(w(json.load(sys.stdin))[0])')`
 Enter
 Sleep 1s
-Type `"$GATE_INBOX_BIN" spawn --tool claude --name worker --prompt hello`
+Type `"$GATE_INBOX_BIN" spawn --tool codex --name worker --prompt hello`
 Enter
 Sleep 8s
 Type "clear"

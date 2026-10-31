@@ -272,3 +272,43 @@ func TestJevFinishUsesAnIndependentLocator(t *testing.T) {
 		t.Fatal("the finish check changed the preview locator's cache")
 	}
 }
+
+func TestJevFinishAsksOnceForTheSameTurns(t *testing.T) {
+	t.Setenv("TYPESAFE_API_KEY", "test-key")
+	home := t.TempDir()
+	sess := store.Session{ID: "finished", Tool: "claude", Status: status.Finished, AgentSessionID: "conversation",
+		LastStatusAt: time.Now()}
+	path := filepath.Join(home, "projects", "project", sess.AgentSessionID+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"type":"assistant","message":{"role":"assistant","content":"Shipped."}}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	previous := jevHTTPClient
+	t.Cleanup(func() { jevHTTPClient = previous })
+	jevHTTPClient = &http.Client{Transport: jevFinishTransport(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(
+			`{"model":"` + jevModel + `","answers":{"finished":{"type":"noul","noul":0.5},"missing_chrome":{"type":"noul","noul":0.1}}}`))}, nil
+	})}
+	m := &Model{cfg: config.Config{Tools: map[string]config.Tool{"claude": {Command: "claude"}}},
+		sessions: []store.Session{sess}, jevFinishCheck: true,
+		conversation: &conversationView{locator: search.NewLocator(home, "")}}
+
+	m.applyJevFinish(m.checkFinishedWithJev()().(jevFinishResultMsg))
+	// A finished, idle, finished flicker restamps the finish with no new turn.
+	m.sessions[0].LastStatusAt = m.sessions[0].LastStatusAt.Add(2 * time.Second)
+	finish := m.checkFinishedWithJev()
+	if finish == nil {
+		t.Fatal("a restamped finish is still a candidate")
+	}
+	m.applyJevFinish(finish().(jevFinishResultMsg))
+	if calls != 1 {
+		t.Fatalf("JEV calls = %d, want 1 for unchanged turns", calls)
+	}
+	if m.jevFinish.busy {
+		t.Fatal("a skipped call must free the check")
+	}
+}

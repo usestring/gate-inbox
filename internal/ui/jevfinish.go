@@ -2,6 +2,8 @@ package ui
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
@@ -53,12 +55,16 @@ func storedJevFinishCheck(st *store.Store) bool {
 }
 
 // jevFinishState is what the check remembers between passes. checked holds
-// the finish each row was last asked about, so one finish costs one call;
-// chromeRelaunched holds the rows already relaunched with Chrome, so a
-// session that still reads as missing it is not relaunched in a loop.
+// the finish each row was last asked about; asked holds a digest of the turns
+// each row was last asked about, because a row that flickers finished, idle,
+// finished restamps its finish with no new turn, and that must not cost a
+// second call. chromeRelaunched holds the rows already relaunched with
+// Chrome, so a session that still reads as missing it is not relaunched in a
+// loop.
 type jevFinishState struct {
 	busy             bool
 	checked          map[string]string
+	asked            map[string]string
 	attended         map[string]string
 	chromeRelaunched map[string]bool
 }
@@ -71,6 +77,7 @@ type jevFinishVerdict struct {
 type jevFinishResultMsg struct {
 	id       string
 	identity string
+	digest   string
 	verdict  jevFinishVerdict
 	ok       bool
 }
@@ -136,6 +143,7 @@ func (m *Model) checkFinishedWithJev() tea.Cmd {
 	locator := search.NewLocator(m.conversation.locator.ClaudeHome, m.conversation.locator.CodexRoot)
 	tool := historyToolFormats(m.cfg)[sess.Tool]
 	database := opencodeDBPath()
+	lastAsked := m.jevFinish.asked[sess.ID]
 	return func() tea.Msg {
 		msg := jevFinishResultMsg{id: sess.ID, identity: identity}
 		target, found := locator.Target(sess.ID, tool, sess.Cwd, sess.AgentSessionID)
@@ -148,6 +156,10 @@ func (m *Model) checkFinishedWithJev() tea.Cmd {
 		}
 		state := jevFinishTurns(messages)
 		if len(state) == 0 {
+			return msg
+		}
+		msg.digest = jevFinishDigest(state)
+		if msg.digest == lastAsked {
 			return msg
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), jevFinishTimeout)
@@ -170,6 +182,15 @@ func jevFinishTurns(messages []search.Message) []suggestMessage {
 		}
 	}
 	return out
+}
+
+// jevFinishDigest names the turns one call would send.
+func jevFinishDigest(state []suggestMessage) string {
+	sum := sha256.New()
+	for _, message := range state {
+		sum.Write([]byte(message.Role + "\x00" + message.Text + "\x00"))
+	}
+	return hex.EncodeToString(sum.Sum(nil))
 }
 
 // askJevFinish posts both noul questions in one call against one state.
@@ -215,6 +236,10 @@ func (m *Model) applyJevFinish(msg jevFinishResultMsg) {
 	if !msg.ok || !m.jevFinishCheck {
 		return
 	}
+	if m.jevFinish.asked == nil {
+		m.jevFinish.asked = map[string]string{}
+	}
+	m.jevFinish.asked[msg.id] = msg.digest
 	sess, ok := m.sessionByID(msg.id)
 	// The row moved on while JEV read it: the verdict is about a finish that
 	// is no longer the one on screen.

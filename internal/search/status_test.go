@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/usestring/gate-inbox/internal/launch"
 )
 
 const keepAlive = "[gate-inbox] Prompt-cache keep-alive, not a task: reply only ok, no tools."
@@ -35,6 +37,25 @@ func TestWorkMessagesReadsPastKeepAlive(t *testing.T) {
 		Message{"user", "Auto wake-up: the previous turn died. Continue where you left off."}, Message{"assistant", "Picked up the deploy."})
 	if got := WorkMessages(nudged); len(got) != 3 || got[2].Text != "Picked up the deploy." {
 		t.Fatalf("a nudge's reply is the work: %v", got)
+	}
+}
+
+func TestWorkMessagesReadsPastRename(t *testing.T) {
+	for name, directive := range map[string]string{
+		"deferred": launch.DeferredRenameDirective,
+		"adopted":  launch.AdoptedRenameDirective("gate-inbox rename"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			messages := []Message{
+				{"user", "ship it"}, {"assistant", "Working on it."},
+				{"user", keepAlive}, {"assistant", "ok"},
+				{"user", directive}, {"assistant", "Merged the PR."},
+			}
+			got := WorkMessages(messages)
+			if len(got) != 3 || got[2] != messages[5] {
+				t.Fatalf("WorkMessages = %v, want the resumed work reply after renaming", got)
+			}
+		})
 	}
 }
 

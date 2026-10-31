@@ -40,10 +40,12 @@ func ClassifyTurn(text string) Turn {
 		return TurnNudge
 	case !band.Has(t):
 		return TurnWork
+	case strings.Contains(t, "Continue the interrupted task") ||
+		strings.Contains(t, "Then continue.") ||
+		strings.Contains(t, "then carry on with what you were doing."):
+		return TurnNudge
 	case strings.Contains(t, "not a task") || strings.Contains(t, "This request is from Gate Inbox itself"):
 		return TurnChore
-	case strings.Contains(t, "Continue the interrupted task"):
-		return TurnNudge
 	}
 	return TurnWork
 }

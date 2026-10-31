@@ -67,6 +67,7 @@ var (
 )
 
 type jevEvalCase struct {
+	ID     int              `json:"id"`
 	Class  string           `json:"class"`
 	Source string           `json:"source"`
 	Next   string           `json:"next,omitempty"`
@@ -85,6 +86,7 @@ func (v jevEvalVariant) String() string {
 
 type jevEvalScore struct {
 	jevEvalVariant
+	Case          int     `json:"case"`
 	Class         string  `json:"class"`
 	Source        string  `json:"source"`
 	Finished      float64 `json:"finished"`
@@ -243,6 +245,11 @@ func TestJevFinishEval(t *testing.T) {
 		rng.Shuffle(len(list), func(i, j int) { list[i], list[j] = list[j], list[i] })
 		cases = append(cases, list[:min(len(list), jevEvalCaps[class])]...)
 	}
+	// The ID lets scores from different variants be joined per case, to read
+	// a cheap first call followed by a larger confirming one.
+	for i := range cases {
+		cases[i].ID = i
+	}
 
 	questions := []string{"current", "previous"}
 	if raw := os.Getenv("JEV_EVAL_QUESTIONS"); raw != "" {
@@ -279,7 +286,7 @@ func TestJevFinishEval(t *testing.T) {
 				})
 				cancel()
 				mu.Lock()
-				scores = append(scores, jevEvalScore{jevEvalVariant: j.v, Class: j.c.Class, Source: j.c.Source,
+				scores = append(scores, jevEvalScore{jevEvalVariant: j.v, Case: j.c.ID, Class: j.c.Class, Source: j.c.Source,
 					Finished: answers["finished"], MissingChrome: answers["missing_chrome"], OK: ok, Millis: time.Since(start).Milliseconds()})
 				mu.Unlock()
 			}

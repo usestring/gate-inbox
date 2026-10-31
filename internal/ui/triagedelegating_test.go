@@ -40,7 +40,7 @@ func delegatingFleet(t *testing.T, m *Model, helper string) {
 	m.rebuildRows()
 }
 
-func TestTriageSkipsADelegatingParent(t *testing.T) {
+func TestTriageIncludesADelegatingParent(t *testing.T) {
 	m := buildModel(t)
 	delegatingFleet(t, m, status.Working)
 
@@ -48,8 +48,8 @@ func TestTriageSkipsADelegatingParent(t *testing.T) {
 	if lead.Status != status.Delegating {
 		t.Fatalf("lead = %q, want delegating while its helper works", lead.Status)
 	}
-	if m.needsPerson(lead) || m.triageWalkable(lead) {
-		t.Fatal("a delegating parent is on the operator's queue")
+	if !m.needsPerson(lead) || !m.triageWalkable(lead) {
+		t.Fatal("a delegated parent is missing from the operator's queue")
 	}
 	var handed []string
 	left := ""
@@ -63,24 +63,22 @@ func TestTriageSkipsADelegatingParent(t *testing.T) {
 		tried[left] = true
 		handed = append(handed, m.rows[i].sess.Name)
 	}
-	if want := []string{"done", "rest"}; !slices.Equal(handed, want) {
+	if want := []string{"done", "lead", "rest"}; !slices.Equal(handed, want) {
 		t.Fatalf("drain handed over %v, want %v", handed, want)
 	}
 }
 
-func TestTriageQueuesADelegatingParentBehindIdle(t *testing.T) {
+func TestTriageQueuesADelegatingParentBeforeIdle(t *testing.T) {
 	m := buildModel(t)
 	delegatingFleet(t, m, status.Working)
 	names := sessionNames(m)
 	at := func(name string) int { return slices.Index(names, name) }
-	if !(at("done") < at("rest") && at("rest") < at("lead")) {
-		t.Fatalf("queue = %v, want done, rest, then the delegating lead", names)
+	if !(at("done") < at("lead") && at("lead") < at("rest")) {
+		t.Fatalf("queue = %v, want done, the delegated lead, then rest", names)
 	}
 }
 
-// A child that needs a person still brings its parent up: delegating keeps
-// the parent from being handed over as done, never from being handed over
-// for a question.
+// A child asking a question outranks the parent's own delegated state.
 func TestTriageLiftsADelegatingParentWhoseChildAsks(t *testing.T) {
 	m := buildModel(t)
 	delegatingFleet(t, m, status.Waiting)
@@ -107,8 +105,61 @@ func TestTriageHandsTheParentOverOnceItsChildrenAreDone(t *testing.T) {
 	}
 }
 
-func TestDelegatingIsOffTheAttentionFilter(t *testing.T) {
-	if requiresInput(status.Delegating) || statusFilterAttention.matches(status.Delegating) {
-		t.Fatal("delegating reads as needing a person")
+func TestDelegatingIsOnTheAttentionFilter(t *testing.T) {
+	if !requiresInput(status.Delegating) || !statusFilterAttention.matches(status.Delegating) {
+		t.Fatal("a delegated parent is missing from the attention filter")
+	}
+}
+
+func TestDelegatedParentStaysOnAttentionWithoutItsWorkingChild(t *testing.T) {
+	m := buildModel(t)
+	delegatingFleet(t, m, status.Working)
+	m.statusFilter = statusFilterAttention
+	m.rebuildRows()
+	if got := sessionNames(m); !slices.Equal(got, []string{"done", "lead"}) {
+		t.Fatalf("attention = %v, want done and lead", got)
+	}
+	lead := sessionNamed(t, m, "lead")
+	lead.Muted = true
+	if m.needsPerson(lead) || m.triageWalkable(lead) {
+		t.Fatal("muting a delegated parent did not remove it from triage")
+	}
+}
+
+func TestDelegatedParentRemainsActionableUntilCompletionReportLands(t *testing.T) {
+	m := buildModel(t)
+	delegatingFleet(t, m, status.Working)
+	child := sessionNamed(t, m, "helper")
+	if err := m.store.UpdateStatus(child.ID, status.Finished); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.poller.relayChildRest(child, status.Finished); err != nil {
+		t.Fatal(err)
+	}
+	report, found, err := m.store.HeadMessage("lead0001")
+	if err != nil || !found {
+		t.Fatalf("child completion report = %+v, found=%v, err=%v", report, found, err)
+	}
+	for _, delivered := range []bool{false, true} {
+		if delivered {
+			if err := m.store.MarkDelivered(report.ID, time.Now()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		loadStoredRows(t, m)
+		shown, err := m.poller.delegated(m.sessions)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m.sessions = shown
+		m.rebuildRows()
+		lead := sessionNamed(t, m, "lead")
+		want := status.Delegating
+		if delivered {
+			want = status.Finished
+		}
+		if lead.Status != want || !m.needsPerson(lead) || !m.triageWalkable(lead) {
+			t.Fatalf("delivered=%v: lead=%+v, want actionable %s", delivered, lead, want)
+		}
 	}
 }

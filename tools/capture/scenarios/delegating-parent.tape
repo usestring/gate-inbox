@@ -1,9 +1,11 @@
 # A parent at rest on its fan-out reads waiting on sessions. Run with
-# --transcripts waiting,codex-working,opencode-finished: the board opens on
+# --transcripts working,codex-working,opencode-finished: the board opens on
 # the finished opencode row, demo-project-3, whose terminal spawns a claude
 # child named worker as that agent. While worker is still going, the parent's row draws
 # ◎ waiting on sessions instead of finished, and the status counts carry it.
 
+Set Framerate 5
+Hide
 Sleep 3s
 Type "T"
 Sleep 5s
@@ -26,6 +28,7 @@ Enter
 Sleep 1s
 Ctrl+q
 Sleep 4s
+Show
 Screenshot {{SHOTS}}/01-parent-delegated-while-worker-works.png
 Sleep 1s
 

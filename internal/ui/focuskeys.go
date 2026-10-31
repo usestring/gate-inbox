@@ -712,12 +712,22 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	key := msg.Key()
-	// On the mobile frame Left at the prompt head still leaves: a phone
-	// keyboard has no easy ctrl+q, so the arrow is the only way back. On a
-	// desktop frame the horizontal arrows stay with the session.
-	if bound && action == keymap.BackAtPrompt && key.Mod == 0 && m.tight() &&
-		key.Code == tea.KeyLeft && m.leftLeavesFocus(sess.ID, sess.Tool) {
-		return m, m.leaveFocus()
+	// Either arrow leaves at its own prompt edge, where the agent would do
+	// nothing with it: Left at the head, Right at the end, and either one on
+	// a dialog that spares the horizontal arrows. Triage still reads Right
+	// as the drain on a finished session -- it hands over to the next one,
+	// while Left is back, to the list, with the queue still armed. The
+	// arrowsStay flag hands both arrows to the session instead.
+	if bound && action == keymap.BackAtPrompt && key.Mod == 0 && !m.arrowsStay {
+		if key.Code == tea.KeyRight && m.rightLeavesFocus(sess.ID, sess.Tool) {
+			if m.triage && sess.Status == status.Finished {
+				return m, m.handOverFocused(sess)
+			}
+			return m, m.leaveFocus()
+		}
+		if key.Code == tea.KeyLeft && m.leftLeavesFocus(sess.ID, sess.Tool) {
+			return m, m.leaveFocus()
+		}
 	}
 	// Whether a dialog is up for this key to answer, read before anything
 	// below moves: once the key has landed the dialog is gone, and the

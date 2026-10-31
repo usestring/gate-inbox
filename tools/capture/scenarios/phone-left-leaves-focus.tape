@@ -1,5 +1,5 @@
-# On the mobile layout, Left at the head of a focused session's prompt returns
-# to the list: a phone keyboard has no easy Ctrl+Q.
+# By default, Left at the head of a focused session's prompt returns to the
+# list -- here on the mobile layout, where a phone has no easy Ctrl+Q.
 #
 #   tools/capture/capture.sh --scenario tools/capture/scenarios/phone-left-leaves-focus.tape --cols 54 --rows 27 \
 #     --transcripts resting,waiting,working

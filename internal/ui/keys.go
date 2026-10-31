@@ -270,7 +270,10 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 			}
 			return m, nil
 		}
-		return m, nil
+		if m.arrowsStay {
+			return m, nil
+		}
+		return m.focusSelected()
 	case keymap.StepOut:
 		if entry, ok := m.selectedRow(); ok && entry.isSession() &&
 			m.hasChildren(entry.sess.ID) && m.childrenShown(entry.sess.ID) {

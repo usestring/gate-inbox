@@ -167,8 +167,8 @@ func TestRightStaysWhileTypingOpencodeCustomAnswer(t *testing.T) {
 	}
 }
 
-// The arrow stays with the question dialog.
-func TestFocusRightKeyStaysInOpencodeQuestionDialog(t *testing.T) {
+// End to end: the key that was swallowed now returns to the list.
+func TestFocusRightKeyLeavesOpencodeQuestionDialog(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "ocright", t.TempDir(), "")
 	m.selectSessionRow(t, "ocright")
@@ -194,7 +194,7 @@ func TestFocusRightKeyStaysInOpencodeQuestionDialog(t *testing.T) {
 
 	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
 	*m = *updated.(*Model)
-	if m.mode != modeFocus {
-		t.Fatalf("Right left the opencode dialog, mode = %v, err = %q", m.mode, m.errBar.text)
+	if m.mode != modeList {
+		t.Fatalf("Right did not leave the opencode dialog, mode = %v, err = %q", m.mode, m.errBar.text)
 	}
 }

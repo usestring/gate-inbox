@@ -51,7 +51,22 @@ func ReadMessages(target Target, database string) ([]Message, error) {
 }
 
 func readMessagesTail(target Target, limit int64) ([]Message, error) {
-	f, err := os.Open(target.Path)
+	lines, err := tailLines(target.Path, limit)
+	if err != nil {
+		return nil, err
+	}
+	var messages []Message
+	for _, line := range lines {
+		if message, ok := parseMessage(line, target.Tool); ok {
+			messages = append(messages, message)
+		}
+	}
+	return messages, nil
+}
+
+// tailLines is the whole lines in the last limit bytes of a file.
+func tailLines(path string, limit int64) ([][]byte, error) {
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
@@ -68,13 +83,7 @@ func readMessagesTail(target Target, limit int64) ([]Message, error) {
 	if start > 0 {
 		_, data, _ = bytes.Cut(data, []byte("\n"))
 	}
-	var messages []Message
-	for _, line := range bytes.Split(data, []byte("\n")) {
-		if message, ok := parseMessage(line, target.Tool); ok {
-			messages = append(messages, message)
-		}
-	}
-	return messages, nil
+	return bytes.Split(data, []byte("\n")), nil
 }
 
 type messageEnvelope struct {

@@ -14,6 +14,10 @@ package mcpreg
 //
 // Rule 2 is not repeated here: a claude child gets it from the SessionStart
 // hook (sessioncmd.ChildApprovalNote), and only a child needs it.
+//
+// The report_status line is what lets the board tell a finished session
+// from one that only stopped, without guessing from its last few turns.
 const claudeSteering = "Gate Inbox manages this session. Before handing work to another agent " +
 	"(Agent, Task or Workflow tool), load the gate-inbox:delegate-with-gate-inbox skill: " +
-	"real work goes to create_session sessions on the user's board.\n"
+	"real work goes to create_session sessions on the user's board.\n" +
+	"End every turn by calling the gate-inbox report_status tool with done, waiting, blocked or working.\n"

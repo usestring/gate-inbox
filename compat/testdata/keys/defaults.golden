@@ -29,12 +29,12 @@ new_session_form = ["ctrl+n"]  # new session, asking name, CLI, directory, task
 new_group = ["g"]  # new group
 new_terminal = ["T", "shift+t"]  # new terminal tab
 fork = []  # fork the session into a new one
-migrate = []  # migrate it to another CLI
+migrate = ["ctrl+t"]  # migrate it to another CLI
 revive = ["v"]  # revive it, or restart a live one on its own conversation
 revive_all = ["V", "shift+v"]  # revive every dead session
 ingest_reviews = ["P", "shift+p"]  # fetch reviews asked of you on GitHub
 reviews_tab = ["]"]  # switch between the Sessions and Reviews tabs
-switch_account = []  # switch its account: restarts it on its own conversation
+switch_account = ["alt+a"]  # switch its account: restarts it on its own conversation
 restart = []  # restart it on an empty context
 restart_with = []  # restart it with extra flags…
 archive = ["x"]  # kill it and file the row
@@ -137,4 +137,7 @@ review_start = ["s", "enter"]  # start the review
 review_open = ["o"]  # open on GitHub
 review_dismiss = ["x"]  # dismiss
 refresh = ["P", "shift+p"]  # fetch new reviews
+
+[limit_switch]
+switch_account = ["a"]  # review another subscription
 

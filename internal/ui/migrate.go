@@ -20,8 +20,6 @@ import (
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-const migrateKey = "M"
-
 // migrateAuto heads the card's targets when the build has a tool chooser,
 // and leaves the CLI to it the way the new-session box's auto does.
 const migrateAuto = "auto"

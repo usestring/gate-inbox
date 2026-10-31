@@ -103,6 +103,7 @@ const procInterval = 1200 * time.Millisecond
 // which is what buys it the keystroke cadence for the next focusActiveFor.
 func (m *Model) noteFocusActivity() {
 	m.focusActiveAt = time.Now()
+	m.focusTypedAt = m.focusActiveAt
 	m.noteJevFinishActivity()
 }
 
@@ -142,6 +143,13 @@ func (m *Model) noteFocusRepaint() {
 // enough to be worth sampling at the keystroke rate.
 func (m *Model) focusActive() bool {
 	return !m.focusActiveAt.IsZero() && time.Since(m.focusActiveAt) < focusActiveFor
+}
+
+// focusTyping reports whether the focused pane was typed into within the last
+// focusActiveFor. It is not focusActive: an echo releases the cadence tier on
+// the very frame that proves someone is typing.
+func (m *Model) focusTyping() bool {
+	return !m.focusTypedAt.IsZero() && time.Since(m.focusTypedAt) < focusActiveFor
 }
 
 // noteFocusWheel marks the pane on screen as one the wheel is turning. It is

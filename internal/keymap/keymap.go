@@ -37,18 +37,20 @@ import (
 type Context string
 
 const (
-	ContextList      Context = "list"
-	ContextFocus     Context = "focus"
-	ContextNameSweep Context = "name_sweep"
-	ContextWelcome   Context = "welcome"
-	ContextConfirm   Context = "confirm"
-	ContextReviews   Context = "reviews"
+	ContextList        Context = "list"
+	ContextFocus       Context = "focus"
+	ContextNameSweep   Context = "name_sweep"
+	ContextWelcome     Context = "welcome"
+	ContextConfirm     Context = "confirm"
+	ContextReviews     Context = "reviews"
+	ContextLimitSwitch Context = "limit_switch"
 )
 
 // Contexts is every context in the order the key map lists them.
 var Contexts = []Context{
 	ContextList, ContextFocus,
 	ContextNameSweep, ContextWelcome, ContextConfirm, ContextReviews,
+	ContextLimitSwitch,
 }
 
 // Action names what a key does. It is the identifier the operator's file

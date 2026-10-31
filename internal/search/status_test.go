@@ -52,6 +52,8 @@ func TestReadStatusReport(t *testing.T) {
 		{"reported", []string{prompt("ship it"), report, result}, "done"},
 		{"across a keep-alive", []string{prompt("ship it"), report, result, prompt(keepAlive)}, "done"},
 		{"lapses on a new prompt", []string{prompt("ship it"), report, result, prompt("now the docs")}, ""},
+		{"lapses on an image-only prompt", []string{prompt("ship it"), report, result,
+			`{"type":"user","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":""}}]}}`}, ""},
 		{"none", []string{prompt("ship it")}, ""},
 	} {
 		path := filepath.Join(t.TempDir(), "c.jsonl")

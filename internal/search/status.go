@@ -132,8 +132,8 @@ func ReadStatusReport(target Target) (StatusReport, bool, error) {
 	return report, found, nil
 }
 
-// promptSetsWork reports a user row holding text a person or another agent
-// typed. Tool results ride in user rows too and set nothing.
+// promptSetsWork reports a user row holding input from a person or another
+// agent. Tool results ride in user rows too and set nothing.
 func promptSetsWork(content json.RawMessage) bool {
 	var text string
 	if json.Unmarshal(content, &text) == nil {
@@ -144,6 +144,9 @@ func promptSetsWork(content json.RawMessage) bool {
 		return false
 	}
 	for _, block := range blocks {
+		if block.Type == "image" || block.Type == "input_image" {
+			return true
+		}
 		if block.Type == "text" && strings.TrimSpace(block.Text) != "" && !injectedMessage(block.Text) && ClassifyTurn(block.Text) == TurnWork {
 			return true
 		}

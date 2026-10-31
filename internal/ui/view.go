@@ -384,7 +384,7 @@ func (m *Model) groupStatusBreakdown(group string) string {
 			// The count carries the state's color, the word stays quiet: a
 			// rollup line should read as one texture, not as six labels
 			// competing with the session names above it.
-			parts = append(parts, statusTint(st, fmt.Sprintf("%d", counts[st]))+subtleText(" "+st))
+			parts = append(parts, statusTint(st, fmt.Sprintf("%d", counts[st]))+subtleText(" "+statusLabel(st)))
 		}
 	}
 	return strings.Join(parts, subtleText(" · "))

@@ -148,7 +148,7 @@ func TestTriagePersistsAcrossToggles(t *testing.T) {
 
 func TestRequiresInputIsTheAttentionFilter(t *testing.T) {
 	for _, st := range []string{
-		status.Waiting, status.Errored, status.Finished,
+		status.Waiting, status.Errored, status.Finished, status.Delegating,
 		status.Idle, status.Working, status.Starting, status.Dead,
 	} {
 		if requiresInput(st) != statusFilterAttention.matches(st) {

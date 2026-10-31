@@ -1472,8 +1472,15 @@ func (d *Driver) Kill(id string) error {
 		// against a bare =session as a pane target.
 		target = "=" + sessionName(id) + ":"
 	}
+	var tree []treeProc
+	if home != "" {
+		tree = d.windowTree(home)
+	}
 	err = d.endOwnWindow(id, home, target, "#{==:#{session_name},"+sessionName(id)+"}")
 	os.Remove(d.launchScriptPath(id))
+	if err == nil {
+		reapTree(tree)
+	}
 	return err
 }
 

@@ -23,12 +23,36 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/band"
+	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
 )
 
 // clockSlack absorbs small differences between the manager's launch clock
 // and the filesystem timestamp on the store entry the CLI writes.
 const clockSlack = 10 * time.Second
+
+// codexStartSkew is how far before the launch a Codex conversation may
+// start and still be taken on time alone. Codex stamps session_meta from the
+// clock the launch time was read from, so a conversation that opened earlier
+// than this belongs to a process that was already running in the directory.
+const codexStartSkew = time.Second
+
+// codexExcerptLen is how much of each message's head and tail the screen
+// check looks for: long enough that two conversations do not share one.
+const codexExcerptLen = 80
+
+// Evidence is what a launch knows about its own conversation beyond its
+// directory and launch time. Codex capture checks it before falling back to
+// time, because a fan-out, an adopted pane and a hand-started session can all
+// open Codex conversations in one directory within seconds of each other.
+type Evidence struct {
+	// Prompt is the prompt the session was launched with, empty if none.
+	Prompt string
+	// Screen is the pane's visible text, empty if it could not be read.
+	Screen string
+}
 
 // opencodeScanLimit caps how many of the most-recent sessions we inspect per
 // capture. `opencode session list` is newest-first, so a just-launched
@@ -51,11 +75,12 @@ const opencodeExportHeadBytes = 64 * 1024
 // ("codex" or "opencode"). claimed holds ids already
 // bound to other sessions, so two sessions started in one directory do not
 // capture the same conversation. It returns ok=false when no confident match
-// exists yet; the caller retries on the next poll.
-func Capture(sessionStore, cwd string, launchedAt time.Time, claimed map[string]bool) (string, bool) {
+// exists yet; the caller retries on the next poll. evidence is used by codex
+// capture only.
+func Capture(sessionStore, cwd string, launchedAt time.Time, claimed map[string]bool, evidence Evidence) (string, bool) {
 	switch sessionStore {
 	case "codex":
-		return captureCodex(codexRoot(), cwd, launchedAt, claimed)
+		return captureCodex(codexRoot(), cwd, launchedAt, claimed, evidence)
 	case "opencode":
 		return captureOpencode(cwd, launchedAt, claimed)
 	case "":
@@ -365,20 +390,109 @@ func pickEarliest(cands []extension.SessionCandidate) (string, bool) {
 // session_meta record carrying the session id and the directory it ran
 // in. Activity in an old conversation must not bind it to a new launch.
 // A rollout that cannot be read fails the scan rather than capture from a partial list.
-func captureCodex(root, cwd string, launchedAt time.Time, claimed map[string]bool) (string, bool) {
-	cands, err := codexCandidates(root, cwd, launchedAt.Add(-clockSlack), claimed)
+//
+// The strongest evidence decides: a conversation that opened on the launch
+// prompt, then one whose messages the pane is showing, and only then the
+// earliest conversation that started after the launch. Evidence that matches
+// nothing narrows nothing, so a prompt Codex rewrote or a screen that has not
+// drawn a message yet leaves the decision to the next check.
+func captureCodex(root, cwd string, launchedAt time.Time, claimed map[string]bool, evidence Evidence) (string, bool) {
+	pool, err := codexCandidates(root, cwd, launchedAt.Add(-clockSlack), claimed)
 	if err != nil {
 		return "", false
 	}
-	fresh := make([]extension.SessionCandidate, 0, len(cands))
-	for _, cand := range cands {
-		fresh = append(fresh, extension.SessionCandidate{ID: cand.ID, Created: cand.Created})
+	if prompt := convo.Normalize(evidence.Prompt); prompt != "" {
+		var matched bool
+		pool, matched = narrowCodex(pool, func(cand codexCandidate) bool { return codexOpenedOn(cand.Path, prompt) })
+		if matched && len(pool) == 1 {
+			return pool[0].ID, true
+		}
+	}
+	if screen := convo.Normalize(evidence.Screen); screen != "" {
+		var matched bool
+		pool, matched = narrowCodex(pool, func(cand codexCandidate) bool { return codexShownOn(cand.Path, screen) })
+		if matched && len(pool) == 1 {
+			return pool[0].ID, true
+		}
+	}
+	fresh := make([]extension.SessionCandidate, 0, len(pool))
+	for _, cand := range pool {
+		if !cand.Created.Before(launchedAt.Add(-codexStartSkew)) {
+			fresh = append(fresh, extension.SessionCandidate{ID: cand.ID, Created: cand.Created})
+		}
 	}
 	return pickEarliest(fresh)
 }
 
+// narrowCodex keeps the candidates match accepts, or all of them when it
+// accepts none; matched reports which.
+func narrowCodex(cands []codexCandidate, match func(codexCandidate) bool) (kept []codexCandidate, matched bool) {
+	for _, cand := range cands {
+		if match(cand) {
+			kept = append(kept, cand)
+		}
+	}
+	if len(kept) == 0 {
+		return cands, false
+	}
+	return kept, true
+}
+
+// codexOpenedOn reports whether one of the conversation's first prompts
+// carries the normalized launch prompt.
+func codexOpenedOn(path, prompt string) bool {
+	opening, err := search.ReadFirstPrompts(search.Target{Tool: search.ToolCodex, Path: path}, 3)
+	if err != nil {
+		return false
+	}
+	for _, text := range opening {
+		if strings.Contains(convo.Normalize(text), prompt) {
+			return true
+		}
+	}
+	return false
+}
+
+// codexShownOn reports whether the normalized screen shows a message from
+// the conversation.
+func codexShownOn(path, screen string) bool {
+	excerpts, err := CodexExcerpts(path)
+	if err != nil {
+		return false
+	}
+	for _, excerpt := range excerpts {
+		if strings.Contains(screen, excerpt) {
+			return true
+		}
+	}
+	return false
+}
+
+// CodexExcerpts returns the normalized head and tail of each long message in
+// the tail of a Codex rollout, which a pane showing that conversation has on
+// screen once the message is drawn.
+func CodexExcerpts(path string) ([]string, error) {
+	messages, err := search.ReadCodexTail(path)
+	if err != nil {
+		return nil, err
+	}
+	var excerpts []string
+	for _, message := range messages {
+		if band.Has(message.Text) {
+			continue
+		}
+		text := convo.Normalize(message.Text)
+		if len(text) < codexExcerptLen {
+			continue
+		}
+		excerpts = append(excerpts, strings.Clone(text[:codexExcerptLen]), strings.Clone(text[len(text)-codexExcerptLen:]))
+	}
+	return excerpts, nil
+}
+
 type codexCandidate struct {
 	ID      string
+	Path    string
 	Created time.Time
 	Updated time.Time
 }
@@ -406,14 +520,16 @@ func codexCandidates(root, cwd string, cutoff time.Time, claimed map[string]bool
 		if info.ModTime().Before(cutoff) {
 			return nil
 		}
-		id, metaCwd, created, err := codexMeta(path)
+		id, metaCwd, created, subagent, err := codexMeta(path)
 		if err != nil {
 			return err
 		}
-		if id == "" || !extension.SamePath(metaCwd, cwd) || claimed[id] || !cutoff.IsZero() && (created.IsZero() || created.Before(cutoff)) {
+		// A guardian or a spawned thread writes its own rollout in the parent's
+		// directory a moment after it; no pane is running that conversation.
+		if id == "" || subagent || !extension.SamePath(metaCwd, cwd) || claimed[id] || !cutoff.IsZero() && (created.IsZero() || created.Before(cutoff)) {
 			return nil
 		}
-		cands = append(cands, codexCandidate{ID: id, Created: created, Updated: info.ModTime()})
+		cands = append(cands, codexCandidate{ID: id, Path: path, Created: created, Updated: info.ModTime()})
 		return nil
 	})
 	return cands, err
@@ -421,19 +537,19 @@ func codexCandidates(root, cwd string, cutoff time.Time, claimed map[string]bool
 
 // codexMeta reads the session id and cwd from a rollout's first line. A
 // malformed or overlong first line yields no id and no error.
-func codexMeta(path string) (id, cwd string, created time.Time, err error) {
+func codexMeta(path string) (id, cwd string, created time.Time, subagent bool, err error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return "", "", time.Time{}, err
+		return "", "", time.Time{}, false, err
 	}
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	if !scanner.Scan() {
 		if err := scanner.Err(); err != nil && !errors.Is(err, bufio.ErrTooLong) {
-			return "", "", time.Time{}, err
+			return "", "", time.Time{}, false, err
 		}
-		return "", "", time.Time{}, nil
+		return "", "", time.Time{}, false, nil
 	}
 	var line struct {
 		Type      string    `json:"type"`
@@ -443,23 +559,30 @@ func codexMeta(path string) (id, cwd string, created time.Time, err error) {
 			ID        string    `json:"id"`
 			Timestamp time.Time `json:"timestamp"`
 			Cwd       string    `json:"cwd"`
+			// Source is a string such as "cli" or "vscode", or an object
+			// naming the subagent that wrote the rollout.
+			Source json.RawMessage `json:"source"`
 		} `json:"payload"`
 	}
 	if json.Unmarshal(scanner.Bytes(), &line) != nil || line.Type != "session_meta" {
-		return "", "", time.Time{}, nil
+		return "", "", time.Time{}, false, nil
 	}
 	id = line.Payload.ID
 	if id == "" {
 		id = line.Payload.SessionID
 	}
 	if !extension.ValidSessionID(id) {
-		return "", "", time.Time{}, nil
+		return "", "", time.Time{}, false, nil
 	}
 	created = line.Payload.Timestamp
 	if created.IsZero() {
 		created = line.Timestamp
 	}
-	return id, line.Payload.Cwd, created, nil
+	var source struct {
+		Subagent json.RawMessage `json:"subagent"`
+	}
+	subagent = json.Unmarshal(line.Payload.Source, &source) == nil && len(source.Subagent) > 0
+	return id, line.Payload.Cwd, created, subagent, nil
 }
 
 // captureOpencode finds the conversation opencode minted for a session

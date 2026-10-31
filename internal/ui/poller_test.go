@@ -1714,3 +1714,75 @@ func TestMissedTurnLeavesARowThatSawTheTurnAlone(t *testing.T) {
 		t.Fatalf("a turn still running = %q, want working", got)
 	}
 }
+
+// writeCodexConversation writes a rollout whose assistant reply is reply.
+func writeCodexConversation(t *testing.T, path, sessionID, cwd string, created time.Time, reply string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stamp := created.Format(time.RFC3339Nano)
+	content := fmt.Sprintf(`{"timestamp":%q,"type":"session_meta","payload":{"id":%q,"timestamp":%q,"cwd":%q,"source":"cli"}}`+"\n"+
+		`{"timestamp":%q,"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":%q}]}}`+"\n",
+		stamp, sessionID, stamp, cwd, stamp, reply)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Two Codex conversations open in one directory after a launch; the pane is
+// showing the later one, coloured and wrapped. Capture must bind what the pane
+// shows rather than the earlier conversation creation order would pick.
+func TestCaptureBindsTheCodexConversationThePaneShows(t *testing.T) {
+	st, err := store.Open(filepath.Join(tmuxtest.ScratchDir(t), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	codexHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	cwd := t.TempDir()
+	launch := time.Now().Add(-time.Minute)
+	const shown = "I audited every sibling worktree and found three that are superseded by merged pull requests, so they are safe to remove."
+	writeCodexConversation(t, filepath.Join(codexHome, "sessions", "rollout-other.jsonl"), "other-id", cwd, launch.Add(500*time.Millisecond),
+		"The priority flag is dropped when the background monitor rewrites the session row, which is why the queue order ignores it.")
+	writeCodexConversation(t, filepath.Join(codexHome, "sessions", "rollout-shown.jsonl"), "shown-id", cwd, launch.Add(900*time.Millisecond), shown)
+
+	socket := newTestSocket(t)
+	t.Cleanup(func() { tmuxOnSocket(socket, "kill-server").Run() })
+	driver := newTestDriver(t, socket)
+	script := fmt.Sprintf(`printf '\033[1;36m%%s\033[0m\n' %q; sleep 30`, shown)
+	if err := driver.Create("sess", cwd, script, nil, 40, 20); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		capture := driver.CaptureJoinedVisible(socket, []string{driver.TargetName("sess")})[driver.TargetName("sess")]
+		if strings.Contains(capture.Text, "safe to remove") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pane never drew the reply: %q", capture.Text)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if err := st.CreateSession(store.Session{ID: "sess", Name: "s", Tool: "codex", Cwd: cwd, Group: "g", Status: "idle", CreatedAt: launch}); err != nil {
+		t.Fatal(err)
+	}
+	sess, err := st.Get("sess")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &poller{store: st, tmux: driver, sessionStores: map[string]string{"codex": "codex"}}
+	if _, err := p.captureAgentSessionIDs([]store.Session{sess}, map[string]int{"sess": 1}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.Get("sess")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AgentSessionID != "shown-id" {
+		t.Fatalf("bound %q, want shown-id", got.AgentSessionID)
+	}
+}

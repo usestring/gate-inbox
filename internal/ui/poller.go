@@ -1481,10 +1481,12 @@ func (p *poller) captureAgentSessionIDs(sessions []store.Session, panes map[stri
 	sort.SliceStable(pending, func(a, b int) bool {
 		return sessions[pending[a]].LaunchTime().Before(sessions[pending[b]].LaunchTime())
 	})
+	screens := p.captureScreens(sessions, pending)
 	captured := 0
 	for _, i := range pending {
 		sess := sessions[i]
-		agentID, ok := agentsession.Capture(p.sessionStores[sess.Tool], sess.Cwd, sess.LaunchTime(), claimed)
+		evidence := agentsession.Evidence{Prompt: sess.LaunchPrompt, Screen: screens[sess.ID]}
+		agentID, ok := agentsession.Capture(p.sessionStores[sess.Tool], sess.Cwd, sess.LaunchTime(), claimed, evidence)
 		if !ok {
 			continue
 		}
@@ -1505,6 +1507,41 @@ func (p *poller) captureAgentSessionIDs(sessions []store.Session, panes map[stri
 		captured++
 	}
 	return captured, nil
+}
+
+// captureScreens reads the visible pane of each pending Codex session, which
+// capture checks against the conversations it might bind. It reads joined and
+// without escapes, as the backfill does, because a board capture's colour codes
+// and wrapped lines split the message text the check looks for. A pane that
+// cannot be read is left out and capture decides without it.
+func (p *poller) captureScreens(sessions []store.Session, pending []int) map[string]string {
+	if p.tmux == nil {
+		return nil
+	}
+	bySocket := map[string]map[string]string{} // socket -> tmux target -> session id
+	for _, i := range pending {
+		if p.sessionStores[sessions[i].Tool] != "codex" {
+			continue
+		}
+		target := p.tmux.TargetFor(sessions[i].ID)
+		if bySocket[target.Socket] == nil {
+			bySocket[target.Socket] = map[string]string{}
+		}
+		bySocket[target.Socket][target.Name] = sessions[i].ID
+	}
+	screens := map[string]string{}
+	for socket, ids := range bySocket {
+		targets := make([]string, 0, len(ids))
+		for target := range ids {
+			targets = append(targets, target)
+		}
+		for target, capture := range p.tmux.CaptureJoinedVisible(socket, targets) {
+			if capture.Err == nil {
+				screens[ids[target]] = capture.Text
+			}
+		}
+	}
+	return screens
 }
 
 // pendingDeliverable is the rest gate for pending input and queued messages.

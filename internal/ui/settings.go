@@ -197,6 +197,7 @@ func (m *Model) openSettings() {
 		promptSuggest:    m.promptSuggest,
 		compressedFocus:  m.compressedFocus,
 		reviewQueue:      m.reviewQueue,
+		arrowsStay:       m.arrowsStay,
 		backdropSync:     storedBackdrop(m.store) == backdropSync,
 	}
 	m.mode = modeSettings
@@ -400,6 +401,7 @@ func (m *Model) persistSettings() tea.Cmd {
 	m.smartTriage = m.settings.smartTriage
 	m.focusOnEnter = m.settings.enterFocuses
 	m.compressedFocus = storedCompressedFocus(m.store)
+	m.arrowsStay = storedArrowsStay(m.store)
 	m.focusView = storedFocusView(m.store)
 	m.comfortableRows = m.settings.comfortableRows
 	m.layout = normalizeLayout(m.settings.layout)

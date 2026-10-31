@@ -527,6 +527,9 @@ type Model struct {
 	// every frame, so it lives here instead of the store. See focusview.go.
 	focusView       string
 	compressedFocus bool
+	// arrowsStay keeps the prompt-edge arrows with a focused session rather
+	// than leaving for the list. See experimental.go.
+	arrowsStay bool
 	// comfortableRows mirrors the persisted list density: entries paint
 	// their meta on a second line instead of alongside the name. Every
 	// rail frame reads it, so it lives here instead of the store.
@@ -963,6 +966,7 @@ type settingsState struct {
 	promptSuggest      bool
 	compressedFocus    bool
 	reviewQueue        bool
+	arrowsStay         bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -1324,6 +1328,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		focusOnEnter:    storedFocusOnEnter(st),
 		focusView:       storedFocusView(st),
 		compressedFocus: storedCompressedFocus(st),
+		arrowsStay:      storedArrowsStay(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
 		jevFinishCheck:  storedJevFinishCheck(st),
 		jevCopyOn:       storedJevCopy(st),

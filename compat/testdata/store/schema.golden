@@ -23,6 +23,9 @@ CREATE INDEX forge_tickets_age ON forge_tickets (fetched_at)
 === index permission_grants_active on permission_grants
 CREATE UNIQUE INDEX permission_grants_active ON permission_grants (session_id, kind, value) WHERE revoked_at = 0
 
+=== index review_drafts_pr on review_drafts
+CREATE INDEX review_drafts_pr ON review_drafts (repo, number)
+
 === index session_inbox_queue on session_inbox
 CREATE INDEX session_inbox_queue ON session_inbox (session_id, delivered_at, id)
 
@@ -147,6 +150,25 @@ CREATE INDEX tasks_claimable ON tasks (state, created_at)
    3 created_at                   INTEGER  notnull=1 default=NULL pk=0
   index sqlite_autoindex_replace_holds_1 unique=1 origin=pk partial=0 (fresh_id)
 
+=== table review_drafts
+   0 id                           INTEGER  notnull=0 default=NULL pk=1
+   1 repo                         TEXT     notnull=1 default=NULL pk=0
+   2 number                       INTEGER  notnull=1 default=NULL pk=0
+   3 head_sha                     TEXT     notnull=1 default='' pk=0
+   4 path                         TEXT     notnull=1 default=NULL pk=0
+   5 line                         INTEGER  notnull=1 default=NULL pk=0
+   6 side                         TEXT     notnull=1 default='RIGHT' pk=0
+   7 body                         TEXT     notnull=1 default=NULL pk=0
+   8 kind                         TEXT     notnull=1 default='finding' pk=0
+   9 context                      TEXT     notnull=1 default='' pk=0
+  10 author                       TEXT     notnull=1 default=NULL pk=0
+  11 session_id                   TEXT     notnull=1 default='' pk=0
+  12 state                        TEXT     notnull=1 default='proposed' pk=0
+  13 submitted_at                 INTEGER  notnull=1 default=0 pk=0
+  14 created_at                   INTEGER  notnull=1 default=NULL pk=0
+  15 updated_at                   INTEGER  notnull=1 default=NULL pk=0
+  index review_drafts_pr unique=0 origin=c partial=0 (repo, number)
+
 === table review_requests
    0 repo                         TEXT     notnull=1 default=NULL pk=1
    1 number                       INTEGER  notnull=1 default=NULL pk=2
@@ -166,6 +188,7 @@ CREATE INDEX tasks_claimable ON tasks (state, created_at)
   15 session_id                   TEXT     notnull=1 default='' pk=0
   16 created_at                   INTEGER  notnull=1 default=NULL pk=0
   17 updated_at                   INTEGER  notnull=1 default=NULL pk=0
+  18 session_head                 TEXT     notnull=1 default='' pk=0
   index sqlite_autoindex_review_requests_1 unique=1 origin=pk partial=0 (repo, number, trigger, trigger_id)
 
 === table seal_uses

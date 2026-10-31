@@ -1,4 +1,4 @@
-33 tools
+34 tools
   answer_session
   archive_session
   cleanup_children
@@ -24,6 +24,7 @@
   release_files
   rename
   reserve_files
+  review_comment
   revive_session
   send_children
   send_session
@@ -2889,6 +2890,63 @@
     ],
     "type": "object"
   }
+}
+
+=== review_comment
+{
+  "annotations": {
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "readOnlyHint": false
+  },
+  "description": "Draft one inline comment on a pull request you were asked to review, for the operator to keep, edit or drop before they submit the review. Call it once per finding or question instead of posting with gh; nothing reaches GitHub until the operator submits. The pull request must have an open review ask on the board, and the line must be part of its diff.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "body": {
+        "description": "the comment as the author will read it",
+        "type": "string"
+      },
+      "context": {
+        "description": "for the operator only: why it matters, and what the pull request's description claims that this checks",
+        "type": "string"
+      },
+      "kind": {
+        "description": "finding (default) for a problem, question for something the operator should ask the author",
+        "type": "string"
+      },
+      "line": {
+        "description": "the line the comment is on: the new file's line on RIGHT, the old file's on LEFT; it must be part of the diff",
+        "type": "integer"
+      },
+      "number": {
+        "description": "the pull request's number",
+        "type": "integer"
+      },
+      "path": {
+        "description": "the file the comment is on, as the diff names it",
+        "type": "string"
+      },
+      "repo": {
+        "description": "the pull request's repository as owner/name",
+        "type": "string"
+      },
+      "side": {
+        "description": "RIGHT (default) for an added or unchanged line, LEFT for a removed one",
+        "type": "string"
+      }
+    },
+    "required": [
+      "repo",
+      "number",
+      "path",
+      "line",
+      "body"
+    ],
+    "type": "object"
+  },
+  "name": "review_comment"
 }
 
 === revive_session

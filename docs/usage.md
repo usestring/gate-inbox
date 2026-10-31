@@ -121,7 +121,7 @@ An extension that runs sessions on several Claude subscriptions can rank them by
 
 The label and comment asks are searched only in the organisations named in `orgs`, so with none set only review requests are found. Each new ask gets a 👀 reaction, on the comment for a comment ask and on the pull request otherwise, and the label stays where it is. The status bar says how many asks were new and how many were already queued. A failed search says why, and is never reported as zero reviews.
 
-In triage the Reviews row queues among the sessions as one item while it holds a pending ask you have not been handed yet. It ranks as reviews, after every question and before every finished session of the same priority, and has no priority of its own. Reaching it opens the review page on the oldest new ask. Leaving the page moves the drain on and takes the row out of the queue until a new ask is fetched; it stays on the list either way. An ask with a review session running is worked through that session, which queues like any other.
+In triage the Reviews row queues among the sessions as one item while it holds a pending ask you have not been handed yet. It ranks as reviews, after every question and before every finished session of the same priority, and has no priority of its own. Reaching it opens the pull request of the oldest new ask. Leaving the page moves the drain on and takes the row out of the queue until a new ask is fetched; it stays on the list either way. An ask with a review session running is worked through that session, which queues like any other.
 
 Each ask is stored once. Fetching it again refreshes its title, size and checks but never brings back one you dismissed. A new ask on the same pull request, such as a fresh review request or another comment, queues it again.
 
@@ -129,11 +129,40 @@ Each ask is stored once. Fetching it again refreshes its title, size and checks 
 
 | Key | Action |
 |-----|--------|
-| `s` / `enter` | Start a review session on the pull request, or land in the one already running |
+| `enter` | Open the pull request |
+| `s` | Start a review session on the pull request, or land in the one already running |
 | `o` | Open the pull request on GitHub |
 | `x` | Dismiss it; a new ask on it queues it again |
 | `P` | Fetch new reviews |
 | `esc` / `q` | Back to the list |
+
+`enter` opens the pull request the way GitHub shows it: its title, who wants to merge how many commits from which branch into which, its size and checks, and three tabs. The pull request is fetched from GitHub when it opens and kept until its head commit moves, so going back to it is instant.
+
+- **Conversation** is the description, then every comment and every review that approved, asked for changes or said something, oldest first, and how many review threads are still open.
+- **Files changed** is every file's diff with the old and new line numbers in a gutter, hunk headers, and additions and removals tinted. Each review thread is drawn under the line it is on, open ones with a warm bar and resolved ones muted. A thread whose line has left the diff is listed under its file as outdated, and a file GitHub serves no diff for (binary, or too large) says so.
+- **Checks** is every check on the head commit with its own verdict, the failing ones first.
+
+| Key | Action |
+|-----|--------|
+| `1` / `2` / `3` | Conversation, Files changed, Checks |
+| `tab` | The next tab |
+| `j` / `k`, `ctrl+d` / `ctrl+u`, `g` / `G` | Scroll a line, a page, to the top or the bottom |
+| `n` / `p` | The next or previous file |
+| `]` / `[` | Select the next or previous draft |
+| `c` | Comment on the marked line |
+| `y` / `d` / `e` | Keep, drop or edit the selected draft |
+| `a` / `r` / `C` | Approve, request changes, or submit as a comment |
+| `s` | Start a review session on it |
+| `o` | Open this tab on GitHub |
+| `x` | Dismiss it and go back to the queue |
+| `P` | Fetch it again |
+| `esc` / `q` | Back to the queue |
+
+A failed fetch says why on the page and leaves the header drawn from the queued ask; `P` tries again.
+
+The review is written on the Files changed tab. The review session drafts each finding with the `review_comment` tool instead of posting it, and each draft is drawn under its line, marked as the agent's and as proposed. `]` and `[` walk the drafts; `y` keeps the selected one, `d` drops it, and `e` rewrites it, which keeps it too. `c` comments on the line marked `▸`, the first diff line in view, and your comment starts kept. A draft whose line is no longer on the diff is listed under its file and left out of the review.
+
+`a`, `r` and `C` open the review's summary above the diff, saying how many kept drafts go with it. `enter` submits one review to GitHub with the kept drafts as its inline comments, pinned to the head commit the page shows, so a push since then fails the review rather than placing comments on lines that moved. Once GitHub accepts it the ask leaves the queue. In a text box `alt+enter` starts a new line and `esc` cancels.
 
 A review session starts with the `prompt` below, where `{repo}`, `{number}`, `{head}` and `{url}` are filled in. It uses the configured CLI, model and directory, falling back to the default tool and the root group's directory.
 

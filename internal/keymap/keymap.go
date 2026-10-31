@@ -43,12 +43,15 @@ const (
 	ContextWelcome   Context = "welcome"
 	ContextConfirm   Context = "confirm"
 	ContextReviews   Context = "reviews"
+	// ContextReviewPage is one pull request's page, opened from the review
+	// queue.
+	ContextReviewPage Context = "review_page"
 )
 
 // Contexts is every context in the order the key map lists them.
 var Contexts = []Context{
 	ContextList, ContextFocus,
-	ContextNameSweep, ContextWelcome, ContextConfirm, ContextReviews,
+	ContextNameSweep, ContextWelcome, ContextConfirm, ContextReviews, ContextReviewPage,
 }
 
 // Action names what a key does. It is the identifier the operator's file

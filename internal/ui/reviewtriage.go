@@ -14,6 +14,8 @@ import (
 	"slices"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -100,17 +102,24 @@ func (m *Model) reviewsTriageAt(rows []treeRow, from int) int {
 }
 
 // handOverReviews switches the rail to the Reviews tab with its cursor on the
-// oldest ask the drain has not handed over yet.
-func (m *Model) handOverReviews() bool {
+// oldest ask the drain has not handed over yet, and opens that ask's pull
+// request. When every ask has been handed over before, the tab is left as it
+// was.
+func (m *Model) handOverReviews() (bool, tea.Cmd) {
+	next := -1
 	for i, r := range m.reviews {
 		if r.State == store.ReviewPending && r.CreatedAt.After(m.reviewsSeen) {
-			m.reviewsCursor = i
+			next = i
 			break
 		}
 	}
 	m.reviewsTab = true
 	m.triageResume = false
-	return true
+	if next < 0 {
+		return true, nil
+	}
+	m.reviewsCursor = next
+	return true, m.openPullRequest(m.reviews[next])
 }
 
 // reviewsSlot is where a drain reaches the Reviews tab among m.rows, and

@@ -53,10 +53,11 @@ type helpSection struct {
 // the cursor, and a row saying so is a row the operator has to read past.
 // They stay rebindable in keys.toml.
 var selfEvident = map[keymap.Context]map[keymap.Action]bool{
-	keymap.ContextList:      {keymap.CursorUp: true, keymap.CursorDown: true, keymap.StepIn: true, keymap.StepOut: true},
-	keymap.ContextNameSweep: {keymap.CursorUp: true, keymap.CursorDown: true},
-	keymap.ContextWelcome:   {keymap.CursorUp: true, keymap.CursorDown: true},
-	keymap.ContextReviews:   {keymap.CursorUp: true, keymap.CursorDown: true},
+	keymap.ContextList:       {keymap.CursorUp: true, keymap.CursorDown: true, keymap.StepIn: true, keymap.StepOut: true},
+	keymap.ContextNameSweep:  {keymap.CursorUp: true, keymap.CursorDown: true},
+	keymap.ContextWelcome:    {keymap.CursorUp: true, keymap.CursorDown: true},
+	keymap.ContextReviews:    {keymap.CursorUp: true, keymap.CursorDown: true},
+	keymap.ContextReviewPage: {keymap.CursorUp: true, keymap.CursorDown: true},
 }
 
 func helpSections() []helpSection {
@@ -234,11 +235,38 @@ func helpSections() []helpSection {
 			lit("esc", "any other key cancels"),
 		}},
 		{title: "advanced: the review queue", rows: []helpRow{
+			bound(keymap.ContextReviews, keymap.ReviewView, "open the pull request: its conversation, diff and checks"),
 			bound(keymap.ContextReviews, keymap.ReviewStart, "start a review session on the pull request"),
 			bound(keymap.ContextReviews, keymap.ReviewOpen, "open the pull request on GitHub"),
 			bound(keymap.ContextReviews, keymap.ReviewDismiss, "dismiss it: a new ask on it queues it again"),
 			bound(keymap.ContextReviews, keymap.Refresh, "fetch new reviews"),
 			bound(keymap.ContextReviews, keymap.Close, "back to the sessions"),
+		}},
+		{title: "advanced: the review queue, one pull request", rows: []helpRow{
+			bound(keymap.ContextReviewPage, keymap.ReviewConversation, "the conversation"),
+			bound(keymap.ContextReviewPage, keymap.ReviewFiles, "the files changed, with review threads under their lines"),
+			bound(keymap.ContextReviewPage, keymap.ReviewChecks, "the checks"),
+			bound(keymap.ContextReviewPage, keymap.ReviewNextTab, "the next tab"),
+			bound(keymap.ContextReviewPage, keymap.ReviewNextFile, "the next file"),
+			bound(keymap.ContextReviewPage, keymap.ReviewPrevFile, "the previous file"),
+			bound(keymap.ContextReviewPage, keymap.ReviewNextDraft, "select the next draft comment"),
+			bound(keymap.ContextReviewPage, keymap.ReviewPrevDraft, "select the previous draft comment"),
+			bound(keymap.ContextReviewPage, keymap.ReviewComment, "comment on the marked line"),
+			bound(keymap.ContextReviewPage, keymap.ReviewKeepDraft, "keep the selected draft"),
+			bound(keymap.ContextReviewPage, keymap.ReviewDropDraft, "drop the selected draft"),
+			bound(keymap.ContextReviewPage, keymap.ReviewEditDraft, "rewrite the selected draft"),
+			bound(keymap.ContextReviewPage, keymap.ReviewApprove, "approve, with the kept drafts"),
+			bound(keymap.ContextReviewPage, keymap.ReviewRequestChanges, "request changes, with the kept drafts"),
+			bound(keymap.ContextReviewPage, keymap.ReviewCommentOnly, "submit the kept drafts as a comment"),
+			bound(keymap.ContextReviewPage, keymap.PageUp, "a page up"),
+			bound(keymap.ContextReviewPage, keymap.PageDown, "a page down"),
+			bound(keymap.ContextReviewPage, keymap.Top, "the top"),
+			bound(keymap.ContextReviewPage, keymap.Bottom, "the bottom"),
+			bound(keymap.ContextReviewPage, keymap.ReviewStart, "start a review session on it"),
+			bound(keymap.ContextReviewPage, keymap.ReviewOpen, "open this tab on GitHub"),
+			bound(keymap.ContextReviewPage, keymap.ReviewDismiss, "dismiss it and go back to the queue"),
+			bound(keymap.ContextReviewPage, keymap.Refresh, "fetch it again"),
+			bound(keymap.ContextReviewPage, keymap.Close, "back to the queue"),
 		}},
 		{title: "advanced: the welcome guide", rows: []helpRow{
 			bound(keymap.ContextWelcome, keymap.Close, "close it"),

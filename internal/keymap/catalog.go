@@ -99,6 +99,24 @@ const (
 	ReviewOpen    Action = "review_open"
 	ReviewDismiss Action = "review_dismiss"
 	ReviewStart   Action = "review_start"
+	ReviewView    Action = "review_view"
+	// The tabs of a pull request's page, as GitHub names them.
+	ReviewConversation Action = "review_conversation"
+	ReviewFiles        Action = "review_files"
+	ReviewChecks       Action = "review_checks"
+	ReviewNextTab      Action = "review_next_tab"
+	ReviewNextFile     Action = "review_next_file"
+	ReviewPrevFile     Action = "review_prev_file"
+	// The review being written: its drafts, and the three ways to submit it.
+	ReviewNextDraft      Action = "review_next_draft"
+	ReviewPrevDraft      Action = "review_prev_draft"
+	ReviewComment        Action = "review_comment"
+	ReviewEditDraft      Action = "review_edit_draft"
+	ReviewKeepDraft      Action = "review_keep_draft"
+	ReviewDropDraft      Action = "review_drop_draft"
+	ReviewApprove        Action = "review_approve"
+	ReviewRequestChanges Action = "review_request_changes"
+	ReviewCommentOnly    Action = "review_comment_only"
 )
 
 // Focus actions.
@@ -325,8 +343,37 @@ var Catalog = []Binding{
 	{ContextReviews, Close, []string{"esc"}, "back to the sessions", true},
 	{ContextReviews, CursorUp, []string{"up", "k"}, "move up", true},
 	{ContextReviews, CursorDown, []string{"down", "j"}, "move down", true},
-	{ContextReviews, ReviewStart, []string{"s", "enter"}, "start the review", false},
+	{ContextReviews, ReviewView, []string{"enter"}, "open the pull request", true},
+	{ContextReviews, ReviewStart, []string{"s"}, "start the review", false},
 	{ContextReviews, ReviewOpen, []string{"o"}, "open on GitHub", false},
 	{ContextReviews, ReviewDismiss, []string{"x"}, "dismiss", false},
 	{ContextReviews, Refresh, []string{"P", "shift+p"}, "fetch new reviews", false},
+
+	// ---- a pull request's page ----
+	{ContextReviewPage, Close, []string{"esc", "q"}, "back to the queue", true},
+	{ContextReviewPage, ReviewNextTab, []string{"tab"}, "next tab", true},
+	{ContextReviewPage, ReviewConversation, []string{"1"}, "conversation", false},
+	{ContextReviewPage, ReviewFiles, []string{"2"}, "files changed", false},
+	{ContextReviewPage, ReviewChecks, []string{"3"}, "checks", false},
+	{ContextReviewPage, CursorUp, []string{"up", "k"}, "scroll up", true},
+	{ContextReviewPage, CursorDown, []string{"down", "j"}, "scroll down", true},
+	{ContextReviewPage, PageUp, []string{"ctrl+u", "pgup"}, "a page up", false},
+	{ContextReviewPage, PageDown, []string{"ctrl+d", "pgdown", " ", "space"}, "a page down", false},
+	{ContextReviewPage, Top, []string{"g", "home"}, "the top", false},
+	{ContextReviewPage, Bottom, []string{"G", "end"}, "the bottom", false},
+	{ContextReviewPage, ReviewNextFile, []string{"n"}, "next file", false},
+	{ContextReviewPage, ReviewPrevFile, []string{"p"}, "previous file", false},
+	{ContextReviewPage, ReviewNextDraft, []string{"]"}, "next draft", false},
+	{ContextReviewPage, ReviewPrevDraft, []string{"["}, "previous draft", false},
+	{ContextReviewPage, ReviewComment, []string{"c"}, "comment on the marked line", false},
+	{ContextReviewPage, ReviewEditDraft, []string{"e"}, "edit the draft", false},
+	{ContextReviewPage, ReviewKeepDraft, []string{"y"}, "keep the draft", false},
+	{ContextReviewPage, ReviewDropDraft, []string{"d"}, "drop the draft", false},
+	{ContextReviewPage, ReviewApprove, []string{"a"}, "approve", false},
+	{ContextReviewPage, ReviewRequestChanges, []string{"r"}, "request changes", false},
+	{ContextReviewPage, ReviewCommentOnly, []string{"C", "shift+c"}, "submit as a comment", false},
+	{ContextReviewPage, ReviewStart, []string{"s"}, "start the review", false},
+	{ContextReviewPage, ReviewOpen, []string{"o"}, "open on GitHub", false},
+	{ContextReviewPage, ReviewDismiss, []string{"x"}, "dismiss", false},
+	{ContextReviewPage, Refresh, []string{"P", "shift+p"}, "fetch the pull request again", false},
 }

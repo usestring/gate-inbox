@@ -38,7 +38,7 @@ func ClassifyTurn(text string) Turn {
 	switch {
 	case strings.HasPrefix(t, "Auto wake-up:"):
 		return TurnNudge
-	case !band.Has(t):
+	case !band.Has(t) || strings.HasPrefix(t, band.Tag+" From "):
 		return TurnWork
 	case strings.Contains(t, "Continue the interrupted task") ||
 		strings.Contains(t, "Then continue.") ||

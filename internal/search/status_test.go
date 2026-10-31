@@ -72,6 +72,7 @@ func TestReadStatusReport(t *testing.T) {
 	}{
 		{"reported", []string{prompt("ship it"), report, result}, "done"},
 		{"across a keep-alive", []string{prompt("ship it"), report, result, prompt(keepAlive)}, "done"},
+		{"lapses on an agent continuation request", []string{prompt("ship it"), report, result, prompt(`[gate-inbox] From agent "ci-fix" (session ab12), sent 10:02. Fix the failing test. Then continue.`)}, ""},
 		{"lapses on a new prompt", []string{prompt("ship it"), report, result, prompt("now the docs")}, ""},
 		{"lapses on an image-only prompt", []string{prompt("ship it"), report, result,
 			`{"type":"user","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":""}}]}}`}, ""},

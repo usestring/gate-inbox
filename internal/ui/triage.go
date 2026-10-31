@@ -23,8 +23,8 @@ import (
 // results are still coming back to it, so handing it over now shows the
 // operator a session with nothing to say yet. It is never walkable on its
 // own; a child that needs a person lifts it through the child's own rank.
-// background sits under it for the same reason: the turn ended, but the
-// shell it left running wakes it into another one.
+// background ranks below idle: the turn ended and can take input, but the
+// shell it left running may wake it into another turn.
 //
 // triageReview is the Reviews tab's tier, and no session's: a pull request
 // somebody asked the operator to review is a person waiting on them, but not
@@ -111,6 +111,7 @@ var triageScoredTiers = []string{
 	status.Finished,
 	triageFinishedSeen,
 	status.Idle,
+	status.Background,
 	status.Errored,
 }
 
@@ -207,10 +208,10 @@ func (m *Model) needsPerson(sess store.Session) bool {
 }
 
 // triageWalkable is what a drain will hand over at all: the sessions that
-// need a person and the idle ones. An idle session is not waiting on
-// anybody, which is why it never counts as attention, but it is useful to
-// hand over in its turn -- a session with nothing running is one that could
-// be given work. Working, starting and dead stay
+// need a person and the idle or background ones. Neither is waiting on
+// anybody, so they do not count as attention, but each can be useful to
+// hand over in its turn: a completed turn can take input even while a
+// monitor keeps running. Working, starting and dead stay
 // off, bar a working or starting label flagged stale (see stalestatus.go): entering a mid-turn session is the one thing triage must never do,
 // and a dead pane cannot be entered.
 //
@@ -229,7 +230,7 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 	// idle one is: the screen under it has not moved in hours, so entering
 	// cannot interrupt a turn, and a person looking is the only way the
 	// misread gets noticed.
-	return (sess.Status == status.Idle || m.isStale(sess)) && !m.ownedByExtension(sess.ID)
+	return (sess.Status == status.Idle || sess.Status == status.Background || m.isStale(sess)) && !m.ownedByExtension(sess.ID)
 }
 
 // triageLess sorts the queue into bands -- scored, walkable, the rest, muted

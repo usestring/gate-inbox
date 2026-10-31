@@ -712,6 +712,13 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	key := msg.Key()
+	// On the mobile frame Left at the prompt head still leaves: a phone
+	// keyboard has no easy ctrl+q, so the arrow is the only way back. On a
+	// desktop frame the horizontal arrows stay with the session.
+	if bound && action == keymap.BackAtPrompt && key.Mod == 0 && m.tight() &&
+		key.Code == tea.KeyLeft && m.leftLeavesFocus(sess.ID, sess.Tool) {
+		return m, m.leaveFocus()
+	}
 	// Whether a dialog is up for this key to answer, read before anything
 	// below moves: once the key has landed the dialog is gone, and the
 	// scrolled-back pane the next lines pull back to its live bottom was

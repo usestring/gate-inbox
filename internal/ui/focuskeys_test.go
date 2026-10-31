@@ -774,6 +774,39 @@ func TestFocusLeftStaysAtPromptHead(t *testing.T) {
 	}
 }
 
+// A phone has no easy ctrl+q, so on the mobile frame Left at the prompt head
+// is still the way back to the list. Inside typed text it stays the agent's.
+func TestFocusLeftAtPromptHeadLeavesOnMobile(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "phone", t.TempDir(), "")
+	m.selectSessionRow(t, "phone")
+
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	*m = *updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("after enter, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+	m.layout = layoutMobile
+	sess := m.rows[m.cursor].sess
+	m.rows[m.cursor].sess.Tool = "claude-hooked"
+	m.pane.forID = sess.ID
+	m.preview = "❯ hi\n"
+
+	m.pane.cursor = paneCursor{x: 3, y: 0, ok: true}
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	*m = *updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("left inside a typed prompt left focus on mobile, mode = %v", m.mode)
+	}
+
+	m.pane.cursor = paneCursor{x: 2, y: 0, ok: true}
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	*m = *updated.(*Model)
+	if m.mode == modeFocus {
+		t.Fatal("left at the prompt head on mobile stayed in focus")
+	}
+}
+
 // Alt+Left is a word jump inside the prompt, so it stays the agent's.
 func TestFocusAltLeftStaysWithTheAgent(t *testing.T) {
 	m := buildModel(t)

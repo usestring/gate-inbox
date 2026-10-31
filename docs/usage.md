@@ -31,6 +31,7 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | tmux prefix, then `d` | Inside a full-screen attach: back to the manager when the prefix reaches the inner tmux |
 | `←` (`→` with the list on the left) | Step into the row, toward the pane: open the session's work or children; on a group, open it |
 | `→` (`←` with the list on the left) | Step out, toward the list: fold the work, or close the group |
+| `←` | Focused on the mobile layout, at the head of the prompt: back to the manager, since a phone keyboard has no easy `ctrl+q`. Elsewhere in the prompt, and on the desktop layout, the arrow goes to the session |
 | `K` / `J` (or `shift+↑` / `shift+↓`) | Reorder the row among its visible siblings: swap this session (or group) with the neighbour above or below. Manual order only — triage and sorted views refuse it |
 | `m` | Move a session to a group, a terminal into a session, or a group under another group |
 | `ctrl+p` / `p` | Priority: each press cycles the tier — `urgent`, `high`, `medium`, `low`, then none. Higher tiers sort first in the list and in triage, ahead of every lower tier whatever its state or wait (see triage below). `ctrl+p` also works from a focused session; the changed row shows its new tier as a solid badge for a few seconds and the status bar names it |

@@ -286,7 +286,7 @@ var Catalog = []Binding{
 	{ContextFocus, CopyJev, []string{"alt+'"}, "copy what JEV reads as left for you to copy", false},
 	{ContextFocus, LastPane, []string{"alt+;"}, "back to the previous pane; again walks further back", false},
 	{ContextFocus, JumpPane, []string{"ctrl+g"}, "find a pane by name and focus it", false},
-	{ContextFocus, BackAtPrompt, []string{"right", "left"}, "legacy binding; no effect", false},
+	{ContextFocus, BackAtPrompt, []string{"right", "left"}, "mobile layout: Left at the prompt head leaves", false},
 	{ContextFocus, PreviewUp, []string{"alt+up"}, "scroll the pane up", false},
 	{ContextFocus, PreviewDown, []string{"alt+down"}, "scroll the pane down", false},
 	{ContextFocus, PreviewPageUp, []string{"alt+pgup"}, "scroll a page up", false},

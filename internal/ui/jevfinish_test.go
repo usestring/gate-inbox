@@ -31,6 +31,9 @@ func TestJevFinishVerdictDecides(t *testing.T) {
 		{"missing chrome unsure on done", jevFinishVerdict{finished: 0.50, missingChrome: 0.95}, jevFinishNone},
 		{"done", jevFinishVerdict{finished: 0.96, missingChrome: 0.02}, jevFinishDone},
 		{"unsure", jevFinishVerdict{finished: 0.60, missingChrome: 0.40}, jevFinishNone},
+		{"probably done asks the agent", jevFinishVerdict{finished: 0.60, missingChrome: 0.05}, jevFinishProbeAgent},
+		{"probe edge is inclusive", jevFinishVerdict{finished: 0.50, missingChrome: 0.20}, jevFinishProbeAgent},
+		{"below the probe", jevFinishVerdict{finished: 0.45, missingChrome: 0.05}, jevFinishNone},
 	}
 	for _, tc := range cases {
 		if got := tc.v.decide(); got != tc.want {
@@ -270,5 +273,70 @@ func TestJevFinishUsesAnIndependentLocator(t *testing.T) {
 	}
 	if _, ok := locator.Target(sess.ID, search.ToolClaude, "", sess.AgentSessionID); ok {
 		t.Fatal("the finish check changed the preview locator's cache")
+	}
+}
+
+func TestJevFinishProbeReplyReadsTheAgentsAnswer(t *testing.T) {
+	asked := func(reply string) []search.Message {
+		return []search.Message{
+			{Role: "user", Text: "fix the bug"},
+			{Role: "assistant", Text: "fixed"},
+			{Role: "user", Text: jevFinishProbe},
+			{Role: "tool", Text: "noise"},
+			{Role: "assistant", Text: reply},
+		}
+	}
+	cases := []struct {
+		name string
+		msgs []search.Message
+		want jevFinishProbeAnswer
+	}{
+		{"done", asked("DONE"), jevProbeDone},
+		{"bold done", asked("**Done.**"), jevProbeDone},
+		{"not done", asked("NOT DONE: the tests still fail"), jevProbeNotDone},
+		{"anything else is not done", asked("I still need the API key"), jevProbeNotDone},
+		{"not yet answered", asked("")[:3], jevProbeNone},
+		{"never asked", []search.Message{{Role: "user", Text: "go"}, {Role: "assistant", Text: "DONE"}}, jevProbeNone},
+		{"asked earlier, user moved on", append(asked("NOT DONE"), search.Message{Role: "user", Text: "keep going"}, search.Message{Role: "assistant", Text: "DONE"}), jevProbeNone},
+	}
+	for _, tc := range cases {
+		if got := jevFinishProbeReply(tc.msgs); got != tc.want {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestJevFinishProbesAnUnsureFinishOnce(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "unsure", t.TempDir(), "")
+	m.jevFinishCheck = true
+	m.sessions[0].Status = status.Finished
+	m.sessions[0].LastStatusAt = time.Now()
+	sess := m.sessions[0]
+
+	msg := jevFinishResultMsg{id: sess.ID, identity: jevFinishIdentity(sess), ok: true,
+		verdict: jevFinishVerdict{finished: 0.65, missingChrome: 0.05}}
+	m.applyJevFinish(msg)
+	stored, err := m.store.Get(sess.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored.PendingInputs) != 1 || stored.PendingInputs[0] != jevFinishProbe {
+		t.Fatalf("pending inputs = %q", stored.PendingInputs)
+	}
+	if m.errBar.done != "" {
+		t.Fatalf("an unsure verdict reported done: %q", m.errBar.done)
+	}
+
+	m.applyJevFinish(jevFinishResultMsg{id: sess.ID, identity: msg.identity, ok: true, probe: jevProbeNotDone})
+	if m.errBar.done != "" {
+		t.Fatalf("NOT DONE reported done: %q", m.errBar.done)
+	}
+	m.applyJevFinish(jevFinishResultMsg{id: sess.ID, identity: msg.identity, ok: true, probe: jevProbeDone})
+	if !strings.Contains(m.errBar.done, "says it is done") {
+		t.Fatalf("DONE was not reported: %q", m.errBar.done)
+	}
+	if stored, _ := m.store.Get(sess.ID); len(stored.PendingInputs) != 1 {
+		t.Fatalf("an answer queued another probe: %q", stored.PendingInputs)
 	}
 }

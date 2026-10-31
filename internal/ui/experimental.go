@@ -32,7 +32,7 @@ var experiments = []experiment{
 		func(s *settingsState) *bool { return &s.promptSuggest }},
 	{compressedFocusSetting, "Compressed focus view", "Show the shortened conversation in focus mode.\nPrompt and input mirroring is experimental; F3 returns to the terminal.",
 		func(s *settingsState) *bool { return &s.compressedFocus }},
-	{jevFinishCheckSetting, "JEV finish check", "On finish, relaunch a Claude session that stopped without Chrome, with --chrome.\nNeeds a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends its last turns to TypeSafe.",
+	{jevFinishCheckSetting, "JEV finish check", "On finish, say when a Claude session is done, asking the agent when JEV is unsure,\nand relaunch one that stopped without Chrome with --chrome. Needs a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends its last turns to TypeSafe.",
 		func(s *settingsState) *bool { return &s.jevFinishCheck }},
 	{jevCopySetting, "JEV copy", "On a key, copy the command, link or value the agent left for you in its last message.\nNeeds a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends that message to TypeSafe.",
 		func(s *settingsState) *bool { return &s.jevCopyOn }},

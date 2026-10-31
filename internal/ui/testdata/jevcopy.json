@@ -1,0 +1,271 @@
+[
+  {
+    "id": "billing-initial",
+    "source": "billing-reply",
+    "kind": "historical",
+    "message": "Here's a draft reply. I checked the portal code on current `main` to confirm it.\n\n```\nHey, sorry it was hard to find. Billing lives on the Usage page, not in Settings: app.example.test/usage\n\nOn your two questions:\n\nCredits without a sub: there's no standalone credit pack right now, but the plans work basically like prepaid credit. Basic is $19/mo and the whole $19 goes onto your balance as usage. Whatever you don't use rolls over and never expires. If you cancel, you keep the leftover balance until you spend it.\n\nAuto top-up: yes. Once you're on a plan, there's an auto top-up toggle on that Usage page. When your balance runs low it adds your plan's amount, and you can set a monthly spending cap. There's also an \"Add funds\" button there for one-off top-ups.\n\nAnd fair point on contact. the support inbox reaches us, or just DM here anytime.\n```\n\nA few things to check before you send it:\n- **Top-ups need an active paid plan.** Both \"Add funds\" and auto top-up are blocked without an active subscription billed through the payment provider. If they want pay-as-you-go with no subscription at all, the honest answer today is no. You'd have to decide whether that's worth offering.\n- **The top-up amount is fixed** to the plan price, so $19 per top-up on Basic. They can't choose a custom amount.\n- **Check the support email works.** `the support inbox` only shows up in one portal error message. Make sure someone actually reads that inbox before you point a customer at it.",
+    "want": [
+      "Hey, sorry it was hard to find. Billing lives on the Usage page, not in Settings: app.example.test/usage\n\nOn your two questions:\n\nCredits without a sub: there's no standalone credit pack right now, but the plans work basically like prepaid credit. Basic is $19/mo and the whole $19 goes onto your balance as usage. Whatever you don't use rolls over and never expires. If you cancel, you keep the leftover balance until you spend it.\n\nAuto top-up: yes. Once you're on a plan, there's an auto top-up toggle on that Usage page. When your balance runs low it adds your plan's amount, and you can set a monthly spending cap. There's also an \"Add funds\" button there for one-off top-ups.\n\nAnd fair point on contact. the support inbox reaches us, or just DM here anytime."
+    ],
+    "notes": "Full implicit draft, excluding the verification notes and page-change proposals."
+  },
+  {
+    "id": "billing-initial-unfenced",
+    "source": "billing-reply",
+    "kind": "format-variant",
+    "message": "Here's a draft reply. I checked the portal code on current `main` to confirm it.\n\nHey, sorry it was hard to find. Billing lives on the Usage page, not in Settings: app.example.test/usage\n\nOn your two questions:\n\nCredits without a sub: there's no standalone credit pack right now, but the plans work basically like prepaid credit. Basic is $19/mo and the whole $19 goes onto your balance as usage. Whatever you don't use rolls over and never expires. If you cancel, you keep the leftover balance until you spend it.\n\nAuto top-up: yes. Once you're on a plan, there's an auto top-up toggle on that Usage page. When your balance runs low it adds your plan's amount, and you can set a monthly spending cap. There's also an \"Add funds\" button there for one-off top-ups.\n\nAnd fair point on contact. the support inbox reaches us, or just DM here anytime.\n\nA few things to check before you send it:\n- **Top-ups need an active paid plan.** Both \"Add funds\" and auto top-up are blocked without an active subscription billed through the payment provider. If they want pay-as-you-go with no subscription at all, the honest answer today is no. You'd have to decide whether that's worth offering.\n- **The top-up amount is fixed** to the plan price, so $19 per top-up on Basic. They can't choose a custom amount.\n- **Check the support email works.** `the support inbox` only shows up in one portal error message. Make sure someone actually reads that inbox before you point a customer at it.",
+    "want": [
+      "Hey, sorry it was hard to find. Billing lives on the Usage page, not in Settings: app.example.test/usage\n\nOn your two questions:\n\nCredits without a sub: there's no standalone credit pack right now, but the plans work basically like prepaid credit. Basic is $19/mo and the whole $19 goes onto your balance as usage. Whatever you don't use rolls over and never expires. If you cancel, you keep the leftover balance until you spend it.\n\nAuto top-up: yes. Once you're on a plan, there's an auto top-up toggle on that Usage page. When your balance runs low it adds your plan's amount, and you can set a monthly spending cap. There's also an \"Add funds\" button there for one-off top-ups.\n\nAnd fair point on contact. the support inbox reaches us, or just DM here anytime."
+    ],
+    "notes": "Same historical response without code fences."
+  },
+  {
+    "id": "billing-revised",
+    "source": "billing-reply",
+    "kind": "historical",
+    "message": "Here's the revised reply. It acknowledges that they had trouble finding billing without saying the page was hard to find, and it mentions Explorer.\n\n```\nHey, sorry you had trouble finding it! Billing is on the Usage & Plans page in the sidebar, not under Settings: app.example.test/usage\n\nCredits without a sub: there's no standalone credit pack right now, but the plans work basically like prepaid credit. Basic is $19/mo and the whole $19 goes onto your balance as usage. Whatever you don't use rolls over and never expires. If you cancel, you keep the leftover balance until you spend it.\n\nAuto top-up: yes. Once you're on a plan, there's an auto top-up toggle on that same page. When your balance runs low it adds your plan's amount, and you can set a monthly spending cap. There's also an \"Add funds\" button there for one-off top-ups.\n\nYou've also got Explorer in the portal, a chat assistant for exploring your data.\n\nAnd fair point on contact. the support inbox reaches us, or just DM here anytime.\n```\n\n**Explorer:** yes, every organization has it. The code says so outright (\"Every org has Explorer\"), and unlike Reports, its sidebar entry has no feature flag. I described it the way the sidebar does, \"chat to explore your data.\" If you were thinking of Explorer as a place to ask for help, change that line. Nothing in the product says it handles support or billing questions.\n\n**What to change on the pages.** All of these are proposals; I haven't changed anything:\n\n1. **Settings has no billing tab.** Its tabs are only Keys, Organization and Account, and people look for billing under Settings. Add a Billing tab or a clear link from Settings to `/usage`.\n2. **Auto top-up is invisible until you subscribe.** The controls only render once there's a paid the payment provider subscription. A free user never sees that the feature exists, which is likely why this person thought it was missing. Show it on the plans view with a note like \"available on any plan.\"\n3. **The sidebar label \"Usage & Plans\" doesn't say billing.** Renaming it to \"Billing & Usage\" would match what people search for.\n4. **Say the prepaid model on the plans view.** \"Your plan fee becomes credit that rolls over and never expires\" is on the pricing FAQ, but I didn't find it on the portal page itself. It answers \"can I just buy credits?\" before anyone asks.\n5. **There's no visible support contact.** `the support inbox` only shows up on an error page and in one error message. A \"Contact support\" link in the sidebar or footer would fix the \"no proper way to contact you\" complaint.\n\nTwo caveats from before still apply: top-ups need an active paid plan, and someone should check that `the support inbox` is actually monitored. I can turn any of these page changes into a PR if you want.",
+    "want": [
+      "Hey, sorry you had trouble finding it! Billing is on the Usage & Plans page in the sidebar, not under Settings: app.example.test/usage\n\nCredits without a sub: there's no standalone credit pack right now, but the plans work basically like prepaid credit. Basic is $19/mo and the whole $19 goes onto your balance as usage. Whatever you don't use rolls over and never expires. If you cancel, you keep the leftover balance until you spend it.\n\nAuto top-up: yes. Once you're on a plan, there's an auto top-up toggle on that same page. When your balance runs low it adds your plan's amount, and you can set a monthly spending cap. There's also an \"Add funds\" button there for one-off top-ups.\n\nYou've also got Explorer in the portal, a chat assistant for exploring your data.\n\nAnd fair point on contact. the support inbox reaches us, or just DM here anytime."
+    ],
+    "notes": "Full implicit draft, excluding the verification notes and page-change proposals."
+  },
+  {
+    "id": "billing-revised-unfenced",
+    "source": "billing-reply",
+    "kind": "format-variant",
+    "message": "Here's the revised reply. It acknowledges that they had trouble finding billing without saying the page was hard to find, and it mentions Explorer.\n\nHey, sorry you had trouble finding it! Billing is on the Usage & Plans page in the sidebar, not under Settings: app.example.test/usage\n\nCredits without a sub: there's no standalone credit pack right now, but the plans work basically like prepaid credit. Basic is $19/mo and the whole $19 goes onto your balance as usage. Whatever you don't use rolls over and never expires. If you cancel, you keep the leftover balance until you spend it.\n\nAuto top-up: yes. Once you're on a plan, there's an auto top-up toggle on that same page. When your balance runs low it adds your plan's amount, and you can set a monthly spending cap. There's also an \"Add funds\" button there for one-off top-ups.\n\nYou've also got Explorer in the portal, a chat assistant for exploring your data.\n\nAnd fair point on contact. the support inbox reaches us, or just DM here anytime.\n\n**Explorer:** yes, every organization has it. The code says so outright (\"Every org has Explorer\"), and unlike Reports, its sidebar entry has no feature flag. I described it the way the sidebar does, \"chat to explore your data.\" If you were thinking of Explorer as a place to ask for help, change that line. Nothing in the product says it handles support or billing questions.\n\n**What to change on the pages.** All of these are proposals; I haven't changed anything:\n\n1. **Settings has no billing tab.** Its tabs are only Keys, Organization and Account, and people look for billing under Settings. Add a Billing tab or a clear link from Settings to `/usage`.\n2. **Auto top-up is invisible until you subscribe.** The controls only render once there's a paid the payment provider subscription. A free user never sees that the feature exists, which is likely why this person thought it was missing. Show it on the plans view with a note like \"available on any plan.\"\n3. **The sidebar label \"Usage & Plans\" doesn't say billing.** Renaming it to \"Billing & Usage\" would match what people search for.\n4. **Say the prepaid model on the plans view.** \"Your plan fee becomes credit that rolls over and never expires\" is on the pricing FAQ, but I didn't find it on the portal page itself. It answers \"can I just buy credits?\" before anyone asks.\n5. **There's no visible support contact.** `the support inbox` only shows up on an error page and in one error message. A \"Contact support\" link in the sidebar or footer would fix the \"no proper way to contact you\" complaint.\n\nTwo caveats from before still apply: top-ups need an active paid plan, and someone should check that `the support inbox` is actually monitored. I can turn any of these page changes into a PR if you want.",
+    "want": [
+      "Hey, sorry you had trouble finding it! Billing is on the Usage & Plans page in the sidebar, not under Settings: app.example.test/usage\n\nCredits without a sub: there's no standalone credit pack right now, but the plans work basically like prepaid credit. Basic is $19/mo and the whole $19 goes onto your balance as usage. Whatever you don't use rolls over and never expires. If you cancel, you keep the leftover balance until you spend it.\n\nAuto top-up: yes. Once you're on a plan, there's an auto top-up toggle on that same page. When your balance runs low it adds your plan's amount, and you can set a monthly spending cap. There's also an \"Add funds\" button there for one-off top-ups.\n\nYou've also got Explorer in the portal, a chat assistant for exploring your data.\n\nAnd fair point on contact. the support inbox reaches us, or just DM here anytime."
+    ],
+    "notes": "Same historical response without code fences."
+  },
+  {
+    "id": "billing-wrapped",
+    "source": "billing-reply",
+    "kind": "format-variant",
+    "message": "Here's the revised reply. It acknowledges that they had trouble finding billing without saying the page was hard to find, and it mentions Explorer.\n\nHey, sorry you had trouble finding it! Billing is on the Usage & Plans page in the sidebar, not under Settings: app.example.test/usage\n\nCredits without a sub: there's no standalone credit pack right now, but the plans work basically like prepaid credit. Basic is $19/mo and the whole $19 goes\nonto your balance as usage. Whatever you don't use rolls over and never expires. If you cancel, you keep the leftover balance until you spend it.\n\nAuto top-up: yes. Once you're on a plan, there's an auto top-up toggle on that same page. When your balance runs low it adds your plan's amount, and you can set a\nmonthly spending cap. There's also an \"Add funds\" button there for one-off top-ups.\n\nYou've also got Explorer in the portal, a chat assistant for exploring your data.\n\nAnd fair point on contact. the support inbox reaches us, or just DM here anytime.\n\n**Explorer:** yes, every organization has it. The code says so outright (\"Every org has Explorer\"), and unlike Reports, its sidebar entry has no feature flag. I described it the way the sidebar does, \"chat to explore your data.\" If you were thinking of Explorer as a place to ask for help, change that line. Nothing in the product says it handles support or billing questions.\n\n**What to change on the pages.** All of these are proposals; I haven't changed anything:\n\n1. **Settings has no billing tab.** Its tabs are only Keys, Organization and Account, and people look for billing under Settings. Add a Billing tab or a clear link from Settings to `/usage`.\n2. **Auto top-up is invisible until you subscribe.** The controls only render once there's a paid the payment provider subscription. A free user never sees that the feature exists, which is likely why this person thought it was missing. Show it on the plans view with a note like \"available on any plan.\"\n3. **The sidebar label \"Usage & Plans\" doesn't say billing.** Renaming it to \"Billing & Usage\" would match what people search for.\n4. **Say the prepaid model on the plans view.** \"Your plan fee becomes credit that rolls over and never expires\" is on the pricing FAQ, but I didn't find it on the portal page itself. It answers \"can I just buy credits?\" before anyone asks.\n5. **There's no visible support contact.** `the support inbox` only shows up on an error page and in one error message. A \"Contact support\" link in the sidebar or footer would fix the \"no proper way to contact you\" complaint.\n\nTwo caveats from before still apply: top-ups need an active paid plan, and someone should check that `the support inbox` is actually monitored. I can turn any of these page changes into a PR if you want.",
+    "want": [
+      "Hey, sorry you had trouble finding it! Billing is on the Usage & Plans page in the sidebar, not under Settings: app.example.test/usage\n\nCredits without a sub: there's no standalone credit pack right now, but the plans work basically like prepaid credit. Basic is $19/mo and the whole $19 goes\nonto your balance as usage. Whatever you don't use rolls over and never expires. If you cancel, you keep the leftover balance until you spend it.\n\nAuto top-up: yes. Once you're on a plan, there's an auto top-up toggle on that same page. When your balance runs low it adds your plan's amount, and you can set a\nmonthly spending cap. There's also an \"Add funds\" button there for one-off top-ups.\n\nYou've also got Explorer in the portal, a chat assistant for exploring your data.\n\nAnd fair point on contact. the support inbox reaches us, or just DM here anytime."
+    ],
+    "notes": "Soft line wraps remain exact; extraction must not rewrite the draft."
+  },
+  {
+    "id": "two-login-commands",
+    "source": "personal-login",
+    "kind": "historical",
+    "message": "The sandbox won't let me write the config or open a browser, so you'll need to run these two commands here:\n\n```\n! mkdir -p ~/.config/mail-personal\n```\n\n```\n! mail auth login --readonly\n```\n\nSign in with your **personal** account when the browser opens.",
+    "want": [
+      "! mkdir -p ~/.config/mail-personal",
+      "! mail auth login --readonly"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "login-retry",
+    "source": "personal-login",
+    "kind": "historical",
+    "message": "**To retry the personal login,** paste each of these into this prompt, one at a time, with `!` in front. Or run them in any terminal.\n\nFirst command, which creates the folder:\n\n```\nmkdir -p ~/.config/mail-personal\n```\n\nSecond command, which opens a sign-in. Pick your personal account:\n\n```\nmail auth login --readonly\n```\n\nIf the sign-in is blocked, paste me the error.",
+    "want": [
+      "mkdir -p ~/.config/mail-personal",
+      "mail auth login --readonly"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "login-hotkey-explanation",
+    "source": "personal-login",
+    "kind": "historical",
+    "message": "**Using the JEV copy hotkey:**\n- **On the board list:** select this row and press `'`.\n- **Inside the session:** press `alt+'`.\n- **What it does:** it copies a command to run, a link to open, or a value to paste.\n\nThe search session is still running. I'll bring you its coverage results when it finishes.",
+    "want": [],
+    "notes": ""
+  },
+  {
+    "id": "watcher-start",
+    "source": "inbox-watcher",
+    "kind": "historical",
+    "message": "The watcher is built, but I haven't run it against the local API yet because it still isn't responding.\n\nThen start it from the branch:\n\n```\ncd ~/inbox-watcher\nbun start\n```\n\nOnce it's running, tell me and I'll check that the first entries are classified correctly.",
+    "want": [
+      "cd ~/inbox-watcher\nbun start"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "bridge-link",
+    "source": "chat-bridge",
+    "kind": "historical",
+    "message": "**For you**\n1. **Link both apps.** On the dev box, run `signal-cli link -n chat-bridge` and scan the code from Signal → Settings → Linked devices. Then run `wacli auth` and scan from WhatsApp → Linked devices.\n\nWhen those are done, tell me and I'll list your chats so you can pick which ones to mirror.",
+    "want": [
+      "signal-cli link -n chat-bridge",
+      "wacli auth"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "bridge-output-example",
+    "source": "chat-bridge",
+    "kind": "historical",
+    "message": "**What the messages look like.** Each platform has its own channel. Each chat gets one top-level post per day, and messages go in that post's thread:\n\n```\n#incoming-messages\n  Example group · group · today\n    └ Sender\n      Of course! Feel free to share with the team\n```\n\n**Attachments:** they show as a label such as `[image/png]`. The file itself isn't uploaded.",
+    "want": [],
+    "notes": ""
+  },
+  {
+    "id": "rate-limit-probe",
+    "source": "request-headers",
+    "kind": "historical",
+    "message": "The rate limit is built, and the tests pass.\n\nTo check after deploy, run:\n```\ncurl -si -X POST https://api.example.test/v1/fetch\n```\nIt should return a `401` with `RateLimit-Policy` and `Retry-After` headers.",
+    "want": [
+      "curl -si -X POST https://api.example.test/v1/fetch"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "deployment-handoff",
+    "source": "website-deploy",
+    "kind": "historical",
+    "message": "I've merged the changes, but I couldn't deploy them.\n\nTo ship these now, run:\n```\n! git -C website push origin main:refs/heads/deploy-website\n```\nI'll check the remaining work when it finishes.",
+    "want": [
+      "! git -C website push origin main:refs/heads/deploy-website"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "already-posted-update",
+    "source": "website-deploy",
+    "kind": "historical",
+    "message": "I posted the update. This is the exact text that went out:\n\n> The agent-readiness changes are all merged.\n>\n> Live now:\n> - New contact page.\n> - Discovery documents and API headers.\n\nDelivery is confirmed.",
+    "want": [],
+    "notes": ""
+  },
+  {
+    "id": "ssh-command",
+    "source": "queue-refresh",
+    "kind": "historical",
+    "message": "The SSH login failed because the command didn't specify a key. This version adds that key, plus `-t` in case `sudo` asks for your password:\n\n```\nssh -i ~/.ssh/example_key -t example-host 'sudo systemctl restart worker'\n```",
+    "want": [
+      "ssh -i ~/.ssh/example_key -t example-host 'sudo systemctl restart worker'"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "terraform-plan",
+    "source": "infrastructure-plan",
+    "kind": "historical",
+    "message": "I read the planfile itself, and it is only those two changes:\n- **Import:** Terraform starts managing an existing rule.\n- **Destroy:** an unused rule is removed.\n\nTo apply the plan I checked, run:\n\n```\nterraform apply reviewed.tfplan\n```\n\nI haven't applied anything.",
+    "want": [
+      "terraform apply reviewed.tfplan"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "credential-precedence",
+    "source": "cloud-identity",
+    "kind": "historical",
+    "message": "Your shell ran it as the same bucket-writer user, so it hit the same 403. Nothing was created.\n\nPick an admin identity before applying:\n\n```bash\naws configure list-profiles\naws sso login --profile admin\naws sts get-caller-identity --query Arn\n```\n\nIf there is no admin profile, someone who has that access must run it.",
+    "want": [
+      "aws configure list-profiles\naws sso login --profile admin\naws sts get-caller-identity --query Arn"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "quota-login",
+    "source": "quota-report",
+    "kind": "historical",
+    "message": "The report now checks the subscription once, from the laptop only. A live run returns five sources instead of six.\n\n**Still failing:** one saved login looks revoked. It needs a new sign-in on this machine:\n\n```\n! opencode auth login\n```",
+    "want": [
+      "! opencode auth login"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "browser-login",
+    "source": "hosting-login",
+    "kind": "historical",
+    "message": "I've created the repo and pushed the code, but hosting can't start until you log in. That sign-in is a browser step only you can do.\n\n**Next:** run this here:\n\n```\n! wrangler login\n```\n\nOnce that's done I'll deploy the page.",
+    "want": [
+      "! wrangler login"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "open-runbook",
+    "source": "runbook-review",
+    "kind": "historical",
+    "message": "The verification runbook is ready. I can't open it for you because the sandbox blocks `open`. Run this to view it:\n\n```\n! open https://example.test/runbook\n```\n\n**What the runbook says, briefly:** run the offline checks `lint`, `typecheck` and `test`.\n\n**My recommendation:** start with send safety and idempotency.",
+    "want": [
+      "! open https://example.test/runbook"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "merged-cleanup",
+    "source": "review-cleanup",
+    "kind": "historical",
+    "message": "The change now passes all checks. I haven't merged it.\n\nOne thing is left: I was denied permission to delete the temporary clone, so it's still on disk. You can remove it with:\n\n```\n! rm -rf /tmp/example-clone\n```",
+    "want": [
+      "! rm -rf /tmp/example-clone"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "branch-cleanup",
+    "source": "branch-review",
+    "kind": "historical",
+    "message": "Both new commits are signed. No tests ran because this only changes docs.\n\nMy first push recreated the old branch. Please remove it yourself:\n```\ngit push origin --delete old-example-branch\n```",
+    "want": [
+      "git push origin --delete old-example-branch"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "merge-command",
+    "source": "merge-watch",
+    "kind": "historical",
+    "message": "I'm watching the pull request now and will check in as soon as it shows as merged. Your command:\n\n```\ngh pr merge 123 --repo usestring/gate-inbox --squash --delete-branch\n```\n\nOnce it merges, I'll confirm that the release run finished.",
+    "want": [
+      "gh pr merge 123 --repo usestring/gate-inbox --squash --delete-branch"
+    ],
+    "notes": ""
+  },
+  {
+    "id": "explanation-only",
+    "source": "schema-review",
+    "kind": "historical",
+    "message": "**Why the default doesn't help:**\n- The query lists every column by name rather than `SELECT *`.\n- If a column is missing, the database fails with `column does not exist`.\n- A default only fills values for a column that already exists.\n\n**The other order is fine.** Adding the columns first doesn't affect old code.",
+    "want": [],
+    "notes": ""
+  },
+  {
+    "id": "code-shape-explanation",
+    "source": "tier-review",
+    "kind": "historical",
+    "message": "You're right that the helper is more machinery than this needs. Directly exporting the tiers gets the same protection more simply.\n\n**What the change fixes:** call sites currently pick tiers by position, even though `tiers[0]` is only the first element.\n\n```typescript\nexport const tiers = [basic, pro]\n```\n\nThis is what the implementation looks like, not a step you need to run.",
+    "want": [],
+    "notes": ""
+  },
+  {
+    "id": "status-only",
+    "source": "quota-report",
+    "kind": "historical",
+    "message": "**What changed:**\n- The remote source is checked only once.\n- The health check now expects five sources.\n- I removed the merge step for identical readings.\n\nAll tests pass. The change is ready for review.",
+    "want": [],
+    "notes": ""
+  },
+  {
+    "id": "long-unicode-draft",
+    "source": "billing-reply",
+    "kind": "stress-variant",
+    "message": "Here's the reply:\n\n```\nThanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available.\n```\n\nCheck the support inbox before sending.",
+    "want": [
+      "Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available. Thanks — your unused credit remains available."
+    ],
+    "notes": "Unicode and a draft larger than the old cutoff."
+  },
+  {
+    "id": "oversized-block",
+    "source": "billing-reply",
+    "kind": "stress-variant",
+    "message": "Here is the payload:\n\n```\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n```",
+    "want": [],
+    "notes": "Never copy a truncated oversized block."
+  }
+]

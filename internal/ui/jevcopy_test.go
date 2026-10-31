@@ -359,3 +359,39 @@ func TestCopyWithJevReenabledIgnoresPreviousActivation(t *testing.T) {
 		})
 	}
 }
+
+func TestCopyWithJevCopiesDraftWithoutItsCommentary(t *testing.T) {
+	for _, link := range []string{"", " Open https://example.test/billing."} {
+		t.Run(link, func(t *testing.T) {
+			draft := "Hey, sorry you had trouble finding it!" + link + "\n\nYour unused balance carries over."
+			message := "Here's the revised reply.\n\n" + draft + "\n\nI checked the page. These changes are only proposals."
+			m, sess, calls := copyTurn(t, message)
+			wrote := stubClipboard(t, nil)
+			jevHTTPClient = &http.Client{Transport: jevFinishTransport(func(r *http.Request) (*http.Response, error) {
+				*calls++
+				var body struct{ Questions map[string]json.RawMessage }
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Fatal(err)
+				}
+				answers := make(map[string]any)
+				for name := range body.Questions {
+					score := 0.0
+					if name == "p2" || name == "p3" || name == "c1" {
+						score = 0.99
+					}
+					answers[name] = map[string]any{"type": "noul", "noul": score}
+				}
+				response, err := json.Marshal(map[string]any{"model": jevModel, "answers": answers})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(string(response)))}, nil
+			})}
+			pressCopy(t, m, sess)
+			pressCopy(t, m, sess)
+			if *calls != 1 || !slices.Equal(*wrote, []string{draft, draft}) {
+				t.Fatalf("calls=%d clipboard=%q", *calls, *wrote)
+			}
+		})
+	}
+}

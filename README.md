@@ -104,7 +104,7 @@ stay local; this feature makes no network requests. The hotkey-only snippet menu
 **See status.** Every row shows whether its agent is working, waiting on you, finished or idle,
 read from the pane itself. The preview beside the list shows the conversation as **You** and
 **Assistant** messages, without the tool noise. `w` filters the list to what needs attention, and
-`/` searches names, groups, statuses and what the sessions have said.
+`/` searches names, titles, groups, statuses and what the sessions have said.
 
 **Triage.** `i` flattens the groups into one queue ordered by what needs a person: waiting first,
 then finished, then errored, longest-blocked first inside each. Picking an option in a dialog, or

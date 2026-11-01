@@ -27,15 +27,15 @@ func TestFuzzySessionMetadata(t *testing.T) {
 		{"gti*n", false},
 	} {
 		t.Run(tc.query, func(t *testing.T) {
-			if got := matchesMetadata(sess, strings.ToLower(tc.query)); got != tc.want {
+			if got := matchesMetadata(sess, "", strings.ToLower(tc.query)); got != tc.want {
 				t.Fatalf("matchesMetadata(%q) = %v, want %v", tc.query, got, tc.want)
 			}
 		})
 	}
-	if !matchesMetadata(store.Session{Name: "東京の修正"}, "東修") {
+	if !matchesMetadata(store.Session{Name: "東京の修正"}, "", "東修") {
 		t.Fatal("Unicode abbreviation did not match")
 	}
-	if matchesMetadata(store.Session{Name: "gate", Tool: "inbox"}, "gtin") {
+	if matchesMetadata(store.Session{Name: "gate", Tool: "inbox"}, "", "gtin") {
 		t.Fatal("one term must not span separate metadata fields")
 	}
 }

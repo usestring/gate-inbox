@@ -233,11 +233,11 @@ func TestMutedChildDoesNotLiftItsParent(t *testing.T) {
 // A muted row reads "muted", so search finds it by that word.
 func TestSearchFindsAMutedRowByItsLabel(t *testing.T) {
 	sess := childSess("c1", "helper", "build", "", status.Waiting, time.Minute)
-	if matchesMetadata(sess, mutedStatusLabel) {
+	if matchesMetadata(sess, "", mutedStatusLabel) {
 		t.Fatal("an unmuted row matched the muted label")
 	}
 	sess.Muted = true
-	if !matchesLiteralMetadata(sess, mutedStatusLabel) {
+	if !matchesLiteralMetadata(sess, "", mutedStatusLabel) {
 		t.Fatal("literal search missed a muted row by the label it shows")
 	}
 	if _, ok := fuzzyMetadataScore(sess, mutedStatusLabel); !ok {

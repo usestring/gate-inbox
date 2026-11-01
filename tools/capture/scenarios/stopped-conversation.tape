@@ -1,5 +1,6 @@
 # Run with --no-seed --foreign conversation. The saved fixture conversation
 # remains readable after the private tmux server, and every agent pane, is gone.
+Hide
 Sleep 6s
 Type "/"
 Sleep 1s
@@ -27,6 +28,8 @@ Type "inbox-conversation "
 Sleep 1500ms
 Enter
 Sleep 2s
+Show
+Sleep 1s
 Screenshot {{SHOTS}}/01-stopped-saved-conversation.png
 Sleep 2s
 Type ":"

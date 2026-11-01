@@ -496,6 +496,8 @@ type Model struct {
 	// resizeSeq numbers terminal resizes, so the settle timer of a size
 	// that has since changed again is recognised and dropped.
 	resizeSeq int
+
+	lastInteractionAt time.Time
 	// focusActiveAt is when the focused pane was last typed into, and
 	// focusRepaintAt when it last repainted on its own. Together they decide
 	// its capture cadence -- see focusecho.go.
@@ -1557,6 +1559,12 @@ func (m *Model) syncPollInput() {
 		selectedID = sess.ID
 	}
 	m.poller.setInput(m.showArchived, selectedID)
+	m.poller.mu.Lock()
+	m.poller.jevFinishFocusedID = ""
+	if m.mode == modeFocus {
+		m.poller.jevFinishFocusedID = m.focusedID
+	}
+	m.poller.mu.Unlock()
 }
 
 // requestRefresh publishes the current UI state to the poller and asks
@@ -2141,6 +2149,10 @@ func (m *Model) publishPaneSize() {
 // exported entry point: it records the press and the branch it took before
 // handing over here.
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg.(type) {
+	case tea.KeyPressMsg, tea.KeyReleaseMsg, tea.MouseMsg, tea.PasteMsg:
+		m.lastInteractionAt = time.Now()
+	}
 	if m.updateExtension(msg) {
 		return m, nil
 	}
@@ -2518,6 +2530,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the queue still open: the first pass carrying a new session that
 		// needs a person picks it straight up. See triageResume.
 		pickup := m.triagePickupCmd()
+		if current {
+			pickup = tea.Batch(pickup, m.handOverOnIdle(time.Now()))
+		}
 		// A pass that ran with a stale selection (a session created this
 		// tick) carries the wrong preview; resync and fetch it directly.
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {

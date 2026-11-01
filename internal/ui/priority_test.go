@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/priority"
@@ -339,5 +341,58 @@ func TestAPriorityChangeFlashesTheRow(t *testing.T) {
 	m.endPriorityFlash(priorityFlashEndMsg{seq: seq})
 	if rail := triageRail(m); strings.Contains(rail, "URGENT") || !strings.Contains(rail, "napping "+priority.Urgent.Glyph()) {
 		t.Fatalf("after the flash the row should wear only its glyph:\n%s", rail)
+	}
+}
+
+func TestPriorityHandsOverBackgroundTurns(t *testing.T) {
+	for _, smart := range []bool{false, true} {
+		for _, tier := range []priority.Tier{priority.Urgent, priority.High, priority.Medium, priority.Unset, priority.Low} {
+			t.Run(fmt.Sprintf("smart=%v/tier=%s", smart, tier.Label()), func(t *testing.T) {
+				monitor := smartSess("monitor", status.Background, time.Hour)
+				monitor.Priority = tier
+				m := smartFleet(t, monitor, smartSess("ask", status.Waiting, time.Minute))
+				m.smartTriage = smart
+				m.rebuildRows()
+				want := []string{"ask", "monitor"}
+				if tier.Rank() < priority.Unset.Rank() {
+					want = []string{"monitor", "ask"}
+				}
+				if got := drainOrder(m); !slices.Equal(got, want) {
+					t.Fatalf("drain = %v, want %v", got, want)
+				}
+				m.mute(monitor)
+				if got := drainOrder(m); !slices.Equal(got, []string{"ask"}) {
+					t.Fatalf("drain after skipping monitor = %v", got)
+				}
+				for i := range m.sessions {
+					if m.sessions[i].ID == monitor.ID {
+						m.sessions[i].Status = status.Working
+					}
+				}
+				m.rebuildRows()
+				if got := drainOrder(m); slices.Contains(got, "monitor") {
+					t.Fatalf("drain handed over an active turn: %v", got)
+				}
+			})
+		}
+	}
+}
+
+func TestBackgroundTurnsRankBehindIdleInSmartTriage(t *testing.T) {
+	m := smartFleet(t,
+		smartSess("monitor", status.Background, time.Minute),
+		smartSess("idle", status.Idle, time.Hour),
+		smartSess("done", status.Finished, 2*time.Hour),
+	)
+	if got, want := drainOrder(m), []string{"done", "idle", "monitor"}; !slices.Equal(got, want) {
+		t.Fatalf("drain = %v, want %v", got, want)
+	}
+	monitor := sessionNamed(t, m, "monitor")
+	if m.needsPerson(monitor) {
+		t.Fatal("a background monitor alone needs attention")
+	}
+	monitor.Muted = true
+	if m.triageWalkable(monitor) {
+		t.Fatal("a persistently muted monitor is walkable")
 	}
 }

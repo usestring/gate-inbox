@@ -15,6 +15,7 @@ import (
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/cmdline"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 const (
@@ -386,6 +387,8 @@ func runKill(out io.Writer, sessions sessionCommands, args []string, sessionID s
 		return err
 	}
 	killed, err := sessions.Kill(sessionID, operands[0], extension.KillByCLI)
+	// Kill leaves its SIGKILL pass running; this process must outlive it.
+	tmux.AwaitReaps()
 	if err != nil {
 		return err
 	}

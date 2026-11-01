@@ -66,9 +66,14 @@ type sideBinding struct {
 }
 
 // sideBindings are written for the left-hand rail, where the pane is to the
-// right: → from the list opens a row's work or children, and
+// right: → from the list opens a row's work and then focuses its pane, and
 // ← folds. With the rail on the right the pane is to the left, so the list
 // takes ← to step in and → to fold, and the arrow still points at the pane.
+//
+// The focused prompt binding is written for the right-hand rail. On the left,
+// its horizontal keys are mirrored; either arrow leaves at its own prompt
+// edge on either side. In triage Right advances a finished session, on
+// either side.
 //
 // Everything else horizontal is not here, on purpose. The divider's ← → move
 // it in screen columns, so they already follow what is on screen; Settings
@@ -80,7 +85,8 @@ var sideBindings = map[keymap.Context]map[keymap.Action]sideBinding{
 	},
 	keymap.ContextFocus: {
 		keymap.BackAtPrompt: {
-			written: config.SidebarRight,
+			written:      config.SidebarRight,
+			mirroredText: "Left/Right at prompt edges: list; finished triage: Right next",
 		},
 	},
 }

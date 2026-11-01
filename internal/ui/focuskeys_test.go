@@ -706,8 +706,9 @@ func TestCaretAtInputEnd(t *testing.T) {
 	}
 }
 
-// Right stays with the agent throughout the prompt.
-func TestFocusRightStaysAtPromptEnd(t *testing.T) {
+// Right leaves focus at the end of the prompt and reaches the agent
+// anywhere else, so a typed prompt keeps its caret movement.
+func TestFocusRightUnfocusesAtPromptEnd(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "rightie", t.TempDir(), "")
 	m.selectSessionRow(t, "rightie")
@@ -735,13 +736,14 @@ func TestFocusRightStaysAtPromptEnd(t *testing.T) {
 	m.pane.cursor = paneCursor{x: 4, y: 0, ok: true}
 	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
 	*m = *updated.(*Model)
-	if m.mode != modeFocus {
-		t.Fatalf("right at the prompt end left focus, mode = %v", m.mode)
+	if m.mode != modeList {
+		t.Fatalf("right at the prompt end did not unfocus, mode = %v", m.mode)
 	}
 }
 
-// Left stays with the agent throughout the prompt.
-func TestFocusLeftStaysAtPromptHead(t *testing.T) {
+// Left leaves focus at the head of the prompt and reaches the agent
+// anywhere else, so a typed prompt keeps its caret movement.
+func TestFocusLeftUnfocusesAtPromptHead(t *testing.T) {
 	m := buildModel(t)
 	createSession(t, m, "leftie", t.TempDir(), "")
 	m.selectSessionRow(t, "leftie")
@@ -769,8 +771,41 @@ func TestFocusLeftStaysAtPromptHead(t *testing.T) {
 	m.pane.cursor = paneCursor{x: 2, y: 0, ok: true}
 	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
 	*m = *updated.(*Model)
+	if m.mode != modeList {
+		t.Fatalf("left at the prompt head did not unfocus, mode = %v", m.mode)
+	}
+}
+
+// With the arrows-stay flag on, both prompt-edge arrows go to the session:
+// neither Left at the head nor Right at the end leaves focus.
+func TestFocusArrowsStayFlagKeepsPromptEdgeArrows(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "stay", t.TempDir(), "")
+	m.selectSessionRow(t, "stay")
+
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	*m = *updated.(*Model)
 	if m.mode != modeFocus {
-		t.Fatalf("left at the prompt head left focus, mode = %v", m.mode)
+		t.Fatalf("after enter, mode = %v, err = %q", m.mode, m.errBar.text)
+	}
+	m.arrowsStay = true
+	sess := m.rows[m.cursor].sess
+	m.rows[m.cursor].sess.Tool = "claude-hooked"
+	m.pane.forID = sess.ID
+	m.preview = "❯ hi\n"
+
+	m.pane.cursor = paneCursor{x: 2, y: 0, ok: true}
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	*m = *updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("left at the prompt head left focus with the flag on, mode = %v", m.mode)
+	}
+
+	m.pane.cursor = paneCursor{x: 4, y: 0, ok: true}
+	updated, _ = m.handleKey(tea.KeyPressMsg{Code: tea.KeyRight})
+	*m = *updated.(*Model)
+	if m.mode != modeFocus {
+		t.Fatalf("right at the prompt end left focus with the flag on, mode = %v", m.mode)
 	}
 }
 

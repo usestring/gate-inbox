@@ -170,6 +170,7 @@ func (m *Model) focusSelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.mode = modeFocus
+	m.lastInteractionAt = time.Now()
 	// Recorded here rather than at the top: every guard above returns
 	// without a pane on screen, and a refusal must not count as a session
 	// the operator was on. See lastpane.go.

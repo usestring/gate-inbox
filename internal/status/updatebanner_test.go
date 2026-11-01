@@ -94,3 +94,27 @@ func TestUpdateBannerDoesNotMaskAnInterrupt(t *testing.T) {
 		t.Fatalf("interrupt under the update banner = %q matched=%v, want %q matched=true", got, matched, Waiting)
 	}
 }
+
+// 2026-10-31 live capture, trimmed to neutral content: near the context limit
+// Claude right-aligns "8% until auto-compact" under the turn-end summary. Read
+// as content, it hid the turn end and the verdict fell to default_status
+// unmatched, so a PreCompact that landed after Stop left the row working for
+// good.
+func TestAutoCompactHintLeavesTheTurnFinished(t *testing.T) {
+	raw, err := os.ReadFile("testdata/claude-autocompact-hint-resting.txt")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	frame := string(raw)
+	if !strings.Contains(frame, "% until auto-compact") {
+		t.Fatal("fixture has lost the auto-compact hint it exists to carry")
+	}
+	engine := defaultEngine(t)
+	if got, matched := engine.Match("claude", frame); got != Finished || !matched {
+		t.Fatalf("resting turn under the auto-compact hint = %q matched=%v, want %q matched=true", got, matched, Finished)
+	}
+	newer := strings.Replace(frame, "% until auto-compact\n", "% until auto-compact\n● picking the next thing up\n", 1)
+	if got, _ := engine.Match("claude", newer); got == Finished {
+		t.Fatal("output below the auto-compact hint still reads as a finished turn")
+	}
+}

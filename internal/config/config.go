@@ -858,6 +858,11 @@ const codexTurnEndRuleOnly = `(?m)^(?:─+ Worked for [\dhms. ]+─.*|─{20,}\s
 // carrying it verbatim takes the current pattern.
 const claudeChromeLineUpdateOnly = `^\s*[─q]{4,}.*$|^[\s─q]*$|^\s*✔ Update installed\b.*$`
 
+// claudeChromeLineClearHint is the claude chrome_line shipped before the
+// "8% until auto-compact" hint under a turn-end summary was read as chrome; a
+// config carrying it verbatim takes the current pattern.
+const claudeChromeLineClearHint = `^\s*[─q]{4,}.*$|^[\s─q]*$|^\s*✔ Update installed\b.*$|^\s*new task\? /clear to save\b.*$`
+
 // codexTurnEndMiddot is the 0.154 turn_end, which read only a middle dot
 // between the duration and the time ("Worked for 1m 5s · 02:41"). Later
 // builds draw a bullet there.
@@ -960,7 +965,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	if name == "claude" && (user.BusyLine == busyLineAgentsOnly || user.BusyLine == busyLineShellsOnly || user.BusyLine == busyLineEveryKind || user.BusyLine == busyLineWaitOnly) {
 		user.BusyLine = def.BusyLine
 	}
-	if name == "claude" && user.ChromeLine == claudeChromeLineUpdateOnly {
+	if name == "claude" && (user.ChromeLine == claudeChromeLineUpdateOnly || user.ChromeLine == claudeChromeLineClearHint) {
 		user.ChromeLine = def.ChromeLine
 	}
 	if name == "claude" && user.ArrowDialogLine == arrowDialogNavigateOnly {
@@ -1415,10 +1420,10 @@ turn_end = "^[✻✳✶✽✢·✦✧+*] \\S+ for \\d.*$"
 # chrome_line is consulted by lastContentIndex, so only chrome_line keeps the
 # banner from masking a blocked_line interrupt above it.
 #
-# The right-aligned "new task? /clear to save 177.6k tokens" hint claude
-# draws under a turn-end summary once the context is large is chrome for the
-# same reason.
-chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$|^\\s*new task\\? /clear to save\\b.*$"
+# The right-aligned "new task? /clear to save 177.6k tokens" and "8% until
+# auto-compact" hints claude draws under a turn-end summary once the context
+# is large are chrome for the same reason.
+chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$|^\\s*new task\\? /clear to save\\b.*$|^\\s*\\d+% until auto-compact\\b.*$"
 blocked_line = "Interrupted ·"
 # recap blocks ("※ recap: …") render below the turn-end summary
 trailing_note = "^※"

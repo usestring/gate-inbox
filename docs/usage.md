@@ -52,6 +52,12 @@ One more `gi_*` session shows up in `tmux ls` that holds no agent: `gi_poll-anch
 | `P` | Fetch the pull request reviews asked of you on GitHub into the Reviews row (see [The review queue](#the-review-queue)) |
 | `q` | Quit (sessions keep running) |
 
+Selecting a dead session previews its saved conversation without starting the agent. The preview
+shows why it stopped when evidence is available, its engine and conversation ID, and the original
+request when available. Scroll to review older messages; `F3` expands shortened messages. `v`
+reactivates it and `x` archives it. A missing conversation ID or unreadable history is explained in
+the preview. Dead describes the stopped process; it does not say whether the work was completed.
+
 Priority defaults to 0 with no marker. Positive levels use green `▲`, `▲▲`, and `▲▲▲`; the negative level (-1) uses a red `▼`. Set a level with `gate-inbox priority <level>` using a number from -1 to 3 or its tier name.
 
 Priority can also give a Claude session a larger auto-compact window, so the work that matters most keeps more context before it compacts. It is off by default. Turn it on with a window in tokens (100000 to 1000000) per tier under `[tools.claude]`:

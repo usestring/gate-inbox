@@ -1643,8 +1643,11 @@ func (m *Model) contentLines(width, height int) []contentLine {
 			} else if _, ok := m.selected(); !ok {
 				body = append(body, ours(splitLines(mutedStyle.Render("Select a session to inspect it.")))...)
 			} else {
+				header := m.stoppedConversationHeader(inner)
+				header = header[:min(len(header), max(0, rest-2))]
+				body = append(body, ours(header)...)
 				m.previewBodyOffset = len(body)
-				body = append(body, m.previewLines(width, rest, gutter)...)
+				body = append(body, m.previewLines(width, rest-len(header), gutter)...)
 			}
 		}
 	}

@@ -67,6 +67,7 @@ func TestStoppedConversationReadsExactEngineAndIDWithoutPane(t *testing.T) {
 				}
 			}
 			m := stoppedConversationModel(tool, id, search.NewLocator(root, root))
+			delete(m.cfg.Tools, tool)
 			m.applyConversation(m.readConversation()().(conversationMsg))
 			if m.conversation.err != nil {
 				t.Fatal(m.conversation.err)

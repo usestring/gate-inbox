@@ -101,6 +101,9 @@ func (m *Model) readConversation() tea.Cmd {
 	previousKey, previousStamp := c.key, c.stamp
 	locator := c.locator
 	tool := historyToolFormats(m.cfg)[sess.Tool]
+	if tool == "" {
+		tool = sess.Tool
+	}
 	database := opencodeDBPath()
 	replacement, superseded := m.supersededBy(sess)
 	return func() tea.Msg {

@@ -1,4 +1,4 @@
-33 tools
+34 tools
   answer_session
   archive_session
   cleanup_children
@@ -23,6 +23,7 @@
   read_terminal
   release_files
   rename
+  report_status
   reserve_files
   revive_session
   send_children
@@ -2739,6 +2740,29 @@
     "type": "object"
   },
   "name": "rename"
+}
+
+=== report_status
+{
+  "description": "Say where your work stands as you hand control back, as the last thing you do in a turn. done: you have done everything you can, and anything left waits on a review, a blocked merge, another person, or a step only the user can run. waiting: you need the user's answer or decision to go on. blocked: an error or missing access stops you. working: you will carry on without being asked. The board reads it to tell the user which sessions they can close; it is not shown to them as a message.",
+  "inputSchema": {
+    "additionalProperties": false,
+    "properties": {
+      "note": {
+        "description": "one line on what is left or who it waits on",
+        "type": "string"
+      },
+      "state": {
+        "description": "done, waiting (on the user, a review or another person), blocked, or working",
+        "type": "string"
+      }
+    },
+    "required": [
+      "state"
+    ],
+    "type": "object"
+  },
+  "name": "report_status"
 }
 
 === reserve_files

@@ -19,6 +19,27 @@ type limitSwitchState struct {
 	account bool
 }
 
+// limitSeen is the limit banner a session's card was last offered for:
+// the launch it showed on, the account that launch ran on, and its text.
+type limitSeen struct {
+	launch  time.Time
+	account string
+	banner  string
+}
+
+// covers reports whether the card already offered for seen answers the
+// banner now showing. The same banner on the same launch is the same
+// episode. A relaunch replays the conversation, banner included, so once
+// the session has moved to another account since, the same text is the
+// old account's limit scrolled back into view, not a new one; a relaunch
+// on the same account that still shows it is the limit holding.
+func (seen limitSeen) covers(sess store.Session, banner string) bool {
+	if seen.banner != banner {
+		return false
+	}
+	return seen.launch.Equal(sess.LaunchTime()) || seen.account != sess.Account
+}
+
 func (m *Model) offerLimitSwitch(sess store.Session) tea.Cmd {
 	if (m.mode != modeList && m.mode != modeFocus) || m.searching || m.quick.active ||
 		m.legendPeek.visible || m.focusScroll != 0 || (m.mode == modeFocus && m.focusTyping()) ||
@@ -26,7 +47,8 @@ func (m *Model) offerLimitSwitch(sess store.Session) tea.Cmd {
 		sess.Archived || sess.Muted || m.engine == nil {
 		return nil
 	}
-	if sess.Status != status.Errored && m.limitSwitchSeen[sess.ID] == "" {
+	seen, offered := m.limitSwitchSeen[sess.ID]
+	if sess.Status != status.Errored && !offered {
 		return nil
 	}
 	pane := ansi.Strip(m.preview)
@@ -40,8 +62,9 @@ func (m *Model) offerLimitSwitch(sess store.Session) tea.Cmd {
 	if sess.Status != status.Errored || m.engine.CapacityBanner(sess.Tool, pane) != "" {
 		return nil
 	}
-	signature := sess.LaunchTime().Format(time.RFC3339Nano) + "\n" + banner
-	if m.limitSwitchSeen[sess.ID] == signature {
+	if offered && seen.covers(sess, banner) {
+		// seen stays as recorded: the banner belongs to the account it
+		// was first offered on, whichever launch shows it now.
 		return nil
 	}
 	targets := slices.DeleteFunc(m.enabledToolNames(), func(name string) bool { return name == sess.Tool })
@@ -53,9 +76,9 @@ func (m *Model) offerLimitSwitch(sess store.Session) tea.Cmd {
 		return nil
 	}
 	if m.limitSwitchSeen == nil {
-		m.limitSwitchSeen = make(map[string]string)
+		m.limitSwitchSeen = make(map[string]limitSeen)
 	}
-	m.limitSwitchSeen[sess.ID] = signature
+	m.limitSwitchSeen[sess.ID] = limitSeen{launch: sess.LaunchTime(), account: sess.Account, banner: banner}
 	var cmd tea.Cmd
 	if m.mode == modeFocus {
 		cmd = m.leaveFocus()

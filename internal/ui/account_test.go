@@ -11,6 +11,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/accounts/accountstest"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -152,7 +153,8 @@ func TestTheAccountCardOpensOnAutoWithAChooser(t *testing.T) {
 func TestTheAccountCardAutoKeepsARowOnItsOwnPick(t *testing.T) {
 	m := buildModel(t)
 	withAccountTools(m)
-	t.Cleanup(accounts.UseChooser((&accountstest.Chooser{Account: "BOB2"}).Resolve))
+	chooser := &accountstest.Chooser{Account: "BOB2"}
+	t.Cleanup(accounts.UseChooser(chooser.Resolve))
 	seedAccountRow(t, m, "worker01", "worker", "claude", "")
 	if err := m.store.SetAccount("worker01", "BOB2"); err != nil {
 		t.Fatal(err)
@@ -166,6 +168,17 @@ func TestTheAccountCardAutoKeepsARowOnItsOwnPick(t *testing.T) {
 		t.Fatal("enter on auto did not ask the chooser")
 	}
 	m.update(cmd())
+	// The card asks as a switch, so a chooser can leave the current account
+	// out; From stays a migration's source session, never an account.
+	requests := chooser.Requests()
+	if len(requests) == 0 {
+		t.Fatal("the card never asked the chooser")
+	}
+	for _, req := range requests {
+		if req.Reason != extension.LaunchSwitch || req.From != "" {
+			t.Fatalf("the card asked the chooser %+v, want a switch with no From", req)
+		}
+	}
 	if m.mode != modeAccount || !strings.Contains(m.errBar.text, "already on") {
 		t.Fatalf("mode %v, errBar %q", m.mode, m.errBar.text)
 	}

@@ -198,6 +198,13 @@ const (
 	// LaunchReplace is a new session a board extension starts in another's
 	// place, through BoardHost.Replace.
 	LaunchReplace LaunchReason = "replace"
+	// LaunchSwitch is the operator asking, from the switch-account card, to
+	// move this session to another account. The core sends it only to
+	// AccountChooser.ChooseAccount, so a chooser can leave out the account
+	// the session is on now; the relaunch itself still runs, and reaches
+	// every other hook, as LaunchRelaunch. A chooser that does not know it
+	// can treat it as a relaunch.
+	LaunchSwitch LaunchReason = "switch"
 )
 
 // SpawnShaper is implemented by an extension that shapes what an agent's

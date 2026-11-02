@@ -254,7 +254,7 @@ func TestARequiredActionCannotBeUnbound(t *testing.T) {
 func TestARetiredScreenIsReportedAndIgnored(t *testing.T) {
 	m, problems := New(Overrides{
 		"retired":   {"old_action": {"r"}},
-		ContextList: {"old_card": {"c"}, Archive: {"alt+a"}},
+		ContextList: {"old_card": {"c"}, Archive: {"alt+x"}},
 	})
 	if len(problems) != 2 {
 		t.Fatalf("problems = %v, want the retired screen and the retired action", problems)

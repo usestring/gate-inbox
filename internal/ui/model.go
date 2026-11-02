@@ -53,6 +53,7 @@ const (
 	modeRename
 	modeFork
 	modeMigrate
+	modeLimitSwitch
 	modeAccount
 	modeMove
 	modeGroupForm
@@ -503,6 +504,10 @@ type Model struct {
 	// its capture cadence -- see focusecho.go.
 	focusActiveAt  time.Time
 	focusRepaintAt time.Time
+	// focusTypedAt is when the focused pane was last typed into. Unlike
+	// focusActiveAt, an echo never clears it, so it still says someone is
+	// typing after the cadence has dropped -- see focusTyping.
+	focusTypedAt time.Time
 	// focusWheelAt is when the wheel last turned in the pane, which is a
 	// third kind of activity: it earns the streaming rate, never the
 	// keystroke rate -- see noteFocusWheel.
@@ -684,6 +689,8 @@ type Model struct {
 	rename           renameTarget
 	fork             forkState
 	migrate          migrateState
+	limitSwitch      limitSwitchState
+	limitSwitchSeen  map[string]string
 	account          accountState
 	restartWith      restartWithState
 	quick            quickState
@@ -2751,7 +2758,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if onScreen && !msg.procOK {
 				m.frameUnchanged()
 			}
-			return m, m.trailingEcho(sess)
+			return m, tea.Batch(m.trailingEcho(sess), m.offerLimitSwitch(sess))
 		}
 		// The second this frame was captured in is what the next tick's
 		// stamp is measured against. A chase's frame is deliberately not
@@ -2808,7 +2815,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.setPreview(msg.preview)
 		m.noteEcho(sess, msg.chase, painted)
-		return m, m.trailingEcho(sess)
+		return m, tea.Batch(m.trailingEcho(sess), m.offerLimitSwitch(sess))
 
 	case errMsg:
 		m.errBar.text = msg.err.Error()

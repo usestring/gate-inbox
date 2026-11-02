@@ -176,13 +176,13 @@ var Catalog = []Binding{
 	{ContextList, NewGroup, []string{"g"}, "new group", false},
 	{ContextList, NewTerminal, []string{"T", "shift+t"}, "new terminal tab", false},
 	{ContextList, Fork, []string{}, "fork the session into a new one", false},
-	{ContextList, Migrate, []string{}, "migrate it to another CLI", false},
+	{ContextList, Migrate, []string{"ctrl+t"}, "migrate it to another CLI", false},
 
 	{ContextList, Revive, []string{"v"}, "revive it, or restart a live one on its own conversation", false},
 	{ContextList, ReviveAll, []string{"V", "shift+v"}, "revive every dead session", false},
 	{ContextList, IngestReviews, []string{"P", "shift+p"}, "fetch reviews asked of you on GitHub", false},
 	{ContextList, ReviewsTab, []string{"]"}, "switch between the Sessions and Reviews tabs", false},
-	{ContextList, SwitchAccount, []string{}, "switch its account: restarts it on its own conversation", false},
+	{ContextList, SwitchAccount, []string{"alt+a"}, "switch its account: restarts it on its own conversation", false},
 	{ContextList, Restart, []string{}, "restart it on an empty context", false},
 	{ContextList, RestartWith, []string{}, "restart it with extra flags…", false},
 	{ContextList, Archive, []string{"x"}, "kill it and file the row", false},
@@ -320,6 +320,7 @@ var Catalog = []Binding{
 	{ContextConfirm, Toggle, []string{" ", "space"}, "answer the tick", false},
 	{ContextConfirm, Confirm, []string{"y", "enter"}, "go ahead", true},
 	{ContextConfirm, ConfirmAlways, []string{"A", "shift+a"}, "go ahead and stop asking", false},
+	{ContextLimitSwitch, SwitchAccount, []string{"a"}, "review another subscription", false},
 
 	// ---- the review queue ----
 	{ContextReviews, Close, []string{"esc"}, "back to the sessions", true},

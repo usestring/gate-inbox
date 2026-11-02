@@ -116,6 +116,12 @@ and `alt+,` hides the key hints.
 
 <p align="center"><em>Triage with the list put away. Answer one session and the next that needs you comes up on its own.</em></p>
 
+**Switch subscriptions or agents.** Select a session and press `alt+a` to switch its subscription,
+or `ctrl+t` to move its conversation to another CLI. When the selected session hits a usage limit,
+the board offers to continue on Codex (or another configured CLI), switch its subscription, or leave
+it for later. Each move opens its review card before starting anything. Dismissing the offer keeps
+it closed for that limit; the shortcuts remain available. On macOS, `alt` is Option.
+
 **Focus.** `enter` focuses a session in place: keys go to the agent while the list stays beside
 it, and `ctrl+q` comes back. `alt+\` hides the list so the pane gets the full width, and
 `alt+pgup` / `alt+end` scroll back through its output and return to the live bottom. `space`
@@ -138,6 +144,7 @@ selected agent for builds and one-off commands.
 | `/` | Fuzzy search; `esc` closes the field, deleting the text clears it |
 | `ctrl+p` / `p` | Priority tier for a session or group; each press steps urgent → high → medium → low → none. `ctrl+p` also works from a focused session, and the row flashes its new tier |
 | `M` | Mute / unmute: keep a session out of triage until unmuted; the row reads `muted` |
+| `ctrl+t` / `alt+a` | Move the conversation to another CLI / switch its subscription |
 | `T` | Shell tab under the selected agent |
 | `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |
 | `:` / `ctrl+k` | Quick actions: type what you want, `enter` runs it, and each row shows its key |

@@ -29,8 +29,10 @@ import (
 // to the auto-mode classifier and its refusals to the user as approval
 // questions.
 //
-// So the first failure gets a note to retry inside the sandbox. A second
-// failure in the same session means the list is not coming back on its own:
+// So the first failure gets a note to retry inside the sandbox. A sandboxed
+// call that then succeeds clears the flag (hooks.sandboxWorksCommand), and a
+// refusal on a git lock file never sets it (racedLock). A second failure with
+// no success in between means the list is not coming back on its own:
 // the child ends its turn, and the board restarts it on its own conversation,
 // which lists the paths afresh.
 
@@ -99,7 +101,12 @@ func SandboxStaleHook(configDir, sessionID, flag string, payload []byte, now tim
 	if !staleSandboxFailure(payload) {
 		return ""
 	}
-	if restoreStaleSource(staleSource(payload), now) {
+	source := staleSource(payload)
+	if racedLock(source) {
+		// Not stale, so neither flagged nor restarted: see racedLock.
+		return failureNote(staleRetryNote)
+	}
+	if restoreStaleSource(source, now) {
 		return failureNote(staleRestoredNote)
 	}
 	note := staleRetryNote
@@ -113,6 +120,26 @@ func SandboxStaleHook(configDir, sessionID, flag string, payload []byte, now tim
 		_ = hooks.WriteWhole(flag, staleOnce)
 	}
 	return failureNote(note)
+}
+
+// racedLock reports whether a bwrap refusal named a git lock file, which a
+// retry clears without a restart. On Linux Claude Code (2.1.316) denies
+// writes to .git/config.lock and .git/config.worktree.lock in every
+// repository a session works in: one that exists is bound read-only, and one
+// that does not is planted as an empty read-only file, which that session
+// deletes again when it is done. Every session re-checks the path for each
+// command, so a refusal means only that another session deleted its plant
+// between this session's check and bwrap's, and the next command sees the
+// path as it is. In transcripts from 2026-11-01 to 11-02, 88 of 100 runs of
+// config.lock failures were a single call, and every run ended with a
+// command that worked; restarting those sessions (32 of the board's 35
+// stale-sandbox restarts) cost a resume each and fixed nothing.
+func racedLock(source string) bool {
+	switch filepath.Base(source) {
+	case "config.lock", "config.worktree.lock":
+		return true
+	}
+	return false
 }
 
 func failureNote(note string) string {

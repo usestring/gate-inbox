@@ -103,8 +103,13 @@ stay local; this feature makes no network requests. The hotkey-only snippet menu
 
 **See status.** Every row shows whether its agent is working, waiting on you, finished or idle,
 read from the pane itself. The preview beside the list shows the conversation as **You** and
-**Assistant** messages, without the tool noise. `w` filters the list to what needs attention, and
-`/` searches names, titles, groups, statuses and what the sessions have said.
+**Assistant** messages. While a session is working, a bounded **Live output** section also shows
+its latest terminal activity, including text the CLI has not saved yet. Older message groups shorten
+to four lines; the newest stays full, hovering expands an older group, and F3 toggles the preview's
+detail. Focus mode uses the terminal by default. Enable **Settings → Experimental → Compressed focus
+view** to keep the conversation in focus mode too; there, F3 switches between conversation and
+terminal and remembers the choice. Shell sessions always show the terminal. `w` filters the list
+to what needs attention, and `/` searches names, titles, groups, statuses and what the sessions have said.
 
 **Triage.** `i` flattens the groups into one queue ordered by what needs a person: waiting first,
 then finished, then errored, longest-blocked first inside each. Picking an option in a dialog, or

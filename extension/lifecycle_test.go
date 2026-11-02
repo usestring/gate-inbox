@@ -97,6 +97,9 @@ func (v fakeView) SessionAccount(context.Context, string) (string, extension.Acc
 func (v fakeView) SwitchAccount(context.Context, string, string) (extension.SessionInfo, error) {
 	return extension.SessionInfo{}, nil
 }
+func (v fakeView) MigrateAccount(context.Context, string, string) (extension.SessionInfo, error) {
+	return extension.SessionInfo{}, nil
+}
 func (v fakeView) SetQueueDeadline(string, time.Time) {}
 
 func (v fakeView) Withdraw(context.Context, string, string) (int, error) {

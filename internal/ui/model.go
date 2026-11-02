@@ -137,6 +137,10 @@ type Model struct {
 	// snipErr is why there are none, when the file would not be read.
 	snips   snippets.Set
 	snipErr string
+	// typeQuestion types a snippet into the free-text row of the question a
+	// session's dialog is showing; nil leaves every dialog holding a snippet
+	// back. See UseQuestionTyper.
+	typeQuestion QuestionTyper
 	// restartFlags are the operator's canned restart flag sets, read once
 	// at startup; restartFlagErr is why there are none, when the file
 	// would not be read.
@@ -2402,6 +2406,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case landingCheckMsg:
 		return m, m.applyLandingCheck(msg)
+	case questionTypedMsg:
+		m.applyQuestionTyped(msg)
+		return m, nil
 
 	case refreshMsg:
 		m.ageError()

@@ -187,6 +187,47 @@ func (s *Sessions) BoardAnswer(targetID, reply string) (answered AnsweredQuestio
 	return runtime.answer(target, reply, "board", "", nil)
 }
 
+// BoardType types words into the free-text row of the question an agent
+// session's dialog is showing, on behalf of the board, and reads back what
+// the child took. Unlike BoardAnswer the words are never read as an option:
+// they are the operator's own -- a snippet such as "what would you
+// suggest?" -- and a sentence that happens to hold an option's label must
+// not pick it. Any dialog TakesWords refuses is refused here too.
+func (s *Sessions) BoardType(targetID, words string) (answered AnsweredQuestion, err error) {
+	defer start("sessioncmd.board.type", sessionAttr(targetID)).done(&err)
+	words = strings.TrimSpace(words)
+	if words == "" {
+		return AnsweredQuestion{}, errEmptyAnswer
+	}
+	runtime, err := s.open()
+	if err != nil {
+		return AnsweredQuestion{}, err
+	}
+	defer runtime.store.Close()
+	target, err := runtime.agent(targetID)
+	if err != nil {
+		return AnsweredQuestion{}, err
+	}
+	if err := runtime.reach(target); err != nil {
+		return AnsweredQuestion{}, err
+	}
+	pane := tmuxPane{driver: runtime.driver, id: target.ID}
+	raw, err := pane.Capture()
+	if err != nil {
+		return AnsweredQuestion{}, err
+	}
+	held, ok := dialog.Inspect(ansi.Strip(raw))
+	if !ok || !held.TakesWords() {
+		return AnsweredQuestion{}, fmt.Errorf("session %s is not on a question with a free-text row, so nothing was typed", target.ID)
+	}
+	answered, err = answerHeldAs(pane, raw, held, words, true)
+	answered.SessionID, answered.Name = target.ID, target.Name
+	if err != nil {
+		return answered, fmt.Errorf("session %s: %w", target.ID, err)
+	}
+	return answered, nil
+}
+
 // BoardSend queues message for an agent session on behalf of the board
 // extension extensionID, as Send does for a session: the same checks, but
 // the larger limit maxBoardMessageBytes on the message, no terminals, nothing archived or not running, and no interrupt without a

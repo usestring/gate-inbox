@@ -257,6 +257,7 @@ func startExtensions(dir string, registry *extension.Registry, model *ui.Model, 
 	if aborted > 0 {
 		logging.Info("aborted replacements an earlier board held", "count", aborted)
 	}
+	model.UseQuestionTyper(cmds.BoardType)
 	board := extensionhost.NewBoard(dir, cmds)
 	events := extensionhost.NewEvents(board, func(owner string, err error) {
 		logging.Warn("extension board subscriber", "extension", owner, logging.Err(err))

@@ -8,7 +8,13 @@ import (
 )
 
 func main() {
-	cmd := exec.Command(os.Args[2], "stop", "--if-managed", "--dry-run", "--json")
+	args := []string{"stop", "--if-managed", "--json"}
+	if os.Getenv("FIXTURE_STOP_REAL") == "1" {
+		args = append(args, "--archive")
+	} else {
+		args = append(args, "--dry-run")
+	}
+	cmd := exec.Command(os.Args[2], args...)
 	out, err := cmd.CombinedOutput()
 	result := struct {
 		Output string

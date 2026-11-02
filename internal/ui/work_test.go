@@ -342,7 +342,7 @@ func TestWorkDoesNotCaptureADeadSession(t *testing.T) {
 
 	// The pane really is readable, so an empty badge below is the live gate
 	// and not a fixture that never showed anything.
-	if text := workText(m.tmux, nil, nil, adoptedWorkID, "", true); !strings.Contains(text, "ABC-100001") {
+	if text := workText(workPanes(m.tmux, []string{adoptedWorkID})[adoptedWorkID], nil, nil, adoptedWorkID, ""); !strings.Contains(text, "ABC-100001") {
 		t.Fatalf("a live read of the same pane found nothing: %q", text)
 	}
 
@@ -440,7 +440,7 @@ func TestOpenedPullRequestsOutliveTheIndex(t *testing.T) {
 	if got := openedPRs(st, second, "s"); len(got) != 1 || got[0] != "https://github.com/o/r/pull/5" {
 		t.Fatalf("after the index forgot: %v, want the store's copy", got)
 	}
-	if text := workText(nil, st, second, "s", "", false); !strings.Contains(text, "https://github.com/o/r/pull/5") {
+	if text := workText("", st, second, "s", ""); !strings.Contains(text, "https://github.com/o/r/pull/5") {
 		t.Errorf("workText lacks the remembered pull request:\n%s", text)
 	}
 	if got := openedPRs(nil, second, "s"); len(got) != 0 {

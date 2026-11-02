@@ -94,12 +94,19 @@ func (m *Model) refreshWork() tea.Cmd {
 	tracker, driver, stor, history := m.work, m.tmux, m.store, m.history
 
 	return func() tea.Msg {
+		var live []string
+		for _, r := range rows {
+			if r.live {
+				live = append(live, r.id)
+			}
+		}
+		panes := workPanes(driver, live)
 		sessions := make([]worktracker.Session, 0, len(rows))
 		for _, r := range rows {
 			tracked := worktracker.Session{
 				ID:      r.id,
 				Dir:     r.dir,
-				Text:    workText(driver, stor, history, r.id, r.launch, r.live),
+				Text:    workText(panes[r.id], stor, history, r.id, r.launch),
 				Live:    r.live,
 				Visible: r.visible,
 			}
@@ -136,6 +143,25 @@ func (m *Model) attentionSet() map[string]bool {
 	return seen
 }
 
+// workPanes reads the visible screen of every live session a work pass scans,
+// chained per tmux server rather than forked per pane. The pass runs every
+// thirty seconds over the whole board, and forking capture-pane once per
+// session cost a 200-pane box about six tmux processes a second, averaged
+// over the tick, from this loop alone. A pane that cannot be read is left
+// out; its row is scanned from what else is known about it.
+func workPanes(driver *tmux.Driver, ids []string) map[string]string {
+	out := make(map[string]string, len(ids))
+	if driver == nil || len(ids) == 0 {
+		return out
+	}
+	for id, capture := range driver.CapturePanes(ids) {
+		if capture.Err == nil {
+			out[id] = ansi.Strip(capture.Text)
+		}
+	}
+	return out
+}
+
 // workText is everything a session is known to have said.
 //
 // What it is showing right now matters most, and for a session the manager did
@@ -155,12 +181,13 @@ func (m *Model) attentionSet() map[string]bool {
 // opened itself. Without that a pull request opened an hour ago, now scrolled
 // off the screen, was not the session's work as far as the board could tell.
 // Only what it opened: a session mentions many pull requests it is not on.
-func workText(driver *tmux.Driver, stor *store.Store, history *search.Index, id, launch string, live bool) string {
+//
+// pane is the visible screen, already read by workPanes and stripped; an
+// empty one is a session with no screen to scan.
+func workText(pane string, stor *store.Store, history *search.Index, id, launch string) string {
 	text := launch
-	if live && driver != nil {
-		if pane, err := driver.CapturePane(id); err == nil {
-			text += "\n" + ansi.Strip(pane)
-		}
+	if pane != "" {
+		text += "\n" + pane
 	}
 	if opened := openedPRs(stor, history, id); len(opened) > 0 {
 		text += "\n" + strings.Join(opened, "\n")

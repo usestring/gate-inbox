@@ -95,7 +95,10 @@ func (m *Model) accountAutoCmd(submit bool) tea.Cmd {
 	}
 	sess := m.account.sess
 	tool := m.cfg.Tools[sess.Tool]
-	req := accounts.Request{SessionID: sess.ID, ToolName: sess.Tool, Reason: extension.LaunchRelaunch}
+	// LaunchSwitch rather than LaunchRelaunch: the operator asked to leave
+	// the account the session is on, so the chooser must not hand it back,
+	// while a plain revive should stay where it is.
+	req := accounts.Request{SessionID: sess.ID, ToolName: sess.Tool, Reason: extension.LaunchSwitch}
 	generation := m.account.generation
 	m.account.autoSubmit = submit
 	return func() tea.Msg {

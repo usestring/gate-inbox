@@ -690,7 +690,7 @@ type Model struct {
 	fork             forkState
 	migrate          migrateState
 	limitSwitch      limitSwitchState
-	limitSwitchSeen  map[string]string
+	limitSwitchSeen  map[string]limitSeen
 	account          accountState
 	restartWith      restartWithState
 	quick            quickState

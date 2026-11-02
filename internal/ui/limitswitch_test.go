@@ -154,3 +154,55 @@ func TestLimitSwitchDefersBehindReviewsTab(t *testing.T) {
 		t.Fatal("deferred offer was lost")
 	}
 }
+
+// relaunchLimited stands in for a restart of every row onto account: a new
+// launch whose pane still replays the conversation's old limit banner.
+func relaunchLimited(m *Model, account string, at time.Time) {
+	for i := range m.sessions {
+		m.sessions[i].AgentLaunchedAt = at
+		m.sessions[i].Account = account
+		m.sessions[i].Status = status.Errored
+	}
+	m.rebuildRows()
+}
+
+// A relaunch onto another account replays the banner the old account hit;
+// that banner is not a new limit and must not reopen the card.
+func TestLimitSwitchIgnoresTheOldAccountsBannerAfterAMove(t *testing.T) {
+	m := limitedModel(t)
+	relaunchLimited(m, "LOGAN1", time.Now().Add(-time.Hour))
+	sess, _ := m.selected()
+	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	if m.mode != modeLimitSwitch {
+		t.Fatal("the first limit was not offered")
+	}
+	m.handleLimitSwitchKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	relaunchLimited(m, "ASHBIN1", time.Now())
+	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	if m.mode != modeList {
+		t.Fatalf("the replayed banner reopened the card after the move: mode %v", m.mode)
+	}
+
+	// A different banner on the new account is a new limit.
+	m.Update(previewMsg{sessID: sess.ID, preview: "You've hit your session limit · resets 6pm\n❯ "})
+	if m.mode != modeLimitSwitch {
+		t.Fatal("a new limit on the new account was not offered")
+	}
+}
+
+// A relaunch on the same account that still shows the limit is the limit
+// holding, and is offered again as before.
+func TestLimitSwitchReoffersARelaunchOnTheSameAccount(t *testing.T) {
+	m := limitedModel(t)
+	relaunchLimited(m, "LOGAN1", time.Now().Add(-time.Hour))
+	sess, _ := m.selected()
+	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	m.handleLimitSwitchKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+
+	relaunchLimited(m, "LOGAN1", time.Now())
+	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	if m.mode != modeLimitSwitch {
+		t.Fatalf("the limit on a same-account relaunch was not offered: mode %v", m.mode)
+	}
+}

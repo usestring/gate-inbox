@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"regexp"
 	"strings"
 	"sync"
 	"text/template"
@@ -48,9 +47,14 @@ type BriefData struct {
 	Group string
 	// Received is when the message arrived, as 2006-01-02 15:04 MST.
 	Received string
+	// Name is the placeholder the router starts under, inbox-<source>. The
+	// router is asked to rename itself once for the work, so a template can
+	// tell it how.
+	Name string
 }
 
-// Spawn is one router session to start.
+// Spawn is one router session to start. Name is a placeholder: the router
+// launches asked to rename itself once, for what the message is about.
 type Spawn struct {
 	Name   string
 	Prompt string
@@ -95,7 +99,7 @@ func New(cfg Config, tokens map[string]identity, brief string, spawner Spawner, 
 	}
 	server.limit = &limiter{max: cfg.spawnLimit(), window: cfg.spawnWindow(), now: func() time.Time { return server.now() }}
 	// A template that cannot render fails here, not on the first message.
-	if _, err := server.render(BriefData{Source: "test", Client: "test", Message: "test"}); err != nil {
+	if _, err := server.render(BriefData{Source: "test", Client: "test", Message: "test", Name: SessionName("test")}); err != nil {
 		return nil, fmt.Errorf("brief template: %w", err)
 	}
 	return server, nil
@@ -247,6 +251,7 @@ func (s *Server) post(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text = strings.TrimSpace(text)
+	name := SessionName(source)
 	prompt, err := s.render(BriefData{
 		Source:   source,
 		Client:   id.name,
@@ -255,6 +260,7 @@ func (s *Server) post(w http.ResponseWriter, r *http.Request) {
 		Meta:     meta,
 		Group:    s.cfg.Group,
 		Received: s.now().Format("2006-01-02 15:04 MST"),
+		Name:     name,
 	})
 	if err != nil {
 		release()
@@ -262,7 +268,6 @@ func (s *Server) post(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusInternalServerError, "brief template failed")
 		return
 	}
-	name := SessionName(source, text)
 	result, err := s.spawner.Spawn(r.Context(), Spawn{Name: name, Prompt: prompt})
 	if err != nil {
 		release()
@@ -272,7 +277,7 @@ func (s *Server) post(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.log.Info("inbox spawned", "session", name, "client", client, "source", source)
-	reply(w, http.StatusOK, map[string]any{"ok": true, "session": name, "message": "Sent to " + name, "result": result})
+	reply(w, http.StatusOK, map[string]any{"ok": true, "session": name, "message": "Sent to the board (" + name + ")", "result": result})
 }
 
 func (s *Server) authenticate(header string) (identity, bool) {
@@ -326,24 +331,11 @@ func metaJSON(raw json.RawMessage) (string, error) {
 	return string(encoded), nil
 }
 
-var nonWord = regexp.MustCompile(`[^a-z0-9]+`)
-
-// SessionName is inbox-<source>-<the message's first words>.
-func SessionName(source, text string) string {
-	slug := strings.Trim(nonWord.ReplaceAllString(strings.ToLower(text), "-"), "-")
-	words := strings.Split(slug, "-")
-	if len(words) > 5 {
-		words = words[:5]
-	}
-	slug = strings.Join(words, "-")
-	if len(slug) > 36 {
-		slug = slug[:36]
-	}
-	slug = strings.Trim(slug, "-")
-	if slug == "" {
-		slug = "message"
-	}
-	return "inbox-" + source + "-" + slug
+// SessionName is the placeholder a router starts under: inbox-<source>.
+// The message's own words make a poor name, since dictation opens with
+// filler, so the router renames itself once it has read the message.
+func SessionName(source string) string {
+	return "inbox-" + source
 }
 
 func errorBody(message string) map[string]any {

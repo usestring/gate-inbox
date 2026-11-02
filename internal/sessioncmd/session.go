@@ -111,6 +111,10 @@ type Group struct {
 type CreateSessionOptions struct {
 	Tool string
 	Name string
+	// Placeholder marks Name as a stand-in: the session launches the way an
+	// unnamed one does, asked to rename itself once for its work, but shows
+	// Name on the board until it does. Ignored when Name is empty.
+	Placeholder bool
 	// Nil inherits the calling session's group; a pointer to an empty string
 	// deliberately targets the root group.
 	Group     *string
@@ -817,9 +821,9 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		}
 	}
 	name := strings.TrimSpace(opts.Name)
-	autoNamed := name == ""
+	autoNamed := name == "" || opts.Placeholder
 	id := uuid.NewString()[:8]
-	if autoNamed {
+	if name == "" {
 		name = toolName + "-" + id[:4]
 	}
 	sess := store.Session{

@@ -88,9 +88,10 @@ speech-to-text slips); anything else reads `Source "<source>" is a client of the
 ### The router brief
 
 The router's first prompt is rendered from a Go [text/template](https://pkg.go.dev/text/template).
-The built-in one, [`internal/inbox/brief.tmpl`](../internal/inbox/brief.tmpl), places the message
-first (hand it to the session or group that owns that work, or keep it) and then routes it. Copy it
-to the file `brief_template` names and edit it to describe your own groups, directories and agents.
+The built-in one, [`internal/inbox/brief.tmpl`](../internal/inbox/brief.tmpl), has the router name
+itself first, then place the message (hand it to the session or group that owns that work, or keep
+it), then route it. Copy it to the file `brief_template` names and edit it to describe your own
+groups, directories and agents.
 The server parses and test-renders the template at startup, so a mistake stops it there rather than
 on the first message. Fields:
 
@@ -103,6 +104,17 @@ on the first message. Fields:
 | `{{.Meta}}` | the post's `meta` object as JSON, cut at 2000 bytes; empty when there is none |
 | `{{.Group}}` | the group the router is filed in; empty is the root |
 | `{{.Received}}` | when it arrived, `2006-01-02 15:04 MST` |
+| `{{.Name}}` | the placeholder name the router starts under, `inbox-<source>` |
+
+### Router names
+
+A router starts under the placeholder `inbox-<source>`, such as `inbox-iphone`. The message's own
+words would make a poor name, since dictation tends to open with filler, so the router launches as
+an unnamed session does: Gate Inbox asks it to rename itself once, after it has read the message.
+The built-in brief asks for `<source>-` and 2-4 kebab-case words naming the work, such as
+`iphone-nightly-build-check`, so the board still shows where the message came from. A session the
+router starts for the work gets its own 2-4 word name, with no prefix. Under `[naming] ask = false`
+Gate Inbox tells the router not to rename itself, so use a brief without the Name step.
 
 ## The endpoint
 
@@ -119,11 +131,11 @@ Content-Type: application/json
 - `source` is optional; it defaults to the client's first source and must be one it is allowed.
 - `meta` is an optional object passed to the router as JSON.
 
-A good post replies `200` with the router's name, which is `inbox-<source>-<the message's first
-words>`, and the new session as `gate-inbox spawn --json` prints it:
+A good post replies `200` with the router's placeholder name, `inbox-<source>`, and the new session
+as `gate-inbox spawn --json` prints it:
 
 ```json
-{"ok": true, "session": "inbox-iphone-check-the-nightly-build", "message": "Sent to inbox-iphone-check-the-nightly-build", "result": {...}}
+{"ok": true, "session": "inbox-iphone", "message": "Sent to the board (inbox-iphone)", "result": {...}}
 ```
 
 Errors are `{"error": "..."}`: `401` a bad or missing token, `403` a source the token may not post
@@ -196,8 +208,8 @@ and delete it after), not through a chat.
      `source` (Text) = `iphone`.
 4. Add **Get Dictionary Value**: *Get* **Value** for key `message` in **Contents of URL**.
 5. Add **Show Notification** (or **Show Result**) with the **Dictionary Value**. A good run shows
-   `Sent to inbox-iphone-…`. An error shows the server's JSON error: a 401 means the token is
-   wrong; a connection error usually means the private network is off on the phone.
+   `Sent to the board (inbox-iphone)`. An error shows the server's JSON error: a 401 means the
+   token is wrong; a connection error usually means the private network is off on the phone.
 6. Optional: tap the shortcut's info (ⓘ) and turn off *Show When Run*, so only the notification
    appears.
 7. **Settings → Action Button** → swipe to **Shortcut** → choose your shortcut.

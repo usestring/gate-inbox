@@ -30,7 +30,7 @@ var experiments = []experiment{
 		func(s *settingsState) *bool { return &s.jevAutoSuggest }},
 	{promptSuggestionsSetting, "Prompt suggestions", "Reuse recurring prompts in New Session.\nReads local history; sends matches to TypeSafe only with JEV on.",
 		func(s *settingsState) *bool { return &s.promptSuggest }},
-	{compressedFocusSetting, "Compressed focus view", "Show the shortened conversation in focus mode.\nPrompt and input mirroring is experimental; F3 returns to the terminal.",
+	{compressedFocusSetting, "Compressed focus view", "Show the shortened conversation with live output while working.\nPrompt and input mirroring is experimental; F3 returns to the terminal.",
 		func(s *settingsState) *bool { return &s.compressedFocus }},
 	{jevFinishCheckSetting, "JEV finish check", "On finish, say when a Claude session is done, asking the agent when JEV is unsure,\nand relaunch one that stopped without Chrome with --chrome. Needs a TypeSafe key (Settings → JEV, or TYPESAFE_API_KEY); sends its last turns to TypeSafe.",
 		func(s *settingsState) *bool { return &s.jevFinishCheck }},

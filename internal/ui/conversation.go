@@ -333,7 +333,8 @@ func (m *Model) withWorkingRow(rows []string, width int) []string {
 	}
 	text := m.displayStatusLabel(sess) + " · " + relSince(lastActivity(sess))
 	row := frame + " " + mutedStyle.Render(textfmt.TruncateWidth(text, max(1, width-2), "…"))
-	return append(rows[:len(rows):len(rows)], row)
+	out := append(rows[:len(rows):len(rows)], m.conversationStream(width)...)
+	return append(out, row)
 }
 
 func (m *Model) conversationBody(width int) []string {

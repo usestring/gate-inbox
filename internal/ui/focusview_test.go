@@ -4,15 +4,16 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/search"
 )
 
 func TestFocusedViewDefaultsToTheTerminal(t *testing.T) {
-	for _, legacy := range []string{"", focusViewConversation, focusViewTerminal, "invalid"} {
-		t.Run(legacy, func(t *testing.T) {
+	for _, stored := range []string{"", focusViewTerminal, "invalid"} {
+		t.Run(stored, func(t *testing.T) {
 			m := drainFleet(t)
-			if err := m.store.SetSetting(focusViewSetting, legacy); err != nil {
+			if err := m.store.SetSetting(focusViewSetting, stored); err != nil {
 				t.Fatal(err)
 			}
 			m.focusView = storedFocusView(m.store)
@@ -20,23 +21,28 @@ func TestFocusedViewDefaultsToTheTerminal(t *testing.T) {
 			if m.focusView != focusViewTerminal || m.showsConversation() {
 				t.Fatalf("default focus = %q, conversation visible = %v", m.focusView, m.showsConversation())
 			}
-			if cmd := m.toggleConversation(); cmd != nil || m.focusView != focusViewTerminal {
-				t.Fatal("F3 enabled compressed focus without the experiment")
+			if !strings.Contains(ansi.Strip(m.viewFooter()), "conversation") {
+				t.Fatal("the focused conversation toggle is not advertised")
 			}
-			if strings.Contains(ansi.Strip(m.viewFooter()), "conversation") {
-				t.Fatal("disabled experiment advertised a focus toggle")
+			next, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyF3})
+			m = next.(*Model)
+			m.applyCmd(t, cmd)
+			if !m.showsConversation() || storedFocusView(m.store) != focusViewConversation {
+				t.Fatal("F3 did not enable and persist compressed focus")
 			}
 		})
 	}
 }
 
-// With the setting on, a focused session keeps its conversation on screen --
+// A saved preference keeps the focused conversation on screen --
 // the same shortened transcript the list shows -- and F3 switches to the
 // terminal for this visit. The choice is persisted, so it is not a fluke.
 func TestFocusedViewKeepsTheConversationUntilToggled(t *testing.T) {
 	m := drainFleet(t)
-	m.compressedFocus = true
-	m.focusView = focusViewConversation
+	if err := m.store.SetSetting(focusViewSetting, focusViewConversation); err != nil {
+		t.Fatal(err)
+	}
+	m.focusView = storedFocusView(m.store)
 	m = enterDrain(t, m)
 	if !m.showsConversation() {
 		t.Fatal("the focused-view setting did not keep the conversation on screen")
@@ -79,7 +85,6 @@ func TestFocusedViewKeepsTheConversationUntilToggled(t *testing.T) {
 // nothing rather than switching the focused view to an empty transcript.
 func TestFocusedConversationToggleRefusesAShell(t *testing.T) {
 	m := drainFleet(t)
-	m.compressedFocus = true
 	m.focusView = focusViewConversation
 	m = enterDrain(t, m)
 	m.rows[m.cursor].sess.Tool = "terminal"

@@ -35,7 +35,6 @@ func TestConversationFocusLiveHarnessSubmission(t *testing.T) {
 			}
 			m.cfg.Tools[tool] = defaults.Tools[tool]
 			m.focusView = focusViewConversation
-			m.compressedFocus = true
 			dir := t.TempDir()
 			sess := store.Session{ID: newID(), Name: "compressed-input", Tool: tool, Cwd: dir,
 				Status: status.Idle, CreatedAt: time.Now(), LastStatusAt: time.Now()}

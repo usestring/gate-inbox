@@ -532,8 +532,7 @@ type Model struct {
 	// focusView mirrors the persisted focused-view setting: the live
 	// terminal, or the conversation transcript. The content column reads it
 	// every frame, so it lives here instead of the store. See focusview.go.
-	focusView       string
-	compressedFocus bool
+	focusView string
 	// arrowsStay keeps the prompt-edge arrows with a focused session rather
 	// than leaving for the list. See experimental.go.
 	arrowsStay bool
@@ -973,7 +972,6 @@ type settingsState struct {
 	jevFinishCheck     bool
 	jevCopyOn          bool
 	promptSuggest      bool
-	compressedFocus    bool
 	reviewQueue        bool
 	arrowsStay         bool
 	// backdropSync is the backdrop mode as the picker holds it: true
@@ -1336,7 +1334,6 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		split:           splitState{ratio: loadSplitRatio(st)},
 		focusOnEnter:    storedFocusOnEnter(st),
 		focusView:       storedFocusView(st),
-		compressedFocus: storedCompressedFocus(st),
 		arrowsStay:      storedArrowsStay(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
 		jevFinishCheck:  storedJevFinishCheck(st),

@@ -1,6 +1,8 @@
 package extensionhost
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -28,5 +30,19 @@ func TestQueueDeadlinesMergeAndLapse(t *testing.T) {
 	releaseA()
 	if got := events.QueueDeadlines(); len(got) != 0 {
 		t.Fatalf("a stopped extension's deadlines stayed: %v", got)
+	}
+}
+
+// An extension's MigrateAccount reaches the board through its view, and a
+// context already done is refused before any session is touched; the move
+// itself is sessioncmd's BoardMigrateAccount, tested there.
+func TestMigrateAccountHonoursACancelledContext(t *testing.T) {
+	events := NewEvents(NewBoard("", nil), nil)
+	view, release := events.For("ext-a")
+	defer release()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := view.MigrateAccount(ctx, "s1", "ALICE1"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("MigrateAccount on a done context = %v, want context.Canceled", err)
 	}
 }

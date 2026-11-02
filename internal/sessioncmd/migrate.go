@@ -73,6 +73,50 @@ func (s *Sessions) Migrate(sessionID, targetID string, opts MigrateOptions) (mov
 	if err := mayRaiseSkipPermissions(caller, source, opts); err != nil {
 		return Session{}, err
 	}
+	return s.migrate(runtime, sessionID, source, opts)
+}
+
+// BoardMigrateAccount moves targetID's conversation to a new session on
+// account, for a board extension: what switch_account does for a context
+// too large to resume on another account. The new session runs the same
+// CLI and model and reads the source's transcript; once its pane is up it
+// takes the source's children, their queued reports, its priority, spawner
+// and PRs (store.CompleteMigration), and the source is ended and archived.
+// A launch that fails leaves the source as it was. An adopted source, a pane
+// the manager did not start, is refused: nobody could end it. Moving to
+// the account the session is already on is refused too.
+func (s *Sessions) BoardMigrateAccount(targetID, account string) (moved Session, err error) {
+	op := start("sessioncmd.board.migrate_account", sessionAttr(targetID))
+	defer func() { op.done(&err, tracing.Attr{Key: "created", Value: moved.ID}) }()
+	runtime, err := s.open()
+	if err != nil {
+		return Session{}, err
+	}
+	defer runtime.store.Close()
+	source, err := runtime.agent(targetID)
+	if err != nil {
+		return Session{}, err
+	}
+	if source.TmuxPaneID != "" {
+		return Session{}, fmt.Errorf("%s runs in a pane the manager did not start; it cannot be moved to another account for you", source.Name)
+	}
+	tool, known := runtime.cfg.Tools[source.Tool]
+	if !known {
+		return Session{}, fmt.Errorf("tool %s is no longer configured", source.Tool)
+	}
+	account, err = launch.AccountForSwitch(tool, false, account)
+	if err != nil {
+		return Session{}, err
+	}
+	if account == source.Account {
+		return Session{}, fmt.Errorf("%s already runs on that account", source.Name)
+	}
+	return s.migrate(runtime, "", source, MigrateOptions{Tool: source.Tool, accountOverride: &account})
+}
+
+// migrate is Migrate past its caller's checks; callerID is empty for the
+// board.
+func (s *Sessions) migrate(runtime *runtime, sessionID string, source store.Session, opts MigrateOptions) (Session, error) {
 	// Whether the source is still running goes into the brief and the
 	// migration hook, and an adopted source only answers once reached.
 	if err := runtime.reach(source); err != nil {

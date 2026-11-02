@@ -28,6 +28,23 @@ func (b *Board) SwitchAccount(ctx context.Context, id, account string) (extensio
 	return info(switched), nil
 }
 
+// MigrateAccount moves an agent session's conversation to a new session on
+// account and retires the old one.
+func (b *Board) MigrateAccount(ctx context.Context, id, account string) (extension.SessionInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return extension.SessionInfo{}, err
+	}
+	moved, err := b.cmds.BoardMigrateAccount(id, account)
+	if err != nil {
+		return extension.SessionInfo{}, err
+	}
+	return info(moved), nil
+}
+
+func (v *boardView) MigrateAccount(ctx context.Context, id, account string) (extension.SessionInfo, error) {
+	return v.events.board.MigrateAccount(ctx, id, account)
+}
+
 func (v *boardView) SessionAccount(ctx context.Context, id string) (string, extension.AccountTool, error) {
 	return v.events.board.SessionAccount(ctx, id)
 }

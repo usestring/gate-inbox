@@ -22,7 +22,7 @@ func TestCaptureAsksTheDriverNamedByTheStore(t *testing.T) {
 			return "taken-1", nil
 		},
 	})
-	id, ok := Capture("fake", "/repo", launched, map[string]bool{"taken-1": true})
+	id, ok := Capture("fake", "/repo", launched, map[string]bool{"taken-1": true}, Evidence{})
 	if !ok || id != "fresh-2" {
 		t.Fatalf("Capture = %q, %v", id, ok)
 	}
@@ -39,7 +39,7 @@ func TestCaptureDropsADriverIdThatIsClaimedOrMalformed(t *testing.T) {
 	})
 	for _, bad := range []string{"", "taken", "$(rm -rf ~)", "-flag"} {
 		answer = bad
-		if id, ok := Capture("fake", "/repo", time.Now(), map[string]bool{"taken": true}); ok {
+		if id, ok := Capture("fake", "/repo", time.Now(), map[string]bool{"taken": true}, Evidence{}); ok {
 			t.Fatalf("captured %q from a driver answering %q", id, bad)
 		}
 	}

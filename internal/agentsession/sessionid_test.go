@@ -19,7 +19,7 @@ func TestCaptureCodexLeavesAnIDThatIsNotAPlainToken(t *testing.T) {
 	writeFile(t, filepath.Join(root, "2026/07/18/rollout-ours.jsonl"),
 		codexRollout("ours-uuid", "/repo", launch.Add(2*time.Second)), launch.Add(2*time.Second))
 
-	id, ok := captureCodex(root, "/repo", launch, map[string]bool{})
+	id, ok := captureCodex(root, "/repo", launch, map[string]bool{}, Evidence{})
 	if !ok || id != "ours-uuid" {
 		t.Fatalf("got id=%q ok=%v, want ours-uuid true", id, ok)
 	}

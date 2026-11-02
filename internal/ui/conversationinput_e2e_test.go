@@ -112,7 +112,7 @@ func TestConversationFocusLiveHarnessSubmission(t *testing.T) {
 			}, capture)
 			e2eWaitFor(t, time.Minute, "response in compressed conversation", func(_ string) bool {
 				if sess.AgentSessionID == "" {
-					id, found := agentsession.Capture(tool, dir, sess.CreatedAt, nil)
+					id, found := agentsession.Capture(tool, dir, sess.CreatedAt, nil, agentsession.Evidence{})
 					if !found {
 						return false
 					}

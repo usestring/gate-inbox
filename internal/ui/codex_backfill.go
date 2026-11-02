@@ -9,8 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/usestring/gate-inbox/internal/band"
-	"github.com/usestring/gate-inbox/internal/convo"
+	"github.com/usestring/gate-inbox/internal/agentsession"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -83,21 +82,11 @@ func (ix *codexBackfillIndex) candidates(root string, dirs map[string]bool) ([]c
 		live[path] = true
 		entry, ok := ix.files[path]
 		if !ok || entry.size != info.Size() || !entry.modified.Equal(info.ModTime()) {
-			messages, err := search.ReadCodexTail(path)
+			excerpts, err := agentsession.CodexExcerpts(path)
 			if err != nil {
 				continue
 			}
-			entry = codexBackfillCacheEntry{size: info.Size(), modified: info.ModTime()}
-			for _, message := range messages {
-				if band.Has(message.Text) {
-					continue
-				}
-				text := convo.Normalize(message.Text)
-				if len(text) < 80 {
-					continue
-				}
-				entry.excerpts = append(entry.excerpts, strings.Clone(text[:80]), strings.Clone(text[len(text)-80:]))
-			}
+			entry = codexBackfillCacheEntry{size: info.Size(), modified: info.ModTime(), excerpts: excerpts}
 			ix.files[path] = entry
 		}
 		if len(entry.excerpts) > 0 {

@@ -44,7 +44,7 @@ func TestCaptureCodexPicksSessionAfterLaunchInCwd(t *testing.T) {
 	writeFile(t, filepath.Join(root, "2026/07/18/rollout-ours.jsonl"),
 		codexRollout("ours-uuid", "/repo", launch.Add(2*time.Second)), launch.Add(2*time.Second))
 
-	id, ok := captureCodex(root, "/repo", launch, map[string]bool{})
+	id, ok := captureCodex(root, "/repo", launch, map[string]bool{}, Evidence{})
 	if !ok || id != "ours-uuid" {
 		t.Fatalf("got id=%q ok=%v, want ours-uuid true", id, ok)
 	}
@@ -60,7 +60,7 @@ func TestCaptureCodexSkipsClaimed(t *testing.T) {
 
 	// first-uuid already belongs to another session, so the earliest
 	// unclaimed match wins instead.
-	id, ok := captureCodex(root, "/repo", launch, map[string]bool{"first-uuid": true})
+	id, ok := captureCodex(root, "/repo", launch, map[string]bool{"first-uuid": true}, Evidence{})
 	if !ok || id != "second-uuid" {
 		t.Fatalf("got id=%q ok=%v, want second-uuid true", id, ok)
 	}
@@ -71,7 +71,7 @@ func TestCaptureCodexNoMatch(t *testing.T) {
 	launch := time.Now()
 	writeFile(t, filepath.Join(root, "a/rollout-1.jsonl"),
 		codexRollout("x", "/other", launch.Add(time.Second)), launch.Add(time.Second))
-	if id, ok := captureCodex(root, "/repo", launch, map[string]bool{}); ok {
+	if id, ok := captureCodex(root, "/repo", launch, map[string]bool{}, Evidence{}); ok {
 		t.Fatalf("expected no match, got %q", id)
 	}
 }
@@ -188,7 +188,7 @@ func TestOpencodeSessionMetaV2UsesSessionExport(t *testing.T) {
 }
 
 func TestCaptureUnknownStore(t *testing.T) {
-	if _, ok := Capture("weird", "/repo", time.Now(), map[string]bool{}); ok {
+	if _, ok := Capture("weird", "/repo", time.Now(), map[string]bool{}, Evidence{}); ok {
 		t.Fatal("unknown store should not match")
 	}
 }
@@ -414,7 +414,7 @@ func TestCodexRefusesAnUnreadableConversation(t *testing.T) {
 	if snapshot, ok := Snapshot("codex", cwd); ok {
 		t.Fatalf("snapshot = %v past an unreadable conversation; want unavailable", snapshot)
 	}
-	if id, ok := Capture("codex", cwd, launch, map[string]bool{}); ok {
+	if id, ok := Capture("codex", cwd, launch, map[string]bool{}, Evidence{}); ok {
 		t.Fatalf("captured %q past an unreadable conversation", id)
 	}
 }
@@ -449,7 +449,7 @@ func TestCaptureCodexUsesCreationRatherThanRecentActivity(t *testing.T) {
 			writeFile(t, filepath.Join(root, "rollout-old.jsonl"), rollout("old", old), launch)
 			writeFile(t, filepath.Join(root, "rollout-first.jsonl"), rollout("first", first), launch.Add(time.Minute))
 			writeFile(t, filepath.Join(root, "rollout-second.jsonl"), rollout("second", second), launch.Add(3*time.Second))
-			id, ok := captureCodex(root, "/repo", launch, nil)
+			id, ok := captureCodex(root, "/repo", launch, nil, Evidence{})
 			if !ok || id != "first" {
 				t.Fatalf("new launch captured %q, %v; want first", id, ok)
 			}
@@ -461,7 +461,101 @@ func TestCaptureCodexRefusesUnknownCreationTime(t *testing.T) {
 	root := t.TempDir()
 	launch := time.Now()
 	writeFile(t, filepath.Join(root, "rollout-unknown.jsonl"), `{"type":"session_meta","payload":{"session_id":"unknown","cwd":"/repo"}}`+"\n", launch)
-	if id, ok := captureCodex(root, "/repo", launch, nil); ok {
+	if id, ok := captureCodex(root, "/repo", launch, nil, Evidence{}); ok {
 		t.Fatalf("unknown creation bound %q", id)
+	}
+}
+
+// codexConversation writes a rollout that opens on prompt and answers with
+// reply, with source as the session_meta source field.
+func codexConversation(t *testing.T, path, id, source string, created time.Time, prompt, reply string) {
+	t.Helper()
+	meta := fmt.Sprintf(`{"timestamp":%q,"type":"session_meta","payload":{"id":%q,"timestamp":%q,"cwd":"/repo","source":%s}}`, created.Format(time.RFC3339Nano), id, created.Format(time.RFC3339Nano), source)
+	message := func(role, kind, text string) string {
+		return fmt.Sprintf(`{"timestamp":%q,"type":"response_item","payload":{"type":"message","role":%q,"content":[{"type":%q,"text":%q}]}}`, created.Format(time.RFC3339Nano), role, kind, text)
+	}
+	writeFile(t, path, strings.Join([]string{meta, message("user", "input_text", prompt), message("assistant", "output_text", reply)}, "\n")+"\n", created)
+}
+
+const (
+	cleanupPrompt  = "/worktree-cleanup"
+	priorityPrompt = "The monitor on my signal session means the priority is not being respected"
+	cleanupReply   = "I audited every sibling worktree and found three that are superseded by merged pull requests, so they are safe to remove."
+	priorityReply  = "The priority flag is dropped when the background monitor rewrites the session row, which is why the queue order ignores it."
+)
+
+// A fan-out started one Codex session seconds before a hand-started one in
+// the same directory, and each spawned a guardian. The hand-started session
+// must bind its own conversation, not the fan-out's nor a guardian's.
+func TestCaptureCodexIgnoresConversationStartedBeforeLaunch(t *testing.T) {
+	root := t.TempDir()
+	launch := time.Now().UTC()
+	codexConversation(t, filepath.Join(root, "rollout-cleanup.jsonl"), "cleanup", `"cli"`, launch.Add(-2400*time.Millisecond), cleanupPrompt, cleanupReply)
+	codexConversation(t, filepath.Join(root, "rollout-guardian.jsonl"), "guardian", `{"subagent":{"other":"guardian"}}`, launch.Add(-2100*time.Millisecond), "review", "ok")
+	codexConversation(t, filepath.Join(root, "rollout-priority.jsonl"), "priority", `"cli"`, launch.Add(1800*time.Millisecond), priorityPrompt, priorityReply)
+	codexConversation(t, filepath.Join(root, "rollout-guardian-2.jsonl"), "guardian-2", `{"subagent":{"thread_spawn":{"parent_thread_id":"priority"}}}`, launch.Add(2050*time.Millisecond), "review", "ok")
+
+	for name, evidence := range map[string]Evidence{
+		"time only": {},
+		"prompt":    {Prompt: priorityPrompt},
+		"screen":    {Screen: "› " + priorityPrompt + "\n• " + priorityReply},
+	} {
+		t.Run(name, func(t *testing.T) {
+			id, ok := captureCodex(root, "/repo", launch, nil, evidence)
+			if !ok || id != "priority" {
+				t.Fatalf("captured %q, %v; want priority", id, ok)
+			}
+		})
+	}
+}
+
+// Prompt and screen evidence outrank creation order: the session that sent
+// the cleanup prompt binds the cleanup conversation even though another
+// conversation opened in the directory first.
+func TestCaptureCodexPrefersEvidenceOverCreationOrder(t *testing.T) {
+	root := t.TempDir()
+	launch := time.Now().UTC()
+	codexConversation(t, filepath.Join(root, "rollout-priority.jsonl"), "priority", `"cli"`, launch.Add(500*time.Millisecond), priorityPrompt, priorityReply)
+	codexConversation(t, filepath.Join(root, "rollout-cleanup.jsonl"), "cleanup", `"cli"`, launch.Add(900*time.Millisecond), cleanupPrompt, cleanupReply)
+
+	for name, evidence := range map[string]Evidence{
+		"prompt": {Prompt: "  /Worktree-Cleanup "},
+		"screen": {Screen: "• " + strings.ToUpper(cleanupReply[:40]) + "\n  " + cleanupReply[40:]},
+	} {
+		t.Run(name, func(t *testing.T) {
+			id, ok := captureCodex(root, "/repo", launch, nil, evidence)
+			if !ok || id != "cleanup" {
+				t.Fatalf("captured %q, %v; want cleanup", id, ok)
+			}
+		})
+	}
+}
+
+// Evidence that matches no conversation narrows nothing, and the earliest
+// conversation that started after launch still binds.
+func TestCaptureCodexUnmatchedEvidenceFallsBackToTime(t *testing.T) {
+	root := t.TempDir()
+	launch := time.Now().UTC()
+	codexConversation(t, filepath.Join(root, "rollout-early.jsonl"), "early", `"cli"`, launch.Add(-3*time.Second), cleanupPrompt, cleanupReply)
+	codexConversation(t, filepath.Join(root, "rollout-own.jsonl"), "own", `"cli"`, launch.Add(time.Second), priorityPrompt, priorityReply)
+
+	id, ok := captureCodex(root, "/repo", launch, nil, Evidence{Prompt: "something codex rewrote", Screen: "starting codex..."})
+	if !ok || id != "own" {
+		t.Fatalf("captured %q, %v; want own", id, ok)
+	}
+}
+
+// A conversation that started before launch binds on evidence, which the
+// time fallback would refuse it.
+func TestCaptureCodexBindsEarlyConversationOnEvidence(t *testing.T) {
+	root := t.TempDir()
+	launch := time.Now().UTC()
+	codexConversation(t, filepath.Join(root, "rollout-early.jsonl"), "early", `"cli"`, launch.Add(-3*time.Second), cleanupPrompt, cleanupReply)
+
+	if id, ok := captureCodex(root, "/repo", launch, nil, Evidence{}); ok {
+		t.Fatalf("time alone captured %q; want no match", id)
+	}
+	if id, ok := captureCodex(root, "/repo", launch, nil, Evidence{Prompt: cleanupPrompt}); !ok || id != "early" {
+		t.Fatalf("prompt captured %q, %v; want early", id, ok)
 	}
 }

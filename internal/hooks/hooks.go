@@ -278,6 +278,21 @@ func sandboxStaleCommand() string {
 		`" hook sandbox-stale 2>/dev/null;; esac; }; exit 0`
 }
 
+// sandboxWorksCommand drops the stale-sandbox flag when a sandboxed Bash call
+// succeeds. Such a call proves the session's sandbox binds every path it
+// lists, so an earlier bwrap refusal was a race, not a stale list: on
+// 2026-11-01 to 11-02, 31 of the 35 restarts the board made for a stale
+// sandbox followed two failures with successful calls in between, nearly
+// all on a .git/config.lock that another Claude Code session had just
+// planted and scrubbed. With the flag gone, a later failure counts as the
+// first again rather than as proof the sandbox stays broken. An
+// unsandboxed call proves nothing and keeps the flag. The flag test is
+// shell, so the calls with no flag, nearly all of them, start no process.
+func sandboxWorksCommand() string {
+	return statusFileVar + `[ -z "$f" ] || [ ! -f "$f` + SandboxStaleSuffix + `" ] || ` +
+		`case "$(cat)" in *'"dangerouslyDisableSandbox":true'*|*'"dangerouslyDisableSandbox": true'*) ;; *) rm -f "$f` + SandboxStaleSuffix + `";; esac; exit 0`
+}
+
 func hookCommandLine(verb string) string {
 	return statusFileVar + `[ -z "$f" ] || { [ -z "$` + EnvExecutable + `" ] || [ -z "$` + EnvSessionID +
 		`" ] || "$` + EnvExecutable + `" hook ` + verb + ` 2>/dev/null; }; exit 0`
@@ -300,7 +315,8 @@ func launchHooks() map[string][]hookMatcher {
 		"PreToolUse": append(run("*", preToolUseCommand()),
 			run(blockingTool, askPendingCommand())...),
 		"PostToolUse": append(report("PostToolUse", "*", status.Working),
-			append(run(blockingTool, askAnsweredCommand()), run("*", attestNoteCommand())...)...),
+			append(run(blockingTool, askAnsweredCommand()),
+				append(run("*", attestNoteCommand()), run("Bash", sandboxWorksCommand())...)...)...),
 		"PostToolUseFailure": run("Bash", sandboxStaleCommand()),
 		"Notification":       report("Notification", blockingNotifications, status.Waiting),
 		"Stop":               report("Stop", "", status.Finished),

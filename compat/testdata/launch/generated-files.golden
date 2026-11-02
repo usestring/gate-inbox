@@ -171,6 +171,15 @@ Do not call archive_session, revive_session, kill_session, message_status or any
         ]
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || [ ! -f \"$f.sandbox-stale\" ] || case \"$(cat)\" in *'\"dangerouslyDisableSandbox\":true'*|*'\"dangerouslyDisableSandbox\": true'*) ;; *) rm -f \"$f.sandbox-stale\";; esac; exit 0"
+          }
+        ]
+      },
+      {
         "matcher": "*",
         "hooks": [
           {

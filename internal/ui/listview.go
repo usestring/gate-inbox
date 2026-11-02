@@ -212,7 +212,7 @@ func (m *Model) searchFieldLine(width int) string {
 // where the hit was.
 func (m *Model) matchedInPane(sess store.Session) bool {
 	query := strings.ToLower(strings.TrimSpace(m.search))
-	if query == "" || matchesMetadata(sess, query) {
+	if query == "" || matchesMetadata(sess, m.sessionSummary(sess), query) {
 		return false
 	}
 	return strings.Contains(m.searchText[sess.ID], query)

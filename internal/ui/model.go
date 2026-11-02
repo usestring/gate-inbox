@@ -1687,7 +1687,7 @@ func (m *Model) searchedListedSessions() []store.Session {
 	matched := make([]store.Session, 0, len(listed))
 	for _, sess := range listed {
 		_, historyMatch := m.historyHit(sess)
-		if matchesSearch(sess, query, m.searchText[sess.ID]) || historyMatch {
+		if matchesSearch(sess, m.sessionSummary(sess), query, m.searchText[sess.ID]) || historyMatch {
 			matched = append(matched, sess)
 		}
 	}
@@ -3246,7 +3246,7 @@ func (m *Model) buildTree() {
 	// per-group slices inherit the user's manual order.
 	matched := make(map[string]bool, len(listed))
 	for _, sess := range listed {
-		if query == "" || matchesSearch(sess, query, m.searchText[sess.ID]) {
+		if query == "" || matchesSearch(sess, m.sessionSummary(sess), query, m.searchText[sess.ID]) {
 			matched[sess.ID] = true
 		} else if _, ok := m.historyHit(sess); ok {
 			matched[sess.ID] = true
@@ -3680,20 +3680,25 @@ func baseName(path string) string {
 }
 
 // matchesMetadata is a hit on what the row itself prints. Kept apart from
-// matchesSearch so a row can say which of the two kept it.
-func matchesMetadata(sess store.Session, query string) bool {
-	if matchesLiteralMetadata(sess, query) {
+// matchesSearch so a row can say which of the two kept it. summary is the
+// title the row wears after its name (sessionSummary).
+func matchesMetadata(sess store.Session, summary, query string) bool {
+	if matchesLiteralMetadata(sess, summary, query) {
 		return true
 	}
 	_, matched := fuzzyMetadataScore(sess, query)
 	return matched
 }
 
-func matchesLiteralMetadata(sess store.Session, query string) bool {
+// matchesLiteralMetadata matches the summary literally only: it can be a
+// whole opening prompt, which a fuzzy subsequence would match for almost
+// any query.
+func matchesLiteralMetadata(sess store.Session, summary, query string) bool {
 	return search.Match(strings.ToLower(sess.Name), query) ||
 		search.Match(strings.ToLower(sess.Tool), query) ||
 		search.Match(strings.ToLower(sess.Group), query) ||
 		search.Match(strings.ToLower(sess.Status), query) ||
+		search.Match(strings.ToLower(summary), query) ||
 		sess.Muted && search.Match(mutedStatusLabel, query)
 }
 
@@ -3702,8 +3707,8 @@ func matchesLiteralMetadata(sess store.Session, query string) bool {
 // named for it. paneText is already stripped and lowercased by the poll, and
 // is empty for a session with no capture, which then matches on metadata
 // alone the way it always did.
-func matchesSearch(sess store.Session, query, paneText string) bool {
-	return matchesMetadata(sess, query) || search.Match(paneText, query)
+func matchesSearch(sess store.Session, summary, query, paneText string) bool {
+	return matchesMetadata(sess, summary, query) || search.Match(paneText, query)
 }
 
 func newID() string {

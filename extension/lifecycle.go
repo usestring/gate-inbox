@@ -179,8 +179,11 @@ type BoardHost interface {
 	// Once its pane is up it takes over the old session's children and their
 	// queued reports, its priority, spawner and PRs, and the old session is
 	// ended and archived. A launch that fails leaves the old session as it
-	// was. It returns the new session. A pane the manager did not start is
-	// refused, and so is the account the session already runs on.
+	// was. It returns the new session. If the new session started but the
+	// hand-over then failed, both run: the error says why, and the returned
+	// SessionInfo still names the new session, so a caller does not start a
+	// second one. A pane the manager did not start is refused, and so is the
+	// account the session already runs on.
 	MigrateAccount(ctx context.Context, id, account string) (SessionInfo, error)
 	// SetQueueDeadline tells triage when a session's place in the operator's
 	// queue gets dearer. Among sessions triage otherwise ranks the same, the

@@ -35,10 +35,10 @@ func (b *Board) MigrateAccount(ctx context.Context, id, account string) (extensi
 		return extension.SessionInfo{}, err
 	}
 	moved, err := b.cmds.BoardMigrateAccount(id, account)
-	if err != nil {
+	if moved.ID == "" {
 		return extension.SessionInfo{}, err
 	}
-	return info(moved), nil
+	return info(moved), err
 }
 
 func (v *boardView) MigrateAccount(ctx context.Context, id, account string) (extension.SessionInfo, error) {

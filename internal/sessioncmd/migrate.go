@@ -114,8 +114,8 @@ func (s *Sessions) BoardMigrateAccount(targetID, account string) (moved Session,
 	return s.migrate(runtime, "", source, MigrateOptions{Tool: source.Tool, accountOverride: &account})
 }
 
-// migrate is Migrate past its caller's checks; callerID is empty for the
-// board.
+// migrate is Migrate past its caller's checks; sessionID is the calling
+// session, empty for the board.
 func (s *Sessions) migrate(runtime *runtime, sessionID string, source store.Session, opts MigrateOptions) (Session, error) {
 	// Whether the source is still running goes into the brief and the
 	// migration hook, and an adopted source only answers once reached.
@@ -228,10 +228,13 @@ func (s *Sessions) migrate(runtime *runtime, sessionID string, source store.Sess
 	}
 	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account)
 	_ = runtime.driver.SetLabel(sess.ID, sessionLabel(sess.Group, sess.Name))
+	moved := runtime.sessionInfo(sess, true, false)
+	// The new session is running either way, so it is named with the error:
+	// a caller that retries on an error alone would start a second one.
 	if err := retireMigrated(s, runtime, source, sess, retire); err != nil {
-		return Session{}, err
+		return moved, err
 	}
-	return runtime.sessionInfo(sess, true, false), nil
+	return moved, nil
 }
 
 // retireMigrated hands the source's children to moved and files the source

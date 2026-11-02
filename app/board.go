@@ -232,6 +232,13 @@ func runBoard(version string, registry *extension.Registry) error {
 		return err
 	}
 	model.StartPoller(program.Send)
+	// `gate-inbox dump` (SIGUSR1) writes the input journal and goroutine
+	// stacks next to the log; see dump.go.
+	dumpDir := filepath.Join(dir, logging.DirName)
+	if path := logger.Path(); path != "" {
+		dumpDir = filepath.Dir(path)
+	}
+	defer dumpOnSignal(dumpDir, program.Send)()
 	_, runErr := program.Run()
 	stopExtensions()
 	ui.ResetTerminalBackground()

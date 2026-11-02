@@ -61,8 +61,20 @@ func (m mode) String() string {
 // returned command: that is a data race, and a log line is not worth one. The
 // snapshot is taken here instead, on the Bubble Tea event loop.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if req, ok := msg.(DumpRequest); ok {
+		select {
+		case req.Reply <- m.dumpState():
+		default:
+		}
+		return m, nil
+	}
 	before := m.mode
 	key, isKey := msg.(tea.KeyPressMsg)
+	meta, journaled := m.inputBefore(msg)
+	var inputStarted time.Time
+	if journaled {
+		inputStarted = time.Now()
+	}
 	logged := logging.Enabled(logging.LevelInfo)
 	// The per-key record is debug. At info it was every keystroke on the
 	// board -- 3,554 lines in 3.5 hours, with the row's session and name --
@@ -93,15 +105,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if traced {
 		m.traceDispatch(model, msg, key, isKey, started)
 	}
-	if !logged {
-		return model, cmd
-	}
 	// The mode is read off what update returned rather than off m, so a
 	// handler that ever answers with a different model is still reported as
 	// the one that took effect.
 	after := m.mode
 	if updated, ok := model.(*Model); ok {
 		after = updated.mode
+	}
+	if journaled {
+		// Journaled whatever the log level: the journal is what a dump of a
+		// board that "stopped taking keys" is read for. See inputjournal.go.
+		m.journalInput(meta, msg, before, after, inputStarted)
+	}
+	if !logged {
+		return model, cmd
 	}
 	if keyLogged {
 		snap.log(after)

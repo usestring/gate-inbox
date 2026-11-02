@@ -82,11 +82,12 @@ func (s *inboxSpawner) Spawn(_ context.Context, spawn inbox.Spawn) (any, error) 
 	nest := false
 	group := s.group
 	return s.sessions.Create("", sessioncmd.CreateSessionOptions{
-		Tool:      s.tool,
-		Name:      spawn.Name,
-		Prompt:    spawn.Prompt,
-		Group:     &group,
-		Directory: s.directory,
-		Nest:      &nest,
+		Tool:        s.tool,
+		Name:        spawn.Name,
+		Placeholder: true,
+		Prompt:      spawn.Prompt,
+		Group:       &group,
+		Directory:   s.directory,
+		Nest:        &nest,
 	})
 }

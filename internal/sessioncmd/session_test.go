@@ -1959,3 +1959,24 @@ func TestSessionsCreateFromATerminalAsksForATool(t *testing.T) {
 		t.Fatalf("created from a terminal = %+v, terminal = %+v", created, terminal)
 	}
 }
+
+// A placeholder name shows on the board as given, but the session launches as
+// an unnamed one does: asked to rename itself once, not told it is named.
+func TestCreateWithPlaceholderNameAsksForARename(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "inbox-iphone", Placeholder: true, Prompt: "route this"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if created.Name != "inbox-iphone" {
+		t.Fatalf("Name = %q, want the placeholder as given", created.Name)
+	}
+	row, err := h.store.Get(created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(row.LaunchPrompt, launch.RenameDirective) || strings.Contains(row.LaunchPrompt, launch.RenameAvailableNote) {
+		t.Fatalf("launch prompt should carry the rename directive alone:\n%s", row.LaunchPrompt)
+	}
+}

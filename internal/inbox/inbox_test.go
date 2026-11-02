@@ -63,8 +63,8 @@ func TestPostSpawnsRouter(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("code = %d, reply %v", code, reply)
 	}
-	const name = "inbox-iphone-look-at-the-build-please"
-	if reply["session"] != name || reply["message"] != "Sent to "+name || reply["ok"] != true {
+	const name = "inbox-iphone"
+	if reply["session"] != name || reply["message"] != "Sent to the board (inbox-iphone)" || reply["ok"] != true {
 		t.Fatalf("reply = %v", reply)
 	}
 	if result, _ := reply["result"].(map[string]any); result["id"] != "abc123" {
@@ -81,6 +81,8 @@ func TestPostSpawnsRouter(t *testing.T) {
 		"---- message ----\nLook at the build, please!\n---- end ----",
 		`meta: {"lang":"en"}`,
 		`group "inbox"`,
+		`placeholder "inbox-iphone"`,
+		`"iphone-" followed by 2-4 kebab-case words`,
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Errorf("prompt lacks %q:\n%s", want, prompt)
@@ -94,7 +96,7 @@ func TestPostAcceptsTranscript(t *testing.T) {
 	if code, reply := post(server, "bot-token", `{"transcript":"hello there","source":"bot-chat"}`); code != http.StatusOK {
 		t.Fatalf("code = %d, reply %v", code, reply)
 	}
-	if spawner.spawns[0].Name != "inbox-bot-chat-hello-there" {
+	if spawner.spawns[0].Name != "inbox-bot-chat" {
 		t.Fatalf("name = %q", spawner.spawns[0].Name)
 	}
 }
@@ -265,16 +267,11 @@ func TestBadTemplateRefusedAtStart(t *testing.T) {
 	}
 }
 
+// The message's words stay out of the name: the router names itself once it
+// has read them.
 func TestSessionName(t *testing.T) {
-	cases := map[string]string{
-		"Check why the build is failing on main today": "inbox-iphone-check-why-the-build-is",
-		"???": "inbox-iphone-message",
-		"supercalifragilisticexpialidocious-and-then-more-words": "inbox-iphone-supercalifragilisticexpialidocious-a",
-	}
-	for text, want := range cases {
-		if got := SessionName("iphone", text); got != want {
-			t.Errorf("SessionName(%q) = %q, want %q", text, got, want)
-		}
+	if got := SessionName("iphone"); got != "inbox-iphone" {
+		t.Errorf("SessionName = %q, want inbox-iphone", got)
 	}
 }
 

@@ -2052,6 +2052,14 @@ type PaneScan struct {
 	// than quietly emptying this map, so an entry here is always evidence
 	// rather than the absence of it.
 	Gone map[string]bool
+	// Activity is when each session's window last had output, as tmux's
+	// #{window_activity} reports it: whole seconds, and the window's rather
+	// than the pane's, so a pane sharing a window is credited with its
+	// neighbours' output. Both errors only ever make a pane look busier than
+	// it is. The poll pass reads it to leave a resting pane uncaptured while
+	// nothing has been written to it (paneQuiet in internal/ui). Only ScanPanes fills it,
+	// and a session tmux gave no stamp for is absent.
+	Activity map[string]time.Time
 }
 
 // Panes returns every session's pane pid, which doubles as a liveness check:
@@ -2100,10 +2108,12 @@ func (d *Driver) ScanPanesWithPaths() (PaneScan, error) {
 }
 
 func (d *Driver) scanPanes(ctx context.Context, withPaths bool) (PaneScan, error) {
-	format, mark := "#{session_name} #{pane_pid}", ""
+	// The liveness scan is the poll pass's, and the activity stamp rides on
+	// it so deciding a pane is quiet costs no command of its own.
+	format, mark := "#{session_name} #{pane_pid} #{window_activity}", ""
 	if withPaths {
 		mark = scanMark()
-		format = mark + format + " #{pane_current_path}"
+		format = mark + "#{session_name} #{pane_pid} #{pane_current_path}"
 	}
 	out, err := d.combinedWithin(ctx, d.args("list-panes", "-a", "-F", format))
 	// A deadline that fired is not an answer about this server, so it is
@@ -2133,11 +2143,12 @@ func (d *Driver) scanPanes(ctx context.Context, withPaths bool) (PaneScan, error
 	return scan, nil
 }
 
-// parsePaneLiveness reads a listing of session names and pane pids.
+// parsePaneLiveness reads a listing of session names, pane pids and window
+// activity stamps.
 func parsePaneLiveness(out string) PaneScan {
-	scan := PaneScan{PIDs: map[string]int{}, Gone: map[string]bool{}}
+	scan := PaneScan{PIDs: map[string]int{}, Gone: map[string]bool{}, Activity: map[string]time.Time{}}
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		name, pidText, ok := strings.Cut(line, " ")
+		name, rest, ok := strings.Cut(line, " ")
 		if !ok || !managedName(name) {
 			continue
 		}
@@ -2145,11 +2156,25 @@ func parsePaneLiveness(out string) PaneScan {
 		if _, taken := scan.PIDs[id]; taken {
 			continue
 		}
+		pidText, activityText, _ := strings.Cut(rest, " ")
 		if pid, err := strconv.Atoi(pidText); err == nil {
 			scan.PIDs[id] = pid
+			if at, ok := activityStamp(activityText); ok {
+				scan.Activity[id] = at
+			}
 		}
 	}
 	return scan
+}
+
+// activityStamp reads a #{window_activity} value, seconds since the epoch.
+// Zero or anything unparseable is no stamp, never "quiet since 1970".
+func activityStamp(text string) (time.Time, bool) {
+	secs, err := strconv.ParseInt(strings.TrimSpace(text), 10, 64)
+	if err != nil || secs <= 0 {
+		return time.Time{}, false
+	}
+	return time.Unix(secs, 0), true
 }
 
 // scanMark is a fresh prefix for every line of one pane listing. A pane's
@@ -2217,7 +2242,7 @@ func (d *Driver) adoptedPanes(ctx context.Context, scan PaneScan) error {
 		targets[id] = target
 	}
 	d.adoptedMu.RUnlock()
-	byServer := map[string]map[string]int{}
+	byServer := map[string]map[string]serverPane{}
 	for id, target := range targets {
 		live, listed := byServer[target.Socket]
 		if !listed {
@@ -2228,8 +2253,11 @@ func (d *Driver) adoptedPanes(ctx context.Context, scan PaneScan) error {
 			}
 			byServer[target.Socket] = live
 		}
-		if pid, ok := live[target.Name]; ok {
-			scan.PIDs[id] = pid
+		if pane, ok := live[target.Name]; ok {
+			scan.PIDs[id] = pane.pid
+			if !pane.activity.IsZero() && scan.Activity != nil {
+				scan.Activity[id] = pane.activity
+			}
 			continue
 		}
 		scan.Gone[id] = true
@@ -2250,35 +2278,50 @@ func (d *Driver) adoptedPanes(ctx context.Context, scan PaneScan) error {
 // tmux prints nothing, and nothing is not "no server running" -- read as one,
 // every adopted session on the socket would land in Gone and be deleted on a
 // pass that never reached the server at all.
-func (d *Driver) serverPanes(ctx context.Context, socket string) (map[string]int, error) {
-	out, err := d.combinedWithin(ctx, []string{"-L", socket, "list-panes", "-a", "-F", "#{pane_id} #{pane_pid} #{session_name}"})
+func (d *Driver) serverPanes(ctx context.Context, socket string) (map[string]serverPane, error) {
+	out, err := d.combinedWithin(ctx, []string{"-L", socket, "list-panes", "-a", "-F", "#{pane_id} #{pane_pid} #{window_activity} #{session_name}"})
 	if errors.Is(err, ErrTimeout) {
 		return nil, fmt.Errorf("tmux list-panes on %s: %w", socket, err)
 	}
 	if err != nil {
 		if noServer(string(out)) {
-			return map[string]int{}, nil
+			return map[string]serverPane{}, nil
 		}
 		return nil, fmt.Errorf("tmux list-panes on %s: %w: %s", socket, err, strings.TrimSpace(string(out)))
 	}
-	live := map[string]int{}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		fields := strings.SplitN(line, " ", 3)
-		if len(fields) < 3 {
+	return parseServerPanes(string(out)), nil
+}
+
+// serverPane is one line of a foreign server's pane listing.
+type serverPane struct {
+	pid      int
+	activity time.Time
+}
+
+// parseServerPanes reads "pane_id pane_pid window_activity session_name"
+// lines. The session name goes last because it is the one field that may
+// hold a space.
+func parseServerPanes(out string) map[string]serverPane {
+	live := map[string]serverPane{}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		fields := strings.SplitN(line, " ", 4)
+		if len(fields) < 4 {
 			continue
 		}
 		pid, err := strconv.Atoi(fields[1])
 		if err != nil {
 			continue
 		}
-		live[fields[0]] = pid
+		pane := serverPane{pid: pid}
+		pane.activity, _ = activityStamp(fields[2])
+		live[fields[0]] = pane
 		// A session-named target answers with its first pane, matching what
 		// list-panes -F gives a managed session.
-		if _, taken := live[fields[2]]; !taken {
-			live[fields[2]] = pid
+		if _, taken := live[fields[3]]; !taken {
+			live[fields[3]] = pane
 		}
 	}
-	return live, nil
+	return live
 }
 
 // SessionOfPane names the managed session a tmux pane belongs to, for a

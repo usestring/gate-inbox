@@ -318,3 +318,57 @@ func TestBackgroundPaneKeepsPollingAfterOperatorSubmission(t *testing.T) {
 		t.Fatal("post-submit polling did not return to the stable cadence")
 	}
 }
+
+// A resting pane tmux says has had no output since its last capture would
+// read the same screen and derive the same status, so it waits -- up to a
+// ceiling -- even on the child cadence that otherwise reads it every pass.
+func TestQuietRestingPaneIsNotRecaptured(t *testing.T) {
+	captured := time.Unix(1793639860, 500_000_000)
+	before := time.Unix(1793639859, 0)
+	same := time.Unix(1793639860, 0)
+	for _, tc := range []struct {
+		name     string
+		status   string
+		activity *time.Time
+		after    time.Duration
+		want     bool
+	}{
+		{"idle child, no output", status.Idle, &before, 3 * time.Second, false},
+		{"finished child, no output", status.Finished, &before, 30 * time.Second, false},
+		{"waiting child, no output", status.Waiting, &before, 3 * time.Second, false},
+		{"errored child, no output", status.Errored, &before, 3 * time.Second, false},
+		{"output in the capture's second", status.Idle, &same, 3 * time.Second, true},
+		{"output since the capture", status.Idle, timePtr(captured.Add(time.Second)), 3 * time.Second, true},
+		{"no stamp", status.Idle, nil, 3 * time.Second, true},
+		{"working, no output", status.Working, &before, 3 * time.Second, true},
+		{"starting, no output", status.Starting, &before, 3 * time.Second, true},
+		{"past the ceiling", status.Idle, &before, quietCeiling, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &poller{interval: 2 * time.Second, operatorInputAt: map[string]time.Time{}, settledAt: map[string]time.Time{}, paneActivity: map[string]time.Time{}}
+			sess := store.Session{ID: "child", Tool: "codex", Status: tc.status, ParentID: "parent"}
+			if tc.activity != nil {
+				p.paneActivity[sess.ID] = *tc.activity
+			}
+			sample := paneSample{binding: p.paneBinding(sess), capture: tmux.Capture{At: captured}}
+			if got := p.paneDue(sess, sample, "focused", captured.Add(tc.after), hookStamp{}, false, false); got != tc.want {
+				t.Fatalf("paneDue = %v, want %v", got, tc.want)
+			}
+		})
+	}
+	// Quiet never outranks a reason the pane must be read now.
+	p := &poller{interval: 2 * time.Second, operatorInputAt: map[string]time.Time{}, settledAt: map[string]time.Time{}, paneActivity: map[string]time.Time{"child": before}}
+	sess := store.Session{ID: "child", Status: status.Idle, ParentID: "parent"}
+	sample := paneSample{binding: p.paneBinding(sess), capture: tmux.Capture{At: captured}}
+	if !p.paneDue(sess, sample, sess.ID, captured.Add(3*time.Second), hookStamp{}, false, false) {
+		t.Fatal("the selected pane waited on a quiet stamp")
+	}
+	if !p.paneDue(sess, sample, "focused", captured.Add(3*time.Second), hookStamp{}, true, false) {
+		t.Fatal("a pane with a queued message waited on a quiet stamp")
+	}
+	if !p.paneDue(sess, sample, "focused", captured.Add(3*time.Second), hookStamp{size: 1, modified: captured}, false, false) {
+		t.Fatal("a pane whose hook file moved waited on a quiet stamp")
+	}
+}
+
+func timePtr(t time.Time) *time.Time { return &t }

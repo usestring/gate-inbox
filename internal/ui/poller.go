@@ -159,6 +159,10 @@ type poller struct {
 	runMu       sync.Mutex
 	paneHashes  map[string]uint64
 	paneSamples map[string]paneSample
+	// paneActivity is each pane's last-output stamp from this pass's scan,
+	// which paneQuiet weighs against the pane's last capture. Written and
+	// read under runMu, within one pass.
+	paneActivity map[string]time.Time
 	// quietSince is when each session's activity region last stopped
 	// changing while unmatched; used to debounce marker-less turn ends.
 	quietSince map[string]time.Time
@@ -793,6 +797,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	}
 	phases.scan = lap(&mark)
 	panes := scan.PIDs
+	p.paneActivity = scan.Activity
 	p.syncCodexHooks(sessions, panes, time.Now())
 	// A queued delivery must use a fresh screen, even on a resting row.
 	heads, err := p.store.HeadMessages()

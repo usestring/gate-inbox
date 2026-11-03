@@ -123,8 +123,15 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if m.reviewPageOpen() {
+		if model, cmd, answered := m.reviewPageKey(msg); answered {
+			m.clearGroupJump()
+			return model, cmd
+		}
+	}
+
 	// A number names a group, and the digits of one arrive as separate
-	// keypresses, so they are read ahead of every other binding -- including
+	// keypresses, so they are read ahead of every other list binding -- including
 	// the artifact row's refusals, since a jump acts on the tree rather than
 	// on the row it starts from. Any other key ends the number rather than
 	// being swallowed into it. Read by keyName, not the printed text, so an

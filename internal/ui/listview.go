@@ -1632,7 +1632,9 @@ func (m *Model) contentLines(width, height int) []contentLine {
 	// the first drew as a thickened line and cost the mirrored pane a row.
 	rest := height - len(bar)
 	if rest >= 3 {
-		if m.onReviewsTab() {
+		if m.reviewPageOpen() {
+			body = append(body, ours(m.reviewPageLines(inner, rest))...)
+		} else if m.onReviewsTab() {
 			body = append(body, ours(m.reviewDetailLines(inner))...)
 		} else if group, ok := m.selectedGroup(); ok {
 			body = append(body, ours(splitLines(m.viewGroupAgents(group, inner, rest)))...)

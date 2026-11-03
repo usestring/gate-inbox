@@ -1,6 +1,7 @@
 package forge
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -207,6 +208,51 @@ func TestReviewRequestsFindCommandsAcrossCommentPages(t *testing.T) {
 			old := asks[len(asks)-1]
 			if old.Key() != "o/r#7/comment/old-ask" || old.AckSubject != "old-ask" {
 				t.Fatalf("older ask = %+v", old)
+			}
+		})
+	}
+}
+
+// A comment body is free text, so quotes and newlines in it must not break the mutation, and a
+// review GitHub refuses reports GitHub's reason rather than succeeding.
+func TestSubmitReviewQuotesBodiesAndSurfacesRefusals(t *testing.T) {
+	var query string
+	g := &GitHub{Run: func(args ...string) ([]byte, error) {
+		query = args[len(args)-1]
+		if strings.Contains(query, "query { node(") {
+			return []byte(`{"data":{"node":{"headRefOid":"abc"}}}`), nil
+		}
+		return []byte(`{"errors":[{"message":"Pull request review thread line must be part of the diff"}]}`), errors.New("exit 1")
+	}}
+	err := g.SubmitReview("PR_1", "abc", ReviewRequestChanges, "", []DraftThread{
+		{Path: "a.go", Line: 3, Side: "RIGHT", Body: "say \"no\"\nhere"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "part of the diff") {
+		t.Fatalf("err = %v", err)
+	}
+	for _, want := range []string{`pullRequestId: "PR_1"`, `commitOID: "abc"`, `event: REQUEST_CHANGES`,
+		`{path: "a.go", line: 3, side: RIGHT, body: "say \"no\"\nhere"}`} {
+		if !strings.Contains(query, want) {
+			t.Errorf("mutation lacks %s:\n%s", want, query)
+		}
+	}
+}
+
+func TestSubmitReviewRefusesChangedOrUnverifiedHead(t *testing.T) {
+	for _, response := range []string{
+		`{"data":{"node":{"headRefOid":"new"}}}`,
+		`{"data":{"node":null}}`,
+		`{"data":{}}`,
+		`{"errors":[{"message":"not accessible"}]}`,
+		`not json`,
+	} {
+		t.Run(response, func(t *testing.T) {
+			g, queries := githubReturning(t, response)
+			if err := g.SubmitReview("PR_1", "old", ReviewApprove, "", nil); err == nil {
+				t.Fatal("review was accepted without verifying the displayed head")
+			}
+			if len(*queries) != 1 || strings.Contains((*queries)[0], "mutation") {
+				t.Fatalf("review was submitted: %v", *queries)
 			}
 		})
 	}

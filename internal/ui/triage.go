@@ -776,7 +776,10 @@ func (m *Model) advanceTriageInScope(leftID string) tea.Cmd {
 		}
 		if index == reviewsTurn {
 			tried[reviewsTriedKey] = true
-			if m.handOverReviews() {
+			if handed, open := m.handOverReviews(); handed {
+				if open != nil {
+					return open
+				}
 				// Callers use nil to mark the drain exhausted.
 				return func() tea.Msg { return nil }
 			}

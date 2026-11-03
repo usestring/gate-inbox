@@ -56,6 +56,9 @@ func (m *Model) setMuted(sess store.Session, muted bool) (tea.Model, tea.Cmd) {
 	}
 	m.rebuildRows()
 	m.requestRefresh()
+	if muted && m.triage {
+		return m, m.moveOnFrom(sess)
+	}
 	return m, nil
 }
 

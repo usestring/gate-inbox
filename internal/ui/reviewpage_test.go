@@ -120,3 +120,20 @@ func TestReviewComposePastePreservesMultilineBody(t *testing.T) {
 		t.Fatalf("pasted body = %q", got)
 	}
 }
+
+func TestReviewPageRespectsGlobalInterrupt(t *testing.T) {
+	for _, composing := range []bool{false, true} {
+		m := &Model{reviewQueue: true, reviewsTab: true}
+		m.reviewsPR().page = &prPage{}
+		if composing {
+			m.reviewPage().compose = &draftCompose{}
+		}
+		_, cmd := m.handleKey(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+		if cmd == nil {
+			t.Fatalf("composing=%v: Ctrl+C was consumed", composing)
+		}
+		if _, ok := cmd().(tea.QuitMsg); !ok {
+			t.Fatalf("composing=%v: Ctrl+C did not quit", composing)
+		}
+	}
+}

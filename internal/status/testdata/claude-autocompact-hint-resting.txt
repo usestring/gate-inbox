@@ -1,0 +1,11 @@
+● Checked both sources again; the totals moved by one since the last pass.
+
+  I'll fold the corrections into the notes on the next check.
+
+✻ Brewed for 2m 9s · done 7:58 PM
+                                                                                                                                             8% until auto-compact
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ~/work
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← 4 agents

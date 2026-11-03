@@ -43,7 +43,19 @@ type questionTypedMsg struct {
 // agent's next turn is the question's, not a new one started at the prompt.
 // handOver is held in questionHandOvers until the readback, which acts on it
 // as a landing would; keepLandingHere takes it back as it does a landing's.
+//
+// One answer runs per session at a time: a second would navigate the dialog
+// from the same stale cursor, or paste after the first submitted it, so it is
+// refused until the first is read back.
 func (m *Model) typeIntoQuestion(sess store.Session, text, quoted string, started time.Time, handOver bool) tea.Cmd {
+	if m.questionsAnswering[sess.ID] {
+		m.errBar.text = "still answering " + m.displayName(sess) + "'s question — " + quoted + " was not sent"
+		return nil
+	}
+	if m.questionsAnswering == nil {
+		m.questionsAnswering = map[string]bool{}
+	}
+	m.questionsAnswering[sess.ID] = true
 	typer := m.typeQuestion
 	if handOver {
 		if m.questionHandOvers == nil {
@@ -69,6 +81,7 @@ func (m *Model) typeIntoQuestion(sess store.Session, text, quoted string, starte
 func (m *Model) applyQuestionTyped(msg questionTypedMsg) tea.Cmd {
 	handOver := m.questionHandOvers[msg.sess.ID]
 	delete(m.questionHandOvers, msg.sess.ID)
+	delete(m.questionsAnswering, msg.sess.ID)
 	if msg.err != nil {
 		m.errBar.text = "could not answer " + m.displayName(msg.sess) + "'s question with " + msg.quoted + ": " + msg.err.Error()
 		return nil

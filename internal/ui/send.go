@@ -61,6 +61,13 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 		// which is the same answer the operator would key by hand.
 		if submit && m.typeQuestion != nil {
 			if held, ok := dialog.Inspect(pane); ok && held.TakesWords() {
+				// Offline, the answer would start a turn the agent cannot
+				// finish, and the outbox below types into a prompt, not a
+				// dialog, so it cannot hold this one: refuse it instead.
+				if m.poller.offline() {
+					m.errBar.text = "offline — " + quoted + " was not sent; " + m.displayName(sess) + "'s question waits for the network"
+					return nil
+				}
 				return m.typeIntoQuestion(sess, text, quoted, started, handOver)
 			}
 		}

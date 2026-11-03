@@ -123,6 +123,64 @@ func TestSnippetSaysWhenAQuestionWouldNotTakeIt(t *testing.T) {
 	}
 }
 
+// A second answer to the same question, started before the first is read
+// back, is refused rather than typed over it.
+func TestSnippetAnswersAQuestionOneAtATime(t *testing.T) {
+	m := buildModel(t)
+	bindPlusMinus(t, m)
+	calls := &typerCalls{}
+	m.UseQuestionTyper(calls.typer)
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	sess := sessionNamed(t, m, "ask")
+	paintQuestion(t, m, sess.ID)
+	m.selectSessionRow(t, "ask")
+
+	snip, _ := m.snippetFor(snippets.PlusMinusKey)
+	_, first := m.sendSnippetToSelected(snip)
+	if first == nil {
+		t.Fatalf("no answer was started: %s", m.errBar.text)
+	}
+	if _, second := m.sendSnippetToSelected(snip); second != nil {
+		t.Fatal("a second answer was started while the first was being read back")
+	}
+	if !strings.Contains(m.errBar.text, "still answering") {
+		t.Fatalf("err = %q, want the second answer refused", m.errBar.text)
+	}
+	m.applyCmd(t, first)
+	if len(calls.ids) != 1 {
+		t.Fatalf("typer called %d times, want once", len(calls.ids))
+	}
+	if _, again := m.sendSnippetToSelected(snip); again == nil {
+		t.Fatalf("once the first answer was read back, another was refused: %s", m.errBar.text)
+	}
+}
+
+// Offline, a question answer is refused: nothing can hold it for the network.
+func TestSnippetRefusesToAnswerAQuestionOffline(t *testing.T) {
+	m := buildModel(t)
+	bindPlusMinus(t, m)
+	calls := &typerCalls{}
+	m.UseQuestionTyper(calls.typer)
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.rebuildRows()
+	sess := sessionNamed(t, m, "ask")
+	paintQuestion(t, m, sess.ID)
+	m.selectSessionRow(t, "ask")
+	goOffline(t, m)
+
+	snip, _ := m.snippetFor(snippets.PlusMinusKey)
+	if _, cmd := m.sendSnippetToSelected(snip); cmd != nil {
+		t.Fatal("an answer was started offline")
+	}
+	if !strings.Contains(m.errBar.text, "offline") || len(calls.ids) != 0 {
+		t.Fatalf("err = %q, typer calls %v; want the offline refusal and no typing", m.errBar.text, calls.ids)
+	}
+	if m.latestSubmission.sessionID != "" {
+		t.Fatal("a refused answer was recorded as a submission")
+	}
+}
+
 // A permission prompt has no free-text row: the snippet stays refused there,
 // typer or not.
 func TestSnippetStillRefusesAPermissionPromptWithATyper(t *testing.T) {

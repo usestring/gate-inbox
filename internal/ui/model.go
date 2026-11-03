@@ -715,7 +715,10 @@ type Model struct {
 	// questionHandOvers are the sessions whose snippet answer to a question
 	// is still being read back and would move the drain on once it is.
 	questionHandOvers map[string]bool
-	landingLocator    *search.Locator
+	// questionsAnswering are the sessions with a snippet answer still being
+	// typed and read back; a second answer waits until it is.
+	questionsAnswering map[string]bool
+	landingLocator     *search.Locator
 	// handoverTrace is the Enter handover whose next frame is still to be
 	// timed; see handOverOnEnter.
 	handoverTrace handoverTrace

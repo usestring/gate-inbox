@@ -244,7 +244,8 @@ func (v *reviewsView) renderPage(width, height int) [][]Span {
 	detail := v.cache.details[key]
 	out := prHeader(page.review, detail, page.tab)
 	if page.compose != nil {
-		out = append(out, page.compose.lines(width)...)
+		out = out[:min(len(out), max(height-4, 0))]
+		out = append(out, page.compose.lines(width, max(height-len(out)-1, 1))...)
 	}
 	room := max(height-len(out), 1)
 	page.height, page.width = room, width

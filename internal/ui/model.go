@@ -2961,6 +2961,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					lines[i] = cleanText(line)
 				}
 				page.compose.text = append(page.compose.text, []rune(strings.Join(lines, "\n"))...)
+				page.compose.scroll = 0
 				return m, nil
 			}
 		}

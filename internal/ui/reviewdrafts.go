@@ -304,6 +304,9 @@ type draftCompose struct {
 	left     int
 	proposed int
 	text     []rune
+	scroll   int
+	rows     int
+	last     int
 }
 
 var reviewEventNames = map[string]string{
@@ -312,7 +315,7 @@ var reviewEventNames = map[string]string{
 	forge.ReviewComment:        "Comment",
 }
 
-func (c *draftCompose) lines(width int) [][]Span {
+func (c *draftCompose) lines(width, height int) [][]Span {
 	var title string
 	switch {
 	case c.event != "":
@@ -329,17 +332,27 @@ func (c *draftCompose) lines(width int) [][]Span {
 	default:
 		title = "Comment on " + c.draft.Path + ":" + strconv.Itoa(c.draft.Line) + ":"
 	}
-	out := [][]Span{nil, {{Text: title, Tone: ToneAccent, Bold: true}}}
-	text := bodyLines(string(c.text)+"▌", "  ", width)
-	if len(text) == 0 {
-		text = [][]Span{{{Text: "  ▌"}}}
+	out := bodyLines(title, "", width)
+	out = out[:min(len(out), max(height-2, 0))]
+	for i := range out {
+		for j := range out[i] {
+			out[i][j].Tone, out[i][j].Bold = ToneAccent, true
+		}
 	}
-	out = append(out, text...)
+	text := bodyLines(string(c.text)+"▌", "  ", width)
+	c.rows = max(height-len(out)-1, 1)
+	c.last = max(len(text)-c.rows, 0)
+	c.scroll = min(max(c.scroll, 0), c.last)
+	start := c.last - c.scroll
+	out = append(out, text[start:min(start+c.rows, len(text))]...)
 	verb := "save"
 	if c.event != "" {
 		verb = "submit to GitHub"
 	}
-	return append(out, []Span{{Text: "enter " + verb + " · alt+enter new line · esc cancel", Tone: ToneMuted}}, nil)
+	if len(out) < height {
+		out = append(out, []Span{{Text: "enter " + verb + " · alt+enter new line · esc cancel · ↑/↓ scroll", Tone: ToneMuted}})
+	}
+	return out
 }
 
 // handleComposeKey types into the open compose box. Enter finishes it.
@@ -354,6 +367,24 @@ func (m *Model) handleComposeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.finishCompose(page, c)
 	case "alt+enter", "shift+enter", "ctrl+j":
 		c.text = append(c.text, '\n')
+	case "up", "pgup", "home":
+		step := 1
+		if msg.String() == "pgup" {
+			step = max(c.rows-1, 1)
+		} else if msg.String() == "home" {
+			step = c.last
+		}
+		c.scroll = min(c.scroll+step, c.last)
+		return m, nil
+	case "down", "pgdown", "end":
+		step := 1
+		if msg.String() == "pgdown" {
+			step = max(c.rows-1, 1)
+		} else if msg.String() == "end" {
+			step = c.last
+		}
+		c.scroll = max(c.scroll-step, 0)
+		return m, nil
 	case "backspace":
 		if len(c.text) > 0 {
 			c.text = c.text[:len(c.text)-1]
@@ -363,6 +394,7 @@ func (m *Model) handleComposeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	default:
 		c.text = append(c.text, []rune(cleanText(msg.Key().Text))...)
 	}
+	c.scroll = 0
 	return m, nil
 }
 

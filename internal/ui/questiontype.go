@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -28,8 +29,10 @@ type questionTypedMsg struct {
 	sess         store.Session
 	text, quoted string
 	started      time.Time
-	handOver     bool
-	err          error
+	// standing is the questions the dialog still waits on after this one:
+	// the answer was taken, but the session is not done being asked.
+	standing int
+	err      error
 }
 
 // typeIntoQuestion answers the question sess is showing with text, off the
@@ -38,20 +41,34 @@ type questionTypedMsg struct {
 // No landing is armed. The dialog's own record of the answer is what
 // BoardType reads back, so a nil error is the answer having landed, and the
 // agent's next turn is the question's, not a new one started at the prompt.
-// handOver is carried to the readback, which acts on it as a landing would.
+// handOver is held in questionHandOvers until the readback, which acts on it
+// as a landing would; keepLandingHere takes it back as it does a landing's.
 func (m *Model) typeIntoQuestion(sess store.Session, text, quoted string, started time.Time, handOver bool) tea.Cmd {
 	typer := m.typeQuestion
+	if handOver {
+		if m.questionHandOvers == nil {
+			m.questionHandOvers = map[string]bool{}
+		}
+		m.questionHandOvers[sess.ID] = true
+	}
 	m.errBar.text = "answering " + m.displayName(sess) + "'s question with " + quoted
 	return func() tea.Msg {
-		_, err := typer(sess.ID, text)
-		return questionTypedMsg{sess: sess, text: text, quoted: quoted, started: started, handOver: handOver, err: err}
+		answered, err := typer(sess.ID, text)
+		standing := 0
+		if !answered.Submitted {
+			standing = answered.Standing
+		}
+		return questionTypedMsg{sess: sess, text: text, quoted: quoted, started: started, standing: standing, err: err}
 	}
 }
 
 // applyQuestionTyped does for a verified answer what answerLanded does for a
 // landed snippet: the answer becomes the submission undo takes back, and with
-// handOver the drain moves on if the operator is still on the session.
+// a handover still pending the drain moves on if the operator is still on
+// the session and the dialog has no questions left.
 func (m *Model) applyQuestionTyped(msg questionTypedMsg) tea.Cmd {
+	handOver := m.questionHandOvers[msg.sess.ID]
+	delete(m.questionHandOvers, msg.sess.ID)
 	if msg.err != nil {
 		m.errBar.text = "could not answer " + m.displayName(msg.sess) + "'s question with " + msg.quoted + ": " + msg.err.Error()
 		return nil
@@ -68,7 +85,13 @@ func (m *Model) applyQuestionTyped(msg questionTypedMsg) tea.Cmd {
 	}
 	m.errBar.text = "answered " + m.displayName(msg.sess) + "'s question with " + msg.quoted
 	m.requestRefresh()
-	if !msg.handOver || !m.autoProceeds() {
+	if msg.standing > 0 {
+		// The dialog went on to its next question: the session still needs
+		// the operator, so it is not handed over.
+		m.errBar.text += fmt.Sprintf("; %d more to answer", msg.standing)
+		return nil
+	}
+	if !handOver || !m.autoProceeds() {
 		return nil
 	}
 	sess, ok := m.selected()

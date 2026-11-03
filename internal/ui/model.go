@@ -711,8 +711,11 @@ type Model struct {
 	// unseenAnswers are the sessions whose last answer would have moved the
 	// drain on but was never seen arriving: the check refused it or ran out of
 	// time. The poll's working transition is the evidence left to see.
-	unseenAnswers  map[string]bool
-	landingLocator *search.Locator
+	unseenAnswers map[string]bool
+	// questionHandOvers are the sessions whose snippet answer to a question
+	// is still being read back and would move the drain on once it is.
+	questionHandOvers map[string]bool
+	landingLocator    *search.Locator
 	// handoverTrace is the Enter handover whose next frame is still to be
 	// timed; see handOverOnEnter.
 	handoverTrace handoverTrace

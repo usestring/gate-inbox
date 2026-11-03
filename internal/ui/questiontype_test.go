@@ -50,12 +50,14 @@ func paintQuestion(t *testing.T, m *Model, sessID string) {
 // typerCalls records what a stub QuestionTyper was handed.
 type typerCalls struct {
 	ids, words []string
-	err        error
+	// standing is the questions the dialog is left waiting on.
+	standing int
+	err      error
 }
 
 func (c *typerCalls) typer(id, words string) (sessioncmd.AnsweredQuestion, error) {
 	c.ids, c.words = append(c.ids, id), append(c.words, words)
-	return sessioncmd.AnsweredQuestion{Verified: c.err == nil}, c.err
+	return sessioncmd.AnsweredQuestion{Verified: c.err == nil, Standing: c.standing}, c.err
 }
 
 // A snippet sent to a session on a structured question goes into the
@@ -176,5 +178,51 @@ func TestSnippetAnsweringAQuestionHandsOverAndIsUndoable(t *testing.T) {
 	}
 	if m.latestSubmission.sessionID != askID {
 		t.Fatalf("undo targets %q, want the answered session %q", m.latestSubmission.sessionID, askID)
+	}
+}
+
+// An answer that leaves the operator on the session is not handed over: they
+// went on typing while it was read back, or the dialog moved to its next
+// question.
+func TestSnippetAnsweringAQuestionStaysWhenTheSessionIsNotDone(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		standing int
+		typing   bool
+	}{
+		{name: "operator kept typing", typing: true},
+		{name: "questions still standing", standing: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := buildModel(t)
+			bindPlusMinus(t, m)
+			calls := &typerCalls{standing: tc.standing}
+			m.UseQuestionTyper(calls.typer)
+			m.autoProceed = true
+			liveTriageFleet(t, m, map[string]string{
+				"ask":  status.Waiting,
+				"next": status.Waiting,
+			})
+			m.triage = true
+			m.rebuildRows()
+			paintQuestion(t, m, sessionNamed(t, m, "ask").ID)
+			m.enterFocusOn(t, "ask")
+
+			snip, _ := m.snippetFor(snippets.PlusMinusKey)
+			_, cmd := m.sendSnippetToFocused(snip)
+			if cmd == nil {
+				t.Fatalf("no answer was started: %s", m.errBar.text)
+			}
+			if tc.typing {
+				m.keepLandingHere()
+			}
+			m.applyCmd(t, cmd)
+			if got := focusedName(t, m); got != "ask" {
+				t.Fatalf("focused %q, want the answer to leave the operator on %q (%s)", got, "ask", m.errBar.text)
+			}
+			if tc.standing > 0 && !strings.Contains(m.errBar.text, "1 more to answer") {
+				t.Fatalf("err = %q, want the standing question named", m.errBar.text)
+			}
+		})
 	}
 }

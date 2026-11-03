@@ -2407,8 +2407,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case landingCheckMsg:
 		return m, m.applyLandingCheck(msg)
 	case questionTypedMsg:
-		m.applyQuestionTyped(msg)
-		return m, nil
+		return m, m.applyQuestionTyped(msg)
 
 	case refreshMsg:
 		m.ageError()

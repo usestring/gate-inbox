@@ -116,6 +116,9 @@ func TestSnippetSaysWhenAQuestionWouldNotTakeIt(t *testing.T) {
 	if !strings.Contains(m.errBar.text, "could not answer") || !strings.Contains(m.errBar.text, "the dialog moved") {
 		t.Fatalf("err = %q, want the failure named", m.errBar.text)
 	}
+	if m.latestSubmission.sessionID != "" {
+		t.Fatal("an answer that did not land was recorded as a submission")
+	}
 }
 
 // A permission prompt has no free-text row: the snippet stays refused there,
@@ -134,5 +137,44 @@ func TestSnippetStillRefusesAPermissionPromptWithATyper(t *testing.T) {
 	sendPlusMinusToSelected(t, m)
 	if !strings.Contains(m.errBar.text, "dialog") || len(calls.ids) != 0 {
 		t.Fatalf("err = %q, typer calls %v; want the dialog refusal and no typing", m.errBar.text, calls.ids)
+	}
+}
+
+// A snippet answering the focused session's question is a whole answer like
+// any other: auto-proceed hands the session over once it is read back, and
+// the answer is the one undo takes back.
+func TestSnippetAnsweringAQuestionHandsOverAndIsUndoable(t *testing.T) {
+	m := buildModel(t)
+	bindPlusMinus(t, m)
+	calls := &typerCalls{}
+	m.UseQuestionTyper(calls.typer)
+	m.autoProceed = true
+	liveTriageFleet(t, m, map[string]string{
+		"ask":  status.Waiting,
+		"next": status.Waiting,
+	})
+	m.triage = true
+	m.rebuildRows()
+	askID := sessionNamed(t, m, "ask").ID
+	paintQuestion(t, m, askID)
+	m.enterFocusOn(t, "ask")
+
+	snip, _ := m.snippetFor(snippets.PlusMinusKey)
+	_, cmd := m.sendSnippetToFocused(snip)
+	if cmd == nil {
+		t.Fatalf("no answer was started: %s", m.errBar.text)
+	}
+	if got := focusedName(t, m); got != "ask" {
+		t.Fatalf("starting the answer handed the session over to %q", got)
+	}
+	m.applyCmd(t, cmd)
+	if len(calls.ids) != 1 || calls.ids[0] != askID {
+		t.Fatalf("typer got ids %v", calls.ids)
+	}
+	if got := focusedName(t, m); got != "next" {
+		t.Fatalf("after the answer was read back, focused %q want %q", got, "next")
+	}
+	if m.latestSubmission.sessionID != askID {
+		t.Fatalf("undo targets %q, want the answered session %q", m.latestSubmission.sessionID, askID)
 	}
 }

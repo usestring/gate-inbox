@@ -61,7 +61,7 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 		// which is the same answer the operator would key by hand.
 		if submit && m.typeQuestion != nil {
 			if held, ok := dialog.Inspect(pane); ok && held.TakesWords() {
-				return m.typeIntoQuestion(sess, text, quoted)
+				return m.typeIntoQuestion(sess, text, quoted, started, handOver)
 			}
 		}
 		m.errBar.text = hold

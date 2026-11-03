@@ -230,3 +230,23 @@ func TestStandingIsFalseAtTheInputLine(t *testing.T) {
 		t.Error("Standing = false under an unnumbered dialog's legend")
 	}
 }
+
+// Words have somewhere to go only on a single-choice question that draws a
+// free-text row; anything else would take them as a pick or a tick.
+func TestTakesWordsOnlyWithAFreeTextRow(t *testing.T) {
+	for _, that := range []struct {
+		name   string
+		dialog Dialog
+		want   bool
+	}{
+		{"free-text row", Dialog{Kind: KindAsk, Cursor: 1, FreeText: 3}, true},
+		{"no free-text row", Dialog{Kind: KindAsk, Cursor: 1}, false},
+		{"multi-select", Dialog{Kind: KindAsk, Cursor: 1, FreeText: 3, MultiSelect: true}, false},
+		{"no cursor", Dialog{Kind: KindAsk, FreeText: 3}, false},
+		{"permission prompt", Dialog{Kind: KindApproval, Cursor: 1, FreeText: 3}, false},
+	} {
+		if got := that.dialog.TakesWords(); got != that.want {
+			t.Errorf("%s: TakesWords() = %v, want %v", that.name, got, that.want)
+		}
+	}
+}

@@ -131,6 +131,14 @@ func (d Dialog) Guarded() bool {
 	return d.Kind == KindApproval || d.Kind == KindCodexTrust
 }
 
+// TakesWords reports whether words alone can answer d: an AskUserQuestion
+// question, not a multi-select, with a free-text row and a selection the
+// pane shows on one row, so the cursor can be walked to that row and the
+// words typed there.
+func (d Dialog) TakesWords() bool {
+	return d.Kind == KindAsk && !d.MultiSelect && d.FreeText > 0 && d.Cursor > 0
+}
+
 // Refusal is why one keystroke chosen from an answer's text may not answer the
 // dialog, or "" when one may.
 //

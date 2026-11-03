@@ -123,6 +123,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// ctrl+c quits from every screen. It is read here rather than through
+	// the map because it is the one key the operator may not move: a board
+	// that could not be interrupted is a board somebody has to kill.
+	if msg.String() == "ctrl+c" {
+		return m, tea.Quit
+	}
+
 	if m.reviewPageOpen() {
 		if model, cmd, answered := m.reviewPageKey(msg); answered {
 			m.clearGroupJump()
@@ -140,13 +147,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.typeGroupNumber(msg.String())
 	}
 	m.clearGroupJump()
-
-	// ctrl+c quits from every screen. It is read here rather than through
-	// the map because it is the one key the operator may not move: a board
-	// that could not be interrupted is a board somebody has to kill.
-	if msg.String() == "ctrl+c" {
-		return m, tea.Quit
-	}
 
 	// The Reviews tab lists asks, not sessions, so it answers its own keys
 	// and refuses the ones that would act on a session it is not showing.

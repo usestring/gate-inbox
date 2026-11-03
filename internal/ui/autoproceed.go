@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"fmt"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/notify"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -220,6 +222,8 @@ func (m *Model) handOverOnIdle(now time.Time) tea.Cmd {
 		return nil
 	}
 
+	target := m.rows[next].sess
+	m.noteIdleSwitch(current, target, now.Sub(m.lastInteractionAt))
 	leave := m.leaveFocus()
 	m.cursor = next
 	m.clearPreviewState()
@@ -227,7 +231,23 @@ func (m *Model) handOverOnIdle(now time.Time) tea.Cmd {
 	if m.headPaneTriage(next) {
 		return tea.Batch(leave, m.schedulePreview())
 	}
-	target := m.rows[next].sess
 	_, enter := m.focusSelected()
 	return tea.Batch(leave, enter, m.handoverPreviewCmd(target, m.previewGen))
+}
+
+// noteIdleSwitch tells the operator the board moved them. The switch happens
+// while nobody is at the keys, and the focus view looks the same after it, so
+// with nothing said it reads as the board jumping to another pane at random.
+func (m *Model) noteIdleSwitch(from, to store.Session, idle time.Duration) {
+	logging.Info("idle handover", "from", from.ID, "to", to.ID,
+		"idle", idle.Round(time.Second).String())
+	if m.poller == nil || m.poller.escalate == nil {
+		return
+	}
+	m.poller.escalate(notify.Note{
+		Subject: to.Name,
+		Body: fmt.Sprintf("Switched here from %s, which is still working: no keys for %d min.",
+			from.Name, int(idle.Minutes())),
+		Kind: notify.Waiting,
+	})
 }

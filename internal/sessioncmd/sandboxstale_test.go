@@ -300,3 +300,28 @@ func TestAStaleMCPConfigIsRestoredAndExcluded(t *testing.T) {
 		t.Fatalf("checkout dirty: %s", out)
 	}
 }
+
+// A refusal on a git lock file is another session's planted lock racing this
+// one's check: it is retried every time and never flags the session for a
+// restart.
+func TestARacedConfigLockIsRetriedAndNeverRestarted(t *testing.T) {
+	h, child := grantHarness(t)
+	flag := staleFlag(t, h, child.ID)
+	now := time.Now()
+	for _, name := range []string{"config.lock", "config.worktree.lock"} {
+		payload := []byte(`{"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"ls"},` +
+			`"error":"Exit code 1\nbwrap: Can't get type of source /r/.git/` + name + `: No such file or directory"}`)
+		for i := range 3 {
+			note := SandboxStaleHook(h.sessions.configDir, child.ID, flag, payload, now.Add(time.Duration(i)*time.Minute))
+			if !strings.Contains(note, "Retry the same command inside the sandbox") {
+				t.Fatalf("%s failure %d note = %s", name, i, note)
+			}
+		}
+	}
+	if _, err := os.Stat(flag); !os.IsNotExist(err) {
+		t.Fatalf("flag written for a raced lock: %v", err)
+	}
+	if n, err := h.sessions.RestartStaleSandboxes(now.Add(time.Hour)); err != nil || n != 0 {
+		t.Fatalf("restarted %d, %v; want none", n, err)
+	}
+}

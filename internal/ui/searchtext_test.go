@@ -64,7 +64,7 @@ func TestSearchFindsASessionByWhatItsPaneIsShowing(t *testing.T) {
 	target := sessionNamed(t, m, "worker")
 
 	const needle = "db-primary-07"
-	if matchesMetadata(target, needle) {
+	if matchesMetadata(target, "", needle) {
 		t.Fatalf("fixture no longer reproduces the gap: %q is already in the row's metadata", needle)
 	}
 	if err := m.tmux.SendText(target.ID, "fatal: could not resolve "+needle); err != nil {

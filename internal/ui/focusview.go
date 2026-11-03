@@ -2,8 +2,6 @@ package ui
 
 import "github.com/usestring/gate-inbox/internal/store"
 
-// The experimental flag is separate so an older conversation preference
-// cannot opt a user into compressed focus without their choosing it.
 const focusViewSetting = "focus_view"
 
 const (
@@ -12,12 +10,9 @@ const (
 )
 
 func storedFocusView(st *store.Store) string {
-	if !storedCompressedFocus(st) {
-		return focusViewTerminal
-	}
 	chosen, err := st.Setting(focusViewSetting)
 	if err != nil {
-		return focusViewConversation
+		return focusViewTerminal
 	}
 	return normalizeFocusView(chosen)
 }
@@ -27,5 +22,5 @@ func normalizeFocusView(chosen string) string {
 	case focusViewConversation, focusViewTerminal:
 		return chosen
 	}
-	return focusViewConversation
+	return focusViewTerminal
 }

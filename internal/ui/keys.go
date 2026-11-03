@@ -62,6 +62,8 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleAccountKey(msg)
 	case modeMigrate:
 		return m.handleMigrateKey(msg)
+	case modeLimitSwitch:
+		return m.handleLimitSwitchKey(msg)
 	case modeSettings:
 		return m.handleSettingsKey(msg)
 	case modeMove:
@@ -270,7 +272,10 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 			}
 			return m, nil
 		}
-		return m, nil
+		if m.arrowsStay {
+			return m, nil
+		}
+		return m.focusSelected()
 	case keymap.StepOut:
 		if entry, ok := m.selectedRow(); ok && entry.isSession() &&
 			m.hasChildren(entry.sess.ID) && m.childrenShown(entry.sess.ID) {

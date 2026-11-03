@@ -212,7 +212,7 @@ func (m *Model) searchFieldLine(width int) string {
 // where the hit was.
 func (m *Model) matchedInPane(sess store.Session) bool {
 	query := strings.ToLower(strings.TrimSpace(m.search))
-	if query == "" || matchesMetadata(sess, query) {
+	if query == "" || matchesMetadata(sess, m.sessionSummary(sess), query) {
 		return false
 	}
 	return strings.Contains(m.searchText[sess.ID], query)
@@ -1645,8 +1645,11 @@ func (m *Model) contentLines(width, height int) []contentLine {
 			} else if _, ok := m.selected(); !ok {
 				body = append(body, ours(splitLines(mutedStyle.Render("Select a session to inspect it.")))...)
 			} else {
+				header := m.stoppedConversationHeader(inner)
+				header = header[:min(len(header), max(0, rest-2))]
+				body = append(body, ours(header)...)
 				m.previewBodyOffset = len(body)
-				body = append(body, m.previewLines(width, rest, gutter)...)
+				body = append(body, m.previewLines(width, rest-len(header), gutter)...)
 			}
 		}
 	}

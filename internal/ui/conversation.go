@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/extension/textfmt"
+	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -25,6 +26,8 @@ type conversationView struct {
 	messages     []search.Message
 	usage        search.TokenUsage
 	err          error
+	stoppedWhy   string
+	opening      string
 	offset       int
 	lines        []string
 	starts       []int
@@ -46,6 +49,8 @@ type conversationMsg struct {
 	usage      search.TokenUsage
 	err        error
 	unchanged  bool
+	stoppedWhy string
+	opening    string
 }
 
 func conversationTick() tea.Cmd {
@@ -63,7 +68,7 @@ func (m *Model) showsConversation() bool {
 	// Focused, the pane belongs to the agent, but the focused-view setting
 	// can keep the conversation on screen instead until F3 asks for the
 	// terminal back. See focusview.go.
-	return m.mode == modeFocus && m.compressedFocus && m.focusView == focusViewConversation
+	return m.mode == modeFocus && m.focusView == focusViewConversation
 }
 
 func conversationKey(id, agentID string) string { return id + "\x00" + agentID }
@@ -96,14 +101,32 @@ func (m *Model) readConversation() tea.Cmd {
 	previousKey, previousStamp := c.key, c.stamp
 	locator := c.locator
 	tool := historyToolFormats(m.cfg)[sess.Tool]
+	if tool == "" {
+		tool = sess.Tool
+	}
 	database := opencodeDBPath()
+	replacement, superseded := m.supersededBy(sess)
 	return func() tea.Msg {
 		msg := conversationMsg{key: key}
+		if sess.Status == status.Dead {
+			msg.stamp = status.Dead + ";"
+			msg.stoppedWhy = classifyEnd(sess, m.loadEndEvidence()).why
+			if superseded {
+				msg.stoppedWhy = "conversation is running in " + replacement.Name
+			}
+		}
 		target, ok := locator.Target(sess.ID, tool, sess.Cwd, sess.AgentSessionID)
 		if !ok && sess.AgentSessionID == "" && sess.TmuxPaneID != "" && matched.AgentID != "" {
 			target, ok = matched, true
 		}
 		if !ok {
+			if sess.Status == status.Dead {
+				if sess.AgentSessionID == "" {
+					msg.err = fmt.Errorf("no conversation ID was recorded for this session")
+				} else {
+					msg.err = fmt.Errorf("no saved %s conversation was found for the recorded ID", sess.Tool)
+				}
+			}
 			return msg
 		}
 		paths := []string{target.Path}
@@ -126,6 +149,11 @@ func (m *Model) readConversation() tea.Cmd {
 			return msg
 		}
 		msg.messages, msg.err = search.ReadMessages(target, database)
+		if sess.Status == status.Dead && target.Tool != search.ToolOpenCode && msg.err == nil {
+			if prompts, err := search.ReadFirstPrompts(target, 1); err == nil && len(prompts) > 0 {
+				msg.opening = prompts[0]
+			}
+		}
 		msg.usage = search.ReadTokenUsage(target)
 		return msg
 	}
@@ -144,9 +172,14 @@ func (m *Model) applyConversation(msg conversationMsg) {
 		c.busy, c.pendingKey = false, ""
 	}
 	sess, ok := m.selected()
-	if !ok || msg.key != m.conversationIdentity(sess) || msg.unchanged {
+	if !ok || msg.key != m.conversationIdentity(sess) {
 		return
 	}
+	c.stoppedWhy = msg.stoppedWhy
+	if msg.unchanged {
+		return
+	}
+	c.opening = msg.opening
 	if c.key != msg.key {
 		c.offset, c.lines, c.starts = 0, nil, nil
 		c.hovered = -1
@@ -241,7 +274,7 @@ func (m *Model) conversationRows(width, height int) []string {
 	switch {
 	case c.key == identity:
 		rows = c.wrapped(width)
-	case c.busy:
+	case c.busy && sess.Status != status.Dead:
 		// A read for the newly selected row is in flight. Keep the last
 		// conversation on screen rather than flashing the empty placeholder
 		// the key mismatch would draw: it is replaced by the new row's own
@@ -253,6 +286,12 @@ func (m *Model) conversationRows(width, height int) []string {
 	rows = m.withQuestionCard(rows, width, height)
 	if len(rows) == 0 {
 		text := "No user-facing messages yet. Open the terminal to interact."
+		if sess.Status == status.Dead {
+			text = "No user-facing messages were found in the saved conversation."
+			if c.key != identity {
+				text = "Loading saved conversation…"
+			}
+		}
 		if c.key == identity && c.err != nil {
 			text = "Conversation unavailable: " + c.err.Error()
 		}
@@ -294,7 +333,8 @@ func (m *Model) withWorkingRow(rows []string, width int) []string {
 	}
 	text := m.displayStatusLabel(sess) + " · " + relSince(lastActivity(sess))
 	row := frame + " " + mutedStyle.Render(textfmt.TruncateWidth(text, max(1, width-2), "…"))
-	return append(rows[:len(rows):len(rows)], row)
+	out := append(rows[:len(rows):len(rows)], m.conversationStream(width)...)
+	return append(out, row)
 }
 
 func (m *Model) conversationBody(width int) []string {
@@ -313,9 +353,6 @@ func (m *Model) withQuestionCard(rows []string, width, height int) []string {
 
 func (m *Model) toggleConversation() tea.Cmd {
 	if m.mode == modeFocus {
-		if !m.compressedFocus {
-			return nil
-		}
 		// Focused, F3 switches between the conversation and the terminal
 		// itself rather than between the conversation's two densities: the
 		// choice is the focused-view setting, so a deliberate toggle sticks
@@ -440,4 +477,37 @@ func (m *Model) updateConversationHover(x, y int) bool {
 	}
 	c.hovered, c.dirty = group, true
 	return true
+}
+
+func (m *Model) stoppedConversationHeader(width int) []string {
+	sess, ok := m.selected()
+	if !ok || sess.Status != status.Dead || !m.showsConversation() {
+		return nil
+	}
+	c := m.conversation
+	why := "agent is no longer running"
+	if c.key == m.conversationIdentity(sess) && c.stoppedWhy != "" {
+		why = c.stoppedWhy
+	}
+	rows := []string{"Stopped · " + why, "Engine: " + sess.Tool + " · last active " + relSince(lastActivity(sess))}
+	if sess.AgentSessionID != "" {
+		rows = append(rows, "Conversation: "+sess.AgentSessionID)
+	}
+	if c.key == m.conversationIdentity(sess) && c.opening != "" {
+		rows = append(rows, "Started with: "+strings.Join(strings.Fields(ansi.Strip(c.opening)), " "))
+	}
+	var actions []string
+	for _, action := range []struct{ key, label string }{
+		{m.cap(keymap.ContextList, keymap.Revive), "reactivate"},
+		{m.cap(keymap.ContextList, keymap.Archive), "archive"},
+	} {
+		if action.key != "" {
+			actions = append(actions, action.key+" "+action.label)
+		}
+	}
+	rows = append(rows, strings.Join(actions, " · "), "")
+	for i, row := range rows {
+		rows[i] = mutedStyle.Render(textfmt.TruncateWidth(cleanText(row), width, "…"))
+	}
+	return rows
 }

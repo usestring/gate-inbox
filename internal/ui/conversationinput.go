@@ -82,3 +82,35 @@ func (m *Model) livePaneRow(row int) bool {
 	c := m.conversation
 	return m.mode == modeFocus && row >= c.liveTop && row < c.liveTop+c.liveCount
 }
+
+func (m *Model) conversationStream(width int) []string {
+	sess, ok := m.selected()
+	if !ok || m.preview == "" || m.pane.forID != sess.ID || m.engine == nil {
+		return nil
+	}
+	clean := ansi.Strip(m.preview)
+	if state, matched := m.engine.RuleMatch(sess.Tool, clean); matched && state == status.Waiting {
+		return nil
+	}
+	raw := strings.Split(strings.TrimSuffix(clean, "\n"), "\n")
+	end := len(raw)
+	if live, start, full := m.conversationInteraction(width, len(raw)); !full && len(live) > 0 {
+		end = start
+	}
+	for end > 0 && strings.TrimSpace(raw[end-1]) == "" {
+		end--
+	}
+	height := m.previewPaneHeight()
+	if m.pane.box.ok {
+		height = m.pane.box.height
+	}
+	count := min(8, max(0, height/3-1), end)
+	if count == 0 {
+		return nil
+	}
+	rows := []string{mutedStyle.Render(previewLine("── Live output ──", width))}
+	for _, row := range raw[end-count : end] {
+		rows = append(rows, previewLine(expandPaneTabs(row, width), width))
+	}
+	return rows
+}

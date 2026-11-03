@@ -172,6 +172,19 @@ type BoardHost interface {
 	// rather than migrated, as is a pane the manager did not start and a
 	// CLI that cannot be launched on a named account.
 	SwitchAccount(ctx context.Context, id, account string) (SessionInfo, error)
+	// MigrateAccount moves an agent session's conversation to a new session
+	// on a named account, "" for the CLI's own login, as switch_account does
+	// for a context too large to resume there: the new session runs the same
+	// CLI and model and is told to read the old transcript and carry on.
+	// Once its pane is up it takes over the old session's children and their
+	// queued reports, its priority, spawner and PRs, and the old session is
+	// ended and archived. A launch that fails leaves the old session as it
+	// was. It returns the new session. If the new session started but the
+	// hand-over then failed, both run: the error says why, and the returned
+	// SessionInfo still names the new session, so a caller does not start a
+	// second one. A pane the manager did not start is refused, and so is the
+	// account the session already runs on.
+	MigrateAccount(ctx context.Context, id, account string) (SessionInfo, error)
 	// SetQueueDeadline tells triage when a session's place in the operator's
 	// queue gets dearer. Among sessions triage otherwise ranks the same, the
 	// one with the earliest deadline still ahead is handed over first, and

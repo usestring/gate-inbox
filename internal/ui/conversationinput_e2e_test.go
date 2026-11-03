@@ -35,7 +35,6 @@ func TestConversationFocusLiveHarnessSubmission(t *testing.T) {
 			}
 			m.cfg.Tools[tool] = defaults.Tools[tool]
 			m.focusView = focusViewConversation
-			m.compressedFocus = true
 			dir := t.TempDir()
 			sess := store.Session{ID: newID(), Name: "compressed-input", Tool: tool, Cwd: dir,
 				Status: status.Idle, CreatedAt: time.Now(), LastStatusAt: time.Now()}
@@ -112,7 +111,7 @@ func TestConversationFocusLiveHarnessSubmission(t *testing.T) {
 			}, capture)
 			e2eWaitFor(t, time.Minute, "response in compressed conversation", func(_ string) bool {
 				if sess.AgentSessionID == "" {
-					id, found := agentsession.Capture(tool, dir, sess.CreatedAt, nil)
+					id, found := agentsession.Capture(tool, dir, sess.CreatedAt, nil, agentsession.Evidence{})
 					if !found {
 						return false
 					}

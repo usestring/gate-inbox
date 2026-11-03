@@ -74,6 +74,8 @@ settle = "90s"
 load_per_cpu = 2.0
 ```
 
+`[inbox]` configures `gate-inbox inbox serve`, the remote inbox that turns a posted message into a router session: its listen address, the group, directory and tool routers start with, a brief template, its clients and the sources each may post as, and origin notes per source. Tokens never go in this file; they come from `GATE_INBOX_INBOX_TOKEN_<CLIENT>` or a `0600` `inbox-tokens` file. [Remote inbox](remote-inbox.md) covers every key.
+
 `[board]` holds the frame's layout. `sidebar` (default `"right"`) is the side the sessions list sits on, `"right"` or `"left"`; the session's pane takes the other side. Any other value stops the board at startup with an error naming the key. Settings (`s`) → **sidebar** can pick the other side on one machine, which outranks this file there; picking the file's side in Settings again goes back to following it (see [The board layout](usage.md#the-board-layout)).
 
 The generated file also carries a `[tools.terminal]` block. That one is the shell `T` opens, not an agent CLI: an empty `command` leaves the pane on `$SHELL`, and setting one opens a different shell. `shell = true` is what marks it — never the name — so the tool pickers skip it and the keys that write into a pane refuse it (see [Terminal tabs](usage.md#terminal-tabs)). Any block can carry the flag, and a `[tools.terminal]` block already in your own config keeps whatever it already means.

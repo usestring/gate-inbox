@@ -18,7 +18,7 @@ func conversationInputModel(t *testing.T, tool, pane string, cursor paneCursor) 
 	t.Helper()
 	sess := store.Session{ID: "composer", Tool: tool}
 	m := &Model{
-		engine: liveEngine(t), mode: modeFocus, focusView: focusViewConversation, compressedFocus: true, cursorOn: true,
+		engine: liveEngine(t), mode: modeFocus, focusView: focusViewConversation, cursorOn: true,
 		rows: []treeRow{{sess: sess}}, preview: pane,
 		conversation: &conversationView{key: conversationKey(sess.ID, ""), dirty: true,
 			messages: []search.Message{{Role: "assistant", Text: "A shortened reply stays above your input."}}},
@@ -230,5 +230,56 @@ func TestConversationFocusKeepsWorkingSpinnerWhileReadingOlderTurns(t *testing.T
 	m.rows[m.cursor].sess.Status = status.Idle
 	if got := conversationInputText(m.previewLines(50, 15, "")); strings.Contains(got, " working") || m.needsLoaderTick() {
 		t.Fatalf("idle focused conversation retains a spinner:\n%s", got)
+	}
+}
+
+func TestConversationStreamsBeforeTranscriptIsSaved(t *testing.T) {
+	for _, tool := range []string{"claude", "codex", "opencode"} {
+		t.Run(tool, func(t *testing.T) {
+			prompt := map[string]string{"claude": "❯", "codex": "›", "opencode": "  ┃"}[tool]
+			m := conversationInputModel(t, tool, "First streamed words\n\n"+prompt+" unsent draft\n  model\n", paneCursor{x: 6, y: 2, ok: true})
+			m.rows[m.cursor].sess.Status = status.Working
+			for _, mode := range []mode{modeList, modeFocus} {
+				m.mode = mode
+				got := conversationInputText(m.previewLines(60, 24, ""))
+				for _, want := range []string{"shortened reply", "Live output", "First streamed words"} {
+					if !strings.Contains(got, want) {
+						t.Fatalf("mode %v missing %q before history is saved:\n%s", mode, want, got)
+					}
+				}
+				if mode == modeList && strings.Contains(got, "unsent draft") {
+					t.Fatalf("stream exposes the unsent input:\n%s", got)
+				}
+			}
+			m.preview = strings.Replace(m.preview, "First streamed words", "First streamed words keep arriving", 1)
+			got := conversationInputText(m.previewLines(60, 24, ""))
+			if !strings.Contains(got, "keep arriving") {
+				t.Fatalf("pane refresh did not update the stream:\n%s", got)
+			}
+			m.rows[m.cursor].sess.Status = status.Idle
+			got = conversationInputText(m.previewLines(60, 24, ""))
+			if strings.Contains(got, "Live output") || strings.Contains(got, "First streamed words") {
+				t.Fatalf("idle conversation retains terminal output:\n%s", got)
+			}
+		})
+	}
+}
+
+func TestConversationStreamBoundsAndIdentity(t *testing.T) {
+	m := conversationInputModel(t, "codex", strings.Repeat("old output\n", 50)+"latest output\n\n› draft\n", paneCursor{x: 3, y: 52, ok: true})
+	m.rows[m.cursor].sess.Status = status.Working
+	m.pane.box = paneBox{height: 24, ok: true}
+	stream := m.conversationStream(20)
+	if len(stream) != 8 || !strings.Contains(strings.Join(stream, "\n"), "latest output") {
+		t.Fatalf("stream is not a bounded live tail: %q", stream)
+	}
+	m.preview = "❯ earlier submitted prompt\nFirst streamed words\nlatest output\n"
+	m.pane.cursor.ok = false
+	if got := strings.Join(m.conversationStream(40), "\n"); !strings.Contains(got, "latest output") {
+		t.Fatalf("an earlier submitted prompt cut off the active stream: %q", got)
+	}
+	m.pane.forID = "previous-row"
+	if got := m.conversationStream(20); len(got) != 0 {
+		t.Fatalf("stream contains a previous session's output: %q", got)
 	}
 }

@@ -285,7 +285,7 @@ func (m *Model) matchedInHistory(sess store.Session) bool {
 	if _, ok := m.historyHit(sess); !ok {
 		return false
 	}
-	return !matchesSearch(sess, m.historyQueryText(), m.searchText[sess.ID])
+	return !matchesSearch(sess, m.sessionSummary(sess), m.historyQueryText(), m.searchText[sess.ID])
 }
 
 // historyHitBadge wears the search field's glyph like the pane badge, names
@@ -327,7 +327,7 @@ func (a relevance) better(b relevance) bool {
 }
 
 func (m *Model) relevanceOf(sess store.Session, query string) relevance {
-	if matchesLiteralMetadata(sess, query) {
+	if matchesLiteralMetadata(sess, m.sessionSummary(sess), query) {
 		return relevance{tierMetadata, 0}
 	}
 	if score, matched := fuzzyMetadataScore(sess, query); matched {

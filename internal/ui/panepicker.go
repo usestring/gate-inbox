@@ -7,6 +7,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/extension/textfmt"
+	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
@@ -48,7 +49,7 @@ func (m *Model) panePickMatches() []panePickEntry {
 		if m.triage && !m.inTriageScope(sess.Group) {
 			continue
 		}
-		if m.search != "" && !matchesSearch(sess, strings.ToLower(m.search), m.searchText[sess.ID]) {
+		if m.search != "" && !matchesSearch(sess, m.sessionSummary(sess), strings.ToLower(m.search), m.searchText[sess.ID]) {
 			if _, ok := m.historyHit(sess); !ok {
 				continue
 			}
@@ -59,6 +60,10 @@ func (m *Model) panePickMatches() []panePickEntry {
 		}
 		if score, ok := fuzzyMetadataScore(sess, query); ok {
 			entries = append(entries, panePickEntry{sess: sess, score: score})
+		} else if search.Match(strings.ToLower(m.sessionSummary(sess)), strings.ToLower(query)) {
+			// A title hit carries no fuzzy score, so it ranks after every
+			// name, tool, group or status hit.
+			entries = append(entries, panePickEntry{sess: sess})
 		}
 	}
 	if query != "" {

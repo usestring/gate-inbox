@@ -60,6 +60,11 @@ type reviewCommentArgs struct {
 	Context string `json:"context,omitempty" jsonschema:"for the operator only: why it matters, and what the pull request's description claims that this checks"`
 }
 
+type reportStatusArgs struct {
+	State string `json:"state" jsonschema:"done, waiting (on the user, a review or another person), blocked, or working"`
+	Note  string `json:"note,omitempty" jsonschema:"one line on what is left or who it waits on"`
+}
+
 type listTerminalsArgs struct{}
 
 type createTerminalArgs struct {
@@ -562,6 +567,22 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			Repo: args.Repo, Number: args.Number, Path: args.Path, Line: args.Line, Side: args.Side,
 			Body: args.Body, Kind: args.Kind, Context: args.Context,
 		}, time.Now()))
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "report_status",
+		Description: "Say where your work stands as you hand control back, as the last thing you do in a turn. " +
+			"done: you have done everything you can, and anything left waits on a review, a blocked merge, another person, or a step only the user can run. " +
+			"waiting: you need the user's answer or decision to go on. blocked: an error or missing access stops you. working: you will carry on without being asked. " +
+			"The board reads it to tell the user which sessions they can close; it is not shown to them as a message.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args reportStatusArgs) (*mcp.CallToolResult, any, error) {
+		// Nothing is stored: the call in the transcript is the record
+		// (search.ReadStatusReport), so a report lapses with its turn.
+		switch args.State {
+		case "done", "waiting", "blocked", "working":
+			return textResult("status recorded: "+args.State, nil)
+		}
+		return textResult("", fmt.Errorf("unknown state %q (want done, waiting, blocked or working)", args.State))
 	})
 
 	mcp.AddTool(server, &mcp.Tool{

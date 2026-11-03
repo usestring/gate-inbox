@@ -103,8 +103,12 @@ stay local; this feature makes no network requests. The hotkey-only snippet menu
 
 **See status.** Every row shows whether its agent is working, waiting on you, finished or idle,
 read from the pane itself. The preview beside the list shows the conversation as **You** and
-**Assistant** messages, without the tool noise. `w` filters the list to what needs attention, and
-`/` searches names, groups, statuses and what the sessions have said.
+**Assistant** messages. While a session is working, a bounded **Live output** section also shows
+its latest terminal activity, including text the CLI has not saved yet. Older message groups shorten
+to four lines; the newest stays full, hovering expands an older group, and F3 toggles the preview's
+detail. Focus mode uses the terminal by default; F3 switches between conversation and terminal and
+remembers the choice. Shell sessions always show the terminal. `w` filters the list
+to what needs attention, and `/` searches names, titles, groups, statuses and what the sessions have said.
 
 **Triage.** `i` flattens the groups into one queue ordered by what needs a person: waiting first,
 then finished, then errored, longest-blocked first inside each. Picking an option in a dialog, or
@@ -115,6 +119,12 @@ and `alt+,` hides the key hints.
 ![Triage draining four agents full-width: each answer hands the session back and the next one that needs input comes up on its own](docs/demo/triage.gif)
 
 <p align="center"><em>Triage with the list put away. Answer one session and the next that needs you comes up on its own.</em></p>
+
+**Switch subscriptions or agents.** Select a session and press `alt+a` to switch its subscription,
+or `ctrl+t` to move its conversation to another CLI. When the selected session hits a usage limit,
+the board offers to continue on Codex (or another configured CLI), switch its subscription, or leave
+it for later. Each move opens its review card before starting anything. Dismissing the offer keeps
+it closed for that limit; the shortcuts remain available. On macOS, `alt` is Option.
 
 **Focus.** `enter` focuses a session in place: keys go to the agent while the list stays beside
 it, and `ctrl+q` comes back. `alt+\` hides the list so the pane gets the full width, and
@@ -138,6 +148,7 @@ selected agent for builds and one-off commands.
 | `/` | Fuzzy search; `esc` closes the field, deleting the text clears it |
 | `ctrl+p` / `p` | Priority tier for a session or group; each press steps urgent → high → medium → low → none. `ctrl+p` also works from a focused session, and the row flashes its new tier |
 | `M` | Mute / unmute: keep a session out of triage until unmuted; the row reads `muted` |
+| `ctrl+t` / `alt+a` | Move the conversation to another CLI / switch its subscription |
 | `T` | Shell tab under the selected agent |
 | `x` / `v` | Kill a session to free its RAM / revive it on its own conversation |
 | `:` / `ctrl+k` | Quick actions: type what you want, `enter` runs it, and each row shows its key |
@@ -196,6 +207,12 @@ enabled = false
 [integrations.linear]
 enabled = false
 ```
+
+**Remote inbox.** `gate-inbox inbox serve` takes a text message over HTTP, such as dictation from
+a phone's Shortcut, and starts a router session on the board for it. It binds loopback, and is meant
+to be reached only over a private network such as Tailscale serve, with one token per client.
+[`docs/remote-inbox.md`](docs/remote-inbox.md) covers setup, security and an iPhone Action button
+recipe.
 
 **Extensions.** Extensions are Go code compiled into the binary against the public `extension`
 package; the `app` package runs the board with whichever extensions a build carries. This build

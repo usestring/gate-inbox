@@ -100,6 +100,8 @@ func (m *Model) paint() (string, bool) {
 		frame = m.viewFork()
 	case modeMigrate:
 		frame = m.viewMigrate()
+	case modeLimitSwitch:
+		frame = m.viewLimitSwitch()
 	case modeAccount:
 		frame = m.viewAccountSwitch()
 	case modeMove:
@@ -384,7 +386,7 @@ func (m *Model) groupStatusBreakdown(group string) string {
 			// The count carries the state's color, the word stays quiet: a
 			// rollup line should read as one texture, not as six labels
 			// competing with the session names above it.
-			parts = append(parts, statusTint(st, fmt.Sprintf("%d", counts[st]))+subtleText(" "+st))
+			parts = append(parts, statusTint(st, fmt.Sprintf("%d", counts[st]))+subtleText(" "+statusLabel(st)))
 		}
 	}
 	return strings.Join(parts, subtleText(" · "))
@@ -629,7 +631,7 @@ func (m *Model) viewFooter() string {
 		if m.canRescindLatestSubmission() {
 			pairs = append(pairs, [2]string{m.fullCap(keymap.ContextFocus, keymap.Rescind), "undo"})
 		}
-		if sess, ok := m.selected(); ok && m.compressedFocus && !m.isShell(sess.Tool) {
+		if sess, ok := m.selected(); ok && !m.isShell(sess.Tool) {
 			// The focused view can be the conversation rather than the
 			// terminal, and this is the only place the key back is named
 			// for somebody who arrived on the setting rather than on the

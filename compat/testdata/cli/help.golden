@@ -109,6 +109,12 @@ Board hygiene
   gate-inbox sweep [--json] [--db <path>] [--idle 72h] [--waiting 24h] [--errored 24h] [--dead 1h] [--mail 1h]
       list stale sessions and undelivered mail with the call that would clear each; reads state.db read-only and changes nothing
 
+Remote inbox
+  gate-inbox inbox <serve>
+      take messages from outside the board, such as a phone's dictation, each as a new top-level router session
+  gate-inbox inbox serve [--listen <host:port>]
+      serve POST /inbox on loopback until stopped; configured under [inbox], tokens from the environment or a 0600 file
+
 Options:
   -h, --help     Show this help text
   -v, --version  Print the installed version

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -233,11 +234,11 @@ func TestMutedChildDoesNotLiftItsParent(t *testing.T) {
 // A muted row reads "muted", so search finds it by that word.
 func TestSearchFindsAMutedRowByItsLabel(t *testing.T) {
 	sess := childSess("c1", "helper", "build", "", status.Waiting, time.Minute)
-	if matchesMetadata(sess, mutedStatusLabel) {
+	if matchesMetadata(sess, "", mutedStatusLabel) {
 		t.Fatal("an unmuted row matched the muted label")
 	}
 	sess.Muted = true
-	if !matchesLiteralMetadata(sess, mutedStatusLabel) {
+	if !matchesLiteralMetadata(sess, "", mutedStatusLabel) {
 		t.Fatal("literal search missed a muted row by the label it shows")
 	}
 	if _, ok := fuzzyMetadataScore(sess, mutedStatusLabel); !ok {
@@ -424,5 +425,58 @@ func TestUnmuteAllListedRespectsSearch(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMutingInTriageMovesToTheNextSession(t *testing.T) {
+	for _, focused := range []bool{false, true} {
+		t.Run(fmt.Sprintf("focused=%t", focused), func(t *testing.T) {
+			m := queuedKillFleet(t)
+			m.triage = true
+			m.autoProceed = false
+			m.rebuildRows()
+			if focused {
+				m.enterFocusOn(t, "ask")
+			} else {
+				m.selectSessionRow(t, "ask")
+			}
+			updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'm', Mod: tea.ModCtrl})
+			m = updated.(*Model)
+			if m.mode != modeFocus {
+				t.Fatalf("muting left mode %v, want focus", m.mode)
+			}
+			if got := focusedName(t, m); got != "zap" {
+				t.Fatalf("muting handed over %q, want zap", got)
+			}
+			if !sessionNamed(t, m, "ask").Muted {
+				t.Fatal("the session left behind was not muted")
+			}
+			if m.triageResume {
+				t.Fatal("the drain stayed pending after entering the next session")
+			}
+		})
+	}
+}
+
+func TestMutingTheLastTriageSessionLeavesTheDrainOpen(t *testing.T) {
+	m := buildModel(t)
+	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
+	m.triage = true
+	m.rebuildRows()
+	m.enterFocusOn(t, "ask")
+
+	updated, _ := m.handleKey(tea.KeyPressMsg{Code: 'm', Mod: tea.ModCtrl})
+	m = updated.(*Model)
+	if m.mode != modeList || !m.triageResume || !m.triage {
+		t.Fatalf("muting the last session left mode %v, triage %t, resume %t", m.mode, m.triage, m.triageResume)
+	}
+	if !sessionNamed(t, m, "ask").Muted {
+		t.Fatal("the last session was not muted")
+	}
+
+	updated, _ = m.handleKey(key("M"))
+	m = updated.(*Model)
+	if m.mode != modeList || sessionNamed(t, m, "ask").Muted {
+		t.Fatalf("unmuting should stay on the list, got mode %v", m.mode)
 	}
 }

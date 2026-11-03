@@ -16,6 +16,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/inbox"
 	"github.com/usestring/gate-inbox/internal/mergegate"
 	"github.com/usestring/gate-inbox/internal/netwatch"
 	"github.com/usestring/gate-inbox/internal/priority"
@@ -614,7 +615,10 @@ type Config struct {
 	// ([merge_gate]). Empty owners or authors turns the gate off, and the
 	// mod is not loaded into launched sessions then.
 	MergeGate mergegate.Config `toml:"merge_gate"`
-	Tools     map[string]Tool  `toml:"tools"`
+	// Inbox configures `gate-inbox inbox serve` ([inbox]). Its tokens are
+	// never kept here: see inbox.LoadTokens.
+	Inbox inbox.Config    `toml:"inbox"`
+	Tools map[string]Tool `toml:"tools"`
 }
 
 type Duration = extension.Duration
@@ -854,6 +858,11 @@ const codexTurnEndRuleOnly = `(?m)^(?:─+ Worked for [\dhms. ]+─.*|─{20,}\s
 // carrying it verbatim takes the current pattern.
 const claudeChromeLineUpdateOnly = `^\s*[─q]{4,}.*$|^[\s─q]*$|^\s*✔ Update installed\b.*$`
 
+// claudeChromeLineClearHint is the claude chrome_line shipped before the
+// "8% until auto-compact" hint under a turn-end summary was read as chrome; a
+// config carrying it verbatim takes the current pattern.
+const claudeChromeLineClearHint = `^\s*[─q]{4,}.*$|^[\s─q]*$|^\s*✔ Update installed\b.*$|^\s*new task\? /clear to save\b.*$`
+
 // codexTurnEndMiddot is the 0.154 turn_end, which read only a middle dot
 // between the duration and the time ("Worked for 1m 5s · 02:41"). Later
 // builds draw a bullet there.
@@ -956,7 +965,7 @@ func mergeTool(name string, user, def Tool) Tool {
 	if name == "claude" && (user.BusyLine == busyLineAgentsOnly || user.BusyLine == busyLineShellsOnly || user.BusyLine == busyLineEveryKind || user.BusyLine == busyLineWaitOnly) {
 		user.BusyLine = def.BusyLine
 	}
-	if name == "claude" && user.ChromeLine == claudeChromeLineUpdateOnly {
+	if name == "claude" && (user.ChromeLine == claudeChromeLineUpdateOnly || user.ChromeLine == claudeChromeLineClearHint) {
 		user.ChromeLine = def.ChromeLine
 	}
 	if name == "claude" && user.ArrowDialogLine == arrowDialogNavigateOnly {
@@ -1411,10 +1420,10 @@ turn_end = "^[✻✳✶✽✢·✦✧+*] \\S+ for \\d.*$"
 # chrome_line is consulted by lastContentIndex, so only chrome_line keeps the
 # banner from masking a blocked_line interrupt above it.
 #
-# The right-aligned "new task? /clear to save 177.6k tokens" hint claude
-# draws under a turn-end summary once the context is large is chrome for the
-# same reason.
-chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$|^\\s*new task\\? /clear to save\\b.*$"
+# The right-aligned "new task? /clear to save 177.6k tokens" and "8% until
+# auto-compact" hints claude draws under a turn-end summary once the context
+# is large are chrome for the same reason.
+chrome_line = "^\\s*[─q]{4,}.*$|^[\\s─q]*$|^\\s*✔ Update installed\\b.*$|^\\s*new task\\? /clear to save\\b.*$|^\\s*\\d+% until auto-compact\\b.*$"
 blocked_line = "Interrupted ·"
 # recap blocks ("※ recap: …") render below the turn-end summary
 trailing_note = "^※"
@@ -1568,8 +1577,10 @@ busy_line = "↓ \\d+ (?:shells?|subagents?)"
 limit_line = "(?i)requires more credits|(?:Usage|Free|Go) limit reached"
 # The permission overlay steps its options with the horizontal arrows
 # ("ctrl+f fullscreen  ⇆ select  enter confirm"), so the arrows belong to the
-# pane there. A question dialog instead names "↑↓ select" and may include
-# "⇆ tab" for moving between questions.
+# pane there. A question dialog instead names "↑↓ select" -- "⇆ tab" only where
+# there is something to tab between -- so Right is spare and leaves focus.
+# Keyed on "⇆ select" rather than a bare ⇆ for that reason: the tab segment
+# must not pin the operator in a dialog that is asking them something.
 arrow_dialog_line = "\\x{21C6} select"
 rules = [
   # a permission ask is an overlay: it replaces the input box, so nothing

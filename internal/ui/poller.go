@@ -86,9 +86,11 @@ type poller struct {
 	locator        *search.Locator
 	historyFormats map[string]string
 
-	mu              sync.Mutex
-	includeArchived bool
-	selectedID      string
+	mu                 sync.Mutex
+	includeArchived    bool
+	selectedID         string
+	jevFinishFocusedID string
+	jevFinishAttended  map[string]string
 	// searchTargets is the last pass's rows as history-index targets, read
 	// by the refresher on its own cadence.
 	searchTargets []search.Target
@@ -157,6 +159,10 @@ type poller struct {
 	runMu       sync.Mutex
 	paneHashes  map[string]uint64
 	paneSamples map[string]paneSample
+	// paneActivity is each pane's last-output stamp from this pass's scan,
+	// which paneQuiet weighs against the pane's last capture. Written and
+	// read under runMu, within one pass.
+	paneActivity map[string]time.Time
 	// quietSince is when each session's activity region last stopped
 	// changing while unmatched; used to debounce marker-less turn ends.
 	quietSince map[string]time.Time
@@ -791,6 +797,7 @@ func (p *poller) refreshPass(stat *passStat, force bool) tea.Msg {
 	}
 	phases.scan = lap(&mark)
 	panes := scan.PIDs
+	p.paneActivity = scan.Activity
 	p.syncCodexHooks(sessions, panes, time.Now())
 	// A queued delivery must use a fresh screen, even on a resting row.
 	heads, err := p.store.HeadMessages()
@@ -1481,10 +1488,12 @@ func (p *poller) captureAgentSessionIDs(sessions []store.Session, panes map[stri
 	sort.SliceStable(pending, func(a, b int) bool {
 		return sessions[pending[a]].LaunchTime().Before(sessions[pending[b]].LaunchTime())
 	})
+	screens := p.captureScreens(sessions, pending)
 	captured := 0
 	for _, i := range pending {
 		sess := sessions[i]
-		agentID, ok := agentsession.Capture(p.sessionStores[sess.Tool], sess.Cwd, sess.LaunchTime(), claimed)
+		evidence := agentsession.Evidence{Prompt: sess.LaunchPrompt, Screen: screens[sess.ID]}
+		agentID, ok := agentsession.Capture(p.sessionStores[sess.Tool], sess.Cwd, sess.LaunchTime(), claimed, evidence)
 		if !ok {
 			continue
 		}
@@ -1507,6 +1516,41 @@ func (p *poller) captureAgentSessionIDs(sessions []store.Session, panes map[stri
 	return captured, nil
 }
 
+// captureScreens reads the visible pane of each pending Codex session, which
+// capture checks against the conversations it might bind. It reads joined and
+// without escapes, as the backfill does, because a board capture's colour codes
+// and wrapped lines split the message text the check looks for. A pane that
+// cannot be read is left out and capture decides without it.
+func (p *poller) captureScreens(sessions []store.Session, pending []int) map[string]string {
+	if p.tmux == nil {
+		return nil
+	}
+	bySocket := map[string]map[string]string{} // socket -> tmux target -> session id
+	for _, i := range pending {
+		if p.sessionStores[sessions[i].Tool] != "codex" {
+			continue
+		}
+		target := p.tmux.TargetFor(sessions[i].ID)
+		if bySocket[target.Socket] == nil {
+			bySocket[target.Socket] = map[string]string{}
+		}
+		bySocket[target.Socket][target.Name] = sessions[i].ID
+	}
+	screens := map[string]string{}
+	for socket, ids := range bySocket {
+		targets := make([]string, 0, len(ids))
+		for target := range ids {
+			targets = append(targets, target)
+		}
+		for target, capture := range p.tmux.CaptureJoinedVisible(socket, targets) {
+			if capture.Err == nil {
+				screens[ids[target]] = capture.Text
+			}
+		}
+	}
+	return screens
+}
+
 // pendingDeliverable is the rest gate for pending input and queued messages.
 // An errored pane joins the rest states: the turn that printed the error is
 // over, and a queue held there has nothing left to release it.
@@ -1520,6 +1564,20 @@ func pendingDeliverable(derived string, typeAhead bool) bool {
 func (p *poller) maybeSendPendingInputWhenReady(sess store.Session, capture tmux.Capture, derived string, agentAlive bool) (bool, error) {
 	if len(sess.PendingInputs) == 0 {
 		return false, nil
+	}
+	if !sess.PendingInputClaimed && isJevFinishProbe(sess.PendingInputs[0]) {
+		current, err := p.jevFinishProbeCurrent(sess, capture, derived)
+		if err != nil {
+			return false, err
+		}
+		if !current {
+			claimed, err := p.store.ClaimPendingInput(sess.ID, sess.PendingInputs[0])
+			if err != nil || !claimed {
+				return false, err
+			}
+			_, err = p.store.ConsumeClaimedPendingInput(sess.ID, sess.PendingInputs[0])
+			return false, err
+		}
 	}
 	if !sess.PendingInputClaimed && strings.HasPrefix(sess.PendingInputs[0], adoptedRenamePrefix) {
 		if sess.NameSource != store.SourceDerived {
@@ -1603,7 +1661,11 @@ func (p *poller) maybeSendPendingInput(sess store.Session, pane string, agentAli
 		p.releaseSend(key)
 		return false, nil
 	}
-	p.runSend(sess, key, input, func(err error) error {
+	text := input
+	if isJevFinishProbe(input) {
+		text = jevFinishProbe
+	}
+	p.runSend(sess, key, text, func(err error) error {
 		// Opencode collapses a multi-line bracketed paste to "[Pasted ~N
 		// lines]" and the first Enter can land inside the paste burst
 		// rather than submitting it, leaving the prompt held in the

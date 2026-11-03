@@ -58,11 +58,12 @@ func TestLaunchHooksAreValidHookJSON(t *testing.T) {
 	}
 	// The ledger lookup sits beside the status writer on AskUserQuestion, and
 	// the approval note beside SessionStart's; neither touches the status file.
-	if post := parsed.Hooks["PostToolUse"]; len(post) != 3 || post[1].Matcher != blockingTool ||
+	if post := parsed.Hooks["PostToolUse"]; len(post) != 4 || post[1].Matcher != blockingTool ||
 		post[1].Hooks[0].Command != askAnsweredCommand() || !strings.Contains(askAnsweredCommand(), `hook ask-answered`) ||
 		!strings.HasSuffix(askAnsweredCommand(), "exit 0") || post[2].Matcher != "*" ||
-		post[2].Hooks[0].Command != attestNoteCommand() {
-		t.Fatalf("PostToolUse = %+v, want the status writer, the ask-answered hook, then the attest-note hook", post)
+		post[2].Hooks[0].Command != attestNoteCommand() || post[3].Matcher != "Bash" ||
+		post[3].Hooks[0].Command != sandboxWorksCommand() {
+		t.Fatalf("PostToolUse = %+v, want the status writer, the ask-answered hook, the attest-note hook, then the sandbox-works hook", post)
 	}
 	if failed := parsed.Hooks["PostToolUseFailure"]; len(failed) != 1 || failed[0].Matcher != "Bash" ||
 		failed[0].Hooks[0].Command != sandboxStaleCommand() {
@@ -854,6 +855,41 @@ func TestSandboxStaleCommandFiresOnlyOnTheBwrapSignature(t *testing.T) {
 			}
 			if in, _ := os.ReadFile(called + ".in"); tc.want && string(in) != tc.payload {
 				t.Fatalf("hook read %q, want the payload passed through", in)
+			}
+		})
+	}
+}
+
+// A sandboxed Bash call that succeeds clears the stale-sandbox flag; an
+// unsandboxed one leaves it, and with no flag the command still exits cleanly.
+func TestSandboxWorksCommandClearsTheStaleFlagOnlyForASandboxedCall(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		payload string
+		flag    bool
+		want    bool
+	}{
+		{"sandboxed success", `{"tool_name":"Bash","tool_input":{"command":"ls"}}`, true, false},
+		{"unsandboxed success", `{"tool_name":"Bash","tool_input":{"command":"ls","dangerouslyDisableSandbox":true}}`, true, true},
+		{"no flag", `{"tool_name":"Bash","tool_input":{"command":"ls"}}`, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			status := filepath.Join(dir, "s.status")
+			flag := status + SandboxStaleSuffix
+			if tc.flag {
+				if err := os.WriteFile(flag, []byte("persistent"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cmd := exec.Command("sh", "-c", sandboxWorksCommand())
+			cmd.Env = append(tmuxtest.Environ(), EnvStatusFile+"="+status)
+			cmd.Stdin = strings.NewReader(tc.payload)
+			if out, err := cmd.CombinedOutput(); err != nil || len(out) != 0 {
+				t.Fatalf("command: %v %q", err, out)
+			}
+			if _, err := os.Stat(flag); (err == nil) != tc.want {
+				t.Fatalf("flag kept = %v, want %v", err == nil, tc.want)
 			}
 		})
 	}

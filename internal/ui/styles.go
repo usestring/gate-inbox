@@ -149,11 +149,9 @@ func renderSelectedRow(s string) string {
 
 func statusColor(s string) color.Color {
 	switch s {
-	// Delegating takes the working tint: work is still under way, only not
-	// in this pane.
-	case status.Working, status.Starting, status.Delegating:
+	case status.Working, status.Starting:
 		return colorWorking
-	case status.Waiting:
+	case status.Waiting, status.Delegating:
 		return colorWaiting
 	case status.Finished:
 		return colorFinished
@@ -172,6 +170,8 @@ func statusLabel(s string) string {
 	switch s {
 	case status.Starting:
 		return "starting up"
+	case status.Delegating:
+		return "waiting on sessions"
 	case status.Pending:
 		return "pending (offline)"
 	}

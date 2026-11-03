@@ -192,9 +192,9 @@ func helpSections() []helpSection {
 		}},
 		{title: "advanced: inside a session", rows: []helpRow{
 			bound(focus, keymap.HandOver, "the one-press alias for leaving, in triage and out"),
-			bound(focus, keymap.BackAtPrompt, "legacy binding; no effect"),
+			bound(focus, keymap.BackAtPrompt, "Left/Right at prompt edges: list; triage: finished Right next"),
 			bound(focus, keymap.Dismiss, "skip"),
-			bound(focus, keymap.ToggleConversation, "switch conversation / terminal (experimental compressed focus only)"),
+			bound(focus, keymap.ToggleConversation, "switch conversation / terminal"),
 			bound(focus, keymap.LastPane, "back to the previous pane; again walks further back"),
 			bound(focus, keymap.JumpPane, "find a listed pane and focus it"),
 			bound(focus, keymap.ToggleChrome, "hide / show the key hints along the foot; the pane takes the rows"),
@@ -233,6 +233,12 @@ func helpSections() []helpSection {
 			bound(keymap.ContextConfirm, keymap.Toggle, "answer the tick a destructive dialog asks for"),
 			lit("k", "keep the children rather than ending them with the parent"),
 			lit("esc", "any other key cancels"),
+		}},
+		{title: "advanced: a subscription limit", rows: []helpRow{
+			lit("enter", "open the move to the selected agent, without launching it"),
+			lit("tab", "pick another agent"),
+			bound(keymap.ContextLimitSwitch, keymap.SwitchAccount, "open the switch to another subscription"),
+			lit("esc", "dismiss it until the next limit"),
 		}},
 		{title: "advanced: the review queue", rows: []helpRow{
 			bound(keymap.ContextReviews, keymap.ReviewView, "open the pull request: its conversation, diff and checks"),
@@ -302,7 +308,7 @@ func legendSections() []helpSection {
 			lit("◆ waiting", "blocked on you: a dialog, a permission ask, a question"),
 			lit("● finished", "the turn ended; entering the session clears it to idle"),
 			lit("○ idle", "nothing running"),
-			lit("◎ delegating", "at rest, waiting on its children's results"),
+			lit("◎ waiting on sessions", "blocked on child results; resumes to synthesize them when they return"),
 			lit("◒ background", "the turn ended with a shell, monitor or task still running"),
 			lit("◍ pending", "offline: a send is held in the outbox until the network returns"),
 			lit("✕ errored", "the tool reported an error, or the session is dead"),

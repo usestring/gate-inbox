@@ -16,6 +16,7 @@
 }
 === hooks/gate-inbox-claude-delegation-<stamp>.md
 Gate Inbox manages this session. Before handing work to another agent (Agent, Task or Workflow tool), load the gate-inbox:delegate-with-gate-inbox skill: real work goes to create_session sessions on the user's board.
+End every turn by calling the gate-inbox report_status tool with done, waiting, blocked or working.
 
 === hooks/gate-inbox-mcp-claude-<stamp>.json
 {
@@ -166,6 +167,15 @@ Do not call archive_session, revive_session, kill_session, message_status or any
           {
             "type": "command",
             "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || [ ! -f \"$f.attest\" ] || { [ -z \"$GATE_INBOX_BIN\" ] || [ -z \"$GATE_INBOX_SESSION_ID\" ] || \"$GATE_INBOX_BIN\" hook attest-note 2\u003e/dev/null; }; exit 0"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || [ ! -f \"$f.sandbox-stale\" ] || case \"$(cat)\" in *'\"dangerouslyDisableSandbox\":true'*|*'\"dangerouslyDisableSandbox\": true'*) ;; *) rm -f \"$f.sandbox-stale\";; esac; exit 0"
           }
         ]
       },

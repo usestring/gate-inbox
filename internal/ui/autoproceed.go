@@ -196,3 +196,38 @@ func (m *Model) handOverOnWork(before string) tea.Cmd {
 	m.dropLanding(sess.ID)
 	return m.handOverFocused(sess)
 }
+
+func (m *Model) handOverOnIdle(now time.Time) tea.Cmd {
+	if m.mode != modeFocus || m.lastInteractionAt.IsZero() || now.Sub(m.lastInteractionAt) < 3*time.Minute {
+		return nil
+	}
+	current, ok := m.selected()
+	if !ok || current.Status != status.Working {
+		return nil
+	}
+	next := -1
+	for i, row := range m.rows {
+		if !m.triageHandable(row, current.ID, nil) || !m.needsPerson(row.sess) {
+			continue
+		}
+		if next < 0 || m.triageLess(row.sess, m.rows[next].sess) {
+			if m.tmux.Exists(row.sess.ID) {
+				next = i
+			}
+		}
+	}
+	if next < 0 {
+		return nil
+	}
+
+	leave := m.leaveFocus()
+	m.cursor = next
+	m.clearPreviewState()
+	m.previewGen++
+	if m.headPaneTriage(next) {
+		return tea.Batch(leave, m.schedulePreview())
+	}
+	target := m.rows[next].sess
+	_, enter := m.focusSelected()
+	return tea.Batch(leave, enter, m.handoverPreviewCmd(target, m.previewGen))
+}

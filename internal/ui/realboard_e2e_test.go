@@ -74,9 +74,9 @@ func TestRealBoardWorkE2E(t *testing.T) {
 	before, after := 0, 0
 	for _, sess := range sessions {
 		live := sess.Status != "dead"
-		plain := workText(nil, st, nil, sess.ID, sess.LaunchPrompt, live)
+		plain := workText("", st, nil, sess.ID, sess.LaunchPrompt)
 		before += len(tracker.Discover(worktracker.Session{ID: sess.ID, Dir: sess.Cwd, Text: plain, Live: live}))
-		ts := worktracker.Session{ID: sess.ID, Dir: sess.Cwd, Text: workText(nil, st, index, sess.ID, sess.LaunchPrompt, live), Live: live}
+		ts := worktracker.Session{ID: sess.ID, Dir: sess.Cwd, Text: workText("", st, index, sess.ID, sess.LaunchPrompt), Live: live}
 		after += len(tracker.Discover(ts))
 		tracked = append(tracked, ts)
 	}

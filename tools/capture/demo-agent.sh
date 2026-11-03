@@ -20,6 +20,49 @@ if [[ "$transcript" == "composer-submit" ]]; then
   exit 0
 fi
 here="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+# "ask-free-text" is a Claude Code AskUserQuestion with a "Type something."
+# row that takes its answer the way the real one does: the arrows move the
+# cursor, words typed on the free-text row become the answer, and Enter
+# prints the record the board reads the answer back from.
+if [[ "$transcript" == "ask-free-text" ]]; then
+  stty -echo -icanon 2>/dev/null || true
+  # Short enough that the answered record fits one row: a record wrapped
+  # mid-word reads back with a space in the answer and fails the check.
+  question="Which rollout path should I take?"
+  opts=("Staged UI first" "Only region 4021" "Type something.")
+  cur=1
+  draw() {
+    printf '\033[2J\033[H● Two ways to roll this out; I want your call first.\n\n'
+    printf '────────────────────────────────────────\n ☐ Rollout \n\n%s\n\n' "$question"
+    for i in "${!opts[@]}"; do
+      if ((i + 1 == cur)); then printf '❯ %d. %s\n' $((i + 1)) "${1:-${opts[i]}}"; else printf '  %d. %s\n' $((i + 1)) "${opts[i]}"; fi
+    done
+    printf '\nEnter to select · ↑/↓ to navigate · Esc to cancel\n'
+  }
+  draw
+  answer=""
+  while IFS= read -rsn1 key; do
+    if [[ $key == $'\e' ]]; then
+      read -rsn2 rest
+      case $rest in
+        '[A') ((cur > 1)) && cur=$((cur - 1)) ;;
+        '[B') ((cur < ${#opts[@]})) && cur=$((cur + 1)) ;;
+      esac
+      draw
+    elif [[ -z $key ]]; then
+      [[ -z $answer ]] && answer="${opts[cur-1]}"
+      break
+    elif ((cur == ${#opts[@]})); then
+      answer+="$key"
+      draw "$answer"
+    fi
+  done
+  sleep 0.6
+  printf '\033[2J\033[H● User answered Claude'"'"'s questions:\n  ⎿  · %s → %s\n\n' "$question" "$answer"
+  printf '✻ Working… (esc to interrupt)\n'
+  cat >/dev/null
+  exit 0
+fi
 if [[ "$transcript" == "opencode-custom-answer" ]]; then
   stty -echo -icanon 2>/dev/null || true
   printf '\033[2J\033[H'

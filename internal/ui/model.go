@@ -53,6 +53,7 @@ const (
 	modeRename
 	modeFork
 	modeMigrate
+	modeLimitSwitch
 	modeAccount
 	modeMove
 	modeGroupForm
@@ -136,6 +137,10 @@ type Model struct {
 	// snipErr is why there are none, when the file would not be read.
 	snips   snippets.Set
 	snipErr string
+	// typeQuestion types a snippet into the free-text row of the question a
+	// session's dialog is showing; nil leaves every dialog holding a snippet
+	// back. See UseQuestionTyper.
+	typeQuestion QuestionTyper
 	// restartFlags are the operator's canned restart flag sets, read once
 	// at startup; restartFlagErr is why there are none, when the file
 	// would not be read.
@@ -500,11 +505,17 @@ type Model struct {
 	// resizeSeq numbers terminal resizes, so the settle timer of a size
 	// that has since changed again is recognised and dropped.
 	resizeSeq int
+
+	lastInteractionAt time.Time
 	// focusActiveAt is when the focused pane was last typed into, and
 	// focusRepaintAt when it last repainted on its own. Together they decide
 	// its capture cadence -- see focusecho.go.
 	focusActiveAt  time.Time
 	focusRepaintAt time.Time
+	// focusTypedAt is when the focused pane was last typed into. Unlike
+	// focusActiveAt, an echo never clears it, so it still says someone is
+	// typing after the cadence has dropped -- see focusTyping.
+	focusTypedAt time.Time
 	// focusWheelAt is when the wheel last turned in the pane, which is a
 	// third kind of activity: it earns the streaming rate, never the
 	// keystroke rate -- see noteFocusWheel.
@@ -529,8 +540,10 @@ type Model struct {
 	// focusView mirrors the persisted focused-view setting: the live
 	// terminal, or the conversation transcript. The content column reads it
 	// every frame, so it lives here instead of the store. See focusview.go.
-	focusView       string
-	compressedFocus bool
+	focusView string
+	// arrowsStay keeps the prompt-edge arrows with a focused session rather
+	// than leaving for the list. See experimental.go.
+	arrowsStay bool
 	// comfortableRows mirrors the persisted list density: entries paint
 	// their meta on a second line instead of alongside the name. Every
 	// rail frame reads it, so it lives here instead of the store.
@@ -683,6 +696,8 @@ type Model struct {
 	rename           renameTarget
 	fork             forkState
 	migrate          migrateState
+	limitSwitch      limitSwitchState
+	limitSwitchSeen  map[string]limitSeen
 	account          accountState
 	restartWith      restartWithState
 	quick            quickState
@@ -699,8 +714,14 @@ type Model struct {
 	// unseenAnswers are the sessions whose last answer would have moved the
 	// drain on but was never seen arriving: the check refused it or ran out of
 	// time. The poll's working transition is the evidence left to see.
-	unseenAnswers  map[string]bool
-	landingLocator *search.Locator
+	unseenAnswers map[string]bool
+	// questionHandOvers are the sessions whose snippet answer to a question
+	// is still being read back and would move the drain on once it is.
+	questionHandOvers map[string]bool
+	// questionsAnswering are the sessions with a snippet answer still being
+	// typed and read back; a second answer waits until it is.
+	questionsAnswering map[string]bool
+	landingLocator     *search.Locator
 	// handoverTrace is the Enter handover whose next frame is still to be
 	// timed; see handOverOnEnter.
 	handoverTrace handoverTrace
@@ -965,8 +986,8 @@ type settingsState struct {
 	jevFinishCheck     bool
 	jevCopyOn          bool
 	promptSuggest      bool
-	compressedFocus    bool
 	reviewQueue        bool
+	arrowsStay         bool
 	// backdropSync is the backdrop mode as the picker holds it: true
 	// repaints the terminal to the theme, false leaves it alone.
 	backdropSync bool
@@ -1327,7 +1348,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		split:           splitState{ratio: loadSplitRatio(st)},
 		focusOnEnter:    storedFocusOnEnter(st),
 		focusView:       storedFocusView(st),
-		compressedFocus: storedCompressedFocus(st),
+		arrowsStay:      storedArrowsStay(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
 		jevFinishCheck:  storedJevFinishCheck(st),
 		jevCopyOn:       storedJevCopy(st),
@@ -1556,6 +1577,12 @@ func (m *Model) syncPollInput() {
 		selectedID = sess.ID
 	}
 	m.poller.setInput(m.showArchived, selectedID)
+	m.poller.mu.Lock()
+	m.poller.jevFinishFocusedID = ""
+	if m.mode == modeFocus {
+		m.poller.jevFinishFocusedID = m.focusedID
+	}
+	m.poller.mu.Unlock()
 }
 
 // requestRefresh publishes the current UI state to the poller and asks
@@ -1671,7 +1698,7 @@ func (m *Model) searchedListedSessions() []store.Session {
 	matched := make([]store.Session, 0, len(listed))
 	for _, sess := range listed {
 		_, historyMatch := m.historyHit(sess)
-		if matchesSearch(sess, query, m.searchText[sess.ID]) || historyMatch {
+		if matchesSearch(sess, m.sessionSummary(sess), query, m.searchText[sess.ID]) || historyMatch {
 			matched = append(matched, sess)
 		}
 	}
@@ -2140,6 +2167,10 @@ func (m *Model) publishPaneSize() {
 // exported entry point: it records the press and the branch it took before
 // handing over here.
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg.(type) {
+	case tea.KeyPressMsg, tea.KeyReleaseMsg, tea.MouseMsg, tea.PasteMsg:
+		m.lastInteractionAt = time.Now()
+	}
 	if m.updateExtension(msg) {
 		return m, nil
 	}
@@ -2388,6 +2419,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case landingCheckMsg:
 		return m, m.applyLandingCheck(msg)
+	case questionTypedMsg:
+		return m, m.applyQuestionTyped(msg)
 
 	case refreshMsg:
 		m.ageError()
@@ -2523,6 +2556,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the queue still open: the first pass carrying a new session that
 		// needs a person picks it straight up. See triageResume.
 		pickup := m.triagePickupCmd()
+		if current {
+			pickup = tea.Batch(pickup, m.handOverOnIdle(time.Now()))
+		}
 		// A pass that ran with a stale selection (a session created this
 		// tick) carries the wrong preview; resync and fetch it directly.
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {
@@ -2741,7 +2777,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if onScreen && !msg.procOK {
 				m.frameUnchanged()
 			}
-			return m, m.trailingEcho(sess)
+			return m, tea.Batch(m.trailingEcho(sess), m.offerLimitSwitch(sess))
 		}
 		// The second this frame was captured in is what the next tick's
 		// stamp is measured against. A chase's frame is deliberately not
@@ -2798,7 +2834,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.setPreview(msg.preview)
 		m.noteEcho(sess, msg.chase, painted)
-		return m, m.trailingEcho(sess)
+		return m, tea.Batch(m.trailingEcho(sess), m.offerLimitSwitch(sess))
 
 	case errMsg:
 		m.errBar.text = msg.err.Error()
@@ -3241,7 +3277,7 @@ func (m *Model) buildTree() {
 	// per-group slices inherit the user's manual order.
 	matched := make(map[string]bool, len(listed))
 	for _, sess := range listed {
-		if query == "" || matchesSearch(sess, query, m.searchText[sess.ID]) {
+		if query == "" || matchesSearch(sess, m.sessionSummary(sess), query, m.searchText[sess.ID]) {
 			matched[sess.ID] = true
 		} else if _, ok := m.historyHit(sess); ok {
 			matched[sess.ID] = true
@@ -3675,20 +3711,25 @@ func baseName(path string) string {
 }
 
 // matchesMetadata is a hit on what the row itself prints. Kept apart from
-// matchesSearch so a row can say which of the two kept it.
-func matchesMetadata(sess store.Session, query string) bool {
-	if matchesLiteralMetadata(sess, query) {
+// matchesSearch so a row can say which of the two kept it. summary is the
+// title the row wears after its name (sessionSummary).
+func matchesMetadata(sess store.Session, summary, query string) bool {
+	if matchesLiteralMetadata(sess, summary, query) {
 		return true
 	}
 	_, matched := fuzzyMetadataScore(sess, query)
 	return matched
 }
 
-func matchesLiteralMetadata(sess store.Session, query string) bool {
+// matchesLiteralMetadata matches the summary literally only: it can be a
+// whole opening prompt, which a fuzzy subsequence would match for almost
+// any query.
+func matchesLiteralMetadata(sess store.Session, summary, query string) bool {
 	return search.Match(strings.ToLower(sess.Name), query) ||
 		search.Match(strings.ToLower(sess.Tool), query) ||
 		search.Match(strings.ToLower(sess.Group), query) ||
 		search.Match(strings.ToLower(sess.Status), query) ||
+		search.Match(strings.ToLower(summary), query) ||
 		sess.Muted && search.Match(mutedStatusLabel, query)
 }
 
@@ -3697,8 +3738,8 @@ func matchesLiteralMetadata(sess store.Session, query string) bool {
 // named for it. paneText is already stripped and lowercased by the poll, and
 // is empty for a session with no capture, which then matches on metadata
 // alone the way it always did.
-func matchesSearch(sess store.Session, query, paneText string) bool {
-	return matchesMetadata(sess, query) || search.Match(paneText, query)
+func matchesSearch(sess store.Session, summary, query, paneText string) bool {
+	return matchesMetadata(sess, summary, query) || search.Match(paneText, query)
 }
 
 func newID() string {

@@ -195,7 +195,6 @@ func (m *Model) openSettings() {
 		jevFinishCheck:   m.jevFinishCheck,
 		jevCopyOn:        m.jevCopyOn,
 		promptSuggest:    m.promptSuggest,
-		compressedFocus:  m.compressedFocus,
 		reviewQueue:      m.reviewQueue,
 		arrowsStay:       m.arrowsStay,
 		backdropSync:     storedBackdrop(m.store) == backdropSync,
@@ -400,7 +399,6 @@ func (m *Model) persistSettings() tea.Cmd {
 	m.autoProceed = m.settings.autoProceed
 	m.smartTriage = m.settings.smartTriage
 	m.focusOnEnter = m.settings.enterFocuses
-	m.compressedFocus = storedCompressedFocus(m.store)
 	m.arrowsStay = storedArrowsStay(m.store)
 	m.focusView = storedFocusView(m.store)
 	m.comfortableRows = m.settings.comfortableRows

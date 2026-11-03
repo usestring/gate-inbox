@@ -20,7 +20,7 @@ import (
 
 func TestFocusTypingVisibleEndToEnd(t *testing.T) {
 	for _, tool := range []string{"claude", "codex", "opencode"} {
-		for _, variant := range []string{"default", "legacy-conversation", "explicit-experiment"} {
+		for _, variant := range []string{"default", "saved-conversation", "hotkey"} {
 			t.Run(tool+"/"+variant, func(t *testing.T) {
 				m := buildModel(t)
 				cfg, err := config.Default()
@@ -28,7 +28,7 @@ func TestFocusTypingVisibleEndToEnd(t *testing.T) {
 					t.Fatal(err)
 				}
 				m.cfg.Tools[tool] = cfg.Tools[tool]
-				if variant == "legacy-conversation" {
+				if variant == "saved-conversation" {
 					if err := m.store.SetSetting(focusViewSetting, focusViewConversation); err != nil {
 						t.Fatal(err)
 					}
@@ -38,23 +38,6 @@ func TestFocusTypingVisibleEndToEnd(t *testing.T) {
 				update := func(msg tea.Msg) {
 					next, _ := m.Update(msg)
 					m = next.(*Model)
-				}
-				if variant == "explicit-experiment" {
-					update(key("s"))
-					for range settingsFieldExperimental {
-						update(key("down"))
-					}
-					update(key("enter"))
-					// Up wraps past the arrows flag, review queue, JEV copy
-					// and finish check to compressed focus.
-					update(key("up"))
-					update(key("up"))
-					update(key("up"))
-					update(key("up"))
-					update(key("up"))
-					update(tea.KeyPressMsg{Code: tea.KeyRight})
-					update(key("esc"))
-					update(key("esc"))
 				}
 				dir := t.TempDir()
 				submitted := filepath.Join(dir, "submitted")
@@ -77,6 +60,9 @@ func TestFocusTypingVisibleEndToEnd(t *testing.T) {
 				update(key("enter"))
 				if m.mode != modeFocus {
 					t.Fatalf("Enter did not open focus: %v (%s)", m.mode, m.errBar.text)
+				}
+				if variant == "hotkey" {
+					update(tea.KeyPressMsg{Code: tea.KeyF3})
 				}
 				m.applyConversation(conversationMsg{key: conversationKey(sess.ID, ""),
 					messages: []search.Message{{Role: "assistant", Text: "Saved concise assistant reply."}}})
@@ -103,12 +89,12 @@ func TestFocusTypingVisibleEndToEnd(t *testing.T) {
 					return strings.Contains(ansi.Strip(m.preview), strings.TrimSpace(prefix))
 				})
 				plain := ansi.Strip(before)
-				if variant == "explicit-experiment" {
+				if variant != "default" {
 					if !strings.Contains(plain, "Saved concise assistant reply.") || strings.Contains(plain, "RAW TOOL OUTPUT") {
-						t.Fatalf("explicit experiment did not compress the transcript:\n%s", plain)
+						t.Fatalf("chosen focus view did not compress the transcript:\n%s", plain)
 					}
 				} else if !strings.Contains(plain, "RAW TOOL OUTPUT") || strings.Contains(plain, "Saved concise assistant reply.") {
-					t.Fatalf("default/legacy preference hid the live terminal:\n%s", plain)
+					t.Fatalf("default focus hid the live terminal:\n%s", plain)
 				}
 				assertDraft := func(draft string) string {
 					t.Helper()

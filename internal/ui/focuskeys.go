@@ -685,7 +685,7 @@ func (m *Model) handleFocusKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// rather than left first and dismissed from its row. See
 			// focusactions.go.
 			return m, m.dismissFocused(sess)
-		case action == keymap.ToggleConversation && m.compressedFocus:
+		case action == keymap.ToggleConversation:
 			// The focused-view setting under a key: a session kept on its
 			// conversation goes back to the terminal here, and one on the
 			// terminal goes back to the conversation the list was showing.

@@ -84,6 +84,8 @@ func helpSections() []helpSection {
 			listRow(keymap.Quit, "quit (sessions keep running)"),
 		}},
 		{title: "common: enter the next session", rows: []helpRow{
+			listRow(keymap.PreviousPane, "previous pane in list order, from any screen; wraps"),
+			listRow(keymap.NextPane, "next pane in list order, from any screen; wraps"),
 			listRow(keymap.JumpAttention, "waiting on you"),
 			note("one key per state lives under advanced, unbound"),
 		}},

@@ -61,11 +61,20 @@ func (m mode) String() string {
 // returned command: that is a data race, and a log line is not worth one. The
 // snapshot is taken here instead, on the Bubble Tea event loop.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if req, ok := msg.(DumpRequest); ok {
+	switch req := msg.(type) {
+	case DumpRequest:
 		select {
 		case req.Reply <- m.dumpState():
 		default:
 		}
+		m.frameUnchanged()
+		return m, nil
+	case LoopPing:
+		select {
+		case req.Reply <- struct{}{}:
+		default:
+		}
+		m.frameUnchanged()
 		return m, nil
 	}
 	before := m.mode

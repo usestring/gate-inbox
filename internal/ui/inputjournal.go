@@ -53,6 +53,10 @@ type inputJournal struct {
 	lastKeyAt   time.Time
 	lastMouseAt time.Time
 
+	// refusedOpens are the times of recent open keys that left the board on
+	// the list; see stuckOpen.
+	refusedOpens []time.Time
+
 	// The current summary window.
 	windowStart time.Time
 	keys        map[string]int // by branch
@@ -118,6 +122,31 @@ func (j *inputJournal) summaryDue(now time.Time) ([]any, bool) {
 	return fields, true
 }
 
+// stuckOpenPresses open keys that each leave the board on the list within
+// stuckOpenWindow is somebody hammering Enter at a board that will not open:
+// one refusal is a hold or a dead pane, three in a row is worth a dump.
+const (
+	stuckOpenPresses = 3
+	stuckOpenWindow  = time.Minute
+)
+
+// stuckOpen records a refused open at now and reports whether enough have
+// piled up to call the board stuck. It forgets them once it has said so.
+func (j *inputJournal) stuckOpen(now time.Time) bool {
+	kept := j.refusedOpens[:0]
+	for _, at := range j.refusedOpens {
+		if now.Sub(at) < stuckOpenWindow {
+			kept = append(kept, at)
+		}
+	}
+	j.refusedOpens = append(kept, now)
+	if len(j.refusedOpens) < stuckOpenPresses {
+		return false
+	}
+	j.refusedOpens = nil
+	return true
+}
+
 // inputMeta is what an input is described by before the handler runs.
 type inputMeta struct {
 	kind   string
@@ -177,6 +206,10 @@ func (m *Model) journalInput(meta inputMeta, msg tea.Msg, before, after mode, st
 				"searching", m.searching, "quick", m.quick.active, "triage", m.triage,
 				"openHeld", m.openHeld, "resize", m.split.resizeMode,
 				"status", m.errBar.text)
+			if m.inputs.stuckOpen(now) && m.autoDump != nil {
+				m.autoDump(fmt.Sprintf("an open key left the board on the list %d times within %s",
+					stuckOpenPresses, stuckOpenWindow))
+			}
 		}
 	}
 	if fields, due := m.inputs.summaryDue(now); due {
@@ -190,6 +223,19 @@ func (m *Model) journalInput(meta inputMeta, msg tea.Msg, before, after mode, st
 // gave up waiting must not block the loop.
 type DumpRequest struct {
 	Reply chan<- string
+}
+
+// LoopPing is the event-loop watchdog's ping (see app's dumper). The loop
+// answers on Reply, which must be buffered; a ping that finds the loop busy
+// for long enough is the watchdog's evidence that it is wedged.
+type LoopPing struct {
+	Reply chan<- struct{}
+}
+
+// SetAutoDump installs what the board calls when it decides on its own that
+// a dump is worth writing. It must not block: it is called on the event loop.
+func (m *Model) SetAutoDump(dump func(reason string)) {
+	m.autoDump = dump
 }
 
 // dumpState renders the journal and the key-routing state as text.

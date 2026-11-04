@@ -98,3 +98,59 @@ func TestDumpRequestNeverBlocksTheLoop(t *testing.T) {
 		t.Fatal("Update blocked on a full reply channel")
 	}
 }
+
+func TestStuckOpenNeedsThreeRefusalsInsideTheWindow(t *testing.T) {
+	var j inputJournal
+	start := time.Unix(1000, 0)
+	if j.stuckOpen(start) || j.stuckOpen(start.Add(10*time.Second)) {
+		t.Fatal("stuck after fewer than three refusals")
+	}
+	// The first has aged out by now, so this is still two.
+	if j.stuckOpen(start.Add(stuckOpenWindow + 5*time.Second)) {
+		t.Fatal("a refusal outside the window was counted")
+	}
+	if !j.stuckOpen(start.Add(stuckOpenWindow + 6*time.Second)) {
+		t.Fatal("three refusals inside the window not called stuck")
+	}
+	if j.stuckOpen(start.Add(stuckOpenWindow + 7*time.Second)) {
+		t.Fatal("refusals not forgotten after being reported")
+	}
+}
+
+func TestRepeatedRefusedOpensAskForADump(t *testing.T) {
+	m := buildModel(t)
+	var reasons []string
+	m.SetAutoDump(func(reason string) { reasons = append(reasons, reason) })
+	meta := inputMeta{kind: "key", input: "enter", branch: "list", row: "session:abc(idle)"}
+	enter := tea.KeyPressMsg{Code: tea.KeyEnter}
+	for range stuckOpenPresses {
+		m.journalInput(meta, enter, modeList, modeList, time.Now())
+	}
+	if len(reasons) != 1 || !strings.Contains(reasons[0], "left the board on the list") {
+		t.Fatalf("auto dumps = %q", reasons)
+	}
+
+	// Enter on a group folds it; that is not a refusal.
+	reasons = nil
+	group := inputMeta{kind: "key", input: "enter", branch: "list", row: "group:work"}
+	for range stuckOpenPresses {
+		m.journalInput(group, enter, modeList, modeList, time.Now())
+	}
+	if len(reasons) != 0 {
+		t.Fatalf("group enters asked for a dump: %q", reasons)
+	}
+}
+
+func TestLoopPingIsAnsweredWithoutJournaling(t *testing.T) {
+	m := buildModel(t)
+	reply := make(chan struct{}, 1)
+	m.Update(LoopPing{Reply: reply})
+	select {
+	case <-reply:
+	default:
+		t.Fatal("ping not answered")
+	}
+	if m.inputs.total != 0 {
+		t.Fatal("a ping was journaled as input")
+	}
+}

@@ -23,13 +23,14 @@ import (
 // subtree -- because it is a fact about the work rather than about one
 // pass, which is what sets it apart from a mute (see mute.go).
 //
-// It lifts a session over every unmuted session of a lower tier, whatever
-// either is doing: an urgent finished session goes before an untiered
+// Among non-errored, unmuted sessions it lifts a session over lower tiers,
+// whatever either is doing: an urgent finished session goes before an untiered
 // question, and an urgent working one sits above both on the rail, because a
 // tier the wait, the state or an extension's deadline could outrank is a tier
 // the operator cannot rely on. The drain still enters only the rows it can,
 // so a working row leads the rail without being handed over. Within a tier
-// the usual order holds. A mute still sorts last: it says skip this one.
+// the usual order holds. Errored rows follow other unmuted rows because
+// their turn has already failed. A mute still sorts last: it says skip this one.
 //
 // The scale itself lives in internal/priority, because a goal's frontmatter
 // and a session's own declaration write the same tiers this key cycles.

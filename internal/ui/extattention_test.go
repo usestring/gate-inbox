@@ -27,20 +27,19 @@ func TestAnExtensionRanksASessionBetweenWaitingAndErrored(t *testing.T) {
 		}
 		return joined(ids)
 	}
-	if got := order(); got != "ask,err,run" {
-		t.Fatalf("triage order = %s before any claim, want the working session last", got)
+	if got := order(); got != "ask,run,err" {
+		t.Fatalf("triage order = %s before any claim, want the errored session last", got)
 	}
 	bridge.Attention("batch", "run", Attention{NeedsPerson: true, Rank: AttentionBlocked})
 	m.Update(extensionBadgesMsg{})
 	if got := order(); got != "ask,run,err" {
 		t.Fatalf("triage order = %s, want the blocked session between waiting and errored", got)
 	}
-	// A rank alone reorders within the bucket its status puts it in; only
-	// NeedsPerson moves a working session in front of the resting ones.
+	// A rank alone does not make a working session walkable.
 	bridge.Attention("batch", "run", Attention{Rank: AttentionBlocked})
 	m.Update(extensionBadgesMsg{})
-	if got := order(); got != "ask,err,run" {
-		t.Fatalf("triage order = %s, want a ranked session that needs nobody after the ones that do", got)
+	if got := order(); got != "ask,run,err" {
+		t.Fatalf("triage order = %s, want the errored session last even without a NeedsPerson claim", got)
 	}
 	bridge.Attention("batch", "run", Attention{})
 	m.Update(extensionBadgesMsg{})

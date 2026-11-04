@@ -21,6 +21,8 @@ const (
 	StepOut         Action = "step_out"
 	LastPane        Action = "last_pane"
 	JumpPane        Action = "jump_pane"
+	PreviousPane    Action = "previous_pane"
+	NextPane        Action = "next_pane"
 	JumpAttention   Action = "jump_attention"
 	JumpWaiting     Action = "jump_waiting"
 	JumpFinished    Action = "jump_finished"
@@ -172,6 +174,8 @@ var Catalog = []Binding{
 	{ContextList, StepOut, []string{"left"}, "step out: fold the work, close the group", false},
 	{ContextList, LastPane, []string{"l"}, "back to the previous pane; again walks further back", false},
 	{ContextList, JumpPane, []string{"ctrl+g"}, "find a pane by name and focus it", false},
+	{ContextList, PreviousPane, []string{"ctrl+up", "ctrl+alt+up"}, "previous pane in list order, from any screen", false},
+	{ContextList, NextPane, []string{"ctrl+down", "ctrl+alt+down"}, "next pane in list order, from any screen", false},
 	{ContextList, Rescind, []string{"ctrl+z"}, "undo the latest submission while its turn is active", false},
 	{ContextList, JumpAttention, []string{"tab"}, "enter the next session waiting on you", false},
 	{ContextList, JumpWaiting, []string{}, "enter the next waiting session", false},

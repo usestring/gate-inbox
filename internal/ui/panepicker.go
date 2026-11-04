@@ -171,3 +171,83 @@ func (m *Model) viewPanePicker() string {
 	return m.cardSized(width, "▸ Jump to pane", strings.TrimRight(b.String(), "\n"),
 		[][2]string{{"type", "filter"}, {"↑↓", "pick"}, {"↵", "focus"}, {"esc", "close"}})
 }
+
+func (m *Model) stepPane(delta int) (tea.Model, tea.Cmd) {
+	cmds := []tea.Cmd{tea.ClearScreen}
+	if m.split.resizeMode || m.split.dragging {
+		_, cmd := m.exitResizeMode(false)
+		cmds = append(cmds, cmd)
+	}
+	// Unwind through each screen's own cancellation path to release draft
+	// attachments and preserve settings, including boxes nested over focus.
+	for range 16 {
+		if !m.inBox() {
+			break
+		}
+		switch m.mode {
+		case modeExtensionView:
+			m.closeExtensionView(CloseDismissed)
+		case modeHeadPane:
+			cmds = append(cmds, m.leaveHeadPane(false))
+		case modeHelp:
+			m.closeHelp()
+		case modeConfirmDelete:
+			m.mode = modeList
+			if m.confirm.fromFocus != "" {
+				m.mode = modeFocus
+			}
+		case modeWelcome:
+			m.closeWelcome()
+			cmds = append(cmds, m.startStartupTick())
+		case modeNameSweep:
+			if m.nameSweep.stop != nil {
+				close(m.nameSweep.stop)
+				m.nameSweep.stop = nil
+			}
+			m.mode = modeList
+		default:
+			_, cmd := m.handleScreenKey(tea.KeyPressMsg{Code: tea.KeyEscape})
+			cmds = append(cmds, cmd)
+		}
+	}
+	if m.inBox() {
+		return m, tea.Batch(cmds...)
+	}
+	m.leaveReviewsTab(false)
+	m.triageResume = false
+	wasFocused, originalCursor := m.mode == modeFocus, m.cursor
+	kept := keptSearch{query: m.search, historyQuery: m.historyQuery, historyHits: m.historyHits}
+	m.dropOpenHold()
+	m.clearGroupJump()
+	jump := statusJump{delta: delta, wants: func(_ *Model, _ store.Session) bool { return true }}
+	tried := map[string]bool{}
+	if sess, ok := m.selected(); ok {
+		tried[sess.ID] = true
+	}
+	for {
+		index, ok := m.nextJumpRow(jump, tried)
+		if !ok {
+			break
+		}
+		sess := m.rows[index].sess
+		tried[sess.ID] = true
+		if !m.tmux.Exists(sess.ID) {
+			continue
+		}
+		if m.mode == modeFocus || m.heldAckID != "" {
+			cmds = append(cmds, m.leaveFocus())
+		}
+		_, cmd, entered := m.enterJumpRow(index)
+		if entered {
+			m.restoreSearch(kept)
+			m.cursorToSession(sess.ID)
+			return m, tea.Batch(append(cmds, cmd)...)
+		}
+	}
+	m.cursor = originalCursor
+	if wasFocused && m.mode != modeFocus {
+		_, cmd := m.focusSelected()
+		cmds = append(cmds, cmd)
+	}
+	return m, tea.Batch(append(cmds, m.schedulePreview(), m.readConversation())...)
+}

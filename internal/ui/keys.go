@@ -14,6 +14,29 @@ import (
 )
 
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// Key capture must receive the chord so these global bindings can be moved.
+	if m.mode != modeHelp || (!m.help.capturing && m.help.clash == nil) {
+		if action, bound := m.action(keymap.ContextList, msg); bound {
+			switch action {
+			case keymap.PreviousPane:
+				return m.stepPane(-1)
+			case keymap.NextPane:
+				return m.stepPane(1)
+			}
+		}
+	}
+	if !m.split.resizeMode {
+		if model, cmd, ok := m.newSessionFromAnywhere(msg); ok {
+			return model, cmd
+		}
+		if model, cmd, ok := m.killFromAnywhere(msg); ok {
+			return model, cmd
+		}
+	}
+	return m.handleScreenKey(msg)
+}
+
+func (m *Model) handleScreenKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Resize mode owns the keyboard until the drag commits or the user
 	// cancels: other bindings would fight the mouse-gated session.
 	if m.split.resizeMode {
@@ -38,13 +61,6 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		default:
 			return m, nil
 		}
-	}
-
-	if model, cmd, ok := m.newSessionFromAnywhere(msg); ok {
-		return model, cmd
-	}
-	if model, cmd, ok := m.killFromAnywhere(msg); ok {
-		return model, cmd
 	}
 
 	switch m.mode {
@@ -223,6 +239,10 @@ func (m *Model) runListAction(action keymap.Action, msg tea.KeyPressMsg) (tea.Mo
 		return m, m.ingestReviews()
 	case keymap.ReviewsTab:
 		return m, m.toggleReviewsTab()
+	case keymap.PreviousPane:
+		return m.stepPane(-1)
+	case keymap.NextPane:
+		return m.stepPane(1)
 	case keymap.CursorUp:
 		return m, m.moveCursor(-1)
 	case keymap.CursorDown:

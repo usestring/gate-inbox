@@ -676,8 +676,12 @@ func (m *Model) entryLines(rows []treeRow, offset, width, height int) []contentL
 		if entry.isArtifact() && entry.art.more == 0 {
 			link = entry.art.url
 		}
+		sessionID := ""
+		if entry.entersAs() {
+			sessionID = entry.sess.ID
+		}
 		for _, line := range splitLines(render(entry, selected, offset+i, tone)) {
-			lines = append(lines, contentLine{text: line, tone: tone, link: link})
+			lines = append(lines, contentLine{text: line, tone: tone, link: link, sessionID: sessionID})
 		}
 	}
 	// The counters ride in whatever room the entries leave. Claiming a line

@@ -82,10 +82,11 @@ type commands struct {
 }
 
 type runtime struct {
-	cfg    config.Config
-	words  Vocabulary
-	store  *store.Store
-	driver *tmux.Driver
+	cfg       config.Config
+	configDir string
+	words     Vocabulary
+	store     *store.Store
+	driver    *tmux.Driver
 	// paneWidth and paneHeight are read when the store opens, since a pane
 	// is created inside the transaction that files its row, and that
 	// transaction holds the store's only connection.
@@ -135,7 +136,7 @@ func (c *commands) openOn(openStore func() (*store.Store, error)) (opened *runti
 	if err != nil {
 		logging.Info("pane size unreadable; tmux sizes new panes", "error", err)
 	}
-	return &runtime{cfg: cfg, words: c.words, store: st, driver: driver, paneWidth: width, paneHeight: height}, nil
+	return &runtime{cfg: cfg, configDir: c.configDir, words: c.words, store: st, driver: driver, paneWidth: width, paneHeight: height}, nil
 }
 
 // reach tells the driver where an adopted row's pane is. Only the board

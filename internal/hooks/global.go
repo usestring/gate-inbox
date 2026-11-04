@@ -342,6 +342,14 @@ func (m *Manager) AdoptedClaudeCaller(tmuxEnv, paneID string, ancestors func() [
 	return marker.ID, true
 }
 
+// AdoptedPaneAt names the adopted agent marker the pane $TMUX and $TMUX_PANE
+// carry, without requiring the caller to be a descendant of the marker's
+// agent. A shell a shared host runs for an agent sits outside the agent's
+// process tree, so its pane, not its ancestors, is what binds it to a row.
+func (m *Manager) AdoptedPaneAt(tmuxEnv, paneID string) (AdoptedPane, bool) {
+	return m.adoptedMarker(tmuxEnv, paneID)
+}
+
 // adoptedMarker reads the marker for the pane $TMUX and $TMUX_PANE name, in
 // either form SyncAdopted writes.
 func (m *Manager) adoptedMarker(tmuxEnv, paneID string) (AdoptedPane, bool) {

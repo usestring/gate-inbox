@@ -13,9 +13,9 @@ import (
 
 // triageTiers ranks statuses by how badly a human is needed, best first.
 // waiting outranks everything because a waiting agent is stalled on an
-// answer this second; errored sits last among the resting statuses because
+// answer this second; errored sits behind other unmuted rows because
 // the error has already happened and blocks no turn, so a finished or idle
-// session is handed over before it; working sits below every resting status
+// session is handed over before it; working sits below other resting states
 // because the one thing triage must never do is walk somebody into a
 // session that is mid-turn.
 //
@@ -238,8 +238,9 @@ func (m *Model) triageWalkable(sess store.Session) bool {
 // The rail has to read in the order the drain walks; the drain hands over the
 // first row it can, so the two cannot disagree. See nextTriageInput.
 //
-// The priority tier comes before everything but a mute: a higher tier sorts
-// above any lower one whatever its band, state, deadline or wait. Within a
+// Errored rows follow other unmuted rows so a failed turn cannot displace
+// work that can move forward. Otherwise a higher priority tier sorts above
+// any lower one whatever its band, state, deadline or wait. Within a
 // tier the bands follow, and smart triage orders the scored band (every
 // walkable session; the walkable band is then empty) by state, then most
 // recent turn first (see triageScore); every other band, and the strict
@@ -258,9 +259,10 @@ func (m *Model) triageLess(a, b store.Session) bool {
 //
 // In the scored band a deadline still ahead comes before the score, as it
 // came before the age in a strict tier: an extension setting one is saying
-// the session cannot wait its turn. It cannot jump a higher tier.
+// the session cannot wait its turn. It cannot jump a higher tier or put
+// an errored session ahead of other work.
 func (m *Model) triageBefore(ka, kb triageKey, a, b store.Session, now time.Time) bool {
-	if ka.band == triageBandScored && kb.band == triageBandScored && ka.priority == kb.priority {
+	if ka.errored == kb.errored && ka.band == triageBandScored && kb.band == triageBandScored && ka.priority == kb.priority {
 		if before, differ := m.deadlineBefore(a.ID, b.ID, now); differ {
 			return before
 		}
@@ -290,12 +292,16 @@ const (
 // tier at once. See priority.Rank.
 type triageKey struct {
 	band, priority, tier int
+	errored              bool
 	score                float64
 }
 
 func (k triageKey) before(o triageKey) bool {
 	if muted, oMuted := k.band == triageBandMuted, o.band == triageBandMuted; muted != oMuted {
 		return oMuted
+	}
+	if k.errored != o.errored {
+		return !k.errored
 	}
 	if k.priority != o.priority {
 		return k.priority < o.priority
@@ -313,7 +319,10 @@ func (k triageKey) before(o triageKey) bool {
 // after every unmuted row: it stays on the triage rail reading "muted", but
 // the drain walks past it, so it must never order the queue.
 func (m *Model) triageKeyOf(sess store.Session, now time.Time) triageKey {
-	key := triageKey{band: triageBandRest, priority: m.tierOf(sess).Rank(), tier: m.triageRankOf(sess)}
+	key := triageKey{
+		band: triageBandRest, priority: m.tierOf(sess).Rank(),
+		tier: m.triageRankOf(sess), errored: m.triageStateOf(sess) == status.Errored,
+	}
 	if sess.Muted {
 		key.band = triageBandMuted
 		return key

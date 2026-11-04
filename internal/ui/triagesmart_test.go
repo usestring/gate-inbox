@@ -184,13 +184,13 @@ func TestSmartTriageDrainsInRailOrder(t *testing.T) {
 		smartSess("calm", status.Idle, 2*time.Hour),
 		smartSess("grinder", status.Working, time.Hour),
 	)
-	want := []string{"high", "q-fresh", "q-old", "done-aged", "calm"}
-	assertRail(t, m, append(want, "grinder")...)
+	want := []string{"q-fresh", "q-old", "done-aged", "calm", "high"}
+	assertRail(t, m, "q-fresh", "q-old", "done-aged", "calm", "grinder", "high")
 	if got := drainOrder(m); !slices.Equal(got, want) {
 		t.Fatalf("drain = %v, want the rail's order %v", got, want)
 	}
 	// A hop from the middle of the queue still hands over its head.
-	if i, ok := m.nextTriageInput("calm", nil); !ok || m.rows[i].sess.Name != "high" {
+	if i, ok := m.nextTriageInput("calm", nil); !ok || m.rows[i].sess.Name != "q-fresh" {
 		t.Fatalf("hop from calm landed on row %d, want the head of the queue", i)
 	}
 }

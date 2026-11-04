@@ -54,10 +54,17 @@ func (s *Sessions) Stop(sessionID string, dryRun, archive bool) (StopResult, err
 	if err != nil {
 		return StopResult{}, err
 	}
-	if !owned && sessionID != "" && target.Tool == "codex" && target.AgentSessionID != os.Getenv("CODEX_THREAD_ID") {
-		target, err = runtime.sharedCodexThreadTarget()
-		if err != nil {
-			return StopResult{}, err
+	if !owned {
+		if runtime.isOpencode(target.Tool) {
+			target, err = runtime.sharedOpencodeTarget()
+			if err != nil {
+				return StopResult{}, err
+			}
+		} else if sessionID != "" && target.Tool == "codex" && target.AgentSessionID != os.Getenv("CODEX_THREAD_ID") {
+			target, err = runtime.sharedCodexThreadTarget()
+			if err != nil {
+				return StopResult{}, err
+			}
 		}
 	}
 	pin, err := runtime.paneProcess(target)
@@ -66,7 +73,7 @@ func (s *Sessions) Stop(sessionID string, dryRun, archive bool) (StopResult, err
 	}
 	result := StopResult{Managed: true, Target: runtime.sessionInfo(target, true, true), DryRun: dryRun, Archive: archive}
 	if !owned {
-		if err := runtime.codexStopCandidate(target); err != nil {
+		if err := runtime.stopCandidate(target); err != nil {
 			return StopResult{}, err
 		}
 		result.CallerProof = uuid.NewString()
@@ -211,6 +218,10 @@ func (r *runtime) stopCaller(id string) (store.Session, error) {
 	if err != nil {
 		return store.Session{}, err
 	}
+	sharedOpencode, err := sharedOpencodeAncestor()
+	if err != nil {
+		return store.Session{}, err
+	}
 	for _, row := range rows {
 		if r.cfg.Tools[row.Tool].Shell {
 			continue
@@ -245,6 +256,9 @@ func (r *runtime) stopCaller(id string) (store.Session, error) {
 	}
 	if len(matches) == 1 {
 		return matches[0], nil
+	}
+	if sharedOpencode {
+		return r.sharedOpencodeTarget()
 	}
 	if unresolvedCodex {
 		return store.Session{}, errors.New("cannot verify a Gate Inbox caller pane from the shared Codex daemon; refusing shutdown")
@@ -309,6 +323,34 @@ func sharedCodexAncestor() (bool, error) {
 			continue
 		}
 		if argv[1] == "app-server" || argv[1] == "exec-server" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// sharedOpencodeAncestor reports whether the caller runs under OpenCode's
+// shared background service. That service owns every plain opencode session
+// on the box, so a shell it runs for one is no descendant of the client in
+// the pane and paneAncestor cannot name the row.
+func sharedOpencodeAncestor() (bool, error) {
+	ancestors, err := callerAncestors()
+	if err != nil {
+		return false, err
+	}
+	for _, pid := range ancestors {
+		proc, err := process.NewProcess(int32(pid))
+		if err != nil {
+			return false, err
+		}
+		argv, err := proc.CmdlineSlice()
+		if err != nil {
+			return false, err
+		}
+		if len(argv) < 2 || filepath.Base(argv[0]) != "opencode" || argv[1] != "serve" {
+			continue
+		}
+		if slices.Contains(argv[2:], "--service") {
 			return true, nil
 		}
 	}

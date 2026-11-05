@@ -313,19 +313,36 @@ func (s *Store) Task(id string) (Task, error) {
 	return page.Tasks[0], nil
 }
 
-// ReleaseTasksOwnedBy hands back every claim a session held, so work does
-// not sit in progress forever behind an agent that is gone.
-func (s *Store) ReleaseTasksOwnedBy(sessionID string, at time.Time) error {
-	return releaseTasksOwnedBy(s.db, sessionID, at)
-}
-
-// releaseTasksOwnedBy takes the executor because the deletion path runs it
-// inside a transaction, and the store holds a single connection: a plain
-// s.db.Exec issued while a Tx holds it waits forever.
-func releaseTasksOwnedBy(exec executor, sessionID string, at time.Time) error {
-	_, err := exec.Exec(
+// releaseTasksOwnedBy hands back every claim a session held, so work does
+// not sit in progress behind an agent that is gone, and reports how many it
+// handed back. Archive, kill and deletion all run it, each in the
+// transaction that ends the session: a claim released a moment after the
+// row reads archived is a window in which the board says the agent is gone
+// and the list says it is still working.
+//
+// It takes the executor because those callers run it inside a transaction,
+// and the store holds a single connection: a plain s.db.Exec issued while a
+// Tx holds it waits forever.
+func releaseTasksOwnedBy(exec executor, sessionID string, at time.Time) (int, error) {
+	res, err := exec.Exec(
 		`UPDATE tasks SET state = ?, owner_session_id = '', updated_at = ?
 		  WHERE owner_session_id = ? AND state = ?`,
 		TaskPending, encodeTime(at), sessionID, TaskInProgress)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
+}
+
+// moveTaskClaims hands the tasks fromID holds in progress to toID, for the
+// two ends that carry a session's work on under a new id: a migration and a
+// replacement. Those claims are the new row's to finish, so they move
+// rather than going back to pending the way an archive's do.
+func moveTaskClaims(exec executor, fromID, toID string, at time.Time) error {
+	_, err := exec.Exec(
+		`UPDATE tasks SET owner_session_id = ?, updated_at = ?
+		  WHERE owner_session_id = ? AND state = ?`,
+		toID, encodeTime(at), fromID, TaskInProgress)
 	return err
 }

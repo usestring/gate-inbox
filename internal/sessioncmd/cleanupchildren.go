@@ -53,14 +53,19 @@ type ChildCleaned struct {
 	// Descendants are the sessions under this child that went with it.
 	Descendants []string `json:"descendants,omitempty" jsonschema:"ids of the sessions this child spawned, at any depth, archived with it"`
 	Skipped     string   `json:"skipped,omitempty" jsonschema:"why this child was left alone; empty when it was archived"`
+	// ReleasedTasks counts the claims this child and its descendants held,
+	// handed back to pending when they were filed.
+	ReleasedTasks int `json:"released_tasks,omitempty" jsonschema:"how many tasks this child and its descendants held in progress, handed back to pending by the archive"`
 }
 
 // ChildCleanup is what one call did to the caller's fan-out.
 type ChildCleanup struct {
-	Archived int            `json:"archived" jsonschema:"how many children were archived, not counting their own descendants"`
-	Skipped  int            `json:"skipped" jsonschema:"how many were left alone, with a reason on each"`
-	DryRun   bool           `json:"dry_run,omitempty" jsonschema:"true when nothing was archived and the result is only the plan"`
-	Children []ChildCleaned `json:"children" jsonschema:"per-child outcome, in board order"`
+	Archived int  `json:"archived" jsonschema:"how many children were archived, not counting their own descendants"`
+	Skipped  int  `json:"skipped" jsonschema:"how many were left alone, with a reason on each"`
+	DryRun   bool `json:"dry_run,omitempty" jsonschema:"true when nothing was archived and the result is only the plan"`
+	// ReleasedTasks is every child's ReleasedTasks summed.
+	ReleasedTasks int            `json:"released_tasks,omitempty" jsonschema:"how many in-progress task claims the archives handed back to pending, across every child and descendant filed; any agent can now claim them"`
+	Children      []ChildCleaned `json:"children" jsonschema:"per-child outcome, in board order"`
 }
 
 // CleanupChildren archives the caller's own children in the given states,
@@ -125,9 +130,12 @@ func (s *Sessions) CleanupChildren(sessionID string, opts CleanupOptions) (clean
 				entry.Descendants = append(entry.Descendants, kid.ID)
 			}
 			if !opts.DryRun {
-				if err := s.fileTree(runtime, child, below, caller.ID); err != nil {
-					entry.Skipped = err.Error()
+				released, fileErr := s.fileTree(runtime, child, below, caller.ID)
+				if fileErr != nil {
+					entry.Skipped = fileErr.Error()
 				}
+				entry.ReleasedTasks = released
+				result.ReleasedTasks += entry.ReleasedTasks
 			}
 		}
 		if entry.Skipped == "" {
@@ -208,10 +216,10 @@ func liveDescendants(sessions []store.Session, id string) []store.Session {
 // fileDescendants archives everything under target before target itself
 // goes, so archiving a parent never strands its fan-out running under a row
 // nobody is watching.
-func (s *Sessions) fileDescendants(runtime *runtime, target store.Session, callerID string) error {
+func (s *Sessions) fileDescendants(runtime *runtime, target store.Session, callerID string) (int, error) {
 	sessions, err := runtime.store.ListSessions(true)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	below := liveDescendants(sessions, target.ID)
 	// A session archiving its own ancestor is not asking to end itself, or
@@ -231,28 +239,33 @@ func (s *Sessions) fileDescendants(runtime *runtime, target store.Session, calle
 	return s.fileBelow(runtime, kept, callerID)
 }
 
-// fileTree archives below and then root.
-func (s *Sessions) fileTree(runtime *runtime, root store.Session, below []store.Session, callerID string) error {
-	if err := s.fileBelow(runtime, below, callerID); err != nil {
-		return err
+// fileTree archives below and then root, and reports how many task claims
+// the archives handed back between them.
+func (s *Sessions) fileTree(runtime *runtime, root store.Session, below []store.Session, callerID string) (int, error) {
+	released, err := s.fileBelow(runtime, below, callerID)
+	if err != nil {
+		return released, err
 	}
-	_, err := s.file(runtime, root, true)
-	return err
+	filed, err := s.file(runtime, root, true)
+	return released + filed.ReleasedTasks, err
 }
 
 // fileBelow archives below deepest first, so a failure partway leaves no
 // live row under one already filed. The caller is spared if it is one of
 // them.
-func (s *Sessions) fileBelow(runtime *runtime, below []store.Session, callerID string) error {
+func (s *Sessions) fileBelow(runtime *runtime, below []store.Session, callerID string) (int, error) {
+	released := 0
 	for i := len(below) - 1; i >= 0; i-- {
 		if below[i].ID == callerID {
 			continue
 		}
-		if _, err := s.file(runtime, below[i], true); err != nil {
-			return fmt.Errorf("archive %s: %w", below[i].ID, err)
+		filed, err := s.file(runtime, below[i], true)
+		if err != nil {
+			return released, fmt.Errorf("archive %s: %w", below[i].ID, err)
 		}
+		released += filed.ReleasedTasks
 	}
-	return nil
+	return released, nil
 }
 
 // noteSpawnerRead records that the caller took in target's finish, when the
@@ -287,5 +300,5 @@ func FormatChildCleanup(cleaned ChildCleanup) string {
 	if cleaned.Archived > 0 && !cleaned.DryRun {
 		line += "\narchived rows stay restorable for 7 days; revive_session brings one back"
 	}
-	return line
+	return line + releasedNote(cleaned.ReleasedTasks)
 }

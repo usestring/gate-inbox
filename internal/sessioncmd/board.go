@@ -12,7 +12,6 @@ import (
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/dialog"
-	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tracing"
@@ -309,17 +308,7 @@ func (s *Sessions) BoardKill(targetID string) (killed Session, err error) {
 	if err != nil {
 		return Session{}, err
 	}
-	if err := s.endSession(runtime, target, store.EndKilled); err != nil {
-		return Session{}, err
-	}
-	if _, err := runtime.store.ResolveEndedRecipient(target.ID, time.Now()); err != nil {
-		return Session{}, err
-	}
-	target.Status = status.Dead
-	if !runtime.cfg.Tools[target.Tool].Shell {
-		sessionhooks.Killed(target, extension.KillByBoard, "")
-	}
-	return runtime.sessionInfo(target, false, false), nil
+	return s.stopSession(runtime, target, extension.KillByBoard, "", killFor(runtime, target.ID))
 }
 
 // BoardArchive files one of the board extension extensionID's own helpers

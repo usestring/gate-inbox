@@ -157,7 +157,7 @@ func seatOf(tx *sql.Tx, id string) (seat, error) {
 
 // takeSeat is the swap both kinds of replacement make: newID is filed
 // directly after oldID, where the operator was already looking, oldID's
-// undelivered inbox and file leases move to it, and oldID is left dead
+// undelivered inbox, file leases and task claims move to it, and oldID is left dead
 // with newID recorded as what replaced it.
 func takeSeat(tx *sql.Tx, newID, oldID string, at seat, snapshot string) (Replacement, error) {
 	if _, err := tx.Exec(`UPDATE sessions SET sort_order = sort_order + 1
@@ -183,6 +183,9 @@ UPDATE session_inbox SET session_id = ?, claimed_at = 0
 		return Replacement{}, err
 	}
 	if moved.Reservations, err = res.RowsAffected(); err != nil {
+		return Replacement{}, err
+	}
+	if err := moveTaskClaims(tx, oldID, newID, time.Now()); err != nil {
 		return Replacement{}, err
 	}
 	now := encodeTime(time.Now())

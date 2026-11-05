@@ -145,7 +145,7 @@ func (m *Model) viewLaunchMemory() string {
 	body.WriteString(mutedStyle.Render(message) + "\n\n")
 	for i, option := range options {
 		if i == state.selected {
-			body.WriteString(annotationStyle.Render("› " + option))
+			body.WriteString(annotationStyle.Render("> " + option))
 		} else {
 			body.WriteString(mutedStyle.Render("  " + option))
 		}

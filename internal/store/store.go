@@ -436,6 +436,19 @@ CREATE TABLE IF NOT EXISTS settings (
 			first_seen INTEGER NOT NULL,
 			PRIMARY KEY (session_id, url)
 		)`,
+		// Work items attached to a session that no forge or tracker answers
+		// for, such as a page it published. sessionwork.go carries why.
+		`CREATE TABLE IF NOT EXISTS session_work (
+			session_id TEXT NOT NULL,
+			source     TEXT NOT NULL,
+			kind       TEXT NOT NULL,
+			item_id    TEXT NOT NULL,
+			url        TEXT NOT NULL,
+			title      TEXT NOT NULL DEFAULT '',
+			first_seen INTEGER NOT NULL,
+			updated_at INTEGER NOT NULL,
+			PRIMARY KEY (session_id, source, kind, item_id)
+		)`,
 		`CREATE TABLE IF NOT EXISTS work_seen (
 			key     TEXT PRIMARY KEY,
 			seen_at INTEGER NOT NULL
@@ -1757,6 +1770,9 @@ func purgeSessionRefs(tx *sql.Tx, id string) error {
 		return err
 	}
 	if err := deleteOpenedPRs(tx, id); err != nil {
+		return err
+	}
+	if err := deleteSessionWork(tx, id); err != nil {
 		return err
 	}
 	if err := unlinkMigration(tx, id); err != nil {

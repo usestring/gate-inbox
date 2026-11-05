@@ -21,13 +21,13 @@ type toolCall struct {
 	title   string
 }
 
-// artifactMark and publishMark find the calls that publish a page: Claude Code's own Artifact
-// tool, and any MCP server's publish_artifact. artifactResultMarks find the results that can
-// carry a published page's address.
+// artifactMark finds the calls that publish a page with Claude Code's own Artifact tool, and
+// artifactResultMark the results that can carry a published page's address. Pages an
+// extension's tool publishes are not read from the transcript: the extension attaches them to
+// the session itself, through extension.AttachWork.
 var (
-	artifactMark        = []byte(`"name":"Artifact"`)
-	publishMark         = []byte(`publish_artifact`)
-	artifactResultMarks = [][]byte{[]byte(`/artifact/`), []byte(`/a/art_`)}
+	artifactMark       = []byte(`"name":"Artifact"`)
+	artifactResultMark = []byte(`/artifact/`)
 )
 
 var (
@@ -60,8 +60,8 @@ var (
 // none and are rejected by a byte search before any JSON is decoded.
 func lineCalls(tool string, line []byte) []toolCall {
 	command := bytes.Contains(line, prCreateMark) || bytes.Contains(line, ghPrMark) || bytes.Contains(line, pollMark) || bytes.Contains(line, waitMark)
-	result := (bytes.Contains(line, pullMark) || hasAny(line, artifactResultMarks)) && bytes.Contains(line, toolResultMark) || bytes.Contains(line, codexCallOut)
-	command = command || bytes.Contains(line, artifactMark) || bytes.Contains(line, publishMark)
+	result := (bytes.Contains(line, pullMark) || bytes.Contains(line, artifactResultMark)) && bytes.Contains(line, toolResultMark) || bytes.Contains(line, codexCallOut)
+	command = command || bytes.Contains(line, artifactMark)
 	if !command && !result {
 		return nil
 	}
@@ -74,26 +74,11 @@ func lineCalls(tool string, line []byte) []toolCall {
 	return nil
 }
 
-func hasAny(line []byte, marks [][]byte) bool {
-	for _, mark := range marks {
-		if bytes.Contains(line, mark) {
-			return true
-		}
-	}
-	return false
-}
-
-// publishes reports whether a tool call publishes a page: the Artifact tool's publish action,
-// which is also what it does with no action at all, or a publish_artifact tool under any MCP
-// server's prefix. Reading, listing or opening an artifact is not publishing one.
+// publishes reports whether a tool call publishes a page with Claude Code's Artifact tool: its
+// publish action, which is also what it does with no action at all. Reading, listing or opening
+// an artifact is not publishing one.
 func publishes(name, action string) bool {
-	switch {
-	case name == "Artifact":
-		return action == "" || action == "publish"
-	case name == "publish_artifact", strings.HasSuffix(name, "__publish_artifact"), strings.HasSuffix(name, ".publish_artifact"):
-		return true
-	}
-	return false
+	return name == "Artifact" && (action == "" || action == "publish")
 }
 
 // publishTitle is what a publish call named its page: a title when it gave one, otherwise the
@@ -102,23 +87,18 @@ func publishTitle(input publishInput) string {
 	if input.Title != "" {
 		return input.Title
 	}
-	source := input.FilePath
-	if source == "" {
-		source = input.ContentPath
-	}
-	if source == "" {
+	if input.FilePath == "" {
 		return ""
 	}
-	base := filepath.Base(source)
+	base := filepath.Base(input.FilePath)
 	return strings.TrimSuffix(base, filepath.Ext(base))
 }
 
 // publishInput is the part of a publish call's arguments the board reads.
 type publishInput struct {
-	Action      string `json:"action"`
-	Title       string `json:"title"`
-	FilePath    string `json:"file_path"`
-	ContentPath string `json:"content_path"`
+	Action   string `json:"action"`
+	Title    string `json:"title"`
+	FilePath string `json:"file_path"`
 	// Asset is the Artifact tool uploading a file into an existing page, not publishing one.
 	Asset bool `json:"asset"`
 }
@@ -197,10 +177,6 @@ func codexCalls(line []byte) []toolCall {
 	p := row.Payload
 	switch p.Type {
 	case "function_call":
-		var publish publishInput
-		if json.Unmarshal([]byte(p.Arguments), &publish) == nil && publishes(p.Name, "") {
-			return []toolCall{publishCall(p.CallID, publish)}
-		}
 		return []toolCall{{id: p.CallID, text: p.Arguments, poll: p.Name == "write_stdin" || p.Name == "wait"}}
 	case "custom_tool_call":
 		return []toolCall{{id: p.CallID, text: p.Input, poll: pollsCommand.MatchString(p.Input)}}

@@ -13,10 +13,9 @@ func namedToolUseLine(id, name string, input map[string]any) string {
 	return string(line)
 }
 
-// A page is the session's when its own publish call returned it: the Artifact tool publishing (with
-// or without the action spelled out) and an MCP server's publish_artifact. Reading, listing or
-// uploading an asset to an artifact is not publishing one, and a page address in prose or in some
-// other command's output is a mention.
+// A page is the session's when its own call to Claude Code's Artifact tool published it, with or
+// without the action spelled out. Reading, listing or uploading an asset to an artifact is not
+// publishing one, and a page address in prose or in some other command's output is a mention.
 func TestPublishedPagesComeFromThePublishingCallAndItsResult(t *testing.T) {
 	x := openTest(t, Options{})
 	path := filepath.Join(t.TempDir(), "s.jsonl")
@@ -29,7 +28,11 @@ func TestPublishedPagesComeFromThePublishingCallAndItsResult(t *testing.T) {
 		namedToolUseLine("asset", "Artifact", map[string]any{"url": "https://claude.ai/artifact/Mine1", "asset": true, "file_path": "/x/logo.png"}),
 		toolResultLine("asset", "uploaded to https://claude.ai/artifact/Mine1"),
 		toolUseLine("cat", "cat notes.md"),
-		toolResultLine("cat", "https://artifacts.example.test/a/art_Other1"),
+		toolResultLine("cat", "https://claude.ai/artifact/Catted1"),
+		// An extension's publish tool is not read from the transcript: the extension attaches
+		// its pages to the session itself.
+		namedToolUseLine("ext", "mcp__pages__publish_page", map[string]any{"title": "Ext", "file_path": "/tmp/s/ext.html"}),
+		toolResultLine("ext", "published https://claude.ai/artifact/Ext1"),
 		namedToolUseLine("p1", "Artifact", map[string]any{"file_path": "/tmp/s/court-title-check.html", "icon": "document"}),
 	)
 	targets := []Target{{Key: "k", Tool: ToolClaude, Path: path}}
@@ -43,12 +46,12 @@ func TestPublishedPagesComeFromThePublishingCallAndItsResult(t *testing.T) {
 		toolResultLine("p1", "Published /tmp/s/court-title-check.html at https://claude.ai/artifact/Mine1 (Version 1)"),
 		namedToolUseLine("p2", "Artifact", map[string]any{"action": "publish", "file_path": "/tmp/s/court-title-check.html"}),
 		toolResultLine("p2", "Published /tmp/s/court-title-check.html at https://claude.ai/artifact/Mine1 (Version 2)"),
-		namedToolUseLine("p3", "mcp__gate-inbox__publish_artifact", map[string]any{"title": "Intro Call", "content_path": "/tmp/s/call.html"}),
-		toolResultLine("p3", `{"id":"art_rEhw-1","title":"Intro Call","url":"https://artifacts.example.test/a/art_rEhw-1","public_url":null}`),
+		namedToolUseLine("p3", "Artifact", map[string]any{"action": "publish", "title": "Intro Call", "file_path": "/tmp/s/call.html"}),
+		toolResultLine("p3", "Published /tmp/s/call.html at https://claude.ai/code/artifact/0f6c2b1e-1a2b-4c3d-9e8f-001122334455"),
 	)
 	refreshAll(t, x, targets)
 	want := "https://claude.ai/artifact/Mine1\tcourt-title-check\n" +
-		"https://artifacts.example.test/a/art_rEhw-1\tIntro Call\n"
+		"https://claude.ai/code/artifact/0f6c2b1e-1a2b-4c3d-9e8f-001122334455\tIntro Call\n"
 	if got := x.Published("k"); got != want {
 		t.Errorf("published = %q, want %q", got, want)
 	}
@@ -57,26 +60,5 @@ func TestPublishedPagesComeFromThePublishingCallAndItsResult(t *testing.T) {
 	}
 	if x.Published("absent") != "" {
 		t.Error("an unknown key has published nothing")
-	}
-}
-
-// Codex names an MCP tool in the function call, and its output is paired the same way.
-func TestCodexPublishedPages(t *testing.T) {
-	x := openTest(t, Options{})
-	path := filepath.Join(t.TempDir(), "rollout-2026-09-04T10-00-00-abc.jsonl")
-	call, _ := json.Marshal(map[string]any{"type": "response_item", "payload": map[string]any{
-		"type": "function_call", "name": "mcp__gate-inbox__publish_artifact", "call_id": "c1",
-		"arguments": `{"title":"Fleet audit","content_path":"/tmp/a.html"}`,
-	}})
-	out, _ := json.Marshal(map[string]any{"type": "response_item", "payload": map[string]any{
-		"type": "function_call_output", "call_id": "c1", "output": `{"url":"https://artifacts.example.test/a/art_Codex1"}`,
-	}})
-	other, _ := json.Marshal(map[string]any{"type": "response_item", "payload": map[string]any{
-		"type": "function_call_output", "call_id": "c2", "output": "https://artifacts.example.test/a/art_Other1",
-	}})
-	writeLines(t, path, string(call), string(out), string(other))
-	refreshAll(t, x, []Target{{Key: "k", Tool: ToolCodex, Path: path}})
-	if got, want := x.Published("k"), "https://artifacts.example.test/a/art_Codex1\tFleet audit\n"; got != want {
-		t.Errorf("published = %q, want %q", got, want)
 	}
 }

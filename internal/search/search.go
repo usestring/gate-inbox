@@ -133,8 +133,8 @@ type session struct {
 	created []byte
 	opening map[string]bool
 	// published is one line per page the session published, "url\ttitle", by
-	// the same pairing: a call to the Artifact tool or to a publish_artifact
-	// tool, and the result that printed the page's address. publishing holds
+	// the same pairing: a call to Claude Code's Artifact tool, and the result
+	// that printed the page's address. publishing holds
 	// the titles of publish calls whose result has not arrived yet, by call id.
 	published  []byte
 	publishing map[string]string

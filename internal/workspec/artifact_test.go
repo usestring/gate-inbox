@@ -5,13 +5,12 @@ import (
 	"testing"
 )
 
-// Both Claude artifact shapes and an artifact service's /a/art_ link are published pages, and the
-// id is the part of the address that names the page.
+// Both Claude artifact shapes are published pages, and the id is the part of the address that
+// names the page. Pages hosted elsewhere come from an extension (AttachedRef), never from here.
 func TestArtifactRefReadsEveryPublishedShape(t *testing.T) {
 	for _, tc := range []struct{ url, id string }{
 		{"https://claude.ai/artifact/H9XE1gDSESPDiKoD6MmZGc", "H9XE1gDSESPDiKoD6MmZGc"},
 		{"https://claude.ai/code/artifact/0b6c6d1e-5f2a-4c4e-9d0a-7f1f3c2b9e11", "0b6c6d1e-5f2a-4c4e-9d0a-7f1f3c2b9e11"},
-		{"https://artifacts.example.test/a/art_rEhwwItYH9wu-EYblFTmnQ", "art_rEhwwItYH9wu-EYblFTmnQ"},
 	} {
 		ref, ok := ArtifactRef(tc.url, "Report")
 		if !ok {
@@ -29,7 +28,7 @@ func TestArtifactRefReadsEveryPublishedShape(t *testing.T) {
 	}
 	for _, url := range []string{
 		"", "https://claude.ai/chat/abc", "https://github.com/o/r/pull/1",
-		"see https://claude.ai/artifact/abc", "https://example.test/a/not-an-artifact",
+		"see https://claude.ai/artifact/abc", "https://pages.example.test/p/abc",
 	} {
 		if ref, ok := ArtifactRef(url, ""); ok {
 			t.Errorf("%q read as a published page: %+v", url, ref)
@@ -41,10 +40,10 @@ func TestArtifactRefReadsEveryPublishedShape(t *testing.T) {
 // once, in order.
 func TestArtifactURLsFindsEachAddressOnce(t *testing.T) {
 	text := "Published /tmp/x.html at https://claude.ai/artifact/H9XE1gDSESPDiKoD6MmZGc (Version 1)\n" +
-		`{"url":"https://artifacts.example.test/a/art_abc_D-1","public_url":null}` + "\n" +
+		`{"url":"https://claude.ai/code/artifact/0b6c6d1e-5f2a-4c4e-9d0a-7f1f3c2b9e11"}` + "\n" +
 		"again https://claude.ai/artifact/H9XE1gDSESPDiKoD6MmZGc."
 	got := ArtifactURLs(text)
-	want := []string{"https://claude.ai/artifact/H9XE1gDSESPDiKoD6MmZGc", "https://artifacts.example.test/a/art_abc_D-1"}
+	want := []string{"https://claude.ai/artifact/H9XE1gDSESPDiKoD6MmZGc", "https://claude.ai/code/artifact/0b6c6d1e-5f2a-4c4e-9d0a-7f1f3c2b9e11"}
 	if !slices.Equal(got, want) {
 		t.Errorf("urls = %q, want %q", got, want)
 	}
@@ -68,5 +67,21 @@ func TestDedupeKeepsOnePageAndItsNewestTitle(t *testing.T) {
 	got := Dedupe([]Ref{first, second, untitled, {Kind: KindArtifact}})
 	if len(got) != 1 || got[0].Title != "Final" {
 		t.Errorf("dedupe = %+v, want one page titled Final", got)
+	}
+}
+
+// An attached page is keyed by its address like a Claude artifact, so the same page from the
+// transcript and from an extension is one row.
+func TestAttachedRefIsKeyedByAddress(t *testing.T) {
+	ref := AttachedRef("p1", "https://pages.example.test/p/1", "Report")
+	if ref.Kind != KindArtifact || ref.Identifier != "p1" || ref.Title != "Report" || ref.Provenance != FromCreation {
+		t.Errorf("got %+v", ref)
+	}
+	if ref.Key() != "artifact:https://pages.example.test/p/1" {
+		t.Errorf("key = %q", ref.Key())
+	}
+	claude, _ := ArtifactRef("https://claude.ai/artifact/abc", "")
+	if got := Dedupe([]Ref{claude, AttachedRef("abc", "https://claude.ai/artifact/abc", "Named")}); len(got) != 1 || got[0].Title != "Named" {
+		t.Errorf("dedupe = %+v", got)
 	}
 }

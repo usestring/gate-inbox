@@ -59,7 +59,7 @@ func TestAPublishedPageIsWorkWithoutALookup(t *testing.T) {
 // count against a source's budget beside the pull requests that do.
 func TestAPublishedPageNeedsNoProvider(t *testing.T) {
 	tr := New(fakeGit{}, nil, nil)
-	report := page(t, "https://artifacts.example.test/a/art_X1", "")
+	report := workspec.AttachedRef("X1", "https://pages.example.test/p/X1", "")
 	tr.Discover(Session{ID: "s", Text: "https://github.com/o/r/pull/1", Artifacts: []workspec.Ref{report}})
 	refs := tr.For("s").Refs
 	if len(refs) != 1 || refs[0].Kind != workspec.KindArtifact {

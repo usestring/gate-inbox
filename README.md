@@ -208,10 +208,11 @@ enabled = false
 enabled = false
 ```
 
-Pages a session publishes hang under it too, below its pull requests and tickets: a Claude
-artifact from Claude Code's `Artifact` tool, or a page from any MCP server's `publish_artifact`
-tool. Only pages the session's own publish call returned count. A page it merely linked does not.
-Opening the row opens the page.
+Pages a session publishes hang under it too, below its pull requests and tickets. The board reads
+Claude artifacts from Claude Code's own `Artifact` tool itself, and only those the session's own
+publish call returned: a page it merely linked does not count. Pages hosted elsewhere arrive from
+an extension, which attaches them when its tool publishes one (see **Extensions**). Either way the
+page is kept in the state database, so it survives a restart. Opening the row opens the page.
 
 **Remote inbox.** `gate-inbox inbox serve` takes a text message over HTTP, such as dictation from
 a phone's Shortcut, and starts a router session on the board for it. It binds loopback, and is meant
@@ -227,6 +228,12 @@ extension alone, and a section no extension in the build owns is ignored; the bo
 each session's MCP instructions say which and why. A disabled extension that has a say in
 which sessions spawn fails closed: every spawn it would have been asked about is refused, with the
 reason, until its section is fixed.
+
+An extension whose tool publishes something can put it among the calling session's work rows with
+`extension.AttachWork(ctx, session.Host, extension.WorkItem{Kind: extension.WorkArtifact, ID: id,
+Title: title, URL: url})`. Attaching the same `ID` again replaces that row's title and address, so
+a republish does not add a second one. A Host that cannot attach work, such as a test fake, returns
+`extension.ErrWorkUnsupported`.
 
 ### Skill priority hook
 

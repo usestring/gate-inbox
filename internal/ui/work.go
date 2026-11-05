@@ -107,7 +107,7 @@ func (m *Model) refreshWork() tea.Cmd {
 				ID:        r.id,
 				Dir:       r.dir,
 				Text:      workText(panes[r.id], stor, history, r.id, r.launch),
-				Artifacts: publishedArtifacts(history, r.id),
+				Artifacts: publishedArtifacts(stor, history, r.id),
 				Live:      r.live,
 				Visible:   r.visible,
 			}
@@ -240,22 +240,58 @@ func openedPRs(stor *store.Store, history *search.Index, id string) []string {
 	return urls
 }
 
-// publishedArtifacts is every page the session published itself, as the index
-// read it from the transcript: a publish call paired with the result that
-// printed the page's address. Only those -- a page the session merely linked
-// was somebody else's work.
-func publishedArtifacts(history *search.Index, id string) []workspec.Ref {
-	if history == nil {
-		return nil
+// publishedArtifacts is every page the session published itself: what its
+// extensions attached through extension.AttachWork, which the store holds, and
+// the Claude artifacts the index read from the transcript -- an Artifact call
+// paired with the result that printed the page's address. Only those: a page
+// the session merely linked was somebody else's work.
+//
+// As with openedPRs, what the index finds is written through to the store, so
+// a page stays the session's work after a restart moves it onto a new
+// conversation. A page the store already holds under the same title is not
+// written again, so a quiet board costs no transactions.
+func publishedArtifacts(stor *store.Store, history *search.Index, id string) []workspec.Ref {
+	var stored []store.SessionWork
+	if stor != nil {
+		var err error
+		if stored, err = stor.SessionWorkItems(id); err != nil {
+			logging.Warn("work: could not read attached work", logging.Err(err))
+		}
 	}
+	held := make(map[string]string, len(stored))
 	var refs []workspec.Ref
+	for _, item := range stored {
+		if item.Kind != string(workspec.KindArtifact) {
+			continue
+		}
+		if item.Source == "" {
+			held[item.ID] = item.Title
+		}
+		refs = append(refs, workspec.AttachedRef(item.ID, item.URL, item.Title))
+	}
+	if history == nil {
+		return refs
+	}
+	var found []workspec.Ref
 	for _, line := range strings.Split(history.Published(id), "\n") {
 		url, title, _ := strings.Cut(line, "\t")
 		if ref, ok := workspec.ArtifactRef(url, title); ok {
-			refs = append(refs, ref)
+			found = append(found, ref)
 		}
 	}
-	return refs
+	var fresh []store.SessionWork
+	for _, ref := range workspec.Dedupe(found) {
+		if title, ok := held[ref.URL]; ok && title == ref.Title {
+			continue
+		}
+		fresh = append(fresh, store.SessionWork{Kind: string(workspec.KindArtifact), ID: ref.URL, URL: ref.URL, Title: ref.Title})
+	}
+	if stor != nil && len(fresh) > 0 {
+		if err := stor.AttachSessionWork(id, fresh, time.Now()); err != nil {
+			logging.Warn("work: could not record published pages", logging.Err(err))
+		}
+	}
+	return append(refs, found...)
 }
 
 // checksGlyph gives CI a shape before it gives it a colour, so the column

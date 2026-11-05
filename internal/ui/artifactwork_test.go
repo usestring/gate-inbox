@@ -12,6 +12,8 @@ import (
 	"github.com/usestring/gate-inbox/internal/search"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmuxtest"
+	"github.com/usestring/gate-inbox/internal/workspec"
 	"github.com/usestring/gate-inbox/internal/worktracker"
 )
 
@@ -130,5 +132,62 @@ func TestCountTextNamesPublishedPages(t *testing.T) {
 		if got := countText(tc.counts, " · ", tc.form); got != tc.want {
 			t.Errorf("countText(%+v) = %q, want %q", tc.counts, got, tc.want)
 		}
+	}
+}
+
+// A page an extension attached and a Claude artifact the index read both stay the session's work
+// after the transcript is gone: the store keeps what the extension attached and what the index
+// found, and an empty index -- a restart onto a new conversation -- answers from it.
+func TestPublishedPagesOutliveTheIndex(t *testing.T) {
+	st, err := store.Open(filepath.Join(tmuxtest.ScratchDir(t), "state.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.CreateSession(store.Session{ID: "s", Name: "s", Tool: "claude", Cwd: "/repo", Status: "idle"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AttachSessionWork("s", []store.SessionWork{
+		{Source: "pages", Kind: "artifact", ID: "p1", URL: "https://pages.example.test/p/1", Title: "Weekly report"},
+	}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	writeJSONLines(t, path,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"p1","name":"Artifact","input":{"file_path":"/tmp/s/fleet.html","title":"Fleet audit"}}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"p1","content":"Published /tmp/s/fleet.html at `+publishedPage+` (Version 1)"}]}}`,
+	)
+	first := search.New(search.Options{})
+	defer first.Close()
+	for i := 0; i < 10; i++ {
+		if p, err := first.Refresh([]search.Target{{Key: "s", Tool: search.ToolClaude, Path: path}}, 1<<20); err != nil {
+			t.Fatal(err)
+		} else if p.Done {
+			break
+		}
+	}
+	want := map[string]string{"https://pages.example.test/p/1": "Weekly report", publishedPage: "Fleet audit"}
+	check := func(when string, refs []workspec.Ref) {
+		t.Helper()
+		got := map[string]string{}
+		for _, ref := range workspec.Dedupe(refs) {
+			got[ref.URL] = ref.Title
+		}
+		if len(got) != len(want) {
+			t.Fatalf("%s: %v, want %v", when, got, want)
+		}
+		for url, title := range want {
+			if got[url] != title {
+				t.Errorf("%s: %s titled %q, want %q", when, url, got[url], title)
+			}
+		}
+	}
+	check("with the transcript", publishedArtifacts(st, first, "s"))
+
+	second := search.New(search.Options{})
+	defer second.Close()
+	check("after the index forgot", publishedArtifacts(st, second, "s"))
+	if got := publishedArtifacts(nil, second, "s"); len(got) != 0 {
+		t.Errorf("no store and an empty index still answered %v", got)
 	}
 }

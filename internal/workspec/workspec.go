@@ -21,8 +21,9 @@ type Kind string
 const (
 	KindPR     Kind = "pr"
 	KindTicket Kind = "ticket"
-	// KindArtifact is a page the session published: a Claude artifact, or one hosted by an
-	// artifact service through its publish_artifact tool. It has no state to look up.
+	// KindArtifact is a page the session published: a Claude artifact, read from the session's
+	// own Artifact tool call, or a page an extension attached to the session when its tool
+	// published it. It has no state to look up.
 	KindArtifact Kind = "artifact"
 )
 
@@ -188,10 +189,10 @@ func ScanNamed(text string, names map[string]string, how Provenance) []Ref {
 	return refs
 }
 
-// artifactURL is the address of a published page in the two shapes this board knows: a Claude
-// artifact (claude.ai/artifact/<id>, or claude.ai/code/artifact/<uuid>) and an artifact service's
-// /a/art_<id> link.
-var artifactURL = regexp.MustCompile(`https://(?:claude\.ai/(?:code/)?artifact/([A-Za-z0-9-]+)|[a-z0-9.-]+/a/(art_[A-Za-z0-9_-]+))`)
+// artifactURL is the address of a Claude artifact, the one published-page shape the board reads
+// for itself: claude.ai/artifact/<id>, or claude.ai/code/artifact/<uuid>. Pages hosted anywhere
+// else reach the board through an extension, which attaches them with their address (AttachedRef).
+var artifactURL = regexp.MustCompile(`https://claude\.ai/(?:code/)?artifact/([A-Za-z0-9-]+)`)
 
 // ArtifactURLs is every published-page address in text, in order, each once.
 //
@@ -210,19 +211,21 @@ func ArtifactURLs(text string) []string {
 	return urls
 }
 
-// ArtifactRef is a page the session published, from the address its publish call returned.
-// False for anything that is not a published-page address.
+// ArtifactRef is a Claude artifact the session published, from the address its Artifact call
+// returned. False for anything that is not a Claude artifact's address.
 func ArtifactRef(url, title string) (Ref, bool) {
 	url = strings.TrimSpace(url)
 	m := artifactURL.FindStringSubmatch(url)
 	if m == nil || m[0] != url {
 		return Ref{}, false
 	}
-	id := m[1]
-	if id == "" {
-		id = m[2]
-	}
-	return Ref{Kind: KindArtifact, Identifier: id, URL: m[0], Title: title, Provenance: FromCreation}, true
+	return Ref{Kind: KindArtifact, Identifier: m[1], URL: m[0], Title: title, Provenance: FromCreation}, true
+}
+
+// AttachedRef is a published page an extension attached to the session, by the id it gave it and
+// its address. The extension host has already checked the address, so nothing here reparses it.
+func AttachedRef(id, url, title string) Ref {
+	return Ref{Kind: KindArtifact, Identifier: id, URL: url, Title: title, Provenance: FromCreation}
 }
 
 // mustAtoi converts a run of digits the regexp already matched. A number too large for an int is

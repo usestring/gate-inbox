@@ -256,7 +256,7 @@ func (x *Index) indexFile(s pending, budget int) (read, rows int, err error) {
 	chunk := data[:cut]
 	calls := len(s.prev.opening) > 0 || len(s.prev.publishing) > 0 ||
 		bytes.Contains(chunk, prCreateMark) || bytes.Contains(chunk, ghPrMark) || bytes.Contains(chunk, pollMark) || bytes.Contains(chunk, waitMark) ||
-		bytes.Contains(chunk, artifactMark) || bytes.Contains(chunk, publishMark)
+		bytes.Contains(chunk, artifactMark)
 	text, found, turns := x.parseChunk(s.target.Tool, chunk, calls)
 	indexed := from + int64(cut) + 1
 	size, mtime := s.size, s.mtime

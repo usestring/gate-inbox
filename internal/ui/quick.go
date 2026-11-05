@@ -67,6 +67,11 @@ func (m *Model) handleQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "down":
 		return m, m.moveCursor(1)
 	}
+	if entry, ok := m.selectedRow(); ok && !entry.isGroup {
+		if cmd, picked := m.pickChoice(entry.sess, choiceFor(msg.String())); picked {
+			return m, cmd
+		}
+	}
 	snip, ok := m.menuSnippetFor(msg.String())
 	if !ok {
 		return m, nil
@@ -116,6 +121,12 @@ func (m *Model) handleFocusQuickKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.clearQuickBlockedNotice()
 		m.quick.active = false
 		return m, nil
+	}
+	if sess, ok := m.selected(); ok {
+		if cmd, picked := m.pickChoice(sess, choiceFor(msg.String())); picked {
+			m.noteFocusActivity()
+			return m, cmd
+		}
 	}
 	snip, ok := m.menuSnippetFor(msg.String())
 	if !ok {

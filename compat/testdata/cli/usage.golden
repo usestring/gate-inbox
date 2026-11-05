@@ -268,12 +268,12 @@ usage: gate-inbox children [--session <id>] [--json]
 $ gate-inbox task -h
 exit 0
 --- stdout
-  gate-inbox task list [--state <state>] [--include-done] [--mine] [--include-body] [--limit <n>] [--json]
+  gate-inbox task list [--state <state>] [--include-done] [--mine] [--created-by <me|session-id>] [--fleet] [--include-body] [--limit <n>] [--json]
       read the work list every session shares: what is pending, who holds what, and what is blocked
   gate-inbox task create <title> [--body <text>] [--depends-on <id,id>] [--json]
       put a piece of work on the shared list so any session can pick it up
-  gate-inbox task claim [<task-id>] [--json]
-      take a task before you start it; omit the id to take the oldest pending task nothing is blocking
+  gate-inbox task claim [<task-id>] [--any] [--json]
+      take a task before you start it; omit the id to take the oldest pending task nothing is blocking that your fleet created, or pass --any for the whole list
   gate-inbox task finish <task-id> [--json]
       mark a task you claimed as done, which unblocks everything waiting on it
   gate-inbox task release <task-id> [--json]
@@ -284,7 +284,11 @@ exit 0
 $ gate-inbox task list -h
 exit 0
 --- stdout
-usage: gate-inbox task list [--state <state>] [--include-done] [--mine] [--include-body] [--limit <n>] [--json]
+usage: gate-inbox task list [--state <state>] [--include-done] [--mine] [--created-by <me|session-id>] [--fleet] [--include-body] [--limit <n>] [--json]
+  -created-by string
+    	keep only tasks this session created: me, or a session id
+  -fleet
+    	keep only tasks your fleet created: you, your spawner or parent, and the sessions you spawned; the set a bare claim takes from
   -include-body
     	print each task's full instruction under its row
   -include-done
@@ -312,7 +316,9 @@ usage: gate-inbox task create <title> [--body <text>] [--depends-on <id,id>] [--
 $ gate-inbox task claim -h
 exit 0
 --- stdout
-usage: gate-inbox task claim [<task-id>] [--json]
+usage: gate-inbox task claim [<task-id>] [--any] [--json]
+  -any
+    	without a task id, take the oldest ready task on the whole list instead of only your fleet's
   -json
     	print the raw result as JSON instead of a sentence
 

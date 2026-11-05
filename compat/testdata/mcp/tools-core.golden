@@ -3504,7 +3504,7 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, state or include_done for finished work, include_body for the full instructions. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task, which is how a worker finds its next job, and a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. release hands a claimed task back for another session. delete removes work that turned out not to be needed.",
+  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, created_by or fleet for work you or your fleet put up, state or include_done for finished work, include_body for the full instructions; every row names the session that created it. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task your fleet created (you, your spawner or parent, and the sessions you spawned), which is how a worker finds its next job, and any true widens that to the whole list; a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. release hands a claimed task back for another session. delete removes work that turned out not to be needed.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -3512,12 +3512,20 @@
         "description": "list, create, claim, finish, release or delete",
         "type": "string"
       },
+      "any": {
+        "description": "claim: without task_id, take the oldest ready task on the whole list instead of only your fleet's; tasks created by unrelated sessions or before creators were recorded are often stale",
+        "type": "boolean"
+      },
       "body": {
         "description": "create: full instruction for whoever claims it; it cannot see this conversation; or name a file in body_file",
         "type": "string"
       },
       "body_file": {
         "description": "create: absolute path of a file holding the instruction, used instead of body",
+        "type": "string"
+      },
+      "created_by": {
+        "description": "list: keep only tasks this session created: me, or a session id",
         "type": "string"
       },
       "depends_on": {
@@ -3529,6 +3537,10 @@
           "null",
           "array"
         ]
+      },
+      "fleet": {
+        "description": "list: keep only tasks your fleet created: you, the session that spawned you or the parent you sit under, and every session you spawned or have under you; the same set a claim without task_id takes from",
+        "type": "boolean"
       },
       "include_body": {
         "description": "list: carry each task's full instruction; claim returns the body anyway, so choosing what to claim needs only the titles",
@@ -3557,7 +3569,7 @@
         ]
       },
       "task_id": {
-        "description": "task to act on; omit on claim to take the oldest pending task nothing is blocking",
+        "description": "task to act on; omit on claim to take the oldest pending task nothing is blocking that your fleet created",
         "type": "string"
       },
       "title": {
@@ -3602,6 +3614,14 @@
           },
           "body": {
             "description": "full instruction for whoever claims it",
+            "type": "string"
+          },
+          "created_by": {
+            "description": "session id that created the task; empty on tasks from before creators were recorded",
+            "type": "string"
+          },
+          "created_by_name": {
+            "description": "name of the session that created the task; empty once its row is gone, when created_by alone names it",
             "type": "string"
           },
           "depends_on": {
@@ -3672,6 +3692,14 @@
             },
             "body": {
               "description": "full instruction for whoever claims it",
+              "type": "string"
+            },
+            "created_by": {
+              "description": "session id that created the task; empty on tasks from before creators were recorded",
+              "type": "string"
+            },
+            "created_by_name": {
+              "description": "name of the session that created the task; empty once its row is gone, when created_by alone names it",
               "type": "string"
             },
             "depends_on": {

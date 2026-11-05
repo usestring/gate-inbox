@@ -237,6 +237,14 @@ func FormatTask(task Task) string {
 	if task.Blocked {
 		line += " blocked on " + strings.Join(task.BlockedBy, ", ")
 	}
+	// The id goes with the name, since it is what created_by filters on
+	// and it still names a creator whose row is gone.
+	switch {
+	case task.CreatorName != "":
+		line += fmt.Sprintf(" created by %s (%s)", task.CreatorName, task.CreatedBy)
+	case task.CreatedBy != "":
+		line += " created by " + task.CreatedBy
+	}
 	return line
 }
 

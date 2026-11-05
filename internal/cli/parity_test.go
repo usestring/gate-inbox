@@ -157,7 +157,7 @@ func TestTheTwoFrontsAnswerOneOperationIdentically(t *testing.T) {
 		return runTaskCreate(out, w.tasks, []string{"wire the cli"}, w.lead.ID)
 	})
 	id := taskID(t, created)
-	if _, err := w.tasks.ClaimTask(w.worker.ID, id); err != nil {
+	if _, err := w.tasks.ClaimTask(w.worker.ID, id, sessioncmd.ClaimOptions{}); err != nil {
 		t.Fatalf("ClaimTask: %v", err)
 	}
 
@@ -421,14 +421,14 @@ func TestTheTwoFrontsNarrowTheTaskListAlike(t *testing.T) {
 		ids = append(ids, taskID(t, created))
 	}
 	for _, id := range ids[:2] {
-		if _, err := w.tasks.ClaimTask(w.lead.ID, id); err != nil {
+		if _, err := w.tasks.ClaimTask(w.lead.ID, id, sessioncmd.ClaimOptions{}); err != nil {
 			t.Fatalf("ClaimTask: %v", err)
 		}
 		if _, err := w.tasks.FinishTask(w.lead.ID, id); err != nil {
 			t.Fatalf("FinishTask: %v", err)
 		}
 	}
-	if _, err := w.tasks.ClaimTask(w.worker.ID, ids[2]); err != nil {
+	if _, err := w.tasks.ClaimTask(w.worker.ID, ids[2], sessioncmd.ClaimOptions{}); err != nil {
 		t.Fatalf("ClaimTask: %v", err)
 	}
 
@@ -444,6 +444,8 @@ func TestTheTwoFrontsNarrowTheTaskListAlike(t *testing.T) {
 		{"finished work too", map[string]any{"include_done": true}, []string{"--include-done"}, w.lead.ID, 4, 4},
 		{"one state", map[string]any{"state": []string{"done"}}, []string{"--state", "done"}, w.lead.ID, 2, 2},
 		{"its own claims", map[string]any{"mine": true}, []string{"--mine"}, w.worker.ID, 1, 1},
+		{"its own fleet", map[string]any{"fleet": true}, []string{"--fleet"}, w.lead.ID, 2, 2},
+		{"one creator", map[string]any{"created_by": w.lead.ID}, []string{"--created-by", w.lead.ID}, w.worker.ID, 2, 2},
 		{"a cut list", map[string]any{"include_done": true, "limit": 3}, []string{"--include-done", "--limit", "3"}, w.lead.ID, 4, 3},
 		{"with bodies", map[string]any{"include_body": true}, []string{"--include-body"}, w.lead.ID, 2, 2},
 	} {
@@ -532,6 +534,8 @@ func TestBothFrontsTakeEveryTaskListArgument(t *testing.T) {
 			args = append(args, "pending")
 		case "limit":
 			args = append(args, "5")
+		case "created_by":
+			args = append(args, "me")
 		}
 		if prop.Type != "boolean" && len(args) == 1 {
 			t.Errorf("the test does not know a value for %s", name)

@@ -210,12 +210,39 @@ func (tr toolRules) limitLines(pane string) []string {
 	}
 	region, ok := tr.activityRegion(pane)
 	if !ok {
-		if tr.limitLine.MatchString(pane) {
-			return []string{pane}
+		// No input line bounds the turn -- the limit's own menu can be what
+		// is on the screen -- so a banner anywhere counts. It is still only
+		// the banner's rows: the whole pane would hand the limit card the
+		// reply above the banner as the banner, flattened into one paragraph.
+		matches := tr.limitLine.FindAllStringIndex(pane, -1)
+		if len(matches) == 0 {
+			return nil
 		}
-		return nil
+		lines := strings.Split(pane, "\n")
+		if i, end, found := tr.newestLimit(lines); found {
+			return lines[i:end]
+		}
+		// A pattern that spans rows the scan does not join: the rows its
+		// newest match covers.
+		last := matches[len(matches)-1]
+		from := strings.LastIndex(pane[:last[0]], "\n") + 1
+		to := len(pane)
+		if n := strings.Index(pane[last[1]:], "\n"); n >= 0 {
+			to = last[1] + n
+		}
+		return strings.Split(pane[from:to], "\n")
 	}
 	lines := strings.Split(region, "\n")
+	i, end, found := tr.newestLimit(lines)
+	if !found || !tr.limitIsNewest(lines[end:]) {
+		return nil
+	}
+	return lines[i:end]
+}
+
+// newestLimit finds the lowest banner in lines: the row it starts on, and
+// the row past the indented rows a narrow pane wrapped it onto.
+func (tr toolRules) newestLimit(lines []string) (start, end int, found bool) {
 	for i := len(lines) - 1; i >= 0; i-- {
 		end := i + 1
 		for end < len(lines) {
@@ -227,16 +254,12 @@ func (tr toolRules) limitLines(pane string) []string {
 		}
 		// A narrow pane can wrap the banner inside the phrase the matcher
 		// looks for, so the unwrapped banner gets a second try.
-		if !tr.limitLine.MatchString(strings.TrimRight(lines[i], " \t")) &&
-			!tr.limitLine.MatchString(strings.Join(strings.Fields(strings.Join(lines[i:end], " ")), " ")) {
-			continue
+		if tr.limitLine.MatchString(strings.TrimRight(lines[i], " \t")) ||
+			tr.limitLine.MatchString(strings.Join(strings.Fields(strings.Join(lines[i:end], " ")), " ")) {
+			return i, end, true
 		}
-		if tr.limitIsNewest(lines[end:]) {
-			return lines[i:end]
-		}
-		return nil
 	}
-	return nil
+	return 0, 0, false
 }
 
 // TypingHold reports why text typed into this pane now would land somewhere

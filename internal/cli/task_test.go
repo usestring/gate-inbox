@@ -32,6 +32,19 @@ func TestTaskVerbsDispatch(t *testing.T) {
 	if len(fake.dependsOn) != 2 || fake.dependsOn[0] != "a1" || fake.dependsOn[1] != "b2" {
 		t.Fatalf("depends-on = %v", fake.dependsOn)
 	}
+	if err := runTaskCreate(&bytes.Buffer{}, fake, []string{"handed", "--assignee", "me"}, "cafe0001"); err != nil || fake.assignee != "me" {
+		t.Fatalf("task create --assignee = %v, forwarded %q", err, fake.assignee)
+	}
+	assigned := &bytes.Buffer{}
+	if err := runTaskAssign(assigned, fake, []string{"t1", "w1"}, "cafe0001"); err != nil || fake.taskID != "t1" || fake.assignee != "w1" {
+		t.Fatalf("task assign = %v, forwarded %q %q", err, fake.taskID, fake.assignee)
+	}
+	if !strings.HasPrefix(assigned.String(), "assigned wire the cli (t1)") {
+		t.Fatalf("task assign output = %q", assigned.String())
+	}
+	if err := runTaskAssign(&bytes.Buffer{}, fake, []string{"t1"}, "cafe0001"); err != nil || fake.assignee != "" {
+		t.Fatalf("task assign with no session = %v, forwarded %q; want an unassign", err, fake.assignee)
+	}
 
 	fake.taskID = "unset"
 	if err := runTaskClaim(&bytes.Buffer{}, fake, nil, "cafe0001"); err != nil {

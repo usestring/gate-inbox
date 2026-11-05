@@ -118,10 +118,11 @@ type createSessionArgs struct {
 	Group      *string `json:"group,omitempty" jsonschema:"existing group path for a detached session (nest false) to sit in; pass an empty string for the root group; a nested session is always in this agent's group and refuses any other; call list_groups for the existing ones"`
 	Directory  string  `json:"directory,omitempty" jsonschema:"existing directory the session works in; defaults to this agent's own directory, or to the selected group's inherited path when group is set; a group that pins its directory (list_groups pinned) starts the session there and hands it this one to change into, unless directory_reason is given"`
 	// DirectoryReason opts one launch out of its group's pinned directory.
-	DirectoryReason string `json:"directory_reason,omitempty" jsonschema:"why this session must start in directory itself although its group pins another; rarely needed, since a pinned group's directory is where the user wants work to start, so leave it empty unless the task only works when started there"`
-	Nest            *bool  `json:"nest,omitempty" jsonschema:"omit it: the new session is this session's child, drawn under it, and its questions, rests and finishes are relayed to this session, which is how a fan-out gets steered; false detaches it into a top-level session that belongs to the user, not to this session: it still records this session in spawned_by, but this session is not told of its questions, rests or finishes and cannot answer its dialogs, and the two talk only through send_session and read_session; only for work that is not this session's, such as a standalone session the user asked for"`
-	SkipPermissions *bool  `json:"skip_permissions,omitempty" jsonschema:"omit it: the child follows the setting the user chose for this session's children; true launches it with its CLI's permission prompts off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox, opencode through its generated config) and is refused unless the user allowed that for this session's children; false keeps its prompts on"`
-	Keep            bool   `json:"keep,omitempty" jsonschema:"keep this child on the list after it finishes: Gate Inbox otherwise archives a finished child on its own once you have read or been told of its finish and left it alone for the grace period (10 minutes by default); a child with background work still running is not finished"`
+	DirectoryReason string                 `json:"directory_reason,omitempty" jsonschema:"why this session must start in directory itself although its group pins another; rarely needed, since a pinned group's directory is where the user wants work to start, so leave it empty unless the task only works when started there"`
+	Nest            *bool                  `json:"nest,omitempty" jsonschema:"omit it: the new session is this session's child, drawn under it, and its questions, rests and finishes are relayed to this session, which is how a fan-out gets steered; false detaches it into a top-level session that belongs to the user, not to this session: it still records this session in spawned_by, but this session is not told of its questions, rests or finishes and cannot answer its dialogs, and the two talk only through send_session and read_session; only for work that is not this session's, such as a standalone session the user asked for"`
+	SkipPermissions *bool                  `json:"skip_permissions,omitempty" jsonschema:"omit it: the child follows the setting the user chose for this session's children; true launches it with its CLI's permission prompts off (claude --dangerously-skip-permissions, codex --dangerously-bypass-approvals-and-sandbox, opencode through its generated config) and is refused unless the user allowed that for this session's children; false keeps its prompts on"`
+	Tasks           []sessioncmd.SpawnTask `json:"tasks,omitempty" jsonschema:"tasks to assign to the new session before it starts, each either an existing pending task by id or a new one by title (with body and depends_on); only the new session can claim them, and its prompt gets a short list of their ids and titles telling it to claim and finish them with the task tool"`
+	Keep            bool                   `json:"keep,omitempty" jsonschema:"keep this child on the list after it finishes: Gate Inbox otherwise archives a finished child on its own once you have read or been told of its finish and left it alone for the grace period (10 minutes by default); a child with background work still running is not finished"`
 	// CallerSessionID carries the caller's own session id when the MCP
 	// server's startup value cannot be trusted: opencode multiplexes
 	// same-cwd conversations through one shared MCP server (serve daemon),
@@ -179,12 +180,13 @@ type cleanupChildrenArgs struct {
 }
 
 type taskArgs struct {
-	Action    string   `json:"action" jsonschema:"list, create, claim, finish, release, delete or prune"`
+	Action    string   `json:"action" jsonschema:"list, create, claim, assign, finish, release, delete or prune"`
 	TaskID    string   `json:"task_id,omitempty" jsonschema:"task to act on; omit on claim to take the oldest pending task nothing is blocking that your fleet created"`
 	Title     string   `json:"title,omitempty" jsonschema:"create: one-line summary of the work, specific enough that another agent knows what done looks like"`
 	Body      string   `json:"body,omitempty" jsonschema:"create: full instruction for whoever claims it; it cannot see this conversation; or name a file in body_file"`
 	BodyFile  string   `json:"body_file,omitempty" jsonschema:"create: absolute path of a file holding the instruction, used instead of body"`
 	DependsOn []string `json:"depends_on,omitempty" jsonschema:"create: ids of tasks that must be done first; a task with unfinished dependencies cannot be claimed"`
+	Assignee  string   `json:"assignee,omitempty" jsonschema:"create, assign: the one session that may claim the task: me, or a session id; on assign, omit it to unassign"`
 	// The list arguments below mirror list_sessions: the default read is the
 	// open work, capped, and the reply says what the cap left out.
 	State         []string `json:"state,omitempty" jsonschema:"list: keep only tasks in these states: pending, in_progress or done; omit for pending and in_progress, which is the work still open"`
@@ -342,7 +344,8 @@ type sessionCommands interface {
 	Archive(sessionID, targetID string, archived bool) (sessioncmd.Session, error)
 	Mute(sessionID, targetID string, muted bool) (sessioncmd.Session, error)
 	Tasks(sessionID string, opts sessioncmd.TaskListOptions) (sessioncmd.TaskList, error)
-	CreateTask(sessionID, title, body string, dependsOn []string) (sessioncmd.Task, error)
+	CreateTask(sessionID string, spec sessioncmd.TaskSpec) (sessioncmd.Task, error)
+	AssignTask(sessionID, taskID, assignee string) (sessioncmd.Task, error)
 	ClaimTask(sessionID, taskID string, opts sessioncmd.ClaimOptions) (sessioncmd.Task, error)
 	FinishTask(sessionID, taskID string) (sessioncmd.Task, error)
 	ReleaseTask(sessionID, taskID string) (sessioncmd.Task, error)
@@ -667,6 +670,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Pass a descriptive name and a prompt stating the whole task, since the new agent cannot see this conversation; put a long brief in prompt_file. For repo work beside other agents, pass a directory that is its own checkout. " +
 			"Omit account to follow the board's launch-account setting; a child does not inherit its parent's account. " +
 			"The new session is your child: its questions, rests and finishes are relayed here. Leave nest alone for a fan-out and never create a group for one; nest false is a detach, for a standalone session the user owns, with nothing relayed here. " +
+			"Pass tasks to hand it work from the shared task list: existing ids, or new tasks to create, all assigned to it alone. " +
 			"Follow it with read_session and send_session; use create_terminal for a plain shell.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args createSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
@@ -689,6 +693,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			Nest:            args.Nest,
 			Keep:            args.Keep,
 			SkipPermissions: args.SkipPermissions,
+			Tasks:           args.Tasks,
 		}, sessions.Create)
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
@@ -1020,6 +1025,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. " +
 			"claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task your fleet created (you, your spawner or parent, and the sessions you spawned), which is how a worker finds its next job, and any true widens that to the whole list; a task another session holds is refused with the holder named. " +
 			"finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. " +
+			"assign points a pending task at one session, the only one that may then claim it, or omitting assignee unassigns it; its creator or current assignee can do it, and create takes assignee too. A claim without task_id takes the tasks assigned to you first; create_session's tasks argument assigns work to a child as it starts, and an archived or killed session's assigned tasks go back to anyone. " +
 			"release hands a claimed task back for another session. " +
 			"delete removes work that turned out not to be needed; it refuses a task another session holds, and one unfinished tasks depend on, naming them, and force true deletes it anyway, taking its dependency edges along so its dependents become claimable, which the reply lists. " +
 			"prune clears stale work off the list: pending tasks older than older_than_days (default 14) whose creator is archived, deleted or was never recorded; it is a dry run listing them unless dry_run is false, and it keeps any task a task in progress depends on.",
@@ -1050,7 +1056,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
-			created, err := sessions.CreateTask(sessionID, args.Title, body, args.DependsOn)
+			created, err := sessions.CreateTask(sessionID, sessioncmd.TaskSpec{Title: args.Title, Body: body, DependsOn: args.DependsOn, Assignee: args.Assignee})
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
@@ -1061,6 +1067,12 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 				return nil, taskOutput{}, err
 			}
 			return mcptool.Text("claimed " + sessioncmd.FormatTask(claimed)), taskOutput{Task: &claimed}, nil
+		case "assign":
+			assigned, err := sessions.AssignTask(sessionID, args.TaskID, args.Assignee)
+			if err != nil {
+				return nil, taskOutput{}, err
+			}
+			return mcptool.Text("assigned " + sessioncmd.FormatTask(assigned)), taskOutput{Task: &assigned}, nil
 		case "finish":
 			finished, err := sessions.FinishTask(sessionID, args.TaskID)
 			if err != nil {
@@ -1089,7 +1101,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			}
 			return mcptool.Text(sessioncmd.FormatTaskPrune(pruned)), taskOutput{Prune: &pruned}, nil
 		default:
-			return nil, taskOutput{}, fmt.Errorf("unknown action %q (list, create, claim, finish, release, delete, prune)", args.Action)
+			return nil, taskOutput{}, fmt.Errorf("unknown action %q (list, create, claim, assign, finish, release, delete, prune)", args.Action)
 		}
 	})
 

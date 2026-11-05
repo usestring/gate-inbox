@@ -221,3 +221,30 @@ func TestPruneTasksSweepsOnlyOldPendingWorkNobodyIsLeftToWant(t *testing.T) {
 		t.Fatalf("edges after the prune = %d, want only h-building's", edges)
 	}
 }
+
+// Work handed to a session is that session's to drop, or its creator's: a
+// delete by anyone else is refused without force, and a prune leaves alone
+// a stale task still assigned to a session on the board.
+func TestAssignedWorkIsGuardedFromDeleteAndPrune(t *testing.T) {
+	st := newTestStore(t)
+	now := time.Now()
+	old := now.Add(-30 * 24 * time.Hour)
+	if err := st.CreateSession(Session{ID: "worker01", Name: "worker01", Tool: "claude", Status: "idle"}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	createAssigned(t, st, "handed", "lead0001", "worker01", now)
+	var refused *DeleteRefusedError
+	if _, _, err := st.DeleteTask("handed", DeleteGuard{CallerID: "stranger"}); !errors.As(err, &refused) || refused.AssignedTo != "worker01" {
+		t.Fatalf("a stranger's delete of assigned work = %v", err)
+	}
+	if _, found, err := st.DeleteTask("handed", DeleteGuard{CallerID: "lead0001"}); err != nil || !found {
+		t.Fatalf("the creator's delete = %t, %v", found, err)
+	}
+
+	createAssigned(t, st, "stale-live", "", "worker01", old)
+	createAssigned(t, st, "stale-gone", "", "departed", old)
+	prune, err := st.PruneTasks(now.Add(-14*24*time.Hour), true)
+	if err != nil || len(prune.Tasks) != 1 || prune.Tasks[0].ID != "stale-gone" {
+		t.Fatalf("prune = %+v, %v; want only the task assigned to no live session", prune, err)
+	}
+}

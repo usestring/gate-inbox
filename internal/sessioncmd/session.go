@@ -148,6 +148,19 @@ type CreateSessionOptions struct {
 	// session or from a terminal row: an agent could otherwise hand its child
 	// any flag, skip-permissions among them, past every setting that gates one.
 	Args []string
+	// Tasks are assigned to the new session before it launches, and its
+	// prompt lists them. See SpawnTask.
+	Tasks []SpawnTask
+}
+
+// SpawnTask is one task handed to a session at spawn: an existing pending
+// task by ID, which the caller must be allowed to assign, or a new one
+// described by Title, Body and DependsOn, created by the caller.
+type SpawnTask struct {
+	ID        string   `json:"id,omitempty" jsonschema:"an existing pending task to assign to the new session; you must be its creator or assignee; omit to create a new task instead"`
+	Title     string   `json:"title,omitempty" jsonschema:"a new task to create and assign to the new session: one-line summary of the work"`
+	Body      string   `json:"body,omitempty" jsonschema:"the new task's full instruction"`
+	DependsOn []string `json:"depends_on,omitempty" jsonschema:"ids of tasks the new task waits on"`
 }
 
 type Sessions struct {
@@ -872,6 +885,11 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if strings.HasPrefix(prompt, "-") && tool.PromptFlag == "" {
 		return Session{}, fmt.Errorf(`prompt cannot start with "-" for %s, which takes its prompt as a bare argument and would read it as a flag`, toolName)
 	}
+	handed, err := runtime.spawnTasks(caller, operator, opts.Tasks)
+	if err != nil {
+		return Session{}, err
+	}
+	prompt = handed.appendTo(prompt, VocabularyFor(toolName, tool))
 	by := extension.SpawnBySession
 	if operator {
 		by = extension.SpawnByOperator
@@ -928,6 +946,12 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if err != nil {
 		return Session{}, err
 	}
+	// Assigned before the pane starts, so the agent's first claim finds
+	// what its prompt lists; taken back if the launch fails.
+	withdraw, err := runtime.handTasks(id, caller.ID, handed)
+	if err != nil {
+		return Session{}, err
+	}
 	launched := false
 	if err := create(sess, func() error {
 		err := runtime.createPane(sess.ID, launchDir, command, env)
@@ -937,6 +961,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		if launched {
 			_ = runtime.driver.Kill(sess.ID)
 		}
+		withdraw()
 		return Session{}, err
 	}
 	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account)
@@ -1622,6 +1647,7 @@ func (s *Sessions) stopSession(runtime *runtime, target store.Session, via exten
 	if _, err := runtime.store.ResolveEndedRecipient(target.ID, time.Now()); err != nil {
 		return Session{}, err
 	}
+	runtime.unassignEnded(target.ID)
 	target.Status = status.Dead
 	if !runtime.cfg.Tools[target.Tool].Shell {
 		sessionhooks.Killed(target, via, by)

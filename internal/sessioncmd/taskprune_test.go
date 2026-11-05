@@ -11,11 +11,11 @@ import (
 func TestDeleteNamesWhatStopsItAndForceSaysWhatItFreed(t *testing.T) {
 	h := newSessionHarness(t)
 	worker := h.addChildRow(t, "retry-worker", h.caller.ID)
-	held, err := h.sessions.CreateTask(h.caller.ID, "add the retry column", "", nil)
+	held, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "add the retry column"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
-	dependent, err := h.sessions.CreateTask(h.caller.ID, "backfill retries", "", []string{held.ID})
+	dependent, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "backfill retries", DependsOn: []string{held.ID}})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}

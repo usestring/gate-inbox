@@ -17,6 +17,8 @@ type Vocabulary struct {
 	ListTasks      string
 	ClaimAny       string
 	ForceDelete    string
+	ClaimTask      string
+	FinishTask     string
 	ListGroups     string
 	CreateGroup    string
 	CreateTerminal string
@@ -36,6 +38,8 @@ func MCPVocabulary() Vocabulary {
 		ListTasks:      `task with action "list"`,
 		ClaimAny:       `task with action "claim" and any true`,
 		ForceDelete:    `task with action "delete" and force true`,
+		ClaimTask:      `task with action "claim"`,
+		FinishTask:     `task with action "finish"`,
 		ListGroups:     "list_groups",
 		CreateGroup:    "create_group",
 		CreateTerminal: "create_terminal",
@@ -73,6 +77,8 @@ func CLIVocabulary() Vocabulary {
 		ListTasks:      cliCommand + " task list",
 		ClaimAny:       cliCommand + " task claim --any",
 		ForceDelete:    cliCommand + " task delete --force",
+		ClaimTask:      cliCommand + " task claim",
+		FinishTask:     cliCommand + " task finish",
 		ListGroups:     cliCommand + " groups",
 		CreateGroup:    cliCommand + " create-group",
 		CreateTerminal: cliCommand + " terminal create",

@@ -2932,6 +2932,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		model, cmd := m.handleMouse(msg)
+		// A click can select a session or leave focus, so the poller hears
+		// about it the same way it hears about a keystroke.
+		m.syncPollInput()
 		return model, tea.Batch(cmd, m.scheduleAutoSuggestion())
 
 	case tea.KeyboardEnhancementsMsg:

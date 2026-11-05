@@ -572,6 +572,24 @@ func TestANarrowUnfoldedRailRowStillLinks(t *testing.T) {
 	}
 }
 
+// A click that leaves focus must reach the poller like a keystroke does, or it
+// keeps treating the session it just left as attended.
+func TestAMouseEventSyncsThePollerOutOfFocus(t *testing.T) {
+	m := railWorkModel(t)
+	m.poller = &poller{poke: make(chan struct{}, 1)}
+	m.selectSessionRow(t, "add-rate-limiting")
+	m.mode, m.focusedID = modeFocus, "add-rate-limiting"
+	m.syncPollInput()
+	if got := m.poller.jevFinishFocusedID; got != "add-rate-limiting" {
+		t.Fatalf("focused id = %q before the click", got)
+	}
+	m.mode = modeList
+	m.Update(tea.MouseClickMsg{X: 0, Y: 0, Button: tea.MouseLeft})
+	if got := m.poller.jevFinishFocusedID; got != "" {
+		t.Fatalf("focused id = %q after a mouse event out of focus, want none", got)
+	}
+}
+
 func TestRestoreAllReachesThroughArtifactRows(t *testing.T) {
 	m := railWorkModel(t)
 	m.poller = &poller{}

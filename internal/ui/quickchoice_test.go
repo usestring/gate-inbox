@@ -3,7 +3,11 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/snippets"
 	"github.com/usestring/gate-inbox/internal/status"
 )
@@ -25,6 +29,7 @@ func TestMenuLetterPicksTheHeldDialogsChoice(t *testing.T) {
 	m.rebuildRows()
 	sess := sessionNamed(t, m, "ask")
 	paintDialog(t, m, sess.ID)
+	waitForHeldDialog(t, m, sess.ID)
 	m.selectSessionRow(t, "ask")
 
 	m = pressInMenu(t, m, letter('b'))
@@ -48,4 +53,25 @@ func TestMenuLetterSendsItsSnippetWithoutADialog(t *testing.T) {
 		t.Fatalf("c picked a choice on a pane with no dialog: %q", m.errBar.text)
 	}
 	waitForPaneText(t, m, m.sessionRows()[0].ID, menuText)
+}
+
+// waitForHeldDialog waits until the pane reads as one whole dialog. cat
+// echoes the paste before it prints it back, so the legend is on screen a
+// moment before the pane settles into a single readable dialog.
+func waitForHeldDialog(t *testing.T, m *Model, sessID string) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		pane, err := m.tmux.CapturePane(sessID)
+		if err != nil {
+			t.Fatalf("capture %s: %v", sessID, err)
+		}
+		if held, ok := dialog.Inspect(ansi.Strip(pane)); ok && held.Cursor > 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pane never settled into a readable dialog:\n%s", ansi.Strip(pane))
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }

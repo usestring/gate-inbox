@@ -35,6 +35,8 @@ env = os.environ.copy()
 env["PATH"] = env.get("PATH", "") + os.pathsep + os.path.expanduser("~/.local/bin")
 for key in ("GATE_INBOX_SESSION_ID", "GATE_INBOX_STATUS_FILE", "CLAUDECODE"):
     env.pop(key, None)
+if request.get("tmux_socket"):
+    env["GATE_INBOX_TMUX_SOCKET"] = request["tmux_socket"]
 result = subprocess.run(args, text=True, capture_output=True, env=env, cwd=directory)
 if result.returncode:
     sys.exit(result.stderr or result.stdout or "Devbox launch failed")
@@ -63,7 +65,7 @@ def main():
     parser.add_argument('--host', required=True, help='SSH destination, preferably an SSH config alias')
     parser.add_argument('--identity', help='Existing SSH identity file')
     parser.add_argument('--map', action='append', default=[], help='LOCAL_ROOT=REMOTE_ROOT; longest match wins')
-    parser.add_argument('--socket', help='Remote tmux socket path when the board uses a private server')
+    parser.add_argument('--socket', help='Remote tmux socket name (tmux_socket/GATE_INBOX_TMUX_SOCKET) when the board uses a private server')
     parser.add_argument('request', type=Path)
     options = parser.parse_args()
     if options.host.startswith('-'):
@@ -74,6 +76,10 @@ def main():
     ):
         parser.error('This launcher cannot transfer attachments or extension/child-permission settings; your local draft is preserved')
     request['directory'] = mapped_directory(request['directory'], options.map)
+    # Creation and attachment must reach the same server, and a noninteractive
+    # SSH login may not carry the remote board's GATE_INBOX_TMUX_SOCKET.
+    if options.socket:
+        request['tmux_socket'] = options.socket
     ssh = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10']
     if options.identity:
         ssh.extend(['-i', os.path.expanduser(options.identity)])
@@ -88,7 +94,7 @@ def main():
     print('Devbox session ' + session_id + ' started. Detach from tmux to return to the local board.', flush=True)
     attach = ['tmux']
     if options.socket:
-        attach.extend(['-S', options.socket])
+        attach.extend(['-L', options.socket])
     attach.extend(['attach-session', '-t', 'gi_' + session_id])
     # A connection failure after creation must not make a retry create a duplicate.
     attached = subprocess.run(ssh + ['-tt', options.host, shlex.join(attach)])

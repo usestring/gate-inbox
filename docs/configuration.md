@@ -199,7 +199,9 @@ The supplied `scripts/devbox-launch.py` uses an existing SSH login and a Gate
 Inbox installation on a Linux devbox. Configure `--host` and explicit `--map`
 roots; the longest matching mapping preserves subdirectories, and an unmapped
 or missing directory fails before launch. Add `--identity` for an existing key
-or `--socket` for the remote board's private tmux socket. The helper checks
+or `--socket` with the remote board's private tmux socket name (its
+`tmux_socket` or `GATE_INBOX_TMUX_SOCKET`); the helper creates and attaches the
+session on that server. The helper checks
 remote available memory against the same threshold, sends the request over SSH
 stdin, creates the remote session with the selected tool, name, model and
 prompt, then attaches its tmux pane. No credentials or transcripts are copied.

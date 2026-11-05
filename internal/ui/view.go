@@ -92,6 +92,8 @@ func (m *Model) paint() (string, bool) {
 		frame = m.viewHelp()
 	case modeConfirmDelete:
 		frame = m.viewConfirm()
+	case modeLaunchMemory:
+		frame = m.viewLaunchMemory()
 	case modeLaunchHint:
 		frame = m.viewLaunchHint()
 	case modeSettings:

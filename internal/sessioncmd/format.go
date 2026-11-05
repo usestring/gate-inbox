@@ -273,10 +273,10 @@ func FormatTaskPrune(prune TaskPrune) string {
 		head += "; dry run, nothing was deleted"
 	}
 	lines := []string{head}
-	lines = append(lines, prunedRows("- ", prune.Tasks)...)
+	lines = append(lines, prunedRows(prune.Tasks)...)
 	if len(prune.Kept) > 0 {
 		lines = append(lines, fmt.Sprintf("kept %d stale %s a task in progress depends on:", len(prune.Kept), plural(len(prune.Kept), "task", "tasks")))
-		lines = append(lines, prunedRows("- ", prune.Kept)...)
+		lines = append(lines, prunedRows(prune.Kept)...)
 	}
 	for _, dep := range prune.Unblocked {
 		lines = append(lines, "now claimable: "+FormatTask(dep))
@@ -284,14 +284,15 @@ func FormatTaskPrune(prune TaskPrune) string {
 	return strings.Join(lines, "\n")
 }
 
-func prunedRows(prefix string, tasks []Task) []string {
+// prunedRows is the tasks as list rows, up to maxPrunedRows.
+func prunedRows(tasks []Task) []string {
 	lines := make([]string, 0, min(len(tasks), maxPrunedRows)+1)
 	for i, task := range tasks {
 		if i == maxPrunedRows {
 			lines = append(lines, fmt.Sprintf("(and %d more)", len(tasks)-i))
 			break
 		}
-		lines = append(lines, prefix+FormatTask(task))
+		lines = append(lines, "- "+FormatTask(task))
 	}
 	return lines
 }

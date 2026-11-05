@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,7 +25,26 @@ const (
 	Own = "own"
 	// Extension asks the build's account chooser.
 	Extension = "extension"
+	// pinnedPrefix starts the mode that runs every launch naming no account
+	// on one account the operator picked, whatever a chooser would say.
+	pinnedPrefix = "account:"
 )
+
+// Pinned is the launch-account mode that runs every launch naming no
+// account on account.
+func Pinned(account string) string {
+	return pinnedPrefix + Normalize(account)
+}
+
+// PinnedAccount is the account a launch-account mode pins, "" for a mode
+// that pins none.
+func PinnedAccount(mode string) string {
+	name, ok := strings.CutPrefix(mode, pinnedPrefix)
+	if !ok || !namePattern.MatchString(Normalize(name)) {
+		return ""
+	}
+	return Normalize(name)
+}
 
 // ErrNoChooser is the extension mode with no chooser in the build.
 var ErrNoChooser = errors.New("no extension in this build chooses accounts; set launch accounts to own login in settings")
@@ -69,8 +89,9 @@ func ChooserAvailable() bool {
 	return err == nil && chooser != nil
 }
 
-// Mode is the operator's launch-account mode. Anything but own login in the
-// setting, including a value an older build wrote, is the extension's.
+// Mode is the operator's launch-account mode: own login, one pinned
+// account, or the extension's. Anything else in the setting, including a
+// value an older build wrote, is the extension's.
 func Mode(st *store.Store) (string, error) {
 	mode, err := st.Setting(store.AccountRoutingSetting)
 	if err != nil {
@@ -78,6 +99,9 @@ func Mode(st *store.Store) (string, error) {
 	}
 	if mode == "" || mode == Own {
 		return Own, nil
+	}
+	if account := PinnedAccount(mode); account != "" {
+		return Pinned(account), nil
 	}
 	return Extension, nil
 }
@@ -99,9 +123,9 @@ type Request struct {
 	From      string
 }
 
-// Select is the account a launch runs on: the one named, else the
-// chooser's pick while the operator has the extension choosing, else the
-// CLI's own login.
+// Select is the account a launch runs on: the one named, else the account
+// the operator pinned in settings, else the chooser's pick while the
+// operator has the extension choosing, else the CLI's own login.
 func Select(st *store.Store, tool config.Tool, named string, req Request) (string, error) {
 	return selectAccount(st, tool, named, req, false)
 }
@@ -122,6 +146,9 @@ func selectAccount(st *store.Store, tool config.Tool, named string, req Request,
 	mode, err := Mode(st)
 	if err != nil || mode == Own {
 		return "", err
+	}
+	if account := PinnedAccount(mode); account != "" {
+		return account, nil
 	}
 	chooser, err := Chooser()
 	if err != nil {

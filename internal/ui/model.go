@@ -953,6 +953,7 @@ type settingsState struct {
 	toolIndex        int
 	accountRouting   string
 	chooserAvailable bool
+	accountModes     []string
 	themeIndex       int
 	field            int
 	quickCloseSend   bool

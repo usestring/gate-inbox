@@ -52,6 +52,9 @@ func (m *Model) defaultTool() string {
 const ownLogin = "own login"
 
 func (s settingsState) launchAccountValue() string {
+	if account := accounts.PinnedAccount(s.accountRouting); account != "" {
+		return account
+	}
 	if !s.chooserAvailable {
 		return "own login (no extension chooses accounts)"
 	}
@@ -513,6 +516,28 @@ func (m *Model) toggleCLIHidden(name string) {
 	m.errBar.text = ""
 }
 
+// launchAccountModes is what the launch-accounts row steps through: own
+// login, the extension's choice when one chooses, then every account a CLI
+// can be launched on, so the operator can put every new session on one
+// account rather than the chooser's pick. The accounts are listed on the
+// row's first step rather than as settings open, since listing runs each
+// CLI's accounts_command; a pinned account that no longer lists stays on.
+func (m *Model) launchAccountModes() []string {
+	if m.settings.accountModes != nil {
+		return m.settings.accountModes
+	}
+	modes := []string{accounts.Own}
+	if m.settings.chooserAvailable {
+		modes = append(modes, accounts.Extension)
+	}
+	names, _ := m.accountChoices(accounts.PinnedAccount(m.settings.accountRouting))
+	for _, name := range names[1:] {
+		modes = append(modes, accounts.Pinned(name))
+	}
+	m.settings.accountModes = modes
+	return modes
+}
+
 // cycleSetting steps the focused setting by one. The theme applies as it
 // is stepped so the picker doubles as a live preview of the palette. A theme
 // step pushes the pane background to tmux, which shells out, so it returns a
@@ -526,14 +551,12 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 		}
 		m.settings.toolIndex = (m.settings.toolIndex + step + count) % count
 	case settingsFieldAccountRouting:
-		if !m.settings.chooserAvailable {
+		modes := m.launchAccountModes()
+		if len(modes) < 2 {
 			return nil
 		}
-		if m.settings.accountRouting == accounts.Extension {
-			m.settings.accountRouting = accounts.Own
-		} else {
-			m.settings.accountRouting = accounts.Extension
-		}
+		i := max(slices.Index(modes, m.settings.accountRouting), 0)
+		m.settings.accountRouting = modes[(i+step+len(modes))%len(modes)]
 	case settingsFieldTheme:
 		m.settings.themeIndex = (m.settings.themeIndex + step + len(themes)) % len(themes)
 		if err := m.store.SetSetting(m.themeSettingKey(), themes[m.settings.themeIndex].Name); err != nil {

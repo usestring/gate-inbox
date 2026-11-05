@@ -67,3 +67,44 @@ func TestSettingsWithNoChooserOffersOnlyOwnLogin(t *testing.T) {
 		t.Fatalf("saved %q %v, want own", mode, err)
 	}
 }
+
+// The launch-accounts row steps on past the extension through every listed
+// account, and the one picked runs every launch that names none, over the
+// chooser.
+func TestSettingsPinsEveryLaunchToAPickedAccount(t *testing.T) {
+	chooser := &accountstest.Chooser{}
+	t.Cleanup(accounts.UseChooser(chooser.Resolve))
+	m := buildModel(t)
+	withAccountTools(m)
+	m.openSettings()
+	m.settings.field = settingsFieldAccountRouting
+	m.cycleSetting(1)
+	m.cycleSetting(1)
+	m.cycleSetting(1)
+	if got := ansi.Strip(m.viewSettings()); !strings.Contains(got, "BOB2") {
+		t.Fatalf("launch accounts does not show the pinned account: %s", got)
+	}
+	m.persistSettings()
+	if mode, err := accounts.Mode(m.store); err != nil || accounts.PinnedAccount(mode) != "BOB2" {
+		t.Fatalf("saved %q %v, want BOB2 pinned", mode, err)
+	}
+	account, err := accounts.Select(m.store, m.cfg.Tools["claude"], "", accounts.Request{SessionID: "s1", ToolName: "claude", Reason: extension.LaunchSpawn})
+	if err != nil || account != "BOB2" {
+		t.Fatalf("launch ran on %q %v, want BOB2", account, err)
+	}
+	if named, _ := accounts.Select(m.store, m.cfg.Tools["claude"], "alice1", accounts.Request{}); named != "ALICE1" {
+		t.Fatalf("a named account lost to the pin: %q", named)
+	}
+	if asked := len(chooser.Requests()); asked != 0 {
+		t.Fatalf("chooser asked %d times with an account pinned", asked)
+	}
+	m.openSettings()
+	if m.settings.launchAccountValue() != "BOB2" {
+		t.Fatal("pinned account not restored")
+	}
+	m.settings.field = settingsFieldAccountRouting
+	m.cycleSetting(1)
+	if m.settings.accountRouting != accounts.Own {
+		t.Fatalf("stepping past the last account: %q, want own login", m.settings.accountRouting)
+	}
+}

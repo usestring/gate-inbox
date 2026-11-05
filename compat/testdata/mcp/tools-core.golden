@@ -643,7 +643,7 @@
     "additionalProperties": false,
     "properties": {
       "account": {
-        "description": "optional named account from list_accounts; omit to follow the board's launch-account setting (the CLI's own login unless the build's extension chooses); a child does not inherit its parent's account; a named account requires a CLI that accepts a token",
+        "description": "optional named account from list_accounts; omit to follow the board's launch-account setting (the CLI's own login, an account pinned in Settings, or the build's extension's choice); a child does not inherit its parent's account; a named account requires a CLI that accepts a token",
         "type": "string"
       },
       "caller_session_id": {

@@ -79,6 +79,9 @@ type Session struct {
 	// Permissions is only filled in by a list, which reads every grant in
 	// one query; see grant.go.
 	Permissions []string `json:"permissions,omitempty" jsonschema:"permissions its spawner granted it with grant_permission on its user's approval, each as kind and value; revoke one with grant_permission revoke true"`
+	// ReleasedTasks is filled in only by the calls that end a session for
+	// good, archive and kill, which hand its claims back to the task list.
+	ReleasedTasks int `json:"released_tasks,omitempty" jsonschema:"how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim"`
 }
 
 type SessionScreen struct {
@@ -148,6 +151,19 @@ type CreateSessionOptions struct {
 	// session or from a terminal row: an agent could otherwise hand its child
 	// any flag, skip-permissions among them, past every setting that gates one.
 	Args []string
+	// Tasks are assigned to the new session before it launches, and its
+	// prompt lists them. See SpawnTask.
+	Tasks []SpawnTask
+}
+
+// SpawnTask is one task handed to a session at spawn: an existing pending
+// task by ID, which the caller must be allowed to assign, or a new one
+// described by Title, Body and DependsOn, created by the caller.
+type SpawnTask struct {
+	ID        string   `json:"id,omitempty" jsonschema:"an existing pending task to assign to the new session; you must be its creator or assignee; omit to create a new task instead"`
+	Title     string   `json:"title,omitempty" jsonschema:"a new task to create and assign to the new session: one-line summary of the work"`
+	Body      string   `json:"body,omitempty" jsonschema:"the new task's full instruction"`
+	DependsOn []string `json:"depends_on,omitempty" jsonschema:"ids of tasks the new task waits on"`
 }
 
 type Sessions struct {
@@ -872,6 +888,11 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if strings.HasPrefix(prompt, "-") && tool.PromptFlag == "" {
 		return Session{}, fmt.Errorf(`prompt cannot start with "-" for %s, which takes its prompt as a bare argument and would read it as a flag`, toolName)
 	}
+	handed, err := runtime.spawnTasks(caller, operator, opts.Tasks)
+	if err != nil {
+		return Session{}, err
+	}
+	prompt = handed.appendTo(prompt, VocabularyFor(toolName, tool))
 	by := extension.SpawnBySession
 	if operator {
 		by = extension.SpawnByOperator
@@ -928,6 +949,12 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 	if err != nil {
 		return Session{}, err
 	}
+	// Assigned before the pane starts, so the agent's first claim finds
+	// what its prompt lists; taken back if the launch fails.
+	withdraw, err := runtime.handTasks(id, caller.ID, handed)
+	if err != nil {
+		return Session{}, err
+	}
 	launched := false
 	if err := create(sess, func() error {
 		err := runtime.createPane(sess.ID, launchDir, command, env)
@@ -937,6 +964,7 @@ func (s *Sessions) Create(sessionID string, opts CreateSessionOptions) (created 
 		if launched {
 			_ = runtime.driver.Kill(sess.ID)
 		}
+		withdraw()
 		return Session{}, err
 	}
 	accounts.RecordLaunch(sess.ID, sess.Tool, sess.Account)
@@ -1616,7 +1644,8 @@ func (s *Sessions) kill(sessionID, targetID string, terminals bool, via extensio
 
 func (s *Sessions) stopSession(runtime *runtime, target store.Session, via extension.KillSource, by string, kill func(string) error) (Session, error) {
 	pane, _ := runtime.driver.CapturePane(target.ID)
-	if err := s.endSessionBy(runtime, target, pane, store.EndKilled, kill); err != nil {
+	released, err := s.killSessionBy(runtime, target, pane, kill)
+	if err != nil {
 		return Session{}, err
 	}
 	if _, err := runtime.store.ResolveEndedRecipient(target.ID, time.Now()); err != nil {
@@ -1626,7 +1655,9 @@ func (s *Sessions) stopSession(runtime *runtime, target store.Session, via exten
 	if !runtime.cfg.Tools[target.Tool].Shell {
 		sessionhooks.Killed(target, via, by)
 	}
-	return runtime.sessionInfo(target, false, false), nil
+	info := runtime.sessionInfo(target, false, false)
+	info.ReleasedTasks = released
+	return info, nil
 }
 
 // Revive relaunches a dead session under its old id, keeping its name,
@@ -1711,16 +1742,22 @@ func (s *Sessions) Archive(sessionID, targetID string, archived bool) (filed Ses
 	if err := runtime.reach(target); err != nil {
 		return Session{}, err
 	}
+	below := 0
 	if archived {
-		if err := s.fileDescendants(runtime, target, sessionID); err != nil {
+		if below, err = s.fileDescendants(runtime, target, sessionID); err != nil {
 			return Session{}, err
 		}
 	}
-	return s.file(runtime, target, archived)
+	if filed, err = s.file(runtime, target, archived); err != nil {
+		return Session{}, err
+	}
+	filed.ReleasedTasks += below
+	return filed, nil
 }
 
 // file archives or restores target, ending it first when an archive finds it
-// running.
+// running. An archive hands back the target's task claims, counted in the
+// result's ReleasedTasks; a restore leaves them released.
 func (s *Sessions) file(runtime *runtime, target store.Session, archived bool) (Session, error) {
 	running := runtime.driver.Exists(target.ID)
 	if archived && running {
@@ -1737,9 +1774,17 @@ func (s *Sessions) file(runtime *runtime, target store.Session, archived bool) (
 		target.Status = status.Dead
 		running = false
 	}
-	if err := runtime.store.SetArchived(target.ID, archived); err != nil {
+	released := 0
+	if archived {
+		var err error
+		if released, err = runtime.store.ArchiveSession(target.ID); err != nil {
+			return Session{}, err
+		}
+	} else if err := runtime.store.SetArchived(target.ID, false); err != nil {
 		return Session{}, err
 	}
 	target.Archived = archived
-	return runtime.sessionInfo(target, running, false), nil
+	info := runtime.sessionInfo(target, running, false)
+	info.ReleasedTasks = released
+	return info, nil
 }

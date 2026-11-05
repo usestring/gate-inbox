@@ -2,19 +2,19 @@
 $ gate-inbox help
 exit 0
 --- stdout
-(8772 bytes of help text)
+(9177 bytes of help text)
 --- left in home: 
 
 $ gate-inbox --help
 exit 0
 --- stdout
-(8772 bytes of help text)
+(9177 bytes of help text)
 --- left in home: 
 
 $ gate-inbox -h
 exit 0
 --- stdout
-(8772 bytes of help text)
+(9177 bytes of help text)
 --- left in home: 
 
 $ gate-inbox --version
@@ -62,13 +62,13 @@ gate-inbox: unknown command "Help"; run `gate-inbox help` for the list
 $ gate-inbox task
 exit 1
 --- stderr
-gate-inbox: usage: gate-inbox task <list|create|claim|finish|release|delete>
+gate-inbox: usage: gate-inbox task <list|create|claim|assign|finish|release|delete>
 --- left in home: 
 
 $ gate-inbox task bogus
 exit 1
 --- stderr
-gate-inbox: task has no "bogus" command; it takes list, create, claim, finish, release, delete
+gate-inbox: task has no "bogus" command; it takes list, create, claim, assign, finish, release, delete
 --- left in home: 
 
 $ gate-inbox send

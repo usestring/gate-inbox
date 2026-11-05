@@ -27,6 +27,19 @@ func TestSpawnArgsCarryEveryOptionTheToolTakes(t *testing.T) {
 	}
 }
 
+// A spawn's tasks reach the delegate whole, bodies and dependencies with
+// them, rather than being dropped on the stale-server path.
+func TestSpawnArgsCarryTheTasksAsJSON(t *testing.T) {
+	args := spawnArgs(sessioncmd.CreateSessionOptions{Name: "worker", Tasks: []sessioncmd.SpawnTask{
+		{ID: "t1"}, {Title: "backfill", Body: "every row", DependsOn: []string{"t1"}},
+	}})
+	got := strings.Join(args, " ")
+	want := `spawn --json --name worker --tasks-json [{"id":"t1"},{"title":"backfill","body":"every row","depends_on":["t1"]}]`
+	if got != want {
+		t.Errorf("spawn args =\n%s\nwant\n%s", got, want)
+	}
+}
+
 // An unset pointer means "not asked for": an omitted group inherits the
 // caller's and an omitted worktree the group's default, so spelling either
 // out on the command line would turn a default into an answer.

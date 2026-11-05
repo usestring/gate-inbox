@@ -98,9 +98,27 @@ func FormatSessionList(list SessionList) string {
 // neither front says "archived" about a row that came back active.
 func FormatArchiveState(session Session) string {
 	if session.Archived {
-		return "archived " + FormatSession(session)
+		return "archived " + FormatSession(session) + releasedNote(session.ReleasedTasks)
 	}
 	return "restored " + FormatSession(session)
+}
+
+// FormatKilled is kill_session's line, and the CLI kill's.
+func FormatKilled(session Session) string {
+	return "killed " + FormatSession(session) + releasedNote(session.ReleasedTasks)
+}
+
+// releasedNote says how many task claims an end handed back, so the caller
+// that ended a worker knows its tasks are up for claiming again. Nothing at
+// all when there were none, which is most ends.
+func releasedNote(n int) string {
+	switch n {
+	case 0:
+		return ""
+	case 1:
+		return "\nreleased 1 in-progress task back to pending"
+	}
+	return fmt.Sprintf("\nreleased %d in-progress tasks back to pending", n)
 }
 
 // FormatSessionScreen leads with the digest, because the questions a reader
@@ -234,8 +252,19 @@ func FormatTask(task Task) string {
 	if task.OwnerName != "" {
 		line += " held by " + task.OwnerName
 	}
+	if task.Assignee != "" {
+		line += " assigned to " + nameOr(task.AssigneeName, task.Assignee)
+	}
 	if task.Blocked {
 		line += " blocked on " + strings.Join(task.BlockedBy, ", ")
+	}
+	// The id goes with the name, since it is what created_by filters on
+	// and it still names a creator whose row is gone.
+	switch {
+	case task.CreatorName != "":
+		line += fmt.Sprintf(" created by %s (%s)", task.CreatorName, task.CreatedBy)
+	case task.CreatedBy != "":
+		line += " created by " + task.CreatedBy
 	}
 	return line
 }

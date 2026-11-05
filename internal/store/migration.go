@@ -118,6 +118,9 @@ func (s *Store) CompleteMigration(fromID, toID string) error {
 	if err := copySessionWork(tx, fromID, toID); err != nil {
 		return err
 	}
+	if err := moveTaskClaims(tx, fromID, toID, time.Now()); err != nil {
+		return err
+	}
 	res, err := tx.Exec(`UPDATE sessions SET archived = 1, archived_at = ? WHERE id = ?`, encodeTime(time.Now()), fromID)
 	if err != nil {
 		return err

@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	usageTaskList    = "task list [--state <state>] [--include-done] [--mine] [--include-body] [--limit <n>] [--json]"
+	usageTaskList    = "task list [--state <state>] [--include-done] [--mine] [--created-by <me|session-id>] [--fleet] [--include-body] [--limit <n>] [--json]"
 	usageTaskCreate  = "task create <title> [--body <text>] [--depends-on <id,id>] [--json]"
-	usageTaskClaim   = "task claim [<task-id>] [--json]"
+	usageTaskClaim   = "task claim [<task-id>] [--any] [--json]"
 	usageTaskFinish  = "task finish <task-id> [--json]"
 	usageTaskRelease = "task release <task-id> [--json]"
 	usageTaskDelete  = "task delete <task-id>"
@@ -22,7 +22,7 @@ const (
 type taskCommands interface {
 	Tasks(sessionID string, opts sessioncmd.TaskListOptions) (sessioncmd.TaskList, error)
 	CreateTask(sessionID, title, body string, dependsOn []string) (sessioncmd.Task, error)
-	ClaimTask(sessionID, taskID string) (sessioncmd.Task, error)
+	ClaimTask(sessionID, taskID string, opts sessioncmd.ClaimOptions) (sessioncmd.Task, error)
 	FinishTask(sessionID, taskID string) (sessioncmd.Task, error)
 	ReleaseTask(sessionID, taskID string) (sessioncmd.Task, error)
 	DeleteTask(sessionID, taskID string) error
@@ -36,7 +36,7 @@ func taskVerbs() []command {
 	return []command{
 		{name: "list", usage: usageTaskList, about: "read the work list every session shares: what is pending, who holds what, and what is blocked", run: bind(newTasks, runTaskList)},
 		{name: "create", usage: usageTaskCreate, about: "put a piece of work on the shared list so any session can pick it up", run: bind(newTasks, runTaskCreate)},
-		{name: "claim", usage: usageTaskClaim, about: "take a task before you start it; omit the id to take the oldest pending task nothing is blocking", run: bind(newTasks, runTaskClaim)},
+		{name: "claim", usage: usageTaskClaim, about: "take a task before you start it; omit the id to take the oldest pending task nothing is blocking that your fleet created, or pass --any for the whole list", run: bind(newTasks, runTaskClaim)},
 		{name: "finish", usage: usageTaskFinish, about: "mark a task you claimed as done, which unblocks everything waiting on it", run: bind(newTasks, runTaskFinish)},
 		{name: "release", usage: usageTaskRelease, about: "hand a task you claimed back to the list for another session", run: bind(newTasks, runTaskRelease)},
 		{name: "delete", usage: usageTaskDelete, about: "remove a task nobody needs any more", run: bind(newTasks, runTaskDelete)},
@@ -53,6 +53,8 @@ func runTaskList(out io.Writer, tasks taskCommands, args []string, sessionID str
 	set.Var(&states, "state", "state to keep, repeatable or comma separated: pending, in_progress or done; omitted keeps pending and in_progress")
 	includeDone := set.Bool("include-done", false, "also list finished tasks, which on a long-lived list are most of it")
 	mine := set.Bool("mine", false, "keep only tasks this session holds or finished")
+	createdBy := set.String("created-by", "", "keep only tasks this session created: me, or a session id")
+	fleet := set.Bool("fleet", false, "keep only tasks your fleet created: you, your spawner or parent, and the sessions you spawned; the set a bare claim takes from")
 	includeBody := set.Bool("include-body", false, "print each task's full instruction under its row")
 	limit := set.Int("limit", sessioncmd.DefaultTaskLimit, fmt.Sprintf("how many rows to print, at most %d; the last line says what was left out", sessioncmd.MaxTaskLimit))
 	asJSON := cmdline.JSONFlag(set)
@@ -63,6 +65,8 @@ func runTaskList(out io.Writer, tasks taskCommands, args []string, sessionID str
 		State:       states,
 		IncludeDone: *includeDone,
 		Mine:        *mine,
+		CreatedBy:   *createdBy,
+		Fleet:       *fleet,
 		IncludeBody: *includeBody,
 		Limit:       *limit,
 	})
@@ -91,6 +95,7 @@ func runTaskCreate(out io.Writer, tasks taskCommands, args []string, sessionID s
 
 func runTaskClaim(out io.Writer, tasks taskCommands, args []string, sessionID string) error {
 	set := cmdline.NewFlagSet(usageTaskClaim)
+	anyCreator := set.Bool("any", false, "without a task id, take the oldest ready task on the whole list instead of only your fleet's")
 	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 0, 1)
 	if err != nil {
@@ -100,7 +105,7 @@ func runTaskClaim(out io.Writer, tasks taskCommands, args []string, sessionID st
 	if len(operands) == 1 {
 		taskID = operands[0]
 	}
-	claimed, err := tasks.ClaimTask(sessionID, taskID)
+	claimed, err := tasks.ClaimTask(sessionID, taskID, sessioncmd.ClaimOptions{Any: *anyCreator})
 	if err != nil {
 		return err
 	}

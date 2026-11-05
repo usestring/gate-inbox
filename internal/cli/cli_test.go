@@ -43,6 +43,7 @@ type fakeSessions struct {
 	directory    string
 	pinned       bool
 	taskID       string
+	claimOpts    sessioncmd.ClaimOptions
 	taskListOpts sessioncmd.TaskListOptions
 	title        string
 	body         string
@@ -229,8 +230,8 @@ func (f *fakeSessions) CreateTask(sessionID, title, body string, dependsOn []str
 	return f.task, f.failWith
 }
 
-func (f *fakeSessions) ClaimTask(sessionID, taskID string) (sessioncmd.Task, error) {
-	f.callerID, f.taskID = sessionID, taskID
+func (f *fakeSessions) ClaimTask(sessionID, taskID string, opts sessioncmd.ClaimOptions) (sessioncmd.Task, error) {
+	f.callerID, f.taskID, f.claimOpts = sessionID, taskID, opts
 	return f.task, f.failWith
 }
 

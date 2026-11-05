@@ -88,7 +88,11 @@ type Session struct {
 	// launch prompt, the screen, and the mention lines the search index kept from the
 	// transcript.
 	Text string
-	Live bool
+	// Artifacts is the pages the session published itself, each a KindArtifact reference
+	// from the session's own publish call. Not scanned out of Text: a session links pages
+	// it did not publish as often as ones it did.
+	Artifacts []workspec.Ref
+	Live      bool
 	// Visible marks a session the operator is looking at right now.
 	//
 	// The caller decides what that means, because only the view knows what it drew. The
@@ -664,6 +668,9 @@ func (t *Tracker) enabled(kind workspec.Kind) bool {
 		return t.GitHub != nil
 	case workspec.KindTicket:
 		return t.Linear != nil
+	case workspec.KindArtifact:
+		// A published page has no provider to switch off and nothing to ask about.
+		return true
 	}
 	return false
 }
@@ -741,6 +748,7 @@ func (t *Tracker) Discover(session Session) []workspec.Ref {
 	// the same scan as the mentions and are told apart by provenance.
 	refs = append(refs, creationRefs(session.Text)...)
 	refs = append(refs, workspec.ScanText(session.Text, repo, workspec.FromText)...)
+	refs = append(refs, session.Artifacts...)
 	// "go#1392" at a superproject root names the submodule at go, which is
 	// exactly the mention the bare-number rule above cannot place.
 	if session.Dir != "" && t.Git != nil {
@@ -1135,6 +1143,10 @@ func (t *Tracker) due(sessions []Session) []workspec.Ref {
 			sessionTier = tierLive
 		}
 		for _, ref := range t.refs[session.ID] {
+			// A published page has no source to ask, so it is never due.
+			if !resolvable(ref.Kind) {
+				continue
+			}
 			key := ref.Key()
 			if i, seen := at[key]; seen {
 				if sessionTier < candidates[i].tier {
@@ -1171,6 +1183,10 @@ func (t *Tracker) due(sessions []Session) []workspec.Ref {
 	}
 	return due
 }
+
+// resolvable reports whether a source answers for this kind of reference. A published page is
+// what its publish call said it was, with no live state behind it to look up.
+func resolvable(kind workspec.Kind) bool { return kind != workspec.KindArtifact }
 
 // tier is how much somebody is looking at a reference, strongest first.
 type tier int
@@ -1235,7 +1251,9 @@ func (t *Tracker) For(sessionID string) Work {
 		if ticket, ok := t.tickets[key]; ok {
 			work.Tickets[key] = ticket
 		}
-		if _, ok := t.fetched[key]; ok {
+		// A published page is settled the moment it is known: there is nothing further to
+		// look up, so it must not read as "not looked up" for ever.
+		if _, ok := t.fetched[key]; ok || !resolvable(ref.Kind) {
 			work.Looked[key] = true
 		}
 	}

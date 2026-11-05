@@ -132,6 +132,12 @@ type session struct {
 	// whose output needs the wrapper's confirmation to establish creation.
 	created []byte
 	opening map[string]bool
+	// published is one line per page the session published, "url\ttitle", by
+	// the same pairing: a call to the Artifact tool or to a publish_artifact
+	// tool, and the result that printed the page's address. publishing holds
+	// the titles of publish calls whose result has not arrived yet, by call id.
+	published  []byte
+	publishing map[string]string
 	// blooms holds one trigram filter per blockBytes of text, so a query
 	// skips every block that cannot contain it without reading the block.
 	blooms []bloom
@@ -173,6 +179,23 @@ func (x *Index) Created(key string) string {
 		return ""
 	}
 	return string(s.created)
+}
+
+// Published is every page a session's history shows it publishing itself, one
+// "url\ttitle" line each, oldest first; the title is empty when the call named
+// none. Empty for a session the index does not hold or has not caught up on.
+// Safe to call from any goroutine.
+//
+// As with Created, publishing is the evidence and mentioning is not: a
+// session links pages other sessions published as readily as its own.
+func (x *Index) Published(key string) string {
+	x.mu.RLock()
+	defer x.mu.RUnlock()
+	s := x.sessions[key]
+	if s == nil {
+		return ""
+	}
+	return string(s.published)
 }
 
 // Close releases the opencode connection, if one was opened.

@@ -208,6 +208,11 @@ enabled = false
 enabled = false
 ```
 
+Pages a session publishes hang under it too, below its pull requests and tickets: a Claude
+artifact from Claude Code's `Artifact` tool, or a page from any MCP server's `publish_artifact`
+tool. Only pages the session's own publish call returned count. A page it merely linked does not.
+Opening the row opens the page.
+
 **Remote inbox.** `gate-inbox inbox serve` takes a text message over HTTP, such as dictation from
 a phone's Shortcut, and starts a router session on the board for it. It binds loopback, and is meant
 to be reached only over a private network such as Tailscale serve, with one token per client.

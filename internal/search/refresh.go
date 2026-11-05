@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/tracing"
+	"github.com/usestring/gate-inbox/internal/workspec"
 )
 
 // Target is one board session whose conversation the index should hold.
@@ -248,12 +249,14 @@ func (x *Index) indexFile(s pending, budget int) (read, rows int, err error) {
 		x.splice(s.target, rebuild, from, stamp{size: -1, mtime: -1}, nil, nil, 0)
 		return len(data), 0, nil
 	}
-	// Results are worth parsing only while a PR-creating call can be waiting
-	// on one: from an earlier pass, or from this chunk. Otherwise every tool
-	// result that happens to hold a pull request URL would be decoded for
-	// nothing, and the corpus is full of them.
+	// Results are worth parsing only while a PR-creating or page-publishing
+	// call can be waiting on one: from an earlier pass, or from this chunk.
+	// Otherwise every tool result that happens to hold a pull request URL
+	// would be decoded for nothing, and the corpus is full of them.
 	chunk := data[:cut]
-	calls := len(s.prev.opening) > 0 || bytes.Contains(chunk, prCreateMark) || bytes.Contains(chunk, ghPrMark) || bytes.Contains(chunk, pollMark) || bytes.Contains(chunk, waitMark)
+	calls := len(s.prev.opening) > 0 || len(s.prev.publishing) > 0 ||
+		bytes.Contains(chunk, prCreateMark) || bytes.Contains(chunk, ghPrMark) || bytes.Contains(chunk, pollMark) || bytes.Contains(chunk, waitMark) ||
+		bytes.Contains(chunk, artifactMark) || bytes.Contains(chunk, publishMark)
 	text, found, turns := x.parseChunk(s.target.Tool, chunk, calls)
 	indexed := from + int64(cut) + 1
 	size, mtime := s.size, s.mtime
@@ -438,6 +441,19 @@ func (x *Index) count(text []byte, sign int64) {
 	}
 }
 
+// recordPublished keeps the page addresses a publish call's result printed, with the title the
+// call gave it. Republishing under the same title adds nothing; under a new one it adds a line,
+// and workspec.Dedupe folds the lines back into one page carrying the newest title.
+func (s *session) recordPublished(result, title string) {
+	for _, url := range workspec.ArtifactURLs(result) {
+		line := url + "\t" + strings.ReplaceAll(strings.ReplaceAll(title, "\t", " "), "\n", " ") + "\n"
+		if bytes.Contains(s.published, []byte(line)) {
+			continue
+		}
+		s.published = append(s.published, line...)
+	}
+}
+
 func (x *Index) stamp(key string, st stamp) {
 	x.mu.Lock()
 	defer x.mu.Unlock()
@@ -474,6 +490,18 @@ func (x *Index) prune(wanted map[string]bool) bool {
 // changelog -- which are not things it opened.
 func (s *session) recordCreations(calls []toolCall) {
 	for _, call := range calls {
+		if call.publish {
+			if s.publishing == nil {
+				s.publishing = map[string]string{}
+			}
+			s.publishing[call.id] = call.title
+			continue
+		}
+		if title, pending := s.publishing[call.id]; pending && call.result {
+			delete(s.publishing, call.id)
+			s.recordPublished(call.text, title)
+			continue
+		}
 		if !call.result {
 			if createsPR.MatchString(call.text) || call.poll {
 				if s.opening == nil {

@@ -332,15 +332,16 @@ func (s *Sessions) ClaimTask(sessionID, taskID string, opts ClaimOptions) (Task,
 // says how much ready work sits outside the fleet, since "nothing to do"
 // and "nothing of yours to do" call for different next moves.
 func (r *runtime) nothingReady(anyCreator bool) error {
+	empty := errors.New("no task is ready to claim; every pending task is blocked, or the list is empty")
 	if anyCreator {
-		return errors.New("no task is ready to claim; every pending task is blocked, or the list is empty")
+		return empty
 	}
 	outside, err := r.store.ReadyTaskCount()
 	if err != nil {
 		return err
 	}
 	if outside == 0 {
-		return errors.New("no task is ready to claim; every pending task is blocked, or the list is empty")
+		return empty
 	}
 	return fmt.Errorf("no task your fleet created is ready to claim; %d ready %s outside it, created by unrelated sessions or before creators were recorded; call %s to take the oldest of those, or claim one by id",
 		outside, plural(outside, "task is", "tasks are"), r.words.ClaimAny)

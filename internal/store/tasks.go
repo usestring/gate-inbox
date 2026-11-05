@@ -120,20 +120,18 @@ const readyTask = `t.state = ?
          WHERE d.task_id = t.id AND (p.id IS NULL OR p.state != ?)
       )`
 
-// creatorFilter narrows alias t to tasks one of creators made. Nil
-// creators is no narrowing, which is the global claim.
-func creatorFilter(creators []string) (string, []any) {
-	if creators == nil {
-		return "", nil
-	}
+// creatorIn is the condition that column names one of creators, for a
+// caller that has already decided to narrow: an empty list matches
+// nothing rather than everything.
+func creatorIn(column string, creators []string) (string, []any) {
 	if len(creators) == 0 {
-		return " AND 0", nil
+		return "0", nil
 	}
 	args := make([]any, 0, len(creators))
 	for _, creator := range creators {
 		args = append(args, creator)
 	}
-	return " AND t.created_by IN (" + placeholders(len(creators)) + ")", args
+	return column + " IN (" + placeholders(len(creators)) + ")", args
 }
 
 // ClaimNextTask takes the oldest task that is pending and unblocked, among
@@ -141,9 +139,13 @@ func creatorFilter(creators []string) (string, []any) {
 func (s *Store) ClaimNextTask(sessionID string, creators []string, at time.Time) (Task, bool, error) {
 	task := Task{Owner: sessionID, State: TaskInProgress, UpdatedAt: at}
 	var createdAt int64
-	filter, filterArgs := creatorFilter(creators)
 	args := []any{TaskInProgress, sessionID, encodeTime(at), TaskPending, TaskDone}
-	args = append(args, filterArgs...)
+	filter := ""
+	if creators != nil {
+		condition, creatorArgs := creatorIn("t.created_by", creators)
+		filter = " AND " + condition
+		args = append(args, creatorArgs...)
+	}
 	args = append(args, TaskPending)
 	err := s.db.QueryRow(`
 UPDATE tasks SET state = ?, owner_session_id = ?, updated_at = ?
@@ -283,14 +285,9 @@ func (s *Store) QueryTasks(query TaskQuery) (TaskPage, error) {
 		args = append(args, query.Owner)
 	}
 	if query.CreatedBy != nil {
-		if len(query.CreatedBy) == 0 {
-			where = append(where, "0")
-		} else {
-			where = append(where, "created_by IN ("+placeholders(len(query.CreatedBy))+")")
-			for _, creator := range query.CreatedBy {
-				args = append(args, creator)
-			}
-		}
+		condition, creatorArgs := creatorIn("created_by", query.CreatedBy)
+		where = append(where, condition)
+		args = append(args, creatorArgs...)
 	}
 	statement := `SELECT id, title, ` + body + `, owner_session_id, created_by, state, created_at, updated_at, count(*) OVER ()
   FROM tasks`

@@ -14,7 +14,7 @@ const (
 	usageTaskList    = "task list [--state <state>] [--include-done] [--mine] [--created-by <me|session-id>] [--fleet] [--include-body] [--limit <n>] [--json]"
 	usageTaskCreate  = "task create <title> [--body <text>] [--depends-on <id,id>] [--json]"
 	usageTaskClaim   = "task claim [<task-id>] [--any] [--json]"
-	usageTaskFinish  = "task finish <task-id> [--json]"
+	usageTaskFinish  = "task finish <task-id> [--note <text>] [--json]"
 	usageTaskRelease = "task release <task-id> [--json]"
 	usageTaskDelete  = "task delete <task-id>"
 )
@@ -23,7 +23,7 @@ type taskCommands interface {
 	Tasks(sessionID string, opts sessioncmd.TaskListOptions) (sessioncmd.TaskList, error)
 	CreateTask(sessionID, title, body string, dependsOn []string) (sessioncmd.Task, error)
 	ClaimTask(sessionID, taskID string, opts sessioncmd.ClaimOptions) (sessioncmd.Task, error)
-	FinishTask(sessionID, taskID string) (sessioncmd.Task, error)
+	FinishTask(sessionID, taskID, note string) (sessioncmd.TaskFinish, error)
 	ReleaseTask(sessionID, taskID string) (sessioncmd.Task, error)
 	DeleteTask(sessionID, taskID string) error
 }
@@ -37,7 +37,7 @@ func taskVerbs() []command {
 		{name: "list", usage: usageTaskList, about: "read the work list every session shares: what is pending, who holds what, and what is blocked", run: bind(newTasks, runTaskList)},
 		{name: "create", usage: usageTaskCreate, about: "put a piece of work on the shared list so any session can pick it up", run: bind(newTasks, runTaskCreate)},
 		{name: "claim", usage: usageTaskClaim, about: "take a task before you start it; omit the id to take the oldest pending task nothing is blocking that your fleet created, or pass --any for the whole list", run: bind(newTasks, runTaskClaim)},
-		{name: "finish", usage: usageTaskFinish, about: "mark a task you claimed as done, which unblocks everything waiting on it", run: bind(newTasks, runTaskFinish)},
+		{name: "finish", usage: usageTaskFinish, about: "mark a task you claimed as done, which unblocks everything waiting on it; --note says what came of it, and the session that created the task is sent it", run: bind(newTasks, runTaskFinish)},
 		{name: "release", usage: usageTaskRelease, about: "hand a task you claimed back to the list for another session", run: bind(newTasks, runTaskRelease)},
 		{name: "delete", usage: usageTaskDelete, about: "remove a task nobody needs any more", run: bind(newTasks, runTaskDelete)},
 	}
@@ -114,16 +114,17 @@ func runTaskClaim(out io.Writer, tasks taskCommands, args []string, sessionID st
 
 func runTaskFinish(out io.Writer, tasks taskCommands, args []string, sessionID string) error {
 	set := cmdline.NewFlagSet(usageTaskFinish)
+	note := set.String("note", "", fmt.Sprintf("what came of the work: the outcome, a PR link, what is left; kept on the task and sent to its creator, at most %d bytes", sessioncmd.MaxTaskNoteBytes))
 	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
 	}
-	finished, err := tasks.FinishTask(sessionID, operands[0])
+	finished, err := tasks.FinishTask(sessionID, operands[0], *note)
 	if err != nil {
 		return err
 	}
-	return cmdline.Emit(out, *asJSON, finished, "finished "+sessioncmd.FormatTask(finished))
+	return cmdline.Emit(out, *asJSON, finished, sessioncmd.FormatTaskFinish(finished))
 }
 
 func runTaskRelease(out io.Writer, tasks taskCommands, args []string, sessionID string) error {

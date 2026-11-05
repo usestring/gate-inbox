@@ -613,6 +613,10 @@ CREATE TABLE IF NOT EXISTS settings (
 		// claim to the caller's fleet. Rows from before it read ''. See
 		// tasks.go.
 		`ALTER TABLE tasks ADD COLUMN created_by TEXT NOT NULL DEFAULT ''`,
+		// What the finisher said came of a task: the outcome, a PR link,
+		// what is left. Rows finished before it, and every unfinished row,
+		// read ''. See FinishTask.
+		`ALTER TABLE tasks ADD COLUMN note TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {

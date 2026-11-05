@@ -98,13 +98,17 @@ func TestTheAccountCardRepointsADeadRow(t *testing.T) {
 	if m.account.names[m.account.index] != "BOB2" {
 		t.Fatalf("the card reopened on %q", m.account.names[m.account.index])
 	}
-	// Every choice is on the card, with the cursor on the row's own account.
+	// The picker shows the row's own account, one choice at a time, and
+	// steps sideways to the others.
 	card := ansi.Strip(m.viewAccountSwitch())
-	for _, want := range []string{"account    " + ownLogin, "ALICE1", "❯ BOB2"} {
-		if !strings.Contains(card, want) {
-			t.Errorf("the card does not list %q:\n%s", want, card)
-		}
+	if !strings.Contains(card, "account  ◂ BOB2 ▸") || strings.Contains(card, "ALICE1") {
+		t.Errorf("the card does not show BOB2 alone on the picker:\n%s", card)
 	}
+	m.handleAccountKey(tea.KeyPressMsg{Code: tea.KeyLeft})
+	if card := ansi.Strip(m.viewAccountSwitch()); !strings.Contains(card, "account  ◂ ALICE1 ▸") {
+		t.Errorf("left did not step to ALICE1:\n%s", card)
+	}
+	m.handleAccountKey(tea.KeyPressMsg{Code: tea.KeyRight})
 	m.submitAccountSwitch()
 	if !strings.Contains(m.errBar.text, "already on BOB2") {
 		t.Errorf("errBar = %q", m.errBar.text)
@@ -130,7 +134,7 @@ func TestTheAccountCardOpensOnAutoWithAChooser(t *testing.T) {
 		t.Fatal("the card did not ask the chooser")
 	}
 	m.update(cmd())
-	if card := ansi.Strip(m.viewAccountSwitch()); !strings.Contains(card, "❯ auto → BOB2") {
+	if card := ansi.Strip(m.viewAccountSwitch()); !strings.Contains(card, "◂ auto → BOB2 ▸") {
 		t.Fatalf("the card does not show auto's pick:\n%s", card)
 	}
 
@@ -187,7 +191,7 @@ func TestTheAccountCardAutoKeepsARowOnItsOwnPick(t *testing.T) {
 	}
 }
 
-func TestAccountCardKeepsEverySelectionAndControlsVisible(t *testing.T) {
+func TestAccountCardKeepsTheSelectionAndControlsVisible(t *testing.T) {
 	m := buildModel(t)
 	m.mode = modeAccount
 	m.account.sess = store.Session{ID: "account-window", Name: "worker", Tool: "claude"}
@@ -208,16 +212,9 @@ func TestAccountCardKeepsEverySelectionAndControlsVisible(t *testing.T) {
 						}
 						frame, _ := m.paint()
 						frame = ansi.Strip(frame)
-						for _, want := range []string{"❯ " + m.account.names[m.account.index], "account", "takes effect", "switch", "cancel", "╰", errText} {
+						for _, want := range []string{"◂ " + m.account.names[m.account.index] + " ▸", "account", "takes effect", "switch", "cancel", "╰", errText} {
 							if !strings.Contains(frame, want) {
 								t.Fatalf("selection %d hides %q:\n%s", m.account.index, want, frame)
-							}
-						}
-						if height == 50 {
-							for _, name := range m.account.names {
-								if !strings.Contains(frame, name) {
-									t.Fatalf("tall card hides %q", name)
-								}
 							}
 						}
 						m.handleAccountKey(tea.KeyPressMsg{Code: 'j', Text: "j"})

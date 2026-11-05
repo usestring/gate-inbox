@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -20,7 +21,7 @@ import (
 
 const (
 	usageSessions      = "sessions [--parent <id|me>] [--status <state>] [--include-archived] [--limit <n>] [--json]"
-	usageSpawn         = "spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--directory-reason <why>] [--nest] [--keep] [--arg <cli-arg>]... [--json]"
+	usageSpawn         = "spawn [--name <name>] [--prompt <text>] [--tool <cli>] [--model <model>] [--group <path>] [--directory <path>] [--directory-reason <why>] [--nest] [--keep] [--task <id,id>] [--new-task <title>]... [--tasks-json <json>] [--arg <cli-arg>]... [--json]"
 	usageSend          = `send <session-id> "<message>" [--subject <label>] [--interrupt] [--as-human] [--relay_question <question>] [--json]`
 	usageRead          = "read <session-id> [--since <cursor>] [--json]"
 	usageSendChildren  = "send-children \"<message>\" [--json]"
@@ -148,6 +149,11 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 		"From your own shell, outside any session, --nest=false is required and launches it as your own top-level session")
 	skipPermissions := set.Bool("skip-permissions", false, "launch it with its CLI's permission prompts off; omit to follow the setting for this session's children, and refused unless the user allowed it there")
 	keep := set.Bool("keep", false, "keep it on the list after it finishes, where Gate Inbox would otherwise archive it once you have read its finish and the grace period has passed")
+	var taskIDs stringList
+	set.Var(&taskIDs, "task", "existing pending task to assign to it, repeatable or comma separated; you must be its creator or assignee")
+	var newTasks argList
+	set.Var(&newTasks, "new-task", "title of a new task to create and assign to it; repeat for several")
+	tasksJSON := set.String("tasks-json", "", `tasks to assign to it as JSON, the create_session tasks shape: [{"id": "..."}, {"title": "...", "body": "...", "depends_on": ["..."]}]`)
 	var cliArgs argList
 	set.Var(&cliArgs, "arg", "one more argument for the CLI's command line, such as --chrome; repeat for several; only from your own shell or a terminal")
 	asJSON := cmdline.JSONFlag(set)
@@ -164,6 +170,19 @@ func runSpawn(out io.Writer, sessions sessionCommands, args []string, sessionID 
 		Model:           *model,
 		Account:         *account,
 		Keep:            *keep,
+	}
+	for _, id := range taskIDs {
+		opts.Tasks = append(opts.Tasks, sessioncmd.SpawnTask{ID: id})
+	}
+	for _, title := range newTasks {
+		opts.Tasks = append(opts.Tasks, sessioncmd.SpawnTask{Title: title})
+	}
+	if strings.TrimSpace(*tasksJSON) != "" {
+		var described []sessioncmd.SpawnTask
+		if err := json.Unmarshal([]byte(*tasksJSON), &described); err != nil {
+			return fmt.Errorf("--tasks-json is not a JSON list of tasks: %w", err)
+		}
+		opts.Tasks = append(opts.Tasks, described...)
 	}
 	// An omitted group inherits this session's and an omitted nest the
 	// engine's own, so only a flag the caller actually typed is passed on.

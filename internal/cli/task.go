@@ -12,7 +12,8 @@ import (
 
 const (
 	usageTaskList    = "task list [--state <state>] [--include-done] [--mine] [--created-by <me|session-id>] [--fleet] [--include-body] [--limit <n>] [--json]"
-	usageTaskCreate  = "task create <title> [--body <text>] [--depends-on <id,id>] [--json]"
+	usageTaskCreate  = "task create <title> [--body <text>] [--depends-on <id,id>] [--assignee <me|session-id>] [--json]"
+	usageTaskAssign  = "task assign <task-id> [<me|session-id>] [--json]"
 	usageTaskClaim   = "task claim [<task-id>] [--any] [--json]"
 	usageTaskFinish  = "task finish <task-id> [--json]"
 	usageTaskRelease = "task release <task-id> [--json]"
@@ -21,7 +22,8 @@ const (
 
 type taskCommands interface {
 	Tasks(sessionID string, opts sessioncmd.TaskListOptions) (sessioncmd.TaskList, error)
-	CreateTask(sessionID, title, body string, dependsOn []string) (sessioncmd.Task, error)
+	CreateTask(sessionID string, spec sessioncmd.TaskSpec) (sessioncmd.Task, error)
+	AssignTask(sessionID, taskID, assignee string) (sessioncmd.Task, error)
 	ClaimTask(sessionID, taskID string, opts sessioncmd.ClaimOptions) (sessioncmd.Task, error)
 	FinishTask(sessionID, taskID string) (sessioncmd.Task, error)
 	ReleaseTask(sessionID, taskID string) (sessioncmd.Task, error)
@@ -37,6 +39,7 @@ func taskVerbs() []command {
 		{name: "list", usage: usageTaskList, about: "read the work list every session shares: what is pending, who holds what, and what is blocked", run: bind(newTasks, runTaskList)},
 		{name: "create", usage: usageTaskCreate, about: "put a piece of work on the shared list so any session can pick it up", run: bind(newTasks, runTaskCreate)},
 		{name: "claim", usage: usageTaskClaim, about: "take a task before you start it; omit the id to take the oldest pending task nothing is blocking that your fleet created, or pass --any for the whole list", run: bind(newTasks, runTaskClaim)},
+		{name: "assign", usage: usageTaskAssign, about: "point a pending task at the one session that may claim it, or omit the session to unassign it; its creator or current assignee can", run: bind(newTasks, runTaskAssign)},
 		{name: "finish", usage: usageTaskFinish, about: "mark a task you claimed as done, which unblocks everything waiting on it", run: bind(newTasks, runTaskFinish)},
 		{name: "release", usage: usageTaskRelease, about: "hand a task you claimed back to the list for another session", run: bind(newTasks, runTaskRelease)},
 		{name: "delete", usage: usageTaskDelete, about: "remove a task nobody needs any more", run: bind(newTasks, runTaskDelete)},
@@ -81,12 +84,13 @@ func runTaskCreate(out io.Writer, tasks taskCommands, args []string, sessionID s
 	body := set.String("body", "", "full instruction for whoever claims it; it cannot see your conversation")
 	var dependsOn stringList
 	set.Var(&dependsOn, "depends-on", "ids of tasks that must be done first, repeatable or comma separated")
+	assignee := set.String("assignee", "", "the one session that may claim it: me, or a session id; omit to leave it to anyone")
 	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
 	}
-	created, err := tasks.CreateTask(sessionID, operands[0], *body, dependsOn)
+	created, err := tasks.CreateTask(sessionID, sessioncmd.TaskSpec{Title: operands[0], Body: *body, DependsOn: dependsOn, Assignee: *assignee})
 	if err != nil {
 		return err
 	}
@@ -110,6 +114,24 @@ func runTaskClaim(out io.Writer, tasks taskCommands, args []string, sessionID st
 		return err
 	}
 	return cmdline.Emit(out, *asJSON, claimed, "claimed "+sessioncmd.FormatTask(claimed))
+}
+
+func runTaskAssign(out io.Writer, tasks taskCommands, args []string, sessionID string) error {
+	set := cmdline.NewFlagSet(usageTaskAssign)
+	asJSON := cmdline.JSONFlag(set)
+	operands, err := parseCommand(out, set, args, 1, 2)
+	if err != nil {
+		return err
+	}
+	assignee := ""
+	if len(operands) == 2 {
+		assignee = operands[1]
+	}
+	assigned, err := tasks.AssignTask(sessionID, operands[0], assignee)
+	if err != nil {
+		return err
+	}
+	return cmdline.Emit(out, *asJSON, assigned, "assigned "+sessioncmd.FormatTask(assigned))
 }
 
 func runTaskFinish(out io.Writer, tasks taskCommands, args []string, sessionID string) error {

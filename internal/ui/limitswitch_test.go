@@ -2,13 +2,19 @@ package ui
 
 import (
 	"fmt"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/usestring/gate-inbox/internal/accounts"
+	"github.com/usestring/gate-inbox/internal/accounts/accountstest"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
 )
 
 const weeklyLimitPane = "You've hit your weekly limit · resets Friday at 9pm\n❯ "
@@ -37,11 +43,13 @@ func limitedModel(t *testing.T) *Model {
 
 func TestLimitSwitchOffersReviewWithoutLaunching(t *testing.T) {
 	m := limitedModel(t)
+	m.cfg.Board.OfferCLIOnLimit = true
 	sess, _ := m.selected()
 	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
-	if m.mode != modeLimitSwitch || m.limitSwitch.targets[m.limitSwitch.index] != "codex" {
-		t.Fatalf("mode=%v offer=%+v", m.mode, m.limitSwitch)
+	if m.mode != modeLimitSwitch || m.limitSwitch.targets[m.limitSwitch.index] != subscriptionTarget {
+		t.Fatalf("the opted-in card did not default to another subscription: mode=%v offer=%+v", m.mode, m.limitSwitch)
 	}
+	m.handleLimitSwitchKey(tea.KeyPressMsg{Code: tea.KeyTab})
 	m.handleLimitSwitchKey(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.mode != modeMigrate || m.migrateTool() != "codex" {
 		t.Fatalf("did not open migration review: mode=%v target=%q", m.mode, m.migrateTool())
@@ -49,6 +57,67 @@ func TestLimitSwitchOffersReviewWithoutLaunching(t *testing.T) {
 	rows, err := m.store.ListSessions(true)
 	if err != nil || len(rows) != 1 {
 		t.Fatalf("review launched a session: rows=%+v err=%v", rows, err)
+	}
+}
+
+// Moving to another CLI is opt-in: by default a limit offers another
+// subscription of the same CLI and nothing else, and Enter reviews that.
+func TestLimitSwitchNeverOffersCodexByDefault(t *testing.T) {
+	m := limitedModel(t)
+	sess, _ := m.selected()
+	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	if m.mode != modeLimitSwitch {
+		t.Fatalf("no card: mode=%v", m.mode)
+	}
+	if !slices.Equal(m.limitSwitch.targets, []string{subscriptionTarget}) {
+		t.Fatalf("default card offers %q, want only another subscription", m.limitSwitch.targets)
+	}
+	if view := ansi.Strip(m.viewLimitSwitch()); strings.Contains(view, "codex") {
+		t.Fatalf("default card names codex:\n%s", view)
+	}
+	m.handleLimitSwitchKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.mode != modeAccount || m.account.sess.ID != sess.ID {
+		t.Fatalf("enter did not open the subscription review: mode=%v", m.mode)
+	}
+}
+
+// A CLI with no accounts has nothing to switch to, so without the opt-in
+// a limit opens no card at all.
+func TestLimitSwitchStaysClosedWithNothingToOffer(t *testing.T) {
+	m := limitedModel(t)
+	tool := m.cfg.Tools["claude"]
+	tool.AccountEnv = ""
+	m.cfg.Tools["claude"] = tool
+	sess, _ := m.selected()
+	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	if m.mode != modeList {
+		t.Fatalf("card opened with nothing to offer: %+v", m.limitSwitch)
+	}
+}
+
+// With the build's chooser routing accounts, the extension moves a limited
+// session in the background, so the board does not open a card that would
+// race it; the opt-in to other CLIs still asks.
+func TestLimitSwitchLeavesRoutedAccountsToTheExtension(t *testing.T) {
+	chooser := &accountstest.Chooser{}
+	t.Cleanup(accounts.UseChooser(chooser.Resolve))
+	m := limitedModel(t)
+	if err := m.store.SetSetting(store.AccountRoutingSetting, accounts.Extension); err != nil {
+		t.Fatal(err)
+	}
+	sess, _ := m.selected()
+	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	if m.mode != modeList {
+		t.Fatalf("card opened while the extension routes accounts: %+v", m.limitSwitch)
+	}
+
+	m.cfg.Board.OfferCLIOnLimit = true
+	m.Update(previewMsg{sessID: sess.ID, preview: weeklyLimitPane})
+	if m.mode != modeLimitSwitch || !slices.Contains(m.limitSwitch.targets, "codex") {
+		t.Fatalf("opted-in card did not offer other CLIs: mode=%v offer=%+v", m.mode, m.limitSwitch)
+	}
+	if m.limitSwitch.targets[0] != subscriptionTarget {
+		t.Fatalf("a CLI was put ahead of the subscription: %q", m.limitSwitch.targets)
 	}
 }
 

@@ -81,6 +81,33 @@ func TestLimitSwitchNeverOffersCodexByDefault(t *testing.T) {
 	}
 }
 
+// Claude's limit menu leaves no input line on the screen. The card still
+// opens, and its banner is the limit line alone, not the reply, lists and
+// table above it flattened into one paragraph.
+func TestLimitSwitchBannerUnderTheLimitMenuIsTheLimitLine(t *testing.T) {
+	m := limitedModel(t)
+	sess, _ := m.selected()
+	pane := "  - Raise the size limits before the first run.\n" +
+		"  │ Step         │ The tool       │\n" +
+		"\n" +
+		"● User answered Claude's questions:\n" +
+		"  ⎿  You've hit your weekly limit · resets Friday at 9pm\n" +
+		"\n" +
+		"   What do you want to do?\n" +
+		"\n" +
+		"   ❯ 1. Stop and wait for limit to reset\n" +
+		"     2. Switch to usage credits\n"
+	m.Update(previewMsg{sessID: sess.ID, preview: pane})
+	if m.mode != modeLimitSwitch {
+		t.Fatalf("no card: mode=%v", m.mode)
+	}
+	view := ansi.Strip(m.viewLimitSwitch())
+	if !strings.Contains(view, "You've hit your weekly limit · resets Friday at 9pm") ||
+		strings.Contains(view, "size limits") || strings.Contains(view, "The tool") {
+		t.Fatalf("the banner carries more than the limit line:\n%s", view)
+	}
+}
+
 // A CLI with no accounts has nothing to switch to, so without the opt-in
 // a limit opens no card at all.
 func TestLimitSwitchStaysClosedWithNothingToOffer(t *testing.T) {

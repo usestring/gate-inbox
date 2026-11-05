@@ -252,6 +252,9 @@ func FormatTask(task Task) string {
 	if task.OwnerName != "" {
 		line += " held by " + task.OwnerName
 	}
+	if task.Assignee != "" {
+		line += " assigned to " + nameOr(task.AssigneeName, task.Assignee)
+	}
 	if task.Blocked {
 		line += " blocked on " + strings.Join(task.BlockedBy, ", ")
 	}

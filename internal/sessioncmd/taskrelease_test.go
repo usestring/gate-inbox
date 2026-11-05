@@ -13,7 +13,7 @@ import (
 // task tool takes.
 func claimAs(t *testing.T, h *sessionHarness, claimant, title string) string {
 	t.Helper()
-	created, err := h.sessions.CreateTask(h.caller.ID, title, "", nil)
+	created, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: title})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -63,6 +63,10 @@ func TestKillSessionReleasesItsClaims(t *testing.T) {
 	h := newSessionHarness(t)
 	worker := childRow(t, h, store.Session{ID: "c0c0c3", Name: "worker", ParentID: h.caller.ID, SpawnedBy: h.caller.ID, Status: status.Working}, true)
 	task := claimAs(t, h, worker.ID, "worker's job")
+	reserved, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "worker's next job", Assignee: worker.ID})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
 
 	killed, err := h.sessions.Kill(h.caller.ID, worker.ID, extension.KillByMCP)
 	if err != nil {
@@ -72,6 +76,10 @@ func TestKillSessionReleasesItsClaims(t *testing.T) {
 		t.Fatalf("released_tasks = %d, want 1", killed.ReleasedTasks)
 	}
 	requireReleased(t, h, task)
+	// The kill hands its assignment back to anyone in the same transaction.
+	if next, err := h.store.Task(reserved.ID); err != nil || next.Assignee != "" {
+		t.Fatalf("assigned task after kill = %+v, %v; want unassigned", next, err)
+	}
 	row, err := h.store.Get(worker.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)

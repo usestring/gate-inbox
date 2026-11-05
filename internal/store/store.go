@@ -613,6 +613,9 @@ CREATE TABLE IF NOT EXISTS settings (
 		// claim to the caller's fleet. Rows from before it read ''. See
 		// tasks.go.
 		`ALTER TABLE tasks ADD COLUMN created_by TEXT NOT NULL DEFAULT ''`,
+		// The one session allowed to claim a task, empty for anyone. See
+		// tasks.go.
+		`ALTER TABLE tasks ADD COLUMN assignee TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, migration := range migrations {
 		if _, err := s.db.Exec(migration); err != nil {
@@ -1562,7 +1565,7 @@ func (s *Store) ArchiveStoppedLaunch(sess Session) (bool, error) {
 	if err != nil || n == 0 {
 		return false, err
 	}
-	if _, err := releaseTasksOwnedBy(tx, sess.ID, now); err != nil {
+	if _, err := giveBackTasks(tx, sess.ID, now); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -1602,8 +1605,8 @@ func (s *Store) setArchived(id string, archived bool) (int, error) {
 	return released, nil
 }
 
-// fileAway marks one session archived and hands back its claims, in one
-// transaction.
+// fileAway marks one session archived and hands back its claims and
+// assignments, in one transaction.
 func (s *Store) fileAway(id string) (int, error) {
 	now := time.Now()
 	tx, err := s.db.Begin()
@@ -1618,7 +1621,7 @@ func (s *Store) fileAway(id string) (int, error) {
 	if err := requireRow(res, id); err != nil {
 		return 0, err
 	}
-	released, err := releaseTasksOwnedBy(tx, id, now)
+	released, err := giveBackTasks(tx, id, now)
 	if err != nil {
 		return 0, err
 	}
@@ -1626,7 +1629,7 @@ func (s *Store) fileAway(id string) (int, error) {
 }
 
 // MarkKilled leaves a session reading dead after a kill and hands back
-// every task it held in progress, in one transaction. A kill is the one
+// every task it held in progress or had assigned to it, in one transaction. A kill is the one
 // death that says the work is over: a restart, a park or a pane that
 // exited on its own ends the process too, but the session may come back on
 // the same conversation and carry on with what it claimed, so those write
@@ -1646,7 +1649,7 @@ func (s *Store) MarkKilled(id string) (released int, err error) {
 	if err := requireRow(res, id); err != nil {
 		return 0, err
 	}
-	if released, err = releaseTasksOwnedBy(tx, id, now); err != nil {
+	if released, err = giveBackTasks(tx, id, now); err != nil {
 		return 0, err
 	}
 	return released, tx.Commit()
@@ -1721,7 +1724,7 @@ func (s *Store) ArchiveKilled(ids []string, killed []string) ([]string, error) {
 			missing = append(missing, id)
 			continue
 		}
-		if _, err := releaseTasksOwnedBy(tx, id, now); err != nil {
+		if _, err := giveBackTasks(tx, id, now); err != nil {
 			return nil, err
 		}
 		// Counted per child filed, not per row still present, so the tally
@@ -1842,6 +1845,9 @@ func purgeSessionRefs(tx *sql.Tx, id string) error {
 	// A claim outlives its holder as pending work rather than as a task
 	// parked forever against a session that no longer exists.
 	if _, err := releaseTasksOwnedBy(tx, id, time.Now()); err != nil {
+		return err
+	}
+	if err := unassignTasksOf(tx, id, time.Now()); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM file_reservations WHERE session_id = ?`, id); err != nil {
@@ -2641,6 +2647,13 @@ func (s *Store) SetGroupArchived(path string, archived bool) error {
 			  WHERE state = ? AND owner_session_id IN (
 			    SELECT id FROM sessions WHERE group_name = ? OR group_name LIKE ? || '/%' ESCAPE '\')`,
 			TaskPending, encodeTime(time.Now()), TaskInProgress, path, likePath); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			`UPDATE tasks SET assignee = '', updated_at = ?
+			  WHERE state != ? AND assignee IN (
+			    SELECT id FROM sessions WHERE group_name = ? OR group_name LIKE ? || '/%' ESCAPE '\')`,
+			encodeTime(time.Now()), TaskDone, path, likePath); err != nil {
 			return err
 		}
 	}

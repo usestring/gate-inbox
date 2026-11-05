@@ -638,7 +638,7 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Start another agent CLI in its own Gate Inbox session and hand it a task. Call it only when your user explicitly asked for a new session or another agent; otherwise ask them first, and meanwhile do the work yourself or send_session it to a session already on the board, with interrupt true when that session's current turn is wrong. When it is called for, use it instead of your CLI's built-in subagent tool (Agent/Task, spawn_agent, opencode's subagent); keep the built-in tool for a quick read-only lookup. Pass a descriptive name and a prompt stating the whole task, since the new agent cannot see this conversation; put a long brief in prompt_file. For repo work beside other agents, pass a directory that is its own checkout. Omit account to follow the board's launch-account setting; a child does not inherit its parent's account. The new session is your child: its questions, rests and finishes are relayed here. Leave nest alone for a fan-out and never create a group for one; nest false is a detach, for a standalone session the user owns, with nothing relayed here. Follow it with read_session and send_session; use create_terminal for a plain shell.",
+  "description": "Start another agent CLI in its own Gate Inbox session and hand it a task. Call it only when your user explicitly asked for a new session or another agent; otherwise ask them first, and meanwhile do the work yourself or send_session it to a session already on the board, with interrupt true when that session's current turn is wrong. When it is called for, use it instead of your CLI's built-in subagent tool (Agent/Task, spawn_agent, opencode's subagent); keep the built-in tool for a quick read-only lookup. Pass a descriptive name and a prompt stating the whole task, since the new agent cannot see this conversation; put a long brief in prompt_file. For repo work beside other agents, pass a directory that is its own checkout. Omit account to follow the board's launch-account setting; a child does not inherit its parent's account. The new session is your child: its questions, rests and finishes are relayed here. Leave nest alone for a fan-out and never create a group for one; nest false is a detach, for a standalone session the user owns, with nothing relayed here. Pass tasks to hand it work from the shared task list: existing ids, or new tasks to create, all assigned to it alone. Follow it with read_session and send_session; use create_terminal for a plain shell.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -697,6 +697,41 @@
         "type": [
           "null",
           "boolean"
+        ]
+      },
+      "tasks": {
+        "description": "tasks to assign to the new session before it starts, each either an existing pending task by id or a new one by title (with body and depends_on); only the new session can claim them, and its prompt gets a short list of their ids and titles telling it to claim and finish them with the task tool",
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "description": "the new task's full instruction",
+              "type": "string"
+            },
+            "depends_on": {
+              "description": "ids of tasks the new task waits on",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "id": {
+              "description": "an existing pending task to assign to the new session; you must be its creator or assignee; omit to create a new task instead",
+              "type": "string"
+            },
+            "title": {
+              "description": "a new task to create and assign to the new session: one-line summary of the work",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "type": [
+          "null",
+          "array"
         ]
       },
       "tool": {
@@ -3556,17 +3591,21 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, created_by or fleet for work you or your fleet put up, state or include_done for finished work, include_body for the full instructions; every row names the session that created it. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task your fleet created (you, your spawner or parent, and the sessions you spawned), which is how a worker finds its next job, and any true widens that to the whole list; a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. release hands a claimed task back for another session. delete removes work that turned out not to be needed. A session that is archived or killed gives its in-progress claims back to pending on its own, so no task waits behind an agent that is gone.",
+  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, created_by or fleet for work you or your fleet put up, state or include_done for finished work, include_body for the full instructions; every row names the session that created it. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task your fleet created (you, your spawner or parent, and the sessions you spawned), which is how a worker finds its next job, and any true widens that to the whole list; a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. assign points a pending task at one session, the only one that may then claim it, or omitting assignee unassigns it; its creator or current assignee can do it, and create takes assignee too. A claim without task_id takes the tasks assigned to you first; create_session's tasks argument assigns work to a child as it starts, and an archived or killed session's assigned tasks go back to anyone. release hands a claimed task back for another session. delete removes work that turned out not to be needed. A session that is archived or killed gives its in-progress claims back to pending, and its assignments back to anyone, on its own, so no task waits behind an agent that is gone.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "action": {
-        "description": "list, create, claim, finish, release or delete",
+        "description": "list, create, claim, assign, finish, release or delete",
         "type": "string"
       },
       "any": {
         "description": "claim: without task_id, take the oldest ready task on the whole list instead of only your fleet's; tasks created by unrelated sessions or before creators were recorded are often stale",
         "type": "boolean"
+      },
+      "assignee": {
+        "description": "create, assign: the one session that may claim the task: me, or a session id; on assign, omit it to unassign",
+        "type": "string"
       },
       "body": {
         "description": "create: full instruction for whoever claims it; it cannot see this conversation; or name a file in body_file",
@@ -3650,6 +3689,14 @@
         "additionalProperties": false,
         "description": "the task acted on",
         "properties": {
+          "assignee": {
+            "description": "session id the task is assigned to; only it may claim the task while it is pending",
+            "type": "string"
+          },
+          "assignee_name": {
+            "description": "name of the session the task is assigned to",
+            "type": "string"
+          },
           "blocked": {
             "description": "whether unfinished dependencies currently stop this task being claimed",
             "type": "boolean"
@@ -3728,6 +3775,14 @@
         "items": {
           "additionalProperties": false,
           "properties": {
+            "assignee": {
+              "description": "session id the task is assigned to; only it may claim the task while it is pending",
+              "type": "string"
+            },
+            "assignee_name": {
+              "description": "name of the session the task is assigned to",
+              "type": "string"
+            },
             "blocked": {
               "description": "whether unfinished dependencies currently stop this task being claimed",
               "type": "boolean"

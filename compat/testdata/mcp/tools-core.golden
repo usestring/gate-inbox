@@ -301,7 +301,7 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "File a finished session out of the active list, or restore an archived one with archived false. Use it to keep the user's list readable once a session's work is done; cleanup_children files all of your finished children at once. This ENDS a running agent, and every session it spawned goes with it: the rows and their last screens are kept and revive_session brings one back, but work in progress stops, so read_session first if you are not sure it has finished.",
+  "description": "File a finished session out of the active list, or restore an archived one with archived false. Use it to keep the user's list readable once a session's work is done; cleanup_children files all of your finished children at once. This ENDS a running agent, and every session it spawned goes with it: the rows and their last screens are kept and revive_session brings one back, but work in progress stops, so read_session first if you are not sure it has finished. Every task those sessions held in progress goes back to pending for any session to claim, and the result says how many; restoring does not take them back.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -380,6 +380,10 @@
           "array"
         ]
       },
+      "released_tasks": {
+        "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+        "type": "integer"
+      },
       "running": {
         "description": "whether the session currently has a live tmux pane",
         "type": "boolean"
@@ -429,7 +433,7 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "Archive the sessions this one spawned that are done, in one call, instead of archive_session on each. By default it takes children that are finished, idle or dead, each with every session it spawned in turn, and leaves one that is working, waiting on a question, errored, delegating, background, spawned with keep, or still has working children of its own, saying why. Pass statuses to choose the states, all true to archive every child whatever it is doing, and dry_run true to see the plan first. A terminal you opened is taken only once its shell has exited; a running one is left for close_terminal. It reaches only your own fan-out. Archiving ends a running agent: its last screen is kept, the row stays in the archived view for 7 days, and revive_session brings it back. You rarely need it for a finished child: Gate Inbox archives one on its own once you have read or been told of its finish and left it alone for the grace period.",
+  "description": "Archive the sessions this one spawned that are done, in one call, instead of archive_session on each. By default it takes children that are finished, idle or dead, each with every session it spawned in turn, and leaves one that is working, waiting on a question, errored, delegating, background, spawned with keep, or still has working children of its own, saying why. Pass statuses to choose the states, all true to archive every child whatever it is doing, and dry_run true to see the plan first. A terminal you opened is taken only once its shell has exited; a running one is left for close_terminal. It reaches only your own fan-out. Archiving ends a running agent: its last screen is kept, the row stays in the archived view for 7 days, and revive_session brings it back. Tasks the archived sessions held in progress go back to pending, counted in released_tasks. You rarely need it for a finished child: Gate Inbox archives one on its own once you have read or been told of its finish and left it alone for the grace period.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -485,6 +489,10 @@
               "description": "that session's name",
               "type": "string"
             },
+            "released_tasks": {
+              "description": "how many tasks this child and its descendants held in progress, handed back to pending by the archive",
+              "type": "integer"
+            },
             "session_id": {
               "description": "child session id",
               "type": "string"
@@ -514,6 +522,10 @@
       "dry_run": {
         "description": "true when nothing was archived and the result is only the plan",
         "type": "boolean"
+      },
+      "released_tasks": {
+        "description": "how many in-progress task claims the archives handed back to pending, across every child and descendant filed; any agent can now claim them",
+        "type": "integer"
       },
       "skipped": {
         "description": "how many were left alone, with a reason on each",
@@ -751,6 +763,10 @@
           "null",
           "array"
         ]
+      },
+      "released_tasks": {
+        "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+        "type": "integer"
       },
       "running": {
         "description": "whether the session currently has a live tmux pane",
@@ -1200,6 +1216,10 @@
               "array"
             ]
           },
+          "released_tasks": {
+            "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+            "type": "integer"
+          },
           "running": {
             "description": "whether the session currently has a live tmux pane",
             "type": "boolean"
@@ -1260,7 +1280,7 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Stop another agent's process, ending whatever it is doing. The row stays with its last screen and can be brought back with revive_session. Reserve it for a session whose work is finished or has gone wrong, and prefer send_session to redirect an agent that is still useful. Killing interrupts work in progress on the user's machine, so ask first unless the user asked for it.",
+  "description": "Stop another agent's process, ending whatever it is doing. The row stays with its last screen and can be brought back with revive_session. Every task it held in progress goes back to pending for any session to claim, and the result says how many. Reserve it for a session whose work is finished or has gone wrong, and prefer send_session to redirect an agent that is still useful. Killing interrupts work in progress on the user's machine, so ask first unless the user asked for it.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -1331,6 +1351,10 @@
           "null",
           "array"
         ]
+      },
+      "released_tasks": {
+        "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+        "type": "integer"
       },
       "running": {
         "description": "whether the session currently has a live tmux pane",
@@ -1670,6 +1694,10 @@
                 "array"
               ]
             },
+            "released_tasks": {
+              "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+              "type": "integer"
+            },
             "running": {
               "description": "whether the session currently has a live tmux pane",
               "type": "boolean"
@@ -1974,6 +2002,10 @@
           "array"
         ]
       },
+      "released_tasks": {
+        "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+        "type": "integer"
+      },
       "running": {
         "description": "whether the session currently has a live tmux pane",
         "type": "boolean"
@@ -2101,6 +2133,10 @@
           "null",
           "array"
         ]
+      },
+      "released_tasks": {
+        "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+        "type": "integer"
       },
       "running": {
         "description": "whether the session currently has a live tmux pane",
@@ -2230,6 +2266,10 @@
           "null",
           "array"
         ]
+      },
+      "released_tasks": {
+        "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+        "type": "integer"
       },
       "running": {
         "description": "whether the session currently has a live tmux pane",
@@ -2546,6 +2586,10 @@
               "null",
               "array"
             ]
+          },
+          "released_tasks": {
+            "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+            "type": "integer"
           },
           "running": {
             "description": "whether the session currently has a live tmux pane",
@@ -2981,7 +3025,7 @@
     "openWorldHint": true,
     "readOnlyHint": false
   },
-  "description": "Bring a dead session back on its old row, resuming the conversation it held where its CLI supports that. Call when list_sessions or send_session reports a session is not running and its work should continue.",
+  "description": "Bring a dead session back on its old row, resuming the conversation it held where its CLI supports that. Call when list_sessions or send_session reports a session is not running and its work should continue. Task claims a kill or archive handed back stay released: the revived agent claims again with task what it still means to do, and is refused if another session took it meanwhile.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -3052,6 +3096,10 @@
           "null",
           "array"
         ]
+      },
+      "released_tasks": {
+        "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+        "type": "integer"
       },
       "running": {
         "description": "whether the session currently has a live tmux pane",
@@ -3455,6 +3503,10 @@
           "array"
         ]
       },
+      "released_tasks": {
+        "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+        "type": "integer"
+      },
       "running": {
         "description": "whether the session currently has a live tmux pane",
         "type": "boolean"
@@ -3504,7 +3556,7 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, state or include_done for finished work, include_body for the full instructions. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task, which is how a worker finds its next job, and a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. release hands a claimed task back for another session. delete removes work that turned out not to be needed.",
+  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, state or include_done for finished work, include_body for the full instructions. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task, which is how a worker finds its next job, and a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. release hands a claimed task back for another session. delete removes work that turned out not to be needed. A session that is archived or killed gives its in-progress claims back to pending on its own, so no task waits behind an agent that is gone.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
@@ -3853,6 +3905,10 @@
               "array"
             ]
           },
+          "released_tasks": {
+            "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+            "type": "integer"
+          },
           "running": {
             "description": "whether the session currently has a live tmux pane",
             "type": "boolean"
@@ -3958,6 +4014,10 @@
                     "null",
                     "array"
                   ]
+                },
+                "released_tasks": {
+                  "description": "how many tasks this archive or kill handed back to pending: claims this session (and, on an archive, everything filed with it) held in progress, which any agent can now claim",
+                  "type": "integer"
                 },
                 "running": {
                   "description": "whether the session currently has a live tmux pane",

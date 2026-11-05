@@ -40,8 +40,8 @@ func requireReleased(t *testing.T, h *sessionHarness, taskID string) {
 
 func TestArchiveSessionReleasesTheClaimsOfItAndItsFanOut(t *testing.T) {
 	h := newSessionHarness(t)
-	worker := childRow(t, h, store.Session{ID: "work-aa1", Name: "worker", ParentID: h.caller.ID, SpawnedBy: h.caller.ID, Status: status.Working}, true)
-	grand := childRow(t, h, store.Session{ID: "gkid-bb2", Name: "grandchild", ParentID: h.caller.ID, SpawnedBy: worker.ID, Status: status.Working}, true)
+	worker := childRow(t, h, store.Session{ID: "a0a0a1", Name: "worker", ParentID: h.caller.ID, SpawnedBy: h.caller.ID, Status: status.Working}, true)
+	grand := childRow(t, h, store.Session{ID: "b0b0b2", Name: "grandchild", ParentID: h.caller.ID, SpawnedBy: worker.ID, Status: status.Working}, true)
 	mine := claimAs(t, h, worker.ID, "worker's job")
 	theirs := claimAs(t, h, grand.ID, "grandchild's job")
 
@@ -61,7 +61,7 @@ func TestArchiveSessionReleasesTheClaimsOfItAndItsFanOut(t *testing.T) {
 
 func TestKillSessionReleasesItsClaims(t *testing.T) {
 	h := newSessionHarness(t)
-	worker := childRow(t, h, store.Session{ID: "work-cc3", Name: "worker", ParentID: h.caller.ID, SpawnedBy: h.caller.ID, Status: status.Working}, true)
+	worker := childRow(t, h, store.Session{ID: "c0c0c3", Name: "worker", ParentID: h.caller.ID, SpawnedBy: h.caller.ID, Status: status.Working}, true)
 	task := claimAs(t, h, worker.ID, "worker's job")
 
 	killed, err := h.sessions.Kill(h.caller.ID, worker.ID, extension.KillByMCP)
@@ -86,9 +86,9 @@ func TestKillSessionReleasesItsClaims(t *testing.T) {
 
 func TestCleanupChildrenReleasesTheClaimsOfEveryChildFiled(t *testing.T) {
 	h := newSessionHarness(t)
-	done := childRow(t, h, store.Session{ID: "done-dd4", Name: "done", ParentID: h.caller.ID, SpawnedBy: h.caller.ID, Status: status.Finished}, true)
-	dead := childRow(t, h, store.Session{ID: "dead-ee5", Name: "dead", ParentID: h.caller.ID, SpawnedBy: h.caller.ID, Status: status.Dead}, false)
-	busy := childRow(t, h, store.Session{ID: "busy-ff6", Name: "busy", ParentID: h.caller.ID, SpawnedBy: h.caller.ID, Status: status.Working}, true)
+	done := childRow(t, h, store.Session{ID: "d0d0d4", Name: "done", ParentID: h.caller.ID, SpawnedBy: h.caller.ID, Status: status.Finished}, true)
+	dead := childRow(t, h, store.Session{ID: "e0e0e5", Name: "dead", ParentID: h.caller.ID, SpawnedBy: h.caller.ID, Status: status.Dead}, false)
+	busy := childRow(t, h, store.Session{ID: "f0f0f6", Name: "busy", ParentID: h.caller.ID, SpawnedBy: h.caller.ID, Status: status.Working}, true)
 	doneTask := claimAs(t, h, done.ID, "done's leftover")
 	deadTask := claimAs(t, h, dead.ID, "dead's job")
 	busyTask := claimAs(t, h, busy.ID, "busy's job")
@@ -118,7 +118,7 @@ func TestCleanupChildrenReleasesTheClaimsOfEveryChildFiled(t *testing.T) {
 // A dry run files nothing, so it hands nothing back.
 func TestCleanupChildrenDryRunReleasesNothing(t *testing.T) {
 	h := newSessionHarness(t)
-	done := childRow(t, h, store.Session{ID: "done-gg7", Name: "done", ParentID: h.caller.ID, SpawnedBy: h.caller.ID, Status: status.Finished}, true)
+	done := childRow(t, h, store.Session{ID: "a0b0c7", Name: "done", ParentID: h.caller.ID, SpawnedBy: h.caller.ID, Status: status.Finished}, true)
 	task := claimAs(t, h, done.ID, "done's leftover")
 
 	cleaned, err := h.sessions.CleanupChildren(h.caller.ID, CleanupOptions{DryRun: true})

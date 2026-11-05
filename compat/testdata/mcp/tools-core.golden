@@ -3504,12 +3504,12 @@
     "openWorldHint": false,
     "readOnlyHint": false
   },
-  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, created_by or fleet for work you or your fleet put up, state or include_done for finished work, include_body for the full instructions; every row names the session that created it. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task your fleet created (you, your spawner or parent, and the sessions you spawned), which is how a worker finds its next job, and any true widens that to the whole list; a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. release hands a claimed task back for another session. delete removes work that turned out not to be needed.",
+  "description": "The shared work list every session in this manager claims from; action picks the operation. list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, created_by or fleet for work you or your fleet put up, state or include_done for finished work, include_body for the full instructions; every row names the session that created it. create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task your fleet created (you, your spawner or parent, and the sessions you spawned), which is how a worker finds its next job, and any true widens that to the whole list; a task another session holds is refused with the holder named. finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. release hands a claimed task back for another session. delete removes work that turned out not to be needed; it refuses a task another session holds, and one unfinished tasks depend on, naming them, and force true deletes it anyway, taking its dependency edges along so its dependents become claimable, which the reply lists. prune clears stale work off the list: pending tasks older than older_than_days (default 14) whose creator is archived, deleted or was never recorded; it is a dry run listing them unless dry_run is false, and it keeps any task a task in progress depends on.",
   "inputSchema": {
     "additionalProperties": false,
     "properties": {
       "action": {
-        "description": "list, create, claim, finish, release or delete",
+        "description": "list, create, claim, finish, release, delete or prune",
         "type": "string"
       },
       "any": {
@@ -3538,8 +3538,19 @@
           "array"
         ]
       },
+      "dry_run": {
+        "description": "prune: true (the default) lists what would be deleted and deletes nothing; false deletes it",
+        "type": [
+          "null",
+          "boolean"
+        ]
+      },
       "fleet": {
         "description": "list: keep only tasks your fleet created: you, the session that spawned you or the parent you sit under, and every session you spawned or have under you; the same set a claim without task_id takes from",
+        "type": "boolean"
+      },
+      "force": {
+        "description": "delete: delete a task another session holds, or one unfinished tasks depend on; its dependency edges go with it, so its dependents become claimable and the reply names them",
         "type": "boolean"
       },
       "include_body": {
@@ -3557,6 +3568,10 @@
       "mine": {
         "description": "list: keep only tasks this session holds or finished",
         "type": "boolean"
+      },
+      "older_than_days": {
+        "description": "prune: sweep only stale tasks created more than this many days ago (default 14)",
+        "type": "integer"
       },
       "state": {
         "description": "list: keep only tasks in these states: pending, in_progress or done; omit for pending and in_progress, which is the work still open",
@@ -3589,6 +3604,274 @@
       "matched": {
         "description": "list: how many tasks matched the filters, before limit",
         "type": "integer"
+      },
+      "prune": {
+        "additionalProperties": false,
+        "description": "prune: what was swept, or on a dry run what would be",
+        "properties": {
+          "count": {
+            "description": "how many tasks are in tasks",
+            "type": "integer"
+          },
+          "dry_run": {
+            "description": "true when nothing was deleted and tasks is what a prune with dry_run false would delete",
+            "type": "boolean"
+          },
+          "kept": {
+            "description": "stale tasks left alone because a task that depends on them is in progress",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "blocked": {
+                  "description": "whether unfinished dependencies currently stop this task being claimed",
+                  "type": "boolean"
+                },
+                "blocked_by": {
+                  "description": "the dependencies that are not done yet; the rest of depends_on are finished and in nobody's way",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "body": {
+                  "description": "full instruction for whoever claims it",
+                  "type": "string"
+                },
+                "created_by": {
+                  "description": "session id that created the task; empty on tasks from before creators were recorded",
+                  "type": "string"
+                },
+                "created_by_name": {
+                  "description": "name of the session that created the task; empty once its row is gone, when created_by alone names it",
+                  "type": "string"
+                },
+                "depends_on": {
+                  "description": "task ids that must be done before this one can be claimed",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "id": {
+                  "description": "task id to claim, finish or release",
+                  "type": "string"
+                },
+                "mine": {
+                  "description": "whether the calling session holds the claim",
+                  "type": "boolean"
+                },
+                "owner": {
+                  "description": "session id holding the claim",
+                  "type": "string"
+                },
+                "owner_name": {
+                  "description": "name of the session holding the claim",
+                  "type": "string"
+                },
+                "state": {
+                  "description": "pending, in_progress or done",
+                  "type": "string"
+                },
+                "title": {
+                  "description": "one-line summary of the work",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "state",
+                "blocked",
+                "mine"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "older_than_days": {
+            "description": "the age in days past which a stale task was swept",
+            "type": "integer"
+          },
+          "tasks": {
+            "description": "the stale tasks deleted, or on a dry run those that would be: pending, older than older_than_days, and created by a session that is archived, deleted or was never recorded",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "blocked": {
+                  "description": "whether unfinished dependencies currently stop this task being claimed",
+                  "type": "boolean"
+                },
+                "blocked_by": {
+                  "description": "the dependencies that are not done yet; the rest of depends_on are finished and in nobody's way",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "body": {
+                  "description": "full instruction for whoever claims it",
+                  "type": "string"
+                },
+                "created_by": {
+                  "description": "session id that created the task; empty on tasks from before creators were recorded",
+                  "type": "string"
+                },
+                "created_by_name": {
+                  "description": "name of the session that created the task; empty once its row is gone, when created_by alone names it",
+                  "type": "string"
+                },
+                "depends_on": {
+                  "description": "task ids that must be done before this one can be claimed",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "id": {
+                  "description": "task id to claim, finish or release",
+                  "type": "string"
+                },
+                "mine": {
+                  "description": "whether the calling session holds the claim",
+                  "type": "boolean"
+                },
+                "owner": {
+                  "description": "session id holding the claim",
+                  "type": "string"
+                },
+                "owner_name": {
+                  "description": "name of the session holding the claim",
+                  "type": "string"
+                },
+                "state": {
+                  "description": "pending, in_progress or done",
+                  "type": "string"
+                },
+                "title": {
+                  "description": "one-line summary of the work",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "state",
+                "blocked",
+                "mine"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "unblocked": {
+            "description": "surviving tasks the prune made claimable by deleting what they waited on",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "blocked": {
+                  "description": "whether unfinished dependencies currently stop this task being claimed",
+                  "type": "boolean"
+                },
+                "blocked_by": {
+                  "description": "the dependencies that are not done yet; the rest of depends_on are finished and in nobody's way",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "body": {
+                  "description": "full instruction for whoever claims it",
+                  "type": "string"
+                },
+                "created_by": {
+                  "description": "session id that created the task; empty on tasks from before creators were recorded",
+                  "type": "string"
+                },
+                "created_by_name": {
+                  "description": "name of the session that created the task; empty once its row is gone, when created_by alone names it",
+                  "type": "string"
+                },
+                "depends_on": {
+                  "description": "task ids that must be done before this one can be claimed",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": [
+                    "null",
+                    "array"
+                  ]
+                },
+                "id": {
+                  "description": "task id to claim, finish or release",
+                  "type": "string"
+                },
+                "mine": {
+                  "description": "whether the calling session holds the claim",
+                  "type": "boolean"
+                },
+                "owner": {
+                  "description": "session id holding the claim",
+                  "type": "string"
+                },
+                "owner_name": {
+                  "description": "name of the session holding the claim",
+                  "type": "string"
+                },
+                "state": {
+                  "description": "pending, in_progress or done",
+                  "type": "string"
+                },
+                "title": {
+                  "description": "one-line summary of the work",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "state",
+                "blocked",
+                "mine"
+              ],
+              "type": "object"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          }
+        },
+        "required": [
+          "dry_run",
+          "older_than_days",
+          "count",
+          "tasks"
+        ],
+        "type": [
+          "null",
+          "object"
+        ]
       },
       "returned": {
         "description": "list: how many rows are in tasks",
@@ -3754,6 +4037,86 @@
       "truncated": {
         "description": "list: true when limit left matching tasks out; narrow state or mine, or raise limit",
         "type": "boolean"
+      },
+      "unblocked": {
+        "description": "delete: dependents a forced delete made claimable",
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "blocked": {
+              "description": "whether unfinished dependencies currently stop this task being claimed",
+              "type": "boolean"
+            },
+            "blocked_by": {
+              "description": "the dependencies that are not done yet; the rest of depends_on are finished and in nobody's way",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "body": {
+              "description": "full instruction for whoever claims it",
+              "type": "string"
+            },
+            "created_by": {
+              "description": "session id that created the task; empty on tasks from before creators were recorded",
+              "type": "string"
+            },
+            "created_by_name": {
+              "description": "name of the session that created the task; empty once its row is gone, when created_by alone names it",
+              "type": "string"
+            },
+            "depends_on": {
+              "description": "task ids that must be done before this one can be claimed",
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "null",
+                "array"
+              ]
+            },
+            "id": {
+              "description": "task id to claim, finish or release",
+              "type": "string"
+            },
+            "mine": {
+              "description": "whether the calling session holds the claim",
+              "type": "boolean"
+            },
+            "owner": {
+              "description": "session id holding the claim",
+              "type": "string"
+            },
+            "owner_name": {
+              "description": "name of the session holding the claim",
+              "type": "string"
+            },
+            "state": {
+              "description": "pending, in_progress or done",
+              "type": "string"
+            },
+            "title": {
+              "description": "one-line summary of the work",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "state",
+            "blocked",
+            "mine"
+          ],
+          "type": "object"
+        },
+        "type": [
+          "null",
+          "array"
+        ]
       }
     },
     "type": "object"

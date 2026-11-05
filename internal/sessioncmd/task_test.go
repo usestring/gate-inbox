@@ -232,7 +232,7 @@ func TestReleasedAndDeletedTasksLeaveTheList(t *testing.T) {
 	if released.State != "pending" || released.Owner != "" {
 		t.Fatalf("released task = %+v", released)
 	}
-	if err := h.sessions.DeleteTask(h.caller.ID, created.ID); err != nil {
+	if _, err := h.sessions.DeleteTask(h.caller.ID, created.ID, false); err != nil {
 		t.Fatalf("DeleteTask: %v", err)
 	}
 	listed, err := h.sessions.Tasks(h.caller.ID, TaskListOptions{IncludeDone: true})
@@ -243,7 +243,7 @@ func TestReleasedAndDeletedTasksLeaveTheList(t *testing.T) {
 	if len(tasks) != 0 {
 		t.Fatalf("deleted task is still listed: %+v", tasks)
 	}
-	if err := h.sessions.DeleteTask(h.caller.ID, created.ID); err == nil {
+	if _, err := h.sessions.DeleteTask(h.caller.ID, created.ID, false); err == nil {
 		t.Fatal("deleting a task twice should report it is gone")
 	}
 }

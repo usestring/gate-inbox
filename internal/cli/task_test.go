@@ -72,7 +72,25 @@ func TestTaskVerbsDispatch(t *testing.T) {
 	if err := runTaskDelete(deleted, fake, []string{"t1"}, "cafe0001"); err != nil {
 		t.Fatalf("task delete: %v", err)
 	}
-	if !fake.deleted || deleted.String() != "deleted task t1\n" {
-		t.Fatalf("task delete output = %q", deleted.String())
+	if !fake.deleted || fake.force || !strings.HasPrefix(deleted.String(), "deleted wire the cli (t1)") {
+		t.Fatalf("task delete output = %q, force = %t", deleted.String(), fake.force)
+	}
+	if err := runTaskDelete(&bytes.Buffer{}, fake, []string{"t1", "--force"}, "cafe0001"); err != nil || !fake.force {
+		t.Fatalf("task delete --force = %v, forwarded force %t", err, fake.force)
+	}
+
+	// A prune is a dry run unless told otherwise, since a delete cannot be
+	// undone.
+	pruned := &bytes.Buffer{}
+	if err := runTaskPrune(pruned, fake, nil, "cafe0001"); err != nil {
+		t.Fatalf("task prune: %v", err)
+	}
+	if fake.pruneOpts != (sessioncmd.TaskPruneOptions{OlderThanDays: sessioncmd.DefaultPruneDays}) ||
+		!strings.Contains(pruned.String(), "would delete 1 stale task") || !strings.Contains(pruned.String(), "- wire the cli (t1)") {
+		t.Fatalf("task prune forwarded %+v, printed %q", fake.pruneOpts, pruned.String())
+	}
+	if err := runTaskPrune(&bytes.Buffer{}, fake, []string{"--older-than-days", "30", "--dry-run=false"}, "cafe0001"); err != nil ||
+		fake.pruneOpts != (sessioncmd.TaskPruneOptions{OlderThanDays: 30, Delete: true}) {
+		t.Fatalf("task prune --dry-run=false = %v, forwarded %+v", err, fake.pruneOpts)
 	}
 }

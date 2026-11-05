@@ -1,4 +1,4 @@
-46 commands and verbs
+47 commands and verbs
 
 $ gate-inbox sessions -h
 exit 0
@@ -278,8 +278,10 @@ exit 0
       mark a task you claimed as done, which unblocks everything waiting on it
   gate-inbox task release <task-id> [--json]
       hand a task you claimed back to the list for another session
-  gate-inbox task delete <task-id>
-      remove a task nobody needs any more
+  gate-inbox task delete <task-id> [--force] [--json]
+      remove a task nobody needs any more; refuses one another session holds or unfinished tasks depend on unless --force, which unblocks its dependents
+  gate-inbox task prune [--older-than-days <n>] [--dry-run=false] [--json]
+      list the stale pending tasks whose creator is archived, deleted or unrecorded, and delete them with --dry-run=false
 
 $ gate-inbox task list -h
 exit 0
@@ -339,7 +341,22 @@ usage: gate-inbox task release <task-id> [--json]
 $ gate-inbox task delete -h
 exit 0
 --- stdout
-usage: gate-inbox task delete <task-id>
+usage: gate-inbox task delete <task-id> [--force] [--json]
+  -force
+    	delete a task another session holds, or one unfinished tasks depend on; its dependents become claimable
+  -json
+    	print the raw result as JSON instead of a sentence
+
+$ gate-inbox task prune -h
+exit 0
+--- stdout
+usage: gate-inbox task prune [--older-than-days <n>] [--dry-run=false] [--json]
+  -dry-run
+    	list what would be deleted and delete nothing; --dry-run=false deletes it (default true)
+  -json
+    	print the raw result as JSON instead of a sentence
+  -older-than-days int
+    	sweep only stale tasks created more than this many days ago (default 14)
 
 $ gate-inbox reserve -h
 exit 0

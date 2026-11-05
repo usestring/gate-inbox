@@ -16,7 +16,8 @@ const (
 	usageTaskClaim   = "task claim [<task-id>] [--any] [--json]"
 	usageTaskFinish  = "task finish <task-id> [--json]"
 	usageTaskRelease = "task release <task-id> [--json]"
-	usageTaskDelete  = "task delete <task-id>"
+	usageTaskDelete  = "task delete <task-id> [--force] [--json]"
+	usageTaskPrune   = "task prune [--older-than-days <n>] [--dry-run=false] [--json]"
 )
 
 type taskCommands interface {
@@ -25,7 +26,8 @@ type taskCommands interface {
 	ClaimTask(sessionID, taskID string, opts sessioncmd.ClaimOptions) (sessioncmd.Task, error)
 	FinishTask(sessionID, taskID string) (sessioncmd.Task, error)
 	ReleaseTask(sessionID, taskID string) (sessioncmd.Task, error)
-	DeleteTask(sessionID, taskID string) error
+	DeleteTask(sessionID, taskID string, force bool) (sessioncmd.TaskDeletion, error)
+	PruneTasks(sessionID string, opts sessioncmd.TaskPruneOptions) (sessioncmd.TaskPrune, error)
 }
 
 func newTasks(configDir string) taskCommands {
@@ -39,7 +41,8 @@ func taskVerbs() []command {
 		{name: "claim", usage: usageTaskClaim, about: "take a task before you start it; omit the id to take the oldest pending task nothing is blocking that your fleet created, or pass --any for the whole list", run: bind(newTasks, runTaskClaim)},
 		{name: "finish", usage: usageTaskFinish, about: "mark a task you claimed as done, which unblocks everything waiting on it", run: bind(newTasks, runTaskFinish)},
 		{name: "release", usage: usageTaskRelease, about: "hand a task you claimed back to the list for another session", run: bind(newTasks, runTaskRelease)},
-		{name: "delete", usage: usageTaskDelete, about: "remove a task nobody needs any more", run: bind(newTasks, runTaskDelete)},
+		{name: "delete", usage: usageTaskDelete, about: "remove a task nobody needs any more; refuses one another session holds or unfinished tasks depend on unless --force, which unblocks its dependents", run: bind(newTasks, runTaskDelete)},
+		{name: "prune", usage: usageTaskPrune, about: "list the stale pending tasks whose creator is archived, deleted or unrecorded, and delete them with --dry-run=false", run: bind(newTasks, runTaskPrune)},
 	}
 }
 
@@ -142,13 +145,30 @@ func runTaskRelease(out io.Writer, tasks taskCommands, args []string, sessionID 
 
 func runTaskDelete(out io.Writer, tasks taskCommands, args []string, sessionID string) error {
 	set := cmdline.NewFlagSet(usageTaskDelete)
+	force := set.Bool("force", false, "delete a task another session holds, or one unfinished tasks depend on; its dependents become claimable")
+	asJSON := cmdline.JSONFlag(set)
 	operands, err := parseCommand(out, set, args, 1, 1)
 	if err != nil {
 		return err
 	}
-	if err := tasks.DeleteTask(sessionID, operands[0]); err != nil {
+	deleted, err := tasks.DeleteTask(sessionID, operands[0], *force)
+	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintln(out, "deleted task "+operands[0])
-	return err
+	return cmdline.Emit(out, *asJSON, deleted, sessioncmd.FormatTaskDeletion(deleted))
+}
+
+func runTaskPrune(out io.Writer, tasks taskCommands, args []string, sessionID string) error {
+	set := cmdline.NewFlagSet(usageTaskPrune)
+	days := set.Int("older-than-days", sessioncmd.DefaultPruneDays, "sweep only stale tasks created more than this many days ago")
+	dryRun := set.Bool("dry-run", true, "list what would be deleted and delete nothing; --dry-run=false deletes it")
+	asJSON := cmdline.JSONFlag(set)
+	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
+		return err
+	}
+	pruned, err := tasks.PruneTasks(sessionID, sessioncmd.TaskPruneOptions{OlderThanDays: *days, Delete: !*dryRun})
+	if err != nil {
+		return err
+	}
+	return cmdline.Emit(out, *asJSON, pruned, sessioncmd.FormatTaskPrune(pruned))
 }

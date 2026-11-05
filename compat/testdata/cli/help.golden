@@ -60,7 +60,7 @@ Your children
       list the sessions you spawned and, for each one stopped on a dialog, how long it has waited and its questions word for word, ready to put to the user; never touches tmux, so it is cheap to run every turn
 
 Shared task list
-  gate-inbox task <list|create|claim|finish|release|delete>
+  gate-inbox task <list|create|claim|finish|release|delete|prune>
       the work list every session in this manager claims from
   gate-inbox task list [--state <state>] [--include-done] [--mine] [--created-by <me|session-id>] [--fleet] [--include-body] [--limit <n>] [--json]
       read the work list every session shares: what is pending, who holds what, and what is blocked
@@ -72,8 +72,10 @@ Shared task list
       mark a task you claimed as done, which unblocks everything waiting on it
   gate-inbox task release <task-id> [--json]
       hand a task you claimed back to the list for another session
-  gate-inbox task delete <task-id>
-      remove a task nobody needs any more
+  gate-inbox task delete <task-id> [--force] [--json]
+      remove a task nobody needs any more; refuses one another session holds or unfinished tasks depend on unless --force, which unblocks its dependents
+  gate-inbox task prune [--older-than-days <n>] [--dry-run=false] [--json]
+      list the stale pending tasks whose creator is archived, deleted or unrecorded, and delete them with --dry-run=false
 
 File reservations
   gate-inbox reserve <path>... [--mode exclusive|shared] [--note <text>] [--ttl <duration>] [--json]

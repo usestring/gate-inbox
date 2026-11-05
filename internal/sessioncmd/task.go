@@ -424,25 +424,154 @@ func (s *Sessions) settleTask(sessionID, taskID string, done bool) (Task, error)
 	return runtime.task(caller.ID, taskID)
 }
 
-func (s *Sessions) DeleteTask(sessionID, taskID string) error {
+// TaskDeletion is a delete and the work it set free.
+type TaskDeletion struct {
+	Task      Task   `json:"task" jsonschema:"the task as it stood when it was deleted"`
+	Unblocked []Task `json:"unblocked,omitempty" jsonschema:"dependents the delete made claimable; only a forced delete of unfinished work has any, since its edges go with it"`
+}
+
+// DeleteTask removes a task, refusing one another session holds or one
+// unfinished work waits on unless force is set. A forced delete takes the
+// task's edges with it, so its dependents are unblocked as though it had
+// been finished; the reply names them. Keeping them blocked instead would
+// leave them on an edge that names no task, which nothing can ever clear.
+func (s *Sessions) DeleteTask(sessionID, taskID string, force bool) (TaskDeletion, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
-		return fmt.Errorf("task_id is empty; call %s to get one", s.words.ListTasks)
+		return TaskDeletion{}, fmt.Errorf("task_id is empty; call %s to get one", s.words.ListTasks)
 	}
 	runtime, err := s.open()
 	if err != nil {
-		return err
+		return TaskDeletion{}, err
 	}
 	defer runtime.store.Close()
-	if _, err := runtime.caller(sessionID); err != nil {
-		return err
-	}
-	deleted, err := runtime.store.DeleteTask(taskID)
+	caller, err := runtime.caller(sessionID)
 	if err != nil {
-		return err
+		return TaskDeletion{}, err
 	}
-	if !deleted {
-		return fmt.Errorf("task %s does not exist; call %s for current ids", taskID, runtime.words.ListTasks)
+	deleted, found, err := runtime.store.DeleteTask(taskID, store.DeleteGuard{CallerID: caller.ID, Force: force})
+	var refused *store.DeleteRefusedError
+	if errors.As(err, &refused) {
+		return TaskDeletion{}, runtime.refusedDelete(caller.ID, refused)
 	}
-	return nil
+	if err != nil {
+		return TaskDeletion{}, err
+	}
+	if !found {
+		return TaskDeletion{}, fmt.Errorf("task %s does not exist; call %s for current ids", taskID, runtime.words.ListTasks)
+	}
+	rows, err := runtime.taskRows(caller.ID, append([]store.Task{deleted.Task}, deleted.Unblocked...))
+	if err != nil {
+		return TaskDeletion{}, err
+	}
+	return TaskDeletion{Task: rows[0], Unblocked: rows[1:]}, nil
+}
+
+// maxNamedTasks bounds how many tasks one sentence names; the rest are
+// counted.
+const maxNamedTasks = 10
+
+// refusedDelete says why a delete did not go and how to make it go anyway,
+// naming the holder and the dependents so the caller can ask the one or
+// clear the others first.
+func (r *runtime) refusedDelete(callerID string, refused *store.DeleteRefusedError) error {
+	var reasons []string
+	if refused.HeldBy != "" {
+		holder := refused.HeldBy
+		if names, err := r.sessionNames(); err == nil && names[holder] != "" {
+			holder = names[holder]
+		}
+		reasons = append(reasons, fmt.Sprintf("it is in progress, held by %s, and deleting it pulls the work out from under that session; ask it to finish or release the task", holder))
+	}
+	if len(refused.Dependents) > 0 {
+		dependents, err := r.taskRows(callerID, refused.Dependents)
+		if err != nil {
+			return err
+		}
+		reasons = append(reasons, fmt.Sprintf("%d unfinished %s on it: %s; deleting it makes them claimable although it was never done, so delete or finish them first",
+			len(dependents), plural(len(dependents), "task waits", "tasks wait"), namedTasks(dependents)))
+	}
+	return fmt.Errorf("task %s was not deleted: %s. Call %s to delete it anyway; its dependents are then unblocked",
+		refused.Task.ID, strings.Join(reasons, "; and "), r.words.ForceDelete)
+}
+
+// namedTasks lists tasks as "title (id) [state]", up to maxNamedTasks.
+func namedTasks(tasks []Task) string {
+	names := make([]string, 0, min(len(tasks), maxNamedTasks)+1)
+	for i, task := range tasks {
+		if i == maxNamedTasks {
+			names = append(names, fmt.Sprintf("and %d more", len(tasks)-i))
+			break
+		}
+		names = append(names, fmt.Sprintf("%s (%s) [%s]", task.Title, task.ID, task.State))
+	}
+	return strings.Join(names, ", ")
+}
+
+const (
+	// DefaultPruneDays is how old a stale task must be before prune takes
+	// it. Two weeks is past any workstream still coming back to its plan.
+	DefaultPruneDays = 14
+	// MaxPruneDays bounds the age a caller can ask for, so a typo is a
+	// refusal rather than a prune that silently matches nothing.
+	MaxPruneDays = 3650
+)
+
+// TaskPruneOptions narrows a prune. The zero value is the dry run over
+// tasks older than DefaultPruneDays.
+type TaskPruneOptions struct {
+	// OlderThanDays is the age past which a stale task is swept; zero
+	// takes DefaultPruneDays.
+	OlderThanDays int
+	// Delete deletes what the prune finds. Without it the prune only
+	// reports, which is the default because a delete cannot be undone.
+	Delete bool
+}
+
+// TaskPrune is what a prune found and, unless it was a dry run, deleted.
+type TaskPrune struct {
+	DryRun        bool   `json:"dry_run" jsonschema:"true when nothing was deleted and tasks is what a prune with dry_run false would delete"`
+	OlderThanDays int    `json:"older_than_days" jsonschema:"the age in days past which a stale task was swept"`
+	Count         int    `json:"count" jsonschema:"how many tasks are in tasks"`
+	Tasks         []Task `json:"tasks" jsonschema:"the stale tasks deleted, or on a dry run those that would be: pending, older than older_than_days, and created by a session that is archived, deleted or was never recorded"`
+	Kept          []Task `json:"kept,omitempty" jsonschema:"stale tasks left alone because a task that depends on them is in progress"`
+	Unblocked     []Task `json:"unblocked,omitempty" jsonschema:"surviving tasks the prune made claimable by deleting what they waited on"`
+}
+
+// PruneTasks sweeps the pending tasks nobody is left to want: older than
+// the cutoff, and put up by a session that is archived, deleted, or from
+// before creators were recorded. Those are what pile up on a long-lived
+// board, since nothing else ever takes a pending task off it.
+func (s *Sessions) PruneTasks(sessionID string, opts TaskPruneOptions) (TaskPrune, error) {
+	days := opts.OlderThanDays
+	switch {
+	case days == 0:
+		days = DefaultPruneDays
+	case days < 0 || days > MaxPruneDays:
+		return TaskPrune{}, fmt.Errorf("older_than_days %d is out of range; ask for between 1 and %d", opts.OlderThanDays, MaxPruneDays)
+	}
+	runtime, err := s.open()
+	if err != nil {
+		return TaskPrune{}, err
+	}
+	defer runtime.store.Close()
+	caller, err := runtime.caller(sessionID)
+	if err != nil {
+		return TaskPrune{}, err
+	}
+	cutoff := time.Now().AddDate(0, 0, -days)
+	pruned, err := runtime.store.PruneTasks(cutoff, !opts.Delete)
+	if err != nil {
+		return TaskPrune{}, err
+	}
+	result := TaskPrune{DryRun: !opts.Delete, OlderThanDays: days, Count: len(pruned.Tasks)}
+	for _, rows := range []struct {
+		from []store.Task
+		to   *[]Task
+	}{{pruned.Tasks, &result.Tasks}, {pruned.Kept, &result.Kept}, {pruned.Unblocked, &result.Unblocked}} {
+		if *rows.to, err = runtime.taskRows(caller.ID, rows.from); err != nil {
+			return TaskPrune{}, err
+		}
+	}
+	return result, nil
 }

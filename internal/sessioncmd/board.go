@@ -315,6 +315,7 @@ func (s *Sessions) BoardKill(targetID string) (killed Session, err error) {
 	if _, err := runtime.store.ResolveEndedRecipient(target.ID, time.Now()); err != nil {
 		return Session{}, err
 	}
+	runtime.unassignEnded(target.ID)
 	target.Status = status.Dead
 	if !runtime.cfg.Tools[target.Tool].Shell {
 		sessionhooks.Killed(target, extension.KillByBoard, "")

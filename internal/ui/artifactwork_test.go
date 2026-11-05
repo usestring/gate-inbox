@@ -80,7 +80,8 @@ func TestAPublishedPageIsARowBesideThePullRequestsAndTickets(t *testing.T) {
 		t.Errorf("page glyph = %q, want %q", page.glyph, currentGlyphs.artifact)
 	}
 
-	if badge, want := ansi.Strip(m.workBadge("s1", 60)), badgeGap+"1 pr · 1 issue · 1 artifact"; badge != want {
+	// The waiting mark is the passing pull request's, which wants a reviewer; a page never does.
+	if badge, want := ansi.Strip(m.workBadge("s1", 60)), badgeGap+statusGlyph(status.Waiting)+" 1 pr · 1 issue · 1 artifact"; badge != want {
 		t.Errorf("badge = %q, want %q", badge, want)
 	}
 }

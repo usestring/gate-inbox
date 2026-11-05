@@ -317,6 +317,10 @@ revive_command = "opencode --continue"
 # it, and the poll that pressed Enter for it could not tell the manager's
 # prompt from a line the operator was writing.
 prompt_mode = "send"
+# opencode 2.x arms its interrupt on the first Escape ("esc again to
+# interrupt") and stops the turn on the second; the manager sends them as
+# separate writes so they are not read as one alt+Escape.
+interrupt_keys = ["Escape", "Escape"]
 # r asks the session to name itself with this: /rename is a command the
 # manager registers into every opencode session it starts, through the
 # generated OPENCODE_CONFIG (internal/mcpreg), so there is nowhere to install

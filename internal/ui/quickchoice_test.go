@@ -28,6 +28,12 @@ func TestMenuLetterPicksTheHeldDialogsChoice(t *testing.T) {
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.rebuildRows()
 	sess := sessionNamed(t, m, "ask")
+	// Where the fixture's cat refuses the flags a launch appends, the pane
+	// falls back to a shell that would run the dialog's lines as commands
+	// and leave no dialog to read. cat in its place echoes them back whole.
+	if err := m.tmux.SendText(sess.ID, "exec cat"); err != nil {
+		t.Fatalf("start cat: %v", err)
+	}
 	paintDialog(t, m, sess.ID)
 	waitForHeldDialog(t, m, sess.ID)
 	m.selectSessionRow(t, "ask")
@@ -55,9 +61,8 @@ func TestMenuLetterSendsItsSnippetWithoutADialog(t *testing.T) {
 	waitForPaneText(t, m, m.sessionRows()[0].ID, menuText)
 }
 
-// waitForHeldDialog waits until the pane reads as one whole dialog. cat
-// echoes the paste before it prints it back, so the legend is on screen a
-// moment before the pane settles into a single readable dialog.
+// waitForHeldDialog waits until the pane reads as one whole dialog: the
+// legend is on screen a moment before cat has printed the rest back.
 func waitForHeldDialog(t *testing.T, m *Model, sessID string) {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)

@@ -243,7 +243,7 @@ func TestQueryTasksNarrowsAndCountsInTheStatement(t *testing.T) {
 			t.Fatalf("ClaimTask(%s) = %t, %v", id, ok, err)
 		}
 	}
-	if ok, err := st.FinishTask("a-schema", "session01", now); err != nil || !ok {
+	if ok, err := st.FinishTask("a-schema", "session01", "", now); err != nil || !ok {
 		t.Fatalf("FinishTask = %t, %v", ok, err)
 	}
 
@@ -432,5 +432,41 @@ func TestArchivingASessionUnassignsItsTasks(t *testing.T) {
 		if err != nil || held.Assignee != "" || held.Owner != id || held.State != TaskInProgress {
 			t.Fatalf("%s's held task after archive = %+v, %v", id, held, err)
 		}
+	}
+}
+
+// The note goes on only with the finish: a finish that does not take, by a
+// session that does not hold the task, leaves the row as it was.
+func TestFinishTaskKeepsTheNoteAndReportsWhatItUnblocked(t *testing.T) {
+	st := newTestStore(t)
+	now := time.Now()
+	createTask(t, st, "a-schema")
+	createTask(t, st, "b-docs")
+	createTask(t, st, "c-backfill", "a-schema")
+	createTask(t, st, "d-chart", "a-schema", "b-docs")
+	createTask(t, st, "e-claimed", "a-schema")
+	if ok, err := st.ClaimTask("a-schema", "session01", now); err != nil || !ok {
+		t.Fatalf("ClaimTask = %t, %v", ok, err)
+	}
+	if ok, err := st.FinishTask("a-schema", "session02", "not mine", now); err != nil || ok {
+		t.Fatalf("FinishTask by a non-holder = %t, %v; want refused", ok, err)
+	}
+	if ok, err := st.FinishTask("a-schema", "session01", "merged #12", now); err != nil || !ok {
+		t.Fatalf("FinishTask = %t, %v", ok, err)
+	}
+	task, err := st.Task("a-schema")
+	if err != nil || task.State != TaskDone || task.Note != "merged #12" || task.Owner != "session01" {
+		t.Fatalf("finished task = %+v, %v", task, err)
+	}
+	// A dependent somebody already took is not claimable any more.
+	if ok, err := st.ClaimTask("e-claimed", "session03", now); err != nil || !ok {
+		t.Fatalf("ClaimTask(e-claimed) = %t, %v", ok, err)
+	}
+	ready, err := st.ReadyDependents("a-schema")
+	if err != nil {
+		t.Fatalf("ReadyDependents: %v", err)
+	}
+	if len(ready) != 1 || ready[0].ID != "c-backfill" {
+		t.Fatalf("ready dependents = %+v, want only c-backfill", ready)
 	}
 }

@@ -81,6 +81,14 @@ func TestTaskVerbsDispatch(t *testing.T) {
 		}
 	}
 
+	noted := &bytes.Buffer{}
+	if err := runTaskFinish(noted, fake, []string{"t1", "--note", "merged #12; docs left"}, "cafe0001"); err != nil {
+		t.Fatalf("task finish --note: %v", err)
+	}
+	if fake.taskNote != "merged #12; docs left" {
+		t.Fatalf("task finish --note reached the layer as %q", fake.taskNote)
+	}
+
 	deleted := &bytes.Buffer{}
 	if err := runTaskDelete(deleted, fake, []string{"t1"}, "cafe0001"); err != nil {
 		t.Fatalf("task delete: %v", err)

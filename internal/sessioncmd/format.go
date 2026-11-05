@@ -248,7 +248,37 @@ func FormatTask(task Task) string {
 	case task.CreatedBy != "":
 		line += " created by " + task.CreatedBy
 	}
+	if task.Note != "" {
+		line += "; note: " + oneLine(task.Note, taskNoteExcerptBytes)
+	}
 	return line
+}
+
+// taskNoteExcerptBytes is how much of a finish note a task's row shows in
+// text. The note is up to MaxTaskNoteBytes, and a list of finished work
+// read as text is a list of rows; the structured reply, and include_body,
+// carry it whole.
+const taskNoteExcerptBytes = 160
+
+// FormatTaskFinish is a finish as text: the task with its note whole, what
+// the finish made claimable, and whether the creator was told.
+func FormatTaskFinish(finish TaskFinish) string {
+	task := finish.Task
+	task.Note = ""
+	lines := []string{"finished " + FormatTask(task)}
+	if finish.Task.Note != "" {
+		lines = append(lines, "note: "+finish.Task.Note)
+	}
+	for _, dep := range finish.Unblocked {
+		lines = append(lines, "now claimable: "+FormatTask(dep))
+	}
+	switch {
+	case finish.Notified != "":
+		lines = append(lines, "told its creator "+finish.Notified)
+	case finish.NotNotified != "":
+		lines = append(lines, "did not tell its creator: "+finish.NotNotified)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func FormatTaskList(list TaskList) string {
@@ -268,6 +298,11 @@ func FormatTaskList(list TaskList) string {
 		// belongs under its own row rather than in the structured half alone.
 		if task.Body != "" {
 			lines = append(lines, "  "+strings.ReplaceAll(task.Body, "\n", "\n  "))
+		}
+		// Asking for bodies is asking for the full text, and the row above
+		// carried only the start of the note.
+		if list.Bodies && len(task.Note) > taskNoteExcerptBytes {
+			lines = append(lines, "  note: "+strings.ReplaceAll(task.Note, "\n", "\n  "))
 		}
 	}
 	if list.Truncated {

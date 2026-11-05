@@ -36,8 +36,12 @@ type Task struct {
 	CreatedBy string
 	// Assignee is the only session that may claim the task while it is
 	// set; empty leaves it to anyone.
-	Assignee  string
-	State     string
+	Assignee string
+	State    string
+	// Note is what the finisher left on a done task: the outcome, a PR
+	// link, what is left. Empty until the task is finished, and on tasks
+	// finished without one.
+	Note      string
 	DependsOn []string
 	// Blocking lists the dependencies that are not done, which is the part
 	// of DependsOn worth telling anyone about: a finished dependency is in
@@ -303,21 +307,39 @@ func (s *Store) WithdrawHandedTasks(assignee string, fresh []string, prior map[s
 	return tx.Commit()
 }
 
-// FinishTask marks a claim done, which unblocks whatever depended on it.
-func (s *Store) FinishTask(id, sessionID string, at time.Time) (bool, error) {
-	return s.settleTask(id, sessionID, TaskDone, sessionID, at)
+// FinishTask marks a claim done, which unblocks whatever depended on it,
+// and keeps the finisher's note on the row.
+func (s *Store) FinishTask(id, sessionID, note string, at time.Time) (bool, error) {
+	res, err := s.db.Exec(
+		`UPDATE tasks SET state = ?, note = ?, updated_at = ?
+		  WHERE id = ? AND owner_session_id = ? AND state = ?`,
+		TaskDone, note, encodeTime(at), id, sessionID, TaskInProgress)
+	if err != nil {
+		return false, err
+	}
+	affected, err := res.RowsAffected()
+	return affected > 0, err
+}
+
+// ReadyDependents lists the tasks waiting on id that can be claimed now:
+// pending, and with every edge naming a finished task. Read after a finish,
+// it is the work that finish made claimable.
+func (s *Store) ReadyDependents(id string) ([]Task, error) {
+	page, _, err := s.scanTasks(`
+SELECT t.id, t.title, '', t.owner_session_id, t.created_by, t.assignee, t.state, t.note, t.created_at, t.updated_at, count(*) OVER ()
+  FROM tasks t
+ WHERE `+readyTask+`
+   AND EXISTS (SELECT 1 FROM task_deps e WHERE e.task_id = t.id AND e.depends_on_id = ?)
+ ORDER BY t.created_at, t.id`, []any{TaskPending, TaskDone, id})
+	return page.Tasks, err
 }
 
 // ReleaseTask hands a claim back, so another agent can pick the work up.
 func (s *Store) ReleaseTask(id, sessionID string, at time.Time) (bool, error) {
-	return s.settleTask(id, sessionID, TaskPending, "", at)
-}
-
-func (s *Store) settleTask(id, sessionID, state, owner string, at time.Time) (bool, error) {
 	res, err := s.db.Exec(
-		`UPDATE tasks SET state = ?, owner_session_id = ?, updated_at = ?
+		`UPDATE tasks SET state = ?, owner_session_id = '', updated_at = ?
 		  WHERE id = ? AND owner_session_id = ? AND state = ?`,
-		state, owner, encodeTime(at), id, sessionID, TaskInProgress)
+		TaskPending, encodeTime(at), id, sessionID, TaskInProgress)
 	if err != nil {
 		return false, err
 	}
@@ -416,7 +438,7 @@ func (s *Store) QueryTasks(query TaskQuery) (TaskPage, error) {
 		where = append(where, condition)
 		args = append(args, creatorArgs...)
 	}
-	statement := `SELECT id, title, ` + body + `, owner_session_id, created_by, assignee, state, created_at, updated_at, count(*) OVER ()
+	statement := `SELECT id, title, ` + body + `, owner_session_id, created_by, assignee, state, note, created_at, updated_at, count(*) OVER ()
   FROM tasks`
 	if len(where) > 0 {
 		statement += " WHERE " + strings.Join(where, " AND ")
@@ -447,7 +469,7 @@ func (s *Store) scanTasks(statement string, args []any) (TaskPage, map[string]in
 	for rows.Next() {
 		var task Task
 		var createdAt, updatedAt int64
-		if err := rows.Scan(&task.ID, &task.Title, &task.Body, &task.Owner, &task.CreatedBy, &task.Assignee, &task.State, &createdAt, &updatedAt, &page.Matched); err != nil {
+		if err := rows.Scan(&task.ID, &task.Title, &task.Body, &task.Owner, &task.CreatedBy, &task.Assignee, &task.State, &task.Note, &createdAt, &updatedAt, &page.Matched); err != nil {
 			return TaskPage{}, nil, err
 		}
 		task.CreatedAt = decodeTime(createdAt)

@@ -282,8 +282,8 @@ exit 0
       take a task before you start it; omit the id to take the oldest pending task nothing is blocking that your fleet created, or pass --any for the whole list
   gate-inbox task assign <task-id> [<me|session-id>] [--json]
       point a pending task at the one session that may claim it, or omit the session to unassign it; its creator or current assignee can
-  gate-inbox task finish <task-id> [--json]
-      mark a task you claimed as done, which unblocks everything waiting on it
+  gate-inbox task finish <task-id> [--note <text>] [--json]
+      mark a task you claimed as done, which unblocks everything waiting on it; --note says what came of it, and the session that created the task is sent it
   gate-inbox task release <task-id> [--json]
       hand a task you claimed back to the list for another session
   gate-inbox task delete <task-id>
@@ -342,9 +342,11 @@ usage: gate-inbox task assign <task-id> [<me|session-id>] [--json]
 $ gate-inbox task finish -h
 exit 0
 --- stdout
-usage: gate-inbox task finish <task-id> [--json]
+usage: gate-inbox task finish <task-id> [--note <text>] [--json]
   -json
     	print the raw result as JSON instead of a sentence
+  -note string
+    	what came of the work: the outcome, a PR link, what is left; kept on the task and sent to its creator, at most 4000 bytes
 
 $ gate-inbox task release -h
 exit 0

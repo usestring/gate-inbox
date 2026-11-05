@@ -196,6 +196,7 @@ type taskArgs struct {
 	Fleet       bool     `json:"fleet,omitempty" jsonschema:"list: keep only tasks your fleet created: you, the session that spawned you or the parent you sit under, and every session you spawned or have under you; the same set a claim without task_id takes from"`
 	IncludeBody bool     `json:"include_body,omitempty" jsonschema:"list: carry each task's full instruction; claim returns the body anyway, so choosing what to claim needs only the titles"`
 	Limit       int      `json:"limit,omitempty" jsonschema:"list: how many rows to return (default 50, maximum 500); the reply says how many matched, so a truncated one is never silent"`
+	Note        string   `json:"note,omitempty" jsonschema:"finish: what came of the work, for whoever reads the list and for the task's creator, who is sent it: the outcome, a PR link, what is left undone; at most 4000 bytes"`
 	Any         bool     `json:"any,omitempty" jsonschema:"claim: without task_id, take the oldest ready task on the whole list instead of only your fleet's; tasks created by unrelated sessions or before creators were recorded are often stale"`
 }
 
@@ -240,6 +241,10 @@ type taskOutput struct {
 	Returned  int              `json:"returned,omitempty" jsonschema:"list: how many rows are in tasks"`
 	Truncated bool             `json:"truncated,omitempty" jsonschema:"list: true when limit left matching tasks out; narrow state or mine, or raise limit"`
 	Task      *sessioncmd.Task `json:"task,omitempty" jsonschema:"the task acted on"`
+	// Unblocked, Notified and NotNotified are sessioncmd.TaskFinish's.
+	Unblocked   []sessioncmd.Task `json:"unblocked,omitempty" jsonschema:"finish: dependents the finish made claimable"`
+	Notified    string            `json:"notified,omitempty" jsonschema:"finish: session id of the task's creator, which was sent a message saying the task is done"`
+	NotNotified string            `json:"not_notified,omitempty" jsonschema:"finish: why the creator was not sent a message"`
 }
 
 type listReservationsOutput struct {
@@ -341,7 +346,7 @@ type sessionCommands interface {
 	CreateTask(sessionID string, spec sessioncmd.TaskSpec) (sessioncmd.Task, error)
 	AssignTask(sessionID, taskID, assignee string) (sessioncmd.Task, error)
 	ClaimTask(sessionID, taskID string, opts sessioncmd.ClaimOptions) (sessioncmd.Task, error)
-	FinishTask(sessionID, taskID string) (sessioncmd.Task, error)
+	FinishTask(sessionID, taskID, note string) (sessioncmd.TaskFinish, error)
 	ReleaseTask(sessionID, taskID string) (sessioncmd.Task, error)
 	DeleteTask(sessionID, taskID string) error
 	Reserve(sessionID string, patterns []string, mode, note string, ttl time.Duration) (sessioncmd.ReserveResult, error)
@@ -1017,7 +1022,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, created_by or fleet for work you or your fleet put up, state or include_done for finished work, include_body for the full instructions; every row names the session that created it. " +
 			"create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. " +
 			"claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task your fleet created (you, your spawner or parent, and the sessions you spawned), which is how a worker finds its next job, and any true widens that to the whole list; a task another session holds is refused with the holder named. " +
-			"finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. " +
+			"finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle, and pass a note saying what came of it (the outcome, a PR link, what is left): the note stays on the task, and the session that created the task is sent a message with it and with the dependents that just became claimable, unless you created it yourself or its creator is archived or gone. " +
 			"assign points a pending task at one session, the only one that may then claim it, or omitting assignee unassigns it; its creator or current assignee can do it, and create takes assignee too. A claim without task_id takes the tasks assigned to you first; create_session's tasks argument assigns work to a child as it starts, and an archived or killed session's assigned tasks go back to anyone. " +
 			"release hands a claimed task back for another session. delete removes work that turned out not to be needed.",
 		Annotations: mcptool.Annotations(false, false, false),
@@ -1065,11 +1070,16 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			}
 			return mcptool.Text("assigned " + sessioncmd.FormatTask(assigned)), taskOutput{Task: &assigned}, nil
 		case "finish":
-			finished, err := sessions.FinishTask(sessionID, args.TaskID)
+			finished, err := sessions.FinishTask(sessionID, args.TaskID, args.Note)
 			if err != nil {
 				return nil, taskOutput{}, err
 			}
-			return mcptool.Text("finished " + sessioncmd.FormatTask(finished)), taskOutput{Task: &finished}, nil
+			return mcptool.Text(sessioncmd.FormatTaskFinish(finished)), taskOutput{
+				Task:        &finished.Task,
+				Unblocked:   finished.Unblocked,
+				Notified:    finished.Notified,
+				NotNotified: finished.NotNotified,
+			}, nil
 		case "release":
 			released, err := sessions.ReleaseTask(sessionID, args.TaskID)
 			if err != nil {

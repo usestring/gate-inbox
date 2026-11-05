@@ -44,6 +44,7 @@ type fakeSessions struct {
 	pinned       bool
 	taskID       string
 	claimOpts    sessioncmd.ClaimOptions
+	taskNote     string
 	assignee     string
 	taskListOpts sessioncmd.TaskListOptions
 	title        string
@@ -241,9 +242,9 @@ func (f *fakeSessions) ClaimTask(sessionID, taskID string, opts sessioncmd.Claim
 	return f.task, f.failWith
 }
 
-func (f *fakeSessions) FinishTask(sessionID, taskID string) (sessioncmd.Task, error) {
-	f.callerID, f.taskID = sessionID, taskID
-	return f.task, f.failWith
+func (f *fakeSessions) FinishTask(sessionID, taskID, note string) (sessioncmd.TaskFinish, error) {
+	f.callerID, f.taskID, f.taskNote = sessionID, taskID, note
+	return sessioncmd.TaskFinish{Task: f.task}, f.failWith
 }
 
 func (f *fakeSessions) ReleaseTask(sessionID, taskID string) (sessioncmd.Task, error) {

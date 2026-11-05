@@ -2,19 +2,19 @@
 $ gate-inbox help
 exit 0
 --- stdout
-(9177 bytes of help text)
+(9272 bytes of help text)
 --- left in home: 
 
 $ gate-inbox --help
 exit 0
 --- stdout
-(9177 bytes of help text)
+(9272 bytes of help text)
 --- left in home: 
 
 $ gate-inbox -h
 exit 0
 --- stdout
-(9177 bytes of help text)
+(9272 bytes of help text)
 --- left in home: 
 
 $ gate-inbox --version

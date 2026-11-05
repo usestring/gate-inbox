@@ -908,7 +908,8 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "revive_session",
 		Description: "Bring a dead session back on its old row, resuming the conversation it held where its CLI supports that. " +
-			"Call when list_sessions or send_session reports a session is not running and its work should continue.",
+			"Call when list_sessions or send_session reports a session is not running and its work should continue. " +
+			"Task claims a kill or archive handed back stay released: the revived agent claims again with task what it still means to do, and is refused if another session took it meanwhile.",
 		Annotations: mcptool.Annotations(false, false, true),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args sessionTargetArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
 		// Through the installed manager when this server is stale, so the
@@ -938,6 +939,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "kill_session",
 		Description: "Stop another agent's process, ending whatever it is doing. The row stays with its last screen and can be brought back with revive_session. " +
+			"Every task it held in progress goes back to pending for any session to claim, and the result says how many. " +
 			"Reserve it for a session whose work is finished or has gone wrong, and prefer send_session to redirect an agent that is still useful. " +
 			"Killing interrupts work in progress on the user's machine, so ask first unless the user asked for it.",
 		Annotations: mcptool.Annotations(false, true, true),
@@ -946,13 +948,14 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		if err != nil {
 			return nil, sessioncmd.Session{}, err
 		}
-		return mcptool.Text("killed " + sessioncmd.FormatSession(killed)), killed, nil
+		return mcptool.Text(sessioncmd.FormatKilled(killed)), killed, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "archive_session",
 		Description: "File a finished session out of the active list, or restore an archived one with archived false. " +
-			"Use it to keep the user's list readable once a session's work is done; cleanup_children files all of your finished children at once. This ENDS a running agent, and every session it spawned goes with it: the rows and their last screens are kept and revive_session brings one back, but work in progress stops, so read_session first if you are not sure it has finished.",
+			"Use it to keep the user's list readable once a session's work is done; cleanup_children files all of your finished children at once. This ENDS a running agent, and every session it spawned goes with it: the rows and their last screens are kept and revive_session brings one back, but work in progress stops, so read_session first if you are not sure it has finished. " +
+			"Every task those sessions held in progress goes back to pending for any session to claim, and the result says how many; restoring does not take them back.",
 		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args archiveSessionArgs) (*mcp.CallToolResult, sessioncmd.Session, error) {
 		archived := true
@@ -996,6 +999,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"Pass statuses to choose the states, all true to archive every child whatever it is doing, and dry_run true to see the plan first. " +
 			"A terminal you opened is taken only once its shell has exited; a running one is left for close_terminal. " +
 			"It reaches only your own fan-out. Archiving ends a running agent: its last screen is kept, the row stays in the archived view for 7 days, and revive_session brings it back. " +
+			"Tasks the archived sessions held in progress go back to pending, counted in released_tasks. " +
 			"You rarely need it for a finished child: Gate Inbox archives one on its own once you have read or been told of its finish and left it alone for the grace period.",
 		Annotations: mcptool.Annotations(false, true, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args cleanupChildrenArgs) (*mcp.CallToolResult, sessioncmd.ChildCleanup, error) {
@@ -1019,7 +1023,8 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			"claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task your fleet created (you, your spawner or parent, and the sessions you spawned), which is how a worker finds its next job, and any true widens that to the whole list; a task another session holds is refused with the holder named. " +
 			"finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. " +
 			"assign points a pending task at one session, the only one that may then claim it, or omitting assignee unassigns it; its creator or current assignee can do it, and create takes assignee too. A claim without task_id takes the tasks assigned to you first; create_session's tasks argument assigns work to a child as it starts, and an archived or killed session's assigned tasks go back to anyone. " +
-			"release hands a claimed task back for another session. delete removes work that turned out not to be needed.",
+			"release hands a claimed task back for another session. delete removes work that turned out not to be needed. " +
+			"A session that is archived or killed gives its in-progress claims back to pending, and its assignments back to anyone, on its own, so no task waits behind an agent that is gone.",
 		Annotations: mcptool.Annotations(false, false, false),
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args taskArgs) (*mcp.CallToolResult, taskOutput, error) {
 		switch args.Action {

@@ -411,7 +411,7 @@ func runKill(out io.Writer, sessions sessionCommands, args []string, sessionID s
 	if err != nil {
 		return err
 	}
-	return cmdline.Emit(out, *asJSON, killed, "killed "+sessioncmd.FormatSession(killed))
+	return cmdline.Emit(out, *asJSON, killed, sessioncmd.FormatKilled(killed))
 }
 
 func runRevive(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {

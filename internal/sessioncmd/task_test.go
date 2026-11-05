@@ -64,7 +64,7 @@ func TestTasksAreClaimedByExactlyOneSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	created, err := h.sessions.CreateTask(h.caller.ID, "fix the retry backoff", "see internal/retry", nil)
+	created, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "fix the retry backoff", Body: "see internal/retry"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestTasksAreClaimedByExactlyOneSession(t *testing.T) {
 	}
 
 	// A task nobody is holding has no holder to name, however it got there.
-	pending, err := h.sessions.CreateTask(h.caller.ID, "backfill the column", "", nil)
+	pending, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "backfill the column"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -120,11 +120,11 @@ func TestTasksAreClaimedByExactlyOneSession(t *testing.T) {
 
 func TestDependenciesGateAClaimUntilTheyAreDone(t *testing.T) {
 	h := newSessionHarness(t)
-	first, err := h.sessions.CreateTask(h.caller.ID, "add the column", "", nil)
+	first, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "add the column"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
-	second, err := h.sessions.CreateTask(h.caller.ID, "backfill the column", "", []string{first.ID})
+	second, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "backfill the column", DependsOn: []string{first.ID}})
 	if err != nil {
 		t.Fatalf("CreateTask dependent: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestDependenciesGateAClaimUntilTheyAreDone(t *testing.T) {
 		!strings.Contains(err.Error(), "no task is ready") {
 		t.Fatalf("empty-list claim error = %v", err)
 	}
-	if _, err := h.sessions.CreateTask(h.caller.ID, "depends on nothing real", "", []string{"nope1234"}); err == nil ||
+	if _, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "depends on nothing real", DependsOn: []string{"nope1234"}}); err == nil ||
 		!strings.Contains(err.Error(), "does not exist") {
 		t.Fatalf("unknown dependency error = %v", err)
 	}
@@ -169,15 +169,15 @@ func TestDependenciesGateAClaimUntilTheyAreDone(t *testing.T) {
 func TestOnlyUnfinishedDependenciesAreNamedAsBlocking(t *testing.T) {
 	t.Parallel()
 	h := newSessionHarness(t)
-	first, err := h.sessions.CreateTask(h.caller.ID, "add the column", "", nil)
+	first, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "add the column"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
-	second, err := h.sessions.CreateTask(h.caller.ID, "write the migration", "", nil)
+	second, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "write the migration"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
-	dependent, err := h.sessions.CreateTask(h.caller.ID, "backfill the column", "", []string{first.ID, second.ID})
+	dependent, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "backfill the column", DependsOn: []string{first.ID, second.ID}})
 	if err != nil {
 		t.Fatalf("CreateTask dependent: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestOnlyUnfinishedDependenciesAreNamedAsBlocking(t *testing.T) {
 func TestReleasedAndDeletedTasksLeaveTheList(t *testing.T) {
 	t.Parallel()
 	h := newSessionHarness(t)
-	created, err := h.sessions.CreateTask(h.caller.ID, "spike the cache", "", nil)
+	created, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "spike the cache"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestDeletingASessionHandsItsClaimsBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	created, err := h.sessions.CreateTask(h.caller.ID, "migrate the table", "", nil)
+	created, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "migrate the table"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -280,7 +280,7 @@ func TestDeletingASessionHandsItsClaimsBack(t *testing.T) {
 func TestRacingClaimsOnOneTaskLeaveASingleWinner(t *testing.T) {
 	t.Parallel()
 	h := newSessionHarness(t)
-	created, err := h.sessions.CreateTask(h.caller.ID, "fix the retry backoff", "", nil)
+	created, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "fix the retry backoff"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestRacingSessionsSplitTheListWithoutSharingATask(t *testing.T) {
 	h := newSessionHarness(t)
 	const taskCount = 5
 	for i := range taskCount {
-		if _, err := h.sessions.CreateTask(h.caller.ID, fmt.Sprintf("piece %d", i), "", nil); err != nil {
+		if _, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: fmt.Sprintf("piece %d", i)}); err != nil {
 			t.Fatalf("CreateTask: %v", err)
 		}
 	}
@@ -410,7 +410,7 @@ func TestTheTaskListDefaultsToOpenWorkAndSaysWhenItWasCut(t *testing.T) {
 	worker := h.addSessionRow(t, "worker")
 	ids := make([]string, 0, 4)
 	for _, title := range []string{"add the column", "backfill it", "write the docs", "verify"} {
-		created, err := h.sessions.CreateTask(h.caller.ID, title, "the full instruction for "+title, nil)
+		created, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: title, Body: "the full instruction for " + title})
 		if err != nil {
 			t.Fatalf("CreateTask: %v", err)
 		}
@@ -499,7 +499,7 @@ func TestABareClaimTakesFromTheCallersFleetFirst(t *testing.T) {
 
 	create := func(creator, title string) Task {
 		t.Helper()
-		created, err := h.sessions.CreateTask(creator, title, "", nil)
+		created, err := h.sessions.CreateTask(creator, TaskSpec{Title: title})
 		if err != nil {
 			t.Fatalf("CreateTask %s: %v", title, err)
 		}
@@ -560,7 +560,7 @@ func TestTheTaskListFiltersByCreatorAndFleet(t *testing.T) {
 	for _, made := range []struct{ creator, title string }{
 		{lead, "planned"}, {worker, "split off"}, {stranger, "unrelated"},
 	} {
-		created, err := h.sessions.CreateTask(made.creator, made.title, "", nil)
+		created, err := h.sessions.CreateTask(made.creator, TaskSpec{Title: made.title})
 		if err != nil {
 			t.Fatalf("CreateTask: %v", err)
 		}

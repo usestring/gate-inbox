@@ -613,6 +613,9 @@ CREATE TABLE IF NOT EXISTS settings (
 		// claim to the caller's fleet. Rows from before it read ''. See
 		// tasks.go.
 		`ALTER TABLE tasks ADD COLUMN created_by TEXT NOT NULL DEFAULT ''`,
+		// The one session allowed to claim a task, empty for anyone. See
+		// tasks.go.
+		`ALTER TABLE tasks ADD COLUMN assignee TEXT NOT NULL DEFAULT ''`,
 		// What the finisher said came of a task: the outcome, a PR link,
 		// what is left. Rows finished before it, and every unfinished row,
 		// read ''. See FinishTask.
@@ -1542,6 +1545,9 @@ func (s *Store) ArchiveStoppedLaunch(sess Session) (bool, error) {
 	if err != nil || n == 0 {
 		return false, err
 	}
+	if err := s.UnassignTasksOf(sess.ID, time.Now()); err != nil {
+		return false, err
+	}
 	return true, s.tallyChildArchive(sess.ID, true)
 }
 
@@ -1560,6 +1566,11 @@ func (s *Store) setArchived(id string, archived bool) error {
 	}
 	if err := s.tallyChildArchive(id, archived); err != nil {
 		return err
+	}
+	if archived {
+		if err := s.UnassignTasksOf(id, time.Now()); err != nil {
+			return err
+		}
 	}
 	// Restoring a session out of an archived group must leave it with a live
 	// home, so un-archive its group and every ancestor.
@@ -1640,6 +1651,9 @@ func (s *Store) ArchiveKilled(ids []string, killed []string) ([]string, error) {
 		if affected == 0 {
 			missing = append(missing, id)
 			continue
+		}
+		if err := unassignTasksOf(tx, id, time.Now()); err != nil {
+			return nil, err
 		}
 		// Counted per child filed, not per row still present, so the tally
 		// survives the retention sweep that later deletes the child.
@@ -1759,6 +1773,9 @@ func purgeSessionRefs(tx *sql.Tx, id string) error {
 	// A claim outlives its holder as pending work rather than as a task
 	// parked forever against a session that no longer exists.
 	if err := releaseTasksOwnedBy(tx, id, time.Now()); err != nil {
+		return err
+	}
+	if err := unassignTasksOf(tx, id, time.Now()); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM file_reservations WHERE session_id = ?`, id); err != nil {

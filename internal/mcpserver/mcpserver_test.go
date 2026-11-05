@@ -96,6 +96,7 @@ type fakeSessionCommands struct {
 	taskTitle      string
 	taskBody       string
 	taskDeps       []string
+	taskAssignee   string
 	claimedTaskID  string
 	claimOpts      sessioncmd.ClaimOptions
 	settledTaskID  string
@@ -286,11 +287,18 @@ func (f *fakeSessionCommands) Tasks(_ string, opts sessioncmd.TaskListOptions) (
 	return sessioncmd.TaskList{Tasks: f.tasks, Matched: len(f.tasks), Returned: len(f.tasks)}, f.err
 }
 
-func (f *fakeSessionCommands) CreateTask(_ string, title, body string, dependsOn []string) (sessioncmd.Task, error) {
-	f.taskTitle = title
-	f.taskBody = body
-	f.taskDeps = dependsOn
-	return sessioncmd.Task{ID: "t1", Title: title, State: "pending"}, f.err
+func (f *fakeSessionCommands) CreateTask(_ string, spec sessioncmd.TaskSpec) (sessioncmd.Task, error) {
+	f.taskTitle = spec.Title
+	f.taskBody = spec.Body
+	f.taskDeps = spec.DependsOn
+	f.taskAssignee = spec.Assignee
+	return sessioncmd.Task{ID: "t1", Title: spec.Title, State: "pending"}, f.err
+}
+
+func (f *fakeSessionCommands) AssignTask(_ string, taskID, assignee string) (sessioncmd.Task, error) {
+	f.settledTaskID = taskID
+	f.taskAssignee = assignee
+	return sessioncmd.Task{ID: taskID, Title: "fix retries", State: "pending", Assignee: assignee}, f.err
 }
 
 func (f *fakeSessionCommands) ClaimTask(_ string, taskID string, opts sessioncmd.ClaimOptions) (sessioncmd.Task, error) {
@@ -916,6 +924,16 @@ func TestSessionToolsExposeStructuredResultsAndForwardArguments(t *testing.T) {
 	if opts.Group == nil || *opts.Group != group || opts.Directory != "/work" {
 		t.Fatalf("create target = %+v", opts)
 	}
+	if created := callTool(t, session, "create_session", map[string]any{
+		"name": "column-worker", "prompt": "own the column",
+		"tasks": []any{map[string]any{"id": "t1"}, map[string]any{"title": "backfill", "body": "every row", "depends_on": []string{"t1"}}},
+	}); created.IsError {
+		t.Fatalf("create_session with tasks = %+v", created)
+	}
+	wantTasks := []sessioncmd.SpawnTask{{ID: "t1"}, {Title: "backfill", Body: "every row", DependsOn: []string{"t1"}}}
+	if !reflect.DeepEqual(fake.createdOpts.Tasks, wantTasks) {
+		t.Fatalf("create_session tasks = %+v, want %+v", fake.createdOpts.Tasks, wantTasks)
+	}
 
 	if text, isError := callText(t, session, "send_session", map[string]any{
 		"session_id": "a1b2c3d4", "message": "rebase on main",
@@ -1245,6 +1263,16 @@ func TestTaskToolsForwardArgumentsAndRenderTheList(t *testing.T) {
 	}
 	if fake.taskTitle != "fix retries" || fake.taskBody != "see internal/retry" || strings.Join(fake.taskDeps, ",") != "t1" {
 		t.Fatalf("task create args = %q %q %v", fake.taskTitle, fake.taskBody, fake.taskDeps)
+	}
+	if _, isError := callText(t, session, "task", map[string]any{"action": "create", "title": "handed", "assignee": "me"}); isError || fake.taskAssignee != "me" {
+		t.Fatalf("task create assignee = %q, isError=%v", fake.taskAssignee, isError)
+	}
+	if text, isError := callText(t, session, "task", map[string]any{"action": "assign", "task_id": "t2", "assignee": "w1"}); isError ||
+		fake.settledTaskID != "t2" || fake.taskAssignee != "w1" || !strings.HasPrefix(text, "assigned fix retries (t2)") {
+		t.Fatalf("task assign = %q forwarded %q %q, isError=%v", text, fake.settledTaskID, fake.taskAssignee, isError)
+	}
+	if _, isError := callText(t, session, "task", map[string]any{"action": "assign", "task_id": "t2"}); isError || fake.taskAssignee != "" {
+		t.Fatalf("an unassign forwarded %q, isError=%v", fake.taskAssignee, isError)
 	}
 
 	if _, isError := callText(t, session, "task", map[string]any{"action": "claim"}); isError {

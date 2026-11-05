@@ -22,21 +22,21 @@ func TestFinishKeepsTheNoteAndTellsTheCreatorWhatItUnblocked(t *testing.T) {
 	h := newSessionHarness(t)
 	worker := h.addChildRow(t, "retry-worker", h.caller.ID)
 
-	first, err := h.sessions.CreateTask(h.caller.ID, "add the retry column", "", nil)
+	first, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "add the retry column"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
-	other, err := h.sessions.CreateTask(h.caller.ID, "write the dashboard", "", nil)
+	other, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "write the dashboard"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
-	ready, err := h.sessions.CreateTask(h.caller.ID, "backfill retries", "", []string{first.ID})
+	ready, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "backfill retries", DependsOn: []string{first.ID}})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 	// Waits on first and on other: finishing first leaves it blocked, so
 	// it is no news to the creator.
-	stillBlocked, err := h.sessions.CreateTask(h.caller.ID, "chart retries", "", []string{first.ID, other.ID})
+	stillBlocked, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "chart retries", DependsOn: []string{first.ID, other.ID}})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestFinishTellsNoCreatorThatCannotUseIt(t *testing.T) {
 	worker := h.addChildRow(t, "worker", h.caller.ID)
 	finishAs := func(t *testing.T, creator, finisher string) TaskFinish {
 		t.Helper()
-		created, err := h.sessions.CreateTask(creator, "a piece of work", "", nil)
+		created, err := h.sessions.CreateTask(creator, TaskSpec{Title: "a piece of work"})
 		if err != nil {
 			t.Fatalf("CreateTask: %v", err)
 		}
@@ -117,7 +117,7 @@ func TestFinishTellsNoCreatorThatCannotUseIt(t *testing.T) {
 	t.Run("the creator is archived", func(t *testing.T) {
 		creator := h.addSessionRow(t, "filed-lead")
 		finished := func() TaskFinish {
-			created, err := h.sessions.CreateTask(creator, "filed work", "", nil)
+			created, err := h.sessions.CreateTask(creator, TaskSpec{Title: "filed work"})
 			if err != nil {
 				t.Fatalf("CreateTask: %v", err)
 			}
@@ -144,7 +144,7 @@ func TestFinishTellsNoCreatorThatCannotUseIt(t *testing.T) {
 	})
 	t.Run("the creator is gone", func(t *testing.T) {
 		creator := h.addSessionRow(t, "gone-lead")
-		created, err := h.sessions.CreateTask(creator, "orphaned work", "", nil)
+		created, err := h.sessions.CreateTask(creator, TaskSpec{Title: "orphaned work"})
 		if err != nil {
 			t.Fatalf("CreateTask: %v", err)
 		}
@@ -177,7 +177,7 @@ func TestFinishTellsNoCreatorThatCannotUseIt(t *testing.T) {
 
 func TestFinishRefusesAnOversizedNoteBeforeSettling(t *testing.T) {
 	h := newSessionHarness(t)
-	created, err := h.sessions.CreateTask(h.caller.ID, "a piece of work", "", nil)
+	created, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "a piece of work"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}

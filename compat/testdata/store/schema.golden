@@ -290,7 +290,8 @@ CREATE INDEX tasks_claimable ON tasks (state, created_at)
    5 created_at                   INTEGER  notnull=1 default=0 pk=0
    6 updated_at                   INTEGER  notnull=1 default=0 pk=0
    7 created_by                   TEXT     notnull=1 default='' pk=0
-   8 note                         TEXT     notnull=1 default='' pk=0
+   8 assignee                     TEXT     notnull=1 default='' pk=0
+   9 note                         TEXT     notnull=1 default='' pk=0
   index sqlite_autoindex_tasks_1 unique=1 origin=pk partial=0 (id)
   index tasks_claimable unique=0 origin=c partial=0 (state, created_at)
 

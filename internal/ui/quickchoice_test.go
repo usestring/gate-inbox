@@ -8,8 +8,8 @@ import (
 	"github.com/usestring/gate-inbox/internal/status"
 )
 
-func TestChoiceForMapsAThroughE(t *testing.T) {
-	for key, want := range map[string]int{"a": 1, "b": 2, "c": 3, "d": 4, "e": 5, "f": 0, "t": 0, "ab": 0, "": 0} {
+func TestChoiceForMapsAThroughC(t *testing.T) {
+	for key, want := range map[string]int{"a": 1, "b": 2, "c": 3, "d": 0, "e": 0, "f": 0, "t": 0, "ab": 0, "": 0} {
 		if got := choiceFor(key); got != want {
 			t.Errorf("choiceFor(%q) = %d, want %d", key, got, want)
 		}

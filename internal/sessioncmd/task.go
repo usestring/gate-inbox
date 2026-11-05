@@ -24,8 +24,8 @@ type Task struct {
 	Owner       string   `json:"owner,omitempty" jsonschema:"session id holding the claim"`
 	OwnerName   string   `json:"owner_name,omitempty" jsonschema:"name of the session holding the claim"`
 	CreatedBy   string   `json:"created_by,omitempty" jsonschema:"session id that created the task; empty on tasks from before creators were recorded"`
-	Note        string   `json:"note,omitempty" jsonschema:"what the finisher said came of the task: the outcome, a PR link, what is left; set once it is done, and shortened in text replies unless include_body is set"`
 	CreatorName string   `json:"created_by_name,omitempty" jsonschema:"name of the session that created the task; empty once its row is gone, when created_by alone names it"`
+	Note        string   `json:"note,omitempty" jsonschema:"what the finisher said came of the task: the outcome, a PR link, what is left; set once it is done, and shortened in text replies unless include_body is set"`
 	DependsOn   []string `json:"depends_on,omitempty" jsonschema:"task ids that must be done before this one can be claimed"`
 	BlockedBy   []string `json:"blocked_by,omitempty" jsonschema:"the dependencies that are not done yet; the rest of depends_on are finished and in nobody's way"`
 	Blocked     bool     `json:"blocked" jsonschema:"whether unfinished dependencies currently stop this task being claimed"`
@@ -510,9 +510,12 @@ func (r *runtime) notifyCreator(finisher store.Session, finish TaskFinish) (stri
 	case finisher.ID:
 		return "", "you created the task"
 	}
-	creator, err := r.agent(task.CreatedBy)
-	if err != nil {
+	creator, err := r.store.Get(task.CreatedBy)
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", "its creator " + task.CreatedBy + " is gone"
+	}
+	if err != nil {
+		return "", "could not read its creator " + task.CreatedBy + ": " + err.Error()
 	}
 	if creator.Archived {
 		return "", "its creator " + task.CreatedBy + " is archived"

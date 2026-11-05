@@ -65,28 +65,28 @@ func TestOperatorEntryThatCannotBindStillClaimsItsKey(t *testing.T) {
 }
 
 func TestFirstRunDoesNotWriteTheDistribution(t *testing.T) {
-	override := Snippet{Key: "c", Label: "carry on", Text: "carry on with the plan"}
+	override := Snippet{Key: "t", Label: "carry on", Text: "carry on with the plan"}
 	useDistribution(t, sample, override)
 	dir := t.TempDir()
 	set, err := Load(dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got, _ := set.Get("c"); got != override {
+	if got, _ := set.Get("t"); got != override {
 		t.Fatalf("c = %+v, want the distribution's entry over the built-in", got)
 	}
 	if got, _ := set.Get("r"); got != sample {
 		t.Fatalf("r = %+v, want the distribution's entry", got)
 	}
 	if len(set.Snippets) != len(Defaults())+1 {
-		t.Fatalf("got %d snippets, want the built-ins with c replaced plus r", len(set.Snippets))
+		t.Fatalf("got %d snippets, want the built-ins with t replaced plus r", len(set.Snippets))
 	}
 	raw, err := os.ReadFile(Path(dir))
 	if err != nil {
 		t.Fatal(err)
 	}
 	written := string(raw)
-	for _, leaked := range []string{sample.Text, override.Text, `"c"`} {
+	for _, leaked := range []string{sample.Text, override.Text, `"t"`} {
 		if strings.Contains(written, leaked) {
 			t.Fatalf("snippets.json carries %s:\n%s", leaked, written)
 		}

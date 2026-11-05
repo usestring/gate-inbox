@@ -1,6 +1,6 @@
 === absent
 y  "yes" -> "yes"
-c  "continue" -> "continue"
+t  "continue" -> "continue"
 e  "eli5" -> "I'm confused, explain like I'm 5"
 w  "wake up" -> "Auto wake-up: the previous turn died on a transient API error. Continue where you left off."
 n  "needs?" -> "what do you need from me?"
@@ -17,9 +17,9 @@ p  "progress" -> "summarise all current progress in bullet points, including eve
     "autoSubmit": true
   },
   {
-    "key": "c",
+    "key": "t",
     "label": "continue",
-    "chord": "alt+c",
+    "chord": "alt+t",
     "text": "continue",
     "autoSubmit": true
   },

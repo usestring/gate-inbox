@@ -5,6 +5,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -25,10 +26,14 @@ type executor interface {
 // is what lets a fleet coordinate without a lead agent brokering every
 // handoff.
 type Task struct {
-	ID        string
-	Title     string
-	Body      string
-	Owner     string
+	ID    string
+	Title string
+	Body  string
+	Owner string
+	// CreatedBy is the session that put the task on the list, empty on
+	// rows written before anyone recorded it. It is what scopes a bare
+	// claim to the caller's fleet.
+	CreatedBy string
 	State     string
 	DependsOn []string
 	// Blocking lists the dependencies that are not done, which is the part
@@ -40,6 +45,21 @@ type Task struct {
 	UpdatedAt time.Time
 }
 
+// MissingDependencyError is CreateTask refusing an edge to a task that is
+// not on the list, so the caller can name the id it got wrong.
+type MissingDependencyError struct {
+	ID string
+}
+
+func (e *MissingDependencyError) Error() string {
+	return fmt.Sprintf("dependency %s does not exist", e.ID)
+}
+
+// CreateTask writes the row and its edges in one transaction, checking
+// each dependency exists inside it. The row goes in first, which takes the
+// write lock, so no DeleteTask can land between the check and the edge:
+// an edge to a task deleted in that gap would name no task and block the
+// new one for good, since nothing ever writes task_deps again.
 func (s *Store) CreateTask(task Task) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -47,13 +67,21 @@ func (s *Store) CreateTask(task Task) error {
 	}
 	defer tx.Rollback()
 	if _, err := tx.Exec(
-		`INSERT INTO tasks (id, title, body, owner_session_id, state, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		task.ID, task.Title, task.Body, task.Owner, task.State,
+		`INSERT INTO tasks (id, title, body, owner_session_id, created_by, state, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		task.ID, task.Title, task.Body, task.Owner, task.CreatedBy, task.State,
 		encodeTime(task.CreatedAt), encodeTime(task.UpdatedAt)); err != nil {
 		return err
 	}
 	for _, dep := range task.DependsOn {
+		var exists int
+		err := tx.QueryRow(`SELECT count(*) FROM tasks WHERE id = ? AND id != ?`, dep, task.ID).Scan(&exists)
+		if err != nil {
+			return err
+		}
+		if exists == 0 {
+			return &MissingDependencyError{ID: dep}
+		}
 		if _, err := tx.Exec(
 			`INSERT OR IGNORE INTO task_deps (task_id, depends_on_id) VALUES (?, ?)`,
 			task.ID, dep); err != nil {
@@ -84,25 +112,51 @@ UPDATE tasks SET state = ?, owner_session_id = ?, updated_at = ?
 	return affected > 0, err
 }
 
-// ClaimNextTask takes the oldest task that is pending and unblocked.
-func (s *Store) ClaimNextTask(sessionID string, at time.Time) (Task, bool, error) {
+// readyTask is the condition a claimable task meets, over alias t: pending
+// and with every edge naming a finished task.
+const readyTask = `t.state = ?
+      AND NOT EXISTS (
+        SELECT 1 FROM task_deps d LEFT JOIN tasks p ON p.id = d.depends_on_id
+         WHERE d.task_id = t.id AND (p.id IS NULL OR p.state != ?)
+      )`
+
+// creatorIn is the condition that column names one of creators, for a
+// caller that has already decided to narrow: an empty list matches
+// nothing rather than everything.
+func creatorIn(column string, creators []string) (string, []any) {
+	if len(creators) == 0 {
+		return "0", nil
+	}
+	args := make([]any, 0, len(creators))
+	for _, creator := range creators {
+		args = append(args, creator)
+	}
+	return column + " IN (" + placeholders(len(creators)) + ")", args
+}
+
+// ClaimNextTask takes the oldest task that is pending and unblocked, among
+// the tasks one of creators made; nil creators takes from the whole list.
+func (s *Store) ClaimNextTask(sessionID string, creators []string, at time.Time) (Task, bool, error) {
 	task := Task{Owner: sessionID, State: TaskInProgress, UpdatedAt: at}
 	var createdAt int64
+	args := []any{TaskInProgress, sessionID, encodeTime(at), TaskPending, TaskDone}
+	filter := ""
+	if creators != nil {
+		condition, creatorArgs := creatorIn("t.created_by", creators)
+		filter = " AND " + condition
+		args = append(args, creatorArgs...)
+	}
+	args = append(args, TaskPending)
 	err := s.db.QueryRow(`
 UPDATE tasks SET state = ?, owner_session_id = ?, updated_at = ?
  WHERE id = (
    SELECT t.id FROM tasks t
-    WHERE t.state = ?
-      AND NOT EXISTS (
-        SELECT 1 FROM task_deps d LEFT JOIN tasks p ON p.id = d.depends_on_id
-         WHERE d.task_id = t.id AND (p.id IS NULL OR p.state != ?)
-      )
+    WHERE `+readyTask+filter+`
     ORDER BY t.created_at, t.id LIMIT 1
  )
  AND state = ?
- RETURNING id, title, body, created_at`,
-		TaskInProgress, sessionID, encodeTime(at), TaskPending, TaskDone, TaskPending).
-		Scan(&task.ID, &task.Title, &task.Body, &createdAt)
+ RETURNING id, title, body, created_by, created_at`, args...).
+		Scan(&task.ID, &task.Title, &task.Body, &task.CreatedBy, &createdAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Task{}, false, nil
 	}
@@ -111,6 +165,15 @@ UPDATE tasks SET state = ?, owner_session_id = ?, updated_at = ?
 	}
 	task.CreatedAt = decodeTime(createdAt)
 	return task, true, nil
+}
+
+// ReadyTaskCount counts the tasks a global claim could take now, which is
+// what a fleet-scoped claim that found nothing reports as lying outside
+// the fleet.
+func (s *Store) ReadyTaskCount() (int, error) {
+	var count int
+	err := s.db.QueryRow(`SELECT count(*) FROM tasks t WHERE `+readyTask, TaskPending, TaskDone).Scan(&count)
+	return count, err
 }
 
 // FinishTask marks a claim done, which unblocks whatever depended on it.
@@ -173,6 +236,9 @@ type TaskQuery struct {
 	States []string
 	// Owner keeps only tasks this session holds or finished.
 	Owner string
+	// CreatedBy keeps only tasks one of these sessions created; nil keeps
+	// every creator, and an empty non-nil slice keeps none.
+	CreatedBy []string
 	// Limit caps the rows read, after filtering; zero reads them all.
 	Limit int
 	// SkipBody leaves each body empty. A body is the one unbounded column,
@@ -218,7 +284,12 @@ func (s *Store) QueryTasks(query TaskQuery) (TaskPage, error) {
 		where = append(where, "owner_session_id = ?")
 		args = append(args, query.Owner)
 	}
-	statement := `SELECT id, title, ` + body + `, owner_session_id, state, created_at, updated_at, count(*) OVER ()
+	if query.CreatedBy != nil {
+		condition, creatorArgs := creatorIn("created_by", query.CreatedBy)
+		where = append(where, condition)
+		args = append(args, creatorArgs...)
+	}
+	statement := `SELECT id, title, ` + body + `, owner_session_id, created_by, state, created_at, updated_at, count(*) OVER ()
   FROM tasks`
 	if len(where) > 0 {
 		statement += " WHERE " + strings.Join(where, " AND ")
@@ -249,7 +320,7 @@ func (s *Store) scanTasks(statement string, args []any) (TaskPage, map[string]in
 	for rows.Next() {
 		var task Task
 		var createdAt, updatedAt int64
-		if err := rows.Scan(&task.ID, &task.Title, &task.Body, &task.Owner, &task.State, &createdAt, &updatedAt, &page.Matched); err != nil {
+		if err := rows.Scan(&task.ID, &task.Title, &task.Body, &task.Owner, &task.CreatedBy, &task.State, &createdAt, &updatedAt, &page.Matched); err != nil {
 			return TaskPage{}, nil, err
 		}
 		task.CreatedAt = decodeTime(createdAt)

@@ -37,8 +37,11 @@ func TestTaskVerbsDispatch(t *testing.T) {
 	if err := runTaskClaim(&bytes.Buffer{}, fake, nil, "cafe0001"); err != nil {
 		t.Fatalf("task claim: %v", err)
 	}
-	if fake.taskID != "" {
-		t.Fatalf("a bare claim takes the next task, got id %q", fake.taskID)
+	if fake.taskID != "" || fake.claimOpts.Any {
+		t.Fatalf("a bare claim takes the fleet's next task, got id %q %+v", fake.taskID, fake.claimOpts)
+	}
+	if err := runTaskClaim(&bytes.Buffer{}, fake, []string{"--any"}, "cafe0001"); err != nil || !fake.claimOpts.Any {
+		t.Fatalf("task claim --any = %v, forwarded %+v", err, fake.claimOpts)
 	}
 	if err := runTaskClaim(&bytes.Buffer{}, fake, []string{"t1"}, "cafe0001"); err != nil {
 		t.Fatalf("task claim t1: %v", err)

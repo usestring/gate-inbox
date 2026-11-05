@@ -97,6 +97,7 @@ type fakeSessionCommands struct {
 	taskBody       string
 	taskDeps       []string
 	claimedTaskID  string
+	claimOpts      sessioncmd.ClaimOptions
 	settledTaskID  string
 	reservedPaths  []string
 	reservedMode   string
@@ -291,8 +292,9 @@ func (f *fakeSessionCommands) CreateTask(_ string, title, body string, dependsOn
 	return sessioncmd.Task{ID: "t1", Title: title, State: "pending"}, f.err
 }
 
-func (f *fakeSessionCommands) ClaimTask(_ string, taskID string) (sessioncmd.Task, error) {
+func (f *fakeSessionCommands) ClaimTask(_ string, taskID string, opts sessioncmd.ClaimOptions) (sessioncmd.Task, error) {
 	f.claimedTaskID = taskID
+	f.claimOpts = opts
 	return sessioncmd.Task{ID: "t1", Title: "fix retries", State: "in_progress", Mine: true}, f.err
 }
 
@@ -1222,10 +1224,11 @@ func TestTaskToolsForwardArgumentsAndRenderTheList(t *testing.T) {
 	}
 	if _, isError := callText(t, session, "task", map[string]any{
 		"action": "list", "state": []string{"done"}, "include_done": true, "mine": true, "include_body": true, "limit": 7,
+		"created_by": "me", "fleet": true,
 	}); isError {
 		t.Fatal("a narrowed task list errored")
 	}
-	want := sessioncmd.TaskListOptions{State: []string{"done"}, IncludeDone: true, Mine: true, IncludeBody: true, Limit: 7}
+	want := sessioncmd.TaskListOptions{State: []string{"done"}, IncludeDone: true, Mine: true, CreatedBy: "me", Fleet: true, IncludeBody: true, Limit: 7}
 	if !reflect.DeepEqual(fake.taskListOpts, want) {
 		t.Fatalf("list forwarded %+v, want %+v", fake.taskListOpts, want)
 	}
@@ -1242,8 +1245,11 @@ func TestTaskToolsForwardArgumentsAndRenderTheList(t *testing.T) {
 	if _, isError := callText(t, session, "task", map[string]any{"action": "claim"}); isError {
 		t.Fatal("claim with no id errored")
 	}
-	if fake.claimedTaskID != "" {
-		t.Fatalf("claim-next should forward an empty id, got %q", fake.claimedTaskID)
+	if fake.claimedTaskID != "" || fake.claimOpts.Any {
+		t.Fatalf("claim-next should forward an empty id and a fleet scope, got %q %+v", fake.claimedTaskID, fake.claimOpts)
+	}
+	if _, isError := callText(t, session, "task", map[string]any{"action": "claim", "any": true}); isError || !fake.claimOpts.Any {
+		t.Fatalf("claim any forwarded %+v, isError=%v", fake.claimOpts, isError)
 	}
 	if _, isError := callText(t, session, "task", map[string]any{"action": "claim", "task_id": "t2"}); isError {
 		t.Fatal("claim errored")

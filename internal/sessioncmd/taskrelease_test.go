@@ -17,7 +17,7 @@ func claimAs(t *testing.T, h *sessionHarness, claimant, title string) string {
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
-	claimed, err := h.sessions.ClaimTask(claimant, created.ID)
+	claimed, err := h.sessions.ClaimTask(claimant, created.ID, ClaimOptions{})
 	if err != nil {
 		t.Fatalf("ClaimTask: %v", err)
 	}

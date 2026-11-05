@@ -180,7 +180,7 @@ type cleanupChildrenArgs struct {
 
 type taskArgs struct {
 	Action    string   `json:"action" jsonschema:"list, create, claim, finish, release or delete"`
-	TaskID    string   `json:"task_id,omitempty" jsonschema:"task to act on; omit on claim to take the oldest pending task nothing is blocking"`
+	TaskID    string   `json:"task_id,omitempty" jsonschema:"task to act on; omit on claim to take the oldest pending task nothing is blocking that your fleet created"`
 	Title     string   `json:"title,omitempty" jsonschema:"create: one-line summary of the work, specific enough that another agent knows what done looks like"`
 	Body      string   `json:"body,omitempty" jsonschema:"create: full instruction for whoever claims it; it cannot see this conversation; or name a file in body_file"`
 	BodyFile  string   `json:"body_file,omitempty" jsonschema:"create: absolute path of a file holding the instruction, used instead of body"`
@@ -190,8 +190,11 @@ type taskArgs struct {
 	State       []string `json:"state,omitempty" jsonschema:"list: keep only tasks in these states: pending, in_progress or done; omit for pending and in_progress, which is the work still open"`
 	IncludeDone bool     `json:"include_done,omitempty" jsonschema:"list: also list finished tasks, which on a long-lived list are most of it; pass it only when checking what was done"`
 	Mine        bool     `json:"mine,omitempty" jsonschema:"list: keep only tasks this session holds or finished"`
+	CreatedBy   string   `json:"created_by,omitempty" jsonschema:"list: keep only tasks this session created: me, or a session id"`
+	Fleet       bool     `json:"fleet,omitempty" jsonschema:"list: keep only tasks your fleet created: you, the session that spawned you or the parent you sit under, and every session you spawned or have under you; the same set a claim without task_id takes from"`
 	IncludeBody bool     `json:"include_body,omitempty" jsonschema:"list: carry each task's full instruction; claim returns the body anyway, so choosing what to claim needs only the titles"`
 	Limit       int      `json:"limit,omitempty" jsonschema:"list: how many rows to return (default 50, maximum 500); the reply says how many matched, so a truncated one is never silent"`
+	Any         bool     `json:"any,omitempty" jsonschema:"claim: without task_id, take the oldest ready task on the whole list instead of only your fleet's; tasks created by unrelated sessions or before creators were recorded are often stale"`
 }
 
 type reserveFilesArgs struct {
@@ -334,7 +337,7 @@ type sessionCommands interface {
 	Mute(sessionID, targetID string, muted bool) (sessioncmd.Session, error)
 	Tasks(sessionID string, opts sessioncmd.TaskListOptions) (sessioncmd.TaskList, error)
 	CreateTask(sessionID, title, body string, dependsOn []string) (sessioncmd.Task, error)
-	ClaimTask(sessionID, taskID string) (sessioncmd.Task, error)
+	ClaimTask(sessionID, taskID string, opts sessioncmd.ClaimOptions) (sessioncmd.Task, error)
 	FinishTask(sessionID, taskID string) (sessioncmd.Task, error)
 	ReleaseTask(sessionID, taskID string) (sessioncmd.Task, error)
 	DeleteTask(sessionID, taskID string) error
@@ -1010,9 +1013,9 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 		Name: "task",
 		Description: "The shared work list every session in this manager claims from; action picks the operation. " +
 			"list reads it: call it before starting work so two agents do not build the same thing, and before reporting progress on a fleet. " +
-			"By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, state or include_done for finished work, include_body for the full instructions. " +
+			"By default list returns the open work, pending and in_progress, as titles without bodies, capped at 50 rows and saying when the cap cut it; ask for what you need rather than the history: mine for your own claims, created_by or fleet for work you or your fleet put up, state or include_done for finished work, include_body for the full instructions; every row names the session that created it. " +
 			"create puts a piece of work up for any session to pick up, instead of holding the plan where nobody else sees it: split the plan into tasks when you spawn a fleet, and sequence with depends_on, which makes a dependent claimable the moment what it waits on finishes. " +
-			"claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task, which is how a worker finds its next job, and a task another session holds is refused with the holder named. " +
+			"claim takes a task before you start it, so no other session picks the same piece; omitting task_id takes the oldest unblocked pending task your fleet created (you, your spawner or parent, and the sessions you spawned), which is how a worker finds its next job, and any true widens that to the whole list; a task another session holds is refused with the holder named. " +
 			"finish marks a claimed task done, unblocking its dependents; call it the moment the work completes, since a task left in progress keeps other agents idle. " +
 			"release hands a claimed task back for another session. delete removes work that turned out not to be needed. " +
 			"A session that is archived or killed gives its in-progress claims back to pending on its own, so no task waits behind an agent that is gone.",
@@ -1024,6 +1027,8 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 				State:       args.State,
 				IncludeDone: args.IncludeDone,
 				Mine:        args.Mine,
+				CreatedBy:   args.CreatedBy,
+				Fleet:       args.Fleet,
 				IncludeBody: args.IncludeBody,
 				Limit:       args.Limit,
 			})
@@ -1047,7 +1052,7 @@ func buildServer(configDir, sessionID, version string, terminals terminalCommand
 			}
 			return mcptool.Text("created " + sessioncmd.FormatTask(created)), taskOutput{Task: &created}, nil
 		case "claim":
-			claimed, err := sessions.ClaimTask(sessionID, args.TaskID)
+			claimed, err := sessions.ClaimTask(sessionID, args.TaskID, sessioncmd.ClaimOptions{Any: args.Any})
 			if err != nil {
 				return nil, taskOutput{}, err
 			}

@@ -121,10 +121,12 @@ and `alt+,` hides the key hints.
 <p align="center"><em>Triage with the list put away. Answer one session and the next that needs you comes up on its own.</em></p>
 
 **Switch subscriptions or agents.** Select a session and press `alt+a` to switch its subscription,
-or `ctrl+t` to move its conversation to another CLI. When the selected session hits a usage limit,
-the board offers to continue on Codex (or another configured CLI), switch its subscription, or leave
-it for later. Each move opens its review card before starting anything. Dismissing the offer keeps
-it closed for that limit; the shortcuts remain available. On macOS, `alt` is Option.
+or `ctrl+t` to move its conversation to another CLI. When a session hits a usage limit and a
+build extension routes its accounts, that extension moves it to another subscription in the
+background, whichever session is selected. Otherwise the selected session's card offers another
+subscription of the same CLI, or leaving it for later; `[board] offer_cli_on_limit = true` adds
+the other configured CLIs as further choices. Each move opens its review card before starting
+anything. Dismissing the offer keeps it closed for that limit; the shortcuts remain available. On macOS, `alt` is Option.
 
 **Focus.** `enter` focuses a session in place: keys go to the agent while the list stays beside
 it, and `ctrl+q` comes back. `alt+\` hides the list so the pane gets the full width, and

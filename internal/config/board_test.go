@@ -44,7 +44,7 @@ func TestBoardSidebarRejectsUnknownSide(t *testing.T) {
 // The written default documents the setting, commented out, and the
 // built-in config resolves it to the right.
 func TestDefaultConfigDocumentsSidebar(t *testing.T) {
-	if !strings.Contains(defaultConfig, "# [board]\n# sidebar = \"right\"\n") {
+	if !strings.Contains(defaultConfig, "# [board]\n# sidebar = \"right\"\n# offer_cli_on_limit = false\n") {
 		t.Fatal("default config does not document [board] sidebar")
 	}
 	cfg, err := Default()
@@ -53,5 +53,19 @@ func TestDefaultConfigDocumentsSidebar(t *testing.T) {
 	}
 	if cfg.Board.Sidebar != SidebarRight {
 		t.Fatalf("default board.sidebar = %q, want %q", cfg.Board.Sidebar, SidebarRight)
+	}
+}
+
+// Offering another CLI on a usage limit is opt-in: off unless [board] says
+// so.
+func TestBoardOfferCLIOnLimitIsOptIn(t *testing.T) {
+	if loadFile(t, "").Board.OfferCLIOnLimit {
+		t.Fatal("offer_cli_on_limit is on with no config")
+	}
+	if loadFile(t, "[board]\nsidebar = \"left\"\n").Board.OfferCLIOnLimit {
+		t.Fatal("offer_cli_on_limit is on when [board] does not set it")
+	}
+	if !loadFile(t, "[board]\noffer_cli_on_limit = true\n").Board.OfferCLIOnLimit {
+		t.Fatal("offer_cli_on_limit = true was not read")
 	}
 }

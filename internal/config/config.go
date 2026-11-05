@@ -563,6 +563,10 @@ type Board struct {
 	// machine; choosing this value there again goes back to following the
 	// file.
 	Sidebar string `toml:"sidebar"`
+	// OfferCLIOnLimit has the usage-limit card offer to continue the
+	// conversation on another CLI as well as on another subscription. Off
+	// by default: a limit is a reason to change accounts, not agents.
+	OfferCLIOnLimit bool `toml:"offer_cli_on_limit"`
 }
 
 type Config struct {
@@ -1238,9 +1242,11 @@ const defaultConfig = `poll_interval = "2s"
 # The board's layout. sidebar is the side of the frame the sessions list sits
 # on, "right" or "left"; the session's pane takes the other side. Settings
 # can pick the other side on one machine, and picking this value there again
-# goes back to following this file.
+# goes back to following this file. offer_cli_on_limit has the usage-limit
+# card offer the other CLIs as well as another subscription of the same one.
 # [board]
 # sidebar = "right"
+# offer_cli_on_limit = false
 
 # Asking a live agent to name its session interrupts it for a housekeeping
 # turn: the rename directive on a managed launch, the pending note in an

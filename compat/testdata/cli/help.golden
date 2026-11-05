@@ -62,12 +62,12 @@ Your children
 Shared task list
   gate-inbox task <list|create|claim|finish|release|delete>
       the work list every session in this manager claims from
-  gate-inbox task list [--state <state>] [--include-done] [--mine] [--include-body] [--limit <n>] [--json]
+  gate-inbox task list [--state <state>] [--include-done] [--mine] [--created-by <me|session-id>] [--fleet] [--include-body] [--limit <n>] [--json]
       read the work list every session shares: what is pending, who holds what, and what is blocked
   gate-inbox task create <title> [--body <text>] [--depends-on <id,id>] [--json]
       put a piece of work on the shared list so any session can pick it up
-  gate-inbox task claim [<task-id>] [--json]
-      take a task before you start it; omit the id to take the oldest pending task nothing is blocking
+  gate-inbox task claim [<task-id>] [--any] [--json]
+      take a task before you start it; omit the id to take the oldest pending task nothing is blocking that your fleet created, or pass --any for the whole list
   gate-inbox task finish <task-id> [--json]
       mark a task you claimed as done, which unblocks everything waiting on it
   gate-inbox task release <task-id> [--json]

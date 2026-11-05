@@ -99,6 +99,8 @@ type fakeSessionCommands struct {
 	claimedTaskID  string
 	claimOpts      sessioncmd.ClaimOptions
 	settledTaskID  string
+	deleteForce    bool
+	pruneOpts      sessioncmd.TaskPruneOptions
 	reservedPaths  []string
 	reservedMode   string
 	reservedTTL    time.Duration
@@ -308,9 +310,20 @@ func (f *fakeSessionCommands) ReleaseTask(_ string, taskID string) (sessioncmd.T
 	return sessioncmd.Task{ID: taskID, Title: "fix retries", State: "pending"}, f.err
 }
 
-func (f *fakeSessionCommands) DeleteTask(_ string, taskID string) error {
-	f.settledTaskID = taskID
-	return f.err
+func (f *fakeSessionCommands) DeleteTask(_ string, taskID string, force bool) (sessioncmd.TaskDeletion, error) {
+	f.settledTaskID, f.deleteForce = taskID, force
+	return sessioncmd.TaskDeletion{
+		Task:      sessioncmd.Task{ID: taskID, Title: "fix retries", State: "pending"},
+		Unblocked: []sessioncmd.Task{{ID: "t9", Title: "ship retries", State: "pending"}},
+	}, f.err
+}
+
+func (f *fakeSessionCommands) PruneTasks(_ string, opts sessioncmd.TaskPruneOptions) (sessioncmd.TaskPrune, error) {
+	f.pruneOpts = opts
+	return sessioncmd.TaskPrune{
+		DryRun: !opts.Delete, OlderThanDays: 14, Count: 1,
+		Tasks: []sessioncmd.Task{{ID: "old1", Title: "stale plan", State: "pending"}},
+	}, f.err
 }
 
 func (f *fakeSessionCommands) Reserve(_ string, patterns []string, mode, note string, ttl time.Duration) (sessioncmd.ReserveResult, error) {
@@ -1265,6 +1278,28 @@ func TestTaskToolsForwardArgumentsAndRenderTheList(t *testing.T) {
 		if fake.settledTaskID != "t3" {
 			t.Fatalf("%s id = %q", action, fake.settledTaskID)
 		}
+	}
+
+	text, isError = callText(t, session, "task", map[string]any{"action": "delete", "task_id": "t5", "force": true})
+	if isError || !fake.deleteForce || !strings.Contains(text, "deleted fix retries (t5)") || !strings.Contains(text, "now claimable: ship retries (t9)") {
+		t.Fatalf("forced delete = %q, isError=%v, force forwarded %t", text, isError, fake.deleteForce)
+	}
+	// An omitted dry_run is the dry run; only an explicit false deletes.
+	for _, testCase := range []struct {
+		args   map[string]any
+		delete bool
+	}{
+		{map[string]any{"action": "prune"}, false},
+		{map[string]any{"action": "prune", "dry_run": true}, false},
+		{map[string]any{"action": "prune", "dry_run": false, "older_than_days": 30}, true},
+	} {
+		text, isError := callText(t, session, "task", testCase.args)
+		if isError || fake.pruneOpts.Delete != testCase.delete || !strings.Contains(text, "stale plan (old1)") {
+			t.Fatalf("prune %v = %q, isError=%v, forwarded %+v", testCase.args, text, isError, fake.pruneOpts)
+		}
+	}
+	if fake.pruneOpts.OlderThanDays != 30 {
+		t.Fatalf("older_than_days forwarded as %d", fake.pruneOpts.OlderThanDays)
 	}
 
 	if text, isError := callText(t, session, "task", map[string]any{"action": "bogus"}); !isError ||

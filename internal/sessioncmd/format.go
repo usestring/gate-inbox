@@ -248,6 +248,55 @@ func FormatTask(task Task) string {
 	return line
 }
 
+// FormatTaskDeletion is a delete as text, with the dependents it unblocked.
+func FormatTaskDeletion(deletion TaskDeletion) string {
+	lines := []string{"deleted " + FormatTask(deletion.Task)}
+	for _, dep := range deletion.Unblocked {
+		lines = append(lines, "now claimable: "+FormatTask(dep))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// maxPrunedRows bounds the rows a prune prints; the structured reply
+// carries every one.
+const maxPrunedRows = 50
+
+// FormatTaskPrune is a prune as text: the count, then each task's row.
+func FormatTaskPrune(prune TaskPrune) string {
+	verb := "deleted"
+	if prune.DryRun {
+		verb = "would delete"
+	}
+	head := fmt.Sprintf("%s %d stale %s: pending, older than %d days, created by a session that is archived, deleted or unrecorded",
+		verb, prune.Count, plural(prune.Count, "task", "tasks"), prune.OlderThanDays)
+	if prune.DryRun {
+		head += "; dry run, nothing was deleted"
+	}
+	lines := []string{head}
+	lines = append(lines, prunedRows(prune.Tasks)...)
+	if len(prune.Kept) > 0 {
+		lines = append(lines, fmt.Sprintf("kept %d stale %s a task in progress depends on:", len(prune.Kept), plural(len(prune.Kept), "task", "tasks")))
+		lines = append(lines, prunedRows(prune.Kept)...)
+	}
+	for _, dep := range prune.Unblocked {
+		lines = append(lines, "now claimable: "+FormatTask(dep))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// prunedRows is the tasks as list rows, up to maxPrunedRows.
+func prunedRows(tasks []Task) []string {
+	lines := make([]string, 0, min(len(tasks), maxPrunedRows)+1)
+	for i, task := range tasks {
+		if i == maxPrunedRows {
+			lines = append(lines, fmt.Sprintf("(and %d more)", len(tasks)-i))
+			break
+		}
+		lines = append(lines, "- "+FormatTask(task))
+	}
+	return lines
+}
+
 func FormatTaskList(list TaskList) string {
 	if len(list.Tasks) == 0 {
 		// Said outright, because the default leaves finished work out and an

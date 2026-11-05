@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 )
@@ -198,31 +199,243 @@ func (s *Store) settleTask(id, sessionID, state, owner string, at time.Time) (bo
 	return affected > 0, err
 }
 
-// DeleteTask drops a task and the dependency edges naming it. One
-// transaction, because CreateTask is the only writer of task_deps: edges
-// committed without the row they belong to are gone for good. The row goes
-// first so an id naming no task leaves every edge where it is.
-func (s *Store) DeleteTask(id string) (bool, error) {
+// DeleteGuard is who is deleting a task and whether they asked to override
+// the refusals.
+type DeleteGuard struct {
+	// CallerID is the deleting session; a task it holds itself is its own
+	// to drop.
+	CallerID string
+	// Force deletes a task another session holds, or one unfinished work
+	// waits on.
+	Force bool
+}
+
+// TaskDeletion is what a delete removed and what that set free.
+type TaskDeletion struct {
+	// Task is the row as it stood when it was deleted.
+	Task Task
+	// Unblocked is the dependents the delete made claimable. Its edges go
+	// with it, since an edge naming no task would block them forever, so a
+	// forced delete hands its dependents on as if it had been finished.
+	Unblocked []Task
+}
+
+// DeleteRefusedError is a delete the guard stopped. HeldBy is set when
+// another session holds the task, Dependents when unfinished tasks wait on
+// it; either can be set alone.
+type DeleteRefusedError struct {
+	Task       Task
+	HeldBy     string
+	Dependents []Task
+}
+
+func (e *DeleteRefusedError) Error() string {
+	return fmt.Sprintf("task %s was not deleted: held by %q, %d unfinished dependents", e.Task.ID, e.HeldBy, len(e.Dependents))
+}
+
+// DeleteTask drops a task and the dependency edges naming it, unless the
+// guard refuses it: a task another session holds is work in flight, and a
+// task unfinished work waits on is a prerequisite that never happened, so
+// both take Force. found is false when the id names no task.
+//
+// One transaction, because CreateTask is the only writer of task_deps:
+// edges committed without the row they belong to are gone for good. The
+// row goes first, which takes the write lock, so no claim or create can
+// land between the guard reading the row and the row going; a refusal
+// rolls it back. An id naming no task leaves every edge where it is.
+func (s *Store) DeleteTask(id string, guard DeleteGuard) (deletion TaskDeletion, found bool, err error) {
 	tx, err := s.db.Begin()
 	if err != nil {
-		return false, err
+		return TaskDeletion{}, false, err
 	}
 	defer tx.Rollback()
-	res, err := tx.Exec(`DELETE FROM tasks WHERE id = ?`, id)
+	deleted, err := scanTaskRows(tx, `DELETE FROM tasks WHERE id = ?
+ RETURNING id, title, '', owner_session_id, created_by, state, created_at, updated_at, 1`, id)
 	if err != nil {
-		return false, err
+		return TaskDeletion{}, false, err
 	}
-	affected, err := res.RowsAffected()
+	if len(deleted) == 0 {
+		return TaskDeletion{}, false, nil
+	}
+	task := deleted[0]
+	// A finished task blocks nobody, so only an unfinished one has
+	// dependents worth guarding: removing an edge to done work changes no
+	// one's state.
+	var dependents []Task
+	if task.State != TaskDone {
+		if dependents, err = openDependents(tx, []string{id}); err != nil {
+			return TaskDeletion{}, true, err
+		}
+	}
+	if !guard.Force {
+		refusal := &DeleteRefusedError{Task: task, Dependents: dependents}
+		if task.State == TaskInProgress && task.Owner != guard.CallerID {
+			refusal.HeldBy = task.Owner
+		}
+		if refusal.HeldBy != "" || len(refusal.Dependents) > 0 {
+			return TaskDeletion{}, true, refusal
+		}
+	}
+	unblocked, err := dropEdges(tx, []string{id}, dependents)
 	if err != nil {
-		return false, err
+		return TaskDeletion{}, true, err
 	}
-	if affected == 0 {
-		return false, nil
+	return TaskDeletion{Task: task, Unblocked: unblocked}, true, tx.Commit()
+}
+
+// openDependents is the tasks not done that wait on one of ids, excluding
+// ids themselves.
+func openDependents(tx *sql.Tx, ids []string) ([]Task, error) {
+	args := make([]any, 0, 2*len(ids)+1)
+	args = append(args, TaskDone)
+	for _, id := range ids {
+		args = append(args, id)
 	}
-	if _, err := tx.Exec(`DELETE FROM task_deps WHERE task_id = ? OR depends_on_id = ?`, id, id); err != nil {
-		return false, err
+	for _, id := range ids {
+		args = append(args, id)
 	}
-	return true, tx.Commit()
+	return scanTaskRows(tx, `
+SELECT t.id, t.title, '', t.owner_session_id, t.created_by, t.state, t.created_at, t.updated_at, 1
+  FROM tasks t
+ WHERE t.state != ?
+   AND EXISTS (SELECT 1 FROM task_deps d WHERE d.task_id = t.id AND d.depends_on_id IN (`+placeholders(len(ids))+`))
+   AND t.id NOT IN (`+placeholders(len(ids))+`)
+ ORDER BY t.created_at, t.id`, args...)
+}
+
+// dropEdges removes every edge naming ids, then reports which of
+// dependents that left claimable.
+func dropEdges(tx *sql.Tx, ids []string, dependents []Task) ([]Task, error) {
+	args := make([]any, 0, 2*len(ids))
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	args = append(args, args...)
+	if _, err := tx.Exec(`DELETE FROM task_deps WHERE task_id IN (`+placeholders(len(ids))+`) OR depends_on_id IN (`+placeholders(len(ids))+`)`, args...); err != nil {
+		return nil, err
+	}
+	if len(dependents) == 0 {
+		return nil, nil
+	}
+	ready := []any{TaskPending, TaskDone}
+	for _, dep := range dependents {
+		ready = append(ready, dep.ID)
+	}
+	return scanTaskRows(tx, `
+SELECT t.id, t.title, '', t.owner_session_id, t.created_by, t.state, t.created_at, t.updated_at, 1
+  FROM tasks t
+ WHERE `+readyTask+` AND t.id IN (`+placeholders(len(dependents))+`)
+ ORDER BY t.created_at, t.id`, ready...)
+}
+
+// staleTask is the condition a task the prune sweeps meets, over alias t
+// joined to its creator's session row as s: pending, created before the
+// cutoff, and put up by a session that can no longer speak for it --
+// archived, deleted, or never recorded.
+const staleTask = `t.state = ? AND t.created_at < ?
+   AND (t.created_by = '' OR s.id IS NULL OR s.archived != 0)`
+
+// heldBack is the condition that keeps a stale task over alias t: a
+// dependent somebody is working on.
+const heldBack = `EXISTS (
+     SELECT 1 FROM task_deps d JOIN tasks c ON c.id = d.task_id
+      WHERE d.depends_on_id = t.id AND c.state = ?)`
+
+// TaskPrune is what a prune swept, or would sweep on a dry run.
+type TaskPrune struct {
+	// Tasks is the stale tasks deleted, or on a dry run those that would be.
+	Tasks []Task
+	// Kept is the stale tasks left alone because a dependent is in progress.
+	Kept []Task
+	// Unblocked is the surviving dependents the prune made claimable; a dry
+	// run leaves it empty.
+	Unblocked []Task
+}
+
+// PruneTasks finds the pending tasks created before cutoff whose creator is
+// archived, deleted or unrecorded -- work nobody is left to want -- and,
+// unless dryRun, deletes them with their edges. A stale task with a
+// dependent in progress is kept: that session is building on it.
+//
+// The delete runs first in its transaction, for the same reason as
+// DeleteTask's: it takes the write lock before anything is read, so a claim
+// cannot land between choosing a task and deleting it.
+func (s *Store) PruneTasks(cutoff time.Time, dryRun bool) (TaskPrune, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return TaskPrune{}, err
+	}
+	defer tx.Rollback()
+	candidates := `SELECT t.id FROM tasks t LEFT JOIN sessions s ON s.id = t.created_by
+ WHERE ` + staleTask
+	args := []any{TaskPending, encodeTime(cutoff)}
+	var prune TaskPrune
+	if dryRun {
+		prune.Tasks, err = scanTaskRows(tx, `
+SELECT t.id, t.title, '', t.owner_session_id, t.created_by, t.state, t.created_at, t.updated_at, 1
+  FROM tasks t WHERE t.id IN (`+candidates+`) AND NOT `+heldBack+`
+ ORDER BY t.created_at, t.id`, append(args, TaskInProgress)...)
+	} else {
+		prune.Tasks, err = scanTaskRows(tx, `DELETE FROM tasks AS t
+ WHERE t.id IN (`+candidates+`) AND NOT `+heldBack+`
+ RETURNING id, title, '', owner_session_id, created_by, state, created_at, updated_at, 1`, append(args, TaskInProgress)...)
+	}
+	if err != nil {
+		return TaskPrune{}, err
+	}
+	// RETURNING comes back in no promised order.
+	slices.SortFunc(prune.Tasks, func(a, b Task) int {
+		if c := a.CreatedAt.Compare(b.CreatedAt); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	if prune.Kept, err = scanTaskRows(tx, `
+SELECT t.id, t.title, '', t.owner_session_id, t.created_by, t.state, t.created_at, t.updated_at, 1
+  FROM tasks t WHERE t.id IN (`+candidates+`) AND `+heldBack+`
+ ORDER BY t.created_at, t.id`, append(args, TaskInProgress)...); err != nil {
+		return TaskPrune{}, err
+	}
+	if dryRun || len(prune.Tasks) == 0 {
+		return prune, nil
+	}
+	ids := make([]string, 0, len(prune.Tasks))
+	for _, task := range prune.Tasks {
+		ids = append(ids, task.ID)
+	}
+	dependents, err := openDependents(tx, ids)
+	if err != nil {
+		return TaskPrune{}, err
+	}
+	if prune.Unblocked, err = dropEdges(tx, ids, dependents); err != nil {
+		return TaskPrune{}, err
+	}
+	return prune, tx.Commit()
+}
+
+// scanTaskRows reads tasks in scanTasks' column order inside a transaction,
+// closing the rows before returning so the next statement can run on the
+// store's single connection. The edges are not loaded: these rows are
+// reports, not reads of the list.
+func scanTaskRows(tx *sql.Tx, statement string, args ...any) ([]Task, error) {
+	rows, err := tx.Query(statement, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tasks []Task
+	for rows.Next() {
+		var task Task
+		var createdAt, updatedAt int64
+		var ignored int
+		if err := rows.Scan(&task.ID, &task.Title, &task.Body, &task.Owner, &task.CreatedBy, &task.State, &createdAt, &updatedAt, &ignored); err != nil {
+			return nil, err
+		}
+		task.CreatedAt = decodeTime(createdAt)
+		task.UpdatedAt = decodeTime(updatedAt)
+		tasks = append(tasks, task)
+	}
+	return tasks, rows.Err()
 }
 
 // TaskQuery narrows a read of the task list. The zero value is every task

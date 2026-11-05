@@ -53,6 +53,8 @@ type fakeSessions struct {
 	note         string
 	ttl          time.Duration
 	deleted      bool
+	force        bool
+	pruneOpts    sessioncmd.TaskPruneOptions
 	cleanup      sessioncmd.CleanupOptions
 	account      string
 	accountTool  string
@@ -245,9 +247,14 @@ func (f *fakeSessions) ReleaseTask(sessionID, taskID string) (sessioncmd.Task, e
 	return f.task, f.failWith
 }
 
-func (f *fakeSessions) DeleteTask(sessionID, taskID string) error {
-	f.callerID, f.taskID, f.deleted = sessionID, taskID, true
-	return f.failWith
+func (f *fakeSessions) DeleteTask(sessionID, taskID string, force bool) (sessioncmd.TaskDeletion, error) {
+	f.callerID, f.taskID, f.deleted, f.force = sessionID, taskID, true, force
+	return sessioncmd.TaskDeletion{Task: f.task}, f.failWith
+}
+
+func (f *fakeSessions) PruneTasks(sessionID string, opts sessioncmd.TaskPruneOptions) (sessioncmd.TaskPrune, error) {
+	f.callerID, f.pruneOpts = sessionID, opts
+	return sessioncmd.TaskPrune{DryRun: !opts.Delete, OlderThanDays: opts.OlderThanDays, Count: 1, Tasks: []sessioncmd.Task{f.task}}, f.failWith
 }
 
 func (f *fakeSessions) Reserve(sessionID string, patterns []string, mode, note string, ttl time.Duration) (sessioncmd.ReserveResult, error) {
@@ -345,6 +352,7 @@ func TestALayerFailureReachesTheCaller(t *testing.T) {
 		{"task finish", []string{"t1"}, func(out io.Writer, args []string) error { return runTaskFinish(out, sessions, args, "cafe0001") }},
 		{"task release", []string{"t1"}, func(out io.Writer, args []string) error { return runTaskRelease(out, sessions, args, "cafe0001") }},
 		{"task delete", []string{"t1"}, func(out io.Writer, args []string) error { return runTaskDelete(out, sessions, args, "cafe0001") }},
+		{"task prune", nil, func(out io.Writer, args []string) error { return runTaskPrune(out, sessions, args, "cafe0001") }},
 		{"reserve", []string{"internal/cli"}, func(out io.Writer, args []string) error { return runReserve(out, sessions, args, "cafe0001") }},
 		{"release-files", nil, func(out io.Writer, args []string) error { return runReleaseFiles(out, sessions, args, "cafe0001") }},
 		{"reservations", nil, func(out io.Writer, args []string) error { return runReservations(out, sessions, args, "cafe0001") }},
@@ -465,13 +473,13 @@ func TestTaskGroupRejectsAnUnknownVerb(t *testing.T) {
 	if err == nil {
 		t.Fatal("an unknown verb should not dispatch")
 	}
-	want := `task has no "finnish" command; it takes list, create, claim, finish, release, delete`
+	want := `task has no "finnish" command; it takes list, create, claim, finish, release, delete, prune`
 	if err.Error() != want {
 		t.Fatalf("error = %q, want %q", err, want)
 	}
 
 	bare := dispatch(&bytes.Buffer{}, "task", taskVerbs(), nil, "cafe0001", t.TempDir())
-	if bare == nil || bare.Error() != "usage: gate-inbox task <list|create|claim|finish|release|delete>" {
+	if bare == nil || bare.Error() != "usage: gate-inbox task <list|create|claim|finish|release|delete|prune>" {
 		t.Fatalf("a bare group should print its verbs, got %v", bare)
 	}
 }
@@ -646,7 +654,7 @@ func TestCommandsAndHelpCoverEverySection(t *testing.T) {
 
 	help := Help()
 	for _, line := range []string{usageSessions, usageChildren, usageReserve, usageTerminalSend, usageRename, usagePriority, usageSweep, usageInboxServe,
-		"task <list|create|claim|finish|release|delete>"} {
+		"task <list|create|claim|finish|release|delete|prune>"} {
 		if !strings.Contains(help, line) {
 			t.Fatalf("help is missing %q:\n%s", line, help)
 		}

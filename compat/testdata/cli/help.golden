@@ -68,8 +68,8 @@ Shared task list
       put a piece of work on the shared list so any session can pick it up
   gate-inbox task claim [<task-id>] [--any] [--json]
       take a task before you start it; omit the id to take the oldest pending task nothing is blocking that your fleet created, or pass --any for the whole list
-  gate-inbox task finish <task-id> [--json]
-      mark a task you claimed as done, which unblocks everything waiting on it
+  gate-inbox task finish <task-id> [--note <text>] [--json]
+      mark a task you claimed as done, which unblocks everything waiting on it; --note says what came of it, and the session that created the task is sent it
   gate-inbox task release <task-id> [--json]
       hand a task you claimed back to the list for another session
   gate-inbox task delete <task-id>

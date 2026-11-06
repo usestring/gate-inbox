@@ -1480,7 +1480,7 @@ func (d *Driver) Kill(id string) error {
 	}
 	var tree []treeProc
 	if home != "" {
-		tree = d.windowTree(home)
+		tree = withEscaped(id, d.windowTree(home))
 	}
 	err = d.endOwnWindow(id, home, target, "#{==:#{session_name},"+sessionName(id)+"}")
 	os.Remove(d.launchScriptPath(id))
@@ -1589,8 +1589,27 @@ func (d *Driver) KillAdopted(id string) error {
 	if !d.Exists(id) {
 		return nil
 	}
-	_, err := d.runAt(id, "kill-pane", "-t", target.Name)
-	return err
+	// Only this pane's own tree: the window around it is somebody else's.
+	tree := d.adoptedPaneTree(id, target.Name)
+	if _, err := d.runAt(id, "kill-pane", "-t", target.Name); err != nil {
+		return err
+	}
+	reapTree(tree)
+	return nil
+}
+
+// adoptedPaneTree is the process tree under one adopted pane, plus what
+// escaped it, read before the pane is killed.
+func (d *Driver) adoptedPaneTree(id, pane string) []treeProc {
+	out, err := d.runAt(id, "display-message", "-p", "-t", pane, "#{pane_pid}")
+	if err != nil {
+		return nil
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return nil
+	}
+	return withEscaped(id, processTree([]int{pid}))
 }
 
 func (d *Driver) KillAdoptedPane(id, pane, processID string) error {
@@ -1602,6 +1621,7 @@ func (d *Driver) KillAdoptedPane(id, pane, processID string) error {
 	if err != nil || pid <= 0 {
 		return fmt.Errorf("%s: invalid pane process identity", id)
 	}
+	tree := withEscaped(id, processTree([]int{pid}))
 	_, err = d.runAt(id, "if-shell", "-F", "-t", pane, "#{==:#{pane_pid},"+processID+"}", "kill-pane -t "+pane)
 	if err != nil {
 		return err
@@ -1609,6 +1629,7 @@ func (d *Driver) KillAdoptedPane(id, pane, processID string) error {
 	if d.Exists(id) {
 		return fmt.Errorf("%s: adopted pane process changed before shutdown", id)
 	}
+	reapTree(tree)
 	return nil
 }
 
@@ -1756,6 +1777,10 @@ func (d *Driver) KillPane(id, pane, processID string) error {
 	if home == "" {
 		return fmt.Errorf("%s: pane %s is not in this session's own window", id, pane)
 	}
+	// The stop path ends the same window Kill does, so it owes the same
+	// reap: without it every stopped session left its detached tool calls
+	// and sandbox proxies running under init.
+	tree := withEscaped(id, d.windowTree(home))
 	if err := d.endOwnWindow(id, home, pane,
 		"#{&&:#{==:#{pane_pid},"+strconv.Itoa(pid)+"},#{&&:#{==:#{session_name},"+sessionName(id)+"},#{==:#{window_id},"+home+"}}}"); err != nil {
 		return err
@@ -1764,6 +1789,7 @@ func (d *Driver) KillPane(id, pane, processID string) error {
 		return fmt.Errorf("%s: pane %s process or window changed before shutdown", id, pane)
 	}
 	os.Remove(d.launchScriptPath(id))
+	reapTree(tree)
 	return nil
 }
 

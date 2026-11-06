@@ -494,6 +494,9 @@ func runArchive(out io.Writer, sessions sessionCommands, args []string, sessionI
 		return err
 	}
 	updated, err := sessions.Archive(sessionID, operands[0], !*restore)
+	// Archiving a running session kills it, and the kill leaves its SIGKILL
+	// pass running; this process must outlive it, as kill's does.
+	tmux.AwaitReaps()
 	if err != nil {
 		return err
 	}
@@ -537,6 +540,7 @@ func runCleanupChildren(out io.Writer, sessions sessionCommands, args []string, 
 		All:      *all,
 		DryRun:   *dryRun,
 	})
+	tmux.AwaitReaps()
 	if err != nil {
 		return err
 	}
@@ -551,6 +555,7 @@ func runPark(out io.Writer, sessions sessionCommands, args []string, sessionID s
 		return err
 	}
 	result, err := sessions.Park(sessionID, *dryRun)
+	tmux.AwaitReaps()
 	if err != nil {
 		return err
 	}

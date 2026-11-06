@@ -55,6 +55,11 @@ func (d *Driver) windowTree(target string) []treeProc {
 			roots = append(roots, pid)
 		}
 	}
+	return processTree(roots)
+}
+
+// processTree is every process under roots, roots included.
+func processTree(roots []int) []treeProc {
 	if len(roots) == 0 {
 		return nil
 	}

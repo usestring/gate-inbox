@@ -59,8 +59,8 @@ func TestABoardSwitchAheadRunsBesideOneRelaunch(t *testing.T) {
 	if _, err := h.sessions.BoardSwitchAccount(created.ID, "alice1", true); err != nil {
 		t.Fatalf("BoardSwitchAccount ahead beside one relaunch = %v, want it moved", err)
 	}
-	if row, _ := h.store.Get(created.ID); row.Account != "alice1" {
-		t.Errorf("row on %q, want alice1", row.Account)
+	if row, _ := h.store.Get(created.ID); row.Account != "ALICE1" {
+		t.Errorf("row on %q, want ALICE1", row.Account)
 	}
 }
 

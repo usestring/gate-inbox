@@ -183,6 +183,7 @@ func (m *Model) openSettings() {
 		deleteConfirm:    normalizeConfirmAsk(m.deleteConfirm),
 		restartConfirm:   normalizeConfirmAsk(m.restartConfirm),
 		listSort:         normalizeListSort(m.listSort),
+		listConsistency:  normalizeListConsistency(m.listConsistency),
 		chrome:           normalizeChrome(m.chrome),
 		leaveMode:        normalizeLeaveMode(m.leaveMode),
 		newSessionAgent:  normalizeNewSessionAgent(m.newSessionAgent),
@@ -342,6 +343,9 @@ func (m *Model) persistSettings() tea.Cmd {
 	if err := m.store.SetSetting(listSortSetting, normalizeListSort(m.settings.listSort)); err != nil {
 		m.errBar.text = err.Error()
 	}
+	if err := m.store.SetSetting(listConsistencySetting, normalizeListConsistency(m.settings.listConsistency)); err != nil {
+		m.errBar.text = err.Error()
+	}
 	if err := m.store.SetSetting(chromeSetting, normalizeChrome(m.settings.chrome)); err != nil {
 		m.errBar.text = err.Error()
 	}
@@ -411,6 +415,10 @@ func (m *Model) persistSettings() tea.Cmd {
 	m.deleteConfirm = normalizeConfirmAsk(m.settings.deleteConfirm)
 	m.restartConfirm = normalizeConfirmAsk(m.settings.restartConfirm)
 	m.listSort = normalizeListSort(m.settings.listSort)
+	if m.listConsistency != normalizeListConsistency(m.settings.listConsistency) {
+		m.listPositions = nil
+	}
+	m.listConsistency = normalizeListConsistency(m.settings.listConsistency)
 	m.chrome = normalizeChrome(m.settings.chrome)
 	m.leaveMode = normalizeLeaveMode(m.settings.leaveMode)
 	m.newSessionAgent = normalizeNewSessionAgent(m.settings.newSessionAgent)
@@ -617,6 +625,8 @@ func (m *Model) cycleSetting(step int) tea.Cmd {
 			}
 		}
 		m.settings.listSort = listSortModes[(index+step+len(listSortModes))%len(listSortModes)]
+	case settingsFieldListConsistency:
+		m.settings.listConsistency = cycleMode([]string{listConsistencyConditional, listConsistencyPositional}, normalizeListConsistency(m.settings.listConsistency), step)
 	case settingsFieldChrome:
 		index := 0
 		for i, mode := range chromeModes {

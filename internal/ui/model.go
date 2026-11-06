@@ -573,6 +573,9 @@ type Model struct {
 	// listSortBeforeRecent is the order the recent toggle returns to. It is
 	// not persisted: a manager that opens on recent toggles back to manual.
 	listSortBeforeRecent string
+	listConsistency      string
+	listPositions        map[string]map[string]int
+	listPositionSort     string
 	// chrome is the persisted override for the legend under the list. See
 	// layout.go.
 	chrome string
@@ -970,6 +973,7 @@ type settingsState struct {
 	deleteConfirm    string
 	restartConfirm   string
 	listSort         string
+	listConsistency  string
 	chrome           string
 	leaveMode        string
 	newSessionAgent  string
@@ -1017,6 +1021,7 @@ const (
 	settingsFieldDeleteConfirm
 	settingsFieldRestartConfirm
 	settingsFieldListSort
+	settingsFieldListConsistency
 	settingsFieldChrome
 	settingsFieldLeave
 	settingsFieldQuickClose
@@ -1367,6 +1372,7 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		deleteConfirm:   storedConfirmAsk(st, deleteConfirmSetting),
 		restartConfirm:  storedConfirmAsk(st, restartConfirmSetting),
 		listSort:        storedListSort(st),
+		listConsistency: storedListConsistency(st),
 		chrome:          storedChrome(st),
 		leaveMode:       storedLeaveMode(st),
 		newSessionAgent: storedNewSessionAgent(st),
@@ -3364,6 +3370,9 @@ func (m *Model) buildTree() {
 		for _, groupSessions := range sessionsByGroup {
 			m.sortGroupSessions(groupSessions)
 		}
+	}
+	if !m.triage && query == "" && !m.showArchived {
+		m.keepListPositions(sessionsByGroup)
 	}
 	// After the sort too: a block a helper floats heads its group whatever
 	// order the rest are in. See rolefloat.go.

@@ -508,6 +508,8 @@ The board is in the order the move keys wrote it — `manual`, and the default, 
 
 Under `activity` or `recent` the manager also opens on the freshest session rather than on whatever the manual order happened to put first.
 
+Settings (`s`) also offers `list consistency`. The default, `conditional`, reapplies the chosen sort whenever the board updates. Choose `positional` to keep sessions in their existing order within each group as activity, status or names change. New sessions follow the existing ones, in the chosen sort order. Changing the sort or switching consistency starts a fresh order; restarting the board also starts from the chosen sort. Manual ordering, triage, search and the archive keep their own ordering rules.
+
 Triage and search are unaffected — each already answers with its own order (who needs a person, and how well a row matched). While a non-manual sort is on, `K`/`J` say why they do nothing instead of writing an order you would not see until you set the sort back to `manual`.
 
 ## Groups

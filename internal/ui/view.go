@@ -822,8 +822,11 @@ func (m *Model) rowLegend() legendSection {
 	}
 	if row.isArtifact() {
 		title := "Pull request"
-		if row.art.kind == "TICKET" {
+		switch row.art.kind {
+		case kindTicket:
 			title = "Ticket"
+		case kindArtifact:
+			title = "Artifact"
 		}
 		return legendSection{title: title, pairs: [][2]string{
 			{m.tightCap(keymap.ContextList, keymap.Open), "open"},

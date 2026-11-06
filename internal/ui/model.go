@@ -2427,6 +2427,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.applyQuestionTyped(msg)
 
 	case refreshMsg:
+		// Background and explicit polls can reach the UI out of order. An
+		// older snapshot must not put a working turn back in triage or close
+		// focus on a session the newer pass already saw alive.
+		if msg.listedAt.Before(m.statusesAsOf) {
+			return m, nil
+		}
 		m.ageError()
 		// The focused session can die or vanish under us; fall back to the
 		// list rather than typing into nothing.
@@ -2443,11 +2449,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		before, wasFocused := m.focusedStatus()
-		current := !msg.listedAt.Before(m.statusesAsOf)
 		m.sessions = sessions
-		if msg.listedAt.After(m.statusesAsOf) {
-			m.statusesAsOf = msg.listedAt
-		}
+		m.statusesAsOf = msg.listedAt
 		heldLandings := m.resumeHeldSnippets()
 		m.settleLandings(msg.listedAt, msg.unseen)
 		m.dropHeldAckOnNewTurn()
@@ -2534,7 +2537,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.rebuildRows()
 		if focusClosed {
 			focusExit = tea.Batch(focusExit, m.moveOnFromClosedFocus())
-		} else if wasFocused && current {
+		} else if wasFocused {
 			focusExit = m.handOverOnWork(before)
 		}
 		// A board that came up with triage already on enters the head of its
@@ -2559,10 +2562,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// A drain that ran out of work left the operator on the list with
 		// the queue still open: the first pass carrying a new session that
 		// needs a person picks it straight up. See triageResume.
-		pickup := m.triagePickupCmd()
-		if current {
-			pickup = tea.Batch(pickup, m.handOverOnIdle(time.Now()))
-		}
+		pickup := tea.Batch(m.triagePickupCmd(), m.handOverOnIdle(time.Now()))
 		// A pass that ran with a stale selection (a session created this
 		// tick) carries the wrong preview; resync and fetch it directly.
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {

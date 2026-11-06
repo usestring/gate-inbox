@@ -744,7 +744,7 @@ func TestRefreshWithStaleSelectionFetchesPreview(t *testing.T) {
 	m.selectSessionRow(t, "fresh-one")
 	sess := m.sessionRows()[0]
 
-	_, cmd := m.Update(refreshMsg{sessions: m.sessions, procFor: ""})
+	_, cmd := m.Update(refreshMsg{sessions: m.sessions, listedAt: time.Now(), procFor: ""})
 	if cmd == nil {
 		t.Fatal("stale refresh should schedule an immediate preview fetch")
 	}
@@ -753,7 +753,7 @@ func TestRefreshWithStaleSelectionFetchesPreview(t *testing.T) {
 	}
 
 	m.preview = "existing"
-	if _, cmd := m.Update(refreshMsg{sessions: m.sessions, procFor: sess.ID, preview: "pane text"}); cmd != nil {
+	if _, cmd := m.Update(refreshMsg{sessions: m.sessions, listedAt: time.Now(), procFor: sess.ID, preview: "pane text"}); cmd != nil {
 		t.Fatal("matching refresh should not schedule extra work")
 	}
 	if m.preview != "pane text" {

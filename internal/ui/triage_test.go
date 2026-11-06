@@ -220,7 +220,7 @@ func TestTriageStartupEntersTheHeadOfTheQueue(t *testing.T) {
 	m.triageStartupEnter = true
 	m.rebuildRows()
 
-	updated, _ := m.Update(refreshMsg{sessions: m.sessions})
+	updated, _ := m.Update(refreshMsg{sessions: m.sessions, listedAt: time.Now()})
 	m = updated.(*Model)
 	if m.mode != modeFocus {
 		t.Fatalf("a board restored in triage opened in mode %v: %s", m.mode, m.errBar.text)

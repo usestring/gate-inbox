@@ -244,6 +244,9 @@ func (m *Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 				if row.entersAs() && row.sess.ID == id {
 					var leave tea.Cmd
 					if m.mode == modeFocus {
+						// Clicking out ends the drain like leaving it by key
+						// does. See triageResume.
+						m.triageResume = false
 						leave = m.leaveFocus()
 					}
 					m.searching = false

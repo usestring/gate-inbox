@@ -590,6 +590,20 @@ func TestAMouseEventSyncsThePollerOutOfFocus(t *testing.T) {
 	}
 }
 
+// Clicking out of focus ends an open drain the way leaving it by key does, or
+// the next poll pulls the operator straight back into a pane.
+func TestClickingOutOfFocusEndsTheDrain(t *testing.T) {
+	m := railWorkModel(t)
+	m.selectSessionRow(t, "add-rate-limiting")
+	m.mode, m.focusedID = modeFocus, "add-rate-limiting"
+	m.triage, m.triageResume = true, true
+	m.railHit = railHitMap{x: 0, width: 20, links: []string{""}, sessions: []string{"add-rate-limiting"}}
+	m.handleMouse(tea.MouseClickMsg{X: 1, Y: m.listChromeRows(), Button: tea.MouseLeft})
+	if m.mode != modeList || m.triageResume {
+		t.Fatalf("a click out of focus left mode %v, resume %t; want the list with the drain ended", m.mode, m.triageResume)
+	}
+}
+
 func TestRestoreAllReachesThroughArtifactRows(t *testing.T) {
 	m := railWorkModel(t)
 	m.poller = &poller{}

@@ -89,7 +89,7 @@ func TestBoardSwitchAccount(t *testing.T) {
 	if err != nil || account != "" || tool.Env != "CLAUDE_CODE_OAUTH_TOKEN" || tool.Secret == "" {
 		t.Fatalf("BoardAccount = %q %+v %v", account, tool, err)
 	}
-	switched, err := h.sessions.BoardSwitchAccount(sess.ID, "alice1")
+	switched, err := h.sessions.BoardSwitchAccount(sess.ID, "alice1", false)
 	if err != nil || switched.Account != "ALICE1" {
 		t.Fatalf("BoardSwitchAccount = %+v %v", switched, err)
 	}
@@ -102,7 +102,7 @@ func TestBoardSwitchAccount(t *testing.T) {
 	if err := os.WriteFile(transcript, []byte(raw+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.sessions.BoardSwitchAccount(big.ID, "alice1"); err == nil || !strings.Contains(err.Error(), "too large") {
+	if _, err := h.sessions.BoardSwitchAccount(big.ID, "alice1", false); err == nil || !strings.Contains(err.Error(), "too large") {
 		t.Fatalf("a large context was not refused: %v", err)
 	}
 }

@@ -155,7 +155,7 @@ func (s *Sessions) SwitchAccount(sessionID, targetID, account string) (Session, 
 	if target.ID == sessionID {
 		return Session{}, errors.New("a session cannot switch its own account: the restart would end this call; ask the operator or a sibling session")
 	}
-	return s.switchAccount(runtime, target, account, true, func(account string) (Session, error) {
+	return s.switchAccount(runtime, target, account, pacing{wait: true}, func(account string) (Session, error) {
 		return s.Migrate(sessionID, targetID, MigrateOptions{Tool: target.Tool, accountOverride: &account})
 	})
 }
@@ -163,9 +163,9 @@ func (s *Sessions) SwitchAccount(sessionID, targetID, account string) (Session, 
 // switchAccount re-points target at account and resumes it there. A context
 // too large to resume on another account goes to large instead. A running
 // session takes its relaunch queue turn before the row is re-pointed, so a
-// refusal leaves it on the account it runs on; wait says whether to wait
-// for that turn.
-func (s *Sessions) switchAccount(runtime *runtime, target store.Session, account string, wait bool, large func(string) (Session, error)) (Session, error) {
+// refusal leaves it on the account it runs on; how says how it takes that
+// turn.
+func (s *Sessions) switchAccount(runtime *runtime, target store.Session, account string, how pacing, large func(string) (Session, error)) (Session, error) {
 	tool, known := runtime.cfg.Tools[target.Tool]
 	if !known {
 		return Session{}, fmt.Errorf("tool %s is no longer configured", target.Tool)
@@ -187,7 +187,7 @@ func (s *Sessions) switchAccount(runtime *runtime, target store.Session, account
 	running := runtime.driver.Exists(target.ID)
 	var slot launchpace.Slot
 	if running {
-		if slot, err = s.pace(runtime, target.ID, wait); err != nil {
+		if slot, err = s.paceAs(runtime, target.ID, how); err != nil {
 			return Session{}, err
 		}
 	}
@@ -233,8 +233,9 @@ func (s *Sessions) BoardAccount(targetID string) (string, extension.AccountTool,
 // moved to a new conversation.
 // It does not wait for the relaunch queue: while another session is
 // relaunching it is refused with launchpace.ErrBusy, and the extension asks
-// again on a later pass.
-func (s *Sessions) BoardSwitchAccount(targetID, account string) (Session, error) {
+// again on a later pass. ahead marks a session its limit already cut off,
+// which goes ahead of routine moves (see launchpace.Pacer.TryAhead).
+func (s *Sessions) BoardSwitchAccount(targetID, account string, ahead bool) (Session, error) {
 	runtime, err := s.open()
 	if err != nil {
 		return Session{}, err
@@ -244,7 +245,7 @@ func (s *Sessions) BoardSwitchAccount(targetID, account string) (Session, error)
 	if err != nil {
 		return Session{}, err
 	}
-	return s.switchAccount(runtime, target, account, false, func(string) (Session, error) {
+	return s.switchAccount(runtime, target, account, pacing{ahead: ahead}, func(string) (Session, error) {
 		return Session{}, fmt.Errorf("%s's context is too large to resume on another account; switch_account moves it to a new conversation instead", target.Name)
 	})
 }

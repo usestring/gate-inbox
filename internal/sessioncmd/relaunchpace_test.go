@@ -32,7 +32,7 @@ func TestABusyRelaunchQueueRefusesABoardSwitchUntouched(t *testing.T) {
 	busy.Record("someone-else")
 	h.sessions.newPacer = func(*runtime) *launchpace.Pacer { return busy }
 
-	if _, err := h.sessions.BoardSwitchAccount(created.ID, "alice1"); !errors.Is(err, launchpace.ErrBusy) {
+	if _, err := h.sessions.BoardSwitchAccount(created.ID, "alice1", false); !errors.Is(err, launchpace.ErrBusy) {
 		t.Fatalf("BoardSwitchAccount with the queue busy = %v, want ErrBusy", err)
 	}
 	if row, _ := h.store.Get(created.ID); row.Account != "" {
@@ -40,6 +40,27 @@ func TestABusyRelaunchQueueRefusesABoardSwitchUntouched(t *testing.T) {
 	}
 	if !h.driver.Exists(created.ID) {
 		t.Error("a refused switch ended the session")
+	}
+}
+
+// A switch off an account whose limit already cut the session off goes
+// ahead: it starts beside one relaunch still in flight.
+func TestABoardSwitchAheadRunsBesideOneRelaunch(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	created, err := h.sessions.Create(h.caller.ID, CreateSessionOptions{Name: "worker", Tool: "claude"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	busy := launchpace.New(h.sessions.configDir, launchpace.Limits{MinGap: time.Nanosecond}, nil)
+	busy.Record("someone-else")
+	h.sessions.newPacer = func(*runtime) *launchpace.Pacer { return busy }
+
+	if _, err := h.sessions.BoardSwitchAccount(created.ID, "alice1", true); err != nil {
+		t.Fatalf("BoardSwitchAccount ahead beside one relaunch = %v, want it moved", err)
+	}
+	if row, _ := h.store.Get(created.ID); row.Account != "alice1" {
+		t.Errorf("row on %q, want alice1", row.Account)
 	}
 }
 

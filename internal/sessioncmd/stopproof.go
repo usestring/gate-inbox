@@ -11,7 +11,10 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/store"
+	"github.com/usestring/gate-inbox/internal/tmux"
 )
 
 const stopProofPrefix = "Gate Inbox stop proof: "
@@ -72,6 +75,115 @@ func validCodexStopThread(thread string) bool {
 	return err == nil && id.String() == thread
 }
 
+func validOpencodeStopConversation(conversation string) bool {
+	return len(conversation) > len("ses_") && strings.HasPrefix(conversation, "ses_") && extension.ValidSessionID(conversation)
+}
+
+func (r *runtime) isOpencode(tool string) bool {
+	return r.cfg.Tools[tool].SessionStore == "opencode"
+}
+
+func (r *runtime) stopCandidate(target store.Session) error {
+	if r.isOpencode(target.Tool) {
+		return r.opencodeStopCandidate(target)
+	}
+	return r.codexStopCandidate(target)
+}
+
+// opencodeStopCandidate rechecks, right before a stop is queued, that the
+// pane's own marker still names the row the caller resolved to.
+func (r *runtime) opencodeStopCandidate(target store.Session) error {
+	shared, err := sharedOpencodeAncestor()
+	if err != nil {
+		return err
+	}
+	if !shared || !r.isOpencode(target.Tool) || target.Archived || target.Status == "dead" || !validOpencodeStopConversation(target.AgentSessionID) {
+		return errors.New("stop must run inside its own managed session pane")
+	}
+	pane, socket := tmux.OwnPane()
+	if pane == "" || socket == "" {
+		return errors.New("stop must run inside its own managed session pane")
+	}
+	marker, ok := hooks.NewManager(r.configDir).AdoptedPaneAt(os.Getenv("TMUX"), pane)
+	if !ok || marker.ID != target.ID || marker.Tool != target.Tool || marker.Conversation != target.AgentSessionID ||
+		target.TmuxPaneID != pane || target.TmuxSocket != socket {
+		return errors.New("stop must run inside its own managed session pane")
+	}
+	return nil
+}
+
+func (r *runtime) sharedOpencodeTarget() (store.Session, error) {
+	shared, err := sharedOpencodeAncestor()
+	if err != nil {
+		return store.Session{}, err
+	}
+	if !shared {
+		return store.Session{}, errors.New("stop must run inside its own managed session pane")
+	}
+	return r.opencodeMarkerTarget()
+}
+
+// opencodeMarkerTarget binds a shared-service shell to the one active row
+// its pane marker names. The marker carries the conversation, and rows that
+// duplicate it without a pane are ignored: only a row bound to this exact
+// socket and pane may win, and never more than one.
+func (r *runtime) opencodeMarkerTarget() (store.Session, error) {
+	pane, socket := tmux.OwnPane()
+	if pane == "" || socket == "" {
+		return store.Session{}, errors.New("cannot verify a Gate Inbox caller pane from the shared OpenCode service; refusing shutdown")
+	}
+	marker, ok := hooks.NewManager(r.configDir).AdoptedPaneAt(os.Getenv("TMUX"), pane)
+	if !ok || !r.isOpencode(marker.Tool) {
+		return store.Session{}, ErrUnmanagedCaller
+	}
+	if !validOpencodeStopConversation(marker.Conversation) {
+		return store.Session{}, errors.New("cannot verify an OpenCode conversation from this pane's marker; refusing shutdown")
+	}
+	rows, err := r.store.ListSessions(true)
+	if err != nil {
+		return store.Session{}, err
+	}
+	var markerRow *store.Session
+	var bound []store.Session
+	for i := range rows {
+		row := &rows[i]
+		if row.ID == marker.ID {
+			markerRow = row
+		}
+		if row.Tool != marker.Tool || row.AgentSessionID != marker.Conversation || row.Archived || row.Status == "dead" {
+			continue
+		}
+		if row.TmuxSocket == socket && row.TmuxPaneID == pane {
+			bound = append(bound, *row)
+		}
+	}
+	if markerRow != nil {
+		switch {
+		case markerRow.Archived || markerRow.Status == "dead":
+			return store.Session{}, errors.New("the calling pane's Gate Inbox row has stopped; refusing shutdown")
+		case markerRow.Tool != marker.Tool || markerRow.AgentSessionID != marker.Conversation:
+			return store.Session{}, errors.New("the calling pane's marker no longer matches its Gate Inbox row; refusing shutdown")
+		case markerRow.TmuxSocket != socket || markerRow.TmuxPaneID != pane:
+			return store.Session{}, errors.New("the calling pane's Gate Inbox row is bound to another pane; refusing shutdown")
+		}
+	}
+	switch len(bound) {
+	case 0:
+		return store.Session{}, errors.New("the calling OpenCode conversation is not bound to this pane; refusing shutdown")
+	case 1:
+	default:
+		return store.Session{}, errors.New("the calling OpenCode conversation belongs to multiple Gate Inbox rows; refusing shutdown")
+	}
+	if markerRow == nil || bound[0].ID != marker.ID {
+		return store.Session{}, errors.New("the calling pane's marker names no bound Gate Inbox row; refusing shutdown")
+	}
+	target := bound[0]
+	if err := r.reach(target); err != nil {
+		return store.Session{}, err
+	}
+	return target, nil
+}
+
 // A shared host's stdout is routed to the calling conversation, unlike its
 // inherited pane environment. The worker only reads: it must never put its
 // own challenge into the target pane and thereby manufacture ownership.
@@ -89,8 +201,14 @@ func (s *Sessions) FinishStopWithProof(sessionID, launched, pane, processPin, th
 	if err != nil {
 		return StopResult{}, err
 	}
-	if target.Tool != "codex" || thread == "" || target.AgentSessionID != thread {
-		return StopResult{}, errors.New("stop proof requires a bound Codex conversation")
+	if thread == "" || target.AgentSessionID != thread {
+		return StopResult{}, errors.New("stop proof requires a bound conversation")
+	}
+	switch {
+	case target.Tool == "codex" && validCodexStopThread(thread):
+	case runtime.isOpencode(target.Tool) && validOpencodeStopConversation(thread):
+	default:
+		return StopResult{}, errors.New("stop proof requires a bound Codex or OpenCode conversation")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()

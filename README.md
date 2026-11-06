@@ -106,9 +106,8 @@ read from the pane itself. The preview beside the list shows the conversation as
 **Assistant** messages. While a session is working, a bounded **Live output** section also shows
 its latest terminal activity, including text the CLI has not saved yet. Older message groups shorten
 to four lines; the newest stays full, hovering expands an older group, and F3 toggles the preview's
-detail. Focus mode uses the terminal by default. Enable **Settings → Experimental → Compressed focus
-view** to keep the conversation in focus mode too; there, F3 switches between conversation and
-terminal and remembers the choice. Shell sessions always show the terminal. `w` filters the list
+detail. Focus mode uses the terminal by default; F3 switches between conversation and terminal and
+remembers the choice. Shell sessions always show the terminal. `w` filters the list
 to what needs attention, and `/` searches names, titles, groups, statuses and what the sessions have said.
 
 **Triage.** `i` flattens the groups into one queue ordered by what needs a person: waiting first,
@@ -122,10 +121,12 @@ and `alt+,` hides the key hints.
 <p align="center"><em>Triage with the list put away. Answer one session and the next that needs you comes up on its own.</em></p>
 
 **Switch subscriptions or agents.** Select a session and press `alt+a` to switch its subscription,
-or `ctrl+t` to move its conversation to another CLI. When the selected session hits a usage limit,
-the board offers to continue on Codex (or another configured CLI), switch its subscription, or leave
-it for later. Each move opens its review card before starting anything. Dismissing the offer keeps
-it closed for that limit; the shortcuts remain available. On macOS, `alt` is Option.
+or `ctrl+t` to move its conversation to another CLI. When a session hits a usage limit and a
+build extension routes its accounts, that extension moves it to another subscription in the
+background, whichever session is selected. Otherwise the selected session's card offers another
+subscription of the same CLI, or leaving it for later; `[board] offer_cli_on_limit = true` adds
+the other configured CLIs as further choices. Each move opens its review card before starting
+anything. Dismissing the offer keeps it closed for that limit; the shortcuts remain available. On macOS, `alt` is Option.
 
 **Focus.** `enter` focuses a session in place: keys go to the agent while the list stays beside
 it, and `ctrl+q` comes back. `alt+\` hides the list so the pane gets the full width, and
@@ -306,7 +307,7 @@ from `gate-inbox sessions`. From inside a managed agent session, `gate-inbox sto
 session and preserves its row and conversation for an explicit revive. It records an intentional
 stop, so startup recovery does not offer it as a lost session. `gate-inbox stop --archive` also
 files the ended row out of the active list, where `archive --restore` can bring it back for 7 days.
-`gate-inbox stop --dry-run` verifies the current pane without ending it. Adopted callers with verified pane process ancestry can also stop themselves. A shared Codex host instead receives a fresh `caller_proof_line` first in JSON output, so the caller's ordinary visible tool output supplies the proof automatically. If the client collapses that line, relay `Gate Inbox stop proof: <caller_proof>` in the calling conversation. An outside worker verifies the fresh proof in the pinned pane before completing the requested action. A proof response means verification is pending; a missing proof times out without stopping or archiving anything. Never type or send the proof into a target pane through another channel.
+`gate-inbox stop --dry-run` verifies the current pane without ending it. Adopted callers with verified pane process ancestry can also stop themselves. A shared Codex host instead receives a fresh `caller_proof_line` first in JSON output, so the caller's ordinary visible tool output supplies the proof automatically. A shared OpenCode host does the same, resolving the row from the calling pane's adoption marker. If the client collapses that line, relay `Gate Inbox stop proof: <caller_proof>` in the calling conversation. An outside worker verifies the fresh proof in the pinned pane before completing the requested action. A proof response means verification is pending; a missing proof times out without stopping or archiving anything. Never type or send the proof into a target pane through another channel.
 Shared-daemon callers whose pane cannot be verified refuse shutdown. Other adopted panes can be stopped by id from
 another session or the board.
 

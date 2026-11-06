@@ -506,6 +506,27 @@ func killFor(runtime *runtime, id string) func(string) error {
 
 // endSessionBy is endSessionWith for a caller that chooses the kill.
 func (s *Sessions) endSessionBy(runtime *runtime, target store.Session, pane, reason string, kill func(string) error) error {
+	if err := s.stopPane(runtime, target, pane, reason, kill); err != nil {
+		return err
+	}
+	return runtime.store.UpdateStatus(target.ID, status.Dead)
+}
+
+// killSessionBy is endSessionBy for a kill, which also hands back the task
+// claims the session held (see store.MarkKilled), and reports how many. A
+// restart or a migration ends its pane with EndKilled too, but through
+// endSessionBy: the work carries on, so its claims stay.
+func (s *Sessions) killSessionBy(runtime *runtime, target store.Session, pane string, kill func(string) error) (int, error) {
+	if err := s.stopPane(runtime, target, pane, store.EndKilled, kill); err != nil {
+		return 0, err
+	}
+	return runtime.store.MarkKilled(target.ID)
+}
+
+// stopPane is what every end shares short of the status it leaves: the
+// screen kept, the pane ended, the hook status file cleared and the end
+// recorded.
+func (s *Sessions) stopPane(runtime *runtime, target store.Session, pane, reason string, kill func(string) error) error {
 	if runtime.driver.Exists(target.ID) {
 		if pane != "" {
 			if err := runtime.store.SetSnapshot(target.ID, pane); err != nil {
@@ -521,10 +542,7 @@ func (s *Sessions) endSessionBy(runtime *runtime, target store.Session, pane, re
 	if err := hooks.NewManager(s.configDir).Remove(target.ID); err != nil {
 		return err
 	}
-	if err := runtime.store.RecordEnd(target, reason); err != nil {
-		return err
-	}
-	return runtime.store.UpdateStatus(target.ID, status.Dead)
+	return runtime.store.RecordEnd(target, reason)
 }
 
 // restart ends a running session and relaunches it on its own conversation,

@@ -10,6 +10,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/status"
+	"github.com/usestring/gate-inbox/internal/store"
 )
 
 func sessionID(t *testing.T, m *Model, name string) string {
@@ -39,7 +40,7 @@ func TestPriorityLiftsAheadOfLowerTiers(t *testing.T) {
 	loadStoredRows(t, m)
 	pressKey(t, m, key("i"))
 
-	want := []string{"reviewme", "napping", "old-block", "new-block", "crashed", "grinder", "booting", "gone"}
+	want := []string{"reviewme", "napping", "old-block", "new-block", "grinder", "booting", "gone", "crashed"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
@@ -63,15 +64,13 @@ func TestGroupPriorityCoversTheSubtree(t *testing.T) {
 	loadStoredRows(t, m)
 	pressKey(t, m, key("i"))
 
-	want := []string{"new-block", "crashed", "old-block", "reviewme", "napping", "grinder", "booting", "gone"}
+	want := []string{"new-block", "old-block", "reviewme", "napping", "grinder", "booting", "gone", "crashed"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
 }
 
-// The drain reaches a raised session before the ring carries on from where
-// it left off, which is the whole point of raising one mid-drain, whatever
-// its state: a raised errored session goes before an untiered finished one.
+// Raising a failed turn must not put it ahead of work that can move forward.
 func TestTriageDrainHandsOverPriorityFirst(t *testing.T) {
 	m := buildModel(t)
 	m.smartTriage = false // the strict order; smart triage has triagesmart_test.go
@@ -96,7 +95,7 @@ func TestTriageDrainHandsOverPriorityFirst(t *testing.T) {
 		}
 	}
 	m.rebuildRows()
-	for _, want := range []string{"spare", "broke", "done", "rest"} {
+	for _, want := range []string{"spare", "done", "rest", "broke"} {
 		updated, _ := m.handleFocusKey(ctrlQ())
 		m = updated.(*Model)
 		if m.mode != modeFocus {
@@ -164,7 +163,7 @@ func TestTiersOrderTheQueue(t *testing.T) {
 
 	// The tier outranks the band: a high working session sits above an
 	// untiered idle one, and a low question below every untiered row.
-	want := []string{"crashed", "new-block", "reviewme", "grinder", "napping", "booting", "gone", "old-block"}
+	want := []string{"new-block", "reviewme", "grinder", "napping", "booting", "gone", "old-block", "crashed"}
 	if got := sessionNames(m); !slices.Equal(got, want) {
 		t.Fatalf("triage order = %v want %v", got, want)
 	}
@@ -394,5 +393,31 @@ func TestBackgroundTurnsRankBehindIdleInSmartTriage(t *testing.T) {
 	monitor.Muted = true
 	if m.triageWalkable(monitor) {
 		t.Fatal("a persistently muted monitor is walkable")
+	}
+}
+
+func TestCreditErrorCannotJumpWaitingOrFinishedWork(t *testing.T) {
+	for _, smart := range []bool{false, true} {
+		t.Run(fmt.Sprintf("smart=%t", smart), func(t *testing.T) {
+			m := buildModel(t)
+			m.smartTriage = smart
+			m.queueDeadlines = map[string]time.Time{"urgent-error": m.now().Add(time.Hour), "low-error": m.now().Add(time.Hour)}
+			sessions := []store.Session{
+				{ID: "urgent-error", Status: status.Errored, Priority: priority.Urgent},
+				{ID: "low-error", Status: status.Errored, Priority: priority.Low},
+				{ID: "finished", Status: status.Finished, Priority: priority.Low},
+				{ID: "waiting", Status: status.Waiting, Priority: priority.Low},
+				{ID: "muted", Status: status.Waiting, Priority: priority.Urgent, Muted: true},
+			}
+			m.sortTriage(sessions)
+			var got []string
+			for _, sess := range sessions {
+				got = append(got, sess.ID)
+			}
+			want := []string{"waiting", "finished", "urgent-error", "low-error", "muted"}
+			if !slices.Equal(got, want) {
+				t.Fatalf("queue = %v, want %v", got, want)
+			}
+		})
 	}
 }

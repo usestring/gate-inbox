@@ -26,11 +26,33 @@ func (h *sessionHarness) addSessionRow(t *testing.T, name string) string {
 	return id
 }
 
+// addChildRow is a row the caller spawned, which puts the caller's tasks in
+// its fleet.
+func (h *sessionHarness) addChildRow(t *testing.T, name, spawner string) string {
+	t.Helper()
+	return h.addSpawnedRow(t, name, spawner, spawner)
+}
+
+// addSpawnedRow is a row drawn under parent but spawned by spawner, which is
+// how a grandchild is filed: hoisted to the root, still naming who made it.
+func (h *sessionHarness) addSpawnedRow(t *testing.T, name, parent, spawner string) string {
+	t.Helper()
+	id := uuid.NewString()[:8]
+	if err := h.store.CreateSession(store.Session{
+		ID: id, Name: name, Tool: h.caller.Tool, Cwd: h.caller.Cwd, Status: status.Idle, ParentID: parent, SpawnedBy: spawner,
+	}); err != nil {
+		t.Fatalf("create child row: %v", err)
+	}
+	return id
+}
+
+// racers are the caller's workers, so a bare claim reaches the tasks the
+// caller put up.
 func racers(t *testing.T, h *sessionHarness, count int) []string {
 	t.Helper()
 	ids := make([]string, count)
 	for i := range ids {
-		ids[i] = h.addSessionRow(t, fmt.Sprintf("racer-%d", i))
+		ids[i] = h.addChildRow(t, fmt.Sprintf("racer-%d", i), h.caller.ID)
 	}
 	return ids
 }
@@ -42,7 +64,7 @@ func TestTasksAreClaimedByExactlyOneSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	created, err := h.sessions.CreateTask(h.caller.ID, "fix the retry backoff", "see internal/retry", nil)
+	created, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "fix the retry backoff", Body: "see internal/retry"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -50,7 +72,7 @@ func TestTasksAreClaimedByExactlyOneSession(t *testing.T) {
 		t.Fatalf("new task = %+v", created)
 	}
 
-	claimed, err := h.sessions.ClaimTask(h.caller.ID, created.ID)
+	claimed, err := h.sessions.ClaimTask(h.caller.ID, created.ID, ClaimOptions{})
 	if err != nil {
 		t.Fatalf("ClaimTask: %v", err)
 	}
@@ -58,7 +80,7 @@ func TestTasksAreClaimedByExactlyOneSession(t *testing.T) {
 		t.Fatalf("claimed task = %+v", claimed)
 	}
 	// The second agent must be told, not silently allowed to duplicate work.
-	if _, err := h.sessions.ClaimTask(rival.ID, created.ID); err == nil ||
+	if _, err := h.sessions.ClaimTask(rival.ID, created.ID, ClaimOptions{}); err == nil ||
 		!strings.Contains(err.Error(), "already claimed by calling-agent") {
 		t.Fatalf("rival claim error = %v", err)
 	}
@@ -78,7 +100,7 @@ func TestTasksAreClaimedByExactlyOneSession(t *testing.T) {
 	}
 
 	// A task nobody is holding has no holder to name, however it got there.
-	pending, err := h.sessions.CreateTask(h.caller.ID, "backfill the column", "", nil)
+	pending, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "backfill the column"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -98,23 +120,23 @@ func TestTasksAreClaimedByExactlyOneSession(t *testing.T) {
 
 func TestDependenciesGateAClaimUntilTheyAreDone(t *testing.T) {
 	h := newSessionHarness(t)
-	first, err := h.sessions.CreateTask(h.caller.ID, "add the column", "", nil)
+	first, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "add the column"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
-	second, err := h.sessions.CreateTask(h.caller.ID, "backfill the column", "", []string{first.ID})
+	second, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "backfill the column", DependsOn: []string{first.ID}})
 	if err != nil {
 		t.Fatalf("CreateTask dependent: %v", err)
 	}
 	if !second.Blocked {
 		t.Fatalf("dependent task should start blocked: %+v", second)
 	}
-	if _, err := h.sessions.ClaimTask(h.caller.ID, second.ID); err == nil ||
+	if _, err := h.sessions.ClaimTask(h.caller.ID, second.ID, ClaimOptions{}); err == nil ||
 		!strings.Contains(err.Error(), "blocked on") {
 		t.Fatalf("blocked claim error = %v", err)
 	}
 	// Claiming without an id must skip the blocked task and take the ready one.
-	next, err := h.sessions.ClaimTask(h.caller.ID, "")
+	next, err := h.sessions.ClaimTask(h.caller.ID, "", ClaimOptions{})
 	if err != nil {
 		t.Fatalf("ClaimTask next: %v", err)
 	}
@@ -124,18 +146,18 @@ func TestDependenciesGateAClaimUntilTheyAreDone(t *testing.T) {
 	if _, err := h.sessions.FinishTask(h.caller.ID, first.ID); err != nil {
 		t.Fatalf("FinishTask: %v", err)
 	}
-	unblocked, err := h.sessions.ClaimTask(h.caller.ID, "")
+	unblocked, err := h.sessions.ClaimTask(h.caller.ID, "", ClaimOptions{})
 	if err != nil {
 		t.Fatalf("ClaimTask after the dependency finished: %v", err)
 	}
 	if unblocked.ID != second.ID {
 		t.Fatalf("finishing a dependency did not unblock its dependent: %+v", unblocked)
 	}
-	if _, err := h.sessions.ClaimTask(h.caller.ID, ""); err == nil ||
+	if _, err := h.sessions.ClaimTask(h.caller.ID, "", ClaimOptions{}); err == nil ||
 		!strings.Contains(err.Error(), "no task is ready") {
 		t.Fatalf("empty-list claim error = %v", err)
 	}
-	if _, err := h.sessions.CreateTask(h.caller.ID, "depends on nothing real", "", []string{"nope1234"}); err == nil ||
+	if _, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "depends on nothing real", DependsOn: []string{"nope1234"}}); err == nil ||
 		!strings.Contains(err.Error(), "does not exist") {
 		t.Fatalf("unknown dependency error = %v", err)
 	}
@@ -147,26 +169,26 @@ func TestDependenciesGateAClaimUntilTheyAreDone(t *testing.T) {
 func TestOnlyUnfinishedDependenciesAreNamedAsBlocking(t *testing.T) {
 	t.Parallel()
 	h := newSessionHarness(t)
-	first, err := h.sessions.CreateTask(h.caller.ID, "add the column", "", nil)
+	first, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "add the column"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
-	second, err := h.sessions.CreateTask(h.caller.ID, "write the migration", "", nil)
+	second, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "write the migration"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
-	dependent, err := h.sessions.CreateTask(h.caller.ID, "backfill the column", "", []string{first.ID, second.ID})
+	dependent, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "backfill the column", DependsOn: []string{first.ID, second.ID}})
 	if err != nil {
 		t.Fatalf("CreateTask dependent: %v", err)
 	}
-	if _, err := h.sessions.ClaimTask(h.caller.ID, first.ID); err != nil {
+	if _, err := h.sessions.ClaimTask(h.caller.ID, first.ID, ClaimOptions{}); err != nil {
 		t.Fatalf("ClaimTask: %v", err)
 	}
 	if _, err := h.sessions.FinishTask(h.caller.ID, first.ID); err != nil {
 		t.Fatalf("FinishTask: %v", err)
 	}
 
-	_, err = h.sessions.ClaimTask(h.caller.ID, dependent.ID)
+	_, err = h.sessions.ClaimTask(h.caller.ID, dependent.ID, ClaimOptions{})
 	if err == nil {
 		t.Fatal("a task with an unfinished dependency should not be claimable")
 	}
@@ -196,11 +218,11 @@ func TestOnlyUnfinishedDependenciesAreNamedAsBlocking(t *testing.T) {
 func TestReleasedAndDeletedTasksLeaveTheList(t *testing.T) {
 	t.Parallel()
 	h := newSessionHarness(t)
-	created, err := h.sessions.CreateTask(h.caller.ID, "spike the cache", "", nil)
+	created, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "spike the cache"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
-	if _, err := h.sessions.ClaimTask(h.caller.ID, created.ID); err != nil {
+	if _, err := h.sessions.ClaimTask(h.caller.ID, created.ID, ClaimOptions{}); err != nil {
 		t.Fatalf("ClaimTask: %v", err)
 	}
 	released, err := h.sessions.ReleaseTask(h.caller.ID, created.ID)
@@ -233,11 +255,11 @@ func TestDeletingASessionHandsItsClaimsBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	created, err := h.sessions.CreateTask(h.caller.ID, "migrate the table", "", nil)
+	created, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "migrate the table"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
-	if _, err := h.sessions.ClaimTask(worker.ID, created.ID); err != nil {
+	if _, err := h.sessions.ClaimTask(worker.ID, created.ID, ClaimOptions{}); err != nil {
 		t.Fatalf("ClaimTask: %v", err)
 	}
 	if err := h.store.Delete(worker.ID); err != nil {
@@ -258,7 +280,7 @@ func TestDeletingASessionHandsItsClaimsBack(t *testing.T) {
 func TestRacingClaimsOnOneTaskLeaveASingleWinner(t *testing.T) {
 	t.Parallel()
 	h := newSessionHarness(t)
-	created, err := h.sessions.CreateTask(h.caller.ID, "fix the retry backoff", "", nil)
+	created, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: "fix the retry backoff"})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
@@ -273,7 +295,7 @@ func TestRacingClaimsOnOneTaskLeaveASingleWinner(t *testing.T) {
 		go func(sessionID string) {
 			defer running.Done()
 			<-start
-			task, err := h.sessions.ClaimTask(sessionID, created.ID)
+			task, err := h.sessions.ClaimTask(sessionID, created.ID, ClaimOptions{})
 			if err != nil {
 				refused <- err
 				return
@@ -312,7 +334,7 @@ func TestRacingSessionsSplitTheListWithoutSharingATask(t *testing.T) {
 	h := newSessionHarness(t)
 	const taskCount = 5
 	for i := range taskCount {
-		if _, err := h.sessions.CreateTask(h.caller.ID, fmt.Sprintf("piece %d", i), "", nil); err != nil {
+		if _, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: fmt.Sprintf("piece %d", i)}); err != nil {
 			t.Fatalf("CreateTask: %v", err)
 		}
 	}
@@ -330,7 +352,7 @@ func TestRacingSessionsSplitTheListWithoutSharingATask(t *testing.T) {
 			defer running.Done()
 			<-start
 			for claims := 0; ; claims++ {
-				task, err := h.sessions.ClaimTask(sessionID, "")
+				task, err := h.sessions.ClaimTask(sessionID, "", ClaimOptions{})
 				if err != nil {
 					// An empty list is how a racer learns it is done; any
 					// other refusal is the list failing under contention.
@@ -388,21 +410,21 @@ func TestTheTaskListDefaultsToOpenWorkAndSaysWhenItWasCut(t *testing.T) {
 	worker := h.addSessionRow(t, "worker")
 	ids := make([]string, 0, 4)
 	for _, title := range []string{"add the column", "backfill it", "write the docs", "verify"} {
-		created, err := h.sessions.CreateTask(h.caller.ID, title, "the full instruction for "+title, nil)
+		created, err := h.sessions.CreateTask(h.caller.ID, TaskSpec{Title: title, Body: "the full instruction for " + title})
 		if err != nil {
 			t.Fatalf("CreateTask: %v", err)
 		}
 		ids = append(ids, created.ID)
 	}
 	for _, id := range ids[:2] {
-		if _, err := h.sessions.ClaimTask(h.caller.ID, id); err != nil {
+		if _, err := h.sessions.ClaimTask(h.caller.ID, id, ClaimOptions{}); err != nil {
 			t.Fatalf("ClaimTask: %v", err)
 		}
 		if _, err := h.sessions.FinishTask(h.caller.ID, id); err != nil {
 			t.Fatalf("FinishTask: %v", err)
 		}
 	}
-	if _, err := h.sessions.ClaimTask(worker, ids[2]); err != nil {
+	if _, err := h.sessions.ClaimTask(worker, ids[2], ClaimOptions{}); err != nil {
 		t.Fatalf("ClaimTask: %v", err)
 	}
 
@@ -458,5 +480,131 @@ func TestTheTaskListDefaultsToOpenWorkAndSaysWhenItWasCut(t *testing.T) {
 	if _, err := h.sessions.Tasks(h.caller.ID, TaskListOptions{Limit: MaxTaskLimit + 1}); err == nil ||
 		!strings.Contains(err.Error(), "out of range") {
 		t.Fatalf("a limit past the maximum = %v", err)
+	}
+}
+
+// A bare claim used to hand out the oldest ready task on the whole list,
+// so a worker could pick up a stale task from a workstream nobody on its
+// board knew about. It now takes from its fleet: itself, its spawner and
+// what it spawned. Siblings and strangers stay out, and any restores the
+// global claim.
+func TestABareClaimTakesFromTheCallersFleetFirst(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	lead := h.caller.ID
+	worker := h.addChildRow(t, "worker", lead)
+	sibling := h.addChildRow(t, "sibling", lead)
+	grandchild := h.addSpawnedRow(t, "grandchild", lead, worker)
+	stranger := h.addSessionRow(t, "stranger")
+
+	create := func(creator, title string) Task {
+		t.Helper()
+		created, err := h.sessions.CreateTask(creator, TaskSpec{Title: title})
+		if err != nil {
+			t.Fatalf("CreateTask %s: %v", title, err)
+		}
+		if created.CreatedBy != creator {
+			t.Fatalf("%s recorded creator %q, want %q", title, created.CreatedBy, creator)
+		}
+		return created
+	}
+	// Created oldest first, so a global claim would hand them out in order.
+	strangers := create(stranger, "stale unrelated work")
+	siblings := create(sibling, "the sibling's follow-up")
+	leads := create(lead, "the lead's plan")
+	grandchilds := create(grandchild, "the grandchild's split")
+
+	for _, want := range []Task{leads, grandchilds} {
+		claimed, err := h.sessions.ClaimTask(worker, "", ClaimOptions{})
+		if err != nil {
+			t.Fatalf("fleet claim: %v", err)
+		}
+		if claimed.ID != want.ID {
+			t.Fatalf("fleet claim took %q, want %q", claimed.Title, want.Title)
+		}
+	}
+	_, err := h.sessions.ClaimTask(worker, "", ClaimOptions{})
+	if err == nil || !strings.Contains(err.Error(), "2 ready tasks are outside it") || !strings.Contains(err.Error(), "any true") {
+		t.Fatalf("a drained fleet answered %v, want the count outside it and the any argument", err)
+	}
+
+	// The lead's fleet holds every child, so it sees the sibling's work.
+	claimed, err := h.sessions.ClaimTask(lead, "", ClaimOptions{})
+	if err != nil || claimed.ID != siblings.ID {
+		t.Fatalf("the lead's claim = %+v, %v; want the sibling's task", claimed, err)
+	}
+	claimed, err = h.sessions.ClaimTask(worker, "", ClaimOptions{Any: true})
+	if err != nil || claimed.ID != strangers.ID {
+		t.Fatalf("an any claim = %+v, %v; want the stranger's task", claimed, err)
+	}
+	if _, err := h.sessions.ClaimTask(worker, "", ClaimOptions{}); err == nil ||
+		!strings.Contains(err.Error(), "no task is ready to claim; every pending task is blocked") {
+		t.Fatalf("an empty list answered %v", err)
+	}
+	// A named claim was never scoped: the id is the caller's choice.
+	other := create(stranger, "named work")
+	if _, err := h.sessions.ClaimTask(worker, other.ID, ClaimOptions{}); err != nil {
+		t.Fatalf("a named claim outside the fleet: %v", err)
+	}
+}
+
+// created_by and fleet narrow the list the same way the claim is scoped,
+// and every row names its creator by id and name.
+func TestTheTaskListFiltersByCreatorAndFleet(t *testing.T) {
+	t.Parallel()
+	h := newSessionHarness(t)
+	lead := h.caller.ID
+	worker := h.addChildRow(t, "worker", lead)
+	stranger := h.addSessionRow(t, "stranger")
+	ids := map[string]string{}
+	for _, made := range []struct{ creator, title string }{
+		{lead, "planned"}, {worker, "split off"}, {stranger, "unrelated"},
+	} {
+		created, err := h.sessions.CreateTask(made.creator, TaskSpec{Title: made.title})
+		if err != nil {
+			t.Fatalf("CreateTask: %v", err)
+		}
+		ids[made.title] = created.ID
+	}
+	titles := func(caller string, opts TaskListOptions) []string {
+		t.Helper()
+		listed, err := h.sessions.Tasks(caller, opts)
+		if err != nil {
+			t.Fatalf("Tasks %+v: %v", opts, err)
+		}
+		var got []string
+		for _, task := range listed.Tasks {
+			got = append(got, task.Title)
+		}
+		return got
+	}
+	for _, ask := range []struct {
+		name   string
+		caller string
+		opts   TaskListOptions
+		want   string
+	}{
+		{"me", worker, TaskListOptions{CreatedBy: "me"}, "split off"},
+		{"an id", worker, TaskListOptions{CreatedBy: stranger}, "unrelated"},
+		{"the fleet", worker, TaskListOptions{Fleet: true}, "planned,split off"},
+		{"the stranger's fleet", stranger, TaskListOptions{Fleet: true}, "unrelated"},
+		{"a creator inside the fleet", worker, TaskListOptions{Fleet: true, CreatedBy: lead}, "planned"},
+		{"a creator outside the fleet", worker, TaskListOptions{Fleet: true, CreatedBy: stranger}, ""},
+	} {
+		if got := strings.Join(titles(ask.caller, ask.opts), ","); got != ask.want {
+			t.Errorf("%s: listed %q, want %q", ask.name, got, ask.want)
+		}
+	}
+
+	listed, err := h.sessions.Tasks(worker, TaskListOptions{CreatedBy: lead})
+	if err != nil || len(listed.Tasks) != 1 {
+		t.Fatalf("Tasks = %+v, %v", listed, err)
+	}
+	row := listed.Tasks[0]
+	if row.CreatedBy != lead || row.CreatorName != h.caller.Name {
+		t.Fatalf("row creator = %q / %q, want %q / %q", row.CreatedBy, row.CreatorName, lead, h.caller.Name)
+	}
+	if text := FormatTaskList(listed); !strings.Contains(text, "created by "+h.caller.Name+" ("+lead+")") {
+		t.Fatalf("the list text does not name the creator: %q", text)
 	}
 }

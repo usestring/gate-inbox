@@ -42,6 +42,9 @@ type QuestionAnswer struct {
 	// Ticks answers a multi-select: the boxes to leave ticked, every other
 	// box unticked.
 	Ticks []string `json:"ticks,omitempty" jsonschema:"for a multi-select question only: the labels of every option to leave ticked; every other box is unticked, the boxes are read back, and the question is submitted"`
+	// typed puts Answer in the free-text row even when it reads as one of the
+	// options: the board's own snippets, whose words are never a pick.
+	typed bool
 }
 
 // reply is the answer as one string: the words, or a multi-select's ticks
@@ -249,6 +252,7 @@ type planned struct {
 	index  int
 	answer string
 	ticks  []string
+	typed  bool
 }
 
 // fillDialog is the sequence, over any pane. It validates every answer before
@@ -275,7 +279,7 @@ func fillDialog(pane dialogPane, questions []dialog.Question, answers []Question
 			return result, fmt.Errorf("question %d (%s) is not a multi-select; give it an answer, not ticks",
 				index+1, question.Header)
 		}
-		plan = append(plan, planned{index, strings.TrimSpace(answer.Answer), answer.Ticks})
+		plan = append(plan, planned{index, strings.TrimSpace(answer.Answer), answer.Ticks, answer.typed})
 	}
 	slices.SortFunc(plan, func(a, b planned) int { return a.index - b.index })
 
@@ -295,7 +299,7 @@ func fillDialog(pane dialogPane, questions []dialog.Question, answers []Question
 		if len(step.ticks) > 0 {
 			filled, err = tickOnScreen(pane, raw, questions[step.index], step.ticks)
 		} else {
-			filled, err = answerOnScreen(pane, raw, questions[step.index], step.answer, tabbed)
+			filled, err = answerOnScreen(pane, raw, questions[step.index], step.answer, tabbed, step.typed)
 		}
 		if err != nil {
 			if errors.Is(err, errUnkeyedHere) && len(result.Answers) == 0 {
@@ -409,8 +413,9 @@ func navigateTo(pane dialogPane, index int) (string, error) {
 	return "", fmt.Errorf("could not reach question %d", index+1)
 }
 
-// answerOnScreen keys one answer into the question the pane is showing.
-func answerOnScreen(pane dialogPane, raw string, question dialog.Question, answer string, tabbed bool) (FilledAnswer, error) {
+// answerOnScreen keys one answer into the question the pane is showing. typed
+// skips reading answer as an option and types it into the free-text row.
+func answerOnScreen(pane dialogPane, raw string, question dialog.Question, answer string, tabbed, typed bool) (FilledAnswer, error) {
 	filled := FilledAnswer{Index: question.Index, Header: question.Header, Answer: answer, question: question.Question}
 	held, ok := dialog.Inspect(ansi.Strip(raw))
 	if !ok {
@@ -428,6 +433,9 @@ func answerOnScreen(pane dialogPane, raw string, question dialog.Question, answe
 	}
 	if refusal := held.Refusal(); refusal != "" {
 		return filled, fmt.Errorf("question %d is %s", question.Index, refusal)
+	}
+	if typed {
+		return filled, typeAnswer(pane, held, answer, question.Index)
 	}
 	chosen := held.Choose(answer)
 	if chosen > 0 && harnessEscape(held.Options[chosen-1]) {

@@ -16,7 +16,7 @@ func TestReviewIngestDoesNotResurrectClosedAsks(t *testing.T) {
 	if err != nil || len(added) != 1 {
 		t.Fatalf("first ingest added %d, err %v", len(added), err)
 	}
-	if err := s.SetPullRequestReviewState("o/r", 7, ReviewDismissed, "", now); err != nil {
+	if err := s.SetPullRequestReviewState("o/r", 7, ReviewDismissed, "", "", now); err != nil {
 		t.Fatal(err)
 	}
 
@@ -39,23 +39,64 @@ func TestReviewIngestDoesNotResurrectClosedAsks(t *testing.T) {
 	}
 }
 
+// Once a review goes out its drafts are done with, so a later ask on the same pull request opens
+// with none of them.
+func TestSubmittedDraftsLeaveThePullRequest(t *testing.T) {
+	s := newTestStore(t)
+	now := time.Unix(1700000000, 0)
+	d, err := s.AddReviewDraft(ReviewDraft{Repo: "o/r", Number: 7, Path: "a.go", Line: 3, Body: "why?", Author: DraftByAgent}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetReviewDraft(d.ID, DraftKept, "why here?", now); err != nil {
+		t.Fatal(err)
+	}
+	drafts, _ := s.ReviewDrafts("o/r", 7)
+	if len(drafts) != 1 || drafts[0].State != DraftKept || drafts[0].Body != "why here?" || drafts[0].Side != "RIGHT" {
+		t.Fatalf("drafts = %+v", drafts)
+	}
+	late, err := s.AddReviewDraft(ReviewDraft{Repo: "o/r", Number: 7, Path: "a.go", Line: 4, Body: "and here?", Author: DraftByAgent}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FinishReviewDrafts(drafts, now); err != nil {
+		t.Fatal(err)
+	}
+	if drafts, _ := s.ReviewDrafts("o/r", 7); len(drafts) != 1 || drafts[0].ID != late.ID {
+		t.Fatalf("drafts after submit = %+v, want only the one written during it", drafts)
+	}
+	if err := s.SetReviewDraft(d.ID, DraftDropped, "", now); err == nil {
+		t.Fatal("a submitted draft changed state")
+	}
+}
+
 // A session prepared ahead of the operator is recorded on the ask without starting it, so the ask
-// still queues as waiting until the operator opens it.
+// still queues as waiting until the operator opens it, and keeps the head it was started on.
 func TestAttachReviewSessionKeepsTheAskPending(t *testing.T) {
 	s := newTestStore(t)
 	now := time.Unix(1700000000, 0)
-	ask := ReviewRequest{Repo: "o/r", Number: 7, Trigger: "requested", TriggerID: "R_1"}
+	ask := ReviewRequest{Repo: "o/r", Number: 7, Trigger: "requested", TriggerID: "R_1", HeadSHA: "aaa"}
 	if _, err := s.UpsertReviewRequests([]ReviewRequest{ask}, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.AttachReviewSession("o/r", 7, "sess-1", now); err != nil {
+	if err := s.AttachReviewSession("o/r", 7, "sess-1", "aaa", now); err != nil {
+		t.Fatal(err)
+	}
+	ask.HeadSHA = "bbb"
+	if _, err := s.UpsertReviewRequests([]ReviewRequest{ask}, now); err != nil {
 		t.Fatal(err)
 	}
 	open, err := s.OpenReviewRequests()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(open) != 1 || open[0].State != ReviewPending || open[0].SessionID != "sess-1" {
-		t.Fatalf("open = %+v, want one pending ask on sess-1", open)
+	if len(open) != 1 || open[0].State != ReviewPending || open[0].SessionID != "sess-1" || open[0].SessionHead != "aaa" {
+		t.Fatalf("open = %+v, want one pending ask on sess-1 still on the head it was started on", open)
+	}
+	if err := s.SetPullRequestReviewState("o/r", 7, ReviewStarted, "sess-1", "bbb", now); err != nil {
+		t.Fatal(err)
+	}
+	if open, err = s.OpenReviewRequests(); err != nil || open[0].SessionHead != "aaa" {
+		t.Fatalf("open = %+v, err %v; opening the prepared session moved its head", open, err)
 	}
 }

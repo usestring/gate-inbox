@@ -18,7 +18,7 @@ func conversationInputModel(t *testing.T, tool, pane string, cursor paneCursor) 
 	t.Helper()
 	sess := store.Session{ID: "composer", Tool: tool}
 	m := &Model{
-		engine: liveEngine(t), mode: modeFocus, focusView: focusViewConversation, compressedFocus: true, cursorOn: true,
+		engine: liveEngine(t), mode: modeFocus, focusView: focusViewConversation, cursorOn: true,
 		rows: []treeRow{{sess: sess}}, preview: pane,
 		conversation: &conversationView{key: conversationKey(sess.ID, ""), dirty: true,
 			messages: []search.Message{{Role: "assistant", Text: "A shortened reply stays above your input."}}},

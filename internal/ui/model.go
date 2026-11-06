@@ -137,6 +137,10 @@ type Model struct {
 	// snipErr is why there are none, when the file would not be read.
 	snips   snippets.Set
 	snipErr string
+	// typeQuestion types a snippet into the free-text row of the question a
+	// session's dialog is showing; nil leaves every dialog holding a snippet
+	// back. See UseQuestionTyper.
+	typeQuestion QuestionTyper
 	// restartFlags are the operator's canned restart flag sets, read once
 	// at startup; restartFlagErr is why there are none, when the file
 	// would not be read.
@@ -195,12 +199,16 @@ type Model struct {
 
 	// reviews are the open asks for the operator's review, listed on the
 	// rail's Reviews tab; reviewsTab is whether that tab is up,
-	// reviewsCursor the ask under its cursor, and reviewsFetching marks an
-	// ingest in flight. See reviews.go.
-	reviews         []store.ReviewRequest
-	reviewsTab      bool
-	reviewsCursor   int
-	reviewsFetching bool
+	// reviewsCursor the ask under its cursor, reviewsPage the pull request's
+	// page opened from it, and reviewsFetching marks an ingest in flight.
+	// reviewsSubmitting holds the pull requests with a review on its way to
+	// GitHub. See reviews.go and reviewpage.go.
+	reviews           []store.ReviewRequest
+	reviewsTab        bool
+	reviewsCursor     int
+	reviewsPage       *reviewsView
+	reviewsFetching   bool
+	reviewsSubmitting map[string]bool
 	// reviewsSeen is the newest ask a triage drain has handed the operator
 	// the Reviews tab for, and triageLineage each queued session's key as
 	// the last triage sort lifted it. See reviewtriage.go.
@@ -532,8 +540,7 @@ type Model struct {
 	// focusView mirrors the persisted focused-view setting: the live
 	// terminal, or the conversation transcript. The content column reads it
 	// every frame, so it lives here instead of the store. See focusview.go.
-	focusView       string
-	compressedFocus bool
+	focusView string
 	// arrowsStay keeps the prompt-edge arrows with a focused session rather
 	// than leaving for the list. See experimental.go.
 	arrowsStay bool
@@ -707,8 +714,14 @@ type Model struct {
 	// unseenAnswers are the sessions whose last answer would have moved the
 	// drain on but was never seen arriving: the check refused it or ran out of
 	// time. The poll's working transition is the evidence left to see.
-	unseenAnswers  map[string]bool
-	landingLocator *search.Locator
+	unseenAnswers map[string]bool
+	// questionHandOvers are the sessions whose snippet answer to a question
+	// is still being read back and would move the drain on once it is.
+	questionHandOvers map[string]bool
+	// questionsAnswering are the sessions with a snippet answer still being
+	// typed and read back; a second answer waits until it is.
+	questionsAnswering map[string]bool
+	landingLocator     *search.Locator
 	// handoverTrace is the Enter handover whose next frame is still to be
 	// timed; see handOverOnEnter.
 	handoverTrace handoverTrace
@@ -977,7 +990,6 @@ type settingsState struct {
 	jevFinishCheck     bool
 	jevCopyOn          bool
 	promptSuggest      bool
-	compressedFocus    bool
 	reviewQueue        bool
 	arrowsStay         bool
 	// backdropSync is the backdrop mode as the picker holds it: true
@@ -1340,7 +1352,6 @@ func New(cfg config.Config, st *store.Store, driver *tmux.Driver, engine *status
 		split:           splitState{ratio: loadSplitRatio(st)},
 		focusOnEnter:    storedFocusOnEnter(st),
 		focusView:       storedFocusView(st),
-		compressedFocus: storedCompressedFocus(st),
 		arrowsStay:      storedArrowsStay(st),
 		jevAutoSuggest:  storedJevAutoSuggest(st),
 		jevFinishCheck:  storedJevFinishCheck(st),
@@ -2170,6 +2181,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case reviewsMsg:
 		return m.finishReviews(msg)
+	case reviewDraftsMsg:
+		return m.finishDrafts(msg)
+	case reviewSubmittedMsg:
+		return m.finishSubmit(msg)
+	case prDetailMsg:
+		return m.finishPullRequest(msg)
 	case autoRouteMsg:
 		return m.finishAutoRoute(msg)
 	case agentPickQuotaMsg:
@@ -2406,6 +2423,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case landingCheckMsg:
 		return m, m.applyLandingCheck(msg)
+	case questionTypedMsg:
+		return m, m.applyQuestionTyped(msg)
 
 	case refreshMsg:
 		m.ageError()
@@ -2549,12 +2568,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if sess, ok := m.selected(); ok && sess.ID != msg.procFor {
 			m.syncPollInput()
 			m.previewGen++
-			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick())
+			return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.previewCmd(sess, m.previewGen, m.procDue()), m.startStartupTick(), m.loadDrafts())
 		}
 		m.proc = msg.proc
 		m.procFor = msg.procFor
 		m.setPreviewAt(msg.preview, msg.previewAt)
-		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick())
+		return m, tea.Batch(heldLandings, focusExit, nameNow, resize, sweep, childSweep, triageEnter, pickup, m.ownPaneVisibleCmd(), m.startStartupTick(), m.loadDrafts())
 
 	case childSweptMsg:
 		m.applyChildSweep(msg)
@@ -2937,6 +2956,19 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return model, tea.Batch(cmd, m.scheduleAutoSuggestion(), m.schedulePromptJev())
 
 	case tea.PasteMsg:
+		if m.reviewPageOpen() {
+			if page := m.reviewPage(); page.compose != nil {
+				text := strings.ReplaceAll(msg.Content, "\r\n", "\n")
+				text = strings.ReplaceAll(text, "\r", "\n")
+				lines := strings.Split(text, "\n")
+				for i, line := range lines {
+					lines[i] = cleanText(line)
+				}
+				page.compose.text = append(page.compose.text, []rune(strings.Join(lines, "\n"))...)
+				page.compose.scroll = 0
+				return m, nil
+			}
+		}
 		if m.mode == modeSettings && m.settings.jevPasting {
 			return m, m.pasteIntoJevKey(msg)
 		}

@@ -11,6 +11,7 @@ import (
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/textfmt"
 
+	"github.com/usestring/gate-inbox/internal/dialog"
 	"github.com/usestring/gate-inbox/internal/keymap"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -54,7 +55,22 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 		m.errBar.text = m.deadSessionHint()
 		return nil
 	}
-	if hold := m.dialogHold(sess); hold != "" {
+	if hold, pane := m.dialogHold(sess); hold != "" {
+		// A question with a free-text row takes the sentence there instead:
+		// the words are typed into its "Type something" row and submitted,
+		// which is the same answer the operator would key by hand.
+		if submit && m.typeQuestion != nil {
+			if held, ok := dialog.Inspect(pane); ok && held.TakesWords() {
+				// Offline, the answer would start a turn the agent cannot
+				// finish, and the outbox below types into a prompt, not a
+				// dialog, so it cannot hold this one: refuse it instead.
+				if m.poller.offline() {
+					m.errBar.text = "offline — " + quoted + " was not sent; " + m.displayName(sess) + "'s question waits for the network"
+					return nil
+				}
+				return m.typeIntoQuestion(sess, text, quoted, started, handOver)
+			}
+		}
 		m.errBar.text = hold
 		return nil
 	}
@@ -136,22 +152,26 @@ func (m *Model) sendSentence(sess store.Session, text, quoted string, submit, ha
 // mid-turn, where a line sent at the operator's own key is steering and lands
 // in the prompt to be read when the turn ends.
 //
+// pane is the stripped capture the hold was read from, for the caller to
+// look at the dialog it found.
+//
 // It fails open. A capture that errors says nothing about what is on the pane,
 // and swallowing the operator's key over a tmux hiccup is worse than the paste
 // it is guarding against; a pane that has actually gone is refused above, and
 // SendText reports whatever is left.
-func (m *Model) dialogHold(sess store.Session) string {
+func (m *Model) dialogHold(sess store.Session) (hold, pane string) {
 	if m.engine == nil {
-		return ""
+		return "", ""
 	}
-	pane, err := m.tmux.CapturePane(sess.ID)
+	raw, err := m.tmux.CapturePane(sess.ID)
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	if state, matched := m.engine.RuleMatch(sess.Tool, ansi.Strip(pane)); !matched || state != status.Waiting {
-		return ""
+	pane = ansi.Strip(raw)
+	if state, matched := m.engine.RuleMatch(sess.Tool, pane); !matched || state != status.Waiting {
+		return "", pane
 	}
-	return m.displayName(sess) + " has a dialog open - enter it to answer; a pasted line would answer the dialog"
+	return m.displayName(sess) + " has a dialog open - enter it to answer; a pasted line would answer the dialog", pane
 }
 
 func (m *Model) resumeHeldSnippets() tea.Cmd {

@@ -192,6 +192,15 @@ func spawnArgs(opts sessioncmd.CreateSessionOptions) []string {
 	if opts.SkipPermissions != nil {
 		args = append(args, "--skip-permissions="+strconv.FormatBool(*opts.SkipPermissions))
 	}
+	// As JSON, because a new task's body and dependencies do not fit a
+	// flag per field. A manager too old for the flag fails the delegate,
+	// which then runs in process rather than spawning without the tasks.
+	if len(opts.Tasks) > 0 {
+		encoded, err := json.Marshal(opts.Tasks)
+		if err == nil {
+			args = append(args, "--tasks-json", string(encoded))
+		}
+	}
 	return args
 }
 

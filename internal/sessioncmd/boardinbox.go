@@ -18,11 +18,11 @@ func (s *Sessions) BoardMessages(targetID string, filter store.InboxFilter) (mes
 	case filter.Limit > boardInboxCap:
 		filter.Limit = boardInboxCap
 	}
-	runtime, err := s.open()
+	runtime, done, err := s.openBoard()
 	if err != nil {
 		return nil, err
 	}
-	defer runtime.store.Close()
+	defer done()
 	target, err := runtime.agent(targetID)
 	if err != nil {
 		return nil, err

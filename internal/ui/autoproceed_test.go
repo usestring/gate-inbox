@@ -581,3 +581,31 @@ func TestFailedEarlyComposerHandoverResumesTheWaitingQueue(t *testing.T) {
 		})
 	}
 }
+
+func TestModelCommandsStayInTriageUntilAPromptLands(t *testing.T) {
+	for _, command := range []string{"/model", "/model fast", "/status"} {
+		t.Run(command, func(t *testing.T) {
+			m := drainOnComposer(t)
+			id := focusedID(t, m)
+			for i := range m.sessions {
+				m.sessions[i].Tool = "quietchat"
+			}
+			m.rebuildRows()
+			if err := m.tmux.SendText(id, "printf '\\n› "+command+"\\n'"); err != nil {
+				t.Fatal(err)
+			}
+			waitForPaneText(t, m, id, "\n› "+command+"\n")
+			m = pressEnter(m)
+			if m.mode != modeFocus || focusedID(t, m) != id || m.isMuted(onlyLanding(t, m).sess) {
+				t.Fatal("a CLI command advanced triage before the agent took a prompt")
+			}
+			if onlyLanding(t, m).early {
+				t.Fatal("a CLI command used the immediate composer handover")
+			}
+			landAnswer(t, m, id)
+			if focusedName(t, m) != "next" {
+				t.Fatal("a slash command that became an agent prompt did not advance triage")
+			}
+		})
+	}
+}

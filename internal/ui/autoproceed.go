@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -89,6 +91,19 @@ func (m *Model) handOverFocused(sess store.Session) tea.Cmd {
 func (m *Model) handOverLanded(sess store.Session, at time.Time) tea.Cmd {
 	m.muteUntilSeen(sess, at)
 	return m.moveOnFrom(sess)
+}
+
+func (m *Model) paneHasSlashCommand(tool, pane string) bool {
+	if m.engine == nil {
+		return false
+	}
+	rows := strings.Split(ansi.Strip(pane), "\n")
+	for i := len(rows) - 1; i >= 0; i-- {
+		if prefix, ok := m.engine.InputPrefix(tool, rows[i]); ok {
+			return strings.HasPrefix(strings.TrimSpace(rows[i][len(prefix):]), "/")
+		}
+	}
+	return false
 }
 
 // handOverOnEnter is auto-proceed's handover on the Enter itself, keyAt being

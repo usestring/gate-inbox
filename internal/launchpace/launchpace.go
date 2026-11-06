@@ -62,6 +62,10 @@ const pollEvery = 2 * time.Second
 // ErrBusy is Try's answer when a launch may not start yet.
 var ErrBusy = errors.New("another session is relaunching; this one waits its turn")
 
+// ErrMemoryPressure leaves the running session intact so the caller can retry
+// after the host recovers instead of adding another CLI startup under pressure.
+var ErrMemoryPressure = errors.New("macOS is under memory pressure; free memory before retrying this relaunch")
+
 // Limits is how launches are paced. A zero field takes its default.
 type Limits struct {
 	// MaxInFlight is how many launches may be unsettled at once.
@@ -126,9 +130,10 @@ type Pacer struct {
 	settled Settled
 	// now, sleep and load are the clock, the wait and the host's one-minute
 	// load average per CPU; tests replace them.
-	now   func() time.Time
-	sleep func(ctx context.Context, d time.Duration) error
-	load  func() (float64, bool)
+	now                 func() time.Time
+	sleep               func(ctx context.Context, d time.Duration) error
+	load                func() (float64, bool)
+	underMemoryPressure func() bool
 }
 
 // New is the pacer whose state lives in dir.
@@ -192,8 +197,8 @@ func (s Slot) Cancel() {
 	})
 }
 
-// Try admits a launch of id now, or says ErrBusy and how long until the
-// next look is worth making.
+// Try admits a launch of id now, or says ErrBusy or ErrMemoryPressure and
+// how long until the next look is worth making.
 func (p *Pacer) Try(id string) (Slot, time.Duration, error) {
 	return p.try(id, false)
 }
@@ -207,6 +212,9 @@ func (p *Pacer) TryAhead(id string) (Slot, time.Duration, error) {
 }
 
 func (p *Pacer) try(id string, ahead bool) (Slot, time.Duration, error) {
+	if p.underMemoryPressure != nil && p.underMemoryPressure() {
+		return Slot{}, pollEvery, ErrMemoryPressure
+	}
 	var (
 		slot Slot
 		wait time.Duration
@@ -283,7 +291,8 @@ func (p *Pacer) Record(id string) {
 	})
 }
 
-// Wait admits a launch of id once the queue lets it, or returns ctx's error.
+// Wait admits a launch of id once the queue lets it. Memory pressure returns
+// immediately: callers may be waiting with no deadline while the old agent runs.
 func (p *Pacer) Wait(ctx context.Context, id string) (Slot, error) {
 	for {
 		slot, wait, err := p.Try(id)

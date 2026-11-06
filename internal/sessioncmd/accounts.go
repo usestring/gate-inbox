@@ -211,11 +211,11 @@ func (s *Sessions) switchAccount(runtime *runtime, target store.Session, account
 // own login, and that CLI's account settings, read with the operator's
 // reach.
 func (s *Sessions) BoardAccount(targetID string) (string, extension.AccountTool, error) {
-	runtime, err := s.open()
+	runtime, done, err := s.openBoard()
 	if err != nil {
 		return "", extension.AccountTool{}, err
 	}
-	defer runtime.store.Close()
+	defer done()
 	target, err := runtime.agent(targetID)
 	if err != nil {
 		return "", extension.AccountTool{}, err

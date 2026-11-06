@@ -61,6 +61,7 @@ const (
 	// modeLaunchHint holds a refused spawn's fix in a dialog: the launch
 	// stays blocked, and the command that unblocks it is what the user sees.
 	modeLaunchHint
+	modeLaunchMemory
 	// modeFocus routes the keyboard into the selected session's pane while
 	// the list and live preview stay on screen.
 	modeFocus
@@ -322,6 +323,7 @@ type Model struct {
 	// priorityFlash is the row that just changed tier, spelled out on the
 	// rail until its timer runs out. See priority.go.
 	priorityFlash priorityFlash
+	launchMemory  launchMemoryState
 	snap          sysstat.Snapshot
 	proc          sysstat.ProcStat
 	procFor       string
@@ -2910,6 +2912,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.requestRefresh()
 		return m, nil
 
+	case devboxLaunchDoneMsg:
+		return m.finishDevboxLaunch(msg)
 	case editorDoneMsg:
 		if msg.tookScreen {
 			// The terminal comes back from an editor painted in the

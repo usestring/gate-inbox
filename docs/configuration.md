@@ -169,3 +169,46 @@ configured into contradicting each other.
 ## Right-to-left text
 
 Hebrew and Arabic rows are painted as the cells they occupy, the same on every host. A terminal that runs its own bidirectional layout, iTerm2's right-to-left support or WezTerm's `bidi_enabled`, reorders those rows itself; turn that support off to read the frame in the columns Gate Inbox paints.
+
+### Memory warning for manual New Session
+
+`[new_session]` can offer a choice before a quick New Session launch or an
+advanced form submission when available memory falls below a threshold:
+
+```toml
+[new_session]
+memory_available_below = 15
+# The command receives a private JSON request file as its final argument.
+devbox_command = 'python3 /path/to/gate-inbox/scripts/devbox-launch.py --host devbox --map /local/projects=/remote/projects'
+```
+
+The percentage is configurable from 0 to 100; 0 (the default) disables the
+warning. The board uses its host-memory gauge, including reclaimable memory on
+macOS. Below the threshold, or when memory cannot be read, choose **Launch on
+devbox**, **Launch locally anyway**, or **Cancel**. A local override applies to
+that request only. Cancel keeps the form and prompt. This choice belongs to the
+two manual New Session paths; CLI/MCP launches, agent fan-out, revives and account
+switches do not run it.
+
+A devbox command runs only after the operator selects it. It receives a 0600
+JSON file with the selected `tool`, `name`, local `directory`, optional `model`
+and `prompt`, permission/form fields and `memory_available_below`. The file is
+removed when the command exits. A nonzero exit leaves the request available to
+retry, launch locally, or cancel; there is no automatic local fallback. An empty
+`devbox_command` leaves the local and cancel choices available.
+
+The supplied `scripts/devbox-launch.py` uses an existing SSH login and a Gate
+Inbox installation on a Linux devbox. Configure `--host` and explicit `--map`
+roots; the longest matching mapping preserves subdirectories, and an unmapped
+or missing directory fails before launch. Add `--identity` for an existing key
+or `--socket` with the remote board's private tmux socket name (its
+`tmux_socket` or `GATE_INBOX_TMUX_SOCKET`); the helper creates and attaches the
+session on that server. The helper checks
+remote available memory against the same threshold, sends the request over SSH
+stdin, creates the remote session with the selected tool, name, model and
+prompt, then attaches its tmux pane. No credentials or transcripts are copied.
+If attachment fails after creation it reports the created session for
+reconnection instead of asking for a retry that would create another one.
+Attachments, enabled extension fields and child-permission overrides are
+refused before connecting because this helper cannot transfer them; the local
+draft remains available. A custom launcher may support those request fields.

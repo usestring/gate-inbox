@@ -5,6 +5,7 @@ package config
 import (
 	"crypto/sha256"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -569,6 +570,12 @@ type Board struct {
 	OfferCLIOnLimit bool `toml:"offer_cli_on_limit"`
 }
 
+type NewSession struct {
+	MemoryAvailableBelow float64 `toml:"memory_available_below"`
+	// DevboxCommand receives a private JSON request file as its last argument.
+	DevboxCommand string `toml:"devbox_command"`
+}
+
 type Config struct {
 	PollInterval       Duration `toml:"poll_interval"`
 	OutboxProbeTargets []string `toml:"outbox_probe_targets"`
@@ -609,6 +616,7 @@ type Config struct {
 	Codex            Codex        `toml:"codex"`
 	OpenCode         OpenCode     `toml:"opencode"`
 	Relaunch         Relaunch     `toml:"relaunch"`
+	NewSession       NewSession   `toml:"new_session"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see
@@ -699,6 +707,9 @@ func LoadDir(dir string) (Config, error) {
 // validate refuses values the board has no reading for, so a misspelt
 // choice is named at startup rather than quietly drawn as the default.
 func (c Config) validate() error {
+	if v := c.NewSession.MemoryAvailableBelow; math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > 100 {
+		return fmt.Errorf("new_session.memory_available_below must be between 0 and 100 (0 disables the warning)")
+	}
 	for _, target := range c.OutboxProbeTargets {
 		u, err := url.Parse(target)
 		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {

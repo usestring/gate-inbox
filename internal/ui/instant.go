@@ -40,16 +40,19 @@ func (m *Model) spawnInstantIn(toolName, group string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	name := m.derivedSessionName(dir, toolName)
-	id, err := m.spawnSessionAs(toolName, "", name, dir, group, "", false, store.SourceDerived)
-	if err != nil {
-		m.reportLaunchError(err)
-		return m, nil
-	}
-	// A new session is starting, which the attention filter excludes, so the
-	// row this keypress made would otherwise land off screen.
-	m.statusFilter = statusFilterAll
-	m.errBar.text = ""
-	return m.landInNewSession(id)
+	request := manualLaunchRequest{Tool: toolName, Name: name, Directory: dir}
+	return m.confirmManualLaunch(request, func() (tea.Model, tea.Cmd) {
+		id, err := m.spawnSessionAs(toolName, "", name, dir, group, "", false, store.SourceDerived)
+		if err != nil {
+			m.reportLaunchError(err)
+			return m, nil
+		}
+		// A new session is starting, which the attention filter excludes, so the
+		// row this keypress made would otherwise land off screen.
+		m.statusFilter = statusFilterAll
+		m.errBar.text = ""
+		return m.landInNewSession(id)
+	})
 }
 
 // derivedSessionName is what an instant spawn wears until its conversation has

@@ -853,37 +853,47 @@ func (m *Model) submitForm() (tea.Model, tea.Cmd) {
 
 	values := m.form.formValues()
 	perms := skipPermissions{self: m.form.skip, children: m.form.childrenSkip}
-	var id string
-	spawn := func() error {
-		var err error
-		id, err = m.spawnSessionWith(toolName, m.formModel(), name, dir, group, prompt, autoNamed, store.SourceUser, values, perms)
-		return err
+	model := m.formModel()
+	request := manualLaunchRequest{
+		Tool: toolName, Model: model, Name: name, Directory: dir, Prompt: prompt,
+		SkipPermissions: perms.self, ChildrenSkipPermissions: perms.children, Form: values,
 	}
-	if err := spawn(); err != nil {
-		// A spawn the hint dialog refused takes the form off screen with
-		// it; the dialog releases its images once no install can still
-		// spawn it. An error reported in the bar leaves the form up, and
-		// the prompt still names them.
-		m.reportLaunchError(err, spawn)
-		return m, nil
+	for _, image := range m.form.prompt.attachments {
+		request.Attachments = append(request.Attachments, image.path)
 	}
-	// New sessions start as starting, which attention excludes; clear so
-	// the row the form just created is on screen.
-	m.statusFilter = statusFilterAll
-	m.toolFilter = ""
-	// Set before focusing, not instead of it: this is where a focus that
-	// refuses -- a row filtered off the tree, a pane already gone -- leaves
-	// the operator, and it must not be the form.
-	m.mode = modeList
-	// The extensions hear of it before the board focuses the new pane, so
-	// one that opens a view of its own on the session gets there first,
-	// and the board leaves the operator in that view instead.
-	if m.formSpawned(id, values) {
-		m.rebuildRows()
-		m.focusSession(id)
-		return m, m.refreshCmd()
-	}
-	return m.landInNewSession(id)
+	return m.confirmManualLaunch(request, func() (tea.Model, tea.Cmd) {
+		var id string
+		spawn := func() error {
+			var err error
+			id, err = m.spawnSessionWith(toolName, model, name, dir, group, prompt, autoNamed, store.SourceUser, values, perms)
+			return err
+		}
+		if err := spawn(); err != nil {
+			// A spawn the hint dialog refused takes the form off screen with
+			// it; the dialog releases its images once no install can still
+			// spawn it. An error reported in the bar leaves the form up, and
+			// the prompt still names them.
+			m.reportLaunchError(err, spawn)
+			return m, nil
+		}
+		// New sessions start as starting, which attention excludes; clear so
+		// the row the form just created is on screen.
+		m.statusFilter = statusFilterAll
+		m.toolFilter = ""
+		// Set before focusing, not instead of it: this is where a focus that
+		// refuses -- a row filtered off the tree, a pane already gone -- leaves
+		// the operator, and it must not be the form.
+		m.mode = modeList
+		// The extensions hear of it before the board focuses the new pane, so
+		// one that opens a view of its own on the session gets there first,
+		// and the board leaves the operator in that view instead.
+		if m.formSpawned(id, values) {
+			m.rebuildRows()
+			m.focusSession(id)
+			return m, m.refreshCmd()
+		}
+		return m.landInNewSession(id)
+	})
 }
 
 func (m *Model) submitFormTerminal(toolName string) (tea.Model, tea.Cmd) {

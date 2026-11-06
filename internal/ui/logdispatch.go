@@ -30,6 +30,8 @@ func (m mode) String() string {
 		return "group-form"
 	case modeSettings:
 		return "settings"
+	case modeLaunchMemory:
+		return "launch-memory"
 	case modeLaunchHint:
 		return "launch-hint"
 	case modeFocus:

@@ -2078,7 +2078,7 @@ func (p *poller) interruptForMessage(sess store.Session, msg store.InboxMessage,
 	if !p.safeToInterrupt(sess.Tool, fresh) {
 		return true, nil
 	}
-	if err := p.tmux.SendKeys(sess.ID, keys...); err != nil {
+	if err := sendInterruptKeys(p.tmux, sess.ID, keys); err != nil {
 		return true, fmt.Errorf("interrupt %s for a message from %s: %w", sess.Name, msg.SenderName, err)
 	}
 	now := time.Now()

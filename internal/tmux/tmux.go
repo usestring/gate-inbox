@@ -836,10 +836,12 @@ func (d *Driver) EnsureBindings() error {
 			return err
 		}
 	}
-	// list-keys starts a server that exits again straight away when it has
-	// no sessions. Nothing needs the setup then: Create runs this again once
-	// a session brings the server up.
-	if _, err := d.run(commandList(binds...)...); err != nil && !noServer(err.Error()) {
+	// Nothing needs the setup without a server: Create runs this again once a
+	// session brings the server up. -N keeps bind-key from starting one, since
+	// a server started with no session runs the operator's tmux.conf, and a
+	// plugin there that calls back into tmux from a blocking run-shell wedges
+	// it for good instead of letting it exit.
+	if _, err := d.run(append([]string{"-N"}, commandList(binds...)...)...); err != nil && !noServer(err.Error()) {
 		return err
 	}
 	return nil
@@ -883,7 +885,11 @@ func (d *Driver) sharedBindings(socket string, binds [][]string) ([][]string, er
 // rootKeys is every key bound in the root table, and whether a server
 // answered at all.
 func (d *Driver) rootKeys(socket string) (map[string]string, bool, error) {
-	out, err := d.combined([]string{"-L", socket, "list-keys", "-T", "root"})
+	// -N: asking must not start a server. One started for list-keys runs the
+	// operator's tmux.conf, and a plugin calling back into tmux from a
+	// blocking run-shell wedges it; three such servers were found alive after
+	// 10-15 days, each holding its plugin's shell.
+	out, err := d.combined([]string{"-N", "-L", socket, "list-keys", "-T", "root"})
 	if err != nil {
 		if noServer(string(out)) {
 			return nil, false, nil

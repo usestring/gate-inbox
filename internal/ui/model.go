@@ -779,7 +779,11 @@ type Model struct {
 	// over from a previous manager run to the preview panel's width.
 	sessionsSized bool
 	errBar        errBar
-	split         splitState
+	// inputs is the input journal a dump reads; see inputjournal.go.
+	inputs inputJournal
+	// autoDump asks for a dump the board decided on itself; see SetAutoDump.
+	autoDump func(reason string)
+	split    splitState
 	// previewGen increments on every cursor move. In-flight captures and
 	// settle timers with an older gen are dropped so key-repeat cannot
 	// queue a second of tmux work after the user stops.

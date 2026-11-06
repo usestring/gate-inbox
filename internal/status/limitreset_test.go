@@ -86,3 +86,44 @@ func TestLimitBannerUsesOnlyCurrentVisibleLimit(t *testing.T) {
 		t.Fatalf("wrapped Codex banner lost reset: %q", got)
 	}
 }
+
+// Claude's limit menu leaves no input line on the screen, so the banner is
+// found without one. It is still the banner's own row, not the reply, lists
+// and table above it, which the limit card would print as one paragraph.
+func TestLimitBannerUnderTheLimitMenuIsOnlyTheBanner(t *testing.T) {
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := NewEngine(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	banner := "You've hit your weekly limit · resets Nov 7, 11am (UTC)"
+	pane := "  1. Rollout:\n" +
+		"     - Raise the size limits before the first run.\n" +
+		"     - Put them back after two clean runs.\n" +
+		"\n" +
+		"  ┌──────────┬──────────┐\n" +
+		"  │ Step     │ The tool │\n" +
+		"  ├──────────┼──────────┤\n" +
+		"  │ Edit     │ One line │\n" +
+		"  └──────────┴──────────┘\n" +
+		"\n" +
+		"● User answered Claude's questions:\n" +
+		"  ⎿  · Add it to the PR? → Add it (Recommended)\n" +
+		"  ⎿  " + banner + "\n" +
+		"\n" +
+		"✻ Crunched for 4m 12s · done 5:17 PM\n" +
+		"▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔\n" +
+		"   What do you want to do?\n" +
+		"\n" +
+		"   ❯ 1. Stop and wait for limit to reset\n" +
+		"     2. Wait here, then continue automatically at Nov 7, 11am\n" +
+		"     3. Switch to usage credits\n" +
+		"\n" +
+		"   Enter to confirm · Esc to cancel\n"
+	if got := e.LimitBanner("claude", pane); got != "⎿ "+banner {
+		t.Fatalf("banner = %q, want only the banner's row", got)
+	}
+}

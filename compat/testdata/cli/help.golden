@@ -121,4 +121,6 @@ Options:
   -h, --help     Show this help text
   -v, --version  Print the installed version
   --log-path     Print where the diagnostic log is written (alias: logs)
+  dump           Ask the running board for its recent inputs and goroutine stacks,
+                 written next to the log (run before restarting a stuck board)
 

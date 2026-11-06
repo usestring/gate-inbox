@@ -105,3 +105,21 @@ type ToolCandidate struct {
 	// be launched on a named account.
 	Account *AccountTool
 }
+
+// limitMoveKey marks a context as a move off an account at its limit.
+type limitMoveKey struct{}
+
+// LimitMove marks ctx's BoardHost.SwitchAccount as a move of a session its
+// account's limit has already cut off. That session can run nothing where
+// it is, so its relaunch goes ahead of routine moves in the relaunch queue
+// and may run beside one other; a move made before the limit keeps the
+// queue's one-at-a-time pace.
+func LimitMove(ctx context.Context) context.Context {
+	return context.WithValue(ctx, limitMoveKey{}, true)
+}
+
+// IsLimitMove says ctx was marked by LimitMove.
+func IsLimitMove(ctx context.Context) bool {
+	on, _ := ctx.Value(limitMoveKey{}).(bool)
+	return on
+}

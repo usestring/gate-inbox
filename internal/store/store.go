@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -1122,6 +1123,14 @@ const (
 // delivered, and reading those made the sweep end the new life the first
 // time it came to rest -- a minute after the revive that asked for it back.
 func (s *Store) AutoArchivableChildren(before time.Time) ([]ArchivableChild, error) {
+	// A hibernated child reads dead with its pane gone, which is exactly
+	// the exited case, but it is resting, not over: filing it would start
+	// the archive's deletion clock on a conversation that was only paused.
+	// Read before the query: the store shares one connection.
+	hibernated, err := s.Hibernated()
+	if err != nil {
+		return nil, err
+	}
 	rows, err := s.db.Query(
 		`SELECT s.id,
 		        EXISTS (
@@ -1146,6 +1155,9 @@ func (s *Store) AutoArchivableChildren(before time.Time) ([]ArchivableChild, err
 		var reported bool
 		if err := rows.Scan(&child.ID, &reported); err != nil {
 			return nil, err
+		}
+		if slices.Contains(hibernated, child.ID) {
+			continue
 		}
 		child.Reason = ArchiveReasonWindow
 		if reported {

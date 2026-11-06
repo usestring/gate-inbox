@@ -289,6 +289,11 @@ type Model struct {
 	// so the poll clock cannot stack a second set of tmux forks behind the
 	// set already waiting. See childsweep.go.
 	childSweeping bool
+	// hibernating is set while a settleHibernated pass is out, and
+	// hibernateSweptAt is when the last one swept for idle sessions. See
+	// hibernate.go.
+	hibernating      bool
+	hibernateSweptAt time.Time
 	// meterMemo is the machine block at the rail's foot, which reads nothing
 	// but the two samples and the width in its key and cost a tenth of every
 	// frame to draw for a sample that moves once every two seconds.
@@ -2529,7 +2534,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		sweep := m.sweepExpiredArchives()
 		// Off the loop, so a busy tmux server delays a child's filing rather
 		// than the board's next frame. What it finds lands as childSweptMsg.
-		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev())
+		childSweep := tea.Batch(m.sweepFinishedChildren(), m.checkFinishedWithJev(), m.settleHibernated())
 		m.settleInstall()
 		m.rebuildRows()
 		if focusClosed {
@@ -2577,6 +2582,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case childSweptMsg:
 		m.applyChildSweep(msg)
+		return m, nil
+
+	case hibernateSettledMsg:
+		m.applyHibernateSettled(msg)
 		return m, nil
 
 	case adoptTickMsg:

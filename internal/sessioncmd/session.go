@@ -1204,8 +1204,13 @@ func (s *Sessions) send(sessionID, targetID, message, subject string, asHuman, i
 	case asHuman:
 		from.id, from.name = store.HumanSenderID, ""
 	}
-	restored := ""
-	if !asHuman {
+	// A hibernated target wakes for any sender, the operator included: the
+	// message is what it was resting until.
+	restored, err := s.wakeForSend(runtime, targetID)
+	if err != nil {
+		return SendResult{}, err
+	}
+	if !asHuman && restored == "" {
 		if restored, err = s.restoreForSend(runtime, caller, targetID); err != nil {
 			return SendResult{}, err
 		}
@@ -1643,6 +1648,11 @@ func (s *Sessions) kill(sessionID, targetID string, terminals bool, via extensio
 }
 
 func (s *Sessions) stopSession(runtime *runtime, target store.Session, via extension.KillSource, by string, kill func(string) error) (Session, error) {
+	// A kill is an end the operator chose, so a hibernated row stops being
+	// one and its held queue is resolved like any ended session's.
+	if err := runtime.store.RemoveHibernated([]string{target.ID}); err != nil {
+		return Session{}, err
+	}
 	pane, _ := runtime.driver.CapturePane(target.ID)
 	released, err := s.killSessionBy(runtime, target, pane, kill)
 	if err != nil {
@@ -1777,6 +1787,9 @@ func (s *Sessions) file(runtime *runtime, target store.Session, archived bool) (
 	released := 0
 	if archived {
 		var err error
+		if err = runtime.store.RemoveHibernated([]string{target.ID}); err != nil {
+			return Session{}, err
+		}
 		if released, err = runtime.store.ArchiveSession(target.ID); err != nil {
 			return Session{}, err
 		}

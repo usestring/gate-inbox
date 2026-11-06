@@ -72,3 +72,31 @@ func TestPendingAskCallAndAnsweredAsks(t *testing.T) {
 		t.Fatalf("AnsweredAsks since its own answer = %+v, want none", later)
 	}
 }
+
+// The cached answer is the file's answer: an append that answers the call is
+// seen on the next ask, and a caller editing what it was handed does not
+// edit what the next caller gets.
+func TestPendingAskCallFollowsTheTranscriptThroughItsCache(t *testing.T) {
+	path := writeTranscript(t, askCallRecord)
+	call, ok := PendingAskCall(path)
+	if !ok || len(call.Questions) != 2 {
+		t.Fatalf("first ask = %+v, %v", call, ok)
+	}
+	call.Questions[0].Header = "edited"
+	call.Questions[0].Options[0].Label = "edited"
+	again, ok := PendingAskCall(path)
+	if !ok || again.Questions[0].Header != "Tooling" || again.Questions[0].Options[0].Label == "edited" {
+		t.Fatalf("a caller's edit reached the cache: %+v", again.Questions[0])
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_ask2","content":"answered"}]}}` + "\n"); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if call, ok := PendingAskCall(path); ok {
+		t.Fatalf("an answer appended after a cached ask still reads as pending: %+v", call)
+	}
+}

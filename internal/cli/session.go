@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/extension/cmdline"
@@ -40,6 +41,7 @@ const (
 	usageCleanup       = "cleanup-children [--status <state>] [--all] [--dry-run] [--json]"
 	usagePark          = "park [--dry-run] [--json]"
 	usageUnpark        = "unpark [--json]"
+	usageHibernate     = "hibernate [<session-id>] [--idle <duration>] [--dry-run] [--json]"
 	usageGroups        = "groups [--json]"
 	usageCreateGroup   = "create-group <path> [--directory <path>] [--pin] [--json]"
 	usagePinGroup      = "pin-group <path> [--off] [--json]"
@@ -70,6 +72,8 @@ type sessionCommands interface {
 	Mute(sessionID, targetID string, muted bool) (sessioncmd.Session, error)
 	Park(sessionID string, dryRun bool) (sessioncmd.ParkResult, error)
 	Unpark(sessionID string) (sessioncmd.UnparkResult, error)
+	Hibernate(sessionID, targetID string, dryRun bool) (sessioncmd.HibernateResult, error)
+	HibernateIdle(after time.Duration, dryRun bool) (sessioncmd.HibernateResult, error)
 	Groups(sessionID string) ([]sessioncmd.Group, error)
 	CreateGroup(sessionID, path, directory string, pin bool) (sessioncmd.Group, error)
 	PinGroup(sessionID, path string, pinned bool) (sessioncmd.Group, error)
@@ -104,6 +108,7 @@ func sessionSection() section {
 			{name: "cleanup-children", usage: usageCleanup, about: "archive the sessions you spawned that are done, each with whatever it spawned: finished, idle and dead by default, --status to choose, --all for every one; a finished child you have read is archived on its own after a grace period anyway", run: bind(newSessions, runCleanupChildren)},
 			{name: "park", usage: usagePark, about: "stop every live agent session the manager started and record the set, so the machine can reboot; --dry-run only prints the plan; runs from any shell", run: bind(newSessions, runPark)},
 			{name: "unpark", usage: usageUnpark, about: "bring back every session park stopped, each on the conversation it held: work in flight first, only the ones interrupted told to continue, paced one at a time; runs from any shell", run: bind(newSessions, runUnpark)},
+			{name: "hibernate", usage: usageHibernate, about: "stop an idle agent to give its memory back while keeping its row, mail and claims; the next message for it, from anyone, wakes it on its conversation; --idle <duration> hibernates every session at rest that long; runs from any shell", run: bind(newSessions, runHibernate)},
 			{name: "groups", usage: usageGroups, about: "list the groups sessions and terminals are filed under", run: bind(newSessions, runGroups)},
 			{name: "create-group", usage: usageCreateGroup, about: "create a group so a fleet you spawn stays together in the user's list", run: bind(newSessions, runCreateGroup)},
 			{name: "pin-group", usage: usagePinGroup, about: "make a group's directory where every session spawned into it starts, so that repository's settings and MCP servers load; --off unpins it", run: bind(newSessions, runPinGroup)},
@@ -560,6 +565,33 @@ func runPark(out io.Writer, sessions sessionCommands, args []string, sessionID s
 		return err
 	}
 	return cmdline.Emit(out, *asJSON, result, sessioncmd.FormatParkResult(result))
+}
+
+// runHibernate stops one named session, or with --idle every session that
+// has rested that long, keeping each row to wake on its next message.
+func runHibernate(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
+	set := cmdline.NewFlagSet(usageHibernate)
+	idle := set.Duration("idle", 0, "hibernate every session idle or finished for at least this long, instead of one named session")
+	dryRun := set.Bool("dry-run", false, "print what would be hibernated without stopping anything")
+	asJSON := cmdline.JSONFlag(set)
+	operands, err := parseCommand(out, set, args, 0, 1)
+	if err != nil {
+		return err
+	}
+	var result sessioncmd.HibernateResult
+	switch {
+	case len(operands) == 1 && *idle == 0:
+		result, err = sessions.Hibernate(sessionID, operands[0], *dryRun)
+	case len(operands) == 0 && *idle > 0:
+		result, err = sessions.HibernateIdle(*idle, *dryRun)
+	default:
+		return fmt.Errorf("usage: gate-inbox %s: name one session or pass --idle, not both", usageHibernate)
+	}
+	tmux.AwaitReaps()
+	if err != nil {
+		return err
+	}
+	return cmdline.Emit(out, *asJSON, result, sessioncmd.FormatHibernateResult(result))
 }
 
 func runUnpark(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {

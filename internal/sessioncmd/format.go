@@ -492,3 +492,26 @@ func (a AnsweredQuestion) readSource() string {
 	}
 	return "its screen"
 }
+
+// FormatHibernateResult is hibernate's report: what it stopped, and for a
+// sweep what it left running and why.
+func FormatHibernateResult(result HibernateResult) string {
+	verb := "hibernated"
+	if result.DryRun {
+		verb = "dry run: would hibernate"
+	}
+	lines := []string{fmt.Sprintf("%s %d session(s); each wakes on its conversation when a message arrives for it", verb, len(result.Hibernated))}
+	for _, session := range result.Hibernated {
+		lines = append(lines, "- "+FormatSession(session))
+	}
+	if len(result.Held) > 0 {
+		lines = append(lines, fmt.Sprintf("left running (%d):", len(result.Held)))
+		for _, held := range result.Held {
+			lines = append(lines, "- "+held)
+		}
+	}
+	for _, failure := range result.Errors {
+		lines = append(lines, "error: "+failure)
+	}
+	return strings.Join(lines, "\n")
+}

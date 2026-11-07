@@ -889,6 +889,11 @@ func (s *Sessions) relaunch(runtime *runtime, target store.Session, prompt strin
 	if err := runtime.store.SetAcked(target.ID, false); err != nil {
 		return config.Tool{}, err
 	}
+	// Every way back from hibernation comes through here, so this is where
+	// the row stops being one.
+	if err := runtime.store.RemoveHibernated([]string{target.ID}); err != nil {
+		return config.Tool{}, err
+	}
 	if prompt != "" && launch.TypesPrompt(tool, prompt) {
 		if err := runtime.store.QueuePendingInput(target.ID, prompt); err != nil {
 			return config.Tool{}, err

@@ -209,13 +209,16 @@ plan.agent_session_id: ""
 plan.model: ""
 plan.account: ""
 launch.command: opencode --standalone
+launch.env.BUN_JSC_forceRAMSize=268435456
 launch.env.EXAMPLE_API_KEY=<redacted>
 launch.env.GATE_INBOX_BIN=<scratch>/gihome/bin/gate-inbox
 launch.env.GATE_INBOX_EXIT_FILE=<scratch>/gihome/hooks/cafe0001.exit
 launch.env.GATE_INBOX_HOME=<scratch>/gihome
+launch.env.GATE_INBOX_OPENCODE_RAM_SIZE=268435456
 launch.env.GATE_INBOX_SESSION_ID=cafe0001
 launch.env.HOME=<scratch>/user
 launch.env.OPENCODE_CONFIG=<scratch>/gihome/hooks/gate-inbox-mcp-opencode-<stamp>.json
+launch.env.OPENCODE_DISABLE_FFF=1
 launch.env.OPERATOR_EXPORT=inherited
 launch.env.PATH=<scratch>/bin
 launch.env.TMUX_TMPDIR=<scratch>/tmux
@@ -228,13 +231,16 @@ plan.agent_session_id: ""
 plan.model: ""
 plan.account: ""
 launch.command: opencode --standalone
+launch.env.BUN_JSC_forceRAMSize=268435456
 launch.env.EXAMPLE_API_KEY=<redacted>
 launch.env.GATE_INBOX_BIN=<scratch>/gihome/bin/gate-inbox
 launch.env.GATE_INBOX_EXIT_FILE=<scratch>/gihome/hooks/cafe0001.exit
 launch.env.GATE_INBOX_HOME=<scratch>/gihome
+launch.env.GATE_INBOX_OPENCODE_RAM_SIZE=268435456
 launch.env.GATE_INBOX_SESSION_ID=cafe0001
 launch.env.HOME=<scratch>/user
 launch.env.OPENCODE_CONFIG=<scratch>/gihome/hooks/gate-inbox-mcp-opencode-<stamp>.json
+launch.env.OPENCODE_DISABLE_FFF=1
 launch.env.OPERATOR_EXPORT=inherited
 launch.env.PATH=<scratch>/bin
 launch.env.TMUX_TMPDIR=<scratch>/tmux
@@ -247,13 +253,16 @@ plan.agent_session_id: ""
 plan.model: ""
 plan.account: ""
 launch.command: opencode --standalone
+launch.env.BUN_JSC_forceRAMSize=268435456
 launch.env.EXAMPLE_API_KEY=<redacted>
 launch.env.GATE_INBOX_BIN=<scratch>/gihome/bin/gate-inbox
 launch.env.GATE_INBOX_EXIT_FILE=<scratch>/gihome/hooks/cafe0001.exit
 launch.env.GATE_INBOX_HOME=<scratch>/gihome
+launch.env.GATE_INBOX_OPENCODE_RAM_SIZE=268435456
 launch.env.GATE_INBOX_SESSION_ID=cafe0001
 launch.env.HOME=<scratch>/user
 launch.env.OPENCODE_CONFIG=<scratch>/gihome/hooks/gate-inbox-mcp-opencode-<stamp>.json
+launch.env.OPENCODE_DISABLE_FFF=1
 launch.env.OPERATOR_EXPORT=inherited
 launch.env.PATH=<scratch>/bin
 launch.env.TMUX_TMPDIR=<scratch>/tmux
@@ -266,13 +275,16 @@ plan.agent_session_id: ""
 plan.model: "example-model"
 plan.account: ""
 launch.command: opencode --standalone
+launch.env.BUN_JSC_forceRAMSize=268435456
 launch.env.EXAMPLE_API_KEY=<redacted>
 launch.env.GATE_INBOX_BIN=<scratch>/gihome/bin/gate-inbox
 launch.env.GATE_INBOX_EXIT_FILE=<scratch>/gihome/hooks/cafe0001.exit
 launch.env.GATE_INBOX_HOME=<scratch>/gihome
+launch.env.GATE_INBOX_OPENCODE_RAM_SIZE=268435456
 launch.env.GATE_INBOX_SESSION_ID=cafe0001
 launch.env.HOME=<scratch>/user
 launch.env.OPENCODE_CONFIG=<scratch>/gihome/hooks/gate-inbox-mcp-opencode-cafe0001-<stamp>.json
+launch.env.OPENCODE_DISABLE_FFF=1
 launch.env.OPERATOR_EXPORT=inherited
 launch.env.PATH=<scratch>/bin
 launch.env.TMUX_TMPDIR=<scratch>/tmux

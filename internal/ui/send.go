@@ -268,26 +268,36 @@ func (m *Model) resumeHeldSnippets() tea.Cmd {
 	return tea.Batch(checks...)
 }
 
-// unparkForSend brings back a session park stopped when the operator sends
-// to it, and queues the sentence for the poller to type once the agent is at
-// its prompt (see maybeSendPendingInputWhenReady). Unpark brings sessions
-// back one at a time, which on a large set takes the best part of an hour,
-// so a reply to one still waiting its turn -- most often an answer to the
-// question it was asking when the box went down -- brings it back now,
-// rather than the dead-row hint. A dead row park did not stop
-// gets the hint as before. It reports whether it took the send.
+// unparkForSend brings back a session park or hibernate stopped when the
+// operator sends to it, and queues the sentence for the poller to type once
+// the agent is at its prompt (see maybeSendPendingInputWhenReady). Both
+// leave a row that reads dead on purpose and is meant to come back on its
+// next message: unpark brings parked sessions back one at a time, which on a
+// large set takes the best part of an hour, and a hibernated one waits for
+// mail. A reply typed on the board is that message, so it brings the row
+// back now rather than showing the dead-row hint. A dead row neither
+// stopped gets the hint as before. It reports whether it took the send.
 func (m *Model) unparkForSend(sess store.Session, text string) bool {
 	if m.store == nil {
 		return false
 	}
 	parked, err := m.store.Parked()
-	if err != nil || !slices.Contains(parked, sess.ID) {
+	if err != nil {
 		return false
+	}
+	isParked := slices.Contains(parked, sess.ID)
+	hibernated, err := m.store.IsHibernated(sess.ID)
+	if err != nil || (!isParked && !hibernated) {
+		return false
+	}
+	why := "is parked"
+	if !isParked {
+		why = "is hibernated"
 	}
 	// Queued before the revive, so a revive that fails keeps the message
 	// for the next one instead of dropping what the operator typed.
 	if err := m.store.QueuePendingInput(sess.ID, text); err != nil {
-		m.errBar.text = m.displayName(sess) + " is parked and the message could not be queued for it: " + err.Error()
+		m.errBar.text = m.displayName(sess) + " " + why + " and the message could not be queued for it: " + err.Error()
 		return true
 	}
 	if err := m.reviveSession(sess); err != nil {
@@ -295,13 +305,17 @@ func (m *Model) unparkForSend(sess store.Session, text string) bool {
 		return true
 	}
 	ids := []string{sess.ID}
-	for _, drop := range []func([]string) error{m.store.RemoveParked, m.store.RemoveDormant, m.store.RemoveInterrupted} {
+	for _, drop := range []func([]string) error{m.store.RemoveParked, m.store.RemoveDormant, m.store.RemoveInterrupted, m.store.RemoveHibernated} {
 		if err := drop(ids); err != nil {
-			logging.Warn("unparked session still on the parked set", "session", sess.ID, logging.Err(err))
+			logging.Warn("revived session still on a parked or hibernated set", "session", sess.ID, logging.Err(err))
 		}
 	}
+	verb := "brought " + m.displayName(sess) + " back from park"
+	if !isParked {
+		verb = "woke " + m.displayName(sess) + " from hibernation"
+	}
 	m.errBar.text = ""
-	m.reportDone("brought " + m.displayName(sess) + " back from park; the message goes in once it is at its prompt")
+	m.reportDone(verb + "; the message goes in once it is at its prompt")
 	m.requestRefresh()
 	return true
 }

@@ -74,3 +74,34 @@ func TestSendToADeadUnparkedSessionStillGetsTheHint(t *testing.T) {
 		t.Fatalf("pending inputs changed: %v", got.PendingInputs)
 	}
 }
+
+// A reply to a hibernated session wakes it the same way: hibernate promises
+// that the next message, from anyone, brings it back.
+func TestSendToAHibernatedSessionWakesItAndQueuesTheMessage(t *testing.T) {
+	m := buildModel(t)
+	createSession(t, m, "sleeper", t.TempDir(), "")
+	sess := m.sessionRows()[0]
+	if err := m.tmux.Kill(sess.ID); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
+	if err := m.store.AddHibernated([]string{sess.ID}); err != nil {
+		t.Fatalf("AddHibernated: %v", err)
+	}
+	row, _ := m.store.Get(sess.ID)
+
+	m.sendSentence(row, "wake up", `"wake up"`, true, false)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for !m.tmux.Exists(sess.ID) && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !m.tmux.Exists(sess.ID) {
+		t.Fatalf("the hibernated session was not woken; err bar %q", m.errBar.text)
+	}
+	if got, _ := m.store.Get(sess.ID); !slices.Contains(got.PendingInputs, "wake up") {
+		t.Fatalf("pending inputs = %v, want the message queued", got.PendingInputs)
+	}
+	if still, _ := m.store.IsHibernated(sess.ID); still {
+		t.Fatal("the woken session is still marked hibernated")
+	}
+}

@@ -39,7 +39,7 @@ const (
 	usageMute          = "mute <session-id> [--off] [--json]"
 	usageCleanup       = "cleanup-children [--status <state>] [--all] [--dry-run] [--json]"
 	usagePark          = "park [--dry-run] [--json]"
-	usageUnpark        = "unpark [--all] [--json]"
+	usageUnpark        = "unpark [--json]"
 	usageGroups        = "groups [--json]"
 	usageCreateGroup   = "create-group <path> [--directory <path>] [--pin] [--json]"
 	usagePinGroup      = "pin-group <path> [--off] [--json]"
@@ -69,7 +69,7 @@ type sessionCommands interface {
 	Archive(sessionID, targetID string, archived bool) (sessioncmd.Session, error)
 	Mute(sessionID, targetID string, muted bool) (sessioncmd.Session, error)
 	Park(sessionID string, dryRun bool) (sessioncmd.ParkResult, error)
-	Unpark(sessionID string, opts sessioncmd.UnparkOptions) (sessioncmd.UnparkResult, error)
+	Unpark(sessionID string) (sessioncmd.UnparkResult, error)
 	Groups(sessionID string) ([]sessioncmd.Group, error)
 	CreateGroup(sessionID, path, directory string, pin bool) (sessioncmd.Group, error)
 	PinGroup(sessionID, path string, pinned bool) (sessioncmd.Group, error)
@@ -103,7 +103,7 @@ func sessionSection() section {
 			{name: "mute", usage: usageMute, about: "keep a session out of triage until it is unmuted: the row stays on the list and reads muted, and --off puts it back", run: bind(newSessions, runMute)},
 			{name: "cleanup-children", usage: usageCleanup, about: "archive the sessions you spawned that are done, each with whatever it spawned: finished, idle and dead by default, --status to choose, --all for every one; a finished child you have read is archived on its own after a grace period anyway", run: bind(newSessions, runCleanupChildren)},
 			{name: "park", usage: usagePark, about: "stop every live agent session the manager started and record the set, so the machine can reboot; --dry-run only prints the plan; runs from any shell", run: bind(newSessions, runPark)},
-			{name: "unpark", usage: usageUnpark, about: "bring back the sessions park stopped with work in flight, and the trackers waiting on them, resuming the conversation each held; --all brings back the ones that were at rest too; runs from any shell", run: bind(newSessions, runUnpark)},
+			{name: "unpark", usage: usageUnpark, about: "bring back every session park stopped, each on the conversation it held: work in flight first, only the ones interrupted told to continue, paced one at a time; runs from any shell", run: bind(newSessions, runUnpark)},
 			{name: "groups", usage: usageGroups, about: "list the groups sessions and terminals are filed under", run: bind(newSessions, runGroups)},
 			{name: "create-group", usage: usageCreateGroup, about: "create a group so a fleet you spawn stays together in the user's list", run: bind(newSessions, runCreateGroup)},
 			{name: "pin-group", usage: usagePinGroup, about: "make a group's directory where every session spawned into it starts, so that repository's settings and MCP servers load; --off unpins it", run: bind(newSessions, runPinGroup)},
@@ -564,12 +564,11 @@ func runPark(out io.Writer, sessions sessionCommands, args []string, sessionID s
 
 func runUnpark(out io.Writer, sessions sessionCommands, args []string, sessionID string) error {
 	set := cmdline.NewFlagSet(usageUnpark)
-	all := set.Bool("all", false, "also bring back the sessions that were at rest when parked, after the ones with work in flight")
 	asJSON := cmdline.JSONFlag(set)
 	if _, err := parseCommand(out, set, args, 0, 0); err != nil {
 		return err
 	}
-	result, err := sessions.Unpark(sessionID, sessioncmd.UnparkOptions{All: *all})
+	result, err := sessions.Unpark(sessionID)
 	if err != nil {
 		return err
 	}

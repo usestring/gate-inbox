@@ -178,45 +178,36 @@ func TestParkStopsEveryAgentAndUnparkBringsExactlyThoseBack(t *testing.T) {
 		t.Fatalf("second park = %+v, %v", again, err)
 	}
 
-	// A plain unpark brings back only the work in flight and leaves the
-	// sessions that were at rest parked.
-	hot, err := h.sessions.Unpark(h.caller.ID, UnparkOptions{})
+	// One unpark brings every parked session back: the work in flight
+	// first, then the sessions that were at rest, which are told nothing.
+	unparked, err := h.sessions.Unpark(h.caller.ID)
 	if err != nil {
 		t.Fatalf("Unpark: %v", err)
 	}
-	if len(hot.Revived) != 1 || hot.Revived[0].ID != busy.ID || hot.Owed != 3 || len(hot.Errors) != 0 {
-		t.Fatalf("plain unpark result = %+v", hot)
+	if len(unparked.Revived) != 4 || unparked.Owed != 0 || unparked.Continued != 0 || len(unparked.Errors) != 0 {
+		t.Fatalf("unpark result = %+v", unparked)
 	}
-	if got := sorted(hot.Dormant...); !reflect.DeepEqual(got, sorted(worker.ID, adopted.ID, sleeper)) {
-		t.Fatalf("plain unpark left dormant = %v", got)
+	if unparked.Revived[0].ID != busy.ID {
+		t.Fatalf("revived %v first, want the mid-turn session ahead of the ones at rest", unparked.Revived[0].ID)
 	}
-	if !reflect.DeepEqual(hot.Nudged, []string{busy.ID}) {
-		t.Fatalf("nudged = %v, want only the mid-turn session", hot.Nudged)
+	revived := make([]string, 0, len(unparked.Revived))
+	for _, sess := range unparked.Revived {
+		revived = append(revived, sess.ID)
 	}
-	// The mid-turn session came back with "continue" on its command line;
-	// the others come back below with nothing said to them.
+	if got := sorted(revived...); !reflect.DeepEqual(got, sorted(worker.ID, adopted.ID, sleeper, busy.ID)) {
+		t.Fatalf("revived %v", got)
+	}
+	if !reflect.DeepEqual(unparked.Nudged, []string{busy.ID}) {
+		t.Fatalf("nudged = %v, want only the mid-turn session", unparked.Nudged)
+	}
+	// The mid-turn session came back with "continue" on its command line.
 	waitForSessionOutput(t, h.sessions, h.caller.ID, busy.ID, "resumed continue")
-	if ids, _ := h.store.Interrupted(); len(ids) != 0 {
-		t.Fatalf("interrupted set after unpark = %v", ids)
+	for name, read := range map[string]func() ([]string, error){"parked": h.store.Parked, "interrupted": h.store.Interrupted, "dormant": h.store.Dormant} {
+		if ids, _ := read(); len(ids) != 0 {
+			t.Fatalf("%s set after unpark = %v", name, ids)
+		}
 	}
-	if h.driver.Exists(worker.ID) || h.driver.Exists(adopted.ID) || h.driver.Exists(sleeper) {
-		t.Fatal("a plain unpark revived a session that was at rest")
-	}
-
-	unparked, err := h.sessions.Unpark(h.caller.ID, UnparkOptions{All: true})
-	if err != nil {
-		t.Fatalf("Unpark --all: %v", err)
-	}
-	if len(unparked.Revived) != 3 || unparked.Owed != 0 || unparked.Continued != 0 || len(unparked.Errors) != 0 || len(unparked.Dormant) != 0 {
-		t.Fatalf("unpark --all result = %+v", unparked)
-	}
-	if len(unparked.Nudged) != 0 {
-		t.Fatalf("nudged = %v, want none: the sessions at rest are told nothing", unparked.Nudged)
-	}
-	if ids, _ := h.store.Dormant(); len(ids) != 0 {
-		t.Fatalf("dormant set after unpark --all = %v", ids)
-	}
-	if !h.driver.Exists(worker.ID) || !h.driver.Exists(adopted.ID) || !h.driver.Exists(sleeper) || h.driver.Exists(earlier.ID) {
+	if !h.driver.Exists(worker.ID) || !h.driver.Exists(adopted.ID) || !h.driver.Exists(sleeper) || !h.driver.Exists(busy.ID) || h.driver.Exists(earlier.ID) {
 		t.Fatal("unpark revived the wrong rows")
 	}
 	// The promoted row came back as a managed session on its conversation.
@@ -224,10 +215,7 @@ func TestParkStopsEveryAgentAndUnparkBringsExactlyThoseBack(t *testing.T) {
 	if strings.Contains(screen.Output, "continue") {
 		t.Fatalf("an idle session was told to continue: %q", screen.Output)
 	}
-	if ids, _ := h.store.Parked(); len(ids) != 0 {
-		t.Fatalf("parked set after unpark = %v", ids)
-	}
-	empty, err := h.sessions.Unpark(h.caller.ID, UnparkOptions{All: true})
+	empty, err := h.sessions.Unpark(h.caller.ID)
 	if err != nil || len(empty.Revived) != 0 {
 		t.Fatalf("unpark with nothing owed = %+v, %v", empty, err)
 	}
@@ -334,21 +322,32 @@ func TestUnparkKeepsAFailedReviveForARetryAndDropsWhatIsGone(t *testing.T) {
 	if err := h.store.CreateSession(orphan); err != nil {
 		t.Fatalf("create orphan: %v", err)
 	}
-	if err := h.store.SetParked([]string{orphan.ID, "deleted1", h.caller.ID}); err != nil {
+	// One that does come back in the same pass: it leaves every set the
+	// moment it is up, and the failure beside it keeps only its own place.
+	good := childRow(t, h, store.Session{ID: uuid.NewString()[:8], Name: "fine", Status: status.Dead}, false)
+	if err := h.store.SetParked([]string{orphan.ID, "deleted1", h.caller.ID, good.ID}); err != nil {
 		t.Fatalf("SetParked: %v", err)
 	}
-	result, err := h.sessions.Unpark(h.caller.ID, UnparkOptions{})
+	if err := h.store.AddInterrupted([]string{orphan.ID, good.ID}); err != nil {
+		t.Fatalf("AddInterrupted: %v", err)
+	}
+	if err := h.store.AddDormant([]string{orphan.ID, "deleted1"}); err != nil {
+		t.Fatalf("AddDormant: %v", err)
+	}
+	result, err := h.sessions.Unpark(h.caller.ID)
 	if err != nil {
 		t.Fatalf("Unpark: %v", err)
 	}
-	if len(result.Revived) != 0 || result.Gone != 1 || result.AlreadyRunning != 1 || result.Owed != 1 {
+	if len(result.Revived) != 1 || result.Revived[0].ID != good.ID || result.Gone != 1 || result.AlreadyRunning != 1 || result.Owed != 1 {
 		t.Fatalf("unpark result = %+v", result)
 	}
 	if len(result.Errors) != 1 || !strings.Contains(result.Errors[0], "working directory no longer exists") {
 		t.Fatalf("errors = %v", result.Errors)
 	}
-	if ids, _ := h.store.Parked(); len(ids) != 1 || ids[0] != orphan.ID {
-		t.Fatalf("parked set = %v", ids)
+	for name, read := range map[string]func() ([]string, error){"parked": h.store.Parked, "interrupted": h.store.Interrupted, "dormant": h.store.Dormant} {
+		if ids, _ := read(); !reflect.DeepEqual(ids, []string{orphan.ID}) {
+			t.Fatalf("%s set = %v, want only the failed revive", name, ids)
+		}
 	}
 }
 
@@ -484,8 +483,25 @@ func TestParkMarksATreeWithWorkInFlightHotAndAQuietTreeDormant(t *testing.T) {
 		t.Fatalf("owed = %d dormant %d, want 5 and 2", parked.Owed, parked.OwedDormant)
 	}
 
-	// The revive order is the order the board grew in: the parent first.
-	unparked, err := h.sessions.Unpark(h.caller.ID, UnparkOptions{})
+	// A second park before any unpark finds nothing live and still owes
+	// the first one's sessions, the at-rest ones counted as at rest.
+	for _, dry := range []bool{true, false} {
+		again, err := h.sessions.Park(h.caller.ID, dry)
+		if err != nil {
+			t.Fatalf("Park again (dry %v): %v", dry, err)
+		}
+		if len(again.Parked) != 0 || again.Owed != 5 || again.OwedDormant != 2 {
+			t.Fatalf("second park (dry %v) parked %d owed %d dormant %d, want 0, 5, 2", dry, len(again.Parked), again.Owed, again.OwedDormant)
+		}
+		if line := FormatParkResult(again); !strings.Contains(line, "revive all 5: the 3 with work in flight first") || !strings.Contains(line, "then the 2 at rest with nothing sent") {
+			t.Fatalf("second park (dry %v) says %q", dry, line)
+		}
+	}
+
+	// One unpark brings back both trees: the busy one first, then the quiet
+	// one, each in the order the board grew in, so a parent comes back
+	// before its children.
+	unparked, err := h.sessions.Unpark(h.caller.ID)
 	if err != nil {
 		t.Fatalf("Unpark: %v", err)
 	}
@@ -493,33 +509,21 @@ func TestParkMarksATreeWithWorkInFlightHotAndAQuietTreeDormant(t *testing.T) {
 	for _, sess := range unparked.Revived {
 		revived = append(revived, sess.ID)
 	}
-	if !reflect.DeepEqual(revived, []string{busyParent.ID, busyChild.ID, bgChild.ID}) {
-		t.Fatalf("revived %v, want the busy tree parent first", revived)
+	if want := []string{busyParent.ID, busyChild.ID, bgChild.ID, quietParent.ID, asking.ID}; !reflect.DeepEqual(revived, want) {
+		t.Fatalf("revived %v, want %v", revived, want)
 	}
 	if got := sorted(unparked.Nudged...); !reflect.DeepEqual(got, sorted(busyChild.ID, bgChild.ID)) {
 		t.Fatalf("nudged = %v, want both in-flight children", got)
 	}
-	if h.driver.Exists(quietParent.ID) || h.driver.Exists(asking.ID) {
-		t.Fatal("unpark brought back the quiet tree")
+	if unparked.Owed != 0 || len(unparked.Errors) != 0 {
+		t.Fatalf("owed = %d errors %v, want nothing left", unparked.Owed, unparked.Errors)
 	}
-	if unparked.Owed != 2 {
-		t.Fatalf("owed = %d, want the two dormant sessions", unparked.Owed)
+	for _, id := range revived {
+		if !h.driver.Exists(id) {
+			t.Fatalf("%s is not running after unpark", id)
+		}
 	}
-	// A later park that finds nothing live still counts the dormant sessions
-	// the first one left, rather than reading them as work in flight.
-	for _, id := range []string{busyParent.ID, busyChild.ID, bgChild.ID} {
-		_ = h.driver.Kill(id)
-	}
-	for _, dry := range []bool{true, false} {
-		again, err := h.sessions.Park(h.caller.ID, dry)
-		if err != nil {
-			t.Fatalf("Park again (dry %v): %v", dry, err)
-		}
-		if len(again.Parked) != 0 || again.Owed != 2 || again.OwedDormant != 2 {
-			t.Fatalf("second park (dry %v) parked %d owed %d dormant %d, want 0, 2, 2", dry, len(again.Parked), again.Owed, again.OwedDormant)
-		}
-		if line := FormatParkResult(again); !strings.Contains(line, "revive the 0 with work in flight, and leave the 2 at rest") {
-			t.Fatalf("second park (dry %v) says %q", dry, line)
-		}
+	if ids, _ := h.store.Dormant(); len(ids) != 0 {
+		t.Fatalf("dormant set after unpark = %v", ids)
 	}
 }

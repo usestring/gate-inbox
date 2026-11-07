@@ -372,8 +372,8 @@ func FormatParkResult(result ParkResult) string {
 	}
 	head := fmt.Sprintf("%s %d session(s); unpark will revive %d", verb, len(result.Parked), result.Owed)
 	if n := result.OwedDormant; n > 0 {
-		head = fmt.Sprintf("%s %d session(s); unpark will revive the %d with work in flight, and leave the %d at rest parked until unpark --all or a message to one",
-			verb, len(result.Parked), result.Owed-n, n)
+		head = fmt.Sprintf("%s %d session(s); unpark will revive all %d: the %d with work in flight first, told to continue where interrupted, then the %d at rest with nothing sent",
+			verb, len(result.Parked), result.Owed, result.Owed-n, n)
 	}
 	lines := []string{head}
 	for _, session := range result.Parked {
@@ -417,10 +417,6 @@ func FormatUnparkResult(result UnparkResult) string {
 	}
 	if result.Continued > 0 {
 		lines = append(lines, fmt.Sprintf("%d revived with the tool's continue command: no conversation id was captured, so they may resume the wrong conversation", result.Continued))
-	}
-	if n := len(result.Dormant); n > 0 {
-		lines = append(lines, fmt.Sprintf("%d had nothing in flight and stay parked: unpark --all brings them back, or send to one: %s",
-			n, strings.Join(result.Dormant, ", ")))
 	}
 	if result.AlreadyRunning > 0 {
 		lines = append(lines, fmt.Sprintf("%d already running, dropped from the set", result.AlreadyRunning))

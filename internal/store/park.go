@@ -46,13 +46,13 @@ func (s *Store) RemoveInterrupted(ids []string) error {
 
 // dormantSetting holds the subset of the parked set that was at rest with
 // nothing in flight under it when park stopped it: idle, finished, waiting
-// on a person, stopped on a limit. Unpark leaves those parked unless asked
-// for all of them, so a reboot does not relaunch a fleet of sessions that
-// were doing nothing. A parked id absent from it is owed a revive, which is
-// also how a set recorded before this one existed reads.
+// on a person, stopped on a limit. Unpark brings those back after every
+// session with work in flight, with nothing sent to them. A parked id absent
+// from it goes in the first wave, which is also how a set recorded before
+// this one existed reads.
 const dormantSetting = "parked_dormant"
 
-// Dormant returns the parked ids unpark leaves parked by default.
+// Dormant returns the parked ids unpark brings back last.
 func (s *Store) Dormant() ([]string, error) { return s.idSet(dormantSetting) }
 
 // AddDormant records parked ids that had nothing in flight.

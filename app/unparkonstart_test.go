@@ -15,22 +15,22 @@ type fakeUnparkSource struct {
 	unparkErr error
 
 	mu    sync.Mutex
-	calls []sessioncmd.UnparkOptions
+	calls int
 }
 
 func (f *fakeUnparkSource) ParkedAt() (time.Time, error) { return f.parkedAt, nil }
 
-func (f *fakeUnparkSource) Unpark(_ string, opts sessioncmd.UnparkOptions) (sessioncmd.UnparkResult, error) {
+func (f *fakeUnparkSource) Unpark(string) (sessioncmd.UnparkResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, opts)
-	return sessioncmd.UnparkResult{Revived: []sessioncmd.Session{{ID: "a"}}, Dormant: []string{"b"}}, f.unparkErr
+	f.calls++
+	return sessioncmd.UnparkResult{Revived: []sessioncmd.Session{{ID: "a"}, {ID: "b"}}}, f.unparkErr
 }
 
-func (f *fakeUnparkSource) seen() []sessioncmd.UnparkOptions {
+func (f *fakeUnparkSource) seen() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]sessioncmd.UnparkOptions(nil), f.calls...)
+	return f.calls
 }
 
 func TestUnparkInFlightOnlyAfterTheHostRebootedSinceThePark(t *testing.T) {
@@ -67,15 +67,8 @@ func TestUnparkInFlightOnlyAfterTheHostRebootedSinceThePark(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("unparkInFlight did not return")
 			}
-			calls := src.seen()
-			if len(calls) != tc.wantCalls {
-				t.Fatalf("unpark calls = %d, want %d", len(calls), tc.wantCalls)
-			}
-			// Always a plain unpark: the dormant sessions are not the board's to wake.
-			for _, call := range calls {
-				if call.All {
-					t.Fatalf("the board ran unpark --all: %+v", calls)
-				}
+			if calls := src.seen(); calls != tc.wantCalls {
+				t.Fatalf("unpark calls = %d, want %d", calls, tc.wantCalls)
 			}
 		})
 	}
@@ -87,8 +80,8 @@ func TestUnparkInFlightDoesNothingOnceTheBoardStops(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	unparkInFlight(ctx, src, func() (time.Time, error) { return time.Now(), nil }, time.Hour)
-	if calls := src.seen(); len(calls) != 0 {
-		t.Fatalf("a board that stopped before the delay unparked: %+v", calls)
+	if calls := src.seen(); calls != 0 {
+		t.Fatalf("a board that stopped before the delay unparked %d time(s)", calls)
 	}
 }
 

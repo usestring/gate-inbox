@@ -158,19 +158,6 @@ func TestSessionCommandsParseArgumentsAndPrintSentences(t *testing.T) {
 			},
 		},
 		{
-			name: "unpark --all reaches the layer",
-			run: func(out *bytes.Buffer, f *fakeSessions, args []string) error {
-				return runUnpark(out, f, args, "")
-			},
-			args: []string{"--all"},
-			want: "revived 1 session(s); 0 still parked",
-			inspect: func(t *testing.T, f *fakeSessions) {
-				if !f.unparkAll {
-					t.Fatal("--all did not reach the layer")
-				}
-			},
-		},
-		{
 			name: "archive files a session away by default",
 			run: func(out *bytes.Buffer, f *fakeSessions, args []string) error {
 				return runArchive(out, f, args, "cafe0001")

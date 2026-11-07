@@ -317,13 +317,13 @@ set. It runs from any shell, and `--dry-run` prints the plan first. Park reads e
 state before it stops any of them: a session that was mid-turn, starting, or waiting on a
 background shell, and every session tracking one of those up to its root, has work in flight. The
 rest (idle, finished, asking you something, stopped on a limit) is dormant. `gate-inbox unpark`
-brings back the work in flight on its conversations, parents before their children, telling the
-ones stopped mid-turn to continue, and leaves the dormant ones parked. A board that starts with
-work in flight still parked does this by itself after about 20 seconds. Sending to a dormant
-session from the board brings it back and types your message in once it is at its prompt;
-`gate-inbox unpark --all` brings back the rest. Every unpark relaunch waits its turn in the shared
-relaunch queue (see `[relaunch]` in [configuration](docs/configuration.md)), so a reboot's worth of
-agents does not start at once. A single one: `gate-inbox kill <id>`, with the id
+brings every parked session back on its conversation, parents before their children: the work in
+flight first, telling only the ones stopped mid-turn to continue, then the dormant ones with nothing
+sent, so they cost no tokens. Each relaunch waits its turn in the shared relaunch queue (see
+`[relaunch]` in [configuration](docs/configuration.md)), so a reboot's worth of agents comes back
+one at a time rather than at once. A board that starts on a host rebooted since the park runs the
+unpark by itself after about 20 seconds. Sending to a session still waiting its turn brings it back
+straight away and types your message in once it is at its prompt. A single one: `gate-inbox kill <id>`, with the id
 from `gate-inbox sessions`. From inside a managed agent session, `gate-inbox stop` ends that
 session and preserves its row and conversation for an explicit revive. It records an intentional
 stop, so startup recovery does not offer it as a lost session. `gate-inbox stop --archive` also

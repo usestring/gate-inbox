@@ -270,10 +270,11 @@ func (m *Model) resumeHeldSnippets() tea.Cmd {
 
 // unparkForSend brings back a session park stopped when the operator sends
 // to it, and queues the sentence for the poller to type once the agent is at
-// its prompt (see maybeSendPendingInputWhenReady). A plain unpark leaves the
-// sessions that were at rest parked, so a reply to one of them -- most often
-// an answer to the question it was asking when the box went down -- is what
-// brings it back, rather than the dead-row hint. A dead row park did not stop
+// its prompt (see maybeSendPendingInputWhenReady). Unpark brings sessions
+// back one at a time, which on a large set takes the best part of an hour,
+// so a reply to one still waiting its turn -- most often an answer to the
+// question it was asking when the box went down -- brings it back now,
+// rather than the dead-row hint. A dead row park did not stop
 // gets the hint as before. It reports whether it took the send.
 func (m *Model) unparkForSend(sess store.Session, text string) bool {
 	if m.store == nil {

@@ -46,12 +46,13 @@ type ParkResult struct {
 	// carry on, without which a revived fan-out sits idle at its prompt.
 	Working []string `json:"working,omitempty" jsonschema:"sessions stopped mid-turn, starting or on a background shell; unpark tells them to continue"`
 	// Dormant names the parked sessions that had nothing in flight: at
-	// rest themselves, and with no session under them still working. A
-	// plain unpark leaves them parked; see hotSessions.
-	Dormant []string `json:"dormant,omitempty" jsonschema:"parked sessions with nothing in flight, which a plain unpark leaves parked until unpark --all or a message to them"`
-	// OwedDormant is how many of Owed a plain unpark leaves parked, counting
-	// an earlier park's dormant sessions too, not only this pass's.
-	OwedDormant int  `json:"owed_dormant" jsonschema:"of the sessions unpark owes, how many a plain unpark leaves parked"`
+	// rest themselves, and with no session under them still working. Unpark
+	// brings them back after everything in flight, with nothing sent to
+	// them; see hotSessions.
+	Dormant []string `json:"dormant,omitempty" jsonschema:"parked sessions with nothing in flight, which unpark brings back last and sends nothing to"`
+	// OwedDormant is how many of Owed are dormant, counting an earlier
+	// park's dormant sessions too, not only this pass's.
+	OwedDormant int  `json:"owed_dormant" jsonschema:"of the sessions unpark owes, how many come back last with nothing sent"`
 	Self        bool `json:"self" jsonschema:"whether the calling session was left running"`
 	// Orphans are gi_* sessions whose agent could not be identified, so no
 	// row can say what to relaunch; they are left running and named.
@@ -307,17 +308,18 @@ var inFlight = map[string]bool{
 	status.Background: true,
 }
 
-// hotSessions is the rows unpark brings back by default: every row in
-// flight, every row a child's report is still waiting to be typed into, and
-// every session that tracks one of those, up to the root. A tracker comes
-// back even when it was at rest, since the report its child sends up has to
-// land in a live session for the fan-out to go on.
+// hotSessions is the rows unpark brings back first: every row in flight,
+// every row a child's report is still waiting to be typed into, and every
+// session that tracks one of those, up to the root. A tracker goes in this
+// first wave even when it was at rest, since the report its child sends up
+// has to land in a live session for the fan-out to go on.
 //
 // Everything else at rest -- idle, finished, asking a person, stopped on a
-// limit -- with nothing in flight under it is dormant. On 2026-11-07 a box
-// carrying 100+ agent sessions was parked for a reboot, and relaunching all
-// of them, most idle for days, would have cost as much as the reboot saved.
-// A dormant row comes back when someone sends to it, or on unpark --all.
+// limit -- with nothing in flight under it is dormant, and comes back after.
+// On 2026-11-07 a box carrying 233 agent sessions was parked for a reboot
+// with 21 of them in flight: in the order the board grew those 21 were
+// spread among the rest, and behind a one-at-a-time relaunch queue the last
+// of them would have waited the best part of an hour.
 //
 // states is each live row's state as park read it; pending is
 // PendingChildReports.
@@ -507,10 +509,7 @@ type UnparkResult struct {
 	AlreadyRunning int      `json:"already_running" jsonschema:"parked sessions found running and dropped from the set"`
 	Gone           int      `json:"gone" jsonschema:"parked sessions whose row was deleted or archived since, dropped from the set"`
 	Errors         []string `json:"errors,omitempty" jsonschema:"sessions that could not be revived, kept in the set for a retry"`
-	// Dormant names the parked sessions this pass left parked because they
-	// had nothing in flight; they still count in Owed.
-	Dormant []string `json:"dormant,omitempty" jsonschema:"parked sessions with nothing in flight, left parked; unpark --all or a message to one brings it back"`
-	Owed    int      `json:"owed" jsonschema:"sessions still in the parked set after this pass"`
+	Owed           int      `json:"owed" jsonschema:"sessions still in the parked set after this pass"`
 }
 
 // ParkedAt is when the last park that stopped anything ran; zero when none
@@ -524,30 +523,28 @@ func (s *Sessions) ParkedAt() (time.Time, error) {
 	return runtime.store.ParkedAt()
 }
 
-// UnparkOptions is how much of the parked set one Unpark brings back.
-type UnparkOptions struct {
-	// All brings back the dormant sessions too, after every session with
-	// work in flight, through the same relaunch queue.
-	All bool
-}
-
-// Unpark relaunches the sessions Park recorded and drops each from the set
-// as it comes back: the ones with work in flight, and with opts.All the
-// dormant ones after them. Within each the order is the order the board
-// grew in, so a session comes back before anything it spawned. Every
-// relaunch waits its turn in the shared queue (see launchpace), which keeps
-// a reboot's worth of CLIs from starting at once.
+// Unpark relaunches every session Park recorded, each on the conversation
+// it held: the ones with work in flight first, then the dormant ones, and
+// within each the order the board grew in, so a session comes back before
+// anything it spawned. Only a session stopped mid-turn is told to continue;
+// the rest come back at their prompt with nothing sent, so a reboot spends
+// no tokens on sessions that were doing nothing.
+//
+// Every relaunch waits its turn in the shared queue (see launchpace), which
+// starts one at a time and widens the gap as the host's load rises, so a
+// reboot's worth of CLIs never starts at once. With a couple of hundred
+// sessions that takes the best part of an hour, so each one is dropped from
+// the set as it comes back, and a pass that is stopped part way, or a send
+// that brings one back sooner, leaves the set telling the truth.
 //
 // A session that could not be relaunched stays in the set so the next
 // Unpark tries it again; one that is already running, deleted or archived
 // is dropped, since there is nothing left to owe it.
-func (s *Sessions) Unpark(sessionID string, opts UnparkOptions) (unparked UnparkResult, err error) {
+func (s *Sessions) Unpark(sessionID string) (unparked UnparkResult, err error) {
 	// The other half, and the more expensive one: every parked session is a
 	// CLI relaunched and a conversation resumed.
-	op := start("sessioncmd.unpark", tracing.Attr{Key: "all", Value: opts.All})
-	defer func() {
-		op.done(&err, tracing.Attr{Key: "revived", Value: len(unparked.Revived)}, tracing.Attr{Key: "dormant", Value: len(unparked.Dormant)})
-	}()
+	op := start("sessioncmd.unpark")
+	defer func() { op.done(&err, tracing.Attr{Key: "revived", Value: len(unparked.Revived)}) }()
 	runtime, err := s.open()
 	if err != nil {
 		return UnparkResult{}, err
@@ -570,13 +567,30 @@ func (s *Sessions) Unpark(sessionID string, opts UnparkOptions) (unparked Unpark
 		dormant[id] = true
 	}
 	var result UnparkResult
-	var done []string
+	// drop takes one session out of every park set the moment it is settled,
+	// so a pass the length of a reboot's trickle can stop at any point and
+	// leave the set owing exactly what has not come back.
+	drop := func(id string) error {
+		one := []string{id}
+		if err := runtime.store.RemoveParked(one); err != nil {
+			return fmt.Errorf("drop %s from the parked set: %w", id, err)
+		}
+		if err := runtime.store.RemoveInterrupted(one); err != nil {
+			return fmt.Errorf("drop %s from the interrupted set: %w", id, err)
+		}
+		if err := runtime.store.RemoveDormant(one); err != nil {
+			return fmt.Errorf("drop %s from the dormant set: %w", id, err)
+		}
+		return nil
+	}
 	var rows []store.Session
 	for _, id := range ids {
 		sess, err := runtime.store.Get(id)
 		if errors.Is(err, sql.ErrNoRows) {
 			result.Gone++
-			done = append(done, id)
+			if err := drop(id); err != nil {
+				return UnparkResult{}, err
+			}
 			continue
 		}
 		if err != nil {
@@ -584,7 +598,9 @@ func (s *Sessions) Unpark(sessionID string, opts UnparkOptions) (unparked Unpark
 		}
 		if sess.Archived {
 			result.Gone++
-			done = append(done, id)
+			if err := drop(id); err != nil {
+				return UnparkResult{}, err
+			}
 			continue
 		}
 		rows = append(rows, sess)
@@ -594,18 +610,16 @@ func (s *Sessions) Unpark(sessionID string, opts UnparkOptions) (unparked Unpark
 	sort.SliceStable(rows, func(a, b int) bool {
 		return rows[a].CreatedAt.Before(rows[b].CreatedAt)
 	})
-	// Work in flight first, then (with All) the rest.
+	// Work in flight first, then the rest.
 	sort.SliceStable(rows, func(a, b int) bool {
 		return !dormant[rows[a].ID] && dormant[rows[b].ID]
 	})
 	for _, sess := range rows {
 		if runtime.driver.Exists(sess.ID) {
 			result.AlreadyRunning++
-			done = append(done, sess.ID)
-			continue
-		}
-		if !opts.All && dormant[sess.ID] {
-			result.Dormant = append(result.Dormant, sess.ID)
+			if err := drop(sess.ID); err != nil {
+				return result, err
+			}
 			continue
 		}
 		prompt := ""
@@ -623,7 +637,9 @@ func (s *Sessions) Unpark(sessionID string, opts UnparkOptions) (unparked Unpark
 		if runtime.driver.Exists(sess.ID) {
 			slot.Cancel()
 			result.AlreadyRunning++
-			done = append(done, sess.ID)
+			if err := drop(sess.ID); err != nil {
+				return result, err
+			}
 			continue
 		}
 		tool, err := s.relaunch(runtime, sess, prompt, slot)
@@ -639,18 +655,17 @@ func (s *Sessions) Unpark(sessionID string, opts UnparkOptions) (unparked Unpark
 		}
 		sess.Status = tool.DefaultStatus
 		result.Revived = append(result.Revived, runtime.sessionInfo(sess, true, sess.ID == sessionID))
-		done = append(done, sess.ID)
+		if err := drop(sess.ID); err != nil {
+			return result, err
+		}
 	}
-	if err := runtime.store.RemoveParked(done); err != nil {
-		return UnparkResult{}, err
+	// Read back rather than counted: a send can bring a session back while
+	// this pass waits for a slot.
+	owed, err := runtime.store.Parked()
+	if err != nil {
+		return result, err
 	}
-	if err := runtime.store.RemoveInterrupted(done); err != nil {
-		return UnparkResult{}, err
-	}
-	if err := runtime.store.RemoveDormant(done); err != nil {
-		return UnparkResult{}, err
-	}
-	result.Owed = len(ids) - len(done)
+	result.Owed = len(owed)
 	return result, nil
 }
 

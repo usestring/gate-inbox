@@ -374,20 +374,19 @@ const unparkOnStartDelay = 20 * time.Second
 // can stand in for the store and the relaunches.
 type unparkSource interface {
 	ParkedAt() (time.Time, error)
-	Unpark(sessionID string, opts sessioncmd.UnparkOptions) (sessioncmd.UnparkResult, error)
+	Unpark(sessionID string) (sessioncmd.UnparkResult, error)
 }
 
-// unparkInFlight brings back, once, the parked sessions that had work in
-// flight -- and the sessions tracking them -- when a board starts on a host
-// that has booted since the park. Park is run before a reboot, so a board
-// starting after one is the reboot done, and the fan-outs that were mid-flight
-// carry on without anyone typing unpark. A board restarted before the reboot
-// leaves them parked: bringing them back then only hands them to the reboot,
-// with the set already cleared of them. The dormant ones stay parked for
-// unpark --all or a message to one.
+// unparkInFlight brings back, once, every parked session when a board starts
+// on a host that has booted since the park: the ones with work in flight and
+// the sessions tracking them first, then the rest with nothing sent. Park is
+// run before a reboot, so a board starting after one is the reboot done, and
+// the fan-outs that were mid-flight carry on without anyone typing unpark. A
+// board restarted before the reboot leaves them parked: bringing them back
+// then only hands them to the reboot, with the set already cleared of them.
 //
-// Every relaunch takes its turn in the shared queue, so this can run for
-// minutes on a large set; it holds nothing the board waits on.
+// Every relaunch takes its turn in the shared queue, so this can run for the
+// best part of an hour on a large set; it holds nothing the board waits on.
 func unparkInFlight(ctx context.Context, src unparkSource, bootedAt func() (time.Time, error), delay time.Duration) {
 	select {
 	case <-ctx.Done():
@@ -407,15 +406,15 @@ func unparkInFlight(ctx context.Context, src unparkSource, bootedAt func() (time
 		logging.Info("left parked sessions parked: the host has not rebooted since the park", "parkedAt", parkedAt, "bootedAt", booted)
 		return
 	}
-	result, err := src.Unpark("", sessioncmd.UnparkOptions{})
+	result, err := src.Unpark("")
 	if err != nil {
-		logging.Warn("could not bring back the parked sessions with work in flight", logging.Err(err))
+		logging.Warn("could not bring back the parked sessions", logging.Err(err))
 		return
 	}
 	if len(result.Revived) > 0 || len(result.Errors) > 0 {
-		logging.Info("brought back parked sessions with work in flight",
+		logging.Info("brought back parked sessions",
 			"revived", len(result.Revived), "nudged", len(result.Nudged),
-			"dormant", len(result.Dormant), "failed", len(result.Errors))
+			"failed", len(result.Errors), "owed", result.Owed)
 	}
 	for _, failure := range result.Errors {
 		logging.Warn("parked session not brought back", "detail", failure)

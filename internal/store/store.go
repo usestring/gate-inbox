@@ -399,6 +399,8 @@ CREATE TABLE IF NOT EXISTS settings (
 		)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS file_reservations_holder ON file_reservations (session_id, pattern)`,
 		`CREATE INDEX IF NOT EXISTS file_reservations_live ON file_reservations (expires_at)`,
+		`ALTER TABLE file_reservations ADD COLUMN resolved_path TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE file_reservations ADD COLUMN match_glob TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN tmux_socket TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE sessions ADD COLUMN tmux_pane_id TEXT NOT NULL DEFAULT ''`,
 		// Existing rows default to the one source automatic naming may never

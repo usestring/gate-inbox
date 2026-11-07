@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -25,8 +24,8 @@ const upgradeCheck = 30 * time.Second
 // once when another server already holds the config dir.
 //
 // It is stateless: every request carries its caller, so the server keeps
-// nothing per session, any request can land on any process, and the
-// process can be replaced between two requests without a client noticing.
+// nothing per session and the process can be replaced between two requests,
+// costing a client at most a reconnect.
 func ServeShared(ctx context.Context, configDir, version string, extensions []extension.Extension) error {
 	listener, lock, err := mcpshared.Listen(configDir)
 	if errors.Is(err, mcpshared.ErrRunning) {
@@ -51,7 +50,9 @@ func ServeShared(ctx context.Context, configDir, version string, extensions []ex
 		// Idle connections would die with the exec; closing them first has
 		// clients open fresh ones to the new process instead.
 		server.SetKeepAlivesEnabled(false)
-		return mcpshared.Reexec(exe, listener, lock)
+		err := mcpshared.Reexec(exe, listener, lock)
+		server.SetKeepAlivesEnabled(true)
+		return err
 	})
 	err = server.Serve(listener)
 	if errors.Is(err, http.ErrServerClosed) {
@@ -70,8 +71,11 @@ type sharedServer struct {
 	// The tool schemas are the bulk of a server's memory, so they are held
 	// once per profile for the whole board rather than once per session.
 	servers map[Profile]*mcp.Server
-	// inFlight counts requests being served, which an upgrade waits out.
-	inFlight atomic.Int64
+	// serving is held shared by every request being served and exclusively
+	// by an upgrade's exec, so the exec never cuts a tool call off halfway:
+	// a request arriving once the upgrade holds it waits, and dies unserved
+	// with the old process.
+	serving sync.RWMutex
 }
 
 func (s *sharedServer) handler() http.Handler {
@@ -94,8 +98,8 @@ func (s *sharedServer) authorized(next http.Handler) http.Handler {
 			http.Error(w, "this server answers Gate Inbox sessions only: send "+CallerHeader+" and "+CallerTokenHeader, http.StatusUnauthorized)
 			return
 		}
-		s.inFlight.Add(1)
-		defer s.inFlight.Add(-1)
+		s.serving.RLock()
+		defer s.serving.RUnlock()
 		next.ServeHTTP(w, r)
 	})
 }
@@ -134,13 +138,19 @@ func (s *sharedServer) followUpgrades(ctx context.Context, exe string, reexec fu
 			return
 		case <-ticker.C:
 		}
-		if now := mcpshared.BinaryStamp(exe); now == "" || now == stamp || s.inFlight.Load() > 0 {
+		if now := mcpshared.BinaryStamp(exe); now == "" || now == stamp {
+			continue
+		}
+		// A call still running -- wait_for_session can run for minutes --
+		// puts the upgrade off to a later tick rather than holding up every
+		// request behind it.
+		if !s.serving.TryLock() {
 			continue
 		}
 		logging.Info("shared MCP server moving onto the upgraded binary", "exe", exe)
-		if err := reexec(); err != nil {
-			logging.Warn("shared MCP server could not exec the upgraded binary", logging.Err(err))
-			stamp = mcpshared.BinaryStamp(exe)
-		}
+		err := reexec()
+		s.serving.Unlock()
+		logging.Warn("shared MCP server could not exec the upgraded binary", logging.Err(err))
+		stamp = mcpshared.BinaryStamp(exe)
 	}
 }

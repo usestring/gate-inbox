@@ -4,9 +4,10 @@
 // Every launched session used to start its own `gate-inbox mcp`: a board of
 // 180 sessions ran 180 copies of the same server, nearly all idle, each with
 // its own Go heap and tool schemas. One HTTP server on loopback serves them
-// all. Each request names its session in a header the session's CLI fills in
-// from its own environment and proves it with that session's caller token
-// (mcpserver.CallerHeader), so the server needs no state per session.
+// all. Each request names its session in a header, written into the
+// session's own MCP config by its launch, and proves it with that session's
+// caller token (mcpserver.CallerHeader), so the server needs no state per
+// session.
 //
 // This package owns where that server is and that only one runs: the URL it
 // serves at, recorded in the config dir for launches to read; the lock it
@@ -47,8 +48,7 @@ const (
 	// serving server from a stale URL.
 	HealthPath = "/healthz"
 	// CallerHeader and CallerTokenHeader name and prove a request's
-	// caller; a session's CLI expands them from $GATE_INBOX_SESSION_ID and
-	// $GATE_INBOX_SESSION_TOKEN, so the server needs nothing per session.
+	// caller, so the server needs nothing per session.
 	CallerHeader      = "X-Gate-Inbox-Session"
 	CallerTokenHeader = "X-Gate-Inbox-Token"
 	// MCPPath is where the MCP endpoint for a tool profile is served:

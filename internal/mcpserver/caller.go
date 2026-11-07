@@ -24,8 +24,8 @@ import (
 // caller token, which only its own launch was handed.
 const (
 	// CallerHeader and CallerTokenHeader name a request's caller to a
-	// shared HTTP server, which a client expands per session from
-	// $GATE_INBOX_SESSION_ID and $GATE_INBOX_SESSION_TOKEN.
+	// shared HTTP server; a launch writes both into its session's MCP config
+	// (mcpshared.WriteClaudeConfig).
 	CallerHeader      = mcpshared.CallerHeader
 	CallerTokenHeader = mcpshared.CallerTokenHeader
 	// CallerArg and CallerTokenArg name a call's caller where the client

@@ -484,6 +484,9 @@ func (m *Model) sessionDetailLines(width int) []string {
 		railFact(pad, "dir", mutedStyle.Render(truncateTail(sess.Cwd, factRoom))),
 		railFact(pad, "started", subtleStyle.Render(textfmt.TruncateWidth(relSince(sess.LaunchTime()), factRoom, "…"))),
 	}
+	if id := strings.TrimSpace(sess.AgentSessionID); id != "" {
+		lines = append(lines, railFact(pad, "session", valueStyle.Render(textfmt.TruncateWidth(id, factRoom, "…"))))
+	}
 	if usage != "" {
 		lines = append(lines, railFact(pad, "usage", usage))
 	}

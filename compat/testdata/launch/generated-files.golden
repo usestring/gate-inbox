@@ -292,7 +292,7 @@ Do not call archive_session, revive_session, kill_session, message_status or any
         "hooks": [
           {
             "type": "command",
-            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || { if grep -q '\"rate_limit\"'; then printf 'errored StopFailure\\n' \u003e\u003e \"$f\"; else printf 'finished StopFailure\\n' \u003e\u003e \"$f\"; fi; }"
+            "command": "f=\"$GATE_INBOX_STATUS_FILE\"; [ -z \"$f\" ] || { input=$(cat); if printf '%s\\n' \"$input\" | grep -Eq '\"error\"[[:space:]]*:[[:space:]]*\"authentication_failed\"'; then if printf '%s\\n' \"$input\" | grep -Eq '\"last_assistant_message\"[[:space:]]*:[[:space:]]*\"(Not logged in|Login expired)[^\"]* /login\"'; then printf 'errored ClaudeSignInRequired\\n' \u003e\u003e \"$f\"; else printf 'errored ClaudeAuthenticationFailed\\n' \u003e\u003e \"$f\"; fi; elif printf '%s\\n' \"$input\" | grep -Eq '\"error\"[[:space:]]*:[[:space:]]*\"rate_limit\"'; then printf 'errored StopFailure\\n' \u003e\u003e \"$f\"; else printf 'finished StopFailure\\n' \u003e\u003e \"$f\"; fi; }"
           }
         ]
       }

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/shirou/gopsutil/v4/host"
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/config"
@@ -284,6 +285,7 @@ func startExtensions(dir string, registry *extension.Registry, model *ui.Model, 
 	ctx, cancel := context.WithCancel(context.Background())
 	go expireGrants(ctx, cmds, grantSweep)
 	go restartStaleSandboxes(ctx, cmds, staleSandboxSweep)
+	go unparkInFlight(ctx, cmds, hostBootedAt, unparkOnStartDelay)
 	if err := startUI(ctx, registry, model, send); err != nil {
 		cancel()
 		return nil, err
@@ -360,6 +362,72 @@ func restartStaleSandboxes(ctx context.Context, cmds *sessioncmd.Sessions, every
 		case <-tick.C:
 		}
 	}
+}
+
+// unparkOnStartDelay is how long a starting board waits before bringing back
+// what park left in flight: long enough for a machine that has just booted
+// to finish starting its own services, and for the board's first poll and
+// adoption to settle, so the first relaunch lands on a quiet host.
+const unparkOnStartDelay = 20 * time.Second
+
+// unparkSource is what unparkInFlight reads and calls, narrowed so a test
+// can stand in for the store and the relaunches.
+type unparkSource interface {
+	ParkedAt() (time.Time, error)
+	Unpark(sessionID string) (sessioncmd.UnparkResult, error)
+}
+
+// unparkInFlight brings back, once, every parked session when a board starts
+// on a host that has booted since the park: the ones with work in flight and
+// the sessions tracking them first, then the rest with nothing sent. Park is
+// run before a reboot, so a board starting after one is the reboot done, and
+// the fan-outs that were mid-flight carry on without anyone typing unpark. A
+// board restarted before the reboot leaves them parked: bringing them back
+// then only hands them to the reboot, with the set already cleared of them.
+//
+// Every relaunch takes its turn in the shared queue, so this can run for the
+// best part of an hour on a large set; it holds nothing the board waits on.
+func unparkInFlight(ctx context.Context, src unparkSource, bootedAt func() (time.Time, error), delay time.Duration) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(delay):
+	}
+	parkedAt, err := src.ParkedAt()
+	if err != nil || parkedAt.IsZero() {
+		return
+	}
+	booted, err := bootedAt()
+	if err != nil {
+		logging.Warn("left parked sessions parked: the host boot time is unreadable", logging.Err(err))
+		return
+	}
+	if !booted.After(parkedAt) {
+		logging.Info("left parked sessions parked: the host has not rebooted since the park", "parkedAt", parkedAt, "bootedAt", booted)
+		return
+	}
+	result, err := src.Unpark("")
+	if err != nil {
+		logging.Warn("could not bring back the parked sessions", logging.Err(err))
+		return
+	}
+	if len(result.Revived) > 0 || len(result.Errors) > 0 {
+		logging.Info("brought back parked sessions",
+			"revived", len(result.Revived), "nudged", len(result.Nudged),
+			"failed", len(result.Errors), "owed", result.Owed)
+	}
+	for _, failure := range result.Errors {
+		logging.Warn("parked session not brought back", "detail", failure)
+	}
+}
+
+// hostBootedAt is when the host last booted.
+func hostBootedAt() (time.Time, error) {
+	secs, err := host.BootTime()
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.Unix(int64(secs), 0), nil
 }
 
 // exitHangup is the conventional status for a process ending on SIGHUP,

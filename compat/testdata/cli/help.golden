@@ -45,7 +45,7 @@ Agent sessions
   gate-inbox park [--dry-run] [--json]
       stop every live agent session the manager started and record the set, so the machine can reboot; --dry-run only prints the plan; runs from any shell
   gate-inbox unpark [--json]
-      bring back every session park stopped, resuming the conversation each held; runs from any shell
+      bring back every session park stopped, each on the conversation it held: work in flight first, only the ones interrupted told to continue, paced one at a time; runs from any shell
   gate-inbox hibernate [<session-id>] [--idle <duration>] [--dry-run] [--json]
       stop an idle agent to give its memory back while keeping its row, mail and claims; the next message for it, from anyone, wakes it on its conversation; --idle <duration> hibernates every session at rest that long; runs from any shell
   gate-inbox groups [--json]

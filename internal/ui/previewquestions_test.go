@@ -188,6 +188,66 @@ func TestThePreviewIsUnchangedWithoutASeveralQuestionCall(t *testing.T) {
 	}
 }
 
+func TestClaudePermissionPreviewShowsTheCommandAndChoices(t *testing.T) {
+	m := questionPreview(t, "claude-2.1.286-w50-permission-bash.ansi", nil)
+	// A word in the command can contain the text of a choice.
+	m.preview = strings.ReplaceAll(m.preview, "perm-probe.txt", "Notes-demo.txt")
+	const width = 40
+	rows := m.conversationRows(width, 20)
+	text := strippedRows(rows)
+	for _, want := range []string{"permission prompt", "touch Notes-demo.txt", "▸ 1. Yes", "3. No"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("preview does not show %q:\n%s", want, text)
+		}
+	}
+	for _, row := range rows {
+		if textfmt.Width(row) > width {
+			t.Errorf("preview row exceeds %d columns: %q", width, row)
+		}
+	}
+	if short := strippedRows(m.conversationRows(width, 5)); !strings.Contains(short, "touch Notes-demo.txt") {
+		t.Errorf("short preview lost the command:\n%s", short)
+	}
+}
+
+func TestClaudePermissionPreviewClearsWithTheLivePane(t *testing.T) {
+	m := questionPreview(t, "claude-2.1.286-w50-permission-bash.ansi", nil)
+	sess, _ := m.selected()
+	prompt := m.preview
+	hasPermission := func() bool {
+		return strings.Contains(strippedRows(m.conversationRows(50, 20)), "permission prompt")
+	}
+	if !hasPermission() {
+		t.Fatal("the original pane has no permission card")
+	}
+	_, _ = m.Update(previewMsg{sessID: sess.ID, preview: "❯ "})
+	if hasPermission() {
+		t.Error("the permission card outlasted the prompt")
+	}
+
+	_, _ = m.Update(previewMsg{sessID: sess.ID, preview: prompt})
+	if !hasPermission() {
+		t.Fatal("the new prompt did not bring back the permission card")
+	}
+	m.rows[m.cursor].sess.Status = status.Dead
+	if hasPermission() {
+		t.Error("a stopped session still shows the permission card")
+	}
+	m.rows[m.cursor].sess.Status = sess.Status
+
+	for i, row := range m.rows {
+		if row.isSession() && row.sess.ID != sess.ID {
+			_ = m.settleCursor(i)
+			_, _ = m.Update(previewMsg{sessID: sess.ID, preview: prompt})
+			if hasPermission() {
+				t.Error("the previous session's permission card followed the cursor")
+			}
+			return
+		}
+	}
+	t.Fatal("no other session to select")
+}
+
 // The card sits under the newest message, inside the frame's preview column,
 // and moves with the pane: a later capture on the Submit page repaints it.
 func TestTheFramePreviewShowsTheCardUnderTheConversation(t *testing.T) {

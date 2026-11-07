@@ -16,6 +16,7 @@ import (
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/accounts"
 	"github.com/usestring/gate-inbox/internal/adopt"
+	"github.com/usestring/gate-inbox/internal/agentsession"
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/convo"
 	"github.com/usestring/gate-inbox/internal/hooks"
@@ -33,6 +34,13 @@ type ParkResult struct {
 	// DryRun means Parked is the plan: nothing was stopped or recorded.
 	DryRun bool      `json:"dry_run" jsonschema:"whether this was a rehearsal that changed nothing"`
 	Parked []Session `json:"parked" jsonschema:"sessions stopped and recorded for unpark"`
+	// Hibernated is the sessions that already met every condition hibernate
+	// itself sets, stopped as a hibernation rather than parked: they stay on
+	// the board with their mail and claims, and wake on their next message
+	// instead of all coming back at the unpark. Only with hibernate_after set.
+	Hibernated []Session `json:"hibernated,omitempty" jsonschema:"sessions idle at least hibernate_after and otherwise eligible for hibernation, hibernated instead of parked: unpark leaves them, and each wakes on its next message"`
+	// HibernateAfter is the rest period the Hibernated entries were held to.
+	HibernateAfter string `json:"hibernate_after,omitempty" jsonschema:"the hibernate_after rest period the hibernated sessions met, empty when hibernation is off"`
 	// Promoted and Recovered are the Parked entries that were not managed
 	// rows going in: an adopted pane turned into an owned row, and a gi_
 	// session with no row given one. Both come back as managed sessions.
@@ -78,7 +86,12 @@ type parkPass struct {
 	parked      []string
 	interrupted []string
 	dormant     []string
-	dryRun      bool
+	// hibernate is the managed rows hibernate itself would take, by id,
+	// decided before anything is stopped (see Park); hibernated is the ones
+	// this pass stopped, or would stop, that way.
+	hibernate  map[string]bool
+	hibernated []string
+	dryRun     bool
 	// panes is each live row's screen, read once before anything is
 	// stopped: the classification needs every row's state at the same
 	// moment, and a parent stopped first would otherwise read its child's
@@ -159,6 +172,10 @@ func (s *Sessions) Park(sessionID string, dryRun bool) (result ParkResult, err e
 		pass.panes[sess.ID] = pane
 		pass.states[sess.ID] = pass.liveState(sess, pane)
 	}
+	pass.hibernate = s.parkHibernates(runtime, sessions, pass.states, sessionID)
+	if after := runtime.cfg.HibernateAfter.Duration; after > 0 {
+		pass.result.HibernateAfter = after.String()
+	}
 	pass.hot = hotSessions(sessions, pass.states, pending)
 	rows := make(map[string]bool, len(sessions))
 	for _, sess := range sessions {
@@ -196,7 +213,11 @@ func (s *Sessions) Park(sessionID string, dryRun bool) (result ParkResult, err e
 		return ParkResult{}, err
 	}
 	pass.result.Dormant = pass.dormant
+	// A row an earlier park recorded and that was revived by hand since may
+	// be one this pass hibernated; unpark no longer owes it.
+	hibernated := func(id string) bool { return slices.Contains(pass.hibernated, id) }
 	if dryRun {
+		owed = slices.DeleteFunc(owed, hibernated)
 		for _, id := range pass.parked {
 			if !slices.Contains(owed, id) {
 				owed = append(owed, id)
@@ -207,6 +228,15 @@ func (s *Sessions) Park(sessionID string, dryRun bool) (result ParkResult, err e
 		dormant = slices.DeleteFunc(dormant, func(id string) bool { return slices.Contains(pass.parked, id) })
 		dormant = append(dormant, pass.dormant...)
 	} else {
+		if err := runtime.store.RemoveParked(pass.hibernated); err != nil {
+			return ParkResult{}, err
+		}
+		if err := runtime.store.RemoveInterrupted(pass.hibernated); err != nil {
+			return ParkResult{}, err
+		}
+		if err := runtime.store.RemoveDormant(pass.hibernated); err != nil {
+			return ParkResult{}, err
+		}
 		if len(pass.parked) > 0 {
 			if err := runtime.store.SetParkedAt(time.Now()); err != nil {
 				return ParkResult{}, err
@@ -348,8 +378,52 @@ func hotSessions(sessions []store.Session, states map[string]string, pending map
 	return hot
 }
 
+// parkHibernates is the live rows hibernate itself would take, by id: the
+// ones park stops as a hibernation rather than parks, since unpark would
+// bring them back only to sit idle until the next sweep, and a hibernated
+// row wakes when a message arrives anyway. Hibernation is opt-in, so with
+// hibernate_after unset it is none.
+//
+// It is decided for every row before any is stopped: hibernateBlocker asks
+// whether the pane is up and reads the children's rows, and a parent asked
+// after its children went would misread. Each row is judged by the stricter
+// of its stored status and park's read of its screen, since no board may
+// have been polling to move a stale row, and a stop loses whatever a
+// misread hid.
+func (s *Sessions) parkHibernates(runtime *runtime, sessions []store.Session, states map[string]string, callerID string) map[string]bool {
+	eligible := make(map[string]bool)
+	after := runtime.cfg.HibernateAfter.Duration
+	if after <= 0 {
+		return eligible
+	}
+	judged := slices.Clone(sessions)
+	for i, sess := range judged {
+		if state, ok := states[sess.ID]; ok && !atRest(state) && (atRest(sess.Status) || sess.Status == status.Dead) {
+			judged[i].Status = state
+		}
+	}
+	now := time.Now()
+	procs := onceTable(agentsession.ProcessTable)
+	for _, sess := range judged {
+		if _, live := states[sess.ID]; !live || sess.ID == callerID {
+			continue
+		}
+		if s.hibernateBlocker(runtime, sess, judged, after, now, procs) == "" {
+			eligible[sess.ID] = true
+		}
+	}
+	return eligible
+}
+
+func atRest(state string) bool {
+	return state == status.Idle || state == status.Finished
+}
+
 func (s *Sessions) parkManaged(p *parkPass, sess store.Session) {
 	pane := p.screen(sess.ID)
+	if p.hibernate[sess.ID] && s.parkHibernate(p, sess, pane) {
+		return
+	}
 	if !p.dryRun {
 		if err := s.endSessionWith(p.runtime, sess, pane, store.EndParked); err != nil {
 			p.fail(sess, err)
@@ -357,6 +431,24 @@ func (s *Sessions) parkManaged(p *parkPass, sess store.Session) {
 		}
 	}
 	p.record(sess, pane)
+}
+
+// parkHibernate stops a row as hibernate would, with the screen park read
+// up front, and keeps it out of every park set so unpark leaves it for its
+// next message to wake. It reports false when the hibernation failed, and
+// the caller parks the row instead: one that is neither would be lost to
+// the reboot.
+func (s *Sessions) parkHibernate(p *parkPass, sess store.Session, pane string) bool {
+	if !p.dryRun {
+		if err := s.hibernateStop(p.runtime, sess, pane); err != nil {
+			p.result.Warnings = append(p.result.Warnings, fmt.Sprintf("%s (id %s): could not be hibernated, parked instead: %v", sess.Name, sess.ID, err))
+			return false
+		}
+		sess.Status = status.Dead
+	}
+	p.result.Hibernated = append(p.result.Hibernated, p.runtime.sessionInfo(sess, p.dryRun, false))
+	p.hibernated = append(p.hibernated, sess.ID)
+	return true
 }
 
 // parkAdopted stops a pane the manager never started and keeps its row as

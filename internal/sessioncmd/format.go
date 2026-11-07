@@ -379,6 +379,16 @@ func FormatParkResult(result ParkResult) string {
 	for _, session := range result.Parked {
 		lines = append(lines, "- "+FormatSession(session))
 	}
+	if n := len(result.Hibernated); n > 0 {
+		hibernated := "hibernated"
+		if result.DryRun {
+			hibernated = "would hibernate"
+		}
+		lines = append(lines, fmt.Sprintf("%s %d session(s) idle at least %s instead of parking them: they stay on the board and wake on their next message", hibernated, n, result.HibernateAfter))
+		for _, session := range result.Hibernated {
+			lines = append(lines, "- "+FormatSession(session))
+		}
+	}
 	if result.Promoted > 0 {
 		lines = append(lines, fmt.Sprintf("%d of those were adopted panes, now owned rows: unpark restarts them as gi_ sessions, not in the windows they borrowed", result.Promoted))
 	}

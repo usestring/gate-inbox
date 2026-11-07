@@ -202,19 +202,28 @@ func (s *Sessions) hibernateOne(runtime *runtime, sess store.Session, result *Hi
 	fail := func(err error) {
 		result.Errors = append(result.Errors, fmt.Sprintf("%s (id %s): %v", sess.Name, sess.ID, err))
 	}
-	if err := runtime.store.AddHibernated([]string{sess.ID}); err != nil {
-		fail(err)
-		return
-	}
-	// endSession, not a kill: a kill hands back task claims and drops the
-	// queue, and both are this row's to keep.
-	if err := s.endSession(runtime, sess, store.EndHibernated); err != nil {
-		_ = runtime.store.RemoveHibernated([]string{sess.ID})
+	pane, _ := runtime.driver.CapturePane(sess.ID)
+	if err := s.hibernateStop(runtime, sess, pane); err != nil {
 		fail(err)
 		return
 	}
 	sess.Status = status.Dead
 	result.Hibernated = append(result.Hibernated, runtime.sessionInfo(sess, false, false))
+}
+
+// hibernateStop is the stop hibernate and park share for a row that is to
+// wake on its next message, with the screen the caller already read.
+func (s *Sessions) hibernateStop(runtime *runtime, sess store.Session, pane string) error {
+	if err := runtime.store.AddHibernated([]string{sess.ID}); err != nil {
+		return err
+	}
+	// An end, not a kill: a kill hands back task claims and drops the
+	// queue, and both are this row's to keep.
+	if err := s.endSessionWith(runtime, sess, pane, store.EndHibernated); err != nil {
+		_ = runtime.store.RemoveHibernated([]string{sess.ID})
+		return err
+	}
+	return nil
 }
 
 // WakeHibernated settles the hibernated set: it relaunches every hibernated

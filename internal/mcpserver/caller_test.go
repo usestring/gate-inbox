@@ -80,7 +80,7 @@ func TestToolCallRefusesAnUnprovenCaller(t *testing.T) {
 	for name, args := range map[string]map[string]any{
 		"no token":            {CallerArg: "other01"},
 		"another's token":     {CallerArg: "other01", CallerTokenArg: ownToken},
-		"a token made up":     {CallerArg: "other01", CallerTokenArg: "00112233445566778899aabbccddeeff"},
+		"a token made up":     {CallerArg: "other01", CallerTokenArg: "not-a-real-token"},
 		"a token, no session": {CallerTokenArg: ownToken, CallerArg: "not a session"},
 	} {
 		t.Run(name, func(t *testing.T) {

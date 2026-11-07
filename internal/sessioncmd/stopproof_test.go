@@ -271,39 +271,39 @@ func TestOpencodeMarkerTargetTakesALaunchedSessionsBinding(t *testing.T) {
 	}
 	t.Run("bound row in its own pane", func(t *testing.T) {
 		h, runtime := newOpencodeStopRuntime(t)
-		createStopRow(t, h, "launch01", stopConversation, stopSocket, stopPane, "working", false)
-		bind(t, h, stopConversation, "launch01")
-		t.Setenv(hooks.EnvSessionID, "launch01")
+		createStopRow(t, h, "0c0de001", stopConversation, stopSocket, stopPane, "working", false)
+		bind(t, h, stopConversation, "0c0de001")
+		t.Setenv(hooks.EnvSessionID, "0c0de001")
 		target, err := runtime.opencodeMarkerTarget()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if target.ID != "launch01" {
+		if target.ID != "0c0de001" {
 			t.Fatalf("target = %+v", target)
 		}
 	})
 	t.Run("binding names another row", func(t *testing.T) {
 		h, runtime := newOpencodeStopRuntime(t)
-		createStopRow(t, h, "launch01", stopConversation, stopSocket, stopPane, "working", false)
+		createStopRow(t, h, "0c0de001", stopConversation, stopSocket, stopPane, "working", false)
 		bind(t, h, stopConversation, "other001")
-		t.Setenv(hooks.EnvSessionID, "launch01")
+		t.Setenv(hooks.EnvSessionID, "0c0de001")
 		if _, err := runtime.opencodeMarkerTarget(); !errors.Is(err, ErrUnmanagedCaller) {
 			t.Fatalf("mismatched binding: %v", err)
 		}
 	})
 	t.Run("row in another pane", func(t *testing.T) {
 		h, runtime := newOpencodeStopRuntime(t)
-		createStopRow(t, h, "launch01", stopConversation, stopSocket, "%9", "working", false)
-		bind(t, h, stopConversation, "launch01")
-		t.Setenv(hooks.EnvSessionID, "launch01")
+		createStopRow(t, h, "0c0de001", stopConversation, stopSocket, "%9", "working", false)
+		bind(t, h, stopConversation, "0c0de001")
+		t.Setenv(hooks.EnvSessionID, "0c0de001")
 		if _, err := runtime.opencodeMarkerTarget(); err == nil {
 			t.Fatal("a row bound to another pane was stopped")
 		}
 	})
 	t.Run("no binding", func(t *testing.T) {
 		h, runtime := newOpencodeStopRuntime(t)
-		createStopRow(t, h, "launch01", stopConversation, stopSocket, stopPane, "working", false)
-		t.Setenv(hooks.EnvSessionID, "launch01")
+		createStopRow(t, h, "0c0de001", stopConversation, stopSocket, stopPane, "working", false)
+		t.Setenv(hooks.EnvSessionID, "0c0de001")
 		if _, err := runtime.opencodeMarkerTarget(); !errors.Is(err, ErrUnmanagedCaller) {
 			t.Fatalf("unbound launched row: %v", err)
 		}

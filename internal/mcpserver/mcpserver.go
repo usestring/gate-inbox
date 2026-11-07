@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -1269,7 +1270,12 @@ func Run(ctx context.Context, configDir, sessionID, version string, extensions [
 	if tracer := startTracing(); tracer != nil {
 		defer tracer.Close()
 	}
-	err := NewProfileServer(configDir, sessionID, version, extensions, steering, profile).Run(ctx, &mcp.StdioTransport{})
+	applyBudget()
+	release := newReleaser(releaseAfter, debug.FreeOSMemory)
+	defer release.stop()
+	server := NewProfileServer(configDir, sessionID, version, extensions, steering, profile)
+	server.AddReceivingMiddleware(release.middleware)
+	err := server.Run(ctx, &mcp.StdioTransport{})
 	// The SDK reports an abrupt pipe close as an internal "server is
 	// closing" wire error that wraps EOF without errors.Is support.
 	if err != nil && (errors.Is(err, io.EOF) || strings.Contains(err.Error(), "server is closing")) {

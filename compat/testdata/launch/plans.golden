@@ -208,7 +208,7 @@ plan.pending_inputs[0]: "Fix the flaky widget test and report what changed."
 plan.agent_session_id: ""
 plan.model: ""
 plan.account: ""
-launch.command: opencode --standalone
+launch.command: '<scratch>/gihome/bin/gate-inbox' opencode-attach --server-config '<scratch>/gihome/hooks/gate-inbox-mcp-opencode-<stamp>.json' -- opencode
 launch.env.EXAMPLE_API_KEY=<redacted>
 launch.env.GATE_INBOX_BIN=<scratch>/gihome/bin/gate-inbox
 launch.env.GATE_INBOX_EXIT_FILE=<scratch>/gihome/hooks/cafe0001.exit
@@ -227,7 +227,7 @@ plan.pending_inputs[0]: "Fix the flaky widget test and report what changed."
 plan.agent_session_id: ""
 plan.model: ""
 plan.account: ""
-launch.command: opencode --standalone
+launch.command: '<scratch>/gihome/bin/gate-inbox' opencode-attach --server-config '<scratch>/gihome/hooks/gate-inbox-mcp-opencode-<stamp>.json' -- opencode
 launch.env.EXAMPLE_API_KEY=<redacted>
 launch.env.GATE_INBOX_BIN=<scratch>/gihome/bin/gate-inbox
 launch.env.GATE_INBOX_EXIT_FILE=<scratch>/gihome/hooks/cafe0001.exit
@@ -246,7 +246,7 @@ plan.pending_inputs[0]: "Your working directory for this task is /srv/example/mo
 plan.agent_session_id: ""
 plan.model: ""
 plan.account: ""
-launch.command: opencode --standalone
+launch.command: '<scratch>/gihome/bin/gate-inbox' opencode-attach --server-config '<scratch>/gihome/hooks/gate-inbox-mcp-opencode-<stamp>.json' -- opencode
 launch.env.EXAMPLE_API_KEY=<redacted>
 launch.env.GATE_INBOX_BIN=<scratch>/gihome/bin/gate-inbox
 launch.env.GATE_INBOX_EXIT_FILE=<scratch>/gihome/hooks/cafe0001.exit
@@ -265,7 +265,7 @@ plan.pending_inputs[0]: "Fix the flaky widget test and report what changed."
 plan.agent_session_id: ""
 plan.model: "example-model"
 plan.account: ""
-launch.command: opencode --standalone
+launch.command: '<scratch>/gihome/bin/gate-inbox' opencode-attach --model 'example-model' --server-config '<scratch>/gihome/hooks/gate-inbox-mcp-opencode-<stamp>.json' -- opencode
 launch.env.EXAMPLE_API_KEY=<redacted>
 launch.env.GATE_INBOX_BIN=<scratch>/gihome/bin/gate-inbox
 launch.env.GATE_INBOX_EXIT_FILE=<scratch>/gihome/hooks/cafe0001.exit

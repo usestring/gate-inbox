@@ -121,7 +121,7 @@ func TestPluginSourceNamesItsBoard(t *testing.T) {
 	if owner, ok := pluginOwner(path); !ok || owner != p.Home {
 		t.Fatalf("owner %q %v", owner, ok)
 	}
-	for _, placeholder := range []string{"__HOME__", "__BIN__", "__TOOLS__", "__STEERING__", "__KEY__"} {
+	for _, placeholder := range []string{"__HOME__", "__BIN__", "__TOOLS__", "__STEERING__", "__KEY__", "__TOOL_PREFIX__"} {
 		if strings.Contains(src, placeholder) {
 			t.Errorf("%s left in the source", placeholder)
 		}
@@ -149,6 +149,12 @@ for (const step of steps) {
     console.log(JSON.stringify({ env: shell.env }));
     continue;
   }
+  if (step.op === "tool") {
+    const call = { tool: step.tool, sessionID: step.session, input: step.input };
+    await hooks["tool.execute.before"](call);
+    console.log(JSON.stringify({ input: call.input ?? null }));
+    continue;
+  }
   if (step.op === "context") {
     const request = { sessionID: step.session, system: [] };
     await hooks["session.context"](request);
@@ -164,10 +170,13 @@ type harnessStep struct {
 	Session string            `json:"session,omitempty"`
 	Command string            `json:"command,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+	Tool    string            `json:"tool,omitempty"`
+	Input   map[string]any    `json:"input,omitempty"`
 }
 
 type harnessResult struct {
 	Env    map[string]string `json:"env"`
+	Input  map[string]any    `json:"input"`
 	System []struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
@@ -303,5 +312,50 @@ func TestGlobalPluginBehaviour(t *testing.T) {
 	}
 	if len(results[7].System) != 0 || results[8].Env["GATE_INBOX_SESSION_ID"] != "" {
 		t.Errorf("dead board still speaks: %v %v", results[7].System, results[8].Env)
+	}
+}
+
+// On a shared server one MCP server serves every session, so each of the
+// board's tool calls carries the row its session was launched as and that
+// row's caller token, written over whatever the model put there. Other tools, and sessions the board
+// never bound, are left alone; a launched shell does not keep the server's
+// password.
+func TestGlobalPluginNamesTheCallerOnSharedServerTools(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not installed")
+	}
+	p := Plugin{Home: t.TempDir(), Bin: "/bin/sh", Tools: []string{"opencode"}, Steering: "S"}
+	if err := os.MkdirAll(BindingsDir(p.Home), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(BindingsDir(p.Home), "ses_a"), []byte("rowA tokA\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if _, err := RegisterPlugin(dir, p); err != nil {
+		t.Fatal(err)
+	}
+	results := runHarness(t, node, PluginPath(dir, p.Home), []harnessStep{
+		{Op: "tool", Tool: "gate-inbox_rename", Session: "ses_a", Input: map[string]any{"name": "x", "caller_session_id": "rowB"}},
+		{Op: "tool", Tool: "gate-inbox_list_sessions", Session: "ses_a"},
+		{Op: "tool", Tool: "bash", Session: "ses_a", Input: map[string]any{"command": "ls"}},
+		{Op: "tool", Tool: "gate-inbox_rename", Session: "ses_unbound", Input: map[string]any{"name": "y"}},
+		{Op: "shell", Session: "ses_a", Command: "ls", Env: map[string]string{"GATE_INBOX_SESSION_ID": "rowA", "OPENCODE_SERVER_PASSWORD": "secret", "KEEP": "1"}},
+	})
+	if got := results[0].Input; got["caller_session_id"] != "rowA" || got["caller_session_token"] != "tokA" || got["name"] != "x" {
+		t.Fatalf("bound call input = %v", got)
+	}
+	if got := results[1].Input; got["caller_session_id"] != "rowA" {
+		t.Fatalf("call with no input = %v", got)
+	}
+	if _, set := results[2].Input["caller_session_id"]; set {
+		t.Fatalf("another tool's input touched: %v", results[2].Input)
+	}
+	if _, set := results[3].Input["caller_session_id"]; set {
+		t.Fatalf("unbound session named a caller: %v", results[3].Input)
+	}
+	if env := results[4].Env; env["OPENCODE_SERVER_PASSWORD"] != "" || env["KEEP"] != "1" || env["GATE_INBOX_SESSION_ID"] != "rowA" {
+		t.Fatalf("launched shell env = %v", env)
 	}
 }

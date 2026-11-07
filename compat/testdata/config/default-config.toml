@@ -62,8 +62,14 @@ poll_interval = "2s"
 # outside the board speaks as its row and gets the board's steering once the
 # board adopts it. It does nothing in any session the board has not adopted.
 # false removes it.
+#
+# server is how a launched opencode session gets its server: "shared"
+# attaches every session to one server per board, so each costs only its
+# TUI; "standalone" gives each a private server, about 300 MB more apiece.
+# The shared server needs the plugin, so setup = false means standalone.
 # [opencode]
 # setup = true
+# server = "shared"
 
 # The diagnostic log. It is a file log only -- this program owns the
 # terminal, so nothing is ever printed to the screen. "gate-inbox

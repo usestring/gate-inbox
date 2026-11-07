@@ -54,6 +54,11 @@ const pluginTag = "// gate-inbox-global-plugin "
 
 const pluginPrefix = "gate-inbox-"
 
+// MCPServerName is the name the board's MCP server is registered under in
+// a generated opencode config (mcpreg.ServerName), which opencode prefixes
+// to each of its tools.
+const MCPServerName = "gate-inbox"
+
 // ConfigDirEnv is OpenCode's own override of its global config directory.
 const ConfigDirEnv = "OPENCODE_CONFIG_DIR"
 
@@ -111,6 +116,7 @@ func (p Plugin) Source() []byte {
 		"__TOOLS__", quote(tools),
 		"__STEERING__", quote(p.Steering),
 		"__KEY__", quote(key),
+		"__TOOL_PREFIX__", quote(MCPServerName+"_"),
 	).Replace(pluginTemplate)
 	return []byte(pluginTag + quote(p.Home) + "\n" + body)
 }

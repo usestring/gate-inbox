@@ -21,8 +21,11 @@ func TestApplyOpencodeSkipLoadsTheAllowPlugin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if command != "opencode --standalone" {
-		t.Fatalf("command = %q, want the skip kept off the command line", command)
+	// Standalone, the config's plugin skips the prompts; on the shared
+	// server, which never reads it, attach passes the TUI's --auto.
+	shared := filepath.Join(dir, hooks.GeneratedName("gate-inbox-mcp-opencode.json", opencodeConfig("/opt/bin/gate-inbox", "", "", "")))
+	if want := "'/opt/bin/gate-inbox' opencode-attach --auto --server-config '" + shared + "' -- opencode"; command != want {
+		t.Fatalf("command = %q, want %q", command, want)
 	}
 	plugin := filepath.Join(dir, hooks.GeneratedName("gate-inbox-opencode-skip-permissions", skipPermissionsJS))
 	if want := filepath.Join(dir, hooks.GeneratedName("gate-inbox-mcp-opencode-abcd1234.json", opencodeConfig("/opt/bin/gate-inbox", "", "", plugin))); env["OPENCODE_CONFIG"] != want {

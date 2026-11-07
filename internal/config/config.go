@@ -529,10 +529,29 @@ type OpenCode struct {
 	// its row, steering and conversation binding once it is adopted. Absent
 	// means on; false takes the plugin back out.
 	Setup *bool `toml:"setup"`
+	// Server is how a launched session gets its opencode server: "shared"
+	// (the default) attaches every session to one server per board, which
+	// costs each one its TUI alone; "standalone" gives each session a
+	// private server of its own, which costs it about 300 MB more. A shared
+	// server needs the plugin above to tell the board's tools which session
+	// called them, so with setup off every session runs standalone.
+	Server string `toml:"server"`
 }
+
+// OpenCode server modes, as [opencode] server names them.
+const (
+	OpenCodeServerShared     = "shared"
+	OpenCodeServerStandalone = "standalone"
+)
 
 // SetupOn reports whether the board keeps its OpenCode plugin registered.
 func (c OpenCode) SetupOn() bool { return c.Setup == nil || *c.Setup }
+
+// SharedServer reports whether launched sessions attach to the board's one
+// shared opencode server.
+func (c OpenCode) SharedServer() bool {
+	return c.SetupOn() && c.Server != OpenCodeServerStandalone
+}
 
 // Naming configures how sessions get their names.
 type Naming struct {
@@ -1292,8 +1311,14 @@ const defaultConfig = `poll_interval = "2s"
 # outside the board speaks as its row and gets the board's steering once the
 # board adopts it. It does nothing in any session the board has not adopted.
 # false removes it.
+#
+# server is how a launched opencode session gets its server: "shared"
+# attaches every session to one server per board, so each costs only its
+# TUI; "standalone" gives each a private server, about 300 MB more apiece.
+# The shared server needs the plugin, so setup = false means standalone.
 # [opencode]
 # setup = true
+# server = "shared"
 
 # The diagnostic log. It is a file log only -- this program owns the
 # terminal, so nothing is ever printed to the screen. "gate-inbox

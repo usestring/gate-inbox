@@ -394,6 +394,9 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 			return mcpserver.Run(ctx, configDir, sessionID, version, extensions, steering, profile)
 		}),
 	}
+	table[mcpreg.OpencodeAttachVerb] = withConfigDir(func(args []string, _, configDir string) error {
+		return runOpencodeAttach(ctx, args, configDir)
+	})
 	table["hook"] = withConfigDir(func(args []string, sessionID, configDir string) error {
 		return cli.RunHook(os.Stdin, os.Stdout, args, sessionID, configDir)
 	})

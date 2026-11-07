@@ -150,7 +150,8 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model, p
 				return "", err
 			}
 		}
-		name, content := generatedPrefix+"mcp-opencode.json", opencodeConfig(exe, "", profile, "")
+		shared, sharedContent := generatedPrefix+"mcp-opencode.json", opencodeConfig(exe, "", profile, "")
+		name, content := shared, sharedContent
 		if model != "" || skip {
 			// v2's TUI has no model flag; the config's model key is where a
 			// chosen model goes, and its plugins list is where the session's
@@ -171,8 +172,28 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model, p
 		// session that happened to start it, so every session's rename lands
 		// on that one row. A private server per session is what makes the
 		// generated config, and this session's identity, reach the agent.
-		command += " --standalone"
-		return command, nil
+		//
+		// A private server costs a session about 300 MB, so the pane runs
+		// the opencode-attach verb first, which attaches it to the board's
+		// one shared server instead when [opencode] server allows, and falls
+		// back to --standalone itself otherwise. The shared server serves
+		// every tool, so a session restricted to a profile keeps a private
+		// one: no --server-config is what tells the verb so.
+		attach := tmux.ShellQuote(exe) + " " + OpencodeAttachVerb
+		if model != "" {
+			attach += " --model " + tmux.ShellQuote(model)
+		}
+		if skip {
+			attach += " --auto"
+		}
+		if profile == "" {
+			sharedPath, err := config(shared, sharedContent)
+			if err != nil {
+				return "", err
+			}
+			attach += " --server-config " + tmux.ShellQuote(sharedPath)
+		}
+		return attach + " -- " + command, nil
 	case StyleNone:
 		return command, nil
 	default:
@@ -321,6 +342,10 @@ This session is managed by Gate Inbox, which lists it under a short name. After 
 // writeConfig writes content under a name stamped with it (see
 // hooks.GeneratedName), so a launcher running another build never rewrites
 // the file this build's sessions read.
+// OpencodeAttachVerb is the gate-inbox verb a launched opencode pane runs
+// to reach its server; see the opencode style in apply.
+const OpencodeAttachVerb = "opencode-attach"
+
 func writeConfig(dir, name string, content []byte) (string, error) {
 	return hooks.WriteGenerated(dir, name, content)
 }

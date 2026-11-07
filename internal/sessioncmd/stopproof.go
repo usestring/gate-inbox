@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
@@ -93,7 +94,7 @@ func (r *runtime) stopCandidate(target store.Session) error {
 // opencodeStopCandidate rechecks, right before a stop is queued, that the
 // pane's own marker still names the row the caller resolved to.
 func (r *runtime) opencodeStopCandidate(target store.Session) error {
-	shared, err := sharedOpencodeAncestor()
+	shared, err := r.sharedOpencodeAncestor()
 	if err != nil {
 		return err
 	}
@@ -104,7 +105,7 @@ func (r *runtime) opencodeStopCandidate(target store.Session) error {
 	if pane == "" || socket == "" {
 		return errors.New("stop must run inside its own managed session pane")
 	}
-	marker, ok := hooks.NewManager(r.configDir).AdoptedPaneAt(os.Getenv("TMUX"), pane)
+	marker, ok := r.opencodePaneMarker(pane)
 	if !ok || marker.ID != target.ID || marker.Tool != target.Tool || marker.Conversation != target.AgentSessionID ||
 		target.TmuxPaneID != pane || target.TmuxSocket != socket {
 		return errors.New("stop must run inside its own managed session pane")
@@ -113,7 +114,7 @@ func (r *runtime) opencodeStopCandidate(target store.Session) error {
 }
 
 func (r *runtime) sharedOpencodeTarget() (store.Session, error) {
-	shared, err := sharedOpencodeAncestor()
+	shared, err := r.sharedOpencodeAncestor()
 	if err != nil {
 		return store.Session{}, err
 	}
@@ -132,7 +133,7 @@ func (r *runtime) opencodeMarkerTarget() (store.Session, error) {
 	if pane == "" || socket == "" {
 		return store.Session{}, errors.New("cannot verify a Gate Inbox caller pane from the shared OpenCode service; refusing shutdown")
 	}
-	marker, ok := hooks.NewManager(r.configDir).AdoptedPaneAt(os.Getenv("TMUX"), pane)
+	marker, ok := r.opencodePaneMarker(pane)
 	if !ok || !r.isOpencode(marker.Tool) {
 		return store.Session{}, ErrUnmanagedCaller
 	}
@@ -273,4 +274,28 @@ func compactProof(s string) string {
 		}
 		return r
 	}, ansi.Strip(s))
+}
+
+// opencodePaneMarker is the marker naming the row a shared-server shell's
+// pane shows. A pane the board adopted has one on disk. A session the board
+// launched onto its own shared server has none; the binding its launch wrote
+// stands in for it, and only when it names the row the shell's environment
+// claims for that row's own conversation, so the pane checks that follow
+// apply to it unchanged.
+func (r *runtime) opencodePaneMarker(pane string) (hooks.AdoptedPane, bool) {
+	if marker, ok := hooks.NewManager(r.configDir).AdoptedPaneAt(os.Getenv("TMUX"), pane); ok {
+		return marker, true
+	}
+	row := os.Getenv(hooks.EnvSessionID)
+	if validSession(row) != nil {
+		return hooks.AdoptedPane{}, false
+	}
+	sess, err := r.store.Get(row)
+	if err != nil || !validOpencodeStopConversation(sess.AgentSessionID) {
+		return hooks.AdoptedPane{}, false
+	}
+	if bound, ok := opencode.BoundRow(r.configDir, sess.AgentSessionID); !ok || bound != row {
+		return hooks.AdoptedPane{}, false
+	}
+	return hooks.AdoptedPane{ID: row, PaneID: pane, Tool: sess.Tool, Conversation: sess.AgentSessionID}, true
 }

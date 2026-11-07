@@ -249,7 +249,13 @@ Inside a session every `ctrl` combination reaches the program running there, `ct
 
 ## Sessions in their own checkout
 
-Gate Inbox does not create git worktrees. A session that should edit a checkout of its own is given one: make the worktree with the repository's own tooling first, then spawn the session with that path as its directory (`spawn --directory`, `directory` on the MCP `create_session` tool, or the path field of the New Session form). The board treats it as any other directory: nothing follows a rename, and deleting the session leaves the checkout where it is.
+In the New Session form (`ctrl+n`), set the directory to a checkout of your repository and press
+`F2` to list its existing worktrees by branch and path. Choose one with the arrow keys and press
+`enter` to fill the directory field. The picker requires Git 2.36 or newer.
+
+Create worktrees with your repository's own tooling first. You can also enter the path directly,
+use `spawn --directory`, or set `directory` on the MCP `create_session` tool. The board treats the
+checkout as any other directory: nothing follows a rename, and deleting the session leaves it in place.
 
 ## Killing and reviving sessions
 

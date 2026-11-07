@@ -178,6 +178,9 @@ func fitBody(body []string, room, offset int) []string {
 }
 
 func (m *Model) viewForm() string {
+	if m.form.worktrees != nil {
+		return m.viewWorktreePicker()
+	}
 	m.form.prompt.input.SetHeight(textareaRows(m.form.prompt.input, m.formValueWidth()-2, formPromptMaxRows))
 
 	var b strings.Builder
@@ -233,6 +236,7 @@ func (m *Model) viewForm() string {
 		}
 		hint = [][2]string{change, {"tab/↑↓", "move"}, {"↵", "create"}, {"esc", "cancel"}}
 	}
+	hint = append([][2]string{{"F2", "worktrees"}}, hint...)
 	return m.card("◆ New Session", strings.TrimRight(b.String(), "\n"), hint)
 }
 

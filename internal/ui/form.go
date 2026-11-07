@@ -64,12 +64,13 @@ type groupOption struct {
 }
 
 type form struct {
-	name textinput.Model
-	dir  textinput.Model
+	name      textinput.Model
+	dir       textinput.Model
+	dirAuto   bool
+	worktrees *worktreePicker
 	// prompt is a composer rather than a plain textarea: a first task is
 	// often a screenshot, so the box has to hold pasted images.
-	prompt  composer
-	dirAuto bool
+	prompt composer
 	// toolFilter is the tool field's text entry. The picker is arrowed
 	// through as before, but a CLI can also just be typed: the field is a
 	// real input so filtering behaves like every other typed field rather
@@ -519,6 +520,13 @@ func (m *Model) rebuildGroupOptions(selectPath string) {
 }
 
 func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.form.worktrees != nil {
+		m.handleWorktreePickerKey(msg)
+		return m, nil
+	}
+	if msg.Code == tea.KeyF2 && msg.Mod == 0 {
+		return m, m.openWorktreePicker()
+	}
 	dirSuggesting := m.form.focus == fieldDir && m.pathSugg.active()
 	dirCapturing := m.form.focus == fieldDir && m.pathSugg.capturing()
 	promptFocused := m.form.focus == fieldPrompt

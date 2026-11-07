@@ -2203,6 +2203,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case agentPickQuotaMsg:
 		m.finishAgentPickQuota(msg)
 		return m, nil
+	case worktreesLoadedMsg:
+		m.finishWorktreePicker(msg)
+		return m, nil
 	case migrateAutoMsg:
 		return m.finishMigrateAuto(msg)
 	case accountAutoMsg:

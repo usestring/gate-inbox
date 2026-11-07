@@ -19,6 +19,13 @@ Top-level: `poll_interval` (default `"2s"`) sets how often panes are polled for 
 setup = false
 ```
 
+<a id="shared-mcp"></a>`shared_mcp` (default on) points every `claude` the board launches at one shared Gate Inbox MCP server, `gate-inbox mcp-serve`, instead of starting a server process per session. The first launch that finds none answering starts it, on loopback, and it serves the rest. Each request names its session and proves it with that session's caller token (see [Parent channel](parent-channel.md)), so the server holds nothing per session. When the installed binary is replaced, it moves onto the new one between requests, keeping the same address. `shared_mcp = false`, or a server that cannot be started, gives each session its own stdio server as before. Codex and OpenCode sessions, and `claude` panes the board adopted, keep a server each.
+
+```toml
+[claude_code]
+shared_mcp = false
+```
+
 <a id="codex-setup"></a>`[codex]` covers your own Codex config. `setup` (default on) has the board keep two hook entries, `UserPromptSubmit` and `Stop`, in Codex's `config.toml` (under `CODEX_HOME`, or `~/.codex`), on a machine with `codex` installed. That is how a `codex` you started outside the board reports status and hears the board's steering once it is adopted (see [Adopted panes](usage.md#adopted-codex)). The board registers them when it starts and checks them every few minutes, and touches nothing else in the file: comments, your own hooks and Codex's trust records stay byte for byte. Codex asks once to trust new hooks ("Hooks need review"; pick "Trust all and continue"), and the entries' text stays the same across Gate Inbox upgrades, so it does not ask again. `setup = false` makes the board remove them, and so does `gate-inbox codex-hooks uninstall`, which also keeps them out until `gate-inbox codex-hooks install`.
 
 ```toml

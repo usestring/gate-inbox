@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,7 +22,9 @@ import (
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/hooks"
+	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
+	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
@@ -624,6 +627,41 @@ func Compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	return compose(manager, toolName, tool, baseCommand, id, model, account, skip, contributed, "", false)
 }
 
+// sharedServer is the shared MCP server (mcpshared) a launch points its
+// session at, or "" for a server of the session's own. Only claude takes
+// one, and only with a caller token to prove itself with and the operator's
+// shared_mcp left on. A server that cannot be started is no reason to fail
+// the launch: the session gets its own, as it always did. A plan composed
+// without side effects starts nothing and names the recorded server.
+func sharedServer(configDir, style, token string, write bool) string {
+	if style != "claude" || token == "" {
+		return ""
+	}
+	cfg, err := config.LoadDir(configDir)
+	if err != nil || !cfg.ClaudeCode.SharedMCPOn() {
+		return ""
+	}
+	if !write {
+		return mcpshared.URL(configDir)
+	}
+	url, err := ensureShared(configDir)
+	if err != nil {
+		logging.Warn("shared MCP server unavailable; the session gets its own", logging.Err(err))
+		return ""
+	}
+	return url
+}
+
+// ensureShared starts the shared server for configDir, or finds it running.
+// A test process starts none: the executable it would run is the test binary
+// itself, which would run the tests again, or the operator's installed one.
+var ensureShared = func(configDir string) (string, error) {
+	if testing.Testing() {
+		return "", nil
+	}
+	return mcpshared.Ensure(configDir, Executable())
+}
+
 // resolveAccount reads an account's token, replaced in tests so a launch
 // plan never reaches a real secret store.
 var resolveAccount = accounts.Resolve
@@ -688,6 +726,7 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		// it would otherwise pass on.
 		env[tool.AccountEnv] = ""
 	}
+	sharedURL := sharedServer(manager.ConfigDir(), style, env[envname.SessionToken], write)
 	register := mcpreg.PreviewProfile
 	if write {
 		register = mcpreg.ApplyProfile
@@ -697,7 +736,7 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 			return "", nil, err
 		}
 	}
-	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model), profile, skip && SkipPermissionsRidesConfig(toolName, tool))
+	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model), profile, sharedURL, skip && SkipPermissionsRidesConfig(toolName, tool))
 	if err != nil {
 		return "", nil, err
 	}

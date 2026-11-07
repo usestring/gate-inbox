@@ -11,6 +11,7 @@ import (
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/logging"
+	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 )
 
@@ -25,8 +26,8 @@ const (
 	// CallerHeader and CallerTokenHeader name a request's caller to a
 	// shared HTTP server, which a client expands per session from
 	// $GATE_INBOX_SESSION_ID and $GATE_INBOX_SESSION_TOKEN.
-	CallerHeader      = "X-Gate-Inbox-Session"
-	CallerTokenHeader = "X-Gate-Inbox-Token"
+	CallerHeader      = mcpshared.CallerHeader
+	CallerTokenHeader = mcpshared.CallerTokenHeader
 	// CallerArg and CallerTokenArg name a call's caller where the client
 	// cannot set it per request: a plugin in opencode's shared server adds
 	// them to each tool call. Every tool takes them, and none advertises

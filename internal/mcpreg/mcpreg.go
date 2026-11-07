@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"os"
 	"path/filepath"
 
 	"github.com/usestring/gate-inbox/extension"
@@ -172,6 +173,7 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model, p
 		// on that one row. A private server per session is what makes the
 		// generated config, and this session's identity, reach the agent.
 		command += " --standalone"
+		opencodeMemoryEnv(env)
 		return command, nil
 	case StyleNone:
 		return command, nil
@@ -323,4 +325,45 @@ This session is managed by Gate Inbox, which lists it under a short name. After 
 // the file this build's sessions read.
 func writeConfig(dir, name string, content []byte) (string, error) {
 	return hooks.WriteGenerated(dir, name, content)
+}
+
+// OpencodeRAMSizeEnv sizes the JavaScriptCore heap heuristics of an
+// opencode process as if the machine had 256 MiB, so its garbage collector
+// returns memory sooner. It is a heuristic, not a cap: a session with a long
+// conversation still grows past it.
+const OpencodeRAMSizeEnv = "BUN_JSC_forceRAMSize"
+
+// OpencodeRAMSizeMarkEnv carries the value the launch set, so the global
+// plugin strips only that one from a shell and never an operator's own.
+const OpencodeRAMSizeMarkEnv = "GATE_INBOX_OPENCODE_RAM_SIZE"
+
+// opencodeMemoryEnv trims what each launched session's private server keeps
+// resident. Measured by PSS on a fresh session in a large repository, the two
+// together take about 56 MB (14%) off its TUI and server:
+//
+//   - OPENCODE_DISABLE_FFF skips the native fuzzy file finder, which indexes
+//     the whole working tree in memory and runs a dozen threads for it;
+//     opencode falls back to the plain filesystem search it already uses for
+//     a directory outside version control.
+//   - BUN_JSC_forceRAMSize, see OpencodeRAMSizeEnv. The global plugin takes
+//     it back out of the agent's shells, so a bun the agent runs keeps its
+//     own heap sizing.
+//
+// A value the operator set in either variable is left alone.
+func opencodeMemoryEnv(env map[string]string) {
+	for key, value := range map[string]string{
+		"OPENCODE_DISABLE_FFF": "1",
+		OpencodeRAMSizeEnv:     "268435456",
+	} {
+		if _, set := os.LookupEnv(key); set {
+			continue
+		}
+		if _, set := env[key]; set {
+			continue
+		}
+		env[key] = value
+		if key == OpencodeRAMSizeEnv {
+			env[OpencodeRAMSizeMarkEnv] = value
+		}
+	}
 }

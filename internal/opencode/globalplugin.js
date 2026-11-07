@@ -119,9 +119,18 @@ export default {
         const env = shell?.env;
         const sessionID = pending.get(shell?.command);
         pending.delete(shell?.command);
+        if (!env) return;
         // A session the board launched has its row in its environment
-        // already, and its own server and config.
-        if (!env || env.GATE_INBOX_SESSION_ID) return;
+        // already, and its own server and config. Its launch also sized the
+        // server's heap down (mcpreg.OpencodeRAMSizeEnv); a bun the agent
+        // runs from its shell keeps its own sizing.
+        if (env.GATE_INBOX_SESSION_ID) {
+          if (env.GATE_INBOX_OPENCODE_RAM_SIZE !== undefined) {
+            if (env.BUN_JSC_forceRAMSize === env.GATE_INBOX_OPENCODE_RAM_SIZE) delete env.BUN_JSC_forceRAMSize;
+            delete env.GATE_INBOX_OPENCODE_RAM_SIZE;
+          }
+          return;
+        }
         const marker = paneMarker(env);
         if (!marker || !boardUp()) return;
         env.GATE_INBOX_SESSION_ID = marker.row;

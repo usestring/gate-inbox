@@ -58,3 +58,37 @@ func TestCallerTokenRefusesWhatIsNotASessionID(t *testing.T) {
 		t.Fatal("a path was taken for a session id")
 	}
 }
+
+// Launches mint at once; every one of them reads the same whole key.
+func TestCallerKeyMintedConcurrentlyIsOneWholeKey(t *testing.T) {
+	dir := t.TempDir()
+	tokens := make(chan string, 32)
+	errs := make(chan error, 32)
+	for range 32 {
+		go func() {
+			token, err := CallerToken(dir, "alice01")
+			tokens <- token
+			errs <- err
+		}()
+	}
+	first := ""
+	for range 32 {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+		token := <-tokens
+		if first == "" {
+			first = token
+		}
+		if token != first {
+			t.Fatal("concurrent mints disagree on the key")
+		}
+	}
+	entries, err := os.ReadDir(KeyDir(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("key dir holds %d entries, want the key alone", len(entries))
+	}
+}

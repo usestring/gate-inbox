@@ -57,35 +57,40 @@ func ExistingKey(configDir, session string) ([]byte, error) {
 }
 
 // mintKey is the 32-byte key at path, written with fresh random bytes the
-// first time it is asked for. Two processes minting at once agree: the one
-// that loses the exclusive create reads the winner's key.
+// first time it is asked for. The key is written whole under a name of its
+// own and then linked into place, so a reader never sees a key half written,
+// and two processes minting at once agree: the link that loses reads the
+// winner's key.
 func mintKey(path string) ([]byte, error) {
 	if key, err := readKey(path); err != nil || key != nil {
 		return key, err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
+	if err := os.Chmod(dir, 0o700); err != nil {
 		return nil, err
 	}
 	fresh := make([]byte, 32)
 	if _, err := rand.Read(fresh); err != nil {
 		return nil, err
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if errors.Is(err, fs.ErrExist) {
-		return readKey(path)
-	}
+	file, err := os.CreateTemp(dir, ".minting-*")
 	if err != nil {
 		return nil, err
 	}
+	defer os.Remove(file.Name())
 	if _, err := file.Write(fresh); err != nil {
 		file.Close()
-		os.Remove(path)
 		return nil, err
 	}
 	if err := file.Close(); err != nil {
+		return nil, err
+	}
+	if err := os.Link(file.Name(), path); errors.Is(err, fs.ErrExist) {
+		return readKey(path)
+	} else if err != nil {
 		return nil, err
 	}
 	return fresh, nil

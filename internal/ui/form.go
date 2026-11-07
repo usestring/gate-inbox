@@ -521,8 +521,7 @@ func (m *Model) rebuildGroupOptions(selectPath string) {
 
 func (m *Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.form.worktrees != nil {
-		m.handleWorktreePickerKey(msg)
-		return m, nil
+		return m, m.handleWorktreePickerKey(msg)
 	}
 	if msg.Code == tea.KeyF2 && msg.Mod == 0 {
 		return m, m.openWorktreePicker()

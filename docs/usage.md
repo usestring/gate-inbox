@@ -250,8 +250,10 @@ Inside a session every `ctrl` combination reaches the program running there, `ct
 ## Sessions in their own checkout
 
 In the New Session form (`ctrl+n`), set the directory to a checkout of your repository and press
-`F2` to list its existing worktrees by branch and path. Choose one with the arrow keys and press
-`enter` to fill the directory field. The picker requires Git 2.36 or newer.
+`F2` to list its existing worktrees by branch and path. The checkout containing the form directory
+is marked current. Type to filter by branch or path, use the arrow keys to highlight a match, and
+press `enter` to fill the directory field. `esc` returns to the form without changing the directory.
+The picker requires Git 2.36 or newer.
 
 Create worktrees with your repository's own tooling first. You can also enter the path directly,
 use `spawn --directory`, or set `directory` on the MCP `create_session` tool. The board treats the

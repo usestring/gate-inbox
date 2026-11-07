@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,10 @@ import (
 func TestLaunchFormUsesThePickedWorktree(t *testing.T) {
 	repo := t.TempDir()
 	initGitRepo(t, repo)
+	source := filepath.Join(repo, "subdirectory")
+	if err := os.Mkdir(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	checkout := filepath.Join(t.TempDir(), "checkout with spaces")
 	add := exec.Command("git", "worktree", "add", "-b", "feature/release", checkout)
 	add.Dir, add.Env = repo, tmuxtest.Environ()
@@ -30,7 +35,7 @@ func TestLaunchFormUsesThePickedWorktree(t *testing.T) {
 	m.openForm()
 	m.selectTool("ready-tool")
 	m.form.name.SetValue("worktree-test")
-	m.form.dir.SetValue(repo)
+	m.form.dir.SetValue(source)
 	press := func(code rune) tea.Cmd {
 		_, cmd := m.handleFormKey(tea.KeyPressMsg{Code: code})
 		return cmd
@@ -40,7 +45,7 @@ func TestLaunchFormUsesThePickedWorktree(t *testing.T) {
 	}
 	m.width, m.height = 52, 12
 	view := ansi.Strip(m.viewForm())
-	for _, want := range []string{"Choose a worktree", "main", "feature/release", "checkout with spaces"} {
+	for _, want := range []string{"Choose a worktree", "Filter by branch or path", "main · current", "feature/release", "checkout with spaces"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("picker does not show %q:\n%s", want, view)
 		}
@@ -55,7 +60,22 @@ func TestLaunchFormUsesThePickedWorktree(t *testing.T) {
 		}
 	}
 	m.width, m.height = 120, 40
-	press(tea.KeyDown)
+	m.Update(tea.PasteMsg{Content: "no-such-checkout"})
+	if view := ansi.Strip(m.viewForm()); !strings.Contains(view, "No worktrees match") {
+		t.Fatalf("picker did not show the empty search result:\n%s", view)
+	}
+	press(tea.KeyEnter)
+	if m.form.dir.Value() != source {
+		t.Fatal("Enter on an empty search changed the directory")
+	}
+
+	m.handleFormKey(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	m.Update(tea.PasteMsg{Content: "FEATURE/RELEASE"})
+	if view := ansi.Strip(m.viewForm()); !strings.Contains(view, "feature/release") || strings.Contains(view, "main · current") {
+		t.Fatalf("picker did not filter by branch:\n%s", view)
+	}
+	m.handleFormKey(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	m.Update(tea.PasteMsg{Content: "checkout with spaces"})
 	press(tea.KeyEnter)
 	if m.mode != modeForm || m.form.dir.Value() != checkout || m.form.dirAuto {
 		t.Fatalf("pick left mode %v, directory %q (default=%v), want %q",

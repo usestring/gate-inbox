@@ -33,7 +33,7 @@ func (w work) Attach(ctx context.Context, item extension.WorkItem) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if w.sessions.operator || w.sessions.caller == "" {
+	if w.sessions.operator || w.sessions.callerFor(ctx) == "" {
 		return errors.New("an operator's shell is no session, so there is nothing to attach work to")
 	}
 	if w.owner == "" {
@@ -43,7 +43,7 @@ func (w work) Attach(ctx context.Context, item extension.WorkItem) error {
 	if err != nil {
 		return err
 	}
-	return w.sessions.cmds.AttachWork(w.sessions.caller, stored)
+	return w.sessions.cmds.AttachWork(w.sessions.callerFor(ctx), stored)
 }
 
 // sessionWork checks item and turns it into the row the store keeps.

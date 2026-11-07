@@ -10,6 +10,9 @@ import (
 const (
 	// SessionID identifies the managed session a process runs in.
 	SessionID = "GATE_INBOX_SESSION_ID"
+	// SessionToken proves SessionID to an MCP server that is not the
+	// session's own process (parentseal.CallerToken).
+	SessionToken = "GATE_INBOX_SESSION_TOKEN"
 	// Executable is the manager binary a session runs its subcommands with.
 	Executable = "GATE_INBOX_BIN"
 	// StatusFile is where a managed Claude Code session's hooks write state.

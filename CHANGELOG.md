@@ -1,5 +1,59 @@
 # Changelog
 
+## [1.2.0](https://github.com/usestring/gate-inbox/compare/v1.1.0...v1.2.0) (2026-11-07)
+
+
+### Features
+
+* add a "fix it" default snippet ([#541](https://github.com/usestring/gate-inbox/issues/541)) ([2e005f9](https://github.com/usestring/gate-inbox/commit/2e005f9093cf843c29588356389703e223bc49a3))
+* add global pane navigation in list order ([#523](https://github.com/usestring/gate-inbox/issues/523)) ([2fea20e](https://github.com/usestring/gate-inbox/commit/2fea20ece167f8c1a6b5a94e8fa4557bacc6f3f5))
+* **extension:** let a board extension migrate a session to another account ([#511](https://github.com/usestring/gate-inbox/issues/511)) ([edaa6b9](https://github.com/usestring/gate-inbox/commit/edaa6b9fd42ce4cf2c4552c0405a5a66635990b6))
+* **inbox:** start routers as inbox-&lt;source&gt; and have them name themselves ([#510](https://github.com/usestring/gate-inbox/issues/510)) ([6b22f42](https://github.com/usestring/gate-inbox/commit/6b22f427141d19d2239a6570bfda79c1995501ce))
+* list published artifacts in a session's work rows through an extension work API ([#537](https://github.com/usestring/gate-inbox/issues/537)) ([da8ee7b](https://github.com/usestring/gate-inbox/commit/da8ee7b176fe82430ad96f88a03f5fedb0e69de7))
+* open session search with Ctrl+F ([#524](https://github.com/usestring/gate-inbox/issues/524)) ([f670787](https://github.com/usestring/gate-inbox/commit/f6707877a507e4fca2c96b19e29d05edadf7937c))
+* **park:** bring every session back on unpark, work in flight first ([#557](https://github.com/usestring/gate-inbox/issues/557)) ([cf47be8](https://github.com/usestring/gate-inbox/commit/cf47be897333655898b0649e8c50a92535257edd))
+* pick held dialog choices with a-c in the hotkey menu ([#542](https://github.com/usestring/gate-inbox/issues/542)) ([2f6ca8d](https://github.com/usestring/gate-inbox/commit/2f6ca8dba32ccc100060ea37a0472dede7752497))
+* **relaunch:** let moves off a spent account go ahead of routine relaunches ([#547](https://github.com/usestring/gate-inbox/issues/547)) ([376e3dd](https://github.com/usestring/gate-inbox/commit/376e3dd9b9ec4ff001fd98fd23481980318ee27a))
+* **reviews:** open a pull request's page from the review queue ([#439](https://github.com/usestring/gate-inbox/issues/439)) ([b0d3a0a](https://github.com/usestring/gate-inbox/commit/b0d3a0a1b49f571ae297af797e136bc09019603c))
+* **sessioncmd:** hibernate idle agents to give their memory back without losing their work ([#553](https://github.com/usestring/gate-inbox/issues/553)) ([ae81018](https://github.com/usestring/gate-inbox/commit/ae81018bad385a5a00cd10aac0622d1845f359b2))
+* **snippets:** answer a question's free-text row with a snippet ([#517](https://github.com/usestring/gate-inbox/issues/517)) ([96e77ef](https://github.com/usestring/gate-inbox/commit/96e77ef2b431139e483395f663b2c2caf3120110))
+* **task:** assign tasks to one session and hand them to a child at spawn [stack 2/2] ([#531](https://github.com/usestring/gate-inbox/issues/531)) ([ab3b476](https://github.com/usestring/gate-inbox/commit/ab3b47623cfcac0f2a521e21a47945bdb756b7c4))
+* **task:** record task creators and scope a bare claim to the caller's fleet [stack 1/2] ([#528](https://github.com/usestring/gate-inbox/issues/528)) ([1b6cdd0](https://github.com/usestring/gate-inbox/commit/1b6cdd06f95066e5d3da85be145d51c5f89fec87))
+* **tmux:** name a slow escape-time in the startup tmux check ([#546](https://github.com/usestring/gate-inbox/issues/546)) ([9810370](https://github.com/usestring/gate-inbox/commit/98103700605e572db13b84360de16ba961582c72))
+* **ui:** journal inputs and dump a stuck board on demand ([#516](https://github.com/usestring/gate-inbox/issues/516)) ([8959091](https://github.com/usestring/gate-inbox/commit/89590911b7820184c4a1f40cabea605f8b73e878))
+* **ui:** make compressed focus a default-off F3 toggle ([#509](https://github.com/usestring/gate-inbox/issues/509)) ([eaa1dd1](https://github.com/usestring/gate-inbox/commit/eaa1dd13716210d8a050393f068b9aabdc1e57dc))
+* **ui:** select sidebar sessions with mouse clicks ([#525](https://github.com/usestring/gate-inbox/issues/525)) ([b24ba5c](https://github.com/usestring/gate-inbox/commit/b24ba5c8a2160c47e509de5d61896eb30b25cff3))
+* **ui:** step through accounts on one row of the switch-account card ([#544](https://github.com/usestring/gate-inbox/issues/544)) ([49ab5a5](https://github.com/usestring/gate-inbox/commit/49ab5a505d224365854b12610bc8a314da8fb338))
+* **ui:** stream live output in compressed conversations ([#507](https://github.com/usestring/gate-inbox/issues/507)) ([91d8363](https://github.com/usestring/gate-inbox/commit/91d8363869f73c3486171ddff4dace985f660dd2))
+* **ui:** support conditional and positional list consistency ([#527](https://github.com/usestring/gate-inbox/issues/527)) ([b4ee310](https://github.com/usestring/gate-inbox/commit/b4ee310e4529ff0d97c842371d527fd244887b4c))
+
+
+### Bug Fixes
+
+* **capture:** stop the board tmux server when a run fails ([#539](https://github.com/usestring/gate-inbox/issues/539)) ([23b9fd0](https://github.com/usestring/gate-inbox/commit/23b9fd014d0344b530a867056f2d8253786a9198))
+* handle stale managed identity in shared Codex stops ([#487](https://github.com/usestring/gate-inbox/issues/487)) ([be16d1f](https://github.com/usestring/gate-inbox/commit/be16d1fc94f5c26db76c314cd494e7ca50e314a1))
+* refuse queued relaunches during macOS memory pressure ([#543](https://github.com/usestring/gate-inbox/issues/543)) ([38fa41b](https://github.com/usestring/gate-inbox/commit/38fa41b44930124e3089bccefab92e89669874b0))
+* **reviews:** preserve the global Ctrl+C interrupt ([#519](https://github.com/usestring/gate-inbox/issues/519)) ([f13f577](https://github.com/usestring/gate-inbox/commit/f13f577bf7e651de3861aa90f3fa94006514b84d))
+* **sandbox:** stop restarting sessions over a raced .git/config.lock ([#515](https://github.com/usestring/gate-inbox/issues/515)) ([53cfea1](https://github.com/usestring/gate-inbox/commit/53cfea10147624a61018ff1b87a45d6e733e2f8e))
+* **status:** read only the banner's rows when Claude's limit menu is up ([#545](https://github.com/usestring/gate-inbox/issues/545)) ([d9737da](https://github.com/usestring/gate-inbox/commit/d9737dae3e0875676f4996ed9d3f7c04c59579d4))
+* **stop:** resolve shared OpenCode callers by pane marker ([#526](https://github.com/usestring/gate-inbox/issues/526)) ([14f9574](https://github.com/usestring/gate-inbox/commit/14f9574f26c56559aea8a23282d5e7046e0446f4))
+* **store:** leave parked children out of the exited-child sweep ([#558](https://github.com/usestring/gate-inbox/issues/558)) ([1511462](https://github.com/usestring/gate-inbox/commit/1511462b06ce39594b646fa9be93fceb358338ab))
+* **tasks:** give task claims back when a session is archived or killed ([#529](https://github.com/usestring/gate-inbox/issues/529)) ([f6dfbc8](https://github.com/usestring/gate-inbox/commit/f6dfbc8f6d39d455e1810c43a539905fb90d3d1a))
+* **tmux:** never start a tmux server from the root-key probe or binding setup ([#548](https://github.com/usestring/gate-inbox/issues/548)) ([7f01ffe](https://github.com/usestring/gate-inbox/commit/7f01ffe185ebf795a5eb97164fbc02b30dd13f49))
+* **tmux:** reap processes on every teardown path, including ones that escaped the window ([#551](https://github.com/usestring/gate-inbox/issues/551)) ([c116109](https://github.com/usestring/gate-inbox/commit/c116109a5b6f5d8deb94ebff41e958d20906fa7a))
+* **ui:** advance triage after muting a session ([#512](https://github.com/usestring/gate-inbox/issues/512)) ([0a290a2](https://github.com/usestring/gate-inbox/commit/0a290a2fd9f0acfbdd95831d68a0a6cb48f7db6d))
+* **ui:** defer errored sessions behind actionable work ([#522](https://github.com/usestring/gate-inbox/issues/522)) ([74b914c](https://github.com/usestring/gate-inbox/commit/74b914ccf6747b4eae547e5644ed37e5fc06902e))
+* **ui:** ignore delayed polls that requeue working sessions ([#552](https://github.com/usestring/gate-inbox/issues/552)) ([967d033](https://github.com/usestring/gate-inbox/commit/967d0333b0f5cc997912772a6db96d6a776f82f8))
+* **ui:** stop re-offering a stale limit card after an account move ([#514](https://github.com/usestring/gate-inbox/issues/514)) ([f77b0c0](https://github.com/usestring/gate-inbox/commit/f77b0c08e0e987695553d71511be7ddc01a3a337))
+* **ui:** stop the limit card defaulting to Codex; make other CLIs opt-in ([#538](https://github.com/usestring/gate-inbox/issues/538)) ([f8986d6](https://github.com/usestring/gate-inbox/commit/f8986d69092ce5580722a1003fb9856403daf12d))
+
+
+### Performance Improvements
+
+* **convo:** remember PendingAskCall's answer until the transcript changes ([#550](https://github.com/usestring/gate-inbox/issues/550)) ([6e3d448](https://github.com/usestring/gate-inbox/commit/6e3d448b0bad0befc0b6110349a3079bbea7f5c5))
+* **sessioncmd:** serve account, transcript and inbox board reads from pooled store handles ([#549](https://github.com/usestring/gate-inbox/issues/549)) ([d3e2b83](https://github.com/usestring/gate-inbox/commit/d3e2b831acceadb77824b113ca7be0442a767a7e))
+* **ui:** skip quiet resting panes and batch work-tracker captures ([#513](https://github.com/usestring/gate-inbox/issues/513)) ([abec890](https://github.com/usestring/gate-inbox/commit/abec8906e5d0aba1ca1cc8ece4ab227c41a3e91d))
+
 ## [1.1.0](https://github.com/usestring/gate-inbox/compare/v1.0.0...v1.1.0) (2026-11-02)
 
 

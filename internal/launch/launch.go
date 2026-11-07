@@ -627,13 +627,14 @@ func Compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	return compose(manager, toolName, tool, baseCommand, id, model, account, skip, contributed, "", false)
 }
 
-// sharedServer is the shared MCP server (mcpshared) a launch points its
-// session at, or "" for a server of the session's own. Only claude takes
-// one, and only with a caller token to prove itself with and the operator's
-// shared_mcp left on. A server that cannot be started is no reason to fail
-// the launch: the session gets its own, as it always did. A plan composed
-// without side effects starts nothing and names the recorded server.
-func sharedServer(configDir, style, token string, write bool) string {
+// sharedServer is the config a launch points its claude session at to reach
+// the shared MCP server (mcpshared), or "" for a server of the session's own.
+// Only claude takes one, and only with a caller token to prove itself with
+// and the operator's shared_mcp left on. A server that cannot be started, or
+// a config that cannot be written, is no reason to fail the launch: the
+// session gets its own server, as it always did. A plan composed without
+// side effects starts and writes nothing, and names the config a launch would.
+func sharedServer(configDir, style, profile, id, token string, write bool) string {
 	if style != "claude" || token == "" {
 		return ""
 	}
@@ -641,15 +642,25 @@ func sharedServer(configDir, style, token string, write bool) string {
 	if err != nil || !cfg.ClaudeCode.SharedMCPOn() {
 		return ""
 	}
+	path := mcpshared.ClaudeConfigPath(configDir, id)
 	if !write {
-		return mcpshared.URL(configDir)
+		if mcpshared.URL(configDir) == "" {
+			return ""
+		}
+		return path
 	}
 	url, err := ensureShared(configDir)
+	if err == nil && url == "" {
+		return ""
+	}
+	if err == nil {
+		err = mcpshared.WriteClaudeConfig(path, url, profile, id, token)
+	}
 	if err != nil {
 		logging.Warn("shared MCP server unavailable; the session gets its own", logging.Err(err))
 		return ""
 	}
-	return url
+	return path
 }
 
 // ensureShared starts the shared server for configDir, or finds it running.
@@ -726,7 +737,7 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 		// it would otherwise pass on.
 		env[tool.AccountEnv] = ""
 	}
-	sharedURL := sharedServer(manager.ConfigDir(), style, env[envname.SessionToken], write)
+	sharedConfig := sharedServer(manager.ConfigDir(), style, profile, id, env[envname.SessionToken], write)
 	register := mcpreg.PreviewProfile
 	if write {
 		register = mcpreg.ApplyProfile
@@ -736,7 +747,7 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 			return "", nil, err
 		}
 	}
-	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model), profile, sharedURL, skip && SkipPermissionsRidesConfig(toolName, tool))
+	command, err := register(style, Executable(), manager.Dir(), baseCommand, env, strings.TrimSpace(model), profile, sharedConfig, skip && SkipPermissionsRidesConfig(toolName, tool))
 	if err != nil {
 		return "", nil, err
 	}

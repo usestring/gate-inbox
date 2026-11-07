@@ -15,9 +15,7 @@ import (
 
 	"github.com/usestring/gate-inbox/extension"
 	"github.com/usestring/gate-inbox/internal/config"
-	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/hooks"
-	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
 )
@@ -83,10 +81,11 @@ func Apply(style, exe, hooksDir, command string, env map[string]string, model st
 // tools; "" is every tool, as Apply. skip turns the session's permission
 // prompts off through the config the style generates, which only the opencode
 // style has; any other style refuses it rather than launch with the prompts
-// the operator turned off. sharedURL, when set, is the shared server
-// (mcpshared) a claude session is pointed at instead of a server of its own.
-func ApplyProfile(style, exe, hooksDir, command string, env map[string]string, model, profile, sharedURL string, skip bool) (string, error) {
-	return apply(style, exe, hooksDir, command, env, model, profile, sharedURL, skip, true)
+// the operator turned off. sharedConfig, when set, is the config a launch
+// wrote pointing a claude session at the shared server (mcpshared) instead
+// of a server of its own.
+func ApplyProfile(style, exe, hooksDir, command string, env map[string]string, model, profile, sharedConfig string, skip bool) (string, error) {
+	return apply(style, exe, hooksDir, command, env, model, profile, sharedConfig, skip, true)
 }
 
 // Preview is Apply without the side effects: the same command and the same
@@ -102,11 +101,11 @@ func Preview(style, exe, hooksDir, command string, env map[string]string, model 
 }
 
 // PreviewProfile is Preview for ApplyProfile.
-func PreviewProfile(style, exe, hooksDir, command string, env map[string]string, model, profile, sharedURL string, skip bool) (string, error) {
-	return apply(style, exe, hooksDir, command, env, model, profile, sharedURL, skip, false)
+func PreviewProfile(style, exe, hooksDir, command string, env map[string]string, model, profile, sharedConfig string, skip bool) (string, error) {
+	return apply(style, exe, hooksDir, command, env, model, profile, sharedConfig, skip, false)
 }
 
-func apply(style, exe, hooksDir, command string, env map[string]string, model, profile, sharedURL string, skip, write bool) (string, error) {
+func apply(style, exe, hooksDir, command string, env map[string]string, model, profile, sharedConfig string, skip, write bool) (string, error) {
 	config := func(name string, content []byte) (string, error) {
 		if !write {
 			return filepath.Join(hooksDir, hooks.GeneratedName(name, content)), nil
@@ -121,13 +120,12 @@ func apply(style, exe, hooksDir, command string, env map[string]string, model, p
 		// The server stays out of the Gate Inbox plugin: a plugin's server
 		// tools are named mcp__plugin_gate-inbox_<server>__*, which no rule
 		// naming mcp__gate-inbox__* matches.
-		content := claudeConfig(exe, profile)
-		if sharedURL != "" {
-			content = claudeSharedConfig(sharedURL, profile)
-		}
-		path, err := config(generatedPrefix+"mcp-claude.json", content)
-		if err != nil {
-			return "", err
+		path := sharedConfig
+		if path == "" {
+			var err error
+			if path, err = config(generatedPrefix+"mcp-claude.json", claudeConfig(exe, profile)); err != nil {
+				return "", err
+			}
 		}
 		steering, err := config(claudeSteeringFile, []byte(claudeSteering))
 		if err != nil {
@@ -241,30 +239,6 @@ func claudeConfig(exe, profile string) []byte {
 				"command": exe,
 				"args":    serverArgs(profile),
 				"env":     forwardedSessionID("${", "}"),
-			},
-		},
-	}
-	data, _ := json.MarshalIndent(config, "", "  ")
-	return data
-}
-
-// claudeSharedConfig points a claude session at the shared server at url.
-// The config file is shared by every session with the same content, so it
-// names the session and its token by reference: claude expands them from its
-// own environment into each request's headers, and the file holds no secret.
-func claudeSharedConfig(url, profile string) []byte {
-	if profile == "" {
-		profile = "all"
-	}
-	config := map[string]any{
-		"mcpServers": map[string]any{
-			serverName: map[string]any{
-				"type": "http",
-				"url":  url + mcpshared.MCPPath + profile,
-				"headers": map[string]string{
-					mcpshared.CallerHeader:      "${" + envname.SessionID + "}",
-					mcpshared.CallerTokenHeader: "${" + envname.SessionToken + "}",
-				},
 			},
 		},
 	}

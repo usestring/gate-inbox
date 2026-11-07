@@ -16,6 +16,7 @@ package mcpshared
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -30,6 +31,8 @@ import (
 
 	"github.com/usestring/gate-inbox/internal/config"
 	"github.com/usestring/gate-inbox/internal/envname"
+	"github.com/usestring/gate-inbox/internal/mcpreg"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 )
 
 const (
@@ -250,4 +253,56 @@ func BinaryStamp(path string) string {
 		return ""
 	}
 	return info.ModTime().String() + "/" + strconv.FormatInt(info.Size(), 10)
+}
+
+// ClaudeConfigPath is where a launch writes session id's MCP config for the
+// shared server.
+//
+// The config names the session and its caller token outright rather than
+// leaving claude to expand them from its environment: Claude Code documents
+// that expansion for .mcp.json, not for --mcp-config, and reads a variable
+// whose name looks like a credential as empty in a remote server's headers.
+// Holding a token, it lives beside the keys, where a managed session's
+// sandbox and Read tool are denied; claude itself reads it at startup.
+func ClaudeConfigPath(configDir, id string) string {
+	return filepath.Join(parentseal.KeyDir(configDir), "mcp-claude-"+id+".json")
+}
+
+// WriteClaudeConfig writes the config at path pointing a claude at the
+// shared server at url, for profile's tools, as session id with token.
+func WriteClaudeConfig(path, url, profile, id, token string) error {
+	if profile == "" {
+		profile = "all"
+	}
+	content, err := json.MarshalIndent(map[string]any{
+		"mcpServers": map[string]any{
+			mcpreg.ServerName: map[string]any{
+				"type": "http",
+				"url":  url + MCPPath + profile,
+				"headers": map[string]string{
+					CallerHeader:      id,
+					CallerTokenHeader: token,
+				},
+			},
+		},
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".mcp-claude-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(content); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }

@@ -39,6 +39,7 @@ type fakeSessions struct {
 	archived     bool
 	muted        bool
 	dryRun       bool
+	unparkAll    bool
 	groupPath    string
 	directory    string
 	pinned       bool
@@ -159,8 +160,8 @@ func (f *fakeSessions) Park(sessionID string, dryRun bool) (sessioncmd.ParkResul
 	return sessioncmd.ParkResult{DryRun: dryRun, Parked: []sessioncmd.Session{f.session}, Promoted: 2, Owed: 1}, f.failWith
 }
 
-func (f *fakeSessions) Unpark(sessionID string) (sessioncmd.UnparkResult, error) {
-	f.callerID = sessionID
+func (f *fakeSessions) Unpark(sessionID string, opts sessioncmd.UnparkOptions) (sessioncmd.UnparkResult, error) {
+	f.callerID, f.unparkAll = sessionID, opts.All
 	return sessioncmd.UnparkResult{Revived: []sessioncmd.Session{f.session}, Continued: 1}, f.failWith
 }
 

@@ -3,6 +3,8 @@ package store
 import (
 	"encoding/json"
 	"slices"
+	"strconv"
+	"time"
 )
 
 // parkedSetting is the settings key holding the ids park stopped and unpark
@@ -40,6 +42,50 @@ func (s *Store) AddInterrupted(ids []string) error { return s.addToIDSet(interru
 // RemoveInterrupted drops ids from the interrupted set.
 func (s *Store) RemoveInterrupted(ids []string) error {
 	return s.removeFromIDSet(interruptedSetting, ids)
+}
+
+// dormantSetting holds the subset of the parked set that was at rest with
+// nothing in flight under it when park stopped it: idle, finished, waiting
+// on a person, stopped on a limit. Unpark leaves those parked unless asked
+// for all of them, so a reboot does not relaunch a fleet of sessions that
+// were doing nothing. A parked id absent from it is owed a revive, which is
+// also how a set recorded before this one existed reads.
+const dormantSetting = "parked_dormant"
+
+// Dormant returns the parked ids unpark leaves parked by default.
+func (s *Store) Dormant() ([]string, error) { return s.idSet(dormantSetting) }
+
+// AddDormant records parked ids that had nothing in flight.
+func (s *Store) AddDormant(ids []string) error { return s.addToIDSet(dormantSetting, ids) }
+
+// RemoveDormant drops ids from the dormant set.
+func (s *Store) RemoveDormant(ids []string) error { return s.removeFromIDSet(dormantSetting, ids) }
+
+// parkedAtSetting is when the last park that stopped anything ran, in unix
+// seconds. A starting board brings the in-flight set back only when the host
+// has booted since: park is the step before a reboot, and a board restarted
+// between the two (an upgrade, a crash) that unparked would put those
+// sessions back up just for the reboot to kill them, with the set already
+// cleared of them.
+const parkedAtSetting = "parked_at"
+
+// ParkedAt is when the last park that stopped anything ran; zero when none
+// is recorded.
+func (s *Store) ParkedAt() (time.Time, error) {
+	raw, err := s.Setting(parkedAtSetting)
+	if err != nil || raw == "" {
+		return time.Time{}, err
+	}
+	secs, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return time.Unix(secs, 0), nil
+}
+
+// SetParkedAt records when a park stopped something.
+func (s *Store) SetParkedAt(at time.Time) error {
+	return s.SetSetting(parkedAtSetting, strconv.FormatInt(at.Unix(), 10))
 }
 
 func (s *Store) idSet(key string) ([]string, error) {

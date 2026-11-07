@@ -39,11 +39,20 @@ type ParkResult struct {
 	Promoted  int `json:"promoted" jsonschema:"adopted panes stopped and turned into owned rows, so unpark restarts them as managed sessions"`
 	Recovered int `json:"recovered" jsonschema:"gi_ sessions that had no board row and were given one before being stopped"`
 	Terminals int `json:"terminals" jsonschema:"live terminals left running: a shell has no conversation to resume"`
-	// Working names the parked sessions that were mid-turn when stopped.
-	// The turn in progress is lost either way; recording it is what lets
-	// unpark tell those agents to carry on.
-	Working []string `json:"working,omitempty" jsonschema:"sessions stopped mid-turn; unpark tells them to continue"`
-	Self    bool     `json:"self" jsonschema:"whether the calling session was left running"`
+	// Working names the parked sessions that were mid-turn when stopped:
+	// working, starting up, or resting on a background shell or monitor
+	// that would have woken them. The turn in progress, or the shell, is lost
+	// either way; recording it is what lets unpark tell those agents to
+	// carry on, without which a revived fan-out sits idle at its prompt.
+	Working []string `json:"working,omitempty" jsonschema:"sessions stopped mid-turn, starting or on a background shell; unpark tells them to continue"`
+	// Dormant names the parked sessions that had nothing in flight: at
+	// rest themselves, and with no session under them still working. A
+	// plain unpark leaves them parked; see hotSessions.
+	Dormant []string `json:"dormant,omitempty" jsonschema:"parked sessions with nothing in flight, which a plain unpark leaves parked until unpark --all or a message to them"`
+	// OwedDormant is how many of Owed a plain unpark leaves parked, counting
+	// an earlier park's dormant sessions too, not only this pass's.
+	OwedDormant int  `json:"owed_dormant" jsonschema:"of the sessions unpark owes, how many a plain unpark leaves parked"`
+	Self        bool `json:"self" jsonschema:"whether the calling session was left running"`
 	// Orphans are gi_* sessions whose agent could not be identified, so no
 	// row can say what to relaunch; they are left running and named.
 	Orphans []string `json:"orphans,omitempty" jsonschema:"gi_ tmux sessions with no board row and no recognisable agent, left running"`
@@ -67,7 +76,18 @@ type parkPass struct {
 	result      ParkResult
 	parked      []string
 	interrupted []string
+	dormant     []string
 	dryRun      bool
+	// panes is each live row's screen, read once before anything is
+	// stopped: the classification needs every row's state at the same
+	// moment, and a parent stopped first would otherwise read its child's
+	// screen after the child had gone too.
+	panes map[string]string
+	// states is each live row's state as read from panes, read once and
+	// used for both the hot set and the nudge, so the two cannot disagree.
+	states map[string]string
+	// hot is the rows with work in flight, by id; see hotSessions.
+	hot map[string]bool
 }
 
 // Park stops every live agent session on the board and records the set,
@@ -123,7 +143,22 @@ func (s *Sessions) Park(sessionID string, dryRun bool) (result ParkResult, err e
 		engine:  engine,
 		result:  ParkResult{DryRun: dryRun},
 		dryRun:  dryRun,
+		panes:   make(map[string]string, len(scan.PIDs)),
 	}
+	pending, err := runtime.store.PendingChildReports()
+	if err != nil {
+		return ParkResult{}, err
+	}
+	pass.states = make(map[string]string, len(sessions))
+	for _, sess := range sessions {
+		if scan.PIDs[sess.ID] == 0 {
+			continue
+		}
+		pane, _ := runtime.driver.CapturePane(sess.ID)
+		pass.panes[sess.ID] = pane
+		pass.states[sess.ID] = pass.liveState(sess, pane)
+	}
+	pass.hot = hotSessions(sessions, pass.states, pending)
 	rows := make(map[string]bool, len(sessions))
 	for _, sess := range sessions {
 		rows[sess.ID] = true
@@ -155,24 +190,55 @@ func (s *Sessions) Park(sessionID string, dryRun bool) (result ParkResult, err e
 	if err != nil {
 		return ParkResult{}, err
 	}
+	dormant, err := runtime.store.Dormant()
+	if err != nil {
+		return ParkResult{}, err
+	}
+	pass.result.Dormant = pass.dormant
 	if dryRun {
 		for _, id := range pass.parked {
 			if !slices.Contains(owed, id) {
 				owed = append(owed, id)
 			}
 		}
+		// What the writes below would leave: this pass's verdict wins for
+		// the rows it stopped, an earlier one's stands for the rest.
+		dormant = slices.DeleteFunc(dormant, func(id string) bool { return slices.Contains(pass.parked, id) })
+		dormant = append(dormant, pass.dormant...)
 	} else {
+		if len(pass.parked) > 0 {
+			if err := runtime.store.SetParkedAt(time.Now()); err != nil {
+				return ParkResult{}, err
+			}
+		}
 		if err := runtime.store.AddParked(pass.parked); err != nil {
 			return ParkResult{}, err
 		}
 		if err := runtime.store.AddInterrupted(pass.interrupted); err != nil {
 			return ParkResult{}, err
 		}
+		// A row this pass found in flight may have been dormant in an
+		// earlier park and revived by hand since; it is owed a revive now.
+		hot := slices.DeleteFunc(slices.Clone(pass.parked), func(id string) bool { return slices.Contains(pass.dormant, id) })
+		if err := runtime.store.RemoveDormant(hot); err != nil {
+			return ParkResult{}, err
+		}
+		if err := runtime.store.AddDormant(pass.dormant); err != nil {
+			return ParkResult{}, err
+		}
 		if owed, err = runtime.store.Parked(); err != nil {
+			return ParkResult{}, err
+		}
+		if dormant, err = runtime.store.Dormant(); err != nil {
 			return ParkResult{}, err
 		}
 	}
 	pass.result.Owed = len(owed)
+	for _, id := range dormant {
+		if slices.Contains(owed, id) {
+			pass.result.OwedDormant++
+		}
+	}
 	return pass.result, nil
 }
 
@@ -187,9 +253,12 @@ func (p *parkPass) record(sess store.Session, pane string) {
 	if warning := reviveWarning(p.runtime, sess); warning != "" {
 		p.result.Warnings = append(p.result.Warnings, fmt.Sprintf("%s (id %s): %s", sess.Name, sess.ID, warning))
 	}
-	if p.working(sess, pane) {
+	if inFlight[p.state(sess, pane)] {
 		p.result.Working = append(p.result.Working, sess.ID)
 		p.interrupted = append(p.interrupted, sess.ID)
+	}
+	if !p.hot[sess.ID] {
+		p.dormant = append(p.dormant, sess.ID)
 	}
 	if !p.dryRun {
 		sess.Status = status.Dead
@@ -198,20 +267,87 @@ func (p *parkPass) record(sess store.Session, pane string) {
 	p.parked = append(p.parked, sess.ID)
 }
 
-// working reads the screen the way the poller does, so a row whose stored
+// state is a row's state as the up-front read found it, or a fresh read
+// for a row it did not cover: an orphan, which has no row to read then.
+func (p *parkPass) state(sess store.Session, pane string) string {
+	if state, ok := p.states[sess.ID]; ok {
+		return state
+	}
+	return p.liveState(sess, pane)
+}
+
+// liveState reads the screen the way the poller does, so a row whose stored
 // status is stale because no manager was polling still gets the right
 // answer; only a screen the rules cannot read falls back to the row.
-func (p *parkPass) working(sess store.Session, pane string) bool {
+func (p *parkPass) liveState(sess store.Session, pane string) string {
 	if pane != "" {
 		if state, ok := p.engine.Match(sess.Tool, ansi.Strip(pane)); ok {
-			return state == status.Working
+			return state
 		}
 	}
-	return sess.Status == status.Working
+	return sess.Status
+}
+
+// screen is the pane read before the pass stopped anything, or a fresh
+// read for a pane the up-front read did not cover.
+func (p *parkPass) screen(id string) string {
+	if pane, ok := p.panes[id]; ok {
+		return pane
+	}
+	pane, _ := p.runtime.driver.CapturePane(id)
+	return pane
+}
+
+// inFlight is what a row can be in when park stops it and still have a turn
+// going that the stop interrupted: working, starting up, or resting on a
+// shell or monitor that would have woken it.
+var inFlight = map[string]bool{
+	status.Working:    true,
+	status.Starting:   true,
+	status.Background: true,
+}
+
+// hotSessions is the rows unpark brings back by default: every row in
+// flight, every row a child's report is still waiting to be typed into, and
+// every session that tracks one of those, up to the root. A tracker comes
+// back even when it was at rest, since the report its child sends up has to
+// land in a live session for the fan-out to go on.
+//
+// Everything else at rest -- idle, finished, asking a person, stopped on a
+// limit -- with nothing in flight under it is dormant. On 2026-11-07 a box
+// carrying 100+ agent sessions was parked for a reboot, and relaunching all
+// of them, most idle for days, would have cost as much as the reboot saved.
+// A dormant row comes back when someone sends to it, or on unpark --all.
+//
+// states is each live row's state as park read it; pending is
+// PendingChildReports.
+func hotSessions(sessions []store.Session, states map[string]string, pending map[string]bool) map[string]bool {
+	byID := make(map[string]store.Session, len(sessions))
+	for _, sess := range sessions {
+		byID[sess.ID] = sess
+	}
+	hot := make(map[string]bool)
+	mark := func(id string) {
+		// Stopping at a row already marked ends a tracking loop too.
+		for id != "" && !hot[id] {
+			hot[id] = true
+			sess, ok := byID[id]
+			if !ok {
+				return
+			}
+			id = store.TrackerOf(sess)
+		}
+	}
+	for _, sess := range sessions {
+		if inFlight[states[sess.ID]] || pending[sess.ID] {
+			mark(sess.ID)
+		}
+	}
+	return hot
 }
 
 func (s *Sessions) parkManaged(p *parkPass, sess store.Session) {
-	pane, _ := p.runtime.driver.CapturePane(sess.ID)
+	pane := p.screen(sess.ID)
 	if !p.dryRun {
 		if err := s.endSessionWith(p.runtime, sess, pane, store.EndParked); err != nil {
 			p.fail(sess, err)
@@ -235,7 +371,7 @@ func (s *Sessions) parkAdopted(p *parkPass, sess store.Session) {
 	sess.Cwd = cwd
 	promoted := sess
 	promoted.TmuxSocket, promoted.TmuxPaneID = "", ""
-	pane, _ := p.runtime.driver.CapturePane(sess.ID)
+	pane := p.screen(sess.ID)
 	if !p.dryRun {
 		if pane != "" {
 			if err := p.runtime.store.SetSnapshot(sess.ID, pane); err != nil {
@@ -294,7 +430,12 @@ func (s *Sessions) parkOrphan(p *parkPass, id string) {
 		Status:         status.Idle,
 		AgentSessionID: convID,
 	}
-	pane, _ := p.runtime.driver.CapturePane(id)
+	pane := p.screen(id)
+	// No row tracks an orphan or is tracked by it, so only its own screen
+	// can make it hot.
+	if inFlight[p.state(sess, pane)] {
+		p.hot[id] = true
+	}
 	if !p.dryRun {
 		if err := p.runtime.store.CreateSession(sess); err != nil {
 			p.fail(sess, err)
@@ -366,19 +507,47 @@ type UnparkResult struct {
 	AlreadyRunning int      `json:"already_running" jsonschema:"parked sessions found running and dropped from the set"`
 	Gone           int      `json:"gone" jsonschema:"parked sessions whose row was deleted or archived since, dropped from the set"`
 	Errors         []string `json:"errors,omitempty" jsonschema:"sessions that could not be revived, kept in the set for a retry"`
-	Owed           int      `json:"owed" jsonschema:"sessions still in the parked set after this pass"`
+	// Dormant names the parked sessions this pass left parked because they
+	// had nothing in flight; they still count in Owed.
+	Dormant []string `json:"dormant,omitempty" jsonschema:"parked sessions with nothing in flight, left parked; unpark --all or a message to one brings it back"`
+	Owed    int      `json:"owed" jsonschema:"sessions still in the parked set after this pass"`
 }
 
-// Unpark relaunches every session Park recorded, oldest first, and drops
-// each from the set as it comes back. A session that could not be
-// relaunched stays in the set so the next Unpark tries it again; one that is
-// already running, deleted or archived is dropped, since there is nothing
-// left to owe it.
-func (s *Sessions) Unpark(sessionID string) (unparked UnparkResult, err error) {
+// ParkedAt is when the last park that stopped anything ran; zero when none
+// is recorded. A starting board compares it with the host's boot time.
+func (s *Sessions) ParkedAt() (time.Time, error) {
+	runtime, err := s.open()
+	if err != nil {
+		return time.Time{}, err
+	}
+	defer runtime.store.Close()
+	return runtime.store.ParkedAt()
+}
+
+// UnparkOptions is how much of the parked set one Unpark brings back.
+type UnparkOptions struct {
+	// All brings back the dormant sessions too, after every session with
+	// work in flight, through the same relaunch queue.
+	All bool
+}
+
+// Unpark relaunches the sessions Park recorded and drops each from the set
+// as it comes back: the ones with work in flight, and with opts.All the
+// dormant ones after them. Within each the order is the order the board
+// grew in, so a session comes back before anything it spawned. Every
+// relaunch waits its turn in the shared queue (see launchpace), which keeps
+// a reboot's worth of CLIs from starting at once.
+//
+// A session that could not be relaunched stays in the set so the next
+// Unpark tries it again; one that is already running, deleted or archived
+// is dropped, since there is nothing left to owe it.
+func (s *Sessions) Unpark(sessionID string, opts UnparkOptions) (unparked UnparkResult, err error) {
 	// The other half, and the more expensive one: every parked session is a
 	// CLI relaunched and a conversation resumed.
-	op := start("sessioncmd.unpark")
-	defer func() { op.done(&err, tracing.Attr{Key: "revived", Value: len(unparked.Revived)}) }()
+	op := start("sessioncmd.unpark", tracing.Attr{Key: "all", Value: opts.All})
+	defer func() {
+		op.done(&err, tracing.Attr{Key: "revived", Value: len(unparked.Revived)}, tracing.Attr{Key: "dormant", Value: len(unparked.Dormant)})
+	}()
 	runtime, err := s.open()
 	if err != nil {
 		return UnparkResult{}, err
@@ -391,6 +560,14 @@ func (s *Sessions) Unpark(sessionID string) (unparked UnparkResult, err error) {
 	interrupted, err := runtime.store.Interrupted()
 	if err != nil {
 		return UnparkResult{}, err
+	}
+	dormantIDs, err := runtime.store.Dormant()
+	if err != nil {
+		return UnparkResult{}, err
+	}
+	dormant := make(map[string]bool, len(dormantIDs))
+	for _, id := range dormantIDs {
+		dormant[id] = true
 	}
 	var result UnparkResult
 	var done []string
@@ -417,10 +594,18 @@ func (s *Sessions) Unpark(sessionID string) (unparked UnparkResult, err error) {
 	sort.SliceStable(rows, func(a, b int) bool {
 		return rows[a].CreatedAt.Before(rows[b].CreatedAt)
 	})
+	// Work in flight first, then (with All) the rest.
+	sort.SliceStable(rows, func(a, b int) bool {
+		return !dormant[rows[a].ID] && dormant[rows[b].ID]
+	})
 	for _, sess := range rows {
 		if runtime.driver.Exists(sess.ID) {
 			result.AlreadyRunning++
 			done = append(done, sess.ID)
+			continue
+		}
+		if !opts.All && dormant[sess.ID] {
+			result.Dormant = append(result.Dormant, sess.ID)
 			continue
 		}
 		prompt := ""
@@ -430,6 +615,15 @@ func (s *Sessions) Unpark(sessionID string) (unparked UnparkResult, err error) {
 		slot, err := s.pace(runtime, sess.ID, true)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("%s (id %s): %v", sess.Name, sess.ID, err))
+			continue
+		}
+		// The wait for a turn can be minutes on a busy box, and a send or a
+		// second unpark may have brought the session back meanwhile; a
+		// second launch would put two agents on one conversation.
+		if runtime.driver.Exists(sess.ID) {
+			slot.Cancel()
+			result.AlreadyRunning++
+			done = append(done, sess.ID)
 			continue
 		}
 		tool, err := s.relaunch(runtime, sess, prompt, slot)
@@ -451,6 +645,9 @@ func (s *Sessions) Unpark(sessionID string) (unparked UnparkResult, err error) {
 		return UnparkResult{}, err
 	}
 	if err := runtime.store.RemoveInterrupted(done); err != nil {
+		return UnparkResult{}, err
+	}
+	if err := runtime.store.RemoveDormant(done); err != nil {
 		return UnparkResult{}, err
 	}
 	result.Owed = len(ids) - len(done)

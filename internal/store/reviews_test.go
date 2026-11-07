@@ -100,3 +100,31 @@ func TestAttachReviewSessionKeepsTheAskPending(t *testing.T) {
 		t.Fatalf("open = %+v, err %v; opening the prepared session moved its head", open, err)
 	}
 }
+
+func TestReviewIngestRefreshesHeadForOtherOpenAsks(t *testing.T) {
+	s := newTestStore(t)
+	now := time.Unix(1700000000, 0)
+	old := ReviewRequest{Repo: "o/r", Number: 7, Trigger: "requested", TriggerID: "R_1", HeadSHA: "aaa"}
+	if _, err := s.UpsertReviewRequests([]ReviewRequest{old}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AttachReviewSession(old.Repo, old.Number, "sess-1", old.HeadSHA, now); err != nil {
+		t.Fatal(err)
+	}
+	newAsk := ReviewRequest{Repo: old.Repo, Number: old.Number, Trigger: "comment", TriggerID: "C_1", HeadSHA: "bbb"}
+	if _, err := s.UpsertReviewRequests([]ReviewRequest{newAsk}, now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	open, err := s.OpenReviewRequests()
+	if err != nil || len(open) != 2 {
+		t.Fatalf("open = %+v, err = %v; want two asks", open, err)
+	}
+	for _, ask := range open {
+		if ask.HeadSHA != "bbb" {
+			t.Errorf("ask %s head = %q; want latest head bbb", ask.TriggerID, ask.HeadSHA)
+		}
+		if ask.TriggerID == old.TriggerID && ask.SessionHead != "aaa" {
+			t.Errorf("session head = %q; want the original head aaa", ask.SessionHead)
+		}
+	}
+}

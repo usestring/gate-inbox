@@ -244,7 +244,7 @@ func helpSections() []helpSection {
 		}},
 		{title: "advanced: the review queue", rows: []helpRow{
 			bound(keymap.ContextReviews, keymap.ReviewView, "open the pull request: its conversation, diff and checks"),
-			bound(keymap.ContextReviews, keymap.ReviewStart, "start a review session on the pull request"),
+			bound(keymap.ContextReviews, keymap.ReviewStart, "open a review session or refresh a stale briefing"),
 			bound(keymap.ContextReviews, keymap.ReviewOpen, "open the pull request on GitHub"),
 			bound(keymap.ContextReviews, keymap.ReviewDismiss, "dismiss it: a new ask on it queues it again"),
 			bound(keymap.ContextReviews, keymap.Refresh, "fetch new reviews"),
@@ -270,7 +270,7 @@ func helpSections() []helpSection {
 			bound(keymap.ContextReviewPage, keymap.PageDown, "a page down"),
 			bound(keymap.ContextReviewPage, keymap.Top, "the top"),
 			bound(keymap.ContextReviewPage, keymap.Bottom, "the bottom"),
-			bound(keymap.ContextReviewPage, keymap.ReviewStart, "start a review session on it"),
+			bound(keymap.ContextReviewPage, keymap.ReviewStart, "open a review session or refresh a stale briefing"),
 			bound(keymap.ContextReviewPage, keymap.ReviewOpen, "open this tab on GitHub"),
 			bound(keymap.ContextReviewPage, keymap.ReviewDismiss, "dismiss it and go back to the queue"),
 			bound(keymap.ContextReviewPage, keymap.Refresh, "fetch it again"),

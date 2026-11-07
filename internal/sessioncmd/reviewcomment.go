@@ -55,22 +55,38 @@ func ReviewComment(configDir, sessionID string, in ReviewCommentInput, now time.
 	if err != nil {
 		return "", err
 	}
-	head, asked := "", false
-	for _, ask := range asks {
+	var first, attached *store.ReviewRequest
+	for i := range asks {
+		ask := &asks[i]
 		if ask.Repo != in.Repo || ask.Number != in.Number {
 			continue
 		}
-		if ask.SessionID == sessionID && ask.SessionHead != "" {
-			head, asked = ask.SessionHead, true
-			break
+		if first == nil {
+			first = ask
 		}
-		if !asked {
-			head, asked = ask.HeadSHA, true
+		if ask.SessionID != "" {
+			attached = ask
+			if ask.SessionID == sessionID {
+				break
+			}
 		}
 	}
-	if !asked {
+	if first == nil {
 		return "", fmt.Errorf("%s#%d has no open review ask on this board, so there is no review to draft into", in.Repo, in.Number)
 	}
+
+	head := first.HeadSHA
+	if attached != nil {
+		if attached.SessionID != sessionID {
+			// A replaced briefing must not fall back to the current PR head.
+			return "", fmt.Errorf("%s#%d is attached to another review session; draft from that session", in.Repo, in.Number)
+		}
+		head = attached.SessionHead
+		if head == "" {
+			head = attached.HeadSHA
+		}
+	}
+
 	draft, err := st.AddReviewDraft(store.ReviewDraft{
 		Repo: in.Repo, Number: in.Number, HeadSHA: head, Path: in.Path, Line: in.Line, Side: in.Side,
 		Body: in.Body, Kind: in.Kind, Context: in.Context, Author: store.DraftByAgent, SessionID: sessionID,

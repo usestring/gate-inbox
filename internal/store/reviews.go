@@ -82,7 +82,7 @@ func (s *Store) UpsertReviewRequests(found []ReviewRequest, now time.Time) ([]Re
 			return nil, err
 		default:
 			if _, err := tx.Exec(`UPDATE review_requests SET title = ?, author = ?, url = ?,
-				head_sha = ?, draft = ?, additions = ?, deletions = ?, changed = ?, checks = ?,
+				head_sha = COALESCE(NULLIF(?, ''), head_sha), draft = ?, additions = ?, deletions = ?, changed = ?, checks = ?,
 				updated_at = ?
 				WHERE repo = ? AND number = ? AND trigger = ? AND trigger_id = ?`,
 				r.Title, r.Author, r.URL, r.HeadSHA, r.Draft, r.Additions, r.Deletions,
@@ -90,8 +90,28 @@ func (s *Store) UpsertReviewRequests(found []ReviewRequest, now time.Time) ([]Re
 				return nil, err
 			}
 		}
+		if r.HeadSHA != "" {
+			// The head belongs to the PR, even when this fetch only found one of its asks.
+			if _, err := tx.Exec(`UPDATE review_requests SET head_sha = ?
+				WHERE repo = ? AND number = ? AND state IN (?, ?) AND head_sha <> ?`,
+				r.HeadSHA, r.Repo, r.Number, ReviewPending, ReviewStarted, r.HeadSHA); err != nil {
+				return nil, err
+			}
+		}
 	}
 	return added, tx.Commit()
+}
+
+// UpdateReviewHead records the head fetched by the PR page. If an ingest
+// already moved the queue to another head during the fetch, leave it alone.
+func (s *Store) UpdateReviewHead(repo string, number int, previous, head string) error {
+	if head == "" || head == previous {
+		return nil
+	}
+	_, err := s.db.Exec(`UPDATE review_requests SET head_sha = ?
+		WHERE repo = ? AND number = ? AND state IN (?, ?) AND head_sha = ?`,
+		head, repo, number, ReviewPending, ReviewStarted, previous)
+	return err
 }
 
 // OpenReviewRequests is every ask still pending or started, oldest ask first.

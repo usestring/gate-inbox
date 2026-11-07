@@ -597,18 +597,23 @@ type Config struct {
 	// with nothing on its screen changing before its row is flagged stale:
 	// the label has outlived any turn it could describe, so it is more
 	// likely a misread than a long turn.
-	StaleStatusAfter Duration     `toml:"stale_status_after"`
-	Board            Board        `toml:"board"`
-	Naming           Naming       `toml:"naming"`
-	Log              Log          `toml:"log"`
-	Children         Children     `toml:"children"`
-	Work             Work         `toml:"work"`
-	Integrations     Integrations `toml:"integrations"`
-	Hogs             Hogs         `toml:"hogs"`
-	ClaudeCode       ClaudeCode   `toml:"claude_code"`
-	Codex            Codex        `toml:"codex"`
-	OpenCode         OpenCode     `toml:"opencode"`
-	Relaunch         Relaunch     `toml:"relaunch"`
+	StaleStatusAfter Duration `toml:"stale_status_after"`
+	// HibernateAfter is how long a session must rest, idle or finished,
+	// before the board hibernates it: stops its process to give the memory
+	// back, keeping its row, mail and claims, and waking it on its next
+	// message. Zero, the default, leaves every session running.
+	HibernateAfter Duration     `toml:"hibernate_after"`
+	Board          Board        `toml:"board"`
+	Naming         Naming       `toml:"naming"`
+	Log            Log          `toml:"log"`
+	Children       Children     `toml:"children"`
+	Work           Work         `toml:"work"`
+	Integrations   Integrations `toml:"integrations"`
+	Hogs           Hogs         `toml:"hogs"`
+	ClaudeCode     ClaudeCode   `toml:"claude_code"`
+	Codex          Codex        `toml:"codex"`
+	OpenCode       OpenCode     `toml:"opencode"`
+	Relaunch       Relaunch     `toml:"relaunch"`
 	// Extensions holds each extension's section, keyed by extension ID
 	// ([extensions.<id>]). The config package does not know what is in
 	// one: the extension that owns a section decodes and validates it (see

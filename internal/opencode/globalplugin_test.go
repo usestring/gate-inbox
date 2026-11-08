@@ -121,7 +121,7 @@ func TestPluginSourceNamesItsBoard(t *testing.T) {
 	if owner, ok := pluginOwner(path); !ok || owner != p.Home {
 		t.Fatalf("owner %q %v", owner, ok)
 	}
-	for _, placeholder := range []string{"__HOME__", "__BIN__", "__TOOLS__", "__STEERING__", "__KEY__", "__TOOL_PREFIX__"} {
+	for _, placeholder := range []string{"__HOME__", "__BIN__", "__TOOLS__", "__STEERING__", "__KEY__"} {
 		if strings.Contains(src, placeholder) {
 			t.Errorf("%s left in the source", placeholder)
 		}
@@ -141,7 +141,7 @@ const mod = await import(plugin);
 await mod.default.setup({ tool: reg("tool"), shell: reg("shell"), session: reg("session") });
 for (const step of steps) {
   if (step.op === "rm") { rmSync(step.path, { force: true }); console.log("{}"); continue; }
-  if (step.op === "write") { writeFileSync(step.path, step.content); console.log("{}"); continue; }
+  if (step.op === "write") { writeFileSync(step.path, step.content.replaceAll("__PID__", String(process.pid))); console.log("{}"); continue; }
   if (step.op === "shell") {
     await hooks["tool.execute.before"]({ tool: "shell", sessionID: step.session, input: { command: step.command } });
     const shell = { command: step.command, env: step.env };
@@ -315,12 +315,11 @@ func TestGlobalPluginBehaviour(t *testing.T) {
 	}
 }
 
-// On a shared server one MCP server serves every session, so each of the
-// board's tool calls carries the row its session was launched as and that
-// row's caller token, written over whatever the model put there. Other tools, and sessions the board
-// never bound, are left alone; a launched shell does not keep the server's
-// password.
-func TestGlobalPluginNamesTheCallerOnSharedServerTools(t *testing.T) {
+// On the board's shared server a shell never gets the server's password,
+// and one whose session's environment did not name its row gets it from the
+// launch's binding. Anywhere else the plugin leaves a launched shell, and a
+// tool call's input, as they were.
+func TestGlobalPluginGivesSharedServerShellsTheirRow(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node not installed")
@@ -336,26 +335,32 @@ func TestGlobalPluginNamesTheCallerOnSharedServerTools(t *testing.T) {
 	if _, err := RegisterPlugin(dir, p); err != nil {
 		t.Fatal(err)
 	}
+	state := filepath.Join(p.Home, serverStateName)
 	results := runHarness(t, node, PluginPath(dir, p.Home), []harnessStep{
-		{Op: "tool", Tool: "gate-inbox_rename", Session: "ses_a", Input: map[string]any{"name": "x", "caller_session_id": "rowB"}},
-		{Op: "tool", Tool: "gate-inbox_list_sessions", Session: "ses_a"},
-		{Op: "tool", Tool: "bash", Session: "ses_a", Input: map[string]any{"command": "ls"}},
-		{Op: "tool", Tool: "gate-inbox_rename", Session: "ses_unbound", Input: map[string]any{"name": "y"}},
-		{Op: "shell", Session: "ses_a", Command: "ls", Env: map[string]string{"GATE_INBOX_SESSION_ID": "rowA", "OPENCODE_SERVER_PASSWORD": "secret", "KEEP": "1"}},
+		// Not the board's server: nothing changes.
+		{Op: "shell", Session: "ses_a", Command: "a", Env: map[string]string{"GATE_INBOX_SESSION_ID": "rowA", "OPENCODE_SERVER_PASSWORD": "secret"}},
+		{Op: "write", Path: state, Content: `{"pid":__PID__}`},
+		// The server's own environment: the row comes from the binding.
+		{Op: "shell", Session: "ses_a", Command: "b", Env: map[string]string{"OPENCODE_SERVER_PASSWORD": "secret", "KEEP": "1"}},
+		// The environment the launch set on the session.
+		{Op: "shell", Session: "ses_a", Command: "c", Env: map[string]string{"GATE_INBOX_SESSION_ID": "rowA", "GATE_INBOX_SESSION_TOKEN": "tokA", "TMUX_PANE": "%3", "OPENCODE_SERVER_PASSWORD": "secret"}},
+		// A session the board never launched.
+		{Op: "shell", Session: "ses_other", Command: "d", Env: map[string]string{"OPENCODE_SERVER_PASSWORD": "secret"}},
+		{Op: "tool", Tool: "gate-inbox_rename", Session: "ses_a", Input: map[string]any{"name": "x"}},
 	})
-	if got := results[0].Input; got["caller_session_id"] != "rowA" || got["caller_session_token"] != "tokA" || got["name"] != "x" {
-		t.Fatalf("bound call input = %v", got)
+	if env := results[0].Env; env["OPENCODE_SERVER_PASSWORD"] != "secret" {
+		t.Fatalf("another server's shell touched: %v", env)
 	}
-	if got := results[1].Input; got["caller_session_id"] != "rowA" {
-		t.Fatalf("call with no input = %v", got)
+	if env := results[2].Env; env["OPENCODE_SERVER_PASSWORD"] != "" || env["GATE_INBOX_SESSION_ID"] != "rowA" || env["GATE_INBOX_SESSION_TOKEN"] != "tokA" || env["GATE_INBOX_HOME"] != p.Home || env["KEEP"] != "1" {
+		t.Fatalf("shell on the server's environment = %v", env)
 	}
-	if _, set := results[2].Input["caller_session_id"]; set {
-		t.Fatalf("another tool's input touched: %v", results[2].Input)
+	if env := results[3].Env; env["OPENCODE_SERVER_PASSWORD"] != "" || env["GATE_INBOX_SESSION_ID"] != "rowA" || env["TMUX_PANE"] != "%3" {
+		t.Fatalf("shell on the session's environment = %v", env)
 	}
-	if _, set := results[3].Input["caller_session_id"]; set {
-		t.Fatalf("unbound session named a caller: %v", results[3].Input)
+	if env := results[4].Env; env["OPENCODE_SERVER_PASSWORD"] != "" || env["GATE_INBOX_SESSION_ID"] != "" {
+		t.Fatalf("unbound session's shell = %v", env)
 	}
-	if env := results[4].Env; env["OPENCODE_SERVER_PASSWORD"] != "" || env["KEEP"] != "1" || env["GATE_INBOX_SESSION_ID"] != "rowA" {
-		t.Fatalf("launched shell env = %v", env)
+	if got := results[5].Input; len(got) != 1 || got["name"] != "x" {
+		t.Fatalf("tool input changed: %v", got)
 	}
 }

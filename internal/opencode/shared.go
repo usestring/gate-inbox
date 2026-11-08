@@ -17,9 +17,16 @@ package opencode
 //   - The model a session was asked to run on goes on the session itself,
 //     created here before the TUI opens it, and skipping permission prompts
 //     is the TUI's own --auto.
-//   - Shell commands still run with the TUI's environment: opencode hands a
-//     client's environment to the shells of the sessions it shows, so
-//     $GATE_INBOX_SESSION_ID in a shell is the row's own.
+//   - A shell the server runs for a session gets the environment set on
+//     that session, or the server's own when none is. Attach sets the
+//     launch's environment on the session, so a shell has its row's id,
+//     caller token and pane as a private server's would, and never the
+//     shared server's password. The global plugin fills the row in from the
+//     binding for a session whose environment was lost.
+//   - A private server dies with its pane; the shared one is every
+//     session's, so a supervisor restarts it on the same address and
+//     password, which its TUIs reconnect to on their own, and sets each
+//     session's environment on it again.
 //
 // Whatever goes wrong on the way, the session still starts: Attach falls back
 // to the private server it would have had.
@@ -80,21 +87,24 @@ func BindingsDir(home string) string {
 var serverEnvDrop = []string{"GATE_INBOX_SESSION_ID", envname.SessionToken, "GATE_INBOX_EXIT_FILE", "TMUX", "TMUX_PANE", "OPENCODE_CONFIG", PasswordEnv, "OPENCODE_PASSWORD"}
 
 // serverMemoryEnv trims the shared server the way a launch trims a private
-// one: no in-memory index of the working tree, and a smaller heap sizing.
-// Its shells run with each client's environment, so neither reaches them.
-var serverMemoryEnv = map[string]string{"OPENCODE_DISABLE_FFF": "1", "BUN_JSC_forceRAMSize": "268435456"}
+// one: no in-memory index of the working tree.
+var serverMemoryEnv = map[string]string{"OPENCODE_DISABLE_FFF": "1"}
 
 // Server is the board's shared opencode server.
 type Server struct {
 	PID      int    `json:"pid"`
 	URL      string `json:"url"`
 	Password string `json:"password"`
+	// Supervisor is the process that restarts the server when it dies.
+	Supervisor int `json:"supervisor,omitempty"`
 }
 
 // Attach is one launch of an opencode TUI against the shared server.
 type Attach struct {
 	// Home is the board's config directory.
 	Home string
+	// Exe is the gate-inbox binary, which supervises the shared server.
+	Exe string
 	// Row is the Gate Inbox session the TUI shows, and Token the caller
 	// token that proves it (see parentseal.CallerToken).
 	Row   string
@@ -128,7 +138,7 @@ func (a Attach) Shared(ctx context.Context) ([]string, map[string]string, error)
 	if a.Row == "" || a.Token == "" {
 		return nil, nil, errors.New("opencode: no row and caller token to attach as")
 	}
-	srv, err := EnsureServer(ctx, a.Home, a.Argv[0], a.ServerConfig)
+	srv, err := EnsureServer(ctx, a.Home, a.Exe, a.Argv[0], a.ServerConfig)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -141,6 +151,15 @@ func (a Attach) Shared(ctx context.Context) ([]string, map[string]string, error)
 		argv = append(argv, "--session", session)
 	}
 	if err := writeBinding(a.Home, session, a.Row, a.Token); err != nil {
+		return nil, nil, err
+	}
+	// The session's shells run with this, the environment the TUI is about
+	// to get, as a private server's would.
+	env := shellEnv(os.Environ())
+	if err := writeSessionEnv(a.Home, session, env); err != nil {
+		return nil, nil, err
+	}
+	if err := srv.SetEnvironment(ctx, session, env); err != nil {
 		return nil, nil, err
 	}
 	// The poller binds the row to its conversation from this mailbox, as it
@@ -189,6 +208,31 @@ func writeBinding(home, session, row, token string) error {
 	return writeWhole(filepath.Join(dir, session), []byte(row+" "+token+"\n"), 0o600)
 }
 
+// shellEnv is environ as a shell on the shared server gets it: the server's
+// password would let any session read and drive every other one.
+func shellEnv(environ []string) map[string]string {
+	env := make(map[string]string, len(environ))
+	for _, kv := range environ {
+		if key, value, ok := strings.Cut(kv, "="); ok && key != PasswordEnv && key != "OPENCODE_PASSWORD" {
+			env[key] = value
+		}
+	}
+	return env
+}
+
+// sessionEnvSuffix names the file beside a binding holding the environment
+// Attach set on the session, which the supervisor sets again on a restarted
+// server: the server keeps it in memory only.
+const sessionEnvSuffix = ".env"
+
+func writeSessionEnv(home, session string, env map[string]string) error {
+	raw, err := json.Marshal(env)
+	if err != nil {
+		return err
+	}
+	return writeWhole(filepath.Join(BindingsDir(home), session+sessionEnvSuffix), raw, 0o600)
+}
+
 func writeWhole(path string, content []byte, mode os.FileMode) error {
 	staging := fmt.Sprintf("%s.%d.part", path, os.Getpid())
 	if err := os.WriteFile(staging, content, mode); err != nil {
@@ -197,10 +241,10 @@ func writeWhole(path string, content []byte, mode os.FileMode) error {
 	return os.Rename(staging, path)
 }
 
-// EnsureServer returns the board's shared server, starting one when none
-// answers. bin is the opencode executable and config the generated config
-// a new server loads.
-func EnsureServer(ctx context.Context, home, bin, config string) (Server, error) {
+// EnsureServer returns the board's shared server, starting one under a
+// supervisor when none runs. exe is the gate-inbox binary that supervises it,
+// bin the opencode executable and config the generated config it loads.
+func EnsureServer(ctx context.Context, home, exe, bin, config string) (Server, error) {
 	lock, err := os.OpenFile(filepath.Join(home, serverLockName), os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return Server{}, err
@@ -213,18 +257,40 @@ func EnsureServer(ctx context.Context, home, bin, config string) (Server, error)
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
 	statePath := filepath.Join(home, serverStateName)
-	if srv, err := readServer(statePath); err == nil && srv.alive(ctx) {
+	srv, err := readServer(statePath)
+	if err == nil && srv.alive(ctx) {
 		return srv, nil
 	}
-	srv, err := startServer(ctx, home, bin, config)
+	// A live supervisor is restarting its server; a second one would fight
+	// it for the address every attached TUI reconnects to.
+	if err == nil && supervising(ctx, srv.Supervisor) {
+		return awaitServer(ctx, statePath, srv.Supervisor, 0)
+	}
+	pid, err := startSupervisor(ctx, home, exe, bin, config)
 	if err != nil {
 		return Server{}, err
 	}
-	raw, _ := json.Marshal(srv)
-	if err := writeWhole(statePath, raw, 0o600); err != nil {
-		return Server{}, err
+	return awaitServer(ctx, statePath, pid, srv.PID)
+}
+
+// awaitServer waits for the supervisor to record a server that answers,
+// other than stale, the one an earlier supervisor left behind.
+func awaitServer(ctx context.Context, statePath string, supervisor, stale int) (Server, error) {
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		if srv, err := readServer(statePath); err == nil && srv.Supervisor == supervisor && srv.PID != stale && srv.alive(ctx) {
+			return srv, nil
+		}
+		if !supervising(ctx, supervisor) {
+			return Server{}, fmt.Errorf("opencode: shared server supervisor exited; see %s", filepath.Join(filepath.Dir(statePath), serverLogName))
+		}
+		select {
+		case <-ctx.Done():
+			return Server{}, ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
 	}
-	return srv, nil
+	return Server{}, fmt.Errorf("opencode: shared server did not answer within 30s; see %s", filepath.Join(filepath.Dir(statePath), serverLogName))
 }
 
 func readServer(path string) (Server, error) {
@@ -264,6 +330,19 @@ func (s Server) alive(ctx context.Context) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
+// supervising is pid a running supervisor of a shared server.
+func supervising(ctx context.Context, pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	proc, err := process.NewProcessWithContext(ctx, int32(pid))
+	if err != nil {
+		return false
+	}
+	argv, err := proc.CmdlineSliceWithContext(ctx)
+	return err == nil && slices.Contains(argv, ServeVerb)
+}
+
 // IsServeArgv is an opencode server's argv.
 func IsServeArgv(argv []string) bool {
 	return len(argv) >= 2 && filepath.Base(argv[0]) == "opencode" && argv[1] == "serve"
@@ -271,22 +350,32 @@ func IsServeArgv(argv []string) bool {
 
 var listening = regexp.MustCompile(`server listening on (http://\S+)`)
 
-func startServer(ctx context.Context, home, bin, config string) (Server, error) {
+// ServeVerb is the gate-inbox verb that supervises the shared server.
+const ServeVerb = "opencode-serve"
+
+// startSupervisor starts `exe opencode-serve`, which runs the server and
+// restarts it, and returns its pid.
+func startSupervisor(ctx context.Context, home, exe, bin, config string) (int, error) {
+	if exe == "" {
+		return 0, errors.New("opencode: no gate-inbox binary to supervise the shared server")
+	}
 	password, err := newPassword()
 	if err != nil {
-		return Server{}, err
+		return 0, err
 	}
 	logPath := filepath.Join(home, serverLogName)
 	if err := os.WriteFile(logPath, nil, 0o600); err != nil {
-		return Server{}, err
+		return 0, err
 	}
 	// The server outlives the launch that starts it and every session on it.
-	// A shell forks it and exits, so its parent is init rather than the first
-	// session's TUI: the board's memory view, which sums a pane's process
-	// tree, does not charge one session for everyone's server, and nothing
-	// that ends that pane's tree ends the others' sessions. Its own session
-	// keeps the pane's hangup off it, and it runs from a neutral directory.
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", `"$0" serve --hostname 127.0.0.1 --port 0 </dev/null >>"$1" 2>&1 & echo $!`, bin, logPath)
+	// A shell forks its supervisor and exits, so the supervisor's parent is
+	// init rather than the first session's TUI: the board's memory view,
+	// which sums a pane's process tree, does not charge one session for
+	// everyone's server, and nothing that ends that pane's tree ends the
+	// others' sessions. Its own session keeps the pane's hangup off it, and
+	// it runs from a neutral directory.
+	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", `"$0" "$1" --home "$2" --config "$3" -- "$4" </dev/null >>"$5" 2>&1 & echo $!`,
+		exe, ServeVerb, home, config, bin, logPath)
 	cmd.Env = serverEnv(os.Environ(), config, password)
 	if dir, err := os.UserHomeDir(); err == nil {
 		cmd.Dir = dir
@@ -294,39 +383,153 @@ func startServer(ctx context.Context, home, bin, config string) (Server, error) 
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	out, err := cmd.Output()
 	if err != nil {
-		return Server{}, fmt.Errorf("opencode: start shared server: %w", err)
+		return 0, fmt.Errorf("opencode: start shared server: %w", err)
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(out)))
 	if err != nil || pid <= 0 {
-		return Server{}, fmt.Errorf("opencode: start shared server: no pid in %q", out)
+		return 0, fmt.Errorf("opencode: start shared server: no pid in %q", out)
 	}
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		if url := listenURL(logPath); url != "" {
-			srv := Server{PID: pid, URL: url, Password: password}
-			if srv.alive(ctx) {
-				return srv, nil
+	return pid, nil
+}
+
+// Supervise runs the board's shared server and keeps it running: when it
+// dies it starts again on the same address and password, so the TUIs
+// attached to it reconnect by themselves, and each session's environment is
+// set on it again. It gives up after the server has failed five times in a
+// row within a minute of starting, leaving the attached TUIs showing the
+// connection lost, which the board reads as errored. It returns when ctx
+// ends, taking the server down with it.
+func Supervise(ctx context.Context, home, bin, config string) error {
+	password := os.Getenv(PasswordEnv)
+	if password == "" {
+		return errors.New("opencode: supervisor started without a server password")
+	}
+	logPath := filepath.Join(home, serverLogName)
+	statePath := filepath.Join(home, serverStateName)
+	port := "0"
+	for failures, restart := 0, false; ; restart = true {
+		started := time.Now()
+		srv, wait, err := runServer(ctx, home, bin, config, password, port)
+		if err == nil {
+			port = srv.URL[strings.LastIndex(srv.URL, ":")+1:]
+			raw, _ := json.Marshal(srv)
+			err = writeWhole(statePath, raw, 0o600)
+			if err == nil && restart {
+				restoreEnvironments(ctx, home, srv)
+			}
+			if err == nil {
+				err = wait()
 			}
 		}
-		if err := syscall.Kill(pid, 0); err != nil {
-			return Server{}, fmt.Errorf("opencode: shared server exited at start; see %s", logPath)
+		if ctx.Err() != nil {
+			return nil
+		}
+		if time.Since(started) < time.Minute {
+			failures++
+		} else {
+			failures = 1
+		}
+		appendLog(logPath, fmt.Sprintf("gate-inbox: shared server exited (%v); failure %d of 5", err, failures))
+		if failures >= 5 {
+			return fmt.Errorf("opencode: shared server failed %d times in a row; see %s", failures, logPath)
 		}
 		select {
 		case <-ctx.Done():
-			return Server{}, ctx.Err()
+			return nil
+		case <-time.After(time.Duration(failures*failures) * 500 * time.Millisecond):
+		}
+	}
+}
+
+// runServer starts one opencode server on port and waits until it answers.
+// wait returns when it exits.
+func runServer(ctx context.Context, home, bin, config, password, port string) (Server, func() error, error) {
+	logPath := filepath.Join(home, serverLogName)
+	offset := int64(0)
+	if info, err := os.Stat(logPath); err == nil {
+		offset = info.Size()
+	}
+	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return Server{}, nil, err
+	}
+	defer logFile.Close()
+	cmd := exec.CommandContext(ctx, bin, "serve", "--hostname", "127.0.0.1", "--port", port)
+	cmd.Env = serverEnv(os.Environ(), config, password)
+	cmd.Stdout, cmd.Stderr = logFile, logFile
+	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
+	cmd.WaitDelay = 10 * time.Second
+	if dir, err := os.UserHomeDir(); err == nil {
+		cmd.Dir = dir
+	}
+	if err := cmd.Start(); err != nil {
+		return Server{}, nil, err
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	wait := func() error { return <-exited }
+	deadline := time.After(30 * time.Second)
+	for {
+		if url := listenURL(logPath, offset); url != "" {
+			srv := Server{PID: cmd.Process.Pid, URL: url, Password: password, Supervisor: os.Getpid()}
+			if srv.alive(ctx) {
+				return srv, wait, nil
+			}
+		}
+		select {
+		case err := <-exited:
+			return Server{}, nil, fmt.Errorf("exited at start: %v", err)
+		case <-deadline:
+			_ = cmd.Process.Signal(syscall.SIGTERM)
+			return Server{}, nil, errors.New("did not answer within 30s")
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
-	_ = syscall.Kill(pid, syscall.SIGTERM)
-	return Server{}, fmt.Errorf("opencode: shared server did not answer within 30s; see %s", logPath)
 }
 
-func listenURL(logPath string) string {
+// restoreEnvironments sets every bound session's environment on a restarted
+// server. A session that server does not have refuses it, which is fine.
+func restoreEnvironments(ctx context.Context, home string, srv Server) {
+	entries, err := os.ReadDir(BindingsDir(home))
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		session, ok := strings.CutSuffix(entry.Name(), sessionEnvSuffix)
+		if !ok || !bindingName.MatchString(session) {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(BindingsDir(home), entry.Name()))
+		if err != nil {
+			continue
+		}
+		var env map[string]string
+		if json.Unmarshal(raw, &env) != nil {
+			continue
+		}
+		_ = srv.SetEnvironment(ctx, session, env)
+	}
+}
+
+func appendLog(path, line string) {
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintln(f, line)
+}
+
+// listenURL is the address a server reported in its log past offset.
+func listenURL(logPath string, offset int64) string {
 	f, err := os.Open(logPath)
 	if err != nil {
 		return ""
 	}
 	defer f.Close()
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return ""
+	}
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		if m := listening.FindStringSubmatch(scanner.Text()); m != nil {
@@ -425,18 +628,42 @@ func (s Server) CreateSession(ctx context.Context, dir, model string) (string, e
 	return created.Data.ID, nil
 }
 
-// BoundRow is the row the launch bound an opencode session to on the shared
-// server, if any.
-func BoundRow(home, session string) (string, bool) {
+// SetEnvironment replaces the environment the server runs session's shell
+// commands with.
+func (s Server) SetEnvironment(ctx context.Context, session string, env map[string]string) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	resp, err := s.request(ctx, http.MethodPut, "/api/session/"+session+"/environment", map[string]any{"variables": env})
+	if err != nil {
+		return fmt.Errorf("opencode: set session environment: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("opencode: set session environment: %s: %s", resp.Status, strings.TrimSpace(string(raw)))
+	}
+	return nil
+}
+
+// BoundCaller is the row the launch bound an opencode session to on the
+// shared server, and that row's caller token, if any.
+func BoundCaller(home, session string) (row, token string, ok bool) {
 	if !bindingName.MatchString(session) {
-		return "", false
+		return "", "", false
 	}
 	raw, err := os.ReadFile(filepath.Join(BindingsDir(home), session))
 	if err != nil {
-		return "", false
+		return "", "", false
 	}
-	row, _, _ := strings.Cut(strings.TrimSpace(string(raw)), " ")
-	return row, row != ""
+	row, token, _ = strings.Cut(strings.TrimSpace(string(raw)), " ")
+	return row, token, row != "" && token != ""
+}
+
+// BoundRow is the row the launch bound an opencode session to on the shared
+// server, if any.
+func BoundRow(home, session string) (string, bool) {
+	row, _, ok := BoundCaller(home, session)
+	return row, ok
 }
 
 // SharedServerPID is the process of the board's shared server as last

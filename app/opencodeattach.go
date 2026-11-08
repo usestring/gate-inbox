@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"syscall"
 
 	"github.com/usestring/gate-inbox/internal/config"
@@ -43,8 +44,13 @@ func runOpencodeAttach(ctx context.Context, args []string, configDir string) err
 	if err != nil {
 		return err
 	}
+	exe, err := os.Executable()
+	if err != nil {
+		return err
+	}
 	attach := opencode.Attach{
 		Home:         configDir,
+		Exe:          exe,
 		Row:          os.Getenv(hooks.EnvSessionID),
 		Token:        os.Getenv(envname.SessionToken),
 		Model:        *model,
@@ -67,6 +73,26 @@ func runOpencodeAttach(ctx context.Context, args []string, configDir string) err
 		}
 	}
 	return execTUI(run, extra)
+}
+
+// runOpencodeServe supervises the board's shared opencode server; see
+// opencode.Supervise. EnsureServer starts it, never a person.
+//
+//	gate-inbox opencode-serve --home <config dir> --config <path> -- <opencode>
+func runOpencodeServe(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet(opencode.ServeVerb, flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	home := flags.String("home", "", "")
+	config := flags.String("config", "", "")
+	if err := flags.Parse(args); err != nil {
+		return fmt.Errorf("%s: %w", opencode.ServeVerb, err)
+	}
+	if *home == "" || *config == "" || flags.NArg() != 1 {
+		return fmt.Errorf("%s: needs --home, --config and the opencode binary", opencode.ServeVerb)
+	}
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	defer stop()
+	return opencode.Supervise(ctx, *home, flags.Arg(0), *config)
 }
 
 func execTUI(argv []string, extra map[string]string) error {

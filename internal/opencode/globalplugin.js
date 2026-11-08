@@ -11,8 +11,7 @@ const steering = __STEERING__;
 const hooksDir = home + "/hooks";
 const adoptedDir = hooksDir + "/adopted";
 const bindingsDir = home + "/channel-keys/opencode-sessions";
-// opencode names an MCP tool after its server: "<server>_<tool>".
-const toolPrefix = __TOOL_PREFIX__;
+const sharedServerState = home + "/opencode-server.json";
 const rowPattern = /^[A-Za-z0-9_-]+$/;
 const panePattern = /^%[0-9]+$/;
 const markerName = /^([0-9]+)(%[0-9]+)$/;
@@ -84,6 +83,15 @@ const markedSession = (sessionID) => {
   return undefined;
 };
 
+// onSharedServer is this process the board's shared opencode server.
+const onSharedServer = () => {
+  try {
+    return JSON.parse(readFileSync(sharedServerState, "utf8")).pid === process.pid;
+  } catch {
+    return false;
+  }
+};
+
 // launchedCaller is the row a session launched onto the board's shared
 // server is, and the caller token proving it, as the launch recorded them
 // before the TUI opened the session.
@@ -122,20 +130,6 @@ export default {
 
     await ctx.tool.hook("execute.before", (call) => {
       try {
-        // One MCP server serves every session on a shared server, so each
-        // of the board's tool calls names its row here, where the session
-        // is known. Set over whatever the model passed: a session speaks
-        // only as itself.
-        if (typeof call?.tool === "string" && call.tool.startsWith(toolPrefix) && call.sessionID) {
-          const caller = launchedCaller(call.sessionID);
-          if (caller) {
-            if (!call.input || typeof call.input !== "object") call.input = {};
-            call.input.caller_session_id = caller.row;
-            call.input.caller_session_token = caller.token;
-          }
-        }
-      } catch {}
-      try {
         const command = call?.input?.command;
         if ((call?.tool === "shell" || call?.tool === "bash") && call.sessionID && typeof command === "string") {
           pending.set(command, call.sessionID);
@@ -150,13 +144,27 @@ export default {
         const sessionID = pending.get(shell?.command);
         pending.delete(shell?.command);
         if (!env) return;
-        // A session the board launched has its row in its environment
-        // already. On the shared server the TUI's environment also carries
-        // that server's password, which its shells have no use for.
-        if (env.GATE_INBOX_SESSION_ID) {
+        if (onSharedServer()) {
+          // The board's shared server runs every launched session's shells.
+          // Its password would let one of them read and drive all the
+          // others, so no shell gets it. A shell gets the environment its
+          // launch set on the session, row and caller token included; one
+          // whose session lost it, to a restart the supervisor has not set
+          // it again after, still gets its row from the launch's binding.
           delete env.OPENCODE_SERVER_PASSWORD;
+          delete env.OPENCODE_PASSWORD;
+          const caller = launchedCaller(sessionID);
+          if (caller && env.GATE_INBOX_SESSION_ID !== caller.row) {
+            env.GATE_INBOX_SESSION_ID = caller.row;
+            env.GATE_INBOX_SESSION_TOKEN = caller.token;
+            env.GATE_INBOX_BIN = bin;
+            env.GATE_INBOX_HOME = home;
+          }
           return;
         }
+        // A session the board launched has its row in its environment
+        // already.
+        if (env.GATE_INBOX_SESSION_ID) return;
         const marker = paneMarker(env);
         if (!marker || !boardUp()) return;
         env.GATE_INBOX_SESSION_ID = marker.row;

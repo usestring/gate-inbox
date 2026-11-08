@@ -43,6 +43,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/mcpreg"
 	"github.com/usestring/gate-inbox/internal/mcprelay"
 	"github.com/usestring/gate-inbox/internal/mcpserver"
+	"github.com/usestring/gate-inbox/internal/opencode"
 	"github.com/usestring/gate-inbox/internal/sessioncmd"
 	"github.com/usestring/gate-inbox/internal/sessionhooks"
 	"github.com/usestring/gate-inbox/internal/store"
@@ -397,6 +398,9 @@ func subcommands(ctx context.Context, version string, extensions []extension.Ext
 	table[mcpreg.OpencodeAttachVerb] = withConfigDir(func(args []string, _, configDir string) error {
 		return runOpencodeAttach(ctx, args, configDir)
 	})
+	table[opencode.ServeVerb] = func(args []string) error {
+		return runOpencodeServe(ctx, args)
+	}
 	table["hook"] = withConfigDir(func(args []string, sessionID, configDir string) error {
 		return cli.RunHook(os.Stdin, os.Stdout, args, sessionID, configDir)
 	})

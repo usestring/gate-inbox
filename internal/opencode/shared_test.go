@@ -21,7 +21,13 @@ import (
 const fakeServerEnv = "GATE_INBOX_TEST_FAKE_OPENCODE"
 
 func fakeServe() {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	port := "0"
+	for i, arg := range os.Args {
+		if arg == "--port" && i+1 < len(os.Args) {
+			port = os.Args[i+1]
+		}
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:"+port)
 	if err != nil {
 		os.Exit(1)
 	}
@@ -51,6 +57,19 @@ func fakeServe() {
 		f.Close()
 		fmt.Fprint(w, `{"data":{"id":"ses_fake1"}}`)
 	})
+	mux.HandleFunc("PUT /api/session/{id}/environment", func(w http.ResponseWriter, r *http.Request) {
+		if !authed(r) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		var body map[string]map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		raw, _ := json.Marshal(map[string]any{"session": r.PathValue("id"), "server": os.Getpid(), "env": body["variables"]})
+		f, _ := os.OpenFile(os.Getenv(fakeServerEnv)+".env", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		fmt.Fprintln(f, string(raw))
+		f.Close()
+		w.WriteHeader(http.StatusNoContent)
+	})
 	fmt.Printf("server listening on http://%s\n", listener.Addr())
 	_ = http.Serve(listener, mux)
 }
@@ -76,9 +95,61 @@ func fakeOpencode(t *testing.T) (bin, requests string) {
 func stopServer(t *testing.T, home string) {
 	t.Cleanup(func() {
 		if srv, err := readServer(filepath.Join(home, serverStateName)); err == nil {
+			_ = syscall.Kill(srv.Supervisor, syscall.SIGTERM)
 			_ = syscall.Kill(srv.PID, syscall.SIGTERM)
 		}
 	})
+}
+
+// testExe is the test binary, which TestMain runs as the supervisor.
+func testExe(t *testing.T) string {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return exe
+}
+
+// sessionEnvs is every environment the fake servers were given, in order.
+func sessionEnvs(t *testing.T, requests string) []struct {
+	Session string            `json:"session"`
+	Server  int               `json:"server"`
+	Env     map[string]string `json:"env"`
+} {
+	t.Helper()
+	raw, _ := os.ReadFile(requests + ".env")
+	var out []struct {
+		Session string            `json:"session"`
+		Server  int               `json:"server"`
+		Env     map[string]string `json:"env"`
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		if line == "" {
+			continue
+		}
+		var entry struct {
+			Session string            `json:"session"`
+			Server  int               `json:"server"`
+			Env     map[string]string `json:"env"`
+		}
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			t.Fatal(err)
+		}
+		out = append(out, entry)
+	}
+	return out
+}
+
+func waitFor(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for !ok() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // A launch with no session opens one on the shared server, in its own
@@ -92,7 +163,9 @@ func TestSharedAttachStartsReusesAndBinds(t *testing.T) {
 	t.Setenv("GATE_INBOX_SESSION_ID", "rowA")
 	t.Setenv("GATE_INBOX_SESSION_TOKEN", "tokA")
 	t.Setenv("OPENCODE_CONFIG", "session-config.json")
-	attach := Attach{Home: home, Row: "rowA", Token: "tokA", Model: "acme/model-x", Auto: true, ServerConfig: "/shared/config.json", Dir: "/work/a", Argv: []string{bin, "--standalone"}}
+	t.Setenv(PasswordEnv, "leaked")
+	t.Setenv("TMUX_PANE", "%7")
+	attach := Attach{Home: home, Exe: testExe(t), Row: "rowA", Token: "tokA", Model: "acme/model-x", Auto: true, ServerConfig: "/shared/config.json", Dir: "/work/a", Argv: []string{bin, "--standalone"}}
 	argv, env, err := attach.Shared(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -134,10 +207,25 @@ func TestSharedAttachStartsReusesAndBinds(t *testing.T) {
 	if first.Env["config"] != "/shared/config.json" || first.Env["row"] != "" || first.Env["fff"] != "1" {
 		t.Fatalf("server env = %v", first.Env)
 	}
+	// The session's shells get the launch's environment, without the
+	// server's password, and it is kept for a restarted server.
+	envs := sessionEnvs(t, requests)
+	if len(envs) != 1 || envs[0].Session != "ses_fake1" {
+		t.Fatalf("session environments = %+v", envs)
+	}
+	if env := envs[0].Env; env["GATE_INBOX_SESSION_ID"] != "rowA" || env["GATE_INBOX_SESSION_TOKEN"] != "tokA" || env["TMUX_PANE"] != "%7" || env["OPENCODE_CONFIG"] != "session-config.json" {
+		t.Fatalf("session environment = %v", env)
+	}
+	if _, leaked := envs[0].Env[PasswordEnv]; leaked {
+		t.Fatalf("server password in a session's environment: %v", envs[0].Env)
+	}
+	if info, err := os.Stat(filepath.Join(BindingsDir(home), "ses_fake1.env")); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("kept session environment: %v %v", info, err)
+	}
 
 	// A revive names its session already: it is bound, not created, and the
 	// same server takes it.
-	again := Attach{Home: home, Row: "rowB", Token: "tokB", ServerConfig: "/shared/config.json", Dir: "/work/b", Argv: []string{bin, "--session", "ses_old2"}}
+	again := Attach{Home: home, Exe: testExe(t), Row: "rowB", Token: "tokB", ServerConfig: "/shared/config.json", Dir: "/work/b", Argv: []string{bin, "--session", "ses_old2"}}
 	argv, _, err = again.Shared(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -156,25 +244,59 @@ func TestSharedAttachStartsReusesAndBinds(t *testing.T) {
 	}
 }
 
-// A server that has gone away is replaced, never handed a session.
-func TestSharedAttachReplacesADeadServer(t *testing.T) {
-	bin, _ := fakeOpencode(t)
+// A server that dies comes back on the same address and password, which
+// its TUIs reconnect to, and every session gets its environment back.
+func TestSharedServerRestartsWhereItWas(t *testing.T) {
+	bin, requests := fakeOpencode(t)
 	home := t.TempDir()
 	stopServer(t, home)
-	first, err := EnsureServer(context.Background(), home, bin, "/c.json")
+	t.Setenv("GATE_INBOX_SESSION_ID", "rowA")
+	attach := Attach{Home: home, Exe: testExe(t), Row: "rowA", Token: "tokA", ServerConfig: "/c.json", Dir: "/w", Argv: []string{bin}}
+	if _, _, err := attach.Shared(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	first, err := readServer(filepath.Join(home, serverStateName))
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = syscall.Kill(first.PID, syscall.SIGKILL)
-	deadline := time.Now().Add(5 * time.Second)
-	for first.alive(context.Background()) && time.Now().Before(deadline) {
-		time.Sleep(20 * time.Millisecond)
+	var second Server
+	waitFor(t, "a restarted server", func() bool {
+		second, err = readServer(filepath.Join(home, serverStateName))
+		return err == nil && second.PID != first.PID && second.alive(context.Background())
+	})
+	if second.URL != first.URL || second.Password != first.Password || second.Supervisor != first.Supervisor {
+		t.Fatalf("restarted as %+v, was %+v", second, first)
 	}
-	second, err := EnsureServer(context.Background(), home, bin, "/c.json")
+	waitFor(t, "the session's environment set again", func() bool {
+		envs := sessionEnvs(t, requests)
+		last := envs[len(envs)-1]
+		return last.Server == second.PID && last.Session == "ses_fake1" && last.Env["GATE_INBOX_SESSION_ID"] == "rowA"
+	})
+	if got, err := EnsureServer(context.Background(), home, testExe(t), bin, "/c.json"); err != nil || got.PID != second.PID {
+		t.Fatalf("EnsureServer after restart = %+v, %v", got, err)
+	}
+}
+
+// A server whose supervisor is gone too is replaced, never handed a session.
+func TestSharedAttachReplacesADeadServer(t *testing.T) {
+	bin, _ := fakeOpencode(t)
+	home := t.TempDir()
+	stopServer(t, home)
+	first, err := EnsureServer(context.Background(), home, testExe(t), bin, "/c.json")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.PID == first.PID || second.URL == first.URL {
+	_ = syscall.Kill(first.Supervisor, syscall.SIGKILL)
+	_ = syscall.Kill(first.PID, syscall.SIGKILL)
+	waitFor(t, "the server to die", func() bool {
+		return !first.alive(context.Background()) && !supervising(context.Background(), first.Supervisor)
+	})
+	second, err := EnsureServer(context.Background(), home, testExe(t), bin, "/c.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.PID == first.PID || second.Supervisor == first.Supervisor {
 		t.Fatalf("dead server reused: %+v", second)
 	}
 }

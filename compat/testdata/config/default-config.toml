@@ -408,6 +408,11 @@ rules = [
   { state = "waiting", pattern = "(?m)^[ \\x{A0}]*\\x{2503}[ \\x{A0}]+Questions[ \\x{A0}]*$" },
   { state = "errored", pattern = "(?i)requires more credits" },
   { state = "errored", pattern = "(?im)^\\s*error\\b" },
+  # A TUI that lost its server says so in an overlay and keeps retrying
+  # behind it with the turn's spinner still drawn. On the board's shared
+  # server the supervisor brings the server back within seconds; past that
+  # the session is stuck, not working.
+  { state = "errored", pattern = "Reconnecting to the server automatically" },
   # opencode draws no agent row mid-turn; its only spinner is the footer
   # "⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt" under the composer, which this rule reads because
   # the match scope takes in a footer that trips a working rule

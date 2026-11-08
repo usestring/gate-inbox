@@ -92,3 +92,33 @@ func TestCallerKeyMintedConcurrentlyIsOneWholeKey(t *testing.T) {
 		t.Fatalf("key dir holds %d entries, want the key alone", len(entries))
 	}
 }
+
+// A binding resolves to its session only with that session's token in it:
+// one written by hand, or carrying another session's token, binds nothing.
+func TestAgentSessionBindingVerifies(t *testing.T) {
+	dir := t.TempDir()
+	if err := BindAgentSession(dir, "ses_a1", "alice01"); err != nil {
+		t.Fatal(err)
+	}
+	if got := AgentSessionCaller(dir, "ses_a1"); got != "alice01" {
+		t.Fatalf("bound to %q, want alice01", got)
+	}
+	info, err := os.Stat(filepath.Join(KeyDir(dir), agentSessionDir, "ses_a1"))
+	if err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("binding %v, %v; want a 0600 file", info, err)
+	}
+	bob, _ := CallerToken(dir, "bob0001")
+	forged := filepath.Join(KeyDir(dir), agentSessionDir, "ses_forged")
+	if err := os.WriteFile(forged, []byte("alice01 "+bob+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := AgentSessionCaller(dir, "ses_forged"); got != "" {
+		t.Fatalf("a binding with another session's token resolved to %q", got)
+	}
+	if got := AgentSessionCaller(dir, "ses_none"); got != "" {
+		t.Fatalf("an unbound session resolved to %q", got)
+	}
+	if err := BindAgentSession(dir, "../ses", "alice01"); err == nil {
+		t.Fatal("a path was taken for an agent session id")
+	}
+}

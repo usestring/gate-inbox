@@ -145,13 +145,13 @@ func TestTriageNavigationHintsFollowTheBoardModeAndBindings(t *testing.T) {
 	m.keys, _ = m.km().Rebind(keymap.ContextList, keymap.Triage, []string{"I"})
 
 	footer := ansi.Strip(m.viewFooter())
-	for _, hint := range []string{"J next needing you", "^o next pane", "I start triage"} {
+	for _, hint := range []string{"J needs you", "^o next pane", "I triage"} {
 		if !strings.Contains(footer, hint) {
 			t.Errorf("board footer lacks %q:\n%s", hint, footer)
 		}
 	}
 	m.triage = true
-	if footer := ansi.Strip(m.viewFooter()); !strings.Contains(footer, "I back to groups") {
+	if footer := ansi.Strip(m.viewFooter()); !strings.Contains(footer, "I groups") {
 		t.Errorf("triage view did not name how to leave it:\n%s", footer)
 	}
 
@@ -160,8 +160,20 @@ func TestTriageNavigationHintsFollowTheBoardModeAndBindings(t *testing.T) {
 	if !strings.Contains(footer, "ctrl+o next pane") {
 		t.Errorf("focused footer lacks the global pane binding:\n%s", footer)
 	}
-	if strings.Contains(footer, "next needing you") || strings.Contains(footer, "back to groups") {
+	if strings.Contains(footer, "needs you") || strings.Contains(footer, "I groups") {
 		t.Errorf("focused footer advertises list-only bindings:\n%s", footer)
+	}
+}
+
+func TestSessionFooterKeepsNavigationAtCommonWidths(t *testing.T) {
+	for _, width := range []int{100, 120} {
+		m := fleetModel(t, 6, width, 34)
+		footer := ansi.Strip(m.viewFooter())
+		for _, hint := range []string{"tab needs you", "i triage", "^↑↓ panes", "^a focus", "l last pane", "? more"} {
+			if !strings.Contains(footer, hint) {
+				t.Errorf("%d-column footer dropped %q:\n%s", width, hint, footer)
+			}
+		}
 	}
 }
 

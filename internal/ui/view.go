@@ -533,6 +533,8 @@ func padToHeight(s string, height int) string {
 	return s
 }
 
+const leaveAdvanceLabel = "skip to next"
+
 // viewFooter is the app's legend: the row tier, then the snippets tier,
 // then the peek key. A transient mode (hotkey menu, rename, resize) owns the legend
 // alone while it is up.
@@ -603,16 +605,12 @@ func (m *Model) viewFooter() string {
 		// the one exit a user does not have to be told about. Help names it.
 		exits := [][2]string{{m.capJoinFull(keymap.ContextFocus, " / ", keymap.Leave, keymap.LeaveHard), "back to manager"}}
 		if m.advancesOnLeave() {
-			// It is also the only place the walk is named at all for
-			// somebody driving it from the setting rather than from a
-			// queue they armed: an advance nothing announces reads as the
-			// manager losing the operator's place. See leaveadvance.go.
 			out := "back to manager"
 			if m.triage {
 				out = "stop triage"
 			}
 			exits = [][2]string{
-				{m.capJoinFull(keymap.ContextFocus, " / ", keymap.Leave, keymap.HandOver), m.leaveAdvanceHint()},
+				{m.capJoinFull(keymap.ContextFocus, " / ", keymap.Leave, keymap.HandOver), leaveAdvanceLabel},
 				{m.fullCap(keymap.ContextFocus, keymap.LeaveHard), out},
 			}
 		}
@@ -725,13 +723,17 @@ func (m *Model) defaultRowLegend() legendSection {
 		return legendSection{title: "Group", pairs: pairs}
 	}
 
-	attachKey := m.tightCap(keymap.ContextList, keymap.Attach)
+	otherKey := m.tightCap(keymap.ContextList, keymap.Attach)
+	enterFocuses := m.enterFocuses()
 	enterHint, attachHint := "focus", "attach"
-	if !m.enterFocuses() {
+	if !enterFocuses {
 		enterHint, attachHint = "attach", "focus"
-		attachKey = openKey
 	}
 	if row.sess.Archived {
+		attachKey := otherKey
+		if !enterFocuses {
+			attachKey = openKey
+		}
 		return legendSection{title: "Session", pairs: [][2]string{
 			{attachKey, "attach"},
 			{m.tightCap(keymap.ContextList, keymap.Restore), "restore to focus"},
@@ -739,19 +741,17 @@ func (m *Model) defaultRowLegend() legendSection {
 	}
 
 	title := "Session"
-	// Priority leads the toolbar: it is the one key that reorders the
-	// queue, and the footer names what the next press sets.
-	var pairs [][2]string
-	if key := m.tightCap(keymap.ContextList, keymap.Priority); key != "" {
-		pairs = append(pairs, [2]string{key, priorityLegend(row.sess.Priority)})
+	pairs := [][2]string{{openKey, enterHint}}
+	if otherKey != "" {
+		pairs = append(pairs, [2]string{otherKey, attachHint})
 	}
-	pairs = append(pairs, [2]string{openKey, enterHint})
-	// Last pane rides the core row rather than the cut-first tail: it is
-	// the way back to the session just left, and a key nobody sees is a
-	// key nobody presses.
 	if key := m.tightCap(keymap.ContextList, keymap.LastPane); key != "" {
 		pairs = append(pairs, [2]string{key, "last pane"})
 	}
+	// The row clips from the end. Keep ways into and between panes before
+	// row actions, and keep skip ahead of priority when a session needs you.
+	pairs = append(pairs, m.boardNavigationHints(false)...)
+
 	if m.applies(keymap.ContextList, keymap.QuickInput, row) {
 		if key := m.tightCap(keymap.ContextList, keymap.QuickInput); key != "" {
 			pairs = append(pairs, [2]string{key, "hotkeys"})
@@ -764,8 +764,9 @@ func (m *Model) defaultRowLegend() legendSection {
 			pairs = append(pairs, [2]string{key, "skip"})
 		}
 	}
-	pairs = append(pairs, m.boardNavigationHints(false)...)
-	pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, keymap.Attach), attachHint})
+	if key := m.tightCap(keymap.ContextList, keymap.Priority); key != "" {
+		pairs = append(pairs, [2]string{key, priorityLegend(row.sess.Priority)})
+	}
 	if m.applies(keymap.ContextList, keymap.Rescind, row) {
 		if key := m.tightCap(keymap.ContextList, keymap.Rescind); key != "" {
 			pairs = append(pairs, [2]string{key, "undo"})
@@ -778,9 +779,7 @@ func (m *Model) defaultRowLegend() legendSection {
 		pairs = append(pairs, [2]string{key, "kill"})
 	}
 	// The rest of the daily loop rides the same row: starting, finding,
-	// and the palette that runs everything without a key. The row holds
-	// one terminal line, so a narrow window cuts from this end first and
-	// the pairs above always survive.
+	// and the palette that runs everything without a key.
 	for _, extra := range []struct {
 		action keymap.Action
 		text   string
@@ -798,28 +797,37 @@ func (m *Model) defaultRowLegend() legendSection {
 	return legendSection{title: title, pairs: pairs}
 }
 
-// boardNavigationHints names the three ways of moving through the board without
-// advertising list-only keys in a focused pane.
-func (m *Model) boardNavigationHints(showScope bool) [][2]string {
+// boardNavigationHints uses short labels on the one-line footer and spells
+// them out in the peek legend.
+func (m *Model) boardNavigationHints(detailed bool) [][2]string {
 	if m.showArchived {
 		return nil
 	}
 	list := keymap.ContextList
 	var hints [][2]string
 	if key := m.tightCap(list, keymap.JumpAttention); key != "" {
-		hints = append(hints, [2]string{key, "next needing you"})
-	}
-	if key := m.tightCap(list, keymap.Triage); key != "" {
-		label := "start triage"
-		if m.triage {
-			label = "back to groups"
-			if showScope && m.triageScope != "" {
-				label += " (triage: " + baseName(m.triageScope) + ")"
-			}
+		label := "needs you"
+		if detailed {
+			label = "next needing you"
 		}
 		hints = append(hints, [2]string{key, label})
 	}
-	if hint := m.paneNavigationHint(true); hint[0] != "" {
+	if key := m.tightCap(list, keymap.Triage); key != "" {
+		label := "triage"
+		if m.triage {
+			label = "groups"
+			if detailed {
+				label = "back to groups"
+				if m.triageScope != "" {
+					label += " (triage: " + baseName(m.triageScope) + ")"
+				}
+			}
+		} else if detailed {
+			label = "start triage"
+		}
+		hints = append(hints, [2]string{key, label})
+	}
+	if hint := m.paneNavigationHint(!detailed); hint[0] != "" {
 		hints = append(hints, hint)
 	}
 	return hints
@@ -832,7 +840,18 @@ func (m *Model) paneNavigationHint(compact bool) [2]string {
 	key, label := "", ""
 	switch {
 	case prev != "" && next != "":
-		key, label = keymap.DisplayPair(prev, next), "prev/next pane"
+		label = "prev/next pane"
+		if compact {
+			label = "panes"
+		}
+		// Abbreviate arrow pairs; keep arbitrary rebound chords distinct.
+		if strings.HasSuffix(prev, "↑") && strings.HasSuffix(next, "↓") {
+			key = keymap.DisplayPair(prev, next)
+		} else if compact {
+			return [2]string{keymap.Compact(prev) + "/" + keymap.Compact(next), label}
+		} else {
+			key = prev + "/" + next
+		}
 	case prev != "":
 		key, label = prev, "prev pane"
 	case next != "":

@@ -49,8 +49,3 @@ func normalizeLeaveMode(chosen string) string {
 func (m *Model) advancesOnLeave() bool {
 	return m.triage || m.leaveMode == leaveToNext
 }
-
-// leaveAdvanceHint is what the focus border and footer call the walk key.
-func (m *Model) leaveAdvanceHint() string {
-	return "skip to next"
-}

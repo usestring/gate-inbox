@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/status"
@@ -55,6 +54,37 @@ func TestFocusRuleTailKeepsItsCornerWhenNarrow(t *testing.T) {
 	}
 	if !strings.HasSuffix(ansi.Strip(tail), "╮") {
 		t.Errorf("the tail does not close the ring: %q", ansi.Strip(tail))
+	}
+}
+
+func TestFocusRuleKeepsEssentialHintsBesideALongName(t *testing.T) {
+	m := fleetModel(t, 6, 65, 12)
+	m.mode = modeFocus
+	m.chrome = chromeNever
+	index, ok := m.selectedIndex()
+	if !ok {
+		t.Fatal("fixture has no selected session")
+	}
+	m.rows[index].sess.Name = "fix-file-reservation-normalization-across-all-repository-checkouts"
+
+	for _, tc := range []struct {
+		name   string
+		scroll int
+		triage bool
+		hint   string
+	}{
+		{name: "back", hint: "ctrl+q back"},
+		{name: "advance", triage: true, hint: "ctrl+q skip to next"},
+		{name: "scrollback", scroll: 12, hint: "12 lines back"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m.focusScroll = tc.scroll
+			m.triage = tc.triage
+			top := ansi.Strip(m.focusRuleTail(65, true))
+			if !strings.Contains(top, "fix-file-reservation") || !strings.Contains(top, tc.hint) {
+				t.Errorf("border must name the pane and show %q: %q", tc.hint, top)
+			}
+		})
 	}
 }
 

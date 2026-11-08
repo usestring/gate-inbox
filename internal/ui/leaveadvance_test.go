@@ -2,8 +2,10 @@ package ui
 
 import (
 	"slices"
+	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/usestring/gate-inbox/internal/status"
 )
 
@@ -124,32 +126,16 @@ func TestTriageStillWalksWithTheSettingOff(t *testing.T) {
 	}
 }
 
-// An advance nothing announces reads as the manager losing your place, and
-// the focused footer is the only surface left to announce it on.
-func TestTheFocusedFooterNamesTheAdvance(t *testing.T) {
+func TestTheFocusedFooterNamesTheAdvanceOutsideTriage(t *testing.T) {
 	m := buildModel(t)
+	m.width, m.height = 120, 34
 	liveTriageFleet(t, m, map[string]string{"ask": status.Waiting})
 	m.rebuildRows()
 	m.enterFocusOn(t, "ask")
 
-	if hint := m.leaveAdvanceHint(); hint == "" {
-		t.Fatal("the advance has no hint to put on the footer")
-	}
-	if m.advancesOnLeave() {
-		t.Fatal("the default advertises an advance it does not do")
-	}
 	m.leaveMode = leaveToNext
-	if !m.advancesOnLeave() {
-		t.Error("the setting did not turn the advance on")
-	}
-	// The hint stays one word whatever the scope or the setting says.
-	m.triageScope = "team"
-	if got := m.leaveAdvanceHint(); got != "skip to next" {
-		t.Errorf("outside triage the hint reads %q; want skip to next", got)
-	}
-	m.triage = true
-	if got := m.leaveAdvanceHint(); got != "skip to next" {
-		t.Errorf("in triage the hint reads %q; want skip to next", got)
+	if footer := ansi.Strip(m.viewFooter()); !strings.Contains(footer, "skip to next") {
+		t.Errorf("focused footer did not name the advance:\n%s", footer)
 	}
 }
 

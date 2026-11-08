@@ -1007,6 +1007,7 @@ func mergeTool(name string, user, def Tool) Tool {
 		user.Rules = withAskUserQuestionRules(user.Rules, def.Rules)
 	} else if name == "opencode" {
 		user.Rules = withDialogRules(user.Rules, def.Rules, opencodeDialogSamples)
+		user.Rules = withRuleInState(opencodeLostServerSample, user.Rules, def.Rules, "errored")
 	} else if name == "codex" {
 		user.Rules = withDialogRules(user.Rules, def.Rules, codexDialogSamples)
 		for i, rule := range user.Rules {
@@ -1134,9 +1135,21 @@ func withDialogRules(user, def []Rule, samples []string) []Rule {
 	return user
 }
 
+// opencodeLostServerSample is the overlay an opencode TUI shows while it
+// has lost its server, which a config written before the shared server
+// existed reads as working off the spinner behind it.
+const opencodeLostServerSample = "Reconnecting to the server automatically."
+
 func withRuleFor(sample string, user, def []Rule) []Rule {
+	return withRuleInState(sample, user, def, "waiting")
+}
+
+// withRuleInState adds the built-in rule in state that recognizes sample to
+// user's rules when none of theirs in that state does, right after the
+// waiting rules that lead the list.
+func withRuleInState(sample string, user, def []Rule, state string) []Rule {
 	for _, r := range user {
-		if r.State != "waiting" {
+		if r.State != state {
 			continue
 		}
 		re, err := regexp.Compile(r.Pattern)
@@ -1145,7 +1158,7 @@ func withRuleFor(sample string, user, def []Rule) []Rule {
 		}
 	}
 	for _, d := range def {
-		if d.State != "waiting" {
+		if d.State != state {
 			continue
 		}
 		re, err := regexp.Compile(d.Pattern)
@@ -1657,6 +1670,11 @@ rules = [
   { state = "waiting", pattern = "(?m)^[ \\x{A0}]*\\x{2503}[ \\x{A0}]+Questions[ \\x{A0}]*$" },
   { state = "errored", pattern = "(?i)requires more credits" },
   { state = "errored", pattern = "(?im)^\\s*error\\b" },
+  # A TUI that lost its server says so in an overlay and keeps retrying
+  # behind it with the turn's spinner still drawn. On the board's shared
+  # server the supervisor brings the server back within seconds; past that
+  # the session is stuck, not working.
+  { state = "errored", pattern = "Reconnecting to the server automatically" },
   # opencode draws no agent row mid-turn; its only spinner is the footer
   # "⬝⬝⬝⬝⬝⬝⬝⬝ esc interrupt" under the composer, which this rule reads because
   # the match scope takes in a footer that trips a working rule

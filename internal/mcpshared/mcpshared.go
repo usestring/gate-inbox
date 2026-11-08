@@ -16,10 +16,15 @@
 package mcpshared
 
 import (
+	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -74,14 +79,28 @@ func URL(configDir string) string {
 	return strings.TrimSpace(string(data))
 }
 
-// Healthy reports whether a server answers at url.
-func Healthy(url string) bool {
+// Healthy reports whether the server answering at url is configDir's own:
+// it answers HealthPath with the proof for a fresh nonce
+// (parentseal.ServerProof), which only a process that can read the key can
+// give. Anything else answering there -- another user's process that took
+// the port while the server was down -- would be handed every session's
+// token by the sessions pointed at it.
+func Healthy(configDir, url string) bool {
 	if url == "" {
+		return false
+	}
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return false
+	}
+	nonce := hex.EncodeToString(raw)
+	want, err := parentseal.ServerProof(configDir, nonce)
+	if err != nil {
 		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+HealthPath, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+HealthPath+"?nonce="+nonce, nil)
 	if err != nil {
 		return false
 	}
@@ -89,16 +108,18 @@ func Healthy(url string) bool {
 	if err != nil {
 		return false
 	}
-	resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	defer resp.Body.Close()
+	got, err := io.ReadAll(io.LimitReader(resp.Body, 256))
+	return err == nil && resp.StatusCode == http.StatusOK && hmac.Equal(bytes.TrimSpace(got), []byte(want))
 }
 
 // Ensure is the URL of a server serving configDir, starting exe's when none
-// answers. The server is started detached, in a session of its own, so it
-// outlives the launch that started it; the lock makes a race between two
+// answers, waiting at most wait for it. The server is started detached, in a
+// session of its own, so it outlives the launch that started it and keeps
+// starting after a wait that ran out; the lock makes a race between two
 // launches start one.
-func Ensure(configDir, exe string) (string, error) {
-	if url := URL(configDir); Healthy(url) {
+func Ensure(configDir, exe string, wait time.Duration) (string, error) {
+	if url := URL(configDir); Healthy(configDir, url) {
 		return url, nil
 	}
 	cmd := exec.Command(exe, Verb)
@@ -109,21 +130,21 @@ func Ensure(configDir, exe string) (string, error) {
 	}
 	exited := make(chan error, 1)
 	go func() { exited <- cmd.Wait() }()
-	deadline := time.After(5 * time.Second)
+	deadline := time.After(wait)
 	for {
-		if url := URL(configDir); Healthy(url) {
+		if url := URL(configDir); Healthy(configDir, url) {
 			return url, nil
 		}
 		select {
 		case err := <-exited:
 			// The lock's holder exiting early is another launch's server
 			// winning the race; anything else is a server that cannot start.
-			if url := URL(configDir); Healthy(url) {
+			if url := URL(configDir); Healthy(configDir, url) {
 				return url, nil
 			}
 			return "", fmt.Errorf("shared MCP server exited: %v", err)
 		case <-deadline:
-			return "", errors.New("shared MCP server did not answer within 5s")
+			return "", fmt.Errorf("shared MCP server did not answer within %s", wait)
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
@@ -179,11 +200,23 @@ func Listen(configDir string) (net.Listener, *os.File, error) {
 }
 
 func listenRecorded(configDir string) (net.Listener, error) {
-	if recorded := URL(configDir); recorded != "" {
-		host := strings.TrimPrefix(recorded, "http://")
-		if listener, err := net.Listen("tcp", host); err == nil {
-			return listener, nil
-		}
+	recorded := URL(configDir)
+	if recorded == "" {
+		return net.Listen("tcp", "127.0.0.1:0")
+	}
+	host := strings.TrimPrefix(recorded, "http://")
+	listener, err := net.Listen("tcp", host)
+	if err == nil {
+		return listener, nil
+	}
+	// This process holds the lock, so whatever accepts at the recorded
+	// address is not a server of this config dir, and every session given
+	// the address is sending it its token. Moving to another port would
+	// leave them there unwarned; refusing keeps the board saying so, and
+	// launches fall back to a server of their own.
+	if conn, dialErr := net.DialTimeout("tcp", host, 500*time.Millisecond); dialErr == nil {
+		conn.Close()
+		return nil, fmt.Errorf("another process is listening at %s, the shared MCP server's recorded address; sessions pointed at it are sending it their caller tokens", recorded)
 	}
 	return net.Listen("tcp", "127.0.0.1:0")
 }
@@ -223,10 +256,13 @@ func inherited() (net.Listener, *os.File, bool, error) {
 	return listener, os.NewFile(uintptr(kfd), "mcp-serve lock"), true, nil
 }
 
-// Reexec replaces this process with exe, serving from the same listener
-// under the same lock: how a running server moves onto an upgraded binary.
-// It returns only on failure.
-func Reexec(exe string, listener net.Listener, lock *os.File) error {
+// Handoff starts exe serving from this process's listener under its lock,
+// beside it, for this one to finish the calls it holds and exit: how a
+// running server moves onto an upgraded binary without cutting a call off,
+// however long the calls in flight run. Both accept on the one socket until
+// this one stops; the lock stays held for as long as either holds it. It
+// returns once the new process has started and stayed up.
+func Handoff(configDir, exe string, listener net.Listener, lock *os.File) error {
 	tcp, ok := listener.(*net.TCPListener)
 	if !ok {
 		return errors.New("listener is not TCP")
@@ -235,15 +271,23 @@ func Reexec(exe string, listener net.Listener, lock *os.File) error {
 	if err != nil {
 		return err
 	}
-	for _, fd := range []uintptr{file.Fd(), lock.Fd()} {
-		if _, _, errno := syscall.Syscall(syscall.SYS_FCNTL, fd, syscall.F_SETFD, 0); errno != 0 {
-			return errno
-		}
+	defer file.Close()
+	cmd := exec.Command(exe, Verb)
+	// ExtraFiles are the new process's fds 3 and 4.
+	cmd.ExtraFiles = []*os.File{file, lock}
+	cmd.Env = append(serverEnv(os.Environ(), configDir), listenerFDEnv+"=3", lockFDEnv+"=4")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return err
 	}
-	env := append(os.Environ(),
-		listenerFDEnv+"="+strconv.Itoa(int(file.Fd())),
-		lockFDEnv+"="+strconv.Itoa(int(lock.Fd())))
-	return syscall.Exec(exe, []string{exe, Verb}, env)
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	select {
+	case err := <-exited:
+		return fmt.Errorf("the upgraded server exited as it started: %v", err)
+	case <-time.After(500 * time.Millisecond):
+		return nil
+	}
 }
 
 // BinaryStamp changes when the binary at path is replaced.
@@ -268,9 +312,14 @@ func ClaudeConfigPath(configDir, id string) string {
 	return filepath.Join(parentseal.KeyDir(configDir), "mcp-claude-"+id+".json")
 }
 
-// WriteClaudeConfig writes the config at path pointing a claude at the
-// shared server at url, for profile's tools, as session id with token.
-func WriteClaudeConfig(path, url, profile, id, token string) error {
+// WriteClaudeConfig writes session id's config pointing its claude at the
+// shared server at url, for profile's tools, and returns its path. The
+// session's token is minted here, into the file and nowhere else.
+func WriteClaudeConfig(configDir, url, profile, id string) (string, error) {
+	token, err := parentseal.CallerToken(configDir, id)
+	if err != nil {
+		return "", err
+	}
 	if profile == "" {
 		profile = "all"
 	}
@@ -287,22 +336,20 @@ func WriteClaudeConfig(path, url, profile, id, token string) error {
 		},
 	}, "", "  ")
 	if err != nil {
-		return err
+		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
+	path := ClaudeConfigPath(configDir, id)
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".mcp-claude-*")
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer os.Remove(tmp.Name())
 	if _, err := tmp.Write(content); err != nil {
 		tmp.Close()
-		return err
+		return "", err
 	}
 	if err := tmp.Close(); err != nil {
-		return err
+		return "", err
 	}
-	return os.Rename(tmp.Name(), path)
+	return path, os.Rename(tmp.Name(), path)
 }

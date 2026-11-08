@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -9,6 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/usestring/gate-inbox/extension"
+	"github.com/usestring/gate-inbox/extension/mcptool"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 )
@@ -102,15 +106,51 @@ func TestSharedServerRefusesAnUnprovenRequest(t *testing.T) {
 	}
 }
 
-func TestSharedServerHealthNeedsNoCaller(t *testing.T) {
-	_, url := sharedTestServer(t)
-	resp, err := http.Get(url + mcpshared.HealthPath)
+// Health needs no caller, and proves the server holds the config dir's key.
+func TestSharedServerHealthProvesTheKey(t *testing.T) {
+	dir, url := sharedTestServer(t)
+	if !mcpshared.Healthy(dir, url) {
+		t.Fatal("the shared server failed its own health proof")
+	}
+	if mcpshared.Healthy(t.TempDir(), url) {
+		t.Fatal("the shared server passed as another config dir's")
+	}
+}
+
+// whoami is an extension whose tool reports the session it acts as.
+type whoami struct{ registered *string }
+
+func (whoami) Descriptor() extension.Descriptor { return extension.Descriptor{ID: "whoami"} }
+func (whoami) Configure(extension.Config) error { return nil }
+func (w whoami) RegisterMCP(r *extension.Registrar, session extension.SessionContext) error {
+	*w.registered = session.SessionID
+	return extension.AddTool(r, &mcp.Tool{Name: "whoami_caller"},
+		func(ctx context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToolResult, any, error) {
+			return mcptool.Text("caller=" + session.Caller(ctx)), nil, nil
+		})
+}
+
+// An extension is registered once into the shared server, with no session
+// of its own, and acts as each call's caller.
+func TestSharedServerExtensionsActAsTheCaller(t *testing.T) {
+	dir := t.TempDir()
+	registered := "unset"
+	server := httptest.NewServer((&sharedServer{configDir: dir, version: "test", extensions: []extension.Extension{whoami{&registered}}}).handler())
+	t.Cleanup(server.Close)
+	token, err := parentseal.CallerToken(dir, "abcd1234")
 	if err != nil {
 		t.Fatal(err)
 	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("health: %d", resp.StatusCode)
+	status, reply := post(t, server.URL+mcpshared.MCPPath+"all", "abcd1234", token, "tools/call",
+		map[string]any{"name": "whoami_caller", "arguments": map[string]any{}})
+	if status != http.StatusOK {
+		t.Fatalf("tools/call: status %d, reply %v", status, reply)
+	}
+	if registered != "" {
+		t.Fatalf("registered as %q, want no session of its own", registered)
+	}
+	if text, _ := json.Marshal(reply); !strings.Contains(string(text), "caller=abcd1234") {
+		t.Fatalf("the extension did not act as the header's session: %s", text)
 	}
 }
 

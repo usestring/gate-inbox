@@ -13,11 +13,17 @@ import (
 // loopback GET, so a dead server is back within this long.
 const sharedMCPEvery = 30 * time.Second
 
-// keepSharedMCP restarts the shared MCP server (mcpshared) when it has
-// stopped while sessions still point at it. A launch starts it, but only a
-// launch: a server that crashed or was killed would otherwise leave every
-// session launched against it without its tools until the next launch. It
-// comes back on its recorded port, so those sessions' URL reaches it again.
+// sharedMCPStart is how long the board waits for the server it starts.
+const sharedMCPStart = 5 * time.Second
+
+// keepSharedMCP starts the shared MCP server (mcpshared) when the board
+// starts, and again whenever it has stopped. A launch only waits a moment
+// for the server (launch.sharedWait), so it has to be up before the first
+// launch; and a server that crashed or was killed would otherwise leave
+// every session launched against it without its tools. It comes back on
+// its recorded port, so those sessions' URL reaches it again. Started from
+// the board, it carries the board's environment, which is what a delegated
+// launch through it passes on.
 func keepSharedMCP(dir string, on bool) (stop func()) {
 	if !on || underTempDir(dir) {
 		return func() {}
@@ -29,20 +35,17 @@ func keepSharedMCP(dir string, on bool) (stop func()) {
 		ticker := time.NewTicker(sharedMCPEvery)
 		defer ticker.Stop()
 		for {
+			if url := mcpshared.URL(dir); !mcpshared.Healthy(dir, url) {
+				if started, err := mcpshared.Ensure(dir, launch.Executable(), sharedMCPStart); err != nil {
+					logging.Warn("shared MCP server down and could not be started", "url", url, logging.Err(err))
+				} else {
+					logging.Info("shared MCP server started", "url", started)
+				}
+			}
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-			}
-			// No recorded server is one no session was ever pointed at.
-			url := mcpshared.URL(dir)
-			if url == "" || mcpshared.Healthy(url) {
-				continue
-			}
-			if restarted, err := mcpshared.Ensure(dir, launch.Executable()); err != nil {
-				logging.Warn("shared MCP server down and could not be restarted", "url", url, logging.Err(err))
-			} else {
-				logging.Info("shared MCP server restarted", "url", restarted)
 			}
 		}
 	}()

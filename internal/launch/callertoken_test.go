@@ -30,8 +30,9 @@ func TestALaunchCarriesNoCallerToken(t *testing.T) {
 	}
 }
 
-// A claude launch is pointed at the shared server, unless the operator turned
-// it off or the server cannot be had, when it gets a server of its own.
+// A claude launch is pointed at the shared server when the operator turned
+// it on, and gets a server of its own otherwise, or when the server cannot
+// be had.
 func TestClaudeLaunchUsesTheSharedServer(t *testing.T) {
 	tool := config.Tool{Command: "cat", MCP: "claude"}
 	for name, c := range map[string]struct {
@@ -40,9 +41,9 @@ func TestClaudeLaunchUsesTheSharedServer(t *testing.T) {
 		err    error
 		shared bool
 	}{
-		"on by default":        {url: "http://127.0.0.1:4567", shared: true},
-		"turned off":           {config: "[claude_code]\nshared_mcp = false\n", url: "http://127.0.0.1:4567"},
-		"server not to be had": {err: errors.New("no server")},
+		"off by default":       {url: "http://127.0.0.1:4567"},
+		"turned on":            {config: "[claude_code]\nshared_mcp = true\n", url: "http://127.0.0.1:4567", shared: true},
+		"server not to be had": {config: "[claude_code]\nshared_mcp = true\n", err: errors.New("no server")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()

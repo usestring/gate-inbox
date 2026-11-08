@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpshared"
 	"github.com/usestring/gate-inbox/internal/parentseal"
+	"github.com/usestring/gate-inbox/internal/sessioncmd"
 )
 
 // upgradeCheck is how often the shared server looks for a replaced binary.
@@ -24,8 +26,8 @@ const upgradeCheck = 30 * time.Second
 // once when another server already holds the config dir.
 //
 // It is stateless: every request carries its caller, so the server keeps
-// nothing per session and the process can be replaced between two requests,
-// costing a client at most a reconnect.
+// nothing per session, and on an upgrade the new binary can take new
+// requests while this process finishes the ones it holds.
 func ServeShared(ctx context.Context, configDir, version string, extensions []extension.Extension) error {
 	listener, lock, err := mcpshared.Listen(configDir)
 	if errors.Is(err, mcpshared.ErrRunning) {
@@ -42,23 +44,38 @@ func ServeShared(ctx context.Context, configDir, version string, extensions []ex
 		return err
 	}
 	logging.Info("shared MCP server listening", "addr", listener.Addr().String())
+	handedOff := make(chan struct{})
+	stopped := make(chan struct{})
 	go func() {
-		<-ctx.Done()
-		server.Close()
+		defer close(stopped)
+		select {
+		case <-ctx.Done():
+			server.Close()
+		case <-handedOff:
+			// The upgraded process accepts on the same socket from here.
+			// This one stops accepting, closes its idle connections, so
+			// their clients reconnect to it, and finishes the calls it
+			// holds: a wait_for_session runs up to MaxWaitTimeout.
+			drain, cancel := context.WithTimeout(context.Background(), sessioncmd.MaxWaitTimeout+30*time.Second)
+			defer cancel()
+			if err := server.Shutdown(drain); err != nil {
+				server.Close()
+			}
+		}
 	}()
 	go shared.followUpgrades(ctx, exe, func() error {
-		// Idle connections would die with the exec; closing them first has
-		// clients open fresh ones to the new process instead.
-		server.SetKeepAlivesEnabled(false)
-		err := mcpshared.Reexec(exe, listener, lock)
-		server.SetKeepAlivesEnabled(true)
-		return err
+		if err := mcpshared.Handoff(configDir, exe, listener, lock); err != nil {
+			return err
+		}
+		close(handedOff)
+		return nil
 	})
 	err = server.Serve(listener)
-	if errors.Is(err, http.ErrServerClosed) {
-		return nil
+	if !errors.Is(err, http.ErrServerClosed) {
+		return err
 	}
-	return err
+	<-stopped
+	return nil
 }
 
 type sharedServer struct {
@@ -71,17 +88,24 @@ type sharedServer struct {
 	// The tool schemas are the bulk of a server's memory, so they are held
 	// once per profile for the whole board rather than once per session.
 	servers map[Profile]*mcp.Server
-	// serving is held shared by every request being served and exclusively
-	// by an upgrade's exec, so the exec never cuts a tool call off halfway:
-	// a request arriving once the upgrade holds it waits, and dies unserved
-	// with the old process.
-	serving sync.RWMutex
 }
 
 func (s *sharedServer) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc(mcpshared.HealthPath, func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
+	// Health answers with proof of the key (mcpshared.Healthy), so a launch
+	// never takes another process at this address for the server.
+	mux.HandleFunc(mcpshared.HealthPath, func(w http.ResponseWriter, r *http.Request) {
+		nonce := r.URL.Query().Get("nonce")
+		if len(nonce) > 128 {
+			http.Error(w, "nonce too long", http.StatusBadRequest)
+			return
+		}
+		proof, err := parentseal.ServerProof(s.configDir, nonce)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_, _ = io.WriteString(w, proof)
 	})
 	mcpHandler := mcp.NewStreamableHTTPHandler(s.serverFor, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
 	mux.Handle(mcpshared.MCPPath, s.authorized(mcpHandler))
@@ -98,8 +122,6 @@ func (s *sharedServer) authorized(next http.Handler) http.Handler {
 			http.Error(w, "this server answers Gate Inbox sessions only: send "+CallerHeader+" and "+CallerTokenHeader, http.StatusUnauthorized)
 			return
 		}
-		s.serving.RLock()
-		defer s.serving.RUnlock()
 		next.ServeHTTP(w, r)
 	})
 }
@@ -125,10 +147,10 @@ func (s *sharedServer) serverFor(r *http.Request) *mcp.Server {
 	return server
 }
 
-// followUpgrades moves the server onto a replaced binary once no request is
-// in flight, so the sessions it serves pick up the upgrade without being
-// restarted.
-func (s *sharedServer) followUpgrades(ctx context.Context, exe string, reexec func() error) {
+// followUpgrades hands the server over to a replaced binary
+// (mcpshared.Handoff), so the sessions it serves pick up the upgrade without
+// being restarted, and stops once one has taken over.
+func (s *sharedServer) followUpgrades(ctx context.Context, exe string, handoff func() error) {
 	stamp := mcpshared.BinaryStamp(exe)
 	ticker := time.NewTicker(upgradeCheck)
 	defer ticker.Stop()
@@ -141,16 +163,12 @@ func (s *sharedServer) followUpgrades(ctx context.Context, exe string, reexec fu
 		if now := mcpshared.BinaryStamp(exe); now == "" || now == stamp {
 			continue
 		}
-		// A call still running -- wait_for_session can run for minutes --
-		// puts the upgrade off to a later tick rather than holding up every
-		// request behind it.
-		if !s.serving.TryLock() {
+		logging.Info("shared MCP server handing over to the upgraded binary", "exe", exe)
+		if err := handoff(); err != nil {
+			logging.Warn("shared MCP server could not start the upgraded binary", logging.Err(err))
+			stamp = mcpshared.BinaryStamp(exe)
 			continue
 		}
-		logging.Info("shared MCP server moving onto the upgraded binary", "exe", exe)
-		err := reexec()
-		s.serving.Unlock()
-		logging.Warn("shared MCP server could not exec the upgraded binary", logging.Err(err))
-		stamp = mcpshared.BinaryStamp(exe)
+		return
 	}
 }

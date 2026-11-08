@@ -18,9 +18,13 @@ import (
 // startup burst (schema inference for the tool set allocates ~11 MB to keep
 // ~2 MB). These defaults bound each copy to what one session needs. An
 // operator's GOMAXPROCS or GOGC in the environment still wins.
+//
+// The GC target is 50, not lower: measured over 180 servers starting at
+// once, 25 held no less memory than 50 but cost the startup burst ~15% more
+// CPU and slower calls, and 75 held ~110 MB more for no further gain.
 const (
 	budgetProcs     = 2
-	budgetGCPercent = 25
+	budgetGCPercent = 50
 	// releaseAfter is how long the server sits without a request before it
 	// hands the pages a burst touched back to the OS.
 	releaseAfter = 5 * time.Second

@@ -75,6 +75,9 @@ func runOpencodeAttach(ctx context.Context, args []string, configDir string) err
 	return execTUI(run, extra)
 }
 
+// opencodeServeVerb is the verb runOpencodeServe answers.
+const opencodeServeVerb = opencode.ServeVerb
+
 // runOpencodeServe supervises the board's shared opencode server; see
 // opencode.Supervise. EnsureServer starts it, never a person.
 //

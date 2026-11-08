@@ -327,43 +327,23 @@ func writeConfig(dir, name string, content []byte) (string, error) {
 	return hooks.WriteGenerated(dir, name, content)
 }
 
-// OpencodeRAMSizeEnv sizes the JavaScriptCore heap heuristics of an
-// opencode process as if the machine had 256 MiB, so its garbage collector
-// returns memory sooner. It is a heuristic, not a cap: a session with a long
-// conversation still grows past it.
-const OpencodeRAMSizeEnv = "BUN_JSC_forceRAMSize"
-
-// OpencodeRAMSizeMarkEnv carries the value the launch set, so the global
-// plugin strips only that one from a shell and never an operator's own.
-const OpencodeRAMSizeMarkEnv = "GATE_INBOX_OPENCODE_RAM_SIZE"
-
-// opencodeMemoryEnv trims what each launched session's private server keeps
-// resident. Measured by PSS on a fresh session in a large repository, the two
-// together take about 56 MB (14%) off its TUI and server:
+// opencodeMemoryEnv turns off opencode's native fuzzy file finder
+// (OPENCODE_DISABLE_FFF) in each launched session's private server. The
+// finder indexes the whole working tree in memory and keeps a dozen threads
+// on it; without it opencode uses the plain filesystem search it already
+// uses for a directory outside version control. By PSS that is about 39 MB
+// less per session in a small repository and more in a large one, where the
+// first glob and grep calls also got faster (9.1 s to 1.8 s, 7.5 s to 2.0 s
+// on a 19.6k-file tree).
 //
-//   - OPENCODE_DISABLE_FFF skips the native fuzzy file finder, which indexes
-//     the whole working tree in memory and runs a dozen threads for it;
-//     opencode falls back to the plain filesystem search it already uses for
-//     a directory outside version control.
-//   - BUN_JSC_forceRAMSize, see OpencodeRAMSizeEnv. The global plugin takes
-//     it back out of the agent's shells, so a bun the agent runs keeps its
-//     own heap sizing.
-//
-// A value the operator set in either variable is left alone.
+// A value the operator set themselves is left alone.
 func opencodeMemoryEnv(env map[string]string) {
-	for key, value := range map[string]string{
-		"OPENCODE_DISABLE_FFF": "1",
-		OpencodeRAMSizeEnv:     "268435456",
-	} {
-		if _, set := os.LookupEnv(key); set {
-			continue
-		}
-		if _, set := env[key]; set {
-			continue
-		}
-		env[key] = value
-		if key == OpencodeRAMSizeEnv {
-			env[OpencodeRAMSizeMarkEnv] = value
-		}
+	const key = "OPENCODE_DISABLE_FFF"
+	if _, set := os.LookupEnv(key); set {
+		return
 	}
+	if _, set := env[key]; set {
+		return
+	}
+	env[key] = "1"
 }

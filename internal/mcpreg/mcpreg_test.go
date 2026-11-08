@@ -280,31 +280,25 @@ func TestApplyNoneLeavesEverything(t *testing.T) {
 	}
 }
 
-// A launched opencode trims its private server: no in-memory file index, and
-// a smaller heap sizing marked as the launch's own for the plugin to strip
-// from shells. An operator's own value for either is kept.
+// A launched opencode's private server skips the in-memory file index,
+// unless the operator set the variable themselves.
 func TestApplyOpencodeTrimsServerMemory(t *testing.T) {
-	for _, key := range []string{"OPENCODE_DISABLE_FFF", OpencodeRAMSizeEnv} {
-		t.Setenv(key, "")
-		os.Unsetenv(key)
-	}
+	t.Setenv("OPENCODE_DISABLE_FFF", "")
+	os.Unsetenv("OPENCODE_DISABLE_FFF")
 	env := map[string]string{hooks.EnvSessionID: "abcd1234"}
 	if _, err := Apply("opencode", "/opt/bin/gate-inbox", t.TempDir(), "opencode", env, ""); err != nil {
 		t.Fatal(err)
 	}
-	if env["OPENCODE_DISABLE_FFF"] != "1" || env[OpencodeRAMSizeEnv] != "268435456" || env[OpencodeRAMSizeMarkEnv] != "268435456" {
+	if env["OPENCODE_DISABLE_FFF"] != "1" {
 		t.Fatalf("env = %v", env)
 	}
 
-	t.Setenv(OpencodeRAMSizeEnv, "999")
+	t.Setenv("OPENCODE_DISABLE_FFF", "0")
 	env = map[string]string{hooks.EnvSessionID: "abcd1234"}
 	if _, err := Apply("opencode", "/opt/bin/gate-inbox", t.TempDir(), "opencode", env, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, set := env[OpencodeRAMSizeEnv]; set {
-		t.Fatalf("operator's heap sizing overridden: %v", env)
-	}
-	if _, set := env[OpencodeRAMSizeMarkEnv]; set {
-		t.Fatalf("mark set without a launch value: %v", env)
+	if _, set := env["OPENCODE_DISABLE_FFF"]; set {
+		t.Fatalf("operator's value overridden: %v", env)
 	}
 }

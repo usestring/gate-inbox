@@ -305,39 +305,3 @@ func TestGlobalPluginBehaviour(t *testing.T) {
 		t.Errorf("dead board still speaks: %v %v", results[7].System, results[8].Env)
 	}
 }
-
-// A launched session's shells lose the heap sizing its launch gave the
-// server, unless the operator set the variable to something else, and keep
-// everything else, its row id included.
-func TestGlobalPluginStripsLaunchHeapSizing(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not installed")
-	}
-	p := Plugin{Home: t.TempDir(), Bin: "/bin/sh", Tools: []string{"opencode"}, Steering: "S"}
-	dir := t.TempDir()
-	if _, err := RegisterPlugin(dir, p); err != nil {
-		t.Fatal(err)
-	}
-	plugin := PluginPath(dir, p.Home)
-	results := runHarness(t, node, plugin, []harnessStep{
-		{Op: "shell", Session: "ses_a", Command: "a", Env: map[string]string{
-			"GATE_INBOX_SESSION_ID": "row1", "BUN_JSC_forceRAMSize": "268435456",
-			"GATE_INBOX_OPENCODE_RAM_SIZE": "268435456", "OPENCODE_DISABLE_FFF": "1",
-		}},
-		{Op: "shell", Session: "ses_b", Command: "b", Env: map[string]string{
-			"GATE_INBOX_SESSION_ID": "row2", "BUN_JSC_forceRAMSize": "1",
-			"GATE_INBOX_OPENCODE_RAM_SIZE": "268435456",
-		}},
-		{Op: "shell", Session: "ses_c", Command: "c", Env: map[string]string{"BUN_JSC_forceRAMSize": "268435456"}},
-	})
-	if env := results[0].Env; env["BUN_JSC_forceRAMSize"] != "" || env["GATE_INBOX_OPENCODE_RAM_SIZE"] != "" || env["GATE_INBOX_SESSION_ID"] != "row1" || env["OPENCODE_DISABLE_FFF"] != "1" {
-		t.Fatalf("launched shell env = %v", env)
-	}
-	if env := results[1].Env; env["BUN_JSC_forceRAMSize"] != "1" || env["GATE_INBOX_OPENCODE_RAM_SIZE"] != "" {
-		t.Fatalf("operator value must stay: %v", env)
-	}
-	if env := results[2].Env; env["BUN_JSC_forceRAMSize"] != "268435456" {
-		t.Fatalf("unmarked shell touched: %v", env)
-	}
-}

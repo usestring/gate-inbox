@@ -137,7 +137,7 @@ func serverEnv(env []string, configDir string) []string {
 	for _, entry := range env {
 		name, _, _ := strings.Cut(entry, "=")
 		switch name {
-		case envname.SessionID, envname.SessionToken, envname.StatusFile, envname.ExitFile, envname.AgentPID,
+		case envname.SessionID, envname.StatusFile, envname.ExitFile, envname.AgentPID,
 			config.HomeEnv, "TMUX", "TMUX_PANE", listenerFDEnv, lockFDEnv:
 			continue
 		}

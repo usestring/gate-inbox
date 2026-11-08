@@ -65,11 +65,11 @@ func TestHealthyTellsAServingURLFromAStaleOne(t *testing.T) {
 // identity, or the tmux pane it was started from.
 func TestServerEnvCarriesNoSession(t *testing.T) {
 	env := serverEnv([]string{
-		envname.SessionID + "=abcd1234", envname.SessionToken + "=secret", "TMUX_PANE=%1",
+		envname.SessionID + "=abcd1234", "TMUX_PANE=%1",
 		config.HomeEnv + "=/elsewhere", "PATH=/bin",
 	}, "/home/x/.config/gate-inbox")
 	for _, entry := range env {
-		if strings.HasPrefix(entry, envname.SessionID+"=") || strings.HasPrefix(entry, envname.SessionToken+"=") || strings.HasPrefix(entry, "TMUX_PANE=") {
+		if strings.HasPrefix(entry, envname.SessionID+"=") || strings.HasPrefix(entry, "TMUX_PANE=") {
 			t.Fatalf("server env carries %s", entry)
 		}
 	}

@@ -21,9 +21,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/extension/textfmt"
-	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/hooks"
-	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
@@ -970,15 +968,6 @@ func checkPlanWasLaunched(t *testing.T, home, data, helper, fresh string) {
 			continue
 		}
 		got, set := launched[key]
-		// A caller token is derived from the session id, so the plan's
-		// proves the plan's id and the pane's its own; neither is the
-		// other with the id swapped.
-		if key == envname.SessionToken {
-			if !parentseal.VerifyCaller(home, plan.SessionID, value) || !parentseal.VerifyCaller(home, fresh, got) {
-				t.Errorf("caller tokens: the plan's %q for %s, the pane's %q for %s", value, plan.SessionID, got, fresh)
-			}
-			continue
-		}
 		if want := asLaunched(value); got != want || !set && want != "" {
 			t.Errorf("the pane's %s = %q (set %v), the plan's %q", key, got, set, want)
 		}

@@ -19,10 +19,8 @@ import (
 	"github.com/usestring/gate-inbox/internal/band"
 	"github.com/usestring/gate-inbox/internal/claudeplugin"
 	"github.com/usestring/gate-inbox/internal/config"
-	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
-	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/tmux"
 	"github.com/usestring/gate-inbox/internal/tooldrivers"
 )
@@ -523,18 +521,16 @@ func EnvironmentWithProfile(manager *hooks.Manager, toolName string, tool config
 // session that asked for it, not its child. The same goes for the status
 // file a managed claude's hooks write: compose sets one only for a session
 // with those hooks, so an inherited one would point a session at another
-// session's status. A spawning session's caller token never crosses either:
-// it would let the child act as its parent.
+// session's status.
 var parentEnvBlocklist = map[string]bool{
 	"TMUX": true, "TMUX_PANE": true,
 	"PWD": true, "OLDPWD": true, "SHLVL": true,
 	"TERM":       true,
 	"CLAUDECODE": true, "CLAUDE_CODE_SESSION_ID": true, "CLAUDE_CODE_CHILD_SESSION": true,
 	"CLAUDE_CODE_SESSION_ATTENDED": true, "CLAUDE_PID": true, "CLAUDE_EFFORT": true,
-	"AI_AGENT":           true,
-	hooks.EnvStatusFile:  true,
-	hooks.EnvExitFile:    true,
-	envname.SessionToken: true,
+	"AI_AGENT":          true,
+	hooks.EnvStatusFile: true,
+	hooks.EnvExitFile:   true,
 }
 
 // inheritParentEnv carries the operator's own shell environment into a
@@ -586,7 +582,7 @@ func keepPermissionPrompts(env map[string]string) {
 // leave it wrong.
 func checkContributed(tool config.Tool, contributed map[string]string) error {
 	for key := range contributed {
-		reserved := key == hooks.EnvSessionID || key == envname.SessionToken || key == hooks.EnvExecutable || key == config.HomeEnv ||
+		reserved := key == hooks.EnvSessionID || key == hooks.EnvExecutable || key == config.HomeEnv ||
 			parentEnvBlocklist[key] || tool.AccountEnv != "" && key == tool.AccountEnv
 		if reserved {
 			return fmt.Errorf("an extension set %s, which the launch sets itself", key)
@@ -659,19 +655,6 @@ func compose(manager *hooks.Manager, toolName string, tool config.Tool, baseComm
 	// in every worker's environment.
 	if home := strings.TrimSpace(os.Getenv(config.HomeEnv)); home != "" {
 		env[config.HomeEnv] = home
-	}
-	// A plan composed without side effects mints no key, so before the first
-	// real launch it carries no caller token; the launch itself always does.
-	callerToken := parentseal.ExistingCallerToken
-	if write {
-		callerToken = parentseal.CallerToken
-	}
-	token, err := callerToken(manager.ConfigDir(), id)
-	if err != nil {
-		return "", nil, err
-	}
-	if token != "" {
-		env[envname.SessionToken] = token
 	}
 	// The token is read fresh at every launch and set after the inherited
 	// environment, so it wins over a token the operator's own shell exports:

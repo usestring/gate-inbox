@@ -120,14 +120,54 @@ func TestResolveReadsAProvenHeader(t *testing.T) {
 	header := http.Header{}
 	header.Set(CallerHeader, "header1")
 	header.Set(CallerTokenHeader, token)
-	if id, err := c.resolve(header, "", ""); err != nil || id != "header1" {
+	if id, err := c.resolve(header, "", "", ""); err != nil || id != "header1" {
 		t.Fatalf("got %q, %v; want the header's session", id, err)
 	}
 	header.Set(CallerTokenHeader, "wrong")
-	if _, err := c.resolve(header, "", ""); err == nil {
+	if _, err := c.resolve(header, "", "", ""); err == nil {
 		t.Fatal("a header with the wrong token was believed")
 	}
-	if id, err := c.resolve(http.Header{}, "", ""); err != nil || id != "" {
+	if id, err := c.resolve(http.Header{}, "", "", ""); err != nil || id != "" {
 		t.Fatalf("got %q, %v; want no caller from a shared server's bare request", id, err)
+	}
+}
+
+// opencode names its own conversation on every call, and strips the caller
+// arguments; a server with no session of its own acts as the session the
+// launch bound that conversation to, and as nobody for one it did not bind.
+func TestSharedServerActsAsTheBoundAgentSession(t *testing.T) {
+	dir := t.TempDir()
+	if err := parentseal.BindAgentSession(dir, "ses_bound", "row0001"); err != nil {
+		t.Fatal(err)
+	}
+	for agentSession, want := range map[string]string{"ses_bound": "row0001", "ses_unbound": "", "../ses_bound": ""} {
+		recorder := &groupsCaller{fakeSessionCommands: &fakeSessionCommands{}}
+		session := connectServer(t, newServer(dir, "", "test", &fakeTerminalCommands{}, recorder))
+		if _, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+			Meta: mcp.Meta{"sessionID": agentSession}, Name: "list_groups",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if recorder.caller != want {
+			t.Fatalf("%s: list_groups acted as %q, want %q", agentSession, recorder.caller, want)
+		}
+	}
+}
+
+// A server of a session's own keeps acting as it, whatever a binding says.
+func TestOwnSessionIsNotMovedByABinding(t *testing.T) {
+	dir := t.TempDir()
+	if err := parentseal.BindAgentSession(dir, "ses_bound", "row0001"); err != nil {
+		t.Fatal(err)
+	}
+	recorder := &groupsCaller{fakeSessionCommands: &fakeSessionCommands{}}
+	session := connectServer(t, newServer(dir, "own0001", "test", &fakeTerminalCommands{}, recorder))
+	if _, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Meta: mcp.Meta{"sessionID": "ses_bound"}, Name: "list_groups",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.caller != "own0001" {
+		t.Fatalf("list_groups acted as %q, want the server's own session", recorder.caller)
 	}
 }

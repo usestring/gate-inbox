@@ -9,7 +9,6 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/usestring/gate-inbox/extension"
-	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 )
@@ -17,20 +16,21 @@ import (
 // Every tool acts as one session, its caller, and every call establishes
 // which. A server started for one session knows from its own environment. A
 // server many sessions share -- opencode's serve daemon, or one HTTP server
-// for a whole board -- cannot: its caller comes with each request, as a
-// header its client fills in per session, or as an argument a client plugin
-// adds to the call. Both name a session and prove it with that session's
-// caller token, which only its own launch was handed.
+// for a whole board -- cannot: its caller comes with each request. A claude
+// sends headers its launch wrote into its MCP config; opencode names its own
+// conversation in _meta.sessionID, which its launch bound to the session
+// (parentseal.BindAgentSession). Either way the session is proven with its
+// caller token, which only its own launch holds, in files under the key dir.
 const (
 	// CallerHeader and CallerTokenHeader name a request's caller to a
-	// shared HTTP server, which a client expands per session from
-	// $GATE_INBOX_SESSION_ID and $GATE_INBOX_SESSION_TOKEN.
+	// shared HTTP server.
 	CallerHeader      = "X-Gate-Inbox-Session"
 	CallerTokenHeader = "X-Gate-Inbox-Token"
-	// CallerArg and CallerTokenArg name a call's caller where the client
-	// cannot set it per request: a plugin in opencode's shared server adds
-	// them to each tool call. Every tool takes them, and none advertises
-	// them, since the model is never the one to fill them in.
+	// CallerArg and CallerTokenArg name a call's caller in the call itself,
+	// for a client that can add arguments to a call but not headers. No
+	// client does so today: opencode strips any argument a tool does not
+	// advertise. Every tool takes them, and none advertises them, since the
+	// model is never the one to fill them in.
 	CallerArg      = "caller_session_id"
 	CallerTokenArg = "caller_session_token"
 )
@@ -59,7 +59,8 @@ func (c callers) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 		if extra := req.GetExtra(); extra != nil {
 			header = extra.Header
 		}
-		id, err := c.resolve(header, claimed, token)
+		agentSession, _ := params.Meta["sessionID"].(string)
+		id, err := c.resolve(header, agentSession, claimed, token)
 		if err != nil {
 			return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, nil
 		}
@@ -68,26 +69,31 @@ func (c callers) middleware(next mcp.MethodHandler) mcp.MethodHandler {
 }
 
 // resolve is the session a call acts as. The connection's own caller is
-// this process's session, or the one a shared server's request headers name
-// and prove. An argument naming another session wins only with that
-// session's token: without it, one session could act as any other, answer
-// another's children or kill it.
-func (c callers) resolve(header http.Header, claimed, token string) (string, error) {
+// the one a shared server's request headers name and prove; else, for a
+// server with no session of its own, the session the launch bound the
+// calling agent's own conversation (agentSession, the call's
+// _meta.sessionID) to; else this process's session. An argument naming
+// another session wins only with that session's token: without it, one
+// session could act as any other, answer another's children or kill it.
+func (c callers) resolve(header http.Header, agentSession, claimed, token string) (string, error) {
 	connection := c.own
 	if id := strings.TrimSpace(header.Get(CallerHeader)); id != "" {
 		if !parentseal.VerifyCaller(c.configDir, id, header.Get(CallerTokenHeader)) {
-			return "", fmt.Errorf("the %s header names session %s without its token in %s; the session's launch sets $%s",
-				CallerHeader, id, CallerTokenHeader, envname.SessionToken)
+			return "", fmt.Errorf("the %s header names session %s without its token in %s, which the session's launch writes into its MCP config",
+				CallerHeader, id, CallerTokenHeader)
 		}
 		connection = id
+	} else if c.own == "" && agentSession != "" {
+		// A server of a session's own never reads it: its caller is fixed
+		// by who started it, and a binding must not move it.
+		connection = parentseal.AgentSessionCaller(c.configDir, agentSession)
 	}
 	claimed = strings.TrimSpace(claimed)
 	if claimed == "" || claimed == connection {
 		return connection, nil
 	}
 	if !parentseal.VerifyCaller(c.configDir, claimed, strings.TrimSpace(token)) {
-		return "", fmt.Errorf("%s %s needs that session's own %s, from $%s in its shell",
-			CallerArg, claimed, CallerTokenArg, envname.SessionToken)
+		return "", fmt.Errorf("%s %s needs that session's own %s", CallerArg, claimed, CallerTokenArg)
 	}
 	if connection != "" {
 		logging.Info("mcp caller override", "connection", connection, "caller", claimed)

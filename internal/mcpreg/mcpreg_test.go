@@ -305,3 +305,26 @@ func TestOpencodePluginKnowsTheServerName(t *testing.T) {
 		t.Fatalf("plugin prefix %q, server %q", opencode.MCPServerName, ServerName)
 	}
 }
+
+// A launched opencode's private server skips the in-memory file index,
+// unless the operator set the variable themselves.
+func TestApplyOpencodeTrimsServerMemory(t *testing.T) {
+	t.Setenv("OPENCODE_DISABLE_FFF", "")
+	os.Unsetenv("OPENCODE_DISABLE_FFF")
+	env := map[string]string{hooks.EnvSessionID: "abcd1234"}
+	if _, err := Apply("opencode", "/opt/bin/gate-inbox", t.TempDir(), "opencode", env, ""); err != nil {
+		t.Fatal(err)
+	}
+	if env["OPENCODE_DISABLE_FFF"] != "1" {
+		t.Fatalf("env = %v", env)
+	}
+
+	t.Setenv("OPENCODE_DISABLE_FFF", "0")
+	env = map[string]string{hooks.EnvSessionID: "abcd1234"}
+	if _, err := Apply("opencode", "/opt/bin/gate-inbox", t.TempDir(), "opencode", env, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, set := env["OPENCODE_DISABLE_FFF"]; set {
+		t.Fatalf("operator's value overridden: %v", env)
+	}
+}

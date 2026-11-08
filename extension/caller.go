@@ -23,3 +23,15 @@ func CallerFrom(ctx context.Context) (string, bool) {
 	id, ok := ctx.Value(callerKey{}).(string)
 	return id, ok
 }
+
+// Caller is the session a call made with ctx acts as: the caller ctx
+// carries, else the session this context was registered for. An extension
+// registered once into a server many sessions share has no session of its
+// own (SessionID is empty there), so a tool reads its caller here on every
+// call rather than keeping SessionID.
+func (s SessionContext) Caller(ctx context.Context) string {
+	if id, ok := CallerFrom(ctx); ok {
+		return id
+	}
+	return s.SessionID
+}

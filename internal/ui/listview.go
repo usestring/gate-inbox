@@ -1674,32 +1674,56 @@ func (m *Model) contentLines(width, height int) []contentLine {
 // only drawn once there is a pane box for the uprights to run down.
 func (m *Model) focusRuleTail(width int, corner bool) string {
 	focus := keymap.ContextFocus
-	title := " focused · "
-	if key := m.fullCap(focus, keymap.Leave); key != "" {
-		title += key + " back · "
+	edge := 0
+	if corner {
+		edge = 1
 	}
-	// A page scrolls with its own keys, which the footer names.
-	if key := m.pairCap(focus, keymap.PreviewUp, keymap.PreviewDown); key != "" && m.mode != modeHeadPane {
-		title += key + " scroll "
+	room := max(0, width-edge)
+	title := " focused"
+	if sess, ok := m.selected(); m.mode == modeFocus && ok {
+		name := textfmt.OneLine(cleanText(m.displayName(sess)))
+		if name != "" {
+			title += ": " + name
+			if textfmt.Width(title)+1 > room {
+				// Give a narrow border to the destination before the hints.
+				title = " " + name
+			}
+		}
+	}
+	title = textfmt.TruncateWidth(title, max(0, room-1), "…")
+	addHint := func(hint string) bool {
+		if textfmt.Width(title)+textfmt.Width(hint)+4 > room {
+			return false
+		}
+		title += " · " + hint
+		return true
 	}
 	if m.scrolledBack() && m.mode != modeHeadPane {
 		catchUp := "type"
 		if key := m.fullCap(focus, keymap.PreviewDown); key != "" {
 			catchUp = key + " or type"
 		}
-		title = fmt.Sprintf(" focused · %d lines back · %s to catch up ", m.focusScroll, catchUp)
+		back := fmt.Sprintf("%d lines back", m.focusScroll)
+		if !addHint(back + " · " + catchUp + " to catch up") {
+			addHint(back)
+		}
+	} else {
+		if key := m.fullCap(focus, keymap.Leave); key != "" {
+			label := "back"
+			if m.mode == modeFocus && m.advancesOnLeave() {
+				label = m.leaveAdvanceHint()
+			}
+			addHint(key + " " + label)
+		}
+		// A page scrolls with its own keys, which the footer names.
+		if key := m.pairCap(focus, keymap.PreviewUp, keymap.PreviewDown); key != "" && m.mode != modeHeadPane {
+			addHint(key + " scroll")
+		}
 	}
-	edge := 0
-	if corner {
-		edge = 1
+	if title != "" {
+		title += " "
 	}
-	rest := width - edge - lipgloss.Width(title)
-	if rest < 0 {
-		// Narrower than the words: the ring still has to close, or its right
-		// upright runs down from nothing, so the rule drops the title rather
-		// than truncating the corner off the end of it.
-		title, rest = "", width-edge
-	}
+	rest := room - textfmt.Width(title)
 	rule := annotationStyle.Render(title)
 	if rest > 0 {
 		rule += focusEdgeStyle.Render(strings.Repeat("─", rest))

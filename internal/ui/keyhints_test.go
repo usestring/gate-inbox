@@ -137,6 +137,34 @@ func TestOtherScreensFollowTheirRebinds(t *testing.T) {
 	}
 }
 
+func TestTriageNavigationHintsFollowTheBoardModeAndBindings(t *testing.T) {
+	m := fleetModel(t, 6, 160, 38)
+	m.keys, _ = m.km().Rebind(keymap.ContextList, keymap.JumpAttention, []string{"J"})
+	m.keys, _ = m.km().Rebind(keymap.ContextList, keymap.PreviousPane, nil)
+	m.keys, _ = m.km().Rebind(keymap.ContextList, keymap.NextPane, []string{"ctrl+o"})
+	m.keys, _ = m.km().Rebind(keymap.ContextList, keymap.Triage, []string{"I"})
+
+	footer := ansi.Strip(m.viewFooter())
+	for _, hint := range []string{"J next needing you", "^o next pane", "I start triage"} {
+		if !strings.Contains(footer, hint) {
+			t.Errorf("board footer lacks %q:\n%s", hint, footer)
+		}
+	}
+	m.triage = true
+	if footer := ansi.Strip(m.viewFooter()); !strings.Contains(footer, "I back to groups") {
+		t.Errorf("triage view did not name how to leave it:\n%s", footer)
+	}
+
+	m.mode = modeFocus
+	footer = ansi.Strip(m.viewFooter())
+	if !strings.Contains(footer, "ctrl+o next pane") {
+		t.Errorf("focused footer lacks the global pane binding:\n%s", footer)
+	}
+	if strings.Contains(footer, "next needing you") || strings.Contains(footer, "back to groups") {
+		t.Errorf("focused footer advertises list-only bindings:\n%s", footer)
+	}
+}
+
 func hintHas(hint [][2]string, key string) bool {
 	for _, pair := range hint {
 		if pair[0] == key {

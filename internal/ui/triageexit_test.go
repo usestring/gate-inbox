@@ -21,8 +21,12 @@ func TestTheFocusedFooterSeparatesTheExitsInTriage(t *testing.T) {
 	if !strings.Contains(footer, "stop triage") {
 		t.Errorf("the focused footer never offers a way out of triage:\n%s", footer)
 	}
-	if !strings.Contains(footer, "skip") {
+	if !strings.Contains(footer, "skip to next") {
 		t.Errorf("the focused footer does not say ctrl+q advances:\n%s", footer)
+	}
+	border := ansi.Strip(m.focusRuleTail(100, false))
+	if !strings.Contains(border, "ctrl+q skip to next") || strings.Contains(border, "ctrl+q back") {
+		t.Errorf("the border disagrees with the footer:\n%s", border)
 	}
 	if strings.Contains(footer, `ctrl+q / ctrl+\`) {
 		t.Errorf("triage still names the two exits as one, so they read as synonyms:\n%s", footer)

@@ -647,7 +647,17 @@ func (m *Model) viewFooter() string {
 			// uses on purpose and somebody eventually hits by accident.
 			[2]string{m.fullCap(keymap.ContextFocus, keymap.Archive), "kill"},
 		)
-		return m.transientFooter(legendSection{title: "Focused", pairs: pairs})
+		if hint := m.paneNavigationHint(false); hint[0] != "" {
+			pairs = append(pairs, hint)
+		}
+		if rows := m.legendRows(); rows > 0 {
+			// The extra navigation hint can be clipped; focusing a pane must
+			// not make the footer taller than the board it replaced.
+			height := lipgloss.Height(m.listFooter())
+			section := legendSection{title: "Focused", pairs: pairs}
+			return padToHeight(legendBar([]legendSection{section}, m.width, min(rows, height)), height)
+		}
+		return ""
 	}
 	return m.listFooter()
 }
@@ -702,6 +712,7 @@ func (m *Model) defaultRowLegend() legendSection {
 			action = "unfold"
 		}
 		pairs := [][2]string{{openKey, action}}
+		pairs = append(pairs, m.boardNavigationHints()...)
 		if m.applies(keymap.ContextList, keymap.Archive, row) {
 			if key := m.capJoin(keymap.ContextList, "/", keymap.Archive, keymap.ArchiveAll); key != "" {
 				text := "kill"
@@ -742,6 +753,7 @@ func (m *Model) defaultRowLegend() legendSection {
 	if key := m.tightCap(keymap.ContextList, keymap.LastPane); key != "" {
 		pairs = append(pairs, [2]string{key, "last pane"})
 	}
+	pairs = append(pairs, m.boardNavigationHints()...)
 	if m.applies(keymap.ContextList, keymap.QuickInput, row) {
 		if key := m.tightCap(keymap.ContextList, keymap.QuickInput); key != "" {
 			pairs = append(pairs, [2]string{key, "hotkeys"})
@@ -784,6 +796,49 @@ func (m *Model) defaultRowLegend() legendSection {
 		}
 	}
 	return legendSection{title: title, pairs: pairs}
+}
+
+// boardNavigationHints names the three ways of moving through the board without
+// advertising list-only keys in a focused pane.
+func (m *Model) boardNavigationHints() [][2]string {
+	if m.showArchived {
+		return nil
+	}
+	list := keymap.ContextList
+	var hints [][2]string
+	if key := m.tightCap(list, keymap.JumpAttention); key != "" {
+		hints = append(hints, [2]string{key, "next needing you"})
+	}
+	if key := m.tightCap(list, keymap.Triage); key != "" {
+		label := "start triage"
+		if m.triage {
+			label = "back to groups"
+		}
+		hints = append(hints, [2]string{key, label})
+	}
+	if hint := m.paneNavigationHint(true); hint[0] != "" {
+		hints = append(hints, hint)
+	}
+	return hints
+}
+
+// Pane stepping uses the global list bindings even while the pane is focused.
+func (m *Model) paneNavigationHint(compact bool) [2]string {
+	list := keymap.ContextList
+	prev, next := m.fullCap(list, keymap.PreviousPane), m.fullCap(list, keymap.NextPane)
+	key, label := "", ""
+	switch {
+	case prev != "" && next != "":
+		key, label = keymap.DisplayPair(prev, next), "prev/next pane"
+	case prev != "":
+		key, label = prev, "prev pane"
+	case next != "":
+		key, label = next, "next pane"
+	}
+	if compact {
+		key = keymap.Compact(key)
+	}
+	return [2]string{key, label}
 }
 
 func (m *Model) peekLegendSections() []legendSection {

@@ -144,12 +144,12 @@ func TestTheFocusedFooterNamesTheAdvance(t *testing.T) {
 	}
 	// The hint stays one word whatever the scope or the setting says.
 	m.triageScope = "team"
-	if got := m.leaveAdvanceHint(); got != "skip" {
-		t.Errorf("outside triage the hint reads %q; want just skip", got)
+	if got := m.leaveAdvanceHint(); got != "skip to next" {
+		t.Errorf("outside triage the hint reads %q; want skip to next", got)
 	}
 	m.triage = true
-	if got := m.leaveAdvanceHint(); got != "skip" {
-		t.Errorf("in triage the hint reads %q; want just skip", got)
+	if got := m.leaveAdvanceHint(); got != "skip to next" {
+		t.Errorf("in triage the hint reads %q; want skip to next", got)
 	}
 }
 

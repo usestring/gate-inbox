@@ -12,10 +12,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/google/uuid"
 	"github.com/usestring/gate-inbox/extension"
-	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/opencode"
-	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmux"
 )
@@ -282,10 +280,9 @@ func compactProof(s string) string {
 // pane shows. A pane the board adopted has one on disk. A session the board
 // launched onto its own shared server has none; the binding its launch wrote
 // stands in for it, and only when it names the row the shell's environment
-// claims, with that row's caller token, for that row's own conversation, so
-// the pane checks that follow apply to it unchanged. Every session's shells
-// share one server there, so the token is what keeps one session from
-// claiming another's row and pane to stop it.
+// claims, for that row's own conversation, and carries that row's caller
+// token, so a binding file the launch did not write binds nothing. The pane
+// checks that follow then apply to it unchanged.
 func (r *runtime) opencodePaneMarker(pane string) (hooks.AdoptedPane, bool) {
 	if marker, ok := hooks.NewManager(r.configDir).AdoptedPaneAt(os.Getenv("TMUX"), pane); ok {
 		return marker, true
@@ -299,9 +296,6 @@ func (r *runtime) opencodePaneMarker(pane string) (hooks.AdoptedPane, bool) {
 		return hooks.AdoptedPane{}, false
 	}
 	if bound, ok := opencode.BoundRow(r.configDir, sess.AgentSessionID); !ok || bound != row {
-		return hooks.AdoptedPane{}, false
-	}
-	if !parentseal.VerifyCaller(r.configDir, row, os.Getenv(envname.SessionToken)) {
 		return hooks.AdoptedPane{}, false
 	}
 	return hooks.AdoptedPane{ID: row, PaneID: pane, Tool: sess.Tool, Conversation: sess.AgentSessionID}, true

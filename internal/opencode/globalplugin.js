@@ -92,14 +92,13 @@ const onSharedServer = () => {
   }
 };
 
-// launchedCaller is the row a session launched onto the board's shared
-// server is, and the caller token proving it, as the launch recorded them
-// before the TUI opened the session.
-const launchedCaller = (sessionID) => {
+// launchedRow is the row a session launched onto the board's shared server
+// is, as the launch recorded it before the TUI opened the session.
+const launchedRow = (sessionID) => {
   if (!/^ses_[A-Za-z0-9]+$/.test(sessionID ?? "")) return undefined;
   try {
-    const [row, token] = readFileSync(bindingsDir + "/" + sessionID, "utf8").trim().split(" ");
-    return rowPattern.test(row ?? "") && token ? { row, token } : undefined;
+    const [row] = readFileSync(bindingsDir + "/" + sessionID, "utf8").trim().split(" ");
+    return rowPattern.test(row ?? "") ? row : undefined;
   } catch {
     return undefined;
   }
@@ -148,15 +147,14 @@ export default {
           // The board's shared server runs every launched session's shells.
           // Its password would let one of them read and drive all the
           // others, so no shell gets it. A shell gets the environment its
-          // launch set on the session, row and caller token included; one
+          // launch set on the session, its row included; one
           // whose session lost it, to a restart the supervisor has not set
           // it again after, still gets its row from the launch's binding.
           delete env.OPENCODE_SERVER_PASSWORD;
           delete env.OPENCODE_PASSWORD;
-          const caller = launchedCaller(sessionID);
-          if (caller && env.GATE_INBOX_SESSION_ID !== caller.row) {
-            env.GATE_INBOX_SESSION_ID = caller.row;
-            env.GATE_INBOX_SESSION_TOKEN = caller.token;
+          const row = launchedRow(sessionID);
+          if (row && env.GATE_INBOX_SESSION_ID !== row) {
+            env.GATE_INBOX_SESSION_ID = row;
             env.GATE_INBOX_BIN = bin;
             env.GATE_INBOX_HOME = home;
           }

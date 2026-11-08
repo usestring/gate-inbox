@@ -343,7 +343,7 @@ func TestGlobalPluginGivesSharedServerShellsTheirRow(t *testing.T) {
 		// The server's own environment: the row comes from the binding.
 		{Op: "shell", Session: "ses_a", Command: "b", Env: map[string]string{"OPENCODE_SERVER_PASSWORD": "secret", "KEEP": "1"}},
 		// The environment the launch set on the session.
-		{Op: "shell", Session: "ses_a", Command: "c", Env: map[string]string{"GATE_INBOX_SESSION_ID": "rowA", "GATE_INBOX_SESSION_TOKEN": "tokA", "TMUX_PANE": "%3", "OPENCODE_SERVER_PASSWORD": "secret"}},
+		{Op: "shell", Session: "ses_a", Command: "c", Env: map[string]string{"GATE_INBOX_SESSION_ID": "rowA", "TMUX_PANE": "%3", "OPENCODE_SERVER_PASSWORD": "secret"}},
 		// A session the board never launched.
 		{Op: "shell", Session: "ses_other", Command: "d", Env: map[string]string{"OPENCODE_SERVER_PASSWORD": "secret"}},
 		{Op: "tool", Tool: "gate-inbox_rename", Session: "ses_a", Input: map[string]any{"name": "x"}},
@@ -351,7 +351,7 @@ func TestGlobalPluginGivesSharedServerShellsTheirRow(t *testing.T) {
 	if env := results[0].Env; env["OPENCODE_SERVER_PASSWORD"] != "secret" {
 		t.Fatalf("another server's shell touched: %v", env)
 	}
-	if env := results[2].Env; env["OPENCODE_SERVER_PASSWORD"] != "" || env["GATE_INBOX_SESSION_ID"] != "rowA" || env["GATE_INBOX_SESSION_TOKEN"] != "tokA" || env["GATE_INBOX_HOME"] != p.Home || env["KEEP"] != "1" {
+	if env := results[2].Env; env["OPENCODE_SERVER_PASSWORD"] != "" || env["GATE_INBOX_SESSION_ID"] != "rowA" || env["GATE_INBOX_HOME"] != p.Home || env["KEEP"] != "1" {
 		t.Fatalf("shell on the server's environment = %v", env)
 	}
 	if env := results[3].Env; env["OPENCODE_SERVER_PASSWORD"] != "" || env["GATE_INBOX_SESSION_ID"] != "rowA" || env["TMUX_PANE"] != "%3" {

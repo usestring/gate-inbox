@@ -161,11 +161,10 @@ func TestSharedAttachStartsReusesAndBinds(t *testing.T) {
 	home := t.TempDir()
 	stopServer(t, home)
 	t.Setenv("GATE_INBOX_SESSION_ID", "rowA")
-	t.Setenv("GATE_INBOX_SESSION_TOKEN", "tokA")
 	t.Setenv("OPENCODE_CONFIG", "session-config.json")
 	t.Setenv(PasswordEnv, "leaked")
 	t.Setenv("TMUX_PANE", "%7")
-	attach := Attach{Home: home, Exe: testExe(t), Row: "rowA", Token: "tokA", Model: "acme/model-x", Auto: true, ServerConfig: "/shared/config.json", Dir: "/work/a", Argv: []string{bin, "--standalone"}}
+	attach := Attach{Home: home, Exe: testExe(t), Row: "rowA", Model: "acme/model-x", Auto: true, ServerConfig: "/shared/config.json", Dir: "/work/a", Argv: []string{bin, "--standalone"}}
 	argv, env, err := attach.Shared(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -181,9 +180,7 @@ func TestSharedAttachStartsReusesAndBinds(t *testing.T) {
 	if env[PasswordEnv] != srv.Password || srv.Password == "" {
 		t.Fatalf("TUI env = %v, server %+v", env, srv)
 	}
-	if raw, err := os.ReadFile(filepath.Join(BindingsDir(home), "ses_fake1")); err != nil || string(raw) != "rowA tokA\n" {
-		t.Fatalf("binding = %q, %v", raw, err)
-	}
+	// The binding carries the row's caller token, so it verifies.
 	if row, ok := BoundRow(home, "ses_fake1"); !ok || row != "rowA" {
 		t.Fatalf("BoundRow = %q %v", row, ok)
 	}
@@ -213,7 +210,7 @@ func TestSharedAttachStartsReusesAndBinds(t *testing.T) {
 	if len(envs) != 1 || envs[0].Session != "ses_fake1" {
 		t.Fatalf("session environments = %+v", envs)
 	}
-	if env := envs[0].Env; env["GATE_INBOX_SESSION_ID"] != "rowA" || env["GATE_INBOX_SESSION_TOKEN"] != "tokA" || env["TMUX_PANE"] != "%7" || env["OPENCODE_CONFIG"] != "session-config.json" {
+	if env := envs[0].Env; env["GATE_INBOX_SESSION_ID"] != "rowA" || env["TMUX_PANE"] != "%7" || env["OPENCODE_CONFIG"] != "session-config.json" {
 		t.Fatalf("session environment = %v", env)
 	}
 	if _, leaked := envs[0].Env[PasswordEnv]; leaked {
@@ -225,7 +222,7 @@ func TestSharedAttachStartsReusesAndBinds(t *testing.T) {
 
 	// A revive names its session already: it is bound, not created, and the
 	// same server takes it.
-	again := Attach{Home: home, Exe: testExe(t), Row: "rowB", Token: "tokB", ServerConfig: "/shared/config.json", Dir: "/work/b", Argv: []string{bin, "--session", "ses_old2"}}
+	again := Attach{Home: home, Exe: testExe(t), Row: "rowB", ServerConfig: "/shared/config.json", Dir: "/work/b", Argv: []string{bin, "--session", "ses_old2"}}
 	argv, _, err = again.Shared(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -239,8 +236,8 @@ func TestSharedAttachStartsReusesAndBinds(t *testing.T) {
 	if raw, _ := os.ReadFile(requests); strings.Count(string(raw), "\n") != 1 {
 		t.Fatalf("a revive created a session:\n%s", raw)
 	}
-	if raw, _ := os.ReadFile(filepath.Join(BindingsDir(home), "ses_old2")); string(raw) != "rowB tokB\n" {
-		t.Fatalf("revive binding = %q", raw)
+	if row, ok := BoundRow(home, "ses_old2"); !ok || row != "rowB" {
+		t.Fatalf("revive binding = %q %v", row, ok)
 	}
 }
 
@@ -251,7 +248,7 @@ func TestSharedServerRestartsWhereItWas(t *testing.T) {
 	home := t.TempDir()
 	stopServer(t, home)
 	t.Setenv("GATE_INBOX_SESSION_ID", "rowA")
-	attach := Attach{Home: home, Exe: testExe(t), Row: "rowA", Token: "tokA", ServerConfig: "/c.json", Dir: "/w", Argv: []string{bin}}
+	attach := Attach{Home: home, Exe: testExe(t), Row: "rowA", ServerConfig: "/c.json", Dir: "/w", Argv: []string{bin}}
 	if _, _, err := attach.Shared(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -315,17 +312,24 @@ func TestAttachStandalone(t *testing.T) {
 	if _, _, err := (Attach{Argv: []string{"opencode"}}).Shared(context.Background()); err == nil {
 		t.Fatal("attached with no row")
 	}
-	if _, _, err := (Attach{Row: "r", Argv: []string{"opencode"}}).Shared(context.Background()); err == nil {
-		t.Fatal("attached with no caller token")
-	}
 }
 
 func TestSharedAttachRejectsBadInput(t *testing.T) {
-	if err := writeBinding(t.TempDir(), "../../etc/passwd", "row", "tok"); err == nil {
+	if err := bindSession(t.TempDir(), "../../etc/passwd", "row"); err == nil {
 		t.Fatal("wrote a binding outside its directory")
 	}
-	if err := writeBinding(t.TempDir(), "ses_a", "row extra", "tok"); err == nil {
+	if err := bindSession(t.TempDir(), "ses_a", "row extra"); err == nil {
 		t.Fatal("wrote a binding the plugin would split wrongly")
+	}
+	forged := t.TempDir()
+	if err := bindSession(forged, "ses_b", "rowB"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(BindingsDir(forged), "ses_a"), []byte("rowA tokA\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if row, ok := BoundRow(forged, "ses_a"); ok {
+		t.Fatalf("a binding without the row's token named %q", row)
 	}
 	if _, err := (Server{}).CreateSession(context.Background(), "/d", "no-slash"); err == nil {
 		t.Fatal("accepted a model without a provider")

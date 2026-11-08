@@ -10,17 +10,17 @@ package opencode
 //
 //   - The server reads its own environment and config, never a client's, so
 //     it is started with the board's generic config and no row id, and the
-//     MCP server it spawns serves every session at once. The global plugin
-//     puts the calling row and its caller token into every one of the
-//     board's tool calls from the binding Attach records, and the MCP server
-//     acts as that row once the token proves it.
+//     MCP server it spawns serves every session at once. opencode names the
+//     calling session in each tool call's _meta.sessionID, and the MCP server
+//     acts as the row the binding Attach records maps it to, once the row's
+//     caller token in that binding verifies.
 //   - The model a session was asked to run on goes on the session itself,
 //     created here before the TUI opens it, and skipping permission prompts
 //     is the TUI's own --auto.
 //   - A shell the server runs for a session gets the environment set on
 //     that session, or the server's own when none is. Attach sets the
-//     launch's environment on the session, so a shell has its row's id,
-//     caller token and pane as a private server's would, and never the
+//     launch's environment on the session, so a shell has its row's id and
+//     pane as a private server's would, and never the
 //     shared server's password. The global plugin fills the row in from the
 //     binding for a session whose environment was lost.
 //   - A private server dies with its pane; the shared one is every
@@ -53,7 +53,6 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v4/process"
-	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/parentseal"
 )
 
@@ -73,10 +72,11 @@ const (
 )
 
 // BindingsDir is where Attach records which row each opencode session is:
-// one file per session id holding the row id and the row's caller token,
-// which the global plugin puts into the session's calls to the board's
-// tools. It sits under the board's key directory, which managed sandboxes
-// cannot read, so one agent cannot take another's token from it.
+// one file per session id holding the row id and the row's caller token
+// (parentseal.BindAgentSession), which the MCP server resolves a call's
+// _meta.sessionID through. It sits under the board's key directory, which
+// managed sandboxes cannot read, so one agent cannot take another's token
+// from it.
 func BindingsDir(home string) string {
 	return filepath.Join(home, parentseal.KeyDirName, "opencode-sessions")
 }
@@ -84,7 +84,7 @@ func BindingsDir(home string) string {
 // serverEnvDrop is what a shared server must not inherit from the launch
 // that happened to start it: a row's identity, its pane, and its private
 // config would all be taken for every other session's.
-var serverEnvDrop = []string{"GATE_INBOX_SESSION_ID", envname.SessionToken, "GATE_INBOX_EXIT_FILE", "TMUX", "TMUX_PANE", "OPENCODE_CONFIG", PasswordEnv, "OPENCODE_PASSWORD"}
+var serverEnvDrop = []string{"GATE_INBOX_SESSION_ID", "GATE_INBOX_EXIT_FILE", "TMUX", "TMUX_PANE", "OPENCODE_CONFIG", PasswordEnv, "OPENCODE_PASSWORD"}
 
 // serverMemoryEnv trims the shared server the way a launch trims a private
 // one: no in-memory index of the working tree.
@@ -105,10 +105,8 @@ type Attach struct {
 	Home string
 	// Exe is the gate-inbox binary, which supervises the shared server.
 	Exe string
-	// Row is the Gate Inbox session the TUI shows, and Token the caller
-	// token that proves it (see parentseal.CallerToken).
-	Row   string
-	Token string
+	// Row is the Gate Inbox session the TUI shows.
+	Row string
 	// Model is provider/model, or "" for the CLI's default.
 	Model string
 	// Auto skips the session's permission prompts.
@@ -135,8 +133,8 @@ func (a Attach) Standalone() []string {
 // records which row it is, and returns the TUI's argv and the variables to
 // add to its environment.
 func (a Attach) Shared(ctx context.Context) ([]string, map[string]string, error) {
-	if a.Row == "" || a.Token == "" {
-		return nil, nil, errors.New("opencode: no row and caller token to attach as")
+	if a.Row == "" {
+		return nil, nil, errors.New("opencode: no row to attach as")
 	}
 	srv, err := EnsureServer(ctx, a.Home, a.Exe, a.Argv[0], a.ServerConfig)
 	if err != nil {
@@ -150,7 +148,9 @@ func (a Attach) Shared(ctx context.Context) ([]string, map[string]string, error)
 		}
 		argv = append(argv, "--session", session)
 	}
-	if err := writeBinding(a.Home, session, a.Row, a.Token); err != nil {
+	// The binding names the row with its caller token, so the MCP server
+	// takes a tool call carrying this session's _meta.sessionID as the row's.
+	if err := bindSession(a.Home, session, a.Row); err != nil {
 		return nil, nil, err
 	}
 	// The session's shells run with this, the environment the TUI is about
@@ -194,18 +194,11 @@ func sessionFlag(argv []string) string {
 
 var bindingName = regexp.MustCompile(`^ses_[A-Za-z0-9]+$`)
 
-func writeBinding(home, session, row, token string) error {
+func bindSession(home, session, row string) error {
 	if !bindingName.MatchString(session) {
 		return fmt.Errorf("opencode: %q is not a session id", session)
 	}
-	if strings.ContainsAny(row+token, " \n") {
-		return errors.New("opencode: row or token holds whitespace")
-	}
-	dir := BindingsDir(home)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	return writeWhole(filepath.Join(dir, session), []byte(row+" "+token+"\n"), 0o600)
+	return parentseal.BindAgentSession(home, session, row)
 }
 
 // shellEnv is environ as a shell on the shared server gets it: the server's
@@ -645,25 +638,14 @@ func (s Server) SetEnvironment(ctx context.Context, session string, env map[stri
 	return nil
 }
 
-// BoundCaller is the row the launch bound an opencode session to on the
-// shared server, and that row's caller token, if any.
-func BoundCaller(home, session string) (row, token string, ok bool) {
-	if !bindingName.MatchString(session) {
-		return "", "", false
-	}
-	raw, err := os.ReadFile(filepath.Join(BindingsDir(home), session))
-	if err != nil {
-		return "", "", false
-	}
-	row, token, _ = strings.Cut(strings.TrimSpace(string(raw)), " ")
-	return row, token, row != "" && token != ""
-}
-
 // BoundRow is the row the launch bound an opencode session to on the shared
-// server, if any.
+// server, if any, and only when the binding's caller token verifies.
 func BoundRow(home, session string) (string, bool) {
-	row, _, ok := BoundCaller(home, session)
-	return row, ok
+	if !bindingName.MatchString(session) {
+		return "", false
+	}
+	row := parentseal.AgentSessionCaller(home, session)
+	return row, row != ""
 }
 
 // SharedServerPID is the process of the board's shared server as last

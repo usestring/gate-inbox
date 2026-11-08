@@ -12,7 +12,6 @@ import (
 	"syscall"
 
 	"github.com/usestring/gate-inbox/internal/config"
-	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/logging"
 	"github.com/usestring/gate-inbox/internal/mcpreg"
@@ -52,7 +51,6 @@ func runOpencodeAttach(ctx context.Context, args []string, configDir string) err
 		Home:         configDir,
 		Exe:          exe,
 		Row:          os.Getenv(hooks.EnvSessionID),
-		Token:        os.Getenv(envname.SessionToken),
 		Model:        *model,
 		Auto:         *auto,
 		ServerConfig: *serverConfig,

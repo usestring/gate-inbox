@@ -712,7 +712,7 @@ func (m *Model) defaultRowLegend() legendSection {
 			action = "unfold"
 		}
 		pairs := [][2]string{{openKey, action}}
-		pairs = append(pairs, m.boardNavigationHints()...)
+		pairs = append(pairs, m.boardNavigationHints(false)...)
 		if m.applies(keymap.ContextList, keymap.Archive, row) {
 			if key := m.capJoin(keymap.ContextList, "/", keymap.Archive, keymap.ArchiveAll); key != "" {
 				text := "kill"
@@ -745,15 +745,13 @@ func (m *Model) defaultRowLegend() legendSection {
 	if key := m.tightCap(keymap.ContextList, keymap.Priority); key != "" {
 		pairs = append(pairs, [2]string{key, priorityLegend(row.sess.Priority)})
 	}
-	pairs = append(pairs,
-		[2]string{openKey, enterHint}, [2]string{m.tightCap(keymap.ContextList, keymap.Attach), attachHint})
+	pairs = append(pairs, [2]string{openKey, enterHint})
 	// Last pane rides the core row rather than the cut-first tail: it is
 	// the way back to the session just left, and a key nobody sees is a
 	// key nobody presses.
 	if key := m.tightCap(keymap.ContextList, keymap.LastPane); key != "" {
 		pairs = append(pairs, [2]string{key, "last pane"})
 	}
-	pairs = append(pairs, m.boardNavigationHints()...)
 	if m.applies(keymap.ContextList, keymap.QuickInput, row) {
 		if key := m.tightCap(keymap.ContextList, keymap.QuickInput); key != "" {
 			pairs = append(pairs, [2]string{key, "hotkeys"})
@@ -766,6 +764,8 @@ func (m *Model) defaultRowLegend() legendSection {
 			pairs = append(pairs, [2]string{key, "skip"})
 		}
 	}
+	pairs = append(pairs, m.boardNavigationHints(false)...)
+	pairs = append(pairs, [2]string{m.tightCap(keymap.ContextList, keymap.Attach), attachHint})
 	if m.applies(keymap.ContextList, keymap.Rescind, row) {
 		if key := m.tightCap(keymap.ContextList, keymap.Rescind); key != "" {
 			pairs = append(pairs, [2]string{key, "undo"})
@@ -800,7 +800,7 @@ func (m *Model) defaultRowLegend() legendSection {
 
 // boardNavigationHints names the three ways of moving through the board without
 // advertising list-only keys in a focused pane.
-func (m *Model) boardNavigationHints() [][2]string {
+func (m *Model) boardNavigationHints(showScope bool) [][2]string {
 	if m.showArchived {
 		return nil
 	}
@@ -813,6 +813,9 @@ func (m *Model) boardNavigationHints() [][2]string {
 		label := "start triage"
 		if m.triage {
 			label = "back to groups"
+			if showScope && m.triageScope != "" {
+				label += " (triage: " + baseName(m.triageScope) + ")"
+			}
 		}
 		hints = append(hints, [2]string{key, label})
 	}
@@ -954,6 +957,7 @@ func (m *Model) viewLegend() legendSection {
 	row := m.currentLegendRow()
 	list := keymap.ContextList
 	pairs := [][2]string{{m.navCap(list), "navigate"}}
+	pairs = append(pairs, m.boardNavigationHints(true)...)
 	for _, candidate := range []struct {
 		action keymap.Action
 		text   string
@@ -962,7 +966,7 @@ func (m *Model) viewLegend() legendSection {
 		{keymap.NewSession, "new"}, {keymap.NewSessionForm, "new…"},
 		{keymap.NewTerminal, "terminal"}, {keymap.NewGroup, "group"}, {keymap.Search, "search"},
 		{keymap.ArchivedView, "archived"}, {keymap.RestoreAll, "restore all"}, {keymap.UnmuteAll, "unmute all"},
-		{keymap.StatusFilter, "attention"}, {keymap.ToolFilter, "CLI"}, {keymap.Triage, "triage"}, {keymap.EmptyGroups, "hide empty"}, {keymap.RecentSort, "recent first"},
+		{keymap.StatusFilter, "attention"}, {keymap.ToolFilter, "CLI"}, {keymap.EmptyGroups, "hide empty"}, {keymap.RecentSort, "recent first"},
 		{keymap.Help, "full key map"}, {keymap.Quit, "quit"},
 		{keymap.FoldAll, "fold all"}, {keymap.Resize, "resize"}, {keymap.Settings, "settings"},
 	} {
@@ -988,13 +992,6 @@ func (m *Model) viewLegend() legendSection {
 		case keymap.ToolFilter:
 			if m.toolFilterActive() {
 				text = "show all"
-			}
-		case keymap.Triage:
-			if m.triage {
-				text = "back to groups"
-				if m.triageScope != "" {
-					text = "triage: " + baseName(m.triageScope)
-				}
 			}
 		case keymap.EmptyGroups:
 			if m.hideEmptyGroups {

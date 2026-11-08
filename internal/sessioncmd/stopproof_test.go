@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/usestring/gate-inbox/internal/envname"
 	"github.com/usestring/gate-inbox/internal/hooks"
 	"github.com/usestring/gate-inbox/internal/opencode"
+	"github.com/usestring/gate-inbox/internal/parentseal"
 	"github.com/usestring/gate-inbox/internal/store"
 	"github.com/usestring/gate-inbox/internal/tmuxtest"
 )
@@ -269,17 +271,38 @@ func TestOpencodeMarkerTargetTakesALaunchedSessionsBinding(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	token := func(t *testing.T, h *sessionHarness, row string) string {
+		t.Helper()
+		tok, err := parentseal.CallerToken(h.sessions.configDir, row)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tok
+	}
 	t.Run("bound row in its own pane", func(t *testing.T) {
 		h, runtime := newOpencodeStopRuntime(t)
 		createStopRow(t, h, "0c0de001", stopConversation, stopSocket, stopPane, "working", false)
 		bind(t, h, stopConversation, "0c0de001")
 		t.Setenv(hooks.EnvSessionID, "0c0de001")
+		t.Setenv(envname.SessionToken, token(t, h, "0c0de001"))
 		target, err := runtime.opencodeMarkerTarget()
 		if err != nil {
 			t.Fatal(err)
 		}
 		if target.ID != "0c0de001" {
 			t.Fatalf("target = %+v", target)
+		}
+	})
+	// Every session's shells share the server, so naming a row is not
+	// enough: another session's shell has its own token, not this row's.
+	t.Run("bound row without its token", func(t *testing.T) {
+		h, runtime := newOpencodeStopRuntime(t)
+		createStopRow(t, h, "0c0de001", stopConversation, stopSocket, stopPane, "working", false)
+		bind(t, h, stopConversation, "0c0de001")
+		t.Setenv(hooks.EnvSessionID, "0c0de001")
+		t.Setenv(envname.SessionToken, token(t, h, "0c0de002"))
+		if _, err := runtime.opencodeMarkerTarget(); !errors.Is(err, ErrUnmanagedCaller) {
+			t.Fatalf("another row's token: %v", err)
 		}
 	})
 	t.Run("binding names another row", func(t *testing.T) {
@@ -296,6 +319,7 @@ func TestOpencodeMarkerTargetTakesALaunchedSessionsBinding(t *testing.T) {
 		createStopRow(t, h, "0c0de001", stopConversation, stopSocket, "%9", "working", false)
 		bind(t, h, stopConversation, "0c0de001")
 		t.Setenv(hooks.EnvSessionID, "0c0de001")
+		t.Setenv(envname.SessionToken, token(t, h, "0c0de001"))
 		if _, err := runtime.opencodeMarkerTarget(); err == nil {
 			t.Fatal("a row bound to another pane was stopped")
 		}

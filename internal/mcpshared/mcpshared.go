@@ -49,6 +49,10 @@ const (
 	urlFile = "mcp-serve.url"
 	// lockFile is held, flock'd, by the one server running for a config dir.
 	lockFile = "mcp-serve.lock"
+	// stderrFile keeps the server's stderr, so a server that cannot start
+	// can say why: a pipe would break the server's later writes once the
+	// launch that started it exits.
+	stderrFile = "mcp-serve.stderr"
 	// HealthPath answers 200 without a caller, so a launch can tell a
 	// serving server from a stale URL.
 	HealthPath = "/healthz"
@@ -125,7 +129,15 @@ func Ensure(configDir, exe string, wait time.Duration) (string, error) {
 	cmd := exec.Command(exe, Verb)
 	cmd.Env = serverEnv(os.Environ(), configDir)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
+	stderrPath := filepath.Join(configDir, stderrFile)
+	stderr, err := os.OpenFile(stderrPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return "", err
+	}
+	cmd.Stderr = stderr
+	err = cmd.Start()
+	stderr.Close()
+	if err != nil {
 		return "", err
 	}
 	exited := make(chan error, 1)
@@ -142,12 +154,31 @@ func Ensure(configDir, exe string, wait time.Duration) (string, error) {
 			if url := URL(configDir); Healthy(configDir, url) {
 				return url, nil
 			}
+			if why := lastLine(stderrPath); why != "" {
+				return "", fmt.Errorf("shared MCP server exited: %v: %s", err, why)
+			}
 			return "", fmt.Errorf("shared MCP server exited: %v", err)
 		case <-deadline:
 			return "", fmt.Errorf("shared MCP server did not answer within %s", wait)
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
+}
+
+// lastLine is the last non-empty line of the file at path, read from its
+// final 4 KiB: the error a server that could not start ended on.
+func lastLine(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	if info, err := f.Stat(); err == nil && info.Size() > 4096 {
+		f.Seek(info.Size()-4096, io.SeekStart)
+	}
+	data, _ := io.ReadAll(io.LimitReader(f, 4096))
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	return strings.TrimSpace(lines[len(lines)-1])
 }
 
 // serverEnv is the launching process's environment for the server, without

@@ -111,6 +111,21 @@ func TestEnsureWaitsNoLongerThanAsked(t *testing.T) {
 	}
 }
 
+// A server that cannot start says why, so the board's warning names the
+// cause rather than an exit status.
+func TestEnsureSaysWhyTheServerExited(t *testing.T) {
+	dir := t.TempDir()
+	failing := filepath.Join(dir, "failing")
+	script := "#!/bin/sh\necho starting >&2\necho 'another process is listening at the recorded address' >&2\nexit 1\n"
+	if err := os.WriteFile(failing, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Ensure(dir, failing, 5*time.Second)
+	if err == nil || !strings.Contains(err.Error(), "another process is listening at the recorded address") {
+		t.Fatalf("Ensure error %v does not say why the server exited", err)
+	}
+}
+
 // The server acts as no session: it never carries the launching session's
 // identity, or the tmux pane it was started from.
 func TestServerEnvCarriesNoSession(t *testing.T) {

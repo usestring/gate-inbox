@@ -567,8 +567,9 @@ func TestOpencodeV2ModelRidesTheGeneratedConfig(t *testing.T) {
 }
 
 // The model Assemble left off a v2 opencode command line reaches the session
-// through Environment, which writes it into the config the launch points at
-// and runs the session on a private server so that config is read at all.
+// through Environment, which writes it into the config the launch points at,
+// for the private server the session falls back to, and hands it to attach
+// for a session on the shared server.
 func TestEnvironmentWritesOpencodeV2ModelIntoItsConfig(t *testing.T) {
 	// Environment refuses a CLI that is not installed, so only an installed
 	// v2 exercises the path.
@@ -581,8 +582,11 @@ func TestEnvironmentWritesOpencodeV2ModelIntoItsConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Environment: %v", err)
 	}
-	if command != "opencode --standalone" {
-		t.Fatalf("command = %q, want a private server and no model flag", command)
+	// The pane runs attach, which names the model on the session it opens
+	// on the shared server, or falls back to a private server that reads it
+	// from the config.
+	if want := " opencode-attach --model 'anthropic/claude-sonnet-5' --server-config "; !strings.Contains(command, want) || !strings.HasSuffix(command, " -- opencode") || strings.Contains(command, "--standalone") {
+		t.Fatalf("command = %q, want attach with %q and the bare opencode command", command, want)
 	}
 	content, err := os.ReadFile(env["OPENCODE_CONFIG"])
 	if err != nil {

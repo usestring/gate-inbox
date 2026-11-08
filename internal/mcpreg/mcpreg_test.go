@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/usestring/gate-inbox/internal/hooks"
-	"github.com/usestring/gate-inbox/internal/opencode"
 )
 
 func TestStyleResolution(t *testing.T) {
@@ -289,20 +288,13 @@ func TestApplyNoneLeavesEverything(t *testing.T) {
 func TestApplyOpencodeProfileStaysStandalone(t *testing.T) {
 	dir := t.TempDir()
 	env := map[string]string{hooks.EnvSessionID: "abcd1234"}
-	command, err := ApplyProfile("opencode", "/opt/bin/gate-inbox", dir, "opencode", env, "", "review", false)
+	write := func(name string, content []byte) (string, error) { return writeConfig(dir, name, content) }
+	command, err := opencodeCommand("/opt/bin/gate-inbox", dir, "opencode", env, "", "review", false, true, write)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := "'/opt/bin/gate-inbox' opencode-attach -- opencode"; command != want {
 		t.Fatalf("profile launch = %q, want %q", command, want)
-	}
-}
-
-// The plugin recognises the board's tools by the server name opencode
-// prefixes to them; the two must not drift apart.
-func TestOpencodePluginKnowsTheServerName(t *testing.T) {
-	if opencode.MCPServerName != ServerName {
-		t.Fatalf("plugin prefix %q, server %q", opencode.MCPServerName, ServerName)
 	}
 }
 

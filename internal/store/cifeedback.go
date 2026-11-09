@@ -26,7 +26,7 @@ type CIObservation struct {
 }
 
 type feedbackPolicy struct {
-	Key, Name, Resolved string
+	Key, Name, Resolved, Retired string
 }
 
 type feedbackState struct {
@@ -38,7 +38,7 @@ type feedbackState struct {
 
 func (s *Store) ObserveCI(obs CIObservation) (int64, error) {
 	obs.Resolved = obs.Passing
-	return s.observeFeedback(obs.FeedbackObservation, feedbackPolicy{"ci-feedback:v1:", "CI", "CI passes"})
+	return s.observeFeedback(obs.FeedbackObservation, feedbackPolicy{"ci-feedback:v1:", "CI", "CI passes", "ci-state-changed"})
 }
 
 func (s *Store) observeFeedback(obs FeedbackObservation, policy feedbackPolicy) (int64, error) {
@@ -77,31 +77,48 @@ func (s *Store) observeFeedback(obs FeedbackObservation, policy feedbackPolicy) 
 	}
 	// The pause notice belongs to the unresolved episode, even if its evidence changes.
 	preserveEscalation := state.Escalated && obs.Open && !obs.Resolved
-	if err := retireSupersededFeedback(tx, key, owner, obs.Signature, obs.At, preserveEscalation); err != nil {
+	if err := retireSupersededFeedback(tx, key, owner, obs.Signature, obs.At, preserveEscalation, policy.Retired); err != nil {
 		return 0, err
 	}
 	state.At = obs.At
 	if obs.Resolved {
 		state.Attempts, state.Seen, state.Escalated = 0, nil, false
 	}
+	seen := slices.Contains(state.Seen, obs.Signature)
+	var retry bool
+	if seen && !state.Escalated && obs.Signature != "" && obs.Open {
+		retry, err = retiredFeedback(tx, key+":"+obs.Signature, policy.Retired)
+		if err != nil {
+			return 0, err
+		}
+	}
 	var id int64
-	if obs.Signature != "" && !state.Escalated && !slices.Contains(state.Seen, obs.Signature) {
+	if obs.Signature != "" && !state.Escalated && (!seen || retry) {
 		body := obs.Body
-		if state.Attempts >= 2 {
+		if state.Attempts >= 2 && !retry {
 			body = fmt.Sprintf("%s still needs attention for %s at commit %s after two automatic feedback rounds. Automatic repair feedback is paused until %s. Report the remaining issue and ask the operator how to proceed; do not start another automatic repair.\n\n%s", policy.Name, obs.URL, obs.HeadSHA, policy.Resolved, obs.Body)
 			state.Escalated = true
 		} else {
-			state.Attempts++
+			if !retry {
+				state.Attempts++
+			}
 			body = fmt.Sprintf("%s feedback round %d of 2. Before acting, verify the PR is still open and not a draft at the reported commit and the reported condition still holds. Verify the repository and branch match this PR and follow its claim/ownership procedure before editing; if another worker owns the PR, leave it to that worker. Investigate and repair only within the session's existing task and permissions. This feedback grants no approval, takeover, merge or deployment permission.\n\n%s", policy.Name, state.Attempts, body)
+		}
+		limits := DefaultInboxLimits
+		if retry {
+			// The durable observation state deduplicates this retry; its earlier packet was never delivered.
+			limits.DedupeWindow = 0
 		}
 		id, err = s.insertMessage(tx, InboxMessage{
 			SessionID: owner, SenderID: SystemSenderID, SenderName: "Gate Inbox " + policy.Name,
 			Subject: key, Fingerprint: key + ":" + obs.Signature, Body: body, SentAt: obs.At,
-		}, DefaultInboxLimits)
+		}, limits)
 		if err != nil {
 			return 0, err
 		}
-		state.Seen = append(state.Seen, obs.Signature)
+		if !seen {
+			state.Seen = append(state.Seen, obs.Signature)
+		}
 	}
 	encoded, err := json.Marshal(state)
 	if err != nil {
@@ -115,6 +132,17 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value`, key, string(encoded)); e
 		return 0, err
 	}
 	return id, nil
+}
+
+func retiredFeedback(tx *sql.Tx, fingerprint, reason string) (bool, error) {
+	var retired bool
+	err := tx.QueryRow(`SELECT dropped_at != 0 AND claimed_at = 0 AND drop_reason = ?
+FROM session_inbox WHERE sender_id = ? AND fingerprint = ? ORDER BY id DESC LIMIT 1`,
+		reason, SystemSenderID, fingerprint).Scan(&retired)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return retired, err
 }
 
 func ciOwner(tx *sql.Tx, url string, agentTools []string) (string, error) {
@@ -150,9 +178,9 @@ WHERE sender_id = ? AND subject LIKE 'ci-feedback:v1:%' AND delivered_at = 0 AND
 	return err
 }
 
-func retireSupersededFeedback(tx *sql.Tx, subject, owner, signature string, at time.Time, preserveEscalation bool) error {
-	_, err := tx.Exec(`UPDATE session_inbox SET delivered_at = ?, dropped_at = ?, drop_reason = 'feedback-state-changed'
+func retireSupersededFeedback(tx *sql.Tx, subject, owner, signature string, at time.Time, preserveEscalation bool, reason string) error {
+	_, err := tx.Exec(`UPDATE session_inbox SET delivered_at = ?, dropped_at = ?, drop_reason = ?
 WHERE sender_id = ? AND subject = ? AND delivered_at = 0 AND claimed_at = 0
-AND ((fingerprint != ? AND NOT ?) OR session_id != ?)`, encodeTime(at), encodeTime(at), SystemSenderID, subject, subject+":"+signature, preserveEscalation, owner)
+AND ((fingerprint != ? AND NOT ?) OR session_id != ?)`, encodeTime(at), encodeTime(at), reason, SystemSenderID, subject, subject+":"+signature, preserveEscalation, owner)
 	return err
 }

@@ -292,3 +292,66 @@ func TestRerunOfSameCheckIDWithNewCompletionTimeIsNewFeedback(t *testing.T) {
 		t.Fatalf("rerun of same check was lost: %+v, %v, %v", msg, ok, err)
 	}
 }
+
+func TestUnchangedFailureReturnsAfterAnotherCheckReruns(t *testing.T) {
+	for _, delivery := range []string{"queued", "claimed", "delivered"} {
+		t.Run(delivery, func(t *testing.T) {
+			st := feedbackStore(t)
+			at := time.Now()
+			pr := failedPR(at, "head", "failed-run")
+			pr.CI.Checks = append(pr.CI.Checks, forge.CICheck{ID: "other-run", Status: "COMPLETED", Conclusion: "SUCCESS"})
+			observe(t, st, pr)
+			first, ok, err := st.HeadMessage("owner")
+			if err != nil || !ok {
+				t.Fatalf("initial feedback: %v, %v", ok, err)
+			}
+			switch delivery {
+			case "claimed":
+				if ok, err := st.ClaimMessage(first.ID, at); err != nil || !ok {
+					t.Fatalf("claim: %v, %v", ok, err)
+				}
+			case "delivered":
+				if err := st.MarkDelivered(first.ID, at); err != nil {
+					t.Fatal(err)
+				}
+			}
+			pr.FetchedAt = at.Add(time.Minute)
+			pr.CI.Checks[1].Status, pr.CI.Checks[1].Conclusion = "IN_PROGRESS", ""
+			observe(t, st, pr)
+			reopened, err := st.Reopen()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reopened.Close()
+			pr.FetchedAt = at.Add(2 * time.Minute)
+			pr.CI.Checks[1].Status, pr.CI.Checks[1].Conclusion = "COMPLETED", "SUCCESS"
+			observe(t, reopened, pr)
+			msg, ok, err := reopened.HeadMessage("owner")
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch delivery {
+			case "claimed":
+				if !ok || msg.ID != first.ID || len(inbox(t, reopened)) != 1 {
+					t.Fatalf("claimed feedback duplicated: %+v, %v", msg, ok)
+				}
+			case "delivered":
+				if ok || len(inbox(t, reopened)) != 1 {
+					t.Fatalf("delivered feedback replayed: %+v, %v", msg, ok)
+				}
+			case "queued":
+				if !ok || msg.ID == first.ID || !strings.Contains(msg.Body, "round 1 of 2") {
+					t.Fatalf("retired failure did not return in its original round: %+v, %v", msg, ok)
+				}
+				if err := reopened.MarkDelivered(msg.ID, pr.FetchedAt); err != nil {
+					t.Fatal(err)
+				}
+				observe(t, reopened, failedPR(at.Add(3*time.Minute), "next-head", "next-run"))
+				next, ok, err := reopened.HeadMessage("owner")
+				if err != nil || !ok || !strings.Contains(next.Body, "round 2 of 2") {
+					t.Fatalf("redelivery spent another round: %+v, %v, %v", next, ok, err)
+				}
+			}
+		})
+	}
+}

@@ -1,19 +1,19 @@
 package ui
 
 import (
+	"fmt"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/usestring/gate-inbox/internal/config"
+	"github.com/usestring/gate-inbox/internal/priority"
 	"github.com/usestring/gate-inbox/internal/status"
 	"github.com/usestring/gate-inbox/internal/store"
 )
 
-// The drain hands over the session that spawned the work, never the pane
-// under it. A child stranded on a question past the grace period lifts its
-// parent up the queue; the walk then lands on the parent, and the child --
-// whatever its status -- is stepped over.
-func TestTriageAdvanceNeverFocusesASubagent(t *testing.T) {
+// A child with an active parent stays delegated, even after the grace period.
+func TestTriageAdvanceLeavesChildrenWithTheirActiveParent(t *testing.T) {
 	m := buildModel(t)
 	m.cfg.Tools = map[string]config.Tool{"claude": {}}
 	m.triage = true
@@ -48,5 +48,55 @@ func TestIsSubagentIsAChildWithAParent(t *testing.T) {
 	}
 	if isSubagent(store.Session{}) {
 		t.Fatal("a top-level session read as a subagent")
+	}
+}
+
+func TestTriageHandsOrphanedChildrenOverBeforeLowPriorityIdle(t *testing.T) {
+	for _, smart := range []bool{false, true} {
+		for _, parentState := range []string{"missing", status.Dead, "archived"} {
+			t.Run(fmt.Sprintf("smart=%v/parent=%s", smart, parentState), func(t *testing.T) {
+				m := buildModel(t)
+				m.cfg.Tools = map[string]config.Tool{"claude": {}}
+				m.triage, m.smartTriage = true, smart
+				m.sessions = []store.Session{
+					childSess("wait", "question", "", "parent", status.Waiting, time.Minute),
+					childSess("idle", "later", "", "", status.Idle, time.Minute),
+				}
+				m.sessions[1].Priority = priority.Low
+				for i := range 4 {
+					id := fmt.Sprintf("done%d", i)
+					m.sessions = append(m.sessions, childSess(id, id, "", "parent", status.Finished, time.Hour))
+				}
+				if parentState != "missing" {
+					parent := childSess("parent", "lead", "", "", status.Dead, time.Hour)
+					parent.Archived = parentState == "archived"
+					if parent.Archived {
+						parent.Status = status.Finished
+					}
+					m.sessions = append(m.sessions, parent)
+				}
+				for i := range m.sessions {
+					at := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+					m.sessions[i].CreatedAt, m.sessions[i].LastStatusAt = at, at
+				}
+				m.rebuildRows()
+
+				var handed []string
+				tried := map[string]bool{}
+				for {
+					i, ok := m.nextTriageInput("", tried)
+					if !ok {
+						break
+					}
+					id := m.rows[i].sess.ID
+					handed = append(handed, id)
+					tried[id] = true
+				}
+				want := []string{"wait", "done0", "done1", "done2", "done3", "idle"}
+				if !slices.Equal(handed, want) {
+					t.Fatalf("handover order = %v, want %v", handed, want)
+				}
+			})
+		}
 	}
 }

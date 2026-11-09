@@ -660,13 +660,12 @@ func (m *Model) triageHandable(row treeRow, leftID string, tried map[string]bool
 	if row.sess.Muted {
 		return false
 	}
-	// A subagent is never the row a drain hands over. Its question is its
-	// parent's to answer, and when nobody is coming for it the parent is
-	// lifted to the child's key instead -- see sortTriageWithChildren -- so
-	// the operator lands in the session that spawned the work, not in the
-	// pane under it.
+	// A live parent owns its children's handover. Once it is gone, nobody
+	// else can answer them, so they stay on the operator's queue.
 	if isSubagent(row.sess) {
-		return false
+		if parent, ok := m.sessionByID(row.sess.ParentID); ok && !parent.Archived && parent.Status != status.Dead {
+			return false
+		}
 	}
 	// A muted session is one this drain has already handed over. It still
 	// requires input on paper -- answering a question does not clear the
